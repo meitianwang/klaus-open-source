@@ -1,0 +1,25 @@
+{
+  "reason": "Inference publication fences subsequent captures without stopping active work. Host-side preparation failure explicitly fails only its exact capture fence. Exact change identity, not a model label or revision increment guess, confirms ownership. Request attribution is public and aggregate usage retains its request records without relabelling the whole turn.",
+  "publicationMethods": [
+    "session/beginModelUpdate",
+    "session/reconfigureModel"
+  ],
+  "failureMethod": "session/failModelUpdate",
+  "publicInference": {
+    "revision": 2,
+    "changeId": "next",
+    "model": "b",
+    "source": "custom"
+  },
+  "requestOwnership": {
+    "initialRevision": 0,
+    "candidateAvailableBeforeAck": true,
+    "missingHistoryAttribution": "unknown",
+    "unknownAck": "retain-candidate-and-fail-closed"
+  },
+  "modelUpdate": {
+    "preparingAfterFenceAck": true,
+    "readyMeans": "available-for-next-capture",
+    "activeRequestRelabelled": false
+  }
+}

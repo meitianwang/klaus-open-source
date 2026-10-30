@@ -1,0 +1,99 @@
+{
+  "version": 2,
+  "reason": "Remote Queue and Steer reuse the desktop authority. Immutable retries, conditional edit handoff and SQLite removal receipts keep ownership across disconnection and restart; generic files remain persistent read references; only confirmed admission draws a dispatched bubble and unknown Steer retains a durable non-dispatchable copy. Confirmed queue admission does not depend on a subsequent snapshot read.",
+  "feature": {
+    "followUpQueue": 1
+  },
+  "defaultMode": "queue",
+  "modeKey": "follow_up_queue_mode",
+  "sendFields": [
+    "followUpMode",
+    "expectedTurnId",
+    "clientMessageId",
+    "beforeId",
+    "afterId"
+  ],
+  "queueRoutes": {
+    "read": "GET /api/mobile/sessions/:sessionId/queue",
+    "draft": "GET /api/mobile/sessions/:sessionId/queue/:id/draft",
+    "mutation": "POST /api/mobile/sessions/:sessionId/queue/:action",
+    "actions": [
+      "remove",
+      "restore",
+      "reorder",
+      "resume",
+      "deliver",
+      "clear"
+    ],
+    "draftFields": [
+      "id",
+      "expectedRevision",
+      "beforeId",
+      "afterId",
+      "text",
+      "media"
+    ]
+  },
+  "snapshotFields": [
+    "revision",
+    "interrupted",
+    "items"
+  ],
+  "hostTurnIdentity": "followUpTurnId",
+  "confirmedAdmissionMayOmitSnapshot": true,
+  "mutationIdentity": "clientMutationId",
+  "states": [
+    "engine_queued",
+    "pending",
+    "unconfirmed",
+    "applied",
+    "failed",
+    "removed"
+  ],
+  "queueMessage": {
+    "type": "send_message",
+    "sessionId": "s1",
+    "text": "Review the final diff",
+    "clientMessageId": "phone-one",
+    "followUpMode": "queue"
+  },
+  "steerMessage": {
+    "type": "send_message",
+    "sessionId": "s1",
+    "text": "Keep the patch focused",
+    "clientMessageId": "phone-two",
+    "followUpMode": "steer",
+    "expectedTurnId": "facade-turn"
+  },
+  "queueAck": {
+    "followUpMode": "queue",
+    "queueId": "mobile-phone-one"
+  },
+  "steerAck": {
+    "followUpMode": "steer",
+    "messageId": "steer-visible",
+    "followUpState": "engine_queued"
+  },
+  "safety": {
+    "pendingRows": 128,
+    "pendingPayloadBytes": 67108864,
+    "noSteerFallback": true,
+    "stopPausesQueue": true,
+    "queueMediaDirectory": "uploads",
+    "draftTransferRequiresRevision": true,
+    "inFlightRowActions": "refused",
+    "restoreRequiresHostRemovedReceipt": true,
+    "manualDeliveryClaimsBeforeDispatch": true,
+    "modeChangeMovesRows": false,
+    "removalReceiptRows": 512,
+    "removalReceiptBytes": 16777216,
+    "removalReceiptRetentionDays": 7,
+    "unknownReceiptKeepsPhoneCopy": true,
+    "undoRestoresRawPauseReason": true,
+    "manualSteerNeedsDisplayedTurn": true,
+    "unknownDeliveryFlag": "unconfirmed",
+    "unknownRetryRequiresExplicitConsent": true,
+    "lateAppliedReleasesUnknownCopy": true,
+    "genericFiles": "persistent Attached path references, inline images only"
+  }
+}

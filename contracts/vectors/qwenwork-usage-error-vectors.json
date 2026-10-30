@@ -1,0 +1,13 @@
+{
+  "reason": "Allowance reads renew expired credentials and retry one explicit authentication rejection. Failed renewal must ask for a new login without exposing upstream bodies; ordinary request failures retain their own category.",
+  "cases": [
+    { "message": "qwenwork_login_expired", "expected": "qwenwork_login_expired", "translation": "usage_qwenwork_login_required" },
+    { "message": "qwenwork_refresh_failed", "expected": "qwenwork_refresh_failed", "translation": "usage_qwenwork_refresh_failed" },
+    { "message": "qwenwork_credential_changed", "expected": "qwenwork_credential_changed", "translation": "usage_qwenwork_credential_changed" },
+    { "message": "qwenwork_credential_write_failed", "expected": "qwenwork_credential_write_failed", "translation": "usage_qwenwork_credential_write_failed" },
+    { "message": "QwenWork account-context request failed (HTTP 503)", "expected": "Usage request failed (HTTP 503)" },
+    { "message": "QwenWork quota usage request failed (HTTP 403)", "expected": "Usage request failed (HTTP 403)" },
+    { "message": "qwenwork_refresh_failed fixture-secret", "expected": "Usage request failed; check your network connection and retry" },
+    { "message": "fixture-secret", "expected": "Usage request failed; check your network connection and retry" }
+  ]
+}

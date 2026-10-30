@@ -1,0 +1,54 @@
+{
+  "version": 1,
+  "reason": "Keep Kiro account identity, exact native effort members and independent search selection separate from account entitlements and shared reasoning preferences.",
+  "source": "kiro",
+  "catalogIdentityPolicy": { "source": "List-Available-Models", "synthesizeFromConfigurationExamples": false, "retainNativeUnavailableMembers": true },
+  "modelNotFoundError": "kiro_model_not_found",
+  "localCredentialFollow": { "enabledByLocalImportOnly": true, "binding": ["profileArn", "provider", "authMethod", "region"], "preserveGenerationOnRenewal": true, "rotateExternalGrant": false },
+  "selection": "kiro:fixture-chat::effort=max",
+  "defaults": {
+    "serviceDefaultId": "fixture-chat",
+    "implicitSelection": "auto",
+    "resolvedSelection": "kiro:fixture-chat",
+    "serviceRoutingDefaultId": "auto",
+    "excludedServiceAliases": ["auto", "auto::effort=max"],
+    "explicitServiceAuto": "kiro:auto",
+    "explicitServiceAutoError": "kiro_model_unavailable"
+  },
+  "family": {
+    "key": "fixture-chat",
+    "display_name": "Fixture Chat",
+    "purpose": "chat",
+    "available": false,
+    "kiroFamilyId": "fixture-chat",
+    "kiroVariants": [
+      { "value": "kiro:fixture-chat", "nativeEffort": "high", "isDefault": true, "available": false },
+      { "value": "kiro:fixture-chat::effort=none", "nativeEffort": "none", "available": false },
+      { "value": "kiro:fixture-chat::effort=high", "nativeEffort": "high", "available": false },
+      { "value": "kiro:fixture-chat::effort=max", "nativeEffort": "max", "available": false }
+    ],
+    "capabilities": { "tools": true, "vision": true, "mediaInputMimeTypes": ["image/png", "image/jpeg", "image/gif", "image/webp"] }
+  },
+  "quota": {
+    "signedIn": true,
+    "account": "Fixture account",
+    "subscriptionInfo": { "subscriptionTitle": "KIRO FREE" },
+    "nextDateReset": 1793491200,
+    "overageConfiguration": { "overageStatus": "DISABLED" },
+    "usageBreakdownList": [{
+      "resourceType": "CREDIT",
+      "currentUsage": 2,
+      "currentUsageWithPrecision": 2.28,
+      "usageLimit": 50,
+      "usageLimitWithPrecision": 50.0,
+      "freeTrialInfo": { "freeTrialStatus": "EXPIRED", "currentUsageWithPrecision": 0.0, "usageLimitWithPrecision": 500.0 },
+      "bonuses": []
+    }]
+  },
+  "nativeRequestPolicy": { "omitUnsupportedFields": ["max_output_tokens", "tool_choice", "parallel_tool_calls", "tools[].strict", "tools[].defer_loading"], "automaticToolSelection": "native-default", "disabledTools": "omit-tools", "forcedTools": "explicit-error", "outputLimit": "service-controlled", "trustedInstructions": "bounded-conversation-preamble", "userAndToolHistory": "preserve-order-and-content", "guidanceAfterToolOutput": false },
+  "subscriptionCapabilitiesNotAdvertisedByVerifiedAccount": ["image", "imageEdit", "video", "audio", "music", "transcription", "realtime"],
+  "verifiedNativeToolNames": ["web_search", "get_learning", "get_learnings", "delete_learning", "create_feedback_learning"],
+  "localProductCapabilities": { "cliDictation": { "implementation": "local-whisper", "cloudServer": "user-managed", "subscriptionCloudRoute": "not-declared" } },
+  "verifiedSubscriptionCapabilities": ["search"],
+  "notes": "The signed client, service schemas and authenticated account tool directory were inspected. The verified account advertises search and learning tools, with no independent media generation or speech service. This account-scoped result does not assert that every plan or future client lacks those features. CLI dictation uses local Whisper or a user-managed server, not a subscription cloud transcription route."
+}

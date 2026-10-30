@@ -1,0 +1,16 @@
+{
+  "reason": "Text files retain independent editing state per tab and view, and persistence acknowledges only the revision actually written.",
+  "markdownDefaultView": "preview",
+  "autosaveDelayMs": 3000,
+  "fixture": "# A document\n\nA **formatted** paragraph with a [local link](./next.md).\n\n- [ ] A task\n- A list item\n\n| Name | Count |\n| --- | ---: |\n| Example | 3 |\n\n$$x^2 + y^2 = z^2$$\n\n```typescript\nconst value = 42\n```\n",
+  "requiredBehavior": [
+    "document-view-edits-original-markdown",
+    "source-view-uses-code-editor",
+    "mode-switch-flushes-current-draft",
+    "each-mode-retains-selection-scroll-and-history",
+    "autosave-keeps-session-and-path-identity",
+    "new-input-during-write-remains-pending",
+    "external-conflicts-require-resolution",
+    "failed-saves-retain-the-draft"
+  ]
+}

@@ -1,0 +1,177 @@
+/* 三段式卡壳（header / content / footer 布局）：
+   卡头放类型标注与状态，内容放纯文本文案，页脚单行放全部按钮。
+   卡体绝不渲染 Spec 文档的 md 排版，文档排版只存在于展开全文与文档视图。 */
+.spec-review-surface.permission-card,
+.exec-mode-surface.permission-card {
+  border-radius: 6px;
+  box-shadow: none;
+  padding: 0;
+  overflow: hidden;
+}
+
+.spec-review-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.spec-review-header .approval-chip {
+  margin-bottom: 0;
+  margin-right: auto;
+}
+
+/* 文档身份行：纯文本首行，单行截断，绝不带 md 标题字号。 */
+.spec-review-title {
+  flex-basis: 100%;
+  order: 3;
+  font-size: var(--text-body-sm);
+  font-weight: var(--weight-medium);
+  color: var(--fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.spec-review-header .spec-review-result {
+  margin-left: 0;
+}
+
+.spec-review-body {
+  padding: 10px 14px;
+  background: var(--bg-surface);
+}
+
+/* 摘要与展开全文都去掉内盒：内容区已有底色，滚动与截断留在这里。 */
+.spec-review-surface .plan-review-doc {
+  margin-bottom: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.spec-review-surface .spec-review-summary {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  font-size: 13px;
+  line-height: 20px;
+  max-height: 60px;
+  white-space: pre-line;
+  word-break: break-word;
+  color: var(--fg-secondary);
+}
+
+/* 执行方式征询卡内容：固定产品文案 + 模型理由纯文本。 */
+.exec-mode-description {
+  font-size: var(--text-body-sm);
+  color: var(--fg);
+  line-height: var(--leading-permission-text);
+}
+
+.exec-mode-reason {
+  margin-top: 6px;
+  font-size: var(--text-small);
+  line-height: 20px;
+  color: var(--fg-secondary);
+  white-space: pre-line;
+  word-break: break-word;
+}
+
+.exec-mode-spacer { flex: 1; }
+
+.spec-review-surface .spec-review-actions,
+.exec-mode-surface .spec-review-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 0;
+  padding: 10px 14px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.spec-review-surface .spec-review-details {
+  color: var(--theme-accent);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--text-small);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.spec-review-surface .spec-review-secondary {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--fg-secondary);
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--text-small);
+}
+
+.spec-review-surface .spec-review-goal {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  font-size: var(--text-small);
+  color: var(--fg-secondary);
+}
+
+.spec-review-surface .spec-review-goal input {
+  accent-color: var(--theme-accent);
+}
+
+.spec-review-surface .spec-review-execute {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.spec-review-surface .spec-review-execute kbd {
+  font: inherit;
+  opacity: 0.7;
+}
+
+.spec-review-surface button:disabled,
+.exec-mode-surface button:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.spec-review-surface .spec-review-notice,
+.spec-review-surface .spec-review-result,
+.exec-mode-surface .spec-review-result {
+  font-size: var(--text-small);
+  color: var(--fg-tertiary);
+}
+
+.spec-review-surface .spec-review-error {
+  margin-top: 10px;
+  color: var(--danger);
+  font-size: var(--text-small);
+}
+
+.spec-question-surface .spec-question-error {
+  color: var(--danger);
+  font-size: var(--text-small);
+  margin-top: 10px;
+}
+
+.spec-question-surface [role="button"]:focus-visible {
+  outline: none;
+  background: var(--bg-hover);
+  box-shadow: none;
+}
+
+.spec-question-surface [aria-disabled="true"] {
+  cursor: default;
+  opacity: 0.6;
+}

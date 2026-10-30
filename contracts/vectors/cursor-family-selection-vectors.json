@@ -1,0 +1,25 @@
+{
+  "reason": "Base model presentation groups concrete members without rewriting persisted selections or losing native parameters.",
+  "defaultSelection": "cursor:fixture[context=200k,fast=false,reasoning_effort=medium]",
+  "savedSelection": "cursor:fixture[context=1m,fast=true,reasoning_effort=high]",
+  "removedSelection": "cursor:fixture[context=1m,fast=true,reasoning_effort=max]",
+  "models": [
+    {
+      "key": "fixture[context=200k,fast=false,reasoning_effort=medium]",
+      "modelId": "fixture", "modelName": "Fixture Model", "display_name": "Fixture Model Medium",
+      "isDefault": true, "max_input_tokens": 200000, "efforts": ["medium"], "defaultEffort": "medium",
+      "requestedModel": { "modelId": "fixture", "parameters": [{"id":"context","value":"200k"},{"id":"fast","value":"false"},{"id":"reasoning_effort","value":"medium"}], "maxMode": false },
+      "parameterDefinitions": [
+        {"id":"context","name":"Context","type":"enum","values":[{"value":"200k"},{"value":"1m"}]},
+        {"id":"fast","name":"Fast","type":"boolean","values":[{"value":"false"},{"value":"true","increasesModelCost":true}]},
+        {"id":"reasoning_effort","name":"Reasoning","type":"enum","values":[{"value":"medium"},{"value":"high"}]}
+      ]
+    },
+    {
+      "key": "fixture[context=1m,fast=true,reasoning_effort=high]",
+      "modelId": "fixture", "modelName": "Fixture Model", "display_name": "Fixture Model High Fast",
+      "max_input_tokens": 1000000, "efforts": ["high"], "defaultEffort": "high",
+      "requestedModel": { "modelId": "fixture", "parameters": [{"id":"context","value":"1m"},{"id":"fast","value":"true"},{"id":"reasoning_effort","value":"high"}], "maxMode": true }
+    }
+  ]
+}

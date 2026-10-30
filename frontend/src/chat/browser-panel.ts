@@ -1,0 +1,474 @@
+// Browser 面板域（自 chat.ts 拆出，逻辑原样，strict 类型化）。
+//
+// 内嵌浏览器是原生子视图（native child view）：显示/定位/隐藏经 IPC 与宿主
+// 同步，bounds 同步做了幂等防抖（重复应用同一矩形会引发渲染回环）。
+// artifacts 面板编排（open/close/mode）仍在 chat.ts，经 initBrowserPanel(deps)
+// 注入；workspace/artifacts 域拆出后改直接 import。
+import { tt } from '../app/i18n'
+import { showToast } from '../app/ui-shared'
+import { acceptBrowserViewState, invalidateBrowserFrames } from './browser-view'
+import { noteBrowserPanelManualResize, syncBrowserAutoWidth } from './browser-auto-width'
+import type { BrowserUseOpenRequest } from '../../bridge/types'
+import { browserOpenGuard } from './browser-open-request'
+
+export { noteBrowserPanelManualResize }
+
+// ---- window.klaus 最小面（bridge 无导出类型，结构化声明本域用到的通道） ----
+interface BrowserBounds { x: number; y: number; width: number; height: number }
+interface BrowserTabInfo { id: string; title?: string; url?: string; active?: boolean; loading?: boolean }
+interface BrowserUseState {
+  conversationId?: string
+  focusRevision?: number
+  enabled?: boolean
+  visible?: boolean
+  presentationTransferred?: boolean
+  url?: string
+  canGoBack?: boolean
+  canGoForward?: boolean
+  tabs?: BrowserTabInfo[]
+  tabId?: string | null
+  loading?: boolean
+  contentWidth?: number
+  contentRevision?: number
+}
+interface BrowserOpResult { ok?: boolean; error?: string; state?: BrowserUseState }
+interface KlausBrowserApi {
+  browserUse?: {
+    state?: () => Promise<BrowserUseState>
+    show?: (bounds: BrowserBounds, scope?: BrowserUseOpenRequest) => Promise<BrowserOpResult>
+    hide?: () => Promise<unknown>
+    setBounds?: (bounds: BrowserBounds) => Promise<unknown>
+    navigate?: (url: string) => Promise<BrowserOpResult>
+    back?: () => Promise<BrowserOpResult>
+    forward?: () => Promise<BrowserOpResult>
+    reload?: () => Promise<BrowserOpResult>
+    screenshot?: () => Promise<BrowserOpResult>
+    tabs?: (req: { action: 'select' | 'new' | 'close'; tabId?: string; url?: string }) => Promise<BrowserOpResult>
+  }
+  settings?: {
+    browserUse?: { get?: () => Promise<{ enabled?: boolean } | null> }
+  }
+  on?: {
+    browserUseState?: (cb: (state: BrowserUseState) => void) => unknown
+    browserUseOpenPanel?: (cb: (request?: BrowserUseOpenRequest) => void) => unknown
+  }
+}
+const klausApi = () => (window as unknown as { klaus?: KlausBrowserApi }).klaus
+
+// ---- 跨域依赖注入（artifacts 编排 / 视图清场仍在 chat.ts） ----
+export interface BrowserPanelDeps {
+  closeSettingsIfActive(): void
+  hideNonChatViews(): void
+  hideBtwPanel(): void
+  setCurrentNonChatView(view: null): void
+  setArtifactsPanelMode(mode: string): void
+  openArtifactsPanel(mode: string): void
+  closeArtifactsPanel(): void
+  syncTopModeButtons(): void
+  renderSessionList(): void
+}
+let deps!: BrowserPanelDeps
+
+// ---- DOM refs（index.html 静态骨架） ----
+const artifactsPanel = document.getElementById('artifacts-panel')
+const browserToggleBtn = document.getElementById('browser-panel-toggle')
+const browserPanelHost = document.getElementById('browser-panel-host')
+const browserUrlInput = document.getElementById('browser-url-input') as HTMLInputElement | null
+const browserBackBtn = document.getElementById('browser-back') as HTMLButtonElement | null
+const browserForwardBtn = document.getElementById('browser-forward') as HTMLButtonElement | null
+const browserReloadBtn = document.getElementById('browser-reload') as HTMLButtonElement | null
+const browserScreenshotBtn = document.getElementById('browser-screenshot') as HTMLButtonElement | null
+
+// ---- 状态 ----
+let browserState: BrowserUseState | null = null
+let browserBoundsRaf = 0
+// The last bounds actually pushed to the native webview. The bounds sync is
+// idempotent against it: re-applying identical bounds is what let a render /
+// resize feedback re-enter the sync every frame (the page "jitter", and a
+// webview repositioned every frame never paints → blank). Reset on show/hide so
+// the next sync always re-applies.
+let lastSyncedBounds: BrowserBounds | null = null
+let browserUrlInputEditing = false
+let browserSessionGeneration = 0
+let browserRuntimeShowCount = 0
+let browserStatePushRevision = 0
+let browserTabOpenRevision = 0
+
+function browserOpenSurface() {
+  return {
+    sessionId: (window as unknown as { currentSessionId?: string }).currentSessionId || null,
+    generation: browserSessionGeneration,
+    visible: !document.hidden && !document.body.classList.contains('non-chat-view')
+      && !document.body.classList.contains('settings-open')
+      && !document.querySelector('#diff-view.active, #workspace-main-view.active'),
+  }
+}
+
+function sameBounds(a: BrowserBounds | null, b: BrowserBounds | null): boolean {
+  return !!a && !!b && a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height
+}
+
+export function isBrowserPanelMode(): boolean {
+  return artifactsPanel?.getAttribute('data-mode') === 'browser'
+}
+
+export function isBrowserPanelVisible(): boolean {
+  return !!browserPanelHost && isBrowserPanelMode() && !artifactsPanel?.classList.contains('collapsed')
+}
+
+export function updateBrowserPanelState(state: BrowserUseState | null = browserState): boolean {
+  if (state && !acceptBrowserViewState(state)) return false
+  browserState = state || browserState
+  const current = browserState || {}
+  browserPanelHost?.classList.toggle('browser-mounted', !!current.visible)
+  if (browserUrlInput && !browserUrlInputEditing) {
+    browserUrlInput.value = current.url && current.url !== 'about:blank' ? current.url : ''
+  }
+  if (browserBackBtn) browserBackBtn.disabled = !current.canGoBack
+  if (browserForwardBtn) browserForwardBtn.disabled = !current.canGoForward
+  if (browserReloadBtn) browserReloadBtn.disabled = !current.visible
+  if (browserScreenshotBtn) browserScreenshotBtn.disabled = !current.visible
+  // Every host-side page in the active conversation gets its own panel tab, so
+  // two pages can be open at once instead of one replacing the other.
+  const panelTabs = (window as unknown as { KlausPanelTabs?: { syncBrowserTabs?: (tabs: BrowserTabInfo[], activeId: string | null) => void } }).KlausPanelTabs
+  panelTabs?.syncBrowserTabs?.(Array.isArray(current.tabs) ? current.tabs : [], current.tabId || null)
+  syncBrowserAutoWidth(current, isBrowserPanelVisible())
+  return true
+}
+
+export function browserRuntimeVisible(): boolean {
+  return !!browserState?.visible || !!browserPanelHost?.classList.contains('browser-mounted')
+}
+
+export async function hideBrowserRuntime(options: { ensureDetached?: boolean } = {}): Promise<void> {
+  // Nothing is mounted, so there is nothing to detach: skip the whole round trip.
+  //
+  // Without this guard the hide path fed itself at the display's frame rate. The
+  // host answers hide() by publishing browser-use:state; that event calls
+  // scheduleBrowserBoundsSync(); its rAF sees a panel that is not visible and
+  // calls hideBrowserRuntime() again. Each turn wrote the toolbar's disabled
+  // attributes and re-published the tab strip, so an idle window burned a
+  // renderer core with no interaction and no animation running — and bumped the
+  // frame generation every pass for no reason. The bounds sync already guards
+  // against exactly this loop via lastSyncedBounds; the hide side needs the same
+  // idempotence. The pages themselves stay retained either way.
+  // Explicit surface transitions use ensureDetached because a native child view
+  // can outlive a renderer reload. In that case the host still has a mounted view
+  // while this module's state and DOM class both start empty. Frame-driven layout
+  // reconciliation keeps the cheap local guard so a hidden panel cannot re-enter
+  // the host at the display refresh rate.
+  if (!options.ensureDetached && !browserRuntimeVisible()) return
+  lastSyncedBounds = null
+  // Hiding detaches the native view while retaining the page and its login state.
+  invalidateBrowserFrames()
+  await klausApi()?.browserUse?.hide?.().catch(() => {})
+  updateBrowserPanelState({ ...(browserState || {}), visible: false })
+}
+
+function browserHostBounds(): BrowserBounds | null {
+  if (!browserPanelHost) return null
+  const rect = browserPanelHost.getBoundingClientRect()
+  if (rect.width <= 0 || rect.height <= 0) return null
+  return {
+    x: Math.round(rect.left),
+    y: Math.round(rect.top),
+    width: Math.round(rect.width),
+    height: Math.round(rect.height),
+  }
+}
+
+function waitBrowserPanelLayout(): Promise<unknown> {
+  return new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+}
+
+export function scheduleBrowserBoundsSync(): void {
+  if (browserBoundsRaf) return
+  browserBoundsRaf = requestAnimationFrame(async () => {
+    browserBoundsRaf = 0
+    if (!isBrowserPanelVisible()) {
+      await hideBrowserRuntime()
+      return
+    }
+    const bounds = browserHostBounds()
+    if (!bounds) return
+    // Position-only and idempotent. Applying the SAME bounds again is the loop:
+    // it does not change the page but any state echo / re-render could re-enter
+    // here. Skip it, and DON'T funnel the reply back through
+    // updateBrowserPanelState (that re-renders the tab strip every frame and can
+    // perturb the host box, re-arming the ResizeObserver).
+    if (sameBounds(bounds, lastSyncedBounds)) return
+    lastSyncedBounds = bounds
+    // The host positions its native view in this rectangle; no pixel stream or
+    // input coordinate translation passes through the renderer.
+    await klausApi()?.browserUse?.setBounds?.(bounds).catch(() => {})
+  })
+}
+
+async function showBrowserRuntime(scope?: BrowserUseOpenRequest, isCurrent: () => boolean = () => true): Promise<boolean> {
+  // Creating a page publishes hidden tab state before show completes. Keep
+  // automatic recovery from superseding that explicit, still-pending request.
+  browserRuntimeShowCount++
+  try {
+    return await performBrowserRuntimeShow(scope, isCurrent)
+  } finally {
+    browserRuntimeShowCount--
+  }
+}
+
+async function performBrowserRuntimeShow(scope: BrowserUseOpenRequest | undefined, isCurrent: () => boolean): Promise<boolean> {
+  if (!isCurrent()) return false
+  let settings: any
+  try {
+    settings = await klausApi()?.settings?.browserUse?.get?.()
+  } catch (error) {
+    showToast((error as Error | null)?.message || tt('browser_settings_load_failed'))
+    return false
+  }
+  if (!isCurrent()) return false
+  if (settings?.enabled === false) {
+    showToast(tt('browser_disabled'))
+    return false
+  }
+  const bounds = browserHostBounds()
+  if (!bounds) return false
+  const sessionId = browserOpenSurface().sessionId || 'manual'
+  const effectiveScope = scope || {
+    sessionId,
+    ...(browserState?.conversationId === sessionId ? { focusRevision: browserState.focusRevision } : {}),
+  }
+  const res = await klausApi()?.browserUse?.show?.(bounds, effectiveScope).catch((err: unknown): BrowserOpResult => ({ ok: false, error: (err as Error | null)?.message || String(err) }))
+  if (!isCurrent()) return false
+  if (!res?.ok) {
+    showToast(res?.error || tt('browser_open_failed'))
+    return false
+  }
+  // Avoid a redundant native layout pass after the view has been attached.
+  lastSyncedBounds = bounds
+  updateBrowserPanelState(res.state || null)
+  return true
+}
+
+export async function showBrowserPanel(scope?: BrowserUseOpenRequest): Promise<void> {
+  const isCurrent = browserOpenGuard(scope, browserOpenSurface)
+  if (!isCurrent()) return
+  deps.closeSettingsIfActive()
+  deps.hideNonChatViews()
+  // Not hideDiffView: switching to a browser page leaves the changes tab open.
+  deps.hideBtwPanel()
+  deps.setCurrentNonChatView(null)
+  deps.setArtifactsPanelMode('browser')
+  deps.openArtifactsPanel('browser')
+  await waitBrowserPanelLayout()
+  if (!isCurrent() || !isBrowserPanelVisible()) return
+  await showBrowserRuntime(scope, isCurrent)
+  if (!isCurrent()) return
+  scheduleBrowserBoundsSync()
+  deps.syncTopModeButtons()
+  deps.renderSessionList()
+}
+
+export async function hideBrowserPanel(): Promise<void> {
+  if (isBrowserPanelMode()) deps.closeArtifactsPanel()
+  await hideBrowserRuntime({ ensureDetached: true })
+}
+
+async function navigateBrowserToInput(urlOverride?: string): Promise<void> {
+  const url = (typeof urlOverride === 'string' ? urlOverride : browserUrlInput?.value)?.trim()
+  if (!url) return
+  if (!isBrowserPanelVisible()) await showBrowserPanel()
+  const res = await klausApi()?.browserUse?.navigate?.(url).catch((err: unknown): BrowserOpResult => ({ ok: false, error: (err as Error | null)?.message || String(err) }))
+  if (!res?.ok) {
+    showToast(res?.error || tt('browser_open_failed'))
+    return
+  }
+  updateBrowserPanelState(res.state || null)
+}
+
+export function initBrowserPanel(injected: BrowserPanelDeps): void {
+  deps = injected
+  const w = window as unknown as Record<string, unknown>
+
+  // The embedded browser is a native child view, so it paints above every HTML
+  // layer in the window: a panel dropdown that overlaps it would be sliced in half
+  // no matter what z-index it carries. Overlays therefore ask the runtime to step
+  // aside and put it back afterwards. Hiding does not destroy the view, so the
+  // page keeps its state across the round trip.
+  // Overlays nest (a menu opened from inside the image preview closes while the
+  // preview is still up), so suspension is counted: the native view returns only
+  // when the last overlay that asked for it is gone.
+  let browserRuntimeSuspendedForOverlay = 0
+  w.klausSuspendBrowserForOverlay = async () => {
+    browserRuntimeSuspendedForOverlay++
+    if (browserRuntimeSuspendedForOverlay > 1 || !browserRuntimeVisible()) return
+    await hideBrowserRuntime()
+  }
+  w.klausResumeBrowserAfterOverlay = async () => {
+    if (browserRuntimeSuspendedForOverlay <= 0) return
+    browserRuntimeSuspendedForOverlay--
+    if (browserRuntimeSuspendedForOverlay > 0) return
+    // Menus close BEFORE the item they were clicked for runs, so wait one frame:
+    // if that action moved the panel elsewhere (a new terminal, a closed panel),
+    // re-showing the page here would only flash it back for a frame.
+    await new Promise(resolve => requestAnimationFrame(resolve))
+    if (!isBrowserPanelVisible()) return
+    await showBrowserRuntime()
+    scheduleBrowserBoundsSync()
+  }
+
+  // Panel-strip hooks for browser pages. Selecting a tab points the host at that
+  // page before the panel is shown; closing one removes the page itself, and the
+  // state push that follows reconciles the strip.
+  w.klausActiveBrowserTabId = () => browserState?.tabId || null
+  w.klausOpenBrowserTab = async ({ tabId, url }: { tabId?: string; url?: string } = {}) => {
+    const revision = ++browserTabOpenRevision
+    const surface = browserOpenSurface()
+    const isCurrent = () => revision === browserTabOpenRevision
+      && surface.sessionId === browserOpenSurface().sessionId
+      && surface.generation === browserSessionGeneration
+    if (tabId) {
+      const res = await klausApi()?.browserUse?.tabs?.({ action: 'select', tabId })
+        .catch((err: unknown): BrowserOpResult => ({ ok: false, error: (err as Error | null)?.message || String(err) }))
+      if (!isCurrent()) return false
+      if (!res?.ok) {
+        showToast(res?.error || tt('browser_open_failed'))
+        // Keep the Browser surface reachable even when its runtime is disabled
+        // or unavailable. The empty panel is the durable affordance; a toast on
+        // its own disappears and leaves the user on an unrelated surface.
+        await showBrowserPanel()
+        return false
+      }
+      if (res.state) updateBrowserPanelState(res.state)
+      await showBrowserPanel()
+      return true
+    }
+    // Create BEFORE revealing the surface: showing it asks the host to ensure a
+    // page exists, so creating afterwards would leave one blank page behind for
+    // every new page the user asked for.
+    const res = await klausApi()?.browserUse?.tabs?.({ action: 'new', url: url || '' })
+      .catch((err: unknown): BrowserOpResult => ({ ok: false, error: (err as Error | null)?.message || String(err) }))
+    if (!isCurrent()) return false
+    if (!res?.ok) {
+      showToast(res?.error || tt('browser_open_failed'))
+      // Creating a page can fail before the runtime exists (for example when
+      // the Browser plugin is disabled). Still reveal the Browser surface so
+      // the toolbar and empty state explain which feature the action targeted.
+      await showBrowserPanel()
+      return false
+    }
+    if (res.state) updateBrowserPanelState(res.state)
+    await showBrowserPanel()
+    return true
+  }
+  w.klausNewBrowserTab = () => (w.klausOpenBrowserTab as (o?: object) => Promise<void>)({})
+  w.klausCloseBrowserTab = async (tabId: string) => {
+    const res = await klausApi()?.browserUse?.tabs?.({ action: 'close', tabId })
+      .catch((err: unknown): BrowserOpResult => ({ ok: false, error: (err as Error | null)?.message || String(err) }))
+    if (!res?.ok) {
+      showToast(res?.error || tt('settings_failed'))
+      return false
+    }
+    if (res.state) updateBrowserPanelState(res.state)
+    if (!browserState?.tabs?.length) await hideBrowserRuntime()
+    return true
+  }
+
+  w.showBrowserPanel = showBrowserPanel
+  w.hideBrowserPanel = hideBrowserPanel
+  w.isBrowserPanelVisible = isBrowserPanelVisible
+  // Reattach existing pages after transient layout changes. Empty tab sets stay
+  // empty, and overlays/settings retain ownership of their hide/resume cycle.
+  const reconcileBrowserState = (state: BrowserUseState, allowAutomaticShow = true): void => {
+    if (!browserOpenSurface().visible || !isBrowserPanelVisible()) {
+      // WebContentsView is owned by the main process and can survive a renderer
+      // reload. Detach an authoritative visible view before applying the
+      // task/revision filter: immediately after reload there is no selected task,
+      // so the still-attached view belongs to a different task and that filter
+      // quite correctly rejects its UI state. Visibility cleanup is window-wide,
+      // though, and must not be rejected with it.
+      if (state.visible) void hideBrowserRuntime({ ensureDetached: true })
+      return
+    }
+    if (!updateBrowserPanelState(state)) return
+    scheduleBrowserBoundsSync()
+    if (
+      allowAutomaticShow && !state.presentationTransferred && state && state.enabled !== false && state.visible === false &&
+      Array.isArray(state.tabs) && state.tabs.length > 0 &&
+      !document.hidden &&
+      isBrowserPanelVisible() && browserRuntimeShowCount === 0 &&
+      !browserRuntimeSuspendedForOverlay &&
+      !document.body.classList.contains('settings-open')
+    ) {
+      void showBrowserRuntime().catch(() => {})
+    }
+  }
+  klausApi()?.on?.browserUseState?.((state) => {
+    browserStatePushRevision++
+    reconcileBrowserState(state)
+  })
+  // Pushes are edge-triggered, so a freshly loaded renderer must also read the
+  // main process once. Ignore the reply if a newer push already won the race.
+  const stateRevisionAtRead = browserStatePushRevision
+  void klausApi()?.browserUse?.state?.().then(state => {
+    // This initial read may resolve while an explicit two-frame panel open is
+    // still waiting for layout. It may reconcile or detach, but must not start a
+    // second show that competes with the user's pending one.
+    if (stateRevisionAtRead === browserStatePushRevision) reconcileBrowserState(state, false)
+  }).catch(() => {})
+  klausApi()?.on?.browserUseOpenPanel?.((request) => {
+    const scope = request?.sessionId === undefined ? undefined : {
+      sessionId: request.sessionId, targetId: request.targetId, focusRevision: request.focusRevision,
+    }
+    void showBrowserPanel(scope)
+  })
+  window.addEventListener('klaus:session-change', () => {
+    const generation = ++browserSessionGeneration
+    invalidateBrowserFrames()
+    // setConversation may emit before this event. Re-read its authoritative
+    // revision without allowing an older task's response to restore its frame.
+    void klausApi()?.browserUse?.state?.().then(state => {
+      if (generation === browserSessionGeneration) updateBrowserPanelState(state)
+    }).catch(() => {})
+  })
+  if (browserPanelHost && typeof ResizeObserver !== 'undefined') {
+    new ResizeObserver(scheduleBrowserBoundsSync).observe(browserPanelHost)
+  }
+  window.addEventListener('resize', scheduleBrowserBoundsSync)
+
+  browserToggleBtn?.addEventListener('click', () => {
+    if (isBrowserPanelVisible() || browserRuntimeVisible()) void hideBrowserPanel()
+    else void showBrowserPanel()
+  })
+  browserUrlInput?.addEventListener('keydown', event => {
+    if (event.key !== 'Enter') return
+    event.preventDefault()
+    const url = browserUrlInput.value.trim()
+    browserUrlInputEditing = false
+    void navigateBrowserToInput(url).finally(() => browserUrlInput.blur())
+  })
+  browserUrlInput?.addEventListener('input', () => {
+    browserUrlInputEditing = true
+  })
+  browserUrlInput?.addEventListener('blur', () => {
+    browserUrlInputEditing = false
+    updateBrowserPanelState()
+  })
+  browserBackBtn?.addEventListener('click', async () => {
+    const res = await klausApi()?.browserUse?.back?.().catch((err: unknown): BrowserOpResult => ({ ok: false, error: (err as Error | null)?.message || String(err) }))
+    if (res?.ok) updateBrowserPanelState(res.state || null)
+    else showToast(res?.error || tt('settings_failed'))
+  })
+  browserForwardBtn?.addEventListener('click', async () => {
+    const res = await klausApi()?.browserUse?.forward?.().catch((err: unknown): BrowserOpResult => ({ ok: false, error: (err as Error | null)?.message || String(err) }))
+    if (res?.ok) updateBrowserPanelState(res.state || null)
+    else showToast(res?.error || tt('settings_failed'))
+  })
+  browserReloadBtn?.addEventListener('click', async () => {
+    const res = await klausApi()?.browserUse?.reload?.().catch((err: unknown): BrowserOpResult => ({ ok: false, error: (err as Error | null)?.message || String(err) }))
+    if (res?.ok) updateBrowserPanelState(res.state || null)
+    else showToast(res?.error || tt('settings_failed'))
+  })
+  browserScreenshotBtn?.addEventListener('click', async () => {
+    const res = await klausApi()?.browserUse?.screenshot?.().catch((err: unknown): BrowserOpResult => ({ ok: false, error: (err as Error | null)?.message || String(err) }))
+    showToast(res?.ok ? tt('browser_screenshot') : (res?.error || tt('settings_failed')))
+  })
+}

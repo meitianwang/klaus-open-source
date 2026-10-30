@@ -1,0 +1,351 @@
+{
+  "_why": "Pin transcript structure and actions independently of either client's renderer. Code examples and malformed directives remain content; rich output preserves sequence and meaning.",
+  "blocks": [
+    {
+      "name": "nested list",
+      "source": "- parent\n  - child\n- sibling",
+      "types": [
+        "list"
+      ],
+      "markers": [
+        "•",
+        "•",
+        "•"
+      ],
+      "indentation": [
+        0,
+        2,
+        0
+      ]
+    },
+    {
+      "name": "numbered continuation",
+      "source": "3. third\n4. fourth",
+      "types": [
+        "list"
+      ],
+      "markers": [
+        "3.",
+        "4."
+      ],
+      "indentation": [
+        0,
+        0
+      ]
+    },
+    {
+      "name": "long fence",
+      "source": "````markdown\n```\necho hello\n```\n````\nAfter",
+      "types": [
+        "code",
+        "paragraph"
+      ],
+      "code": "```\necho hello\n```"
+    },
+    {
+      "name": "tilde code",
+      "source": "~~~\n::created-thread{threadId=\"x\"}\n~~~",
+      "types": [
+        "code"
+      ]
+    },
+    {
+      "name": "whole paragraph action",
+      "source": "Created.\n\n::created-thread{threadId=\"thread-b\"}",
+      "types": [
+        "paragraph",
+        "createdThread"
+      ]
+    },
+    {
+      "name": "shared paragraph stays text",
+      "source": "Created.\n::created-thread{threadId=\"thread-b\"}",
+      "types": [
+        "paragraph"
+      ]
+    },
+    {
+      "name": "inline code image stays code",
+      "source": "Use `![sample](/tmp/code.png)`",
+      "types": [
+        "paragraph"
+      ],
+      "images": []
+    },
+    {
+      "name": "escaped image stays text",
+      "source": "\\![sample](/tmp/escaped.png)",
+      "types": [
+        "paragraph"
+      ],
+      "images": []
+    },
+    {
+      "name": "image sequence",
+      "source": "Before ![cover](/pool/cover.png) after",
+      "types": [
+        "paragraph",
+        "image",
+        "paragraph"
+      ],
+      "images": [
+        "/pool/cover.png"
+      ]
+    },
+    {
+      "name": "encoded file image",
+      "source": "![photo](file:///pool/a%20b.png)",
+      "types": [
+        "image"
+      ],
+      "images": [
+        "/pool/a b.png"
+      ]
+    },
+    {
+      "name": "quoted image destination",
+      "source": "![photo](</pool/a b.png> \"Photo\")",
+      "types": [
+        "image"
+      ],
+      "images": [
+        "/pool/a b.png"
+      ]
+    },
+    {
+      "name": "escaped table pipe",
+      "source": "| A | B |\n| --- | --- |\n| a\\|b | c |",
+      "types": [
+        "table"
+      ],
+      "row": [
+        "a\\|b",
+        "c"
+      ]
+    },
+    {
+      "name": "code table pipe",
+      "source": "| A | B |\n| --- | --- |\n| `a|b` | c |",
+      "types": [
+        "table"
+      ],
+      "row": [
+        "`a|b`",
+        "c"
+      ]
+    },
+    {
+      "name": "block formula",
+      "source": "$$\nx^2 + y^2\n$$",
+      "types": [
+        "math"
+      ]
+    },
+    {
+      "name": "formula then paragraph",
+      "source": "$$x^2$$\nAfter",
+      "types": [
+        "math",
+        "paragraph"
+      ]
+    },
+    {
+      "name": "unterminated math stays text",
+      "source": "$$x^2\nAfter",
+      "types": [
+        "paragraph"
+      ]
+    },
+    {
+      "name": "visualization",
+      "source": "::klaus-inline-vis{path=\"/tmp/overview.html\"}",
+      "types": [
+        "visualization"
+      ]
+    },
+    {
+      "name": "ineligible visualization remains source",
+      "source": "::klaus-inline-vis{path=\"/tmp/Bad.html\"}",
+      "types": [
+        "paragraph"
+      ]
+    },
+    {
+      "name": "parentheses in image destination",
+      "source": "![cover](/pool/cover(1).png)",
+      "types": [
+        "image"
+      ],
+      "images": [
+        "/pool/cover(1).png"
+      ]
+    },
+    {
+      "name": "reference image",
+      "source": "![cover][image]\n\n[image]: /pool/cover.png",
+      "types": [
+        "image"
+      ],
+      "images": [
+        "/pool/cover.png"
+      ]
+    },
+    {
+      "name": "reference example remains code",
+      "source": "~~~\n![cover][image]\n~~~\n\n[image]: /pool/cover.png",
+      "types": [
+        "code"
+      ],
+      "images": []
+    },
+    {
+      "name": "unclosed fence remains code",
+      "source": "```\n![cover](/pool/cover.png)",
+      "types": [
+        "code"
+      ],
+      "images": []
+    },
+    {
+      "name": "formula closing before prose cannot consume later block",
+      "source": "$$x$$ explanation\n\nLater $$y$$",
+      "types": [
+        "paragraph",
+        "paragraph"
+      ],
+      "paragraphs": [
+        "$$x$$ explanation",
+        "Later $$y$$"
+      ]
+    },
+    {
+      "name": "formula closing with trailing prose stays visible",
+      "source": "$$\nx\n$$ explanation\n\nAfter",
+      "types": [
+        "paragraph",
+        "paragraph"
+      ],
+      "paragraphs": [
+        "$$\nx\n$$ explanation",
+        "After"
+      ]
+    },
+    {
+      "name": "escaped dollar pair is not block closing",
+      "source": "$$\nx\\$$\n+ y\n$$",
+      "types": [
+        "math"
+      ],
+      "formulas": [
+        "x\\$$\n+ y"
+      ]
+    },
+    {
+      "name": "malformed visualization mixed with prose stays visible",
+      "source": "::klaus-inline-vis{} explanation",
+      "types": [
+        "paragraph"
+      ],
+      "paragraphs": [
+        "::klaus-inline-vis{} explanation"
+      ]
+    }
+  ],
+  "fileLinks": [
+    {
+      "source": "/workspace/app.swift:12",
+      "path": "/workspace/app.swift"
+    },
+    {
+      "source": "file:///workspace/My%20Report.md",
+      "path": "/workspace/My Report.md"
+    },
+    {
+      "source": "/workspace/app.swift#L12",
+      "path": "/workspace/app.swift"
+    },
+    {
+      "source": "../README.md",
+      "path": "../README.md"
+    },
+    {
+      "source": "https://example.com/README.md",
+      "path": null
+    },
+    {
+      "source": "javascript:alert(1)",
+      "path": null
+    },
+    {
+      "source": "file://remote-host/private/file.md",
+      "path": null
+    },
+    {
+      "source": "README.md",
+      "path": "README.md"
+    },
+    {
+      "source": "#section",
+      "path": null
+    },
+    {
+      "source": "//example.com/foo",
+      "path": null
+    },
+    {
+      "source": "/repo/report%23L12",
+      "path": "/repo/report#L12"
+    },
+    {
+      "source": "file:///repo/report%3A12",
+      "path": "/repo/report:12"
+    }
+  ],
+  "relativeImages": [
+    {
+      "source": "![cover](cover.png)",
+      "produced": [
+        "/pool/cover.png"
+      ],
+      "expected": "![cover](</pool/cover.png>)"
+    },
+    {
+      "source": "![cover](cover.png)",
+      "produced": [
+        "/pool/cover.png",
+        "/other/cover.png"
+      ],
+      "expected": "![cover](cover.png)"
+    },
+    {
+      "source": "`![cover](cover.png)`",
+      "produced": [
+        "/pool/cover.png"
+      ],
+      "expected": "`![cover](cover.png)`"
+    },
+    {
+      "source": "```\n![cover](cover.png)",
+      "produced": [
+        "/pool/cover.png"
+      ],
+      "expected": "```\n![cover](cover.png)"
+    }
+  ],
+  "inlineBlocks": [
+    {
+      "source": "# State ![preview](/tmp/p.png)",
+      "types": [
+        "paragraph",
+        "image"
+      ]
+    },
+    {
+      "source": "- nested ![preview](/tmp/p.png)",
+      "types": [
+        "paragraph",
+        "image"
+      ]
+    }
+  ]
+}

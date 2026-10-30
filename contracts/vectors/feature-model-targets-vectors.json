@@ -1,0 +1,100 @@
+{
+  "version": 1,
+  "reason": "Auxiliary feature models are independent optional source-qualified targets. The host publishes title, prediction and memory identities through the named session methods as featureTargets; an unset or cleared slot publishes an explicit null and follows the session main model, and an invalid stored reference publishes an unavailable target instead of failing the session. The speech refinement pick is host-owned: the voice runtime reads it at call time and it never enters the session init. Only engine-bound slot changes republish inference.",
+  "cases": [
+    {
+      "name": "unset slots publish explicit nulls and follow the main model",
+      "main": "custom:main",
+      "stored": {},
+      "targets": { "title": null, "prediction": null, "memory": null }
+    },
+    {
+      "name": "cross-source title target ignores the chat source",
+      "main": "custom:main",
+      "stored": { "title": "codex:gpt-5" },
+      "targets": {
+        "title": { "type": "source", "source": "codex", "modelId": "gpt-5" },
+        "prediction": null,
+        "memory": null
+      }
+    },
+    {
+      "name": "each slot resolves independently",
+      "main": "custom:main",
+      "stored": { "title": "custom:small", "prediction": "subscription:opus", "memory": "qoder:keep" },
+      "targets": {
+        "title": { "type": "source", "source": "custom", "modelId": "small" },
+        "prediction": { "type": "source", "source": "subscription", "modelId": "opus" },
+        "memory": { "type": "source", "source": "qoder", "modelId": "keep" }
+      }
+    },
+    {
+      "name": "same model as the chat is a valid override",
+      "main": "custom:main",
+      "stored": { "prediction": "custom:main" },
+      "targets": {
+        "title": null,
+        "prediction": { "type": "source", "source": "custom", "modelId": "main" },
+        "memory": null
+      }
+    },
+    {
+      "name": "a source-local model identifier retains its colon",
+      "main": "codex:gpt-5",
+      "stored": { "memory": "custom:provider:model" },
+      "targets": {
+        "title": null,
+        "prediction": null,
+        "memory": { "type": "source", "source": "custom", "modelId": "provider:model" }
+      }
+    },
+    {
+      "name": "speech refinement never enters the init targets",
+      "main": "custom:main",
+      "stored": { "voice_refinement": "codex:gpt-5" },
+      "targets": { "title": null, "prediction": null, "memory": null }
+    },
+    {
+      "name": "unqualified legacy value remains unavailable",
+      "main": "custom:main",
+      "stored": { "title": "opus" },
+      "targets": {
+        "title": { "type": "unavailable", "source": "unknown", "modelId": "opus", "code": "FEATURE_MODEL_INVALID" },
+        "prediction": null,
+        "memory": null
+      }
+    },
+    {
+      "name": "retired source remains unavailable",
+      "main": "custom:main",
+      "stored": { "memory": "local:helper" },
+      "targets": {
+        "title": null,
+        "prediction": null,
+        "memory": { "type": "unavailable", "source": "local", "modelId": "helper", "code": "FEATURE_MODEL_INVALID" }
+      }
+    },
+    {
+      "name": "Cursor alias cannot substitute a concrete model",
+      "main": "custom:main",
+      "stored": { "prediction": "cursor:auto" },
+      "targets": {
+        "title": null,
+        "prediction": { "type": "unavailable", "source": "cursor", "modelId": "auto", "code": "FEATURE_MODEL_INVALID" },
+        "memory": null
+      }
+    }
+  ],
+  "invariants": {
+    "unsetFollowsMainModel": true,
+    "unavailableBlocksSessionStart": false,
+    "credentialOwner": "engine",
+    "voiceRefinementInSessionInit": false,
+    "fenceKey": "feature_models",
+    "voiceOnlyChangeRepublishesInference": false,
+    "publicationMethods": [
+      "session/start",
+      "session/reconfigureModel"
+    ]
+  }
+}

@@ -1,0 +1,135 @@
+{
+  "reason": "A closed engine connection is a read failure, not missing model configuration. Only a successful empty catalog may open settings. Successful readiness and catalogs may be shared until explicit model, configuration, auth or engine invalidation; stale in-flight results must re-read and failures remain retryable.",
+  "cache": {
+    "successfulCatalogReads": 1,
+    "successfulSourceReads": 1,
+    "retryAttempts": 3,
+    "sourceAfterInvalidation": "custom"
+  },
+  "cases": [
+    {
+      "name": "configured subscription",
+      "items": [
+        {
+          "value": "codex:model"
+        }
+      ],
+      "status": "ready"
+    },
+    {
+      "name": "successful empty catalog",
+      "items": [],
+      "status": "unconfigured"
+    },
+    {
+      "name": "auto placeholder without catalog",
+      "items": [
+        {
+          "value": "auto"
+        }
+      ],
+      "status": "unconfigured"
+    },
+    {
+      "name": "closed engine connection",
+      "error": "codex/models: app-server client closed",
+      "status": "unavailable"
+    },
+    {
+      "name": "spawn failure",
+      "error": "engine spawn failed",
+      "status": "unavailable"
+    },
+    {
+      "name": "concrete Cursor variant is ready",
+      "items": [
+        {
+          "value": "cursor:fixture[effort=high,fast=true]"
+        }
+      ],
+      "status": "ready"
+    },
+    {
+      "name": "Cursor expired snapshot stays unavailable",
+      "error": "cursor/models: cursor_adopted_credential_needs_reimport",
+      "status": "unavailable"
+    },
+    {
+      "name": "Cursor missing request metadata stays unavailable",
+      "error": "cursor/models: cursor_client_metadata_missing",
+      "status": "unavailable"
+    },
+    {
+      "name": "Cursor routing placeholders are not model configuration",
+      "items": [
+        {
+          "value": "cursor:auto"
+        },
+        {
+          "value": "cursor:Auto-Smart[fast=true]"
+        },
+        {
+          "value": "cursor:DEFAULT[effort=high]"
+        },
+        {
+          "value": "cursor:Auto-Smart[fast=true]@max"
+        },
+        {
+          "value": "cursor:auto@max"
+        }
+      ],
+      "status": "unconfigured"
+    }
+  ],
+  "sourceRouting": [
+    {
+      "name": "Codex model with Qoder default",
+      "defaultSource": "qoder",
+      "sessionId": "main",
+      "savedSource": "codex",
+      "expectedSource": "codex"
+    },
+    {
+      "name": "side task retains its own model source",
+      "defaultSource": "qoder",
+      "sessionId": "side",
+      "savedSource": "codex",
+      "expectedSource": "codex"
+    },
+    {
+      "name": "QwenWork conversation retains its source",
+      "defaultSource": "codex",
+      "sessionId": "qwenwork-thread",
+      "savedSource": "qwenwork",
+      "expectedSource": "qwenwork"
+    },
+    {
+      "name": "QoderWork conversation retains its source",
+      "defaultSource": "qwenwork",
+      "sessionId": "qoderwork-thread",
+      "savedSource": "qoderwork",
+      "expectedSource": "qoderwork"
+    },
+    {
+      "name": "WorkBuddy conversation retains its source",
+      "defaultSource": "qwenwork",
+      "sessionId": "workbuddy-thread",
+      "savedSource": "workbuddy",
+      "expectedSource": "workbuddy"
+    },
+    {
+      "name": "Cursor conversation retains its source after default changes",
+      "defaultSource": "custom",
+      "sessionId": "cursor-thread",
+      "savedSource": "cursor",
+      "expectedSource": "cursor"
+    },
+    {
+      "name": "A new draft follows the Cursor default",
+      "defaultSource": "cursor",
+      "sessionId": "",
+      "savedSource": "custom",
+      "expectedSource": "cursor"
+    }
+  ]
+}

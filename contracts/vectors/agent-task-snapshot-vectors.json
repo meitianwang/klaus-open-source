@@ -1,0 +1,49 @@
+{
+  "reason": "Live agent snapshots retain task-call identities and cached presentation metadata while deriving liveness from the named engine lifecycle facade. The lifecycleUpdatedAtMs watermark versions only confirmed engine state, not optimistic UI stops. Explicit newer terminal state corrects cached stopped state; provably older snapshots cannot regress status or time. Equal or absent clocks use the incoming authoritative state. Newly discovered lifecycle rows supply their own presentation. Unknown or malformed lifecycle rows cannot become running agents. Terminal error details survive lifecycle projection and task refresh; a new authoritative run clears the preceding run's error without allowing older snapshots to replace a current failure. Explicit exploration follow-ups retain the task identity and cached findings while a newer authoritative run clears its previous completion time.",
+  "statuses": [
+    { "wire": "spawned", "status": "running", "idle": false },
+    { "wire": "running", "status": "running", "idle": false },
+    { "wire": "idle", "status": "running", "idle": true },
+    { "wire": "interrupted", "status": "stopped", "idle": false },
+    { "wire": "completed", "status": "completed", "idle": false },
+    { "wire": "failed", "status": "failed", "idle": false, "error": "Provider request timed out" },
+    { "wire": "cancelled", "status": "stopped", "idle": false, "error": "The child turn was cancelled" },
+    { "wire": "budget_limited", "status": "budget_limited", "idle": false }
+  ],
+  "cached": {
+    "tool-call-1": { "agentId": "child-1", "description": "old", "status": "completed", "avatarId": 7, "notified": true, "messages": [{ "role": "assistant", "text": "cached" }], "activityEvents": [{ "type": "tool_end", "toolCallId": "read-1", "content": "source" }] },
+    "vanished": { "agentId": "child-gone", "status": "running", "isIdle": true },
+    "finished": { "agentId": "child-old", "status": "failed" },
+    "search-call": { "agentId": "search-child", "agentType": "Explore", "description": "Find references", "status": "completed", "completedAtMs": 50, "lifecycleUpdatedAtMs": 50, "messages": [{ "role": "assistant", "text": "Found the definition" }], "activityEvents": [{ "type": "tool_end", "toolCallId": "search-1", "content": "src/feature.rs" }] }
+  },
+  "live": [
+    { "id": "child-1", "description": "current", "status": "running", "idle": false, "kind": "background", "agentType": "reviewer", "model": "tier-resolved-model", "modelSource": "codex", "startedAtMs": 10, "updatedAtMs": 20, "completedAtMs": null },
+    { "id": "child-2", "description": "teammate", "status": "running", "idle": true, "kind": "persistent", "teammate": true, "agentType": "worker", "startedAtMs": 30, "updatedAtMs": 40, "completedAtMs": null },
+    { "id": "search-child", "agentType": "Explore", "description": "Find references", "status": "running", "idle": false, "kind": "background", "updatedAtMs": 60, "completedAtMs": null }
+  ],
+  "expected": {
+    "tool-call-1": { "agentId": "child-1", "description": "old", "status": "running", "avatarId": 7, "notified": true, "messages": [{ "role": "assistant", "text": "cached" }], "activityEvents": [{ "type": "tool_end", "toolCallId": "read-1", "content": "source" }], "isIdle": false, "isBackground": true, "model": "tier-resolved-model", "modelSource": "codex", "startedAtMs": 10, "updatedAtMs": 20, "lifecycleUpdatedAtMs": 20 },
+    "vanished": { "agentId": "child-gone", "status": "stopped", "isIdle": false },
+    "finished": { "agentId": "child-old", "status": "failed" },
+    "child-2": { "agentId": "child-2", "description": "teammate", "status": "running", "isIdle": true, "isBackground": true, "type": "in_process_teammate", "agentType": "worker", "startedAtMs": 30, "updatedAtMs": 40, "lifecycleUpdatedAtMs": 40 },
+    "search-call": { "agentId": "search-child", "agentType": "Explore", "description": "Find references", "status": "running", "lifecycleUpdatedAtMs": 60, "messages": [{ "role": "assistant", "text": "Found the definition" }], "activityEvents": [{ "type": "tool_end", "toolCallId": "search-1", "content": "src/feature.rs" }], "isIdle": false, "isBackground": true, "updatedAtMs": 60 }
+  },
+  "errorCases": [
+    { "name": "a live failure supplies its error", "cached": { "agentId": "child", "status": "running" }, "incoming": { "id": "child", "status": "failed", "error": "Provider request timed out", "updatedAtMs": 30 }, "error": "Provider request timed out" },
+    { "name": "a cancelled turn retains its reason", "cached": { "agentId": "child", "status": "running" }, "incoming": { "id": "child", "status": "stopped", "error": "The child turn was cancelled", "updatedAtMs": 30 }, "error": "The child turn was cancelled" },
+    { "name": "a resumed run clears its earlier error", "cached": { "agentId": "child", "status": "failed", "error": "Old request failed", "lifecycleUpdatedAtMs": 20 }, "incoming": { "id": "child", "status": "running", "error": "", "updatedAtMs": 30 }, "error": null },
+    { "name": "a successful completion clears stale cached error", "cached": { "agentId": "child", "status": "failed", "error": "Old request failed" }, "incoming": { "id": "child", "status": "completed", "updatedAtMs": 30 }, "error": null },
+    { "name": "an older failure cannot replace the current error", "cached": { "agentId": "child", "status": "failed", "error": "Current request failed", "lifecycleUpdatedAtMs": 40 }, "incoming": { "id": "child", "status": "failed", "error": "Old request failed", "updatedAtMs": 30 }, "error": "Current request failed" },
+    { "name": "an old running snapshot cannot clear the current error", "cached": { "agentId": "child", "status": "failed", "error": "Current request failed", "lifecycleUpdatedAtMs": 40 }, "incoming": { "id": "child", "status": "running", "error": "", "updatedAtMs": 30 }, "error": "Current request failed" }
+  ],
+  "lifecycleCases": [
+    { "name": "completion corrects an optimistic stop", "cached": { "agentId": "child", "status": "stopped", "updatedAtMs": 90, "completedAtMs": 90 }, "incoming": { "id": "child", "status": "completed", "updatedAtMs": 30, "completedAtMs": 30 }, "status": "completed", "at": 30 },
+    { "name": "failure corrects an optimistic stop", "cached": { "agentId": "child", "status": "stopped" }, "incoming": { "id": "child", "status": "failed", "updatedAtMs": 30 }, "status": "failed", "at": 30 },
+    { "name": "old completion cannot replace a confirmed stop", "cached": { "agentId": "child", "status": "stopped", "lifecycleUpdatedAtMs": 40 }, "incoming": { "id": "child", "status": "completed", "completedAtMs": 30 }, "status": "stopped", "at": 40 },
+    { "name": "old stop cannot replace a confirmed completion", "cached": { "agentId": "child", "status": "completed", "lifecycleUpdatedAtMs": 40 }, "incoming": { "id": "child", "status": "stopped", "updatedAtMs": 30 }, "status": "completed", "at": 40 },
+    { "name": "new cancellation remains stopped", "cached": { "agentId": "child", "status": "completed", "lifecycleUpdatedAtMs": 30 }, "incoming": { "id": "child", "status": "stopped", "updatedAtMs": 40, "completedAtMs": 40 }, "status": "stopped", "at": 40 },
+    { "name": "equal clocks accept the incoming terminal fact", "cached": { "agentId": "child", "status": "stopped", "lifecycleUpdatedAtMs": 40 }, "incoming": { "id": "child", "status": "completed", "updatedAtMs": 40 }, "status": "completed", "at": 40 },
+    { "name": "explicit exploration followup restarts the retained identity", "cached": { "agentId": "search-child", "agentType": "Explore", "status": "completed", "lifecycleUpdatedAtMs": 50, "completedAtMs": 50 }, "incoming": { "id": "search-child", "agentType": "Explore", "status": "running", "updatedAtMs": 60, "completedAtMs": null }, "status": "running", "at": 60 },
+    { "name": "completed exploration stays terminal without a new run", "cached": { "agentId": "search-child", "agentType": "Explore", "status": "completed", "lifecycleUpdatedAtMs": 50 }, "incoming": { "id": "search-child", "agentType": "Explore", "status": "completed", "updatedAtMs": 50 }, "status": "completed", "at": 50 }
+  ]
+}

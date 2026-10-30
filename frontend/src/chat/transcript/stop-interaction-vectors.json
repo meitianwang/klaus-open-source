@@ -1,0 +1,319 @@
+{
+  "purpose": "Committed acceptance vectors for the stop (user interrupt) interaction. Each rule states the required behaviour and what Klaus must render. Acceptance compares Klaus against these rules. Changing a rule means changing this file in the same commit, with the reason stated.",
+  "rules": [
+    {
+      "id": "status-label-wording",
+      "topic": "turn terminal status",
+      "required": "A turn the user stopped is labelled with a user-attributed sentence that carries the elapsed time: 'You stopped after {time}'. A turn that finished on its own says 'Worked for {time}'. While running it says 'Working for {time}', or bare 'Working' below one second.",
+      "klaus": {
+        "i18nKey": "turn_interrupted",
+        "en": "You stopped after {duration}",
+        "zh": "你在 {duration} 后停止了",
+        "fallbackWhenDurationUnknown": "chat_aborted"
+      },
+      "changeNote": "2026-10-22: zh wording re-cut as one finished sentence around the elapsed time so the stopped seam reads in the same voice as the running ('已处理 {duration}') and completed ('用时 {duration}') divider labels; en unchanged."
+    },
+    {
+      "id": "status-label-position",
+      "topic": "turn terminal status",
+      "required": "The label is a divider that belongs to the turn: left-aligned muted text with tabular numerals, followed by a full-width hairline rule. It is not a centered pill and not a separate system message. It is lifted out of the collapsible activity list and rendered on its own between the turn's activity and its final response.",
+      "klaus": {
+        "unitType": "turn-status",
+        "cssClass": "turn-terminal-status",
+        "align": "left",
+        "hasIcon": false,
+        "hasDivider": true,
+        "tabularNumbers": true,
+        "excludedFromTurnFold": true,
+        "oneStatusPerTurnAcrossSavedAndLive": true,
+        "zeroDurationIsKnown": true,
+        "changeNote": "2026-10-26: Saved and live projections share one terminal row, prefer available elapsed time, and distinguish a valid zero duration from missing timing."
+      }
+    },
+    {
+      "id": "status-label-duration-format",
+      "topic": "turn terminal status",
+      "required": "Elapsed time is (completedAtMs ?? now) - startedAtMs, floored to whole seconds and rendered with narrow locale units. Below one second it renders as zero seconds, never as a rounded-up '1s'. From one minute up, zero-valued units are dropped, so 60000ms is '1m' and 65000ms is '1m 5s'.",
+      "klaus": {
+        "formatter": "terminalDurationLabel",
+        "samples": [
+          { "durationMs": 0, "en": "0s" },
+          { "durationMs": 900, "en": "0s" },
+          { "durationMs": 1000, "en": "1s" },
+          { "durationMs": 10400, "en": "10s" },
+          { "durationMs": 59999, "en": "59s" },
+          { "durationMs": 60000, "en": "1m" },
+          { "durationMs": 65000, "en": "1m 5s" },
+          { "durationMs": 3600000, "en": "1h" },
+          { "durationMs": 3665000, "en": "1h 1m 5s" }
+        ]
+      }
+    },
+    {
+      "id": "status-label-visibility",
+      "topic": "turn terminal status",
+      "required": "The stopped label is a property of the turn, not of the moment. On the server-backed thread it is driven by the turn's own persisted wasStopped flag, so it survives a reload. The local thread additionally shows it from an in-memory per-conversation set of turn ids this window interrupted, because that projection has no persisted flag to read.",
+      "klaus": {
+        "source": "engine turn_lifecycle, replayed through session/history as turnStatuses[turnId] === 'interrupted' plus turnDurations[turnId]",
+        "survivesReload": true,
+        "reloadRequires": "resume_session must reinstall the turn index the rollout replay rebuilt; dropping it made every reopened turn read as a normal completed one",
+        "rationale": "Klaus persists the turn's terminal reason and duration, so it follows the persisted-flag rule rather than the local in-memory fallback."
+      }
+    },
+    {
+      "id": "interrupted-turn-is-collapsible",
+      "topic": "process area",
+      "required": "An interrupted turn keeps an outer turn disclosure so the user can collapse the partial work. Contiguous inner tool groups retain independent disclosures. This aligns with Codex, where groupable execution items are summarized even when the turn terminates early.",
+      "klaus": {
+        "foldRule": "foldUnits() sets isTurnCancelled from turnStatuses[turnId]==='interrupted' but still allows allowCollapseBeforeFinal, so interrupted turns with a user request get an outer process fold that defaults closed.",
+        "partialTextRetained": true,
+        "reasoningRetained": true,
+        "toolRowsRetained": true,
+        "subagentRowsRetained": true
+      }
+    },
+    {
+      "id": "unfinished-tool-terminal-state",
+      "topic": "tool card",
+      "required": "A tool call that was still running when the turn was interrupted renders in a dedicated interrupted state, decided by the client from the turn's terminal state. It is not shown as a model or tool failure.",
+      "klaus": {
+        "toolStatus": "interrupted",
+        "appliesTo": [
+          "tools still running when the interrupted terminal event arrives",
+          "tools parked on approval when the interrupted terminal event arrives",
+          "tools whose failing result arrived inside the stop window, because the Klaus engine synthesises 'Tool execution was interrupted.' for every call left unhandled by an abort",
+          "after a reload, the tool calls the Turn's own cancelled list names: the engine records a tool the abort killed with lifecycle phase `cancelled`, the rollout replay rebuilds that list, and session/history serves it as turnCancelledTools"
+        ],
+        "doesNotApplyTo": "a tool that already failed on its own merits before the stop was requested",
+        "stopWindowAttributionIsProvisional": true,
+        "stopWindowAttributionSettledBy": "the Turn's own terminal event: only calls that are STILL unfinished are repainted, so a call that reported a real failure keeps it. Klaus's engine turns those unfinished calls into failing results instead of leaving them in flight, so Klaus paints them stopped on arrival and then reverts them to failures if the Turn ends `done` or the stop is refused."
+      }
+    },
+    {
+      "id": "no-detached-stop-message",
+      "topic": "transcript",
+      "required": "Stopping produces no standalone transcript entry. The only thing that appears is the turn's own divider label.",
+      "klaus": {
+        "removed": ["live-stop-hint", "stop-hint"],
+        "interruptMarkerMessagesDropped": true
+      }
+    },
+    {
+      "id": "stop-button-duplicate-guard",
+      "topic": "composer",
+      "required": "Stop and resume are guarded by a per-conversation in-flight set: a second click while the first request is outstanding is dropped, and the entry is removed in a finally block so a failure does not wedge the button.",
+      "klaus": {
+        "stateField": "stopRequestedAt",
+        "buttonDuringStop": "disabled, spinner glyph, labelled by submit_tooltip_stopping",
+        "secondClickDropped": true,
+        "clearedOnFailure": true,
+        "loadingScope": "the cancellation request promise; finally releases loading on success, refusal and failure without unlocking a newer turn's Stop"
+      }
+    },
+    {
+      "id": "stop-button-in-flight-appearance",
+      "topic": "composer",
+      "required": "While the stop request is outstanding the composer's primary button renders through the shared icon button with isLoading set: the DOM button is disabled, the glyph is replaced by a spinner, and it dims to half opacity with a default cursor. The accessible label stays the stop label.",
+      "klaus": {
+        "cssClass": "stopping",
+        "disabled": true,
+        "glyph": "spinner (send-stopping)",
+        "labelKey": "submit_tooltip_stopping",
+        "labelDivergence": "Klaus names the state in the tooltip rather than leaving the stop label in place, in addition to the spinner."
+      }
+    },
+    {
+      "id": "escape-arms-then-stops",
+      "topic": "composer",
+      "required": "Escape stops a running turn in TWO presses. The first press arms a per-turn confirmation and the stop button starts naming the key; a second press inside the window performs the stop. The arming clears itself after 2000 ms, is scoped to the turn it was armed for, and is cleared outright when the stop actually runs. Escape only reaches this path when it has nothing else to dismiss: dictation, a realtime session, a template picker, a terminal target, an approval surface and an open mention menu all take it first. Clicking the button stops immediately, with no arming step.",
+      "klaus": {
+        "armWindowMs": 2000,
+        "armedCssClass": "esc-armed",
+        "armedShowsKeyLabel": "Esc",
+        "scopedToTurn": true,
+        "scopedToTurnNote": "the arm records the session AND the Turn id that was in flight; a second Escape only fires while both still match, so an arm left over from a Turn that ended cannot stop whichever Turn started next",
+        "clearedWhenTurnEnds": true,
+        "clearedOnDirectClick": true,
+        "yieldsToOtherEscapeConsumers": ["slash menu", "workspace mention menu"],
+        "ignoresRepeatToStop": true
+      }
+    },
+    {
+      "id": "interrupt-request-names-the-turn",
+      "topic": "protocol",
+      "required": "The stop request names the captured turn. A confirmed accepted cancellation settles that turn immediately through the shared interrupted path; the click or a dispatch acknowledgement alone cannot settle it. Later cleanup notifications must not disturb a replacement turn or repeat the stopped turn's presentation.",
+      "klaus": {
+        "channel": "chat:interrupt",
+        "request": { "sessionId": "string", "expectedTurnId": "string | undefined" },
+        "reply": { "ok": "boolean", "accepted": "boolean", "confirmed": "boolean", "interruptedTurnId": "string | null" },
+        "staleRequestRefused": true,
+        "settledRequestRefused": true,
+        "staleRequestRefusedNote": "the host compares expectedTurnId with the Turn it has in flight for that session and refuses without forwarding when they disagree or no Turn remains active, so a stop still travelling when its own Turn ends cannot wait forever or abort the Turn that started next",
+        "optimisticSettlement": "the host clears its running registry and projects idle before confirmation; the renderer keeps partial content live until a confirmed accepted cancellation or the actual terminal event",
+        "confirmedSettlement": "accepted=true and confirmed=true apply interrupted for the captured pending turn after the engine has retired its foreground reservation; partial content remains live",
+        "nextInputHandoff": "the final cancellation outcome releases the execution slot before a successor is submitted; old stopped-turn frames cannot adopt that successor before it receives an engine turn ID",
+        "changeNote": "2026-10-25: cancellation confirmation now includes foreground retirement, with a 100ms cooperative tool-cancellation interval; stale frames remain fenced after the next optimistic user message clears interruptedLiveTurn",
+        "terminalEvent": "interrupted",
+        "terminalEventCarriesTurnId": true,
+        "shellProjection": "turn.completed with result.stopReason === 'aborted' projects `interrupted`; anything else projects `done`"
+      }
+    },
+    {
+      "id": "resume-entry",
+      "topic": "composer",
+      "required": "The composer's submit button can become a Resume button while the composer is empty, nothing is running and submission is not blocked. Pressing it starts a new turn with an empty input list, so the model continues the thread without a new user message. Interrupted turns are eligible, and the reference predicate also has an explicit failed-turn path.",
+      "klaus": {
+        "channel": "chat:continue",
+        "facade": "turn/start with an empty input list",
+        "visibleWhen": [
+          "the last turn ended interrupted or failed",
+          "the composer is empty",
+          "the session is not running",
+          "the session is not archived",
+          "the double-click window after the stop settled has passed, so the second half of a double-clicked stop cannot start a new turn"
+        ],
+        "i18nKey": "submit_tooltip_continue",
+        "en": "Continue",
+        "zh": "继续",
+        "notARepeatSend": true,
+        "emptyContinuationOwnsWorkClock": true,
+        "retainedStoppedTurnNeverRestartsClock": true,
+        "changeNote": "2026-10-26: Bind running state to the active turn before continuation content arrives; retained stopped rows keep their terminal state.",
+        "postStopRoleDelayMs": 700,
+        "postStopRoleDelayScope": "session",
+        "armBeforeStoreIngest": true,
+        "appearance": {
+          "_why": "Continue is an alternate composer action, not a media player control. Its 30px hit target stays easy to click while the visible frame matches the adjacent 16px context indicator, and the neutral rounded-square treatment keeps it distinct from Send.",
+          "hitTargetPx": 30,
+          "visualSurfacePx": 16,
+          "shape": "rounded-square",
+          "border": "none",
+          "idleBackground": "transparent",
+          "hoverBackground": "var(--bg-hover)"
+        },
+        "inFlight": {
+          "_why": "One click must visibly acknowledge the request and stay guarded until engine activity proves the new Turn started. Releasing on the IPC acknowledgement races the later activity event and can reopen Continue for a duplicate empty Turn; arming the post-stop delay after store ingest also exposes a clickable-looking button whose handler still rejects the click.",
+          "cssClass": "continuing",
+          "disabled": true,
+          "glyph": "spinner (send-stopping)",
+          "labelKey": "submit_tooltip_continuing",
+          "heldUntil": "the first run activity event or a start failure"
+        }
+      }
+    },
+    {
+      "id": "message-actions-survive-cancellation",
+      "topic": "message actions",
+      "required": "Cancelling a turn does not take the per-message actions away. The turn knows it was cancelled (isTurnCancelled) and threads that fact into the activity group, but the only gates on the message action row are the two explicit props hideUserMessageActions and compactUserMessageActions, neither of which reads the cancelled flag. The row is instead forced visible once the turn is no longer in progress (alwaysShowUserMessageActions includes !isTurnInProgress), so a stopped turn's partial output is copyable and forkable exactly like a completed turn's.",
+      "klaus": {
+        "gate": "rdDisabled = spec.archived || spec.running, so the actions come back the moment the interrupted terminal event clears `running`; the cancelled status itself is never consulted",
+        "gateSite": "syncMessageActionAvailability in chat.ts, renderMsgActionsHtml in transcript/factories.ts",
+        "partialAnswerGetsActionRow": true,
+        "partialAnswerActionRowMechanism": "the interrupted branch of stream-store attaches turnTail to the last live assistant text so the copy/branch row renders on the partial answer too, instead of only appearing after a reload replaced the live layer",
+        "partialAnswerUsageMeta": null,
+        "partialAnswerUsageMetaReason": "an aborted turn produced no usage envelope, and a zeroed one would read as 'this turn cost nothing'"
+      }
+    },
+    {
+      "id": "stopped-file-creation-is-not-a-completed-change",
+      "topic": "process area",
+      "required": "A file write that was still unresolved when the turn was cancelled is not counted as a change that landed. The patch projection takes isTurnCancelled as its second argument and, for an add whose success is still null, routes the path into stoppedCreatedPaths instead of runningCreatedPaths. The collapsed activity summary then subtracts that count out of the file-changes segment and reports it separately as 'Stopped creating files'. A patch that produced no changes at all in a cancelled turn is dropped from the summary entirely.",
+      "klaus": {
+        "hasAggregatePerKindActivityChips": false,
+        "hasAggregatePerKindActivityChipsNote": "Klaus's collapsed summary is a single op count (turn_fold_ops, 'Processed {count} operations'), not a per-kind chip group. The outer fold is collapsible for interrupted turns too, so the aggregate reports the killed write as a stopped operation rather than a landed change.",
+        "equivalentSurface": "the write tool's own row, kept expanded, in interrupted state",
+        "unfinishedWriteShowsCompletionWording": false,
+        "unfinishedWriteShowsDiffStats": false,
+        "unfinishedWriteShowsDiffStatsReason": "tool rows render an Output block only from the tool's own result or streamed progress (liveToolCardHtml / toolCardHtml), never derived from the call's input arguments, so a write that never ran contributes no line counts and no 'wrote <path>' wording",
+        "knownDifference": "Klaus has no 'Stopped creating N files' aggregate wording, because it has no aggregate activity chip group to put it in. The underlying rule (a killed write is not presented as a completed change) holds through the per-row interrupted state."
+      }
+    },
+    {
+      "id": "no-per-turn-retry-entry",
+      "topic": "transcript",
+      "required": "A stopped turn gets no in-transcript retry affordance. The retry target is wired only to system-error items, so a user stop never surfaces one.",
+      "klaus": {
+        "addsInTranscriptRetryButton": false,
+        "existingAffordances": ["rewind", "branch/fork"]
+      }
+    },
+    {
+      "id": "running-composer-submit-mode",
+      "topic": "composer",
+      "required": "While a turn is running the composer's primary button is the stop affordance ONLY while the composer holds nothing to submit and no stop request is in flight. The mode is 'stop' when a response is in progress AND (a stop is outstanding OR the composer is empty), and 'submit' otherwise, so typing anything hands the button back to the send arrow: its accessible label becomes Queue or Steer per the follow-up preference, and pressing it submits the follow-up instead of aborting the turn. The keyboard mirrors the button: Enter while running goes through composer.submit, which is enabled only in submit mode, so a press with an empty composer does nothing rather than stopping. Stopping with content in the composer stays reachable through the two-press Escape or by clearing the composer first.",
+      "klaus": {
+        "modeFormula": "running-submit = busy && !stopping && (hasComposerText() || pendingFiles.length > 0)",
+        "cssClass": "running-submit",
+        "glyph": "send-arrow on the accent face, overriding the busy stop face",
+        "labelKey": "submit_tooltip_queue or submit_tooltip_steer per followUpQueueMode; submit_tooltip_waiting_upload while a parked submit waits on an in-flight upload",
+        "clickDispatch": "a click on the running-submit face calls send(), which routes through submitRunningFollowUp (queue or steer per the shared preference); every other busy click still calls requestTurnStop",
+        "stopStillReachable": ["a click with an empty composer", "the two-press Escape arm", "clearing the composer first"],
+        "sideComposerParity": true,
+        "divergence": "A view-only seat would also force stop; Klaus has no seat model, so that term is absent."
+      }
+    },
+    {
+      "id": "teardown-failure-reads-as-stop",
+      "topic": "turn terminal status",
+      "required": "A Turn whose terminal failure is the engine's shutdown-gate refusal ('session shutdown closed ...') was killed by its session closing, not by the model: it settles as interrupted with no error card, live and after a history reload alike. Durability persistence failures carry no such marker and remain visible failures.",
+      "klaus": {
+        "marker": "session shutdown closed",
+        "liveTerminalProjectsAs": "interrupted",
+        "historyFailedTurnProjectsAs": "interrupted",
+        "errorRowSuppressed": true
+      }
+    }
+  ],
+  "trajectories": [
+    {
+      "id": "text-streaming",
+      "required": "Stop while the assistant is streaming its answer. The partial answer stays, the turn shows 'You stopped after {time}', and no extra transcript entry appears.",
+      "klaus": {
+        "liveUnits": [
+          "live-text (aborted, text retained)",
+          "live-turn-status"
+        ],
+        "turnStatus": "interrupted",
+        "collapsible": false
+      }
+    },
+    {
+      "id": "thinking",
+      "required": "Stop while the model is still reasoning. The reasoning block is sealed and stays readable, and the turn carries the same stopped divider.",
+      "klaus": {
+        "liveUnits": [
+          "live-thinking-done (sealed)",
+          "live-turn-status"
+        ],
+        "turnStatus": "interrupted",
+        "collapsible": false
+      }
+    },
+    {
+      "id": "tool-running",
+      "required": "Stop while a tool is running. The tool row stays, in its interrupted state, and the turn carries the stopped divider.",
+      "klaus": {
+        "liveUnits": [
+          "live-tools (status interrupted)",
+          "live-turn-status"
+        ],
+        "toolStatus": "interrupted",
+        "turnStatus": "interrupted",
+        "collapsible": false
+      }
+    },
+    {
+      "id": "subagent",
+      "required": "Stop a turn that spawned a subagent. The subagent row stays and reads as stopped rather than failed, and the turn carries the stopped divider.",
+      "klaus": {
+        "liveUnits": [
+          "live-tools (spawn tool, status interrupted)",
+          "live-turn-status"
+        ],
+        "subagentDisplayStatus": "stopped",
+        "turnStatus": "interrupted",
+        "collapsible": false
+      }
+    }
+  ]
+}

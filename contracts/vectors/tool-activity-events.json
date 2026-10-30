@@ -1,0 +1,270 @@
+{
+  "reason": "Tool events expose truthful lifecycle labels, action-specific icons and expandable outcomes across live, replay and grouped views. Compact coordination rows keep their existing navigation. Friend discovery and messaging use their own action labels and icons instead of generic tool completion. Typed content and URL credentials are excluded from headlines.",
+  "cases": [
+    {
+      "toolName": "load_workspace_dependencies",
+      "args": {},
+      "icon": "tool-dependencies",
+      "labels": {
+        "running": [
+          "Loading workspace dependencies",
+          "正在加载工作区依赖"
+        ],
+        "done": [
+          "Loaded workspace dependencies",
+          "已加载工作区依赖"
+        ],
+        "error": [
+          "Failed to load workspace dependencies",
+          "加载工作区依赖失败"
+        ],
+        "interrupted": [
+          "Stopped loading workspace dependencies",
+          "已停止加载工作区依赖"
+        ],
+        "awaiting-approval": [
+          "Awaiting approval to load workspace dependencies",
+          "等待批准加载工作区依赖"
+        ]
+      }
+    },
+    {
+      "toolName": "save_memory",
+      "args": {
+        "text": "Preferred language: Chinese"
+      },
+      "icon": "tool-memory",
+      "labels": {
+        "done": [
+          "Saved memory",
+          "已保存记忆"
+        ],
+        "error": [
+          "Failed to save memory",
+          "保存记忆失败"
+        ]
+      }
+    },
+    {
+      "toolName": "prototype_execute",
+      "args": {
+        "label": "Change heading",
+        "commands": []
+      },
+      "icon": "tool-design",
+      "labels": {
+        "running": [
+          "Updating design",
+          "正在更新设计"
+        ],
+        "error": [
+          "Failed to update design",
+          "更新设计失败"
+        ]
+      }
+    },
+    {
+      "toolName": "mcp__klaus-digram__digram_edit",
+      "args": {
+        "ops": []
+      },
+      "icon": "tool-diagram",
+      "labels": {
+        "done": [
+          "Updated diagram",
+          "已更新图表"
+        ],
+        "interrupted": [
+          "Stopped updating diagram",
+          "已停止更新图表"
+        ]
+      }
+    },
+    {
+      "toolName": "browser_resolve_tab",
+      "args": {
+        "mention": "plugin://browser@klaus-bundled/tab-1"
+      },
+      "icon": "tool-browser",
+      "labels": {
+        "error": [
+          "Failed to find browser tab",
+          "查找浏览器标签页失败"
+        ]
+      }
+    },
+    {
+      "toolName": "browser_claim_tab",
+      "args": {
+        "tabId": 4
+      },
+      "icon": "tool-browser",
+      "labels": {
+        "done": [
+          "Connected browser tab",
+          "已连接浏览器标签页"
+        ]
+      }
+    },
+    {
+      "toolName": "browser_navigate",
+      "args": {
+        "url": "https://example.com/private?token=secret"
+      },
+      "icon": "tool-browser",
+      "labels": {
+        "done": [
+          "Opened webpage · example.com",
+          "已打开网页 · example.com"
+        ]
+      }
+    },
+    {
+      "toolName": "browser_type",
+      "args": {
+        "text": "PRIVATE_TYPED_VALUE"
+      },
+      "icon": "tool-browser",
+      "labels": {
+        "running": [
+          "Typing in webpage",
+          "正在填写网页内容"
+        ]
+      }
+    },
+    {
+      "toolName": "browser_click",
+      "args": {
+        "name": "Submit"
+      },
+      "icon": "tool-browser-click",
+      "labels": {
+        "done": [
+          "Clicked webpage element · Submit",
+          "已点击网页元素 · Submit"
+        ]
+      }
+    },
+    {
+      "toolName": "web_search",
+      "args": {
+        "query": "weather Shanghai"
+      },
+      "icon": "tool-web",
+      "labels": {
+        "running": [
+          "Searching the web · weather Shanghai",
+          "正在搜索网页 · weather Shanghai"
+        ],
+        "error": [
+          "Failed to search the web · weather Shanghai",
+          "搜索网页失败 · weather Shanghai"
+        ]
+      }
+    },
+    {
+      "toolName": "web_fetch",
+      "args": {
+        "url": "https://example.com/help"
+      },
+      "icon": "tool-web",
+      "labels": {
+        "done": [
+          "Read webpage · example.com",
+          "已读取网页 · example.com"
+        ]
+      }
+    },
+    {
+      "toolName": "list_friends",
+      "args": {},
+      "icon": "tool-friends",
+      "labels": {
+        "running": ["Viewing friends", "正在查看好友列表"],
+        "done": ["Viewed friends", "已查看好友列表"],
+        "error": ["Failed to view friends", "查看好友列表失败"],
+        "interrupted": ["Stopped viewing friends", "已停止查看好友列表"],
+        "awaiting-approval": ["Awaiting approval to view friends", "等待批准查看好友列表"]
+      }
+    },
+    {
+      "toolName": "send_message_to_friend",
+      "args": { "friendId": "friend-a", "prompt": "Review the issue" },
+      "icon": "tool-friend-send",
+      "labels": {
+        "running": ["Sending message to friend", "正在向好友发送消息"],
+        "done": ["Sent message to friend", "已向好友发送消息"],
+        "error": ["Failed to send message to friend", "向好友发送消息失败"],
+        "interrupted": ["Stopped sending message to friend", "已停止向好友发送消息"],
+        "awaiting-approval": ["Awaiting approval to send message to friend", "等待批准向好友发送消息"]
+      }
+    },
+    {
+      "toolName": "CronCreate",
+      "args": {
+        "name": "Morning review",
+        "cron": "0 9 * * 1-5",
+        "recurring": true,
+        "prompt": "Review tasks"
+      },
+      "icon": "tool-clock",
+      "labels": {
+        "running": [
+          "Creating scheduled task",
+          "正在创建定时任务"
+        ],
+        "done": [
+          "Created scheduled task",
+          "已创建定时任务"
+        ],
+        "error": [
+          "Failed to create scheduled task",
+          "创建定时任务失败"
+        ]
+      }
+    },
+    {
+      "toolName": "CronList",
+      "args": {},
+      "icon": "tool-clock",
+      "labels": {
+        "done": [
+          "Listed scheduled tasks",
+          "已查看定时任务"
+        ]
+      }
+    },
+    {
+      "toolName": "CronDelete",
+      "args": {
+        "id": "cron-a-b"
+      },
+      "icon": "tool-clock",
+      "labels": {
+        "done": [
+          "Cancelled scheduled task",
+          "已取消定时任务"
+        ]
+      }
+    }
+  ],
+  "friendResults": {
+    "directory": { "signedIn": true, "friends": [
+      { "id": "friend-a", "userId": "user-a", "displayName": "Alex", "remark": "Reviewer", "online": true, "peerAllowsAgentTasks": true },
+      { "id": "friend-b", "userId": "user-b", "displayName": "Blair", "online": false, "peerAllowsAgentTasks": false }
+    ] },
+    "empty": { "signedIn": true, "friends": [] },
+    "signedOut": { "signedIn": false, "friends": [] },
+    "receipt": { "delivered": true, "kind": "task", "requestId": "request-a", "receiverUserId": "user-a", "receiverDeviceId": "device-a", "receiverDeviceIds": ["device-a"], "taskId": "task-a", "awaitingAuthorization": true },
+    "failure": "Friend is offline."
+  },
+  "sources": {
+    "native": "[1] Example documentation\n   https://example.com/docs\n   Helpful reference.",
+    "host": "1. Example guide\n   https://example.com/guide\n   Getting started.",
+    "unsafe": "[secret](https://user:password@example.com/private) [script](javascript:alert(1))"
+  },
+  "schedule": {
+    "host": "已创建循环定时任务 cron-a-b（Weekdays at 9:00 AM），已持久化到服务端。用 CronDelete 可取消。",
+    "list": "已排程 1 个定时任务：\ncron-a-b — Every day at 9:00 AM（循环）：Morning review"
+  }
+}

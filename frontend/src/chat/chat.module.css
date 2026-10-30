@@ -1,0 +1,368 @@
+.welcome-logo {
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-sm);
+  object-fit: contain;
+  flex-shrink: 0;
+}
+
+.welcome-greeting {
+  max-width: 560px;
+  font-size: var(--text-display);
+  font-weight: var(--weight-medium);
+  letter-spacing: -0.01em;
+  color: var(--fg);
+  line-height: 1.25;
+  text-align: left;
+}
+
+.welcome-chip-title {
+  font-size: var(--text-small);
+  line-height: 1.4;
+  font-weight: var(--weight-regular);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@media (max-width: 980px) {
+  .welcome-logo {
+      width: 32px;
+      height: 32px;
+    }
+}
+
+@media (max-width: 640px) {
+  .welcome-logo {
+      width: 28px;
+      height: 28px;
+      border-radius: var(--radius-xs);
+    }
+
+  .welcome-greeting { font-size: var(--text-hero); }
+}
+
+body:global(.artifacts-open) .welcome-greeting {
+  font-size: var(--text-hero);
+}
+
+/* Fixed-height groups retain accessible buttons and skip offscreen paint. */
+.turn-navigation-marker-group {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  width: 36px;
+  content-visibility: auto;
+}
+
+.turn-navigation-marker {
+  --turn-marker-progress: 0;
+  --turn-marker-opacity: 0.4;
+  position: relative;
+  flex: 0 0 10px;
+  width: 36px;
+  height: 10px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--fg-tertiary);
+  cursor: pointer;
+  touch-action: none;
+}
+
+.turn-navigation-marker::before {
+  content: '';
+  position: absolute;
+  top: 4px;
+  left: 8px;
+  width: 26px;
+  height: 2px;
+  background: currentColor;
+  opacity: var(--turn-marker-opacity);
+  transform: scaleX(calc(0.230769 + 0.769231 * var(--turn-marker-progress)));
+  transform-origin: 0 50%;
+  transition: transform 160ms linear(0, 0.398 10%, 0.682 20%, 0.843 30%, 0.925 40%, 0.972 50%, 1.004 60%, 1.008 70%, 1.003 80%, 1);
+}
+
+.turn-navigation-marker[data-visible] {
+  color: var(--fg);
+  --turn-marker-opacity: 0.6;
+}
+
+.turn-navigation-marker:hover,
+.turn-navigation-marker:focus-visible,
+.turn-navigation-marker[data-scrub-target] {
+  --turn-marker-progress: 1;
+  color: var(--fg);
+  --turn-marker-opacity: 1;
+}
+
+/* A bounded set of distance attributes works across group boundaries. */
+.turn-navigation-marker[data-neighbor-distance="1"] { --turn-marker-progress: 0.7; }
+.turn-navigation-marker[data-neighbor-distance="2"] { --turn-marker-progress: 0.4; }
+.turn-navigation-marker[data-neighbor-distance="3"] { --turn-marker-progress: 0.2; }
+
+:global(.turn-navigation-list)[data-previewing] .turn-navigation-marker[data-visible]:not(:hover):not(:focus-visible):not([data-scrub-target]) {
+  color: var(--fg-tertiary);
+  --turn-marker-opacity: 0.4;
+}
+
+:global(.turn-navigation-list)[data-scrubbing] .turn-navigation-marker::before {
+  transition-duration: 0s;
+}
+
+.turn-navigation-marker:focus-visible {
+  outline: none;
+  --turn-marker-progress: 1;
+  color: var(--fg);
+  --turn-marker-opacity: 1;
+}
+
+.turn-navigation-tooltip-query {
+  overflow: hidden;
+  color: var(--fg);
+  font-weight: var(--weight-medium);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.turn-navigation-tooltip-output {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow: hidden;
+  margin-top: 4px;
+  color: var(--fg-secondary);
+  font-size: var(--text-badge);
+}
+
+.turn-navigation-tooltip-output-icon {
+  display: flex;
+  flex: 0 0 14px;
+  align-items: center;
+}
+
+.turn-navigation-tooltip-output-icon svg {
+  width: 14px;
+  height: 14px;
+}
+
+.turn-navigation-tooltip-output-label {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.turn-navigation-tooltip-answer {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  overflow: hidden;
+  margin-top: 6px;
+  color: var(--fg-secondary);
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+/* Declared here, not in css/styles.css: CSS Modules localizes animation names,
+   so a keyframes referenced from a module must be defined in that module. */
+@keyframes turn-navigation-flash {
+  0%, 28% { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+  100% { background: transparent; }
+}
+
+:global(.msg-group).turn-navigation-target {
+  border-radius: var(--radius-sm);
+  animation: turn-navigation-flash 900ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .turn-navigation-marker::before { transition: none; }
+
+  :global(.msg-group).turn-navigation-target {
+    animation: none;
+    background: color-mix(in srgb, var(--accent) 10%, transparent);
+  }
+}
+
+:global(.auth-mode-pill) .auth-mode-icon,
+:global(.auth-mode-pill) .auth-mode-icon svg,
+:global(.auth-mode-pill) .auth-mode-icon img {
+  width: 18px;
+  height: 18px;
+  display: block;
+}
+
+:global(.auth-mode-pill) .auth-mode-icon img {
+  object-fit: contain;
+}
+
+.auth-mode-menu {
+  position: fixed;
+  z-index: 1300;
+  display: flex;
+  flex-direction: column;
+  min-width: 188px;
+  max-width: min(280px, calc(100vw - 16px));
+  max-height: min(320px, calc(100vh - 16px));
+  overflow: hidden;
+}
+
+.auth-mode-menu-list {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 0;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.auth-mode-menu-icon,
+.auth-mode-menu-manage-icon {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--fg-secondary);
+}
+
+.auth-mode-menu-icon .auth-mode-icon,
+.auth-mode-menu-icon .auth-mode-icon svg,
+.auth-mode-menu-icon .auth-mode-icon img,
+.auth-mode-menu-manage-icon svg {
+  width: 18px;
+  height: 18px;
+  display: block;
+}
+
+.auth-mode-menu-icon .auth-mode-icon img {
+  object-fit: contain;
+}
+
+/* The official logo is a bitmap whose rounded-square plate carries opaque
+   white corners (no alpha channel), so the plate edge is clipped here the way
+   the boot screen clips it. 4px on an 18px box keeps the boot page's 12px-on-
+   54px corner ratio. */
+.auth-mode-icon-klaus img {
+  border-radius: 4px;
+}
+
+.auth-mode-menu-label {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.auth-mode-menu-divider {
+  flex-shrink: 0;
+  height: 1px;
+  margin: 6px 6px;
+  background: color-mix(in srgb, var(--border) 75%, transparent);
+}
+
+.auth-mode-menu-manage {
+  flex-shrink: 0;
+  color: var(--fg);
+}
+
+/* Quiet recovery action used by transcript errors: no box, no fill, and no
+   permanent chrome. It should read as a link until the pointer reaches it. */
+.auth-settings-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--fg-secondary);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 20px;
+  cursor: pointer;
+}
+
+.auth-settings-link:hover,
+.auth-settings-link:focus-visible {
+  color: var(--fg);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* A friend request awaits its decision inside the conversation it arrived in:
+   one card with the decision, then a quiet status line once decided. */
+/* The decision card sits under the message that carries the request and lines
+   up with the bubble column, leaving the sender avatar's gutter clear. */
+.friend-approval-inline {
+  padding-left: 32px;
+}
+.friend-approval-inline .friend-approval {
+  margin: 6px 0 16px;
+}
+.friend-approval {
+  border: 1px solid color-mix(in srgb, var(--border) 90%, transparent);
+  border-radius: var(--radius-md, 12px);
+  padding: 13px 14px;
+  margin: 12px 0 18px;
+  max-width: min(720px, 100%);
+}
+.friend-approval-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: var(--text-small);
+  font-weight: var(--weight-medium);
+  color: var(--fg);
+}
+.friend-approval-location {
+  margin: 8px 0 0;
+  font-size: var(--text-xs, 11px);
+  color: var(--fg-secondary);
+  line-height: 1.6;
+}
+.friend-approval-hint {
+  margin: 8px 0 12px;
+  font-size: var(--text-xs, 11px);
+  color: var(--fg-tertiary);
+  line-height: 1.6;
+}
+.friend-approval-btns {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.friend-approval-link {
+  border: 0;
+  background: none;
+  padding: 0;
+  font-size: var(--text-xs, 11px);
+  color: var(--fg-tertiary);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.friend-approval-link:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.friend-approval-error {
+  margin: 10px 0 0;
+  font-size: var(--text-xs, 11px);
+  color: var(--danger, #b84e4e);
+}
+.friend-approval-settled {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin: 18px 0;
+  font-size: var(--text-xs, 11px);
+  color: var(--fg-tertiary);
+}

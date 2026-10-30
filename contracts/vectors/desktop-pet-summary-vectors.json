@@ -1,0 +1,11 @@
+{
+  "description": "Running task summaries are bounded single-line display text. Only a successful completed tool event may update the current turn's summary. The tool is offered to a session only while the pet surface is visible, the system-prompt note follows the same condition, and the transcript renders no row for its calls.",
+  "valid": ["Inspect project files", "检查任务状态", "🔍 Read source", "12345678901234567890123456789012345678901234567890"],
+  "invalid": [null, {}, {"summary": ""}, {"summary": "first\nsecond"}, {"summary": "first\rsecond"}, {"summary": "123456789012345678901234567890123456789012345678901"}, {"summary": "valid", "other": true}],
+  "provision": {
+    "offeredWhenPetVisible": true,
+    "withheldWhenPetHidden": true,
+    "promptNoteFollowsProvision": true,
+    "transcriptRendersCall": false
+  }
+}

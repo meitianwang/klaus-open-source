@@ -1,0 +1,33 @@
+{
+  "reason": "turn/submit atomically chooses whether input starts or steers a turn. Explicit refusal retains no input. Missing or inconsistent acknowledgements remain uncertain and never trigger a second submission through another method. A steered response confirms admission only; application requires a later correlated event. Explicit steering requires a target. A captured expected turn fences automatic routing too: no replacement target or new start is accepted. Non-steerable review and compact kinds remain structured refusal data.",
+  "accepted": [
+    { "name": "idle start", "mode": "start-if-idle", "reply": { "status": "started", "submissionId": "submission-one", "turnId": "submission-one" } },
+    { "name": "idle history continuation", "mode": "continue-if-idle", "reply": { "status": "started", "submissionId": "submission-one", "turnId": "submission-one" } },
+    { "name": "targeted steer", "mode": "steer", "reply": { "status": "steered", "submissionId": "submission-one", "turnId": "running-turn" } },
+    { "name": "atomic idle routing", "mode": "start-or-steer", "reply": { "status": "started", "submissionId": "submission-one", "turnId": "submission-one" } },
+    { "name": "atomic busy routing", "mode": "start-or-steer", "reply": { "status": "steered", "submissionId": "submission-one", "turnId": "running-turn" } }
+  ],
+  "refusals": [
+    { "reason": "not-idle", "code": "TURN_IN_PROGRESS" },
+    { "reason": "no-active-turn", "code": "TURN_INPUT_REFUSED" },
+    { "reason": "expected-turn-mismatch", "code": "TURN_INPUT_REFUSED" },
+    { "reason": "active-turn-not-steerable", "code": "TURN_INPUT_REFUSED" },
+    { "reason": "session-closing", "code": "TURN_INPUT_REFUSED" },
+    { "reason": "invalid-input", "code": "TURN_INPUT_REFUSED" }
+  ],
+  "invalid": [
+    { "name": "empty acknowledgement", "mode": "start-if-idle", "reply": {} },
+    { "name": "null acknowledgement", "mode": "steer", "reply": null },
+    { "name": "wrong submission identity", "mode": "steer", "reply": { "status": "steered", "submissionId": "another-submission", "turnId": "running-turn" } },
+    { "name": "missing turn identity", "mode": "steer", "reply": { "status": "steered", "submissionId": "submission-one" } },
+    { "name": "wrong active turn", "mode": "steer", "reply": { "status": "steered", "submissionId": "submission-one", "turnId": "another-turn" } },
+    { "name": "started turn differs from submission", "mode": "start-if-idle", "reply": { "status": "started", "submissionId": "submission-one", "turnId": "another-turn" } },
+    { "name": "start-only cannot steer", "mode": "start-if-idle", "reply": { "status": "steered", "submissionId": "submission-one", "turnId": "running-turn" } },
+    { "name": "continuation cannot steer", "mode": "continue-if-idle", "reply": { "status": "steered", "submissionId": "submission-one", "turnId": "running-turn" } },
+    { "name": "steer-only cannot start", "mode": "steer", "reply": { "status": "started", "submissionId": "submission-one", "turnId": "submission-one" } },
+    { "name": "unknown status", "mode": "start-or-steer", "reply": { "status": "applied", "submissionId": "submission-one", "turnId": "running-turn" } },
+    { "name": "refusal without reason", "mode": "start-if-idle", "reply": { "status": "not-submitted", "submissionId": "submission-one" } },
+    { "name": "refusal without code", "mode": "start-if-idle", "reply": { "status": "not-submitted", "submissionId": "submission-one", "reason": {} } },
+    { "name": "refusal with mismatched identity", "mode": "start-if-idle", "reply": { "status": "not-submitted", "submissionId": "another-submission", "reason": { "code": "not-idle" } } }
+  ]
+}

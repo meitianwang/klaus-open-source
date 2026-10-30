@@ -1,0 +1,63 @@
+{
+  "schemaVersion": 1,
+  "note": "Optional random trace metadata measures loading phases without changing admission, replay, deadlines or authorization. Diagnostics contain only whitelisted timing and numeric fields, never conversation or account data.",
+  "requestFields": ["diagnosticTraceId", "diagnosticOperation"],
+  "physicalResponseFields": ["diagnosticTraceId", "diagnosticOperation", "diagnosticMessage"],
+  "operations": ["catalog", "follow"],
+  "messageKinds": ["request", "catalog_page", "task_history", "task_snapshot", "task_follow_ready", "error"],
+  "traceIdentity": "random-uuid",
+  "clock": "local-monotonic",
+  "crossDeviceClockSubtraction": false,
+  "crossLayerClockSubtraction": false,
+  "desktopLayers": ["localService", "outerRelay"],
+  "desktopClockOrigins": ["request_received", "first_response_observed"],
+  "desktopSwitch": "existing-developer-debug-log-and-opt-in-phone-request",
+  "phoneSwitch": "existing-loading-diagnostics-default-off",
+  "relaySwitch": "opt-in-request-metadata-only",
+  "oldClientBehavior": "unchanged-no-diagnostic-records",
+  "desktopMaxTracesPerPeer": 64,
+  "desktopMaxRecordsPerTrace": 64,
+  "desktopMaxRecordsPerWindow": 1024,
+  "desktopRecordWindowMs": 60000,
+  "desktopCurrentLogMaxBytes": 2097152,
+  "desktopPreviousLogMaxBytes": 2097152,
+  "desktopLogMaxPendingBytes": 262144,
+  "phoneMaxRecords": 2000,
+  "phoneMaxExportBytes": 524288,
+  "phoneMaxActiveTraces": 32,
+  "relayMaxActiveTraces": 32,
+  "relayMaxRecordsPerTrace": 64,
+  "relayMaxRecordsPerWindow": 256,
+  "relayRecordWindowMs": 60000,
+  "relayMaxRecordsPerSecond": 32,
+  "collectorCloseProof": "collection-ended-not-business-success-or-failure",
+  "responseForwardedProof": "publisher-write-completed-not-phone-application",
+  "chunkQueueMs": "sum-of-per-chunk-residence-times-not-wall-clock",
+  "phases": {
+    "desktop": [
+      "request_received", "admission_started", "owner_acquire_started", "owner_acquire_complete", "request_admitted",
+      "hydration_queued", "hydration_started", "history_prepared", "snapshot_prepared", "catalog_page_prepared",
+      "send_queued", "write_started", "write_complete", "request_complete", "failed", "cancelled", "disconnected",
+      "bridge_request_received", "bridge_local_queued", "bridge_local_write_started", "bridge_local_write_complete",
+      "bridge_response_received", "bridge_flow_paused", "bridge_flow_resumed", "bridge_relay_write_started",
+      "bridge_relay_write_complete", "bridge_transfer_complete", "collection_closed", "trace_expired", "trace_evicted"
+    ],
+    "phone": [
+      "request_queued", "request_written", "request_preparation_started", "reliable_frames_loaded", "request_encoded",
+      "writer_entered", "durability_barrier_complete", "receive_main_actor_entered", "sync_decode_submitted", "sync_actor_entered",
+      "first_frame", "receive_complete", "assembly_complete", "decode_complete", "history_applied", "view_updated",
+      "timeout", "cancelled", "disconnected", "device_discovery_started", "device_discovery_complete", "device_discovery_failed",
+      "connection_started", "hello_received", "transport_ready", "connection_ready", "connection_failed", "connection_timeout"
+    ],
+    "relay": [
+      "request_received", "desktop_queued", "desktop_queue_ready", "desktop_authorize_start", "desktop_authorize_complete",
+      "desktop_write_start", "desktop_write_complete", "mobile_frame_received", "mobile_queued", "mobile_queue_ready",
+      "mobile_authorize_start", "mobile_authorize_complete", "mobile_write_start", "mobile_write_complete",
+      "authorization_failed", "send_failed", "limit", "disconnected", "trace_expired", "trace_evicted", "collection_closed", "response_forwarded"
+    ]
+  },
+  "phoneSamplingLimitations": ["ring_records_evicted", "trace_expired", "trace_capacity_replaced", "trace_target_replaced"],
+  "traceTtlMs": 600000,
+  "socketWriteProof": "local-write-completion-not-remote-delivery-or-paint",
+  "forbiddenLogFields": ["sessionId", "deviceId", "bridgeId", "userId", "accountId", "requestId", "target", "title", "text", "body", "data", "token", "password", "authorization", "headers", "url", "path", "message", "rawError"]
+}

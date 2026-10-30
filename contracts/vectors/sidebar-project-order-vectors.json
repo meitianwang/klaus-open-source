@@ -1,0 +1,79 @@
+{
+  "_why": "The sidebar's Projects section became user-orderable by dragging. These vectors pin the observable rules so a refactor cannot silently regress them: the storage key names for the dragged order and its localStorage mirror, the placement rule (pointer half of the hovered row decides before/after), the no-op drop rule (a drop that changes nothing commits nothing), the reconcile rule (stored keys keep their order, vanished keys drop out, unknown keys lead), the optimistic-write rule (paint first, write trailing, chained so the last drop wins, guarded rollback), and the cross-window broadcast key. The host stores the section's COMPLETE key list, not an index pair, and mirrors the plain-project subset into the registry's own order row in the same transaction.",
+  "storage": {
+    "hostOrderKey": "workspace.sidebar_project_order",
+    "mirrorKey": "klaus_sidebar_project_order_mirror",
+    "broadcastKey": "sidebar.project_order",
+    "registryOrderKey": "workspace.project_order",
+    "keyShapes": ["ws:<workspaceId>", "friend:<friendshipId>", "/absolute/project/path"],
+    "legacyMigrationWhitelistMustNotContain": ["sidebar.project_order", "workspace.sidebar_project_order"]
+  },
+  "placement": {
+    "_why": "The pointer decides, not the dragged block's centre: once a tall (expanded) group is dragged, its own centre no longer describes the intent.",
+    "pointerInUpperHalfIsBefore": { "activeRect": { "top": 100, "bottom": 130 }, "pointerY": 201, "targetRect": { "top": 200, "bottom": 230 }, "placement": "before" },
+    "pointerInLowerHalfIsAfter": { "activeRect": { "top": 100, "bottom": 130 }, "pointerY": 220, "targetRect": { "top": 200, "bottom": 230 }, "placement": "after" },
+    "boundaryPointerIsAfter": { "activeRect": { "top": 100, "bottom": 130 }, "pointerY": 215, "targetRect": { "top": 200, "bottom": 230 }, "placement": "after" },
+    "noPointerFallsBackToActiveCentre": { "activeRect": { "top": 240, "bottom": 260 }, "pointerY": null, "targetRect": { "top": 200, "bottom": 230 }, "placement": "after" }
+  },
+  "dropTarget": {
+    "_why": "A drop is expressed as 'before which key' (null = end). The cases below pin that a no-op resolves to null, which the gesture layer reads as 'cancel, write nothing'.",
+    "dropOnSelfIsNoOp": { "keys": ["a", "b", "c"], "active": "b", "over": "b", "placement": "before", "result": null },
+    "dropOnNeighbourIsNoOp": { "keys": ["a", "b", "c"], "active": "a", "over": "b", "placement": "before", "result": null },
+    "dropAfterNeighbourIsNoOp": { "keys": ["a", "b", "c"], "active": "b", "over": "a", "placement": "after", "result": null },
+    "dropOnFirstUpperHalfMovesToHead": { "keys": ["a", "b", "c"], "active": "c", "over": "a", "placement": "before", "result": { "beforeKey": "a" } },
+    "dropOnLastLowerHalfMovesToEnd": { "keys": ["a", "b", "c"], "active": "a", "over": "c", "placement": "after", "result": { "beforeKey": null } },
+    "dropOnMiddleLowerHalf": { "keys": ["a", "b", "c"], "active": "a", "over": "b", "placement": "after", "result": { "beforeKey": "c" } },
+    "unknownOverKeyIsNoOp": { "keys": ["a", "b"], "active": "a", "over": "ghost", "placement": "before", "result": null }
+  },
+  "moveBefore": {
+    "_why": "The dragged key is lifted out FIRST, so a downward drag lands where the pointer says, not one slot further.",
+    "toHead": { "keys": ["a", "b", "c"], "active": "c", "beforeKey": "a", "result": ["c", "a", "b"] },
+    "toEnd": { "keys": ["a", "b", "c"], "active": "a", "beforeKey": null, "result": ["b", "c", "a"] },
+    "downwardLandsBeforeTarget": { "keys": ["a", "b", "c"], "active": "a", "beforeKey": "c", "result": ["b", "a", "c"] },
+    "upwardLandsBeforeTarget": { "keys": ["a", "b", "c"], "active": "c", "beforeKey": "b", "result": ["a", "c", "b"] },
+    "unknownBeforeKeyKeepsOrder": { "keys": ["a", "b"], "active": "a", "beforeKey": "ghost", "result": ["a", "b"] }
+  },
+  "reconcile": {
+    "_why": "The stored order outlives individual rows: a removed project must not keep a slot, and a row nobody has arranged yet must still paint (at the head, matching how a newly registered project lands at the top of the host registry).",
+    "noStoredOrderIsIdentity": { "stored": [], "current": ["a", "b"], "result": ["a", "b"] },
+    "storedOrderWins": { "stored": ["b", "a"], "current": ["a", "b"], "result": ["b", "a"] },
+    "vanishedKeysDropOut": { "stored": ["ghost", "b", "a"], "current": ["a", "b"], "result": ["b", "a"] },
+    "unknownKeysLeadInCurrentOrder": { "stored": ["b"], "current": ["a", "b", "c"], "result": ["a", "c", "b"] },
+    "resultAlwaysCoversCurrent": { "stored": ["c", "b"], "current": ["a", "b", "c", "d"], "result": ["a", "d", "c", "b"] },
+    "parseRejectsNonArrays": { "raw": { "a": 1 }, "parsed": [] },
+    "parseDropsNonStrings": { "raw": ["a", 3, null, "b", ""], "parsed": ["a", "b"] }
+  },
+  "commit": {
+    "_why": "Optimistic like the collapse rows: paint on the frame the drop lands, write trailing, chained so two quick drops cannot land out of order, and a failed old write never reverts a newer drop.",
+    "paintsBeforeWrite": "the new order is applied to live state and re-rendered synchronously in commitSidebarProjectOrder, before the reorder call resolves",
+    "writesAreChained": "sidebarProjectOrderWrite = sidebarProjectOrderWrite.then(...) so drop N+1 cannot overtake drop N",
+    "rollbackIsGuarded": "a failed write reverts only while mayApplyAsyncState(revision, current) still holds; a newer drop bumped the revision and survives",
+    "pendingKeepsIndicator": "reorderPending stays true until the write settles, so the drop indicator keeps painting at the drop slot through a slow write",
+    "hostRejectionIsEnvelope": "projects:reorder answers { error } rather than throwing; the commit path treats both as failure"
+  },
+  "host": {
+    "_why": "The section's order row covers three kinds of key, but only registered roots may enter the project registry's own order row — otherwise dragging a friend group would register a project.",
+    "oneTransaction": "workspace.sidebar_project_order and workspace.project_order are written inside the same withSettingsTransaction in projectsReorder",
+    "registrySubsetOnly": "keys that are not registered roots (ws:/friend:/unregistered paths) never enter workspace.project_order",
+    "undraggedRootsKeepRelativeOrder": "registered roots absent from the drag keep their previous relative order at the tail, so a reorder can never drop one",
+    "removalClearsSlot": "projectsRemove, workspaces:delete and detachDirectory each drop the removed key from the sidebar order row",
+    "listEchoesOrder": "projectsList returns sidebarOrder so a hydrate needs no second read"
+  },
+  "gesture": {
+    "_why": "The interaction contract, pinned here because the DOM harness measures it end to end and a unit test cannot.",
+    "activationDistancePx": 6,
+    "activatorIsRowOnly": "the pointer listeners sit on the row, not the group block, so a press on a thread inside an expanded group still opens that conversation",
+    "draggedGroupIsInert": "the source group is inert while in flight, so the pointer passing back over it cannot re-target the indicator onto the row being moved",
+    "sourceStaysVisible": "the source group dims (opacity 0.2) and stays inert in the slot it was picked up from; it does not slide, so the vacated slot keeps marking where the row came from",
+    "noMakeWayDisplacement": "neighbours do NOT shift during the drag — the sortable strategy returns null for every group. The insertion line is the sole cue for where the row lands; a make-way animation keyed off the collision's over-index would be a second cue that disagrees with the line by one slot whenever the pointer is in a row's upper half",
+    "indicatorIsZeroHeight": "the insertion line is a sibling with height 0 and margin-bottom -1px, so painting it never shifts a row and never changes the list height",
+    "endSlotGetsIndicator": "a drop below the last group paints the indicator at the list tail, where no group of its own exists to hang it on",
+    "overlayIsBodyPortal": "the lifted copy portals to document.body, escaping the sidebar scroll container's clipping, and carries glyph plus label only",
+    "keyboardPath": "alt+ArrowUp / alt+ArrowDown moves the focused group one slot; Enter and Space stay the row's fold/unfold gesture",
+    "verticalOnly": "restrictToVerticalAxis pins the overlay to the column; a sideways sweep cannot change the drop slot",
+    "singleAxisList": "the section is one flat column of groups — there are no sub-lists, so a strategy that handles nested containers is not needed and neighbours never reorder mid-drag",
+    "autoScrollOnlyRealScrollContainers": "autoScroll canScroll accepts ONLY elements whose computed overflow-y is auto or scroll AND whose rect contains the pointer. Overflow-hidden shells (html, body, #app, #sidebar) must never be scroll targets: a hidden-overflow box is still programmatically scrollable in Chromium, and the lifted overlay is portalled to the body, so while it hangs near the window's bottom edge the body's scroll height exceeds its client height and an unrestricted auto-scroller drags the WHOLE interface upward, leaving header rows clipped off the top and window background below the footer after release",
+    "shellScrollResetOnGestureEnd": "on drag end and cancel, every overflow-hidden shell box (documentElement, body, #app, #sidebar) is reset to scrollTop 0, so a finished gesture always leaves the shell exactly where it was",
+    "belowTwoRowsNotReorderable": "reorderable is false with fewer than two rows: nothing to reorder against, and the drag listeners are not attached at all"
+  }
+}

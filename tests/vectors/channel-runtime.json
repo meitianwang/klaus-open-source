@@ -1,0 +1,17 @@
+{
+  "reason": "Keep the current roster, account KV schema, WeChat iLink bodies and inbound context. Correct connected to the actual transport state; reject missing transports, serialize one chat, and drain accepted work on stop. A resolved send with ok:false is a delivery failure.",
+  "ids": ["feishu", "dingtalk", "wechat", "wecom", "qq", "telegram", "discord", "whatsapp"],
+  "channels": ["channels:list", "channels:connect", "channels:disconnect"],
+  "message": {
+    "message_id": 42, "message_type": 1, "from_user_id": "fixture-sender", "create_time_ms": 1700000000000,
+    "context_token": "fixture-context",
+    "item_list": [{"type": 1, "text_item": {"text": "hello fixture"}}]
+  },
+  "inbound": {
+    "sessionKey": "wechat:fixture-sender", "senderId": "fixture-sender", "text": "hello fixture", "chatType": "private",
+    "messageType": "text", "timestamp": 1700000000000, "messageId": "42"
+  },
+  "baseInfo": {"channel_version": "klaus-wechat-1.0"},
+  "mixedMessage": {"item_list": [{"type":2},{"type":3},{"type":3,"voice_item":{"text":"transcribed"}},{"type":4,"file_item":{"file_name":"fixture.txt"}},{"type":4},{"type":5}]},
+  "mixedText": "[图片]\n[语音]\ntranscribed\n[文件: fixture.txt]\n[文件: 未知]\n[视频]"
+}

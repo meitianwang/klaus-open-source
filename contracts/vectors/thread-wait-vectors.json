@@ -1,0 +1,945 @@
+{
+  "_why": "wait_threads is the only blocking conversation tool, so its wake rules are pinned here rather than left to prose. The rules decide when a coordinator stops waiting, and getting one wrong is silent: too eager and every poll wakes on unchanged work, too lazy and a thread parked on an approval never gets noticed. A target wakes on a COMPLETED turn, on an actionable status (waitingOnApproval / waitingOnUserInput), or on an inactive status (systemError / notLoaded). An active target with no flags is progressing and must NOT wake — commentary never wakes a wait. A cursor identifies the last reported turn, so an unchanged terminal turn is suppressed instead of being reported forever; an absent cursor means nothing was seen yet, so everything is a change. The cursor is deliberately tolerant: a corrupted or hand-written value degrades to 'nothing seen' rather than failing the wait. Suppressed text is withheld (null) while the snapshot still carries the advanced cursor, so a caller that passes it back gets only new work. A target whose latest turn reached a terminal state reports turnCompleted even when its status is notLoaded or systemError, because a finished turn is concrete evidence while notLoaded is merely the engine's default for a thread with durable history and no live status — the normal state of a sidebar thread nobody has open. Ranking the status above the turn evidence would tell a coordinator that completed work needs a human. An active-with-flags target still outranks both, since it is genuinely blocked on a person. Host IDs now address same-account peers. Unknown or offline peers produce per-target errors at execution time; tuple identity and remote wait behavior are pinned in remote-thread-tools-vectors.json. Wait replies expose preview truncation and a read action for newly completed turns. Collection preserves the reported turn identity; unchanged completions stay suppressed and progress previews do not imply completion. Actionable flags participate in active-turn cursors so a target entering approval or user-input wait during the same turn wakes once; legacy and terminal cursor encodings remain accepted.",
+  "wakeRules": [
+    {
+      "name": "an idle thread whose latest turn completed wakes on turnCompleted",
+      "state": {
+        "threadId": "thread-b",
+        "statusType": "idle",
+        "activeFlags": [],
+        "latestTurn": {
+          "id": "turn-2",
+          "status": "completed"
+        },
+        "latestText": "Done.",
+        "title": "Build parser"
+      },
+      "cursor": null,
+      "expectedWake": {
+        "reason": "turnCompleted",
+        "turnId": "turn-2"
+      }
+    },
+    {
+      "name": "the same terminal turn behind an up-to-date cursor does not wake again",
+      "state": {
+        "threadId": "thread-b",
+        "statusType": "idle",
+        "activeFlags": [],
+        "latestTurn": {
+          "id": "turn-2",
+          "status": "completed"
+        },
+        "latestText": "Done.",
+        "title": "Build parser"
+      },
+      "cursor": "turn-2:completed",
+      "expectedWake": null,
+      "expectedChanged": false,
+      "expectedSuppressedText": true
+    },
+    {
+      "name": "a NEW turn past the cursor wakes again and the text is not suppressed",
+      "state": {
+        "threadId": "thread-b",
+        "statusType": "idle",
+        "activeFlags": [],
+        "latestTurn": {
+          "id": "turn-3",
+          "status": "completed"
+        },
+        "latestText": "Second result.",
+        "title": "Build parser"
+      },
+      "cursor": "turn-2:completed",
+      "expectedWake": {
+        "reason": "turnCompleted",
+        "turnId": "turn-3"
+      },
+      "expectedChanged": true,
+      "expectedSuppressedText": false
+    },
+    {
+      "name": "the same turn id that changed status wakes",
+      "state": {
+        "threadId": "thread-b",
+        "statusType": "idle",
+        "activeFlags": [],
+        "latestTurn": {
+          "id": "turn-2",
+          "status": "failed"
+        },
+        "latestText": null,
+        "title": "Build parser"
+      },
+      "cursor": "turn-2:completed",
+      "expectedWake": {
+        "reason": "turnCompleted",
+        "turnId": "turn-2"
+      },
+      "expectedChanged": true
+    },
+    {
+      "name": "an active thread with no flags is progressing and never wakes",
+      "state": {
+        "threadId": "thread-b",
+        "statusType": "active",
+        "activeFlags": [],
+        "latestTurn": {
+          "id": "turn-2",
+          "status": "inProgress"
+        },
+        "latestText": "Working on it.",
+        "title": "Build parser"
+      },
+      "cursor": null,
+      "expectedWake": null
+    },
+    {
+      "name": "an in-progress turn on an idle thread does not wake",
+      "state": {
+        "threadId": "thread-b",
+        "statusType": "idle",
+        "activeFlags": [],
+        "latestTurn": {
+          "id": "turn-2",
+          "status": "inProgress"
+        },
+        "latestText": null,
+        "title": "Build parser"
+      },
+      "cursor": null,
+      "expectedWake": null
+    },
+    {
+      "name": "waiting on approval is actionable and wakes",
+      "state": {
+        "threadId": "thread-b",
+        "statusType": "active",
+        "activeFlags": [
+          "waitingOnApproval"
+        ],
+        "latestTurn": {
+          "id": "turn-2",
+          "status": "inProgress"
+        },
+        "latestText": null,
+        "title": "Build parser"
+      },
+      "cursor": null,
+      "expectedWake": {
+        "reason": "actionableStatus"
+      }
+    },
+    {
+      "name": "waiting on user input is actionable and wakes",
+      "state": {
+        "threadId": "thread-b",
+        "statusType": "active",
+        "activeFlags": [
+          "waitingOnUserInput"
+        ],
+        "latestTurn": {
+          "id": "turn-2",
+          "status": "inProgress"
+        },
+        "latestText": null,
+        "title": "Build parser"
+      },
+      "cursor": null,
+      "expectedWake": {
+        "reason": "actionableStatus"
+      }
+    },
+    {
+      "name": "an unchanged approval does not wake every poll",
+      "state": {
+        "threadId": "thread-b",
+        "statusType": "active",
+        "activeFlags": [
+          "waitingOnApproval"
+        ],
+        "latestTurn": {
+          "id": "turn-2",
+          "status": "inProgress"
+        },
+        "latestText": null,
+        "title": "Build parser"
+      },
+      "cursor": "turn-2:inProgress#%5B%22waitingOnApproval%22%5D",
+      "expectedWake": null,
+      "expectedChanged": false
+    },
+    {
+      "name": "a system error is inactive and needs attention",
+      "state": {
+        "threadId": "thread-b",
+        "statusType": "systemError",
+        "activeFlags": [],
+        "latestTurn": null,
+        "latestText": null,
+        "title": "Build parser"
+      },
+      "cursor": null,
+      "expectedWake": {
+        "reason": "inactiveStatus"
+      }
+    },
+    {
+      "name": "a thread that never loaded is inactive",
+      "state": {
+        "threadId": "thread-b",
+        "statusType": "notLoaded",
+        "activeFlags": [],
+        "latestTurn": null,
+        "latestText": null,
+        "title": null
+      },
+      "cursor": null,
+      "expectedWake": {
+        "reason": "inactiveStatus"
+      }
+    },
+    {
+      "name": "an idle thread with no turn at all is inactive",
+      "state": {
+        "threadId": "thread-b",
+        "statusType": "idle",
+        "activeFlags": [],
+        "latestTurn": null,
+        "latestText": null,
+        "title": "Empty"
+      },
+      "cursor": null,
+      "expectedWake": {
+        "reason": "inactiveStatus"
+      }
+    },
+    {
+      "name": "an idle thread with no turn still wakes on a first wait despite a cursor",
+      "state": {
+        "threadId": "thread-b",
+        "statusType": "idle",
+        "activeFlags": [],
+        "latestTurn": null,
+        "latestText": null,
+        "title": "Empty"
+      },
+      "cursor": "turn-1:completed",
+      "expectedWake": {
+        "reason": "inactiveStatus"
+      },
+      "expectedChanged": true
+    },
+    {
+      "name": "a notLoaded thread whose turn completed reports turnCompleted, not needs-attention",
+      "state": {
+        "threadId": "thread-b",
+        "statusType": "notLoaded",
+        "activeFlags": [],
+        "latestTurn": {
+          "id": "turn-2",
+          "status": "completed"
+        },
+        "latestText": "Done.",
+        "title": "Sidebar"
+      },
+      "cursor": null,
+      "expectedWake": {
+        "reason": "turnCompleted",
+        "turnId": "turn-2"
+      }
+    },
+    {
+      "name": "the same completed turn behind an up-to-date cursor does not re-wake a notLoaded thread",
+      "state": {
+        "threadId": "thread-b",
+        "statusType": "notLoaded",
+        "activeFlags": [],
+        "latestTurn": {
+          "id": "turn-2",
+          "status": "completed"
+        },
+        "latestText": "Done.",
+        "title": "Sidebar"
+      },
+      "cursor": "turn-2:completed",
+      "expectedWake": null,
+      "expectedChanged": false,
+      "expectedSuppressedText": true
+    },
+    {
+      "name": "a systemError thread with no turn is inactive and needs attention",
+      "state": {
+        "threadId": "thread-b",
+        "statusType": "systemError",
+        "activeFlags": [],
+        "latestTurn": null,
+        "latestText": null,
+        "title": null
+      },
+      "cursor": null,
+      "expectedWake": {
+        "reason": "inactiveStatus"
+      }
+    },
+    {
+      "name": "concrete turn evidence outranks a systemError status",
+      "state": {
+        "threadId": "thread-b",
+        "statusType": "systemError",
+        "activeFlags": [],
+        "latestTurn": {
+          "id": "turn-2",
+          "status": "completed"
+        },
+        "latestText": "Done.",
+        "title": "Sidebar"
+      },
+      "cursor": null,
+      "expectedWake": {
+        "reason": "turnCompleted",
+        "turnId": "turn-2"
+      }
+    },
+    {
+      "name": "an actionable status still outranks a completed turn",
+      "state": {
+        "threadId": "thread-b",
+        "statusType": "active",
+        "activeFlags": [
+          "waitingOnApproval"
+        ],
+        "latestTurn": {
+          "id": "turn-2",
+          "status": "completed"
+        },
+        "latestText": "Done.",
+        "title": "Sidebar"
+      },
+      "cursor": null,
+      "expectedWake": {
+        "reason": "actionableStatus"
+      }
+    },
+    {
+      "name": "same-turn approval after a progress cursor wakes for the newly blocked state",
+      "state": {
+        "threadId": "thread-b",
+        "statusType": "active",
+        "activeFlags": [
+          "waitingOnApproval"
+        ],
+        "latestTurn": {
+          "id": "turn-2",
+          "status": "inProgress"
+        },
+        "latestText": null
+      },
+      "cursor": "turn-2:inProgress",
+      "expectedWake": {
+        "reason": "actionableStatus"
+      },
+      "expectedChanged": true
+    },
+    {
+      "name": "a returned approval cursor suppresses the same unchanged approval",
+      "state": {
+        "threadId": "thread-b",
+        "statusType": "active",
+        "activeFlags": [
+          "waitingOnApproval"
+        ],
+        "latestTurn": {
+          "id": "turn-2",
+          "status": "inProgress"
+        },
+        "latestText": null
+      },
+      "cursor": "turn-2:inProgress#%5B%22waitingOnApproval%22%5D",
+      "expectedWake": null,
+      "expectedChanged": false
+    },
+    {
+      "name": "same-turn switch from approval to user input wakes for the new blocker",
+      "state": {
+        "threadId": "thread-b",
+        "statusType": "active",
+        "activeFlags": [
+          "waitingOnUserInput"
+        ],
+        "latestTurn": {
+          "id": "turn-2",
+          "status": "inProgress"
+        },
+        "latestText": null
+      },
+      "cursor": "turn-2:inProgress#%5B%22waitingOnApproval%22%5D",
+      "expectedWake": {
+        "reason": "actionableStatus"
+      },
+      "expectedChanged": true
+    },
+    {
+      "name": "reordered actionable flags do not wake an unchanged blocked turn",
+      "state": {
+        "threadId": "thread-b",
+        "statusType": "active",
+        "activeFlags": [
+          "waitingOnUserInput",
+          "waitingOnApproval"
+        ],
+        "latestTurn": {
+          "id": "turn-2",
+          "status": "inProgress"
+        },
+        "latestText": null
+      },
+      "cursor": "turn-2:inProgress#%5B%22waitingOnApproval%22%2C%22waitingOnUserInput%22%5D",
+      "expectedWake": null,
+      "expectedChanged": false
+    }
+  ],
+  "cursorCodecs": [
+    {
+      "name": "a thread with no turn encodes an empty cursor",
+      "state": {
+        "threadId": "t",
+        "statusType": "idle",
+        "activeFlags": [],
+        "latestTurn": null,
+        "latestText": null
+      },
+      "expectedCursor": ""
+    },
+    {
+      "name": "a turn encodes id and status",
+      "state": {
+        "threadId": "t",
+        "statusType": "idle",
+        "activeFlags": [],
+        "latestTurn": {
+          "id": "turn-7",
+          "status": "completed"
+        },
+        "latestText": null
+      },
+      "expectedCursor": "turn-7:completed"
+    },
+    {
+      "name": "a uuid-shaped turn id decodes back",
+      "cursor": "614cc8f1-8c61-5f4f-8ef8-8199ba8b267a:failed",
+      "expectedTurnId": "614cc8f1-8c61-5f4f-8ef8-8199ba8b267a",
+      "expectedStatus": "failed"
+    },
+    {
+      "name": "a status containing the separator still round-trips on the LAST one",
+      "state": {
+        "threadId": "t",
+        "statusType": "idle",
+        "activeFlags": [],
+        "latestTurn": {
+          "id": "turn:x",
+          "status": "completed"
+        },
+        "latestText": null
+      },
+      "expectedCursor": "turn:x:completed",
+      "expectedTurnId": "turn:x",
+      "expectedStatus": "completed"
+    },
+    {
+      "name": "an empty cursor decodes as nothing seen",
+      "cursor": "",
+      "expectedDecoded": null
+    },
+    {
+      "name": "a cursor with no separator decodes as nothing seen",
+      "cursor": "turn-7",
+      "expectedDecoded": null
+    },
+    {
+      "name": "a cursor that is only a separator decodes as nothing seen",
+      "cursor": ":",
+      "expectedDecoded": null
+    },
+    {
+      "name": "a cursor with a trailing separator decodes as nothing seen",
+      "cursor": "turn-7:",
+      "expectedDecoded": null
+    },
+    {
+      "name": "a cursor with a leading separator decodes as nothing seen",
+      "cursor": ":completed",
+      "expectedDecoded": null
+    },
+    {
+      "name": "a corrupted cursor degrades to nothing seen instead of throwing",
+      "cursor": "not-a-real-cursor",
+      "expectedDecoded": null
+    },
+    {
+      "name": "an actionable cursor round trips its blocked state",
+      "state": {
+        "threadId": "thread-b",
+        "statusType": "active",
+        "activeFlags": [
+          "waitingOnApproval"
+        ],
+        "latestTurn": {
+          "id": "turn-2",
+          "status": "inProgress"
+        },
+        "latestText": null
+      },
+      "expectedCursor": "turn-2:inProgress#%5B%22waitingOnApproval%22%5D",
+      "expectedTurnId": "turn-2",
+      "expectedStatus": "inProgress"
+    },
+    {
+      "name": "a malformed actionable suffix degrades to nothing seen",
+      "cursor": "turn-2:inProgress#broken",
+      "expectedDecoded": null
+    }
+  ],
+  "combination": [
+    {
+      "name": "the first target with a wake wins, and every snapshot still comes back",
+      "targets": [
+        "thread-b",
+        "thread-c",
+        "thread-d"
+      ],
+      "snapshots": [
+        {
+          "threadId": "thread-b",
+          "cursor": "",
+          "changed": false,
+          "wake": null,
+          "status": "active",
+          "turnId": "t1",
+          "turnStatus": "inProgress",
+          "text": null,
+          "title": "B"
+        },
+        {
+          "threadId": "thread-c",
+          "cursor": "t2:completed",
+          "changed": true,
+          "wake": {
+            "reason": "turnCompleted",
+            "turnId": "t2"
+          },
+          "status": "idle",
+          "turnId": "t2",
+          "turnStatus": "completed",
+          "text": "C finished",
+          "title": "C"
+        },
+        {
+          "threadId": "thread-d",
+          "cursor": "t3:completed",
+          "changed": true,
+          "wake": {
+            "reason": "turnCompleted",
+            "turnId": "t3"
+          },
+          "status": "idle",
+          "turnId": "t3",
+          "turnStatus": "completed",
+          "text": "D finished",
+          "title": "D"
+        }
+      ],
+      "timedOut": false,
+      "expectedWakeThread": "thread-c",
+      "expectedPollCount": 3
+    },
+    {
+      "name": "a timeout returns no wake but still carries every snapshot",
+      "targets": [
+        "thread-b",
+        "thread-c"
+      ],
+      "snapshots": [
+        {
+          "threadId": "thread-b",
+          "cursor": "",
+          "changed": false,
+          "wake": null,
+          "status": "active",
+          "turnId": "t1",
+          "turnStatus": "inProgress",
+          "text": null,
+          "title": "B"
+        },
+        {
+          "threadId": "thread-c",
+          "cursor": "",
+          "changed": false,
+          "wake": null,
+          "status": "active",
+          "turnId": "t2",
+          "turnStatus": "inProgress",
+          "text": null,
+          "title": "C"
+        }
+      ],
+      "timedOut": true,
+      "expectedWakeThread": null,
+      "expectedPollCount": 2
+    },
+    {
+      "name": "a failed target is reported in errors and does not hide the others",
+      "targets": [
+        "thread-b",
+        "thread-c"
+      ],
+      "snapshots": [
+        {
+          "threadId": "thread-b",
+          "message": "The conversation was not found"
+        },
+        {
+          "threadId": "thread-c",
+          "cursor": "t3:completed",
+          "changed": true,
+          "wake": {
+            "reason": "turnCompleted",
+            "turnId": "t3"
+          },
+          "status": "idle",
+          "turnId": "t3",
+          "turnStatus": "completed",
+          "text": "C finished",
+          "title": "C"
+        }
+      ],
+      "timedOut": false,
+      "expectedWakeThread": "thread-c",
+      "expectedPollCount": 1,
+      "expectedErrors": [
+        {
+          "threadId": "thread-b",
+          "message": "The conversation was not found"
+        }
+      ]
+    },
+    {
+      "name": "all targets failing yields no wake, no polls and every error",
+      "targets": [
+        "thread-b",
+        "thread-c"
+      ],
+      "snapshots": [
+        {
+          "threadId": "thread-b",
+          "message": "unavailable"
+        },
+        {
+          "threadId": "thread-c",
+          "message": "unavailable"
+        }
+      ],
+      "timedOut": true,
+      "expectedWakeThread": null,
+      "expectedPollCount": 0,
+      "expectedErrors": [
+        {
+          "threadId": "thread-b",
+          "message": "unavailable"
+        },
+        {
+          "threadId": "thread-c",
+          "message": "unavailable"
+        }
+      ]
+    }
+  ],
+  "argumentRefusals": [
+    {
+      "name": "no targets is invalid",
+      "arguments": {}
+    },
+    {
+      "name": "an empty target list is invalid",
+      "arguments": {
+        "targets": []
+      }
+    },
+    {
+      "name": "nine targets exceeds the bound",
+      "arguments": {
+        "targets": [
+          {
+            "threadId": "b1"
+          },
+          {
+            "threadId": "b2"
+          },
+          {
+            "threadId": "b3"
+          },
+          {
+            "threadId": "b4"
+          },
+          {
+            "threadId": "b5"
+          },
+          {
+            "threadId": "b6"
+          },
+          {
+            "threadId": "b7"
+          },
+          {
+            "threadId": "b8"
+          },
+          {
+            "threadId": "b9"
+          }
+        ]
+      }
+    },
+    {
+      "name": "a non-array target list is invalid",
+      "arguments": {
+        "targets": "nine"
+      }
+    },
+    {
+      "name": "a target without a threadId is invalid",
+      "arguments": {
+        "targets": [
+          {
+            "hostId": "local"
+          }
+        ]
+      }
+    },
+    {
+      "name": "a target with an empty threadId is invalid",
+      "arguments": {
+        "targets": [
+          {
+            "threadId": "  "
+          }
+        ]
+      }
+    },
+    {
+      "name": "an unknown target argument is invalid",
+      "arguments": {
+        "targets": [
+          {
+            "threadId": "b",
+            "attacker": "x"
+          }
+        ]
+      }
+    },
+    {
+      "name": "a non-object target is invalid",
+      "arguments": {
+        "targets": [
+          "thread-b"
+        ]
+      }
+    },
+    {
+      "name": "duplicate targets are invalid",
+      "arguments": {
+        "targets": [
+          {
+            "threadId": "thread-b"
+          },
+          {
+            "threadId": "thread-b"
+          }
+        ]
+      }
+    },
+    {
+      "name": "a negative timeout is invalid",
+      "arguments": {
+        "targets": [
+          {
+            "threadId": "thread-b"
+          }
+        ],
+        "timeoutMs": -1
+      }
+    },
+    {
+      "name": "a timeout above the bound is invalid",
+      "arguments": {
+        "targets": [
+          {
+            "threadId": "thread-b"
+          }
+        ],
+        "timeoutMs": 120001
+      }
+    },
+    {
+      "name": "a fractional timeout is invalid",
+      "arguments": {
+        "targets": [
+          {
+            "threadId": "thread-b"
+          }
+        ],
+        "timeoutMs": 1.5
+      }
+    },
+    {
+      "name": "waiting on the calling conversation is invalid",
+      "arguments": {
+        "targets": [
+          {
+            "threadId": "thread-a"
+          }
+        ]
+      },
+      "caller": "thread-a"
+    }
+  ],
+  "argumentAccepts": [
+    {
+      "name": "a single target with a cursor",
+      "arguments": {
+        "targets": [
+          {
+            "threadId": "thread-b",
+            "afterCursor": "turn-1:completed"
+          }
+        ]
+      },
+      "expectedTargetCount": 1,
+      "expectedTimeoutMs": 120000
+    },
+    {
+      "name": "an omitted timeout defaults to 120000",
+      "arguments": {
+        "targets": [
+          {
+            "threadId": "thread-b"
+          }
+        ]
+      },
+      "expectedTimeoutMs": 120000
+    },
+    {
+      "name": "timeoutMs 0 is a valid immediate snapshot",
+      "arguments": {
+        "targets": [
+          {
+            "threadId": "thread-b"
+          }
+        ],
+        "timeoutMs": 0
+      },
+      "expectedTimeoutMs": 0
+    },
+    {
+      "name": "eight targets is the maximum accepted",
+      "arguments": {
+        "targets": [
+          {
+            "threadId": "b1"
+          },
+          {
+            "threadId": "b2"
+          },
+          {
+            "threadId": "b3"
+          },
+          {
+            "threadId": "b4"
+          },
+          {
+            "threadId": "b5"
+          },
+          {
+            "threadId": "b6"
+          },
+          {
+            "threadId": "b7"
+          },
+          {
+            "threadId": "b8"
+          }
+        ]
+      },
+      "expectedTargetCount": 8
+    },
+    {
+      "name": "an explicit local host is normalized to the local route",
+      "arguments": {
+        "targets": [
+          {
+            "threadId": "thread-b",
+            "hostId": "local"
+          }
+        ]
+      },
+      "expectedTargetCount": 1
+    },
+    {
+      "name": "a target with hostId 'local' is accepted",
+      "arguments": {
+        "targets": [
+          {
+            "threadId": "thread-b",
+            "hostId": "local"
+          }
+        ]
+      },
+      "expectedTargetCount": 1
+    },
+    {
+      "name": "a remote target retains its host identity for routing",
+      "arguments": {
+        "targets": [
+          {
+            "threadId": "thread-b",
+            "hostId": "remote-host"
+          }
+        ]
+      },
+      "expectedTargetCount": 1
+    }
+  ],
+  "resultCollection": [
+    {
+      "name": "a completed reply beyond the preview limit exposes a read action that retains the omitted tail",
+      "replyChars": 2001,
+      "expectedPreviewChars": 2000,
+      "expectedTextTruncated": true,
+      "expectedRead": true
+    },
+    {
+      "name": "a reply exactly at the preview limit is not marked truncated and can still be collected",
+      "replyChars": 2000,
+      "expectedPreviewChars": 2000,
+      "expectedTextTruncated": false,
+      "expectedRead": true
+    },
+    {
+      "name": "a long progress preview is marked truncated without claiming a completed result",
+      "replyChars": 2001,
+      "turnStatus": "inProgress",
+      "expectedPreviewChars": 2000,
+      "expectedTextTruncated": true,
+      "expectedRead": false
+    },
+    {
+      "name": "an already reported completed reply suppresses both preview and repeated collection",
+      "replyChars": 2001,
+      "afterCursor": "turn-b:completed",
+      "expectedPreviewChars": null,
+      "expectedTextTruncated": false,
+      "expectedRead": false
+    }
+  ]
+}

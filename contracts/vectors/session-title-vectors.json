@@ -1,0 +1,219 @@
+{
+  "_why": "Title provenance is durable client state. Explicit custom and AI titles survive restart. The first accepted content is generation input only: it is never published as a title, so a new conversation keeps the engine placeholder until the model returns one. The single generation attempt rides the conversation's first turn start with a host-owned prompt embedding the first content capped at two thousand characters. A failed, empty or rejected generation leaves the conversation untitled and does not retry on later turns. Generated titles are cached, and behind a disabled-by-default gate every fifth completed turn asks the model whether the cached title still fits. Legacy NULL-source seeds only fill missing engine titles: older clients wrote no provenance, and engine updatedAt also changes for unrelated operations, so a valid engine title cannot safely be classified as AI or custom. Opening a list rewrites no provenance and issues no inference. A concurrent user rename always wins through expected-title guards. The generated title is written to the host ledger and broadcast immediately; the engine rollout sync is enqueued while the mutation queue is held but is not awaited before treating the title as applied, so a long-running first turn cannot time out the visible title.",
+  "inferenceOwnership": {
+    "reason": "An automatic readonly title request still holds the live engine inference lease after the visible turn completes. Model replacement must wait for this RPC without waiting for title persistence on the same mutation queue.",
+    "registeredBeforeMutationQueueRelease": true,
+    "renameCancelsPersistenceOnly": true,
+    "modelReplacementWaitsForRpcSettlement": true,
+    "rpcFailureReleasesWaiter": true,
+    "waiterDoesNotAwaitQueuedTitlePersistence": true
+  },
+  "updatePush": {
+    "delivery": "chat:event:batch",
+    "afterWrites": [
+      "first-message fallback",
+      "AI-generated title"
+    ],
+    "requiresSessionListRefresh": false,
+    "exampleEvent": {
+      "type": "session_title_updated",
+      "sessionId": "session-1",
+      "title": "Fix login redirect"
+    }
+  },
+  "truncation": {
+    "maxChars": 60,
+    "ellipsis": "…",
+    "cases": [
+      {
+        "text": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "expected": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA…"
+      },
+      {
+        "text": "  a \n b  ",
+        "expected": "a b"
+      },
+      {
+        "text": "🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂",
+        "expected": "🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂…"
+      }
+    ]
+  },
+  "records": [
+    {
+      "id": "legacy-valid",
+      "title": "Earlier first prompt",
+      "source": null,
+      "attemptedAt": 11,
+      "revision": 12
+    },
+    {
+      "id": "legacy-placeholder",
+      "title": "Earlier first prompt",
+      "source": null,
+      "attemptedAt": null,
+      "revision": 12
+    },
+    {
+      "id": "custom",
+      "title": "User chosen title",
+      "source": "custom",
+      "attemptedAt": 20,
+      "revision": 25
+    },
+    {
+      "id": "ai",
+      "title": "Generated summary",
+      "source": "ai",
+      "attemptedAt": 30,
+      "revision": 35
+    },
+    {
+      "id": "seed",
+      "title": "New first prompt",
+      "source": "seed",
+      "attemptedAt": null,
+      "revision": 40
+    },
+    {
+      "id": "unknown",
+      "title": "Unknown source title",
+      "source": "future-source",
+      "attemptedAt": null,
+      "revision": 45
+    }
+  ],
+  "rows": [
+    {
+      "id": "legacy-valid",
+      "title": "Existing Electron rename or AI title",
+      "updatedAt": 1000
+    },
+    {
+      "id": "legacy-placeholder",
+      "title": "New Chat",
+      "updatedAt": 1000
+    },
+    {
+      "id": "custom",
+      "title": "Engine label",
+      "updatedAt": 1000
+    },
+    {
+      "id": "ai",
+      "title": "First prompt",
+      "updatedAt": 1000
+    },
+    {
+      "id": "seed",
+      "title": "New first prompt with an engine-derived suffix",
+      "updatedAt": 1000
+    },
+    {
+      "id": "unknown",
+      "title": "Known engine title",
+      "updatedAt": 1000
+    },
+    {
+      "id": "untouched",
+      "title": "Engine only title",
+      "updatedAt": 1000
+    }
+  ],
+  "expectedTitles": [
+    "Existing Electron rename or AI title",
+    "Earlier first prompt",
+    "User chosen title",
+    "Generated summary",
+    "New first prompt",
+    "Known engine title",
+    "Engine only title"
+  ],
+  "generation": {
+    "method": "session/generateTitle",
+    "input": "Fix login",
+    "charLimit": 36,
+    "promptFirstLine": "Generate a concise, single-line task title of up to 36 characters and under five words where possible.",
+    "promptSuffix": "User prompt:\nFix login",
+    "params": {
+      "sessionId": "live-thread",
+      "persist": false
+    },
+    "reply": {
+      "generatedTitle": {
+        "threadId": "thread",
+        "title": {
+          "title": "  修复   登录接口  ",
+          "persisted": false,
+          "raw": "{\"title\":\"修复 登录接口\"}",
+          "usage": null
+        }
+      }
+    },
+    "expectedTitle": "修复 登录接口",
+    "updateMethod": "session/updateTitle",
+    "updateParams": {
+      "threadId": "thread",
+      "sessionId": "live-thread",
+      "title": "修复 登录接口"
+    },
+    "updateReply": {
+      "title": {
+        "threadId": "thread",
+        "title": "修复 登录接口"
+      }
+    },
+    "expectedEvent": {
+      "type": "session_title_updated",
+      "sessionId": "thread",
+      "title": "修复 登录接口"
+    },
+    "promptMaxBytes": 960
+  },
+  "rejectedGenerationReplies": [
+    {
+      "title": {
+        "title": "Obsolete wrapper"
+      }
+    },
+    {
+      "generatedTitle": {
+        "threadId": "other",
+        "title": {
+          "title": "Other thread",
+          "persisted": false
+        }
+      }
+    },
+    {
+      "generatedTitle": {
+        "threadId": "thread",
+        "title": {
+          "title": "Already persisted",
+          "persisted": true
+        }
+      }
+    },
+    {
+      "generatedTitle": {
+        "threadId": "thread",
+        "title": {
+          "title": 42,
+          "persisted": false
+        }
+      }
+    }
+  ],
+  "refresh": {
+    "gate": "adaptiveThreadTitles",
+    "interval": 5,
+    "charLimit": 24,
+    "cacheLimit": 1000,
+    "promptContains": [
+      "Keep the current chat title ",
+      " if it still fits the conversation.",
+      "up to 24 characters",
+      "Do not use tools."
+    ]
+  }
+}

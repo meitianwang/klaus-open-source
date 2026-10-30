@@ -1,0 +1,76 @@
+{
+  "reason": "Editor documents preserve authored whitespace, attachment identity and ownership across draft restoration and sent-message editing.",
+  "whitespaceDrafts": [
+    "  first  second\n\t\tcode\n\n",
+    "\n\n  indented  text  ",
+    "\t  \n"
+  ],
+  "attachmentRecovery": {
+    "displayText": "review the resource",
+    "requestText": "review the resource\n\nAttached:\n- /pool/notes.pdf\n\n<referenced-resources>\n[]\n</referenced-resources>",
+    "attachment": {
+      "type": "file",
+      "path": "/pool/notes.pdf",
+      "name": "Original notes.pdf"
+    }
+  },
+  "literalMarkerText": "KLAUS_USER_TOKEN_ KLAUS_COMPOSER_REFERENCE_0_TOKEN KLAUS_INLINE_QUOTE_0_TOKEN KLAUS_SLASH_PILL KLAUS_WS_MENTION_0_PILL",
+  "codeKeys": {
+    "reason": "Code editing keeps modified newlines in the block, indents complete selected lines, and navigates at explicit block boundaries without stealing ordinary submission.",
+    "newlineKeys": [
+      "Shift-Enter",
+      "Alt-Enter"
+    ],
+    "leaveKey": "Mod-Enter",
+    "tab": "insert-tab-at-each-selected-line-start",
+    "outdent": "remove-one-tab-or-up-to-four-spaces",
+    "selectionEndingAfterNewlineExcludesFollowingLine": true,
+    "selectAll": "code-contents-then-whole-document",
+    "ordinaryEnter": "submit",
+    "indentCases": [
+      {
+        "text": "one\ntwo\nthree",
+        "from": 0,
+        "to": 4,
+        "result": "\tone\ntwo\nthree"
+      },
+      {
+        "text": "one\ntwo\nthree",
+        "from": 1,
+        "to": 6,
+        "result": "\tone\n\ttwo\nthree"
+      }
+    ],
+    "outdentCases": [
+      {
+        "text": "\tone\n    two\n  three",
+        "from": 0,
+        "to": 20,
+        "result": "one\ntwo\nthree"
+      },
+      {
+        "text": "one",
+        "from": 0,
+        "to": 0,
+        "result": "one"
+      }
+    ]
+  },
+  "drop": {
+    "destination": "Insert at the pointer coordinates, leaving unrelated selected destination content intact.",
+    "copy": "Keep the source and give each colliding copied quote an independent occurrence ID.",
+    "move": "Delete the source once and preserve quote occurrence identity.",
+    "metadata": "Preserve authored structure, marks and full quote data.",
+    "history": "Undo and redo one drop as one operation, retaining the generated occurrence ID.",
+    "files": "Delegate file transfers to attachment ingestion before parsing companion URI, text or HTML."
+  },
+  "submittedDocument": {
+    "reason": "Persist authored structure with each user message so formatting and literal punctuation remain distinct through optimistic display, history replay and editing.",
+    "metadataField": "composerDocument",
+    "preserveInlineIdentity": true,
+    "literalMarkdownStaysLiteral": true,
+    "legacyFallback": "escaped-text",
+    "unsafeLinkSchemesInert": true,
+    "mergeDrafts": "concatenate-blocks-with-inline-identities"
+  }
+}

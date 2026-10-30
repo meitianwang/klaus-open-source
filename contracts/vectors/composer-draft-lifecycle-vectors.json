@@ -1,0 +1,19 @@
+{
+  "restart": {
+    "mainAndWelcomeDocuments": "Retain exact authored text, marks and inline identities across a normal application restart.",
+    "attachmentTray": "Unsent ordinary files, directories and pasted-text cards belong to the running renderer; their tray membership is not restored after restart.",
+    "submittedAndQueuedAttachments": "Retain attachment identities and stored content through their durable message or queue metadata.",
+    "coldMediaAdmission": "The first queued attachment request waits for validated saved-history scope without activating its provider; deleted, private, invalid or retired owners cannot acquire that scope.",
+    "sideChats": "Local side chats are ephemeral; no durable side draft restoration is promised."
+  },
+  "archive": {
+    "currentInput": "Retire the archived chat's draft, recall and live or cached attachments without recreating them during navigation.",
+    "welcomeInput": "Restore the independent welcome document and attachment tray without overwriting either with archived input.",
+    "lateResult": "An archive completion for another chat cannot clear the newer visible input or its deferred intent.",
+    "refusal": "Keep both owners' input when the host refuses archive."
+  },
+  "focus": {
+    "idleEscape": "Inside an idle input, Escape releases editor focus. A later outside Escape returns to the remembered connected visible composer, falling back to the primary input.",
+    "boundaries": "Keep composition, consumed events, modal menus, unresolved approvals, terminal/address fields and independent message editors with their existing key owners."
+  }
+}

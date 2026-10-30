@@ -1,0 +1,14 @@
+{
+  "reason": "Preserve the iLink QR wire fields, settings rows, renderer replies and legacy AES-CBC envelope. Reject incomplete confirmation, make the four-row write atomic, and cancel superseded or closing flows instead of committing late credentials.",
+  "credential": {
+    "home": "/fixture/home",
+    "hostname": "fixture-host",
+    "plaintext": "fixture-token-微信",
+    "envelope": "000102030405060708090a0b0c0d0e0f:251d8b9351203452b02e958335ec6cb6028e44249c45eb500d7a627b1fbaa0cd",
+    "source": "OpenSSL aes-256-cbc with PKCS7, IV 000102030405060708090a0b0c0d0e0f, SHA256 of klaus-cred-/fixture/home-fixture-host"
+  },
+  "start": {"qrcode": "fixture code/+?&", "qrcode_img_content": "https://fixture.invalid/wechat?pair=fixture"},
+  "confirmed": {"status": "confirmed", "bot_token": "fixture-bot-token", "ilink_bot_id": "fixture-account"},
+  "keys": ["channel.wechat.account_id", "channel.wechat.base_url", "channel.wechat.enabled", "channel.wechat.token"],
+  "channels": ["channels:wechat:qrStart", "channels:wechat:qrPoll"]
+}

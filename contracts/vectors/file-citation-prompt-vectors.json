@@ -1,0 +1,335 @@
+{
+  "_why": "The host documents concise preferred presentation forms while these vectors retain the full renderer and file-opening behavior, including supported forms the prompt does not recommend. Changes here update prompt documentation only; renderer inputs and expectations remain unchanged.",
+  "_consumers": {
+    "renderer": "frontend/src/chat/file-citation-prompt-vectors.test.ts runs each documented form through renderMarkdownHtml, the file-citation contract and the chip open path, so a form the prompt promises but the renderer does not honor fails the frontend gate.",
+    "promptText": "tests/reply-prompt-contract.test.ts checks preferred prompt examples with the real file-citation parser, verifies each documentedBy span, and keeps client-only directives out of the shared engine base prompt."
+  },
+  "citationForms": [
+    {
+      "name": "an absolute-path markdown link renders as a chip",
+      "input": "Wrote [report.md](/abs/path/report.md) for you.",
+      "expect": {
+        "chip": true,
+        "path": "/abs/path/report.md",
+        "anchor": false,
+        "code": false
+      },
+      "documentedBy": "[report.md](/absolute/path/report.md)"
+    },
+    {
+      "name": "#L12 lands on the chip as a line",
+      "input": "[service.ts](/abs/path/service.ts#L12)",
+      "expect": {
+        "chip": true,
+        "path": "/abs/path/service.ts",
+        "line": 12
+      },
+      "documentedBy": "#L12 to cite a line"
+    },
+    {
+      "name": "#L12C3 lands as line and column",
+      "input": "[service.ts](/abs/path/service.ts#L12C3)",
+      "expect": {
+        "chip": true,
+        "path": "/abs/path/service.ts",
+        "line": 12,
+        "column": 3
+      },
+      "documentedBy": null
+    },
+    {
+      "name": ":12 is an accepted equivalent",
+      "input": "[service.ts](/abs/path/service.ts:12)",
+      "expect": {
+        "chip": true,
+        "path": "/abs/path/service.ts",
+        "line": 12
+      },
+      "documentedBy": "[app.ts](/absolute/path/app.ts:12)"
+    },
+    {
+      "name": ":12:3 is an accepted equivalent",
+      "input": "[service.ts](/abs/path/service.ts:12:3)",
+      "expect": {
+        "chip": true,
+        "path": "/abs/path/service.ts",
+        "line": 12,
+        "column": 3
+      },
+      "documentedBy": null
+    },
+    {
+      "name": "#L12-L20 keeps both ends",
+      "input": "[service.ts](/abs/path/service.ts#L12-L20)",
+      "expect": {
+        "chip": true,
+        "path": "/abs/path/service.ts",
+        "line": 12,
+        "endLine": 20
+      },
+      "documentedBy": "#L12 to cite a line",
+      "note": "A range renders, but the click path consumes only the start line, so the prompt documents no range form."
+    },
+    {
+      "name": "the label may differ from the path",
+      "input": "[the migration script](/abs/path/migrate.ts#L42)",
+      "expect": {
+        "chip": true,
+        "path": "/abs/path/migrate.ts",
+        "line": 42
+      },
+      "documentedBy": null
+    },
+    {
+      "name": "a non-numeric fragment is not a location",
+      "input": "[a.md](/abs/a.md#section)",
+      "expect": {
+        "chip": true,
+        "path": "/abs/a.md#section",
+        "noLine": true
+      },
+      "documentedBy": null
+    },
+    {
+      "name": "angle brackets carry a path with spaces",
+      "input": "[a.md](</abs/My Project/a.md>)",
+      "expect": {
+        "chip": true,
+        "path": "/abs/My Project/a.md"
+      },
+      "documentedBy": "[report.md](</absolute/My Project/report.md:12>)"
+    },
+    {
+      "name": "%20 is an accepted equivalent of a space",
+      "input": "[a.md](/abs/My%20Project/a.md)",
+      "expect": {
+        "chip": true,
+        "path": "/abs/My Project/a.md"
+      },
+      "documentedBy": null
+    },
+    {
+      "name": "angle brackets carry an unmatched parenthesis",
+      "input": "[a.md](</abs/My Project/dir(1/a.md>)",
+      "expect": {
+        "chip": true,
+        "path": "/abs/My Project/dir(1/a.md"
+      },
+      "documentedBy": "spaces or unmatched parentheses"
+    },
+    {
+      "name": "a comma needs no escaping",
+      "input": "[a.md](/abs/x,y/a.md)",
+      "expect": {
+        "chip": true,
+        "path": "/abs/x,y/a.md"
+      },
+      "documentedBy": null,
+      "note": "Measured, not documented: an earlier prompt revision claimed commas cut the link grammar short, which is false. Kept so the claim cannot come back."
+    },
+    {
+      "name": "balanced parentheses need no angle brackets",
+      "input": "[a.md](/abs/dir(1)/a.md)",
+      "expect": {
+        "chip": true,
+        "path": "/abs/dir(1)/a.md"
+      },
+      "documentedBy": null
+    },
+    {
+      "name": "./docs/a.md opens as a relative chip",
+      "input": "[a.md](./docs/a.md)",
+      "expect": {
+        "chip": true,
+        "path": "./docs/a.md"
+      },
+      "documentedBy": null
+    },
+    {
+      "name": "a Windows path is a citation too",
+      "input": "[a.md](C:/repo/a.md#L7)",
+      "expect": {
+        "chip": true,
+        "path": "C:/repo/a.md",
+        "line": 7
+      },
+      "documentedBy": "absolute destination"
+    },
+    {
+      "name": "the explicit directive renders the same chip",
+      "input": "Draft ready: :klaus-file-cite[Draft]{path=\"/abs/notes.md#L12\"} end.",
+      "expect": {
+        "chip": true,
+        "path": "/abs/notes.md",
+        "line": 12,
+        "directiveConsumed": true
+      },
+      "documentedBy": ":klaus-file-cite[Caption]{path=\"/absolute/path/file.md#L12\"}"
+    },
+    {
+      "name": "the directive survives an unmatched parenthesis",
+      "input": ":klaus-file-cite[A]{path=\"/abs/dir)/a.md\"}",
+      "expect": {
+        "chip": true,
+        "path": "/abs/dir)/a.md"
+      },
+      "documentedBy": "If a path cannot be expressed as a Markdown link"
+    }
+  ],
+  "brokenForms": [
+    {
+      "name": "a space without angle brackets is not a link at all",
+      "input": "[a.md](/abs/My Project/a.md)",
+      "expect": {
+        "chip": false,
+        "literal": true
+      },
+      "documentedBy": "Wrap a destination containing spaces or unmatched parentheses in angle brackets"
+    },
+    {
+      "name": "an unmatched parenthesis without brackets truncates the path",
+      "input": "[a.md](/abs/dir)/a.md)",
+      "expect": {
+        "chip": true,
+        "path": "/abs/dir",
+        "wrongFile": true
+      },
+      "documentedBy": "Wrap a destination containing spaces or unmatched parentheses in angle brackets"
+    },
+    {
+      "name": "a bare relative path stays an external anchor",
+      "input": "[a.md](docs/a.md)",
+      "expect": {
+        "chip": false,
+        "anchor": true
+      },
+      "documentedBy": "Use absolute paths instead of relative paths or ~/ paths"
+    },
+    {
+      "name": "backticks around a path give the user text to retype",
+      "input": "`/abs/path/report.md`",
+      "expect": {
+        "chip": false,
+        "code": true
+      },
+      "documentedBy": "Do not put backticks around a link or inside its label or destination"
+    },
+    {
+      "name": "a backtick in the destination degrades the link to an anchor",
+      "input": "[a.md](`/abs/a.md`)",
+      "expect": {
+        "chip": false,
+        "anchor": true
+      },
+      "documentedBy": "Do not put backticks around a link or inside its label or destination"
+    },
+    {
+      "name": "a bare path in prose opens nothing",
+      "input": "wrote /abs/path/report.md here",
+      "expect": {
+        "chip": false,
+        "anchor": false
+      },
+      "documentedBy": "prefer a clickable Markdown link with an absolute destination"
+    }
+  ],
+  "resolutionForms": [
+    {
+      "name": "~/ resolves literally against the workdir instead of expanding the home directory",
+      "citedPath": "~/a.md",
+      "workdir": "/Users/u/proj",
+      "opensPath": "/Users/u/proj/~/a.md",
+      "documentedBy": "Use absolute paths instead of relative paths or ~/ paths"
+    },
+    {
+      "name": "a ./ path resolves against the workdir and opens",
+      "citedPath": "./docs/a.md",
+      "workdir": "/Users/u/proj",
+      "opensPath": "/Users/u/proj/docs/a.md",
+      "documentedBy": "Use absolute paths instead of relative paths or ~/ paths"
+    },
+    {
+      "name": "an absolute path opens unchanged with its line",
+      "citedPath": "/abs/a.md",
+      "workdir": "/Users/u/proj",
+      "opensPath": "/abs/a.md",
+      "line": 12,
+      "documentedBy": "opens the file in its side panel at that line"
+    }
+  ],
+  "mediaForms": [
+    {
+      "name": "an absolute image path renders inline",
+      "input": "![shot](/abs/path/shot.png)",
+      "expect": {
+        "figure": true,
+        "mediaPath": "/abs/path/shot.png"
+      },
+      "documentedBy": "![description](/absolute/path/image.png)"
+    },
+    {
+      "name": "angle brackets carry an image path with spaces",
+      "input": "![shot](</abs/My Project/shot.png>)",
+      "expect": {
+        "figure": true,
+        "mediaPath": "/abs/My Project/shot.png"
+      },
+      "documentedBy": "![description](</absolute/path/image.png>)"
+    },
+    {
+      "name": "an image path with an unbracketed space stays literal",
+      "input": "![shot](/abs/My Project/shot.png)",
+      "expect": {
+        "figure": false,
+        "literal": true
+      },
+      "documentedBy": "For paths containing spaces or unmatched parentheses"
+    },
+    {
+      "name": "an mp4 cited with the image syntax becomes a player card",
+      "input": "![clip](/abs/path/clip.mp4)",
+      "expect": {
+        "player": true,
+        "kind": "video",
+        "mediaPath": "/abs/path/clip.mp4"
+      },
+      "documentedBy": "Images, videos, and audio can be displayed inline using Markdown image syntax"
+    },
+    {
+      "name": "an mp3 cited with the image syntax becomes a player card",
+      "input": "![greeting](/abs/path/greeting.mp3)",
+      "expect": {
+        "player": true,
+        "kind": "audio",
+        "mediaPath": "/abs/path/greeting.mp3"
+      },
+      "documentedBy": "![greeting](/absolute/path/greeting.mp3)"
+    }
+  ],
+  "ownershipRules": [
+    {
+      "name": "the host owns its native presentation dialect",
+      "hostSectionHeader": "### Citing Files and Code Locations",
+      "hostMustSay": [
+        "[report.md](/absolute/path/report.md)",
+        "[app.ts](/absolute/path/app.ts:12)",
+        "angle brackets",
+        ":klaus-file-cite",
+        "Avoid line ranges"
+      ],
+      "hostMustNotSay": [
+        "Every worker prompt",
+        "Include the relevant verified screenshot in the SAME turn",
+        "No file paths"
+      ]
+    },
+    {
+      "name": "the shared engine prompt contains no client-only dialect",
+      "engineBaseMustNotSay": [
+        ":klaus-file-cite",
+        "::klaus-inline-vis",
+        "No file paths, line numbers, function names"
+      ]
+    }
+  ]
+}

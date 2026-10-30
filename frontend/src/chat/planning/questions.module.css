@@ -1,0 +1,12 @@
+.unavailable { max-width: 720px; margin: 12px auto; color: var(--status-error); }
+.history { width: 100%; max-width: min(720px, 100%); margin: 8px auto 10px; color: var(--fg-tertiary); font: var(--text-body-sm)/1.6 var(--font); }
+.history > summary { display: flex; align-items: center; gap: 7px; width: fit-content; cursor: pointer; list-style: none; }
+.history > summary::-webkit-details-marker { display: none; }
+.history > summary svg { display: block; flex-shrink: 0; }
+.history > summary:hover { color: var(--fg-secondary); }
+.history > summary:focus-visible { outline: 2px solid var(--fg-secondary); outline-offset: 3px; border-radius: 4px; }
+.history[open] > summary > :nth-child(3) svg { transform: rotate(180deg); }
+.historyOutcome { margin-left: 4px; }
+.historyAnswers { margin: 12px 0 0; display: grid; gap: 14px; }
+.historyAnswers dt { color: var(--fg-secondary); }
+.historyAnswers dd { margin: 4px 0 0; color: var(--fg-tertiary); white-space: pre-wrap; overflow-wrap: anywhere; }

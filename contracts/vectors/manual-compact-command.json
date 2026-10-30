@@ -1,0 +1,112 @@
+{
+  "reason": "Manual context management is a session-owned immediate command. Desktop discovery includes the action, selection executes it without a chat message, and presentation uses measured context usage. The phone retains automatic context management.",
+  "labels": [
+    {
+      "language": "en",
+      "percent": null,
+      "title": "Compact",
+      "description": "Compact this chat's context"
+    },
+    {
+      "language": "zh",
+      "percent": null,
+      "title": "压缩",
+      "description": "压缩此聊天的上下文"
+    },
+    {
+      "language": "zh",
+      "percent": 57.89473684210527,
+      "title": "压缩",
+      "description": "压缩此聊天的上下文（已使用 58%）"
+    },
+    {
+      "language": "en",
+      "percent": 0,
+      "title": "Compact",
+      "description": "Compact this chat's context (0% full)"
+    },
+    {
+      "language": "en",
+      "percent": 120,
+      "title": "Compact",
+      "description": "Compact this chat's context (100% full)"
+    }
+  ],
+  "queries": [
+    {
+      "text": "/压缩",
+      "start": 0,
+      "end": 3,
+      "attachments": 0,
+      "sessionId": "active",
+      "allowed": true
+    },
+    {
+      "text": " /compact ",
+      "start": 1,
+      "end": 9,
+      "attachments": 0,
+      "sessionId": "active",
+      "allowed": true
+    },
+    {
+      "text": "Keep this /compact",
+      "start": 10,
+      "end": 18,
+      "attachments": 0,
+      "sessionId": "active",
+      "allowed": false
+    },
+    {
+      "text": "/compact",
+      "start": 0,
+      "end": 8,
+      "attachments": 1,
+      "sessionId": "active",
+      "allowed": false
+    },
+    {
+      "text": "/compact",
+      "start": 0,
+      "end": 8,
+      "attachments": 0,
+      "sessionId": null,
+      "allowed": false
+    }
+  ],
+  "typed": [
+    {
+      "text": "/compact",
+      "instructions": ""
+    },
+    {
+      "text": "/压缩",
+      "instructions": ""
+    },
+    {
+      "text": " /COMPACT keep open tasks ",
+      "instructions": "keep open tasks"
+    },
+    {
+      "text": "/压缩 保留未完成任务",
+      "instructions": "保留未完成任务"
+    },
+    {
+      "text": "/compacted",
+      "instructions": null
+    },
+    {
+      "text": "explain /compact",
+      "instructions": null
+    }
+  ],
+  "failureEvents": {
+    "reason": "A rejected manual request clears only its pending compaction status. Its visible error cannot terminate an unrelated turn that was admitted concurrently.",
+    "types": [
+      "compaction_start",
+      "compaction_end",
+      "api_error"
+    ],
+    "terminal": false
+  }
+}

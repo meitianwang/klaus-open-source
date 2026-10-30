@@ -1,0 +1,7 @@
+{
+  "_why": "Files re-read after compaction are engine-authored context, not a user's pasted message. Marked messages project into the compaction disclosure; the immediately-following legacy shape is recognized for existing histories without swallowing a user's later message.",
+  "prefix": "Fresh contents of recently-touched files, re-read after compaction so you have current working context:\n\n",
+  "file": "<file path=\"/work/example.ts\">\nconst value = 1\n</file>",
+  "phase": "compact_file_restore",
+  "projectedKind": "compact-file-restore"
+}

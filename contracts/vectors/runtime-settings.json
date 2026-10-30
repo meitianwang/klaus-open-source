@@ -1,0 +1,286 @@
+{
+  "reason": "Approval and sandbox preferences are independent persisted choices. Presets publish complete policies, configured policies that match no preset select no menu row and retain their exact values, and new defaults cannot rewrite a conversation's frozen policy. Startup, frozen reload, fork and live publication carry only canonical approval, sandbox and reviewer policies. Legacy preset records migrate once by update time, preserving later explicit choices and canonical policies on ties; temporary read-only projection takes precedence. Granular policies retain independent permission categories through config, session snapshots and live updates; their built-in request policy shares the existing approval label without adding a menu choice. Search access remains independent of source selection, while complete inference captures retain verbosity, reasoning summary and search access across model changes. Runtime configuration is the single settings page for execution permissions; retained sandbox deep links resolve to that page and do not mount retired controls. Execution policy uses canonical persisted keys and a complete workspace table. An unconfigured filesystem mode follows the engine read-only default; automatic review preserves an explicit runtime network grant without converting the filesystem mode. Subagent model selection has one scoped configuration switch, off by default: tiers when off, shared concrete catalog entries when on. Its complete policy and catalog snapshot publish at the next inference step without changing existing children.",
+  "presets": [
+    {
+      "mode": "default",
+      "policy": {
+        "approvalPolicy": "on-request",
+        "sandboxMode": "workspace-write",
+        "approvalsReviewer": "user",
+        "sandboxNetworkAllowed": false
+      }
+    },
+    {
+      "mode": "auto",
+      "policy": {
+        "approvalPolicy": "on-request",
+        "sandboxMode": "workspace-write",
+        "approvalsReviewer": "auto_review",
+        "sandboxNetworkAllowed": false
+      }
+    },
+    {
+      "mode": "bypassPermissions",
+      "policy": {
+        "approvalPolicy": "never",
+        "sandboxMode": "danger-full-access",
+        "approvalsReviewer": "user",
+        "sandboxNetworkAllowed": true
+      }
+    }
+  ],
+  "executionPolicyCases": [
+    {
+      "name": "configured full access skips approval prompts",
+      "policy": {
+        "approvalPolicy": "never",
+        "sandboxMode": "danger-full-access",
+        "approvalsReviewer": "user",
+        "sandboxNetworkAllowed": true
+      },
+      "expected": {
+        "approval": "never",
+        "sandbox": "danger-full-access",
+        "reviewer": "user"
+      }
+    },
+    {
+      "name": "unrestricted filesystem with approval requests retains approval gates",
+      "policy": {
+        "approvalPolicy": "on-request",
+        "sandboxMode": "danger-full-access",
+        "approvalsReviewer": "user",
+        "sandboxNetworkAllowed": true
+      },
+      "expected": {
+        "approval": "on-request",
+        "sandbox": "danger-full-access",
+        "reviewer": "user"
+      }
+    },
+    {
+      "name": "disabled prompts within a workspace do not grant unrestricted execution",
+      "policy": {
+        "approvalPolicy": "never",
+        "sandboxMode": "workspace-write",
+        "approvalsReviewer": "user",
+        "sandboxNetworkAllowed": false
+      },
+      "expected": {
+        "approval": "never",
+        "sandbox": "workspace-write",
+        "reviewer": "user"
+      }
+    },
+    {
+      "name": "automatic review retains its policy with a custom full filesystem policy",
+      "policy": {
+        "approvalPolicy": "never",
+        "sandboxMode": "danger-full-access",
+        "approvalsReviewer": "auto_review",
+        "sandboxNetworkAllowed": true
+      },
+      "expected": {
+        "approval": "never",
+        "sandbox": "danger-full-access",
+        "reviewer": "auto_review"
+      }
+    },
+    {
+      "name": "granular approval categories do not become unrestricted execution",
+      "policy": {
+        "approvalPolicy": {
+          "granular": {
+            "sandbox_approval": false,
+            "rules": false,
+            "skill_approval": false,
+            "request_permissions": true,
+            "mcp_elicitations": true
+          }
+        },
+        "sandboxMode": "danger-full-access",
+        "approvalsReviewer": "user",
+        "sandboxNetworkAllowed": true
+      },
+      "expected": {
+        "approval": {
+          "granular": {
+            "sandbox_approval": false,
+            "rules": false,
+            "skill_approval": false,
+            "request_permissions": true,
+            "mcp_elicitations": true
+          }
+        },
+        "sandbox": "danger-full-access",
+        "reviewer": "user"
+      }
+    }
+  ],
+  "granularPolicies": [
+    {
+      "input": {
+        "granular": {
+          "sandbox_approval": true,
+          "rules": false,
+          "mcp_elicitations": true
+        }
+      },
+      "expected": {
+        "granular": {
+          "sandbox_approval": true,
+          "rules": false,
+          "skill_approval": false,
+          "request_permissions": false,
+          "mcp_elicitations": true
+        }
+      },
+      "preset": null
+    },
+    {
+      "input": {
+        "granular": {
+          "sandbox_approval": false,
+          "rules": false,
+          "skill_approval": false,
+          "request_permissions": true,
+          "mcp_elicitations": true,
+          "future_category": true
+        }
+      },
+      "expected": {
+        "granular": {
+          "sandbox_approval": false,
+          "rules": false,
+          "skill_approval": false,
+          "request_permissions": true,
+          "mcp_elicitations": true
+        }
+      },
+      "preset": "default"
+    }
+  ],
+  "options": {
+    "klaus.approvalPolicy": [
+      "on-request",
+      "never"
+    ],
+    "klaus.sandboxMode": [
+      "read-only",
+      "workspace-write",
+      "danger-full-access"
+    ],
+    "klaus.webSearch.access": [
+      "disabled",
+      "cached",
+      "indexed",
+      "live"
+    ],
+    "klaus.modelVerbosity": [
+      "",
+      "low",
+      "medium",
+      "high"
+    ],
+    "klaus.reasoningSummary": [
+      "auto",
+      "concise",
+      "detailed",
+      "none"
+    ],
+    "klaus.subagentModelCatalog": ["off", "on"]
+  },
+  "settingsNavigation": {
+    "primaryTab": "runtime",
+    "retiredTab": "sandbox",
+    "retiredTabTarget": "runtime",
+    "pageSections": [
+      "approval",
+      "sandbox",
+      "search",
+      "verbosity",
+      "summary"
+    ],
+    "retiredPageControls": false
+  },
+  "runtimePresetCases": [
+    {
+      "mode": "auto",
+      "current": {
+        "approvalPolicy": "on-request",
+        "sandboxMode": "read-only",
+        "approvalsReviewer": "user",
+        "sandboxNetworkAllowed": false
+      },
+      "expected": {
+        "approvalPolicy": "on-request",
+        "sandboxMode": "read-only",
+        "approvalsReviewer": "auto_review",
+        "sandboxNetworkAllowed": false
+      }
+    },
+    {
+      "mode": "auto",
+      "current": {
+        "approvalPolicy": "on-request",
+        "sandboxMode": "read-only",
+        "approvalsReviewer": "user",
+        "sandboxNetworkAllowed": true
+      },
+      "expected": {
+        "approvalPolicy": "on-request",
+        "sandboxMode": "read-only",
+        "approvalsReviewer": "auto_review",
+        "sandboxNetworkAllowed": true
+      }
+    },
+    {
+      "mode": "auto",
+      "current": {
+        "approvalPolicy": "on-request",
+        "sandboxMode": "workspace-write",
+        "approvalsReviewer": "user",
+        "sandboxNetworkAllowed": false
+      },
+      "expected": {
+        "approvalPolicy": "on-request",
+        "sandboxMode": "workspace-write",
+        "approvalsReviewer": "auto_review",
+        "sandboxNetworkAllowed": false
+      }
+    },
+    {
+      "mode": "auto",
+      "current": {
+        "approvalPolicy": "on-request",
+        "sandboxMode": "workspace-write",
+        "approvalsReviewer": "user",
+        "sandboxNetworkAllowed": true
+      },
+      "expected": {
+        "approvalPolicy": "on-request",
+        "sandboxMode": "workspace-write",
+        "approvalsReviewer": "auto_review",
+        "sandboxNetworkAllowed": true
+      }
+    }
+  ],
+  "policyConfiguration": {
+    "persistedKeys": [
+      "approval_policy",
+      "approvals_reviewer",
+      "sandbox_mode",
+      "sandbox_workspace_write"
+    ],
+    "defaultMode": "read-only",
+    "workspaceTable": {
+      "writable_roots": [
+        "/explicit",
+        "/second"
+      ],
+      "network_access": false,
+      "exclude_tmpdir_env_var": true,
+      "exclude_slash_tmp": true
+    }
+  }
+}

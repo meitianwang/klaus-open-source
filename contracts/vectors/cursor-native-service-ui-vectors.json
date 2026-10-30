@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "notes": "Native image and speech services use independent global selections and the shared account card. A connected account only offers sign-out; login and local reuse remain available while signed out. An unavailable selected service remains visible; no endpoint or model catalog is invented.",
+  "connectedAccountActions": ["logout"],
+  "cases": [
+    {
+      "name": "Signed-in Cursor image service is offered",
+      "kind": "image",
+      "selection": "custom",
+      "availability": {
+        "cursor": true
+      },
+      "cursorVisible": true
+    },
+    {
+      "name": "Expired selected Cursor image service remains visible",
+      "kind": "image",
+      "selection": "cursor",
+      "availability": {
+        "cursor": false,
+        "custom": true
+      },
+      "cursorVisible": true
+    },
+    {
+      "name": "Signed-out inactive Cursor image service is not offered globally",
+      "kind": "image",
+      "selection": "custom",
+      "availability": {
+        "cursor": false
+      },
+      "cursorVisible": false
+    },
+    {
+      "name": "Cursor speech service is offered",
+      "kind": "audio",
+      "selection": "custom",
+      "availability": {
+        "cursor": true
+      },
+      "cursorVisible": true
+    },
+    {
+      "name": "Unavailable selected Cursor speech service remains visible",
+      "kind": "audio",
+      "selection": "cursor",
+      "availability": {
+        "cursor": false
+      },
+      "cursorVisible": true
+    }
+  ]
+}

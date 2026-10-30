@@ -1,0 +1,68 @@
+{
+  "version": 3,
+  "reason": "TRAE CN native efforts preserve exact selections while their labels use the shared reasoning presentation. Personal credit balances retain fractional consumption; incomplete balances stay unknown. Image requests adapt undersized dimensions inside the source before their first submission, preserving aspect ratio and leaving sufficient dimensions unchanged.",
+  "imageSizing": {
+    "minimumPixels": 3686400,
+    "defaultSize": "2048x2048",
+    "cases": [
+      { "input": { "size": "1024x1024" }, "expectedSize": "2048x2048" },
+      { "input": { "size": "512x512" }, "expectedSize": "2048x2048" },
+      { "input": { "size": "1920x1920" }, "expectedSize": "1920x1920" },
+      { "input": { "size": "2560x1440" }, "expectedSize": "2560x1440" },
+      { "input": { "size": "auto" }, "expectedSize": "2048x2048" },
+      { "input": {}, "expectedSize": "2048x2048" }
+    ]
+  },
+  "source": "trae",
+  "selection": "trae:fixture-chat",
+  "family": {
+    "key": "fixture-chat",
+    "display_name": "Fixture Chat",
+    "purpose": "chat",
+    "available": false,
+    "contextWindow": 256000,
+    "traeFamilyId": "fixture-chat",
+    "traeVariants": [
+      { "value": "trae:fixture-chat", "nativeEffort": "high", "isDefault": true, "available": false, "contextTokens": 256000 },
+      { "value": "trae:fixture-chat::effort=light", "nativeEffort": "light", "available": false, "contextTokens": 256000 },
+      { "value": "trae:fixture-chat::effort=high", "nativeEffort": "high", "available": false, "contextTokens": 256000 }
+    ]
+  },
+  "quota": [
+    {
+      "name": "missing pack consumption stays unknown while its reported limit and expiry remain visible",
+      "input": { "signedIn": true, "windows": [{ "id": "pack-a", "label": "Monthly", "total": 5000, "unit": "credits", "expiresAt": 1800000000000 }] },
+      "expected": { "state": "ok", "windows": [{ "id": "pack-a", "label": "Monthly", "total": 5000, "unit": "credits", "expiresAt": 1800000000000 }] }
+    },
+    {
+      "name": "pack expiry and allowance reset retain their separate meanings",
+      "input": { "signedIn": true, "windows": [{ "id": "expiring", "total": 5000, "expiresAt": 1800000000000 }, { "id": "recurring", "usedPercent": 25, "resetsAt": 1800100000000 }] },
+      "expected": { "state": "ok", "windows": [{ "id": "expiring", "total": 5000, "expiresAt": 1800000000000 }, { "id": "recurring", "usedPercent": 25, "resetsAt": 1800100000000 }] }
+    },
+    {
+      "name": "pack balances stay separate from the independent account summary",
+      "input": { "signedIn": true, "plan": "Fixture Plan", "windows": [{ "id": "one", "label": "Monthly", "total": 4000 }, { "id": "two", "label": "Bonus", "remaining": 0 }], "credits": { "total": 8650, "used": 0, "remaining": 8650, "unit": "credits" } },
+      "expected": { "state": "ok", "plan": "Fixture Plan", "windows": [{ "id": "one", "label": "Monthly", "total": 4000 }, { "id": "two", "label": "Bonus", "remaining": 0 }], "credits": { "total": 8650, "used": 0, "remaining": 8650, "unit": "credits" } }
+    },
+    {
+      "name": "native amount fields preserve pack balances and expiry without inferring consumption",
+      "input": { "signedIn": true, "windows": [{ "id": "native", "totalAmount": 5000, "usedAmount": 10, "remainingAmount": 4990, "expiresAt": 1800000000000 }] },
+      "expected": { "state": "ok", "windows": [{ "id": "native", "total": 5000, "used": 10, "remaining": 4990, "expiresAt": 1800000000000 }] }
+    },
+    {
+      "name": "unlimited packs and service status remain explicit metadata",
+      "input": { "signedIn": true, "windows": [{ "id": "unlimited", "unlimited": true, "status": 1 }, { "id": "benefit", "totalAmount": 500, "status": 0 }] },
+      "expected": { "state": "ok", "windows": [{ "id": "unlimited", "unlimited": true, "status": 1 }, { "id": "benefit", "total": 500, "status": 0 }] }
+    },
+    {
+      "name": "large integer limits retain their original decimal precision",
+      "input": { "signedIn": true, "windows": [{ "id": "large", "label": "Credits", "total": "9007199254740993" }] },
+      "expected": { "state": "ok", "windows": [{ "id": "large", "label": "Credits", "total": "9007199254740993" }] }
+    },
+    { "name": "a summary total does not imply an unused or remaining balance", "input": { "signedIn": true, "credits": { "total": 8650, "unit": "credits" } }, "expected": { "state": "ok", "credits": { "total": 8650, "unit": "credits" } } },
+    { "name": "a used-only summary remains exact without an invented total", "input": { "signedIn": true, "credits": { "used": "9007199254740993", "unit": "credits" } }, "expected": { "state": "ok", "credits": { "used": "9007199254740993", "unit": "credits" } } },
+    { "name": "personal available credits retain fractional consumption", "input": { "signedIn": true, "credits": { "total": 8850, "used": 517.0196, "remaining": 8332.9804, "unit": "credits" } }, "expected": { "state": "ok", "credits": { "total": 8850, "used": 517.0196, "remaining": 8332.9804, "unit": "credits" } } },
+    { "name": "unreported usage remains unknown", "input": { "signedIn": true }, "expected": { "state": "ok", "quotaAvailable": false } }
+  ],
+  "errors": ["trae_model_access_denied", "trae_quota_exhausted", "trae_request_rejected", "trae_auth_required", "trae_rate_limited", "trae_service_unavailable"]
+}

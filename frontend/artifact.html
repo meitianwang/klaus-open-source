@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <!-- connect-src carries `ipc: http://ipc.localhost`, vestigial as in index.html:
+       the Electron bridge reaches the host through `ipcRenderer.invoke`, not a fetch,
+       so no origin in that list is contacted. This window loads the bridge for its own
+       calls (artifacts:read, window:setTitleBarColors and friends — see
+       bridge/artifact-api.ts); titlebar dragging is CSS `-webkit-app-region`, not IPC. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' klaus-media: file: blob: data:; media-src 'self' klaus-media: file: blob:; frame-src 'self' klaus-media: file: blob:; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' klaus-media: ipc: http://ipc.localhost;" />
+  <title>Artifact</title>
+  <link rel="stylesheet" href="vendor/highlight-dark.css" />
+  <link rel="stylesheet" href="css/artifact.css" />
+  <link rel="stylesheet" href="css/highlight-tokens.css" />
+  <!-- 唯一 JS 入口：bridge + vendor 垫片 + 预览脚本的保序 import 链见 src/artifact-main.ts -->
+  <script type="module" src="src/artifact-main.ts"></script>
+</head>
+<body>
+  <div class="aw-titlebar">
+    <span id="aw-title" class="aw-title"></span>
+  </div>
+  <div class="aw-toolbar">
+    <div id="aw-viewtoggle" class="aw-viewtoggle">
+      <button id="aw-view-source" class="aw-view-btn" data-i18n-title="artifacts_view_source" data-i18n-aria-label="artifacts_view_source" title="Source" aria-label="Source">
+        <span data-kls-icon="aw-view-source"></span>
+      </button>
+      <button id="aw-view-preview" class="aw-view-btn" data-i18n-title="artifacts_view_preview" data-i18n-aria-label="artifacts_view_preview" title="Preview" aria-label="Preview">
+        <span data-kls-icon="aw-view-preview"></span>
+      </button>
+    </div>
+    <span class="aw-fileinfo">
+      <span data-kls-icon="aw-fileicon"></span>
+      <span id="aw-filename" class="aw-filename"></span>
+      <span id="aw-filetype" class="aw-filetype"></span>
+    </span>
+    <button id="aw-copy" class="aw-icon-btn" data-i18n-title="artifacts_copy_path" data-i18n-aria-label="artifacts_copy_path" title="Copy path" aria-label="Copy path">
+      <span data-kls-icon="aw-copy"></span>
+    </button>
+    <button id="aw-folder" class="aw-icon-btn" data-i18n-title="project_menu_reveal" data-i18n-aria-label="project_menu_reveal" title="Reveal in Finder" aria-label="Reveal in Finder">
+      <span data-kls-icon="aw-reveal"></span>
+    </button>
+  </div>
+  <div id="aw-action-error" class="aw-action-error" role="alert" aria-live="assertive" hidden></div>
+  <div id="aw-body" class="aw-body"></div>
+  <div id="aw-truncated" class="aw-truncated" data-i18n="artifacts_truncated" style="display:none">File truncated (showing first 1 MB)</div>
+</body>
+</html>

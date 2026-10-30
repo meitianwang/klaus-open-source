@@ -1,0 +1,84 @@
+{
+  "historyFallbackMethod": "engine/readThreadHistory",
+  "cachedWorkingState": false,
+  "messageLessFailures": {
+    "_why": "A continuation can fail before producing a transcript row. Saved diagnostics must remain visible after the live error card is cleared or the conversation is reopened.",
+    "turnStatuses": { "original": "interrupted", "retry-one": "failed", "retry-two": "failed", "empty-completed": "completed", "empty-interrupted": "interrupted" },
+    "turnStartedAtMs": { "original": 100, "retry-one": 200, "retry-two": 300, "empty-completed": 400, "empty-interrupted": 500 },
+    "turnErrors": { "retry-one": "Unsupported message role", "retry-two": "Unsupported message role" },
+    "expectedFailureTurns": ["retry-one", "retry-two"]
+  },
+  "liveSessionLimit": 6,
+  "idleRetirement": {
+    "_why": "Unviewed idle runtime handles expire independently of later requests. Mounted views have owner-scoped tokens, and all ongoing work and live mobile followers retain their handle. Reopening uses the existing cold recovery path.",
+    "idleMs": 10800000,
+    "ownerScopedViewTokens": true,
+    "releaseOnOwnerLoss": ["destroyed", "render-process-gone", "main-frame-navigation"],
+    "protectedStates": ["mounted-view", "mobile-follow", "voice-reservation", "running-turn", "interrupt-window", "active-goal", "queued-input", "pending-interaction", "background-agent", "background-process", "pending-mutation"],
+    "unknownActivity": "retain-and-backoff"
+  },
+  "closeRecovery": {
+    "_why": "A timed-out close continues draining server-side. Retain and fence its writer until a repeated close confirms teardown; scoped reads hold their lifecycle lease through the RPC.",
+    "deadlineMs": 100000,
+    "pendingCode": "SESSION_CLEANUP_PENDING",
+    "serializeScopedReads": true
+  },
+  "startupRecovery": {
+    "_why": "Activation failure has one rollback owner. Unknown live handles count as closed; uncertain cleanup retains ownership and blocks inference instead of losing the writer. Failed idle candidates back off without blocking unrelated chats.",
+    "activationFailureMethods": ["session/prepare", "session/subscribe", "session/queueSnapshot"],
+    "preparation": {
+      "_why": "Readiness waits for restored core publication without fetching task or history data. Deadlines detach only the waiter; retries keep the same endpoint and writer, and inference stays fenced until activation finishes.",
+      "method": "session/prepare",
+      "timeoutDelaysMs": [120000, 240000, 480000],
+      "closingRetryDelaysMs": [750, 1500, 3000, 6000],
+      "retainBindingAfterTimeout": true,
+      "selectedAgentValidation": "prepare",
+      "activationOrder": ["session/prepare", "session/subscribe", "session/queueSnapshot"],
+      "materializeWithTaskList": false
+    },
+    "closeAttempts": 1,
+    "unknownSessionCode": -32004,
+    "retryBaseMs": 30000,
+    "retryMaxMs": 300000,
+    "retryDelaysMs": [30000, 60000, 120000, 240000, 300000, 300000],
+    "probePriority": "background",
+    "sharedForegroundBackgroundCooldown": true,
+    "blockAlreadyPreparedSends": true,
+    "composerPreparation": "reserve-before-first-await-and-retain-across-promotion"
+  },
+  "terminalPersistence": {
+    "_why": "A terminal notification must not precede the writer acknowledgement for its original messages and lifecycle record. Provider-free history reads remain read-only. Storage failures publish failure and preserve the original diagnostic and timing metadata.",
+    "writerAcknowledgementBeforeTerminal": true,
+    "readOnlyMethods": ["engine/readThread", "engine/readThreadHistory", "engine/readThreadItems", "engine/readSubagentHistory"],
+    "readOnlyMethodsMayFlushWriter": false,
+    "persistenceFailure": {
+      "status": "failed",
+      "successfulTerminals": 0,
+      "preservedFields": ["finishedAtMs", "durationMs", "goalContinuation", "inputOrigin", "goalId", "providerError"],
+      "finalMessageId": null
+    }
+  },
+  "resumeLedger": {
+    "_why": "Consuming the previous run must not close the ledger used by this run. New work coexists with unresolved recovery; only confirmed continuations or settled tails leave the file, while failed recovery remains retryable.",
+    "afterEmptyStartupNewRun": ["new"],
+    "duringRecovery": ["new", "old"],
+    "afterSuccessfulRecovery": ["new"],
+    "afterFailedRecovery": ["broken"]
+  },
+  "setupLifecycle": {
+    "reply": {
+      "setupLifecycle": {
+        "idempotencyResults": {
+          "ok": { "requestId": "ok", "status": "completed" },
+          "bad": { "requestId": "req-bad", "status": "persistence_failed", "error": "disk" }
+        }
+      }
+    },
+    "notice": {
+      "type": "notice",
+      "sessionId": "thread",
+      "level": "warning",
+      "content": "setup req-bad: persistence_failed (disk)"
+    }
+  }
+}

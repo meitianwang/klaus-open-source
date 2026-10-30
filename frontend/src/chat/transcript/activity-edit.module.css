@@ -1,0 +1,64 @@
+.editActivity { --edit-muted: var(--fg-activity); display: flex; min-width: 0; flex-direction: column; gap: var(--conversation-patch-file-gap, var(--conversation-grouped-item-gap, 4px)); color: var(--edit-muted); font-size: var(--activity-font-size, var(--text-body)); line-height: 1.5; }
+.fileEntry { min-width: 0; }
+.header { position: relative; display: inline-flex; align-items: center; max-width: 100%; min-width: 0; gap: 6px; padding: 0; vertical-align: top; }
+.toggle { position: absolute; inset: 0; border: 0; padding: 0; border-radius: var(--radius-xs); background: transparent; cursor: pointer; }
+.summary { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; pointer-events: none; }
+.icon { display: inline-flex; flex: 0 0 auto; width: 16px; height: 16px; align-items: center; justify-content: center; pointer-events: none; }
+.icon :global(svg) { margin: 0; opacity: 1; }
+.fileLink { position: relative; min-width: 0; max-width: 100%; padding: 0; overflow: hidden; border: 0; border-radius: var(--radius-2xs); background: transparent; color: inherit; font: inherit; text-overflow: ellipsis; text-align: start; white-space: nowrap; vertical-align: bottom; cursor: pointer; pointer-events: auto; }
+.fileLink:hover { color: var(--fg); text-decoration: underline; }
+.rename { white-space: nowrap; }
+.counts { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 4px; font-size: var(--text-small); font-variant-numeric: tabular-nums; pointer-events: none; }
+.addedCount { color: var(--theme-diff-added); }
+.removedCount { color: var(--theme-diff-removed); }
+.kindDot { width: 6px; height: 6px; flex: 0 0 auto; border-radius: 50%; pointer-events: none; }
+.kindDot[data-kind=add] { background: color-mix(in oklab, var(--status-busy) 70%, transparent); }
+.kindDot[data-kind=delete] { background: color-mix(in oklab, var(--status-error) 70%, transparent); }
+.chevron { display: inline-flex; width: 14px; height: 14px; flex: 0 0 auto; margin-inline-start: -2px; opacity: 0; pointer-events: none; transition: transform 300ms ease; }
+.chevron[data-open] { opacity: 1; transform: rotate(90deg); }
+.header:has(.toggle:focus-visible) .chevron { color: var(--fg); opacity: 1; }
+.toggle:focus-visible, .fileLink:focus-visible, .copy:focus-visible, .fallbackToggle:focus-visible, .resultDisclosure summary:focus-visible { outline: none; color: var(--fg); background: var(--bg-hover); box-shadow: none;}
+/* Scroll containers keep the ring: it is the only cue that arrow keys pan. */
+.diffScroll:focus-visible, .result pre:focus-visible { outline: 2px solid var(--input-focus); outline-offset: 1px; box-shadow: none; }
+.body { display: grid; grid-template-rows: 0fr; opacity: 0; transition: grid-template-rows 300ms cubic-bezier(.19, 1, .22, 1), opacity 300ms cubic-bezier(.19, 1, .22, 1); pointer-events: none; }
+.body[data-open] { grid-template-rows: 1fr; opacity: 1; pointer-events: auto; }
+.bodyInner { min-height: 0; overflow: hidden; }
+.diffCard { display: flex; min-width: 0; flex-direction: column; overflow: hidden; margin-top: 6px; border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.diffHeader { display: flex; min-width: 0; align-items: center; gap: 8px; padding: 2px 10px; border-bottom: 1px solid var(--border); background: color-mix(in oklab, var(--fg) 3%, transparent); font-size: var(--text-small); }
+.diffHeader > .fileLink { flex: 0 1 auto; }
+.copy { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; flex: 0 0 auto; padding: 4px; margin-inline-start: auto; border: 0; border-radius: var(--radius-xxs); background: transparent; color: var(--fg-tertiary); cursor: pointer; }
+.copy:hover { color: var(--fg); background: var(--bg-hover); }
+.previewLabel { padding: 4px 10px; background: var(--bg-surface); color: var(--fg-tertiary); font-size: var(--text-small); }
+.diffScroll { max-height: 240px; overflow: auto; overscroll-behavior: contain; background: var(--bg-surface); }
+.diffScroll[data-pending] { max-height: 100px; }
+.diffLines { width: max-content; min-width: 100%; font-family: var(--font-mono); font-size: var(--code-font-size); line-height: var(--leading-code); }
+.diffLine { display: flex; min-width: 0; color: var(--fg-secondary); }
+.diffLine[data-kind=added] { background: var(--theme-diff-added-bg); }
+.diffLine[data-kind=removed] { background: var(--theme-diff-removed-bg); }
+.lineNumber { display: inline-block; box-sizing: content-box; flex: 0 0 3ch; padding: 0 6px; color: var(--fg-quaternary); font-variant-numeric: tabular-nums; text-align: end; user-select: none; }
+.marker { display: inline-block; flex: 0 0 14px; text-align: center; user-select: none; }
+.diffLine[data-kind=added] .marker { color: var(--theme-diff-added); }
+.diffLine[data-kind=removed] .marker { color: var(--theme-diff-removed); }
+.code { flex: 1; padding-inline-end: 12px; white-space: pre; }
+.hunk { padding: 2px 12px; background: color-mix(in oklab, var(--fg) 3%, transparent); color: var(--fg-tertiary); white-space: pre; }
+.notice { padding: 2px 12px; color: var(--fg-tertiary); font-style: italic; white-space: pre; }
+.empty { padding: 28px 8px 32px; color: var(--fg-tertiary); background: var(--bg-surface); text-align: center; }
+.fallbackToggle { display: inline-flex; max-width: 100%; align-self: start; align-items: center; gap: 6px; padding: 0; border: 0; border-radius: var(--radius-xs); background: transparent; color: inherit; font: inherit; text-align: start; cursor: pointer; }
+.fallbackToggle:hover .chevron, .fallbackToggle:focus-visible .chevron { opacity: 1; }
+.result { min-width: 0; margin-top: 6px; overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.resultHeader { display: flex; align-items: center; gap: 8px; padding: 2px 10px; color: var(--fg-tertiary); font-size: var(--text-small); }
+.result pre { max-height: 240px; overflow: auto; margin: 0; padding: 8px 10px; border-top: 1px solid var(--border); color: var(--fg-secondary); font-family: var(--font-mono); font-size: var(--code-font-size); line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+.resultDisclosure { padding-top: 6px; color: var(--fg-tertiary); font-size: var(--text-small); }
+.resultDisclosure > summary { width: fit-content; border-radius: var(--radius-xxs); cursor: pointer; }
+.srOnly { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+/* See activity-tool.module.css for the measurement behind `steps(48, end)`. */
+.summary [data-running] { background: linear-gradient(110deg, var(--edit-muted) 30%, var(--fg) 50%, var(--edit-muted) 70%) 0 0 / 220% 100%; background-clip: text; -webkit-text-fill-color: transparent; animation: shimmer 2s steps(48, end) infinite; }
+@keyframes shimmer { to { background-position: -220% 0; } }
+/* The sweep stops under the pointer; dragging across rows is what made
+   this expensive enough to notice. */
+.header:hover .summary [data-running] { animation: none; background: none; -webkit-text-fill-color: currentColor; color: var(--fg); }
+@media (hover: hover) { .header:hover:not(:has(.fileLink:hover)) { color: var(--fg); } .header:hover:not(:has(.fileLink:hover)) .chevron { opacity: 1; } }
+/* No hover on touch: the chevron is the only affordance that says a row opens,
+   so it must not depend on a pointer state that never happens. */
+@media (hover: none) { .chevron { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .body, .chevron { transition: none; } .summary [data-running] { animation: none; background: none; -webkit-text-fill-color: currentColor; } }

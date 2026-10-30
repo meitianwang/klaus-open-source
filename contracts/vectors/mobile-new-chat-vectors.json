@@ -1,0 +1,112 @@
+{
+  "reason": "The phone selects the same host-owned project/workspace, local checkout and managed worktree semantics as the desktop. Git operations remain scoped to known targets; a draft identity cannot be reused for different content, and failed worktree promotions remove only their own resources. Selector lifecycle now preserves same-target drafts, removes context controls as first-send creation begins, and restores unchanged draft choices after a confirmed rejection. Unavailable repository targets force Local, and an existing managed worktree does not expose another mode or branch selector.",
+  "features": {
+    "newChatContext": true
+  },
+  "contextFields": [
+    "target",
+    "isGit",
+    "current",
+    "branches",
+    "gitRoot",
+    "dirty",
+    "changes",
+    "worktreeEnabled",
+    "worktreeDisabledReason"
+  ],
+  "noProject": {
+    "target": "none",
+    "isGit": false,
+    "current": null,
+    "branches": [],
+    "gitRoot": null,
+    "dirty": false,
+    "changes": 0,
+    "worktreeEnabled": false,
+    "worktreeDisabledReason": "no_project"
+  },
+  "workspace": {
+    "target": "workspace",
+    "isGit": false,
+    "current": null,
+    "branches": [],
+    "gitRoot": null,
+    "dirty": false,
+    "changes": 0,
+    "worktreeEnabled": false,
+    "worktreeDisabledReason": "workspace"
+  },
+  "nonGit": {
+    "target": "project",
+    "isGit": false,
+    "current": null,
+    "branches": [],
+    "gitRoot": null,
+    "dirty": false,
+    "changes": 0,
+    "worktreeEnabled": false,
+    "worktreeDisabledReason": "not_git"
+  },
+  "emptyGit": {
+    "target": "project",
+    "isGit": true,
+    "current": null,
+    "branches": [],
+    "dirty": false,
+    "changes": 0,
+    "worktreeEnabled": false,
+    "worktreeDisabledReason": "no_branch"
+  },
+  "branchConflict": {
+    "status": 200,
+    "ok": false,
+    "needsCommit": true,
+    "current": "main",
+    "branch": "feature",
+    "files": [
+      {
+        "path": "tracked.txt",
+        "additions": 1,
+        "deletions": 1,
+        "isBinary": false
+      }
+    ]
+  },
+  "promotion": {
+    "runModes": [
+      "local",
+      "worktree"
+    ],
+    "defaultRunMode": "local",
+    "workspaceMode": "local",
+    "unknownTargetStatus": 403,
+    "unavailableWorktreeStatus": 409,
+    "unavailableWorktreeCode": "worktree_unavailable",
+    "differentDraftStatus": 409,
+    "differentDraftCode": "draft_context_mismatch",
+    "failedOwnedSessionWipe": false,
+    "failedOwnedWorktreeRemoved": true,
+    "originRemainsUntouched": true,
+    "requestDisconnectCancelsAcceptedPromotion": false,
+    "replacementOwnerReusesOutcome": false,
+    "failedDraftRetainsContextIdentity": true,
+    "creationOwnershipFenceRemovesCopies": true,
+    "unresolvedCleanupAllocatesRetryWorktree": false,
+    "retainedOutcomeLimit": 500,
+    "settledOutcomeRetentionMs": 600000,
+    "cleanupFailureLimitPerOutcome": 2,
+    "cleanupMessageLimit": 1024,
+    "ownedWorktreePathLimit": 4096,
+    "ownedSessionIdLimit": 128
+  },
+  "selectorLifecycle": {
+    "sameDeviceAndTargetPreserveSelection": true,
+    "changedDeviceOrTargetResetsLocal": true,
+    "pendingFirstSendHidesContext": true,
+    "confirmedRejectionRestoresContext": true,
+    "confirmedRejectionPreservesFirstMessage": true,
+    "acceptedFirstSendHidesContext": true,
+    "managedWorktreeHidesModeAndBranch": true,
+    "unavailableWorktreeResetsLocalAndBase": true
+  }
+}

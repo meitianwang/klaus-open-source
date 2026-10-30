@@ -1,0 +1,68 @@
+{
+  "note": "Native preparation preserves the requested mode and optional working directory. Enabling the prepared sandbox is a separate configuration write. Completion events remain global and carry nullable errors.",
+  "readinessStatuses": [
+    "ready",
+    "notConfigured",
+    "updateRequired"
+  ],
+  "setupRequests": [
+    {
+      "mode": "elevated"
+    },
+    {
+      "mode": "unelevated",
+      "cwd": null
+    },
+    {
+      "mode": "unelevated",
+      "cwd": "C:\\work"
+    }
+  ],
+  "completions": [
+    {
+      "mode": "elevated",
+      "success": true,
+      "error": null
+    },
+    {
+      "mode": "unelevated",
+      "success": false,
+      "error": "Native access denied"
+    }
+  ],
+  "effectiveProjection": {
+    "note": "Only a known preparation requirement temporarily projects native local Windows execution to read-only. The saved permission policy is unchanged and readiness errors do not create a requirement.",
+    "requiredStatuses": [
+      "notConfigured",
+      "updateRequired"
+    ],
+    "readOnlyPolicy": {
+      "approvalPolicy": "on-request",
+      "sandboxMode": "read-only",
+      "approvalsReviewer": "user",
+      "sandboxNetworkAllowed": false
+    },
+    "hosts": [
+      {
+        "platform": "win32",
+        "remoteBinding": null,
+        "applicable": true
+      },
+      {
+        "platform": "win32",
+        "remoteBinding": "ssh://user@host/work",
+        "applicable": false
+      },
+      {
+        "platform": "darwin",
+        "remoteBinding": null,
+        "applicable": false
+      },
+      {
+        "platform": "linux",
+        "remoteBinding": null,
+        "applicable": false
+      }
+    ]
+  }
+}

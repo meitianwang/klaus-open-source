@@ -1,0 +1,145 @@
+{
+  "_why": "Atomic history may include original messages ahead of the notification cut. Every live item needs its authoritative turn and persisted block identity so a restored row suppresses only its own late events. Raw compatibility paths preserve those same identities; legacy rows without identities remain readable.",
+  "cases": [
+    {
+      "name": "native completed tool keeps core turn identity",
+      "input": {
+        "type": "productEvent",
+        "method": "item/completed",
+        "params": {
+          "sessionId": "s",
+          "submissionId": "submit-1",
+          "turnId": "turn-1",
+          "item": {
+            "type": "tool_call",
+            "id": "tool-1",
+            "toolName": "Read",
+            "status": "completed",
+            "result": "saved"
+          }
+        }
+      },
+      "type": "tool_end",
+      "turnId": "turn-1"
+    },
+    {
+      "name": "tool input keeps its turn",
+      "input": {
+        "type": "productEvent",
+        "method": "item/updated",
+        "params": {
+          "sessionId": "s",
+          "turnId": "turn-2",
+          "item": {
+            "type": "tool_call",
+            "id": "tool-1",
+            "status": "in_progress",
+            "arguments": {
+              "path": "new"
+            }
+          }
+        }
+      },
+      "type": "tool_input_delta",
+      "turnId": "turn-2"
+    },
+    {
+      "name": "raw progress uses inner core turn",
+      "input": {
+        "type": "rawSessionEvent",
+        "params": {
+          "sessionId": "s",
+          "event": {
+            "submissionId": "submit-1",
+            "event": {
+              "type": "tool.event",
+              "turnId": "turn-1",
+              "toolUseId": "tool-1",
+              "event": {
+                "type": "stdout",
+                "chunk": "saved"
+              }
+            }
+          }
+        }
+      },
+      "type": "progress",
+      "turnId": "turn-1"
+    },
+    {
+      "name": "reasoning delta carries stable item identity",
+      "input": {
+        "type": "productEvent",
+        "method": "item/reasoning/delta",
+        "params": {
+          "sessionId": "s",
+          "turnId": "turn-1",
+          "delta": "thinking",
+          "messageId": "assistant-reasoning-0"
+        }
+      },
+      "type": "thinking_delta",
+      "turnId": "turn-1",
+      "messageId": "assistant-reasoning-0"
+    },
+    {
+      "name": "child reasoning preserves persisted identity",
+      "input": {
+        "type": "rawSessionEvent",
+        "params": {
+          "sessionId": "s",
+          "event": {
+            "submissionId": "submit-1",
+            "subagentEvent": {
+              "agentId": "child",
+              "event": {
+                "type": "thinking.delta",
+                "text": "thinking",
+                "messageId": "child-reasoning-0"
+              }
+            }
+          }
+        }
+      },
+      "type": "agent_progress",
+      "messageId": "child-reasoning-0",
+      "innerType": "thinking_delta"
+    },
+    {
+      "name": "legacy submission identity remains available for active binding",
+      "input": {
+        "type": "productEvent",
+        "method": "item/agentMessage/delta",
+        "params": {
+          "sessionId": "s",
+          "submissionId": "submit-1",
+          "delta": "hello",
+          "messageId": "assistant-text-0"
+        }
+      },
+      "type": "text_delta",
+      "turnId": "submit-1",
+      "messageId": "assistant-text-0"
+    }
+  ],
+  "thinkingReplay": {
+    "sessionId": "s",
+    "history": [
+      {
+        "uuid": "assistant",
+        "content": [
+          {
+            "type": "thinking",
+            "text": "stable",
+            "messageId": "assistant-reasoning-0"
+          },
+          {
+            "type": "thinking",
+            "text": "legacy"
+          }
+        ],
+        "type": "assistant"
+      }
+    ]
+  }
+}

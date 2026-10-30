@@ -1,0 +1,25 @@
+{
+  "reason": "A successful main turn continues durable now/next input in one engine-owned admission. Held completion cannot end a continued turn; stopped or failed turns never restart themselves. Explicit stop publishes any held real completion without starting title inference, so a refused stop/close cannot leave a finished turn busy. Passive child results carry triggerTurn=false and remain queued without admitting another main turn; older background-task receipts retain that same meaning.",
+  "maximumContinuations": 25,
+  "admissionAck": { "turnId": "resume" },
+  "stoppedCompletion": { "type": "done", "sessionId": "thread", "turnId": "first" },
+  "stoppedCompletionNote": "queuePaused was removed from this vector on purpose. The host used to stamp that flag onto the done frame so the RENDERER could pause its own in-memory follow-up queue. The queue moved into the host (main/sessions/client-queue.ts), where afterTurnTerminal reads this same terminal event and pauses the queue itself, so no renderer-facing hint is produced any more. Keeping the field would pin a contract that nothing emits. The vector is now a stronger invariant: the published completion is exactly these fields, so a future change cannot smuggle an invented field back onto it.",
+  "termination": [
+    { "stopReason": "completed", "held": true },
+    { "stopReason": "aborted", "held": false },
+    { "stopReason": "error", "held": false },
+    { "stopReason": "auth_failed", "held": false },
+    { "stopReason": "max_turns", "held": false }
+  ],
+  "pending": [
+    { "name": "next main input", "item": { "state": "pending", "message": { "priority": "next" } }, "eligible": true },
+    { "name": "now main input", "item": { "state": "pending", "message": { "priority": "now" } }, "eligible": true },
+    { "name": "later input stays queued", "item": { "state": "pending", "message": { "priority": "later" } }, "eligible": false },
+    { "name": "child input belongs to its child", "item": { "state": "pending", "message": { "priority": "next", "agentId": "child" } }, "eligible": false },
+    { "name": "reserved input already has an owner", "item": { "state": "reserved", "message": { "priority": "next" } }, "eligible": false },
+    { "name": "drained input is not repeated", "item": { "state": "drained", "message": { "priority": "next" } }, "eligible": false },
+    {"name": "passive child result cannot reopen a completed parent", "item": {"state": "pending", "message": {"priority": "next", "mode": "task-notification", "origin": "background-task", "triggerTurn": false}}, "eligible": false},
+    {"name": "legacy child receipt stays passive", "item": {"state": "pending", "message": {"priority": "next", "mode": "task-notification", "origin": "background-task"}}, "eligible": false},
+    {"name": "explicit followup admits a new turn", "item": {"state": "pending", "message": {"priority": "next", "triggerTurn": true}}, "eligible": true}
+  ]
+}

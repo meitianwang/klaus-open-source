@@ -1,0 +1,178 @@
+{
+  "_why": "Task outcomes and input requests must summon iOS independently of its active page or suspended websocket. The relay owns source account/device identity, durable acceptance deduplicates retries, and APNs carries only generic localized text plus exact navigation IDs. Local and APNs delivery must claim one durable per-installation event owner before alerting, so cached availability and registration transitions cannot duplicate an alert.",
+  "registration": {
+    "path": "/api/mobile/push/register",
+    "methods": [
+      "POST",
+      "DELETE"
+    ],
+    "authentication": "account bearer token",
+    "fields": [
+      "installationId",
+      "token",
+      "environment",
+      "locale",
+      "registrationRevision"
+    ],
+    "topicSource": "server configuration only",
+    "staleRevisionStatus": 409
+  },
+  "relay": {
+    "eventFrame": "push_event",
+    "ackFrame": "push_event_ack",
+    "identitySource": "authorized desktop websocket owner",
+    "mobilePeerRequired": false,
+    "acknowledges": "durable server acceptance",
+    "eventMaximumAgeMs": 3600000,
+    "resolvedFrame": "push_event with resolved=true",
+    "resolutionCancelsPending": true,
+    "resolutionAcceptedWithoutTransport": true,
+    "remoteOwnershipRequiresSupportedEnvironment": true
+  },
+  "notification": {
+    "fields": [
+      "accountId",
+      "deviceId",
+      "sessionId",
+      "eventId",
+      "kind"
+    ],
+    "kinds": [
+      "done",
+      "failed",
+      "permission",
+      "elicitation",
+      "question"
+    ],
+    "taskEventId": "kind:sessionId:turnId",
+    "inputEventId": "kind:sessionId:requestId",
+    "questionEventId": "question:sessionId:turnId:requestId",
+    "privateTaskExcluded": true,
+    "userStopExcluded": true,
+    "emptyCompletionExcluded": true,
+    "invalidApnsTokenRemoved": true,
+    "deviceTopicOverrideAllowed": false,
+    "authFailureOpensAffectedChat": true
+  },
+  "taskOutcomeCases": [
+    {
+      "sessionId": "s",
+      "turnId": "t1",
+      "stopReason": "completed",
+      "finalText": "Completed reply",
+      "expected": "done"
+    },
+    {
+      "sessionId": "s",
+      "turnId": "t1",
+      "stopReason": "completed",
+      "finalText": "Duplicate reply",
+      "expected": null
+    },
+    {
+      "sessionId": "s",
+      "turnId": "t2",
+      "stopReason": "aborted",
+      "finalText": "Partial reply",
+      "expected": null
+    },
+    {
+      "sessionId": "s",
+      "turnId": "t3",
+      "stopReason": "completed",
+      "finalText": "",
+      "expected": null
+    },
+    {
+      "sessionId": "private",
+      "turnId": "t4",
+      "stopReason": "completed",
+      "finalText": "Private reply",
+      "expected": null
+    },
+    {
+      "sessionId": "s",
+      "turnId": "t5",
+      "stopReason": "error",
+      "finalText": "Task failed",
+      "expected": "failed"
+    },
+    {
+      "sessionId": "s",
+      "turnId": "t6",
+      "stopReason": "auth_failed",
+      "finalText": "Provider auth failed",
+      "expected": "failed"
+    }
+  ],
+  "localAuthorization": {
+    "path": "/api/mobile/push/authorize-local",
+    "method": "POST",
+    "authentication": "account bearer token",
+    "fields": [
+      "installationId",
+      "registrationRevision",
+      "deviceId",
+      "sessionId",
+      "eventId",
+      "kind",
+      "occurredAt"
+    ],
+    "responses": [
+      "local",
+      "remote",
+      "suppressed"
+    ],
+    "storageEventId": "sha256(deviceId + : + eventId)",
+    "ownerScope": [
+      "accountId",
+      "installationId",
+      "storageEventId"
+    ],
+    "claimsBeforeLocalAlert": true,
+    "ownerSurvivesSubscriptionRemoval": true,
+    "remoteCreatedByPhone": false,
+    "staleLeaseStatus": 409,
+    "uncertainRequestAllowsLocalAlert": false,
+    "ownerMaximumAgeMs": 3900000,
+    "ownerCapacityPerAccount": 1000,
+    "cancellationOwnerCapacityPerAccount": 2000,
+    "cases": [
+      {
+        "name": "local-first-before-token",
+        "expected": "local",
+        "remoteReplay": "excluded for same installation"
+      },
+      {
+        "name": "remote-first",
+        "expected": "remote",
+        "localFallback": "suppressed"
+      },
+      {
+        "name": "remote-queue-subscription-removed",
+        "expected": "remote",
+        "remoteReplay": "excluded"
+      },
+      {
+        "name": "legacy-processing-or-sent",
+        "expected": "remote"
+      },
+      {
+        "name": "legacy-dead",
+        "expected": "suppressed"
+      },
+      {
+        "name": "resolved-local-or-remote",
+        "expected": "suppressed"
+      },
+      {
+        "name": "expired-event",
+        "expected": "suppressed"
+      },
+      {
+        "name": "missing-or-failed-authorization-response",
+        "expected": "defer"
+      }
+    ]
+  }
+}

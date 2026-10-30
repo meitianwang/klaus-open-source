@@ -1,0 +1,236 @@
+/* Slash-commands 页样式（Batch 5 CSS Modules）。状态类与共享原语经
+   :global() 引用；qc-row/qc-editor-foot/s-badge 为跨页共享留全局。 */
+
+.slash-command-search {
+  position: relative;
+  flex: 1 1 260px;
+  max-width: 420px;
+}
+
+.slash-command-search svg {
+  position: absolute;
+  left: 11px;
+  top: 50%;
+  width: 15px;
+  height: 15px;
+  transform: translateY(-50%);
+  color: var(--fg-quaternary);
+  pointer-events: none;
+}
+
+.slash-command-search input {
+  width: 100%;
+  height: 34px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+  color: var(--fg);
+  font: inherit;
+  font-size: var(--text-body-sm);
+  padding: 0 12px 0 34px;
+  outline: none;
+}
+
+.slash-command-search input:focus {
+  border-color: var(--input-focus);
+  background: var(--bg);
+  box-shadow: none;
+}
+
+/* 行式列表：等宽 /name + 显示名 + 描述 + 徽标 + 行尾操作（hover 才显示操作，降噪）。
+   行本体可点，参数/落盘文件/指令正文这些完整信息进详情弹窗，不挤在行里。 */
+.qc-list {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--bg);
+  overflow: hidden;
+}
+
+/* Keep the restored full-row hit target consistent with the desktop cursor
+   convention used by the rest of the client. */
+:global(#slash-commands-results .qc-row) {
+  cursor: default;
+}
+
+.qc-row-open {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: default;
+}
+
+.qc-row-main {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.qc-row-line {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.qc-row-cmd {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg);
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace);
+  font-size: var(--text-body-sm);
+  font-weight: var(--weight-medium);
+  line-height: var(--leading-mcp-entry-name);
+}
+
+.qc-row-title {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg-tertiary);
+  font-size: var(--text-caption);
+}
+
+.qc-row-desc {
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg-tertiary);
+  font-size: var(--text-small);
+  line-height: var(--leading-settings-subtitle);
+}
+
+/* 徽标列排在 actions 之后、贴行右缘：actions 悬停才显但始终占位，若徽标在其左侧，
+   不同按钮数（1 个 vs 3 个）会让「内置/全局」徽标横向错位，行间无法对齐。 */
+.qc-row-badges {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex: 0 0 auto;
+  gap: 6px;
+}
+
+/* qc-row 是 slash/skills 共享的行容器（全局类）；actions 显隐由行 hover 驱动。 */
+:global(.qc-row:hover) .qc-row-actions,
+:global(.qc-row:focus-within) .qc-row-actions {
+  opacity: 1;
+}
+
+.qc-row-actions {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: 6px;
+  opacity: 0;
+  transition: opacity var(--transition);
+}
+
+.qc-row-actions :global(.btn-xs) {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.qc-row-actions :global(.btn-xs) svg {
+  width: 13px;
+  height: 13px;
+}
+
+/* 详情弹窗里的指令正文块：标签 + 等宽预格式面，保留换行与缩进。
+   内嵌面浅色用 --bg-surface，深色改白色洗（--bg-surface 深色是纯黑，会在弹窗卡里挖黑洞）。 */
+.qc-detail-block {
+  margin-top: 12px;
+}
+
+.qc-detail-block-label {
+  margin-bottom: 6px;
+  color: var(--fg-tertiary);
+  font-size: var(--text-caption);
+}
+
+.qc-detail-body {
+  max-height: 220px;
+  overflow-y: auto;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+  color: var(--fg-secondary);
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace);
+  font-size: var(--text-caption);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+[data-theme="dark"] .qc-detail-body {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+/* 编辑器模态：复用 kls-modal 骨架，正文等宽，目标路径实时预览 */
+.qc-editor-card {
+  max-width: 640px;
+}
+
+.qc-editor-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.qc-editor-body {
+  min-height: 180px;
+  resize: vertical;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace);
+  font-size: var(--text-small);
+  line-height: 1.5;
+}
+
+/* 内联校验：错误文案 + 输入框描边（替代常显的格式说明，仅在非法时出现）。 */
+.qc-field-error {
+  color: var(--error-fg);
+}
+
+:global(.kls-input).qc-input-invalid {
+  border-color: color-mix(in srgb, var(--error-accent) 55%, transparent);
+}
+
+@media (max-width: 820px) {
+  .qc-row-badges {
+      margin-left: auto;
+    }
+
+  .qc-row-actions {
+      opacity: 1;
+    }
+
+  .qc-editor-grid {
+      grid-template-columns: 1fr;
+    }
+}
+
+.qc-row-badges :global(.s-badge) {
+  white-space: nowrap;
+}
+
+/* qc-editor-foot 为 slash/skills 共享容器（全局类）。 */
+:global(.qc-editor-foot) .qc-editor-save {
+  min-width: 140px;
+  padding-left: 28px;
+  padding-right: 28px;
+}

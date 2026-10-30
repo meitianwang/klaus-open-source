@@ -1,0 +1,10 @@
+{
+  "reason": "Browsing includes hidden and generated entries and loads one directory at a time. User exclusions and realpath boundaries remain enforced. Unloaded and oversized directories have explicit states.",
+  "browseIncludes": [".git", ".DS_Store", "node_modules", "dist", ".pytest_cache"],
+  "initialDepth": 0,
+  "deepPath": "apps/desktop/tests/fixtures/html-preview/pages",
+  "fileName": "report.html",
+  "directoryEntryLimit": 500,
+  "unloaded": { "childrenLoaded": false, "truncated": false },
+  "oversized": { "childrenLoaded": true, "truncated": true }
+}

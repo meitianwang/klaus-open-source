@@ -1,0 +1,14 @@
+{
+  "reason": "The read-only subagent header shows the resolved model name at the trailing edge independently of messaging controls. Missing model stamps stay hidden and updates replace the prior name.",
+  "cases": [
+    { "task": { "model": "gpt-6.1-sol", "modelSource": "codex" }, "expected": "gpt-6.1-sol" },
+    { "task": { "model": "claude-sonnet", "modelSource": "subscription" }, "expected": "claude-sonnet" },
+    { "task": { "model": "private-model", "modelSource": "custom" }, "expected": "private-model" },
+    { "task": { "model": "resolved-model" }, "expected": "resolved-model" },
+    { "task": { "model": "  resolved-model  ", "modelSource": "  external-source  " }, "expected": "resolved-model" },
+    { "task": { "modelSource": "codex" }, "expected": "" },
+    { "task": { "model": "  ", "modelSource": "codex" }, "expected": "" },
+    { "task": {}, "expected": "" },
+    { "task": null, "expected": "" }
+  ]
+}

@@ -1,0 +1,109 @@
+{
+  "reason": "Keep built-in instruction boundaries consistent across tool descriptions, selected authoring commands, and opt-in styles while retaining only supported host capabilities. Image editing always forwards required references, and visual inspection depends on image-viewing availability.",
+  "cases": [
+    {
+      "id": "threadCreation",
+      "mustInclude": [
+        "unless the user explicitly requests a specific model",
+        "configured default"
+      ],
+      "mustExclude": [
+        "choose the best model"
+      ]
+    },
+    {
+      "id": "cronCreation",
+      "mustInclude": [
+        "human-readable",
+        "CronList",
+        "notification intent",
+        "stay quiet",
+        "periodic updates were explicitly requested",
+        "plain language"
+      ],
+      "mustExclude": [
+        "heartbeat",
+        "DONT_NOTIFY",
+        "automation_update"
+      ]
+    },
+    {
+      "id": "cronCancellation",
+      "mustInclude": [
+        "user asked to cancel or replace",
+        "removes its saved run history"
+      ],
+      "mustExclude": []
+    },
+    {
+      "id": "skillAuthoring",
+      "mustInclude": [
+        "user explicitly requests another target",
+        "Never switch to shell commands or another tool to bypass a permission denial",
+        "preserve existing user files"
+      ],
+      "mustExclude": [
+        "Always write through the shell instead",
+        "Never save anywhere else"
+      ]
+    },
+    {
+      "id": "commandAuthoring",
+      "mustInclude": [
+        "user explicitly requests another target",
+        "Never switch to shell commands or another tool to bypass a permission denial",
+        "preserve existing user files"
+      ],
+      "mustExclude": [
+        "Always write through the shell instead",
+        "Never save anywhere else"
+      ]
+    },
+    {
+      "id": "scheduledCommand",
+      "mustInclude": [
+        "notification intent",
+        "stay quiet",
+        "klaus_query",
+        "resolved ID",
+        "CronCreate always creates a new task",
+        "does not require another confirmation"
+      ],
+      "mustExclude": [
+        "remote Claude Code",
+        "heartbeat",
+        "DONT_NOTIFY"
+      ]
+    },
+    {
+      "id": "imageGeneration",
+      "mustInclude": [
+        "without another confirmation",
+        "Inspect the images first when image viewing is available",
+        "every required source",
+        "as an absolute path in source_images",
+        "If the current language model cannot view images, forward the reference paths",
+        "Do not omit references or claim visual inspection",
+        "Omit source_images for a new image",
+        "returned path"
+      ],
+      "mustExclude": [
+        "num_last_images_to_include",
+        "transparent_background"
+      ]
+    },
+    {
+      "id": "optInStyles",
+      "mustInclude": [
+        "Explanatory Style Active",
+        "Learning Style Active",
+        "Klaus"
+      ],
+      "mustExclude": [
+        "Claude",
+        "interactive CLI tool",
+        "## Insights\n\n## Insights"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,50 @@
+{
+  "reads": {
+    "relative": {
+      "ok": true,
+      "content": "len:6",
+      "truncated": false,
+      "size": 6
+    },
+    "absolute": {
+      "ok": true,
+      "content": "len:6",
+      "truncated": false,
+      "size": 6
+    },
+    "truncated": {
+      "ok": true,
+      "content": "len:262144",
+      "truncated": true,
+      "size": 307200
+    },
+    "empty": {
+      "ok": false,
+      "error": "invalid-path"
+    },
+    "nul": {
+      "ok": false,
+      "error": "invalid-path"
+    },
+    "escape": {
+      "ok": false,
+      "error": "path-escape"
+    },
+    "traversal": {
+      "ok": false,
+      "error": "path-escape"
+    },
+    "outside-root": {
+      "ok": false,
+      "error": "path-escape"
+    },
+    "missing": {
+      "ok": false,
+      "error": "ENOENT: no such file or directory, stat '<ROOT>/agent-memory/gone.md'"
+    },
+    "directory": {
+      "ok": false,
+      "error": "not-a-file"
+    }
+  }
+}

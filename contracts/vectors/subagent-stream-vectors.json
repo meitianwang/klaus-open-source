@@ -1,0 +1,380 @@
+{
+  "description": "Child conversations preserve the same live chat event semantics as a main conversation, without settling the parent. Admission refusal and cancellation may arrive before a child turn starts; both retain their terminal outcome and readable reason without creating a start event.",
+  "cases": [
+    {
+      "name": "prompt",
+      "event": {
+        "type": "user.message",
+        "message": {
+          "type": "user",
+          "uuid": "child-user",
+          "content": [
+            {
+              "type": "text",
+              "text": "Inspect files"
+            }
+          ]
+        }
+      },
+      "expected": [
+        {
+          "type": "agent_progress",
+          "sessionId": "parent-session",
+          "agentId": "child-agent",
+          "event": {
+            "type": "user_message",
+            "message": {
+              "uuid": "child-user",
+              "message": {
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "Inspect files"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "start",
+      "event": {
+        "type": "turn.started",
+        "turnId": "child-turn"
+      },
+      "expected": [
+        {
+          "type": "agent_progress",
+          "sessionId": "parent-session",
+          "agentId": "child-agent",
+          "event": {
+            "type": "stream_mode",
+            "mode": "requesting",
+            "turnId": "child-turn"
+          }
+        }
+      ]
+    },
+    {
+      "name": "text",
+      "event": {
+        "type": "text.delta",
+        "text": "Checking",
+        "messageId": "child-message",
+        "phase": "commentary"
+      },
+      "expected": [
+        {
+          "type": "agent_progress",
+          "sessionId": "parent-session",
+          "agentId": "child-agent",
+          "event": {
+            "type": "stream_mode",
+            "mode": "responding"
+          }
+        },
+        {
+          "type": "agent_progress",
+          "sessionId": "parent-session",
+          "agentId": "child-agent",
+          "event": {
+            "type": "text_delta",
+            "text": "Checking",
+            "messageId": "child-message",
+            "phase": "commentary"
+          }
+        }
+      ]
+    },
+    {
+      "name": "thinking",
+      "event": {
+        "type": "thinking.delta",
+        "text": "Inspecting"
+      },
+      "expected": [
+        {
+          "type": "agent_progress",
+          "sessionId": "parent-session",
+          "agentId": "child-agent",
+          "event": {
+            "type": "stream_mode",
+            "mode": "thinking"
+          }
+        },
+        {
+          "type": "agent_progress",
+          "sessionId": "parent-session",
+          "agentId": "child-agent",
+          "event": {
+            "type": "thinking_delta",
+            "thinking": "Inspecting"
+          }
+        }
+      ]
+    },
+    {
+      "name": "tool-start",
+      "event": {
+        "type": "item.started",
+        "item": {
+          "type": "tool_call",
+          "id": "child-read",
+          "toolName": "read",
+          "arguments": {
+            "file_path": "src/main.rs"
+          },
+          "status": "in_progress"
+        }
+      },
+      "expected": [
+        {
+          "type": "agent_progress",
+          "sessionId": "parent-session",
+          "agentId": "child-agent",
+          "event": {
+            "type": "stream_mode",
+            "mode": "tool-use"
+          }
+        },
+        {
+          "type": "agent_progress",
+          "sessionId": "parent-session",
+          "agentId": "child-agent",
+          "event": {
+            "type": "tool_start",
+            "toolName": "read",
+            "toolCallId": "child-read",
+            "args": {
+              "file_path": "src/main.rs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "tool-complete",
+      "event": {
+        "type": "item.completed",
+        "item": {
+          "type": "tool_call",
+          "id": "child-read",
+          "toolName": "read",
+          "arguments": {},
+          "status": "completed",
+          "result": "file body",
+          "error": null
+        }
+      },
+      "expected": [
+        {
+          "type": "agent_progress",
+          "sessionId": "parent-session",
+          "agentId": "child-agent",
+          "event": {
+            "type": "tool_end",
+            "toolName": "read",
+            "toolCallId": "child-read",
+            "isError": false,
+            "content": "file body"
+          }
+        }
+      ]
+    },
+    {
+      "name": "message-complete",
+      "event": {
+        "type": "item.completed",
+        "item": {
+          "type": "agent_message",
+          "id": "child-message",
+          "text": "Checking",
+          "phase": "commentary"
+        }
+      },
+      "expected": [
+        {
+          "type": "agent_progress",
+          "sessionId": "parent-session",
+          "agentId": "child-agent",
+          "event": {
+            "type": "message_complete",
+            "messageId": "child-message",
+            "phase": "commentary"
+          }
+        }
+      ]
+    },
+    {
+      "name": "compact-start",
+      "event": {
+        "type": "compaction.progress",
+        "phase": "started"
+      },
+      "expected": [
+        {
+          "type": "agent_progress",
+          "sessionId": "parent-session",
+          "agentId": "child-agent",
+          "event": {
+            "type": "compaction_start",
+            "trigger": "auto"
+          }
+        }
+      ]
+    },
+    {
+      "name": "compact-finished",
+      "event": {
+        "type": "compaction.progress",
+        "phase": "completed"
+      },
+      "expected": [
+        {
+          "type": "agent_progress",
+          "sessionId": "parent-session",
+          "agentId": "child-agent",
+          "event": {
+            "type": "compaction_end"
+          }
+        }
+      ]
+    },
+    {
+      "name": "compacted",
+      "event": {
+        "type": "compaction",
+        "mode": "full",
+        "freedTokens": 1000
+      },
+      "expected": [
+        {
+          "type": "agent_progress",
+          "sessionId": "parent-session",
+          "agentId": "child-agent",
+          "event": {
+            "type": "compact_boundary",
+            "trigger": "auto"
+          }
+        }
+      ]
+    },
+    {
+      "name": "done",
+      "event": {
+        "type": "turn.completed",
+        "turnId": "child-turn",
+        "usage": null,
+        "stopReason": "completed"
+      },
+      "expected": [
+        {
+          "type": "agent_progress",
+          "sessionId": "parent-session",
+          "agentId": "child-agent",
+          "event": {
+            "type": "done",
+            "turnId": "child-turn"
+          }
+        }
+      ]
+    },
+    {
+      "name": "interrupted",
+      "event": {
+        "type": "turn.completed",
+        "turnId": "child-turn",
+        "usage": null,
+        "stopReason": "aborted"
+      },
+      "expected": [
+        {
+          "type": "agent_progress",
+          "sessionId": "parent-session",
+          "agentId": "child-agent",
+          "event": {
+            "type": "interrupted",
+            "turnId": "child-turn"
+          }
+        }
+      ]
+    },
+    {
+      "name": "actual child mailbox receipt belongs only to child transcript",
+      "event": {
+        "type": "agent.notification",
+        "notification": {
+          "notificationId": "child-receipt",
+          "source": "team-mailbox",
+          "status": "updated",
+          "agentName": "reviewer",
+          "timestamp": 1200,
+          "turnId": "child-turn"
+        }
+      },
+      "expected": [
+        {
+          "type": "agent_progress",
+          "sessionId": "parent-session",
+          "agentId": "child-agent",
+          "event": {
+            "notificationId": "child-receipt",
+            "source": "team-mailbox",
+            "status": "updated",
+            "agentName": "reviewer",
+            "timestamp": 1200,
+            "turnId": "child-turn",
+            "type": "agent_notification"
+          }
+        }
+      ]
+    },
+    {
+      "name": "capacity rejection before a child turn starts",
+      "event": {
+        "type": "turn.failed",
+        "error": {
+          "code": "invalid_input",
+          "message": "Sub-agent concurrency limit reached (maximum 4). Wait for an active sub-agent to finish before spawning another."
+        }
+      },
+      "expected": [
+        {
+          "type": "agent_progress",
+          "sessionId": "parent-session",
+          "agentId": "child-agent",
+          "event": {
+            "type": "api_error",
+            "turnId": "",
+            "terminal": true,
+            "error": "Sub-agent concurrency limit reached (maximum 4). Wait for an active sub-agent to finish before spawning another.",
+            "kind": "unknown"
+          }
+        }
+      ]
+    },
+    {
+      "name": "cancellation before a child turn starts",
+      "event": {
+        "type": "turn.failed",
+        "error": {
+          "code": "aborted",
+          "message": "Sub-agent execution was interrupted."
+        }
+      },
+      "expected": [
+        {
+          "type": "agent_progress",
+          "sessionId": "parent-session",
+          "agentId": "child-agent",
+          "event": {
+            "type": "interrupted",
+            "turnId": ""
+          }
+        }
+      ]
+    }
+  ]
+}

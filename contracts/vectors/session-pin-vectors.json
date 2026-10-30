@@ -1,0 +1,22 @@
+{
+  "_why": "Pinning queued behind an active turn exceeded the shell's acknowledgement deadline. Historical threads also resumed unnecessarily, and concurrent list refreshes could replace a successfully pinned row. Sidebar organization must persist independently of model execution and survive list refreshes.",
+  "request": {
+    "channel": "session:set-pinned",
+    "method": "session/updateThreadHostMetadata",
+    "activateHistoricalThread": false,
+    "interruptActiveTurn": false,
+    "waitForTurnCompletion": false,
+    "preserveOtherHostMetadata": true
+  },
+  "pinnedAt": 1700000000123,
+  "reply": { "ok": true, "sessionId": "thread-pin", "sidebarPinnedAt": 1700000000123 },
+  "unpinnedReply": { "ok": true, "sessionId": "thread-pin", "sidebarPinnedAt": null },
+  "metadata": { "forkedFrom": { "sessionId": "parent" }, "threadSource": "automation", "automation": { "taskName": "Daily report" }, "sidebarPinnedAt": 1700000000123 },
+  "sidebar": {
+    "showOnce": true,
+    "newestPinFirst": true,
+    "unpinRestoresOriginalGroup": true,
+    "staleRefreshCannotRevertAcknowledgedPin": true,
+    "failedWriteLeavesSidebarUnchanged": true
+  }
+}

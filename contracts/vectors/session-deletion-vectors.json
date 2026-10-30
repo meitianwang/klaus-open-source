@@ -1,0 +1,7 @@
+{
+  "reason": "Deleting conversations keeps the dialog open with a loading confirm button until host cleanup succeeds, then navigates away and toasts success. Failed deletion retains local state and keeps the dialog open for retry, and abandoned background reads cannot report errors in a newer conversation.",
+  "pending": { "selectionChanges": 0, "duplicateDeletes": 1 },
+  "completed": { "staleListResult": null, "resurrectedConversations": 0 },
+  "failed": { "retainsConversation": true, "localStateRemovals": 0 },
+  "navigation": { "abandonedRefreshAlerts": 0, "currentRefreshAlerts": 1 }
+}

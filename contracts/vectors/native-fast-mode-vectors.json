@@ -1,0 +1,262 @@
+{
+  "version": 1,
+  "reason": "Native Fast eligibility comes from the engine model catalog; each account source keeps its own conversation preference and future default. Extra-credit billing remains independent of quota windows. Raw account model switches qualify only when highspeed declares bool options containing both true and false strings.",
+  "cases": [
+    {
+      "source": "subscription",
+      "supported": true,
+      "fastBilling": "extraCredits"
+    },
+    {
+      "source": "subscription",
+      "supported": false
+    },
+    {
+      "source": "qoder",
+      "supported": true
+    },
+    {
+      "source": "qoder",
+      "supported": false
+    },
+    {
+      "source": "qoderwork",
+      "supported": true
+    },
+    {
+      "source": "qoderwork",
+      "supported": false
+    },
+    {
+      "name": "qoder raw feature_switches declares a reversible native Fast switch",
+      "source": "qoder",
+      "supported": true,
+      "metadata": {
+        "feature_switches": [
+          {
+            "key": "highspeed",
+            "type": "bool",
+            "options": [
+              "false",
+              "true"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "qoder raw functionSwitches declares a reversible native Fast switch",
+      "source": "qoder",
+      "supported": true,
+      "metadata": {
+        "functionSwitches": [
+          {
+            "key": "highspeed",
+            "type": "bool",
+            "options": [
+              "false",
+              "true"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "qoder raw function_switches declares a reversible native Fast switch",
+      "source": "qoder",
+      "supported": true,
+      "metadata": {
+        "function_switches": [
+          {
+            "key": "highspeed",
+            "type": "bool",
+            "options": [
+              "false",
+              "true"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "qoderwork raw feature_switches declares a reversible native Fast switch",
+      "source": "qoderwork",
+      "supported": true,
+      "metadata": {
+        "feature_switches": [
+          {
+            "key": "highspeed",
+            "type": "bool",
+            "options": [
+              "false",
+              "true"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "qoderwork raw functionSwitches declares a reversible native Fast switch",
+      "source": "qoderwork",
+      "supported": true,
+      "metadata": {
+        "functionSwitches": [
+          {
+            "key": "highspeed",
+            "type": "bool",
+            "options": [
+              "false",
+              "true"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "qoderwork raw function_switches declares a reversible native Fast switch",
+      "source": "qoderwork",
+      "supported": true,
+      "metadata": {
+        "function_switches": [
+          {
+            "key": "highspeed",
+            "type": "bool",
+            "options": [
+              "false",
+              "true"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "qoder another switch cannot enable Fast",
+      "source": "qoder",
+      "supported": false,
+      "metadata": {
+        "feature_switches": [
+          {
+            "key": "unrelated",
+            "type": "bool",
+            "options": [
+              "true",
+              "false"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "qoder a non-boolean switch cannot enable Fast",
+      "source": "qoder",
+      "supported": false,
+      "metadata": {
+        "functionSwitches": [
+          {
+            "key": "highspeed",
+            "type": "enum",
+            "options": [
+              "true",
+              "false"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "qoder missing off option cannot enable Fast",
+      "source": "qoder",
+      "supported": false,
+      "metadata": {
+        "function_switches": [
+          {
+            "key": "highspeed",
+            "type": "bool",
+            "options": [
+              "true"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "qoderwork boolean option values cannot enable Fast",
+      "source": "qoderwork",
+      "supported": false,
+      "metadata": {
+        "feature_switches": [
+          {
+            "key": "highspeed",
+            "type": "bool",
+            "options": [
+              true,
+              false
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "qoderwork a string option list cannot enable Fast",
+      "source": "qoderwork",
+      "supported": false,
+      "metadata": {
+        "functionSwitches": [
+          {
+            "key": "highspeed",
+            "type": "bool",
+            "options": "true,false"
+          }
+        ]
+      }
+    },
+    {
+      "name": "qoderwork malformed switch values cannot enable Fast",
+      "source": "qoderwork",
+      "supported": false,
+      "metadata": {
+        "function_switches": [
+          null,
+          "highspeed",
+          {
+            "key": "highspeed",
+            "type": "bool",
+            "options": []
+          }
+        ]
+      }
+    },
+    {
+      "name": "qoder an object instead of a switch array cannot enable Fast",
+      "source": "qoder",
+      "supported": false,
+      "metadata": {
+        "feature_switches": {
+          "key": "highspeed",
+          "type": "bool",
+          "options": [
+            "true",
+            "false"
+          ]
+        }
+      }
+    },
+    {
+      "name": "subscription an unrelated native switch format cannot enable Fast",
+      "source": "subscription",
+      "supported": false,
+      "metadata": {
+        "feature_switches": [
+          {
+            "key": "highspeed",
+            "type": "bool",
+            "options": [
+              "true",
+              "false"
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

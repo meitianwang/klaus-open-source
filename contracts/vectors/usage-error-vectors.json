@@ -1,0 +1,9 @@
+{
+  "reason": "Subscription quota requests and token refresh use the system-proxied host transport. Network or timeout failures must not tell users to renew a valid login; only explicit Codex renewal failures do.",
+  "cases": [
+    { "kind": "network", "expected": "Usage request failed; check your network connection and retry" },
+    { "kind": "timeout", "expected": "Usage request timed out; check your network or proxy" },
+    { "kind": "renewal", "expected": "Codex login needs renewal; reuse the local login or sign in again" },
+    { "kind": "refreshRejected", "expected": "Codex login needs renewal; reuse the local login or sign in again" }
+  ]
+}

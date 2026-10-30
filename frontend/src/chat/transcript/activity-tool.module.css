@@ -1,0 +1,382 @@
+.activityTool {
+  --activity-muted: var(--fg-activity);
+  --activity-faint: color-mix(in oklab, var(--fg) 40%, transparent);
+  min-width: 0;
+  font-size: var(--activity-font-size, var(--text-body));
+  line-height: 1.5;
+  color: var(--activity-muted);
+}
+
+.widgetCard {
+  width: min(720px, 100%);
+  margin: 12px auto;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-secondary);
+  color: var(--fg);
+  font-size: var(--text-body);
+}
+.widgetHeading { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-weight: 600; }
+.widgetHeading span:last-child { color: var(--fg-secondary); font-size: 11px; font-weight: 400; white-space: nowrap; }
+.widgetCard iframe { display: block; width: 100%; height: 320px; margin-top: 12px; border: 0; border-radius: 8px; background: white; }
+.widgetCard p { margin: 10px 0 0; color: var(--fg-secondary); }
+.widgetCard details { margin-top: 10px; color: var(--fg-secondary); }
+.widgetCard summary { cursor: pointer; }
+.widgetCard pre { max-height: 160px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--font-mono); }
+
+.header {
+  position: relative;
+  display: inline-flex;
+  max-width: 100%;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  vertical-align: top;
+}
+
+.headerButton {
+  position: absolute;
+  inset: 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  cursor: pointer;
+}
+
+.headerButton:focus-visible,
+.fileLink:focus-visible,
+.command:focus-visible,
+.copyButton:focus-visible,
+.processButton:focus-visible {
+  outline: none;
+  background: var(--bg-hover);
+  color: var(--fg);
+  box-shadow: none;
+}
+/* Scroll containers keep the ring: it is the only cue that arrow keys pan. */
+.inputText:focus-visible,
+.outputScroll:focus-visible {
+  outline: 2px solid var(--input-focus);
+  outline-offset: 1px;
+  box-shadow: none;
+}
+
+.icon,
+.chevron {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  pointer-events: none;
+}
+
+.icon :global(svg) { margin: 0; opacity: 1; }
+.rawImageDetails { margin-top: 6px; }
+.rawImageDetails > summary { cursor: pointer; color: var(--fg-secondary); font-size: var(--text-caption, 12px); margin-bottom: 6px; }
+.activityTool[data-tool-kind='image'] .header:has(.headerButton[aria-expanded='true']) .summary { color: var(--fg); font-weight: 600; }
+
+.summary {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+/* The running row's sweep: a `loading-shimmer`.
+
+   `background-clip: text` with
+   a gradient swept across the glyphs, 2s period, on the turn's live
+   commentary row. Two choices carry the cost of this rule:
+
+   - `steps(48, end)` instead of `linear`. A text-clipped gradient cannot be
+     cached, so `linear` re-rasterizes the glyphs on every one of a 120 Hz
+     panel's frames. Stepping moves it in 48 discrete jumps over the 2s period,
+     and between jumps the computed value is unchanged, so the raster is
+     reusable. NOTE: this is mechanism reasoning, NOT a measured
+     win — see the measurement caveat below.
+   - stopping the sweep under the pointer,
+     which also covers the case that prompted this work: dragging across rows
+     keeps starting sweeps that then have to paint.
+
+   Measurement caveat, so nobody re-derives a wrong conclusion from it: an
+   isolated headless harness cannot price this rule. Headless Chrome has no GPU,
+   so the very cost `steps()` targets — glyph rasterization — is not exercised.
+   Two runs disagreed (1 shimmer: linear 0.0766 vs steps 0.0781; 6 shimmers:
+   linear 0.0883 vs steps 0.0605). What that harness DOES measure reliably is
+   the frame pump, and there the finding is that ANY infinite sweep costs about
+   the same regardless of count (0.0009 s/s with none, 0.0766 with one, 0.0883
+   with six). Likewise `recalc/s` cannot judge a timing function: it counts the
+   pump, which runs at refresh rate whenever any animation is live.
+
+   The hover rule below must ride `.header`, not `.summary`: the summary is
+   `pointer-events: none`, so the pointer never lands on it. */
+.summary[data-running] {
+  background: linear-gradient(110deg, var(--activity-muted) 30%, var(--fg) 50%, var(--activity-muted) 70%) 0 0 / 220% 100%;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: shimmer 2s steps(48, end) infinite;
+}
+
+/* The sweep stops under the pointer. The row's
+   summary is `pointer-events: none`, so hover is read on the header instead. */
+.header:hover .summary[data-running] {
+  animation: none;
+  background: none;
+  -webkit-text-fill-color: currentColor;
+}
+
+.summary[data-file] { display: inline-flex; align-items: baseline; gap: 4px; }
+.fileVerb { flex: 0 0 auto; }
+
+.fileLink {
+  position: relative;
+  z-index: 1;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-2xs);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+  pointer-events: auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fileLink:hover { color: var(--fg); text-decoration: underline; }
+
+.chevron {
+  width: 14px;
+  height: 14px;
+  margin-inline-start: -2px;
+  opacity: 0;
+  transition: transform 300ms ease;
+}
+
+.chevron[data-open] { opacity: 1; transform: rotate(90deg); }
+.header:has(.headerButton:focus-visible) .chevron { opacity: 1; color: var(--fg); }
+
+@media (hover: hover) {
+  .header[data-expandable]:hover:not(:has(.fileLink:hover)) { color: var(--fg); }
+  .header[data-expandable]:hover:not(:has(.fileLink:hover)) .chevron { opacity: 1; }
+}
+
+.errorIndicator { width: 6px; height: 6px; flex: 0 0 auto; border-radius: 50%; background: var(--status-error); }
+
+.disclosure {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  margin-inline-start: -8px;
+  padding-inline-start: 8px;
+  transition: grid-template-rows 300ms cubic-bezier(.19, 1, .22, 1), opacity 300ms cubic-bezier(.19, 1, .22, 1);
+  pointer-events: none;
+}
+
+.disclosure[data-open] { grid-template-rows: 1fr; opacity: 1; pointer-events: auto; }
+.disclosureInner { min-height: 0; overflow: hidden; }
+.body { display: flex; flex-direction: column; gap: 8px; padding-block: 8px 4px; }
+
+.shellCard,
+.detailsCard {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid color-mix(in oklab, var(--fg) 12%, transparent);
+  border-radius: var(--radius-sm);
+  background: color-mix(in oklab, var(--fg) 3%, transparent);
+}
+
+.shellName { padding: 4px 8px; font-family: var(--font); color: var(--fg-tertiary); }
+.commandGroup { position: relative; margin: 8px 8px 0; padding-inline-end: 24px; }
+.command {
+  display: -webkit-box;
+  width: 100%;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--fg-secondary);
+  font: inherit;
+  font-family: var(--font-mono);
+  font-size: var(--code-font-size);
+  line-height: var(--leading-code-compact);
+  text-align: start;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+
+.command[data-expanded] { display: block; -webkit-line-clamp: unset; }
+.prompt { margin-inline-end: 1ch; color: var(--fg-tertiary); }
+.cwd { padding: 4px 8px 0; color: var(--fg-tertiary); font: inherit; font-family: var(--font-mono); font-size: var(--code-font-size); overflow-wrap: anywhere; }
+.cwd > span { margin-inline-end: 4px; opacity: .65; }
+
+.outputGroup { position: relative; min-height: 1.25rem; }
+.outputScroll {
+  --top-fade: 0px;
+  --bottom-fade: 0px;
+  display: flex;
+  flex-direction: column-reverse;
+  max-height: 144px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  mask-image: linear-gradient(to bottom, transparent, #000 var(--top-fade), #000 calc(100% - var(--bottom-fade)), transparent);
+}
+
+.outputScroll[data-fade-top] { --top-fade: 2rem; }
+.outputScroll[data-fade-bottom] { --bottom-fade: 2rem; }
+.outputText {
+  box-sizing: border-box;
+  width: max-content;
+  min-width: 100%;
+  margin: 0;
+  padding: 8px;
+  color: var(--fg-tertiary);
+  font-family: var(--font-mono);
+  font-size: var(--code-font-size);
+  font-weight: var(--weight-normal);
+  line-height: var(--leading-code-compact);
+  white-space: pre;
+}
+
+.copyButton {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline-end: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 4px;
+  border: 0;
+  border-radius: var(--radius-xxs);
+  background: transparent;
+  color: var(--fg-tertiary);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 150ms ease;
+}
+
+.outputGroup > .copyButton { inset-inline-end: 10px; }
+.copyButton:hover { color: var(--fg); background: var(--bg-hover); }
+.commandGroup:hover > .copyButton,
+.outputGroup:hover > .copyButton,
+.detailHeading:hover > .copyButton,
+.copyButton:focus-visible { opacity: 1; }
+
+.footer { display: flex; align-items: center; gap: 8px; min-height: 6px; padding: 2px 10px 4px; color: var(--fg-tertiary); }
+.footerStatus { display: inline-flex; align-items: center; gap: 4px; margin-inline-start: auto; }
+.processButton { padding: 0; border: 0; border-radius: var(--radius-2xs); background: transparent; color: inherit; font: inherit; cursor: pointer; }
+.processButton:hover { color: var(--fg); text-decoration: underline; }
+.detailSection + .detailSection { border-top: 1px solid var(--border); }
+.detailHeading { position: relative; padding: 6px 8px; color: var(--fg-secondary); }
+.detailHeading > .copyButton { inset-block-start: 3px; inset-inline-end: 8px; }
+.inputText { max-height: 14rem; overflow: auto; margin: 0; padding: 4px 8px 8px; color: var(--fg-secondary); font-family: var(--font-mono); font-size: var(--code-font-size); line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+.srOnly { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+
+/*
+ * Advisor consultation body. The advice comes from a second model and is the
+ * point of the whole call, so it gets its own panel instead of the generic
+ * input/output dump: question on top, advice below with a colored rail.
+ */
+.advisorCard {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid color-mix(in oklab, var(--fg) 12%, transparent);
+  border-radius: var(--radius-sm);
+  background: color-mix(in oklab, var(--fg) 3%, transparent);
+}
+.advisorSection + .advisorSection { border-top: 1px solid var(--border); }
+.advisorHeading { position: relative; padding: 6px 8px; color: var(--fg-secondary); }
+.advisorHeading > .copyButton { inset-block-start: 3px; inset-inline-end: 8px; }
+.advisorText {
+  margin: 0;
+  padding: 0 8px 8px;
+  color: var(--fg-secondary);
+  font-size: var(--text-body);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.advisorAdvice {
+  margin: 0;
+  padding: 2px 8px 10px 11px;
+  border-inline-start: 3px solid var(--info);
+  background: var(--info-bg);
+  color: var(--fg);
+  font-size: var(--text-body);
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.advisorAdvice[data-state='error'],
+.advisorAdvice[data-state='interrupted'] {
+  border-inline-start-color: var(--danger);
+  background: var(--danger-bg);
+  color: var(--fg-secondary);
+}
+
+/*
+ * A delegation that arrived inside a tool result. The engine drains a mid-turn
+ * message into the output of that turn's last tool call, so without this the user
+ * reads raw `<klaus-delegation>` markup where their command's output should be.
+ * Kept inside the tool card rather than lifted out of it: it IS part of what this
+ * call returned, and moving it would misrepresent where it came from.
+ */
+/* Wraps the folded cards when they sit OUTSIDE a tool card, which is where they
+   land for renderers with their own specialized card (edit, agent-action). */
+.toolDelegationGroup {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  margin-top: 4px;
+  border: 1px solid color-mix(in oklab, var(--fg) 12%, transparent);
+  border-radius: var(--radius-sm);
+  background: color-mix(in oklab, var(--fg) 3%, transparent);
+}
+.toolDelegationGroup .toolDelegation:first-child { border-top: 0; }
+
+.toolDelegation { border-top: 1px solid var(--border); padding: 6px 8px 8px; }
+.toolDelegationHead {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 4px;
+  font-size: var(--text-caption);
+  color: var(--fg-quaternary);
+}
+.toolDelegationText {
+  margin: 0;
+  color: var(--fg-secondary);
+  font-family: inherit;
+  font-size: var(--code-font-size);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 14rem;
+  overflow: auto;
+}
+
+@keyframes shimmer { to { background-position: -220% 0; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .summary[data-running] { animation: none; background: none; -webkit-text-fill-color: currentColor; }
+  .chevron, .disclosure, .copyButton { transition: none; }
+}
+
+@media (hover: none) { .copyButton, .chevron { opacity: 1; } }

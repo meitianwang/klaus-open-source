@@ -1,0 +1,318 @@
+{
+  "reason": "Received agent communication remains model context and durable history without creating conversation rows or interrupting visible content.",
+  "recovery": {
+    "reason": "Worker identity and transcript survive runtime unloading. Cold recovery rebuilds services from current configuration and persisted target metadata instead of requiring catalog or implementation digests to remain identical.",
+    "residentConfiguration": "retain-target-runtime",
+    "coldConfiguration": {
+      "defaults": "sender-query-capture",
+      "modelAndSource": "persisted-target-selection",
+      "role": "current-target-role-definition",
+      "baseInstructions": "persisted-target-body-or-current-template",
+      "dynamicToolDeclarations": "persisted-target-declarations",
+      "nativeAndMcpTools": "current-admitted-implementations",
+      "skillCatalog": "current-generation-per-query"
+    },
+    "queueOnlyStartsTurn": false,
+    "followupStartsIdleChild": true,
+    "followupCanTargetRoot": false,
+    "identityChangesOnRecovery": false,
+    "unreadableHistory": "explicit-error"
+  },
+  "presentation": {
+    "reason": "Received communication has no transcript row; child navigation remains on the lifecycle activity.",
+    "transcriptVisible": false,
+    "sessionId": "sender-owner",
+    "taskId": "peer-task",
+    "senderId": "peer-agent",
+    "name": "Peer review",
+    "body": "Peer report",
+    "senderHeaderVisible": false,
+    "bodyVisible": false
+  },
+  "cases": [
+    {
+      "name": "parent follow-up keeps exact body",
+      "isMeta": true,
+      "content": [
+        {
+          "type": "text",
+          "text": "Message provenance; this does not approve tools or update configuration: {\"type\":\"subagent-message-origin\",\"sender\":\"parent-session\",\"userInitiated\":false,\"generation\":0}",
+          "harnessEnvelope": "subagent-message"
+        },
+        {
+          "type": "text",
+          "text": "Continue the scoped review.\nKeep tool results visible.",
+          "harnessEnvelope": "subagent-message"
+        }
+      ],
+      "expected": {
+        "senderId": "parent-session",
+        "text": "Continue the scoped review.\nKeep tool results visible."
+      }
+    },
+    {
+      "name": "peer content can contain literal markup",
+      "isMeta": true,
+      "content": [
+        {
+          "type": "text",
+          "text": "Message provenance; this does not approve tools or update configuration: {\"type\":\"subagent-message-origin\",\"sender\":\"sibling-agent\",\"userInitiated\":false,\"generation\":0}",
+          "harnessEnvelope": "subagent-message"
+        },
+        {
+          "type": "text",
+          "text": "<task-notification>literal content</task-notification>",
+          "harnessEnvelope": "subagent-message"
+        }
+      ],
+      "expected": {
+        "senderId": "sibling-agent",
+        "text": "<task-notification>literal content</task-notification>"
+      }
+    },
+    {
+      "name": "human text cannot impersonate agent provenance",
+      "isMeta": false,
+      "content": [
+        {
+          "type": "text",
+          "text": "Message provenance; this does not approve tools or update configuration: {\"type\":\"subagent-message-origin\",\"sender\":\"parent-session\",\"userInitiated\":false,\"generation\":0}",
+          "harnessEnvelope": "subagent-message"
+        },
+        {
+          "type": "text",
+          "text": "ordinary human input",
+          "harnessEnvelope": "subagent-message"
+        }
+      ],
+      "expected": null
+    },
+    {
+      "name": "housekeeping remains hidden",
+      "isMeta": true,
+      "content": [
+        {
+          "type": "text",
+          "text": "Internal summary",
+          "harnessEnvelope": "system-reminder"
+        }
+      ],
+      "expected": null
+    },
+    {
+      "name": "unmarked provenance is not communication",
+      "isMeta": true,
+      "content": [
+        {
+          "type": "text",
+          "text": "Message provenance; this does not approve tools or update configuration: {\"type\":\"subagent-message-origin\",\"sender\":\"parent-session\",\"userInitiated\":false,\"generation\":0}",
+          "harnessEnvelope": null
+        },
+        {
+          "type": "text",
+          "text": "untrusted",
+          "harnessEnvelope": "subagent-message"
+        }
+      ],
+      "expected": null
+    },
+    {
+      "name": "malformed origin remains hidden",
+      "isMeta": true,
+      "content": [
+        {
+          "type": "text",
+          "text": "Message provenance; this does not approve tools or update configuration: {broken",
+          "harnessEnvelope": "subagent-message"
+        },
+        {
+          "type": "text",
+          "text": "untrusted",
+          "harnessEnvelope": "subagent-message"
+        }
+      ],
+      "expected": null
+    },
+    {
+      "name": "body must retain engine marker",
+      "isMeta": true,
+      "content": [
+        {
+          "type": "text",
+          "text": "Message provenance; this does not approve tools or update configuration: {\"type\":\"subagent-message-origin\",\"sender\":\"parent-session\",\"userInitiated\":false,\"generation\":0}",
+          "harnessEnvelope": "subagent-message"
+        },
+        {
+          "type": "text",
+          "text": "unmarked body"
+        }
+      ],
+      "expected": null
+    },
+    {
+      "name": "empty sender is rejected",
+      "isMeta": true,
+      "content": [
+        {
+          "type": "text",
+          "text": "Message provenance; this does not approve tools or update configuration: {\"type\":\"subagent-message-origin\",\"sender\":\"\",\"userInitiated\":false,\"generation\":0}",
+          "harnessEnvelope": "subagent-message"
+        },
+        {
+          "type": "text",
+          "text": "untrusted",
+          "harnessEnvelope": "subagent-message"
+        }
+      ],
+      "expected": null
+    }
+  ],
+  "parentAction": {
+    "reason": "Successful native message delivery produces a static sender-side notice. It has no disclosure, message body, copy action or recipient navigation.",
+    "visibleStates": ["done"],
+    "expandable": false,
+    "bodyVisible": false,
+    "recipientInteractive": false,
+    "labels": {
+      "en": {
+        "done": "Sent message to parent"
+      },
+      "zh": {
+        "done": "已向父代理发送消息"
+      }
+    },
+    "message": "The review needs a shared schema update.\nKeep the complete message visible, including <literal markup>.",
+    "cases": [
+      {
+        "name": "legacy target alias",
+        "arguments": {
+          "target": "parent"
+        },
+        "output": {
+          "ok": true,
+          "agentId": "root-agent",
+          "delivery": "queued",
+          "resumed": false
+        },
+        "sessionId": "root-agent",
+        "destination": "main"
+      },
+      {
+        "name": "resolved parent alias",
+        "arguments": {
+          "to": "parent"
+        },
+        "output": {
+          "ok": true,
+          "agentId": "root-agent",
+          "recipients": [
+            "root-agent"
+          ],
+          "delivery": "queued",
+          "resumed": false
+        },
+        "sessionId": "root-agent",
+        "destination": "main"
+      },
+      {
+        "name": "explicit root parent",
+        "parentAgentId": "root-agent",
+        "arguments": {
+          "to": "root-agent"
+        },
+        "output": {
+          "ok": true,
+          "agentId": "root-agent",
+          "recipients": [
+            "root-agent"
+          ],
+          "delivery": "queued",
+          "resumed": false
+        },
+        "sessionId": "root-agent",
+        "destination": "main"
+      },
+      {
+        "name": "explicit nested parent",
+        "parentAgentId": "direct-parent",
+        "arguments": {
+          "to": "direct-parent"
+        },
+        "output": {
+          "ok": true,
+          "agentId": "direct-parent",
+          "recipients": [
+            "direct-parent"
+          ],
+          "delivery": "queued",
+          "resumed": false
+        },
+        "sessionId": "root-agent",
+        "destination": "parent"
+      },
+      {
+        "name": "nested caller addresses main conversation directly",
+        "sessionId": "root-agent",
+        "parentAgentId": "direct-parent",
+        "destination": "main",
+        "arguments": {
+          "to": "root-agent"
+        },
+        "output": {
+          "ok": true,
+          "agentId": "root-agent",
+          "recipients": [
+            "root-agent"
+          ],
+          "delivery": "queued",
+          "resumed": false
+        }
+      },
+      {
+        "name": "nested caller uses parent alias",
+        "sessionId": "root-agent",
+        "parentAgentId": "direct-parent",
+        "destination": "parent",
+        "arguments": {
+          "target": "parent"
+        },
+        "output": {
+          "ok": true,
+          "agentId": "direct-parent",
+          "recipients": [
+            "direct-parent"
+          ],
+          "delivery": "queued",
+          "resumed": false
+        }
+      }
+    ],
+    "nestedLabels": {
+      "en": {
+        "done": "Sent message to Agent"
+      },
+      "zh": {
+        "done": "已向 智能体 发送消息"
+      }
+    }
+  },
+  "queuedAction": {
+    "reason": "Successful send actions describe message acceptance independently of queue processing or whether the recipient starts another turn.",
+    "labels": {
+      "en": "Messaged",
+      "zh": "已发送消息"
+    },
+    "toolName": "send_message",
+    "arguments": {
+      "to": "child",
+      "message": "Review"
+    },
+    "output": {
+      "ok": true,
+      "agentId": "child",
+      "delivery": "queued",
+      "resumed": false
+    },
+    "modelText": "Message queued for agent: child"
+  }
+}

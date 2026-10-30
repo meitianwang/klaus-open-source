@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
+  <title>Klaus Computer Use Cursor</title>
+  <style>
+    /* 全屏透明浮层：只画 AI 光标，不拦截任何东西（窗口侧已 ignore cursor）。 */
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { background: transparent; height: 100%; overflow: hidden; }
+    #cu-dot {
+      position: fixed;
+      left: 0;
+      top: 0;
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: rgba(26, 28, 31, 0.9);
+      border: 2px solid rgba(255, 255, 255, 0.9);
+      box-shadow: 0 1px 6px rgba(0, 0, 0, 0.35);
+      opacity: 0;
+      /* left/top 不动，全靠 transform 定位，transition 走平滑 glide。 */
+      transition: transform 0.18s ease-out, opacity 0.4s ease;
+      will-change: transform, opacity;
+      pointer-events: none;
+    }
+    .cu-ripple {
+      position: fixed;
+      width: 18px;
+      height: 18px;
+      margin: -9px 0 0 -9px;
+      border-radius: 50%;
+      border: 2px solid rgba(26, 28, 31, 0.8);
+      opacity: 0.9;
+      animation: cu-ripple 0.65s ease-out forwards;
+      pointer-events: none;
+    }
+    @keyframes cu-ripple {
+      from { transform: scale(1); opacity: 0.9; }
+      to { transform: scale(3.2); opacity: 0; }
+    }
+  </style>
+</head>
+<body>
+  <div id="cu-dot"></div>
+  <script>
+    // 壳层对每个连接器动作 eval 一次 __cuCursor(kind, x, y)，坐标已是窗口
+    // 内 CSS 像素。click/drag 出涟漪，move 只 glide。2.5s 无动作后淡出。
+    (function () {
+      var dot = document.getElementById('cu-dot');
+      var hideTimer = 0;
+      window.__cuCursor = function (kind, x, y) {
+        dot.style.opacity = '1';
+        dot.style.transform = 'translate(' + x + 'px, ' + y + 'px) translate(-50%, -50%)';
+        if (kind === 'click' || kind === 'drag') {
+          var ripple = document.createElement('span');
+          ripple.className = 'cu-ripple';
+          ripple.style.left = x + 'px';
+          ripple.style.top = y + 'px';
+          document.body.appendChild(ripple);
+          setTimeout(function () { ripple.remove(); }, 700);
+        }
+        clearTimeout(hideTimer);
+        hideTimer = setTimeout(function () { dot.style.opacity = '0'; }, 2500);
+      };
+    })();
+  </script>
+</body>
+</html>

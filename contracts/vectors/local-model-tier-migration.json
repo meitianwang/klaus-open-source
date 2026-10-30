@@ -1,0 +1,7 @@
+[
+  { "name": "retired selections are trimmed and mapped", "rows": { "local_model_role:opus": " large ", "local_model_role:sonnet": "medium", "local_model_role:haiku": "  " }, "expected": { "high": "large", "medium": "medium" } },
+  { "name": "no retired selections commits an empty map", "rows": {}, "expected": {} },
+  { "name": "an explicit empty map wins", "rows": { "model_tiers:local": "{}", "local_model_role:opus": "retired" }, "expected": {} },
+  { "name": "an existing selection wins", "rows": { "model_tiers:local": "{\"low\":\"current\"}", "local_model_role:haiku": "retired" }, "expected": { "low": "current" } },
+  { "name": "a malformed explicit value is preserved for its reader", "rows": { "model_tiers:local": "broken", "local_model_role:opus": "retired" }, "expectedRaw": "broken" }
+]

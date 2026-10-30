@@ -1,0 +1,904 @@
+{
+  "_why": "Pin observable mobile ingestion: tool ownership is (turnId, toolCallId), terminal cleanup permits late owned results without changing a new turn, user identity and rich display metadata survive replay, device status is session-independent, and notification receipts retain their wire identity. Expected values are independently specified protocol outcomes.",
+  "cases": {
+    "liveTerminalToolOverlap": {
+      "steps": [
+        {
+          "frames": [
+            {
+              "type": "engine_event",
+              "event": {
+                "type": "stream_mode",
+                "sessionId": "s",
+                "turnId": "t1",
+                "mode": "requesting"
+              }
+            },
+            {
+              "type": "engine_event",
+              "event": {
+                "type": "tool_start",
+                "sessionId": "s",
+                "turnId": "t1",
+                "toolCallId": "reused",
+                "toolName": "Bash",
+                "args": {
+                  "command": "original"
+                }
+              }
+            },
+            {
+              "type": "engine_event",
+              "event": {
+                "type": "done",
+                "sessionId": "s",
+                "turnId": "t1"
+              }
+            }
+          ],
+          "toolScopes": [
+            "t1:reused"
+          ],
+          "toolResults": [
+            ""
+          ],
+          "toolStates": [
+            "interrupted"
+          ],
+          "working": false,
+          "texts": [
+            ""
+          ],
+          "awaiting": false
+        },
+        {
+          "frames": [
+            {
+              "type": "engine_event",
+              "event": {
+                "type": "stream_mode",
+                "sessionId": "s",
+                "turnId": "t2",
+                "mode": "requesting"
+              }
+            },
+            {
+              "type": "engine_event",
+              "event": {
+                "type": "tool_start",
+                "sessionId": "s",
+                "turnId": "t2",
+                "toolCallId": "reused",
+                "toolName": "Bash",
+                "args": {
+                  "command": "second"
+                }
+              }
+            },
+            {
+              "type": "engine_event",
+              "event": {
+                "type": "progress",
+                "sessionId": "s",
+                "turnId": "t2",
+                "toolCallId": "reused",
+                "content": "current progress"
+              }
+            },
+            {
+              "type": "engine_event",
+              "event": {
+                "type": "tool_end",
+                "sessionId": "s",
+                "turnId": "t1",
+                "toolCallId": "reused",
+                "toolName": "Bash",
+                "content": "original late output",
+                "isError": false
+              }
+            }
+          ],
+          "toolScopes": [
+            "t1:reused",
+            "t2:reused"
+          ],
+          "toolResults": [
+            "original late output",
+            ""
+          ],
+          "toolStates": [
+            "done",
+            "running"
+          ],
+          "working": true,
+          "texts": [
+            "",
+            ""
+          ],
+          "awaiting": false,
+          "toolCommands": [
+            "original",
+            "second"
+          ],
+          "toolProgress": [
+            "",
+            "current progress"
+          ]
+        },
+        {
+          "frames": [
+            {
+              "type": "engine_event",
+              "event": {
+                "type": "progress",
+                "sessionId": "s",
+                "turnId": "t2",
+                "toolCallId": "reused",
+                "content": " continued"
+              }
+            },
+            {
+              "type": "engine_event",
+              "event": {
+                "type": "tool_end",
+                "sessionId": "s",
+                "turnId": "t2",
+                "toolCallId": "reused",
+                "toolName": "Bash",
+                "content": "second output",
+                "isError": false
+              }
+            },
+            {
+              "type": "engine_event",
+              "event": {
+                "type": "text_delta",
+                "sessionId": "s",
+                "turnId": "t2",
+                "messageId": "m2",
+                "text": "Final second reply"
+              }
+            }
+          ],
+          "toolScopes": [
+            "t1:reused",
+            "t2:reused"
+          ],
+          "toolResults": [
+            "original late output",
+            "second output"
+          ],
+          "toolStates": [
+            "done",
+            "done"
+          ],
+          "working": true,
+          "texts": [
+            "",
+            "Final second reply"
+          ],
+          "awaiting": false,
+          "toolCommands": [
+            "original",
+            "second"
+          ],
+          "toolProgress": [
+            "",
+            "current progress continued"
+          ]
+        }
+      ]
+    },
+    "lateTerminalResultPreservesCurrentPending": {
+      "steps": [
+        {
+          "frames": [
+            {
+              "type": "engine_event",
+              "event": {
+                "type": "stream_mode",
+                "sessionId": "s",
+                "turnId": "t1",
+                "mode": "requesting"
+              }
+            },
+            {
+              "type": "engine_event",
+              "event": {
+                "type": "tool_start",
+                "sessionId": "s",
+                "turnId": "t1",
+                "toolCallId": "old",
+                "toolName": "Bash"
+              }
+            },
+            {
+              "type": "engine_event",
+              "event": {
+                "type": "done",
+                "sessionId": "s",
+                "turnId": "t1"
+              }
+            },
+            {
+              "type": "engine_event",
+              "event": {
+                "type": "stream_mode",
+                "sessionId": "s",
+                "turnId": "t2",
+                "mode": "requesting"
+              }
+            },
+            {
+              "type": "engine_event",
+              "event": {
+                "type": "tool_end",
+                "sessionId": "s",
+                "turnId": "t1",
+                "toolCallId": "old",
+                "toolName": "Bash",
+                "content": "late old output",
+                "isError": false
+              }
+            }
+          ],
+          "toolScopes": [
+            "t1:old"
+          ],
+          "toolResults": [
+            "late old output"
+          ],
+          "toolStates": [
+            "done"
+          ],
+          "working": true,
+          "texts": [
+            ""
+          ],
+          "awaiting": true
+        },
+        {
+          "frames": [
+            {
+              "type": "engine_event",
+              "event": {
+                "type": "text_delta",
+                "sessionId": "s",
+                "turnId": "t2",
+                "messageId": "m2",
+                "text": "Current reply"
+              }
+            }
+          ],
+          "toolScopes": [
+            "t1:old"
+          ],
+          "toolResults": [
+            "late old output"
+          ],
+          "toolStates": [
+            "done"
+          ],
+          "working": true,
+          "texts": [
+            "",
+            "Current reply"
+          ],
+          "awaiting": false
+        }
+      ]
+    },
+    "legacyUnscopedTool": {
+      "steps": [
+        {
+          "frames": [
+            {
+              "type": "engine_event",
+              "event": {
+                "type": "stream_mode",
+                "sessionId": "s",
+                "mode": "requesting"
+              }
+            },
+            {
+              "type": "engine_event",
+              "event": {
+                "type": "tool_start",
+                "sessionId": "s",
+                "toolCallId": "legacy",
+                "toolName": "Bash"
+              }
+            },
+            {
+              "type": "engine_event",
+              "event": {
+                "type": "tool_end",
+                "sessionId": "s",
+                "toolCallId": "legacy",
+                "toolName": "Bash",
+                "content": "legacy output",
+                "isError": false
+              }
+            }
+          ],
+          "toolScopes": [
+            ":legacy"
+          ],
+          "toolResults": [
+            "legacy output"
+          ],
+          "toolStates": [
+            "done"
+          ],
+          "working": true,
+          "texts": [
+            ""
+          ],
+          "awaiting": false
+        }
+      ]
+    },
+    "richUserMessage": {
+      "frames": [
+        {
+          "type": "engine_event",
+          "event": {
+            "type": "user_message",
+            "sessionId": "s",
+            "turnId": "t-user",
+            "message": {
+              "uuid": "user-wire",
+              "timestamp": 1000,
+              "message": {
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "Inspect the attached files"
+                  },
+                  {
+                    "type": "image",
+                    "source": {
+                      "type": "base64",
+                      "media_type": "image/png",
+                      "data": "aW1hZ2U="
+                    }
+                  },
+                  {
+                    "type": "document",
+                    "name": "report.pdf",
+                    "source": {
+                      "type": "base64",
+                      "media_type": "application/pdf",
+                      "data": "cGRm"
+                    }
+                  }
+                ],
+                "steered": true,
+                "questionAnswer": {
+                  "questions": [
+                    {
+                      "question": "Choose language",
+                      "options": [
+                        {
+                          "label": "Swift"
+                        }
+                      ]
+                    }
+                  ],
+                  "answers": {
+                    "Choose language": "Swift"
+                  }
+                }
+              },
+              "localRender": {
+                "displayText": "Please inspect these files",
+                "quote": {
+                  "text": "Quoted context"
+                },
+                "attachments": [
+                  {
+                    "id": "upload",
+                    "name": "report.pdf",
+                    "type": "file"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "type": "engine_event",
+          "event": {
+            "type": "user_message",
+            "sessionId": "s",
+            "turnId": "t-user",
+            "message": {
+              "uuid": "user-wire",
+              "timestamp": 1000,
+              "message": {
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "Inspect the attached files"
+                  },
+                  {
+                    "type": "image",
+                    "source": {
+                      "type": "base64",
+                      "media_type": "image/png",
+                      "data": "aW1hZ2U="
+                    }
+                  },
+                  {
+                    "type": "document",
+                    "name": "report.pdf",
+                    "source": {
+                      "type": "base64",
+                      "media_type": "application/pdf",
+                      "data": "cGRm"
+                    }
+                  }
+                ],
+                "steered": true,
+                "questionAnswer": {
+                  "questions": [
+                    {
+                      "question": "Choose language",
+                      "options": [
+                        {
+                          "label": "Swift"
+                        }
+                      ]
+                    }
+                  ],
+                  "answers": {
+                    "Choose language": "Swift"
+                  }
+                }
+              },
+              "localRender": {
+                "displayText": "Please inspect these files",
+                "quote": {
+                  "text": "Quoted context"
+                },
+                "attachments": [
+                  {
+                    "id": "upload",
+                    "name": "report.pdf",
+                    "type": "file"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "expected": {
+        "id": "user-wire",
+        "uuid": "user-wire",
+        "turnId": "t-user",
+        "text": "Inspect the attached files",
+        "timestamp": 1000,
+        "contentBlocks": [
+          {
+            "type": "text",
+            "text": "Inspect the attached files"
+          },
+          {
+            "type": "image",
+            "source": {
+              "type": "base64",
+              "media_type": "image/png",
+              "data": "aW1hZ2U="
+            }
+          },
+          {
+            "type": "document",
+            "name": "report.pdf",
+            "source": {
+              "type": "base64",
+              "media_type": "application/pdf",
+              "data": "cGRm"
+            }
+          }
+        ],
+        "localRender": {
+          "displayText": "Please inspect these files",
+          "quote": {
+            "text": "Quoted context"
+          },
+          "attachments": [
+            {
+              "id": "upload",
+              "name": "report.pdf",
+              "type": "file"
+            }
+          ]
+        },
+        "questionAnswer": {
+          "questions": [
+            {
+              "question": "Choose language",
+              "options": [
+                {
+                  "label": "Swift"
+                }
+              ]
+            }
+          ],
+          "answers": {
+            "Choose language": "Swift"
+          }
+        },
+        "steered": true,
+        "role": "user"
+      }
+    },
+    "flatRichUserMessage": {
+      "frames": [
+        {
+          "type": "engine_event",
+          "event": {
+            "type": "user_message",
+            "sessionId": "s",
+            "turnId": "t-flat",
+            "message": {
+              "id": "flat-id",
+              "uuid": "flat-uuid",
+              "timestamp": "1970-01-01T00:00:02.000Z",
+              "contentBlocks": [
+                {
+                  "type": "text",
+                  "text": "Inspect the attached files"
+                },
+                {
+                  "type": "image",
+                  "source": {
+                    "type": "base64",
+                    "media_type": "image/png",
+                    "data": "aW1hZ2U="
+                  }
+                },
+                {
+                  "type": "document",
+                  "name": "report.pdf",
+                  "source": {
+                    "type": "base64",
+                    "media_type": "application/pdf",
+                    "data": "cGRm"
+                  }
+                }
+              ],
+              "localRender": {
+                "displayText": "Please inspect these files",
+                "quote": {
+                  "text": "Quoted context"
+                },
+                "attachments": [
+                  {
+                    "id": "upload",
+                    "name": "report.pdf",
+                    "type": "file"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "expected": {
+        "id": "flat-uuid",
+        "uuid": "flat-uuid",
+        "turnId": "t-flat",
+        "text": "Inspect the attached files",
+        "timestamp": 2000,
+        "contentBlocks": [
+          {
+            "type": "text",
+            "text": "Inspect the attached files"
+          },
+          {
+            "type": "image",
+            "source": {
+              "type": "base64",
+              "media_type": "image/png",
+              "data": "aW1hZ2U="
+            }
+          },
+          {
+            "type": "document",
+            "name": "report.pdf",
+            "source": {
+              "type": "base64",
+              "media_type": "application/pdf",
+              "data": "cGRm"
+            }
+          }
+        ],
+        "localRender": {
+          "displayText": "Please inspect these files",
+          "quote": {
+            "text": "Quoted context"
+          },
+          "attachments": [
+            {
+              "id": "upload",
+              "name": "report.pdf",
+              "type": "file"
+            }
+          ]
+        },
+        "role": "user"
+      }
+    },
+    "sessionlessEngineStatus": {
+      "steps": [
+        {
+          "frames": [
+            {
+              "type": "engine_event",
+              "event": {
+                "type": "engine_status",
+                "status": "reconnecting"
+              }
+            }
+          ],
+          "noticeKey": "engine_reconnecting"
+        },
+        {
+          "frames": [
+            {
+              "type": "engine_event",
+              "event": {
+                "type": "engine_status",
+                "status": "ready"
+              }
+            }
+          ],
+          "noticeKey": null
+        }
+      ],
+      "preservedNotice": "A genuine send error"
+    },
+    "notificationReceipts": {
+      "frames": [
+        {
+          "type": "engine_event",
+          "event": {
+            "type": "agent_notification",
+            "sessionId": "s",
+            "notificationId": "queue-1",
+            "source": "background-task",
+            "status": "completed",
+            "agentId": "child-a",
+            "agentName": "Audit",
+            "timestamp": 1000
+          }
+        },
+        {
+          "type": "engine_event",
+          "event": {
+            "type": "agent_notification",
+            "sessionId": "s",
+            "notificationId": "team-mailbox:stable",
+            "source": "team-mailbox",
+            "status": "updated",
+            "agentName": "reviewer",
+            "timestamp": 1100
+          }
+        },
+        {
+          "type": "engine_event",
+          "event": {
+            "type": "agent_notification",
+            "sessionId": "s",
+            "notificationId": "queue-1",
+            "source": "background-task",
+            "status": "failed",
+            "agentId": "child-a",
+            "agentName": "Audit",
+            "timestamp": 1200
+          }
+        }
+      ],
+      "ids": [
+        "agent-notification-queue-1",
+        "agent-notification-team-mailbox:stable"
+      ],
+      "names": [
+        "Audit",
+        "reviewer"
+      ]
+    },
+    "userReplayKeepsActiveAssistantRow": {
+      "frames": [
+        {
+          "type": "engine_event",
+          "event": {
+            "type": "stream_mode",
+            "sessionId": "s",
+            "turnId": "t",
+            "mode": "requesting"
+          }
+        },
+        {
+          "type": "engine_event",
+          "event": {
+            "type": "user_message",
+            "sessionId": "s",
+            "turnId": "t",
+            "message": {
+              "uuid": "user-replay",
+              "timestamp": 1000,
+              "message": {
+                "content": "Hello"
+              }
+            }
+          }
+        },
+        {
+          "type": "engine_event",
+          "event": {
+            "type": "text_delta",
+            "sessionId": "s",
+            "turnId": "t",
+            "messageId": "m",
+            "text": "A"
+          }
+        },
+        {
+          "type": "engine_event",
+          "event": {
+            "type": "user_message",
+            "sessionId": "s",
+            "turnId": "t",
+            "message": {
+              "uuid": "user-replay",
+              "timestamp": 1000,
+              "message": {
+                "content": "Hello"
+              }
+            }
+          }
+        },
+        {
+          "type": "engine_event",
+          "event": {
+            "type": "text_delta",
+            "sessionId": "s",
+            "turnId": "t",
+            "messageId": "m",
+            "text": "B"
+          }
+        }
+      ],
+      "texts": [
+        "Hello",
+        "AB"
+      ],
+      "turnIds": [
+        "t",
+        "t"
+      ]
+    },
+    "replayedEchoWithMatchingLocalDrafts": {
+      "localTexts": [
+        "Same text",
+        "Same text"
+      ],
+      "frames": [
+        {
+          "type": "engine_event",
+          "event": {
+            "type": "user_message",
+            "sessionId": "s",
+            "turnId": "t1",
+            "message": {
+              "uuid": "echo-1",
+              "timestamp": 1000,
+              "message": {
+                "content": "Same text"
+              }
+            }
+          }
+        },
+        {
+          "type": "engine_event",
+          "event": {
+            "type": "user_message",
+            "sessionId": "s",
+            "turnId": "t1",
+            "message": {
+              "uuid": "echo-1",
+              "timestamp": 1000,
+              "message": {
+                "content": "Same text"
+              }
+            }
+          }
+        },
+        {
+          "type": "engine_event",
+          "event": {
+            "type": "user_message",
+            "sessionId": "s",
+            "turnId": "t2",
+            "message": {
+              "uuid": "echo-2",
+              "timestamp": 1000,
+              "message": {
+                "content": "Same text"
+              }
+            }
+          }
+        }
+      ],
+      "uuids": [
+        "echo-1",
+        "echo-2"
+      ],
+      "turnIds": [
+        "t1",
+        "t2"
+      ],
+      "texts": [
+        "Same text",
+        "Same text"
+      ]
+    },
+    "scopedToolWithoutOpeningMode": {
+      "steps": [
+        {
+          "frames": [
+            {
+              "type": "engine_event",
+              "event": {
+                "type": "tool_start",
+                "sessionId": "s",
+                "turnId": "tool-first",
+                "toolCallId": "t",
+                "toolName": "Bash"
+              }
+            },
+            {
+              "type": "engine_event",
+              "event": {
+                "type": "tool_end",
+                "sessionId": "s",
+                "turnId": "tool-first",
+                "toolCallId": "t",
+                "toolName": "Bash",
+                "content": "first result",
+                "isError": false
+              }
+            },
+            {
+              "type": "engine_event",
+              "event": {
+                "type": "text_delta",
+                "sessionId": "s",
+                "turnId": "tool-first",
+                "messageId": "m",
+                "text": "Reply"
+              }
+            }
+          ],
+          "toolScopes": [
+            "tool-first:t"
+          ],
+          "toolResults": [
+            "first result"
+          ],
+          "toolStates": [
+            "done"
+          ],
+          "working": false,
+          "texts": [
+            "Reply"
+          ],
+          "awaiting": false
+        }
+      ]
+    }
+  }
+}

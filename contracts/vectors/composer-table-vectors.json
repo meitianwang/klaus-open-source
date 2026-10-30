@@ -1,0 +1,54 @@
+{
+  "version": 1,
+  "cellContent": "Inline text, formatting, hard breaks and semantic atoms; no nested blocks",
+  "projectionSeparator": "\n",
+  "plainPaste": "Literal Markdown/TSV remains prose",
+  "typedConversion": {
+    "trigger": "Enter at the collapsed end of the third top-level text-only paragraph",
+    "minimumColumns": 2,
+    "minimumDividerDashes": 3,
+    "trailingParagraph": true
+  },
+  "newline": {
+    "paragraph": "Shift+Enter and Alt+Enter use structural paragraph splitting",
+    "tableCell": "Shift+Enter falls back to a hard break when structural splitting declines",
+    "tableEnter": "Submit after typed conversion declines",
+    "tableTab": "Ordinary focus traversal",
+    "appleControlEnter": "Hard break outside code; exit to a new paragraph from code"
+  },
+  "nativeKeyOwnership": "Document keymaps own handled Enter/Escape; declined native keys reach the owning application route even when browser defaults are suppressed",
+  "layout": "Content-width editor tables and scrollable submitted tables use top-aligned wrapping cells, explicit alignment and horizontal row separators",
+  "rowExamples": [
+    {
+      "source": " | Name | Value | ",
+      "cells": [
+        "Name",
+        "Value"
+      ]
+    },
+    {
+      "source": "| a\\|b |  |",
+      "cells": [
+        "a|b",
+        ""
+      ]
+    },
+    {
+      "source": "| one |",
+      "cells": null
+    },
+    {
+      "source": "a | b",
+      "cells": null
+    }
+  ],
+  "alignment": [
+    "left",
+    "center",
+    "right",
+    null
+  ],
+  "clipboardHtml": "Rich table structure, spans and semantic atom identities are retained",
+  "markdown": "One value per authored cell, pipe escaping, inline marks, hard-break tags, column alignment and padding",
+  "attachmentAppearance": "Unchanged"
+}

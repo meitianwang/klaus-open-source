@@ -1,0 +1,29 @@
+/* 全局动画门控 — 根元素 data-reduced-motion 机制。
+ *
+ * 为什么需要它：此前「减少动态效果」由各个 CSS 文件零散写 @media 自查，只有
+ * 10 个文件覆盖到，其余动画（侧栏 spinner、骨架屏脉冲、跑马灯、状态点）无论
+ * 系统设置如何都常驻运行。现在在根元素挂 data-reduced-motion，所有
+ * 动画统一受它控制。
+ *
+ * 关键约束：不能用 `animation: none`。仓库里有 7 处动画依赖
+ * `animation-fill-mode: forwards/both` 才能让元素可见——例如 `.kls-loading`
+ * 的基础样式是 `opacity: 0`，靠动画把它带到 1。写成 none 会让这些元素永久
+ * 停在初始状态（加载指示器直接隐形）。改用「时长压到 1ms + 只跑一次」：
+ * 动画照常完成并落到终态，但不再有逐帧重绘。
+ *
+ * 实测依据：静止状态下常驻动画让渲染进程主线程忙 0.62 秒/秒、样式重算 120
+ * 次/秒；全部暂停后降到 0.037 秒/秒、10 次/秒。在 120Hz 面板上，任何一个
+ * 不可合成的动画都会把整页按刷新率重新光栅化。
+ *
+ * 门控写在 `[data-reduced-motion="true"]` 上而不是 `:not(...)`：JS 没跑起来时
+ * 属性缺失，动画保持现状，不会把界面冻住。
+ */
+:root[data-reduced-motion="true"] *,
+:root[data-reduced-motion="true"] *::before,
+:root[data-reduced-motion="true"] *::after {
+  /* 跑完即停：infinite 变成一次 1ms，forwards 仍然落到终态。 */
+  animation-duration: 1ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 1ms !important;
+  scroll-behavior: auto !important;
+}

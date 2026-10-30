@@ -1,0 +1,4 @@
+[submodule "engine/klaus-agent-rust"]
+	path = engine/klaus-agent-rust
+	url = https://github.com/meitianwang/klaus-engine.git
+	branch = main

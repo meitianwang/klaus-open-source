@@ -1,0 +1,52 @@
+{
+  "reason": "Claude subscription login must use the subscription authorization page, not the API Console page. The token API must receive Klaus's native-app identity, not Electron's inherited browser identity, which returned 429 before grant validation in the same-proxy comparison. Failures must preserve allowlisted service diagnostics and Retry-After without exposing response bodies, credentials, or replaying a one-time code.",
+  "authorize": "https://claude.ai/oauth/authorize",
+  "token": "https://platform.claude.com/v1/oauth/token",
+  "clientId": "9d1c250a-e61b-44d9-88ed-5944d1962f5e",
+  "testAppVersion": "0.0.0-test",
+  "testUserAgent": "Klaus/0.0.0-test",
+  "scopes": ["org:create_api_key", "user:profile", "user:inference", "user:sessions:claude_code", "user:mcp_servers", "user:file_upload"],
+  "tokenFields": ["grant_type", "code", "redirect_uri", "client_id", "code_verifier", "state"],
+  "failures": [
+    {
+      "name": "structured rate limit",
+      "status": 429,
+      "body": {"error": {"type": "rate_limit_error", "message": "Do not expose fixture-private-token", "access_token": "fixture-private-token"}},
+      "headers": {"content-type": "application/json", "retry-after": "120", "request-id": "req_fixture429", "cf-ray": "a44151ca1db0df1b-SEA"},
+      "error": "Token exchange failed (429): rate_limit_error. Retry after 120 seconds. Request ID: req_fixture429",
+      "diagnostics": {"stage": "token_exchange", "status": 429, "responseFormat": "json", "oauthError": "rate_limit_error", "retryAfterSeconds": 120, "requestId": "req_fixture429", "edgeTraceId": "a44151ca1db0df1b-SEA"}
+    },
+    {
+      "name": "standard OAuth rejection",
+      "status": 400,
+      "body": {"error": "invalid_grant", "error_description": "Rejected fixture-private-token"},
+      "headers": {"content-type": "application/json"},
+      "error": "Token exchange failed (400): invalid_grant",
+      "diagnostics": {"stage": "token_exchange", "status": 400, "responseFormat": "json", "oauthError": "invalid_grant"}
+    },
+    {
+      "name": "invalid authorization code",
+      "status": 401,
+      "body": {},
+      "headers": {"content-type": "application/json"},
+      "error": "Authentication failed: Invalid authorization code",
+      "diagnostics": {"stage": "token_exchange", "status": 401, "responseFormat": "json"}
+    },
+    {
+      "name": "edge HTML response",
+      "status": 429,
+      "body": "<html>fixture-private-token is not an OAuth error</html>",
+      "headers": {"content-type": "text/html; charset=utf-8", "retry-after": "-1", "request-id": "unsafe fixture-private-token", "cf-ray": "unsafe fixture-private-token"},
+      "error": "Token exchange failed (429) (HTML response)",
+      "diagnostics": {"stage": "token_exchange", "status": 429, "responseFormat": "html"}
+    },
+    {
+      "name": "untrusted error and header values",
+      "status": 400,
+      "body": {"error": "fixture-private-token", "error_description": "fixture-private-token"},
+      "headers": {"content-type": "application/json", "retry-after": "9007199254740992", "request-id": "fixture-private-token"},
+      "error": "Token exchange failed (400)",
+      "diagnostics": {"stage": "token_exchange", "status": 400, "responseFormat": "json"}
+    }
+  ]
+}

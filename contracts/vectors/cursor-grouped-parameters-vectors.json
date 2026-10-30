@@ -1,0 +1,174 @@
+{
+  "version": 1,
+  "notes": "A base model has one visible row. Existing reasoning and Fast controls resolve actual exact variants while preserving context and all other native parameters. Ultra remains a local orchestration choice.",
+  "model": {
+    "value": "cursor:fixture-model[context=200k,effort=high,fast=false]",
+    "label": "Fixture Model",
+    "cursorModelId": "fixture-model",
+    "cursorVariants": [
+      {
+        "value": "cursor:fixture-model[context=200k,effort=high,fast=false]",
+        "label": "Fixture Model high 200k",
+        "parameters": {
+          "effort": "high",
+          "fast": "false",
+          "context": "200k"
+        },
+        "maxMode": false,
+        "isDefault": true,
+        "contextTokens": 200000,
+        "supportedThinkingLevels": [
+          "off",
+          "ultra"
+        ]
+      },
+      {
+        "value": "cursor:fixture-model[context=200k,effort=high,fast=true]",
+        "label": "Fixture Model high 200k Fast",
+        "parameters": {
+          "effort": "high",
+          "fast": "true",
+          "context": "200k"
+        },
+        "maxMode": false,
+        "isDefault": false,
+        "contextTokens": 200000,
+        "supportedThinkingLevels": [
+          "off",
+          "ultra"
+        ]
+      },
+      {
+        "value": "cursor:fixture-model[context=200k,effort=medium,fast=false]",
+        "label": "Fixture Model medium 200k",
+        "parameters": {
+          "effort": "medium",
+          "fast": "false",
+          "context": "200k"
+        },
+        "maxMode": false,
+        "isDefault": false,
+        "contextTokens": 200000,
+        "supportedThinkingLevels": [
+          "off",
+          "ultra"
+        ]
+      },
+      {
+        "value": "cursor:fixture-model[context=200k,effort=medium,fast=true]",
+        "label": "Fixture Model medium 200k Fast",
+        "parameters": {
+          "effort": "medium",
+          "fast": "true",
+          "context": "200k"
+        },
+        "maxMode": false,
+        "isDefault": false,
+        "contextTokens": 200000,
+        "supportedThinkingLevels": [
+          "off",
+          "ultra"
+        ]
+      },
+      {
+        "value": "cursor:fixture-model[context=1m,effort=high,fast=false]",
+        "label": "Fixture Model high 1m",
+        "parameters": {
+          "effort": "high",
+          "fast": "false",
+          "context": "1m"
+        },
+        "maxMode": true,
+        "isDefault": false,
+        "contextTokens": 1000000,
+        "supportedThinkingLevels": [
+          "off",
+          "ultra"
+        ]
+      },
+      {
+        "value": "cursor:fixture-model[context=1m,effort=high,fast=true]",
+        "label": "Fixture Model high 1m Fast",
+        "parameters": {
+          "effort": "high",
+          "fast": "true",
+          "context": "1m"
+        },
+        "maxMode": true,
+        "isDefault": false,
+        "contextTokens": 1000000,
+        "supportedThinkingLevels": [
+          "off",
+          "ultra"
+        ]
+      }
+    ],
+    "cursorParameterDefinitions": [
+      {
+        "id": "effort",
+        "name": "Reasoning effort",
+        "type": "enum",
+        "values": [
+          {
+            "value": "low"
+          },
+          {
+            "value": "medium"
+          },
+          {
+            "value": "high"
+          }
+        ]
+      },
+      {
+        "id": "fast",
+        "name": "Fast",
+        "type": "boolean",
+        "values": [
+          {
+            "value": "false"
+          },
+          {
+            "value": "true",
+            "increasesModelCost": true
+          }
+        ]
+      },
+      {
+        "id": "context",
+        "name": "Context window",
+        "type": "enum",
+        "values": [
+          {
+            "value": "200k"
+          },
+          {
+            "value": "1m",
+            "increasesModelCost": true
+          }
+        ]
+      }
+    ]
+  },
+  "savedSelection": "cursor:fixture-model[context=200k,effort=high,fast=true]",
+  "transitions": [
+    {
+      "from": "cursor:fixture-model[context=200k,effort=high,fast=false]",
+      "parameter": "fast",
+      "value": "true",
+      "to": "cursor:fixture-model[context=200k,effort=high,fast=true]"
+    },
+    {
+      "from": "cursor:fixture-model[context=200k,effort=high,fast=true]",
+      "parameter": "effort",
+      "value": "medium",
+      "to": "cursor:fixture-model[context=200k,effort=medium,fast=true]"
+    },
+    {
+      "from": "cursor:fixture-model[context=1m,effort=high,fast=true]",
+      "parameter": "effort",
+      "value": "medium",
+      "to": null
+    }
+  ]
+}

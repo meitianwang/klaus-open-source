@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <!-- 'unsafe-eval' is required and deliberate: this page compiles the
+       agent-authored .canvas.tsx with Sucrase and evaluates the result through
+       `new Function` (see src/canvas/loader.ts for why that beats a blob URL or a
+       local HTTP server). It is not a new capability — the code being run was
+       written to disk by an agent that already has a shell — and this page
+       deliberately does NOT load bridge/klaus-api, so a canvas has only the
+       narrow SDK surface rather than window.klaus.
+       connect-src carries ipc: for the same vestigial reason as index.html — the
+       Electron bridge uses `ipcRenderer.invoke`, not a fetch. The canvas bridge
+       (load / state-write / send-to-chat / action) is what this window really
+       loads, via bridge/canvas-api.ts. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' file: blob: data:; media-src 'self' file: blob:; font-src 'self' data:; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; connect-src 'self' ipc: http://ipc.localhost;" />
+  <title>Canvas</title>
+  <script type="module" src="src/canvas-main.tsx"></script>
+</head>
+<body>
+  <div id="canvas-root"></div>
+</body>
+</html>

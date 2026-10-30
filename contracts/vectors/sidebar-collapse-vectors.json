@@ -1,0 +1,85 @@
+{
+  "_why": "Sidebar collapse state moved from renderer-only memory to settings.db (`sidebar-collapsed-sections-v1` + `sidebar-project-expanded-v1-<id>`). These vectors pin the observable rules so a refactor cannot silently regress them: the two KV key names and JSON shapes, tri-state expansion (missing key = open, only an explicit false folds), the four section keys, the badge reduction priority (waiting/unread beats active), the show-more pagination formula (preview 5, then +10 per press, no show-less inside a group, fold resets the page), the draft reveal exemption (never pry open an explicitly folded group for a chat that does not exist yet), and forced visibility of the active session beyond the page window. The KV rows must also stay out of SessionConfiguration staleness: writing them may never rebuild a live session (pinned separately by tests/session-wire.test.ts).",
+  "storage": {
+    "sectionsKey": "sidebar.sections_collapsed",
+    "projectExpandedKey": "sidebar.project_expanded",
+    "sectionsShape": { "pinned": false, "channels": false, "projects": false, "recent": false },
+    "projectExpandedShape": { "/repo/app": true, "/repo/tool": false },
+    "mirrorKeys": ["klaus_sidebar_project_expanded_mirror", "klaus_sidebar_sections_collapsed_mirror"],
+    "legacyMigrationWhitelistMustNotContain": ["sidebar.sections_collapsed", "sidebar.project_expanded"]
+  },
+  "expansion": {
+    "unsetIsOpen": { "map": {}, "key": "/repo/app", "open": true },
+    "explicitTrueIsOpen": { "map": { "/repo/app": true }, "key": "/repo/app", "open": true },
+    "explicitFalseFolds": { "map": { "/repo/app": false }, "key": "/repo/app", "open": false },
+    "corruptValuesAreIgnored": { "raw": { "a": true, "b": "yes", "c": null, "d": false }, "parsed": { "a": true, "d": false } },
+    "writeIsCopyOnWrite": { "map": { "a": true }, "key": "a", "value": false, "result": { "a": false } },
+    "clearReturnsToUnset": { "map": { "a": false }, "key": "a", "value": null, "result": {} }
+  },
+  "sections": {
+    "missingSectionReadsExpanded": { "state": { "pinned": false, "channels": false, "projects": false, "recent": false }, "key": "recent", "collapsed": false },
+    "parseFillsAllFourKeys": { "raw": { "projects": true, "bogus": true }, "parsed": { "pinned": false, "channels": false, "projects": true, "recent": false } },
+    "toggleIsCopyOnWrite": { "state": { "pinned": false, "channels": false, "projects": false, "recent": false }, "key": "pinned", "collapsed": true, "result": { "pinned": true, "channels": false, "projects": false, "recent": false } }
+  },
+  "badge": {
+    "emptyGroupHasNoBadge": { "sessions": [], "badge": null },
+    "waitingBeatsActive": { "sessions": [{ "working": true, "unread": false, "waiting": false }, { "working": false, "unread": false, "waiting": true }], "badge": "unread" },
+    "unreadBeatsActive": { "sessions": [{ "working": true, "unread": false, "waiting": false }, { "working": false, "unread": true, "waiting": false }], "badge": "unread" },
+    "activeAloneLoads": { "sessions": [{ "working": true, "unread": false, "waiting": false }], "badge": "loading" },
+    "idleReadShowsNothing": { "sessions": [{ "working": false, "unread": false, "waiting": false }], "badge": null }
+  },
+  "pagination": {
+    "previewLimit": 5,
+    "pageStep": 10,
+    "collapsedPreview": { "state": { "expanded": false, "page": 0 }, "visible": 5 },
+    "pressSequence": {
+      "start": { "expanded": false, "page": 0 },
+      "visibleAfterPresses": [15, 25, 35]
+    },
+    "hasMore": [
+      { "total": 5, "state": { "expanded": false, "page": 0 }, "more": false },
+      { "total": 6, "state": { "expanded": false, "page": 0 }, "more": true },
+      { "total": 15, "state": { "expanded": true, "page": 1 }, "more": false },
+      { "total": 16, "state": { "expanded": true, "page": 1 }, "more": true }
+    ],
+    "foldResetsPage": "collapsing a group clears its page counter and show-more flag, so a reopen starts at the preview limit again"
+  },
+  "forcedVisible": {
+    "activeBeyondWindowIsAppended": { "rows": ["a", "b", "c", "d", "e", "f", "g"], "state": { "expanded": false, "page": 0 }, "forced": "g", "visible": ["a", "b", "c", "d", "e", "g"] },
+    "forcedInsideWindowNotDuplicated": { "rows": ["a", "b", "c", "d", "e", "f", "g"], "state": { "expanded": false, "page": 0 }, "forced": "a", "visible": ["a", "b", "c", "d", "e"] },
+    "noForcedKeepsHead": { "rows": ["a", "b", "c", "d", "e", "f", "g"], "state": { "expanded": false, "page": 0 }, "forced": null, "visible": ["a", "b", "c", "d", "e"] }
+  },
+  "legacySeed": {
+    "_why": "Before sections were foldable, two localStorage flags recorded the same two choices. The seed runs once, when no mirror row exists yet, so an upgrading user keeps a fold they had set. Only the exact string '1' means folded.",
+    "projectsFlag": "klaus_projects_collapsed",
+    "conversationsFlag": "klaus_conversations_collapsed",
+    "cases": [
+      { "_why": "nothing stored anywhere: all sections expanded", "projects": null, "conversations": null, "expected": { "pinned": false, "channels": false, "projects": false, "recent": false } },
+      { "_why": "the old project-group fold maps onto the projects section", "projects": "1", "conversations": null, "expected": { "pinned": false, "channels": false, "projects": true, "recent": false } },
+      { "_why": "the old projectless fold maps onto the recent section", "projects": null, "conversations": "1", "expected": { "pinned": false, "channels": false, "projects": false, "recent": true } },
+      { "_why": "both legacy folds carry over together", "projects": "1", "conversations": "1", "expected": { "pinned": false, "channels": false, "projects": true, "recent": true } },
+      { "_why": "only the literal '1' counts; other values are not folds", "projects": "0", "conversations": "true", "expected": { "pinned": false, "channels": false, "projects": false, "recent": false } }
+    ]
+  },
+  "revisionGuard": [
+    { "_why": "an untouched state applies normally", "captured": 0, "current": 0, "apply": true },
+    { "_why": "a click landed during the flight, so the stale read must yield", "captured": 0, "current": 1, "apply": false },
+    { "_why": "several local writes still invalidate one older read", "captured": 3, "current": 7, "apply": false },
+    { "_why": "a read started after the last write still applies", "captured": 7, "current": 7, "apply": true }
+  ],
+  "reveal": [
+    { "_why": "an untouched group always opens", "expansion": null, "draft": false, "decision": "expand" },
+    { "_why": "an untouched group opens even for a draft", "expansion": null, "draft": true, "decision": "expand" },
+    { "_why": "already expanded: no write, no churn", "expansion": true, "draft": false, "decision": "noop" },
+    { "_why": "opening a real session reveals it even if the user folded the group", "expansion": false, "draft": false, "decision": "expand" },
+    { "_why": "a draft never pries open a group the user explicitly collapsed", "expansion": false, "draft": true, "decision": "noop" }
+  ],
+  "persistence": {
+    "authoritativeStoreIsSettingsDb": true,
+    "localStorageIsFirstPaintMirrorOnly": true,
+    "missingRowSeedsFromLocalMirror": "a null KV row means never-persisted, not everything-expanded: the local mirror (including its legacy seed from klaus_projects_collapsed / klaus_conversations_collapsed) wins and is written back, so an upgrade cannot lose a folded section on first launch",
+    "failedWriteLeavesSidebarUnchanged": "the KV write is fire-and-forget with a rollback hook; on failure memory + mirror revert and the UI re-renders from the previous value",
+    "crossWindowSync": "app:preferences-changed with one of the two keys re-reads that row; equal values (own-write echo) do not re-render",
+    "revisionGuard": "a hydrate or remote push whose captured revision differs after the await yields to the newer local edit"
+  }
+}

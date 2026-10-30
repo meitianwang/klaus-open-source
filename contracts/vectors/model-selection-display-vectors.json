@@ -1,0 +1,298 @@
+{
+  "reason": "The engine alone resolves a saved model selection. A renderer must display that result instead of choosing the first catalog row or falling back to the saved auto marker.",
+  "cases": [
+    {
+      "name": "engine default differs from catalog order",
+      "mode": "auto",
+      "resolvedMode": "custom:preferred",
+      "items": [
+        {
+          "value": "custom:alphabetical-first",
+          "label": "Alphabetical first"
+        },
+        {
+          "value": "custom:preferred",
+          "label": "Configured default"
+        }
+      ],
+      "selectedValue": "custom:preferred",
+      "label": "Configured default"
+    },
+    {
+      "name": "Codex auto displays the engine's new Sol default rather than the first catalog row",
+      "mode": "auto",
+      "resolvedMode": "codex:gpt-6.1-sol",
+      "items": [
+        {
+          "value": "codex:gpt-6-astra",
+          "label": "GPT-6-Astra"
+        },
+        {
+          "value": "codex:gpt-6.1-sol",
+          "label": "GPT-6.1-Sol"
+        }
+      ],
+      "selectedValue": "codex:gpt-6.1-sol",
+      "label": "GPT-6.1-Sol"
+    },
+    {
+      "name": "unresolved auto does not pretend to select the first model",
+      "mode": "auto",
+      "resolvedMode": null,
+      "items": [
+        {
+          "value": "codex:available",
+          "label": "Available model"
+        }
+      ],
+      "selectedValue": "",
+      "label": "Model unavailable"
+    },
+    {
+      "name": "failed resolution does not display a saved concrete selection",
+      "mode": "codex:available",
+      "resolvedMode": null,
+      "items": [
+        {
+          "value": "codex:available",
+          "label": "Available model"
+        }
+      ],
+      "selectedValue": "",
+      "label": "Model unavailable"
+    },
+    {
+      "name": "removed catalog model does not select its replacement",
+      "mode": "custom:removed",
+      "resolvedMode": "custom:removed",
+      "items": [
+        {
+          "value": "custom:replacement",
+          "label": "Replacement model"
+        }
+      ],
+      "selectedValue": "",
+      "label": "Model unavailable"
+    },
+    {
+      "name": "empty catalog reports missing configuration",
+      "mode": "auto",
+      "resolvedMode": null,
+      "items": [],
+      "selectedValue": "",
+      "label": "No models configured"
+    },
+    {
+      "name": "Qoder default names the catalog head the engine resolved",
+      "mode": "auto",
+      "resolvedMode": "qoder:qmodel_38max",
+      "items": [
+        {
+          "value": "qoder:qmodel_38max",
+          "label": "Qwen Max"
+        },
+        {
+          "value": "qoder:ultimate",
+          "label": "Ultimate"
+        }
+      ],
+      "selectedValue": "qoder:qmodel_38max",
+      "label": "Qwen Max"
+    },
+    {
+      "name": "QwenWork default falls back to the catalog head when the lineup carries no flagship-named entry",
+      "mode": "auto",
+      "resolvedMode": "qwenwork:qwork-ultimate",
+      "items": [
+        {
+          "value": "qwenwork:qwork-ultimate",
+          "label": "Premium"
+        },
+        {
+          "value": "qwenwork:qwork-auto",
+          "label": "Standard"
+        }
+      ],
+      "selectedValue": "qwenwork:qwork-ultimate",
+      "label": "Premium"
+    },
+    {
+      "name": "QwenWork default selects the flagship-named entry the engine resolved",
+      "mode": "auto",
+      "resolvedMode": "qwenwork:mode-qwen38max",
+      "items": [
+        {
+          "value": "qwenwork:mode-qwen38max",
+          "label": "Qwen3.8-Max"
+        },
+        {
+          "value": "qwenwork:mode-flagship",
+          "label": "Flagship"
+        }
+      ],
+      "selectedValue": "qwenwork:mode-qwen38max",
+      "label": "Qwen3.8-Max"
+    },
+    {
+      "name": "QoderWork default falls back to the service-marked entry when the lineup does not serve the client default",
+      "mode": "auto",
+      "resolvedMode": "qoderwork:qwork-auto",
+      "items": [
+        {
+          "value": "qoderwork:qwork-ultimate",
+          "label": "Premium"
+        },
+        {
+          "value": "qoderwork:qwork-auto",
+          "label": "Standard"
+        }
+      ],
+      "selectedValue": "qoderwork:qwork-auto",
+      "label": "Standard"
+    },
+    {
+      "name": "QoderWork default selects the client default the engine resolved over the first row",
+      "mode": "auto",
+      "resolvedMode": "qoderwork:qmodel_38max",
+      "items": [
+        {
+          "value": "qoderwork:qwork-ultimate",
+          "label": "Premium"
+        },
+        {
+          "value": "qoderwork:qmodel_38max",
+          "label": "Qwen3.8-Max"
+        }
+      ],
+      "selectedValue": "qoderwork:qmodel_38max",
+      "label": "Qwen3.8-Max"
+    },
+    {
+      "name": "Claude subscription default displays the resolved Opus rather than a tier alias",
+      "mode": "auto",
+      "resolvedMode": "subscription:opus",
+      "items": [
+        {
+          "value": "subscription:fable",
+          "label": "Fable 5.1"
+        },
+        {
+          "value": "subscription:opus",
+          "label": "Opus 5.5"
+        },
+        {
+          "value": "subscription:sonnet",
+          "label": "Sonnet 5.5"
+        }
+      ],
+      "selectedValue": "subscription:opus",
+      "label": "Opus 5.5"
+    },
+    {
+      "name": "Kimi default displays the resolved 1M coding model rather than the catalog head",
+      "mode": "auto",
+      "resolvedMode": "kimi:k3",
+      "items": [
+        {
+          "value": "kimi:kimi-for-coding",
+          "label": "K2.8 Preview"
+        },
+        {
+          "value": "kimi:k3",
+          "label": "K3"
+        }
+      ],
+      "selectedValue": "kimi:k3",
+      "label": "K3"
+    },
+    {
+      "name": "Bailian default displays the resolved flagship rather than the flash preset",
+      "mode": "auto",
+      "resolvedMode": "bailian:qwen3.8-max",
+      "items": [
+        {
+          "value": "bailian:qwen3.7-max",
+          "label": "qwen3.7-max"
+        },
+        {
+          "value": "bailian:qwen3.8-max",
+          "label": "qwen3.8-max"
+        },
+        {
+          "value": "bailian:qwen3.8-flash",
+          "label": "qwen3.8-flash"
+        }
+      ],
+      "selectedValue": "bailian:qwen3.8-max",
+      "label": "qwen3.8-max"
+    },
+    {
+      "name": "Zhipu default displays the resolved top model rather than the fast one",
+      "mode": "auto",
+      "resolvedMode": "zhipu:glm-5.3",
+      "items": [
+        {
+          "value": "zhipu:glm-4.5",
+          "label": "GLM-4.5"
+        },
+        {
+          "value": "zhipu:glm-5.3",
+          "label": "GLM-5.3"
+        },
+        {
+          "value": "zhipu:glm-5.3-flash",
+          "label": "GLM-5.3-Flash"
+        }
+      ],
+      "selectedValue": "zhipu:glm-5.3",
+      "label": "GLM-5.3"
+    },
+    {
+      "name": "WorkBuddy default names the catalog head the engine resolved",
+      "mode": "auto",
+      "resolvedMode": "workbuddy:default-model",
+      "items": [
+        {
+          "value": "workbuddy:default-model",
+          "label": "Auto"
+        },
+        {
+          "value": "workbuddy:gpt-5.6-terra",
+          "label": "GPT-5.6 Terra"
+        }
+      ],
+      "selectedValue": "workbuddy:default-model",
+      "label": "Auto"
+    },
+    {
+      "name": "Cursor displays the exact effort and Fast variant",
+      "mode": "cursor:fixture[effort=high,fast=true]",
+      "resolvedMode": "cursor:fixture[effort=high,fast=true]",
+      "items": [
+        {
+          "value": "cursor:fixture[effort=medium,fast=false]",
+          "label": "Fixture Medium"
+        },
+        {
+          "value": "cursor:fixture[effort=high,fast=true]",
+          "label": "Fixture High Fast"
+        }
+      ],
+      "selectedValue": "cursor:fixture[effort=high,fast=true]",
+      "label": "Fixture High Fast"
+    },
+    {
+      "name": "Cursor unavailable variant does not select another effort",
+      "mode": "cursor:fixture[effort=high,fast=true]",
+      "resolvedMode": "cursor:fixture[effort=high,fast=true]",
+      "items": [
+        {
+          "value": "cursor:fixture[effort=medium,fast=false]",
+          "label": "Fixture Medium"
+        }
+      ],
+      "selectedValue": "",
+      "label": "Model unavailable"
+    }
+  ]
+}

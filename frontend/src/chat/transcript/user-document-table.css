@@ -1,0 +1,44 @@
+[data-user-table-scroll] {
+  max-width: 100%;
+  overflow-x: auto;
+  margin-top: 1em;
+  scrollbar-width: thin;
+}
+[data-user-message-body] table {
+  --table-space: calc(var(--text-body, 14px) / 4);
+  border-collapse: separate;
+  border-spacing: 0;
+  table-layout: auto;
+  text-align: start;
+  width: fit-content;
+  min-width: 100%;
+  margin: 0;
+  font-size: max(var(--code-font-size, 13px), calc(var(--text-body, 14px) * .875));
+  line-height: calc(var(--text-body, 14px) * 1.625);
+  font-variant-numeric: tabular-nums;
+}
+[data-user-message-body] :is(th, td) {
+  max-width: 30rem;
+  white-space: normal;
+  overflow-wrap: break-word;
+  word-break: normal;
+  padding-inline-end: calc(var(--table-space) * 6);
+  vertical-align: top;
+}
+[data-user-message-body] th {
+  border-bottom: 1px solid var(--border-strong, var(--border));
+  padding-block: calc(var(--table-space) * 2);
+  text-align: start;
+  font-weight: 600;
+  line-height: calc(var(--table-space) * 4);
+}
+[data-user-message-body] td { padding-block: calc(var(--table-space) * 2.5); }
+[data-user-message-body] tr:not(:last-child) td { border-bottom: 1px solid var(--border-subtle); }
+[data-user-message-body] th:last-child { padding-inline-end: calc(var(--table-space) * 10); }
+[data-user-message-body] td:last-child { padding-inline-end: 0; }
+[data-user-message-body] tbody tr:last-child td { padding-block-end: calc(var(--table-space) * 6); }
+@media print {
+  [data-user-table-scroll] { overflow: visible; }
+  [data-user-message-body] table { width: 100%; }
+  [data-user-message-body] :is(th, td) { min-width: 0; max-width: 12.5rem; overflow-wrap: anywhere; }
+}

@@ -1,0 +1,46 @@
+{
+  "version": 3,
+  "notes": "Queued requests preserve their full text while the compact row remains readable, accessible, and safe during delivery.",
+  "sessionId": "queue-fixture-session",
+  "otherSessionId": "queue-fixture-other-session",
+  "summary": "Review the queued request and preserve its complete contents",
+  "rawText": "**Review the queued request**\n\nKeep `src/workflow.ts` as literal text in the expanded preview.\n- Preserve every line and every attachment.\n- Check the message before submitting it.\n\nThis intentionally long sentence fills the compact preview at desktop and narrow widths so users can inspect the complete request without changing it.",
+  "secondText": "Check the final result after the current turn completes",
+  "thirdText": "Report the validation evidence with the completed changes",
+  "interruptedBanner": "Queued messages paused after interruption",
+  "expectedActionOrder": [
+    "send-now",
+    "delete",
+    "more"
+  ],
+  "expectedMenuActions": [
+    "edit",
+    "side-chat",
+    "toggle-queueing"
+  ],
+  "reorderedIds": [
+    "queued-two",
+    "queued-three",
+    "queued-one"
+  ],
+  "hoverDelayMs": 700,
+  "transitionMs": 180,
+  "steeringIdentity": {
+    "rendererTurnId": "core-active-turn",
+    "facadeTurnId": "submission-active-turn",
+    "nextRendererTurnId": "core-replacement-turn",
+    "nextFacadeTurnId": "submission-replacement-turn",
+    "text": "Apply this queued instruction to the current running turn"
+  },
+  "screenshots": [
+    "queue-light",
+    "queue-preview",
+    "queue-menu",
+    "queue-interrupted",
+    "queue-delivery-states",
+    "queue-dark",
+    "queue-narrow-760",
+    "queue-narrow-400"
+  ],
+  "reason": "Queue messages expose their original text, stable order and complete payload. Unknown delivery stays saved without resubmission. Transfers remove the source before creating a fresh side conversation, preserve attachments and display context, and restore the former position after a confirmed refusal. Queued steering resolves the active displayed turn identity to its captured facade submission identity, and refuses stale, idle, or unidentified targets before claiming the row. Queue mutations repaint the owning main or side surface on settlement. Undo restores the original interruption from its durable removal receipt. One Resume admits engine-owned work before releasing interrupted client rows. Addition receipts survive consumption and replay the same identity after acknowledgement loss. Issued turn starts retain an unconfirmed copy until a correlated admission receipt. Editing and rejected additions preserve newer composer input and all original attachment metadata."
+}

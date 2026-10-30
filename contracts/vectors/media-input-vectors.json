@@ -1,0 +1,14 @@
+{
+  "source": "antigravity",
+  "reason": "Only the native source adapter applies these MIME and input-budget rules. Native media uses the owning session model, survives missing upload paths through pooled replay identities, and retains exact MIME eligibility when edited on a phone.",
+  "allowed": ["audio/wav", "audio/webm;codecs=opus", "video/mp4"],
+  "fixtures": [
+    { "name": "voice.wav", "mimeType": "audio/wav", "base64": "UklGRg==" },
+    { "name": "recording.webm", "mimeType": "audio/webm;codecs=opus", "base64": "GkXfow==" },
+    { "name": "clip.mp4", "mimeType": "video/mp4", "base64": "AAAAFGZ0eXBpc29t" }
+  ],
+  "unsupportedMimeTypes": ["audio/mpeg", "video/quicktime", "application/pdf", "audio/*"],
+  "replay": { "matchFields": ["filename", "mimeType"], "identityAlias": "originalPath", "missingOriginal": "pooled-path" },
+  "mobile": { "nativeCandidateType": "media", "deduplicateBy": "path", "preserveMimeParameters": true },
+  "limits": { "fileBytes": 18874368, "totalBytes": 47185920, "parts": 20 }
+}

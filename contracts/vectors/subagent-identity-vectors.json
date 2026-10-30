@@ -1,0 +1,98 @@
+{
+  "reason": "Subagent titles use the model-authored task description, independently of avatar identity and engine roles. New titles are generated in the current interface language; saved task titles remain intact.",
+  "cases": [
+    {
+      "locale": "en",
+      "task": {
+        "description": "Search settings",
+        "agentName": "explorer",
+        "agentType": "general-purpose",
+        "avatarId": 0
+      },
+      "expected": "Search settings"
+    },
+    {
+      "locale": "en",
+      "task": {
+        "description": "Review authentication",
+        "agentName": "explorer",
+        "avatarId": 0
+      },
+      "expected": "Review authentication"
+    },
+    {
+      "locale": "zh-CN",
+      "task": {
+        "description": "搜索设置",
+        "agentType": "explorer",
+        "avatarId": 1
+      },
+      "expected": "搜索设置"
+    },
+    {
+      "locale": "zh-CN",
+      "task": {
+        "description": "检查 API 权限",
+        "agentName": "reader",
+        "avatarId": 128
+      },
+      "expected": "检查 API 权限"
+    },
+    {
+      "locale": "zh-CN",
+      "task": {
+        "description": "  检查设置\n  页面布局  "
+      },
+      "expected": "检查设置 页面布局"
+    },
+    {
+      "locale": "en",
+      "task": {
+        "description": "搜索设置"
+      },
+      "expected": "搜索设置"
+    },
+    {
+      "locale": "zh-CN",
+      "task": {
+        "description": "Search settings"
+      },
+      "expected": "Search settings"
+    },
+    {
+      "locale": "zh-CN",
+      "task": {
+        "agentName": "explorer",
+        "agentType": "general-purpose",
+        "avatarId": 0
+      },
+      "expected": "子智能体"
+    },
+    {
+      "locale": "en",
+      "task": null,
+      "expected": "Agent"
+    },
+    {
+      "locale": "zh-TW",
+      "task": {
+        "description": "  "
+      },
+      "expected": "子智能体"
+    }
+  ],
+  "languageCases": [
+    {
+      "setting": null,
+      "language": "English"
+    },
+    {
+      "setting": "zh",
+      "language": "Chinese"
+    },
+    {
+      "setting": "en",
+      "language": "English"
+    }
+  ]
+}

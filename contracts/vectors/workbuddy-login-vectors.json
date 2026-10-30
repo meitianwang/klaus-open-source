@@ -1,0 +1,83 @@
+{
+  "reason": "WorkBuddy browser login accepts an explicit China or International edition because the two sites use separate accounts. The selected gateway and platform are captured for the entire state/token/account flow and persisted even when the token response omits its domain. An omitted region preserves existing callers. The gateway returns the authorization URL and the host forwards it unchanged; pending polls use business code 11217. Local import uses the same selected region, reads only that edition even when both are signed in, and does not fall back to another edition. Automatic re-adoption uses the stored credential edition reported by status. The connected account card offers logout only. Signed-out cards expose dedicated China and International browser-login and local-import actions, with no edition selector. Each action captures its edition directly and shares one busy guard. The four signed-out actions use the existing inline account-action row with content-sized buttons.",
+  "regions": [
+    {
+      "region": "cn",
+      "apiBase": "https://www.codebuddy.cn",
+      "platform": "workbuddy",
+      "authUrl": "https://www.workbuddy.cn/login?platform=workbuddy&state=fixture-state-1234"
+    },
+    {
+      "region": "intl",
+      "apiBase": "https://www.workbuddy.ai",
+      "platform": "workbuddy-ai",
+      "authUrl": "https://www.workbuddy.ai/login?platform=workbuddy-ai&state=fixture-state-1234"
+    }
+  ],
+  "authUrl": "https://www.workbuddy.ai/login?platform=workbuddy-ai&state=fixture-state-1234",
+  "loginState": {
+    "method": "POST",
+    "path": "/v2/plugin/auth/state",
+    "query": {
+      "platform": "workbuddy-ai"
+    },
+    "unauthenticatedHeaders": [
+      "X-No-Authorization",
+      "X-No-User-Id",
+      "X-No-Enterprise-Id",
+      "X-No-Department-Info"
+    ]
+  },
+  "loginPoll": {
+    "method": "GET",
+    "path": "/v2/plugin/auth/token",
+    "query": {
+      "state": "fixture-state-1234"
+    },
+    "pendingCode": 11217,
+    "intervalSeconds": 1,
+    "timeoutMs": 300000
+  },
+  "refusalCodes": {
+    "license": [
+      12005,
+      11212,
+      11216
+    ],
+    "ipLimit": 10081,
+    "deadLogin": [
+      401,
+      403
+    ]
+  },
+  "localImport": {
+    "channel": "workbuddy-auth:import-local",
+    "optionalRegion": [
+      "cn",
+      "intl"
+    ],
+    "explicitRegionFallback": false,
+    "legacyDiscoveryOrder": [
+      "intl",
+      "cn"
+    ],
+    "recoveryRegionSource": "workbuddy/status.region",
+    "recoveryLoginMethod": "adopted"
+  },
+  "ui": {
+    "connectedActions": [
+      "logout"
+    ],
+    "signedOutActions": [
+      "login-cn",
+      "login-intl",
+      "import-cn",
+      "import-intl"
+    ],
+    "editionSelector": false,
+    "busyDisablesAllActions": true,
+    "buttonEditionPassedDirectly": true,
+    "connectedEditionBadge": true,
+    "actionLayout": "inline-content-width"
+  }
+}

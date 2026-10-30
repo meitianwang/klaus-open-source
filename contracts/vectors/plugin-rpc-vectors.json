@@ -1,0 +1,78 @@
+{
+  "_comment": [
+    "Plugin RPC wire contract between this client and the engine's app-server.",
+    "",
+    "Plugins are ENGINE-owned: it decodes [plugins] from config.toml at",
+    "startup and loads every enabled plugin from it, so the shell must never write",
+    "that ledger. Every install / enable / uninstall / catalog read is therefore a",
+    "request, and these method names plus their param keys are the whole",
+    "coupling. A silent rename on either side turns the plugins page into a surface",
+    "that reports success while nothing happens, which is exactly what this pins.",
+    "",
+    "`replyField` matters as much as the method: the mutations are ACKED ops whose",
+    "JSON-RPC reply carries only a submissionId, and the real outcome arrives later",
+    "in an engine/event under that field name. Waiting on the wrong field times out;",
+    "reading the ack instead reports success before the ledger was written.",
+    "The legacy Diagram migration is a direct, persisted facade result, not an ACK.",
+    "",
+    "Mutation params come from the pure builders in engine.rs; the one-off",
+    "migration is called directly after the mirror is available.",
+    "Updating reuses the installer with the same identity, preserves enabled state and publishes only the committed package.",
+    "The renderer receives activationScope and appliedToCurrentSession from the persisted mutation receipt. A later projection-refresh failure is a warning on that success, never a failed installation that invites duplicate replacement."
+  ],
+  "requests": {
+    "browserEnablementRead": { "method": "session/installedPlugins", "ledgerKey": "browser@builtin" },
+    "catalogDesiredStateRead": { "method": "session/installedPlugins", "fallback": "config/read" },
+    "legacyDiagramMigration": {
+      "method": "session/migrateBundledDiagram",
+      "params": { "sourceDir": "/tmp/klaus/plugins/marketplaces/klaus-official/plugins/digram" },
+      "result": { "migrated": true, "restartRequired": true }
+    },
+    "toggle": {
+      "method": "session/setInstalledPluginEnabled",
+      "replyField": "pluginMutation",
+      "params": { "name": "context7@claude-plugins-official", "enabled": true },
+      "result": { "persisted": true, "activationScope": "next_turn", "appliedToCurrentSession": false, "restartRequired": false }
+    },
+    "uninstall": {
+      "method": "session/uninstallPlugin",
+      "replyField": "pluginMutation",
+      "params": { "name": "context7@claude-plugins-official", "removeFiles": true }
+    },
+    "installWithVersion": {
+      "method": "session/installPlugin",
+      "replyField": "pluginMutation",
+      "params": {
+        "marketplace": "claude-plugins-official",
+        "sourceDir": "/tmp/klaus-staging/context7",
+        "version": "1.2.0"
+      }
+    },
+    "installWithoutVersion": {
+      "method": "session/installPlugin",
+      "replyField": "pluginMutation",
+      "params": {
+        "marketplace": "claude-plugins-official",
+        "sourceDir": "/tmp/klaus-staging/context7"
+      }
+    },
+    "catalog": {
+      "method": "session/pluginCatalog",
+      "replyField": "pluginCatalog",
+      "params": {
+        "roots": [
+          { "marketplace": "claude-plugins-official", "dir": "/tmp/market/plugins" },
+          { "marketplace": "bundled", "dir": "/tmp/bundled/plugins" }
+        ]
+      }
+    },
+    "updateWithVersion": {
+      "method": "session/installPlugin",
+      "replyField": "pluginMutation",
+      "params": { "marketplace": "klaus-official", "sourceDir": "/tmp/klaus-staging/model3d", "version": "1.1.0", "expectedInstalledVersion": "1.0.0" },
+      "preserves": ["enabled", "dataPath"],
+      "result": { "persisted": true, "activationScope": "next_turn", "appliedToCurrentSession": false, "restartRequired": false },
+      "installedVersion": "1.0.0"
+    }
+  }
+}

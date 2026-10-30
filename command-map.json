@@ -1,0 +1,3148 @@
+{
+  "summary": {
+    "invokeDeclared": 710,
+    "pushDeclared": 75
+  },
+  "rows": [
+    {
+      "channel": "agents:background-summaries",
+      "kind": "invoke"
+    },
+    {
+      "channel": "agents:definitions:delete",
+      "kind": "invoke"
+    },
+    {
+      "channel": "agents:definitions:list",
+      "kind": "invoke"
+    },
+    {
+      "channel": "agents:definitions:read",
+      "kind": "invoke"
+    },
+    {
+      "channel": "agents:definitions:save",
+      "kind": "invoke"
+    },
+    {
+      "channel": "agents:history",
+      "kind": "invoke"
+    },
+    {
+      "channel": "agents:load-tasks",
+      "kind": "invoke"
+    },
+    {
+      "channel": "agents:save-tasks",
+      "kind": "invoke"
+    },
+    {
+      "channel": "agents:snapshot",
+      "kind": "invoke"
+    },
+    {
+      "channel": "agents:teammate-messages",
+      "kind": "invoke"
+    },
+    {
+      "channel": "antigravity-auth:cancel",
+      "kind": "invoke"
+    },
+    {
+      "channel": "antigravity-auth:import-local",
+      "kind": "invoke"
+    },
+    {
+      "channel": "antigravity-auth:logout",
+      "kind": "invoke"
+    },
+    {
+      "channel": "antigravity-auth:models",
+      "kind": "invoke"
+    },
+    {
+      "channel": "antigravity-auth:poll",
+      "kind": "invoke"
+    },
+    {
+      "channel": "antigravity-auth:start",
+      "kind": "invoke"
+    },
+    {
+      "channel": "antigravity-auth:status",
+      "kind": "invoke"
+    },
+    {
+      "channel": "app:camera-lease",
+      "kind": "invoke"
+    },
+    {
+      "channel": "app:camera-lease-release",
+      "kind": "invoke"
+    },
+    {
+      "channel": "app:content-find",
+      "kind": "invoke"
+    },
+    {
+      "channel": "app:distribution",
+      "kind": "invoke"
+    },
+    {
+      "channel": "app:loginItem:get",
+      "kind": "invoke"
+    },
+    {
+      "channel": "app:loginItem:set",
+      "kind": "invoke"
+    },
+    {
+      "channel": "app:native-menu-state",
+      "kind": "invoke"
+    },
+    {
+      "channel": "app:openExternal",
+      "kind": "invoke"
+    },
+    {
+      "channel": "app:setApprovalBadge",
+      "kind": "invoke"
+    },
+    {
+      "channel": "approval-review:approve",
+      "kind": "invoke"
+    },
+    {
+      "channel": "ark-auth:console-login",
+      "kind": "invoke"
+    },
+    {
+      "channel": "ark-auth:console-logout",
+      "kind": "invoke"
+    },
+    {
+      "channel": "ark-auth:console-status",
+      "kind": "invoke"
+    },
+    {
+      "channel": "ark-auth:logout",
+      "kind": "invoke"
+    },
+    {
+      "channel": "ark-auth:models",
+      "kind": "invoke"
+    },
+    {
+      "channel": "ark-auth:set-api-key",
+      "kind": "invoke"
+    },
+    {
+      "channel": "ark-auth:status",
+      "kind": "invoke"
+    },
+    {
+      "channel": "artifacts:authorize-preview",
+      "kind": "invoke"
+    },
+    {
+      "channel": "artifacts:file-url",
+      "kind": "invoke"
+    },
+    {
+      "channel": "artifacts:open-window",
+      "kind": "invoke"
+    },
+    {
+      "channel": "artifacts:open-workspace",
+      "kind": "invoke"
+    },
+    {
+      "channel": "artifacts:read",
+      "kind": "invoke"
+    },
+    {
+      "channel": "artifacts:reveal",
+      "kind": "invoke"
+    },
+    {
+      "channel": "artifacts:save-copy",
+      "kind": "invoke"
+    },
+    {
+      "channel": "artifacts:widget-url",
+      "kind": "invoke"
+    },
+    {
+      "channel": "auth:import-local",
+      "kind": "invoke"
+    },
+    {
+      "channel": "auth:login",
+      "kind": "invoke"
+    },
+    {
+      "channel": "auth:logout",
+      "kind": "invoke"
+    },
+    {
+      "channel": "auth:status",
+      "kind": "invoke"
+    },
+    {
+      "channel": "bailian-auth:console-login",
+      "kind": "invoke"
+    },
+    {
+      "channel": "bailian-auth:console-logout",
+      "kind": "invoke"
+    },
+    {
+      "channel": "bailian-auth:console-status",
+      "kind": "invoke"
+    },
+    {
+      "channel": "bailian-auth:logout",
+      "kind": "invoke"
+    },
+    {
+      "channel": "bailian-auth:models",
+      "kind": "invoke"
+    },
+    {
+      "channel": "bailian-auth:set-api-key",
+      "kind": "invoke"
+    },
+    {
+      "channel": "bailian-auth:status",
+      "kind": "invoke"
+    },
+    {
+      "channel": "browser-use:back",
+      "kind": "invoke"
+    },
+    {
+      "channel": "browser-use:forward",
+      "kind": "invoke"
+    },
+    {
+      "channel": "browser-use:hide",
+      "kind": "invoke"
+    },
+    {
+      "channel": "browser-use:mention-tabs",
+      "kind": "invoke"
+    },
+    {
+      "channel": "browser-use:navigate",
+      "kind": "invoke"
+    },
+    {
+      "channel": "browser-use:permission-answer",
+      "kind": "invoke"
+    },
+    {
+      "channel": "browser-use:reload",
+      "kind": "invoke"
+    },
+    {
+      "channel": "browser-use:screenshot",
+      "kind": "invoke"
+    },
+    {
+      "channel": "browser-use:set-bounds",
+      "kind": "invoke"
+    },
+    {
+      "channel": "browser-use:set-conversation",
+      "kind": "invoke"
+    },
+    {
+      "channel": "browser-use:show",
+      "kind": "invoke"
+    },
+    {
+      "channel": "browser-use:state",
+      "kind": "invoke"
+    },
+    {
+      "channel": "browser-use:stop",
+      "kind": "invoke"
+    },
+    {
+      "channel": "browser-use:tabs",
+      "kind": "invoke"
+    },
+    {
+      "channel": "browser-use:view-available",
+      "kind": "invoke"
+    },
+    {
+      "channel": "browser-use:view-input",
+      "kind": "invoke"
+    },
+    {
+      "channel": "canvas:action",
+      "kind": "invoke"
+    },
+    {
+      "channel": "canvas:list",
+      "kind": "invoke"
+    },
+    {
+      "channel": "canvas:load",
+      "kind": "invoke"
+    },
+    {
+      "channel": "canvas:open",
+      "kind": "invoke"
+    },
+    {
+      "channel": "canvas:open-result",
+      "kind": "invoke"
+    },
+    {
+      "channel": "canvas:panel-close",
+      "kind": "invoke"
+    },
+    {
+      "channel": "canvas:panel-hide",
+      "kind": "invoke"
+    },
+    {
+      "channel": "canvas:panel-set-bounds",
+      "kind": "invoke"
+    },
+    {
+      "channel": "canvas:panel-show",
+      "kind": "invoke"
+    },
+    {
+      "channel": "canvas:send-to-chat",
+      "kind": "invoke"
+    },
+    {
+      "channel": "canvas:state-write",
+      "kind": "invoke"
+    },
+    {
+      "channel": "channels:connect",
+      "kind": "invoke"
+    },
+    {
+      "channel": "channels:disconnect",
+      "kind": "invoke"
+    },
+    {
+      "channel": "channels:discord:access",
+      "kind": "invoke"
+    },
+    {
+      "channel": "channels:discord:addAllowFrom",
+      "kind": "invoke"
+    },
+    {
+      "channel": "channels:discord:approvePending",
+      "kind": "invoke"
+    },
+    {
+      "channel": "channels:discord:denyPending",
+      "kind": "invoke"
+    },
+    {
+      "channel": "channels:discord:removeAllowFrom",
+      "kind": "invoke"
+    },
+    {
+      "channel": "channels:discord:removeGroup",
+      "kind": "invoke"
+    },
+    {
+      "channel": "channels:discord:setDmPolicy",
+      "kind": "invoke"
+    },
+    {
+      "channel": "channels:discord:updateDelivery",
+      "kind": "invoke"
+    },
+    {
+      "channel": "channels:discord:upsertGroup",
+      "kind": "invoke"
+    },
+    {
+      "channel": "channels:list",
+      "kind": "invoke"
+    },
+    {
+      "channel": "channels:wechat:qrPoll",
+      "kind": "invoke"
+    },
+    {
+      "channel": "channels:wechat:qrStart",
+      "kind": "invoke"
+    },
+    {
+      "channel": "channels:whatsapp:poll",
+      "kind": "invoke"
+    },
+    {
+      "channel": "channels:whatsapp:start",
+      "kind": "invoke"
+    },
+    {
+      "channel": "chat:client-queue-add",
+      "kind": "invoke"
+    },
+    {
+      "channel": "chat:client-queue-clear",
+      "kind": "invoke"
+    },
+    {
+      "channel": "chat:client-queue-deliver",
+      "kind": "invoke"
+    },
+    {
+      "channel": "chat:client-queue-remove",
+      "kind": "invoke"
+    },
+    {
+      "channel": "chat:client-queue-reorder",
+      "kind": "invoke"
+    },
+    {
+      "channel": "chat:client-queue-restore",
+      "kind": "invoke"
+    },
+    {
+      "channel": "chat:client-queue-resume",
+      "kind": "invoke"
+    },
+    {
+      "channel": "chat:client-queue-snapshot",
+      "kind": "invoke"
+    },
+    {
+      "channel": "chat:continue",
+      "kind": "invoke"
+    },
+    {
+      "channel": "chat:edit-message",
+      "kind": "invoke"
+    },
+    {
+      "channel": "chat:edit-prepare",
+      "kind": "invoke"
+    },
+    {
+      "channel": "chat:edit-queued",
+      "kind": "invoke"
+    },
+    {
+      "channel": "chat:follow-up",
+      "kind": "invoke"
+    },
+    {
+      "channel": "chat:interrupt",
+      "kind": "invoke"
+    },
+    {
+      "channel": "chat:pasted-text-create",
+      "kind": "invoke"
+    },
+    {
+      "channel": "chat:pasted-text-read",
+      "kind": "invoke"
+    },
+    {
+      "channel": "chat:pasted-text-release",
+      "kind": "invoke"
+    },
+    {
+      "channel": "chat:pasted-text-remove",
+      "kind": "invoke"
+    },
+    {
+      "channel": "chat:queue-snapshot",
+      "kind": "invoke"
+    },
+    {
+      "channel": "chat:queued-follow-ups",
+      "kind": "invoke"
+    },
+    {
+      "channel": "chat:remove-queued",
+      "kind": "invoke"
+    },
+    {
+      "channel": "chat:reorder-queued",
+      "kind": "invoke"
+    },
+    {
+      "channel": "chat:rewind-from",
+      "kind": "invoke"
+    },
+    {
+      "channel": "chat:send",
+      "kind": "invoke"
+    },
+    {
+      "channel": "chat:side-question",
+      "kind": "invoke"
+    },
+    {
+      "channel": "chat:side-question:cancel",
+      "kind": "invoke"
+    },
+    {
+      "channel": "chat:upload",
+      "kind": "invoke"
+    },
+    {
+      "channel": "chat:upload-path",
+      "kind": "invoke"
+    },
+    {
+      "channel": "clipboard:read-file-paths",
+      "kind": "invoke"
+    },
+    {
+      "channel": "clipboard:read-text",
+      "kind": "invoke"
+    },
+    {
+      "channel": "clipboard:write-text",
+      "kind": "invoke"
+    },
+    {
+      "channel": "codex-auth:import-local",
+      "kind": "invoke"
+    },
+    {
+      "channel": "codex-auth:logout",
+      "kind": "invoke"
+    },
+    {
+      "channel": "codex-auth:models",
+      "kind": "invoke"
+    },
+    {
+      "channel": "codex-auth:poll",
+      "kind": "invoke"
+    },
+    {
+      "channel": "codex-auth:start",
+      "kind": "invoke"
+    },
+    {
+      "channel": "codex-auth:status",
+      "kind": "invoke"
+    },
+    {
+      "channel": "collaboration:cancel-draft",
+      "kind": "invoke"
+    },
+    {
+      "channel": "collaboration:download-file",
+      "kind": "invoke"
+    },
+    {
+      "channel": "collaboration:draft-issue",
+      "kind": "invoke"
+    },
+    {
+      "channel": "collaboration:draft-project",
+      "kind": "invoke"
+    },
+    {
+      "channel": "collaboration:execute",
+      "kind": "invoke"
+    },
+    {
+      "channel": "collaboration:local-agents",
+      "kind": "invoke"
+    },
+    {
+      "channel": "collaboration:local-binding",
+      "kind": "invoke"
+    },
+    {
+      "channel": "collaboration:pick-local-folder",
+      "kind": "invoke"
+    },
+    {
+      "channel": "collaboration:preview-file",
+      "kind": "invoke"
+    },
+    {
+      "channel": "collaboration:request",
+      "kind": "invoke"
+    },
+    {
+      "channel": "collaboration:set-local-binding",
+      "kind": "invoke"
+    },
+    {
+      "channel": "collaboration:watch",
+      "kind": "invoke"
+    },
+    {
+      "channel": "commands:delete",
+      "kind": "invoke"
+    },
+    {
+      "channel": "commands:list",
+      "kind": "invoke"
+    },
+    {
+      "channel": "commands:save",
+      "kind": "invoke"
+    },
+    {
+      "channel": "composer:edit-focus",
+      "kind": "invoke"
+    },
+    {
+      "channel": "composer:prediction",
+      "kind": "invoke"
+    },
+    {
+      "channel": "composer:prediction:availability",
+      "kind": "invoke"
+    },
+    {
+      "channel": "composer:prediction:cancel",
+      "kind": "invoke"
+    },
+    {
+      "channel": "composer:prediction:source",
+      "kind": "invoke"
+    },
+    {
+      "channel": "computer-use-pip:get-state",
+      "kind": "invoke"
+    },
+    {
+      "channel": "computer-use-pip:set-host-layout",
+      "kind": "invoke"
+    },
+    {
+      "channel": "computer-use-pip:set-visibility",
+      "kind": "invoke"
+    },
+    {
+      "channel": "computer-use:record:discard",
+      "kind": "invoke"
+    },
+    {
+      "channel": "computer-use:record:status",
+      "kind": "invoke"
+    },
+    {
+      "channel": "computer-use:record:stop",
+      "kind": "invoke"
+    },
+    {
+      "channel": "connectors:list",
+      "kind": "invoke"
+    },
+    {
+      "channel": "connectors:preflight",
+      "kind": "invoke"
+    },
+    {
+      "channel": "connectors:setToolEnabled",
+      "kind": "invoke"
+    },
+    {
+      "channel": "connectors:status",
+      "kind": "invoke"
+    },
+    {
+      "channel": "connectors:toggle",
+      "kind": "invoke"
+    },
+    {
+      "channel": "cursor-auth:cancel",
+      "kind": "invoke"
+    },
+    {
+      "channel": "cursor-auth:import-local",
+      "kind": "invoke"
+    },
+    {
+      "channel": "cursor-auth:logout",
+      "kind": "invoke"
+    },
+    {
+      "channel": "cursor-auth:models",
+      "kind": "invoke"
+    },
+    {
+      "channel": "cursor-auth:poll",
+      "kind": "invoke"
+    },
+    {
+      "channel": "cursor-auth:start",
+      "kind": "invoke"
+    },
+    {
+      "channel": "cursor-auth:status",
+      "kind": "invoke"
+    },
+    {
+      "channel": "desktop-pet:ack-main-capture",
+      "kind": "invoke"
+    },
+    {
+      "channel": "desktop-pet:acknowledge-task",
+      "kind": "invoke"
+    },
+    {
+      "channel": "desktop-pet:appshot-settings",
+      "kind": "invoke"
+    },
+    {
+      "channel": "desktop-pet:attach-foreground",
+      "kind": "invoke"
+    },
+    {
+      "channel": "desktop-pet:attach-screenshot",
+      "kind": "invoke"
+    },
+    {
+      "channel": "desktop-pet:clear-completed",
+      "kind": "invoke"
+    },
+    {
+      "channel": "desktop-pet:complete-focus",
+      "kind": "invoke"
+    },
+    {
+      "channel": "desktop-pet:composer-draft",
+      "kind": "invoke"
+    },
+    {
+      "channel": "desktop-pet:context-menu",
+      "kind": "invoke"
+    },
+    {
+      "channel": "desktop-pet:conversation-state",
+      "kind": "invoke"
+    },
+    {
+      "channel": "desktop-pet:create-pet",
+      "kind": "invoke"
+    },
+    {
+      "channel": "desktop-pet:delete-pet",
+      "kind": "invoke"
+    },
+    {
+      "channel": "desktop-pet:dismiss-task",
+      "kind": "invoke"
+    },
+    {
+      "channel": "desktop-pet:drag-end",
+      "kind": "invoke"
+    },
+    {
+      "channel": "desktop-pet:drag-move",
+      "kind": "invoke"
+    },
+    {
+      "channel": "desktop-pet:drag-start",
+      "kind": "invoke"
+    },
+    {
+      "channel": "desktop-pet:end-realtime",
+      "kind": "invoke"
+    },
+    {
+      "channel": "desktop-pet:get-state",
+      "kind": "invoke"
+    },
+    {
+      "channel": "desktop-pet:hide",
+      "kind": "invoke"
+    },
+    {
+      "channel": "desktop-pet:import-attachment",
+      "kind": "invoke"
+    },
+    {
+      "channel": "desktop-pet:import-file",
+      "kind": "invoke"
+    },
+    {
+      "channel": "desktop-pet:import-url",
+      "kind": "invoke"
+    },
+    {
+      "channel": "desktop-pet:negotiate-realtime",
+      "kind": "invoke"
+    },
+    {
+      "channel": "desktop-pet:open-folder",
+      "kind": "invoke"
+    },
+    {
+      "channel": "desktop-pet:open-main",
+      "kind": "invoke"
+    },
+    {
+      "channel": "desktop-pet:open-settings",
+      "kind": "invoke"
+    },
+    {
+      "channel": "desktop-pet:open-task",
+      "kind": "invoke"
+    },
+    {
+      "channel": "desktop-pet:pick-attachments",
+      "kind": "invoke"
+    },
+    {
+      "channel": "desktop-pet:preview-url",
+      "kind": "invoke"
+    },
+    {
+      "channel": "desktop-pet:react-message",
+      "kind": "invoke"
+    },
+    {
+      "channel": "desktop-pet:realtime-audio",
+      "kind": "invoke"
+    },
+    {
+      "channel": "desktop-pet:realtime-control",
+      "kind": "invoke"
+    },
+    {
+      "channel": "desktop-pet:realtime-options",
+      "kind": "invoke"
+    },
+    {
+      "channel": "desktop-pet:realtime-state",
+      "kind": "invoke"
+    },
+    {
+      "channel": "desktop-pet:refresh-catalog",
+      "kind": "invoke"
+    },
+    {
+      "channel": "desktop-pet:refresh-conversation",
+      "kind": "invoke"
+    },
+    {
+      "channel": "desktop-pet:remove-attachment",
+      "kind": "invoke"
+    },
+    {
+      "channel": "desktop-pet:renderer-ready",
+      "kind": "invoke"
+    },
+    {
+      "channel": "desktop-pet:respond-task",
+      "kind": "invoke"
+    },
+    {
+      "channel": "desktop-pet:save-composer-draft",
+      "kind": "invoke"
+    },
+    {
+      "channel": "desktop-pet:screenshot-sources",
+      "kind": "invoke"
+    },
+    {
+      "channel": "desktop-pet:select-conversation",
+      "kind": "invoke"
+    },
+    {
+      "channel": "desktop-pet:set-composer-focused",
+      "kind": "invoke"
+    },
+    {
+      "channel": "desktop-pet:set-keyboard",
+      "kind": "invoke"
+    },
+    {
+      "channel": "desktop-pet:set-layout",
+      "kind": "invoke"
+    },
+    {
+      "channel": "desktop-pet:set-main-conversation",
+      "kind": "invoke"
+    },
+    {
+      "channel": "desktop-pet:set-regions",
+      "kind": "invoke"
+    },
+    {
+      "channel": "desktop-pet:set-task-muted",
+      "kind": "invoke"
+    },
+    {
+      "channel": "desktop-pet:show",
+      "kind": "invoke"
+    },
+    {
+      "channel": "desktop-pet:stash",
+      "kind": "invoke"
+    },
+    {
+      "channel": "desktop-pet:stop-conversation",
+      "kind": "invoke"
+    },
+    {
+      "channel": "desktop-pet:submit",
+      "kind": "invoke"
+    },
+    {
+      "channel": "desktop-pet:submit-message",
+      "kind": "invoke"
+    },
+    {
+      "channel": "desktop-pet:throw",
+      "kind": "invoke"
+    },
+    {
+      "channel": "desktop-pet:toggle",
+      "kind": "invoke"
+    },
+    {
+      "channel": "desktop-pet:update-appshot-settings",
+      "kind": "invoke"
+    },
+    {
+      "channel": "desktop-pet:update-settings",
+      "kind": "invoke"
+    },
+    {
+      "channel": "desktop-pet:upgrade-pet",
+      "kind": "invoke"
+    },
+    {
+      "channel": "diff:apply-review-action",
+      "kind": "invoke"
+    },
+    {
+      "channel": "diff:commit",
+      "kind": "invoke"
+    },
+    {
+      "channel": "diff:generateCommitMessage",
+      "kind": "invoke"
+    },
+    {
+      "channel": "diff:hunks",
+      "kind": "invoke"
+    },
+    {
+      "channel": "diff:open",
+      "kind": "invoke"
+    },
+    {
+      "channel": "diff:reveal",
+      "kind": "invoke"
+    },
+    {
+      "channel": "diff:summary",
+      "kind": "invoke"
+    },
+    {
+      "channel": "digram:apply-edit",
+      "kind": "invoke"
+    },
+    {
+      "channel": "digram:export",
+      "kind": "invoke"
+    },
+    {
+      "channel": "digram:get",
+      "kind": "invoke"
+    },
+    {
+      "channel": "digram:history",
+      "kind": "invoke"
+    },
+    {
+      "channel": "digram:icons",
+      "kind": "invoke"
+    },
+    {
+      "channel": "digram:list",
+      "kind": "invoke"
+    },
+    {
+      "channel": "digram:render-result",
+      "kind": "invoke"
+    },
+    {
+      "channel": "digram:revert",
+      "kind": "invoke"
+    },
+    {
+      "channel": "dream:config-get",
+      "kind": "invoke"
+    },
+    {
+      "channel": "dream:config-set",
+      "kind": "invoke"
+    },
+    {
+      "channel": "dream:current",
+      "kind": "invoke"
+    },
+    {
+      "channel": "dream:detail",
+      "kind": "invoke"
+    },
+    {
+      "channel": "dream:list",
+      "kind": "invoke"
+    },
+    {
+      "channel": "dream:stop",
+      "kind": "invoke"
+    },
+    {
+      "channel": "dream:trigger-now",
+      "kind": "invoke"
+    },
+    {
+      "channel": "elicit:pending",
+      "kind": "invoke"
+    },
+    {
+      "channel": "elicit:respond",
+      "kind": "invoke"
+    },
+    {
+      "channel": "engine:compactSession",
+      "kind": "invoke"
+    },
+    {
+      "channel": "engine:contextStats",
+      "kind": "invoke"
+    },
+    {
+      "channel": "engine:refreshCommands",
+      "kind": "invoke"
+    },
+    {
+      "channel": "engine:slashCommands",
+      "kind": "invoke"
+    },
+    {
+      "channel": "engine:workspaceFileSearch",
+      "kind": "invoke"
+    },
+    {
+      "channel": "engine:workspaceFileSearchSessionQuery",
+      "kind": "invoke"
+    },
+    {
+      "channel": "engine:workspaceFileSearchSessionStart",
+      "kind": "invoke"
+    },
+    {
+      "channel": "engine:workspaceFileSearchSessionStop",
+      "kind": "invoke"
+    },
+    {
+      "channel": "external-agent-import:detect",
+      "kind": "invoke"
+    },
+    {
+      "channel": "external-agent-import:import",
+      "kind": "invoke"
+    },
+    {
+      "channel": "external-agent-import:status",
+      "kind": "invoke"
+    },
+    {
+      "channel": "featureGates:snapshot",
+      "kind": "invoke"
+    },
+    {
+      "channel": "feedback:capture-screenshot",
+      "kind": "invoke"
+    },
+    {
+      "channel": "feedback:pick-attachments",
+      "kind": "invoke"
+    },
+    {
+      "channel": "feedback:submit",
+      "kind": "invoke"
+    },
+    {
+      "channel": "feedback:suggestion-submit",
+      "kind": "invoke"
+    },
+    {
+      "channel": "friends:approve",
+      "kind": "invoke"
+    },
+    {
+      "channel": "friends:apps",
+      "kind": "invoke"
+    },
+    {
+      "channel": "friends:cancel",
+      "kind": "invoke"
+    },
+    {
+      "channel": "friends:ignore",
+      "kind": "invoke"
+    },
+    {
+      "channel": "friends:list",
+      "kind": "invoke"
+    },
+    {
+      "channel": "friends:lookup",
+      "kind": "invoke"
+    },
+    {
+      "channel": "friends:my-card",
+      "kind": "invoke"
+    },
+    {
+      "channel": "friends:pending-access-requests",
+      "kind": "invoke"
+    },
+    {
+      "channel": "friends:pending-send-confirmations",
+      "kind": "invoke"
+    },
+    {
+      "channel": "friends:prepare-local-assist",
+      "kind": "invoke"
+    },
+    {
+      "channel": "friends:reject",
+      "kind": "invoke"
+    },
+    {
+      "channel": "friends:remove",
+      "kind": "invoke"
+    },
+    {
+      "channel": "friends:request",
+      "kind": "invoke"
+    },
+    {
+      "channel": "friends:request-reply",
+      "kind": "invoke"
+    },
+    {
+      "channel": "friends:resolve-access-request",
+      "kind": "invoke"
+    },
+    {
+      "channel": "friends:resolve-send-confirmation",
+      "kind": "invoke"
+    },
+    {
+      "channel": "friends:respond",
+      "kind": "invoke"
+    },
+    {
+      "channel": "friends:retry-reply",
+      "kind": "invoke"
+    },
+    {
+      "channel": "friends:retry-send",
+      "kind": "invoke"
+    },
+    {
+      "channel": "friends:revoke-template",
+      "kind": "invoke"
+    },
+    {
+      "channel": "friends:runtime",
+      "kind": "invoke"
+    },
+    {
+      "channel": "friends:save-qr-card",
+      "kind": "invoke"
+    },
+    {
+      "channel": "friends:save-template",
+      "kind": "invoke"
+    },
+    {
+      "channel": "friends:send-message",
+      "kind": "invoke"
+    },
+    {
+      "channel": "friends:set-agent-confirmation",
+      "kind": "invoke"
+    },
+    {
+      "channel": "friends:set-authorization",
+      "kind": "invoke"
+    },
+    {
+      "channel": "friends:set-default-grant",
+      "kind": "invoke"
+    },
+    {
+      "channel": "friends:set-receiver",
+      "kind": "invoke"
+    },
+    {
+      "channel": "friends:set-remark",
+      "kind": "invoke"
+    },
+    {
+      "channel": "friends:share-qr-card",
+      "kind": "invoke"
+    },
+    {
+      "channel": "git:branches",
+      "kind": "invoke"
+    },
+    {
+      "channel": "git:checkout",
+      "kind": "invoke"
+    },
+    {
+      "channel": "git:commit-paths",
+      "kind": "invoke"
+    },
+    {
+      "channel": "git:init",
+      "kind": "invoke"
+    },
+    {
+      "channel": "git:uncommitted",
+      "kind": "invoke"
+    },
+    {
+      "channel": "goal:clear",
+      "kind": "invoke"
+    },
+    {
+      "channel": "goal:discard-prepared-objective",
+      "kind": "invoke"
+    },
+    {
+      "channel": "goal:get",
+      "kind": "invoke"
+    },
+    {
+      "channel": "goal:prepare-objective",
+      "kind": "invoke"
+    },
+    {
+      "channel": "goal:read-objective",
+      "kind": "invoke"
+    },
+    {
+      "channel": "goal:set",
+      "kind": "invoke"
+    },
+    {
+      "channel": "keymap:capture-begin",
+      "kind": "invoke"
+    },
+    {
+      "channel": "keymap:capture-end",
+      "kind": "invoke"
+    },
+    {
+      "channel": "keymap:reset",
+      "kind": "invoke"
+    },
+    {
+      "channel": "keymap:set",
+      "kind": "invoke"
+    },
+    {
+      "channel": "keymap:state",
+      "kind": "invoke"
+    },
+    {
+      "channel": "kimi-auth:logout",
+      "kind": "invoke"
+    },
+    {
+      "channel": "kimi-auth:models",
+      "kind": "invoke"
+    },
+    {
+      "channel": "kimi-auth:poll",
+      "kind": "invoke"
+    },
+    {
+      "channel": "kimi-auth:set-api-key",
+      "kind": "invoke"
+    },
+    {
+      "channel": "kimi-auth:start",
+      "kind": "invoke"
+    },
+    {
+      "channel": "kimi-auth:status",
+      "kind": "invoke"
+    },
+    {
+      "channel": "kiro-auth:cancel",
+      "kind": "invoke"
+    },
+    {
+      "channel": "kiro-auth:import-local",
+      "kind": "invoke"
+    },
+    {
+      "channel": "kiro-auth:logout",
+      "kind": "invoke"
+    },
+    {
+      "channel": "kiro-auth:models",
+      "kind": "invoke"
+    },
+    {
+      "channel": "kiro-auth:poll",
+      "kind": "invoke"
+    },
+    {
+      "channel": "kiro-auth:start",
+      "kind": "invoke"
+    },
+    {
+      "channel": "kiro-auth:status",
+      "kind": "invoke"
+    },
+    {
+      "channel": "klaus:hooks:get",
+      "kind": "invoke"
+    },
+    {
+      "channel": "klaus:hooks:set",
+      "kind": "invoke"
+    },
+    {
+      "channel": "klausAuth:cancelLogin",
+      "kind": "invoke"
+    },
+    {
+      "channel": "klausAuth:clientConfig",
+      "kind": "invoke"
+    },
+    {
+      "channel": "klausAuth:guestEnter",
+      "kind": "invoke"
+    },
+    {
+      "channel": "klausAuth:login",
+      "kind": "invoke"
+    },
+    {
+      "channel": "klausAuth:loginWindow",
+      "kind": "invoke"
+    },
+    {
+      "channel": "klausAuth:logout",
+      "kind": "invoke"
+    },
+    {
+      "channel": "klausAuth:status",
+      "kind": "invoke"
+    },
+    {
+      "channel": "klausAuth:subscription",
+      "kind": "invoke"
+    },
+    {
+      "channel": "klausAuth:updateProfile",
+      "kind": "invoke"
+    },
+    {
+      "channel": "klausAuth:uploadAvatar",
+      "kind": "invoke"
+    },
+    {
+      "channel": "klausAuth:wipeLocal",
+      "kind": "invoke"
+    },
+    {
+      "channel": "mcp:builtin:install",
+      "kind": "invoke"
+    },
+    {
+      "channel": "mcp:builtin:list",
+      "kind": "invoke"
+    },
+    {
+      "channel": "mcp:create",
+      "kind": "invoke"
+    },
+    {
+      "channel": "mcp:device:cancel",
+      "kind": "invoke"
+    },
+    {
+      "channel": "mcp:device:client-id",
+      "kind": "invoke"
+    },
+    {
+      "channel": "mcp:device:start",
+      "kind": "invoke"
+    },
+    {
+      "channel": "mcp:device:wait",
+      "kind": "invoke"
+    },
+    {
+      "channel": "mcp:diagnose:bundle",
+      "kind": "invoke"
+    },
+    {
+      "channel": "mcp:import",
+      "kind": "invoke"
+    },
+    {
+      "channel": "mcp:klaus:authenticate",
+      "kind": "invoke"
+    },
+    {
+      "channel": "mcp:klaus:needs-auth",
+      "kind": "invoke"
+    },
+    {
+      "channel": "mcp:list",
+      "kind": "invoke"
+    },
+    {
+      "channel": "mcp:local:create",
+      "kind": "invoke"
+    },
+    {
+      "channel": "mcp:local:list",
+      "kind": "invoke"
+    },
+    {
+      "channel": "mcp:local:remove",
+      "kind": "invoke"
+    },
+    {
+      "channel": "mcp:local:toggle",
+      "kind": "invoke"
+    },
+    {
+      "channel": "mcp:local:update",
+      "kind": "invoke"
+    },
+    {
+      "channel": "mcp:project:create",
+      "kind": "invoke"
+    },
+    {
+      "channel": "mcp:project:list",
+      "kind": "invoke"
+    },
+    {
+      "channel": "mcp:project:remove",
+      "kind": "invoke"
+    },
+    {
+      "channel": "mcp:project:toggle",
+      "kind": "invoke"
+    },
+    {
+      "channel": "mcp:project:update",
+      "kind": "invoke"
+    },
+    {
+      "channel": "mcp:reconnect",
+      "kind": "invoke"
+    },
+    {
+      "channel": "mcp:remove",
+      "kind": "invoke"
+    },
+    {
+      "channel": "mcp:revokeAuth",
+      "kind": "invoke"
+    },
+    {
+      "channel": "mcp:session:status",
+      "kind": "invoke"
+    },
+    {
+      "channel": "mcp:setToolEnabled",
+      "kind": "invoke"
+    },
+    {
+      "channel": "mcp:status",
+      "kind": "invoke"
+    },
+    {
+      "channel": "mcp:toggle",
+      "kind": "invoke"
+    },
+    {
+      "channel": "mcp:trust:decide",
+      "kind": "invoke"
+    },
+    {
+      "channel": "mcp:trust:reset",
+      "kind": "invoke"
+    },
+    {
+      "channel": "mcp:update",
+      "kind": "invoke"
+    },
+    {
+      "channel": "mcp:uv:check",
+      "kind": "invoke"
+    },
+    {
+      "channel": "media:copy-image",
+      "kind": "invoke"
+    },
+    {
+      "channel": "media:read-image",
+      "kind": "invoke"
+    },
+    {
+      "channel": "media:reveal-image",
+      "kind": "invoke"
+    },
+    {
+      "channel": "media:save-image",
+      "kind": "invoke"
+    },
+    {
+      "channel": "memory-snapshot:respond",
+      "kind": "invoke"
+    },
+    {
+      "channel": "memory:open-window",
+      "kind": "invoke"
+    },
+    {
+      "channel": "memory:read-file",
+      "kind": "invoke"
+    },
+    {
+      "channel": "memory:reveal",
+      "kind": "invoke"
+    },
+    {
+      "channel": "minimax-auth:logout",
+      "kind": "invoke"
+    },
+    {
+      "channel": "minimax-auth:models",
+      "kind": "invoke"
+    },
+    {
+      "channel": "minimax-auth:set-api-key",
+      "kind": "invoke"
+    },
+    {
+      "channel": "minimax-auth:status",
+      "kind": "invoke"
+    },
+    {
+      "channel": "model3d:apply",
+      "kind": "invoke"
+    },
+    {
+      "channel": "model3d:get",
+      "kind": "invoke"
+    },
+    {
+      "channel": "model3d:list",
+      "kind": "invoke"
+    },
+    {
+      "channel": "model3d:mesh",
+      "kind": "invoke"
+    },
+    {
+      "channel": "model3d:render-result",
+      "kind": "invoke"
+    },
+    {
+      "channel": "permission:pending",
+      "kind": "invoke"
+    },
+    {
+      "channel": "permission:respond",
+      "kind": "invoke"
+    },
+    {
+      "channel": "permission:rules:add",
+      "kind": "invoke"
+    },
+    {
+      "channel": "permission:rules:delete",
+      "kind": "invoke"
+    },
+    {
+      "channel": "permission:rules:list",
+      "kind": "invoke"
+    },
+    {
+      "channel": "plan:accept",
+      "kind": "invoke"
+    },
+    {
+      "channel": "plan:cancel",
+      "kind": "invoke"
+    },
+    {
+      "channel": "plan:feedback",
+      "kind": "invoke"
+    },
+    {
+      "channel": "plan:get",
+      "kind": "invoke"
+    },
+    {
+      "channel": "plan:read-document",
+      "kind": "invoke"
+    },
+    {
+      "channel": "plan:save-document",
+      "kind": "invoke"
+    },
+    {
+      "channel": "planning-input:answer",
+      "kind": "invoke"
+    },
+    {
+      "channel": "planning-input:pending",
+      "kind": "invoke"
+    },
+    {
+      "channel": "plugins:install",
+      "kind": "invoke"
+    },
+    {
+      "channel": "plugins:list",
+      "kind": "invoke"
+    },
+    {
+      "channel": "plugins:market",
+      "kind": "invoke"
+    },
+    {
+      "channel": "plugins:marketplace:add",
+      "kind": "invoke"
+    },
+    {
+      "channel": "plugins:refresh",
+      "kind": "invoke"
+    },
+    {
+      "channel": "plugins:runtime",
+      "kind": "invoke"
+    },
+    {
+      "channel": "plugins:toggle",
+      "kind": "invoke"
+    },
+    {
+      "channel": "plugins:uninstall",
+      "kind": "invoke"
+    },
+    {
+      "channel": "plugins:update",
+      "kind": "invoke"
+    },
+    {
+      "channel": "power:request:set",
+      "kind": "invoke"
+    },
+    {
+      "channel": "power:snapshot",
+      "kind": "invoke"
+    },
+    {
+      "channel": "ppt:chat-request",
+      "kind": "invoke"
+    },
+    {
+      "channel": "ppt:chat-result",
+      "kind": "invoke"
+    },
+    {
+      "channel": "ppt:list",
+      "kind": "invoke"
+    },
+    {
+      "channel": "ppt:open",
+      "kind": "invoke"
+    },
+    {
+      "channel": "ppt:open-result",
+      "kind": "invoke"
+    },
+    {
+      "channel": "ppt:panel-close",
+      "kind": "invoke"
+    },
+    {
+      "channel": "ppt:panel-hide",
+      "kind": "invoke"
+    },
+    {
+      "channel": "ppt:panel-set-bounds",
+      "kind": "invoke"
+    },
+    {
+      "channel": "ppt:panel-show",
+      "kind": "invoke"
+    },
+    {
+      "channel": "ppt:save-file",
+      "kind": "invoke"
+    },
+    {
+      "channel": "ppt:transport-ready",
+      "kind": "invoke"
+    },
+    {
+      "channel": "profile:activity",
+      "kind": "invoke"
+    },
+    {
+      "channel": "projects:add",
+      "kind": "invoke"
+    },
+    {
+      "channel": "projects:list",
+      "kind": "invoke"
+    },
+    {
+      "channel": "projects:remove",
+      "kind": "invoke"
+    },
+    {
+      "channel": "projects:reorder",
+      "kind": "invoke"
+    },
+    {
+      "channel": "projects:resolve-root",
+      "kind": "invoke"
+    },
+    {
+      "channel": "projects:set-active",
+      "kind": "invoke"
+    },
+    {
+      "channel": "prototype:list",
+      "kind": "invoke"
+    },
+    {
+      "channel": "prototype:open",
+      "kind": "invoke"
+    },
+    {
+      "channel": "prototype:open-result",
+      "kind": "invoke"
+    },
+    {
+      "channel": "prototype:panel-close",
+      "kind": "invoke"
+    },
+    {
+      "channel": "prototype:panel-hide",
+      "kind": "invoke"
+    },
+    {
+      "channel": "prototype:panel-set-bounds",
+      "kind": "invoke"
+    },
+    {
+      "channel": "prototype:panel-show",
+      "kind": "invoke"
+    },
+    {
+      "channel": "prototype:runtime-action",
+      "kind": "invoke"
+    },
+    {
+      "channel": "qoder-auth:import-local",
+      "kind": "invoke"
+    },
+    {
+      "channel": "qoder-auth:logout",
+      "kind": "invoke"
+    },
+    {
+      "channel": "qoder-auth:models",
+      "kind": "invoke"
+    },
+    {
+      "channel": "qoder-auth:poll",
+      "kind": "invoke"
+    },
+    {
+      "channel": "qoder-auth:start",
+      "kind": "invoke"
+    },
+    {
+      "channel": "qoder-auth:status",
+      "kind": "invoke"
+    },
+    {
+      "channel": "qoderwork-auth:import-local",
+      "kind": "invoke"
+    },
+    {
+      "channel": "qoderwork-auth:logout",
+      "kind": "invoke"
+    },
+    {
+      "channel": "qoderwork-auth:models",
+      "kind": "invoke"
+    },
+    {
+      "channel": "qoderwork-auth:poll",
+      "kind": "invoke"
+    },
+    {
+      "channel": "qoderwork-auth:start",
+      "kind": "invoke"
+    },
+    {
+      "channel": "qoderwork-auth:status",
+      "kind": "invoke"
+    },
+    {
+      "channel": "question:answer",
+      "kind": "invoke"
+    },
+    {
+      "channel": "question:pending",
+      "kind": "invoke"
+    },
+    {
+      "channel": "quick-input:hide",
+      "kind": "invoke"
+    },
+    {
+      "channel": "quick-input:language",
+      "kind": "invoke"
+    },
+    {
+      "channel": "quick-input:submit",
+      "kind": "invoke"
+    },
+    {
+      "channel": "qwenwork-auth:import-local",
+      "kind": "invoke"
+    },
+    {
+      "channel": "qwenwork-auth:logout",
+      "kind": "invoke"
+    },
+    {
+      "channel": "qwenwork-auth:models",
+      "kind": "invoke"
+    },
+    {
+      "channel": "qwenwork-auth:poll",
+      "kind": "invoke"
+    },
+    {
+      "channel": "qwenwork-auth:start",
+      "kind": "invoke"
+    },
+    {
+      "channel": "qwenwork-auth:status",
+      "kind": "invoke"
+    },
+    {
+      "channel": "run-preview:open",
+      "kind": "invoke"
+    },
+    {
+      "channel": "run-preview:retry",
+      "kind": "invoke"
+    },
+    {
+      "channel": "run-preview:state",
+      "kind": "invoke"
+    },
+    {
+      "channel": "runtime:capabilities",
+      "kind": "invoke"
+    },
+    {
+      "channel": "runtime:extensions",
+      "kind": "invoke"
+    },
+    {
+      "channel": "session:archive",
+      "kind": "invoke"
+    },
+    {
+      "channel": "session:background-process-output",
+      "kind": "invoke"
+    },
+    {
+      "channel": "session:background-processes",
+      "kind": "invoke"
+    },
+    {
+      "channel": "session:clear-workdir",
+      "kind": "invoke"
+    },
+    {
+      "channel": "session:delete",
+      "kind": "invoke"
+    },
+    {
+      "channel": "session:export",
+      "kind": "invoke"
+    },
+    {
+      "channel": "session:file-changes",
+      "kind": "invoke"
+    },
+    {
+      "channel": "session:fork",
+      "kind": "invoke"
+    },
+    {
+      "channel": "session:get-collaboration-mode",
+      "kind": "invoke"
+    },
+    {
+      "channel": "session:get-custom-main-model-options",
+      "kind": "invoke"
+    },
+    {
+      "channel": "session:get-fast-mode",
+      "kind": "invoke"
+    },
+    {
+      "channel": "session:get-main-model",
+      "kind": "invoke"
+    },
+    {
+      "channel": "session:get-main-model-options",
+      "kind": "invoke"
+    },
+    {
+      "channel": "session:get-permission-mode",
+      "kind": "invoke"
+    },
+    {
+      "channel": "session:get-resolved-workdir",
+      "kind": "invoke"
+    },
+    {
+      "channel": "session:get-spec-mode",
+      "kind": "invoke"
+    },
+    {
+      "channel": "session:get-thinking-level",
+      "kind": "invoke"
+    },
+    {
+      "channel": "session:get-ultra-mode",
+      "kind": "invoke"
+    },
+    {
+      "channel": "session:get-workdir",
+      "kind": "invoke"
+    },
+    {
+      "channel": "session:history",
+      "kind": "invoke"
+    },
+    {
+      "channel": "session:history-items",
+      "kind": "invoke"
+    },
+    {
+      "channel": "session:history-page",
+      "kind": "invoke"
+    },
+    {
+      "channel": "session:list",
+      "kind": "invoke"
+    },
+    {
+      "channel": "session:list-archived",
+      "kind": "invoke"
+    },
+    {
+      "channel": "session:new",
+      "kind": "invoke"
+    },
+    {
+      "channel": "session:pick-workdir",
+      "kind": "invoke"
+    },
+    {
+      "channel": "session:pick-workdirs",
+      "kind": "invoke"
+    },
+    {
+      "channel": "session:rename",
+      "kind": "invoke"
+    },
+    {
+      "channel": "session:set-collaboration-mode",
+      "kind": "invoke"
+    },
+    {
+      "channel": "session:set-fast-mode",
+      "kind": "invoke"
+    },
+    {
+      "channel": "session:set-main-model",
+      "kind": "invoke"
+    },
+    {
+      "channel": "session:set-permission-mode",
+      "kind": "invoke"
+    },
+    {
+      "channel": "session:set-pinned",
+      "kind": "invoke"
+    },
+    {
+      "channel": "session:set-spec-mode",
+      "kind": "invoke"
+    },
+    {
+      "channel": "session:set-thinking-level",
+      "kind": "invoke"
+    },
+    {
+      "channel": "session:set-ultra-mode",
+      "kind": "invoke"
+    },
+    {
+      "channel": "session:set-workdir",
+      "kind": "invoke"
+    },
+    {
+      "channel": "session:set-workspace",
+      "kind": "invoke"
+    },
+    {
+      "channel": "session:stop-background-process",
+      "kind": "invoke"
+    },
+    {
+      "channel": "session:unarchive",
+      "kind": "invoke"
+    },
+    {
+      "channel": "session:view-release",
+      "kind": "invoke"
+    },
+    {
+      "channel": "session:view-retain",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:advisor:get",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:advisor:set",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:audio-gen:get",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:audio-gen:set",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:audio-selection:get",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:audio-selection:set",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:browser-use:add-origin",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:browser-use:chrome-deploy-extension",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:browser-use:chrome-diagnostics",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:browser-use:chrome-install-native-host",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:browser-use:chrome-open-extension-manager",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:browser-use:chrome-open-webstore",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:browser-use:chrome-open-window",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:browser-use:chrome-policy-install",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:browser-use:chrome-policy-uninstall",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:browser-use:chrome-reveal-extension",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:browser-use:chrome-setup",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:browser-use:clear-data",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:browser-use:get",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:browser-use:remove-origin",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:browser-use:set-approval-mode",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:browser-use:set-chrome-enabled",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:browser-use:set-enabled",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:browser-use:set-screenshot-mode",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:computer-use:add-allowed-app",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:computer-use:app-details",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:computer-use:get",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:computer-use:list-apps",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:computer-use:remove-allowed-app",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:computer-use:set-enabled",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:cron:delete",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:cron:keep-awake:get",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:cron:keep-awake:set",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:cron:list",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:cron:run:now",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:cron:runs:list",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:cron:runs:prune",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:cron:status",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:cron:upsert",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:feature-models:get",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:feature-models:set",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:hooks:enabled",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:hooks:get",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:hooks:set",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:hooks:trust",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:image-gen:get",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:image-gen:set",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:image-selection:get",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:image-selection:set",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:kv:get",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:kv:set",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:mobile-bridge:devices",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:mobile-bridge:get",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:mobile-bridge:remove-device",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:mobile-bridge:rename-device",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:mobile-bridge:restart",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:mobile-bridge:rotate-token",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:mobile-bridge:set",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:models:delete",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:models:list",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:models:tiers:get",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:models:tiers:options",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:models:tiers:set",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:models:upsert",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:music-gen:get",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:music-gen:set",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:music-selection:get",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:music-selection:set",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:output-styles:list",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:output-styles:set",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:power:set",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:runtime-config:get",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:runtime-config:open",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:runtime:windows-sandbox-readiness",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:runtime:windows-sandbox-setup-start",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:video-gen:get",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:video-gen:set",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:video-selection:get",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:video-selection:set",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:web-fetch-sources:get",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:web-search-sources:get",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:workspace-dependencies:diagnose",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:workspace-dependencies:get",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:workspace-dependencies:reinstall",
+      "kind": "invoke"
+    },
+    {
+      "channel": "side-task:close",
+      "kind": "invoke"
+    },
+    {
+      "channel": "side-task:create",
+      "kind": "invoke"
+    },
+    {
+      "channel": "side-task:list",
+      "kind": "invoke"
+    },
+    {
+      "channel": "side-task:touch",
+      "kind": "invoke"
+    },
+    {
+      "channel": "site-references:open",
+      "kind": "invoke"
+    },
+    {
+      "channel": "site-references:open-targets",
+      "kind": "invoke"
+    },
+    {
+      "channel": "skills:builtin",
+      "kind": "invoke"
+    },
+    {
+      "channel": "skills:install",
+      "kind": "invoke"
+    },
+    {
+      "channel": "skills:install-from-source",
+      "kind": "invoke"
+    },
+    {
+      "channel": "skills:list",
+      "kind": "invoke"
+    },
+    {
+      "channel": "skills:market",
+      "kind": "invoke"
+    },
+    {
+      "channel": "skills:open-window",
+      "kind": "invoke"
+    },
+    {
+      "channel": "skills:read-file",
+      "kind": "invoke"
+    },
+    {
+      "channel": "skills:toggle",
+      "kind": "invoke"
+    },
+    {
+      "channel": "skills:uninstall",
+      "kind": "invoke"
+    },
+    {
+      "channel": "skills:update",
+      "kind": "invoke"
+    },
+    {
+      "channel": "skills:upload",
+      "kind": "invoke"
+    },
+    {
+      "channel": "spec:open-doc",
+      "kind": "invoke"
+    },
+    {
+      "channel": "spec:read-doc",
+      "kind": "invoke"
+    },
+    {
+      "channel": "spec:save-doc",
+      "kind": "invoke"
+    },
+    {
+      "channel": "ssh:askpass-answer",
+      "kind": "invoke"
+    },
+    {
+      "channel": "ssh:list-dirs",
+      "kind": "invoke"
+    },
+    {
+      "channel": "ssh:list-hosts",
+      "kind": "invoke"
+    },
+    {
+      "channel": "ssh:make-workdir",
+      "kind": "invoke"
+    },
+    {
+      "channel": "ssh:test",
+      "kind": "invoke"
+    },
+    {
+      "channel": "storage:cleanup",
+      "kind": "invoke"
+    },
+    {
+      "channel": "storage:refresh",
+      "kind": "invoke"
+    },
+    {
+      "channel": "storage:review",
+      "kind": "invoke"
+    },
+    {
+      "channel": "storage:usage",
+      "kind": "invoke"
+    },
+    {
+      "channel": "system:permissions:check",
+      "kind": "invoke"
+    },
+    {
+      "channel": "system:permissions:open",
+      "kind": "invoke"
+    },
+    {
+      "channel": "system:permissions:request",
+      "kind": "invoke"
+    },
+    {
+      "channel": "system:restart-app",
+      "kind": "invoke"
+    },
+    {
+      "channel": "tasks:list",
+      "kind": "invoke"
+    },
+    {
+      "channel": "terminal:kill",
+      "kind": "invoke"
+    },
+    {
+      "channel": "terminal:resize",
+      "kind": "invoke"
+    },
+    {
+      "channel": "terminal:start",
+      "kind": "invoke"
+    },
+    {
+      "channel": "terminal:write",
+      "kind": "invoke"
+    },
+    {
+      "channel": "trae-auth:cancel",
+      "kind": "invoke"
+    },
+    {
+      "channel": "trae-auth:import-local",
+      "kind": "invoke"
+    },
+    {
+      "channel": "trae-auth:logout",
+      "kind": "invoke"
+    },
+    {
+      "channel": "trae-auth:models",
+      "kind": "invoke"
+    },
+    {
+      "channel": "trae-auth:poll",
+      "kind": "invoke"
+    },
+    {
+      "channel": "trae-auth:start",
+      "kind": "invoke"
+    },
+    {
+      "channel": "trae-auth:status",
+      "kind": "invoke"
+    },
+    {
+      "channel": "updater:check",
+      "kind": "invoke"
+    },
+    {
+      "channel": "updater:install",
+      "kind": "invoke"
+    },
+    {
+      "channel": "updater:status",
+      "kind": "invoke"
+    },
+    {
+      "channel": "usage:subscriptions",
+      "kind": "invoke"
+    },
+    {
+      "channel": "video-editing:list",
+      "kind": "invoke"
+    },
+    {
+      "channel": "video-editing:open",
+      "kind": "invoke"
+    },
+    {
+      "channel": "video-editing:open-result",
+      "kind": "invoke"
+    },
+    {
+      "channel": "video-editing:panel-close",
+      "kind": "invoke"
+    },
+    {
+      "channel": "video-editing:panel-hide",
+      "kind": "invoke"
+    },
+    {
+      "channel": "video-editing:panel-set-bounds",
+      "kind": "invoke"
+    },
+    {
+      "channel": "video-editing:panel-show",
+      "kind": "invoke"
+    },
+    {
+      "channel": "video-editing:runtime-action",
+      "kind": "invoke"
+    },
+    {
+      "channel": "voice:chat:audio",
+      "kind": "invoke"
+    },
+    {
+      "channel": "voice:chat:control",
+      "kind": "invoke"
+    },
+    {
+      "channel": "voice:chat:end",
+      "kind": "invoke"
+    },
+    {
+      "channel": "voice:chat:levels",
+      "kind": "invoke"
+    },
+    {
+      "channel": "voice:chat:negotiate",
+      "kind": "invoke"
+    },
+    {
+      "channel": "voice:chat:present",
+      "kind": "invoke"
+    },
+    {
+      "channel": "voice:chat:reserve",
+      "kind": "invoke"
+    },
+    {
+      "channel": "voice:chat:state",
+      "kind": "invoke"
+    },
+    {
+      "channel": "voice:config:get",
+      "kind": "invoke"
+    },
+    {
+      "channel": "voice:history:clear",
+      "kind": "invoke"
+    },
+    {
+      "channel": "voice:history:list",
+      "kind": "invoke"
+    },
+    {
+      "channel": "voice:hotwords:add",
+      "kind": "invoke"
+    },
+    {
+      "channel": "voice:hotwords:delete",
+      "kind": "invoke"
+    },
+    {
+      "channel": "voice:hotwords:list",
+      "kind": "invoke"
+    },
+    {
+      "channel": "voice:hotwords:toggle",
+      "kind": "invoke"
+    },
+    {
+      "channel": "voice:learn",
+      "kind": "invoke"
+    },
+    {
+      "channel": "voice:memories:delete",
+      "kind": "invoke"
+    },
+    {
+      "channel": "voice:memories:list",
+      "kind": "invoke"
+    },
+    {
+      "channel": "voice:mic-permission",
+      "kind": "invoke"
+    },
+    {
+      "channel": "voice:overlay:control",
+      "kind": "invoke"
+    },
+    {
+      "channel": "voice:overlay:drag",
+      "kind": "invoke"
+    },
+    {
+      "channel": "voice:overlay:interaction",
+      "kind": "invoke"
+    },
+    {
+      "channel": "voice:overlay:state",
+      "kind": "invoke"
+    },
+    {
+      "channel": "voice:session:audio",
+      "kind": "invoke"
+    },
+    {
+      "channel": "voice:session:cancel",
+      "kind": "invoke"
+    },
+    {
+      "channel": "voice:session:start",
+      "kind": "invoke"
+    },
+    {
+      "channel": "voice:session:stop",
+      "kind": "invoke"
+    },
+    {
+      "channel": "voice:transcribe",
+      "kind": "invoke"
+    },
+    {
+      "channel": "window:setTitleBarColors",
+      "kind": "invoke"
+    },
+    {
+      "channel": "workbuddy-auth:import-local",
+      "kind": "invoke"
+    },
+    {
+      "channel": "workbuddy-auth:logout",
+      "kind": "invoke"
+    },
+    {
+      "channel": "workbuddy-auth:models",
+      "kind": "invoke"
+    },
+    {
+      "channel": "workbuddy-auth:poll",
+      "kind": "invoke"
+    },
+    {
+      "channel": "workbuddy-auth:start",
+      "kind": "invoke"
+    },
+    {
+      "channel": "workbuddy-auth:status",
+      "kind": "invoke"
+    },
+    {
+      "channel": "workspace:delete",
+      "kind": "invoke"
+    },
+    {
+      "channel": "workspace:get-excludes",
+      "kind": "invoke"
+    },
+    {
+      "channel": "workspace:list",
+      "kind": "invoke"
+    },
+    {
+      "channel": "workspace:open",
+      "kind": "invoke"
+    },
+    {
+      "channel": "workspace:rename",
+      "kind": "invoke"
+    },
+    {
+      "channel": "workspace:reveal",
+      "kind": "invoke"
+    },
+    {
+      "channel": "workspace:search",
+      "kind": "invoke"
+    },
+    {
+      "channel": "workspace:set-excludes",
+      "kind": "invoke"
+    },
+    {
+      "channel": "workspace:write",
+      "kind": "invoke"
+    },
+    {
+      "channel": "workspaces:delete",
+      "kind": "invoke"
+    },
+    {
+      "channel": "workspaces:list",
+      "kind": "invoke"
+    },
+    {
+      "channel": "workspaces:save",
+      "kind": "invoke"
+    },
+    {
+      "channel": "worktree:configure",
+      "kind": "invoke"
+    },
+    {
+      "channel": "worktree:create-from-workdir",
+      "kind": "invoke"
+    },
+    {
+      "channel": "worktree:list",
+      "kind": "invoke"
+    },
+    {
+      "channel": "worktree:remove",
+      "kind": "invoke"
+    },
+    {
+      "channel": "worktree:reveal",
+      "kind": "invoke"
+    },
+    {
+      "channel": "worktree:status",
+      "kind": "invoke"
+    },
+    {
+      "channel": "worktree:storage-delete",
+      "kind": "invoke"
+    },
+    {
+      "channel": "zhipu-auth:logout",
+      "kind": "invoke"
+    },
+    {
+      "channel": "zhipu-auth:models",
+      "kind": "invoke"
+    },
+    {
+      "channel": "zhipu-auth:set-api-key",
+      "kind": "invoke"
+    },
+    {
+      "channel": "zhipu-auth:status",
+      "kind": "invoke"
+    },
+    {
+      "channel": "app:navigate",
+      "kind": "push"
+    },
+    {
+      "channel": "app:preferences-changed",
+      "kind": "push"
+    },
+    {
+      "channel": "background-process:changed",
+      "kind": "push"
+    },
+    {
+      "channel": "browser-use:open-panel",
+      "kind": "push"
+    },
+    {
+      "channel": "browser-use:permission-request",
+      "kind": "push"
+    },
+    {
+      "channel": "browser-use:state",
+      "kind": "push"
+    },
+    {
+      "channel": "canvas:open-panel",
+      "kind": "push"
+    },
+    {
+      "channel": "canvas:send-to-chat",
+      "kind": "push"
+    },
+    {
+      "channel": "channel:failed",
+      "kind": "push"
+    },
+    {
+      "channel": "chat:event:batch",
+      "kind": "push"
+    },
+    {
+      "channel": "collaboration:updated",
+      "kind": "push"
+    },
+    {
+      "channel": "computer-use-pip:state",
+      "kind": "push"
+    },
+    {
+      "channel": "computer-use:record:ended",
+      "kind": "push"
+    },
+    {
+      "channel": "cron:failed",
+      "kind": "push"
+    },
+    {
+      "channel": "deep-link:friend-invite",
+      "kind": "push"
+    },
+    {
+      "channel": "deep-link:friend-task",
+      "kind": "push"
+    },
+    {
+      "channel": "deep-link:open-session",
+      "kind": "push"
+    },
+    {
+      "channel": "deep-link:open-team-issue",
+      "kind": "push"
+    },
+    {
+      "channel": "desktop-pet:appshot-main-capture",
+      "kind": "push"
+    },
+    {
+      "channel": "desktop-pet:capture-event",
+      "kind": "push"
+    },
+    {
+      "channel": "desktop-pet:conversation",
+      "kind": "push"
+    },
+    {
+      "channel": "desktop-pet:draft",
+      "kind": "push"
+    },
+    {
+      "channel": "desktop-pet:focus",
+      "kind": "push"
+    },
+    {
+      "channel": "desktop-pet:pointer",
+      "kind": "push"
+    },
+    {
+      "channel": "desktop-pet:state",
+      "kind": "push"
+    },
+    {
+      "channel": "desktop-pet:voice-event",
+      "kind": "push"
+    },
+    {
+      "channel": "digram:changed",
+      "kind": "push"
+    },
+    {
+      "channel": "digram:render-request",
+      "kind": "push"
+    },
+    {
+      "channel": "dream:event",
+      "kind": "push"
+    },
+    {
+      "channel": "elicit:request",
+      "kind": "push"
+    },
+    {
+      "channel": "engine:process-crashed",
+      "kind": "push"
+    },
+    {
+      "channel": "engine:status",
+      "kind": "push"
+    },
+    {
+      "channel": "feature-gates:updated",
+      "kind": "push"
+    },
+    {
+      "channel": "friend:access-request",
+      "kind": "push"
+    },
+    {
+      "channel": "friend:access-resolved",
+      "kind": "push"
+    },
+    {
+      "channel": "friend:send-confirmation",
+      "kind": "push"
+    },
+    {
+      "channel": "friend:send-confirmation-resolved",
+      "kind": "push"
+    },
+    {
+      "channel": "friends:changed",
+      "kind": "push"
+    },
+    {
+      "channel": "friends:message-arrived",
+      "kind": "push"
+    },
+    {
+      "channel": "goal:updated",
+      "kind": "push"
+    },
+    {
+      "channel": "keymap:changed",
+      "kind": "push"
+    },
+    {
+      "channel": "keymap:run-command",
+      "kind": "push"
+    },
+    {
+      "channel": "klausAuth:loginPending",
+      "kind": "push"
+    },
+    {
+      "channel": "klausAuth:updated",
+      "kind": "push"
+    },
+    {
+      "channel": "mcp:status:updated",
+      "kind": "push"
+    },
+    {
+      "channel": "memory:snapshot:prompt",
+      "kind": "push"
+    },
+    {
+      "channel": "model3d:changed",
+      "kind": "push"
+    },
+    {
+      "channel": "model3d:render-request",
+      "kind": "push"
+    },
+    {
+      "channel": "notify:sound",
+      "kind": "push"
+    },
+    {
+      "channel": "permission:request",
+      "kind": "push"
+    },
+    {
+      "channel": "planning-input:requested",
+      "kind": "push"
+    },
+    {
+      "channel": "planning-input:resolved",
+      "kind": "push"
+    },
+    {
+      "channel": "planning:updated",
+      "kind": "push"
+    },
+    {
+      "channel": "power:context",
+      "kind": "push"
+    },
+    {
+      "channel": "ppt:chat-request",
+      "kind": "push"
+    },
+    {
+      "channel": "ppt:open-panel",
+      "kind": "push"
+    },
+    {
+      "channel": "prototype:open-panel",
+      "kind": "push"
+    },
+    {
+      "channel": "question:requested",
+      "kind": "push"
+    },
+    {
+      "channel": "question:resolved",
+      "kind": "push"
+    },
+    {
+      "channel": "quick-input:submit",
+      "kind": "push"
+    },
+    {
+      "channel": "run-preview:changed",
+      "kind": "push"
+    },
+    {
+      "channel": "settings:runtime:windows-sandbox-setup-completed",
+      "kind": "push"
+    },
+    {
+      "channel": "skills:changed",
+      "kind": "push"
+    },
+    {
+      "channel": "ssh:askpass",
+      "kind": "push"
+    },
+    {
+      "channel": "storage:chats-changed",
+      "kind": "push"
+    },
+    {
+      "channel": "terminal:data",
+      "kind": "push"
+    },
+    {
+      "channel": "terminal:exit",
+      "kind": "push"
+    },
+    {
+      "channel": "tray:new-chat",
+      "kind": "push"
+    },
+    {
+      "channel": "tray:open-settings",
+      "kind": "push"
+    },
+    {
+      "channel": "updater:status",
+      "kind": "push"
+    },
+    {
+      "channel": "video-editing:open-panel",
+      "kind": "push"
+    },
+    {
+      "channel": "voice:chat:event",
+      "kind": "push"
+    },
+    {
+      "channel": "voice:chat:toggle",
+      "kind": "push"
+    },
+    {
+      "channel": "voice:overlay:event",
+      "kind": "push"
+    },
+    {
+      "channel": "voice:session:event",
+      "kind": "push"
+    }
+  ]
+}

@@ -1,0 +1,217 @@
+{
+  "reason": "Successful submission consumes sent content independently from text and attachments added during asynchronous preparation.",
+  "textChanges": [
+    {
+      "name": "unchanged",
+      "submitted": "Send this message",
+      "current": "Send this message",
+      "remaining": ""
+    },
+    {
+      "name": "late punctuation",
+      "submitted": "Send this message",
+      "current": "Send this message,",
+      "remaining": ","
+    },
+    {
+      "name": "appended follow-up",
+      "submitted": "Send this message",
+      "current": "Send this message\nNext question",
+      "remaining": "Next question"
+    },
+    {
+      "name": "replacement draft",
+      "submitted": "Send this message",
+      "current": "A new question",
+      "remaining": "A new question"
+    },
+    {
+      "name": "middle edit",
+      "submitted": "Send this message",
+      "current": "Send another message",
+      "remaining": "Send another message"
+    },
+    {
+      "name": "attachment-only submission",
+      "submitted": "",
+      "current": "Next question",
+      "remaining": "Next question"
+    }
+  ],
+  "preflight": {
+    "reason": "A locally submitted snapshot owns immediate feedback before asynchronous preparation. Navigation and Stop never retire an ordinary submission: it keeps its originating conversation as its target and never admits its input to another conversation; recovery never replaces a newer draft.",
+    "preflightBoundaries": [
+      "model",
+      "worktree",
+      "project",
+      "paused-dialog",
+      "paused-clear",
+      "paused-resume"
+    ],
+    "invalidations": [
+      "switch",
+      "switch-and-return",
+      "stop"
+    ],
+    "keptIntent": "An ordinary submission keeps its originating conversation as its target across navigation and Stop; its draft slot moves to that conversation at promotion and is never written back by navigation. Only an explicit cancel or a preparation failure withdraws the submission; a withdrawn submission whose conversation already exists stays with that conversation as a retryable unsent record instead of returning to a composer draft.",
+    "runningDraftChangedDuringReadiness": "Retain the newer draft without submitting it from an earlier input intent.",
+    "acceptedPreparation": "Render the submitted message and start its clock immediately. Consume its captured draft once; subsequent preparation and acknowledgement cannot consume the next draft."
+  },
+  "pendingPresentation": {
+    "beforeFirstAwait": true,
+    "hostIdentityBeforeAcknowledgement": false,
+    "clockOrigin": "local submission timestamp",
+    "promotion": "Move the owned message and clock without duplicating engine echoes. The submitted snapshot never becomes a composer draft again: a visible promotion transfers only the next live draft before asynchronous view binding, including when joining attachment promotion; a background promotion preserves any newer welcome draft.",
+    "failure": "Keep the failed message with a recovery action. Once its conversation exists, keep it there as a retryable unsent record without writing it back to a composer draft; restore the captured draft into an empty composer only when no conversation was created yet.",
+    "stop": "Cancel preparation or interrupt the admitted turn after an in-flight acknowledgement.",
+    "unconfirmed": "Keep the pending message and a dismissible notice without resubmitting it; reconcile a later authoritative user echo without resetting its clock or removing a completed turn."
+  },
+  "runContext": {
+    "reason": "Execution setup is visible only for an unsent draft. Submission hides the row before asynchronous preparation, while execution binding can still consume the saved draft settings. Retained failures remain hidden until their message is withdrawn.",
+    "cases": [
+      {
+        "name": "welcome draft",
+        "input": {
+          "editable": true,
+          "pendingSubmission": false,
+          "running": false,
+          "liveUnitCount": 0,
+          "history": null
+        },
+        "visible": true
+      },
+      {
+        "name": "empty persisted draft",
+        "input": {
+          "editable": true,
+          "pendingSubmission": false,
+          "running": false,
+          "liveUnitCount": 0,
+          "history": []
+        },
+        "visible": true
+      },
+      {
+        "name": "submission before host identity",
+        "input": {
+          "editable": true,
+          "pendingSubmission": true,
+          "running": false,
+          "liveUnitCount": 0,
+          "history": null
+        },
+        "visible": false
+      },
+      {
+        "name": "promoted draft with optimistic message",
+        "input": {
+          "editable": true,
+          "pendingSubmission": false,
+          "running": false,
+          "liveUnitCount": 1,
+          "history": null
+        },
+        "visible": false
+      },
+      {
+        "name": "running turn before history arrives",
+        "input": {
+          "editable": true,
+          "pendingSubmission": false,
+          "running": true,
+          "liveUnitCount": 0,
+          "history": null
+        },
+        "visible": false
+      },
+      {
+        "name": "loaded transcript before DOM paint",
+        "input": {
+          "editable": true,
+          "pendingSubmission": false,
+          "running": false,
+          "liveUnitCount": 0,
+          "history": [
+            {
+              "role": "user"
+            }
+          ]
+        },
+        "visible": false
+      },
+      {
+        "name": "existing conversation still loading",
+        "input": {
+          "editable": false,
+          "pendingSubmission": false,
+          "running": false,
+          "liveUnitCount": 0,
+          "history": null
+        },
+        "visible": false
+      },
+      {
+        "name": "completed conversation",
+        "input": {
+          "editable": false,
+          "pendingSubmission": false,
+          "running": false,
+          "liveUnitCount": 0,
+          "history": [
+            {
+              "role": "user"
+            },
+            {
+              "role": "assistant"
+            }
+          ]
+        },
+        "visible": false
+      },
+      {
+        "name": "retained failed submission",
+        "input": {
+          "editable": true,
+          "pendingSubmission": true,
+          "running": false,
+          "liveUnitCount": 2,
+          "history": null
+        },
+        "visible": false
+      },
+      {
+        "name": "withdrawn preparation restores draft",
+        "input": {
+          "editable": true,
+          "pendingSubmission": false,
+          "running": false,
+          "liveUnitCount": 0,
+          "history": []
+        },
+        "visible": true
+      },
+      {
+        "name": "new draft while another chat prepares",
+        "input": {
+          "editable": true,
+          "pendingSubmission": false,
+          "running": false,
+          "liveUnitCount": 0,
+          "history": null
+        },
+        "visible": true
+      },
+      {
+        "name": "worktree preparation keeps draft settings but hides setup",
+        "input": {
+          "editable": true,
+          "pendingSubmission": true,
+          "running": true,
+          "liveUnitCount": 1,
+          "history": null
+        },
+        "visible": false
+      }
+    ]
+  }
+}

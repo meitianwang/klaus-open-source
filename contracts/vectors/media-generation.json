@@ -1,0 +1,737 @@
+{
+  "reason": "Image, video and audio declarations remain available across in-place language-model source changes. Each call uses its explicit global media selection; source configuration defines availability but never overrides the selected backend. Verified speech-plan sources stay selectable before account connection; the subscription registry and runtime readiness remain separate.",
+  "declarations": [
+    "generate_image",
+    "generate_video",
+    "generate_audio",
+    "generate_music"
+  ],
+  "conversationBoundary": {
+    "reason": "Generation tools own routing and parameter translation. Conversations receive generic artifact facts and host-authored errors; provider, model and endpoint identities stay in Settings.",
+    "hiddenIdentities": [
+      "WorkBuddy",
+      "QwenWork",
+      "MiniMax",
+      "Cursor",
+      "Qoder",
+      "Antigravity",
+      "Happy Horse",
+      "happy-horse",
+      "Kling",
+      "Imagen",
+      "Gemini",
+      "Bailian",
+      "DashScope",
+      "Zhipu"
+    ]
+  },
+  "base64Decoding": {
+    "reason": "Generated media can span many megabytes. Canonical Base64 must decode without exhausting the call stack, while malformed encodings and decoded payloads beyond the media limit remain rejected.",
+    "largePayloadBytes": 8388608,
+    "accepted": [
+      {
+        "encoded": "AA==",
+        "decodedHex": "00"
+      },
+      {
+        "encoded": "AAA=",
+        "decodedHex": "0000"
+      },
+      {
+        "encoded": "AAAA",
+        "decodedHex": "000000"
+      },
+      {
+        "encoded": "/+/+",
+        "decodedHex": "ffeffe"
+      }
+    ],
+    "rejected": [
+      "",
+      "A",
+      "AA",
+      "AAA",
+      "AAAAA",
+      "AA===",
+      "=AAA",
+      "A=AA",
+      "AA=A",
+      "AAAA====",
+      "AA==AAAA",
+      "AA-_",
+      "!!!!",
+      "\u0000AAA",
+      "A\nAA",
+      "AA==\n",
+      " AA== ",
+      "AB==",
+      "AAB="
+    ]
+  },
+  "qoderRpc": {
+    "reason": "A cancelled media request releases host observation immediately while the already submitted named RPC remains bounded on its original engine client; it must never use session/cancelRequest or retry on a replacement engine.",
+    "status": {
+      "method": "qoder/status",
+      "timeoutMs": 15000
+    },
+    "generate": {
+      "method": "qoder/generateImage",
+      "timeoutMs": 300000
+    },
+    "cancellationReleasesSession": true,
+    "lateRepliesAreDiscarded": true,
+    "remoteCancellation": false
+  },
+  "qwenworkRpc": {
+    "reason": "QwenWork's own media gateway is an async task route (submit then poll) behind the engine's named facade; cancelling the turn cancels the outstanding task.",
+    "videoSizeFailure": {
+      "reason": "Unsupported requests keep generation routing private. Generic dimensions are adapted by the tool before submission.",
+      "errorCode": "qwenwork_video_size_unsupported",
+      "message": "The requested media operation or options are unavailable."
+    },
+    "status": {
+      "method": "qwenwork/status",
+      "timeoutMs": 15000
+    },
+    "generate": {
+      "method": "qwenwork/generateImage",
+      "timeoutMs": 300000
+    },
+    "submitPath": "/api/v2/service/pro/media/generations?Encode=0",
+    "taskPath": "/api/v2/service/pro/media/tasks",
+    "terminalSuccess": [
+      "completed",
+      "succeeded"
+    ],
+    "terminalFailure": [
+      "failed",
+      "rejected",
+      "cancelled",
+      "canceled",
+      "error",
+      "timeout"
+    ],
+    "cancellationReleasesSession": true,
+    "lateRepliesAreDiscarded": true,
+    "remoteCancellation": false
+  },
+  "qoderworkRpc": {
+    "reason": "QoderWork signs the same synchronous image route as the rest of its gateway family, so its facade carries the Qoder cancellation contract rather than a submit-then-poll task route.",
+    "status": {
+      "method": "qoderwork/status",
+      "timeoutMs": 15000
+    },
+    "generate": {
+      "method": "qoderwork/generateImage",
+      "timeoutMs": 300000
+    },
+    "cancellationReleasesSession": true,
+    "lateRepliesAreDiscarded": true,
+    "remoteCancellation": false
+  },
+  "antigravityImage": {
+    "reason": "The account image route uses one concrete model for generation and reference-image edits. Every generated file must pass bounded collection and MIME validation before publication; unsupported output kinds remain excluded.",
+    "maximumResults": 8,
+    "unsupportedOutputKinds": [
+      "video",
+      "audio",
+      "music"
+    ]
+  },
+  "selection": {
+    "reason": "Every media kind uses the backend explicitly chosen in default model settings, independently of the conversation's language source. Saving a custom endpoint must not override a selected subscription's route or credentials; Subscription model preferences migrate once into independent source-specific slots; the existing shared speech voice preference is preserved. An unavailable or failed selection returns its own error without falling back. Audio choices include native subscription speech services and configured custom endpoints.",
+    "globalForImage": true,
+    "globalForVideo": true,
+    "globalForAudio": true,
+    "explicitSelectionWins": true,
+    "unselectedEndpointIsInert": true,
+    "videoSubscriptionModelOverridePreserved": true,
+    "audioSubscriptionModelAndVoicePreserved": true,
+    "unavailableSelectionFallsBack": false,
+    "imageChoices": [
+      "none",
+      "codex",
+      "cursor",
+      "qoder",
+      "qwenwork",
+      "qoderwork",
+      "workbuddy",
+      "antigravity",
+      "trae",
+      "bailian",
+      "minimax"
+    ],
+    "videoChoices": [
+      "none",
+      "minimax",
+      "workbuddy",
+      "qwenwork",
+      "trae"
+    ],
+    "videoChoiceReason": "A source is listed only when its subscription product provably serves a video route. The TRAE CN account route uses the service default without a fabricated model ID. Source and model support are verified during integration and recorded in the registry; listing choices never repeats remote capability discovery. A configurable endpoint is not a video source.",
+    "videoSubscriptionModels": {
+      "minimax": [
+        "MiniMax-H3",
+        "MiniMax-H3-Max"
+      ],
+      "workbuddy": [
+        "kling-v3-t2v",
+        "kling-v3-i2v",
+        "kling-video-v3",
+        "seedance-2.5"
+      ],
+      "qwenwork": [
+        "seedance-2.0",
+        "happy-horse-1.0"
+      ],
+      "trae": [
+        ""
+      ]
+    },
+    "videoSourcesVisibleWithoutCredential": true,
+    "videoEnumerationProbesCapabilities": false,
+    "videoDisconnectedSelectionShowsToast": true,
+    "videoCustomSelectionRetired": true,
+    "audioChoices": [
+      "none",
+      "cursor",
+      "minimax",
+      "bailian",
+      "workbuddy"
+    ],
+    "audioCustomSelectionRetired": true,
+    "audioDefaultSelection": "none",
+    "audioRetiredSelection": { "custom": "none" },
+    "audioChoiceReason": "Speech generation uses verified subscription routes only. Custom speech endpoints and their add/edit UI are retired. Fresh installations and saved custom selections resolve to none, with no invented model identity. Historical endpoint data remains inert; subscription voice preferences retain their existing storage. Verified speech-plan routes stay selectable and save their model before the account connects, like the other subscription registries; account-gated and capability-gated speech backends keep their own readiness gates.",
+    "audioSubscriptionSourcesSelectableWithoutCredential": true,
+    "audioDisconnectedSelectionShowsToast": true,
+    "availabilityRequiresCredential": true,
+    "availabilityRule": "Image, video and music sources come from the verified subscription registry regardless of local credentials: a disconnected choice stays selectable and saves its model. A successful explicit source change shows a connection toast; initial load, remount and account refresh do not repeat it or add inline notices. Generation still requires the account and never falls back. Verified speech-plan routes follow the same registry contract, while capability-gated native speech backends and account-gated speech routes keep their readiness gates. Retired custom media endpoints keep their stored rows inert: a saved custom selection resolves to none. Account configuration sections appear only on the sources page.",
+    "imageSourcesVisibleWithoutCredential": true,
+    "imageEnumerationProbesCapabilities": false,
+    "imageDisconnectedSelectionShowsToast": true,
+    "imageCustomSelectionRetired": true,
+    "migration": {
+      "reason": "Per-source image and video configurations each fold into their single global slot once, on the first settings transaction after upgrade.",
+      "firstSavedConfigWins": true,
+      "imageOrder": [
+        "custom",
+        "subscription",
+        "qoder",
+        "qwenwork",
+        "qoderwork",
+        "workbuddy",
+        "codex"
+      ],
+      "videoOrder": [
+        "custom",
+        "minimax",
+        "subscription",
+        "qoder",
+        "qwenwork",
+        "qoderwork",
+        "workbuddy",
+        "kimi",
+        "bailian"
+      ],
+      "selectionAfterConfigMigration": "custom",
+      "selectionWithoutAnyConfig": "custom",
+      "legacyPerSourceRowsRemainInert": true,
+      "retiredLocalRowsMigrate": true,
+      "videoMigration": {
+        "selectionAfterConfigMigration": "none",
+        "selectionWithoutAnyConfig": "none",
+        "retiredSelections": {
+          "custom": "none",
+          "cursor": "none"
+        },
+        "legacyPerSourceRowsRemainInert": true
+      }
+    },
+    "musicChoices": [
+      "none",
+      "qwenwork"
+    ],
+    "musicChoiceReason": "Music uses only verified subscription product routes, with no custom endpoint source. Source and model support are verified during integration and recorded in the registry; listing choices never repeats remote capability discovery. Local connection state affects generation readiness and its notice, not enumeration. Music and spoken-text synthesis retain independent selections and preferences.",
+    "musicSourcesVisibleWithoutCredential": true,
+    "musicEnumerationProbesCapabilities": false,
+    "musicDisconnectedSelectionShowsToast": true,
+    "musicModels": {
+      "qwenwork": [
+        "minimax-music-2.5"
+      ]
+    },
+    "musicIndependentFromSpeech": true,
+    "legacyMusicMigration": {
+      "audioSelection": "none",
+      "musicSelection": "qwenwork",
+      "preservesModel": true,
+      "preservesCustomSpeechConfig": true
+    },
+    "effectiveModels": {
+      "reason": "The default page uses a compact source/model card for a media function whenever any supported mode offers multiple model choices. That layout stays consistent across its modes. A function with no further choices uses one dropdown and no extra model text. Optional source and model fields save in one transaction; invalid choices change neither. Plan model preferences remain independent of custom endpoint credentials and models. Image generation and editing use one model; legacy generation choices take precedence over retired edit-only preferences. Unsupported editing returns an explicit error without substituting another model.",
+      "atomicSourceAndModel": true,
+      "subscriptionModelsIndependentFromCustom": true,
+      "preserveCustomCredentials": true,
+      "retainUnavailableCurrent": true,
+      "serviceManagedModelId": "",
+      "sharedImageModel": true,
+      "legacyImageModelWins": true,
+      "legacyEditOnlyModelPromoted": true,
+      "unsupportedEditModelFallsBack": false,
+      "currentModelPublishedForEverySource": true,
+      "sourceSwitchGuessesCatalogHead": false
+    }
+  },
+  "retiredLocalConfigReason": "Keep stored local generation choices visible as unavailable when the custom backend is selected. An unselected retired configuration must not block an explicitly selected subscription. Selecting a subscription preserves the retired row; only an explicit save or clear replaces it.",
+  "retiredLocalConfigs": [
+    {
+      "kind": "image",
+      "source": "codex",
+      "stored": {
+        "provider": "local",
+        "localModel": " old-image "
+      },
+      "projection": {
+        "provider": "local",
+        "localModel": "old-image"
+      }
+    },
+    {
+      "kind": "image",
+      "source": "qoder",
+      "stored": {
+        "provider": "local",
+        "localModel": "old-qoder-image"
+      },
+      "projection": {
+        "provider": "local",
+        "localModel": "old-qoder-image"
+      }
+    },
+    {
+      "kind": "image",
+      "source": "codex",
+      "stored": {
+        "provider": "local",
+        "localModel": ""
+      },
+      "projection": {
+        "provider": "local"
+      }
+    }
+  ],
+  "minimaxVideo": {
+    "reason": "The plan's video model is an async task route that shares almost no wire with the OpenAI one: a submit that answers a task id, a poll nested under `task`, `succeeded` rather than `completed` as the success word, and a download URL in the payload instead of a content sub-resource. Its enum values are pinned from the service's own validation errors rather than from prose, because a rejected keyword fails a task AFTER it was accepted and started spending allowance.",
+    "input": {
+      "prompt": "Waves",
+      "seconds": 4,
+      "size": "1280x720"
+    },
+    "body": {
+      "model": "MiniMax-H3",
+      "content": [
+        {
+          "type": "text",
+          "text": "Waves"
+        }
+      ],
+      "resolution": "768P",
+      "duration": 4,
+      "ratio": "16:9"
+    },
+    "paths": [
+      "/v2/video_generation",
+      "/v2/query/video_generation/task-1"
+    ],
+    "submitResponse": {
+      "task_id": "task-1"
+    },
+    "taskResponse": {
+      "task": {
+        "id": "task-1",
+        "status": "succeeded",
+        "content": {
+          "url": "VIDEO_URL"
+        }
+      }
+    },
+    "extension": "mp4",
+    "terminal": {
+      "success": [
+        "succeeded",
+        "success"
+      ],
+      "failure": [
+        "failed",
+        "cancelled",
+        "canceled",
+        "expired",
+        "error"
+      ]
+    },
+    "ratios": [
+      "16:9",
+      "4:3",
+      "1:1",
+      "3:4",
+      "9:16",
+      "21:9"
+    ],
+    "mapping": {
+      "reason": "`adaptive` is accepted by the API but refused for a text-only submission, which is the only shape generate_video sends, so it is never offered. The fast model tops out at 768P and starts a second later.",
+      "cases": [
+        {
+          "size": "1280x720",
+          "ratio": "16:9",
+          "resolution": "768P"
+        },
+        {
+          "size": "720x1280",
+          "ratio": "9:16",
+          "resolution": "768P"
+        },
+        {
+          "size": "1024x1024",
+          "ratio": "1:1",
+          "resolution": "2K"
+        },
+        {
+          "size": "2560x1440",
+          "ratio": "16:9",
+          "resolution": "2K"
+        },
+        {
+          "size": "1920x1080",
+          "ratio": "16:9",
+          "resolution": "2K"
+        },
+        {
+          "size": "480x640",
+          "ratio": "3:4",
+          "resolution": "480P"
+        },
+        {
+          "size": "",
+          "ratio": "16:9",
+          "resolution": "768P"
+        },
+        {
+          "size": "nonsense",
+          "ratio": "16:9",
+          "resolution": "768P"
+        }
+      ],
+      "fastModel": [
+        {
+          "size": "2560x1440",
+          "ratio": "16:9",
+          "resolution": "768P"
+        },
+        {
+          "seconds": 4,
+          "duration": 5
+        },
+        {
+          "seconds": 12,
+          "duration": 12
+        },
+        {
+          "seconds": 30,
+          "duration": 15
+        }
+      ],
+      "duration": [
+        {
+          "seconds": 4,
+          "duration": 4
+        },
+        {
+          "seconds": 8,
+          "duration": 8
+        },
+        {
+          "seconds": 12,
+          "duration": 12
+        },
+        {
+          "seconds": 30,
+          "duration": 15
+        },
+        {
+          "duration": 4
+        }
+      ]
+    },
+    "tierNotice": "Explore or Build",
+    "weeklyAllowanceOnly": true
+  },
+  "audioReason": "Audio is a third global media kind with the same shape as video: an explicit selection picks the backend, and five incompatible speech protocols are dispatched on the stored provider. Two of them spend a subscription key (MiniMax's hex-inlined T2A and Bailian's URL-answering SpeechSynthesizer), the public DashScope route answers a 24-hour download URL, and Zhipu and the OpenAI-compatible family answer with the audio bytes as the response body. Each route validates its bytes by container magic before saving, so an error page saved under an .mp3 name cannot pass as audio. A per-call speech rate is one multiplier on the overlap of the ranges the honouring routes document (MiniMax's voice_setting.speed, the compatible route's top-level speed, both 0.5 to 2); the DashScope-family bodies take no such field, so the knob is simply absent there.",
+  "speedRange": {
+    "min": 0.5,
+    "max": 2
+  },
+  "openaiSpeech": {
+    "reason": "The compatible speech route returns the audio file as the HTTP body, so there is no task id, poll or second download.",
+    "config": {},
+    "input": {
+      "text": "Say this aloud."
+    },
+    "path": "/v1/audio/speech",
+    "body": {
+      "model": "gpt-4o-mini-tts",
+      "input": "Say this aloud.",
+      "voice": "alloy",
+      "response_format": "mp3"
+    },
+    "voiceOverride": {
+      "config": {
+        "model": "tts-1-hd",
+        "voice": "nova"
+      },
+      "input": {
+        "text": "Say this aloud.",
+        "voice": "echo"
+      },
+      "body": {
+        "model": "tts-1-hd",
+        "input": "Say this aloud.",
+        "voice": "echo",
+        "response_format": "mp3"
+      },
+      "reason": "A per-call voice is the explicit ask for this clip, so it beats the stored default; the stored model still applies."
+    },
+    "speedOverride": {
+      "reason": "The compatible family reads the pace as a top-level multiplier beside the voice; a call with no opinion sends no field and the backend's own default pace applies.",
+      "input": {
+        "text": "Say this aloud.",
+        "speed": 0.75
+      },
+      "body": {
+        "model": "gpt-4o-mini-tts",
+        "input": "Say this aloud.",
+        "voice": "alloy",
+        "response_format": "mp3",
+        "speed": 0.75
+      }
+    },
+    "extension": "mp3",
+    "textLimit": 4096
+  },
+  "zhipuSpeech": {
+    "reason": "Zhipu's GLM-TTS speaks the OpenAI-compatible speech shape, so it reuses that route; the only differences are its defaults and the two wire facts it insists on: a wav-only response and a 1024-character ceiling. Asking it for mp3 is a 400.",
+    "config": {},
+    "input": {
+      "text": "Say this aloud."
+    },
+    "path": "/api/paas/v4/audio/speech",
+    "body": {
+      "model": "glm-tts",
+      "input": "Say this aloud.",
+      "voice": "tongtong",
+      "response_format": "wav"
+    },
+    "extension": "wav",
+    "textLimit": 1024
+  },
+  "dashscopeSpeech": {
+    "reason": "The public pay-as-you-go host serves the Qwen3-TTS family on the multimodal-generation path; the Token Plan gateway 404s those ids here and refuses the qwen-audio id on this path, so the two DashScope-family routes must not share a path. Text is capped at 600 characters on this family. The result link is published over plain http and is upgraded to https for the download; loopback links are left alone. The vector's extension names what the fixture serves, since the saved container follows the bytes.",
+    "config": {},
+    "input": {
+      "text": "Say this aloud."
+    },
+    "path": "/api/v1/services/aigc/multimodal-generation/generation",
+    "body": {
+      "model": "qwen3-tts-flash",
+      "input": {
+        "text": "Say this aloud.",
+        "voice": "Cherry"
+      }
+    },
+    "downloadPath": "/download.wav",
+    "response": {
+      "output": {
+        "audio": {
+          "url": "AUDIO_URL"
+        }
+      }
+    },
+    "extension": "wav",
+    "textLimit": 600
+  },
+  "minimaxSpeech": {
+    "reason": "MiniMax's plan speech route is synchronous and inlines the clip as HEX rather than as a file body or a URL, with the call status in base_resp. It shares the plan key with the video and text routes, so no separate credential is configured.",
+    "config": {},
+    "input": {
+      "text": "Say this aloud."
+    },
+    "path": "/v1/t2a_v2",
+    "body": {
+      "model": "speech-2.6-turbo",
+      "text": "Say this aloud.",
+      "stream": false,
+      "voice_setting": {
+        "voice_id": "male-qn-qingse",
+        "speed": 1,
+        "vol": 1,
+        "pitch": 0
+      },
+      "audio_setting": {
+        "sample_rate": 32000,
+        "bitrate": 128000,
+        "format": "mp3",
+        "channel": 1
+      }
+    },
+    "extension": "mp3",
+    "audioIsHex": true,
+    "successStatusCode": 0,
+    "emotions": [
+      "happy",
+      "sad",
+      "angry",
+      "fearful",
+      "disgusted",
+      "surprised",
+      "calm",
+      "fluent",
+      "whisper"
+    ],
+    "emotionOmittedUnlessAsked": true,
+    "emotionOverride": {
+      "reason": "A named delivery style rides inside voice_setting; leaving emotion off the wire is what asks the model to match the words itself, so the field appears only when the call names one. The enum is pinned here so a word the protocol would refuse cannot ship as an offered choice.",
+      "input": {
+        "text": "Say this aloud.",
+        "emotion": "calm"
+      },
+      "voiceSetting": {
+        "voice_id": "male-qn-qingse",
+        "speed": 1,
+        "vol": 1,
+        "pitch": 0,
+        "emotion": "calm"
+      }
+    },
+    "speedOverride": {
+      "reason": "A per-call speech rate replaces the neutral 1 inside voice_setting; the offered range is the overlap with the compatible route's own, so one multiplier means one pace.",
+      "input": {
+        "text": "Say this aloud.",
+        "speed": 1.5
+      },
+      "voiceSetting": {
+        "voice_id": "male-qn-qingse",
+        "speed": 1.5,
+        "vol": 1,
+        "pitch": 0
+      }
+    }
+  },
+  "limits": {
+    "sourceCount": 4,
+    "sourceBytes": 20971520,
+    "imageBytes": 8388608,
+    "videoBytes": 134217728,
+    "audioBytes": 33554432,
+    "imageMs": 300000,
+    "videoMs": 720000,
+    "audioMs": 300000,
+    "pollMs": 5000,
+    "videoPolls": 120,
+    "transportRetries": 6
+  },
+  "lifecycle": {
+    "noLateArtifactsOnCancel": true,
+    "noOverwrite": true,
+    "shutdownDrains": true,
+    "terminalTurnCancelsOwnedCall": true,
+    "staleTurnCannotCancelNextTurn": true,
+    "remoteAcceptedJobMayContinue": true,
+    "credentialsOnlyInProviderHeaders": true
+  },
+  "bailianSpeech": {
+    "reason": "The Token Plan gateway serves the qwen-audio-3.0 series on the SpeechSynthesizer path with the plan's own key, spending the same allowance the conversation's text turns use. Measured: the plan host 404s the Qwen3-TTS ids and answers 'url error' for the qwen-audio id on the public route's path, so this route names exactly the model its gateway accepts. The result link is plain http and is upgraded to https; the request carries format and sample_rate, which the public route's body does not take.",
+    "config": {},
+    "input": {
+      "text": "Say this aloud."
+    },
+    "path": "/api/v1/services/audio/tts/SpeechSynthesizer",
+    "body": {
+      "model": "qwen-audio-3.0-tts-plus",
+      "input": {
+        "text": "Say this aloud.",
+        "voice": "longanhuan_v3.6",
+        "format": "mp3",
+        "sample_rate": 24000
+      }
+    },
+    "downloadPath": "/download.mp3",
+    "response": {
+      "output": {
+        "audio": {
+          "url": "AUDIO_URL"
+        }
+      }
+    },
+    "extension": "mp3",
+    "resultLinkIsHttp": true,
+    "downloadUpgradesToHttps": true
+  },
+  "cursorNative": {
+    "reason": "Cursor native image, speech and search use the account's own services behind named engine methods. Image and search can execute one bounded native operation without model continuation. Credentials stay in the engine; errors never trigger another provider. Video is not offered as a global backend.",
+    "image": "cursor/generateImage",
+    "audio": "cursor/generateAudio",
+    "cancel": "cursor/cancelOperation",
+    "voiceSpeedRange": [
+      0.75,
+      2
+    ],
+    "emotionSupported": false,
+    "unavailableVideoIntentFallsBack": false
+  },
+  "workbuddyNative": {
+    "reason": "Account-owned image, image-editing, video and speech services use bounded named engine operations. Model preferences are separate from custom endpoints and image editing selects its own supported model. Expired or unavailable explicit selections never fall back.",
+    "image": "workbuddy/generateImage",
+    "video": "workbuddy/generateVideo",
+    "audio": "workbuddy/synthesizeSpeech",
+    "capabilities": "workbuddy/capabilities",
+    "cancel": "workbuddy/cancelOperation",
+    "operationIdRequiredByHost": true,
+    "referenceImagesSupported": true,
+    "speechOverrides": false,
+    "nativeModelsSeparateFromCustom": true,
+    "videoReferenceImagesSupported": true
+  },
+  "qwenworkNative": {
+    "reason": "Native image edits, video, music and search use account-owned engine operations. Music uses generate_music and an independent global music selection with a prompt and optional lyrics. Speech uses generate_audio and a separate global speech selection. Native music model preferences are separate from speech and custom endpoints.",
+    "image": "qwenwork/generateImage",
+    "video": "qwenwork/generateVideo",
+    "music": "qwenwork/generateMusic",
+    "cancel": "qwenwork/cancelOperation",
+    "musicPromptLimit": 2000,
+    "lyricsMin": 10,
+    "lyricsMax": 3000,
+    "imagePromptLimit": 2500,
+    "referenceCount": 4,
+    "referenceBytes": 4194304,
+    "referenceTotalBytes": 8388608,
+    "nativeFetch": false,
+    "videoSeconds": {
+      "min": 4,
+      "max": 15,
+      "integer": true
+    }
+  },
+  "bailianImage": {
+    "reason": "The Token Plan gateway serves the platform synchronous multimodal generation image route on the plan key; measured 200 with a stored plan credential. Results are public download URLs collected through the shared bounded download path, and the route is text-to-image only.",
+    "path": "/api/v1/services/aigc/multimodal-generation/generation",
+    "model": "qwen-image-3.0-pro",
+    "sizeSeparator": "*",
+    "textToImageOnly": true
+  },
+  "minimaxImage": {
+    "reason": "The M Plan gateway serves the platform synchronous image generation route on the subscription key; measured 200 with a stored subscription credential. Results are public download URLs collected through the shared bounded download path, and the route is text-to-image only.",
+    "path": "/v1/image_generation",
+    "model": "image-01",
+    "textToImageOnly": true
+  }
+}

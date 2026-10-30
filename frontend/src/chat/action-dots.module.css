@@ -1,0 +1,232 @@
+/* Turn progress and review controls share a reserved row above the composer.
+   The left segment shows task progress; the right shows this turn's file edits.
+
+   不常驻：回合没跑、或两段都无内容时整条不渲染。一条读不出信息的条子挂在
+   composer 上方只会挤掉正文空间，所以它跟着回合出现、跟着回合收起。
+
+   进度段 hover 展开完整待办清单——胶囊只报数字，清单才说清 agent 走到哪一步，
+   而右面板可能是收起的。清单与侧边栏 Plan 区同一份数据、同一套三态标。 */
+.action-dots {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 1px;
+  min-height: 28px;
+  padding: 0 3px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  box-shadow: var(--shadow-md);
+  color: var(--fg-secondary);
+  font-size: var(--text-caption);
+  line-height: 1;
+  white-space: nowrap;
+  /* Reserve equal space on both sides so the latest-message button never
+     overlaps the centered capsule, including wrapped rows in narrow panels. */
+  max-width: calc(100% - 72px);
+  z-index: 21;
+  -webkit-app-region: no-drag;
+}
+
+/* 进度段要挂 hover 浮层，浮层不能是 button 的子节点（HTML 不允许），所以段本身
+   包一层定位容器，浮层与按钮同级。 */
+.action-dots-slot {
+  position: relative;
+  display: inline-flex;
+  /* 收缩要能传到段内部：flex item 默认 min-width:auto 会把它钉在内容宽上。 */
+  min-width: 0;
+  max-width: 100%;
+}
+
+.action-dots-seg {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 22px;
+  padding: 0 7px;
+  min-width: 0;
+  border: 0;
+  border-radius: var(--radius-xxs);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  transition: background var(--transition), color var(--transition);
+}
+.action-dots-seg:hover {
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+.action-dots-seg svg {
+  display: block;
+  flex-shrink: 0;
+}
+
+/* 窄容器下唯一允许被压的东西，而且带省略号：硬裁出来的“Progres”看着像渲染
+   坏了，省略号才说得清是空间不够在让位。段前的图标任何宽度下都在，就算
+   文字被压到只剩一个省略号，这段是什么仍然认得出来。 */
+.action-dots-label {
+  color: var(--fg-tertiary);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex-shrink: 1;
+}
+.action-dots-seg:hover .action-dots-label { color: var(--fg-secondary); }
+/* 数字是这条带子存在的理由，任何宽度下都不能被压。 */
+.action-dots-value {
+  font-variant-numeric: tabular-nums;
+  color: var(--fg);
+  flex-shrink: 0;
+}
+.action-dots-added {
+  font-variant-numeric: tabular-nums;
+  color: var(--theme-diff-added);
+  flex-shrink: 0;
+}
+.action-dots-removed {
+  font-variant-numeric: tabular-nums;
+  color: var(--theme-diff-removed);
+  flex-shrink: 0;
+}
+
+/* 段间分隔：一颗点，不是竖线——两段是同级入口而非表格列。 */
+.action-dots-sep {
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: var(--fg-quaternary);
+  flex-shrink: 0;
+}
+
+/* ---- 进度段的 hover 清单浮层 ---- */
+.action-dots-hover {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  /* width: max-content 不能省。绝对定位元素的 shrink-to-fit 宽度取的是包含块的可用
+     宽，这里的包含块是 slot（约等于那颗按钮的宽），left:50% 再砍一半，算出来只
+     剩几十像素，最后被 min-width 抬到 220 就停了——max-width 永远轮不到，一行
+     短标题也要撑成两行。max-content 按内容取宽，再由 max-width 封顶。 */
+  width: max-content;
+  min-width: 220px;
+  max-width: 420px;
+  max-height: 320px;
+  overflow-y: auto;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  box-shadow: var(--shadow-lg);
+  opacity: 0;
+  /* visibility 而不只是 opacity：opacity:0 的节点仍在无障碍树里，屏幕阅读器会
+     把整份待办清单一直念出来。visibility 支持 transition，渐隐效果不丢。 */
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity var(--transition), visibility var(--transition);
+  z-index: 1;
+}
+/* 浮层底边到按钮顶边那 8px 空隙要有东西接着：鼠标跑到空隙里时既不在按钮
+   也不在浮层，slot 立刻失去 :hover，浮层当场消失——长清单永远滚不到。
+
+   桥必须挂在 slot 上，不能挂在浮层上：浮层是 overflow-y:auto 的滚动容器，挂在
+   它身上的伪元素一旦落到内容区外就被裁掉，命中测试根本碰不到（实测空隙中点
+   命中的是底下的 changes 卡片）。slot 不裁剪，且是 position:relative，bottom:100%
+   正好贴在按钮顶边之上那 8px。
+
+   平时不接事件：这条带子横在 composer 上方，常驻接管就会挡掉底下卡片的点击。
+   只在 slot 已经 hover 时打开——鼠标从按钮走到空隙的那一帧 slot 还是 hover 态，
+   带子这时是可命中的，于是 hover 得以延续；从外面直接跳进空隙则不会误触发。 */
+.action-dots-slot::before {
+  content: '';
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  right: 0;
+  height: 8px;
+  pointer-events: none;
+}
+.action-dots-slot:hover::before,
+.action-dots-slot:focus-within::before {
+  pointer-events: auto;
+}
+.action-dots-slot:hover .action-dots-hover,
+.action-dots-slot:focus-within .action-dots-hover {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+}
+
+.action-dots-hover-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 4px 5px;
+  color: var(--fg-secondary);
+  font-size: var(--text-body-sm);
+  line-height: 1.4;
+}
+.action-dots-hover-mark {
+  flex-shrink: 0;
+  width: 13px;
+  height: 13px;
+  margin-top: 2px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--fg-quaternary);
+}
+.action-dots-hover-mark svg { width: 12px; height: 12px; }
+.action-dots-hover-text {
+  min-width: 0;
+  white-space: normal;
+  word-break: break-word;
+}
+
+/* 审查段的文件清单：路径可以换行让位，行数不能——它是这行存在的理由。 */
+.action-dots-hover-stats {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  padding-left: 8px;
+  flex-shrink: 0;
+  font-size: var(--text-caption);
+}
+.action-dots-hover-more {
+  display: block;
+  padding: 4px 5px;
+  color: var(--fg-quaternary);
+  font-size: var(--text-small);
+}
+
+/* 三态各有一条自己的规则。TSX 按 `state-${status}` 索引 CSS module，三态里少写
+   一个，那一态就会拼出 undefined 类名——所以 pending 也要显式在场。 */
+.action-dots-hover-row.state-pending .action-dots-hover-mark { color: var(--fg-quaternary); }
+.action-dots-hover-row.state-in-progress .action-dots-hover-mark {
+  color: var(--fg);
+  animation: action-dots-mark-spin 1.1s linear infinite;
+}
+.action-dots-hover-row.state-in-progress .action-dots-hover-text { color: var(--fg); }
+.action-dots-hover-row.state-completed .action-dots-hover-mark { color: var(--theme-diff-added); }
+.action-dots-hover-row.state-completed .action-dots-hover-text {
+  color: var(--fg-quaternary);
+  text-decoration: line-through;
+}
+
+@keyframes action-dots-mark-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* A review-only capsule keeps the compact, rounded file-count shape. */
+.action-dots[data-review-only="true"] {
+  min-height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 24px;
+  box-shadow: none;
+  background: transparent;
+}

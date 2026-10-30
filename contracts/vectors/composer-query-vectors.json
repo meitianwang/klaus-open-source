@@ -1,0 +1,59 @@
+{
+  "reason": "Pickers consume only the current editable query. Paragraphs, code, semantic nodes, selection, caret changes and explicit dismissal define its lifetime. A delayed catalog response must not target a newer query.",
+  "queries": [
+    {
+      "text": "请 /审查-tools",
+      "caret": 11,
+      "prefix": "/",
+      "query": "审查-tools",
+      "start": 2
+    },
+    {
+      "text": "use @src/components/",
+      "caret": 20,
+      "prefix": "@",
+      "query": "src/components/",
+      "start": 4
+    },
+    {
+      "text": "$private-review",
+      "caret": 15,
+      "prefix": "$",
+      "query": "private-review",
+      "start": 0
+    },
+    {
+      "text": "/review",
+      "caret": 0,
+      "selectionEnd": 7,
+      "expected": null
+    },
+    {
+      "text": "mail a@b.com",
+      "caret": 12,
+      "expected": null
+    },
+    {
+      "text": "ordinary/path",
+      "caret": 13,
+      "expected": null
+    }
+  ],
+  "pickerKeys": {
+    "Enter": "insert",
+    "Tab": "complete",
+    "Escape": "dismiss",
+    "modifiedEnter": "submit"
+  },
+  "dismissal": {
+    "retainsSamePrefix": true,
+    "allowsNewPrefix": true
+  },
+  "editorOwnership": {
+    "catalogSession": "bound-real-session-or-pending-parent-or-global-only",
+    "bindingLifetime": "monotonic-even-when-returning-to-the-same-session",
+    "pendingFilesystemIdentity": "absolute-address-survives-promotion",
+    "externalMenuClosure": "release-editor-keys",
+    "loadingChangedQuery": "discard-prior-published-selection"
+  }
+}

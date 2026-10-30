@@ -1,0 +1,212 @@
+{
+  "_why": "The transcript of a LIVE session is the complete saved rollout (engine/readThreadHistory), not the engine's model-context snapshot: a compaction replaces the snapshot, so a transcript built from it cannot show the turns the compaction retired, which is exactly the 'cannot scroll above the compaction divider' defect. The saved projection keeps every message and marks each boundary with a compact_boundary row, which the renderer draws as the divider. The engine snapshot survives only as a fallback when the rollout is unreadable. The renderer no longer refreshes the whole rollout: it reads bounded pages (session:history-page and session:history-items over engine/readThreadHistory and engine/readThreadItems, backed by the engine's durable turn index), first five summary turns, then independently hydrated item pages, then older turn windows on demand. Stable turn and item identities retain accepted history across failures and reconnect generations. The projected whole-reply cache below now serves the remaining whole-read consumers (mobile follow, the live-failure fallback, export) with an explicit invalidation discipline: a projected chat event that proves the rollout moved poisons the capture, a host mutation that rewrites the rollout (rewind, delete, edit-resend) poisons it, a lost engine connection retires every capture, and a short time-to-live covers what no event announces. The lagging-flush guard is the correctness half: the rollout writer flushes asynchronously, so a read can return FEWER rows than one already served; serving that shorter capture would flicker settled rows off the screen, so it is neither served nor cached until the disk catches up. Completed or cleared goal snapshots also invalidate a cached transcript: a goal can complete without a model turn or ordinary message event.",
+  "source": {
+    "liveTranscriptSource": "engine/readThreadHistory",
+    "ephemeralTranscriptSource": "session/history",
+    "_whyEphemeralTranscriptSource": "Temporary side tasks have no saved rollout. Register their identity before transcript requests, replay their visible live snapshot, and retain that source across tab navigation. A promoted conversation has a separate identity and uses saved pagination.",
+    "renderFirstPaintSource": "engine/readThreadHistory paged, itemsView summary, five newest turns immediately visible",
+    "renderItemsSource": "engine/readThreadItems, independent per-turn cursors, 98-item summary preview plus two opening items, then 100-item pages without a total cap",
+    "renderItemsOrdering": "oldest-first within each turn and across turns; prepend older item pages while traversing descending cursors",
+    "_whyRenderItemsOrdering": "Each descending item page is already chronological. Appending successively older pages places a prompt below its reply and sends earlier process into the post-final area outside the completed turn fold. Chronological accumulation must preserve both reply order and process folding across pages.",
+    "renderReadActivation": "none",
+    "planningArtifactCapture": {
+      "reason": "A bounded saved page must retain structured plan artifacts when it replaces live content. Artifact reads bracket the same page parameters, and a changed revision retries the entire cut without activating a model.",
+      "methods": ["engine/readThreadHistory", "engine/readThreadItems"],
+      "revisionFence": "before-and-after",
+      "preserveAcceptedPageMetadata": true
+    },
+    "unloadedChangeRecordsSource": "engine/readThreadHistory notLoaded pages, fileChanges metadata only",
+    "runtimeInspectionActivation": "none; unavailable live snapshots retain existing presentation",
+    "renderChangeRecordDependency": "independent; cached records seed synchronously and pending records never block transcript publication",
+    "renderOlderPagesSource": "engine/readThreadHistory paged by turn cursor, on demand at the top of the transcript",
+    "fallbackSource": "session/history",
+    "offlineSource": "engine/readThreadHistory",
+    "exportSource": "engine/readThreadHistory",
+    "rewindAndEditSource": "session/history",
+    "_whyRewindAndEdit": "session/rewind and the edit-resend truncate the engine's IN-MEMORY conversation by numTurns, so their planners must count the same rows the engine will drop; the saved projection carries compaction boundaries the memory snapshot does not, and counting them would over-truncate."
+  },
+  "savedProjection": {
+    "reason": "Metadata changes must never move offsets in an existing history source. Page reads consume normalized committed payloads; byte offsets and ordinals are projection checkpoints only.",
+    "canonicalSource": "append-only durable rollout",
+    "metadataAuthority": "independent SQLite metadata rows",
+    "payloadIdentity": ["thread", "turn", "item_id"],
+    "writeOrder": ["durable append and flush", "eager materialized projection"],
+    "projectionFailure": "warn without rejecting a successful durable append; later writer flush retries from committed checkpoint",
+    "batchSourceBytes": 1048576,
+    "batchSteps": 256,
+    "queuedBatches": 2,
+    "batchBoundary": "complete records within the captured source end",
+    "transaction": "receive prepared batch before BEGIN IMMEDIATE; payloads and checkpoint commit together",
+    "completion": "producer Complete required; consumer failure closes receiver, cancels and joins producer",
+    "normalRead": "SQLite keyed payloads only",
+    "legacyImport": "explicit pending import journal and complete coverage before publication"
+  },
+  "rendererRecovery": {
+    "reason": "A detail-page failure must retain summaries, accepted pages, and the retry cursor. Reconnect invalidates request owners while keeping the displayed transcript.",
+    "ownership": ["generation", "boundaryId", "progressKey", "handle", "pagination object identity"],
+    "topology": "stable entities and ordered islands; overlap merges islands and exposes interior gaps",
+    "previewConcurrency": 2,
+    "failure": "release promise in settlement cleanup, preserve accepted data and cursor",
+    "reconnect": "advance generation, cancel stale requests, retain cached entities and independently reconnect changed turns",
+    "replacement": "publish accepted snapshot as one state update",
+    "gapLoading": {
+      "reason": "Reading older history is automatic as its gap approaches the viewport. A partially loaded turn must keep advancing after its initial preview without adding a manual paging step.",
+      "activation": "summary-only turn or gap within 800px of viewport; process gaps require an open disclosure",
+      "continuation": "one page per accepted cursor while the gap remains near the viewport",
+      "normalControl": "loading status without a button",
+      "failureControl": "pause automatic requests and show an explicit retry",
+      "unknownCount": "do not create an activity disclosure from incomplete pagination alone",
+      "boundaryCursor": "use the requested gap handle, independently of other loaded windows"
+    }
+  },
+  "invalidatingEventTypes": [
+    "user_message",
+    "message_complete",
+    "tool_end",
+    "compact_boundary",
+    "compaction_start",
+    "compaction_end",
+    "compaction_error",
+    "done",
+    "interrupted",
+    "agent_notification"
+  ],
+  "cache": {
+    "_fn": "ThreadHistoryCache.usable",
+    "ttlMs": 30000,
+    "cases": [
+      {
+        "name": "no capture: read",
+        "input": {
+          "now": 1000,
+          "minRows": 0
+        },
+        "expected": false
+      },
+      {
+        "name": "fresh capture: serve",
+        "input": {
+          "entry": {
+            "capturedAt": 1000,
+            "rowCount": 5,
+            "boundaryCount": 1,
+            "reply": {}
+          },
+          "now": 1000,
+          "minRows": 0
+        },
+        "expected": true
+      },
+      {
+        "name": "capture at the ttl edge: serve",
+        "input": {
+          "entry": {
+            "capturedAt": 1000,
+            "rowCount": 5,
+            "boundaryCount": 1,
+            "reply": {}
+          },
+          "now": 31000,
+          "minRows": 0
+        },
+        "expected": true
+      },
+      {
+        "name": "capture past the ttl: read",
+        "input": {
+          "entry": {
+            "capturedAt": 1000,
+            "rowCount": 5,
+            "boundaryCount": 1,
+            "reply": {}
+          },
+          "now": 31001,
+          "minRows": 0
+        },
+        "expected": false
+      },
+      {
+        "name": "poisoned by a projected event: read",
+        "input": {
+          "entry": {
+            "capturedAt": 1000,
+            "rowCount": 5,
+            "boundaryCount": 1,
+            "reply": {}
+          },
+          "poisoned": true,
+          "now": 1000,
+          "minRows": 0
+        },
+        "expected": false
+      },
+      {
+        "name": "capture shorter than what is on screen: read",
+        "input": {
+          "entry": {
+            "capturedAt": 1000,
+            "rowCount": 4,
+            "boundaryCount": 1,
+            "reply": {}
+          },
+          "now": 1000,
+          "minRows": 5
+        },
+        "expected": false
+      },
+      {
+        "name": "capture exactly as long as what is on screen: serve",
+        "input": {
+          "entry": {
+            "capturedAt": 1000,
+            "rowCount": 5,
+            "boundaryCount": 1,
+            "reply": {}
+          },
+          "now": 1000,
+          "minRows": 5
+        },
+        "expected": true
+      }
+    ],
+    "retention": {
+      "_why": "Bound full transcript payloads by entry count and estimated retained bytes. Payload eviction and expiry preserve lightweight flush watermarks; live close removes both. A late read cannot republish a closed or invalidated lifetime. A shortened saved read is retried before the existing failure path preserves the displayed transcript.",
+      "maxEntries": 6,
+      "maxEstimatedBytes": 33554432,
+      "expiredPayloadsReleased": true,
+      "releaseOnLiveClose": true
+    }
+  },
+  "terminalGoalNotifications": [
+    {
+      "name": "saved-thread clear",
+      "params": {
+        "threadId": "conv",
+        "event": {
+          "goalCleared": true,
+          "goalRevision": 3
+        }
+      }
+    },
+    {
+      "name": "live-binding completion",
+      "params": {
+        "sessionId": "engine-1",
+        "event": {
+          "threadGoal": {
+            "threadId": "conv",
+            "goalId": "completed-without-model",
+            "objective": "Retain the externally completed objective.",
+            "status": "complete",
+            "tokenBudget": null,
+            "tokensUsed": 0,
+            "timeUsedSeconds": 0,
+            "createdAtMs": 1,
+            "updatedAtMs": 2
+          },
+          "goalRevision": 2
+        }
+      }
+    }
+  ]
+}

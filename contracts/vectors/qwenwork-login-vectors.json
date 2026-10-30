@@ -1,0 +1,24 @@
+{
+  "reason": "Device authorization belongs to gateway.qwenwork.cn; the public website returns HTTP 404. The browser entry accepts six device-flow parameters, not the API-only security state (HTTP 400). The host forwards the engine URL unchanged.",
+  "authUrl": "https://gateway.qwenwork.cn/device/selectAccounts?challenge=fixture-challenge&challenge_method=S256&nonce=fixture-nonce&machine_id=fixture-machine&client_id=e883ade2-e6e3-4d6d-adf7-f92ceff5fdcb&redirect_uri=qwenwork-cn%3A%2F%2F",
+  "localImport": {
+    "reason": "Read the current desktop credential using its exact safeStorage identity. When that store is present but unreadable or signed out, return its error without importing a different cached credential.",
+    "keychainService": "QwenWorkCN Safe Storage",
+    "keychainAccount": "QwenWorkCN Key",
+    "failures": [
+      {
+        "error": "qwenwork_local_keychain_denied"
+      },
+      {
+        "error": "qwenwork_local_not_signed_in"
+      },
+      {
+        "error": "qwenwork_local_secret_unreadable"
+      },
+      {
+        "error": null,
+        "expectedError": "qwenwork_local_credentials_unavailable"
+      }
+    ]
+  }
+}

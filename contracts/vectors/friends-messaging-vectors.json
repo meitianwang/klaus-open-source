@@ -1,0 +1,107 @@
+{
+  "reason": "Friendship admits requests, never execution. Each incoming task persists without model inference until the receiving owner approves immutable directory/app scope. The designated receiver is account-owned; replies bind the original device/request/conversation. Revocation ends active work and retained histories cannot become unrestricted sessions.",
+  "friendId": "11111111-1111-4111-8111-111111111111",
+  "selfUserId": "22222222-2222-4222-8222-222222222222",
+  "friendUserId": "33333333-3333-4333-8333-333333333333",
+  "permissionDefault": false,
+  "requestChoiceInitiallyChecked": true,
+  "resourcePermissionDefault": false,
+  "permissionMode": "default",
+  "protocolVersion": 3,
+  "engineScopeCapability": 1,
+  "resourceModes": [
+    "manual",
+    "auto-edit",
+    "scoped-auto"
+  ],
+  "resourceModesWhy": "The approved directories and applications are the boundary and never widen with a preset. The preset only decides how much a scoped conversation asks inside that boundary, so all three presets must stay distinguishable: collapsing two of them made one of the owner's choices silently do nothing.",
+  "receivingPolicy": "configured-device-or-all-registered-current-protocol-devices",
+  "pendingStartsModel": false,
+  "pendingTaskNotice": {
+    "_why": "A task that waits for the owner's authorization must reach the owner even when Klaus is unfocused, and clicking that banner must land on the one approval it is about. The click target rides in the notification group because a delivered banner is restored from Notification Center with only its group preserved, so it has to distinguish a friend task from a conversation-shaped id.",
+    "notifiesWhen": "policy-approve-pending-task-even-while-focused",
+    "noticeFields": [
+      "sender",
+      "prompt",
+      "friendTaskId"
+    ],
+    "clickAction": "deep-link:friend-task",
+    "clickTarget": "the-conversation-the-request-is-parked-in",
+    "groupEncoding": "friend-task:<taskId>",
+    "autoOrRejectPolicyNotifies": false
+  },
+  "replyPolicy": "any-rung-device-of-original-request",
+  "replyRequiresCloudOriginRoute": true,
+  "lostReceiptRecovery": "owner-routing-facts",
+  "deletePolicy": "bilateral-revoke-retain-local-history",
+  "globalBypassExpandsScope": false,
+  "allowPrivateContextAutoload": false,
+  "offlineQueue": "all-messages-durably-accepted-before-device-acknowledgement",
+  "requestPermissionField": "allowIncomingAgentTasks",
+  "mentionKind": "friend",
+  "message": "Help draft the launch announcement.",
+  "friendEmail": "friend@example.com",
+  "requestIdentity": "email",
+  "profileFields": [
+    "displayName",
+    "avatarUrl"
+  ],
+  "taskPolicy": [
+    "approve",
+    "auto",
+    "reject"
+  ],
+  "taskPolicyDefault": "approve",
+  "permissionBaseline": "account-default-grant-prefills-add-friend-and-seeds-accepted-incoming-friendship",
+  "localLifecycleWhy": "One-time approval must not widen future access; invitation grants survive restart. Host-authored terminal notices need local status metadata rather than impersonating the friend agent, and ignored requests remain reviewable without elapsed-time expiry.",
+  "rememberedApprovalPolicy": "settings-owned-approve-never-writes",
+  "invitationGrantStorage": "settings-db-account-and-friend-user-id",
+  "ignoredExpiryMs": 0,
+  "ignoredExpiryNotice": "never-expire-by-elapsed-time",
+  "outgoingStatuses": ["sent", "delivered", "awaiting_authorization", "processing", "needs_input", "replied", "rejected", "cancelled", "failed"],
+  "asyncInteraction": {
+    "_why": "Display messages remain unread until seen without running a model. Explicit local assistance uses owner authority in an unscoped chat and submits the friend's message as the owner's prompt. Request progress updates the original bubble; all originally targeted device results contribute to a single asynchronous continuation that requires an explicit unresolved consuming task, rechecks its identity and original input, and gives owner updates priority.",
+    "localAssist": "prepare-unscoped-local-chat-then-submit-friend-message-as-owner-input",
+    "cancel": "durable-idempotent-user-cancellation",
+    "retry": "same-transmission-identity",
+    "progress": "host-authored-state-events-without-chat-bubbles",
+    "aggregation": "all-originally-targeted-devices",
+    "continuation": "required-consuming-task-and-original-input-generation",
+    "ownerCorrection": "defer-current-turn-admission-until-owner-update-settles",
+    "legacyUnboundContinuation": "display-reply-with-local-assistance-without-inference",
+    "toolDetails": "live-request-state-and-explicit-onReply"
+  },
+  "outgoingLimit": 100,
+  "friendLocalAssistDefault": false,
+  "friendLocalAssistSetting": "friends_local_assist",
+  "friendLocalAssistSurface": "removed-direct-recipient-always-bypasses-local-model",
+  "friendLocalAssistWhy": "Explicit recipients send the original text with a visible purpose selector; legacy local-assistance settings cannot start local inference.",
+  "friendReplyInstruction": "increment-only-without-restating-reply",
+  "friendStatusDelivery": "host-only-display-without-model-turn-or-context",
+  "friendPermissionModel": "one-grant-per-friend-per-device",
+  "sharedFriendSpace": "product-owned-root-with-one-subdirectory-per-friendship-always-readable-and-writable",
+  "executionTarget": "owner-chosen-at-approval-none-or-registered-project-or-workspace",
+  "targetlessSession": "friendship-folder-conversation",
+  "friendSidebarGrouping": "one-folder-per-friendship-keyed-by-friendship-id-named-by-remark-then-display-name",
+  "friendNoticeSidebarGrouping": {
+    "_why": "Display-only conversations belong to their sender's friendship without acquiring a task grant. Existing unlinked notice conversations recover their group from the first durable display record; replies routed into an owner's existing conversation retain that conversation's group.",
+    "newConversation": "friendship-group-without-task-authorization",
+    "legacyConversation": "recover-first-unlinked-incoming-notice-per-conversation",
+    "linkedReply": "retain-originating-conversation-group",
+    "accountIsolation": "current-account-only"
+  },
+  "friendGroupThreadTitle": {
+    "_why": "The folder already identifies the friend, so its conversations hide the recorded sender prefix without changing stored titles or titles outside the folder. The recorded name also works when the owner uses a different remark or the friend changes their nickname.",
+    "cases": [
+      { "name": "existing conversation", "groupName": "Nick", "senderName": "Nick", "title": "Nick · Check the current configuration", "expected": "Check the current configuration" },
+      { "name": "owner remark", "groupName": "Reviewer", "senderName": "Nick", "title": "Nick · Review the changes", "expected": "Review the changes" },
+      { "name": "changed nickname", "groupName": "Nicholas", "senderName": "Nick", "title": "Nick · Review the changes", "expected": "Review the changes" },
+      { "name": "custom title", "groupName": "Nick", "senderName": "Nick", "title": "Release · Review", "expected": "Release · Review" },
+      { "name": "title without prefix", "groupName": "Nick", "senderName": "Nick", "title": "Review the changes", "expected": "Review the changes" },
+      { "name": "title contains another separator", "groupName": "Nick", "senderName": "Nick", "title": "Nick · Release · Review", "expected": "Release · Review" },
+      { "name": "name contains separator", "groupName": "Nick · Team", "senderName": "Nick · Team", "title": "Nick · Team · Review", "expected": "Review" },
+      { "name": "empty content", "groupName": "Nick", "senderName": "Nick", "title": "Nick · ", "expected": "Nick · " }
+    ]
+  },
+  "chatContinuity": "one-conversation-per-friend-and-originating-conversation-while-the-approved-location-matches"
+}

@@ -1,0 +1,45 @@
+{
+  "reason": "The model editor retains user-declared thinking support independently of conversation preferences. Qwen3 Chat Completions selects the explicit boolean thinking switch; other endpoint dialects retain their own request contracts.",
+  "cases": [
+    {
+      "name": "compatible chat model with reasoning effort",
+      "payload": { "provider": "openai", "model": "qwen3.8-max", "openaiApi": "chat", "baseUrl": "https://gateway.example.invalid/v1", "reasoningEffort": "xhigh" },
+      "dialect": "qwen"
+    },
+    {
+      "name": "namespaced compatible chat model",
+      "payload": { "provider": "openai", "model": "Qwen/Qwen3-32B", "openaiApi": "chat", "reasoningEffort": "none" },
+      "dialect": "qwen"
+    },
+    {
+      "name": "Qwen responses retains its endpoint contract",
+      "payload": { "provider": "openai", "model": "qwen3.8-max", "openaiApi": "responses", "reasoningEffort": "xhigh" },
+      "dialect": "openai"
+    },
+    {
+      "name": "older model retains its endpoint contract",
+      "payload": { "provider": "openai", "model": "qwen2.5-72b-instruct", "openaiApi": "chat", "reasoningEffort": "none" },
+      "dialect": "openai"
+    },
+    {
+      "name": "compatible chat model without reasoning effort",
+      "payload": { "provider": "openai", "model": "custom-model", "openaiApi": "chat", "reasoningEffort": "none" },
+      "dialect": "openai"
+    },
+    {
+      "name": "compatible responses model",
+      "payload": { "provider": "openai", "model": "custom-model", "openaiApi": "responses", "reasoningEffort": "std" },
+      "dialect": "openai"
+    },
+    {
+      "name": "managed thinking dialect",
+      "payload": { "provider": "openai", "model": "qwen3.7-max", "openaiApi": "chat", "reasoningEffort": "xhigh" },
+      "dialect": "managedQwen"
+    },
+    {
+      "name": "explicit thinking dialect",
+      "payload": { "provider": "openai", "model": "deepseek-v4-flash", "openaiApi": "chat", "reasoningEffort": "std" },
+      "dialect": "deepseek"
+    }
+  ]
+}

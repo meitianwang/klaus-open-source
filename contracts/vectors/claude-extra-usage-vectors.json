@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "reason": "Extra-credit billing metadata is optional and independent of subscription allowance windows. Amounts retain finite nonnegative native credit units without currency conversion.",
+  "cases": [
+    { "name": "absent provider metadata stays absent" },
+    { "name": "native fractional credits are retained", "raw": { "billing": "extraCredits", "enabled": true, "monthlyLimit": 100.25, "usedCredits": 12.75 }, "expected": { "billing": "extraCredits", "enabled": true, "monthlyLimit": 100.25, "usedCredits": 12.75 } },
+    { "name": "disabled zero-credit metadata is retained", "raw": { "billing": "extraCredits", "enabled": false, "monthlyLimit": 0, "usedCredits": 0 }, "expected": { "billing": "extraCredits", "enabled": false, "monthlyLimit": 0, "usedCredits": 0 } },
+    { "name": "unknown optional values remain unknown", "raw": { "billing": "extraCredits" }, "expected": { "billing": "extraCredits" } },
+    { "name": "negative amounts are omitted", "raw": { "billing": "extraCredits", "enabled": true, "monthlyLimit": -1, "usedCredits": -12 }, "expected": { "billing": "extraCredits", "enabled": true } },
+    { "name": "string values are not coerced", "raw": { "billing": "extraCredits", "enabled": "true", "monthlyLimit": "100", "usedCredits": "12" }, "expected": { "billing": "extraCredits" } },
+    { "name": "valid partial metadata keeps its native amount", "raw": { "billing": "extraCredits", "usedCredits": 0.001, "internal": "omitted" }, "expected": { "billing": "extraCredits", "usedCredits": 0.001 } },
+    { "name": "another billing category is omitted", "raw": { "billing": "currency", "enabled": true, "monthlyLimit": 100 } },
+    { "name": "null provider metadata stays absent", "raw": null }
+  ]
+}

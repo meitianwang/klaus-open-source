@@ -1,0 +1,26 @@
+{
+  "inbound": {
+    "message_id": 7,
+    "chat": { "id": -1002, "type": "supergroup", "is_forum": true },
+    "from": { "id": 8, "first_name": "Cy" },
+    "message_thread_id": 9,
+    "text": "@FixtureBot review",
+    "reply_to_message": { "message_id": 6 }
+  },
+  "expected": {
+    "sessionKey": "telegram:-1002:topic:9",
+    "targetId": "-1002",
+    "text": "review",
+    "messageType": "text",
+    "chatType": "group",
+    "senderId": "8",
+    "timestamp": 1700000000123,
+    "messageId": "7",
+    "dedupKey": "telegram:-1002:7",
+    "senderName": "Cy",
+    "groupId": "-1002",
+    "mentioned": true,
+    "threadId": "9",
+    "replyTo": { "messageId": "6" }
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "name": "browser",
+  "version": "1.0.0",
+  "description": "Klaus built-in browser capability: drive the in-app browser or the user's Chrome (via the Klaus Chrome extension) through the host-managed klaus-browser MCP server.",
+  "keywords": ["browser", "automation", "chrome", "in-app-browser"],
+  "runtimeCapabilities": ["browser"],
+  "skills": "./skills/",
+  "mcpServers": {
+    "klaus-browser": {
+      "hostManaged": true
+    }
+  },
+  "interface": {
+    "displayName": "Browser",
+    "shortDescription": "Open pages, inspect them, click, type and screenshot in the in-app browser or your Chrome",
+    "category": "Engineering",
+    "capabilities": ["Interactive", "Read", "Write"]
+  }
+}

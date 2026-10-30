@@ -1,0 +1,73 @@
+{
+  "version": 1,
+  "reason": "Changes entries retain their owner and comparison, file revisions control review state, and context loading never changes the scope or silently expands every line. File navigation scrolls only the review list and preserves the surrounding shell.",
+  "entries": {
+    "capsule": {
+      "source": "last-turn",
+      "turn": "explicit active turn",
+      "fileFocus": "exact repository-qualified path",
+      "empty": "Authoritative net-zero recorded changes hide the capsule; unavailable totals remain unknown."
+    },
+    "checkout": {
+      "source": "branch",
+      "owner": "selected checkout conversation",
+      "chatNavigation": false
+    }
+  },
+  "navigation": {
+    "scrollOwner": "review-list",
+    "applicationTop": 0,
+    "ancestorScrollTop": 0,
+    "collapseVisibleWhileOpen": true,
+    "railVisibleAfterCollapse": true
+  },
+  "defaults": {
+    "layout": "auto",
+    "wordWrap": false,
+    "fileTree": true,
+    "wordDiffs": true,
+    "fullFiles": false,
+    "richPreview": true,
+    "hideWhitespace": false,
+    "hideImports": false,
+    "showGenerated": true
+  },
+  "autoSplit": {
+    "minimumWidth": 800,
+    "requiresAdditionsAndDeletions": true
+  },
+  "context": {
+    "expansionLines": 20,
+    "fullFiles": "hydrate complete sides while keeping unchanged context folded",
+    "historical": "recorded content only"
+  },
+  "viewed": {
+    "source": "branch",
+    "identity": "exact file snapshot",
+    "mark": "collapse",
+    "unmark": "expand",
+    "newRevision": "unmark and expand"
+  },
+  "tree": {
+    "rowHeight": 29,
+    "minimumWidth": 200,
+    "maximumPaneFraction": 0.6,
+    "generated": "explicit Git attributes only"
+  },
+  "comments": {
+    "storage": "conversation",
+    "anchor": "original sides, range and captured hunk",
+    "submission": "append to the owning chat draft without sending"
+  },
+  "mutations": {
+    "patches": "host rebuilt",
+    "snapshot": "required",
+    "revert": "confirm unless explicitly remembered",
+    "historical": "read only"
+  },
+  "copyCommand": {
+    "paths": "quoted repository-owned canonical Git paths",
+    "multipleRepositories": "one explicit git -C root apply command per repository",
+    "duplicateRecordedPath": "refuse ambiguous combined transport"
+  }
+}

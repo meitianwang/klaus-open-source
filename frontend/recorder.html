@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src ipc: http://ipc.localhost">
+  <title>Klaus Skill Recording</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { background: transparent; height: 100%; overflow: hidden; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif;
+      display: flex; align-items: stretch; padding: 8px;
+    }
+    .rec-card {
+      flex: 1; display: flex; align-items: center; gap: 10px;
+      background: rgba(32, 33, 36, 0.96);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 12px;
+      box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+      padding: 8px 12px;
+      -webkit-app-region: drag;
+    }
+    .rec-dot {
+      width: 10px; height: 10px; border-radius: 50%;
+      background: #e02e2a; flex: none;
+      animation: rec-pulse 1.4s ease-in-out infinite;
+    }
+    @keyframes rec-pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+    .rec-timer { color: #f2f2f2; font-size: 13px; font-variant-numeric: tabular-nums; flex: 1; }
+    .rec-btn {
+      -webkit-app-region: no-drag;
+      border: none; border-radius: 6px; padding: 4px 10px;
+      font-size: 12px; cursor: pointer; color: #f2f2f2;
+      background: rgba(255,255,255,0.12);
+    }
+    .rec-btn:hover { background: rgba(255,255,255,0.22); }
+    .rec-btn.stop { background: #2d6cdf; }
+    .rec-btn.stop:hover { background: #3b7bf0; }
+    .rec-btn:disabled { opacity: 0.5; cursor: wait; }
+    .rec-error { display: none; color: #ffb4ab; font-size: 11px; position: absolute; inset: auto 16px 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    body[data-error] .rec-card { padding-bottom: 16px; }
+    body[data-error] .rec-error { display: block; }
+  </style>
+</head>
+<body>
+  <div class="rec-card">
+    <span class="rec-dot" aria-hidden="true"></span>
+    <span class="rec-timer" id="rec-timer">0:00</span>
+    <button class="rec-btn stop" id="rec-stop" type="button"></button>
+    <button class="rec-btn" id="rec-discard" type="button"></button>
+  </div>
+  <div class="rec-error" id="rec-error" role="alert"></div>
+  <script>
+    // Tab must not move focus between the recording controls.
+    document.addEventListener('keydown', function (event) {
+      if (event.key === 'Tab' && !event.ctrlKey && !event.metaKey && !event.altKey) event.preventDefault();
+    }, true);
+
+    // The restricted preload exposes only these three recording commands.
+    (function () {
+      const zh = !new URLSearchParams(location.search).get('lang')
+        || new URLSearchParams(location.search).get('lang') === 'zh';
+      document.getElementById('rec-stop').textContent = zh ? '停止' : 'Stop';
+      document.getElementById('rec-discard').textContent = zh ? '丢弃' : 'Discard';
+      document.title = zh ? 'Klaus 技能录制' : 'Klaus Skill Recording';
+
+      let start = null;
+      let busy = false;
+      const timer = document.getElementById('rec-timer');
+      setInterval(function () {
+        if (start === null) return;
+        const s = Math.max(0, Math.floor((Date.now() - start) / 1000));
+        timer.textContent = Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+      }, 500);
+
+      function invoke(channel) {
+        const inv = window.__KLAUS_DESKTOP__ && window.__KLAUS_DESKTOP__.core && window.__KLAUS_DESKTOP__.core.invoke;
+        if (inv) return inv('ipc_invoke', { channel: channel, args: [] });
+        return Promise.reject(new Error(zh ? '录制控制不可用' : 'Recording controls are unavailable'));
+      }
+      function failed(error) {
+        document.body.dataset.error = 'true';
+        document.getElementById('rec-error').textContent = error && error.message || String(error);
+      }
+      async function finish(action) {
+        if (busy) return;
+        busy = true;
+        const buttons = document.querySelectorAll('.rec-btn');
+        buttons.forEach(function (button) { button.disabled = true; });
+        try {
+          const result = await action();
+          if (!result || !result.ok || result.complete === false) throw new Error(result && result.error || (zh ? '录制尚未完成关闭' : 'Recording has not finished closing'));
+        } catch (error) { failed(error); }
+        finally { busy = false; buttons.forEach(function (button) { button.disabled = false; }); }
+      }
+      document.getElementById('rec-stop').addEventListener('click', function () { void finish(function () { return invoke('computer-use:record:stop'); }); });
+      document.getElementById('rec-discard').addEventListener('click', function () { void finish(function () { return invoke('computer-use:record:discard'); }); });
+      async function poll() {
+        try {
+          const state = await invoke('computer-use:record:status');
+          if (state && Number.isFinite(state.startedAt)) start = state.startedAt;
+          if (state && state.error) failed(new Error(state.error));
+          // The host closes the panel only after native capture and disk writes drain.
+        } catch (error) { if (!busy) failed(error); }
+        setTimeout(poll, 1000);
+      }
+      void poll();
+    })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,57 @@
+{
+  "reason": "A submitted optional answer retains its user-message form and arrival position. A following final reply makes it part of the collapsible turn process; until then it stays visible. Summary pages may omit middle messages; retaining an answer across history ownership must keep it before later work and the final reply, without moving an explicitly late reply or changing the authoritative order of saved messages.",
+  "presentation": {
+    "beforeFollowingFinal": "turn-process",
+    "withoutFollowingFinal": "visible-user-message",
+    "afterFinal": "visible-user-message",
+    "expandedOrder": "arrival-order",
+    "summaryHandoff": "preserve-order-and-uuid"
+  },
+  "cases": [
+    {
+      "name": "a summary missing a middle answer retains it before the final reply",
+      "history": [{"role":"user","uuid":"opener","turnId":"turn","timestamp":1000},{"role":"assistant","uuid":"final","turnId":"turn","timestamp":4000,"isFinalReply":true}],
+      "live": [{"role":"user","uuid":"answer","turnId":"turn","timestamp":2000,"steered":true,"questionAnswer":{"turnId":"turn"}}],
+      "expected": ["opener","answer","final"]
+    },
+    {
+      "name": "refreshing a partial summary retains the accepted answer position",
+      "history": [{"role":"user","uuid":"opener","turnId":"turn"},{"role":"assistant","uuid":"final","turnId":"turn","isFinalReply":true}],
+      "previous": [{"role":"user","uuid":"opener","turnId":"turn"},{"role":"user","uuid":"answer","turnId":"turn","steered":true,"questionAnswer":{"turnId":"turn"},"userRenderSnapshot":true},{"role":"assistant","uuid":"final","turnId":"turn","isFinalReply":true}],
+      "live": [],
+      "expected": ["opener","answer","final"]
+    },
+    {
+      "name": "stable message anchors place an answer before later process without timestamps",
+      "history": [{"role":"user","uuid":"opener","turnId":"turn"},{"role":"assistant","uuid":"work","turnId":"turn"},{"role":"assistant","uuid":"final","turnId":"turn","isFinalReply":true}],
+      "previous": [{"role":"user","uuid":"answer","turnId":"turn","steered":true,"questionAnswer":{"turnId":"turn"},"userRenderSnapshot":true},{"role":"assistant","uuid":"work","turnId":"turn"}],
+      "live": [],
+      "expected": ["opener","answer","work","final"]
+    },
+    {
+      "name": "an explicitly late answer retains its position after the final reply",
+      "history": [{"role":"user","uuid":"opener","turnId":"turn","timestamp":1000},{"role":"assistant","uuid":"final","turnId":"turn","timestamp":3000,"isFinalReply":true}],
+      "live": [{"role":"user","uuid":"answer","turnId":"turn","timestamp":4000,"steered":true,"questionAnswer":{"turnId":"turn"}}],
+      "expected": ["opener","final","answer"]
+    },
+    {
+      "name": "an answer stays in its original turn ahead of a later turn",
+      "history": [{"role":"user","uuid":"opener","turnId":"turn","timestamp":1000},{"role":"assistant","uuid":"final","turnId":"turn","timestamp":3000,"isFinalReply":true},{"role":"user","uuid":"next","turnId":"next","timestamp":4000}],
+      "live": [{"role":"user","uuid":"answer","turnId":"turn","timestamp":2000,"steered":true,"questionAnswer":{"turnId":"turn"}}],
+      "expected": ["opener","answer","final","next"]
+    },
+    {
+      "name": "partial answers retain their submission order",
+      "history": [{"role":"user","uuid":"opener","turnId":"turn"},{"role":"assistant","uuid":"final","turnId":"turn","isFinalReply":true}],
+      "live": [{"role":"user","uuid":"answer-a","turnId":"turn","steered":true,"questionAnswer":{"turnId":"turn"}},{"role":"user","uuid":"answer-b","turnId":"turn","steered":true,"questionAnswer":{"turnId":"turn"}}],
+      "expected": ["opener","answer-a","answer-b","final"]
+    },
+    {
+      "name": "complete saved history replaces the snapshot in authoritative order",
+      "history": [{"role":"user","uuid":"opener","turnId":"turn"},{"role":"user","uuid":"answer","turnId":"turn","steered":true,"questionAnswer":{"turnId":"turn"}},{"role":"assistant","uuid":"final","turnId":"turn","isFinalReply":true}],
+      "previous": [{"role":"user","uuid":"answer","turnId":"turn","userRenderSnapshot":true,"questionAnswer":{"turnId":"turn"}}],
+      "live": [{"role":"user","uuid":"answer","turnId":"turn","steered":true,"questionAnswer":{"turnId":"turn"}}],
+      "expected": ["opener","answer","final"]
+    }
+  ]
+}

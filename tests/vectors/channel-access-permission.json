@@ -1,0 +1,121 @@
+{
+  "reason": "Pin the current Discord access file and renderer shapes, delivery normalization, and engine-owned permission projection. Expired pairing codes are rejected before granting access, and sender IDs cannot become paths outside the approved drop-box. Permission prefixes follow the engine-owned literal grammar; backslashes are never decoded as UI escaping, so existing UNC and shell commands keep their meaning.",
+  "emptyAccess": {
+    "dmPolicy": "pairing",
+    "allowFrom": [],
+    "groups": [],
+    "pending": [],
+    "mentionPatterns": [],
+    "ackReaction": "",
+    "replyToMode": "first",
+    "textChunkLimit": 2000,
+    "chunkMode": "length"
+  },
+  "deliveryInput": {
+    "mentionPatterns": "  hello.*\n\n  @klaus  ",
+    "ackReaction": "  👍  ",
+    "replyToMode": "invalid",
+    "textChunkLimit": 0,
+    "chunkMode": "newline"
+  },
+  "delivery": {
+    "mentionPatterns": [
+      "hello.*",
+      "@klaus"
+    ],
+    "ackReaction": "👍",
+    "replyToMode": "first",
+    "textChunkLimit": 1,
+    "chunkMode": "newline"
+  },
+  "ruleParsing": [
+    {
+      "input": "Read",
+      "expected": {
+        "toolName": "Read"
+      }
+    },
+    {
+      "input": "Task",
+      "expected": {
+        "toolName": "Agent"
+      }
+    },
+    {
+      "input": "KillShell",
+      "expected": {
+        "toolName": "TaskStop"
+      }
+    },
+    {
+      "input": "AgentOutputTool",
+      "expected": {
+        "toolName": "TaskOutput"
+      }
+    },
+    {
+      "input": "BashOutputTool",
+      "expected": {
+        "toolName": "TaskOutput"
+      }
+    },
+    {
+      "input": "Bash(git status)",
+      "expected": {
+        "toolName": "Bash",
+        "ruleContent": "git status"
+      }
+    },
+    {
+      "input": "Bash(echo \\(ok\\))",
+      "expected": {
+        "toolName": "Bash",
+        "ruleContent": "echo \\(ok\\)"
+      }
+    },
+    {
+      "input": "Read(*)",
+      "expected": {
+        "toolName": "Read"
+      }
+    },
+    {
+      "input": "Read()",
+      "expected": {
+        "toolName": "Read"
+      }
+    },
+    {
+      "input": "Read(x)tail",
+      "expected": {
+        "toolName": "Read(x)tail"
+      }
+    },
+    {
+      "input": "Read(unclosed",
+      "expected": {
+        "toolName": "Read(unclosed"
+      }
+    },
+    {
+      "input": "mcp__calendar__create*",
+      "expected": {
+        "toolName": "mcp__calendar__create*"
+      }
+    },
+    {
+      "input": "Bash(echo (ok))",
+      "expected": {
+        "toolName": "Bash",
+        "ruleContent": "echo (ok)"
+      }
+    },
+    {
+      "input": "Bash(\\\\server\\share\\)",
+      "expected": {
+        "toolName": "Bash",
+        "ruleContent": "\\\\server\\share\\"
+      }
+    }
+  ]
+}

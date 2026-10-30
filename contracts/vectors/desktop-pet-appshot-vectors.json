@@ -1,0 +1,55 @@
+{
+  "reason": "Application screenshots retain their original process identity across asynchronous capture and companion focus; capture ownership is distinct from external application restoration.",
+  "targets": [
+    {
+      "companionFocused": false,
+      "previousApplication": "9001",
+      "externalApplication": null,
+      "expectedApplication": "self",
+      "externalReads": 0,
+      "ownedWindowFocused": true
+    },
+    {
+      "companionFocused": true,
+      "previousApplication": "9001",
+      "externalApplication": "9002",
+      "expectedApplication": "9001",
+      "externalReads": 0,
+      "ownedWindowFocused": false
+    },
+    {
+      "companionFocused": true,
+      "previousApplication": "self",
+      "externalApplication": "9002",
+      "expectedApplication": "self",
+      "externalReads": 0,
+      "ownedWindowFocused": false
+    },
+    {
+      "companionFocused": false,
+      "previousApplication": "9001",
+      "externalApplication": "9002",
+      "expectedApplication": "9002",
+      "externalReads": 1,
+      "ownedWindowFocused": false
+    },
+    {
+      "companionFocused": true,
+      "previousApplication": null,
+      "externalApplication": "9002",
+      "expectedApplication": null,
+      "externalReads": 0,
+      "expectedError": "Select an application before capturing it.",
+      "ownedWindowFocused": false
+    },
+    {
+      "ownedWindowFocused": false,
+      "companionFocused": false,
+      "previousApplication": "9001",
+      "externalApplication": null,
+      "expectedApplication": null,
+      "externalReads": 1,
+      "expectedError": "The foreground application is unavailable. Select an application before capturing it."
+    }
+  ]
+}

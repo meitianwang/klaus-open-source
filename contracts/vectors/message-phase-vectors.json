@@ -1,0 +1,152 @@
+{
+  "reason": "Message identity and native phase must reach the renderer unchanged so commentary never prematurely collapses and the first final-answer delta can close the preceding activity. Legacy notifications without metadata retain their existing shape.",
+  "projectionCases": [
+    {
+      "method": "item/agentMessage/delta",
+      "params": {
+        "sessionId": "s",
+        "messageId": "m",
+        "phase": "final_answer",
+        "delta": "Answer"
+      },
+      "expected": [
+        {
+          "type": "stream_mode",
+          "sessionId": "s",
+          "mode": "responding"
+        },
+        {
+          "type": "text_delta",
+          "sessionId": "s",
+          "messageId": "m",
+          "phase": "final_answer",
+          "text": "Answer"
+        }
+      ]
+    },
+    {
+      "method": "item/agentMessage/delta",
+      "params": {
+        "sessionId": "s",
+        "delta": "Checking"
+      },
+      "expected": [
+        {
+          "type": "stream_mode",
+          "sessionId": "s",
+          "mode": "responding"
+        },
+        {
+          "type": "text_delta",
+          "sessionId": "s",
+          "text": "Checking"
+        }
+      ]
+    },
+    {
+      "method": "item/started",
+      "params": {
+        "sessionId": "s",
+        "item": {
+          "type": "agent_message",
+          "id": "m",
+          "phase": "commentary",
+          "text": ""
+        }
+      },
+      "expected": [
+        {
+          "type": "text_delta",
+          "sessionId": "s",
+          "messageId": "m",
+          "phase": "commentary",
+          "text": ""
+        }
+      ]
+    },
+    {
+      "method": "item/completed",
+      "params": {
+        "sessionId": "s",
+        "item": {
+          "type": "agent_message",
+          "id": "m",
+          "phase": "final_answer",
+          "text": "Answer"
+        }
+      },
+      "expected": [
+        {
+          "type": "message_complete",
+          "sessionId": "s",
+          "messageId": "m",
+          "phase": "final_answer"
+        }
+      ]
+    },
+    {
+      "method": "item/updated",
+      "params": {
+        "sessionId": "s",
+        "item": {
+          "type": "agent_message",
+          "id": "m",
+          "phase": "final_answer",
+          "text": "Answer"
+        }
+      },
+      "expected": [
+        {
+          "type": "message_complete",
+          "sessionId": "s",
+          "messageId": "m",
+          "phase": "final_answer"
+        }
+      ]
+    },
+    {
+      "method": "item/completed",
+      "params": {
+        "sessionId": "s",
+        "item": {
+          "type": "command_execution",
+          "id": "cmd",
+          "status": "completed",
+          "exitCode": 7,
+          "durationMs": 1250,
+          "aggregatedOutput": "failure"
+        }
+      },
+      "expected": [
+        {
+          "type": "tool_end",
+          "sessionId": "s",
+          "toolName": "Bash",
+          "toolCallId": "cmd",
+          "isError": true,
+          "exitCode": 7,
+          "durationMs": 1250,
+          "content": "failure"
+        }
+      ]
+    }
+  ],
+  "replayBlocks": [
+    {
+      "type": "text",
+      "text": "Checking",
+      "messageId": "commentary",
+      "phase": "commentary"
+    },
+    {
+      "type": "text",
+      "text": "Answer",
+      "messageId": "final",
+      "phase": "final_answer"
+    },
+    {
+      "type": "text",
+      "text": "Legacy"
+    }
+  ]
+}

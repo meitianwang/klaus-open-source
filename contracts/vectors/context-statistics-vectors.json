@@ -1,0 +1,250 @@
+{
+  "reason": "Context usage displays divide current tokens by usable input capacity. Raw capacity and the earlier automatic compaction boundary remain separate measurements; model publications refresh the active snapshot.",
+  "readFailure": {
+    "reason": "Optional monitor reads may lose a session during lifecycle changes. Keep diagnostics and the last measured display without appending transcript notices or fabricating zero usage.",
+    "result": null,
+    "transcriptNotices": 0,
+    "diagnosticKind": "session-query-unavailable"
+  },
+  "modelRefresh": {
+    "reason": "A cold persisted conversation retains its previous source before its selection changes. An acknowledged model publication refreshes that session's measured context and any open popover. Superseded reads cannot replace the new snapshot or clear its pending request; failed reads preserve the last valid measurement.",
+    "previousWindow": 500000,
+    "targetWindow": 256000,
+    "tokens": 200000
+  },
+  "vectors": [
+    {
+      "name": "automatic boundary and usable model capacity remain distinct",
+      "input": {
+        "context": {
+          "model": "fixture-model",
+          "totalTokens": 45000,
+          "contextWindow": 100000,
+          "outputReserveTokens": 5000,
+          "compactThreshold": 0.9473684210526315,
+          "compactThresholdTokens": 90000,
+          "windowState": "nearLimit",
+          "tokenTotals": {
+            "inputTokens": 30,
+            "outputTokens": 10,
+            "cacheCreationInputTokens": 15,
+            "cacheReadInputTokens": 5
+          },
+          "cost": {
+            "totalCostUsd": 0.75,
+            "cacheHitRate": 0.1
+          }
+        }
+      },
+      "expected": {
+        "model": "fixture-model",
+        "tokens": 45000,
+        "maxTokens": 95000,
+        "rawMaxTokens": 100000,
+        "percentage": 47.368421052631575,
+        "effectiveWindow": 95000,
+        "autoCompactThreshold": 90000,
+        "isAutoCompactEnabled": true,
+        "warning": {
+          "percentLeft": 50,
+          "isAboveWarningThreshold": true,
+          "isAboveErrorThreshold": false,
+          "isAboveAutoCompactThreshold": false,
+          "isAtBlockingLimit": false
+        },
+        "categories": [
+          {
+            "name": "Input",
+            "tokens": 30,
+            "color": "muted"
+          },
+          {
+            "name": "Output",
+            "tokens": 10,
+            "color": "assistant"
+          },
+          {
+            "name": "Cache write",
+            "tokens": 15,
+            "color": "permission"
+          },
+          {
+            "name": "Cache read",
+            "tokens": 5,
+            "color": "success"
+          }
+        ],
+        "apiUsage": {
+          "input_tokens": 30,
+          "output_tokens": 10,
+          "cache_creation_input_tokens": 15,
+          "cache_read_input_tokens": 5
+        },
+        "cost": {
+          "totalCostUsd": 0.75,
+          "cacheHitRate": 0.1
+        }
+      }
+    },
+    {
+      "name": "over-limit display clamps percentage while preserving token evidence",
+      "input": {
+        "total_tokens": 1200,
+        "context_window": 1000,
+        "compact_threshold": 0.8,
+        "compact_threshold_tokens": 800,
+        "window_state": "over_limit"
+      },
+      "expected": {
+        "tokens": 1200,
+        "maxTokens": 1000,
+        "percentage": 100,
+        "effectiveWindow": 1000,
+        "warning": {
+          "percentLeft": 0,
+          "isAboveWarningThreshold": true,
+          "isAboveErrorThreshold": true,
+          "isAboveAutoCompactThreshold": true,
+          "isAtBlockingLimit": true
+        },
+        "apiUsage": null,
+        "cost": null
+      }
+    },
+    {
+      "name": "zero-sized context cannot yield NaN or enable compaction",
+      "input": {
+        "totalTokens": 0,
+        "contextWindow": 0,
+        "outputReserveTokens": 100,
+        "cost": {
+          "totalCostUsd": 0.25
+        }
+      },
+      "expected": {
+        "tokens": 0,
+        "maxTokens": 0,
+        "percentage": 0,
+        "effectiveWindow": 0,
+        "autoCompactThreshold": null,
+        "isAutoCompactEnabled": false,
+        "cost": {
+          "totalCostUsd": 0.25,
+          "cacheHitRate": 0
+        }
+      }
+    },
+    {
+      "name": "large usable window remains distinct from its automatic boundary",
+      "input": {
+        "context": {
+          "model": "fixture-model",
+          "totalTokens": 275000,
+          "contextWindow": 500000,
+          "outputReserveTokens": 25000,
+          "compactThreshold": 0.9473684210526315,
+          "compactThresholdTokens": 450000,
+          "windowState": "normal"
+        }
+      },
+      "expected": {
+        "tokens": 275000,
+        "maxTokens": 475000,
+        "rawMaxTokens": 500000,
+        "effectiveWindow": 475000,
+        "percentage": 57.89473684210527,
+        "autoCompactThreshold": 450000
+      }
+    }
+  ],
+  "usageDisplay": [
+    {
+      "name": "usable capacity subtracts the declared headroom",
+      "input": {
+        "context": {
+          "model": "fixture-model",
+          "totalTokens": 275000,
+          "contextWindow": 500000,
+          "outputReserveTokens": 25000,
+          "compactThreshold": 0.9473684210526315,
+          "compactThresholdTokens": 450000,
+          "windowState": "normal"
+        }
+      },
+      "tokensText": "275k / 475k",
+      "percentageText": "58%",
+      "percentage": 57.89473684210527
+    },
+    {
+      "name": "earlier automatic threshold does not change the usage denominator",
+      "input": {
+        "context": {
+          "totalTokens": 150000,
+          "contextWindow": 400000,
+          "outputReserveTokens": 100000,
+          "compactThresholdTokens": 200000,
+          "compactThreshold": 0.6666666666666666
+        }
+      },
+      "tokensText": "150k / 300k",
+      "percentageText": "50%",
+      "percentage": 50
+    },
+    {
+      "name": "actual usage stays visible when its percentage is capped",
+      "input": {
+        "context": {
+          "totalTokens": 600000,
+          "contextWindow": 500000,
+          "outputReserveTokens": 25000,
+          "compactThresholdTokens": 450000
+        }
+      },
+      "tokensText": "600k / 475k",
+      "percentageText": "100%",
+      "percentage": 100
+    }
+  ],
+  "indicator": {
+    "reason": "The composer exposes measured usage as an accessible passive ring. Hover details use rounded percentages and token counts, open after a brief delay, and dismiss without engine actions.",
+    "hoverDelayMs": 200,
+    "status": [
+      {
+        "name": "zero usage remains visible",
+        "tokens": 0,
+        "capacity": 475000,
+        "percent": 0,
+        "muted": false,
+        "en": "0% used (100% left)",
+        "zh": "0% 已用（剩余 100%）"
+      },
+      {
+        "name": "rounding below half keeps the remaining capacity",
+        "tokens": 49499,
+        "capacity": 100000,
+        "percent": 49,
+        "muted": false,
+        "en": "49% used (51% left)",
+        "zh": "49% 已用（剩余 51%）"
+      },
+      {
+        "name": "rounded half switches to the compact status",
+        "tokens": 49500,
+        "capacity": 100000,
+        "percent": 50,
+        "muted": true,
+        "en": "50% full",
+        "zh": "50% 已用"
+      },
+      {
+        "name": "excess usage is bounded at full",
+        "tokens": 600000,
+        "capacity": 475000,
+        "percent": 100,
+        "muted": true,
+        "en": "100% full",
+        "zh": "100% 已用"
+      }
+    ]
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "_why": "Desktop text copy and paste use the native Electron clipboard so custom-origin permission state cannot make visible copy controls silently fail.",
+  "roundTrips": [
+    {
+      "name": "multiline Unicode message",
+      "text": "复制这段文字\nwith `inline code` and emoji 😀"
+    },
+    {
+      "name": "empty clipboard value",
+      "text": ""
+    }
+  ]
+}

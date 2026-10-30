@@ -1,0 +1,10 @@
+{
+  "reason": "Bundled marketplace content is managed by the app package, so refresh skips current and historical seed locations without writing config or replacing directories. Other external locations remain rejected. The application also skips a hidden third-party marketplace when none of its plugins is installed, so an unrelated source cannot turn a visible catalog check into a failure.",
+  "seededInstallLocations": [
+    "$SEED/marketplaces/claude-plugins-official",
+    "/previous/Klaus.app/Contents/Resources/plugins-seed/marketplaces/claude-plugins-official",
+    "/previous/resources/plugins-seed/marketplaces/claude-plugins-official/",
+    "C:\\previous\\Klaus\\resources\\plugins-seed\\marketplaces\\claude-plugins-official"
+  ],
+  "seededRefresh": { "ok": true, "skipped": true, "reason": "seed-managed" }
+}

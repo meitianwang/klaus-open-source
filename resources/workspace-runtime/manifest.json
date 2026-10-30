@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "version": "pdf-1",
+  "pythonVersion": "3.12.15",
+  "uvVersion": "0.13.1",
+  "packages": {
+    "pypdf": "6.20.1",
+    "pdfplumber": "0.11.10",
+    "reportlab": "5.0.1",
+    "pypdfium2": "5.14.0",
+    "pdfminer.six": "20260107",
+    "Pillow": "12.3.0",
+    "charset-normalizer": "3.5.2",
+    "cryptography": "50.0.2",
+    "cffi": "2.1.1",
+    "pycparser": "3.11"
+  },
+  "platforms": {
+    "darwin-arm64": {
+      "url": "https://github.com/astral-sh/uv/releases/download/0.13.1/uv-aarch64-apple-darwin.tar.gz",
+      "sha256": "cfe454573412ff7380d15fc7dae5997ab53ffce72fce0a78e91ddbc84001acd2",
+      "archive": "tar.gz",
+      "binary": "uv-aarch64-apple-darwin/uv"
+    },
+    "win32-x64": {
+      "url": "https://github.com/astral-sh/uv/releases/download/0.13.1/uv-x86_64-pc-windows-msvc.zip",
+      "sha256": "3b2661a463a5baea7f5076ea2b25ab71d77f36a6c0d809e5350651792f80a672",
+      "archive": "zip",
+      "binary": "uv.exe"
+    }
+  }
+}

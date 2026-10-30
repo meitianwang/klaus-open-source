@@ -1,0 +1,580 @@
+/* MCP 页样式（Batch 5 CSS Modules）。状态类与 kls-* 原语经 :global()
+   引用；mcp-logo-lg 为 mcpDetailShell 共享组件类留全局。 */
+
+.kls-input-json {
+  font-size: var(--code-font-size);
+}
+
+/* uvx 类服务缺失 uv 时的推荐安装命令行（失败告警块内联） */
+.mcp-uv-cmd-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+
+.mcp-uv-cmd {
+  flex: 1; min-width: 0; padding: 4px 8px; border-radius: var(--radius-xs);
+  background: var(--bg-base, rgba(0,0,0,0.06)); font-family: var(--font-mono, monospace);
+  font-size: var(--text-small); white-space: nowrap; overflow-x: auto;
+}
+
+/* 与 .mcp-row-main 同的 16px 横向 padding，让 cwd 左缘、批准/添加右缘都和下面的行块对齐。 */
+.mcp-project-tab-head { display: flex; align-items: center; gap: 8px; margin: 4px 0 8px; padding: 0 16px; min-height: 26px; }
+
+.mcp-project-tab-cwd { font-size: var(--text-small); color: var(--fg-tertiary); }
+
+.mcp-project-tab-actions { margin-left: auto; display: flex; align-items: center; gap: 6px; }
+
+.mcp-row-main {
+  display: flex; align-items: center; gap: 12px; padding: 12px 16px; min-height: 56px;
+}
+
+.mcp-expand-btn {
+  width: 20px; height: 20px; display: inline-flex; align-items: center; justify-content: center;
+  background: transparent; border: none; color: var(--fg-tertiary); cursor: pointer;
+  border-radius: var(--radius-xxs); transition: transform var(--transition), background var(--transition);
+}
+
+.mcp-expand-btn:hover { background: var(--bg-hover); color: var(--fg); }
+
+.mcp-expand-btn.mcp-expand-open { transform: rotate(90deg); }
+
+.mcp-expand-placeholder { width: 20px; height: 20px; display: inline-block; }
+
+/* 统一行字形：32px 裸字形（不套砖底），全部条目同言。 */
+.mcp-row-glyph {
+  width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0; color: var(--fg);
+}
+
+.mcp-row-glyph svg { display: block; }
+
+.mcp-row-name { flex: 1; display: flex; align-items: center; gap: 8px; min-width: 0; }
+
+.mcp-row-name-stacked { flex-direction: column; align-items: flex-start; gap: 2px; }
+
+.mcp-name-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+
+/* 名称/描述字样：统一行骨架唯一的一套字样，所有条目不分家。
+   字号/字重对齐技能页行式列表（sk-row-name 13px regular / sk-row-desc 12px）：
+   semibold 在密集行里浓墨重笔，层级靠字号 + 颜色承担。 */
+.mcp-name-text { font-size: var(--text-body-sm); font-weight: var(--weight-regular); color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.mcp-builtin-desc { font-size: var(--text-small); color: var(--fg-tertiary); line-height: 1.4; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.mcp-row-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+
+.mcp-tool-count { font-size: var(--text-caption); color: var(--fg-quaternary); padding: 0 6px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+.mcp-action-btn {
+  padding: 6px 14px; background: var(--bg-hover); color: var(--fg); border: none;
+  border-radius: var(--radius-sm); font-size: var(--text-small); font-weight: var(--weight-medium); cursor: pointer; font-family: var(--font);
+  transition: background var(--transition);
+}
+
+.mcp-action-btn:hover { background: color-mix(in srgb, var(--fg) 10%, var(--bg-hover)); }
+
+.mcp-action-primary { background: var(--accent); color: var(--accent-text); }
+
+.mcp-action-primary:hover { background: var(--accent-hover); }
+
+/* 双类选择器拿稳特异性：此规则在 .kls-modal（max-width 540px）之前，单类同特异性
+   会被后者覆盖，状态弹窗会被撑到 540 宽。 */
+:global(.kls-modal).mcp-enable-card { position: relative; max-width: 420px; }
+
+.mcp-enable-body {
+  display: flex; flex-direction: column; align-items: center;
+  padding: 36px 32px 28px; text-align: center;
+  /* 长内容（连接器组的十几行、长工具明细）在卡内滚，不把卡撑破 85vh 后被裁掉。 */
+  overflow-y: auto;
+}
+
+.mcp-enable-body > :global(.mcp-enable-desc) {
+  line-height: var(--leading-mcp-entry-name);
+}
+
+.mcp-enable-points { display: flex; flex-direction: column; gap: 14px; width: 100%; margin-bottom: 24px; }
+
+.mcp-enable-point { display: flex; align-items: flex-start; gap: 12px; text-align: left; }
+
+.mcp-enable-point-icon {
+  display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto;
+  width: 34px; height: 34px; border-radius: var(--radius-sm);
+  background: var(--bg-surface); color: var(--fg-secondary);
+}
+
+.mcp-enable-point-title { color: var(--fg); font-size: var(--text-body-sm); font-weight: var(--weight-regular); }
+
+.mcp-enable-point-desc { margin-top: 1px; color: var(--fg-tertiary); font-size: var(--text-small); line-height: 1.4; }
+
+.mcp-enable-cta { width: 100%; }
+.mcp-state-status { width: 100%; margin: 4px 0 20px; color: var(--fg-tertiary); font-size: var(--text-small); text-align: center; }
+
+/* 条目弹窗里的行列表（内置连接器组的成员行）：格式同浏览器弹窗的事实块——上边
+   分隔线与 hero 划开、计数小标题、软底圆角岛行（同实例行的字号与图标档）；
+   列表限高卡内滚，卡高与家族其他条目同档，不随行数长成通天塔。 */
+.mcp-entry-rows {
+  width: 100%; text-align: left;
+  margin-top: 4px; padding-top: 16px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.mcp-entry-rows-heading {
+  margin: 0 0 6px;
+  line-height: var(--leading-mcp-entry-name);
+  color: var(--fg);
+  font-size: var(--text-small);
+  font-weight: var(--weight-medium);
+}
+
+.mcp-entry-rows-list { max-height: min(45vh, 320px); overflow-y: auto; }
+
+.mcp-entry-rows :global(.mcp-row) {
+  border-bottom: none;
+  background: var(--bg-surface);
+  border-radius: var(--radius-sm);
+}
+
+.mcp-entry-rows :global(.mcp-row) + :global(.mcp-row) { margin-top: 4px; }
+
+.mcp-entry-rows :global(.mcp-row:hover) { background: var(--bg-surface); }
+
+/* 行压到实例行档：8/10 内边距、18px 字形、text-small 名 + caption 描述。 */
+.mcp-entry-rows .mcp-row-main { padding: 8px 10px; min-height: 0; gap: 8px; }
+
+.mcp-entry-rows .mcp-row-glyph { width: 18px; height: 18px; }
+
+.mcp-entry-rows .mcp-row-glyph svg { width: 18px; height: 18px; }
+
+.mcp-entry-rows .mcp-name-text { font-size: var(--text-small); line-height: var(--leading-mcp-entry-name); }
+
+.mcp-entry-rows .mcp-builtin-desc { font-size: var(--text-caption); line-height: var(--leading-mcp-entry-desc); }
+
+/* 展开体坐在岛上：岛读作一块，行头与工具网格之间只留细分隔线；
+   缩进随压缩后的行内边距对齐到字形列（10 + 20 + 8）。 */
+.mcp-entry-rows .mcp-row-expand { background: transparent; padding: 0 10px 10px 38px; }
+
+/* 浏览器连接区：hero/标题居中，这一块是左对齐的事实陈述——状态一行、连上的实例
+   一行，宽度撑满卡片，上边用分隔线与 hero 划开。 */
+.browser-connect {
+  width: 100%;
+  margin: 4px 0 20px;
+  padding: 16px 0 4px;
+  border-top: 1px solid var(--border-subtle);
+  text-align: left;
+}
+
+.browser-status-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.browser-status-dot {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--fg-quaternary);
+}
+
+.browser-status-dot:global(.is-ready) { background: var(--status-ok); }
+
+.browser-status-title {
+  color: var(--fg);
+  font-size: var(--text-body-sm);
+  font-weight: var(--weight-medium);
+}
+
+.browser-status-desc {
+  margin-top: 6px;
+  color: var(--fg-tertiary);
+  font-size: var(--text-small);
+  line-height: 1.4;
+}
+
+/* 浏览器名与版本：状态词旁边的两个小标，只报事实不占一行。 */
+.browser-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 7px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+  color: var(--fg-secondary);
+  font-size: var(--text-small);
+  line-height: 1.6;
+}
+
+.browser-tag-icon {
+  display: inline-flex;
+  width: 13px;
+  height: 13px;
+}
+
+.browser-tag-icon svg { width: 100%; height: 100%; }
+
+.browser-instance-heading {
+  margin: 14px 0 6px;
+  color: var(--fg);
+  font-size: var(--text-small);
+  font-weight: var(--weight-medium);
+}
+
+.browser-instance-row {
+  display: grid;
+  grid-template-columns: 8px 18px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+}
+
+.browser-instance-row + .browser-instance-row { margin-top: 4px; }
+
+.browser-instance-copy { min-width: 0; }
+
+.browser-instance-name {
+  color: var(--fg);
+  font-size: var(--text-small);
+  overflow-wrap: anywhere;
+}
+
+.browser-instance-id {
+  color: var(--fg-tertiary);
+  font-size: var(--text-caption);
+}
+
+.browser-instance-current {
+  color: var(--fg-secondary);
+  font-size: var(--text-caption);
+  white-space: nowrap;
+}
+
+/* 手动装扩展：自动连接没成功才露出的一句小字，展开后是三步。常显就又变成一张
+   操作台了。 */
+.browser-manual-toggle {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--fg-tertiary);
+  font: inherit;
+  font-size: var(--text-small);
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.browser-manual-toggle:hover { color: var(--fg-secondary); }
+
+.browser-manual-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 14px 0 0;
+  padding-left: 18px;
+}
+
+.browser-manual-title {
+  color: var(--fg);
+  font-size: var(--text-small);
+  font-weight: var(--weight-medium);
+}
+
+.browser-manual-desc {
+  margin-top: 2px;
+  color: var(--fg-tertiary);
+  font-size: var(--text-caption);
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.browser-manual-steps li > .mcp-action-btn { margin-top: 6px; }
+
+.mcp-row-expand {
+  padding: 0 16px 14px 46px; background: var(--bg);
+  border-top: 1px solid var(--border-subtle);
+}
+
+.mcp-row-expand[hidden] { display: none; }
+
+.kls-input-json { font-family: var(--font-mono); font-size: var(--text-small); resize: vertical; min-height: 220px; line-height: 1.5; }
+.mcp-form-error { margin: 0 20px 4px; color: var(--danger-text); font-size: var(--text-small); line-height: var(--leading-mcp-entry-name); }
+
+/* 淡危险色提交钮（状态弹窗「断开」）：danger 淡底 + 危险色字，不用实色满注。 */
+.kls-submit-danger-soft { background: var(--danger-bg); color: var(--danger); }
+
+.kls-submit-danger-soft:hover { background: color-mix(in srgb, var(--danger) 22%, var(--bg-surface)); }
+
+/* 市场状态弹窗：双 logo hero（Klaus 砖 + 中缝状态徽 + server 砖）。
+   徽四态：ⱆ 待安装 / 虚线圆 已装未启用（次墨裸图形）；绿底白勾 / 红底白叉（实色圆徽）。 */
+.mcp-state-hero { display: flex; align-items: center; justify-content: center; gap: 12px; margin-bottom: 16px; }
+
+.mcp-state-hero :global(.mcp-logo-lg) { width: 52px; height: 52px; }
+
+.mcp-state-badge {
+  display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto;
+  width: 22px; height: 22px; color: var(--fg-quaternary);
+}
+
+.mcp-state-badge:global(.is-on) { background: var(--status-ok); color: #fff; border-radius: 50%; }
+
+.mcp-state-badge:global(.is-failed) { background: var(--status-error); color: #fff; border-radius: 50%; }
+
+/* 安装态的 env 采集区与失败态告警块：居中版式里的左对齐岛。 */
+.mcp-state-env { width: 100%; text-align: left; margin-bottom: 14px; }
+
+/* 已安装态的凭据重灌提示（留空沿用/填写覆盖）：表单上方的次墨小字。 */
+.mcp-state-env-hint { margin-bottom: 8px; font-size: var(--text-caption); color: var(--fg-tertiary); }
+
+/* 设备授权条目里手填令牌降为折叠备选：summary 同次墨小字语汇。 */
+.mcp-state-env-fold > summary {
+  cursor: pointer; list-style: none; margin-bottom: 8px;
+  font-size: var(--text-caption); color: var(--fg-tertiary);
+}
+
+.mcp-state-env-fold > summary::-webkit-details-marker { display: none; }
+
+.mcp-state-env-fold > summary:hover { color: var(--fg-secondary); }
+
+/* 设备流验证码：等宽大字 + 宽字距（照着屏幕手抄进浏览器）+ 行尾复制。 */
+.mcp-device-code-row {
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  width: 100%; margin: 4px 0 20px;
+}
+
+.mcp-device-code {
+  padding: 10px 16px; border-radius: var(--radius-sm);
+  background: var(--bg-hover); color: var(--fg);
+  font-family: var(--font-mono); font-size: var(--text-title);
+  letter-spacing: 0.14em; user-select: all;
+}
+
+/* 注册 OAuth App 引导链接：表单下方的次墨小字链。 */
+.mcp-device-register-link { display: inline-block; font-size: var(--text-caption); color: var(--fg-tertiary); text-decoration: none; }
+
+.mcp-device-register-link:hover { color: var(--fg-secondary); text-decoration: underline; }
+
+.mcp-state-error { width: 100%; text-align: left; margin-bottom: 20px; }
+
+/* 全宽按钮组竖排（失败态：断开 + 重试 + 诊断）。 */
+.mcp-state-actions { display: flex; flex-direction: column; gap: 8px; width: 100%; }
+
+.mcp-state-actions .mcp-enable-cta { width: 100%; }
+
+/* OAuth 授权告知：CTA 下方的次墨小字，提前说清启用会拉起浏览器。 */
+.mcp-state-oauth-hint { margin-top: 10px; font-size: var(--text-caption); color: var(--fg-tertiary); text-align: center; }
+
+/* MCP 的弹窗（添加/编辑、JSON 导入、市场状态弹窗）共用 kls-modal 框架；
+   字重降档只在 MCP 范围内生效（mcp-form-modal 专属标），不动其他页的弹窗。 */
+.mcp-form-modal :global(.kls-modal-title) { font-weight: var(--weight-medium); }
+
+.mcp-form-modal :global(.kls-field-label) { font-weight: var(--weight-medium); }
+
+/* uv 安装指引（uvx 类服务且本机缺 uv 时才显）：人话提示 + 命令行 + 复制。 */
+.mcp-error-uv-hint { margin-top: 8px; font-size: var(--text-caption); color: var(--fg-secondary); line-height: 1.5; }
+
+/* 连接器行已收敛进统一行骨架（renderMcpEntryRow → .mcp-row），只剩展开体里的
+   per-tool 三档控件网格是连接器专属样式；缩进由 .mcp-row-expand 统一提供。 */
+.connector-tools {
+  padding: 8px 0 0;
+}
+
+.connector-tools-group + .connector-tools-group { margin-top: 14px; }
+
+.connector-tools-heading {
+  font-size: var(--text-body-sm);
+  font-weight: var(--weight-medium);
+  color: var(--fg-secondary);
+  margin-bottom: 8px;
+}
+
+.connector-tools-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 6px 24px;
+}
+
+.connector-tool-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--text-body);
+  color: var(--fg);
+  padding: 4px 0;
+  user-select: none;
+}
+
+/* 三档控件（自动/需批准/已禁用）：外观套全局 .kls-select-native（原生 select 的统
+   一外观），这里只管位置与槽宽；工具名占余下宽度（过长省略号截断，不把控件挤
+   出列），与 MCP 页工具行的 .mcp-tool-mode 同一套尺寸。 */
+.connector-tool-mode {
+  margin-left: auto;
+  min-width: 104px;
+  flex-shrink: 0;
+}
+
+.connector-tool-label {
+  line-height: 1.25;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 浏览器弹窗的扩展连接状态区：上边分隔线与 hero 划开（同条目弹窗事实块语汇），
+   状态点 + 标签 + 浏览器/版本徽一行；已连时下面是计数小标题与软底实例岛行。 */
+.browser-ext-status {
+  width: 100%; padding-top: 18px; margin-bottom: 18px;
+  border-top: 1px solid var(--border); text-align: left;
+}
+
+.browser-ext-status-row { display: flex; align-items: center; gap: 8px; }
+
+.browser-ext-dot {
+  flex: 0 0 auto; width: 8px; height: 8px; border-radius: 50%;
+  background: var(--fg-quaternary);
+}
+
+.browser-ext-dot.is-on { background: var(--status-ok); }
+
+.browser-ext-status-label { color: var(--fg); font-size: var(--text-body-sm); }
+
+.browser-ext-chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 2px 8px; border-radius: var(--radius-sm);
+  background: var(--bg-hover); color: var(--fg-secondary);
+  font-size: var(--text-caption);
+}
+
+.browser-ext-count { margin: 14px 0 8px; color: var(--fg-secondary); font-size: var(--text-small); }
+
+.browser-ext-list { display: flex; flex-direction: column; gap: 8px; }
+
+.browser-ext-instance {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 12px; border-radius: var(--radius-sm); background: var(--bg-surface);
+}
+
+.browser-ext-instance-icon {
+  display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto;
+  width: 24px; height: 24px; color: var(--fg-secondary);
+}
+
+.browser-ext-instance-text { flex: 1 1 auto; min-width: 0; text-align: left; }
+
+.browser-ext-instance-name {
+  color: var(--fg); font-size: var(--text-small);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+.browser-ext-instance-id { margin-top: 1px; color: var(--fg-tertiary); font-size: var(--text-caption); }
+
+.browser-ext-current {
+  flex: 0 0 auto; display: inline-flex; align-items: center; gap: 4px;
+  padding: 3px 8px; border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--status-ok) 12%, transparent); color: var(--status-ok);
+  font-size: var(--text-caption);
+}
+
+.browser-ext-waiting-desc { margin-top: 10px; color: var(--fg-tertiary); font-size: var(--text-small); line-height: 1.5; }
+
+/* 未连时的手动安装引导：折叠开关同次墨小字语汇（同 mcp-state-env-fold），
+   展开后是编号步骤，步骤内动作是行内小按钮。 */
+.browser-ext-manual { width: 100%; margin-bottom: 18px; text-align: left; }
+
+.browser-ext-manual-toggle {
+  padding: 0; border: 0; background: none; cursor: pointer;
+  color: var(--fg-tertiary); font-size: var(--text-caption); text-align: left;
+}
+
+.browser-ext-manual-toggle:hover { color: var(--fg-secondary); }
+
+.browser-ext-steps { margin: 12px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 14px; }
+
+.browser-ext-steps > li::marker { color: var(--fg-tertiary); font-size: var(--text-caption); }
+
+.browser-ext-step-title { color: var(--fg); font-size: var(--text-small); }
+
+.browser-ext-step-desc { margin-top: 2px; color: var(--fg-tertiary); font-size: var(--text-caption); line-height: 1.5; }
+
+.browser-ext-step-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+
+.browser-ext-mini-btn {
+  padding: 5px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--bg-surface); color: var(--fg-secondary);
+  font-size: var(--text-caption); cursor: pointer;
+}
+
+.browser-ext-mini-btn:hover:not(:disabled) { color: var(--fg); border-color: var(--fg-quaternary); }
+
+.browser-ext-mini-btn:disabled { opacity: 0.5; cursor: default; }
+
+/* 复制出来的落点路径：等宽小字独占一行，行尾复制钮；路径长时省略号收尾，
+   整段可选中（user-select: all），复制钮走剪贴板。 */
+.browser-ext-path-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+
+.browser-ext-path {
+  flex: 1 1 auto; min-width: 0; padding: 5px 8px; border-radius: var(--radius-sm);
+  background: var(--bg-hover); color: var(--fg-secondary);
+  font-family: var(--font-mono); font-size: var(--text-caption);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; user-select: all;
+}
+
+/* 「不方便拖拽」折叠项：summary 同步骤小字，展开是嵌套编号清单。 */
+.browser-ext-faq { margin-top: 2px; }
+
+.browser-ext-faq > summary {
+  cursor: pointer; list-style: none;
+  color: var(--fg-tertiary); font-size: var(--text-caption);
+}
+
+.browser-ext-faq > summary::-webkit-details-marker { display: none; }
+
+.browser-ext-faq > summary:hover { color: var(--fg-secondary); }
+
+.browser-ext-faq ol { margin: 8px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }
+
+.browser-ext-faq li { color: var(--fg-tertiary); font-size: var(--text-caption); line-height: 1.5; }
+
+/* 一键准备安装：未连引导区顶部的主按钮 + 一句说明。它把 Klaus 侧四件事合成一次
+   点击（部署拷贝 / 路径进剪贴板 / 打开扩展管理页 / Finder 定位），Chrome 里剩下
+   的手势是浏览器强制的，说明里不夸大。 */
+.browser-ext-prepare { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
+
+.browser-ext-prepare-btn {
+  width: 100%; padding: 10px 14px; border: 0; border-radius: var(--radius-sm);
+  background: var(--accent); color: var(--bg-surface);
+  font-size: var(--text-body-sm); cursor: pointer;
+}
+
+.browser-ext-prepare-btn:hover:not(:disabled) { opacity: 0.88; }
+
+.browser-ext-prepare-btn:disabled { opacity: 0.5; cursor: default; }
+
+.browser-ext-prepare-desc { color: var(--fg-tertiary); font-size: var(--text-caption); line-height: 1.5; }
+
+/* 系统策略安装块：状态区与引导之间的一行——左侧标题+说明，右侧动作钮。
+   已安装时同一位置换成卸载钮，位置不跳。 */
+.browser-ext-policy {
+  display: flex; align-items: center; gap: 12px;
+  width: 100%; padding: 10px 12px; margin-bottom: 14px;
+  border-radius: var(--radius-sm); background: var(--bg-surface);
+}
+
+.browser-ext-policy[data-installed="true"] {
+  background: color-mix(in srgb, var(--status-ok) 8%, transparent);
+}
+
+.browser-ext-policy-text { flex: 1 1 auto; min-width: 0; text-align: left; }
+
+.browser-ext-policy-title { color: var(--fg); font-size: var(--text-small); }
+
+.browser-ext-policy-desc { margin-top: 2px; color: var(--fg-tertiary); font-size: var(--text-caption); line-height: 1.5; }
+
+.browser-ext-policy .browser-ext-mini-btn { flex: 0 0 auto; }
+
+/* 零手势不可用时的原因说明：引导区顶部一句次墨小字，解释为什么这里只有手动
+   路径（受设备管理的机器上手工策略不生效，摆按钮是骗人）。 */
+.browser-ext-policy-note {
+  width: 100%; margin: 0 0 10px;
+  color: var(--fg-tertiary); font-size: var(--text-caption); line-height: 1.5;
+  text-align: left;
+}

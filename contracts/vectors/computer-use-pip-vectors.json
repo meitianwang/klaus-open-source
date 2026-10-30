@@ -1,0 +1,36 @@
+{
+  "reason": "Pin native picture-in-picture content acceptance and user-controlled geometry separately from model tool output. Invalid computed geometry must fail closed without bringing down the desktop process.",
+  "size": [
+    { "input": 40, "expected": 100 },
+    { "input": 100, "expected": 100 },
+    { "input": 200, "expected": 200 },
+    { "input": 320, "expected": 320 },
+    { "input": 900, "expected": 400 }
+  ],
+  "imageUrls": [
+    { "url": "data:image/png;base64,aGVsbG8=", "accepted": true },
+    { "url": "data:image/jpeg;base64,aGVsbG8=", "accepted": true },
+    { "url": "data:image/webp;base64,aGVsbG8=", "accepted": true },
+    { "url": "https://example.test/private.png", "accepted": false },
+    { "url": "file:///private/image.png", "accepted": false },
+    { "url": "data:image/png;base64,", "accepted": false },
+    { "url": "data:image/svg+xml;base64,aGVsbG8=", "accepted": false },
+    { "url": "data:application/pdf;base64,aGVsbG8=", "accepted": false }
+  ],
+  "multiWindow": {
+    "reason": "Registered main windows share one native preview owner; background layout updates preserve the active presentation and host transfers retain approved sources.",
+    "mainOwnerIds": [10, 20],
+    "maximumActiveNativeOwners": 1,
+    "backgroundLayoutTransfersOwner": false,
+    "transferPreservesApprovedSources": true
+  },
+  "nativeLayoutFailure": {
+    "invalidComputedFrameEvent": "error",
+    "previewVisibleAfterInvalidFrame": false,
+    "previewVisibleAfterValidLayout": true,
+    "diagnosticFile": "computer-use-pip-crash.log",
+    "diagnosticFields": ["atMs", "pid", "kind", "message", "exception", "context"],
+    "exceptionFields": ["name", "reason", "callStackSymbols"],
+    "geometryFields": ["stage", "frame", "anchor", "screenFrame", "allowedFrame", "ownerFrame", "panelFrameBefore", "controlsFrameBefore", "generation", "sessionIds", "presentationIds", "sourceKinds"]
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "name": "prototype-studio",
+  "version": "1.0.0",
+  "description": "Test fixture for the host-managed interface design service. It carries a skill body and an editor template; it has no editor runtime.",
+  "keywords": ["prototype", "fixture"],
+  "skills": "./skills/",
+  "mcpServers": {
+    "klaus-prototype": {
+      "hostManaged": true
+    }
+  },
+  "interface": {
+    "displayName": "Interface design",
+    "shortDescription": "Interface design service fixture",
+    "category": "Design",
+    "capabilities": ["Read", "Write", "Interactive"]
+  }
+}

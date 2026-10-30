@@ -1,0 +1,222 @@
+{
+  "description": "Only explicit receiver-owned delivery receipts produce parent agent notifications; internal child progress and model text never do. Ordinary child cancellation remains lifecycle activity and cannot impersonate a parent completion receipt.",
+  "cases": [
+    {
+      "name": "background completion receipt",
+      "input": {
+        "sessionId": "parent",
+        "event": {
+          "submissionId": "",
+          "agentNotification": {
+            "notificationId": "queue-1",
+            "source": "background-task",
+            "status": "completed",
+            "agentId": "child-a",
+            "agentName": "Audit",
+            "timestamp": 1000
+          }
+        }
+      },
+      "expected": [
+        {
+          "notificationId": "queue-1",
+          "source": "background-task",
+          "status": "completed",
+          "agentId": "child-a",
+          "agentName": "Audit",
+          "timestamp": 1000,
+          "type": "agent_notification",
+          "sessionId": "parent"
+        }
+      ]
+    },
+    {
+      "name": "team message during active turn",
+      "input": {
+        "sessionId": "parent",
+        "event": {
+          "submissionId": "",
+          "agentNotification": {
+            "notificationId": "team-mailbox:stable",
+            "source": "team-mailbox",
+            "status": "updated",
+            "agentName": "reviewer",
+            "timestamp": 1100,
+            "turnId": "turn-1"
+          }
+        }
+      },
+      "expected": [
+        {
+          "notificationId": "team-mailbox:stable",
+          "source": "team-mailbox",
+          "status": "updated",
+          "agentName": "reviewer",
+          "timestamp": 1100,
+          "turnId": "turn-1",
+          "type": "agent_notification",
+          "sessionId": "parent"
+        }
+      ]
+    },
+    {
+      "name": "failure receipt",
+      "input": {
+        "sessionId": "parent",
+        "event": {
+          "submissionId": "",
+          "agentNotification": {
+            "notificationId": "queue-failed",
+            "source": "background-task",
+            "status": "failed",
+            "agentId": "child-b",
+            "taskId": "task-b",
+            "timestamp": 1200
+          }
+        }
+      },
+      "expected": [
+        {
+          "notificationId": "queue-failed",
+          "source": "background-task",
+          "status": "failed",
+          "agentId": "child-b",
+          "taskId": "task-b",
+          "timestamp": 1200,
+          "type": "agent_notification",
+          "sessionId": "parent"
+        }
+      ]
+    },
+    {
+      "name": "cancelled receipt",
+      "input": {
+        "sessionId": "parent",
+        "event": {
+          "submissionId": "",
+          "agentNotification": {
+            "notificationId": "queue-cancelled",
+            "source": "background-task",
+            "status": "cancelled",
+            "agentId": "child-b"
+          }
+        }
+      },
+      "expected": [
+        {
+          "notificationId": "queue-cancelled",
+          "source": "background-task",
+          "status": "cancelled",
+          "agentId": "child-b",
+          "type": "agent_notification",
+          "sessionId": "parent"
+        }
+      ]
+    },
+    {
+      "name": "missing identity rejected",
+      "input": {
+        "sessionId": "parent",
+        "event": {
+          "submissionId": "",
+          "agentNotification": {
+            "source": "team-mailbox",
+            "status": "updated"
+          }
+        }
+      },
+      "expected": []
+    },
+    {
+      "name": "unknown source rejected",
+      "input": {
+        "sessionId": "parent",
+        "event": {
+          "submissionId": "",
+          "agentNotification": {
+            "notificationId": "x",
+            "source": "progress",
+            "status": "updated"
+          }
+        }
+      },
+      "expected": []
+    },
+    {
+      "name": "missing receiver rejected",
+      "input": {
+        "sessionId": "",
+        "event": {
+          "submissionId": "",
+          "agentNotification": {
+            "notificationId": "x",
+            "source": "team-mailbox",
+            "status": "updated"
+          }
+        }
+      },
+      "expected": []
+    },
+    {
+      "name": "child progress is not receipt",
+      "input": {
+        "sessionId": "parent",
+        "event": {
+          "subagentEvent": {
+            "agentId": "child-a",
+            "event": {
+              "type": "message.complete",
+              "text": "actual output"
+            }
+          }
+        }
+      },
+      "expected": []
+    },
+    {
+      "name": "meta text cannot impersonate receipt",
+      "input": {
+        "sessionId": "parent",
+        "event": {
+          "event": {
+            "type": "user.message",
+            "message": {
+              "uuid": "meta-1",
+              "isMeta": true,
+              "content": "<task-notification>child-a finished</task-notification>"
+            }
+          }
+        }
+      },
+      "expected": []
+    },
+    {
+      "name": "ordinary child cancellation is not a parent completion receipt",
+      "input": {
+        "sessionId": "parent",
+        "event": {
+          "subagentEvent": {
+            "agentId": "child-cancelled",
+            "event": {
+              "type": "turn.completed",
+              "turnId": "cancelled-child-turn",
+              "stopReason": "aborted",
+              "usage": null
+            }
+          }
+        }
+      },
+      "expected": [
+        {
+          "type": "agent_progress",
+          "sessionId": "parent",
+          "agentId": "child-cancelled",
+          "event": {
+            "type": "interrupted",
+            "turnId": "cancelled-child-turn"
+          }
+        }
+      ]
+    }
+  ]
+}

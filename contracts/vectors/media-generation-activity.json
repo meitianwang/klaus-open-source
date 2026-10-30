@@ -1,0 +1,121 @@
+{
+  "reason": "Generation events identify their media type and lifecycle in rows and group headings while retaining expandable input and results. Audio and music stay distinct, and media emitted by unrelated tools keeps its own presentation.",
+  "tools": [
+    {
+      "name": "generate_image",
+      "kind": "image",
+      "icon": "tool-generate-image",
+      "aliases": [
+        "gen_image",
+        "generateImage",
+        "functions.generate_image",
+        "functions_gen_image"
+      ],
+      "labels": {
+        "en": {
+          "running": "Generating image",
+          "done": "Generated image",
+          "error": "Failed to generate image",
+          "interrupted": "Stopped generating image",
+          "awaiting-approval": "Awaiting approval to generate image"
+        },
+        "zh": {
+          "running": "正在生成图片",
+          "done": "已生成图片",
+          "error": "图片生成失败",
+          "interrupted": "已停止生成图片",
+          "awaiting-approval": "等待批准生成图片"
+        }
+      }
+    },
+    {
+      "name": "generate_video",
+      "kind": "video",
+      "icon": "tool-generate-video",
+      "aliases": [
+        "gen_video",
+        "generateVideo",
+        "functions.generate_video",
+        "functions_gen_video"
+      ],
+      "labels": {
+        "en": {
+          "running": "Generating video",
+          "done": "Generated video",
+          "error": "Failed to generate video",
+          "interrupted": "Stopped generating video",
+          "awaiting-approval": "Awaiting approval to generate video"
+        },
+        "zh": {
+          "running": "正在生成视频",
+          "done": "已生成视频",
+          "error": "视频生成失败",
+          "interrupted": "已停止生成视频",
+          "awaiting-approval": "等待批准生成视频"
+        }
+      }
+    },
+    {
+      "name": "generate_audio",
+      "kind": "audio",
+      "icon": "tool-generate-audio",
+      "aliases": [
+        "gen_audio",
+        "generateAudio",
+        "functions.generate_audio",
+        "functions_gen_audio"
+      ],
+      "labels": {
+        "en": {
+          "running": "Generating audio",
+          "done": "Generated audio",
+          "error": "Failed to generate audio",
+          "interrupted": "Stopped generating audio",
+          "awaiting-approval": "Awaiting approval to generate audio"
+        },
+        "zh": {
+          "running": "正在生成音频",
+          "done": "已生成音频",
+          "error": "音频生成失败",
+          "interrupted": "已停止生成音频",
+          "awaiting-approval": "等待批准生成音频"
+        }
+      }
+    },
+    {
+      "name": "generate_music",
+      "kind": "music",
+      "icon": "tool-generate-music",
+      "aliases": [
+        "gen_music",
+        "generateMusic",
+        "functions.generate_music",
+        "functions_gen_music"
+      ],
+      "labels": {
+        "en": {
+          "running": "Generating music",
+          "done": "Generated music",
+          "error": "Failed to generate music",
+          "interrupted": "Stopped generating music",
+          "awaiting-approval": "Awaiting approval to generate music"
+        },
+        "zh": {
+          "running": "正在生成音乐",
+          "done": "已生成音乐",
+          "error": "音乐生成失败",
+          "interrupted": "已停止生成音乐",
+          "awaiting-approval": "等待批准生成音乐"
+        }
+      }
+    }
+  ],
+  "unrelatedTools": [
+    "mcp__studio__generate_image",
+    "mcp__studio__generate_music",
+    "view_image",
+    "browser_screenshot",
+    "generate_image_metadata",
+    "gen_music_status"
+  ]
+}

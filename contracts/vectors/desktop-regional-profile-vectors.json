@@ -1,0 +1,15 @@
+{
+  "_why": "Desktop editions retain domestic compatibility while isolating default profiles, external protocols, instance ownership, mobile listeners and product-owned credential namespaces.",
+  "editions": [
+    { "id": "domestic", "application": "ai.klaus.desktop", "configDirectory": ".klaus", "protocol": "klaus", "mobilePort": 27189, "keychainService": "agent-engine", "legacyIdentity": true, "chromeDiscoveryName": "klaus-browser-use" },
+    { "id": "international", "application": "ai.klaus.desktop.international", "configDirectory": ".klaus-international", "protocol": "klaus-international", "mobilePort": 27190, "keychainService": "agent-engine-international", "legacyIdentity": false, "chromeDiscoveryName": "klaus-browser-use-international" }
+  ],
+  "profileOverride": "independent-custom-roots-allowed-every-other-loaded-edition-default-and-descendants-refused",
+  "testGuard": "every-loaded-edition-real-default-profile-and-descendants-refused-including-symlink-aliases",
+  "instanceIdentity": "non-legacy-editions-always-use-trusted-application-legacy-fixtures-remain-development-only",
+  "protocolSelection": "trusted-injection-only-never-locale-or-url-any-well-formed-non-reserved-scheme",
+  "windowsLegacyMigration": "legacy-identity-compatible-other-editions-disabled-by-trusted-option",
+  "externalSubscriptionImport": "real-user-home-preserved-explicit-imports-unchanged",
+  "mcpNamespace": "allow-only-the-agent-engine-namespace-family-without-cross-namespace-fallback-and-refuse-namespaces-an-older-addon-cannot-isolate",
+  "_change": "Editions became data: legacyIdentity and chromeDiscoveryName now carry the per-edition differences that were id comparisons, so an edition defined outside the repository needs no code change."
+}

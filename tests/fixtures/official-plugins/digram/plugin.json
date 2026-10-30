@@ -1,0 +1,18 @@
+{
+  "name": "digram",
+  "version": "1.0.0",
+  "description": "Test fixture for the host-managed diagram service. It carries only what the host reads: a skill body and a small icon catalog.",
+  "keywords": ["diagram", "fixture"],
+  "skills": "./skills/",
+  "mcpServers": {
+    "klaus-digram": {
+      "hostManaged": true
+    }
+  },
+  "interface": {
+    "displayName": "Diagrams",
+    "shortDescription": "Diagram service fixture",
+    "category": "Engineering",
+    "capabilities": ["Read", "Write", "Interactive"]
+  }
+}

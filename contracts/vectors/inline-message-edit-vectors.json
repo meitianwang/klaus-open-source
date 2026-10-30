@@ -1,0 +1,76 @@
+{
+  "reason": "Editing belongs to the submitted message. Ordinary composer drafts and fixed sent attachments remain independent; current document positions supply replacement metadata.",
+  "legacy": {
+    "prepared": {
+      "messageUuid": "message",
+      "displayMetadata": {
+        "displayText": "  before after",
+        "selectedTextAttachments": [
+          {
+            "text": "First quote",
+            "quoteId": "quote-a",
+            "requestOffset": 9
+          },
+          {
+            "text": "Second quote",
+            "quoteId": "quote-b",
+            "requestOffset": 9
+          }
+        ],
+        "pastedCards": [
+          {
+            "path": "/pastes/one",
+            "text": "retained paste",
+            "characterCount": 14
+          }
+        ]
+      },
+      "attachments": [
+        {
+          "path": "/uploads/image.png",
+          "name": "original.png",
+          "mimeType": "image/png"
+        },
+        {
+          "path": "/uploads/file.pdf",
+          "name": "original.pdf"
+        }
+      ]
+    },
+    "expectedText": "  before ￼￼after",
+    "expectedQuotePositions": [
+      [
+        9,
+        "quote-a"
+      ],
+      [
+        9,
+        "quote-b"
+      ]
+    ]
+  },
+  "lifecycle": {
+    "scope": "owning-message-and-conversation",
+    "newMessageDrafts": "untouched",
+    "attachments": "retained-outside-form",
+    "cancel": "discard-edit-and-return-focus",
+    "failure": "retain-edit-for-retry",
+    "pending": "one-request-readonly-editor-no-pickers",
+    "remount": "retain-per-message-edit-draft",
+    "retiredOwner": "discard-late-ui-repopulation",
+    "emptySubmit": "require-authored-text-or-retained-attachment"
+  },
+  "keyboard": {
+    "Enter": "submit-after-document-list-and-code-rules",
+    "ShiftEnter": "newline",
+    "ModEnter": "submit-or-exit-code-block",
+    "Escape": "dismiss-picker-or-cancel-edit",
+    "slashCommands": false,
+    "skillAndMentionPickers": true
+  },
+  "height": {
+    "minRem": 2.5,
+    "maxViewportHeightPercent": 25,
+    "overflow": "scroll"
+  }
+}

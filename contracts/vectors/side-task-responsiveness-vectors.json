@@ -1,0 +1,23 @@
+{
+  "reason": "Side-chat controls return metadata before unrelated cleanup or optional statistics. Creation settles four independent loaders using one raw configuration snapshot, then starts the parent's completed context through one named facade. The materialized facade removes the redundant task-list wait while subscription and the authoritative queue remain required. Resource limits and generation ownership remain authoritative.",
+  "startMethod": "session/startSideTask",
+  "sideStartup": {
+    "loaders": ["dynamicTools", "extensions", "sessionStyles", "hostCapabilities"],
+    "configSnapshot": {
+      "source": "config/read.values",
+      "reads": 1,
+      "sharedBy": ["dynamicTools", "sessionStyles", "hostCapabilities"]
+    },
+    "taskListReads": 0,
+    "subscribed": true,
+    "queueAuthority": "authoritative"
+  },
+  "parentThreadId": "parent",
+  "sourceSessionId": "live-parent",
+  "contextSnapshot": { "context": { "totalTokens": 250, "contextWindow": 1000 } },
+  "contextUsage": { "tokens": 250, "maxTokens": 1000, "percentage": 25 },
+  "listWithoutStatistics": true,
+  "startupCleanupIdentity": "requested-thread-id",
+  "releaseReservationBeforeClose": false,
+  "cleanupPriority": "background"
+}

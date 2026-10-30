@@ -1,0 +1,46 @@
+{
+  "reason": "Reloading the renderer must recover the same unresolved user approvals without creating a new approval or widening the permission policy.",
+  "cards": [
+    {
+      "requestId": "pending-write",
+      "sessionId": "session-a",
+      "toolCallId": "pending-write",
+      "toolName": "write",
+      "toolInput": { "path": "/project/.klaus/specs/second.md", "content": "# Second Spec" },
+      "message": "Allow write to this sensitive path?",
+      "suggestions": [{ "label": "Allow this path", "rules": [{ "toolName": "write", "ruleContent": "/project/.klaus/specs/second.md" }] }]
+    },
+    {
+      "requestId": "pending-spec-review",
+      "sessionId": "session-b",
+      "toolCallId": "pending-spec-review",
+      "toolName": "create_plan",
+      "toolInput": { "planFilePath": "/project/.klaus/specs/first.md", "plan": "# Complete reviewed Spec", "planRevision": "reviewed-revision" },
+      "message": "Approve this plan and exit plan mode to begin work?"
+    },
+    {
+      "requestId": "pending-spec-review-legacy",
+      "sessionId": "session-c",
+      "toolCallId": "pending-spec-review-legacy",
+      "toolName": "exit_plan_mode",
+      "toolInput": { "planFilePath": "/project/.klaus/specs/legacy.md", "plan": "# Spec recorded before the rename", "planRevision": "legacy-revision" },
+      "message": "Approve this plan and exit plan mode to begin work?"
+    }
+  ],
+  "elicitationCards": [
+    {
+      "requestId": "pending-spec-clarification",
+      "sessionId": "session-a",
+      "prompt": "Should the revised Spec include command examples?",
+      "options": ["Include examples", "Keep it brief"],
+      "multiSelect": false
+    },
+    {
+      "requestId": "pending-other-clarification",
+      "sessionId": "session-b",
+      "prompt": "Which formats should be included?",
+      "options": ["JSON", "CSV"],
+      "multiSelect": true
+    }
+  ]
+}

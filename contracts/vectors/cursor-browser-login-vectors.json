@@ -1,0 +1,16 @@
+{
+  "version": 3,
+  "notes": "Browser authorization commits a valid grant without waiting for account decoration. Null team metadata means no selected team. Status reads may fill a missing email within a short bounded lookup; profile failure does not revoke a valid grant. The account card refreshes before optional model activation. A confirmed browser grant is committed before account notifications; card remount and notification failure cannot revoke it. Explicit cancellation before completion and explicit logout retain ownership.",
+  "profileTimeoutMs": 2000,
+  "profileRetryCooldownMs": 30000,
+  "statusTimeoutMs": 12000,
+  "optionalTeamValues": [
+    null
+  ],
+  "accountRefreshBeforeModelActivation": true,
+  "pollTimeoutMs": 40000,
+  "readTimeoutMs": 15000,
+  "delayedCompletionMs": 16000,
+  "committedGrantSurvivesCardRefresh": true,
+  "notificationFailureRevokesGrant": false
+}

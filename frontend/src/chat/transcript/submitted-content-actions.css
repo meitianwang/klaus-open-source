@@ -1,0 +1,7 @@
+.user-content-reader-text {
+  max-height: min(60vh, 640px);
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+}

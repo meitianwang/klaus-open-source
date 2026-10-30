@@ -1,0 +1,87 @@
+{
+  "reason": "Automatic review lifecycle preserves exact action identity, terminal decisions and attribution in live events, replay and explicit denial authorization.",
+  "denied": {
+    "id": "review-shell",
+    "targetItemId": "tool-shell",
+    "turnId": "turn-one",
+    "startedAtMs": 1000,
+    "completedAtMs": 1300,
+    "status": "denied",
+    "riskLevel": "high",
+    "userAuthorization": "low",
+    "rationale": "The requested destination was not authorized.",
+    "decisionSource": "agent",
+    "action": {
+      "type": "command",
+      "source": "shell",
+      "command": "cp report.txt /outside/report.txt",
+      "cwd": "/workspace"
+    }
+  },
+  "statuses": [
+    "in_progress",
+    "approved",
+    "denied",
+    "timed_out",
+    "aborted"
+  ],
+  "actions": [
+    {
+      "type": "command",
+      "source": "shell",
+      "command": "cp report.txt /outside/report.txt",
+      "cwd": "/workspace"
+    },
+    {
+      "type": "execve",
+      "source": "unified_exec",
+      "program": "/bin/cp",
+      "argv": [
+        "/bin/cp",
+        "a b",
+        "c"
+      ],
+      "cwd": "/workspace"
+    },
+    {
+      "type": "write_stdin",
+      "approvalId": "stdin-1",
+      "processId": "process-1",
+      "stdin": "yes\n",
+      "cwd": "/workspace"
+    },
+    {
+      "type": "apply_patch",
+      "cwd": "/workspace",
+      "files": [
+        "/outside/report.txt"
+      ]
+    },
+    {
+      "type": "network_access",
+      "target": "example.com:443",
+      "host": "example.com",
+      "protocol": "https",
+      "port": 443
+    },
+    {
+      "type": "mcp_tool_call",
+      "server": "workspace",
+      "toolName": "write_document",
+      "connectorId": "connector",
+      "connectorName": "Documents",
+      "toolTitle": "Write document"
+    },
+    {
+      "type": "request_permissions",
+      "reason": "Write the selected output",
+      "permissions": {
+        "fileSystem": {
+          "write": [
+            "/outside"
+          ]
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,48 @@
+{
+  "reason": "The renderer reads queue_snapshot.revision/items/status/error directly. Nesting an admitted unsolicited update under snapshot made the queue ignore live additions, consumption and durability failures until a later explicit refresh. Both resumed-session hydration and unsolicited updates must publish the same flat renderer event, while named RPC replies retain their snapshot wrapper. Rejected revisions, reply-scoped frames and stale connections must not publish an update.",
+  "vectors": [
+    {
+      "name": "pending follow-up remains editable with its queue revision",
+      "snapshot": {
+        "revision": 7,
+        "items": [{ "state": "pending", "mutable": true, "message": { "uuid": "queued-one", "value": "Check the final tool output", "mode": "prompt", "priority": "next" }, "privateItemField": true }],
+        "status": "authoritative",
+        "privateEngineField": true
+      },
+      "event": {
+        "type": "queue_snapshot",
+        "sessionId": "conversation",
+        "revision": 7,
+        "items": [{ "state": "pending", "mutable": true, "message": { "uuid": "queued-one", "value": "Check the final tool output", "mode": "prompt", "priority": "next" } }],
+        "status": "authoritative"
+      }
+    },
+    {
+      "name": "consumed queue clears its visible row",
+      "snapshot": { "revision": 8, "items": [], "status": "authoritative" },
+      "event": { "type": "queue_snapshot", "sessionId": "conversation", "revision": 8, "items": [], "status": "authoritative" }
+    },
+    {
+      "name": "durability failure keeps its reserved row and failure reason",
+      "snapshot": {
+        "revision": 9,
+        "items": [{ "state": "reserved", "mutable": false, "message": { "uuid": "queued-one", "value": "Check the final tool output", "mode": "prompt", "priority": "next" } }],
+        "status": "persistence-failed",
+        "error": "Queue persistence failed"
+      },
+      "event": {
+        "type": "queue_snapshot",
+        "sessionId": "conversation",
+        "revision": 9,
+        "items": [{ "state": "reserved", "mutable": false, "message": { "uuid": "queued-one", "value": "Check the final tool output", "mode": "prompt", "priority": "next" } }],
+        "status": "persistence-failed",
+        "error": "Queue persistence failed"
+      }
+    },
+    {
+      "name": "absent status is represented explicitly without a wrapper",
+      "snapshot": { "revision": 0, "items": [] },
+      "event": { "type": "queue_snapshot", "sessionId": "conversation", "revision": 0, "items": [], "status": null }
+    }
+  ]
+}

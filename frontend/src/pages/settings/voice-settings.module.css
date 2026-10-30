@@ -1,0 +1,17 @@
+.heading, .toolbar, .actions, .filters { display: flex; align-items: center; gap: 8px; }
+.heading { justify-content: space-between; flex-wrap: wrap; }
+.heading > div:first-child { flex: 1 1 300px; }
+.actions { flex-shrink: 0; }
+.toolbar { justify-content: space-between; flex-wrap: wrap; margin-bottom: 12px; }
+.toolbar > input { flex: 0 1 240px; min-width: 140px; }
+.filters { gap: 2px; flex-wrap: wrap; }
+.filters button { border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--fg-secondary); padding: 7px 10px; font: inherit; font-size: var(--text-small); cursor: pointer; }
+.filters button[aria-selected="true"] { background: var(--bg-hover); color: var(--fg); }
+.filters button:focus-visible, .menu button:focus-visible { outline: 2px solid var(--input-focus); outline-offset: -2px; }
+.row { gap: 12px; min-height: 52px; }
+.row input { flex: 0 0 auto; accent-color: var(--fg); }
+.term { flex: 1; min-width: 0; overflow-wrap: anywhere; color: var(--fg); font-size: var(--text-body); }
+.menu { position: fixed; width: 196px; z-index: 10020; padding: 4px; background: var(--bg-elevated); color: var(--fg); border: 1px solid var(--border); border-radius: var(--radius-sm); box-shadow: 0 4px 18px rgb(0 0 0 / 12%); }
+.menu button { display: block; width: 100%; padding: 8px 10px; border: 0; border-radius: var(--radius-xs); text-align: left; background: transparent; color: inherit; font: inherit; font-size: var(--text-small); cursor: pointer; }
+.menu button:hover { background: var(--bg-hover); }
+.menu .danger { color: var(--error, #bd2424); }

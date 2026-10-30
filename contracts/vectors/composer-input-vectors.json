@@ -1,0 +1,15 @@
+{
+  "_why": "A selected skill must not suppress later slash queries, and scrolling a long skill draft must keep the text after an inserted line break visible.",
+  "skill": { "name": "product-feature-video", "kind": "skill", "source": "skills" },
+  "slashCases": [
+    { "name": "query after an existing skill", "prefix": "Use ", "suffix": " then /pro", "selected": true, "expected": ["product-feature-video"] },
+    { "name": "query on a later line", "prefix": "Use ", "suffix": "\nExplain the next section.\n/pro", "selected": true, "expected": ["product-feature-video"] },
+    { "name": "query before an existing skill", "prefix": "/pro ", "suffix": " then continue", "selected": true, "cursor": 4, "expected": ["product-feature-video"] },
+    { "name": "query without a selected skill", "prefix": "", "suffix": "/pro", "selected": false, "expected": ["product-feature-video"] },
+    { "name": "ordinary path stays literal", "prefix": "Use ", "suffix": " /tmp/pro", "selected": true, "expected": [] },
+    { "name": "slash inside a word stays literal", "prefix": "Use ", "suffix": " text/pro", "selected": true, "expected": [] },
+    { "name": "noncollapsed selection does not open a menu", "prefix": "Use ", "suffix": " then /pro", "selected": true, "selectionLength": 2, "expected": [] },
+    { "name": "unmatched query has no candidates", "prefix": "Use ", "suffix": " /missing", "selected": true, "expected": [] }
+  ],
+  "lineBreak": { "line": "Explain the current section and preserve the following text.", "lineCount": 18, "suffix": "第二种" }
+}

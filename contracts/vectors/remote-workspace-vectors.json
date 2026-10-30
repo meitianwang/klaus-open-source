@@ -1,0 +1,12 @@
+{
+  "remoteTools": ["remote_list", "remote_read", "remote_write", "remote_grep", "remote_find", "remote_exec"],
+  "terminalRefusalCode": "REMOTE_WORKSPACE",
+  "searchRefusalCode": "REMOTE_WORKSPACE",
+  "listReplyFlags": { "remote": true, "childrenLoaded": true },
+  "remoteNodeFields": ["name", "path", "isDir", "isFile", "size", "mtimeMs"],
+  "containment": {
+    "accepts": ["src/main.rs", "/srv/project/src", "."],
+    "refuses": ["/etc/passwd", "../../etc", "a\u0000b", "/srv/projectx"]
+  },
+  "diffRemoteEmptyState": { "isGit": false, "repositories": [], "files": [] }
+}

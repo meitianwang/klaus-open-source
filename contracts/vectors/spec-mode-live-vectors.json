@@ -1,0 +1,25 @@
+{
+  "_why": "Spec mode has one authoritative live state. A successful engine Plan transition emits a structured edge; the shell persists it before publishing it, and the composer badge consumes that same edge. This prevents denied or failed tool calls from lighting the badge and prevents agent-entered Plan mode from diverging from the session_chat_modes row. The proactive proposal is a CONSULTATION, not a permission request: it travels the elicitation channel (metadata.tool = suggest_execution_mode, structured two-choice question) so no permission mode — including skip-all — can swallow it or auto-answer it; the engine flips to Plan only from the user's answer.",
+  "proactiveProposalTool": "suggest_execution_mode",
+  "proactiveProposalChannel": "elicitation",
+  "proactiveProposalMetadataTool": "suggest_execution_mode",
+  "directEntryTool": "enter_plan_mode",
+  "directEntryRequiresExplicitUserRequest": true,
+  "engineToolEvent": "plan_mode_changed",
+  "shellPersistence": "session_chat_modes",
+  "rendererEvent": "spec_mode_changed",
+  "userApprovalRequiredForProposal": true,
+  "webFetchNetworkApproval": {
+    "_why": "Fetching a public page is read-only Spec research. Plan skips only web_fetch network confirmation; explicit tool deny/ask rules, domain policy, private-network protection, other network tools, and write restrictions retain their existing behavior.",
+    "permissionMode": "plan",
+    "toolName": "web_fetch",
+    "networkApprovalRequired": false,
+    "explicitDenyRulesPreserved": true,
+    "explicitAskRulesPreserved": true,
+    "domainPolicyPreserved": true,
+    "privateNetworkProtectionPreserved": true,
+    "otherNetworkToolsUnchanged": true,
+    "writesRemainRestricted": true,
+    "regression": "r70130183_plan_web_fetch_network"
+  }
+}

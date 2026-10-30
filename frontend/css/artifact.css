@@ -1,0 +1,275 @@
+:root {
+  color-scheme: light;
+  --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
+  --fg: #1a1c1f;
+  --fg-secondary: rgba(26, 28, 31, 0.7);
+  --fg-tertiary: rgba(26, 28, 31, 0.5);
+  --bg: #ffffff;
+  --bg-surface: #f9f9f9;
+  --bg-hover: rgba(26, 28, 31, 0.05);
+  --border-subtle: rgba(26, 28, 31, 0.05);
+  --accent: #339cff;
+  --theme-diff-added: #00a240;
+  --theme-diff-added-bg: rgba(0, 162, 64, 0.14);
+  --theme-diff-removed: #e02e2a;
+  --theme-diff-removed-bg: rgba(224, 46, 42, 0.14);
+  --syntax-keyword: #751ed9;
+  --syntax-number: #0071ea;
+  --syntax-operator: #0071ea;
+  --syntax-property: #bd5800;
+  --syntax-string: #008809;
+  --syntax-type: #751ed9;
+  /* Same scale names as the main renderer tokens (self-contained window). */
+  --text-small: 12px;
+  --text-body-sm: 13px;
+  --text-body: 14px;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --radius-xs: 6px;
+  --transition: 140ms ease;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --fg: #ffffff;
+    --fg-secondary: rgba(255, 255, 255, 0.7);
+    --fg-tertiary: rgba(255, 255, 255, 0.5);
+    --bg: #181818;
+    --bg-surface: #000000;
+    --bg-hover: rgba(255, 255, 255, 0.06);
+    --border-subtle: rgba(255, 255, 255, 0.04);
+    --accent: #339cff;
+    --syntax-keyword: #b06dff;
+    --syntax-number: #6dcbf4;
+    --syntax-operator: #6dcbf4;
+    --syntax-property: #fa994c;
+    --syntax-string: #85df7b;
+    --syntax-type: #b06dff;
+  }
+}
+
+* { box-sizing: border-box; }
+html, body {
+  margin: 0; padding: 0; height: 100%;
+  font-family: var(--font);
+  background: var(--bg); color: var(--fg);
+  font-size: var(--text-body);
+}
+body { display: flex; flex-direction: column; }
+
+.aw-titlebar {
+  -webkit-app-region: drag;
+  height: 36px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  padding: 0 16px 0 80px; /* leave room for traffic lights */
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border-subtle);
+  user-select: none;
+}
+/* Windows: native window controls sit top-right, so drop the macOS
+   traffic-light left padding (dead space on win32). */
+.platform-win32 .aw-titlebar {
+  padding-left: 0;
+}
+.aw-title {
+  font-size: var(--text-body-sm); font-weight: var(--weight-semibold); color: var(--fg);
+  max-width: 60%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+.aw-toolbar {
+  -webkit-app-region: no-drag;
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 14px; flex-shrink: 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.aw-viewtoggle { display: inline-flex; align-items: center; gap: 2px; flex-shrink: 0; }
+.aw-viewtoggle.is-hidden { display: none; }
+.aw-view-btn,
+.aw-icon-btn {
+  background: transparent; border: none; cursor: pointer; color: var(--fg-tertiary);
+  padding: 6px; border-radius: var(--radius-xs); display: flex; align-items: center;
+  transition: color var(--transition), background var(--transition);
+}
+.aw-view-btn:hover,
+.aw-icon-btn:hover { color: var(--fg-secondary); background: var(--bg-hover); }
+.aw-view-btn.is-active {
+  color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+.aw-view-btn.is-active:hover {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+}
+.aw-view-btn svg, .aw-icon-btn svg { display: block; }
+.aw-icon-btn svg { width: 16px; height: 16px; }
+.aw-fileinfo {
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px;
+  color: var(--fg-secondary); font-size: var(--text-small);
+}
+.aw-fileicon { color: var(--fg-tertiary); flex-shrink: 0; }
+.aw-filename { color: var(--fg); font-weight: var(--weight-medium); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.aw-filetype { color: var(--fg-tertiary); flex-shrink: 0; }
+.aw-filetype:not(:empty)::before { content: '· '; }
+
+.aw-body {
+  flex: 1; min-height: 0; overflow: auto;
+  padding: 22px 28px; line-height: 1.65; color: var(--fg);
+  transition: opacity 120ms ease;
+}
+.aw-body.is-swapping { opacity: 0; }
+.aw-body pre {
+  background: var(--bg-surface); padding: 14px 16px; border-radius: var(--radius-xs);
+  overflow: auto; margin: 0; font-size: var(--text-body-sm); line-height: 1.5;
+  border: 1px solid var(--border-subtle);
+}
+.aw-body pre code,
+.aw-body pre code.hljs {
+  background: transparent !important; color: var(--fg) !important;
+  padding: 0; display: block;
+}
+.aw-body .hljs-comment,
+.aw-body .hljs-code,
+.aw-body .hljs-formula,
+.aw-body .hljs-quote {
+  color: var(--fg-tertiary);
+}
+.aw-body .hljs-doctag,
+.aw-body .hljs-keyword,
+.aw-body .hljs-meta .hljs-keyword,
+.aw-body .hljs-template-tag,
+.aw-body .hljs-type,
+.aw-body .hljs-variable.language_ {
+  color: var(--syntax-keyword);
+}
+.aw-body .hljs-title,
+.aw-body .hljs-title.class_,
+.aw-body .hljs-title.class_.inherited__,
+.aw-body .hljs-title.function_,
+.aw-body .hljs-name,
+.aw-body .hljs-section {
+  color: var(--syntax-type);
+}
+.aw-body .hljs-attr,
+.aw-body .hljs-attribute,
+.aw-body .hljs-literal,
+.aw-body .hljs-meta,
+.aw-body .hljs-number,
+.aw-body .hljs-variable,
+.aw-body .hljs-selector-attr,
+.aw-body .hljs-selector-class,
+.aw-body .hljs-selector-id {
+  color: var(--syntax-number);
+}
+.aw-body .hljs-operator,
+.aw-body .hljs-punctuation,
+.aw-body .hljs-tag {
+  color: var(--syntax-operator);
+}
+.aw-body .hljs-regexp,
+.aw-body .hljs-string,
+.aw-body .hljs-meta .hljs-string {
+  color: var(--syntax-string);
+}
+.aw-body .hljs-built_in,
+.aw-body .hljs-symbol,
+.aw-body .hljs-property {
+  color: var(--syntax-property);
+}
+.aw-body .hljs-addition {
+  color: var(--theme-diff-added);
+  background-color: var(--theme-diff-added-bg);
+}
+.aw-body .hljs-deletion {
+  color: var(--theme-diff-removed);
+  background-color: var(--theme-diff-removed-bg);
+}
+.aw-svg-preview {
+  min-height: 100%;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+}
+.aw-svg-preview img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  background: #fff;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-xs);
+}
+.aw-media-preview {
+  min-height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.aw-media-preview img,
+.aw-media-preview video,
+.aw-media-preview iframe {
+  display: block;
+  max-width: 100%;
+  background: #fff;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-xs);
+}
+.aw-media-preview img {
+  height: auto;
+}
+.aw-media-preview video {
+  max-height: calc(100vh - 170px);
+}
+.aw-media-preview audio {
+  width: min(560px, 100%);
+}
+.aw-media-preview iframe {
+  width: 100%;
+  height: calc(100vh - 150px);
+}
+.aw-preview-message {
+  min-height: 180px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--fg-tertiary);
+  text-align: center;
+}
+.aw-body img {
+  max-width: 100%;
+  height: auto;
+}
+.aw-body code { font-family: var(--font-mono); }
+.aw-body p { margin: 0 0 12px; }
+.aw-body h1, .aw-body h2, .aw-body h3 { margin: 18px 0 10px; font-weight: var(--weight-semibold); }
+.aw-body ul, .aw-body ol { margin: 0 0 12px; padding-left: 24px; }
+/* Markdown links — pull color from --fg (the heading/text neutral) with a
+   subtle underline. Avoids the browser-default electric-blue that fights
+   the rest of the page's quiet typography. */
+.aw-body a {
+  color: var(--fg);
+  text-decoration: underline;
+  text-decoration-color: var(--fg-tertiary);
+  text-underline-offset: 2px;
+  transition: color var(--transition), text-decoration-color var(--transition);
+}
+.aw-body a:hover {
+  color: var(--fg-secondary);
+  text-decoration-color: var(--fg);
+}
+
+.aw-truncated {
+  padding: 8px 16px; border-top: 1px solid var(--border-subtle);
+  background: var(--bg-surface); color: var(--fg-tertiary); font-size: var(--text-small);
+  text-align: center; flex-shrink: 0;
+}
+
+.aw-action-error {
+  padding: 8px 16px;
+  border-bottom: 1px solid color-mix(in srgb, var(--error-accent) 28%, var(--border-subtle));
+  background: color-mix(in srgb, var(--error-accent) 7%, var(--bg-surface));
+  color: var(--error-fg);
+  font-size: var(--text-small);
+  flex-shrink: 0;
+}
+
+.aw-action-error[hidden] {
+  display: none;
+}

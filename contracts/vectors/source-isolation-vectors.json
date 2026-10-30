@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "reason": "Provider-specific native input and quota policies must not alter ordinary model selection, queued attachments, replay, or account login ownership.",
+  "ordinarySources": ["custom", "codex", "subscription", "cursor", "kimi", "qoder", "qwenwork", "workbuddy"],
+  "ordinaryQueueImageCount": 21,
+  "ordinaryQueueNoncanonicalPadding": "AB==",
+  "antigravityQueueAttachmentLimit": 20,
+  "ordinaryMissingQuotaRemainingPercent": 100,
+  "antigravityMissingQuotaHasPercent": false,
+  "ordinaryCreditIgnoresUnreportedRemaining": true,
+  "antigravityCreditRetainsExactPools": true,
+  "cursorSupersessionCancelsSettledPriorFlow": false,
+  "antigravitySupersessionCancelsSettledPriorFlow": true
+}

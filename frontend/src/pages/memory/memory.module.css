@@ -1,0 +1,743 @@
+/* Memory 页样式（Batch 5 CSS Modules，迁自 styles.css 的 memory 段）。
+   类名保留原 kebab 名；拼接状态类（age-x、vividness-x、status-x、expanded、
+   is-active）与共享原语（kls-x、memory-decor-moon）经 :global() 引用，
+   js 侧保持全局字面量拼接。 */
+
+/* Animations used across this module — the synapse overlay in the gutter, the
+   entry/detail reveals, the dream LED, and the one-shot "dream now" flourish.
+   They live here rather than in css/styles.css because CSS Modules localizes
+   animation names: a bare reference to a keyframes defined outside the module
+   compiles to a scoped name nothing defines, and the element renders frozen. */
+@keyframes memory-marker-pulse {
+  50% { opacity: 0.55; transform: scale(0.92); }
+}
+
+@keyframes memory-marker-breathe {
+  0%, 100% { transform: scale(1);    filter: drop-shadow(0 0 6px color-mix(in srgb, var(--moon-glow) 50%, transparent)); }
+  50%      { transform: scale(1.08); filter: drop-shadow(0 0 10px color-mix(in srgb, var(--moon-glow) 75%, transparent)); }
+}
+
+@keyframes memory-entry-fade {
+  /* `to` uses `transform: none` (not `translateY(0)`) so once the entry
+     animation finishes the row's computed transform is `none` again — that
+     drops the row out of its compositing layer / stacking context. While
+     identity transforms render the same pixels, `translateY(0)` keeps the
+     row promoted to the compositor, where (in Blink) it can paint past
+     #memory-view's padding-top edge and visually leak above the sticky
+     header even though z-index says it should be below. Using `none` lets
+     z-index work correctly. */
+  from { opacity: 0; transform: translateY(2px); }
+  to   { opacity: 1; transform: none; }
+}
+
+@keyframes memory-detail-fade {
+  from { opacity: 0; transform: translateY(-2px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes kls-dream-pulse-led {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.35; }
+}
+
+@keyframes kls-spin { to { transform: rotate(360deg); } }
+
+.memory-inner {
+  max-width: 1040px;
+  margin: 0 auto;
+  position: relative;
+}
+
+/* All non-decoration children sit above the moon (z-index 1 vs decor's 0).
+   :not() exclusion is critical — without it, this rule's `position: relative`
+   would override the decor moon's `position: absolute`, dropping the moon
+   into normal flow and pushing every actual content row down by 96px.
+   The same rule is applied to MCP / Skills / Cron page wrappers below — all
+   four "ambient pages" reuse .memory-decor-moon so they share one decoration
+   element rather than each page inventing its own metaphor glyph. */
+.memory-inner > *:not(:global(.memory-decor-moon)):not(:global(.kls-sticky-header)) { position: relative; z-index: 1; }
+
+/* Inline toolbar above the timeline — just the time-range filter, sitting
+   in the row where the old tabbar used to be. Right-aligned to keep the
+   meta line above the timeline visually quiet. */
+.memory-toolbar {
+  display: flex;
+  align-items: center;
+  /* Section label on the left, filter dropdown on the right. */
+  justify-content: space-between;
+  gap: 12px;
+  margin: 18px 0 22px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+/* Currently-running dream — earlier this was a chunky bordered card; that
+   read as a separate visual block sitting between the sticky header and
+   the timeline below. Now restyled as a slim timeline-aligned row so the
+   page reads as one continuous dream-record. The neuron marker (running →
+   pulsing accent) sits in the same gutter as past rows; meta line + stop
+   button sit inline; no background, no border, no card shadow. */
+.memory-current {
+  position: relative;
+  padding: 12px 0 18px;
+  padding-left: 44px;
+  margin-left: 3px;
+  margin-bottom: 8px;
+  /* Pulsing accent color drives the running neuron marker — same rule used
+     for `.memory-history-row.status-running` so the visuals stay in sync.
+     The wrapper just needs the gutter alignment. */
+  color: color-mix(in srgb, var(--accent) 70%, var(--moon-glow, #e8d8a8));
+}
+
+/* Pulse animation borrowed from the timeline running-row rule — applies to
+   the inline marker via the neuron color/filter the parent .memory-current
+   provides. */
+.memory-current .memory-history-marker {
+  color: inherit;
+  filter: drop-shadow(0 0 6px color-mix(in srgb, var(--accent) 50%, transparent));
+  animation: memory-marker-pulse 2.4s ease-in-out infinite;
+}
+
+.memory-current-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 4px;
+  color: var(--fg);
+}
+
+.memory-current-title {
+  font-size: var(--text-body);
+  font-weight: var(--weight-semibold);
+  color: var(--fg);
+  letter-spacing: 0.015em;
+}
+
+.memory-current-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.memory-current-subtitle {
+  font-size: var(--text-small);
+  line-height: var(--leading-settings-subtitle);
+  color: var(--fg-tertiary);
+  font-variant-numeric: tabular-nums;
+  margin-bottom: 6px;
+}
+
+/* Status pill — soft styling. Drop uppercase + letter-spacing
+   (those read as "engineering status light" — fine for "RUNNING / COMPLETED",
+   wrong for the dream metaphor's "梦境中 / 梦醒"). The colored dot stays as
+   a 1-glance status anchor, but only pulses while a dream is actually in
+   flight; terminal states sit still. */
+.memory-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: var(--text-small);
+  font-weight: var(--weight-medium);
+  line-height: var(--leading-settings-subtitle);
+}
+
+.memory-status-running {
+  background: var(--theme-accent-bg);
+  color: var(--accent);
+}
+
+.memory-status-completed {
+  background: var(--success-bg);
+  color: var(--status-ok);
+}
+
+.memory-status-failed,
+.memory-status-killed {
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+
+.memory-status-pill .memory-status-led {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+
+.memory-status-running .memory-status-led {
+  animation: kls-dream-pulse-led 1.4s ease-in-out infinite;
+}
+
+.memory-current-stop {
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  padding: 0 12px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--fg-secondary);
+  font-size: var(--text-small);
+  cursor: pointer;
+  transition: border-color var(--transition), color var(--transition);
+}
+
+.memory-current-stop:hover { color: var(--danger); border-color: var(--danger); }
+
+.memory-files-touched {
+  margin-top: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  /* Card-divider dashed border was needed when this lived inside a
+     bordered card; now that the running dream is a slim inline row, just
+     a small top margin is enough separation. */
+}
+
+.memory-file-chip {
+  display: inline-block;
+  padding: 3px 8px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xxs);
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  font-size: var(--text-caption);
+  color: var(--fg-secondary);
+}
+
+/* Section title — sits inline inside .memory-toolbar on the left, filter
+   dropdown on the right. No margin (the toolbar's flex gap handles spacing). */
+.memory-section-title {
+  font-size: var(--text-body-sm);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-settings-subtitle);
+  color: var(--fg-secondary);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  margin: 0;
+}
+
+.memory-history {
+  position: relative;
+  padding-left: 44px;
+  margin-left: 3px;
+  /* No border-left or mask — the gutter "fiber" + synapse network is drawn
+     by `.memory-synapse-layer` (SVG inserted by JS as the first child of
+     this container). 44px of padding gives the 24px-wide neuron marker
+     (positioned at left: -32px from the row → center at x=20 inside this
+     container) ~10px of breathing room on either side for synapse curves
+     to bow into. */
+}
+
+/* SVG layer covering the timeline. position:absolute so it doesn't take
+   layout space; pointer-events:none so it never blocks row clicks. */
+.memory-synapse-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: visible;
+  width: 100%;
+  height: 100%;
+  z-index: 0;
+}
+
+/* Vertical "fiber" replacing the old border-left — soft thread connecting
+   all neurons. A gentle path (not a straight line) for organic feel. */
+.memory-synapse-gutter {
+  fill: none;
+  stroke: color-mix(in srgb, var(--moon-glow) 28%, var(--border));
+  stroke-width: 0.9;
+  opacity: 0.6;
+}
+
+/* Synapse path between two neurons that touched the same memory file.
+   Default very dim — visual texture, not primary signal. Brightens when
+   either endpoint row is hovered (.is-active) or while a pulse fires. */
+.memory-synapse-path {
+  fill: none;
+  stroke: color-mix(in srgb, var(--moon-glow) 50%, transparent);
+  stroke-width: 0.9;
+  stroke-linecap: round;
+  opacity: 0.18;
+  transition: opacity 220ms ease, stroke-width 220ms ease;
+}
+
+.memory-synapse-path:global(.is-active) {
+  opacity: 0.65;
+  stroke-width: 1.2;
+}
+
+/* Axon terminal — the small bulge at the end of the axon, just before
+   the synaptic cleft (the gap between this and the receptor). */
+.memory-synapse-terminal {
+  fill: color-mix(in srgb, var(--moon-glow) 55%, transparent);
+  opacity: 0.45;
+  transition: opacity 220ms ease;
+}
+
+.memory-synapse-terminal:global(.is-active) { opacity: 0.95; }
+
+/* Receptor (dendritic spine) on the receiving neuron's side — lights up
+   briefly when a pulse arrives, then fades. */
+.memory-synapse-receptor {
+  fill: color-mix(in srgb, var(--moon-glow) 60%, transparent);
+  opacity: 0;
+  transition: opacity 360ms ease;
+}
+
+.memory-synapse-receptor.is-receiving { opacity: 0.9; }
+
+/* The pulse itself — a tiny bright dot that travels along the axon path
+   when a synapse fires. Dynamically inserted/removed by JS. */
+.memory-synapse-pulse {
+  fill: #fff5d6;
+  filter: drop-shadow(0 0 3px color-mix(in srgb, var(--moon-glow) 80%, transparent));
+}
+
+/* Rows sit above the SVG overlay so their text content is on top of any
+   gutter graphics; markers are inside rows so they too sit above. */
+.memory-history-row { z-index: 1; }
+
+.memory-history-row {
+  position: relative;
+  padding: 12px 0 18px;
+  animation: memory-entry-fade 320ms ease-out both;
+}
+
+/* Neuron marker — a span containing an inline SVG of a neuron (nucleus +
+   soma halo + dendrites for vivid, nucleus only for faint, severed
+   dendrites for broken). Sized larger than the moon glyph used to be so
+   the dendrites have room to extend. fill/stroke use currentColor driven
+   by per-vividness color rules below. The glow is a tight drop-shadow.
+   Centered horizontally on the SVG center (12,12 of the 24×24 viewBox);
+   `.neuron-core` is the exact synapse endpoint that the gutter overlay
+   reads to compute synapse paths. */
+.memory-history-marker {
+  position: absolute;
+  left: -32px;
+  top: 8px;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  color: var(--moon-dim);
+  filter: drop-shadow(0 0 3px color-mix(in srgb, var(--moon-glow) 28%, transparent));
+}
+
+.memory-history-marker svg {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.memory-history-row:global(.vividness-vivid) .memory-history-marker {
+  color: var(--moon-glow);
+  filter: drop-shadow(0 0 6px color-mix(in srgb, var(--moon-glow) 55%, transparent));
+}
+
+.memory-history-row:global(.vividness-faint) .memory-history-marker {
+  color: var(--moon-faint);
+  filter: none; /* sliver doesn't glow — it's just a quiet outline */
+}
+
+.memory-history-row:global(.vividness-broken) .memory-history-marker {
+  color: var(--moon-broken);
+  filter: drop-shadow(0 0 3px color-mix(in srgb, var(--moon-broken) 35%, transparent));
+}
+
+.memory-history-row:global(.status-running) .memory-history-marker {
+  color: color-mix(in srgb, var(--accent) 70%, var(--moon-glow));
+  animation: memory-marker-pulse 2.4s ease-in-out infinite;
+}
+
+/* Age decay: dreams gently fade as they recede in time, but never below
+   0.55 (still readable). Faint rows are capped lower from the start —
+   they're always quiet, regardless of recency. */
+.memory-history-row:global(.age-fresh) { opacity: 1; }
+
+.memory-history-row:global(.age-recent) { opacity: 0.92; }
+
+.memory-history-row:global(.age-old) { opacity: 0.78; }
+
+.memory-history-row:global(.age-distant) { opacity: 0.62; }
+
+.memory-history-row:global(.vividness-faint) { opacity: 0.85; }
+
+.memory-history-row:global(.vividness-broken) { opacity: 0.78; }
+
+/* Hover lifts the row back to full opacity — gives a sense of "looking
+   closer brings it into focus". */
+.memory-history-row:hover { opacity: 1; }
+
+/* Breathing on the most-recent vivid row only — the dream that's closest
+   to "now" is the one that feels alive. Slow 5s wave, gentle. */
+.memory-history-row.is-latest .memory-history-marker {
+  animation: memory-marker-breathe 5s ease-in-out infinite;
+}
+
+/* Condensed row (faint / broken) — single-line layout, no meta block, no
+   summary block. The crescent + poetic time + a soft note share one row. */
+.memory-history-condensed {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: var(--text-body-sm);
+  color: var(--fg-tertiary);
+  line-height: var(--leading-settings-subtitle);
+  flex-wrap: wrap;
+}
+
+.memory-history-condensed .memory-history-time {
+  font-weight: var(--weight-medium);
+  color: var(--fg-secondary);
+}
+
+.memory-history-condensed-sep {
+  color: var(--fg-quaternary);
+}
+
+.memory-history-condensed-note {
+  font-style: italic;
+  letter-spacing: 0.005em;
+}
+
+.memory-history-row:global(.vividness-broken) .memory-history-condensed-note {
+  color: var(--moon-broken);
+}
+
+.memory-history-title {
+  font-size: var(--text-body);
+  font-weight: var(--weight-semibold);
+  color: var(--fg);
+  margin-bottom: 4px;
+  letter-spacing: 0.015em;
+  cursor: help; /* native tooltip ("YYYY-MM-DD HH:MM") on hover */
+}
+
+.memory-history-title .memory-history-time {
+  /* No underline / dotted border — the tooltip cue is enough; visual
+     stays clean. The cursor: help on the parent is the affordance. */
+}
+
+.memory-history-toggle {
+  all: unset;
+  display: inline-flex;
+  align-items: baseline;
+  cursor: pointer;
+  border-radius: var(--radius-xs);
+}
+
+.memory-history-toggle:focus-visible {
+  outline: none;
+  background: var(--bg-hover);
+  box-shadow: none;
+}
+.memory-file-chip[role='button']:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.memory-detail-label[role='button']:focus-visible {
+  outline: none;
+  border-bottom-color: var(--fg-tertiary);
+}
+
+.memory-history-meta {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 14px;
+  font-size: var(--text-small);
+  line-height: var(--leading-settings-subtitle);
+  color: var(--fg-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Journal-style one-line summary captured from the dream's <dream-summary>
+   marker. Italic + slightly lighter weight so it reads as commentary on
+   top of the cold meta line above. Truncates to the first line collapsed —
+   expanding the row reveals the per-file detail block but the summary itself
+   doesn't need to grow. */
+.memory-history-summary {
+  margin-top: 6px;
+  font-size: var(--text-body-sm);
+  line-height: var(--leading-settings-subtitle);
+  color: var(--fg-secondary);
+  font-style: italic;
+  letter-spacing: 0.005em;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.memory-history-summary::before {
+  content: '└';
+  color: var(--fg-quaternary);
+  font-style: normal;
+  flex-shrink: 0;
+}
+
+.memory-history-summary-text {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  flex: 1;
+}
+
+.memory-history-row:global(.expanded) .memory-history-summary-text {
+  white-space: normal;
+}
+
+.memory-history-summary-fallback {
+  color: var(--fg-quaternary);
+}
+
+/* Expandable rows: subtle hover affordance + chevron rotation. The whole row
+   is clickable when filesTouched is non-empty; the chevron is the visual
+   hint. We keep it dim — the row should still read as a journal entry, not
+   a button. */
+.memory-history-row.is-expandable {
+  cursor: pointer;
+  border-radius: var(--radius-xs);
+  margin-left: -8px;
+  margin-right: -8px;
+  padding-left: 8px;
+  padding-right: 8px;
+  transition: background-color 140ms ease;
+}
+
+.memory-history-row.is-expandable:hover {
+  background: color-mix(in srgb, var(--fg) 3%, transparent);
+}
+
+.memory-history-row.is-expandable:global(.expanded) {
+  background: color-mix(in srgb, var(--fg) 4%, transparent);
+}
+
+.memory-history-chevron {
+  display: inline-block;
+  margin-left: 6px;
+  font-size: var(--text-body);
+  color: var(--fg-quaternary);
+  transition: transform 160ms ease;
+  transform-origin: center;
+  vertical-align: -1px;
+}
+
+.memory-history-row:global(.expanded) .memory-history-chevron {
+  transform: rotate(90deg);
+}
+
+/* Detail block: file → frontmatter description, one row per touched file.
+   Uses a 2-column visual rhythm (label · description) with the description
+   taking the remaining space. Description is the file's frontmatter
+   `description` field which by design tells you "what this memory is
+   about" — the same data future sessions read to decide relevance.
+
+   Visibility is driven by the row's `.expanded` class — earlier we tried
+   the HTML `hidden` attribute, but `[hidden] { display: none }` is a UA
+   rule and our `display: flex` author rule won the cascade, so toggling
+   the attribute had no visible effect (panel always stayed visible once
+   rendered). CSS-only `.expanded` driven toggle is reliable. */
+.memory-history-detail {
+  display: none;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed color-mix(in srgb, var(--border) 60%, transparent);
+  flex-direction: column;
+  gap: 6px;
+  animation: memory-detail-fade 200ms ease-out backwards;
+}
+
+.memory-history-row:global(.expanded) .memory-history-detail {
+  display: flex;
+}
+
+.memory-detail-loading,
+.memory-detail-empty {
+  font-size: var(--text-small);
+  line-height: var(--leading-settings-subtitle);
+  color: var(--fg-quaternary);
+  font-style: italic;
+}
+
+.memory-detail-file {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: var(--text-body-sm);
+  line-height: var(--leading-settings-subtitle);
+  flex-wrap: wrap;
+}
+
+.memory-detail-label {
+  font-weight: var(--weight-medium);
+  color: var(--fg);
+  cursor: pointer;
+  flex-shrink: 0;
+  border-bottom: 1px dotted transparent;
+  transition: border-color 120ms ease;
+}
+
+.memory-detail-label:hover {
+  border-bottom-color: var(--fg-tertiary);
+}
+
+.memory-detail-sep {
+  color: var(--fg-quaternary);
+  flex-shrink: 0;
+}
+
+.memory-detail-desc {
+  color: var(--fg-secondary);
+  min-width: 0;
+  flex: 1;
+}
+
+.memory-detail-desc-muted {
+  color: var(--fg-quaternary);
+  font-style: italic;
+}
+
+/* Summary on the running row — appears in the brief window where the
+   <dream-summary> marker has been captured but completeDreamTask hasn't
+   yet flipped the status to 'completed'. Same italic / "└─ ..." styling
+   as the history-row summary so visuals stay consistent. */
+.memory-current-summary {
+  margin-top: 6px;
+  font-size: var(--text-body-sm);
+  line-height: var(--leading-settings-subtitle);
+  color: var(--fg-secondary);
+  font-style: italic;
+  letter-spacing: 0.005em;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.memory-current-summary::before {
+  content: '└';
+  color: var(--fg-quaternary);
+  font-style: normal;
+  flex-shrink: 0;
+}
+
+/* Klaus extension — skill-evolution sub-task line in the live dream card.
+   Inherits the italic "└ ..." treatment from .memory-current-summary but
+   sits one notch dimmer so it reads as a child of the dream summary above
+   it. When stacked, the visual reads:
+     主梦 summary  ← .memory-current-summary
+     ↳ skill 子任务 ← .memory-current-skill-review (same └ glyph, less ink)
+*/
+.memory-current-skill-review {
+  margin-top: 4px;
+  color: var(--fg-tertiary);
+  font-size: var(--text-small);
+}
+
+/* Status word color (mirrors the dot color, dimmer than the dot). */
+.memory-history-status-completed {
+  color: color-mix(in srgb, var(--status-ok) 78%, var(--fg-tertiary)) !important;
+}
+
+/* Klaus extension — distilled-skills count chip on vivid history rows.
+   Quieter than the status pill but a touch warmer than plain meta text,
+   to hint that something distilled happened that round without competing
+   with the status word for attention. */
+.memory-history-skill-chip {
+  color: color-mix(in srgb, var(--accent) 70%, var(--fg-tertiary));
+  font-variant-numeric: tabular-nums;
+}
+
+/* Klaus extension — sub-fork "└ ..." line on vivid history cards. Inherits
+   the parent .memory-history-summary italic + glyph + truncation rules; this
+   selector only steps the color one notch dimmer + tightens the top margin
+   so it reads as a child of the main summary above it. Stacked visually:
+     梦中渐渐看清：你喜欢早起        ← .memory-history-summary
+     └ 梦中无新意，已有的够用       ← .memory-history-skill-summary */
+.memory-history-skill-summary {
+  margin-top: 2px;
+  color: var(--fg-tertiary);
+  font-size: var(--text-small);
+}
+
+/* Klaus extension — second condensed-row note (skill-review summary tail
+   on faint/broken cards). One step dimmer than the main note so the eye
+   reads them as primary + secondary instead of two equal phrases. */
+.memory-history-condensed-skill {
+  color: var(--fg-quaternary);
+}
+
+.memory-history-status-failed,
+.memory-history-status-killed {
+  color: color-mix(in srgb, var(--danger) 72%, var(--fg-tertiary)) !important;
+}
+
+.memory-history-status-running {
+  color: color-mix(in srgb, var(--accent) 80%, var(--fg-tertiary)) !important;
+}
+
+.memory-history-sentinel { height: 1px; }
+
+.memory-loading {
+  text-align: center;
+  padding: 20px;
+  color: var(--fg-quaternary);
+  font-size: var(--text-small);
+}
+
+/* End-of-journal mark — a small "梦录至此" / "end of the dream journal"
+   foot, flanked by two faint dots. Shows only when there's no further
+   pages of history left. Adds a sense of closure to the journal. */
+.memory-history-end {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 32px 0 12px;
+  font-size: var(--text-small);
+  color: var(--fg-quaternary);
+  letter-spacing: 0.08em;
+}
+
+.memory-history-end-mark {
+  display: inline-block;
+  width: 4px;
+  height: 4px;
+  background: var(--fg-quaternary);
+  border-radius: 50%;
+  opacity: 0.5;
+}
+
+/* Memory-file references are clickable — clicking opens the file in the
+   standalone artifact-style preview window (markdown / source toggle).
+   Affects both dream-card chips and the inline file names on history rows. */
+.memory-file-chip {
+  cursor: pointer;
+  transition: color var(--transition), background var(--transition);
+}
+
+.memory-file-chip:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* kls-btn-primary / kls-btn-ghost — variants used by the memory settings
+   modal. Aliased to keep markup consistent with existing button conventions. */
+:global(.kls-btn).kls-btn-primary { /* same as base .kls-btn */ }
+
+/* "Dream now" button click flourish — single ease-in-out 360° turn on the
+   crescent icon, auto-removed by JS after 1.5s. Plays the spin keyframes once,
+   not infinite, so it reads as "going to sleep" rather than "loading". Klaus's
+   only dream-themed micro-animation — the rest of the metaphor lives in copy. */
+.memory-trigger-spinning svg {
+  animation: kls-spin 1.5s ease-in-out;
+}

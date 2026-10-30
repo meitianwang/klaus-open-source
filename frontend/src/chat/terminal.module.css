@@ -1,0 +1,111 @@
+/* Terminal 面板域样式（随 src/chat/terminal.ts 拆出）。
+   terminal-list* 为 index.html 静态骨架消费，留全局 styles.css；
+   本 module 只收 terminal.ts 动态建 DOM 的 row/view 两族。
+   active / data-state / xterm 内部类为运行时全局名，:global 引用。 */
+
+.terminal-row {
+  width: 100%;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px;
+  align-items: center;
+  min-height: 30px;
+  padding: 5px 4px 5px 9px;
+  border: 0;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--fg-secondary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+
+.terminal-row:hover {
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+
+.terminal-row:global(.active) {
+  background: color-mix(in srgb, var(--fg) 8%, transparent);
+  color: var(--fg);
+}
+
+.terminal-row-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-body-sm);
+}
+
+/* A dead shell stays listed until it is dismissed, so it has to read as dead. */
+.terminal-row[data-state="exited"] .terminal-row-label {
+  color: var(--fg-quaternary);
+}
+
+.terminal-row-actions {
+  display: inline-flex;
+  align-items: center;
+}
+
+.terminal-row-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--fg-tertiary);
+  cursor: pointer;
+  opacity: 0;
+  -webkit-app-region: no-drag;
+}
+
+.terminal-row:hover .terminal-row-close,
+.terminal-row:global(.active) .terminal-row-close {
+  opacity: 1;
+}
+
+.terminal-row-close:hover {
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+
+.terminal-row-close svg {
+  width: 13px;
+  height: 13px;
+}
+
+.terminal-view {
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.terminal-view[hidden] {
+  display: none !important;
+}
+
+.terminal-view :global(.xterm) {
+  height: 100%;
+  padding: 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-body-sm);
+  letter-spacing: 0;
+}
+
+.terminal-view :global(.xterm-viewport) {
+  background: transparent !important;
+}
+
+.terminal-view :global(.xterm-screen) {
+  outline: none;
+}
+
+.terminal-view :global(.xterm) :global(.xterm-helpers) textarea {
+  -webkit-app-region: no-drag;
+}

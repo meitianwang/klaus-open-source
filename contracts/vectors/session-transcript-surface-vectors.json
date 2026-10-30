@@ -1,0 +1,52 @@
+{
+  "_why": "Conversation identity, transcript availability, and title presentation are independent. An existing session with unresolved history must enter a loading transcript surface immediately; a placeholder or missing title is never evidence that the session is empty. Only an explicit new-chat draft shows the welcome surface; a real conversation whose authoritative history is empty renders its empty transcript surface with the composer, so an admitted-but-empty chat never masquerades as a brand-new draft.",
+  "presentation": {
+    "_why": "Reopening saved conversations must preserve settled rendering and position the loaded transcript before its first visible frame. Independent change records start alongside history without blocking it.",
+    "messageEntranceAnimation": false,
+    "reuseSettledMarkdownOnRevisit": true,
+    "initialHistoryPosition": "restore-saved-distance-before-paint",
+    "unvisitedHistoryPosition": "latest",
+    "preserveMeasuredTurnViewport": true,
+    "renderedWindowIdentity": "turn-key",
+    "initialPositionRespectsUserScrollAndNavigation": true,
+    "restorePanelWidthBeforeTranscriptMount": true,
+    "changeRecordLoad": "parallel-with-history"
+  },
+  "cases": [
+    {
+      "name": "global new-chat draft",
+      "input": { "sessionId": null, "draftOnly": false, "running": false, "liveUnitCount": 0, "history": null },
+      "expected": "welcome"
+    },
+    {
+      "name": "promoted attachment-only draft",
+      "input": { "sessionId": "draft-session", "draftOnly": true, "running": false, "liveUnitCount": 0, "history": null },
+      "expected": "welcome"
+    },
+    {
+      "name": "existing titleless session awaiting history",
+      "input": { "sessionId": "legacy-titleless", "draftOnly": false, "running": false, "liveUnitCount": 0, "history": null },
+      "expected": "loading"
+    },
+    {
+      "name": "existing placeholder session with content",
+      "input": { "sessionId": "legacy-placeholder", "draftOnly": false, "running": false, "liveUnitCount": 0, "history": [{ "role": "user", "text": "Persisted content" }] },
+      "expected": "transcript"
+    },
+    {
+      "name": "authoritatively empty persisted shell",
+      "input": { "sessionId": "empty-shell", "draftOnly": false, "running": false, "liveUnitCount": 0, "history": [] },
+      "expected": "transcript"
+    },
+    {
+      "name": "running session before history",
+      "input": { "sessionId": "running-session", "draftOnly": false, "running": true, "liveUnitCount": 0, "history": null },
+      "expected": "transcript"
+    },
+    {
+      "name": "live session before history",
+      "input": { "sessionId": "live-session", "draftOnly": false, "running": false, "liveUnitCount": 1, "history": null },
+      "expected": "transcript"
+    }
+  ]
+}

@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "reason": "Desktop editions are data: the committed definitions file holds the public editions and one definitions file outside the repository may add more. The host loader (shared/desktop-edition.ts) and the packaging loader (packaging/desktop-edition.mjs) must accept and refuse exactly the same documents.",
+  "extra": {
+    "id": "sample",
+    "application": "invalid.example.desktop",
+    "helperApplication": "invalid.example.desktop.helper",
+    "productName": "Sample Desktop",
+    "executableName": "Sample Desktop",
+    "artifactPrefix": "Sample-Desktop",
+    "protocol": "sample-desktop",
+    "configDirectory": ".sample-desktop",
+    "serverUrl": "https://desktop.example.invalid",
+    "supportEmail": "support@example.invalid",
+    "defaultLanguage": "en",
+    "mobilePort": 27299,
+    "nsisGuid": "00000000-0000-4000-8000-000000000001",
+    "keychainService": "agent-engine-sample",
+    "legacyIdentity": false,
+    "chromeDiscoveryName": "sample-desktop-browser-use"
+  },
+  "accepted": [
+    { "name": "extra edition beside the public editions", "patch": {} },
+    { "name": "unknown fields are kept for newer readers", "patch": { "futureField": { "nested": true } } }
+  ],
+  "rejected": [
+    { "name": "duplicate application", "patch": { "application": "ai.klaus.desktop" }, "error": "share" },
+    { "name": "application reused as another edition helper", "patch": { "application": "ai.klaus.desktop.helper" }, "error": "share" },
+    { "name": "duplicate protocol", "patch": { "protocol": "klaus" }, "error": "share protocol" },
+    { "name": "duplicate config directory", "patch": { "configDirectory": ".klaus" }, "error": "share configDirectory" },
+    { "name": "duplicate mobile port", "patch": { "mobilePort": 27189 }, "error": "share mobilePort" },
+    { "name": "duplicate keychain service", "patch": { "keychainService": "agent-engine" }, "error": "share keychainService" },
+    { "name": "duplicate Chrome discovery name", "patch": { "chromeDiscoveryName": "klaus-browser-use" }, "error": "share chromeDiscoveryName" },
+    { "name": "duplicate NSIS GUID", "patch": { "nsisGuid": "3e8bf0c1-fe6e-4fa0-8902-90e1048edb7b" }, "error": "share nsisGuid" },
+    { "name": "second legacy identity", "patch": { "legacyIdentity": true }, "error": "legacy identity" },
+    { "name": "id differs from its key", "patch": { "id": "other" }, "error": "sample.id" },
+    { "name": "plain HTTP service", "patch": { "serverUrl": "http://desktop.example.invalid" }, "error": "serverUrl" },
+    { "name": "service URL with a path", "patch": { "serverUrl": "https://desktop.example.invalid/path" }, "error": "serverUrl" },
+    { "name": "reserved protocol", "patch": { "protocol": "klaus-app" }, "error": "protocol" },
+    { "name": "keychain service outside the product family", "patch": { "keychainService": "sample" }, "error": "keychainService" },
+    { "name": "config directory without a leading dot", "patch": { "configDirectory": "sample" }, "error": "configDirectory" },
+    { "name": "missing Chrome discovery name", "patch": { "chromeDiscoveryName": null }, "error": "chromeDiscoveryName" },
+    { "name": "privileged mobile port", "patch": { "mobilePort": 80 }, "error": "mobilePort" }
+  ],
+  "rejectedIds": ["a", "Sample", "1sample", "sample_edition", "sample-edition-name-that-is-far-too-long"],
+  "conflictingRedefinition": { "edition": "international", "patch": { "productName": "Changed" }, "error": "defined differently" }
+}

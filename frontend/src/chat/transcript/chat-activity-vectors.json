@@ -1,0 +1,1479 @@
+{
+  "schemaVersion": 1,
+  "description": "Committed app-control interaction behavior: compact labels, failure wording, navigation, and summary parts. Changed 2026-09-18 with the conversation-coordination family: the read/list tools used to show their COMPLETED wording for a call that errored (this file described that as \"completed errors\"), which told the user a failed read had succeeded. Every tool in this family now uses the six label states — active/completed/following/failed/failedFollowing/other — and `error` maps to the failed pair. This is not a new idea bolted on: klaus_query already distinguished `error` -> `failed` in the same renderer, so the read/list tools were the inconsistent half of one family. `list_archived_threads` also became a first-class kind with real translations instead of falling through to the generic lowercase tool-name label. `interrupted` deliberately keeps the neutral completed wording: a cancelled turn may still have delivered its message, so claiming failure there would be as wrong as claiming success on an error. Added the coordination family (send/create/fork/wait/pin/unpin/archive/restore/rename) with its six label states. Send rows now open the full original prompt on click; navigation to a local target remains available inside the expanded row rather than stealing that click.",
+  "behaviour": [
+    "Completion no longer selects the read/list label independently from success: every tool in the conversation-coordination family uses the six label states (active/completed/following/failed/failedFollowing/other), so an errored call says it failed. `interrupted` keeps the neutral completed wording on purpose — a cancelled turn may still have delivered its message. `other` is a lookup fallback for an unmodelled state; no renderer path emits it, so it is not pinned as markup.",
+    "A failed card that follows another action in a summary line uses the failedFollowing wording (nonLeading rows).",
+    "Only a row with a nonempty threadId becomes a navigation button.",
+    "Read rows keep localized lifecycle wording even when the target chat title is known; valid local targets remain clickable.",
+    "Completed summary parts dedupe by host namespace and tool, in first occurrence order.",
+    "Completed dynamic summary parts follow the generic activity categories and use Intl unit list formatting.",
+    "Commentary is standalone; reasoning is omitted from activity units.",
+    "A completed singleton becomes a direct row when its activity slice closes.",
+    "Groups start collapsed; every read keeps its own navigation target when expanded.",
+    "Active header key transitions defer until 1000 ms after the prior commit; completed summary is immediate.",
+    "The activity shimmer starts after 600 ms, sweeps for 1000 ms every 4000 ms, and respects reduced motion.",
+    "Disclosure opens and closes over 300 ms with cubic-bezier(.19,1,.22,1).",
+    "Generic dynamic tools share the group, dedupe by exact tool identity, and format labels with lowerCase and upperFirst; they never navigate or disclose arguments/results."
+  ],
+  "rows": [
+    {
+      "name": "read-running",
+      "toolName": "read_thread",
+      "args": {
+        "threadId": "chat-b"
+      },
+      "state": "running",
+      "en": "Reading chat",
+      "zh": "正在读取聊天",
+      "target": "chat-b"
+    },
+    {
+      "name": "read-done",
+      "toolName": "read_thread",
+      "args": {
+        "threadId": "chat-b",
+        "hostId": "local"
+      },
+      "state": "done",
+      "en": "Read chat",
+      "zh": "已读取聊天",
+      "target": "chat-b"
+    },
+    {
+      "name": "read-error",
+      "toolName": "read_thread",
+      "args": {
+        "threadId": "missing"
+      },
+      "state": "error",
+      "en": "Couldn’t read chat",
+      "zh": "未能读取聊天",
+      "target": "missing"
+    },
+    {
+      "name": "read-interrupted",
+      "toolName": "read_thread",
+      "args": {
+        "threadId": "chat-b"
+      },
+      "state": "interrupted",
+      "en": "Read chat",
+      "zh": "已读取聊天",
+      "target": "chat-b"
+    },
+    {
+      "name": "read-invalid-empty-id",
+      "toolName": "read_thread",
+      "args": {
+        "threadId": ""
+      },
+      "state": "done",
+      "en": "Read chat",
+      "zh": "已读取聊天",
+      "target": null
+    },
+    {
+      "name": "read-invalid-type",
+      "toolName": "read_thread",
+      "args": {
+        "threadId": 12
+      },
+      "state": "running",
+      "en": "Reading chat",
+      "zh": "正在读取聊天",
+      "target": null
+    },
+    {
+      "name": "read-missing-arguments",
+      "toolName": "read_thread",
+      "args": null,
+      "state": "error",
+      "en": "Couldn’t read chat",
+      "zh": "未能读取聊天",
+      "target": null
+    },
+    {
+      "name": "read-array-arguments",
+      "toolName": "read_thread",
+      "args": [
+        "chat-b"
+      ],
+      "state": "error",
+      "en": "Couldn’t read chat",
+      "zh": "未能读取聊天",
+      "target": null
+    },
+    {
+      "name": "list-running",
+      "toolName": "list_threads",
+      "args": {
+        "limit": 10
+      },
+      "state": "running",
+      "en": "Listing chats",
+      "zh": "正在列出聊天",
+      "target": null
+    },
+    {
+      "name": "list-completed",
+      "toolName": "list_threads",
+      "args": {},
+      "state": "done",
+      "en": "Listed chats",
+      "zh": "已列出聊天",
+      "target": null
+    },
+    {
+      "name": "list-completed-error",
+      "toolName": "list_threads",
+      "args": {},
+      "state": "error",
+      "en": "Couldn’t list chats",
+      "zh": "未能列出聊天",
+      "target": null
+    },
+    {
+      "name": "legacy-read",
+      "toolName": "klaus_query",
+      "args": {
+        "key": "session",
+        "action": "history",
+        "arguments": {
+          "sessionId": "older-chat"
+        }
+      },
+      "state": "done",
+      "en": "Read chat",
+      "zh": "已读取聊天",
+      "target": "older-chat"
+    },
+    {
+      "name": "legacy-list",
+      "toolName": "klaus_query",
+      "args": {
+        "key": "session",
+        "action": "list"
+      },
+      "state": "done",
+      "en": "Listed chats",
+      "zh": "已列出聊天",
+      "target": null
+    },
+    {
+      "name": "legacy-read-rejects-flattened-target",
+      "toolName": "klaus_query",
+      "args": {
+        "key": "session",
+        "action": "history",
+        "sessionId": "wrong-target"
+      },
+      "state": "done",
+      "en": "Read chat",
+      "zh": "已读取聊天",
+      "target": null
+    },
+    {
+      "name": "legacy-read-nested-target-wins",
+      "toolName": "klaus_query",
+      "args": {
+        "key": "session",
+        "action": "history",
+        "sessionId": "wrong-target",
+        "arguments": {
+          "sessionId": "correct-chat"
+        }
+      },
+      "state": "running",
+      "en": "Reading chat",
+      "zh": "正在读取聊天",
+      "target": "correct-chat"
+    },
+    {
+      "name": "list_archived_threads-running",
+      "toolName": "list_archived_threads",
+      "args": {
+        "limit": 5
+      },
+      "state": "running",
+      "en": "Listing archived chats",
+      "zh": "正在列出已归档聊天",
+      "target": null
+    },
+    {
+      "name": "list_archived_threads-done",
+      "toolName": "list_archived_threads",
+      "args": {
+        "limit": 5
+      },
+      "state": "done",
+      "en": "Listed archived chats",
+      "zh": "已列出已归档聊天",
+      "target": null
+    },
+    {
+      "name": "list_archived_threads-error",
+      "toolName": "list_archived_threads",
+      "args": {
+        "limit": 5
+      },
+      "state": "error",
+      "en": "Couldn’t list archived chats",
+      "zh": "未能列出已归档聊天",
+      "target": null
+    },
+    {
+      "name": "screenshot-running",
+      "toolName": "screenshot",
+      "args": {
+        "limit": 5
+      },
+      "state": "running",
+      "en": "Screenshot",
+      "zh": "Screenshot",
+      "target": null
+    },
+    {
+      "name": "screenshot-done",
+      "toolName": "screenshot",
+      "args": {
+        "limit": 5
+      },
+      "state": "done",
+      "en": "Screenshot",
+      "zh": "Screenshot",
+      "target": null
+    },
+    {
+      "name": "screenshot-error",
+      "toolName": "screenshot",
+      "args": {
+        "limit": 5
+      },
+      "state": "error",
+      "en": "Screenshot",
+      "zh": "Screenshot",
+      "target": null
+    },
+    {
+      "name": "send-running",
+      "toolName": "send_message_to_thread",
+      "args": {
+        "threadId": "chat-b",
+        "prompt": "Finish the parser fix."
+      },
+      "state": "running",
+      "en": "Sending message to chat",
+      "zh": "正在向聊天发送消息",
+      "target": "chat-b"
+    },
+    {
+      "name": "send-done",
+      "toolName": "send_message_to_thread",
+      "args": {
+        "threadId": "chat-b",
+        "prompt": "Finish the parser fix."
+      },
+      "state": "done",
+      "en": "Sent message to chat — Finish the parser fix.",
+      "zh": "已向聊天发送消息 — Finish the parser fix.",
+      "target": "chat-b"
+    },
+    {
+      "name": "send-error",
+      "toolName": "send_message_to_thread",
+      "args": {
+        "threadId": "chat-b",
+        "prompt": "Finish the parser fix."
+      },
+      "state": "error",
+      "en": "Couldn’t send message to chat — Finish the parser fix.",
+      "zh": "未能向聊天发送消息 — Finish the parser fix.",
+      "target": "chat-b"
+    },
+    {
+      "name": "send-interrupted",
+      "toolName": "send_message_to_thread",
+      "args": {
+        "threadId": "chat-b",
+        "prompt": "Finish the parser fix."
+      },
+      "state": "interrupted",
+      "en": "Sent message to chat — Finish the parser fix.",
+      "zh": "已向聊天发送消息 — Finish the parser fix.",
+      "target": "chat-b"
+    },
+    {
+      "name": "create-running",
+      "toolName": "create_thread",
+      "args": {
+        "prompt": "Investigate the flaky test."
+      },
+      "state": "running",
+      "en": "Creating chat",
+      "zh": "正在新建聊天",
+      "target": null
+    },
+    {
+      "name": "create-done",
+      "toolName": "create_thread",
+      "args": {
+        "prompt": "Investigate the flaky test."
+      },
+      "state": "done",
+      "en": "Created chat",
+      "zh": "已新建聊天",
+      "target": null
+    },
+    {
+      "name": "create-error",
+      "toolName": "create_thread",
+      "args": {
+        "prompt": "Investigate the flaky test."
+      },
+      "state": "error",
+      "en": "Couldn’t create chat",
+      "zh": "未能新建聊天",
+      "target": null
+    },
+    {
+      "name": "create-interrupted",
+      "toolName": "create_thread",
+      "args": {
+        "prompt": "Investigate the flaky test."
+      },
+      "state": "interrupted",
+      "en": "Created chat",
+      "zh": "已新建聊天",
+      "target": null
+    },
+    {
+      "name": "fork-running",
+      "toolName": "fork_thread",
+      "args": {
+        "threadId": "chat-b"
+      },
+      "state": "running",
+      "en": "Forking chat",
+      "zh": "正在克隆聊天",
+      "target": null
+    },
+    {
+      "name": "fork-done",
+      "toolName": "fork_thread",
+      "args": {
+        "threadId": "chat-b"
+      },
+      "state": "done",
+      "en": "Forked chat",
+      "zh": "已克隆聊天",
+      "target": null
+    },
+    {
+      "name": "fork-error",
+      "toolName": "fork_thread",
+      "args": {
+        "threadId": "chat-b"
+      },
+      "state": "error",
+      "en": "Couldn’t fork chat",
+      "zh": "未能克隆聊天",
+      "target": null
+    },
+    {
+      "name": "wait-running",
+      "toolName": "wait_threads",
+      "args": {
+        "targets": [
+          {
+            "threadId": "chat-b"
+          }
+        ],
+        "timeoutMs": 0
+      },
+      "state": "running",
+      "en": "Waiting for chats",
+      "zh": "正在等待聊天",
+      "target": null
+    },
+    {
+      "name": "wait-done",
+      "toolName": "wait_threads",
+      "args": {
+        "targets": [
+          {
+            "threadId": "chat-b"
+          }
+        ],
+        "timeoutMs": 0
+      },
+      "state": "done",
+      "en": "Waited for chats",
+      "zh": "已等待聊天",
+      "target": null
+    },
+    {
+      "name": "wait-error",
+      "toolName": "wait_threads",
+      "args": {
+        "targets": [
+          {
+            "threadId": "chat-b"
+          }
+        ],
+        "timeoutMs": 0
+      },
+      "state": "error",
+      "en": "Couldn’t wait for chats",
+      "zh": "未能等待聊天",
+      "target": null
+    },
+    {
+      "name": "wait-interrupted",
+      "toolName": "wait_threads",
+      "args": {
+        "targets": [
+          {
+            "threadId": "chat-b"
+          }
+        ],
+        "timeoutMs": 0
+      },
+      "state": "interrupted",
+      "en": "Waited for chats",
+      "zh": "已等待聊天",
+      "target": null
+    },
+    {
+      "name": "pin-running",
+      "toolName": "set_thread_pinned",
+      "args": {
+        "threadId": "chat-b",
+        "pinned": true
+      },
+      "state": "running",
+      "en": "Pinning chat",
+      "zh": "正在置顶聊天",
+      "target": null
+    },
+    {
+      "name": "pin-done",
+      "toolName": "set_thread_pinned",
+      "args": {
+        "threadId": "chat-b",
+        "pinned": true
+      },
+      "state": "done",
+      "en": "Pinned chat",
+      "zh": "已置顶聊天",
+      "target": null
+    },
+    {
+      "name": "pin-error",
+      "toolName": "set_thread_pinned",
+      "args": {
+        "threadId": "chat-b",
+        "pinned": true
+      },
+      "state": "error",
+      "en": "Couldn’t pin chat",
+      "zh": "未能置顶聊天",
+      "target": null
+    },
+    {
+      "name": "unpin-running",
+      "toolName": "set_thread_pinned",
+      "args": {
+        "threadId": "chat-b",
+        "pinned": false
+      },
+      "state": "running",
+      "en": "Unpinning chat",
+      "zh": "正在取消置顶聊天",
+      "target": null
+    },
+    {
+      "name": "unpin-done",
+      "toolName": "set_thread_pinned",
+      "args": {
+        "threadId": "chat-b",
+        "pinned": false
+      },
+      "state": "done",
+      "en": "Unpinned chat",
+      "zh": "已取消置顶聊天",
+      "target": null
+    },
+    {
+      "name": "unpin-error",
+      "toolName": "set_thread_pinned",
+      "args": {
+        "threadId": "chat-b",
+        "pinned": false
+      },
+      "state": "error",
+      "en": "Couldn’t unpin chat",
+      "zh": "未能取消置顶聊天",
+      "target": null
+    },
+    {
+      "name": "archive-running",
+      "toolName": "set_thread_archived",
+      "args": {
+        "threadId": "chat-b",
+        "archived": true
+      },
+      "state": "running",
+      "en": "Archiving chat",
+      "zh": "正在归档聊天",
+      "target": null
+    },
+    {
+      "name": "archive-done",
+      "toolName": "set_thread_archived",
+      "args": {
+        "threadId": "chat-b",
+        "archived": true
+      },
+      "state": "done",
+      "en": "Archived chat",
+      "zh": "已归档聊天",
+      "target": null
+    },
+    {
+      "name": "archive-error",
+      "toolName": "set_thread_archived",
+      "args": {
+        "threadId": "chat-b",
+        "archived": true
+      },
+      "state": "error",
+      "en": "Couldn’t archive chat",
+      "zh": "未能归档聊天",
+      "target": null
+    },
+    {
+      "name": "restore-running",
+      "toolName": "set_thread_archived",
+      "args": {
+        "threadId": "chat-b",
+        "archived": false
+      },
+      "state": "running",
+      "en": "Restoring chat",
+      "zh": "正在恢复聊天",
+      "target": null
+    },
+    {
+      "name": "restore-done",
+      "toolName": "set_thread_archived",
+      "args": {
+        "threadId": "chat-b",
+        "archived": false
+      },
+      "state": "done",
+      "en": "Restored chat",
+      "zh": "已恢复聊天",
+      "target": null
+    },
+    {
+      "name": "restore-error",
+      "toolName": "set_thread_archived",
+      "args": {
+        "threadId": "chat-b",
+        "archived": false
+      },
+      "state": "error",
+      "en": "Couldn’t restore chat",
+      "zh": "未能恢复聊天",
+      "target": null
+    },
+    {
+      "name": "rename-running",
+      "toolName": "set_thread_title",
+      "args": {
+        "threadId": "chat-b",
+        "title": "Parser work"
+      },
+      "state": "running",
+      "en": "Renaming chat",
+      "zh": "正在重命名聊天",
+      "target": null
+    },
+    {
+      "name": "rename-done",
+      "toolName": "set_thread_title",
+      "args": {
+        "threadId": "chat-b",
+        "title": "Parser work"
+      },
+      "state": "done",
+      "en": "Renamed chat",
+      "zh": "已重命名聊天",
+      "target": null
+    },
+    {
+      "name": "rename-error",
+      "toolName": "set_thread_title",
+      "args": {
+        "threadId": "chat-b",
+        "title": "Parser work"
+      },
+      "state": "error",
+      "en": "Couldn’t rename chat",
+      "zh": "未能重命名聊天",
+      "target": null
+    },
+    {
+      "name": "remote read_thread cannot navigate to a same-ID local chat",
+      "toolName": "read_thread",
+      "args": {
+        "threadId": "chat-b",
+        "hostId": "remote-computer"
+      },
+      "state": "running",
+      "en": "Reading chat",
+      "zh": "正在读取聊天",
+      "target": null
+    },
+    {
+      "name": "remote send_message_to_thread cannot navigate to a same-ID local chat",
+      "toolName": "send_message_to_thread",
+      "args": {
+        "threadId": "chat-b",
+        "prompt": "Finish the parser fix.",
+        "hostId": "remote-computer"
+      },
+      "state": "running",
+      "en": "Sending message to chat",
+      "zh": "正在向聊天发送消息",
+      "target": null
+    }
+  ],
+  "summaries": [
+    {
+      "kinds": [
+        "read",
+        "read"
+      ],
+      "en": "Read chat",
+      "zh": "已读取聊天"
+    },
+    {
+      "kinds": [
+        "list",
+        "read",
+        "read",
+        "list"
+      ],
+      "en": "Listed chats, read chat",
+      "zh": "已列出聊天已阅读聊天"
+    },
+    {
+      "kinds": [
+        "read",
+        "list",
+        "read"
+      ],
+      "en": "Read chat, listed chats",
+      "zh": "已读取聊天已列出聊天"
+    },
+    {
+      "kinds": [
+        "read",
+        "send"
+      ],
+      "tools": [
+        {
+          "toolName": "read_thread",
+          "args": {
+            "threadId": "chat-a"
+          },
+          "state": "done"
+        },
+        {
+          "toolName": "send_message_to_thread",
+          "args": {
+            "threadId": "chat-b"
+          },
+          "state": "done"
+        }
+      ],
+      "en": "Read chat, sent message to chat",
+      "zh": "已读取聊天已向聊天发送消息"
+    },
+    {
+      "kinds": [
+        "read",
+        "create"
+      ],
+      "tools": [
+        {
+          "toolName": "read_thread",
+          "args": {
+            "threadId": "chat-a"
+          },
+          "state": "done"
+        },
+        {
+          "toolName": "create_thread",
+          "args": {
+            "prompt": "p"
+          },
+          "state": "done"
+        }
+      ],
+      "en": "Read chat, created chat",
+      "zh": "已读取聊天已新建聊天"
+    },
+    {
+      "kinds": [
+        "read",
+        "wait"
+      ],
+      "tools": [
+        {
+          "toolName": "read_thread",
+          "args": {
+            "threadId": "chat-a"
+          },
+          "state": "done"
+        },
+        {
+          "toolName": "wait_threads",
+          "args": {
+            "targets": [
+              {
+                "threadId": "chat-b"
+              }
+            ]
+          },
+          "state": "done"
+        }
+      ],
+      "en": "Read chat, waited for chats",
+      "zh": "已读取聊天已等待聊天"
+    },
+    {
+      "kinds": [
+        "read",
+        "pin"
+      ],
+      "tools": [
+        {
+          "toolName": "read_thread",
+          "args": {
+            "threadId": "chat-a"
+          },
+          "state": "done"
+        },
+        {
+          "toolName": "set_thread_pinned",
+          "args": {
+            "threadId": "chat-b",
+            "pinned": true
+          },
+          "state": "done"
+        }
+      ],
+      "en": "Read chat, pinned chat",
+      "zh": "已读取聊天已置顶聊天"
+    },
+    {
+      "kinds": [
+        "read",
+        "unpin"
+      ],
+      "tools": [
+        {
+          "toolName": "read_thread",
+          "args": {
+            "threadId": "chat-a"
+          },
+          "state": "done"
+        },
+        {
+          "toolName": "set_thread_pinned",
+          "args": {
+            "threadId": "chat-b",
+            "pinned": false
+          },
+          "state": "done"
+        }
+      ],
+      "en": "Read chat, unpinned chat",
+      "zh": "已读取聊天已取消置顶聊天"
+    },
+    {
+      "kinds": [
+        "read",
+        "archive"
+      ],
+      "tools": [
+        {
+          "toolName": "read_thread",
+          "args": {
+            "threadId": "chat-a"
+          },
+          "state": "done"
+        },
+        {
+          "toolName": "set_thread_archived",
+          "args": {
+            "threadId": "chat-b",
+            "archived": true
+          },
+          "state": "done"
+        }
+      ],
+      "en": "Read chat, archived chat",
+      "zh": "已读取聊天已归档聊天"
+    },
+    {
+      "kinds": [
+        "read",
+        "restore"
+      ],
+      "tools": [
+        {
+          "toolName": "read_thread",
+          "args": {
+            "threadId": "chat-a"
+          },
+          "state": "done"
+        },
+        {
+          "toolName": "set_thread_archived",
+          "args": {
+            "threadId": "chat-b",
+            "archived": false
+          },
+          "state": "done"
+        }
+      ],
+      "en": "Read chat, restored chat",
+      "zh": "已读取聊天已恢复聊天"
+    },
+    {
+      "kinds": [
+        "read",
+        "rename"
+      ],
+      "tools": [
+        {
+          "toolName": "read_thread",
+          "args": {
+            "threadId": "chat-a"
+          },
+          "state": "done"
+        },
+        {
+          "toolName": "set_thread_title",
+          "args": {
+            "threadId": "chat-b",
+            "title": "t"
+          },
+          "state": "done"
+        }
+      ],
+      "en": "Read chat, renamed chat",
+      "zh": "已读取聊天已重命名聊天"
+    },
+    {
+      "kinds": [
+        "read",
+        "fork"
+      ],
+      "tools": [
+        {
+          "toolName": "read_thread",
+          "args": {
+            "threadId": "chat-a"
+          },
+          "state": "done"
+        },
+        {
+          "toolName": "fork_thread",
+          "args": {
+            "threadId": "chat-b"
+          },
+          "state": "done"
+        }
+      ],
+      "en": "Read chat, forked chat",
+      "zh": "已读取聊天已克隆聊天"
+    },
+    {
+      "kinds": [
+        "read",
+        "list_archived"
+      ],
+      "tools": [
+        {
+          "toolName": "read_thread",
+          "args": {
+            "threadId": "chat-a"
+          },
+          "state": "done"
+        },
+        {
+          "toolName": "list_archived_threads",
+          "args": {},
+          "state": "done"
+        }
+      ],
+      "en": "Read chat, listed archived chats",
+      "zh": "已读取聊天已列出已归档聊天"
+    }
+  ],
+  "dynamicLabels": [
+    {
+      "toolName": "HTTPServerXML2JSON",
+      "en": {
+        "active": "Running Http server xml 2 json",
+        "completed": "Completed Http server xml 2 json",
+        "following": "completed Http server xml 2 json"
+      },
+      "zh": {
+        "active": "正在调用工具 · Http server xml 2 json",
+        "completed": "工具调用已完成 · Http server xml 2 json",
+        "following": "工具调用已完成 · Http server xml 2 json"
+      }
+    },
+    {
+      "toolName": "déjàVu",
+      "en": {
+        "active": "Running Deja vu",
+        "completed": "Completed Deja vu",
+        "following": "completed Deja vu"
+      },
+      "zh": {
+        "active": "正在调用工具 · Deja vu",
+        "completed": "工具调用已完成 · Deja vu",
+        "following": "工具调用已完成 · Deja vu"
+      }
+    },
+    {
+      "toolName": "FOO__bar---BAZ",
+      "en": {
+        "active": "Running Foo bar baz",
+        "completed": "Completed Foo bar baz",
+        "following": "completed Foo bar baz"
+      },
+      "zh": {
+        "active": "正在调用工具 · Foo bar baz",
+        "completed": "工具调用已完成 · Foo bar baz",
+        "following": "工具调用已完成 · Foo bar baz"
+      }
+    },
+    {
+      "toolName": "straße_Æther",
+      "en": {
+        "active": "Running Strasse aether",
+        "completed": "Completed Strasse aether",
+        "following": "completed Strasse aether"
+      },
+      "zh": {
+        "active": "正在调用工具 · Strasse aether",
+        "completed": "工具调用已完成 · Strasse aether",
+        "following": "工具调用已完成 · Strasse aether"
+      }
+    },
+    {
+      "toolName": "🦄_Launch",
+      "en": {
+        "active": "Running 🦄 launch",
+        "completed": "Completed 🦄 launch",
+        "following": "completed 🦄 launch"
+      },
+      "zh": {
+        "active": "正在调用工具 · 🦄 launch",
+        "completed": "工具调用已完成 · 🦄 launch",
+        "following": "工具调用已完成 · 🦄 launch"
+      }
+    },
+    {
+      "toolName": "工具读取_v2",
+      "en": {
+        "active": "Running 工具读取 v 2",
+        "completed": "Completed 工具读取 v 2",
+        "following": "completed 工具读取 v 2"
+      },
+      "zh": {
+        "active": "正在调用工具 · 工具读取 v 2",
+        "completed": "工具调用已完成 · 工具读取 v 2",
+        "following": "工具调用已完成 · 工具读取 v 2"
+      }
+    },
+    {
+      "toolName": "automation_update",
+      "en": {
+        "active": "Updating scheduled task",
+        "completed": "Updated scheduled task",
+        "following": "updated scheduled task"
+      },
+      "zh": {
+        "active": "正在更新定时任务",
+        "completed": "已更新定时任务",
+        "following": "已更新定时任务"
+      }
+    },
+    {
+      "toolName": "load_workspace_dependencies",
+      "en": {
+        "active": "Loading workspace dependencies",
+        "completed": "Loaded workspace dependencies",
+        "following": "loaded workspace dependencies"
+      },
+      "zh": {
+        "active": "正在加载工作区依赖",
+        "completed": "已加载工作区依赖",
+        "following": "已加载工作区依赖"
+      }
+    },
+    {
+      "toolName": "pia_slackbot_dm",
+      "en": {
+        "active": "Running Pia slackbot dm",
+        "completed": "Completed Pia slackbot dm",
+        "following": "completed Pia slackbot dm"
+      },
+      "zh": {
+        "active": "正在调用工具 · Pia slackbot dm",
+        "completed": "工具调用已完成 · Pia slackbot dm",
+        "following": "工具调用已完成 · Pia slackbot dm"
+      }
+    }
+  ],
+  "mixedSummaries": [
+    {
+      "name": "one-new-tool-before-files",
+      "tools": [
+        {
+          "toolName": "read_thread"
+        },
+        {
+          "toolName": "edit",
+          "args": {
+            "path": "/a.ts"
+          }
+        },
+        {
+          "toolName": "tool_search",
+          "content": "These tools are now available:\n- calendar_lookup: Search the calendar"
+        }
+      ],
+      "en": "Loaded a tool, edited a file, read chat",
+      "zh": "加载了工具编辑了文件已阅读聊天",
+      "iconTool": "tool_search"
+    },
+    {
+      "name": "dedupe-discovered-identities",
+      "tools": [
+        {
+          "toolName": "ToolSearch",
+          "content": "These tools are now available:\n- calendar_lookup: Search\n- email_search: Search email"
+        },
+        {
+          "toolName": "tool_search",
+          "content": "These tools are now available:\n- calendar_lookup: Search\nThese tools were already available:\n- other_tool\nNo matching tools found for:\n- missing"
+        },
+        {
+          "toolName": "read_thread"
+        }
+      ],
+      "en": "Loaded tools, read chat",
+      "zh": "加载了工具已阅读聊天",
+      "iconTool": "ToolSearch"
+    },
+    {
+      "name": "empty-discovery-does-not-claim-loaded",
+      "tools": [
+        {
+          "toolName": "tool_search",
+          "content": "No matching tools found."
+        },
+        {
+          "toolName": "read_thread"
+        }
+      ],
+      "en": "Read chat",
+      "zh": "已读取聊天",
+      "iconTool": "read_thread"
+    },
+    {
+      "name": "named-mcp-before-loaded",
+      "tools": [
+        {
+          "toolName": "read_thread"
+        },
+        {
+          "toolName": "tool_search",
+          "content": "These tools are now available:\n- calendar_lookup: Search"
+        },
+        {
+          "toolName": "mcp__calendar__read_events"
+        },
+        {
+          "toolName": "mcp__calendar__list_events"
+        }
+      ],
+      "en": "Used Calendar integration, loaded a tool, read chat",
+      "zh": "已使用 Calendar 集成加载了工具已阅读聊天",
+      "iconTool": "mcp__calendar__read_events"
+    },
+    {
+      "name": "mcp-unknown-tool-stays-in-group",
+      "tools": [
+        {
+          "toolName": "read_thread"
+        },
+        {
+          "toolName": "mcp__github__do_thing"
+        },
+        {
+          "toolName": "mcp__slack__search"
+        },
+        {
+          "toolName": "mcp__github__read_file"
+        }
+      ],
+      "en": "Used GitHub and Slack integrations, read chat",
+      "zh": "已使用 GitHub和Slack 集成已阅读聊天",
+      "iconTool": "mcp__github__do_thing"
+    },
+    {
+      "name": "unnamed-mcp-after-loaded",
+      "tools": [
+        {
+          "toolName": "read_thread"
+        },
+        {
+          "toolName": "mcp____do_thing"
+        },
+        {
+          "toolName": "tool_search",
+          "content": "These tools are now available:\n- calendar_lookup: Search"
+        }
+      ],
+      "en": "Loaded a tool, called a tool, read chat",
+      "zh": "加载了工具调用了工具已阅读聊天",
+      "iconTool": "tool_search"
+    },
+    {
+      "name": "server-name-does-not-invent-browser-source",
+      "tools": [
+        {
+          "toolName": "read_thread"
+        },
+        {
+          "toolName": "mcp__browser-use__screenshot"
+        },
+        {
+          "toolName": "mcp__github__read"
+        }
+      ],
+      "en": "Used Browser Use and GitHub integrations, read chat",
+      "zh": "已使用 Browser Use和GitHub 集成已阅读聊天",
+      "iconTool": "mcp__browser-use__screenshot"
+    },
+    {
+      "name": "repl-mcp-is-command-source",
+      "tools": [
+        {
+          "toolName": "read_thread"
+        },
+        {
+          "toolName": "mcp__node_repl__js"
+        }
+      ],
+      "en": "Ran a command, read chat",
+      "zh": "运行了命令已阅读聊天",
+      "iconTool": "mcp__node_repl__js"
+    },
+    {
+      "name": "full-native-event-sequence",
+      "tools": [
+        {
+          "toolName": "tool_search",
+          "content": "These tools are now available:\n- calendar_lookup: Search"
+        },
+        {
+          "toolName": "apply_patch",
+          "args": {
+            "patch": "*** Update File: /a.ts"
+          }
+        },
+        {
+          "toolName": "read",
+          "args": {
+            "path": "/one.png"
+          }
+        },
+        {
+          "toolName": "read",
+          "args": {
+            "path": "/two.webp"
+          }
+        },
+        {
+          "toolName": "read",
+          "args": {
+            "path": "/notes.md"
+          }
+        },
+        {
+          "toolName": "bash",
+          "args": {
+            "command": "npm test"
+          }
+        }
+      ],
+      "en": "Loaded a tool, edited a file, viewed 2 images, read files, ran a command",
+      "zh": "加载了工具编辑了文件查看了 2 张图像读取文件运行了命令",
+      "iconTool": "tool_search"
+    }
+  ],
+  "nonLeading": [
+    {
+      "name": "send-nonleading-error",
+      "toolName": "send_message_to_thread",
+      "args": {
+        "threadId": "chat-b",
+        "prompt": "Finish the parser fix."
+      },
+      "state": "error",
+      "en": "couldn’t send message to chat",
+      "zh": "未能向聊天发送消息"
+    },
+    {
+      "name": "send-nonleading-done",
+      "toolName": "send_message_to_thread",
+      "args": {
+        "threadId": "chat-b",
+        "prompt": "Finish the parser fix."
+      },
+      "state": "done",
+      "en": "sent message to chat",
+      "zh": "已向聊天发送消息"
+    },
+    {
+      "name": "create-nonleading-error",
+      "toolName": "create_thread",
+      "args": {
+        "prompt": "Investigate the flaky test."
+      },
+      "state": "error",
+      "en": "couldn’t create chat",
+      "zh": "未能新建聊天"
+    },
+    {
+      "name": "create-nonleading-done",
+      "toolName": "create_thread",
+      "args": {
+        "prompt": "Investigate the flaky test."
+      },
+      "state": "done",
+      "en": "created chat",
+      "zh": "已新建聊天"
+    },
+    {
+      "name": "fork-nonleading-error",
+      "toolName": "fork_thread",
+      "args": {
+        "threadId": "chat-b"
+      },
+      "state": "error",
+      "en": "couldn’t fork chat",
+      "zh": "未能克隆聊天"
+    },
+    {
+      "name": "fork-nonleading-done",
+      "toolName": "fork_thread",
+      "args": {
+        "threadId": "chat-b"
+      },
+      "state": "done",
+      "en": "forked chat",
+      "zh": "已克隆聊天"
+    },
+    {
+      "name": "wait-nonleading-error",
+      "toolName": "wait_threads",
+      "args": {
+        "targets": [
+          {
+            "threadId": "chat-b"
+          }
+        ],
+        "timeoutMs": 0
+      },
+      "state": "error",
+      "en": "couldn’t wait for chats",
+      "zh": "未能等待聊天"
+    },
+    {
+      "name": "wait-nonleading-done",
+      "toolName": "wait_threads",
+      "args": {
+        "targets": [
+          {
+            "threadId": "chat-b"
+          }
+        ],
+        "timeoutMs": 0
+      },
+      "state": "done",
+      "en": "waited for chats",
+      "zh": "已等待聊天"
+    },
+    {
+      "name": "pin-nonleading-error",
+      "toolName": "set_thread_pinned",
+      "args": {
+        "threadId": "chat-b",
+        "pinned": true
+      },
+      "state": "error",
+      "en": "couldn’t pin chat",
+      "zh": "未能置顶聊天"
+    },
+    {
+      "name": "pin-nonleading-done",
+      "toolName": "set_thread_pinned",
+      "args": {
+        "threadId": "chat-b",
+        "pinned": true
+      },
+      "state": "done",
+      "en": "pinned chat",
+      "zh": "已置顶聊天"
+    },
+    {
+      "name": "unpin-nonleading-error",
+      "toolName": "set_thread_pinned",
+      "args": {
+        "threadId": "chat-b",
+        "pinned": false
+      },
+      "state": "error",
+      "en": "couldn’t unpin chat",
+      "zh": "未能取消置顶聊天"
+    },
+    {
+      "name": "unpin-nonleading-done",
+      "toolName": "set_thread_pinned",
+      "args": {
+        "threadId": "chat-b",
+        "pinned": false
+      },
+      "state": "done",
+      "en": "unpinned chat",
+      "zh": "已取消置顶聊天"
+    },
+    {
+      "name": "archive-nonleading-error",
+      "toolName": "set_thread_archived",
+      "args": {
+        "threadId": "chat-b",
+        "archived": true
+      },
+      "state": "error",
+      "en": "couldn’t archive chat",
+      "zh": "未能归档聊天"
+    },
+    {
+      "name": "archive-nonleading-done",
+      "toolName": "set_thread_archived",
+      "args": {
+        "threadId": "chat-b",
+        "archived": true
+      },
+      "state": "done",
+      "en": "archived chat",
+      "zh": "已归档聊天"
+    },
+    {
+      "name": "restore-nonleading-error",
+      "toolName": "set_thread_archived",
+      "args": {
+        "threadId": "chat-b",
+        "archived": false
+      },
+      "state": "error",
+      "en": "couldn’t restore chat",
+      "zh": "未能恢复聊天"
+    },
+    {
+      "name": "restore-nonleading-done",
+      "toolName": "set_thread_archived",
+      "args": {
+        "threadId": "chat-b",
+        "archived": false
+      },
+      "state": "done",
+      "en": "restored chat",
+      "zh": "已恢复聊天"
+    },
+    {
+      "name": "rename-nonleading-error",
+      "toolName": "set_thread_title",
+      "args": {
+        "threadId": "chat-b",
+        "title": "Parser work"
+      },
+      "state": "error",
+      "en": "couldn’t rename chat",
+      "zh": "未能重命名聊天"
+    },
+    {
+      "name": "rename-nonleading-done",
+      "toolName": "set_thread_title",
+      "args": {
+        "threadId": "chat-b",
+        "title": "Parser work"
+      },
+      "state": "done",
+      "en": "renamed chat",
+      "zh": "已重命名聊天"
+    },
+    {
+      "name": "read-nonleading-error",
+      "toolName": "read_thread",
+      "args": {
+        "threadId": "chat-b"
+      },
+      "state": "error",
+      "en": "couldn’t read chat",
+      "zh": "未能读取聊天"
+    },
+    {
+      "name": "read-nonleading-done",
+      "toolName": "read_thread",
+      "args": {
+        "threadId": "chat-b"
+      },
+      "state": "done",
+      "en": "read chat",
+      "zh": "已阅读聊天"
+    },
+    {
+      "name": "list-nonleading-error",
+      "toolName": "list_threads",
+      "args": {},
+      "state": "error",
+      "en": "couldn’t list chats",
+      "zh": "未能列出聊天"
+    },
+    {
+      "name": "list-nonleading-done",
+      "toolName": "list_threads",
+      "args": {},
+      "state": "done",
+      "en": "listed chats",
+      "zh": "已列出聊天"
+    }
+  ],
+  "_remoteHostWhy": "Remote read and send rows retain activity rendering but cannot invoke the local navigator, because thread IDs are scoped to their host.",
+  "dynamicLabelReason": "Generic host activity now reports lifecycle state in the interface language. Dedicated native actions keep their semantic labels and expandable outcomes."
+}

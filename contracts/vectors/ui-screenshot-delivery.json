@@ -1,0 +1,296 @@
+{
+  "reason": "Pins screenshot delivery and generic image viewing through declared sources; local reads use the owning conversation, and adding an image targets the current composer without sending. Image paths are normalized before serving; exact producer-provided embeds prevent reconstructed filenames, and missing images remain inspectable with explicit retry. Sent attachment previews inherit their transcript owner when optimistic snapshots omit it, so original-file reads retain conversation scope. Nonvisual models omit image bytes only from their requests; saved image content still renders after reload, including image-only turns. Shell captures can lack structured tool media: explicit assistant image embeds publish exact files from the managed output directory before rendering and on history restore, without admitting prose, stdout, arbitrary paths or another conversation's nested directory. Successful file reads and host visual exports preserve exact original paths through live projection and cold history, including the source alias of pooled image bytes; no sibling worktree or export directory is authorized.",
+  "publicationCases": [
+    { "name": "legacy flat shell screenshot", "source": "assistant-image", "path": "live-changelog-header.png", "allowed": true },
+    { "name": "owned nested screenshot", "source": "assistant-image", "path": "s1/UI shot.png", "allowed": true },
+    { "name": "screenshot inside a Markdown table", "source": "assistant-table", "path": "s1/table.png", "allowed": true },
+    { "name": "another conversation directory", "source": "assistant-image", "path": "s2/UI.png", "allowed": false },
+    { "name": "arbitrary local file", "source": "assistant-image", "path": "../outside.png", "allowed": false },
+    { "name": "user image reference", "source": "user-image", "path": "input.png", "allowed": false },
+    { "name": "command output reference", "source": "tool-output", "path": "output.png", "allowed": false },
+    { "name": "fenced Markdown example", "source": "assistant-code", "path": "example.png", "allowed": false },
+    { "name": "prose filename", "source": "assistant-prose", "path": "mentioned.png", "allowed": false },
+    { "name": "ordinary file link", "source": "assistant-link", "path": "linked.png", "allowed": false }
+  ],
+  "exactFileCases": [
+    { "name": "successful file read", "toolName": "read", "output": { "path": "{file}", "found": true, "kind": "image" }, "allowed": true },
+    { "name": "failed file read", "toolName": "read", "output": { "path": "{file}", "found": false }, "allowed": false },
+    { "name": "structured design export", "toolName": "mcp__klaus-prototype__prototype_export", "output": { "structuredContent": { "id": "design", "format": "png", "path": "{file}" } }, "allowed": true },
+    { "name": "legacy design export", "toolName": "prototype_export", "output": { "content": [{ "type": "text", "text": "{exportJson}" }] }, "allowed": true },
+    { "name": "diagram export", "toolName": "mcp__klaus-digram__digram_export", "output": { "structuredContent": { "id": "diagram", "format": "png", "path": "{file}" } }, "allowed": true },
+    { "name": "failed export", "toolName": "prototype_export", "output": { "isError": true, "structuredContent": { "id": "design", "format": "png", "path": "{file}" } }, "allowed": false },
+    { "name": "failed structured result cannot fall back to text", "toolName": "prototype_export", "output": { "structuredContent": { "ok": false, "path": "{file}" }, "content": [{ "type": "text", "text": "{exportJson}" }] }, "allowed": false },
+    { "name": "foreign MCP result is not a file grant", "toolName": "mcp__foreign__prototype_export", "output": { "structuredContent": { "id": "design", "format": "png", "path": "{file}" } }, "allowed": false },
+    { "name": "shell JSON output is not a file grant", "toolName": "bash", "output": { "path": "{file}", "found": true }, "allowed": false },
+    { "name": "inspection paths are not exported files", "toolName": "prototype_inspect", "output": { "path": "{file}", "id": "design" }, "allowed": false }
+  ],
+  "fitCases": [
+    {
+      "width": 2000,
+      "height": 1000,
+      "stageWidth": 1000,
+      "stageHeight": 600,
+      "scale": 0.5
+    },
+    {
+      "width": 200,
+      "height": 100,
+      "stageWidth": 1048,
+      "stageHeight": 648,
+      "scale": 1
+    }
+  ],
+  "zoomSteps": [
+    0.25,
+    0.33,
+    0.5,
+    0.67,
+    0.75,
+    0.8,
+    0.9,
+    1,
+    1.1,
+    1.25,
+    1.5,
+    1.75,
+    2,
+    2.5,
+    3,
+    4,
+    5
+  ],
+  "wheelCases": [
+    {
+      "delta": 20,
+      "mode": 0,
+      "pixels": 20
+    },
+    {
+      "delta": 2,
+      "mode": 1,
+      "pixels": 32
+    },
+    {
+      "delta": 1,
+      "mode": 2,
+      "pixels": 800
+    }
+  ],
+  "menuCases": [
+    {
+      "name": "local generic screenshot",
+      "image": {
+        "src": "klaus-media://file/example",
+        "path": "/tmp/UI.png",
+        "sessionId": "owner"
+      },
+      "capabilities": {
+        "copy": true,
+        "add": true,
+        "tab": true
+      },
+      "actions": [
+        "open",
+        "add",
+        "copy",
+        "reveal",
+        "save"
+      ]
+    },
+    {
+      "name": "remote image",
+      "image": {
+        "src": "https://example.invalid/UI.png"
+      },
+      "capabilities": {
+        "copy": true,
+        "add": true,
+        "tab": true
+      },
+      "actions": [
+        "open",
+        "address",
+        "add",
+        "copy",
+        "save"
+      ]
+    },
+    {
+      "name": "generic GIF keeps generic actions",
+      "image": {
+        "src": "https://example.invalid/preview.gif"
+      },
+      "capabilities": {
+        "copy": true,
+        "add": true,
+        "tab": true
+      },
+      "actions": [
+        "open",
+        "address",
+        "add",
+        "copy",
+        "save"
+      ]
+    },
+    {
+      "name": "explicit animation",
+      "image": {
+        "src": "https://example.invalid/preview.gif",
+        "isAnimated": true
+      },
+      "capabilities": {
+        "copy": true,
+        "add": true,
+        "tab": true
+      },
+      "actions": [
+        "open",
+        "address",
+        "save"
+      ]
+    },
+    {
+      "name": "clipboard and composer unavailable",
+      "image": {
+        "src": "data:image/png;base64,AAAA"
+      },
+      "capabilities": {
+        "copy": false,
+        "add": false,
+        "tab": false
+      },
+      "actions": [
+        "save"
+      ]
+    }
+  ],
+  "owners": [
+    {
+      "name": "main",
+      "owner": "main",
+      "global": "foreign"
+    },
+    {
+      "name": "side",
+      "owner": "side",
+      "global": "main"
+    },
+    {
+      "name": "child stream",
+      "owner": "parent",
+      "global": "foreign"
+    },
+    {
+      "name": "unscoped page",
+      "owner": "",
+      "global": "main"
+    }
+  ],
+  "capture": {
+    "defaultSave": true,
+    "transientSave": false,
+    "computerDefaultSave": false,
+    "savedPathEncoding": "json",
+    "processImages": "tool-only",
+    "reportedImages": "final-without-duplicates",
+    "embed": "exact-producer-markdown",
+    "finalImageVerification": "verify-readable-exact-reference"
+  },
+  "controls": [
+    "previous",
+    "next",
+    "out",
+    "in",
+    "fit",
+    "actual",
+    "save",
+    "menu",
+    "close"
+  ],
+  "localImageReferences": [
+    {
+      "href": "/tmp/UI%20shot%23a%3F.png",
+      "path": "/tmp/UI shot#a?.png"
+    },
+    {
+      "href": "sandbox:/tmp/%E5%9B%BE.png",
+      "path": "/tmp/图.png"
+    },
+    {
+      "href": "file:///C:/UI%20shot.png",
+      "path": "C:/UI shot.png"
+    },
+    {
+      "href": "file://server/share/UI%20shot.png",
+      "path": "//server/share/UI shot.png"
+    },
+    {
+      "href": "/tmp/100%.png",
+      "path": "/tmp/100%.png"
+    },
+    {
+      "href": "/tmp/literal%2520.png",
+      "path": "/tmp/literal%20.png"
+    },
+    {
+      "href": "/tmp/not%00safe.png",
+      "path": ""
+    }
+  ],
+  "sentAttachmentCases": [
+    {
+      "name": "optimistic main attachment",
+      "sessionId": "main",
+      "global": "foreign",
+      "src": "blob:sent-image",
+      "expectedOwner": "main"
+    },
+    {
+      "name": "optimistic side attachment",
+      "sessionId": "side",
+      "global": "main",
+      "src": "blob:side-image",
+      "expectedOwner": "side"
+    },
+    {
+      "name": "optimistic attachment prepared before session creation",
+      "sessionId": "created",
+      "global": "foreign",
+      "snapshotOwner": "",
+      "src": "blob:new-image",
+      "expectedOwner": "created"
+    },
+    {
+      "name": "explicit attachment owner",
+      "sessionId": "side",
+      "global": "foreign",
+      "snapshotOwner": "parent",
+      "src": "blob:parent-image",
+      "expectedOwner": "parent"
+    },
+    {
+      "name": "replayed attachment",
+      "sessionId": "main",
+      "global": "foreign",
+      "replay": true,
+      "expectedOwner": "main"
+    },
+    {
+      "name": "replayed attachment after a nonvisual turn",
+      "sessionId": "nonvisual",
+      "global": "foreign",
+      "replay": true,
+      "text": "Inspect this image",
+      "expectedOwner": "nonvisual"
+    },
+    {
+      "name": "replayed image-only attachment after a nonvisual turn",
+      "sessionId": "nonvisual-image-only",
+      "global": "foreign",
+      "replay": true,
+      "text": "",
+      "expectedOwner": "nonvisual-image-only"
+    }
+  ]
+}

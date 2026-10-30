@@ -1,0 +1,156 @@
+{
+  "reason": "Native menus use the selected application language, preserve native actions, and expose availability for the window receiving each command. Temporary chats are unavailable until their lifecycle is supported.",
+  "locales": {
+    "en": {
+      "headings": [
+        "Klaus",
+        "File",
+        "Edit",
+        "View",
+        "Window",
+        "Help"
+      ],
+      "application": [
+        "About Klaus",
+        null,
+        "Settings",
+        "Check for Updates…",
+        "Log Out",
+        null,
+        "Hide Klaus",
+        "Hide Others",
+        "Show All",
+        null,
+        "Quit Klaus"
+      ],
+      "file": [
+        "New Window",
+        "New Chat",
+        "New Temporary Chat",
+        "New Project…",
+        null,
+        "Open Folder",
+        null,
+        "Close"
+      ],
+      "window": [
+        "Minimize",
+        "Zoom",
+        null,
+        "Bring All to Front"
+      ],
+      "help": [
+        "Documentation",
+        "Keyboard Shortcuts",
+        "What's New",
+        null,
+        "Troubleshooting",
+        "System Status",
+        "Feedback",
+        null,
+        "Task Manager",
+        "Start Performance Trace"
+      ]
+    },
+    "zh": {
+      "headings": [
+        "Klaus",
+        "文件",
+        "编辑",
+        "视图",
+        "窗口",
+        "帮助"
+      ],
+      "application": [
+        "关于 Klaus",
+        null,
+        "设置",
+        "检查更新…",
+        "退出登录",
+        null,
+        "隐藏 Klaus",
+        "隐藏其他",
+        "显示全部",
+        null,
+        "退出 Klaus"
+      ],
+      "file": [
+        "新建窗口",
+        "新聊天",
+        "新建临时聊天",
+        "新建项目…",
+        null,
+        "打开文件夹",
+        null,
+        "关闭"
+      ],
+      "window": [
+        "最小化",
+        "缩放",
+        null,
+        "全部置于顶层"
+      ],
+      "help": [
+        "文档",
+        "键盘快捷键",
+        "新功能",
+        null,
+        "故障排除",
+        "系统状态",
+        "反馈",
+        null,
+        "任务管理器",
+        "开始性能跟踪"
+      ]
+    }
+  },
+  "gatedCommands": [
+    "newProject",
+    "toggleTerminal",
+    "reloadBrowserPage",
+    "navigateBack",
+    "navigateForward",
+    "previousTab",
+    "nextTab"
+  ],
+  "editRoles": [
+    "undo",
+    "redo",
+    "cut",
+    "copy",
+    "paste",
+    "pasteandmatchstyle",
+    "delete",
+    "selectall",
+    "showsubstitutions",
+    "togglesmartquotes",
+    "togglesmartdashes",
+    "toggletextreplacement",
+    "startspeaking",
+    "stopspeaking"
+  ],
+  "windowLifecycle": {
+    "engineCount": 1,
+    "newWindow": "independent draft",
+    "menuDispatch": "focused owner",
+    "primaryClose": "hide",
+    "secondaryClose": "destroy window and preserve engine",
+    "passiveBrowserUpdate": "preserve active presentation",
+    "unknownBrowserOwner": "refuse"
+  },
+  "contentFind": {
+    "open": "CmdOrCtrl+F",
+    "chatSearch": "CmdOrCtrl+K",
+    "next": "CmdOrCtrl+G",
+    "previous": "CmdOrCtrl+Shift+G",
+    "domains": [
+      "chat",
+      "document",
+      "diff",
+      "browser"
+    ],
+    "virtualFiles": "complete source text",
+    "nativeTarget": "registered owning window and current page",
+    "staleRequest": "cancel without changing another page"
+  }
+}

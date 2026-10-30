@@ -1,0 +1,48 @@
+{
+  "reason": "Mobile transcript reads the same session-scoped inline visualization whitelist and preserves source on refusal.",
+  "maxBytes": 1048576,
+  "cases": [
+    {
+      "name": "selfContainedPage",
+      "relativePath": "visualizations/s1/interactive-chart.html",
+      "sessionId": "s1",
+      "html": "<!doctype html><button onclick=\"this.textContent=2\">1</button>",
+      "allowed": true
+    },
+    {
+      "name": "boundaryInclusive",
+      "relativePath": "visualizations/s1/boundary-page.html",
+      "sessionId": "s1",
+      "bytes": 1048576,
+      "allowed": true
+    },
+    {
+      "name": "oversize",
+      "relativePath": "visualizations/s1/oversize-page.html",
+      "sessionId": "s1",
+      "bytes": 1048577,
+      "allowed": false
+    },
+    {
+      "name": "wrongSession",
+      "relativePath": "visualizations/s2/interactive-chart.html",
+      "sessionId": "s1",
+      "html": "private",
+      "allowed": false
+    },
+    {
+      "name": "workspaceHTML",
+      "relativePath": "workspace/interactive-chart.html",
+      "sessionId": "s1",
+      "html": "workspace",
+      "allowed": false
+    },
+    {
+      "name": "invalidName",
+      "relativePath": "visualizations/s1/my_chart.html",
+      "sessionId": "s1",
+      "html": "invalid",
+      "allowed": false
+    }
+  ]
+}

@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "reason": "Browser authorization and local credential reuse have independent entrypoints. Completed authorization preserves credential ownership while cancellation fences stale replies.",
+  "start": {
+    "ok": true,
+    "flowId": "fixture-flow-one",
+    "authUrl": "https://accounts.google.com/o/oauth2/auth?client_id=fixture.apps.googleusercontent.com&response_type=code&redirect_uri=http%3A%2F%2Flocalhost%3A44001%2Fauth%2Fcallback&state=fixture-state&code_challenge=fixture-challenge&code_challenge_method=S256",
+    "expiresAt": 4102444800000,
+    "interval": 1
+  },
+  "pending": {
+    "ok": false,
+    "pending": true
+  },
+  "complete": {
+    "ok": true,
+    "signedIn": true,
+    "loggedIn": true,
+    "account": "account@example.invalid"
+  },
+  "cancelled": {
+    "ok": true,
+    "cancelled": true
+  },
+  "accountCard": {
+    "signedOutActions": [
+      "start",
+      "importLocal"
+    ],
+    "signedInActions": []
+  }
+}

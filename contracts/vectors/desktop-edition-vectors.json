@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "reason": "Build-time editions isolate product services and local profiles without changing stored language preferences or the domestic upgrade identity.",
+  "defaults": [
+    { "edition": "domestic", "serverUrl": "https://klaus-ai.cn", "productName": "Klaus", "application": "ai.klaus.desktop" },
+    { "edition": "international", "serverUrl": "https://klaus-ai.site", "productName": "Klaus International", "application": "ai.klaus.desktop.international" }
+  ],
+  "packagedEnvironmentSelection": "ignored",
+  "distributionQuery": { "surface": "app", "action": "distribution", "channel": "app:distribution" },
+  "legacyPackage": "domestic",
+  "unsupportedPackagedLayout": "reject",
+  "mainWindowTitle": "edition-product-name-not-shared-document-title",
+  "engineDirectories": "both-editions-profile-local-even-when-parent-overrides-exist",
+  "customProfileOwnership": "single-edition-marker",
+  "nonLegacyUnmarkedExistingProfile": "reject-without-reading-credentials",
+  "nonLegacyProfilePath": "absolute-canonical-no-surrounding-whitespace",
+  "legacyNativeCredentialAddon": "non-legacy-namespace-rejected-before-construction",
+  "chromeExtension": "shared-one-active-app-binding",
+  "chromeDiscovery": { "domestic": "klaus-browser-use", "international": "klaus-browser-use-international" },
+  "chromeDiscoverySource": "edition-definition-chromeDiscoveryName",
+  "additionalEditions": "unpackaged-runs-and-packaging-scripts-read-KLAUS_DESKTOP_EDITIONS_FILE-packaged-apps-read-only-their-own-definitions",
+  "_change": "Edition-specific behavior is keyed on legacyIdentity and per-edition data instead of edition ids, so editions defined outside the repository work without code changes."
+}

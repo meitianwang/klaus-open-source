@@ -1,0 +1,16 @@
+{
+  "reason": "A file selected in the main viewer must preview even when a shell created it outside the workspace or its tool provenance is absent after reopening. Authorization is an exact canonical file read grant; automatic media, sibling files, directory listing and writes retain their existing boundaries.",
+  "sessionId": "selected-artifact",
+  "otherSessionId": "other-artifact",
+  "controlAccess": {
+    "reason": "Preview authorization follows an owner file selection and must not become a model tool's self-grant action. Existing scoped artifact reads remain available.",
+    "channel": "artifacts:authorize-preview",
+    "deniedActions": ["authorizePreview", "authorize-preview"]
+  },
+  "externalFiles": [
+    { "name": "01-report.md", "content": "# External report\n\nGenerated outside the workspace.\n" },
+    { "name": "report.html", "content": "<h1>External report</h1>" }
+  ],
+  "deniedRoles": ["artifact", "canvas", "quick-input", "pet"],
+  "invalidPaths": ["", "relative.md", "/tmp/invalid\u0000.md"]
+}

@@ -1,0 +1,1137 @@
+{
+  "agents": {
+    "engine": [
+      {
+        "description": "keeps parent model",
+        "model": "inherit",
+        "name": "inherit-model",
+        "prompt": "inherit agent"
+      },
+      {
+        "description": "Pure reasoning agent",
+        "name": "no-tools",
+        "prompt": "reason only",
+        "tools": []
+      },
+      {
+        "description": "",
+        "name": "nodesc",
+        "prompt": "# Heading Only\n\nagent body",
+        "tools": [
+          "read",
+          "Bash"
+        ]
+      },
+      {
+        "description": "Reviews code",
+        "model": "opus",
+        "name": "reviewer",
+        "permissionMode": "acceptEdits",
+        "prompt": "You review code.",
+        "tools": [
+          "read",
+          "grep"
+        ]
+      }
+    ]
+  },
+  "commands": {
+    "bundled": [
+      {
+        "argumentHint": "<task and schedule>",
+        "description": "Create and manage Klaus local scheduled tasks using CronCreate, CronList, and CronDelete.",
+        "loadedFrom": "builtin-skill",
+        "name": "cron-manager",
+        "type": "prompt",
+        "userInvocable": true
+      },
+      {
+        "argumentHint": "<what the skill should do>",
+        "description": "Create a reusable Klaus skill from a capability and save it as a SKILL.md directory.",
+        "loadedFrom": "builtin-skill",
+        "name": "skill-creator",
+        "type": "prompt",
+        "userInvocable": true
+      },
+      {
+        "argumentHint": "<what the command should do>",
+        "description": "Create a reusable Klaus slash command from a prompt and save it as a Markdown command file.",
+        "loadedFrom": "builtin-skill",
+        "name": "slash-command-creator",
+        "type": "prompt",
+        "userInvocable": true
+      }
+    ],
+    "bundledExpansions": {
+      "/cron-manager": {
+        "hadInlineBash": false,
+        "matched": true,
+        "text": "# Klaus Scheduled Task Creator\n\nYou help users create and manage Klaus local scheduled tasks.\n\nUse Klaus local scheduled tasks, not remote Claude Code scheduled agents. These tasks run in Klaus and are managed by the Klaus Scheduled Tasks page.\n\n## Workflow\n\n1. Understand what the user wants Klaus to do and when it should run. If either the task or the schedule is missing, ask concise follow-up questions.\n2. Convert the user's schedule to a standard 5-field cron expression in the user's local timezone. Do not convert local times to UTC for Klaus local tasks.\n3. When the user gives an approximate cadence without a specific minute, avoid defaulting to busy-looking whole-hour or half-hour marks unless the wording requires it.\n4. For one-shot reminders or delayed actions, set `recurring: false`. For repeated tasks, set `recurring: true`.\n5. Show the proposed schedule and prompt to the user when the request is ambiguous, potentially expensive, or likely to create noisy recurring work.\n6. Create the task with CronCreate. Use CronList and CronDelete when the user wants to list, inspect, or cancel existing tasks.\n7. After creating the task, briefly confirm the task name, cadence, next expected run when available, and where the user can manage it in Klaus.\n\n## Examples\n\n- \"Every 30 minutes, check the deploy\" -> recurring task with a cron like `*/30 * * * *`.\n- \"Tomorrow at 9am remind me to send the report\" -> one-shot task with pinned day/month/hour/minute and `recurring: false`.\n- \"Every weekday at 10, summarize yesterday's logs\" -> recurring task with `0 10 * * 1-5`.\n\nNever use Bash sleep, setTimeout, or other workarounds for scheduled work."
+      },
+      "/cron-manager  every day at 9  ": {
+        "hadInlineBash": false,
+        "matched": true,
+        "text": "# Klaus Scheduled Task Creator\n\nYou help users create and manage Klaus local scheduled tasks.\n\nUse Klaus local scheduled tasks, not remote Claude Code scheduled agents. These tasks run in Klaus and are managed by the Klaus Scheduled Tasks page.\n\n## Workflow\n\n1. Understand what the user wants Klaus to do and when it should run. If either the task or the schedule is missing, ask concise follow-up questions.\n2. Convert the user's schedule to a standard 5-field cron expression in the user's local timezone. Do not convert local times to UTC for Klaus local tasks.\n3. When the user gives an approximate cadence without a specific minute, avoid defaulting to busy-looking whole-hour or half-hour marks unless the wording requires it.\n4. For one-shot reminders or delayed actions, set `recurring: false`. For repeated tasks, set `recurring: true`.\n5. Show the proposed schedule and prompt to the user when the request is ambiguous, potentially expensive, or likely to create noisy recurring work.\n6. Create the task with CronCreate. Use CronList and CronDelete when the user wants to list, inspect, or cancel existing tasks.\n7. After creating the task, briefly confirm the task name, cadence, next expected run when available, and where the user can manage it in Klaus.\n\n## Examples\n\n- \"Every 30 minutes, check the deploy\" -> recurring task with a cron like `*/30 * * * *`.\n- \"Tomorrow at 9am remind me to send the report\" -> one-shot task with pinned day/month/hour/minute and `recurring: false`.\n- \"Every weekday at 10, summarize yesterday's logs\" -> recurring task with `0 10 * * 1-5`.\n\nNever use Bash sleep, setTimeout, or other workarounds for scheduled work.\n\n## User Request\n\nevery day at 9"
+      },
+      "/nope": {
+        "matched": false
+      },
+      "/slash-command-creator make a thing": {
+        "hadInlineBash": false,
+        "matched": true,
+        "text": "# Klaus Slash Command Creator\n\nYou help users turn reusable prompts into Klaus slash commands (Markdown command files).\n\nIf these instructions are already in your context, act on them directly; never invoke the slash-command-creator skill again in the same conversation.\n\n## Where to save\n\n1. If the request explicitly specifies a target directory, use it.\n2. Otherwise, if this conversation runs inside a project working directory (not the default Klaus workspace), ask whether the command should be global or project-level. Save project-level commands to <project root>/.klaus/commands/.\n3. Otherwise save to the global directory ~/.klaus/commands/.\nNever save anywhere else.\n\n## How to write the file\n\nThe target directory may not exist yet, and the global directory usually sits outside the session workspace, so workspace-scoped file tools fail there with \"outside the writable roots\". Always write through the shell instead:\n\n1. Run `mkdir -p <target dir>` first (idempotent — no need to probe whether it exists).\n2. Check for name clashes with `ls <target dir>`.\n3. Write the file with a single-quoted heredoc (so the body is saved verbatim), then read it back once to confirm.\n\n## File format (strict)\n\nSave as <target dir>/<kebab-case-name>.md:\n\n---\ndescription: one-line summary shown in lists and / suggestions\nargument-hint: what the user should type after the command (omit this line when there is none)\n---\n<prompt body>\n\n## Workflow\n\n1. If the user's goal is vague, ask concise clarifying questions first.\n2. Write a well-crafted reusable prompt as the body. Where the per-run input goes, insert the arguments placeholder: a dollar sign immediately followed by the word ARGUMENTS in caps; for positional parts use a dollar sign followed by the position number. Spell these placeholders out only inside the saved command body — Klaus substitutes them on every expansion, including inside this very instruction text.\n3. Pick a short kebab-case name that does not clash with the existing files found by the ls check above.\n4. After saving, confirm the file location and tell the user they can run it with /<name> in any conversation.\n\n## User Request\n\nmake a thing"
+      },
+      "cron-manager": {
+        "matched": false
+      },
+      "/skill-creator make a linter skill": {
+        "matched": true,
+        "text": "# Klaus Skill Creator\n\nYou help users turn a capability into a Klaus skill (a directory holding a SKILL.md).\n\nIf these instructions are already in your context, act on them directly; never invoke the skill-creator skill again in the same conversation.\n\n## Where to save\n\n1. If the request explicitly specifies a target directory, use it.\n2. Otherwise, if this conversation runs inside a project working directory (not the default Klaus workspace), ask whether the skill should be global or project-level. Save project-level skills to <project root>/.klaus/skills/.\n3. Otherwise save to the global directory ~/.klaus/skills/.\nNever save anywhere else.\n\n## How to write the files\n\nA skill is a DIRECTORY, not a single file, and the global directory usually sits outside the session workspace, so workspace-scoped file tools fail there with \"outside the writable roots\". Always write through the shell instead:\n\n1. Run `mkdir -p <target dir>/<kebab-case-name>` first (idempotent — no need to probe whether it exists).\n2. Check for name clashes with `ls <target dir>`.\n3. Write SKILL.md with a single-quoted heredoc (so the body is saved verbatim), then read it back once to confirm.\n\n## File format (strict)\n\nSave as <target dir>/<kebab-case-name>/SKILL.md:\n\n---\nname: <kebab-case-name>\ndescription: what the skill does AND when to use it, in one or two sentences\ntags: [<one of: dev, docs, content, design, automation, research, productivity>]\n---\n<instruction body>\n\n`description` is load-bearing: it is the ONLY text the model reads when deciding whether to reach for the skill, so it must name the trigger as well as the capability. A description that says only what the skill does will never fire.\n\nAdd `metadata: { \"klaus\": { \"emoji\": \"<one emoji>\" } }` when the user wants an icon. Declare external tools the skill shells out to under `metadata.klaus.requires.bins`, so Klaus can report a missing dependency up front instead of failing mid-run.\n\n## Workflow\n\n1. If the user's goal is vague, ask concise clarifying questions first: what task it automates, when it should fire, and what knowledge the model does not already have.\n2. Write the body as direct instructions to the model, not prose describing the skill. Keep only knowledge the model lacks — restating general programming practice just spends the context the skill costs.\n3. Pick a short kebab-case name that does not clash with the directories found by the ls check above.\n4. Supporting files (reference.md, scripts/) go in the same directory and must be referenced from SKILL.md by relative path, or nothing will ever read them.\n5. After saving, confirm the directory and tell the user the skill is picked up by NEW conversations, and that they can run it with /<name>.\n\n## User Request\n\nmake a linter skill",
+        "hadInlineBash": false
+      }
+    },
+    "managed": [
+      {
+        "argumentHint": "",
+        "body": "project body\n",
+        "description": "project command",
+        "filePath": "$ROOT/project/.klaus/commands/proj.md",
+        "name": "proj",
+        "scope": "project"
+      },
+      {
+        "argumentHint": "",
+        "body": "upper\n",
+        "description": "uppercase name is allowed",
+        "filePath": "$ROOT/config/commands/UPPER.md",
+        "name": "UPPER",
+        "scope": "global"
+      },
+      {
+        "argumentHint": "",
+        "body": "indented command body\n",
+        "description": "blank body command",
+        "filePath": "$ROOT/config/commands/blankbody.md",
+        "name": "blankbody",
+        "scope": "global"
+      },
+      {
+        "argumentHint": "<env>",
+        "body": "Deploy to $1\n",
+        "description": "Deploy the app",
+        "filePath": "$ROOT/config/commands/deploy.md",
+        "name": "deploy",
+        "scope": "global"
+      },
+      {
+        "argumentHint": "",
+        "body": "plain body with no frontmatter\n",
+        "description": "",
+        "filePath": "$ROOT/config/commands/nofm.md",
+        "name": "nofm",
+        "scope": "global"
+      },
+      {
+        "argumentHint": "trimmed",
+        "body": "spacekey body\n",
+        "description": "spaced key",
+        "filePath": "$ROOT/config/commands/spacekey.md",
+        "name": "spacekey",
+        "scope": "global"
+      }
+    ],
+    "menu": [
+      {
+        "description": "empty name",
+        "displayName": "",
+        "name": "",
+        "scope": "global",
+        "source": "skills",
+        "type": "prompt"
+      },
+      {
+        "description": "bad name",
+        "displayName": "_bad",
+        "name": "_bad",
+        "scope": "global",
+        "source": "commands",
+        "type": "prompt"
+      },
+      {
+        "description": "hidden skill",
+        "displayName": ".hidden",
+        "name": ".hidden",
+        "scope": "global",
+        "source": "skills",
+        "type": "prompt"
+      },
+      {
+        "argumentHint": "<file>",
+        "description": "Alpha user skill",
+        "displayName": "alpha",
+        "name": "alpha",
+        "scope": "global",
+        "source": "skills",
+        "type": "prompt"
+      },
+      {
+        "description": "bad model",
+        "displayName": "badmodel",
+        "name": "badmodel",
+        "scope": "global",
+        "source": "skills",
+        "type": "prompt"
+      },
+      {
+        "description": "broken",
+        "displayName": "badyaml",
+        "name": "badyaml",
+        "scope": "global",
+        "source": "skills",
+        "type": "prompt"
+      },
+      {
+        "description": "blank body",
+        "displayName": "blankbody",
+        "name": "blankbody",
+        "scope": "global",
+        "source": "skills",
+        "type": "prompt"
+      },
+      {
+        "argumentHint": "<x>",
+        "description": "plugin command",
+        "displayName": "ccmd",
+        "name": "ccmd",
+        "scope": "global",
+        "source": "plugin",
+        "type": "prompt"
+      },
+      {
+        "description": "project clash wins",
+        "displayName": "clash",
+        "name": "clash",
+        "scope": "project",
+        "source": "skills",
+        "type": "prompt"
+      },
+      {
+        "argumentHint": "<task and schedule>",
+        "description": "Create and manage Klaus local scheduled tasks using CronCreate, CronList, and CronDelete.",
+        "displayName": "cron-manager",
+        "name": "cron-manager",
+        "scope": "global",
+        "source": "builtin-skill",
+        "type": "prompt"
+      },
+      {
+        "argumentHint": "<env>",
+        "description": "Deploy the app",
+        "displayName": "deploy",
+        "name": "deploy",
+        "scope": "global",
+        "source": "commands",
+        "type": "prompt"
+      },
+      {
+        "description": "empty desc body",
+        "displayName": "emptydesc",
+        "name": "emptydesc",
+        "scope": "global",
+        "source": "skills",
+        "type": "prompt"
+      },
+      {
+        "description": "inherit model",
+        "displayName": "inheritmodel",
+        "name": "inheritmodel",
+        "scope": "global",
+        "source": "skills",
+        "type": "prompt"
+      },
+      {
+        "description": "intro paragraph",
+        "displayName": "lateh1",
+        "name": "lateh1",
+        "scope": "global",
+        "source": "skills",
+        "type": "prompt"
+      },
+      {
+        "description": "listed command",
+        "displayName": "listed",
+        "name": "listed",
+        "scope": "global",
+        "source": "plugin",
+        "type": "prompt"
+      },
+      {
+        "description": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA...",
+        "displayName": "nofm",
+        "name": "nofm",
+        "scope": "global",
+        "source": "skills",
+        "type": "prompt"
+      },
+      {
+        "description": "numeric args",
+        "displayName": "numeric",
+        "name": "numeric",
+        "scope": "global",
+        "source": "skills",
+        "type": "prompt"
+      },
+      {
+        "description": "match everything",
+        "displayName": "pathsall",
+        "name": "pathsall",
+        "scope": "global",
+        "source": "skills",
+        "type": "prompt"
+      },
+      {
+        "description": "project command",
+        "displayName": "proj",
+        "name": "proj",
+        "scope": "project",
+        "source": "commands",
+        "type": "prompt"
+      },
+      {
+        "argumentHint": "<what the skill should do>",
+        "description": "Create a reusable Klaus skill from a capability and save it as a SKILL.md directory.",
+        "displayName": "skill-creator",
+        "name": "skill-creator",
+        "scope": "global",
+        "source": "builtin-skill",
+        "type": "prompt"
+      },
+      {
+        "argumentHint": "<what the command should do>",
+        "description": "Create a reusable Klaus slash command from a prompt and save it as a Markdown command file.",
+        "displayName": "slash-command-creator",
+        "name": "slash-command-creator",
+        "scope": "global",
+        "source": "builtin-skill",
+        "type": "prompt"
+      },
+      {
+        "argumentHint": "trimmed",
+        "description": "spaced key",
+        "displayName": "spacekey",
+        "name": "spacekey",
+        "scope": "global",
+        "source": "commands",
+        "type": "prompt"
+      },
+      {
+        "description": "tools body",
+        "displayName": "spacetools",
+        "name": "spacetools",
+        "scope": "global",
+        "source": "skills",
+        "type": "prompt"
+      },
+      {
+        "description": "uppercase name is allowed",
+        "displayName": "UPPER",
+        "name": "UPPER",
+        "scope": "global",
+        "source": "commands",
+        "type": "prompt"
+      },
+      {
+        "description": "double extension",
+        "displayName": "weird.md",
+        "name": "weird.md",
+        "scope": "global",
+        "source": "commands",
+        "type": "prompt"
+      }
+    ],
+    "plugin": [
+      {
+        "meta": {
+          "argumentHint": "<x>",
+          "description": "plugin command"
+        },
+        "name": "ccmd",
+        "type": "prompt"
+      },
+      {
+        "meta": {
+          "description": "listed command"
+        },
+        "name": "listed",
+        "type": "prompt"
+      }
+    ],
+    "slash": [
+      {
+        "description": "project clash wins",
+        "isHidden": false,
+        "loadedFrom": "skills",
+        "name": "clash",
+        "scope": "project",
+        "type": "prompt",
+        "userInvocable": true
+      },
+      {
+        "description": "hidden skill",
+        "isHidden": false,
+        "loadedFrom": "skills",
+        "name": ".hidden",
+        "scope": "global",
+        "type": "prompt",
+        "userInvocable": true
+      },
+      {
+        "argumentHint": "<file>",
+        "description": "Alpha user skill",
+        "isHidden": false,
+        "loadedFrom": "skills",
+        "name": "alpha",
+        "scope": "global",
+        "type": "prompt",
+        "userInvocable": true
+      },
+      {
+        "description": "bad model",
+        "isHidden": false,
+        "loadedFrom": "skills",
+        "name": "badmodel",
+        "scope": "global",
+        "type": "prompt",
+        "userInvocable": true
+      },
+      {
+        "description": "broken",
+        "isHidden": false,
+        "loadedFrom": "skills",
+        "name": "badyaml",
+        "scope": "global",
+        "type": "prompt",
+        "userInvocable": true
+      },
+      {
+        "description": "blank body",
+        "isHidden": false,
+        "loadedFrom": "skills",
+        "name": "blankbody",
+        "scope": "global",
+        "type": "prompt",
+        "userInvocable": true
+      },
+      {
+        "description": "empty desc body",
+        "isHidden": false,
+        "loadedFrom": "skills",
+        "name": "emptydesc",
+        "scope": "global",
+        "type": "prompt",
+        "userInvocable": true
+      },
+      {
+        "description": "empty name",
+        "isHidden": false,
+        "loadedFrom": "skills",
+        "name": "",
+        "scope": "global",
+        "type": "prompt",
+        "userInvocable": true
+      },
+      {
+        "description": "inherit model",
+        "isHidden": false,
+        "loadedFrom": "skills",
+        "name": "inheritmodel",
+        "scope": "global",
+        "type": "prompt",
+        "userInvocable": true
+      },
+      {
+        "description": "intro paragraph",
+        "isHidden": false,
+        "loadedFrom": "skills",
+        "name": "lateh1",
+        "scope": "global",
+        "type": "prompt",
+        "userInvocable": true
+      },
+      {
+        "description": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA...",
+        "isHidden": false,
+        "loadedFrom": "skills",
+        "name": "nofm",
+        "scope": "global",
+        "type": "prompt",
+        "userInvocable": true
+      },
+      {
+        "description": "numeric args",
+        "isHidden": false,
+        "loadedFrom": "skills",
+        "name": "numeric",
+        "scope": "global",
+        "type": "prompt",
+        "userInvocable": true
+      },
+      {
+        "description": "match everything",
+        "isHidden": false,
+        "loadedFrom": "skills",
+        "name": "pathsall",
+        "scope": "global",
+        "type": "prompt",
+        "userInvocable": true
+      },
+      {
+        "description": "tools body",
+        "isHidden": false,
+        "loadedFrom": "skills",
+        "name": "spacetools",
+        "scope": "global",
+        "type": "prompt",
+        "userInvocable": true
+      },
+      {
+        "argumentHint": "<x>",
+        "description": "plugin command",
+        "isHidden": false,
+        "loadedFrom": "plugin",
+        "name": "ccmd",
+        "scope": "global",
+        "type": "prompt",
+        "userInvocable": true
+      },
+      {
+        "description": "listed command",
+        "isHidden": false,
+        "loadedFrom": "plugin",
+        "name": "listed",
+        "scope": "global",
+        "type": "prompt",
+        "userInvocable": true
+      },
+      {
+        "description": "project command",
+        "isHidden": false,
+        "loadedFrom": "commands",
+        "name": "proj",
+        "scope": "project",
+        "type": "prompt",
+        "userInvocable": true
+      },
+      {
+        "description": "uppercase name is allowed",
+        "isHidden": false,
+        "loadedFrom": "commands",
+        "name": "UPPER",
+        "scope": "global",
+        "type": "prompt",
+        "userInvocable": true
+      },
+      {
+        "description": "bad name",
+        "isHidden": false,
+        "loadedFrom": "commands",
+        "name": "_bad",
+        "scope": "global",
+        "type": "prompt",
+        "userInvocable": true
+      },
+      {
+        "argumentHint": "<env>",
+        "description": "Deploy the app",
+        "isHidden": false,
+        "loadedFrom": "commands",
+        "name": "deploy",
+        "scope": "global",
+        "type": "prompt",
+        "userInvocable": true
+      },
+      {
+        "argumentHint": "trimmed",
+        "description": "spaced key",
+        "isHidden": false,
+        "loadedFrom": "commands",
+        "name": "spacekey",
+        "scope": "global",
+        "type": "prompt",
+        "userInvocable": true
+      },
+      {
+        "description": "double extension",
+        "isHidden": false,
+        "loadedFrom": "commands",
+        "name": "weird.md",
+        "scope": "global",
+        "type": "prompt",
+        "userInvocable": true
+      }
+    ],
+    "user": [
+      {
+        "meta": {
+          "description": "uppercase name is allowed"
+        },
+        "name": "UPPER",
+        "type": "prompt"
+      },
+      {
+        "meta": {
+          "description": "bad name"
+        },
+        "name": "_bad",
+        "type": "prompt"
+      },
+      {
+        "meta": {
+          "description": "blank body command"
+        },
+        "name": "blankbody",
+        "type": "prompt"
+      },
+      {
+        "meta": {
+          "argumentHint": "<env>",
+          "description": "Deploy the app"
+        },
+        "name": "deploy",
+        "type": "prompt"
+      },
+      {
+        "meta": {
+          "description": "plain body with no frontmatter"
+        },
+        "name": "nofm",
+        "type": "prompt"
+      },
+      {
+        "meta": {
+          "argumentHint": "trimmed",
+          "description": "spaced key"
+        },
+        "name": "spacekey",
+        "type": "prompt"
+      },
+      {
+        "meta": {
+          "description": "double extension"
+        },
+        "name": "weird.md",
+        "type": "prompt"
+      }
+    ]
+  },
+  "hooks": {
+    "commandHooks": [
+      {
+        "command": "echo pre",
+        "event": "PreToolUse",
+        "matcher": "Bash",
+        "timeoutMs": 5000
+      },
+      {
+        "command": "echo async",
+        "event": "PreToolUse",
+        "isAsync": true,
+        "matcher": "Bash"
+      },
+      {
+        "command": "echo no-matcher",
+        "event": "PreToolUse"
+      },
+      {
+        "command": "echo start",
+        "event": "SessionStart"
+      },
+      {
+        "command": "echo proj-prompt",
+        "event": "UserPromptSubmit",
+        "timeoutMs": 2000
+      }
+    ]
+  },
+  "mcp": {
+    "configOrder": [
+      "user-stdio",
+      "user-http",
+      "user-oauth",
+      "ccmcp",
+      "proj-approved",
+      "proj-pending",
+      "proj-rejected",
+      "local-only"
+    ],
+    "configs": {
+      "ccmcp": {
+        "args": [
+          "shadows-plugin"
+        ],
+        "command": "echo"
+      },
+      "local-only": {
+        "args": [
+          "local"
+        ],
+        "command": "echo"
+      },
+      "proj-approved": {
+        "args": [
+          "approved"
+        ],
+        "command": "echo"
+      },
+      "user-http": {
+        "args": [
+          "local-wins"
+        ],
+        "command": "echo"
+      },
+      "user-oauth": {
+        "oauth": {
+          "clientId": "cid",
+          "scopes": [
+            "a"
+          ]
+        },
+        "type": "sse",
+        "url": "https://example.invalid/o"
+      },
+      "user-stdio": {
+        "args": [
+          "project-wins"
+        ],
+        "command": "echo"
+      }
+    },
+    "scopes": {
+      "ccmcp": "user",
+      "local-only": "local",
+      "proj-approved": "project",
+      "proj-pending": "project",
+      "proj-rejected": "project",
+      "user-bogus": "user",
+      "user-http": "local",
+      "user-oauth": "user",
+      "user-off": "user",
+      "user-stdio": "project",
+      "user-urlonly": "user"
+    },
+    "skipped": [
+      {
+        "name": "user-urlonly",
+        "reason": "unsupported-transport:stdio"
+      },
+      {
+        "name": "user-bogus",
+        "reason": "unsupported-transport:grpc"
+      },
+      {
+        "name": "user-off",
+        "reason": "disabled"
+      }
+    ]
+  },
+  "plugins": [
+    {
+      "agents": [
+        "ccagent"
+      ],
+      "commands": [
+        "ccmd"
+      ],
+      "dir": "$ROOT/config/plugins/cc-style",
+      "hooks": [
+        {
+          "command": "echo cc-post",
+          "event": "PostToolUse",
+          "matcher": "Write"
+        }
+      ],
+      "lspServers": {
+        "cclsp": {
+          "command": "cc-lsp",
+          "extensionToLanguage": {
+            ".cc": "cpp"
+          }
+        }
+      },
+      "mcpServers": [
+        {
+          "args": [
+            "cc"
+          ],
+          "command": "echo",
+          "name": "ccmcp",
+          "transport": "stdio"
+        },
+        {
+          "name": "alpha-http",
+          "transport": "http",
+          "url": "https://example.invalid/mcp"
+        },
+        {
+          "args": [
+            "root"
+          ],
+          "command": "echo",
+          "name": "ccroot",
+          "transport": "stdio"
+        }
+      ],
+      "name": "cc-style",
+      "skills": [
+        "ccskill",
+        "clash"
+      ]
+    },
+    {
+      "agents": [],
+      "commands": [
+        "listed"
+      ],
+      "dir": "$ROOT/config/plugins/klaus-style",
+      "hooks": [
+        {
+          "command": "echo ks-stop",
+          "event": "Stop",
+          "matcher": null
+        },
+        {
+          "command": "echo ks-subagent",
+          "event": "SubagentStop",
+          "matcher": null
+        },
+        {
+          "command": "echo inline",
+          "event": "SessionEnd",
+          "matcher": null
+        }
+      ],
+      "lspServers": {},
+      "mcpServers": [
+        {
+          "name": "ksmcp",
+          "oauth": true,
+          "transport": "sse",
+          "url": "https://example.invalid/sse"
+        }
+      ],
+      "name": "klaus-style",
+      "skills": [
+        "listed"
+      ]
+    }
+  ],
+  "skills": {
+    "engine": [
+      {
+        "body": "project clash body\n",
+        "description": "project clash wins",
+        "disableModelInvocation": false,
+        "name": "clash",
+        "path": "$ROOT/project/.klaus/skills/clash/SKILL.md",
+        "userInvocable": true
+      },
+      {
+        "body": "hidden body\n",
+        "description": "hidden skill",
+        "disableModelInvocation": false,
+        "name": ".hidden",
+        "path": "$ROOT/config/skills/.hidden/SKILL.md",
+        "userInvocable": true
+      },
+      {
+        "agent": "general-purpose",
+        "allowedTools": [
+          "Bash(git diff, --stat)",
+          "Read"
+        ],
+        "argumentHint": "<file>",
+        "arguments": [
+          "first",
+          "second",
+          "fourth"
+        ],
+        "body": "# Alpha heading\n\nbody line\n",
+        "context": "fork",
+        "description": "Alpha user skill",
+        "disableModelInvocation": true,
+        "effort": "xhigh",
+        "model": "sonnet",
+        "name": "alpha",
+        "path": "$ROOT/config/skills/alpha/SKILL.md",
+        "paths": [
+          "src/a",
+          "src/b",
+          "docs"
+        ],
+        "shell": "/bin/zsh",
+        "userInvocable": true,
+        "whenToUse": "when alpha"
+      },
+      {
+        "body": "badmodel body\n",
+        "description": "bad model",
+        "disableModelInvocation": false,
+        "model": "42",
+        "name": "badmodel",
+        "path": "$ROOT/config/skills/badmodel/SKILL.md",
+        "userInvocable": true
+      },
+      {
+        "body": "badyaml body\n",
+        "description": "broken",
+        "disableModelInvocation": false,
+        "name": "badyaml",
+        "path": "$ROOT/config/skills/badyaml/SKILL.md",
+        "userInvocable": true
+      },
+      {
+        "body": "\n   indented after blanks\n",
+        "description": "blank body",
+        "disableModelInvocation": false,
+        "name": "blankbody",
+        "path": "$ROOT/config/skills/blankbody/SKILL.md",
+        "userInvocable": true
+      },
+      {
+        "body": "empty desc body\n",
+        "description": "empty desc body",
+        "disableModelInvocation": false,
+        "model": "",
+        "name": "emptydesc",
+        "path": "$ROOT/config/skills/emptydesc/SKILL.md",
+        "userInvocable": true,
+        "whenToUse": ""
+      },
+      {
+        "body": "empty name body\n",
+        "description": "empty name",
+        "disableModelInvocation": false,
+        "name": "",
+        "path": "$ROOT/config/skills/emptyname/SKILL.md",
+        "userInvocable": true
+      },
+      {
+        "body": "inherit body\n",
+        "description": "inherit model",
+        "disableModelInvocation": false,
+        "effort": 7,
+        "name": "inheritmodel",
+        "path": "$ROOT/config/skills/inheritmodel/SKILL.md",
+        "userInvocable": true
+      },
+      {
+        "body": "intro paragraph\n\n# Later Heading\n",
+        "description": "intro paragraph",
+        "disableModelInvocation": false,
+        "name": "lateh1",
+        "path": "$ROOT/config/skills/lateh1/SKILL.md",
+        "userInvocable": true
+      },
+      {
+        "body": "# AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n\nno frontmatter body\n",
+        "description": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA...",
+        "disableModelInvocation": false,
+        "name": "nofm",
+        "path": "$ROOT/config/skills/nofm/SKILL.md",
+        "userInvocable": true
+      },
+      {
+        "arguments": [
+          "alpha",
+          "beta_2"
+        ],
+        "body": "numeric body\n",
+        "description": "numeric args",
+        "disableModelInvocation": false,
+        "name": "numeric",
+        "path": "$ROOT/config/skills/numeric/SKILL.md",
+        "userInvocable": true
+      },
+      {
+        "body": "pathsall body\n",
+        "description": "match everything",
+        "disableModelInvocation": false,
+        "name": "pathsall",
+        "path": "$ROOT/config/skills/pathsall/SKILL.md",
+        "userInvocable": true
+      },
+      {
+        "allowedTools": [
+          "Bash(git diff, --stat)",
+          "Read",
+          "Write"
+        ],
+        "body": "tools body\n",
+        "description": "tools body",
+        "disableModelInvocation": false,
+        "name": "spacetools",
+        "path": "$ROOT/config/skills/spacetools/SKILL.md",
+        "userInvocable": true
+      },
+      {
+        "name": "skill-creator",
+        "description": "Create a reusable Klaus skill from a capability and save it as a SKILL.md directory.",
+        "whenToUse": "When the user wants to create, write, or author a new Klaus skill, or asks how a SKILL.md should be structured.",
+        "argumentHint": "<what the skill should do>",
+        "userInvocable": true,
+        "body": "# Klaus Skill Creator\n\nYou help users turn a capability into a Klaus skill (a directory holding a SKILL.md).\n\nIf these instructions are already in your context, act on them directly; never invoke the skill-creator skill again in the same conversation.\n\n## Where to save\n\n1. If the request explicitly specifies a target directory, use it.\n2. Otherwise, if this conversation runs inside a project working directory (not the default Klaus workspace), ask whether the skill should be global or project-level. Save project-level skills to <project root>/.klaus/skills/.\n3. Otherwise save to the global directory ~/.klaus/skills/.\nNever save anywhere else.\n\n## How to write the files\n\nA skill is a DIRECTORY, not a single file, and the global directory usually sits outside the session workspace, so workspace-scoped file tools fail there with \"outside the writable roots\". Always write through the shell instead:\n\n1. Run `mkdir -p <target dir>/<kebab-case-name>` first (idempotent — no need to probe whether it exists).\n2. Check for name clashes with `ls <target dir>`.\n3. Write SKILL.md with a single-quoted heredoc (so the body is saved verbatim), then read it back once to confirm.\n\n## File format (strict)\n\nSave as <target dir>/<kebab-case-name>/SKILL.md:\n\n---\nname: <kebab-case-name>\ndescription: what the skill does AND when to use it, in one or two sentences\ntags: [<one of: dev, docs, content, design, automation, research, productivity>]\n---\n<instruction body>\n\n`description` is load-bearing: it is the ONLY text the model reads when deciding whether to reach for the skill, so it must name the trigger as well as the capability. A description that says only what the skill does will never fire.\n\nAdd `metadata: { \"klaus\": { \"emoji\": \"<one emoji>\" } }` when the user wants an icon. Declare external tools the skill shells out to under `metadata.klaus.requires.bins`, so Klaus can report a missing dependency up front instead of failing mid-run.\n\n## Workflow\n\n1. If the user's goal is vague, ask concise clarifying questions first: what task it automates, when it should fire, and what knowledge the model does not already have.\n2. Write the body as direct instructions to the model, not prose describing the skill. Keep only knowledge the model lacks — restating general programming practice just spends the context the skill costs.\n3. Pick a short kebab-case name that does not clash with the directories found by the ls check above.\n4. Supporting files (reference.md, scripts/) go in the same directory and must be referenced from SKILL.md by relative path, or nothing will ever read them.\n5. After saving, confirm the directory and tell the user the skill is picked up by NEW conversations, and that they can run it with /<name>.",
+        "path": "builtin:skill-creator"
+      },
+      {
+        "argumentHint": "<what the command should do>",
+        "body": "# Klaus Slash Command Creator\n\nYou help users turn reusable prompts into Klaus slash commands (Markdown command files).\n\nIf these instructions are already in your context, act on them directly; never invoke the slash-command-creator skill again in the same conversation.\n\n## Where to save\n\n1. If the request explicitly specifies a target directory, use it.\n2. Otherwise, if this conversation runs inside a project working directory (not the default Klaus workspace), ask whether the command should be global or project-level. Save project-level commands to <project root>/.klaus/commands/.\n3. Otherwise save to the global directory ~/.klaus/commands/.\nNever save anywhere else.\n\n## How to write the file\n\nThe target directory may not exist yet, and the global directory usually sits outside the session workspace, so workspace-scoped file tools fail there with \"outside the writable roots\". Always write through the shell instead:\n\n1. Run `mkdir -p <target dir>` first (idempotent — no need to probe whether it exists).\n2. Check for name clashes with `ls <target dir>`.\n3. Write the file with a single-quoted heredoc (so the body is saved verbatim), then read it back once to confirm.\n\n## File format (strict)\n\nSave as <target dir>/<kebab-case-name>.md:\n\n---\ndescription: one-line summary shown in lists and / suggestions\nargument-hint: what the user should type after the command (omit this line when there is none)\n---\n<prompt body>\n\n## Workflow\n\n1. If the user's goal is vague, ask concise clarifying questions first.\n2. Write a well-crafted reusable prompt as the body. Where the per-run input goes, insert the arguments placeholder: a dollar sign immediately followed by the word ARGUMENTS in caps; for positional parts use a dollar sign followed by the position number. Spell these placeholders out only inside the saved command body — Klaus substitutes them on every expansion, including inside this very instruction text.\n3. Pick a short kebab-case name that does not clash with the existing files found by the ls check above.\n4. After saving, confirm the file location and tell the user they can run it with /<name> in any conversation.",
+        "description": "Create a reusable Klaus slash command from a prompt and save it as a Markdown command file.",
+        "name": "slash-command-creator",
+        "path": "builtin:slash-command-creator",
+        "userInvocable": true,
+        "whenToUse": "When the user wants to create, save, or turn a prompt into a Klaus slash command / quick command (快捷指令), or asks to make a reusable /command."
+      }
+    ],
+    "one": {
+      ".hidden": {
+        "body": "hidden body\n",
+        "description": "hidden skill",
+        "disableModelInvocation": false,
+        "name": ".hidden",
+        "path": "$ROOT/config/skills/.hidden/SKILL.md",
+        "userInvocable": true
+      },
+      "alpha": {
+        "agent": "general-purpose",
+        "allowedTools": [
+          "Bash(git diff, --stat)",
+          "Read"
+        ],
+        "argumentHint": "<file>",
+        "arguments": [
+          "first",
+          "second",
+          "fourth"
+        ],
+        "body": "# Alpha heading\n\nbody line\n",
+        "context": "fork",
+        "description": "Alpha user skill",
+        "disableModelInvocation": true,
+        "effort": "xhigh",
+        "model": "sonnet",
+        "name": "alpha",
+        "path": "$ROOT/config/skills/alpha/SKILL.md",
+        "paths": [
+          "src/a",
+          "src/b",
+          "docs"
+        ],
+        "shell": "/bin/zsh",
+        "userInvocable": true,
+        "whenToUse": "when alpha"
+      },
+      "badctx": null,
+      "badmodel": {
+        "body": "badmodel body\n",
+        "description": "bad model",
+        "disableModelInvocation": false,
+        "model": "42",
+        "name": "badmodel",
+        "path": "$ROOT/config/skills/badmodel/SKILL.md",
+        "userInvocable": true
+      },
+      "badyaml": {
+        "body": "badyaml body\n",
+        "description": "broken",
+        "disableModelInvocation": false,
+        "name": "badyaml",
+        "path": "$ROOT/config/skills/badyaml/SKILL.md",
+        "userInvocable": true
+      },
+      "blankbody": {
+        "body": "\n   indented after blanks\n",
+        "description": "blank body",
+        "disableModelInvocation": false,
+        "name": "blankbody",
+        "path": "$ROOT/config/skills/blankbody/SKILL.md",
+        "userInvocable": true
+      },
+      "emptydesc": {
+        "body": "empty desc body\n",
+        "description": "empty desc body",
+        "disableModelInvocation": false,
+        "model": "",
+        "name": "emptydesc",
+        "path": "$ROOT/config/skills/emptydesc/SKILL.md",
+        "userInvocable": true,
+        "whenToUse": ""
+      },
+      "emptyname": {
+        "body": "empty name body\n",
+        "description": "empty name",
+        "disableModelInvocation": false,
+        "name": "",
+        "path": "$ROOT/config/skills/emptyname/SKILL.md",
+        "userInvocable": true
+      },
+      "inheritmodel": {
+        "body": "inherit body\n",
+        "description": "inherit model",
+        "disableModelInvocation": false,
+        "effort": 7,
+        "name": "inheritmodel",
+        "path": "$ROOT/config/skills/inheritmodel/SKILL.md",
+        "userInvocable": true
+      },
+      "lateh1": {
+        "body": "intro paragraph\n\n# Later Heading\n",
+        "description": "intro paragraph",
+        "disableModelInvocation": false,
+        "name": "lateh1",
+        "path": "$ROOT/config/skills/lateh1/SKILL.md",
+        "userInvocable": true
+      },
+      "nofm": {
+        "body": "# AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n\nno frontmatter body\n",
+        "description": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA...",
+        "disableModelInvocation": false,
+        "name": "nofm",
+        "path": "$ROOT/config/skills/nofm/SKILL.md",
+        "userInvocable": true
+      },
+      "numeric": {
+        "arguments": [
+          "alpha",
+          "beta_2"
+        ],
+        "body": "numeric body\n",
+        "description": "numeric args",
+        "disableModelInvocation": false,
+        "name": "numeric",
+        "path": "$ROOT/config/skills/numeric/SKILL.md",
+        "userInvocable": true
+      },
+      "pathsall": {
+        "body": "pathsall body\n",
+        "description": "match everything",
+        "disableModelInvocation": false,
+        "name": "pathsall",
+        "path": "$ROOT/config/skills/pathsall/SKILL.md",
+        "userInvocable": true
+      },
+      "spacetools": {
+        "allowedTools": [
+          "Bash(git diff, --stat)",
+          "Read",
+          "Write"
+        ],
+        "body": "tools body\n",
+        "description": "tools body",
+        "disableModelInvocation": false,
+        "name": "spacetools",
+        "path": "$ROOT/config/skills/spacetools/SKILL.md",
+        "userInvocable": true
+      }
+    }
+  }
+}

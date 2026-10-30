@@ -1,0 +1,166 @@
+{
+  "_why": "The delegation envelope is the wire shape of cross-conversation messaging: the host encodes it when send_message_to_thread delivers into another conversation, and the renderer parses it to fold the wrapper and show only the prompt the sender wrote. Escaping must round-trip exactly, because a payload that survives encoding but not decoding reaches the recipient model corrupted — and a corrupted source-thread-id means the reply goes nowhere. parseDelegationEnvelope deliberately returns null for anything that is not exactly one well-formed envelope: swallowing user-visible text is worse than leaving protocol markup on screen. Cross-host delivery adds an optional source-host-id so replies address the sending device and the renderer never opens an unrelated local conversation with the same id. Legacy envelopes keep their exact encoding and parsed object shape. A malformed remote host cannot silently become a local source link. These vectors pin escaping, source identity, backward compatibility, and rejection cases.",
+  "initialInput": {
+    "_why": "A conversation created on the owner's behalf starts with an owner input outside the activity fold. Its provider-invisible display metadata distinguishes it from later coordination messages while preserving the model-facing source envelope.",
+    "input": "Investigate the flaky test.",
+    "displayMetadata": {
+      "delegationKind": "initial-input",
+      "displayText": "Investigate the flaky test."
+    }
+  },
+  "roundTrip": [
+    {
+      "name": "plain prompt",
+      "input": "Please fix the parser bug.",
+      "sourceThreadId": "thread-a",
+      "expectedSourceThreadId": "thread-a",
+      "expectedInput": "Please fix the parser bug."
+    },
+    {
+      "name": "escapes ampersand angle brackets in both fields",
+      "input": "Use a < b && c > d",
+      "sourceThreadId": "a&b<c>d",
+      "expectedSourceThreadId": "a&b<c>d",
+      "expectedInput": "Use a < b && c > d"
+    },
+    {
+      "name": "a literal entity in the payload survives two round trips",
+      "input": "The text says &lt;tag&gt; literally",
+      "sourceThreadId": "thread-a",
+      "expectedSourceThreadId": "thread-a",
+      "expectedInput": "The text says &lt;tag&gt; literally"
+    },
+    {
+      "name": "newlines and indentation are preserved",
+      "input": "Step one:\n  - do this\n\nStep two.",
+      "sourceThreadId": "thread-a",
+      "expectedSourceThreadId": "thread-a",
+      "expectedInput": "Step one:\n  - do this\n\nStep two."
+    },
+    {
+      "name": "a closing tag inside the payload does not end the envelope early",
+      "input": "Do not emit </input> or </klaus-delegation> yourself.",
+      "sourceThreadId": "thread-a",
+      "expectedSourceThreadId": "thread-a",
+      "expectedInput": "Do not emit </input> or </klaus-delegation> yourself."
+    },
+    {
+      "name": "unicode and emoji survive",
+      "input": "修复解析器 🐛 — caf\u00e9",
+      "sourceThreadId": "thread-\u4f1a\u8bdd",
+      "expectedSourceThreadId": "thread-\u4f1a\u8bdd",
+      "expectedInput": "修复解析器 🐛 — caf\u00e9"
+    }
+  ],
+  "encodeShapes": [
+    {
+      "name": "with a source id",
+      "input": "hi",
+      "sourceThreadId": "thread-a",
+      "expected": "<klaus-delegation>\n  <source-thread-id>thread-a</source-thread-id>\n  <input>hi</input>\n</klaus-delegation>"
+    },
+    {
+      "name": "an absent source omits the element instead of emitting an empty tag",
+      "input": "hi",
+      "sourceThreadId": null,
+      "expected": "<klaus-delegation>\n  <input>hi</input>\n</klaus-delegation>"
+    },
+    {
+      "name": "a blank source is treated as absent",
+      "input": "hi",
+      "sourceThreadId": "   ",
+      "expected": "<klaus-delegation>\n  <input>hi</input>\n</klaus-delegation>"
+    }
+  ],
+  "parseRejects": [
+    { "name": "not an envelope at all", "text": "Please fix the parser bug." },
+    { "name": "empty string", "text": "" },
+    { "name": "missing the wrapper close", "text": "<klaus-delegation>\n  <input>hi</input>" },
+    { "name": "missing the input element", "text": "<klaus-delegation>\n  <source-thread-id>a</source-thread-id>\n</klaus-delegation>" },
+    { "name": "prose before the envelope", "text": "Here you go:\n<klaus-delegation>\n  <input>hi</input>\n</klaus-delegation>" },
+    { "name": "prose after the envelope", "text": "<klaus-delegation>\n  <input>hi</input>\n</klaus-delegation>\nThanks!" },
+    { "name": "two envelopes in one message", "text": "<klaus-delegation>\n  <input>one</input>\n</klaus-delegation>\n<klaus-delegation>\n  <input>two</input>\n</klaus-delegation>" },
+    { "name": "a nested envelope", "text": "<klaus-delegation>\n  <input><klaus-delegation><input>inner</input></klaus-delegation></input>\n</klaus-delegation>" }
+  ],
+  "parseAccepts": [
+    {
+      "name": "surrounding whitespace is tolerated",
+      "text": "\n  <klaus-delegation>\n  <input>hi</input>\n</klaus-delegation>\n  ",
+      "expectedSourceThreadId": null,
+      "expectedInput": "hi"
+    },
+    {
+      "name": "a hand-written envelope without a source parses",
+      "text": "<klaus-delegation>\n  <input>hi</input>\n</klaus-delegation>",
+      "expectedSourceThreadId": null,
+      "expectedInput": "hi"
+    }
+  ],
+  "remoteRoundTrip": [
+    {
+      "name": "a remote sender keeps both address components",
+      "input": "Please inspect the result.",
+      "sourceThreadId": "thread-a",
+      "sourceHostId": "device-b",
+      "expected": "<klaus-delegation>\n  <source-thread-id>thread-a</source-thread-id>\n  <source-host-id>device-b</source-host-id>\n  <input>Please inspect the result.</input>\n</klaus-delegation>",
+      "expectedParsed": { "sourceThreadId": "thread-a", "sourceHostId": "device-b", "input": "Please inspect the result." }
+    },
+    {
+      "name": "host identity and payload escape markup independently",
+      "input": "Use a < b && c > d",
+      "sourceThreadId": "thread<&>",
+      "sourceHostId": "device<&>",
+      "expected": "<klaus-delegation>\n  <source-thread-id>thread&lt;&amp;&gt;</source-thread-id>\n  <source-host-id>device&lt;&amp;&gt;</source-host-id>\n  <input>Use a &lt; b &amp;&amp; c &gt; d</input>\n</klaus-delegation>",
+      "expectedParsed": { "sourceThreadId": "thread<&>", "sourceHostId": "device<&>", "input": "Use a < b && c > d" }
+    },
+    {
+      "name": "literal host entities and closing tags survive repeated delivery",
+      "input": "Keep &lt;tag&gt; literally.",
+      "sourceThreadId": "thread-a",
+      "sourceHostId": "device&lt;</source-host-id>",
+      "expected": "<klaus-delegation>\n  <source-thread-id>thread-a</source-thread-id>\n  <source-host-id>device&amp;lt;&lt;/source-host-id&gt;</source-host-id>\n  <input>Keep &amp;lt;tag&amp;gt; literally.</input>\n</klaus-delegation>",
+      "expectedParsed": { "sourceThreadId": "thread-a", "sourceHostId": "device&lt;</source-host-id>", "input": "Keep &lt;tag&gt; literally." }
+    },
+    {
+      "name": "source host whitespace is normalized",
+      "input": "hi",
+      "sourceThreadId": " thread-a ",
+      "sourceHostId": " device-b ",
+      "expected": "<klaus-delegation>\n  <source-thread-id>thread-a</source-thread-id>\n  <source-host-id>device-b</source-host-id>\n  <input>hi</input>\n</klaus-delegation>",
+      "expectedParsed": { "sourceThreadId": "thread-a", "sourceHostId": "device-b", "input": "hi" }
+    },
+    {
+      "name": "an empty optional host retains the legacy parsed shape",
+      "input": "hi",
+      "sourceThreadId": "thread-a",
+      "sourceHostId": "   ",
+      "expected": "<klaus-delegation>\n  <source-thread-id>thread-a</source-thread-id>\n  <input>hi</input>\n</klaus-delegation>",
+      "expectedParsed": { "sourceThreadId": "thread-a", "input": "hi" }
+    },
+    {
+      "name": "host context can be shown without a reply thread",
+      "input": "hi",
+      "sourceThreadId": null,
+      "sourceHostId": "device-b",
+      "expected": "<klaus-delegation>\n  <source-host-id>device-b</source-host-id>\n  <input>hi</input>\n</klaus-delegation>",
+      "expectedParsed": { "sourceThreadId": null, "sourceHostId": "device-b", "input": "hi" }
+    }
+  ],
+  "remoteParseRejects": [
+    { "name": "an explicit empty host is not a local identity", "text": "<klaus-delegation><source-thread-id>thread-a</source-thread-id><source-host-id> </source-host-id><input>hi</input></klaus-delegation>" },
+    { "name": "duplicate host tags are ambiguous", "text": "<klaus-delegation><source-thread-id>thread-a</source-thread-id><source-host-id>device-a</source-host-id><source-host-id>device-b</source-host-id><input>hi</input></klaus-delegation>" },
+    { "name": "raw markup is invalid inside a host identity", "text": "<klaus-delegation><source-thread-id>thread-a</source-thread-id><source-host-id><b>device-b</b></source-host-id><input>hi</input></klaus-delegation>" },
+    { "name": "an unclosed host tag is not silently dropped", "text": "<klaus-delegation><source-thread-id>thread-a</source-thread-id><source-host-id>device-b<input>hi</input></klaus-delegation>" }
+  ],
+  "escapeRoundTrip": [
+    "a&b",
+    "a&lt;b",
+    "&amp;",
+    "<>&",
+    "&&<<>>",
+    "&amp;lt;",
+    "",
+    "no escaping needed",
+    "中文 &lt;tag&gt; 🐛"
+  ]
+}

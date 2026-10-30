@@ -1,0 +1,76 @@
+{
+  "version": 1,
+  "notes": "Real desktop queue interactions use the production composer, IPC bridge, host queue and named engine facade with a loopback-only model provider.",
+  "cases": [
+    {
+      "id": "raw-preview-menu",
+      "expect": [
+        "700ms hover delay",
+        "immediate eligible focus preview",
+        "raw selectable multiline text",
+        "keyboard menu wrap and edge navigation",
+        "Escape focus restoration",
+        "outside pointer and navigation dismissal"
+      ]
+    },
+    {
+      "id": "edit-attachment",
+      "expect": [
+        "restore uploaded attachment",
+        "undo restores unrelated draft and original position",
+        "requeue preserves attachment and neighbor anchors"
+      ]
+    },
+    {
+      "id": "durable-sort-delete",
+      "expect": [
+        "native pointer sortable reorder",
+        "delete undo restores original position",
+        "renderer reload retains order"
+      ]
+    },
+    {
+      "id": "side-ownership-recovery",
+      "expect": [
+        "fresh side target owns full text and image",
+        "source retains other rows",
+        "side controls unlock after reorder and real delivery refusal",
+        "missing fixture upload pauses delivery",
+        "restored upload can retry once",
+        "side menu omits nested transfer"
+      ]
+    },
+    {
+      "id": "stop-undo-resume",
+      "expect": [
+        "Stop interrupts queued rows",
+        "delete undo preserves interruption",
+        "only explicit Resume dispatches restored rows"
+      ]
+    },
+    {
+      "id": "persist-mode",
+      "expect": [
+        "menu writes persisted preference",
+        "renderer reload restores menu mode"
+      ]
+    },
+    {
+      "id": "engine-owned",
+      "expect": [
+        "native repeated activation admits once",
+        "reload recovers engine-owned pending row",
+        "only supported delete control is exposed",
+        "removed directive is never applied"
+      ]
+    },
+    {
+      "id": "mixed-queue-resume",
+      "expect": [
+        "recovered engine queue and interrupted client queue share Resume",
+        "engine-owned item applies before automatic client dispatch",
+        "no paused client row remains stranded"
+      ]
+    }
+  ]
+}

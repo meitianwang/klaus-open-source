@@ -1,0 +1,15 @@
+{
+  "reason": "Image preprocessing failures remain distinct from billing restrictions. Caller history and newly received response data use independent bounded entry allowances so long conversations remain usable.",
+  "qwenwork": {
+    "upstreamStatus": 402,
+    "upstreamMessage": "Image preprocessing failed",
+    "normalizedCode": "image_preprocessing_failed",
+    "expectedKind": "invalid_request"
+  },
+  "cursor": {
+    "callerHistoryRoots": 4096,
+    "additionalResponseBlobs": 512,
+    "regressionHistoryMessages": [521, 4095],
+    "overBudgetError": "cursor_context_length_exceeded"
+  }
+}

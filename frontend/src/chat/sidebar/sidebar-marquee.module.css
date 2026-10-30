@@ -1,0 +1,91 @@
+/* MarqueeText: a scrolling title that only animates when the text overflows.
+
+   Four layers:
+     viewport      — the flex item; owns the em-based tunables
+     clipViewport  — overflow:hidden, widened left by the fade so the mask can
+                     eat into the leading edge without clipping glyphs early
+     track         — inline-flex, translated by the animation; padded left to
+                     cancel the clipViewport's negative margin
+     content       — the text itself, measured for overflow
+
+   Motion is a transform on the track, never text-indent, and the distance and
+   duration come from JS as custom properties on the clipViewport. */
+
+.viewport {
+  --marquee-speed-em-per-second: 2;
+  --marquee-gap: 1.15em;
+  --marquee-left-fade: .571429em;
+  --marquee-right-fade: 1.14286em;
+  white-space: nowrap;
+  width: 100%;
+  min-width: 0;
+  display: block;
+}
+
+.clipViewport {
+  width: calc(100% + var(--marquee-left-fade));
+  min-width: 0;
+  margin-left: calc(-1 * var(--marquee-left-fade));
+  display: block;
+  overflow: hidden;
+}
+
+.track {
+  gap: var(--marquee-gap);
+  min-width: max-content;
+  padding-left: var(--marquee-left-fade);
+  display: inline-flex;
+}
+
+.content {
+  min-width: max-content;
+  display: inline-block;
+}
+
+/* Both edges fade rather than cut: a hard clip reads as a truncated string
+   mid-glyph. Only applied while the title actually overflows. */
+.overflowingViewport {
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 var(--marquee-left-fade), #000 calc(100% - var(--marquee-right-fade)), transparent);
+  mask-image: linear-gradient(to right, transparent, #000 var(--marquee-left-fade), #000 calc(100% - var(--marquee-right-fade)), transparent);
+  -webkit-mask-size: 100% 100%;
+  mask-size: 100% 100%;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+}
+
+/* The sidebar row carries the global `kls-marquee-group` marker so the marquee
+   starts on row hover. `.animate` is the always-on variant used on non-sidebar
+   surfaces. */
+.animate .scrolling,
+:global(.kls-marquee-group):hover .animateOnGroupHover .scrolling {
+  animation: marqueeTextScroll var(--marquee-duration) var(--marquee-scroll-timing) infinite;
+  will-change: transform;
+}
+
+.animate.stopAtEnd .scrolling,
+:global(.kls-marquee-group):hover .animateOnGroupHover.stopAtEnd .scrolling {
+  animation-iteration-count: 1;
+  animation-fill-mode: forwards;
+}
+
+/* Lifts the right fade as the scroll lands so the final frame sits flush
+   against the row edge instead of dimming the last characters. */
+.animate.stopAtEnd .overflowingViewport,
+:global(.kls-marquee-group):hover .animateOnGroupHover.stopAtEnd .overflowingViewport {
+  animation: marqueeTextFadeRightMask var(--marquee-duration) linear forwards;
+}
+
+@keyframes marqueeTextScroll {
+  to { transform: translateX(calc(-1 * var(--marquee-scroll-distance))); }
+}
+
+@keyframes marqueeTextFadeRightMask {
+  75% {
+    -webkit-mask-size: 100% 100%;
+    mask-size: 100% 100%;
+  }
+  to {
+    -webkit-mask-size: calc(100% + var(--marquee-right-fade)) 100%;
+    mask-size: calc(100% + var(--marquee-right-fade)) 100%;
+  }
+}

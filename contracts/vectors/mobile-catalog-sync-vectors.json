@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "negotiation": { "header": "x-klaus-mobile-catalog", "value": "1", "feature": "catalogSync", "protocolVersion": 3 },
+  "limits": { "pageSize": 100, "pageBytes": 2097152, "freshnessMs": 30000, "failureBackoffMs": 10000, "debounceMs": 250, "maxDebounceMs": 1000, "idleFollowLimit": 10, "idleFollowTtlMs": 10800000 },
+  "reset": {
+    "type": "catalog_page", "requestId": "request-one", "streamId": "catalog-one", "baseRevision": null, "revision": 5,
+    "sessions": [{ "id": "session-one", "title": "One", "createdAt": 0, "updatedAt": 10 }], "removedSessionIds": [], "reset": true, "done": true
+  },
+  "delta": {
+    "type": "catalog_page", "requestId": "request-two", "streamId": "catalog-one", "baseRevision": 5, "revision": 6,
+    "sessions": [{ "id": "session-one", "title": "Renamed", "createdAt": 0, "updatedAt": 11 }], "removedSessionIds": ["session-two"], "reset": false, "done": true
+  },
+  "unchanged": {
+    "type": "catalog_page", "requestId": "request-three", "streamId": "catalog-one", "baseRevision": 6, "revision": 6,
+    "sessions": [], "removedSessionIds": [], "reset": false, "done": true
+  },
+  "followReady": { "type": "task_follow_ready", "sessionId": "session-one", "streamId": "task-one", "revision": 7, "mode": "replay" },
+  "invariants": [
+    "A negotiated hello carries no session rows and never clears the cached catalog.",
+    "All pages of one response share a request identity, stream identity and revision cut.",
+    "The catalog and its cursor are committed atomically only after done is true.",
+    "An invalid, expired, future or foreign cursor gets an explicit reset, not a partial replacement.",
+    "A catalog change received during a sync schedules another sync after the current cut commits.",
+    "Source membership and metadata fingerprints force reconciliation for deletion and metadata edits that preserve recency; ordinary transcript appends remain watermark-incremental.",
+    "Task cursor replay, including empty replay, terminates with task_follow_ready for negotiated peers.",
+    "Catalog cursor, task revision and transport sequence are independent checkpoints.",
+    "Klaus bounds new unprotected follows to 64 per peer; existing follows and host-known work or pending approvals retain ownership.",
+    "Committed workspace saves and deletions invalidate decorated catalog metadata and publish desktop state over the existing connection.",
+    "A phone transport blocked by an uncertain receipt remains failed and actionable after refresh, even when the desktop is online.",
+    "The chat list exposes explicit recovery for blocked devices in its selected scope; refreshing never resets receipts or resends unconfirmed actions.",
+    "Pull-to-refresh may read current bootstrap metadata for a blocked device without releasing its send barrier or changing its catalog checkpoint."
+  ]
+}

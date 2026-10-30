@@ -1,0 +1,59 @@
+{
+  "version": 1,
+  "reason": "Add explicit cold-rollout compression and previewed history migration while preserving recovery, original message identity, and observable storage failures.",
+  "features": {
+    "cold_rollout_compression": false,
+    "background_rollout_migration": false
+  },
+  "methods": {
+    "compress": {
+      "name": "engine/compressRollouts",
+      "params": {},
+      "result": {},
+      "waitsForMaintenance": false,
+      "singleFlight": true,
+      "requiresFeatureEnabled": false,
+      "minimumModifiedAgeDays": 7
+    },
+    "migrate": {
+      "name": "engine/migrateRollouts",
+      "defaultMode": "dryRun",
+      "writeMode": "apply",
+      "requiresFeatureEnabled": false,
+      "reportsSourceRevisions": true,
+      "acceptsExpectedSourceRevisions": true
+    }
+  },
+  "compression": {
+    "format": "zstd",
+    "suffix": ".jsonl.zst",
+    "preservesLogicalBytes": true,
+    "preservesModifiedTime": true,
+    "plainWinsWhenBothExist": true,
+    "readOnlyInspectionRestoresSourceFile": false,
+    "seekUsesAnonymousDecodedFile": true,
+    "writerReopenPublishesPlainBeforeRemovingCompressed": true,
+    "invalidCompressedInputFailsWithoutRemovingSource": true,
+    "activeWritersAreSkipped": true
+  },
+  "migration": {
+    "dryRunChangesSource": false,
+    "publication": "stage-sync-validate-rename-sync",
+    "sourceRevisionConflictsAreReported": true,
+    "activeWritersAreSkipped": true,
+    "oldCursorsMayNotSilentlyReadDifferentHistory": true,
+    "messageUuidsArePreserved": true,
+    "mainHistoryKeepsSurvivingOriginalMessages": true,
+    "subagentPrefixRequiresCompleteRecoveryCheckpoint": true,
+    "subagentHistoryReportsAuditTruncated": true,
+    "unprovenAuthorityEvidenceIsRetained": true,
+    "malformedAuthorityRecordsAreNotSilentlyDiscarded": true,
+    "ineligibleCleanupIsReported": true
+  },
+  "hostAccounting": {
+    "countsPhysicalCompressedBytes": true,
+    "compressedHistorySharesPlainSidechainIdentity": true,
+    "coexistingRepresentationsCountAsOneSubagent": true,
+    "compressedHistoricalPreferencesAreMigrated": true
+  }
+}

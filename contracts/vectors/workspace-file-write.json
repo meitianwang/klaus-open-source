@@ -1,0 +1,13 @@
+{
+  "reason": "Editor saves carry the revision they read so an external change becomes a recoverable conflict; explicit overwrite and existing unguarded callers remain available.",
+  "diskContent": "Current disk content",
+  "diskMtimeMs": 1700000002000,
+  "newContent": "Edited document",
+  "cases": [
+    { "id": "matching revision saves", "options": { "expectedMtimeMs": 1700000002000 }, "ok": true },
+    { "id": "stale revision preserves disk", "options": { "expectedMtimeMs": 1700000000000 }, "ok": false, "conflict": true, "error": "file changed on disk" },
+    { "id": "explicit overwrite replaces stale disk", "options": { "expectedMtimeMs": 1700000000000, "force": true }, "ok": true },
+    { "id": "legacy save remains unguarded", "options": {}, "ok": true },
+    { "id": "unknown revision remains unguarded", "options": { "expectedMtimeMs": null }, "ok": true }
+  ]
+}

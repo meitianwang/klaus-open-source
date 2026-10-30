@@ -1,0 +1,42 @@
+{
+  "version": 2,
+  "reason": "Scope-keyed catalogs share successful discovery and pending reads for responsive menus, while notifications and explicit reloads retire stale results without changing drafts.",
+  "cachePolicy": { "freshForMs": 300000, "coalescePending": true, "cacheFailures": false, "forceReloadSupersedesPending": true },
+  "notification": { "channel": "skills:changed", "payload": {} },
+  "menuCases": [
+    { "name": "closed composer menu", "open": false, "submenu": "skills", "refresh": [] },
+    { "name": "open root menu", "open": true, "submenu": null, "refresh": [] },
+    { "name": "open skills submenu", "open": true, "submenu": "skills", "refresh": ["skills"] },
+    { "name": "open slash submenu", "open": true, "submenu": "slash", "refresh": ["slash"] },
+    { "name": "open plugins submenu", "open": true, "submenu": "plugins", "refresh": [] },
+    { "name": "open MCP submenu", "open": true, "submenu": "mcp", "refresh": [] }
+  ],
+  "selectionCases": [
+    {
+      "name": "metadata changes update the selected skill",
+      "draft": {
+        "text": "/review release",
+        "slashCommand": { "command": { "name": "review", "displayName": "Old review", "kind": "skill" }, "range": { "start": 0, "end": 7 } },
+        "references": []
+      },
+      "commands": [{ "name": "review", "displayName": "Review changes", "description": "Inspect current changes", "kind": "skill" }],
+      "selectedName": "Review changes"
+    },
+    {
+      "name": "removed skills remain as editable text",
+      "draft": {
+        "text": "/review release",
+        "slashCommand": { "command": { "name": "review", "displayName": "Old review", "kind": "skill" }, "range": { "start": 0, "end": 7 } },
+        "references": []
+      },
+      "commands": [],
+      "selectedName": null
+    },
+    {
+      "name": "literal commands never become selected during a refresh",
+      "draft": { "text": "/review release", "slashCommand": null, "references": [] },
+      "commands": [{ "name": "review", "displayName": "Review changes", "kind": "skill" }],
+      "selectedName": null
+    }
+  ]
+}

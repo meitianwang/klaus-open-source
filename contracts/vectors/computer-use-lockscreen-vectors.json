@@ -1,0 +1,29 @@
+{
+  "_why": "Computer Use preserves standing auto-unlock intent and secret-free policy results. Native input collection, fixed-account keychain access, cancellation ownership and observed unlock results are pinned independently of any other client.",
+  "credential": { "service": "agent-engine", "account": "computer_use.login_password", "promptTimeoutMs": 180000, "passwordInHost": false },
+  "editionServices": ["agent-engine", "agent-engine-international"],
+  "editionServiceReason": "Each desktop edition owns its unlock credential namespace; the namespace family is agent-engine optionally followed by lowercase alphanumeric -segments (at most 64 bytes), so editions defined outside the repository need no code change. Values outside the family are rejected and the legacy domestic slot stays unchanged.",
+  "rejectedEditionServices": ["arbitrary", "agent-engine-", "agent-engine--sample", "agent-engine-Sample", "agent-engine_sample", "xagent-engine"],
+  "presence": { "interactionSeconds": 1.5, "ownPostMarginSeconds": 0.2, "cooldownMs": 2000, "lockedPhysicalSeconds": 5 },
+  "verificationDelayMs": 600,
+  "lockCases": [
+    { "name": "already unlocked", "locked": [false], "idle": 0, "enabled": false, "password": false, "attempts": 0, "outcome": "unlocked" },
+    { "name": "disabled", "locked": [true], "idle": 10, "enabled": false, "password": true, "attempts": 0, "outcome": "manual" },
+    { "name": "no stored password", "locked": [true], "idle": 10, "enabled": true, "password": false, "attempts": 0, "outcome": "manual" },
+    { "name": "person at lock screen", "locked": [true], "idle": 4.9, "enabled": true, "password": true, "attempts": 0, "outcome": "paused" },
+    { "name": "unknown physical input", "locked": [true], "idle": -1, "enabled": true, "password": true, "attempts": 0, "outcome": "paused" },
+    { "name": "system refuses unlock", "locked": [true, true], "idle": 10, "enabled": true, "password": true, "attempts": 1, "outcome": "manual" },
+    { "name": "observed unlocked after attempt", "locked": [true, false], "idle": 10, "enabled": true, "password": true, "attempts": 1, "outcome": "unlocked" },
+    { "name": "lock state cannot be read", "locked": [null], "idle": 10, "enabled": true, "password": true, "attempts": 0, "outcome": "manual" },
+    { "name": "verification cannot be read", "locked": [true, null], "idle": 10, "enabled": true, "password": true, "attempts": 1, "outcome": "manual" },
+    { "name": "cancelled before input", "locked": [true], "idle": 10, "enabled": true, "password": true, "cancelBeforeInput": true, "attempts": 0, "outcome": "cancelled" }
+  ],
+  "inputCases": [
+    { "idle": 0.3, "sinceOwn": 2, "interacting": true },
+    { "idle": 0.1, "sinceOwn": 0.1, "interacting": false },
+    { "idle": 0.3, "sinceOwn": 0.35, "interacting": false },
+    { "idle": 2, "sinceOwn": null, "interacting": false },
+    { "idle": 0.4, "sinceOwn": null, "interacting": true },
+    { "idle": 1.5, "sinceOwn": null, "interacting": false }
+  ]
+}

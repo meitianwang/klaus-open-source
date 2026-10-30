@@ -1,0 +1,132 @@
+{
+  "description": "Context policy changes must preserve compaction lifecycle projection and conversation state. Automatic completion clears loading even when no history changed; only a full accepted checkpoint adds a boundary. Manual results retain their summary identity and failures clear the pending row. Child compaction belongs to its own stream. Token estimates schedule summarization; an ordinary context error comes from provider admission rather than a separate local size refusal.",
+  "projectionCases": [
+    {
+      "name": "automatic full checkpoint follows progress completion",
+      "scope": "main",
+      "input": [{ "event": { "type": "compaction.progress", "phase": "started" } }, { "event": { "type": "compaction.progress", "phase": "completed" } }, { "event": { "type": "compaction", "mode": "full", "freedTokens": 12000 } }],
+      "expected": [{ "type": "compaction_start", "sessionId": "session", "trigger": "auto" }, { "type": "compaction_end", "sessionId": "session" }, { "type": "compact_boundary", "sessionId": "session", "trigger": "auto" }],
+      "states": [{ "pending": "auto", "compactions": ["running"] }, { "pending": null, "compactions": [] }, { "pending": null, "compactions": ["completed"] }]
+    },
+    {
+      "name": "automatic no-op clears progress without a checkpoint",
+      "scope": "main",
+      "input": [{ "event": { "type": "compaction.progress", "phase": "started" } }, { "event": { "type": "compaction.progress", "phase": "completed" } }],
+      "expected": [{ "type": "compaction_start", "sessionId": "session", "trigger": "auto" }, { "type": "compaction_end", "sessionId": "session" }],
+      "states": [{ "pending": "auto", "compactions": ["running"] }, { "pending": null, "compactions": [] }]
+    },
+    {
+      "name": "micro cleanup does not add a full checkpoint",
+      "scope": "main",
+      "input": [{ "event": { "type": "compaction.progress", "phase": "started" } }, { "event": { "type": "compaction.progress", "phase": "completed" } }, { "event": { "type": "compaction", "mode": "micro", "freedTokens": 400 } }],
+      "expected": [{ "type": "compaction_start", "sessionId": "session", "trigger": "auto" }, { "type": "compaction_end", "sessionId": "session" }],
+      "states": [{ "pending": "auto", "compactions": ["running"] }, { "pending": null, "compactions": [] }]
+    },
+    {
+      "name": "manual checkpoint preserves summary identity and trigger",
+      "scope": "main",
+      "input": [{ "submissionId": "compact-operation", "compactProgress": { "id": "compact-item", "phase": "started", "trigger": "manual", "mode": "full" } }, { "submissionId": "compact-operation", "compactProgress": { "id": "compact-item", "phase": "completed", "trigger": "manual", "mode": "full", "result": { "compacted": true, "boundary": { "summary": "Preserved decisions", "uuid": "summary-id" } } } }],
+      "expected": [{ "type": "compaction_start", "sessionId": "session", "trigger": "manual" }, { "type": "compact_boundary", "sessionId": "session", "summaryText": "Preserved decisions", "summaryUuid": "summary-id", "trigger": "manual" }],
+      "states": [{ "pending": "manual", "compactions": ["running"] }, { "pending": null, "compactions": ["completed"] }]
+    },
+    {
+      "name": "manual no-op leaves loading settlement to its reply",
+      "scope": "main",
+      "input": [{ "compactProgress": { "phase": "started", "trigger": "manual" } }, { "compactProgress": { "phase": "completed", "trigger": "manual", "result": { "compacted": false, "reason": "no-progress", "boundary": null } } }],
+      "expected": [{ "type": "compaction_start", "sessionId": "session", "trigger": "manual" }],
+      "replyEvents": [{ "type": "compaction_error", "error": "" }],
+      "states": [{ "pending": "manual", "compactions": ["running"] }, { "pending": null, "compactions": [] }]
+    },
+    {
+      "name": "manual provider failure preserves its explanation",
+      "scope": "main",
+      "input": [{ "compactProgress": { "phase": "started", "trigger": "manual" } }, { "compactProgress": { "phase": "failed", "trigger": "manual", "error": "Summary request failed" } }],
+      "expected": [{ "type": "compaction_start", "sessionId": "session", "trigger": "manual" }, { "type": "compaction_error", "sessionId": "session", "error": "Summary request failed" }],
+      "states": [{ "pending": "manual", "compactions": ["running"] }, { "pending": null, "compactions": [] }]
+    },
+    {
+      "name": "manual cancellation clears loading without a checkpoint",
+      "scope": "main",
+      "input": [{ "compactProgress": { "phase": "started", "trigger": "manual" } }, { "compactProgress": { "phase": "failed", "trigger": "manual", "error": "Compaction cancelled." } }],
+      "expected": [{ "type": "compaction_start", "sessionId": "session", "trigger": "manual" }, { "type": "compaction_error", "sessionId": "session", "error": "Compaction cancelled." }],
+      "states": [{ "pending": "manual", "compactions": ["running"] }, { "pending": null, "compactions": [] }]
+    },
+    {
+      "name": "child automatic checkpoint stays inside child progress",
+      "scope": "child",
+      "input": [{ "subagentEvent": { "agentId": "child", "event": { "type": "compaction.progress", "phase": "started" } } }, { "subagentEvent": { "agentId": "child", "event": { "type": "compaction.progress", "phase": "completed" } } }, { "subagentEvent": { "agentId": "child", "event": { "type": "compaction", "mode": "full", "freedTokens": 1000 } } }],
+      "expected": [{ "type": "agent_progress", "sessionId": "session", "agentId": "child", "event": { "type": "compaction_start", "trigger": "auto" } }, { "type": "agent_progress", "sessionId": "session", "agentId": "child", "event": { "type": "compaction_end" } }, { "type": "agent_progress", "sessionId": "session", "agentId": "child", "event": { "type": "compact_boundary", "trigger": "auto" } }],
+      "states": [{ "pending": "auto", "compactions": ["running"] }, { "pending": null, "compactions": [] }, { "pending": null, "compactions": ["completed"] }]
+    },
+    {
+      "name": "child automatic no-op clears only child loading",
+      "scope": "child",
+      "input": [{ "subagentEvent": { "agentId": "child", "event": { "type": "compaction.progress", "phase": "started" } } }, { "subagentEvent": { "agentId": "child", "event": { "type": "compaction.progress", "phase": "completed" } } }, { "subagentEvent": { "agentId": "child", "event": { "type": "compaction", "mode": "micro", "freedTokens": 100 } } }],
+      "expected": [{ "type": "agent_progress", "sessionId": "session", "agentId": "child", "event": { "type": "compaction_start", "trigger": "auto" } }, { "type": "agent_progress", "sessionId": "session", "agentId": "child", "event": { "type": "compaction_end" } }],
+      "states": [{ "pending": "auto", "compactions": ["running"] }, { "pending": null, "compactions": [] }]
+    },
+    {
+      "name": "manual summary failure retains unchanged result and clears loading",
+      "scope": "main",
+      "input": [
+        {
+          "compactProgress": {
+            "phase": "started",
+            "trigger": "manual"
+          }
+        },
+        {
+          "compactProgress": {
+            "phase": "failed",
+            "trigger": "manual",
+            "error": "Summary transport failed",
+            "result": {
+              "compacted": false,
+              "reason": "no-progress",
+              "diagnostics": [
+                {
+                  "stage": "summary",
+                  "kind": "provider-error",
+                  "message": "Summary transport failed"
+                }
+              ],
+              "beforeTokens": 900,
+              "afterTokens": 900,
+              "beforeMessages": 8,
+              "afterMessages": 8,
+              "boundary": null
+            }
+          }
+        }
+      ],
+      "expected": [
+        {
+          "type": "compaction_start",
+          "sessionId": "session",
+          "trigger": "manual"
+        },
+        {
+          "type": "compaction_error",
+          "sessionId": "session",
+          "error": "Summary transport failed"
+        }
+      ],
+      "states": [
+        {
+          "pending": "manual",
+          "compactions": [
+            "running"
+          ]
+        },
+        {
+          "pending": null,
+          "compactions": []
+        }
+      ]
+    }
+  ],
+  "terminalCases": [
+    { "name": "interruption", "event": { "type": "interrupted" }, "terminalStatus": "interrupted" },
+    { "name": "provider failure", "event": { "type": "api_error", "terminal": true, "kind": "prompt_too_long", "error": "Provider rejected the current context window" }, "terminalStatus": "failed" }
+  ]
+}

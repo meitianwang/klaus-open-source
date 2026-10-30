@@ -1,0 +1,42 @@
+{
+  "reason": "Selecting a known account model must not wait behind token renewal or remote catalog revalidation. Cold catalog reads return a classified source error before the host read deadline.",
+  "source": "cursor",
+  "catalogDeadlineMs": 12000,
+  "hostReadDeadlineMs": 15000,
+  "cases": [
+    {
+      "name": "fresh catalog during token renewal",
+      "credential": "valid",
+      "catalog": "fresh",
+      "selection": "auto",
+      "result": "cached concrete model",
+      "waitForNetwork": false
+    },
+    {
+      "name": "stale catalog during network stall",
+      "credential": "valid",
+      "catalog": "stale",
+      "selection": "auto",
+      "result": "cached concrete model",
+      "waitForNetwork": false,
+      "maxBackgroundRefreshes": 1
+    },
+    {
+      "name": "cold catalog during network stall",
+      "credential": "valid",
+      "catalog": "empty",
+      "result": "cursor_network_error",
+      "deadlineMs": 12000
+    },
+    {
+      "name": "logout invalidates cached identity",
+      "credential": "missing",
+      "catalog": "invalidated",
+      "result": "cursor_not_signed_in"
+    }
+  ],
+  "unaryCompression": "gzip",
+  "maxUnaryWireBytes": 8388608,
+  "maxUnaryDecodedBytes": 8388608,
+  "unsupportedContentEncoding": "cursor_response_read_failed"
+}

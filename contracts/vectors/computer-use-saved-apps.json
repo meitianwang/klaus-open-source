@@ -1,0 +1,21 @@
+{
+  "reason": "All local apps are eligible for approval. Persisted app entries waive the app question instead of restricting other apps.",
+  "freshSavedApps": [],
+  "legacySavedApps": ["LM Studio", "Shadowrocket"],
+  "otherApp": "Notes",
+  "otherAppRequiresApproval": true,
+  "removal": {
+    "confirm": true,
+    "persistBeforeRemovingRow": true,
+    "revokeSessionApproval": true,
+    "blockApp": false
+  },
+  "settings": {
+    "tab": "computerUse",
+    "connectorSwitch": false,
+    "addButton": false,
+    "polling": false,
+    "metadataConcurrency": 2,
+    "metadataCacheEntries": 128
+  }
+}

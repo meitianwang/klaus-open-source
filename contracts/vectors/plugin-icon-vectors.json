@@ -1,0 +1,8 @@
+{
+  "reason": "Plugin artwork belongs to its package and marketplace metadata, allowing independent artwork updates without changing signed application resources.",
+  "manifest": { "name": "fixture", "version": "1.0.0", "interface": { "icon": "./assets/icon.png" } },
+  "iconDataUrl": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+  "maxBytes": 65536,
+  "rejectedPaths": ["../outside.png", "/tmp/outside.png", "assets/icon.svg", "https://example.com/icon.png", "assets\\icon.png"],
+  "rejectedValues": ["javascript:alert(1)", "file:///tmp/icon.png", "data:image/svg+xml;base64,PHN2Zy8+", "data:image/png;base64,dGV4dA==", "data:image/png;base64,AA==\" onerror=\"alert(1)"]
+}

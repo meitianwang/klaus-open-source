@@ -1,0 +1,63 @@
+{
+  "reason": "Image inspection keeps session-scoped thumbnails inside the event disclosure. Live result media updates the count and previews. Closing disclosures are excluded from preview navigation, and generated deliverables retain their existing presentation.",
+  "cases": [
+    {
+      "name": "two-local-references",
+      "toolName": "view_image",
+      "args": {
+        "referenced_image_paths": [
+          "/tmp/one.png",
+          "/tmp/two.png"
+        ]
+      },
+      "paths": [
+        "/tmp/one.png",
+        "/tmp/two.png"
+      ]
+    },
+    {
+      "name": "canonical-read-result",
+      "toolName": "read",
+      "args": {
+        "path": "./one.png"
+      },
+      "output": "{\"path\":\"/workspace/one.png\",\"found\":true,\"kind\":\"image\"}",
+      "paths": [
+        "/workspace/one.png"
+      ]
+    },
+    {
+      "name": "returned-media-wins",
+      "toolName": "view_image",
+      "args": {
+        "path": "/tmp/old.png"
+      },
+      "media": [
+        {
+          "path": "/tmp/one.png",
+          "mimeType": "image/png"
+        },
+        {
+          "path": "/tmp/two.png",
+          "mimeType": "image/png"
+        }
+      ],
+      "paths": [
+        "/tmp/one.png",
+        "/tmp/two.png"
+      ]
+    },
+    {
+      "name": "nonlocal-references-stay-out-of-local-preview",
+      "toolName": "view_image",
+      "args": {
+        "paths": [
+          "https://example.com/one.png",
+          "relative.png"
+        ]
+      },
+      "paths": []
+    }
+  ],
+  "owningSession": "image-owner"
+}

@@ -1,0 +1,17 @@
+{
+  "_why": "Goal prompts are authored by the engine. Only creation records the user's original objective; edits, resumes and automatic continuations are meta inputs. Replay and Copy must receive the objective, while an actual human message that resembles a continuation prompt remains visible.",
+  "facade": "turn/start",
+  "cases": [
+    { "name": "create", "previous": {}, "payload": { "objective": "Build a CSV summary" }, "options": { "metaInput": false, "displayMetadata": { "origin": "goal", "displayText": "Build a CSV summary" } } },
+    { "name": "create-after-completion", "previous": { "threadGoal": { "goalId": "g1", "status": "complete" } }, "payload": { "objective": "Build the next report" }, "options": { "metaInput": false, "displayMetadata": { "origin": "goal", "displayText": "Build the next report" } } },
+    { "name": "completed-without-objective", "previous": { "threadGoal": { "goalId": "g1", "status": "complete" } }, "payload": { "status": "active" }, "options": { "metaInput": true } },
+    { "name": "edit", "previous": { "threadGoal": { "goalId": "g1", "status": "active" } }, "payload": { "objective": "Add JSON output" }, "options": { "metaInput": true } },
+    { "name": "resume", "previous": { "threadGoal": { "goalId": "g1", "status": "paused" } }, "payload": { "status": "active" }, "options": { "metaInput": true } },
+    { "name": "empty", "previous": { "threadGoal": null }, "payload": { "objective": "  " }, "options": { "metaInput": true } }
+  ],
+  "history": {
+    "objective": "Build a CSV summary",
+    "internalPrompt": "Continue working toward the active thread goal.\n<objective>Build a CSV summary</objective>\nContinuation behavior: continue until complete.",
+    "userQuotedPrompt": "Continue working toward the active thread goal. This sentence is quoted by the user."
+  }
+}

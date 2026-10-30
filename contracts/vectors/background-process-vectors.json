@@ -1,0 +1,51 @@
+{
+  "_why": "The desktop consumes the engine's named background-process facade without reconstructing raw ops. These routes and the notification keep one session-scoped cache authoritative while process output uses an independent offset cursor.",
+  "requests": [
+    {
+      "channel": "session:background-processes",
+      "method": "session/backgroundProcesses",
+      "required": ["sessionId"]
+    },
+    {
+      "channel": "session:background-process-output",
+      "method": "session/backgroundProcessOutput",
+      "required": ["sessionId", "shellId"],
+      "optional": ["afterOffset", "maxBytes"]
+    },
+    {
+      "channel": "session:stop-background-process",
+      "method": "session/stopBackgroundProcess",
+      "required": ["sessionId", "shellId"],
+      "optional": ["signal"]
+    }
+  ],
+  "notification": {
+    "engine": "backgroundProcess/changed",
+    "bridge": "background-process:changed",
+    "payload": ["sessionId", "event"]
+  },
+  "snapshotEnvelopes": ["backgroundProcesses.processes", "processes"],
+  "statuses": ["pending", "running", "paused", "completed", "failed", "stopped"],
+  "activeStatuses": ["pending", "running", "paused"],
+  "outputCursor": ["afterOffset", "nextOffset", "maxBytes"],
+  "stopAuthority": "terminal notification or snapshot",
+  "toolObservation": {
+    "_why": "Resumable commands collect output inside a bounded observation window. Expiring or cancelling an observation does not stop its process; durable host history uses its independent cursor after the model-facing handle is retired.",
+    "initialWindowMs": { "default": 10000, "minimum": 250, "windowsMinimum": 10000, "maximum": 30000 },
+    "pollWindowMs": { "default": 5000, "minimum": 5000, "defaultMaximum": 300000, "setting": "backgroundTerminalMaxTimeout" },
+    "parameter": "yieldMs",
+    "outputDoesNotEndObservation": true,
+    "sameProcessObservations": "serialized; deadline begins after acquiring the interaction lock",
+    "differentProcessObservations": "concurrent",
+    "postExitCollectionGraceMs": 50,
+    "trailingOutputEventGraceMs": 100,
+    "userInteractionPauseConsumesWindow": false,
+    "observationExpiryStopsProcess": false,
+    "observationCancellationStopsProcess": false,
+    "observationCancellationConsumesOutputCursor": false,
+    "filterStage": "after collection",
+    "completedModelHandle": "retired after final output is returned",
+    "completedHostHistory": "retained",
+    "repeatedToolArgumentsAbortTurn": false
+  }
+}

@@ -1,0 +1,91 @@
+{
+  "reason": "Optional questions continue their originating turn and later answers are durable user messages; question panels and turn activity disclosures have independent lifetimes. Hydration reads only an existing live question registry and must not start dormant historical conversations. A panel that went away is restored when a surface starts showing its session again \u2014 never from a state change, so dismissing while still looking at that chat stays dismissed \u2014 and the restored panel carries no countdown, because the transcript copy of an optional question is foldable process evidence and may no longer offer a chip to click. New question definitions require stable IDs. Answers and attachments use those IDs; historical definitions without IDs retain their original keys and existing interaction behavior.",
+  "hydration": {
+    "dormant": [],
+    "startsEngine": false,
+    "priority": "background"
+  },
+  "request": {
+    "requestId": "question-optional-1",
+    "sessionId": "question-session",
+    "turnId": "question-turn",
+    "toolCallId": "question-tool",
+    "toolName": "ask_user_async",
+    "responseChannel": "async-question",
+    "attachmentsSupported": true,
+    "state": "pending",
+    "answers": {},
+    "toolInput": {
+      "questions": [
+        {
+          "question": "Which format?",
+          "header": "Format",
+          "options": [
+            {
+              "label": "Short paragraphs (Recommended)"
+            },
+            {
+              "label": "Three bullets"
+            }
+          ]
+        },
+        {
+          "question": "Which details?",
+          "header": "Details",
+          "multiSelect": true,
+          "options": [
+            {
+              "label": "Commands"
+            },
+            {
+              "label": "Screenshots"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "panel": {
+    "initialTimeoutMs": 30000,
+    "countdownVisibleMs": 20000,
+    "singleSelectAdvanceMs": 180,
+    "initialSelection": []
+  },
+  "reopen": {
+    "trigger": "surface-shows-session",
+    "reopenedDeadlineMs": null,
+    "queuesEveryAnswerableQuestion": true,
+    "restoresStaleDeadline": true,
+    "neverDuringSubmission": true
+  },
+  "labels": {
+    "en": {
+      "header": "Question",
+      "chip": "Answer question",
+      "send": "Send"
+    },
+    "zh": {
+      "header": "\u95ee\u9898",
+      "chip": "\u56de\u7b54\u95ee\u9898",
+      "send": "\u53d1\u9001"
+    }
+  },
+  "partialAnswer": {
+    "Which format?": "Three bullets"
+  },
+  "lateAnswer": {
+    "Which details?": "Screenshots, keep commas\nand newlines"
+  },
+  "answerMetadata": {
+    "requestId": "question-optional-1",
+    "turnId": "question-turn",
+    "toolCallId": "question-tool",
+    "clientResponseId": "question-response-1"
+  },
+  "identity": {
+    "newKey": "id",
+    "historicalKey": "question",
+    "ambiguousPromptAlias": "reject",
+    "samePromptDifferentIds": "independent"
+  }
+}

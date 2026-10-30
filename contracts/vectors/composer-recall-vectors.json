@@ -1,0 +1,31 @@
+{
+  "_why": "Recall preserves structured prompts within bounded chat scopes and yields to editing, input methods and resource pickers.",
+  "entryLimit": 20,
+  "sessionScopeLimit": 100,
+  "newChatScope": "global",
+  "consecutiveDuplicates": "retain",
+  "firstAcceptedPrompt": "record in new-chat scope and seed the created chat once",
+  "navigation": {
+    "freshUp": "edit the newest eligible queued request, otherwise recall the newest prompt",
+    "freshDown": "leave the draft unchanged",
+    "upBeforeOldest": "wrap to newest",
+    "downAfterNewest": "clear and leave history browsing",
+    "selection": "only a collapsed caret at the document end",
+    "modifiers": "plain arrows only",
+    "caretMovement": "preserve browsing position",
+    "documentChange": "reset browsing position"
+  },
+  "escape": {
+    "idleFocused": "blur without replacing content",
+    "running": "first press arms for 2000ms, second non-repeat press stops the captured turn",
+    "picker": "dismiss the active picker first"
+  },
+  "sideComposer": {
+    "historyScope": "active-conversation",
+    "record": "accepted-local-submit-before-clearing",
+    "snapshot": "formatted-document-with-command-reference-and-quote-identities",
+    "emptyUp": "edit-newest-mutable-queued-row-before-recall",
+    "queueEdit": "restore-complete-display-document-and-reinsert-anchors",
+    "cachedPromotionToActiveTarget": "merge-live-target-and-pending-document-with-attachment-identities"
+  }
+}

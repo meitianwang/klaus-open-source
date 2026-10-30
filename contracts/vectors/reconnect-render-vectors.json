@@ -1,0 +1,15 @@
+{
+  "reason": "Show one reconnect status per turn without retry counters; retain the network-wait explanation while leaving retry events and budgets unchanged.",
+  "scope": "frontend render projection only",
+  "placement": "first retry position with a stable row key",
+  "networkWait": "takes precedence over numbered retry phases within the same turn",
+  "labels": {
+    "en": { "retry": "Reconnecting", "networkWait": "Reconnecting… waiting for network" },
+    "zh": { "retry": "正在重新连接", "networkWait": "正在重新连接……等待网络恢复" }
+  },
+  "cases": [
+    { "name": "numbered retries", "retries": [{ "attempt": 1, "maxRetries": 3 }, { "attempt": 2, "maxRetries": 3 }, { "attempt": 1, "maxRetries": 5 }], "label": "retry" },
+    { "name": "network wait after numbered retries", "retries": [{ "attempt": 1, "maxRetries": 3 }, { "attempt": 2, "maxRetries": 3 }, { "attempt": 1, "maxRetries": 0, "phase": "networkWait" }], "label": "networkWait" },
+    { "name": "numbered retry after network wait", "retries": [{ "attempt": 1, "maxRetries": 3 }, { "attempt": 1, "maxRetries": 0, "phase": "networkWait" }, { "attempt": 1, "maxRetries": 5 }, { "attempt": 1, "maxRetries": 3 }], "label": "networkWait" }
+  ]
+}

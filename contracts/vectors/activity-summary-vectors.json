@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "reason": "Desktop and iOS derive the same semantic activity summary while retaining every original tool row and result in the expanded body.",
+  "imageExtensions": ["png", "jpg", "jpeg", "gif", "webp"],
+  "nonImageExtensions": ["svg", "pdf"],
+  "categoryOrder": ["loadedTools", "skills", "edits", "images", "reads", "commands", "web", "tools"],
+  "mixed": {
+    "calls": [
+      { "toolName": "tool_search", "output": "These tools are now available:\n- calendar_lookup: Search" },
+      { "toolName": "apply_patch", "args": { "path": "a.swift" } },
+      { "toolName": "read", "args": { "path": "one.png" } },
+      { "toolName": "read", "args": { "path": "two.webp" } },
+      { "toolName": "read", "args": { "path": "notes.md" } },
+      { "toolName": "shell", "args": { "command": "swift test" } }
+    ],
+    "expected": {
+      "loadedTools": 1,
+      "edits": 1,
+      "images": 2,
+      "reads": 1,
+      "commands": 1,
+      "en": "Loaded a tool, edited a file, viewed 2 images, read files, ran a command",
+      "zh": "加载了工具编辑了文件查看了 2 张图像读取文件运行了命令"
+    }
+  },
+  "compaction": {
+    "successRequires": "compact_boundary",
+    "autoLabelZh": "上下文已自动压缩",
+    "historyCollapsedBeforeLatestBoundary": true,
+    "historyExpandable": true
+  }
+}

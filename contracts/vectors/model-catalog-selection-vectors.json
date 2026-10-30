@@ -1,0 +1,9 @@
+{
+  "reason": "Model catalogs describe choices, not account eligibility. Display and selection retain upstream conversation choices and native variants without local availability checks or per-model credential reads. Explicit source visibility, purpose declarations and source-specific exclusions keep internal, editor-task and dedicated media models out of conversation choices while their runtime inventories and media selectors remain separate. Input image, audio and video capabilities do not exclude multimodal conversations. The provider returns inference errors when needed.",
+  "sources": ["custom", "codex", "subscription", "cursor", "qoder", "qwenwork", "qoderwork", "workbuddy", "antigravity", "kimi", "bailian", "minimax", "zhipu", "ark"],
+  "accountMetadata": {"available": false, "reason": "Account restricted"},
+  "knownModelSelectable": true,
+  "catalogCredentialReads": 0,
+  "declaredRestrictedVariantSelectable": true,
+  "unknownModelSelectable": false
+}

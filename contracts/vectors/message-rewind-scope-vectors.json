@@ -1,0 +1,68 @@
+[
+  {
+    "name": "message rewind removes conversation context without inspecting files",
+    "confirmed": true,
+    "expectedCalls": ["confirm:msg_rewind_confirm", "rewind:s1:u1"],
+    "reason": "A rewind must reconcile frozen renderer history so removed messages cannot remain actionable, and restore the complete draft including media, files and text cards even when the body is empty.",
+    "expectedAfterSuccess": {
+      "history": [],
+      "liveUnits": [],
+      "interruptedLiveTurn": null,
+      "lastTerminalStatus": null
+    },
+    "restoredDrafts": [
+      {
+        "name": "mixed message restores text, image, document, file, quote and pasted card",
+        "draft": {
+          "text": "Please review.",
+          "attachments": [
+            {"path": "/fixture/media/photo.png", "name": "photo.png", "mimeType": "image/png"},
+            {"path": "/fixture/media/report.pdf", "name": "report.pdf", "mimeType": "application/pdf"},
+            {"path": "/fixture/uploads/notes.txt", "name": "notes.txt"}
+          ],
+          "displayMetadata": {
+            "displayText": "Please review.",
+            "selectedTextAttachments": [{"text": "Quoted source", "requestOffset": 0}],
+            "pastedCards": [{"text": "Pasted lines\nSecond line", "requestOffset": 13}]
+          }
+        },
+        "expected": {"files": 3, "quotes": 1, "pastedCards": 1, "body": "Please review."}
+      },
+      {
+        "name": "image-only message restores without body text",
+        "draft": {"text": "", "attachments": [{"path": "/fixture/media/photo.png", "mimeType": "image/png"}]},
+        "expected": {"files": 1, "quotes": 0, "pastedCards": 0, "body": ""}
+      },
+      {
+        "name": "file-only message restores without the model attachment footer",
+        "draft": {"text": "", "attachments": [{"path": "/fixture/uploads/notes.txt", "name": "notes.txt"}]},
+        "expected": {"files": 1, "quotes": 0, "pastedCards": 0, "body": ""}
+      },
+      {
+        "name": "paste-only message restores text cards with an empty body",
+        "draft": {"text": "", "attachments": [], "displayMetadata": {"displayText": "", "pastedCards": [{"text": "Pasted-only text"}]}},
+        "expected": {"files": 0, "quotes": 0, "pastedCards": 1, "body": ""}
+      },
+      {
+        "name": "selection-only message restores a quote card with an empty body",
+        "draft": {"text": "", "attachments": [], "displayMetadata": {"displayText": "", "selectedTextAttachments": [{"text": "Selected-only text"}]}},
+        "expected": {"files": 0, "quotes": 1, "pastedCards": 0, "body": ""}
+      },
+      {
+        "name": "legacy quote-only metadata restores its quote card",
+        "draft": {"text": "Quoted-only text", "attachments": [], "displayMetadata": {"quoteOnly": true, "quotedText": "Quoted-only text"}},
+        "expected": {"files": 0, "quotes": 1, "pastedCards": 0, "body": ""}
+      },
+      {
+        "name": "plain text still restores as body text",
+        "draft": {"text": "Plain text", "attachments": []},
+        "expected": {"files": 0, "quotes": 0, "pastedCards": 0, "body": "Plain text"}
+      }
+    ]
+  },
+  {
+    "name": "canceling conversation rewind leaves context and files untouched",
+    "confirmed": false,
+    "expectedCalls": ["confirm:msg_rewind_confirm"]
+  }
+]

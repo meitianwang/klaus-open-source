@@ -1,0 +1,29 @@
+{
+  "description": "Hook sources own their declarations; review approval and enabled state remain separate actions.",
+  "globalPath": "/fixture/config/hooks.json",
+  "projectRoot": "/fixture/projects/atlas",
+  "projectPath": "/fixture/projects/atlas/.klaus/hooks.json",
+  "longCommand": "node /fixture/scripts/record-tool-activity.mjs --output /fixture/logs/tool-activity.jsonl --include-arguments --include-result --workspace /fixture/projects/atlas --label a-very-long-readable-hook-command-that-must-wrap-in-the-expanded-details",
+  "globalHooks": {
+    "SessionStart": [{ "hooks": [{ "type": "command", "command": "node /fixture/scripts/session-start.mjs", "timeout": 20 }] }],
+    "PostToolUse": [{ "matcher": "Write|Edit", "hooks": [{ "type": "command", "command": "$LONG_COMMAND", "async": true, "timeout": 30 }, { "type": "command", "command": "node /fixture/scripts/review-result.mjs" }] }],
+    "PreToolUse": [{ "matcher": "Bash", "hooks": [{ "type": "command", "command": "node /fixture/scripts/check-command.mjs", "timeout": 15 }] }],
+    "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": "node /fixture/scripts/prompt-log.mjs" }] }],
+    "SubagentStart": [{ "hooks": [{ "type": "command", "command": "node /fixture/scripts/agent-start.mjs" }] }],
+    "Stop": [{ "hooks": [{ "type": "command", "command": "node /fixture/scripts/notify.mjs" }] }]
+  },
+  "globalRows": [
+    { "event": "SessionStart", "groupIndex": 0, "hookIndex": 0, "status": "disabled", "timeoutMs": 20000 },
+    { "event": "PostToolUse", "groupIndex": 0, "hookIndex": 0, "status": "new", "matcher": "Write|Edit", "timeoutMs": 30000, "isAsync": true },
+    { "event": "PostToolUse", "groupIndex": 0, "hookIndex": 1, "status": "trusted", "matcher": "Write|Edit" },
+    { "event": "PreToolUse", "groupIndex": 0, "hookIndex": 0, "status": "trusted", "matcher": "Bash", "timeoutMs": 15000 },
+    { "event": "UserPromptSubmit", "groupIndex": 0, "hookIndex": 0, "status": "trusted" },
+    { "event": "SubagentStart", "groupIndex": 0, "hookIndex": 0, "status": "trusted" },
+    { "event": "Stop", "groupIndex": 0, "hookIndex": 0, "status": "changed" }
+  ],
+  "projectHooks": {
+    "PreToolUse": [{ "matcher": "Bash", "hooks": [{ "type": "command", "command": "node ./scripts/project-guard.mjs" }] }],
+    "CustomProjectEvent": [{ "hooks": [{ "type": "prompt", "prompt": "Review the current project state." }] }]
+  },
+  "expectedGlobalEventOrder": ["PreToolUse", "PostToolUse", "UserPromptSubmit", "SessionStart", "Stop", "SubagentStart"]
+}

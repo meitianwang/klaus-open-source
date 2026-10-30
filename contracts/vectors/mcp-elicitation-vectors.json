@@ -1,0 +1,42 @@
+{
+  "request": {
+    "requestId": "mcp-form",
+    "serverName": "computer-use",
+    "request": {
+      "mode": "form",
+      "message": "Allow the isolated application?",
+      "requestedSchema": {
+        "type": "object",
+        "properties": {
+          "enabled": { "type": "boolean" },
+          "count": { "type": "integer" },
+          "name": { "type": "string" }
+        }
+      },
+      "_meta": { "persist": ["always"], "klaus": { "computerUseApp": "/Applications/Fixture.app" } }
+    }
+  },
+  "card": {
+    "requestId": "1:mcp:engine-session:mcp-form",
+    "sessionId": "conversation",
+    "type": "mcp-elicit",
+    "serverName": "computer-use",
+    "prompt": "Allow the isolated application?",
+    "message": "Allow the isolated application?",
+    "requestedSchema": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "count": { "type": "integer" },
+        "name": { "type": "string" }
+      }
+    },
+    "computerUseApp": "/Applications/Fixture.app"
+  },
+  "answer": { "kind": "accept", "values": { "enabled": true, "count": 3, "name": "Fixture" } },
+  "response": {
+    "action": "accept",
+    "content": { "enabled": true, "count": 3, "name": "Fixture" },
+    "_meta": { "persist": ["always"], "klaus": { "computerUseApp": "/Applications/Fixture.app" } }
+  }
+}

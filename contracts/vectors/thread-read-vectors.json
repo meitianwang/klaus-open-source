@@ -1,0 +1,38 @@
+{
+  "_why": "Named conversation reads page without resuming a task and preserve the engine turn identities and cursors. Requested tool outputs have per-item limits; the model-facing JSON also has a 131072 UTF-16 character and bounded structure budget, with explicit truncation and omitted-item counts. This deliberately bounds oversized messages and tool arguments as well. UI history retains its own contract. Ordinary pages preserve this projection, timestamps and omission of unrequested output fields.",
+  "input": {
+    "thread": {"id":"thread-a","title":"Build parser","preview":"Please build a parser","cwd":"/work/parser","createdAt":1700000000123,"updatedAt":1700000005123,"status":{"type":"idle"},"archived":false},
+    "page":{"order":"newest_first","limit":1,"nextCursor":"turn-a","hasMore":true},
+    "turns":[{
+      "id":"turn-a","status":"completed","error":null,"startedAt":1700000001123,"completedAt":1700000005123,"durationMs":4000,
+      "items":[
+        {"type":"userMessage","id":"u1","content":[{"type":"text","text":"Check parser"},{"type":"localImage","path":"/work/input.png"}]},
+        {"type":"reasoning","id":"r1","summary":["Check input"],"content":["abcdef"]},
+        {"type":"commandExecution","id":"c1","command":"cargo test","cwd":"/work/parser","status":"completed","exitCode":0,"durationMs":120,"aggregatedOutput":"abcdef","hidden":true},
+        {"type":"fileChange","id":"f1","status":"completed","changes":[{"path":"src/lib.rs","kind":{"type":"update"},"diff":"abcdef"}]},
+        {"type":"functionCallOutput","id":"o1","name":"read_file","namespace":null,"output":"abcdef"},
+        {"type":"dynamicToolCall","id":"d1","tool":"read_thread","arguments":{"threadId":"previous"},"status":"completed","success":true,"durationMs":4,"contentItems":[{"text":"never forwarded here"}]},
+        {"type":"agentMessage","id":"a1","text":"Parser checked","phase":"final_answer"}
+      ]
+    }]
+  },
+  "expectedWithoutOutputs": {
+    "schemaVersion":1,
+    "thread":{"id":"thread-a","title":"Build parser","preview":"Please build a parser","cwd":"/work/parser","createdAt":1700000000.123,"updatedAt":1700000005.123,"status":{"type":"idle"},"kind":"klaus","hostId":"local"},
+    "page":{"order":"newest_first","limit":1,"nextCursor":"turn-a","hasMore":true},
+    "turns":[{
+      "id":"turn-a","status":"completed","error":null,"startedAt":1700000001.123,"completedAt":1700000005.123,"durationMs":4000,
+      "items":[
+        {"type":"userMessage","id":"u1","content":[{"type":"text","text":"Check parser"},{"type":"localImage","path":"/work/input.png"}]},
+        {"type":"reasoning","id":"r1","summary":["Check input"]},
+        {"type":"commandExecution","id":"c1","command":"cargo test","cwd":"/work/parser","status":"completed","exitCode":0,"durationMs":120},
+        {"type":"fileChange","id":"f1","status":"completed","changes":[{"path":"src/lib.rs","kind":{"type":"update"}}]},
+        {"type":"functionCallOutput","id":"o1","name":"read_file","namespace":null},
+        {"type":"dynamicToolCall","id":"d1","tool":"read_thread","arguments":{"threadId":"previous"},"status":"completed","success":true,"durationMs":4},
+        {"type":"agentMessage","id":"a1","text":"Parser checked","phase":"final_answer"}
+      ]
+    }]
+  },
+  "outputLimit":4,
+  "expectedBoundedOutput":{"text":"abcd","truncated":true,"originalChars":6}
+}

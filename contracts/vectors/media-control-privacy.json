@@ -1,0 +1,35 @@
+{
+  "reason": "Generation settings remain editable in the owner interface while conversation tools expose only status and supported controls. Media routing identities, catalogs, endpoints, and upstream errors stay outside tool results, including raw settings reads.",
+  "identity": {
+    "source": "fixture-media-source",
+    "model": "fixture-media-model-v3",
+    "endpoint": "https://media-fixture.invalid/v1"
+  },
+  "surfaces": [
+    { "key": "imageGen", "kind": "image", "read": "config", "write": "setConfig", "channel": "settings:image-gen" },
+    { "key": "imageSelection", "kind": "image", "read": "selection", "write": "setSelection", "channel": "settings:image-selection" },
+    { "key": "videoGen", "kind": "video", "read": "config", "write": "setConfig", "channel": "settings:video-gen" },
+    { "key": "videoSelection", "kind": "video", "read": "selection", "write": "setSelection", "channel": "settings:video-selection" },
+    { "key": "audioGen", "kind": "audio", "read": "config", "write": "setConfig", "channel": "settings:audio-gen" },
+    { "key": "audioSelection", "kind": "audio", "read": "selection", "write": "setSelection", "channel": "settings:audio-selection" },
+    { "key": "musicGen", "kind": "music", "read": "config", "write": "setConfig", "channel": "settings:music-gen" },
+    { "key": "musicSelection", "kind": "music", "read": "selection", "write": "setSelection", "channel": "settings:music-selection" }
+  ],
+  "settingRows": [
+    "image_generation.selection",
+    "image_generation.model_config",
+    "image_generation.native_model:fixture-media-source",
+    "video_generation.selection",
+    "video_generation.model_config:fixture-media-source",
+    "audio_generation.model_config",
+    "music_generation.selection",
+    "music_generation.native_model:fixture-media-source"
+  ],
+  "directive": [
+    "use the generation tools directly",
+    "host owns route selection",
+    "adapts the requested media parameters",
+    "Do not inspect settings, credentials, catalogs, or local configuration",
+    "Do not disclose the selected media provider, model, endpoint, or routing details"
+  ]
+}

@@ -1,0 +1,42 @@
+{
+  "_why": "Submitted user content keeps its authored structure and full copy payload while visually long text has a measured disclosure.",
+  "collapse": {
+    "visualLineLimit": 20,
+    "overflowTolerancePx": 1,
+    "collapsedContentLines": 19,
+    "ellipsis": "separate row",
+    "measurement": "ceil(scrollHeight) > ceil(lineHeight * 20) + 1",
+    "zeroWidth": "defer measurement",
+    "resize": "remeasure without resetting explicit expansion for identical text",
+    "focus": "partially visible links remain active; other controls must be fully visible",
+    "print": "show full body, hide toggle, restore previous state afterward",
+    "navigation": "reveal before geometry is read"
+  },
+  "actions": {
+    "files": "Retain stored paths and the transcript owner; resolve relative paths against that owner's directory before previewing.",
+    "quotes": "Open the full retained selection in a read-only text reader with copy and focus restoration.",
+    "pastedText": "Open the stored file, or the full retained legacy text when there is no stored path.",
+    "references": {
+      "conversation": "Open the referenced conversation.",
+      "file": "Preview the exact referenced file with its transcript owner.",
+      "folder": "Reveal the exact folder through the owning workspace capability.",
+      "skill": "Read the exact retained definition path when the host catalog advertises its preview capability; other skill identities remain readable.",
+      "plugin": "Show read-only metadata and contributions for the exact installed plugin ID.",
+      "other": "Keep readable identity without inventing unsupported destinations."
+    },
+    "failures": "Surface unavailable resources without changing the draft or creating a conversation."
+  },
+  "copy": {
+    "formats": [
+      "text/plain",
+      "text/html"
+    ],
+    "scope": "full authored text bubble, excluding sibling attachment cards and action controls",
+    "eligibility": "A user row exposes Copy only when its authored body has non-whitespace content; attachment-only rows retain their other applicable actions.",
+    "collapsed": "copy full text without changing expansion",
+    "identity": "preserve semantic inline token data in HTML",
+    "literal": "Markdown-looking prose stays literal when pasted back",
+    "plainIdentity": "Typed resource links keep their label and address; native file mentions copy the full path.",
+    "legacy": "Without an authored document snapshot, copy the full stored plain body and exclude sibling attachment cards."
+  }
+}

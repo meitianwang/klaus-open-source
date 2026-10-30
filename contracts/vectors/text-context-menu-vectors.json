@@ -1,0 +1,51 @@
+{
+  "version": 1,
+  "scope": "Authored input and submitted user text",
+  "admittedRoots": [
+    "main editor",
+    "side editor",
+    "submitted-message editor",
+    "submitted user body",
+    "user full-text reader"
+  ],
+  "frame": "main frame only",
+  "emptyEditableMac": [
+    "text-cut",
+    "text-copy",
+    "text-paste"
+  ],
+  "selectedReadonlyMac": [
+    "text-lookup",
+    "text-search",
+    "text-copy"
+  ],
+  "selectedLinkMac": [
+    "text-search",
+    "text-copy",
+    "text-copy-link"
+  ],
+  "nativeEnabledFlags": [
+    "canCut",
+    "canCopy",
+    "canPaste",
+    "canSelectAll"
+  ],
+  "ownerContract": {
+    "surface": "window.__KLAUS_TEXT_CONTEXT_MENU__",
+    "capture": "opaque lease string or null",
+    "current": "boolean for the supplied lease",
+    "invalidatedBy": [
+      "document lifetime or revision",
+      "selection drift",
+      "focus drift",
+      "owner removal or mutation",
+      "a subsequent context event",
+      "keyboard or primary pointer input",
+      "window disposal or replacement popup"
+    ],
+    "prepare": "Arm one native clipboard or replacement event after validating its owner; validate again in the renderer before the event mutates or copies content."
+  },
+  "history": "Native cut and paste pass through the owning structured editor and retain its undo history.",
+  "customMenu": "A consumed context event retains its existing custom menu.",
+  "attachments": "Pasted attachment appearance and layout remain unchanged."
+}

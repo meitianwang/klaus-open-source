@@ -1,0 +1,7 @@
+{
+  "reason": "A chat still owns its worktree after pushing. Removing it outside the host must remain visible and must not recreate an empty checkout or silently fall back to the main repository.",
+  "activeChatRemoval": { "ok": false, "error": "worktree-in-use" },
+  "availabilityOnly": { "ok": true, "state": "available" },
+  "externalRemoval": { "state": "gone", "retainsWorkdir": true, "recreatesDirectory": false, "globalSkillsAvailable": true },
+  "explicitRebind": { "target": "origin", "state": "available" }
+}

@@ -1,0 +1,268 @@
+{
+  "description": "Compaction changes model context without hiding the saved transcript. Updated 2026-10-03 because the previous renderer clipped every message before the latest boundary and reset its disclosure on each compaction start. Cold-opening a saved session immediately shows its latest real user message and replies, including long turns that span compaction; compaction, file restore and summary rows cannot replace the real turn opener as a pagination boundary. Primary and read-only transcripts keep message order across all boundaries; only restored file contents require disclosure. Earlier turns continue to use normal upward pagination. Updated 2026-10-27: the checkpoint body the engine persists for prompt context (assistant text tagged with the compaction-output envelope) is provider context, never a visible reply; the host projection skips it and the saved boundary renders as the compaction divider alone, with no summary body anywhere in the desktop transcript. The renderer keeps its summary-card row kind for surfaces that produce it (the mobile live stream); the desktop host never emits it.",
+  "coldOpenLongTurnCases": [
+    {
+      "name": "cold open includes the latest long turn across compaction with turn IDs",
+      "withTurnIds": true,
+      "beforeCompactionRows": 20,
+      "afterCompactionRows": 130
+    },
+    {
+      "name": "cold open includes the latest long turn across compaction in legacy history",
+      "withTurnIds": false,
+      "beforeCompactionRows": 20,
+      "afterCompactionRows": 130
+    }
+  ],
+  "cases": [
+    {
+      "name": "compaction starts without hiding the current conversation",
+      "pendingTrigger": "auto",
+      "messages": [
+        {
+          "uuid": "u1",
+          "role": "user",
+          "text": "Original investigation request"
+        }
+      ],
+      "visibleText": [
+        "Original investigation request"
+      ],
+      "hiddenText": [],
+      "boundaries": 0
+    },
+    {
+      "name": "completed compaction retains earlier messages by default",
+      "messages": [
+        {
+          "uuid": "u1",
+          "role": "user",
+          "text": "Question before compaction"
+        },
+        {
+          "uuid": "c1",
+          "role": "user",
+          "kind": "compaction",
+          "text": "",
+          "compactionTrigger": "auto"
+        },
+        {
+          "uuid": "u2",
+          "role": "user",
+          "text": "Question after compaction"
+        }
+      ],
+      "visibleText": [
+        "Question before compaction",
+        "Question after compaction"
+      ],
+      "hiddenText": [],
+      "boundaries": 1
+    },
+    {
+      "name": "repeated compaction and a retry preserve all earlier turns",
+      "pendingTrigger": "auto",
+      "messages": [
+        {
+          "uuid": "u1",
+          "role": "user",
+          "text": "First investigation request"
+        },
+        {
+          "uuid": "c1",
+          "role": "user",
+          "kind": "compaction",
+          "text": "",
+          "compactionTrigger": "auto"
+        },
+        {
+          "uuid": "u2",
+          "role": "user",
+          "text": "Follow-up investigation request"
+        },
+        {
+          "uuid": "c2",
+          "role": "user",
+          "kind": "compaction",
+          "text": "",
+          "compactionTrigger": "auto"
+        },
+        {
+          "uuid": "u3",
+          "role": "user",
+          "text": "Continue after the compaction failure"
+        }
+      ],
+      "visibleText": [
+        "First investigation request",
+        "Follow-up investigation request",
+        "Continue after the compaction failure"
+      ],
+      "hiddenText": [],
+      "boundaries": 2
+    },
+    {
+      "name": "restored files remain folded while actual messages remain visible",
+      "messages": [
+        {
+          "uuid": "u1",
+          "role": "user",
+          "text": "Review the original conversation"
+        },
+        {
+          "uuid": "c1",
+          "role": "user",
+          "kind": "compaction",
+          "text": "",
+          "compactionTrigger": "auto"
+        },
+        {
+          "uuid": "f1",
+          "role": "user",
+          "kind": "compact-file-restore",
+          "text": "Fresh contents of recently-touched files: restored-file-fixture"
+        },
+        {
+          "uuid": "u2",
+          "role": "user",
+          "text": "Continue the review"
+        }
+      ],
+      "visibleText": [
+        "Review the original conversation",
+        "Continue the review"
+      ],
+      "hiddenText": [
+        "restored-file-fixture"
+      ],
+      "boundaries": 1
+    },
+    {
+      "name": "the saved checkpoint never renders: the boundary stays a divider without a summary body",
+      "messages": [
+        {
+          "uuid": "u1",
+          "role": "user",
+          "text": "Question before compaction"
+        },
+        {
+          "uuid": "c1",
+          "role": "user",
+          "kind": "compaction",
+          "text": "",
+          "compactionTrigger": "auto"
+        },
+        {
+          "uuid": "u2",
+          "role": "user",
+          "text": "Question after compaction"
+        }
+      ],
+      "visibleText": [
+        "Question before compaction",
+        "Question after compaction"
+      ],
+      "hiddenText": [
+        "Context checkpoint"
+      ],
+      "expectNoAssistantBubble": true,
+      "boundaries": 1
+    }
+  ],
+  "checkpointProjectionCases": [
+    {
+      "name": "checkpoint output is dropped and the boundary stays a divider without a summary body",
+      "history": [
+        {
+          "type": "user",
+          "uuid": "u1",
+          "content": [
+            {
+              "type": "text",
+              "text": "Question before compaction"
+            }
+          ]
+        },
+        {
+          "type": "assistant",
+          "uuid": "cp-marker",
+          "content": [
+            {
+              "type": "text",
+              "text": "",
+              "harnessEnvelope": "compaction-output"
+            },
+            {
+              "type": "thinking",
+              "text": "private reasoning"
+            }
+          ]
+        },
+        {
+          "type": "assistant",
+          "uuid": "cp-body",
+          "content": [
+            {
+              "type": "text",
+              "text": "# Context checkpoint",
+              "harnessEnvelope": "compaction-output"
+            }
+          ]
+        },
+        {
+          "type": "compact_boundary",
+          "uuid": "cb1",
+          "summary": "# Context checkpoint"
+        },
+        {
+          "type": "user",
+          "uuid": "u2",
+          "content": [
+            {
+              "type": "text",
+              "text": "Question after compaction"
+            }
+          ]
+        }
+      ],
+      "historyTurnIds": {
+        "cb1": "turn-2",
+        "u2": "turn-2"
+      },
+      "expectedKinds": [
+        "user",
+        "compaction",
+        "user"
+      ],
+      "forbiddenText": [
+        "# Context checkpoint"
+      ]
+    },
+    {
+      "name": "a boundary without a summary keeps only the compaction row",
+      "history": [
+        {
+          "type": "compact_boundary",
+          "uuid": "cb2",
+          "summary": ""
+        },
+        {
+          "type": "user",
+          "uuid": "u3",
+          "content": [
+            {
+              "type": "text",
+              "text": "Next question"
+            }
+          ]
+        }
+      ],
+      "historyTurnIds": {},
+      "expectedKinds": [
+        "compaction",
+        "user"
+      ],
+      "forbiddenText": []
+    }
+  ]
+}

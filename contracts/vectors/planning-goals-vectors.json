@@ -1,0 +1,709 @@
+{
+  "reason": "Terminal notification presentation is explicit and independent of automatic launch; inherit preserves host gates, and an exact malformed resolution cannot manufacture completion. Editor Save explicitly activates the existing goal; an armed badge updates its label and accessible name when the language changes. Feedback drafts and their open review survive artifact handoff without changing exact authored text. Structured questions reuse the established answer card and automatic navigation. Saved answers retain the original tool position and decode supported result envelopes without inventing request identities or expiry.",
+  "goalReadLifecycle": {
+    "reason": "Background hydration follows successful runtime recovery, remains outside its readiness barrier, and cannot overwrite intervening state or a replacement runtime. Equivalent observers share one read authority independently of caller cancellation; a foreground observer promotes queued work without another request. A changed authoritative snapshot requires a new observation. Runtime configuration acknowledgements use the facade's camel-case outcome field. Dedicated runtime preparation completes before subscription and queue hydration; task reads do not prepare a session.",
+    "requestsPerEquivalentRead": 1,
+    "readyMethods": ["session/prepare", "session/subscribe", "session/queueSnapshot"],
+    "runtimeConfigOutcomeField": "sessionConfig",
+    "priority": "background",
+    "invalidations": ["update", "clear", "newer-read", "forget"]
+  },
+  "goalStatuses": [
+    "active",
+    "paused",
+    "blocked",
+    "usage_limited",
+    "budget_limited",
+    "complete"
+  ],
+  "planStatuses": [
+    "writing",
+    "proposed",
+    "accepted",
+    "superseded",
+    "interrupted"
+  ],
+  "questionStatuses": [
+    "pending",
+    "answered",
+    "skipped",
+    "cancelled",
+    "expired"
+  ],
+  "goalReadOrder": [
+    4,
+    2,
+    5,
+    3
+  ],
+  "goalAcceptedRevisions": [
+    4,
+    4,
+    5,
+    5
+  ],
+  "materializeBoundary": 4000,
+  "stopPauseDeadlineMs": 500,
+  "ownedResourceLimits": {
+    "maxFiles": 256,
+    "maxFileBytes": 10485760,
+    "maxConcurrentPreparations": 4
+  },
+  "goalTurnMetadataCases": [
+    {
+      "input": {
+        "goalContinuation": true,
+        "inputOrigin": "automatic",
+        "goalId": "generation"
+      },
+      "expected": {
+        "goalContinuation": true,
+        "inputOrigin": "automatic",
+        "goalId": "generation"
+      }
+    },
+    {
+      "input": {
+        "goalContinuation": false,
+        "inputOrigin": "user"
+      },
+      "expected": {
+        "goalContinuation": false,
+        "inputOrigin": "user"
+      }
+    },
+    {
+      "input": {
+        "origin": "goal_continuation",
+        "goalId": "generation"
+      },
+      "expected": null
+    },
+    {
+      "input": {
+        "goalContinuation": true,
+        "inputOrigin": "unknown",
+        "goalId": "generation"
+      },
+      "expected": null
+    }
+  ],
+  "validGoalTimestamps": [
+    -9007199254740991,
+    -1,
+    0,
+    9007199254740991
+  ],
+  "invalidGoalTimestamps": [
+    -9007199254740992,
+    9007199254740992,
+    0.5,
+    "100",
+    null
+  ],
+  "goalSubmissionItem": {
+    "clientRequestId": "goal-live-case",
+    "messageUuid": "goal-user-f00f847d5a0ca61c66469025612390148d3ea8888465991175c755067004cbbd",
+    "displayUuid": "goal-user-f00f847d5a0ca61c66469025612390148d3ea8888465991175c755067004cbbd-display",
+    "text": "Continue the goal until the objective is complete.",
+    "turnId": "captured-goal-turn"
+  },
+  "goalImageExtensions": [
+    {
+      "sourceName": "source.BMP",
+      "expected": "bmp"
+    },
+    {
+      "sourceName": "source.TIF",
+      "expected": "tif"
+    },
+    {
+      "sourceName": "source.TIFF",
+      "expected": "tiff"
+    },
+    {
+      "sourceName": "source.JPEG",
+      "expected": "jpeg"
+    },
+    {
+      "sourceName": "source.original",
+      "filename": "capture.HEIC",
+      "expected": "heic"
+    },
+    {
+      "sourceName": "source.raw",
+      "filename": "capture.1",
+      "expected": "1"
+    },
+    {
+      "sourceName": "source.raw",
+      "filename": "capture.A1234567",
+      "expected": "a1234567"
+    },
+    {
+      "sourceName": "source.raw",
+      "filename": "capture.123456789",
+      "expected": "xunrecog"
+    },
+    {
+      "dataSubtype": "x-foo+bar",
+      "expected": "xfoobar"
+    },
+    {
+      "dataSubtype": "x-custom-very-long",
+      "expected": "xcustomv"
+    },
+    {
+      "dataSubtype": "jpeg",
+      "filename": "image.JPEG",
+      "expected": "jpeg"
+    },
+    {
+      "dataSubtype": "x-custom",
+      "filename": "../../capture.TIFF",
+      "expected": "tiff"
+    },
+    {
+      "sourceName": "without-extension",
+      "expected": "xunrecog"
+    },
+    {
+      "dataSubtype": "jpeg",
+      "expected": "jpg"
+    },
+    {
+      "dataSubtype": "png",
+      "expected": "png"
+    },
+    {
+      "sourceName": "no-extension",
+      "mimeType": null,
+      "expected": "png"
+    }
+  ],
+  "goalEligibility": {
+    "field": "goalPursuitEligible",
+    "independentOfRuntimeFeature": true,
+    "ineligibleControls": [
+      "create",
+      "objective",
+      "budget",
+      "resume"
+    ],
+    "retainedControls": [
+      "read",
+      "pause",
+      "clear",
+      "stop"
+    ],
+    "unknownEligible": false
+  },
+  "goalDisplaySource": "complete final objective reference for materialized content",
+  "turnInterrupt": {
+    "origins": {
+      "user-stop": {
+        "pause": "critical",
+        "pauseDeadlineMs": 500,
+        "authorization": "user"
+      },
+      "system": {
+        "pause": "ordinary",
+        "authorization": "automatic"
+      },
+      "targeted-turn": {
+        "pause": "none",
+        "requiredFence": true
+      }
+    },
+    "defaultOrigin": "user-stop",
+    "expectedTurnId": "foreground facade submission identity",
+    "ack": "dispatch only",
+    "finalEnvelope": "turnInterrupt",
+    "unconfirmedReply": {
+      "accepted": true,
+      "confirmed": false,
+      "interruptionError": "explicit diagnostic"
+    },
+    "closeOrder": [
+      "system interruption outcome",
+      "host cleanup",
+      "core close",
+      "process fallback"
+    ]
+  },
+  "goalContinuation": {
+    "method": "goal.continuation",
+    "pendingBeforePredecessorTerminal": true,
+    "resolutionOnActualAdmission": true,
+    "unexpectedDisconnect": "owned task failure once",
+    "explicitTeardown": "silent discard",
+    "noCandidate": "ordinary predecessor completion",
+    "maxHeldDecisions": 1024,
+    "cases": [
+      {
+        "value": {
+          "sessionId": "engine",
+          "decisionId": "decision",
+          "priorSubmissionId": "submission",
+          "pending": true
+        },
+        "valid": true
+      },
+      {
+        "value": {
+          "sessionId": "engine",
+          "decisionId": "decision",
+          "priorSubmissionId": "submission",
+          "pending": false,
+          "continued": true,
+          "goalId": "generation",
+          "successorSubmissionId": "successor",
+          "priorCompletionNotificationDisposition": "suppress"
+        },
+        "valid": true
+      },
+      {
+        "value": {
+          "sessionId": "engine",
+          "decisionId": "decision",
+          "priorSubmissionId": "submission",
+          "pending": false,
+          "continued": false,
+          "priorCompletionNotificationDisposition": "inherit"
+        },
+        "valid": true
+      },
+      {
+        "value": {
+          "sessionId": "engine",
+          "decisionId": "decision",
+          "priorSubmissionId": "submission",
+          "pending": true,
+          "continued": false
+        },
+        "valid": false
+      },
+      {
+        "value": {
+          "sessionId": "engine",
+          "decisionId": "decision",
+          "priorSubmissionId": "submission",
+          "pending": false
+        },
+        "valid": false
+      },
+      {
+        "value": {
+          "sessionId": "engine",
+          "decisionId": "decision",
+          "priorSubmissionId": "submission",
+          "pending": false,
+          "continued": "false"
+        },
+        "valid": false
+      },
+      {
+        "value": {
+          "sessionId": "engine",
+          "decisionId": "",
+          "priorSubmissionId": "submission",
+          "pending": true
+        },
+        "valid": false
+      },
+      {
+        "value": {
+          "sessionId": "engine",
+          "decisionId": "decision",
+          "priorSubmissionId": " ",
+          "pending": true
+        },
+        "valid": false
+      },
+      {
+        "value": {
+          "sessionId": "engine",
+          "decisionId": "decision",
+          "priorSubmissionId": "submission",
+          "pending": true,
+          "goalId": null
+        },
+        "valid": false
+      },
+      {
+        "value": {
+          "sessionId": "engine",
+          "decisionId": "decision",
+          "priorSubmissionId": "submission",
+          "pending": true,
+          "successorSubmissionId": ""
+        },
+        "valid": false
+      },
+      {
+        "value": {
+          "sessionId": "engine",
+          "decisionId": "decision",
+          "priorSubmissionId": "submission",
+          "pending": false,
+          "continued": false
+        },
+        "valid": false
+      },
+      {
+        "value": {
+          "sessionId": "engine",
+          "decisionId": "decision",
+          "priorSubmissionId": "submission",
+          "pending": false,
+          "continued": true,
+          "priorCompletionNotificationDisposition": "inherit"
+        },
+        "valid": false
+      },
+      {
+        "value": {
+          "sessionId": "engine",
+          "decisionId": "decision",
+          "priorSubmissionId": "submission",
+          "pending": false,
+          "continued": false,
+          "priorCompletionNotificationDisposition": "notify"
+        },
+        "valid": false
+      },
+      {
+        "value": {
+          "sessionId": "engine",
+          "decisionId": "decision",
+          "priorSubmissionId": "submission",
+          "pending": true,
+          "priorCompletionNotificationDisposition": "suppress"
+        },
+        "valid": false
+      },
+      {
+        "value": {
+          "sessionId": "engine",
+          "decisionId": "decision",
+          "priorSubmissionId": "submission",
+          "pending": false,
+          "continued": false,
+          "priorCompletionNotificationDisposition": "suppress"
+        },
+        "valid": true
+      }
+    ],
+    "resolvedPriorDispositionRequired": true,
+    "continuedTruePriorDisposition": "suppress",
+    "capacityOutcome": "discard unresolved presentation with diagnostic"
+  },
+  "terminalNotificationDisposition": {
+    "optionalDefault": "inherit",
+    "values": [
+      "inherit",
+      "suppress"
+    ],
+    "inherit": "remaining host policy applies; never force delivery",
+    "goalActiveCompletedPlan": "suppress without launch",
+    "failureGoalActiveAlone": "inherit",
+    "rawDiagnostic": "preserved",
+    "mismatch": "exact current resolution discards only held ordinary success and logs bounded protocol diagnostic; unrelated identities do not retire current state"
+  },
+  "goalNotificationPresentation": [
+    {
+      "id": "plan_active_completed",
+      "priorTerminal": "completed",
+      "terminalNotificationDisposition": "suppress",
+      "continued": null,
+      "priorCompletionNotificationDisposition": null,
+      "hostPendingGate": false,
+      "expectedEligibleOutcomesWhenOtherHostGatesPermit": [],
+      "hasRealCandidate": false,
+      "fakeLoadingPermitted": false
+    },
+    {
+      "id": "default_active_completed",
+      "priorTerminal": "completed",
+      "terminalNotificationDisposition": "suppress",
+      "continued": null,
+      "priorCompletionNotificationDisposition": null,
+      "hostPendingGate": false,
+      "expectedEligibleOutcomesWhenOtherHostGatesPermit": [],
+      "hasRealCandidate": false,
+      "fakeLoadingPermitted": false
+    },
+    {
+      "id": "paused_completed_ordinary",
+      "priorTerminal": "completed",
+      "terminalNotificationDisposition": "inherit",
+      "continued": null,
+      "priorCompletionNotificationDisposition": null,
+      "hostPendingGate": false,
+      "expectedEligibleOutcomesWhenOtherHostGatesPermit": [
+        "P:done"
+      ],
+      "hasRealCandidate": false,
+      "fakeLoadingPermitted": false
+    },
+    {
+      "id": "active_failed_no_other_pending",
+      "priorTerminal": "failed",
+      "terminalNotificationDisposition": "inherit",
+      "continued": null,
+      "priorCompletionNotificationDisposition": null,
+      "hostPendingGate": false,
+      "expectedEligibleOutcomesWhenOtherHostGatesPermit": [
+        "P:error"
+      ],
+      "hasRealCandidate": false,
+      "fakeLoadingPermitted": false
+    },
+    {
+      "id": "failed_pending_runtime_descendant",
+      "priorTerminal": "failed",
+      "terminalNotificationDisposition": "inherit",
+      "continued": null,
+      "priorCompletionNotificationDisposition": null,
+      "hostPendingGate": true,
+      "expectedEligibleOutcomesWhenOtherHostGatesPermit": [],
+      "hasRealCandidate": false,
+      "fakeLoadingPermitted": false
+    },
+    {
+      "id": "completed_pending_non_goal_ancestor",
+      "priorTerminal": "completed",
+      "terminalNotificationDisposition": "inherit",
+      "continued": null,
+      "priorCompletionNotificationDisposition": null,
+      "hostPendingGate": true,
+      "expectedEligibleOutcomesWhenOtherHostGatesPermit": [],
+      "hasRealCandidate": false,
+      "fakeLoadingPermitted": false
+    },
+    {
+      "id": "generic_refusal_ordinary_prior",
+      "priorTerminal": "completed",
+      "terminalNotificationDisposition": "inherit",
+      "continued": false,
+      "priorCompletionNotificationDisposition": "inherit",
+      "hostPendingGate": false,
+      "expectedEligibleOutcomesWhenOtherHostGatesPermit": [
+        "P:done"
+      ],
+      "hasRealCandidate": true,
+      "fakeLoadingPermitted": false
+    },
+    {
+      "id": "terminal_suppress_cannot_be_revived",
+      "priorTerminal": "completed",
+      "terminalNotificationDisposition": "suppress",
+      "continued": false,
+      "priorCompletionNotificationDisposition": "inherit",
+      "hostPendingGate": false,
+      "expectedEligibleOutcomesWhenOtherHostGatesPermit": [],
+      "hasRealCandidate": true,
+      "fakeLoadingPermitted": false
+    },
+    {
+      "id": "factory_refused_typed_failure",
+      "priorTerminal": "completed",
+      "terminalNotificationDisposition": "inherit",
+      "continued": false,
+      "priorCompletionNotificationDisposition": "suppress",
+      "hostPendingGate": false,
+      "expectedEligibleOutcomesWhenOtherHostGatesPermit": [
+        "S:error"
+      ],
+      "hasRealCandidate": true,
+      "fakeLoadingPermitted": false
+    },
+    {
+      "id": "factory_refused_typed_failure_host_pending",
+      "priorTerminal": "completed",
+      "terminalNotificationDisposition": "inherit",
+      "continued": false,
+      "priorCompletionNotificationDisposition": "suppress",
+      "hostPendingGate": true,
+      "expectedEligibleOutcomesWhenOtherHostGatesPermit": [],
+      "hasRealCandidate": true,
+      "fakeLoadingPermitted": false
+    },
+    {
+      "id": "actual_successor_admitted_then_failure",
+      "priorTerminal": "completed",
+      "terminalNotificationDisposition": "inherit",
+      "continued": true,
+      "priorCompletionNotificationDisposition": "suppress",
+      "hostPendingGate": false,
+      "expectedEligibleOutcomesWhenOtherHostGatesPermit": [
+        "S:error"
+      ],
+      "hasRealCandidate": true,
+      "fakeLoadingPermitted": false
+    },
+    {
+      "id": "refused_aborted_successor",
+      "priorTerminal": "completed",
+      "terminalNotificationDisposition": "inherit",
+      "continued": false,
+      "priorCompletionNotificationDisposition": "inherit",
+      "hostPendingGate": false,
+      "expectedEligibleOutcomesWhenOtherHostGatesPermit": [
+        "P:done"
+      ],
+      "hasRealCandidate": true,
+      "fakeLoadingPermitted": false
+    }
+  ],
+  "sameTurnSettlementNotification": {
+    "sequence": [
+      {
+        "type": "turn/completed",
+        "terminalNotificationDisposition": "suppress"
+      },
+      {
+        "type": "turn/failed",
+        "terminalNotificationDisposition": "inherit"
+      },
+      {
+        "type": "turn/completed",
+        "stopReason": "error",
+        "terminalNotificationDisposition": "inherit"
+      }
+    ],
+    "identity": "all frames share the same actual turn",
+    "remainingHostPending": false,
+    "eligibleOutcomes": [
+      "same-turn:error"
+    ],
+    "supersededSuccessConsumesFailureIdentity": false,
+    "rawFailureDiagnostic": "preserved",
+    "duplicateErrorResultAddsOutcomes": 0
+  },
+  "planningHistory": {
+    "persistentInCollapsedTurn": true,
+    "persistenceReason": "Saved plans and approval reviews retain their chronological positions; goal completion accounting belongs to the final answer action row.",
+    "reason": "Renderer history joins persisted artifacts by thread and turn identity while preserving raw model messages, exact source units and ordered surrounding text. A planning revision must span every ordered capture.",
+    "cases": [
+      {
+        "name": "surrounding text and latest edited artifact",
+        "raw": "Before\n<proposed_plan>\n# Original\n</proposed_plan>\nAfter",
+        "expected": [
+          "Before\n",
+          "PLAN",
+          "After"
+        ]
+      },
+      {
+        "name": "exact CRLF and isolated source units",
+        "raw": "\ud800before\r\n<proposed_plan>\r\n# Original\r\n</proposed_plan>\r\n\udc00after",
+        "expected": [
+          "\ud800before\r\n",
+          "PLAN",
+          "\udc00after"
+        ]
+      },
+      {
+        "name": "incomplete source retains interrupted artifact",
+        "raw": "Before\n<proposed_plan>\nPartial",
+        "status": "interrupted",
+        "expected": [
+          "Before\n",
+          "PLAN"
+        ]
+      },
+      {
+        "name": "a rejected repeated block remains ordinary content",
+        "raw": "<proposed_plan>\nFirst\n</proposed_plan>\n<proposed_plan>\nSecond\n</proposed_plan>",
+        "status": "interrupted",
+        "expected": [
+          "PLAN",
+          "Second"
+        ]
+      },
+      {
+        "name": "unattributed turn stays unchanged",
+        "raw": "<proposed_plan>\nLiteral\n</proposed_plan>",
+        "unattributed": true
+      },
+      {
+        "name": "commentary stays unchanged",
+        "raw": "<proposed_plan>\nLiteral\n</proposed_plan>",
+        "commentary": true
+      }
+    ]
+  },
+  "goalEditorSave": {
+    "status": "active",
+    "preserveGeneration": true,
+    "appendTranscriptItem": false
+  },
+  "goalCompletionPresentation": {
+    "reason": "Completion is answer metadata. Repeating the objective as a separate message duplicates the result and loses its source turn during restoration.",
+    "surface": "assistant-action-row",
+    "standaloneCard": false,
+    "includeObjective": false,
+    "durationSeconds": 61,
+    "en": "Goal achieved in 1 min 1 sec",
+    "zh": "已在 1分钟 1秒 内达成目标",
+    "hideCompletedComposerRow": true,
+    "owner": "source turn final answer",
+    "snapshotTurnField": "sourceTurnId",
+    "legacySnapshotTurnField": "turnId",
+    "unattributedSnapshot": "no footer",
+    "failedUpdate": "no footer",
+    "runningTurn": "no footer"
+  },
+  "goalBadgeLocale": {
+    "en": {
+      "label": "Goal mode",
+      "accessibleName": "Set a goal and keep pushing until done"
+    },
+    "zh": {
+      "label": "\u76ee\u6807\u6a21\u5f0f",
+      "accessibleName": "\u8bbe\u5b9a\u76ee\u6807\uff0c\u6301\u7eed\u63a8\u8fdb\u76f4\u81f3\u5b8c\u6210"
+    }
+  },
+  "goalResumeReview": {
+    "returnFocusSelector": "#goal-indicator [data-goal-action=resume]"
+  },
+  "planFeedbackHandoff": {
+    "draft": " \r\nKeep \ud800 and \ud83e\udd80\udc00 exactly.\r\n "
+  },
+  "goalHistoryRecovery": {
+    "_why": "Selecting a saved conversation may warm its provider transport. This origin-only GET creates no model turn; recovery must retain zero inference and reject every unrelated HTTP request.",
+    "transportWarmup": {
+      "method": "GET",
+      "path": "/",
+      "userAgent": ""
+    },
+    "warmupRequestsPerSelection": 1,
+    "modelPostRequests": 0,
+    "modelStreams": 0
+  },
+  "planInteraction": {
+    "reason": "The rendered document is directly editable without a source toggle, including table cells. Cards share the centered message column. The mode label is stable while work is running. Copy acknowledges successful clipboard writes. The proposal surface opens the document while toolbar actions, links and text selection remain independent.",
+    "modeLabels": { "en": "Plan", "zh": "计划" },
+    "copyFeedbackMs": 1500,
+    "documentEditing": "rendered",
+    "sourceToggle": false,
+    "renderedTableCellEditing": true,
+    "documentMaxWidthPx": 720,
+    "cardMaxWidthPx": 720,
+    "cardClickOpensDocument": true,
+    "keyboardOpenKeys": ["Enter", "Space"],
+    "toolbarClickOpensDocument": false,
+    "selectionOpensDocument": false
+  },
+  "questionPresentation": {
+    "sharedAnswerCard": true,
+    "emptyInitialSelection": true,
+    "singleChoiceAdvanceDelayMs": 180,
+    "lastChoiceSubmitsReadyBatch": true,
+    "historyCollapsedByDefault": true,
+    "historyMaxWidthPx": 720,
+    "historyOwnsToolPosition": true,
+    "missingReceiptStatus": "pending"
+  }
+}

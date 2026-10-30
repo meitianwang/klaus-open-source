@@ -1,0 +1,337 @@
+{
+  "_note": "Fixed inputs for the Discord and Telegram inbound wire-contract tests (channels_discord/wire_contract.rs, channels_telegram/wire_contract.rs). The expected documents are channels-{discord,telegram}-vectors.json in this directory; changing an input here means regenerating those deliberately.",
+  "fixedNowMs": 1700000000123,
+  "telegram": {
+    "chunk": [
+      {
+        "text": "short",
+        "limit": 100
+      },
+      {
+        "text": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n\nbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "limit": 100
+      },
+      {
+        "text": "aaaaa\nbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "limit": 100
+      },
+      {
+        "text": "line one\nline two\nline three\nline four\nline five\nline six",
+        "limit": 20
+      },
+      {
+        "text": "\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00",
+        "limit": 4
+      },
+      {
+        "text": "para one\n\n\n   para two after blank lines and spaces",
+        "limit": 12
+      }
+    ],
+    "chatId": [
+      "-1001234567890",
+      " 42 ",
+      "007",
+      "@channelname",
+      "",
+      "12ab"
+    ],
+    "sendOptions": [
+      {},
+      {
+        "replyToMessageId": "42"
+      },
+      {
+        "threadId": "7"
+      },
+      {
+        "format": "markdownv2"
+      },
+      {
+        "format": "text"
+      },
+      {
+        "replyToMessageId": "42",
+        "threadId": "7",
+        "format": "markdownv2"
+      },
+      {
+        "replyToMessageId": "not-a-number"
+      }
+    ],
+    "markdownv2Texts": [
+      "plain reply",
+      "*bold* _italic_ __underline__ ~strike~ ||spoiler|| `code`",
+      "a_b*c[d]e(f)g~h`i>j#k+l-m=n|o{p}q.r!s\\t",
+      "100% off - see https://example.invalid/a_b?c=1#d",
+      "\u4e2d\u6587 emoji \ud83d\ude00 and a\nnewline"
+    ],
+    "messages": [
+      {
+        "label": "group @mention",
+        "botUsername": "klausmockbot",
+        "media": null,
+        "msg": {
+          "message_id": 42,
+          "date": 1700000000,
+          "chat": {
+            "id": -1001,
+            "type": "supergroup",
+            "title": "Klaus QA"
+          },
+          "from": {
+            "id": 7,
+            "first_name": "Ada",
+            "last_name": "L"
+          },
+          "text": "@klausmockbot ping"
+        }
+      },
+      {
+        "label": "dm with reply and media",
+        "botUsername": "klausmockbot",
+        "media": [
+          {
+            "kind": "image",
+            "path": "/tmp/klaus-parity/a.jpg",
+            "mimeType": "image/jpeg"
+          }
+        ],
+        "msg": {
+          "message_id": 101,
+          "date": 1700000001,
+          "chat": {
+            "id": 55,
+            "type": "private"
+          },
+          "from": {
+            "id": 55,
+            "first_name": "Bo"
+          },
+          "caption": "look at this",
+          "photo": [
+            {
+              "file_id": "small",
+              "file_size": 10
+            },
+            {
+              "file_id": "big",
+              "file_size": 900
+            }
+          ],
+          "reply_to_message": {
+            "message_id": 100
+          }
+        }
+      },
+      {
+        "label": "forum topic document",
+        "botUsername": "klausmockbot",
+        "media": null,
+        "msg": {
+          "message_id": 7,
+          "date": 1700000002,
+          "chat": {
+            "id": -1002,
+            "type": "supergroup",
+            "is_forum": true
+          },
+          "message_thread_id": 9,
+          "from": {
+            "id": 8,
+            "first_name": "Cy"
+          },
+          "document": {
+            "file_id": "doc",
+            "file_name": "report.pdf"
+          },
+          "caption": "@klausmockbot review"
+        }
+      },
+      {
+        "label": "nameless sender sticker dm",
+        "botUsername": "klausmockbot",
+        "media": null,
+        "msg": {
+          "message_id": 9,
+          "date": 1700000003,
+          "chat": {
+            "id": 60,
+            "type": "private"
+          },
+          "from": {
+            "id": 60
+          },
+          "sticker": {
+            "file_id": "s",
+            "emoji": "\ud83c\udf89"
+          }
+        }
+      }
+    ]
+  },
+  "discord": {
+    "chunk": [
+      {
+        "text": "",
+        "limit": 100,
+        "mode": "length"
+      },
+      {
+        "text": "short",
+        "limit": 100,
+        "mode": "newline"
+      },
+      {
+        "text": "line one\nline two\nline three\nline four\nline five\nline six",
+        "mode": "newline",
+        "limit": 20
+      },
+      {
+        "text": "para one\n\npara two is a good deal longer than the limit",
+        "mode": "newline",
+        "limit": 20
+      },
+      {
+        "text": "one two three four five six seven eight nine ten",
+        "mode": "newline",
+        "limit": 20
+      },
+      {
+        "text": "unbroken-token-that-never-fits-inside-the-limit-at-all",
+        "mode": "newline",
+        "limit": 20
+      },
+      {
+        "text": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "mode": "length",
+        "limit": 12
+      },
+      {
+        "text": "\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00",
+        "mode": "length",
+        "limit": 4
+      }
+    ],
+    "stripBotMention": [
+      {
+        "text": "<@999> hello",
+        "botId": "999"
+      },
+      {
+        "text": "<@!999> hello <@999>",
+        "botId": "999"
+      },
+      {
+        "text": "<@999>",
+        "botId": "999"
+      },
+      {
+        "text": "<@1234> hello",
+        "botId": "999"
+      }
+    ],
+    "messages": [
+      {
+        "label": "dm plain",
+        "isDM": true,
+        "botId": "999",
+        "msg": {
+          "id": "1234567890123456789",
+          "channel_id": "dm-1",
+          "content": "ping",
+          "author": {
+            "id": "user-1",
+            "username": "ada"
+          },
+          "attachments": [],
+          "mentions": []
+        }
+      },
+      {
+        "label": "guild mention with attachments",
+        "isDM": false,
+        "botId": "999",
+        "msg": {
+          "id": "1234567890123456790",
+          "channel_id": "chan-1",
+          "content": "<@999> please look",
+          "author": {
+            "id": "user-2",
+            "username": "bo"
+          },
+          "attachments": [
+            {
+              "id": "a1",
+              "filename": "note[1];x.txt",
+              "size": 2048,
+              "content_type": "text/plain"
+            },
+            {
+              "id": "a2",
+              "filename": "pic.png",
+              "size": 1536
+            }
+          ],
+          "mentions": [
+            {
+              "id": "999"
+            },
+            {
+              "id": "user-3"
+            }
+          ],
+          "message_reference": {
+            "message_id": "1234567890123456700"
+          }
+        }
+      },
+      {
+        "label": "attachment only, empty content",
+        "isDM": false,
+        "botId": "999",
+        "msg": {
+          "id": "1234567890123456791",
+          "channel_id": "chan-2",
+          "content": "<@999>",
+          "author": {
+            "id": "user-4",
+            "username": "cy"
+          },
+          "attachments": [
+            {
+              "id": "a3",
+              "size": 512,
+              "content_type": "application/pdf"
+            }
+          ],
+          "mentions": [
+            {
+              "id": "999"
+            }
+          ]
+        }
+      },
+      {
+        "label": "empty after strip -> no inbound",
+        "isDM": false,
+        "botId": "999",
+        "msg": {
+          "id": "1234567890123456792",
+          "channel_id": "chan-3",
+          "content": "  <@999>   ",
+          "author": {
+            "id": "user-5",
+            "username": "di"
+          },
+          "attachments": [],
+          "mentions": [
+            {
+              "id": "999"
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

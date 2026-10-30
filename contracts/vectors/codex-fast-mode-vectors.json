@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "reason": "Expose Codex subscription Fast mode independently of reasoning effort; show its theme-accent lightning before the model as outline when off and filled when on, while preserving the flag through live model publication.",
+  "cases": [
+    { "name": "Codex Standard", "source": "codex", "modelValue": "codex:gpt-6.1-sol", "enabled": false, "visible": true, "effective": false, "indicatorIcon": "tc-lightning" },
+    { "name": "Codex Fast", "source": "codex", "modelValue": "codex:gpt-6.1-sol", "enabled": true, "visible": true, "effective": true, "indicatorIcon": "tc-lightning-fill" },
+    { "name": "Claude subscription", "source": "subscription", "modelValue": "subscription:opus", "enabled": true, "visible": false, "effective": false, "indicatorIcon": null },
+    { "name": "Custom OpenAI model", "source": "custom", "modelValue": "custom:gpt-6.1-sol", "enabled": true, "visible": false, "effective": false, "indicatorIcon": null },
+    { "name": "Qoder", "source": "qoder", "modelValue": "qoder:ultimate", "enabled": true, "visible": false, "effective": false, "indicatorIcon": null },
+    { "name": "QwenWork", "source": "qwenwork", "modelValue": "qwenwork:model", "enabled": true, "visible": false, "effective": false, "indicatorIcon": null },
+    { "name": "QoderWork", "source": "qoderwork", "modelValue": "qoderwork:qwork-auto", "enabled": true, "visible": false, "effective": false, "indicatorIcon": null },
+    { "name": "WorkBuddy", "source": "workbuddy", "modelValue": "workbuddy:model", "enabled": true, "visible": false, "effective": false, "indicatorIcon": null },
+    { "name": "Kimi", "source": "kimi", "modelValue": "kimi:model", "enabled": true, "visible": false, "effective": false, "indicatorIcon": null },
+    { "name": "Bailian", "source": "bailian", "modelValue": "bailian:model", "enabled": true, "visible": false, "effective": false, "indicatorIcon": null },
+    { "name": "MiniMax", "source": "minimax", "modelValue": "minimax:MiniMax-M3.1-Flash-Preview", "enabled": true, "visible": false, "effective": false, "indicatorIcon": null },
+    { "name": "Zhipu", "source": "zhipu", "modelValue": "zhipu:model", "enabled": true, "visible": false, "effective": false, "indicatorIcon": null },
+    { "name": "Ark", "source": "ark", "modelValue": "ark:model", "enabled": true, "visible": false, "effective": false, "indicatorIcon": null }
+  ],
+  "inferenceProjection": [
+    { "name": "enable Fast without changing effort", "init": { "modelSelection": "codex:gpt-6.1-sol", "config": { "fastMode": true, "thinking": true, "effort": "max" }, "cwd": "/project" }, "expected": { "modelSelection": "codex:gpt-6.1-sol", "config": { "fastMode": true, "thinking": true, "effort": "max" } } },
+    { "name": "explicit Standard clears Fast", "init": { "modelSelection": "codex:gpt-6.1-sol", "config": { "fastMode": false } }, "expected": { "modelSelection": "codex:gpt-6.1-sol", "config": { "fastMode": false } } }
+  ]
+}

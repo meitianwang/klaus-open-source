@@ -1,0 +1,20 @@
+{
+  "uploadLimits": [
+    {"name":"photo.png","mime":"","bytes":10485760},
+    {"name":"photo","mime":"image/x-png; charset=binary","bytes":10485760},
+    {"name":"photo.png","mime":"application/octet-stream","bytes":47185920},
+    {"name":"report.pdf","mime":"application/pdf","bytes":47185920}
+  ],
+  "textLines": [
+    {"text":"","lines":0},
+    {"text":"one","lines":1},
+    {"text":"one\n","lines":1},
+    {"text":"one\ntwo\n","lines":2},
+    {"text":"\n\n","lines":2}
+  ],
+  "input": [
+    {"type":"text","text":"Read both"},
+    {"type":"image","base64":"iVBORw0KGgo=","mimeType":"image/png"},
+    {"type":"document","base64":"JVBERi0xLjQK","mimeType":"application/pdf","filename":"report.pdf"}
+  ]
+}

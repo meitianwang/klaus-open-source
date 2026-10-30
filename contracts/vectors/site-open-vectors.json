@@ -1,0 +1,14 @@
+{
+  "reason": "Website references open through explicit local targets and remember only successful choices.",
+  "targets": ["in-app", "chrome", "system-default"],
+  "defaultPreference": "in-app",
+  "setting": "browser:site_open_target",
+  "validUrls": [
+    { "input": "https://example.com", "expected": "https://example.com/" },
+    { "input": "http://localhost:3000/report?view=one#chart", "expected": "http://localhost:3000/report?view=one#chart" }
+  ],
+  "invalidUrls": ["", "example.com", "file:///tmp/report.html", "javascript:alert(1)", "data:text/html,hello", "https://user:pass@example.com/", "https://user@example.com/", "about:blank"],
+  "preference": { "openSucceeded": "save", "launchFailed": "preserve", "panelNotShown": "preserve", "copy": "preserve", "missingChrome": "in-app" },
+  "namedBrowsers": ["Google Chrome"],
+  "referenceSource": "assistant-message-content"
+}

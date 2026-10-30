@@ -1,0 +1,26 @@
+{
+  "_why": "Task progress is one product state with two views. TaskWrite replaces the current plan by default; deliberate merge and TaskCreate extend it. The engine persists current ordered membership separately from archived tasks, and the shell projects the same plan identity and kind for live pushes and session recovery. This prevents completed plans accumulating forever, transcript Todos fallback, and independent capsule state. Progress events and planning snapshots must not add a separate, potentially stale checklist to the transcript.",
+  "modelTools": ["TaskWrite", "TaskCreate", "TaskGet", "TaskList", "TaskUpdate"],
+  "removedModelTools": ["todo_write", "update_plan"],
+  "engineNotification": "taskList/changed",
+  "rendererEvent": "task_list",
+  "snapshotSemantics": "full-replacement",
+  "planIdentity": "planId",
+  "planKinds": ["plan", "tasks"],
+  "entryOrder": "engine-order",
+  "planNumbering": { "plan": "none", "tasks": "task-id-or-one-based-position" },
+  "lifecycle": { "newWrite": "replace", "merge": "explicit-by-entry-id", "emptyWrite": "reject", "turnEnd": "retain", "userMessage": "retain" },
+  "initialPull": { "pageSize": 1000, "loadsAllPages": true, "retriesOnIdentityChange": true },
+  "sameRevision": "reject-less-complete",
+  "sourceSwitch": "reversible",
+  "sharedRendererStore": "frontend/src/chat/task-state.ts",
+  "consumers": ["monitor-plan-group-tasks", "action-dots-progress"],
+  "progressPresentation": {
+    "transcriptVisible": false,
+    "snapshots": [
+      { "explanation": "Investigation started", "plan": [{ "step": "Investigate", "status": "in_progress" }, { "step": "Implement", "status": "pending" }] },
+      { "explanation": "Investigation complete", "plan": [{ "step": "Investigate", "status": "completed" }, { "step": "Implement", "status": "in_progress" }] }
+    ]
+  },
+  "proactiveThreshold": 3
+}

@@ -1,0 +1,25 @@
+{
+  "note": "A turn uses one work-time header above its process content. Before process content arrives a synthetic row shows the same label. Saved and streamed projections of the same turn share that header position; any process disclosure replaces their placeholders. The disclosure is available while running and defaults open; terminal completion defaults it closed unless the user chose otherwise or a child still needs attention. Final assistant text stays outside the process and freezes its elapsed time without ending the turn.",
+  "changeNote": "2026-10-26: Keep stopped turns terminal during continuation startup and give the active turn its own work header before content arrives; retain shared saved/live header ownership.",
+  "rules": {
+    "tickMs": 1000,
+    "timeThresholdMs": 1000,
+    "elapsedBase": "max((finalAssistantStartedAtMs ?? completedAtMs ?? now) - startedAtMs, 0), whole seconds",
+    "belowThresholdLabel": "activity_working",
+    "atOrAboveThresholdLabel": "activity_working_for",
+    "completedLabel": "activity_worked_for",
+    "interruptedLabel": "turn_interrupted",
+    "missingStartLabel": "activity_loading_status",
+    "rowShape": "label row followed by a full-width hairline rule",
+    "livePlacement": "above the first work item, after leading user, external and worktree rows",
+    "completionTransition": "the same disclosure header remains in place while its process content collapses",
+    "allowCollapseBeforeFinal": true,
+    "preventAutoCollapseWhileRunning": true,
+    "manualChoiceWins": true,
+    "finalAssistantFreezesClock": true,
+    "finalReplyOutsideDisclosure": true,
+    "oneWorkHeaderPerTurn": true,
+    "runningStateOwner": "activeTurnId, including an empty continuation before its first content",
+    "stoppedTurnClockRestarts": false
+  }
+}

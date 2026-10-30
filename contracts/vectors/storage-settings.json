@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "reason": "Device storage needs measured categories, a reviewed deletion flow, and separate worktree and archived-chat settings destinations. Cleanup must preserve chats that changed or started working after review. Accounting and review fingerprints use physical filesystem entries, so application archives count once as files without traversing virtual contents.",
+  "navigation": { "oldChats": "dialog", "worktrees": "settings-tab", "archived": "settings-tab" },
+  "categories": ["threads", "subagents", "archived", "worktrees", "other"],
+  "review": { "defaultDays": 90, "days": [30, 90, 180, 365], "archivedOnly": true, "pageSize": 50, "confirmationRequired": true },
+  "bytes": [
+    { "value": 0, "label": "0 bytes" },
+    { "value": 1023, "label": "1,023 bytes" },
+    { "value": 1024, "label": "1 kB" },
+    { "value": 1048576, "label": "1 MB" }
+  ],
+  "worktreePaths": [
+    { "root": "/worktrees/one", "path": "/worktrees/one", "included": true },
+    { "root": "/worktrees/one", "path": "/worktrees/one/src", "included": true },
+    { "root": "/worktrees/one", "path": "/worktrees/one-extra", "included": false },
+    { "root": "C:\\worktrees\\ONE", "path": "c:\\worktrees\\one\\src", "included": true }
+  ],
+  "worktrees": { "autoCleanupEnabled": true, "keepCount": 15, "newbornMs": 3600000, "batchLimit": 20, "automaticCleanupInDevelopment": false, "snapshotBeforeRemoval": true, "snapshotCompression": "gzip", "protectPinned": true, "protectWorking": true }
+}

@@ -1,0 +1,20 @@
+{
+  "_why": "Inherited messages have no model turnId, but the saved index owns them through a synthetic preamble shell. Summary and detail pages must give those messages one pagination owner without assigning a fabricated model turnId. Otherwise hydration duplicates message groups, and different heights under one render key can repeatedly invalidate virtual layout until the transcript unmounts.",
+  "shell": { "id": "branch-preamble", "ordinal": 0, "itemsView": "summary", "updatedAtOrdinal": 4, "firstUserItemId": "inherited-user", "finalAgentItemId": "inherited-final" },
+  "messages": [
+    { "uuid": "inherited-user", "role": "user", "timestamp": 0, "text": "Inspect the saved conversation", "contentBlocks": [{ "type": "text", "text": "Inspect the saved conversation" }], "localRender": { "displayText": "Inspect the saved conversation", "composerDocument": { "version": 1, "content": { "type": "doc", "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "Inspect the saved conversation" }] }] } }, "attachments": [], "pastedCards": [], "selectedTextAttachments": [], "composerReferences": [] } },
+    { "uuid": "inherited-work", "role": "assistant", "timestamp": 0, "text": "Reading the earlier records.", "contentBlocks": [{ "type": "text", "text": "Reading the earlier records.", "phase": "commentary", "messageId": "inherited-work" }] },
+    { "uuid": "inherited-followup", "role": "user", "timestamp": 0, "text": "Keep the original ordering", "contentBlocks": [{ "type": "text", "text": "Keep the original ordering" }] },
+    { "uuid": "inherited-final", "role": "assistant", "timestamp": 0, "text": "The conversation is available.\n\nIts earlier messages remain in their original order.", "contentBlocks": [{ "type": "text", "text": "The conversation is available.\n\nIts earlier messages remain in their original order.", "phase": "final_answer", "messageId": "inherited-final" }] }
+  ],
+  "friendDisplay": {
+    "_why": "Host-owned friend display records are merged into turn windows but are absent from engine item pages. They must remain independent of the inherited preamble so empty or partial detail hydration cannot remove them.",
+    "messages": [
+      { "type": "user", "uuid": "friend-message-notice", "timestamp": "2026-10-27T01:00:00.000Z", "message": { "role": "user", "content": "Hello from a friend", "localRender": { "externalFriendMessage": true, "friendIntent": "notice", "displayText": "Hello from a friend", "sender": { "displayName": "Friend", "friendshipId": "friend-id" } } } },
+      { "type": "user", "uuid": "friend-dispatch-notice", "timestamp": "2026-10-27T02:00:00.000Z", "message": { "role": "user", "content": "Hello back", "localRender": { "friendOutgoingMessage": true, "friendIntent": "notice", "displayText": "Hello back" } } },
+      { "uuid": "friend-message-status", "role": "user", "text": "Request unavailable", "localRender": { "externalFriendMessage": true, "friendStatus": "failed", "displayText": "Request unavailable" } }
+    ],
+    "expectedIds": ["friend-message-notice", "friend-dispatch-notice", "friend-message-status"]
+  },
+  "expected": { "summaryIds": ["inherited-user", "inherited-final"], "fullIds": ["inherited-user", "inherited-work", "inherited-followup", "inherited-final"], "preserveMissingTurnIds": true, "singlePaginationOwner": true }
+}

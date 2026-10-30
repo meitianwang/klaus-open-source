@@ -1,0 +1,15 @@
+import { build } from 'esbuild';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { assertElectronGuiAvailable } from './electron-test-preflight.cjs';
+assertElectronGuiAvailable();
+const desktop = fileURLToPath(new URL('..', import.meta.url));
+const logs = join(desktop, 'dist/pet-voice-fix-logs/ui');
+mkdirSync(logs, { recursive: true });
+await build({ entryPoints: [join(desktop, 'tests/desktop-pet-voice-ui-entry.tsx')], outfile: join(logs, 'voice.js'), bundle: true, platform: 'browser', format: 'iife', jsx: 'automatic', target: 'chrome140', loader: { '.svg': 'text' } });
+writeFileSync(join(logs, 'voice.html'), '<!doctype html><html data-klaus-window="pet"><head><meta charset="utf-8"><link rel="stylesheet" href="voice.css"></head><body><div id="root"></div><script src="voice.js"></script></body></html>');
+const result = spawnSync(process.execPath, [join(desktop, 'scripts/run-electron-test.mjs'), join(desktop, 'tests/desktop-pet-voice-ui.cjs'), logs], { cwd: desktop, stdio: 'inherit', timeout: 30000 });
+if (result.error) throw result.error;
+process.exitCode = result.status ?? 1;

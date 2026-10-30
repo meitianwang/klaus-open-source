@@ -1,0 +1,37 @@
+{
+  "reason": "Nested content keeps its own identity while lifecycle activity belongs to the direct parent conversation. Only a terminal event for the active child turn may settle a resumed run.",
+  "root": "hierarchy-root",
+  "parentAgentId": "direct-child",
+  "agentId": "grandchild",
+  "depth": 2,
+  "parentTurnId": "direct-child-turn",
+  "childTurnId": "grandchild-turn",
+  "event": {
+    "type": "text.delta",
+    "text": "Nested progress"
+  },
+  "expectedEvent": {
+    "type": "text_delta",
+    "text": "Nested progress"
+  },
+  "expectedEvents": [
+    {
+      "type": "stream_mode",
+      "mode": "responding"
+    },
+    {
+      "type": "text_delta",
+      "text": "Nested progress"
+    }
+  ],
+  "turnOwnership": {
+    "oldTurnId": "old-turn",
+    "activeTurnId": "new-turn",
+    "staleTerminal": {
+      "type": "turn.completed",
+      "turnId": "old-turn",
+      "stopReason": "completed"
+    },
+    "expectedStatus": "running"
+  }
+}

@@ -1,0 +1,50 @@
+{
+  "reason": "Carry structured answers and per-question uploaded attachments without approval bypass; inline images reach the waiting model and other files remain readable path references. Negotiate support so old engines never silently discard attachments. Keep manual actions available for every pending question card; reserve automatic focus and global shortcuts for the first one.",
+  "pendingQuestionActions": { "manualActions": "every-pending-card", "automaticFocus": "first-pending-only", "attachmentScope": "request-and-question" },
+  "engine": {
+    "requestId": "question-batch-1",
+    "request": {
+      "prompt": "Which layout?",
+      "attachmentsSupported": true,
+      "questions": [
+        { "question": "Which layout?", "header": "Layout", "multiSelect": false, "options": [
+          { "label": "Compact (Recommended)", "description": "Keep related controls together.", "preview": "Title\n[ Choice ]" },
+          { "label": "Spacious", "description": "Give each control more room." }
+        ] },
+        { "question": "Which details?", "header": "Details", "multiSelect": true, "options": [
+          { "label": "A, B", "description": "Keep the combined label intact." },
+          { "label": "C", "description": "Include the additional section." }
+        ] }
+      ],
+      "metadata": { "source": "desktop" }
+    }
+  },
+  "sessionId": "question-session",
+  "card": {
+    "requestId": "question-batch-1",
+    "sessionId": "question-session",
+    "prompt": "Which layout?",
+    "toolName": "ask_user",
+    "responseChannel": "elicit",
+    "attachmentsSupported": true
+  },
+  "layout": {
+    "transcriptColumnMaxWidth": 720,
+    "resolvedCardWidth": "full-column",
+    "horizontalAlignment": "centered-within-column",
+    "states": ["submitted", "skipped", "history-replay"]
+  },
+  "answer": { "kind": "answers", "answers": { "Which layout?": "Spacious", "Which details?": "A, B, free text, with commas\nand a newline" } },
+  "attachmentCase": {
+    "question": "Which details?",
+    "files": [
+      { "path": "/fixture/uploads/screenshot.png", "name": "screenshot.png", "type": "image/png", "size": 8 },
+      { "path": "/fixture/uploads/notes.txt", "name": "notes.txt", "type": "text/plain", "size": 5 }
+    ],
+    "answer": "[Attachment: screenshot.png] (/fixture/uploads/screenshot.png)\n[Attachment: notes.txt] (/fixture/uploads/notes.txt)",
+    "media": { "Which details?": [{ "type": "image", "mimeType": "image/png", "base64": "iVBORw0KGgo=" }] },
+    "maxFiles": 20,
+    "maxImageBytes": 10485760,
+    "maxFileBytes": 47185920
+  }
+}

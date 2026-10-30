@@ -1,0 +1,16 @@
+[workspace]
+members = ["core", "binding"]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+
+[profile.release]
+lto = "thin"
+strip = "debuginfo"
+
+[patch.crates-io]
+wacore-noise = { path = "vendor/wacore-noise" }
+wacore = { path = "vendor/wacore" }
+whatsapp-rust = { path = "vendor/whatsapp-rust" }

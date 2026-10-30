@@ -1,0 +1,571 @@
+/* Diff 页样式（Batch 5 CSS Modules 试点，迁自 styles.css 的 diff 段）。
+   类名保留原 kebab 名（styles['diff-inner'] 引用），module hash 负责隔离。
+   跨域共享的 .kls-* 原语与图标字形内嵌类经 :global() 引用；
+   store.ts 的 HTML 工厂（monitor 面板文件列表）同 import 本文件。
+   mono 字号原由全局横切规则（pre/.diff-code/.diff-text 组）给出，
+   module 化后该声明落到本文件对应类（--code-font-size 同源）。 */
+
+.diff-inner {
+  width: 100%;
+  min-width: 0;
+  max-width: none;
+  margin: 0 auto;
+  position: relative;
+}
+
+:global(#diff-view-content) {
+  width: 100%;
+  min-width: 0;
+  max-width: none;
+}
+
+.diff-session-header {
+  /* Right panel sits below the titlebar already, so no titlebar offset here. */
+  padding-top: 10px;
+  padding-bottom: 12px;
+  margin-bottom: 12px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border-subtle, var(--border));
+}
+
+.diff-session-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  min-height: 36px;
+}
+
+.diff-session-heading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.diff-session-titleblock {
+  min-width: 0;
+}
+
+.diff-session-title {
+  margin: 0;
+  color: var(--fg);
+  font-size: var(--text-title);
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0;
+  line-height: 1.25;
+}
+
+.diff-session-subtitle {
+  margin: 2px 0 0;
+  color: var(--fg-tertiary);
+  font-size: var(--text-small);
+  line-height: 1.4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.diff-session-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  -webkit-app-region: no-drag;
+}
+
+.diff-session-actions :global(.kls-search) {
+  flex: 0 1 360px;
+  width: min(360px, 34vw);
+  max-width: min(360px, 34vw);
+  margin-left: 0;
+}
+
+.diff-session-actions :global(.kls-search) input {
+  background: var(--bg);
+  caret-color: var(--fg);
+  padding-right: 34px;
+}
+
+.diff-session-actions :global(.kls-search) input:focus {
+  border-color: color-mix(in srgb, var(--fg) 18%, var(--border));
+  background: var(--bg);
+  box-shadow: none;
+}
+
+.diff-search-clear {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--fg-quaternary);
+  cursor: pointer;
+  transform: translateY(-50%);
+}
+
+.diff-search-clear:hover {
+  background: var(--bg-hover);
+  color: var(--fg-secondary);
+}
+
+.diff-search-clear :global(.diff-clear-icon) {
+  position: static;
+  width: 13px;
+  height: 13px;
+  color: currentColor;
+  transform: none;
+}
+
+.diff-summary-bar {
+  display: flex;
+  gap: 18px 24px;
+  flex-wrap: wrap;
+  padding: 0;
+}
+
+.diff-stat {
+  min-width: 112px;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 7px;
+  color: var(--fg-tertiary);
+  font-size: var(--text-small);
+}
+
+.diff-stat strong {
+  color: var(--fg);
+  font-size: var(--text-title);
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0;
+}
+
+.diff-stat-add strong { color: var(--theme-diff-added); }
+.diff-stat-del strong { color: var(--theme-diff-removed); }
+
+.diff-layout {
+  width: 100%;
+  min-width: 0;
+  display: block;
+  align-items: start;
+  margin-top: 18px;
+}
+
+/* .diff-file-list / .diff-file-list-panel 留全局 styles.css：容器类写在
+   index.html 静态标记上（monitor 面板），无法消费 module hash 类名。 */
+
+.diff-file-row {
+  width: 100%;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  min-height: 34px;
+  /* 8px 是概览面板/变更侧栏共用的文字左界：行标签与上方分区标题（Files / 产物）
+     同列，悬浮底色才是唯一外扩到面板内边距的东西。 */
+  padding: 7px 8px;
+  border: 0;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--fg-secondary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+
+.diff-file-row:hover {
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+
+.diff-file-row:global(.active) {
+  background: color-mix(in srgb, var(--fg) 8%, transparent);
+  color: var(--fg);
+}
+
+.diff-file-path {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-body-sm);
+}
+
+.diff-file-meta {
+  display: inline-flex;
+  gap: 7px;
+  align-items: center;
+  font-family: var(--font-mono);
+  font-size: var(--text-caption);
+  white-space: nowrap;
+}
+
+.diff-file-badge {
+  padding: 1px 5px;
+  border-radius: 999px;
+  background: var(--bg-hover);
+  color: var(--fg-tertiary);
+  font-family: var(--font);
+  font-size: var(--text-caption);
+}
+
+.diff-add { color: var(--theme-diff-added); }
+.diff-del { color: var(--theme-diff-removed); }
+
+.diff-empty,
+.diff-detail-empty {
+  color: var(--fg-tertiary);
+  font-size: var(--text-body-sm);
+  line-height: 1.5;
+  padding: 18px 8px;
+}
+
+.diff-detail {
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.diff-detail-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  justify-content: space-between;
+  min-height: 36px;
+  margin-bottom: 10px;
+}
+
+.diff-detail-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg);
+  font-family: var(--font-mono);
+  font-size: var(--text-body-sm);
+}
+
+.diff-detail-actions {
+  display: inline-flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.diff-hunk {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: var(--bg-elevated);
+  margin-bottom: 12px;
+}
+
+.diff-hunk-head {
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-surface);
+  color: var(--fg-tertiary);
+  font-family: var(--font-mono);
+  font-size: var(--text-small);
+}
+
+.diff-code {
+  overflow-x: auto;
+  font-family: var(--font-mono);
+  /* 原全局横切规则（pre/.diff-code/.diff-text 组）的 mono 字号落位 */
+  font-size: var(--code-font-size);
+  line-height: 1.5;
+}
+
+.diff-line {
+  display: grid;
+  grid-template-columns: 44px 44px 18px minmax(0, 1fr);
+  min-width: max-content;
+}
+
+.diff-line > span {
+  white-space: pre;
+}
+
+.diff-ln {
+  color: var(--fg-quaternary);
+  text-align: right;
+  padding: 0 8px;
+  user-select: none;
+  border-right: 1px solid var(--border-subtle);
+}
+
+.diff-marker {
+  color: var(--fg-tertiary);
+  text-align: center;
+  user-select: none;
+}
+
+.diff-text {
+  padding-right: 16px;
+  font-size: var(--code-font-size);
+}
+
+.diff-line-add {
+  background: var(--theme-diff-added-bg);
+}
+
+.diff-line-del {
+  background: var(--theme-diff-removed-bg);
+}
+
+/* diff → 提交闭环：工具栏主操作按钮。 */
+.diff-commit-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border-radius: var(--radius-sm);
+  background: var(--accent);
+  color: var(--accent-text);
+  border: 1px solid transparent;
+  font-family: var(--font);
+  font-size: var(--text-small);
+  font-weight: var(--weight-semibold);
+  cursor: pointer;
+  transition: background var(--transition), opacity var(--transition);
+}
+.diff-commit-btn:hover { background: var(--accent-hover); }
+.diff-commit-btn:disabled { opacity: 0.55; cursor: progress; }
+.diff-commit-btn svg { width: 14px; height: 14px; }
+
+/* The diff lives in a resizable side panel, so viewport media queries do not
+   describe its available space. Compact the toolbar from the pane's width. */
+@container diff-view (max-width: 520px) {
+  .diff-session-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .diff-session-actions {
+    width: 100%;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+  }
+
+  .diff-session-actions :global(.kls-search) {
+    width: auto;
+    min-width: 0;
+    max-width: none;
+  }
+
+  .diff-session-subtitle {
+    white-space: normal;
+  }
+
+  .diff-layout {
+    display: block;
+  }
+}
+
+
+.diff-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  margin: 12px 0;
+}
+
+.diff-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+  color: var(--fg-tertiary);
+  font-size: var(--text-small);
+}
+
+.diff-control select {
+  min-width: 0;
+  max-width: 240px;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+  cursor: pointer;
+}
+
+.diff-comparison span { color: var(--fg-secondary); }
+.diff-notice {
+  color: var(--fg-tertiary);
+  font-size: var(--text-small);
+  padding: 6px 0;
+}
+
+.diff-line-note {
+  color: var(--fg-tertiary);
+  padding: 2px 10px;
+  font-size: var(--text-caption);
+}
+
+.diff-custom-base {
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+}
+.diff-custom-base input {
+  min-width: 0;
+  width: 220px;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+}
+
+/* The review surface has one scroll owner per column and a shared compact toolbar. */
+.review-shell { display:flex; flex-direction:column; flex:1; width:100%; height:100%; min-width:0; min-height:0; background:var(--bg); color:var(--fg); font-size:13px; }
+.review-toolbar { display:flex; align-items:center; justify-content:space-between; gap:8px; min-height:48px; padding:7px 10px; border-bottom:1px solid var(--border-subtle,var(--border)); flex-shrink:0; container:review-header / inline-size; }
+.review-comparison-controls { display:flex; align-items:center; flex-wrap:wrap; gap:6px; min-width:0; }
+.review-toolbar-actions { display:flex; align-items:center; gap:1px; flex-shrink:0; border:1px solid var(--border-subtle,var(--border)); border-radius:24px; padding:3px; background:var(--bg); }
+.review-button { display:inline-flex; align-items:center; justify-content:center; gap:6px; flex-shrink:0; min-width:28px; min-height:28px; padding:5px; border:0; border-radius:6px; background:transparent; color:var(--fg-tertiary); font:inherit; cursor:pointer; }
+.review-button:hover, .review-button[aria-expanded=true], .review-button[aria-pressed=true] { background:var(--bg-hover); color:var(--fg); }
+.review-button:focus-visible, .review-tree-row:focus-visible, .changes-entry:focus-visible, .changes-capsule:focus-visible { outline:2px solid var(--accent); outline-offset:-2px; }
+.review-source-pill, .review-base-pill, .review-repository-pill { min-height:34px; border:1px solid var(--border-subtle,var(--border)); border-radius:24px; padding:6px 12px; background:var(--bg); color:var(--fg); gap:7px; box-shadow:0 1px 5px #00000005; min-width:0; max-width:100%; }
+.review-source-pill { flex-wrap:nowrap; }
+.review-source-pill > span:first-child { white-space:nowrap; }
+.review-source-pill .review-stats { margin-left:2px; }
+.review-base-pill > span:not(:last-child), .review-repository-pill > span:not(:last-child) { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.review-compare-arrow { color:var(--fg-quaternary); flex-shrink:0; }
+.review-repository-pill { max-width:250px; }
+.review-stats { display:inline-flex; align-items:center; gap:5px; white-space:nowrap; font-variant-numeric:tabular-nums; flex-shrink:0; font-weight:400; }
+.review-layout { display:flex; flex:1; min-height:0; min-width:0; overflow:hidden; }
+.review-scroll { min-width:0; min-height:0; flex:1; overflow:auto; overscroll-behavior:contain; scroll-padding-top:0; outline:none; }
+.review-file { min-width:0; border-bottom:1px solid var(--border-subtle,var(--border)); scroll-margin-top:0; }
+.review-file-header { position:sticky; top:0; z-index:2; display:flex; align-items:center; gap:9px; padding:5px 9px 5px 12px; min-height:36px; background:var(--bg); border-bottom:1px solid var(--border-subtle,var(--border)); }
+.review-file-heading { display:flex; gap:10px; align-items:center; flex:1; min-width:0; border:0; background:transparent; padding:0; color:var(--fg); text-align:left; font:inherit; line-height:24px; cursor:pointer; }
+.review-file-icon { display:inline-flex; align-items:center; justify-content:center; color:#df8a42; width:18px; flex-shrink:0; }
+.review-file-icon svg, .review-tree-file-icon svg { width:17px; height:17px; }
+.review-file-path { min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; direction:rtl; text-align:left; }
+.review-file-actions { display:inline-flex; align-items:center; gap:1px; flex-shrink:0; }
+.review-file-actions .review-button { min-width:24px; min-height:24px; width:24px; height:24px; padding:3px; }
+.review-file[data-viewed=true] .review-file-heading { color:var(--fg-tertiary); }
+.review-file[data-collapsed=true] .review-file-header { border-bottom:0; }
+.review-file-body { position:relative; min-width:0; }
+.review-file-body :global(diffs-container) { display:block; min-width:0; --diffs-font-family:var(--font-mono); --diffs-font-size:12px; --diffs-line-height:20px; }
+.review-file-placeholder { height:140px; }
+.review-context-notice { padding:6px 12px; font-size:11px; line-height:1.4; color:var(--fg-tertiary); background:var(--bg-surface,var(--bg)); }
+.review-tree { position:relative; flex-shrink:0; min-width:0; display:flex; flex-direction:column; border-left:1px solid var(--border-subtle,var(--border)); padding:5px 7px; }
+.review-tree-resize { position:absolute; left:-4px; top:0; bottom:0; width:8px; z-index:4; cursor:col-resize; touch-action:none; outline:none; }
+.review-tree-resize:hover::after, .review-tree-resize:focus-visible::after { content:''; position:absolute; width:2px; left:3px; height:100%; background:var(--accent); }
+.review-tree-body { flex:1; min-height:0; overflow:auto; padding-top:6px; }
+.review-tree-row { display:flex; align-items:center; width:100%; gap:6px; min-height:29px; padding:4px 5px; border:0; border-radius:6px; background:transparent; color:var(--fg-secondary); font:inherit; font-size:12px; text-align:left; cursor:pointer; }
+.review-tree-row:hover { background:var(--bg-hover); color:var(--fg); }
+.review-tree-row[aria-selected=true] { background:var(--bg-hover); color:var(--fg); }
+.review-tree-row[aria-selected=false] { color:var(--fg-tertiary); }
+.review-tree-row[data-directory=true] { color:var(--fg-secondary); }
+.review-tree-name { min-width:0; flex:1; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+.review-tree-file-icon { display:inline-flex; flex-shrink:0; color:#df8a42; }
+.review-tree-row .review-stats { gap:3px; font-size:11px; }
+.review-tree-row .diff-file-badge { max-width:48px; overflow:hidden; font-size:9px; padding:1px 3px; }
+.review-tree-comments { border-radius:10px; min-width:16px; padding:2px 4px; font-size:10px; background:var(--bg-hover); color:var(--fg-secondary); }
+.review-filter { display:flex; align-items:center; gap:6px; min-width:0; flex-shrink:0; min-height:29px; padding:4px 8px; border:1px solid var(--border); border-radius:8px; color:var(--fg-quaternary); background:var(--bg); }
+.review-filter:focus-within { border-color:var(--accent); }
+.review-filter input { min-width:0; width:100%; flex:1; padding:0; border:0; outline:none; background:transparent; color:var(--fg); font:inherit; font-size:12px; }
+.review-filter input::placeholder { color:var(--fg-quaternary); }
+.review-filter input::-webkit-search-cancel-button { display:none; }
+.review-filter button { display:flex; align-items:center; justify-content:center; padding:0; border:0; background:transparent; color:inherit; cursor:pointer; }
+.review-menu { position:fixed; z-index:1300; width:272px; max-width:calc(100vw - 16px); padding:5px; overflow:auto; border:1px solid var(--border); border-radius:12px; background:var(--bg-elevated,var(--bg)); color:var(--fg); box-shadow:0 8px 30px #0000001a; font-size:12px; -webkit-app-region:no-drag; }
+.review-menu-item { display:flex; align-items:center; gap:8px; width:100%; min-height:30px; padding:6px 8px; border:0; border-radius:6px; background:transparent; color:var(--fg-secondary); text-align:left; font:inherit; cursor:pointer; }
+.review-menu-item > span:first-of-type { min-width:0; flex:1; overflow:hidden; text-overflow:ellipsis; }
+.review-menu-item:hover, .review-menu-item:focus-visible { outline:none; background:var(--bg-hover); color:var(--fg); }
+.review-menu-item:disabled { opacity:.45; cursor:default; }
+.review-menu-separator { border-top:1px solid var(--border-subtle,var(--border)); margin:4px 0; }
+.review-menu-caption { padding:5px 8px 2px; color:var(--fg-tertiary); font-family:var(--font-mono); font-size:10px; }
+.review-commit-submenu summary { min-height:30px; padding:6px 8px; cursor:pointer; }
+.review-custom-base { padding:6px; }
+.review-custom-base label { display:block; color:var(--fg-tertiary); font-size:11px; }
+.review-custom-base input { width:100%; margin:6px 0; min-height:30px; border:1px solid var(--border); border-radius:6px; padding:5px 8px; background:var(--bg); color:var(--fg); font:inherit; }
+.review-custom-base button, .review-footer button, .review-confirm button, .review-comment button, .review-comment-editor button { border:1px solid var(--border); border-radius:7px; padding:5px 10px; background:var(--bg); color:var(--fg); font:inherit; cursor:pointer; }
+.review-custom-base button:hover, .review-footer button:hover, .review-confirm button:hover, .review-comment button:hover, .review-comment-editor button:hover { background:var(--bg-hover); }
+.review-footer { display:flex; align-items:center; justify-content:flex-end; gap:7px; min-height:45px; border-top:1px solid var(--border-subtle,var(--border)); padding:7px 12px; flex-shrink:0; font-size:12px; }
+.review-footer > span { flex:1; color:var(--fg-tertiary); }
+.review-footer .review-primary { background:var(--fg); color:var(--bg); border-color:var(--fg); }
+.review-footer button:disabled, .review-comment-editor button:disabled { opacity:.45; cursor:default; }
+.review-notice { padding:7px 12px; color:var(--fg-tertiary); font-size:12px; border-bottom:1px solid var(--border-subtle,var(--border)); }
+.review-notice[role=alert] { color:var(--theme-diff-removed); }
+.review-confirm-overlay { position:fixed; inset:0; z-index:1400; display:grid; place-items:center; padding:24px; background:#00000040; }
+.review-confirm { width:360px; max-width:100%; padding:22px; border:1px solid var(--border); border-radius:16px; background:var(--bg-elevated,var(--bg)); color:var(--fg); box-shadow:0 12px 50px #0003; font-size:13px; }
+.review-confirm h2 { margin:0 0 10px; font-size:17px; font-weight:600; }
+.review-confirm p { margin:0 0 18px; color:var(--fg-secondary); }
+.review-confirm label { display:flex; align-items:center; gap:7px; color:var(--fg-secondary); font-size:12px; }
+.review-confirm > div { display:flex; justify-content:flex-end; gap:7px; margin-top:20px; }
+.review-confirm .review-confirm-destructive { background:var(--theme-diff-removed); border-color:transparent; color:white; }
+.review-comment-editor, .review-comment { margin:8px 12px; padding:10px; border:1px solid var(--border); border-radius:10px; background:var(--bg-elevated,var(--bg)); color:var(--fg); font-family:var(--font); font-size:12px; }
+.review-comment-editor textarea { display:block; min-height:72px; width:100%; resize:vertical; padding:0; border:0; outline:none; background:transparent; color:var(--fg); font:inherit; }
+.review-comment-editor > div, .review-comment > div { display:flex; justify-content:flex-end; gap:6px; margin-top:8px; }
+.review-comment p { white-space:pre-wrap; margin:0; }
+.review-selection-comment { position:sticky; bottom:8px; display:flex; align-items:center; gap:5px; margin:8px 12px 8px auto; border:1px solid var(--border); border-radius:7px; padding:5px 9px; background:var(--fg); color:var(--bg); font-family:var(--font); font-size:12px; cursor:pointer; }
+.review-media, .review-markdown-pair { display:flex; gap:1px; min-width:0; overflow:auto; }
+.review-media > div, .review-markdown-pair > div { flex:1; min-width:0; padding:12px; }
+.review-media-before { background:var(--theme-diff-removed-bg); }
+.review-media-after { background:var(--theme-diff-added-bg); }
+.review-media img { display:block; max-width:100%; max-height:65vh; object-fit:contain; margin:auto; }
+.review-media iframe { width:100%; height:65vh; border:0; background:var(--bg); }
+.review-markdown { padding:8px; font-size:13px; line-height:1.6; overflow-wrap:anywhere; }
+.review-markdown > :first-child { margin-top:0; }
+.review-markdown img { max-width:100%; }
+.review-markdown pre { overflow:auto; }
+.changes-capsule-slot { position:relative; display:inline-flex; min-width:0; max-width:100%; }
+.changes-capsule { display:inline-flex; align-items:center; gap:6px; max-width:100%; min-width:0; padding:6px 12px; border:1px solid var(--border); border-radius:24px; background:var(--bg-elevated,var(--bg)); color:var(--fg-tertiary); font:inherit; font-size:12px; line-height:18px; cursor:pointer; white-space:nowrap; transition:background .15s; }
+.changes-capsule:hover { background:var(--bg-hover); }
+.changes-capsule[data-embedded] { gap:5px; height:22px; padding:0 7px; border:0; border-radius:var(--radius-xxs); background:transparent; color:inherit; font:inherit; line-height:1; }
+.changes-capsule[data-embedded]:hover { background:var(--bg-hover); color:var(--fg); }
+.changes-capsule > span:first-child { overflow:hidden; text-overflow:ellipsis; }
+.changes-capsule-files { position:absolute; left:50%; bottom:calc(100% + 8px); transform:translateX(-50%); width:max-content; min-width:256px; max-width:min(440px,calc(100vw - 32px)); max-height:288px; overflow:auto; padding:6px; border:1px solid var(--border); border-radius:12px; background:var(--bg-elevated,var(--bg)); box-shadow:0 8px 28px #0002; z-index:30; }
+.changes-capsule-slot::before { content:''; position:absolute; bottom:100%; left:0; width:100%; height:9px; }
+.changes-capsule-files button { display:flex; align-items:center; gap:8px; width:100%; min-height:30px; border:0; border-radius:6px; padding:5px 7px; background:transparent; color:var(--fg-secondary); font:inherit; font-size:12px; text-align:left; cursor:pointer; }
+.changes-capsule-files button:hover, .changes-capsule-files button:focus-visible { background:var(--bg-hover); outline:none; }
+.changes-capsule-files button > span:nth-child(2) { min-width:0; flex:1; overflow:hidden; text-overflow:ellipsis; }
+.changes-capsule-files svg { width:15px; height:15px; }
+.changes-entry { display:flex; align-items:center; gap:10px; width:100%; min-height:42px; padding:8px; border:0; border-radius:7px; background:transparent; color:var(--fg); text-align:left; font:inherit; font-size:14px; cursor:pointer; }
+.changes-entry > span:nth-child(2) { flex:1; min-width:0; }
+.changes-entry .review-stats { gap:6px; font-size:14px; }
+.changes-entry:hover { background:var(--bg-hover); }
+.changes-entry-icon { display:inline-flex; flex-shrink:0; }
+.changes-entry-icon svg { width:20px; height:20px; }
+.changes-entry-error { font-size:11px; line-height:1.3; max-width:45%; color:var(--fg-tertiary); }
+.changes-agent-group { padding:0; margin:0; border:0; }
+.changes-agent-group:has(.changes-entry) { padding-bottom:8px; margin-bottom:8px; border-bottom:1px solid var(--border-subtle,var(--border)); }
+.changes-agent-group:last-child { margin-bottom:0; border-bottom:0; }
+@container diff-view (max-width:520px) {
+  .review-toolbar { align-items:flex-start; }
+  .review-comparison-controls { gap:5px; }
+  .review-toolbar-actions { padding:1px; }
+  .review-source-pill,.review-base-pill,.review-repository-pill { font-size:11px; padding:5px 8px; min-height:30px; }
+  .review-button { min-width:25px; min-height:25px; }
+  .review-file-header { gap:5px; padding-left:8px; font-size:12px; }
+  .review-file-actions { gap:0; }
+  .review-file-actions .review-button { width:21px; min-width:21px; }
+  .review-tree-row { font-size:11px; gap:4px; }
+  .review-markdown-pair { flex-direction:column; }
+}
+.review-control-icon { display:inline-flex; align-items:center; justify-content:center; width:16px; height:16px; }
+.review-control-icon svg { width:16px; height:16px; fill:currentColor; }
+.review-wide-control { display:none; }
+@container diff-view (min-width:625px) { .review-wide-control { display:inline-flex; } }
+.review-hunk-slot { height:0; position:relative; z-index:1; }
+.review-hunk-actions { display:flex; align-items:center; gap:4px; position:absolute; right:8px; top:-4px; opacity:0; pointer-events:none; font-family:var(--font); font-size:11px; }
+.review-hunk-actions[data-active=true], .review-hunk-actions:focus-within, .review-hunk-actions:hover { opacity:1; pointer-events:auto; }
+.review-hunk-actions button { padding:3px 6px; border:1px solid var(--border); border-radius:5px; background:var(--bg); color:var(--fg-secondary); font:inherit; cursor:pointer; box-shadow:0 1px 4px #0001; }
+.review-hunk-actions button:disabled { opacity:.45; cursor:default; }
+.review-add-comment { display:flex; align-items:center; justify-content:center; width:18px; height:18px; padding:0; border:0; border-radius:4px; background:var(--fg); color:var(--bg); cursor:pointer; }
+.review-generated-filter { display:flex; align-items:center; gap:6px; margin:6px 3px 0; font-size:11px; color:var(--fg-tertiary); }
+.review-generated-filter input { margin:0; }

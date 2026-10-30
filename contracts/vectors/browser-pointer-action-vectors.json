@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "reason": "Pointer actions resolve live locators under one deadline, stop recursive searches after cancellation or expiry, require actionability and always release pressed buttons after interruption or transport failure.",
+  "lateSearchCases": [
+    { "scenario": "alternatives", "evaluations": [null] },
+    { "scenario": "top-frame", "evaluations": [null] },
+    { "scenario": "child-frame", "evaluations": [null, "child-a"] }
+  ],
+  "cases": [
+    { "name": "ordinary click", "failAt": null, "cancelAt": null, "events": ["mouseMoved", "mousePressed", "mouseReleased"], "failed": false },
+    { "name": "cancel before dispatch", "failAt": null, "cancelAt": "before", "events": [], "failed": true },
+    { "name": "cancel after press", "failAt": null, "cancelAt": "mousePressed", "events": ["mouseMoved", "mousePressed", "mouseReleased"], "failed": true },
+    { "name": "press transport failure", "failAt": "mousePressed", "cancelAt": null, "events": ["mouseMoved", "mousePressed", "mouseReleased"], "failed": true },
+    { "name": "movement transport failure", "failAt": "mouseMoved", "cancelAt": null, "events": ["mouseMoved"], "failed": true }
+  ]
+}

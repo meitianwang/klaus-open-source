@@ -1,0 +1,161 @@
+{
+  "chunk": [
+    [
+      "short"
+    ],
+    [
+      "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    ],
+    [
+      "aaaaa\nbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "bbbbbbbbbbbbbbbbbbbbbbbb"
+    ],
+    [
+      "line one\nline two",
+      "line three\nline four",
+      "line five\nline six"
+    ],
+    [
+      "😀😀",
+      "😀😀",
+      "😀😀"
+    ],
+    [
+      "para one\n",
+      "para two aft",
+      "er blank lin",
+      "es and space",
+      "s"
+    ]
+  ],
+  "chatId": [
+    -1001234567890,
+    42,
+    "007",
+    "@channelname",
+    "",
+    "12ab"
+  ],
+  "sendOptions": [
+    {},
+    {
+      "reply_parameters": {
+        "message_id": 42
+      }
+    },
+    {
+      "message_thread_id": 7
+    },
+    {
+      "parse_mode": "MarkdownV2"
+    },
+    {},
+    {
+      "reply_parameters": {
+        "message_id": 42
+      },
+      "message_thread_id": 7,
+      "parse_mode": "MarkdownV2"
+    },
+    {
+      "reply_parameters": {
+        "message_id": null
+      }
+    }
+  ],
+  "markdownv2": [
+    {
+      "chunks": [
+        "plain reply"
+      ],
+      "options": {
+        "parse_mode": "MarkdownV2"
+      }
+    },
+    {
+      "chunks": [
+        "*bold* _italic_ __underline__ ~strike~ ||spoiler|| `code`"
+      ],
+      "options": {
+        "parse_mode": "MarkdownV2"
+      }
+    },
+    {
+      "chunks": [
+        "a_b*c[d]e(f)g~h`i>j#k+l-m=n|o{p}q.r!s\\t"
+      ],
+      "options": {
+        "parse_mode": "MarkdownV2"
+      }
+    },
+    {
+      "chunks": [
+        "100% off - see https://example.invalid/a_b?c=1#d"
+      ],
+      "options": {
+        "parse_mode": "MarkdownV2"
+      }
+    },
+    {
+      "chunks": [
+        "中文 emoji 😀 and a\nnewline"
+      ],
+      "options": {
+        "parse_mode": "MarkdownV2"
+      }
+    }
+  ],
+  "inbound": [
+    {
+      "sessionKey": "telegram:-1001",
+      "text": "ping",
+      "messageType": "text",
+      "chatType": "group",
+      "senderId": "7",
+      "senderName": "Ada L",
+      "timestamp": 1700000000123,
+      "messageId": "42"
+    },
+    {
+      "sessionKey": "telegram:55",
+      "text": "look at this",
+      "messageType": "text",
+      "chatType": "private",
+      "senderId": "55",
+      "senderName": "Bo",
+      "media": [
+        {
+          "kind": "image",
+          "path": "/tmp/klaus-parity/a.jpg",
+          "mimeType": "image/jpeg"
+        }
+      ],
+      "replyTo": {
+        "messageId": "100"
+      },
+      "timestamp": 1700000000123,
+      "messageId": "101"
+    },
+    {
+      "sessionKey": "telegram:-1002:topic:9",
+      "text": "review",
+      "messageType": "text",
+      "chatType": "group",
+      "senderId": "8",
+      "senderName": "Cy",
+      "timestamp": 1700000000123,
+      "messageId": "7"
+    },
+    {
+      "sessionKey": "telegram:60",
+      "text": "🎉",
+      "messageType": "emoji",
+      "chatType": "private",
+      "senderId": "60",
+      "senderName": "",
+      "timestamp": 1700000000123,
+      "messageId": "9"
+    }
+  ]
+}

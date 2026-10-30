@@ -1,0 +1,66 @@
+{
+  "_why": "A database or network lookup exception previously revoked a healthy phone and could tear down its desktop. Every physical frame still requires fresh account, desktop-device and bridge authorization. Failed checks deny the frame; explicit revocation and temporary authority unavailability have separate close semantics so reliable envelopes can resume without granting stale access.",
+  "authorization": {
+    "threadTools": {
+      "reason": "Multiple valid logins for one account can replace the caller's device registration. Thread access must follow the authenticated account, not whichever login most recently registered that device.",
+      "principal": "fresh authenticated account",
+      "callerDeviceRegistrationRequired": false,
+      "callerTokenMustMatchDeviceRegistration": false,
+      "callerAddress": "caller-provided return address, not an authenticated device identity",
+      "target": "same-account authorized desktop and bridge",
+      "reply": "reauthorize the account and destination before returning a response or error",
+      "operations": ["list_threads", "list_archived_threads", "read_thread", "send_message_to_thread", "list_projects", "create_thread"]
+    },
+    "physicalFrameCheck": "fresh before forwarding in both directions",
+    "failedCheck": "deny frame and discard the peer physical queues without acknowledging logical delivery",
+    "accountRejected": {
+      "result": "null or explicit HTTP status 401/403",
+      "phoneCloseCode": 1008
+    },
+    "bridgeRejected": {
+      "result": "false or explicit HTTP status 401/403",
+      "phoneCloseCode": 1008
+    },
+    "desktopRejected": {
+      "result": "null/false or explicit HTTP status 401/403",
+      "desktopCloseCode": 1008,
+      "phoneCloseCode": 1012
+    },
+    "lookupUnavailable": {
+      "result": "exception without explicit HTTP status 401/403",
+      "phoneCloseCode": 1013,
+      "desktop": "preserve healthy connection",
+      "httpStatus": 503,
+      "errorCode": "authorization_unavailable",
+      "closeReason": "relay authorization temporarily unavailable"
+    },
+    "retry": "reauthorize on reconnect; preserve reliable message sequences and client message identities unchanged",
+    "diagnostics": {
+      "slowLookupMs": 1000,
+      "pending": "emit while a lookup is still pending",
+      "completion": "emit duration after a slow lookup completes",
+      "sensitiveData": "never include bearer tokens or backend exception messages"
+    },
+    "desktopRequestQuery": {
+      "reason": "App query scope belongs to the desktop API, while URL bearer/pairing credentials belong only to relay authentication.",
+      "appParameters": "preserve values and duplicate occurrences",
+      "stripParameters": [
+        "token"
+      ]
+    }
+  },
+  "heartbeat": {
+    "_why": "Real WebSocket probes showed authorization queue high-water marks paused TCP reads, withholding automatic pongs despite healthy sockets. Application backlogs must not starve the WebSocket control plane.",
+    "controlFrames": "continue reading ping/pong and close while application authorization is pending",
+    "socketReadPausing": false,
+    "downstreamBackpressure": "mobile_ws_flow remains scoped to the destination phone",
+    "overload": "retain hard peer frame/byte limits, global byte reservations, FIFO lanes and fair worker limits; close only the overloaded socket",
+    "maximumPeerFrames": 8192,
+    "maximumPeerBytes": 75497472,
+    "maximumRelayBytes": 150994944,
+    "maximumWorkers": 16,
+    "maximumDataWorkers": 14,
+    "phoneOverloadCloseCode": 1013,
+    "desktopControlOverloadCloseCode": 1009
+  }
+}

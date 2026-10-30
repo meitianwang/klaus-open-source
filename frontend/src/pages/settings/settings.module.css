@@ -1,0 +1,1503 @@
+/* Settings 各 tab 样式（Batch 5 CSS Modules，目录内多 tab 文件共享本模块）。
+   settings 骨架类（settings-content、settings-section 等，chat.ts/静态标记
+   共同消费）与状态类经 :global() 引用。 */
+
+/* Animations used across this module. They live here rather than in
+   css/styles.css because CSS Modules localizes animation names: a bare
+   reference to a keyframes defined outside the module compiles to a scoped
+   name nothing defines, and the element renders frozen. */
+@keyframes kls-spin { to { transform: rotate(360deg); } }
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.s-code {
+  font-size: var(--code-font-size);
+}
+.settings-sidebar-header {
+  -webkit-app-region: no-drag;
+  flex-shrink: 0;
+  padding-bottom: 12px;
+}
+.settings-sidebar-title {
+  margin: 0 8px 16px;
+  font-size: var(--text-title);
+  line-height: var(--leading-settings-title);
+  font-weight: var(--weight-semibold);
+  color: var(--fg);
+}
+.settings-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--fg) 5%, transparent);
+  color: var(--fg-secondary);
+}
+.settings-search:focus-within {
+  box-shadow: 0 0 0 1px var(--fg-tertiary);
+}
+.settings-search svg { width: 16px; height: 16px; flex-shrink: 0; }
+.settings-search input {
+  flex: 1;
+  min-width: 0;
+  width: 100%;
+  padding: 8px 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--fg);
+  font-family: var(--font);
+  font-size: var(--text-body);
+  line-height: var(--leading-settings-section);
+}
+.settings-search input::placeholder { color: var(--fg-tertiary); }
+.settings-search input::-webkit-search-cancel-button { -webkit-appearance: none; }
+.settings-search button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--fg-secondary);
+  cursor: pointer;
+}
+.settings-search button:hover { background: color-mix(in srgb, var(--fg) 8%, transparent); }
+.settings-sidebar-scroll {
+  -webkit-app-region: no-drag;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+}
+.settings-search-empty {
+  margin: 0;
+  padding: 12px 8px;
+  font-size: var(--text-small);
+  color: var(--fg-secondary);
+}
+.settings-nav-item[hidden], .settings-sidebar-group[hidden] { display: none; }
+.settings-back {
+  -webkit-app-region: no-drag;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: calc(var(--text-body) * 1.5 + 8px);
+  background: transparent;
+  border: none;
+  color: var(--fg-secondary);
+  font-family: var(--font);
+  font-size: var(--text-body);
+  font-weight: var(--weight-regular);
+  line-height: var(--leading-settings-section);
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  margin-bottom: 12px;
+  transition: background var(--transition), color var(--transition);
+  text-align: left;
+}
+.settings-back:hover { background: color-mix(in srgb, var(--fg) 8%, transparent); color: var(--fg); }
+.settings-back svg { width: 14px; height: 14px; flex-shrink: 0; }
+.settings-sidebar-nav {
+  -webkit-app-region: no-drag;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  flex-shrink: 0;
+}
+/* Group labels share the main sidebar hierarchy. */
+.settings-sidebar-group {
+  font-size: var(--text-small);
+  line-height: var(--leading-settings-subtitle);
+  font-weight: var(--weight-regular);
+  color: var(--fg-tertiary);
+  text-transform: none;
+  letter-spacing: 0;
+  padding: 10px 8px 4px;
+  margin-top: 4px;
+}
+.settings-sidebar-group:first-child { margin-top: 0; }
+/* Version footer: pinned to the sidebar bottom by the flex column, so a short
+   nav list still leaves it at the foot of the pane. */
+.settings-version {
+  flex-shrink: 0;
+  margin-top: auto;
+  padding: 12px 8px 4px;
+  font-size: var(--text-small);
+  color: var(--fg-tertiary);
+  user-select: text;
+  -webkit-user-select: text;
+}
+/* Inline reason when in-app updates are unsupported on this install, so a
+   user who "cannot update" can read why next to the running version. */
+.settings-version-unavailable {
+  margin-top: 4px;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  color: var(--fg-secondary);
+  line-height: 1.4;
+  word-break: break-word;
+}
+.settings-nav-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: calc(var(--text-body) * 1.5 + 8px);
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  border: none;
+  background: transparent;
+  font-family: var(--font);
+  font-size: var(--text-body);
+  font-weight: var(--weight-regular);
+  line-height: var(--leading-settings-section);
+  color: var(--fg-secondary);
+  cursor: pointer;
+  text-align: left;
+  transition: background var(--transition), color var(--transition);
+}
+.settings-nav-item svg { width: 16px; height: 16px; flex-shrink: 0; opacity: 1; }
+.settings-nav-item:hover { background: color-mix(in srgb, var(--fg) 8%, transparent); color: var(--fg); }
+.settings-nav-item:focus { outline: none; }
+.settings-nav-item:focus-visible {
+  outline: none;
+  background: color-mix(in srgb, var(--fg) 8%, transparent);
+  box-shadow: none;
+}
+.settings-nav-item:global(.active) {
+  background: color-mix(in srgb, var(--fg) 8%, transparent);
+  color: var(--fg);
+  font-weight: var(--weight-regular);
+}
+/* ===== Unified page scaffold (SettingsPage in kv.tsx) =====
+   Single owner of the settings content column: one width, one page-header
+   voice (title + subtitle + optional trailing actions), one section rhythm.
+   Tabs must not define their own max-width or page headers — every page
+   shares the exact same left/right boundaries. */
+.settings-page {
+  width: 100%;
+  max-width: 672px;
+  margin: 0 auto;
+  min-width: 0;
+}
+.settings-page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 28px;
+}
+.settings-page-heading {
+  min-width: 0;
+}
+.settings-page-title {
+  margin: 0;
+  color: var(--fg);
+  font-size: var(--text-title);
+  font-weight: var(--weight-medium);
+  line-height: var(--leading-settings-title);
+  letter-spacing: 0;
+}
+.settings-page-subtitle {
+  margin: 6px 0 0;
+  color: var(--fg-secondary);
+  font-size: var(--text-small);
+  line-height: var(--leading-settings-subtitle);
+  white-space: pre-line;
+}
+.settings-page-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  padding-top: 2px;
+}
+.settings-page-body {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  min-width: 0;
+}
+/* 页正文的纵向节奏由这个 gap 独占，跟分区正文（.source-section-body）同一条道理：
+   settings-card 自带 12px margin-bottom 是给「卡叠卡」用的，直接落在页正文里就会把
+   24px 撑成 36px，页级卡（如模型页的会员状态卡）跟它下面的分区就比别处远一截。 */
+.settings-page-body > :global(.settings-card) {
+  margin-bottom: 0;
+}
+/* Section heading inside a page body: title + optional hint above a card/list.
+   Rhythm to the following card comes from the section gap, not margins. */
+.settings-section-heading {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+.settings-section-heading .settings-section-hint {
+  margin: 0;
+}
+/* Section title plus an inline info glyph: the section's long explanation
+   rides the glyph's hover tooltip, so the heading stays one line. Own class
+   on purpose — .settings-section-title-row below is the model page's
+   space-between variant that pins its action to the row's right edge. */
+.settings-section-title-info-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.section-info-icon {
+  display: inline-flex;
+  align-items: center;
+  color: var(--fg-tertiary);
+  cursor: default;
+}
+.section-info-icon svg {
+  display: block;
+}
+.archived-settings-toolbar,
+.archived-settings-group-header,
+.archived-settings-row,
+.archived-settings-actions,
+.archived-settings-project-name {
+  display: flex;
+  align-items: center;
+}
+.archived-settings-delete-all {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+  cursor: pointer;
+}
+.archived-settings-delete-all:disabled {
+  opacity: .45;
+  cursor: default;
+}
+.archived-settings-delete-all svg,
+.archived-settings-project-name svg,
+.archived-settings-toolbar svg {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+}
+.archived-settings-toolbar {
+  gap: 12px;
+}
+.archived-settings-search,
+.archived-settings-project {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  font-size: var(--text-small);
+}
+.archived-settings-search {
+  flex: 1;
+  min-width: 200px;
+}
+.archived-settings-search input,
+.archived-settings-project select {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  color: var(--fg);
+  background: transparent;
+  font: inherit;
+}
+.archived-settings-project {
+  width: 220px;
+}
+.archived-settings-group + .archived-settings-group {
+  margin-top: 32px;
+}
+.archived-settings-group-header {
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 36px;
+  padding: 0 2px 10px;
+  color: var(--fg-secondary);
+  font-size: var(--text-body);
+}
+.archived-settings-project-name {
+  gap: 8px;
+  min-width: 0;
+  color: var(--fg);
+  font-weight: var(--weight-medium);
+}
+.archived-settings-project-name span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.archived-settings-list {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--fg) 2.5%, var(--bg));
+}
+.archived-settings-row {
+  min-height: 56px;
+  gap: 16px;
+  padding: 12px;
+}
+.archived-settings-row + .archived-settings-row {
+  border-top: 1px solid var(--border);
+}
+.archived-settings-session-main {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+.archived-settings-session-title {
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--fg);
+  font-size: var(--text-small);
+  font-weight: var(--weight-regular);
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.archived-settings-session-date {
+  color: var(--fg-secondary);
+  font-size: var(--text-small);
+}
+.archived-settings-actions {
+  gap: 8px;
+  flex: 0 0 auto;
+}
+.archived-settings-empty {
+  padding: 48px 24px;
+  color: var(--fg-secondary);
+  text-align: center;
+}
+.archived-settings-empty:global(.error) {
+  color: var(--danger);
+}
+@media (max-width: 920px) {
+  .archived-settings-toolbar, .archived-settings-row {
+      align-items: stretch;
+      flex-direction: column;
+    }
+  .archived-settings-project {
+      width: auto;
+    }
+  .archived-settings-actions {
+      justify-content: flex-end;
+    }
+}
+.settings-field-input {
+  width: 100%;
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-family: var(--font);
+  font-size: var(--text-small);
+  background: var(--bg-elevated);
+  color: var(--fg);
+  outline: none;
+  transition: background var(--transition), border-color var(--transition);
+}
+.settings-field-input:hover { background: var(--bg-hover); }
+.settings-field-input:focus { border-color: var(--input-focus); background: var(--bg-elevated); box-shadow: none; }
+.profile-account-settings {
+  display: grid;
+  gap: 12px;
+}
+.profile-account-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.profile-account-avatar {
+  width: 28px;
+  height: 28px;
+  position: relative;
+  cursor: pointer;
+  font-size: var(--text-small);
+  padding: 0;
+  border: 0;
+  font-family: var(--font);
+}
+.profile-account-identity {
+  min-width: 0;
+}
+.profile-account-name {
+  color: var(--fg);
+  font-size: var(--text-emphasis);
+  font-weight: var(--weight-medium);
+  line-height: 1.25;
+}
+.profile-account-email {
+  margin-top: 2px;
+  color: var(--fg-secondary);
+  font-size: var(--text-small);
+  line-height: var(--leading-settings-subtitle);
+  word-break: break-word;
+}
+.profile-account-card {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--fg) 2.5%, var(--bg));
+}
+.profile-account-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 16px;
+  min-height: 56px;
+  padding: 12px;
+  border-top: 1px solid var(--border);
+}
+.profile-account-row:first-child {
+  border-top: 0;
+}
+.profile-account-row-copy {
+  min-width: 0;
+}
+.profile-account-row-title {
+  color: var(--fg);
+  font-size: var(--text-small);
+  font-weight: var(--weight-regular);
+  line-height: var(--leading-composer-control);
+}
+.profile-account-row-desc {
+  margin-top: 4px;
+  color: var(--fg-secondary);
+  font-size: var(--text-small);
+  line-height: var(--leading-settings-description);
+}
+.profile-account-row-value {
+  color: var(--fg);
+  font-size: var(--text-small);
+  font-weight: var(--weight-regular);
+  text-align: right;
+  word-break: break-word;
+}
+/* Default friend permission card: section heading, row card and the save row
+   share one vertical rhythm; the row card mixes profile rows and pref rows,
+   so pref rows joining a profile row need the same separator. */
+.grant-settings { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.grant-settings .profile-account-card :global(.pref-row) { border-top: 1px solid var(--border); }
+.grant-settings-actions { display: flex; align-items: center; gap: 10px; }
+/* Receiving-computer row value: device name plus presence dot sit beside the
+   change button instead of stacking under it. */
+.profile-receiver-value {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-right: 12px;
+}
+.profile-receiver-value strong {
+  font-weight: var(--weight-medium);
+}
+/* 显示名称行的行尾编辑组：输入框 + 保存。 */
+.profile-name-edit {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.profile-name-edit .settings-field-input {
+  width: 190px;
+}
+@media (max-width: 760px) {
+  .profile-account-row {
+      display: grid;
+      grid-template-columns: 1fr;
+      align-items: start;
+    }
+  .profile-account-row-value {
+      text-align: left;
+    }
+}
+/* Segmented row control — inline choice group used by preference rows
+   (follow-up behaviour and output style). */
+.appearance-segmented {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+}
+.appearance-segmented button {
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--fg-secondary);
+  font-family: var(--font);
+  font-size: var(--text-small);
+  line-height: 1;
+  cursor: pointer;
+  transition: background var(--transition), color var(--transition);
+}
+.appearance-segmented button:hover {
+  color: var(--fg);
+  background: var(--bg-hover);
+}
+.appearance-segmented button:global(.active) {
+  color: var(--fg);
+  background: var(--bg-hover);
+}
+.appearance-segmented svg {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+}
+.follow-up-mode-segment {
+  flex-shrink: 0;
+}
+/* Output styles can be extended by plugins and project/user settings, so this
+   segment wraps instead of pushing the row label out of the card. */
+.output-style-segment {
+  flex: 0 1 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  row-gap: 4px;
+}
+/* Model cards */
+/* 档位/顾问模型下拉：设置行里的控件不铺满整行。铺满会让一个十几字符的模型名
+   撑出近 400px 的触发器，且把左侧说明挤成两行；下拉面板按内容宽度渲染，跟
+   超宽触发器对不上。固定 200px 既容得下常见模型名，又把余下宽度留给说明。 */
+.model-tier-select {
+  width: 200px;
+  flex-shrink: 0;
+}
+.model-tier-select :global(.kls-select-trigger) {
+  width: 100%;
+  min-width: 0;
+  min-height: 34px;
+  background: var(--bg-elevated);
+}
+/* Read-only effective model statement for sources that offer no model choice:
+   the same box as the tier select so the row grid holds, but normal text
+   color because the value is a statement, not a stalled control. */
+.media-model-static {
+  display: flex;
+  align-items: center;
+  min-height: 34px;
+  padding: 0 10px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--fg);
+  font-size: var(--text-small);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Default model cards share compact rows without changing other settings cards. */
+.default-model-card :global(.pref-row) {
+  min-height: 50px;
+  padding: 8px 12px;
+  gap: 12px;
+}
+.default-model-card .pref-row-label { margin-bottom: 0; }
+.default-model-card .model-tier-select { width: 200px; max-width: 65%; min-width: 0; flex-shrink: 1; }
+/* Auxiliary task rows keep the source and model pickers side by side. */
+.feature-model-controls { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+.global-tiers { min-width: 0; }
+/* 默认模型页正文的纵向节奏与「模型来源」页对齐：分区之间 24px（页正文 gap 同款），
+   分区内标题/说明与正文之间 12px（settings-section / source-section-body 同款）。
+   节奏全部由这两层 gap 独占，组内块级元素不再自带外边距。 */
+.tiers-body {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  min-width: 0;
+}
+.tiers-group {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+.tier-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr));
+  gap: 12px;
+}
+.tier-card {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--fg) 2.5%, var(--bg));
+}
+.tier-card-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.tier-card-heading strong { color: var(--fg); font-size: var(--text-body); font-weight: var(--weight-medium); }
+.tier-status { color: var(--fg-tertiary); font-size: var(--text-caption); white-space: nowrap; }
+.tier-status[data-status='ready'] { color: var(--accent); }
+.tier-purpose { margin: 8px 0 16px; color: var(--fg-secondary); font-size: var(--text-small); line-height: var(--leading-settings-description); }
+.tier-target { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; min-width: 0; }
+.tier-model-label { max-width: 100%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--fg); font-size: var(--text-body); }
+.tier-reason { margin: 8px 0 0; color: var(--fg-secondary); font-size: var(--text-small); line-height: var(--leading-settings-description); overflow-wrap: anywhere; }
+.tier-card-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: auto; padding-top: 16px; }
+.tier-card-actions button { white-space: nowrap; }
+.tier-migration { margin: 0; color: var(--fg-secondary); font-size: var(--text-small); line-height: var(--leading-settings-description); overflow-wrap: anywhere; }
+.tier-load-error { display: flex; align-items: flex-start; flex-wrap: wrap; gap: 8px; margin: 0; color: var(--fg-secondary); font-size: var(--text-small); line-height: var(--leading-settings-description); overflow-wrap: anywhere; }
+.tier-load-error span { flex: 1; min-width: 0; }
+.tier-load-error button { flex-shrink: 0; }
+/* The shared .kls-modal rule lives in a stylesheet that loads AFTER this CSS
+   module bundle, and both selectors weigh the same, so a bare .tier-modal
+   width was silently overridden back to the 540px default. Qualifying with
+   .kls-modal raises specificity and makes the tier editor's own width win
+   regardless of bundle order. */
+:global(.kls-modal).tier-modal { width: 320px; max-width: calc(100vw - 32px); min-width: 0; }
+.tier-modal :global(.kls-modal-head) { padding: 16px 16px 8px; }
+.tier-modal :global(.kls-modal-body) { padding: 8px 16px 12px; }
+.tier-modal :global(.kls-modal-foot) { padding: 8px 16px 16px; }
+.tier-editor-body { min-width: 0; }
+.tier-editor-body :global(.kls-select-trigger) { width: 100%; min-width: 0; }
+.model-list-header { margin-top: 2px; }
+/* Section title row with a right-aligned action (the add-model button). */
+.settings-section-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.settings-section-title-action { flex: none; }
+.model-list-header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+/* Unified add-model dialog: title row that can carry a back action. */
+.modal-head-title-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.modal-back-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  flex: none;
+  padding: 0;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--fg-secondary);
+  cursor: pointer;
+}
+.modal-back-btn:hover {
+  background: color-mix(in srgb, var(--fg) 8%, transparent);
+  color: var(--fg);
+}
+.modal-back-btn svg { width: 16px; height: 16px; }
+/* Kind picker: one row per model kind, label plus a one-line description. */
+.add-kind-hint {
+  margin: 0 0 12px;
+  color: var(--fg-secondary);
+  font-size: var(--text-small);
+  line-height: var(--leading-settings-description);
+}
+.add-kind-list {
+  display: grid;
+  gap: 8px;
+}
+.add-kind-option {
+  display: block;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--fg) 12%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--fg) 4%, transparent);
+  color: inherit;
+  font-family: var(--font);
+  text-align: left;
+  cursor: pointer;
+}
+.add-kind-option:hover {
+  background: color-mix(in srgb, var(--fg) 8%, transparent);
+}
+.add-kind-option strong {
+  display: block;
+  font-size: var(--text-body);
+  font-weight: var(--weight-semibold);
+}
+.add-kind-option span {
+  display: block;
+  margin-top: 2px;
+  color: var(--fg-secondary);
+  font-size: var(--text-small);
+  line-height: var(--leading-settings-description);
+}
+.advisor-section-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+.advisor-section-header :global(.btn-sm) {
+  flex-shrink: 0;
+}
+@media (max-width: 720px) {
+  .model-tier-select {
+      width: 100%;
+    }
+  .advisor-section-header {
+      flex-direction: column;
+      align-items: stretch;
+    }
+}
+.card-meta-spaced {
+  margin-top: 6px;
+}
+.image-gen-provider-help {
+  margin: -4px 0 12px;
+}
+/* 模型来源分区（ModelSourceSection）：档位分段控件 + 该档正文。语言模型、生图、
+   生视频三个分区共用这一套，不再各自维护一份段控件与间距。 */
+.source-tabs {
+  display: inline-flex;
+  flex-wrap: nowrap;
+  gap: 2px;
+  width: fit-content;
+  max-width: 100%;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--fg) 2.5%, var(--bg));
+  /* 来源多到一行放不下时横向滚动，而不是折成两行：折行会让分段控件看起来像
+     两块独立的控件，也说不清第二行属于谁。 */
+  overflow-x: auto;
+}
+.source-tab {
+  min-height: 30px;
+  padding: 0 10px;
+  flex: 0 0 auto;
+  white-space: nowrap;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--fg-secondary);
+  font-family: var(--font);
+  font-size: var(--text-small);
+  font-weight: var(--weight-regular);
+  line-height: 1;
+  cursor: pointer;
+}
+.source-tab:hover,
+.source-tab[aria-selected='true'] {
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+/* 会员未解锁的档：仍可进入查看和保存配置，所以它是可点的，只是名字前挂一个锁形
+   前缀说明它现在不能生效。设置面禁悬浮提示，所以理由写在界面里（档位行下面的
+   会员状态行）而不是 tooltip 里。 */
+.source-tab[data-source-locked='true'] {
+  color: var(--fg-secondary);
+}
+.source-tab[data-source-locked='true']::before {
+  content: '⌧';
+  margin-right: 4px;
+  opacity: 0.7;
+}
+/* 正文的纵向节奏统一由这个容器给。settings-card 自带 margin-bottom，叠上容器间距会变成
+   24px，还在最后一张卡下面多留一截把分区之间的 24px 撑成 36px——所以分区正文内一律清掉
+   卡片自带的外边距，只认容器的 12px。 */
+.source-section-body {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+.source-section-body :global(.settings-card) {
+  margin-bottom: 0;
+}
+/* 分区正文里的卡片列表（已装/推荐/自定义模型）：卡片外边距清零后由列表自己给间距。 */
+.model-card-list {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+/* 端侧模型：下载进度行（确定性进度条 + 字节文本 + 取消）。 */
+.local-dl {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+}
+.local-dl-bar {
+  flex: 1;
+  min-width: 80px;
+  height: 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--fg) 8%, transparent);
+  overflow: hidden;
+}
+.local-dl-bar span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+  transition: width .25s ease;
+}
+.local-dl-text {
+  color: var(--fg-secondary);
+  font-size: var(--text-caption);
+  white-space: nowrap;
+}
+.local-dl-error {
+  color: var(--danger);
+  font-size: var(--text-small);
+}
+.browser-capability-row {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+}
+/* Same icon treatment as the device rows below: a quiet secondary-color
+   glyph in a 36px tile, so the text column lines up across cards. */
+.browser-capability-icon {
+  width: 36px;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--fg-secondary);
+}
+.browser-capability-icon svg {
+  width: 20px;
+  height: 20px;
+  color: var(--fg-secondary);
+}
+.browser-capability-copy {
+  min-width: 0;
+}
+.browser-capability-action {
+  display: inline-flex;
+  justify-content: flex-end;
+  align-items: center;
+}
+.browser-settings-select {
+  height: 34px;
+  min-width: 190px;
+  padding: 0 30px 0 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  color: var(--fg);
+  font-family: var(--font);
+  font-size: var(--text-small);
+  outline: 0;
+}
+.browser-action-btn {
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--fg) 5%, transparent);
+  color: var(--fg);
+  min-height: 30px;
+  padding: 0 12px;
+  font: inherit;
+  font-size: var(--text-small);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+.browser-action-btn:hover {
+  background: color-mix(in srgb, var(--fg) 8%, transparent);
+}
+.browser-action-btn.is-primary {
+  background: var(--accent);
+  color: var(--accent-text);
+}
+.browser-action-btn.is-primary:hover {
+  background: var(--accent-hover);
+}
+.browser-action-btn:disabled {
+  cursor: default;
+  color: var(--fg-secondary);
+}
+.mobile-bridge-summary {
+  padding: 0 12px 12px 60px;
+  color: var(--fg-secondary);
+  font-size: var(--text-caption);
+  line-height: var(--leading-settings-caption);
+}
+.mobile-device-list {
+  min-height: 76px;
+}
+.mobile-device-row {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  min-height: 64px;
+  padding: 12px;
+}
+.mobile-device-row + .mobile-device-row { border-top: 1px solid var(--border); }
+.mobile-device-icon {
+  display: inline-flex;
+  width: 36px;
+  height: 36px;
+  align-items: center;
+  justify-content: center;
+  color: var(--fg-secondary);
+}
+.mobile-device-icon svg { width: 20px; height: 20px; }
+.mobile-device-copy { min-width: 0; }
+.mobile-device-name {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  color: var(--fg);
+  font-size: var(--text-small);
+  line-height: 1.25;
+}
+.mobile-device-name > span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mobile-device-name-btn {
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  color: inherit;
+  background: none;
+  font: inherit;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: text;
+}
+.mobile-device-name-btn:hover { text-decoration: underline; text-underline-offset: 3px; }
+.mobile-device-name-btn:focus-visible { outline: none; text-decoration: underline; text-underline-offset: 3px; }
+.mobile-device-rename {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+}
+.mobile-device-rename .settings-field-input { width: min(240px, 100%); }
+.mobile-device-current {
+  flex: 0 0 auto;
+  padding: 2px 7px;
+  border-radius: 999px;
+  color: var(--fg-secondary);
+  background: color-mix(in srgb, var(--fg) 6%, transparent);
+  font-size: var(--text-caption);
+}
+.mobile-device-meta {
+  margin-top: 4px;
+  color: var(--fg-secondary);
+  font-size: var(--text-caption);
+  line-height: 1.25;
+}
+.mobile-device-remove {
+  min-height: 30px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+  font: inherit;
+  font-size: var(--text-small);
+  cursor: pointer;
+}
+.mobile-device-remove:hover { background: var(--danger-bg); }
+.mobile-device-remove:disabled { cursor: default; opacity: .5; }
+.mobile-device-empty {
+  display: flex;
+  min-height: 76px;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 18px;
+  color: var(--fg-secondary);
+  font-size: var(--text-small);
+  text-align: center;
+}
+@media (max-width: 720px) {
+  .browser-capability-row {
+      grid-template-columns: 36px minmax(0, 1fr);
+    }
+  .browser-capability-action {
+      grid-column: 2;
+      justify-content: flex-start;
+    }
+  .mobile-device-row { grid-template-columns: 32px minmax(0, 1fr); }
+  .mobile-device-remove { grid-column: 2; justify-self: start; }
+}
+.settings-inline-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+.settings-status-text {
+  margin-top: 10px;
+  color: var(--fg-secondary);
+  font-size: var(--text-small);
+  line-height: var(--leading-settings-description);
+}
+.settings-suggestion-group {
+  margin: 0 0 14px;
+}
+.settings-suggestion-label {
+  margin-bottom: 6px;
+  color: var(--fg-secondary);
+  font-size: var(--text-small);
+  line-height: var(--leading-settings-description);
+}
+.settings-suggestion-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.workspace-excludes-textarea {
+  width: 100%;
+  min-height: 180px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  color: var(--fg);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: var(--text-small);
+  line-height: 1.5;
+  resize: vertical;
+  outline: none;
+}
+.workspace-excludes-textarea:focus {
+  border-color: var(--input-focus);
+}
+/* Shared configuration editor. */
+.hooks-json-editor {
+  display: block;
+  width: 100%;
+  min-height: 300px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  color: var(--fg);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: var(--text-small);
+  line-height: 1.5;
+  resize: vertical;
+  outline: none;
+}
+.hooks-json-editor:focus { border-color: var(--input-focus); }
+/* ===== System Authorization ===== */
+.sys-auth-card {
+  background: color-mix(in srgb, var(--fg) 2.5%, var(--bg));
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 0;
+  overflow: hidden;
+}
+.sys-auth-loading,
+.sys-auth-empty {
+  padding: 28px 20px;
+  text-align: center;
+  font-size: var(--text-body);
+  color: var(--fg-tertiary);
+}
+.sys-auth-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 56px;
+  padding: 12px;
+  position: relative;
+}
+.sys-auth-row[data-sep="1"]::before {
+  content: '';
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  top: 0;
+  height: 1px;
+  background: var(--border);
+  opacity: 0.55;
+}
+.sys-auth-row-icon {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--fg-tertiary);
+  flex-shrink: 0;
+}
+.sys-auth-row.is-granted .sys-auth-row-icon { color: var(--status-ok); }
+.sys-auth-row-main { flex: 1; min-width: 0; }
+.sys-auth-row-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 3px;
+  flex-wrap: wrap;
+}
+.sys-auth-row-title {
+  font-size: var(--text-small);
+  font-weight: var(--weight-regular);
+  color: var(--fg);
+  line-height: var(--leading-settings-subtitle);
+}
+.sys-auth-row-desc {
+  font-size: var(--text-small);
+  color: var(--fg-secondary);
+  line-height: var(--leading-settings-description);
+}
+.sys-auth-row-action { flex-shrink: 0; }
+.sys-auth-badge {
+  font-size: var(--text-badge);
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  font-weight: var(--weight-medium);
+  line-height: 1.5;
+}
+.sys-auth-badge:global(.granted) {
+  background: var(--success-bg);
+  color: var(--status-ok);
+}
+.sys-auth-badge:global(.denied) {
+  background: var(--warning-bg);
+  color: var(--status-attn);
+}
+.sys-auth-badge:global(.unknown) {
+  background: var(--bg-hover);
+  color: var(--fg-tertiary);
+}
+.sys-auth-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+/* The hint beside these buttons is flex:1 with long copy; at the card's
+   min(420px, 100vw-40px) an unprotected label wraps vertically. */
+.sys-auth-footer > button { flex-shrink: 0; white-space: nowrap; }
+.sys-auth-hint {
+  font-size: var(--text-small);
+  color: var(--fg-tertiary);
+  flex: 1;
+  min-width: 0;
+}
+/* Restart modal after "去授权" click */
+.sys-auth-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.sys-auth-modal-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+  animation: fade-in 0.15s ease;
+}
+.sys-auth-modal-card {
+  position: relative;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 22px 22px 18px;
+  width: min(420px, calc(100vw - 40px));
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.25);
+  animation: fade-in 0.18s ease;
+}
+.sys-auth-modal-title {
+  font-size: var(--text-title);
+  font-weight: var(--weight-semibold);
+  color: var(--fg);
+  margin-bottom: 8px;
+}
+.sys-auth-modal-body {
+  font-size: var(--text-body);
+  color: var(--fg-secondary);
+  line-height: 1.6;
+  margin-bottom: 20px;
+}
+.sys-auth-modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+/* 设置页语音分区：热词添加行 / 列表行 / 来源徽标 / 历史元信息。 */
+.voice-hotword-add-row {
+  gap: 8px;
+}
+.voice-hotword-add-row .settings-field-input { flex: 1 1 auto; min-width: 0; }
+.voice-hotword-add-row :global(.btn-sm) { flex: 0 0 auto; white-space: nowrap; }
+.voice-item-row { gap: 10px; }
+.voice-item-row .pref-row-text { min-width: 0; }
+.voice-item-row .pref-row-desc { overflow: hidden; text-overflow: ellipsis; }
+.voice-item-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: var(--radius-xs);
+  background: var(--bg-hover);
+  color: var(--fg-tertiary);
+  font-size: var(--text-caption);
+  vertical-align: 1px;
+}
+.voice-item-delete { flex-shrink: 0; }
+.s-code { font-family: var(--font-mono); font-size: var(--text-small); color: var(--fg-tertiary); }
+/* ==================== Preferences rows ==================== */
+.pref-card {
+  background: color-mix(in srgb, var(--fg) 2.5%, var(--bg));
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  margin-top: 0;
+}
+:global(.pref-row) {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 56px;
+  padding: 12px;
+}
+/* Separator belongs between two adjacent rows, not under every row: a standalone
+   row (e.g. the local-models enable switch) or the last row of a group followed
+   by other content must not trail a stray line. */
+:global(.pref-row) + :global(.pref-row) { border-top: 1px solid var(--border); }
+/* The text column is flex:1 with long descriptions; at the 480px window
+   minimum an unprotected right-hand label button wraps vertically. Native
+   select/input are single-line controls and need no such guard. */
+:global(.pref-row) > button { flex-shrink: 0; white-space: nowrap; }
+.pref-row-text { flex: 1; min-width: 0; }
+.pref-row-label { font-size: var(--text-body); font-weight: var(--weight-regular); color: var(--fg); margin-bottom: 4px; line-height: var(--leading-normal); }
+.pref-row-desc { font-size: var(--text-small); color: var(--fg-secondary); line-height: var(--leading-settings-description); }
+.prediction-notice {
+  margin: 0;
+  padding: 0 12px 12px;
+  color: var(--fg-secondary);
+  font-size: var(--text-small);
+  line-height: var(--leading-settings-description);
+}
+/* Agents settings page — section hint above the toggle list, and the
+   "needs restart" footnote on routes that require a relaunch to take effect. */
+.settings-section-hint {
+  font-size: var(--text-small);
+  color: var(--fg-secondary);
+  line-height: var(--leading-settings-description);
+  margin: 0 0 12px;
+}
+.pref-switch { position: relative; display: inline-block; width: 36px; height: 20px; flex-shrink: 0; }
+.pref-switch input { opacity: 0; width: 0; height: 0; }
+.pref-switch-track {
+  position: absolute;
+  inset: 0;
+  cursor: pointer;
+  background: color-mix(in srgb, var(--fg-quaternary) 54%, var(--bg-surface));
+  border: 1px solid color-mix(in srgb, var(--fg-quaternary) 24%, var(--border));
+  border-radius: 999px;
+  transition: background var(--transition), border-color var(--transition);
+}
+.pref-switch-track::before {
+  content: '';
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  left: 1px;
+  top: 1px;
+  background: var(--bg);
+  border-radius: 50%;
+  transition: transform var(--transition), background var(--transition);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.16);
+}
+.pref-switch input:checked + .pref-switch-track { background: var(--accent); border-color: var(--accent); }
+.pref-switch input:checked + .pref-switch-track::before { transform: translateX(16px); background: var(--accent-text); }
+.pref-switch input:focus-visible + .pref-switch-track {
+  outline: none;
+  background: var(--bg-hover);
+  box-shadow: none;
+}
+.pref-row-disabled { opacity: 0.45; pointer-events: none; }
+.pref-switch-disabled .pref-switch-track { cursor: default; }
+/* Inline boolean row inside the model form modal: a form-field label on the
+   left and the shared pref-switch on the right. Its own class (not .form-row)
+   so the global `.form-row input` full-width input styling never reaches the
+   switch's hidden checkbox and blows it back up into a bordered square. */
+.model-toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.model-toggle-row > label:first-child {
+  font-size: var(--text-small);
+  font-weight: var(--weight-regular);
+  color: var(--fg-secondary);
+}
+/* ===== About tab ===== */
+.about-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.about-version-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.about-version-main {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+.about-version-name {
+  font-size: var(--text-body);
+  font-weight: var(--weight-medium);
+  color: var(--fg);
+}
+.about-version-number {
+  font-size: var(--text-body-sm);
+  color: var(--fg-secondary);
+}
+.about-version-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+.about-status {
+  font-size: var(--text-small);
+  color: var(--fg-secondary);
+  line-height: var(--leading-settings-description);
+}
+.about-status[data-supported='0'],
+.about-status[data-state='error'] {
+  color: var(--danger);
+}
+/* The changelog lives on the web /updates page; this row is the only entry
+   from the About tab, styled like a quiet text link with an external glyph. */
+.about-changelog-link {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: var(--text-small);
+  color: var(--fg-secondary);
+  cursor: pointer;
+}
+.about-changelog-link:hover {
+  color: var(--fg);
+  text-decoration: underline;
+}
+.about-changelog-link:focus-visible {
+  outline: 2px solid var(--input-focus);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+.about-changelog-link-icon {
+  width: 12px;
+  height: 12px;
+  flex: 0 0 auto;
+}
+
+/* The Kimi card's pasted-credential block: a key field and an optional base URL
+   above the ordinary card actions, because Kimi's documented third-party route is
+   a console key rather than an account login. The device-flow button stays below
+   as the alternative, with the risk it carries stated inline. */
+.account-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
+}
+.account-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.account-row-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.api-key-block {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-subtle);
+}
+.api-key-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 10px;
+}
+.api-key-console-link {
+  color: var(--fg-secondary);
+  font-size: var(--text-small);
+  text-decoration: underline;
+  cursor: pointer;
+}
+.api-key-console-link:hover { color: var(--fg); }
+.api-key-device-risk {
+  color: var(--fg-tertiary);
+  font-size: var(--text-small);
+  line-height: var(--leading-settings-description);
+}

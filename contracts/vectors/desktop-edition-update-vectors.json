@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "reason": "Signed updates must bind the installed application's regional identity independently of the signing key, platform and version.",
+  "cases": [
+    { "installed": "domestic", "offered": "domestic", "accepted": true },
+    { "installed": "domestic", "offered": "international", "accepted": false },
+    { "installed": "international", "offered": "international", "accepted": true },
+    { "installed": "international", "offered": "domestic", "accepted": false }
+  ],
+  "legacyInstalledApplication": "domestic",
+  "candidateWithoutEdition": "domestic",
+  "candidateWithEdition": "inherit",
+  "crossEditionIndexMerge": "reject",
+  "uploadWithoutExplicitHost": "reject-for-every-edition",
+  "_change": "No release host is built in; every edition names its SSH host explicitly."
+}

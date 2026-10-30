@@ -1,0 +1,460 @@
+{
+  "version": 1,
+  "reason": "Read-first recovery must preserve canonical history, rebuild active items at the source cut, and prevent late covered deltas or stale running snapshots from regressing completed items. Scoped completed-tool coverage must also suppress ahead-of-cut tool notifications without hiding file diffs or a reused tool ID in another turn.",
+  "cases": {
+    "sourceCutActiveProjection": {
+      "steps": [
+        {
+          "frames": [
+            {
+              "type": "engine_event",
+              "event": {
+                "sessionId": "s",
+                "type": "stream_mode",
+                "turnId": "t",
+                "mode": "requesting"
+              }
+            },
+            {
+              "type": "engine_event",
+              "event": {
+                "sessionId": "s",
+                "type": "text_delta",
+                "turnId": "t",
+                "messageId": "answer",
+                "text": "Part"
+              }
+            },
+            {
+              "type": "task_snapshot",
+              "sessionId": "s",
+              "streamId": "stream-1",
+              "revision": 5,
+              "history": {
+                "sessionId": "s",
+                "messages": [
+                  {
+                    "id": "prefix",
+                    "role": "user",
+                    "text": "Prompt",
+                    "timestamp": 0
+                  }
+                ]
+              },
+              "coveredMessageIds": [],
+              "activeEvents": [
+                {
+                  "type": "engine_event",
+                  "event": {
+                    "sessionId": "s",
+                    "type": "stream_mode",
+                    "turnId": "t",
+                    "mode": "requesting"
+                  }
+                },
+                {
+                  "type": "engine_event",
+                  "event": {
+                    "sessionId": "s",
+                    "type": "text_delta",
+                    "turnId": "t",
+                    "messageId": "answer",
+                    "text": "Partial answer"
+                  }
+                }
+              ],
+              "working": true
+            }
+          ],
+          "texts": [
+            "Prompt",
+            "Partial answer"
+          ],
+          "working": true
+        },
+        {
+          "frames": [
+            {
+              "type": "task_snapshot",
+              "sessionId": "s",
+              "streamId": "stream-1",
+              "revision": 6,
+              "history": {
+                "sessionId": "s",
+                "messages": [
+                  {
+                    "id": "prefix",
+                    "role": "user",
+                    "text": "Prompt",
+                    "timestamp": 0
+                  },
+                  {
+                    "id": "answer-row",
+                    "uuid": "answer",
+                    "turnId": "t",
+                    "role": "assistant",
+                    "text": "Final answer",
+                    "timestamp": 0
+                  }
+                ],
+                "turnStatuses": {
+                  "t": "completed"
+                }
+              },
+              "coveredMessageIds": [
+                "answer"
+              ],
+              "activeEvents": [],
+              "working": false
+            },
+            {
+              "type": "engine_event",
+              "event": {
+                "sessionId": "s",
+                "type": "text_delta",
+                "messageId": "answer",
+                "text": "Final answer"
+              }
+            }
+          ],
+          "texts": [
+            "Prompt",
+            "Final answer"
+          ],
+          "working": false
+        }
+      ]
+    },
+    "completedTurnOverlap": {
+      "steps": [
+        {
+          "frames": [
+            {
+              "type": "task_snapshot",
+              "sessionId": "s",
+              "streamId": "stream-1",
+              "revision": 5,
+              "history": {
+                "sessionId": "s",
+                "messages": [
+                  {
+                    "id": "saved",
+                    "uuid": "answer",
+                    "turnId": "t",
+                    "role": "assistant",
+                    "text": "Final answer",
+                    "timestamp": 0
+                  }
+                ],
+                "turnStatuses": {
+                  "t": "completed"
+                }
+              },
+              "working": false
+            },
+            {
+              "type": "engine_event",
+              "event": {
+                "sessionId": "s",
+                "type": "text_delta",
+                "turnId": "t",
+                "messageId": "answer",
+                "text": "Final answer"
+              }
+            },
+            {
+              "type": "engine_event",
+              "event": {
+                "sessionId": "s",
+                "type": "stream_mode",
+                "turnId": "t",
+                "mode": "requesting"
+              }
+            },
+            {
+              "type": "task_snapshot",
+              "sessionId": "s",
+              "streamId": "stream-1",
+              "revision": 6,
+              "history": {
+                "sessionId": "s",
+                "messages": [
+                  {
+                    "id": "saved",
+                    "uuid": "answer",
+                    "turnId": "t",
+                    "role": "assistant",
+                    "text": "Final",
+                    "timestamp": 0
+                  }
+                ],
+                "turnStatuses": {
+                  "t": "running"
+                }
+              },
+              "working": true
+            }
+          ],
+          "texts": [
+            "Final answer"
+          ],
+          "working": false
+        }
+      ]
+    },
+    "scopedCompletedToolOverlap": {
+      "steps": [
+        {
+          "frames": [
+            {
+              "type": "task_snapshot",
+              "sessionId": "s",
+              "streamId": "tool-stream",
+              "revision": 5,
+              "history": {
+                "sessionId": "s",
+                "messages": [
+                  {
+                    "id": "saved-tool",
+                    "uuid": "tool-item",
+                    "turnId": "t1",
+                    "role": "assistant",
+                    "text": "",
+                    "timestamp": 0,
+                    "contentBlocks": [
+                      {
+                        "type": "tool_use",
+                        "id": "reused",
+                        "name": "Bash",
+                        "input": {
+                          "command": "original"
+                        },
+                        "__state": "done",
+                        "__result": {
+                          "type": "tool_result",
+                          "tool_use_id": "reused",
+                          "content": [
+                            {
+                              "type": "text",
+                              "text": "saved output"
+                            }
+                          ],
+                          "is_error": false
+                        }
+                      }
+                    ]
+                  }
+                ],
+                "turnStatuses": {
+                  "t1": "running"
+                }
+              },
+              "coveredMessageIds": [
+                "tool-item"
+              ],
+              "coveredToolResults": [
+                {
+                  "turnId": "t1",
+                  "toolUseId": "reused"
+                }
+              ],
+              "activeEvents": [
+                {
+                  "type": "engine_event",
+                  "event": {
+                    "sessionId": "s",
+                    "type": "stream_mode",
+                    "turnId": "t1",
+                    "mode": "requesting"
+                  }
+                }
+              ],
+              "working": true
+            },
+            {
+              "type": "engine_event",
+              "event": {
+                "sessionId": "s",
+                "type": "tool_start",
+                "turnId": "t1",
+                "toolCallId": "reused",
+                "toolName": "Bash",
+                "args": {
+                  "command": "late"
+                }
+              }
+            },
+            {
+              "type": "engine_event",
+              "event": {
+                "sessionId": "s",
+                "type": "tool_input_delta",
+                "turnId": "t1",
+                "toolCallId": "reused",
+                "delta": "{\"command\":\"late\"}"
+              }
+            },
+            {
+              "type": "engine_event",
+              "event": {
+                "sessionId": "s",
+                "type": "progress",
+                "turnId": "t1",
+                "toolCallId": "reused",
+                "content": "duplicate progress"
+              }
+            },
+            {
+              "type": "engine_event",
+              "event": {
+                "sessionId": "s",
+                "type": "tool_end",
+                "turnId": "t1",
+                "toolCallId": "reused",
+                "toolName": "Bash",
+                "content": "late duplicate result",
+                "isError": false
+              }
+            },
+            {
+              "type": "engine_event",
+              "event": {
+                "sessionId": "s",
+                "type": "diff_update",
+                "turnId": "t1",
+                "toolCallId": "reused",
+                "changes": [
+                  {
+                    "path": "/repo/file.ts",
+                    "kind": "modified",
+                    "added": 2,
+                    "removed": 1
+                  }
+                ]
+              }
+            }
+          ],
+          "texts": [
+            "",
+            ""
+          ],
+          "working": true,
+          "toolScopes": [
+            "t1:reused"
+          ],
+          "toolResults": [
+            "saved output"
+          ],
+          "diffPaths": [
+            "/repo/file.ts"
+          ]
+        },
+        {
+          "frames": [
+            {
+              "type": "engine_event",
+              "event": {
+                "sessionId": "s",
+                "type": "done",
+                "turnId": "t1"
+              }
+            },
+            {
+              "type": "engine_event",
+              "event": {
+                "sessionId": "s",
+                "type": "tool_end",
+                "turnId": "t1",
+                "toolCallId": "reused",
+                "toolName": "Bash",
+                "content": "late duplicate result",
+                "isError": false
+              }
+            }
+          ],
+          "texts": [
+            "",
+            ""
+          ],
+          "working": false,
+          "toolScopes": [
+            "t1:reused"
+          ],
+          "toolResults": [
+            "saved output"
+          ],
+          "diffPaths": [
+            "/repo/file.ts"
+          ]
+        },
+        {
+          "frames": [
+            {
+              "type": "engine_event",
+              "event": {
+                "sessionId": "s",
+                "type": "stream_mode",
+                "turnId": "t2",
+                "mode": "requesting"
+              }
+            },
+            {
+              "type": "engine_event",
+              "event": {
+                "sessionId": "s",
+                "type": "tool_start",
+                "turnId": "t2",
+                "toolCallId": "reused",
+                "toolName": "Bash",
+                "args": {
+                  "command": "second"
+                }
+              }
+            },
+            {
+              "type": "engine_event",
+              "event": {
+                "sessionId": "s",
+                "type": "tool_end",
+                "turnId": "t2",
+                "toolCallId": "reused",
+                "toolName": "Bash",
+                "content": "second output",
+                "isError": false
+              }
+            },
+            {
+              "type": "engine_event",
+              "event": {
+                "sessionId": "s",
+                "type": "tool_end",
+                "turnId": "t1",
+                "toolCallId": "reused",
+                "toolName": "Bash",
+                "content": "late duplicate result",
+                "isError": false
+              }
+            }
+          ],
+          "texts": [
+            "",
+            "",
+            ""
+          ],
+          "working": true,
+          "toolScopes": [
+            "t1:reused",
+            "t2:reused"
+          ],
+          "toolResults": [
+            "saved output",
+            "second output"
+          ],
+          "diffPaths": [
+            "/repo/file.ts"
+          ]
+        }
+      ]
+    }
+  }
+}

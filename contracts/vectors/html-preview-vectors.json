@@ -1,0 +1,32 @@
+{
+  "reason": "HTML artifacts need an isolated interactive document and relative resources; the ordinary media policy deliberately disables active content.",
+  "document": "pages/report.html",
+  "opaqueOrigin": "null",
+  "resources": [
+    { "relative": "../assets/style.css?v=1", "path": "assets/style.css", "type": "text/css" },
+    { "relative": "./main.mjs", "path": "pages/main.mjs", "type": "text/javascript" },
+    { "relative": "../assets/helper.mjs", "path": "assets/helper.mjs", "type": "text/javascript" },
+    { "relative": "../assets/data.json", "path": "assets/data.json", "type": "application/json" },
+    { "relative": "../assets/pixel.svg", "path": "assets/pixel.svg", "type": "image/svg+xml" }
+  ],
+  "refusedRelativePaths": [
+    "../../outside.json",
+    "%2e%2e/%2e%2e/outside.json",
+    "../%2foutside.json",
+    "../%5coutside.json",
+    "../assets/%00.json",
+    "../assets/data.json:private",
+    "../assets/secret.env"
+  ],
+  "renderer": {
+    "inlineRan": true,
+    "moduleValue": 42,
+    "dataValue": "preview-data",
+    "color": "rgb(17, 34, 51)",
+    "imageWidth": 2,
+    "bridgeVisible": false,
+    "requireVisible": false,
+    "parentAccessible": false
+  },
+  "lifecycle": ["scope-rechecked-per-request", "symlink-escape-refused", "revoke-cancels-inflight-grant-and-response", "revoke-stops-streams", "directory-removal-fences-preview-resources"]
+}

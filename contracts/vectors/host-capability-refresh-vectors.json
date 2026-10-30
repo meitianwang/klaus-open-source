@@ -1,0 +1,18 @@
+{
+  "_why": "A capability setting is durably saved before any live refresh. Idle tasks may refresh as a convenience, but running and stale tasks keep their current snapshot, unavailable bindings defer, and an unrelated refresh failure must not turn the saved settings operation into an error.",
+  "bindings": [
+    { "rendererId": "idle", "stale": false, "working": false, "reload": "success" },
+    { "rendererId": "running", "stale": false, "working": true, "reload": "must-not-run" },
+    { "rendererId": "stale", "stale": true, "working": false, "reload": "must-not-run" },
+    { "rendererId": "unavailable", "stale": false, "working": false, "reload": "unavailable" },
+    { "rendererId": "broken", "stale": false, "working": false, "reload": "failure" }
+  ],
+  "expected": [
+    { "rendererId": "idle", "status": "reloaded" },
+    { "rendererId": "running", "status": "deferred" },
+    { "rendererId": "stale", "status": "deferred" },
+    { "rendererId": "unavailable", "status": "deferred" },
+    { "rendererId": "broken", "status": "failed" }
+  ],
+  "attempted": ["idle", "unavailable", "broken"]
+}

@@ -1,0 +1,10 @@
+{
+  "reason": "Release packages must not expose application renderer DevTools through the native menu or window APIs. Local development keeps debugging available, and embedded external browser CDP remains available to browser tools.",
+  "packaged": {
+    "opened": false,
+    "forbiddenMenuRoles": ["reload", "forcereload", "toggledevtools"]
+  },
+  "development": {
+    "opened": true
+  }
+}

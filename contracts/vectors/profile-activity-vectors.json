@@ -1,0 +1,21 @@
+{
+  "purpose": "Pin the personal profile's read-only usage measurements, UTC calendar and explicit incomplete state.",
+  "invariants": [
+    "Unchanged parent and child transcripts reuse disposable metrics caches without rewriting conversation history.",
+    "Append, replacement, child-only changes, archive moves and deletion invalidate affected metrics.",
+    "Concurrent profile views share one pending aggregate read; failures release a subsequent retry.",
+    "Local activity settles independently of account identity, including failed identity reads.",
+    "Usage that predates turn clocks stays in lifetime totals; coverage gaps and skipped unreadable records are not surfaced as warnings."
+  ],
+  "valid": [
+    { "name": "empty history remains measured zero", "data": { "days": [], "totalTokens": 0, "peakDailyTokens": 0, "longestTaskMs": 0, "longestStreakDays": 0, "currentStreakDays": 0 } },
+    { "name": "partial records retain available measurements", "data": { "days": [{ "date": "2026-10-18", "tokens": 120 }], "totalTokens": 120, "peakDailyTokens": 120, "longestTaskMs": 42000, "longestStreakDays": 1, "currentStreakDays": 1, "incomplete": true } },
+    { "name": "undated legacy usage is partial coverage, not a read failure", "data": { "days": [], "totalTokens": 101, "peakDailyTokens": 0, "longestTaskMs": 0, "longestStreakDays": 0, "currentStreakDays": 0, "partial": true } }
+  ],
+  "invalid": [
+    { "name": "missing measurements are unavailable", "data": { "days": [] } },
+    { "name": "negative totals are refused", "data": { "days": [], "totalTokens": -1, "peakDailyTokens": 0, "longestTaskMs": 0, "longestStreakDays": 0, "currentStreakDays": 0 } },
+    { "name": "invalid calendar dates are refused", "data": { "days": [{ "date": "2026-02-30", "tokens": 2 }], "totalTokens": 2, "peakDailyTokens": 2, "longestTaskMs": 0, "longestStreakDays": 1, "currentStreakDays": 0 } },
+    { "name": "duplicate calendar dates are refused", "data": { "days": [{ "date": "2026-10-18", "tokens": 2 }, { "date": "2026-10-18", "tokens": 2 }], "totalTokens": 4, "peakDailyTokens": 4, "longestTaskMs": 0, "longestStreakDays": 1, "currentStreakDays": 1 } }
+  ]
+}

@@ -1,0 +1,142 @@
+{
+  "_why": "Large pastes use host-owned files with bounded restoration. Length limits use UTF-16 code units so editor and host agree for supplementary Unicode characters.",
+  "threshold": {
+    "characters": 5000,
+    "unit": "UTF-16 code units",
+    "belowThreshold": "plain editable text in the composer"
+  },
+  "preview": {
+    "limit": 80,
+    "shape": "trim, collapse whitespace runs to one space, cut at 79 code points plus an ellipsis"
+  },
+  "restoreLimit": {
+    "characters": 25000,
+    "overLimit": "pasted_text_restore_too_large",
+    "unit": "UTF-16 code units"
+  },
+  "createLimit": {
+    "characters": 10485760,
+    "overLimit": "pasted_text_too_large",
+    "unit": "UTF-16 code units"
+  },
+  "storage": {
+    "directory": "<configRoot>/pasted-text/<uuid>/pasted-text.txt",
+    "ledger": "<configRoot>/pasted-text/pasted-text-attachments.json",
+    "ledgerFields": [
+      "attachmentPaths",
+      "pendingRemovalPaths"
+    ],
+    "releaseOnSubmit": true,
+    "deleteOnRemove": "Only draft-owned or already-pending-removal files are deleted. Released files retained by submitted or queued content remain readable."
+  },
+  "requestSection": {
+    "header": "# Files pasted by the user:",
+    "line": "## \"<preview>\": <path>",
+    "emptyBodyNotice": "Pasted text contains the user's request."
+  },
+  "cases": [
+    {
+      "name": "4999 UTF-16 units stay editable",
+      "unit": "a",
+      "length": 4999,
+      "expected": {
+        "large": false
+      }
+    },
+    {
+      "name": "5000 UTF-16 units become an attachment",
+      "unit": "a",
+      "length": 5000,
+      "expected": {
+        "large": true
+      }
+    },
+    {
+      "name": "2499 supplementary characters stay editable",
+      "unit": "😀",
+      "length": 2499,
+      "expected": {
+        "large": false
+      }
+    },
+    {
+      "name": "2500 supplementary characters reach the threshold",
+      "unit": "😀",
+      "length": 2500,
+      "expected": {
+        "large": true
+      }
+    },
+    {
+      "name": "whitespace-only text reaches the same threshold",
+      "unit": " ",
+      "length": 5000,
+      "expected": {
+        "large": true
+      }
+    },
+    {
+      "name": "preview collapses whitespace and cuts at 80",
+      "text": "  curl -X POST   https://example.test\nsecond line with a very long tail that exceeds the eighty code point preview ceiling by a wide margin  ",
+      "expected": {
+        "previewLength": 80,
+        "endsWith": "…",
+        "singleLine": true
+      }
+    },
+    {
+      "name": "reference section lists one line per stored paste",
+      "body": "look at this",
+      "cards": [
+        {
+          "path": "/cfg/pasted-text/00000000-0000-4000-8000-000000000000/pasted-text.txt",
+          "preview": "curl -X POST https://example.test"
+        }
+      ],
+      "expected": {
+        "text": "look at this\n# Files pasted by the user:\n\n## \"curl -X POST https://example.test\": /cfg/pasted-text/00000000-0000-4000-8000-000000000000/pasted-text.txt\n"
+      }
+    },
+    {
+      "name": "an empty body adds the carry-request notice",
+      "body": "",
+      "cards": [
+        {
+          "path": "/cfg/pasted-text/00000000-0000-4000-8000-000000000001/pasted-text.txt",
+          "preview": "only the paste"
+        }
+      ],
+      "expected": {
+        "text": "# Files pasted by the user:\n\n## \"only the paste\": /cfg/pasted-text/00000000-0000-4000-8000-000000000001/pasted-text.txt\n\nPasted text contains the user's request.\n"
+      }
+    },
+    {
+      "name": "the section round-trips back into cards and body",
+      "text": "look at this\n# Files pasted by the user:\n\n## \"curl -X POST https://example.test\": /cfg/pasted-text/00000000-0000-4000-8000-000000000000/pasted-text.txt\n",
+      "expected": {
+        "displayText": "look at this",
+        "cards": [
+          {
+            "path": "/cfg/pasted-text/00000000-0000-4000-8000-000000000000/pasted-text.txt",
+            "preview": "curl -X POST https://example.test"
+          }
+        ]
+      }
+    }
+  ],
+  "restore": {
+    "selection": "Use the current editor selection when the owned read completes, expanding intersected atoms.",
+    "text": "Insert literal editable text without resolving stale quote ranges.",
+    "ownership": "Reject a retired input or removed card; ordinary typing or caret movement does not retire the read.",
+    "history": "Document Undo/Redo affects inserted text without recreating the consumed card."
+  },
+  "remove": {
+    "history": "After document history is exhausted, platform Undo/Redo restores or removes the exact attachment entry in its original relative position.",
+    "lifetimeMilliseconds": 60000,
+    "maximumActions": 20,
+    "cleanup": "Renew expiry after Undo/Redo; delete only when removal remains applied and no draft retains the file.",
+    "pending": "Keep an undoable pending object through successful settlement; failed settlement retires its removal action.",
+    "consumed": "Restoring a card into editable text retires earlier removal actions for that card.",
+    "ownership": "Navigation, draft replacement or submission prevents old attachment actions from changing newer input."
+  }
+}

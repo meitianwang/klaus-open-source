@@ -1,0 +1,71 @@
+{
+  "_why": "Dynamic tool contentItems must produce readable tool text and local media paths before renderer delivery. Returned image bytes use immutable pooled copies so later workspace moves or replacements cannot break a transcript. Saved references pair in order as source aliases, with surviving files used only when inline bytes are unavailable. Invalid images remain visible as notices, explicit errors win, and only a bound session with an explicit host profile may write the media pool.",
+  "poolFileName": "d84ba2d48cf22887.png",
+  "cases": [
+    {
+      "name": "ordinary result remains outside the dynamic media projection",
+      "result": { "text": "ordinary output", "exitCode": 0 },
+      "expected": null
+    },
+    {
+      "name": "a serialized result is not recursively interpreted",
+      "result": "{\"contentItems\":[{\"type\":\"inputText\",\"text\":\"literal\"}]}",
+      "expected": null
+    },
+    {
+      "name": "text items retain their order and newlines",
+      "result": { "contentItems": [{ "type": "inputText", "text": "First" }, { "type": "inputText", "text": "Second" }], "success": true },
+      "expected": { "content": "First\nSecond", "media": [] }
+    },
+    {
+      "name": "inline image bytes are separated from tool text",
+      "result": { "contentItems": [{ "type": "inputText", "text": "Screenshot ready" }, { "type": "inputImage", "imageUrl": "{imageUrl}" }, { "type": "inputText", "text": "Continue here" }], "success": true },
+      "expected": { "content": "Screenshot ready\nContinue here", "media": [{ "path": "{poolFile}", "mimeType": "image/png" }] }
+    },
+    {
+      "name": "path-only Saved files remain available when inline bytes are unavailable",
+      "result": { "contentItems": [{ "type": "inputText", "text": "Saved: {missing}, {directory}, {savedA}, {savedB}" }, { "type": "inputImage", "imageUrl": "unused saved file bytes" }, { "type": "inputImage", "imageUrl": "unused saved file bytes" }, { "type": "inputImage", "imageUrl": "{imageUrl}" }], "success": true },
+      "expected": { "content": "Saved: {missing}, {directory}, {savedA}, {savedB}", "media": [{ "path": "{savedA}", "mimeType": "image/png" }, { "path": "{savedB}", "mimeType": "image/png" }, { "path": "{poolFile}", "mimeType": "image/png" }] }
+    },
+    {
+      "name": "existing generated files retain source aliases while image bytes use the pool",
+      "result": { "contentItems": [{ "type": "inputImage", "imageUrl": "{imageUrl}" }, { "type": "inputText", "text": "Saved: {savedA}" }], "success": true },
+      "expected": { "content": "Saved: {savedA}", "media": [{ "path": "{poolFile}", "sourcePath": "{savedA}", "mimeType": "image/png" }] }
+    },
+    {
+      "name": "a missing single unquoted Saved reference retains its source alias",
+      "result": { "contentItems": [{ "type": "inputImage", "imageUrl": "{imageUrl}" }, { "type": "inputText", "text": "Saved: {missing}" }] },
+      "expected": { "content": "Saved: {missing}", "media": [{ "path": "{poolFile}", "sourcePath": "{missing}", "mimeType": "image/png" }] }
+    },
+    {
+      "name": "invalid base64 stays visible and never creates a corrupt image",
+      "result": { "contentItems": [{ "type": "inputText", "text": "Screenshot failed" }, { "type": "inputImage", "imageUrl": "data:image/png;base64,aGVsbG8=###" }] },
+      "expected": { "content": "Screenshot failed\n[image unavailable: invalid base64 payload]", "media": [] }
+    },
+    {
+      "name": "remote URLs are not fetched as tool media",
+      "result": { "contentItems": [{ "type": "inputImage", "imageUrl": "https://fixture.invalid/private.png" }] },
+      "expected": { "content": "[image unavailable: not a data URL]", "media": [] }
+    },
+    {
+      "name": "empty image payload is visible",
+      "result": { "contentItems": [{ "type": "inputImage", "imageUrl": "data:image/png;base64," }] },
+      "expected": { "content": "[image unavailable: invalid base64 payload]", "media": [] }
+    },
+    {
+      "name": "unsupported media is not stored with an invented type",
+      "result": { "contentItems": [{ "type": "inputImage", "imageUrl": "data:application/unknown;base64,aGVsbG8=" }] },
+      "expected": { "content": "[image unavailable: unsupported media type]", "media": [] }
+    },
+    {
+      "name": "unknown and malformed content items do not become display text",
+      "result": { "contentItems": [null, { "type": "unknown", "text": "ignored" }, { "type": "inputText", "text": 42 }] },
+      "expected": { "content": "", "media": [] }
+    }
+  ],
+  "terminalCases": [
+    { "name": "completed tool", "status": "completed", "expected": { "type": "tool_end", "sessionId": "conversation", "toolName": "screenshot", "toolCallId": "capture", "isError": false, "content": "Screenshot ready", "media": [{ "path": "{poolFile}", "mimeType": "image/png" }] } },
+    { "name": "failed tool without a wire error retains its partial result", "status": "failed", "expected": { "type": "tool_end", "sessionId": "conversation", "toolName": "screenshot", "toolCallId": "capture", "isError": true, "content": "Screenshot ready", "media": [{ "path": "{poolFile}", "mimeType": "image/png" }] } },
+    { "name": "explicit wire error wins before media storage", "status": "failed", "error": { "message": "Capture permission denied" }, "expected": { "type": "tool_end", "sessionId": "conversation", "toolName": "screenshot", "toolCallId": "capture", "isError": true, "content": "Capture permission denied" } }
+  ]
+}

@@ -1,0 +1,24 @@
+import { createRequire } from 'node:module';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { spawnElectronGui } from './electron-test-preflight.cjs';
+const desktop = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const require = createRequire(import.meta.url);
+const output = join(desktop, 'dist/send-processing-logs');
+const fixture = join(output, 'fixture');
+mkdirSync(fixture, { recursive: true });
+await require('esbuild').build({ entryPoints: [join(desktop, 'tests/turn-processing-dom-entry.tsx')], outfile: join(fixture, 'browser.js'),
+  bundle: true, platform: 'browser', format: 'iife', jsx: 'automatic', loader: { '.module.css': 'local-css', '.svg': 'text' }, logLevel: 'warning' });
+writeFileSync(join(fixture, 'index.html'), `<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="${pathToFileURL(join(desktop, 'frontend/css/styles.css'))}"><link rel="stylesheet" href="browser.css"><style>body{display:block;padding:24px;background:var(--bg);color:var(--fg)}#root{max-width:720px;margin:auto}</style></head><body><main id="root"></main><script src="browser.js"></script></body></html>`);
+const env = { ...process.env, KLAUS_PROCESSING_TEST_ROOT: output };
+delete env.ELECTRON_RUN_AS_NODE;
+const args = [join(desktop, 'tests/turn-processing-electron.cjs')];
+const command = [require('electron'), ...args];
+const log = [`$ ${JSON.stringify(command)}\n`];
+const child = spawnElectronGui(command[0], args, { env, stdio: ['ignore', 'pipe', 'pipe'] });
+for (const stream of [child.stdout, child.stderr]) stream.on('data', chunk => { log.push(String(chunk)); process.stdout.write(chunk); });
+const timer = setTimeout(() => child.kill('SIGTERM'), 60_000);
+const code = await new Promise((resolve, reject) => { child.once('error', reject); child.once('close', resolve); });
+clearTimeout(timer); log.push(`\nexit_code=${code}\n`); writeFileSync(join(output, 'dom.log'), log.join(''));
+process.exitCode = code === 0 ? 0 : 1;

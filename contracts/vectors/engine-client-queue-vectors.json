@@ -1,0 +1,69 @@
+{
+  "reason": "The engine owns durable next-turn input and all execution admission. The desktop projects engine rows into composer snapshots and imports its legacy SQLite rows and receipts exactly once. Metadata mutations use the named thread/queue facade. Portable native attachment bytes are saved before enqueue completes, so delivery survives removal of the original temporary file. One in-memory host lock may coordinate delivery preparation, while atomic thread/queue/start owns admission and removal. A transport timeout never authorizes a local fallback or a second model submission. A successful admission is separate from application of a steer. Host reads omit native input bytes and retain complete presentation metadata plus native-input fingerprint and row-version fences. A changed row at final reserve is a definite CAS refusal, including Stop. External text reads use the same revision and absolute offset. Atomic clear retires rows without creating Undo proof and preserves permanent replay identities. A confirmed addition remains accepted when its later snapshot read fails, preventing duplicate recovery input.",
+  "methods": {
+    "list": "thread/queue/list",
+    "add": "thread/queue/add",
+    "update": "thread/queue/update",
+    "delete": "thread/queue/delete",
+    "clear": "thread/queue/clear",
+    "reorder": "thread/queue/reorder",
+    "start": "thread/queue/start",
+    "pause": "thread/queue/pause",
+    "resume": "thread/queue/resume",
+    "import": "thread/queue/import",
+    "discard": "thread/queue/discard",
+    "changed": "thread/queue/changed"
+  },
+  "identity": { "rendererId": "conversation", "threadId": "engine-thread", "itemId": "queued-item", "turnId": "active-turn" },
+  "payload": {
+    "id": "queued-item",
+    "displayText": "Inspect the attachment",
+    "finalText": "Inspect the attachment\n\nAttached:\n- /managed/uploads/notes.txt",
+    "media": [{ "type": "file", "path": "/managed/uploads/notes.txt", "name": "notes.txt" }],
+    "liveAttachments": [{ "type": "file", "name": "notes.txt" }],
+    "displayMetadata": {
+      "displayText": "Inspect the attachment",
+      "attachments": [{ "type": "file", "name": "notes.txt" }],
+      "composerReferences": [{ "kind": "file", "name": "notes.txt", "value": "/managed/uploads/notes.txt" }]
+    }
+  },
+  "nativeInput": [{ "type": "text", "text": "Inspect the attachment\n\nAttached:\n- /managed/uploads/notes.txt" }],
+  "imageOnly": {
+    "id": "image-only",
+    "displayText": "",
+    "finalText": "",
+    "media": [{ "type": "image", "path": "/managed/uploads/shot.png", "name": "shot.png" }],
+    "liveAttachments": [{ "type": "image", "name": "shot.png", "src": "blob:shot" }]
+  },
+  "migration": {
+    "minimumRevision": 19,
+    "additionMutation": { "id": "consumed-add", "fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
+    "removalMutation": { "id": "removed-input", "fingerprint": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" },
+    "acknowledgeOnlyAfterEngineReply": true,
+    "replayImportCreatesRows": false,
+    "consumedAdditionCreatesRows": false,
+    "unknownImportAllowsLocalExecution": false
+  },
+  "admission": {
+    "defaultMode": "start-if-idle",
+    "steerMode": "steer",
+    "steerRequiresExpectedTurnId": true,
+    "separateTurnSubmitCalls": 0,
+    "separateDeleteCalls": 0,
+    "unknownAutomaticallyRetried": false,
+    "steerAckAppliesInput": false,
+    "confirmedAddSurvivesSnapshotFailure": true
+  },
+  "cases": [
+    { "name": "engine list survives replacement host adapters", "stateOwner": "engine" },
+    { "name": "list drains every page at one revision", "pageSize": 1 },
+    { "name": "metadata changes reject a stale revision", "expectedCode": "queue_revision_conflict" },
+    { "name": "consumed addition receipts do not recreate input after migration", "replayed": true },
+    { "name": "a lost import ACK retains local migration rows for an idempotent retry", "localRowsRetained": true },
+    { "name": "a lost start ACK retains one engine reservation across host restart", "startCalls": 1 },
+    { "name": "steering atomically consumes the engine row without a second delete", "startCalls": 1 },
+    { "name": "interruption and Undo preserve each row's pause", "automaticStartCalls": 0 },
+    { "name": "image-only input keeps its complete attachment payload", "rows": 1 },
+    { "name": "confirmed addition remains accepted if its snapshot read fails", "ok": true, "snapshotPresent": false, "addCalls": 1 }
+  ]
+}

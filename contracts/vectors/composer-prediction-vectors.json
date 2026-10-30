@@ -1,0 +1,108 @@
+{
+  "version": 1,
+  "preference": {
+    "key": "composer_predictions_enabled",
+    "default": true,
+    "uiOnlyKeys": [
+      "composer_predictions_enabled",
+      "composer_predictions_has_accepted"
+    ]
+  },
+  "configuration": {
+    "reason": "The prompt source is chosen per request. A stored subscription credential on the plan that covers these calls keeps the provider-configured behaviour, so the pacing stays with whoever pays for the inference; every other account runs the prompt this app ships. A covered account never silently falls back to the bundled prompt when its configuration read fails.",
+    "paths": {
+      "subscription": {
+        "selectedWhen": "stored Codex credential present and its token tier is pro",
+        "modelSource": "any",
+        "promptSource": "provider configuration endpoint",
+        "promptVersion": "from configuration",
+        "effort": "from configuration",
+        "cacheMs": 300000,
+        "cacheScope": "account and user, permitting token refresh",
+        "sampling": "live_sample_rate ?? catch_up_sample_rate ?? sample_rate ?? 1",
+        "modelBlacklist": "unsupported_models",
+        "serverKillSwitch": "is_enabled",
+        "configurationFailure": "configuration_unavailable, never the bundled prompt"
+      },
+      "bundled": {
+        "selectedWhen": "no stored credential, or a tier other than pro",
+        "promptSource": "bundled",
+        "promptVersion": "5",
+        "effort": "high",
+        "sampling": false,
+        "modelBlacklist": false,
+        "remoteConfiguration": false
+      }
+    },
+    "responseSchema": "single nullable suggestion field, additionalProperties false"
+  },
+  "eligibility": {
+    "switch": "composer_predictions_enabled only",
+    "planGate": "stored credential tier read locally from the access token; the session's own model source is irrelevant to it",
+    "modelSource": "any, on both paths",
+    "providerGate": false,
+    "subscription": "not required; it selects the provider-configured path",
+    "blockedWhile": [
+      "running",
+      "plan_mode",
+      "empty model",
+      "no terminal source turn"
+    ],
+    "fingerprint": "turn, model, provider, session source, and the resolved account principal, so signing a covered account in or out retires in-flight work"
+  },
+  "generation": {
+    "context": "full parent conversation",
+    "model": "parent model",
+    "liveOffscreen": true,
+    "tools": false,
+    "hooks": false,
+    "persistHistory": false,
+    "timeoutMs": 30000,
+    "retry": false
+  },
+  "sourceTurn": {
+    "live": "latest admitted generation",
+    "resumed": "highest persisted admission generation, with legacy retained-context fallback",
+    "messageFreeTerminals": true,
+    "clockTies": "admission generation independent of context append order",
+    "rollback": "persist a clear watermark and use retained transcript",
+    "renderer": "resolve named engine context before selecting the per-turn cache; revisions track history and turn lifecycle, not the stream object identity",
+    "revisionReason": "Unrelated immutable stream updates must not discard every pending source reply and prevent prediction lookup.",
+    "cancelledRead": "abort queued source admission before restoring a retired binding",
+    "recovery": {
+      "trigger": "window focus",
+      "retryableReasons": ["unavailable", "engine_unavailable", "cancelled"],
+      "settledReasons": [null, "running", "plan_mode", "disabled", "closed"],
+      "rejectedRead": "retry on window focus",
+      "ordinaryRefresh": "no retry for the same source revision",
+      "inFlight": "share one source lookup",
+      "predictionCache": "preserve successful, empty, sampled-out and failed inference results"
+    }
+  },
+  "editor": {
+    "document": "empty",
+    "focusRequired": false,
+    "hiddenWhile": [
+      "composition",
+      "autocomplete",
+      "attachments",
+      "context",
+      "capture",
+      "dictation",
+      "running",
+      "disabled"
+    ],
+    "adoptKeys": [
+      "Tab",
+      "ArrowRight",
+      "Enter"
+    ],
+    "modifiersAdopt": false,
+    "adoptSends": false,
+    "click": "focus",
+    "escapeDismisses": false,
+    "typingThenDeleting": "redisplay",
+    "adoptionThenClearing": "redisplay until submission",
+    "hint": "until first adoption"
+  }
+}

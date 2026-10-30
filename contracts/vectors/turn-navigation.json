@@ -1,0 +1,28 @@
+{
+  "reason": "Keep fast previews and keyboard navigation while pinning reliable pointer lifetimes, nested live turns, visible ranges and offscreen rendering. Website icons appear only in hover previews, keeping the rail compact; the first existing marker retains website metadata and an accessible type label.",
+  "minimumTurns": 2,
+  "clearancePx": 48,
+  "hoverDelayMs": 150,
+  "geometry": { "hitWidth": 36, "lineLeft": 16, "restWidth": 6, "hoverWidth": 26, "neighborWidths": [20, 14, 10], "rowHeight": 10 },
+  "groupBoundary": 64,
+  "transcriptLayout": { "mainContentWrapper": true, "chronologicalTurnWrappers": true, "steeredUsersShareTurn": true, "staticViewTurnWrappers": false },
+  "websiteOutputs": {
+    "markersPerTurn": 1,
+    "markerIconsPerTurn": 0,
+    "anchor": "first-visible-user-marker",
+    "reuseExistingMarker": true,
+    "logicalTurnSegments": true,
+    "repeatedCardsCreateMarkers": false,
+    "hiddenCardsCreateMarkers": false,
+    "previewIncludesType": true,
+    "previewIncludesIcon": true,
+    "accessibleLabelIncludesType": true
+  },
+  "dragRepetitions": 6,
+  "dragIndices": [0, 3, 6],
+  "freeHoverIndex": 9,
+  "visibleRanges": [
+    { "tops": [0, 248, 496, 744, 992], "scrollTop": 0, "clientHeight": 826, "expected": [0, 3] },
+    { "tops": [0, 248, 496, 744, 992], "scrollTop": 248, "clientHeight": 496, "expected": [1, 2] }
+  ]
+}

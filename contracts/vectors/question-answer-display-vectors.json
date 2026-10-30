@@ -1,0 +1,65 @@
+{
+  "reason": "Structured question replies keep their wire attachment references for model delivery, while the transcript displays backed images once. Non-image file references remain readable with their original paths. Only a generated trailing upload reference is eligible; ordinary prose and missing images remain visible.",
+  "image": {
+    "type": "image",
+    "path": "/fixture/media/pool-image.png"
+  },
+  "imageReference": "[Attachment: image.png] (/fixture/uploads/14c742e2-907f-4418-b468-25692e589789.png)",
+  "fileReference": "[Attachment: notes (final).txt] (/fixture/uploads/a438b765-928f-4620-81d1-a672ce40aed2.txt)",
+  "cases": [
+    {
+      "name": "image and text",
+      "answer": "Use this screenshot.\n[Attachment: image.png] (/fixture/uploads/14c742e2-907f-4418-b468-25692e589789.png)",
+      "imageCount": 1,
+      "text": "Use this screenshot."
+    },
+    {
+      "name": "image only",
+      "answer": "[Attachment: image.png] (/fixture/uploads/14c742e2-907f-4418-b468-25692e589789.png)",
+      "imageCount": 1,
+      "text": ""
+    },
+    {
+      "name": "image and referenced file",
+      "answer": "See both.\n[Attachment: image.png] (/fixture/uploads/14c742e2-907f-4418-b468-25692e589789.png)\n[Attachment: notes (final).txt] (/fixture/uploads/a438b765-928f-4620-81d1-a672ce40aed2.txt)",
+      "imageCount": 1,
+      "text": "See both.\n[Attachment: notes (final).txt] (/fixture/uploads/a438b765-928f-4620-81d1-a672ce40aed2.txt)"
+    },
+    {
+      "name": "missing image retains its reference",
+      "answer": "[Attachment: image.png] (/fixture/uploads/14c742e2-907f-4418-b468-25692e589789.png)",
+      "imageCount": 0,
+      "text": "[Attachment: image.png] (/fixture/uploads/14c742e2-907f-4418-b468-25692e589789.png)"
+    },
+    {
+      "name": "authored path remains prose",
+      "answer": "[Attachment: example.png] (/workspace/example.png)",
+      "imageCount": 1,
+      "text": "[Attachment: example.png] (/workspace/example.png)"
+    },
+    {
+      "name": "middle reference remains prose",
+      "answer": "[Attachment: image.png] (/fixture/uploads/14c742e2-907f-4418-b468-25692e589789.png)\nThis is an example.",
+      "imageCount": 1,
+      "text": "[Attachment: image.png] (/fixture/uploads/14c742e2-907f-4418-b468-25692e589789.png)\nThis is an example."
+    },
+    {
+      "name": "quoted reference remains prose",
+      "answer": "> [Attachment: image.png] (/fixture/uploads/14c742e2-907f-4418-b468-25692e589789.png)",
+      "imageCount": 1,
+      "text": "> [Attachment: image.png] (/fixture/uploads/14c742e2-907f-4418-b468-25692e589789.png)"
+    },
+    {
+      "name": "Windows upload with line breaks",
+      "answer": "Keep the layout.\r\n[Attachment: image.png] (C:\\Users\\user\\.klaus\\uploads\\14c742e2-907f-4418-b468-25692e589789.png)",
+      "imageCount": 1,
+      "text": "Keep the layout."
+    },
+    {
+      "name": "partially missing images retain all references",
+      "answer": "[Attachment: image.png] (/fixture/uploads/14c742e2-907f-4418-b468-25692e589789.png)\n[Attachment: second.png] (/fixture/uploads/45e62637-10bf-443c-82ec-60e5376a99cd.png)",
+      "imageCount": 1,
+      "text": "[Attachment: image.png] (/fixture/uploads/14c742e2-907f-4418-b468-25692e589789.png)\n[Attachment: second.png] (/fixture/uploads/45e62637-10bf-443c-82ec-60e5376a99cd.png)"
+    }
+  ]
+}

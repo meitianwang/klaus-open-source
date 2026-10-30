@@ -1,0 +1,17 @@
+{
+  "reason": "Browser tab mentions preserve source, browser instance, exact tab identity, and title/URL snapshots across composer persistence and task-bound browser resolution.",
+  "limits": { "defaultCandidates": 3, "searchCandidates": 100, "messageIdentities": 100, "messageUriBytes": 1048576 },
+  "invalidation": { "event": "browser-use:state", "marker": "tabInventoryChanged", "compatibilityPollingMs": 5000 },
+  "externalExtensionCapability": "tab_mentions_v1",
+  "persistence": { "userInput": "text", "displayMetadata": "composerReferences", "steerDisplayMetadata": true, "borrowedUserTabKeepsWindowAndGroup": true },
+  "valid": [
+    { "source": "extension", "browserId": "chrome:profile-a", "tabId": "17", "title": "Inbox [work]", "url": "https://mail.example.com/inbox", "mention": "plugin://browser@klaus-bundled?mention=tab-v1&source=extension&browserId=chrome%3Aprofile-a&tabId=17&title=Inbox+%5Bwork%5D&url=https%3A%2F%2Fmail.example.com%2Finbox" },
+    { "source": "iab", "browserId": "session-A", "tabId": "3", "title": "Docs", "url": "https://example.com/docs", "mention": "plugin://browser@klaus-bundled?mention=tab-v1&browserId=session-A&tabId=3&title=Docs&url=https%3A%2F%2Fexample.com%2Fdocs" }
+  ],
+  "invalid": [
+    "plugin://browser@klaus-bundled?mention=tab-v1&browserId=session-A&tabId=3&title=Docs&url=javascript%3Aalert%281%29",
+    "plugin://browser@klaus-bundled?mention=tab-v1&browserId=session-A&tabId=3&title=Docs&url=https%3A%2F%2Fexample.com%2Fdocs&tabId=4",
+    "plugin://browser@klaus-bundled?browserId=session-A&mention=tab-v1&tabId=3&title=Docs&url=https%3A%2F%2Fexample.com%2Fdocs",
+    "plugin://browser@klaus-bundled?mention=tab-v1&browserId=session-A&tabId=3&title=Docs&url=https%3A%2F%2Fexample.com%2Fdocs&extra=1"
+  ]
+}

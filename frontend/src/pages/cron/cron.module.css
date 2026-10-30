@@ -1,0 +1,1130 @@
+/* Cron 页样式（Batch 5 CSS Modules，迁自 styles.css 的 cron 段）。
+   状态类（active、open、is-x、status-x）与共享原语（kls-x、btn-x、
+   cron-dd-caret 字形内嵌类）经 :global() 引用，js 侧保持全局字面量。 */
+
+/* Panes */
+.cron-pane { display: none; }
+
+.cron-pane:global(.active) { display: block; }
+
+/* Run history timeline */
+.cron-runs-group { margin-bottom: 28px; }
+
+.cron-runs-group-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding-left: 4px;
+}
+
+.cron-runs-group-dot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: var(--fg-quaternary);
+}
+
+.cron-runs-group-label {
+  font-size: var(--text-body);
+  font-weight: var(--weight-semibold);
+  color: var(--fg);
+}
+
+.cron-runs-group-list {
+  position: relative;
+  padding-left: 20px;
+  margin-left: 3px;
+  border-left: 1px dashed var(--border);
+}
+
+.cron-run-row {
+  position: relative;
+  padding: 8px 0 14px 20px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 10px;
+}
+
+.cron-run-open {
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+
+button.cron-run-open { cursor: pointer; }
+
+.cron-run-row::before {
+  content: '';
+  position: absolute;
+  left: -3.5px; top: 14px;
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: var(--fg-quaternary);
+}
+
+/* Declared here, not in css/styles.css: CSS Modules localizes animation names,
+   so a keyframes referenced from a module must be defined in that module. */
+@keyframes cron-pulse { 50% { opacity: 0.4; } }
+
+.cron-run-row:global(.status-success)::before { background: var(--status-ok); }
+
+.cron-run-row:global(.status-failed)::before { background: var(--status-error); }
+
+.cron-run-row:global(.status-running)::before { background: var(--status-busy); animation: cron-pulse 1.4s ease-in-out infinite; }
+
+.cron-run-title {
+  font-size: var(--text-body);
+  font-weight: var(--weight-semibold);
+  color: var(--fg);
+  margin-bottom: 4px;
+}
+
+.cron-run-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+  font-size: var(--text-small);
+  color: var(--fg-tertiary);
+}
+
+.cron-run-meta .cron-run-status-badge { color: var(--fg-secondary); }
+
+.cron-run-status-success { color: var(--status-ok) !important; }
+
+.cron-run-status-failed { color: var(--status-error) !important; }
+
+.cron-run-error {
+  display: block;
+  margin-top: 4px;
+  font-size: var(--text-small);
+  color: var(--danger);
+  background: var(--danger-bg);
+  border-radius: var(--radius-xxs);
+  padding: 4px 8px;
+  font-family: var(--font-mono);
+}
+
+/* ===== My Tasks — flat scheduled-task list =====
+ * Borderless rows with a leading
+ * play/pause control, bold title + one gray meta line ("schedule · next run
+ * · last run"), hover wash + kebab. 状态筛选（全部 / 启用中 / 已暂停）是 tab 行
+ * 右侧的 kls-select 下拉；search lives in the topbar like the slash-commands page. */
+.cron-list {
+  display: flex;
+  flex-direction: column;
+  max-width: 860px;
+}
+
+.cron-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 13px 14px;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+
+/* Hover 交互对齐欢迎页建议行：不铺背景块，只把文字/图标加深到正文色。 */
+.cron-row:hover .cron-row-title { color: var(--fg); }
+
+.cron-row:hover .cron-row-meta { color: var(--fg-secondary); }
+
+.cron-row:hover .cron-row-circle { color: var(--fg); }
+
+.cron-row:global(.is-paused) .cron-row-title { color: var(--fg-tertiary); }
+
+.cron-row:global(.is-paused):hover .cron-row-title { color: var(--fg); }
+
+.cron-row:global(.is-paused) .cron-row-circle { opacity: 0.55; }
+
+.cron-row:global(.is-paused):hover .cron-row-circle { opacity: 1; }
+
+/* Leading play/pause control — active tasks show the pause glyph (click to
+   pause), paused tasks show play (click to resume). The icon is a sidebar-
+   family path-fill glyph (clock ring + filled bars/triangle); the button is
+   just a quiet hit area. */
+.cron-row-circle {
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 50%;
+  color: var(--fg-quaternary);
+  background: transparent;
+  cursor: pointer;
+  padding: 0;
+  transition: color var(--transition), opacity var(--transition);
+}
+
+.cron-row-circle:hover { color: var(--fg); }
+
+.cron-row:global(.is-running) .cron-row-circle { color: var(--status-busy); }
+
+.cron-row-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.cron-row-title {
+  font-size: var(--text-body);
+  font-weight: var(--weight-semibold);
+  color: var(--fg);
+  letter-spacing: -0.01em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cron-row-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  font-size: var(--text-body-sm);
+  color: var(--fg-tertiary);
+  min-width: 0;
+}
+
+.cron-row-sep { margin: 0 6px; color: var(--fg-quaternary); }
+
+.cron-row-meta-failed { color: var(--status-error); }
+
+.cron-row-running {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--status-busy);
+  font-weight: var(--weight-medium);
+}
+
+.cron-run-pulse {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--status-busy);
+  animation: cron-pulse 1.4s ease-in-out infinite;
+  flex-shrink: 0;
+}
+
+/* Kebab fades in on row hover. */
+.cron-row-menu {
+  opacity: 0;
+  background: transparent;
+  border: none;
+  color: var(--fg-tertiary);
+  cursor: pointer;
+  padding: 6px;
+  border-radius: var(--radius-xxs);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: opacity var(--transition), color var(--transition);
+}
+
+.cron-row:hover .cron-row-menu,
+.cron-row:focus-within .cron-row-menu { opacity: 1; }
+
+.cron-row-menu:hover { color: var(--fg); }
+
+/* Run rows double as entry points into the run's chat session */
+.cron-run-row:global(.is-clickable) { cursor: pointer; border-radius: var(--radius-xs); transition: background var(--transition); }
+
+.cron-run-row:global(.is-clickable):hover { background: var(--bg-hover); }
+
+/* 箭头字形自带字面量 class（raw-glyphs 里的 svg 属性），这里用 :global 对齐，
+   否则 module 哈希后永远失配。 */
+.cron-run-row :global(.cron-run-chevron) { color: var(--fg-quaternary); opacity: 0; transition: opacity var(--transition); }
+
+.cron-run-row:global(.is-clickable):hover :global(.cron-run-chevron) { opacity: 1; }
+
+.cron-run-retry {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xxs);
+  color: var(--fg-secondary);
+  font-size: var(--text-badge);
+  font-family: var(--font);
+  padding: 1px 8px;
+  cursor: pointer;
+  transition: border-color var(--transition), color var(--transition);
+}
+
+.cron-run-retry:hover { border-color: var(--fg-quaternary); color: var(--fg); }
+
+/* Read-only summary displayed instead of the dropdown when editing a bound task */
+.cron-form-channel-bound {
+  padding: 8px 12px;
+  background: var(--bg-hover);
+  color: var(--fg-tertiary);
+  font-size: var(--text-body-sm);
+  border-radius: var(--radius-sm);
+  border: 1px dashed var(--border);
+}
+
+/* Lock badge drawn with inline SVG background (no emoji so the glyph style
+   stays consistent with the rest of the Klaus chrome). 11x11 padlock at 55%
+   opacity, sized to sit inline with the 13px text. */
+.cron-form-channel-bound.is-locked::before {
+  content: '';
+  display: inline-block;
+  width: 11px;
+  height: 11px;
+  margin-right: 6px;
+  vertical-align: -1px;
+  opacity: 0.55;
+  background-color: currentColor;
+  /* phosphor lock（256 网格 fill 几何，与 KlausIcons 统一图标库同源） */
+  -webkit-mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 256 256' fill='black'><path d='M208,80H176V56a48,48,0,0,0-96,0V80H48A16,16,0,0,0,32,96V208a16,16,0,0,0,16,16H208a16,16,0,0,0,16-16V96A16,16,0,0,0,208,80ZM96,56a32,32,0,0,1,64,0V80H96ZM208,208H48V96H208V208Zm-68-56a12,12,0,1,1-12-12A12,12,0,0,1,140,152Z'/></svg>") center / contain no-repeat;
+          mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 256 256' fill='black'><path d='M208,80H176V56a48,48,0,0,0-96,0V80H48A16,16,0,0,0,32,96V208a16,16,0,0,0,16,16H208a16,16,0,0,0,16-16V96A16,16,0,0,0,208,80ZM96,56a32,32,0,0,1,64,0V80H96ZM208,208H48V96H208V208Zm-68-56a12,12,0,1,1-12-12A12,12,0,0,1,140,152Z'/></svg>") center / contain no-repeat;
+}
+
+.cron-empty-hint {
+  font-size: var(--text-body-sm);
+  color: var(--fg-quaternary);
+  line-height: var(--leading-settings-subtitle);
+  margin-top: -4px;
+}
+
+.cron-empty-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+/* Card menu popover */
+.cron-popover {
+  position: fixed;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-md);
+  padding: 4px;
+  z-index: 1001;
+  min-width: 120px;
+  font-family: var(--font);
+}
+
+.cron-popover button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: none;
+  padding: 7px 10px;
+  font-size: var(--text-body-sm);
+  color: var(--fg);
+  font-family: var(--font);
+  cursor: pointer;
+  border-radius: var(--radius-xxs);
+}
+
+.cron-popover button:hover { background: var(--bg-hover); }
+
+.cron-popover-danger { color: var(--danger) !important; }
+
+.cron-popover-danger:hover { background: var(--danger-bg) !important; }
+
+/* ===== Cron modal (create / edit form) ===== */
+.cron-modal {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  align-items: center;
+  justify-content: center;
+}
+
+.cron-modal:global(.active) { display: flex; }
+
+.cron-modal-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(2px);
+}
+
+.cron-modal-card {
+  position: relative;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  /* Fixed width so switching frequency modes doesn't resize the modal. */
+  width: min(540px, 94vw);
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.cron-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 20px 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.cron-modal-header h2 {
+  font-size: var(--text-title);
+  font-weight: var(--weight-semibold);
+  color: var(--fg);
+  margin: 0;
+}
+
+.cron-modal-close {
+  background: transparent;
+  border: none;
+  font-size: var(--text-hero);
+  line-height: 1;
+  color: var(--fg-tertiary);
+  cursor: pointer;
+  padding: 0 4px;
+}
+
+.cron-modal-close:hover { color: var(--fg); }
+
+.cron-modal-body {
+  padding: 18px 20px;
+  overflow-y: auto;
+  /* Stable height so the modal doesn't jump between modes (oneshot has 3 pills
+     + tz row, hourly has 1 pill — without this the card would shrink/grow). */
+  min-height: 360px;
+}
+
+.cron-modal-subtitle {
+  font-size: var(--text-small);
+  color: var(--fg-tertiary);
+  line-height: var(--leading-settings-subtitle);
+  margin: 0 0 18px;
+}
+
+.cron-form-row { margin-bottom: 16px; }
+
+.cron-schedule-picker {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  /* Single stable row so swapping modes doesn't collapse onto a 2nd line. */
+  flex-wrap: nowrap;
+  min-height: 40px;
+}
+
+.cron-dd { position: relative; display: inline-block; }
+
+.cron-dd-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 128px;
+  padding: 8px 12px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--fg);
+  font-family: var(--font);
+  font-size: var(--text-body-sm);
+  line-height: var(--leading-composer-control);
+  cursor: pointer;
+  transition: border-color var(--transition), background var(--transition);
+}
+
+.cron-dd-trigger:hover { background: var(--bg-hover); }
+
+.cron-dd:global(.open) .cron-dd-trigger,
+.cron-dd-trigger:focus-visible {
+  border-color: var(--fg-quaternary);
+  outline: none;
+}
+
+.cron-dd:global(.open) :global(.cron-dd-caret) { transform: rotate(180deg); }
+
+.cron-dd-panel {
+  position: fixed;
+  min-width: 128px;
+  padding: 4px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-md);
+  z-index: 1200;
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+.cron-dd-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-xs);
+  color: var(--fg);
+  font-family: var(--font);
+  font-size: var(--text-body-sm);
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--transition);
+  white-space: nowrap;
+}
+
+.cron-dd-item:hover { background: var(--bg-hover); }
+
+.cron-dd-item:global(.is-selected) { color: var(--fg); font-weight: var(--weight-medium); }
+
+.cron-dd-item:global(.is-selected)::after {
+  content: '';
+  width: 14px;
+  height: 14px;
+  background: currentColor;
+  /* phosphor check（与 KlausIcons 统一图标库同源） */
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 256 256' fill='black'%3E%3Cpath d='M229.66,77.66l-128,128a8,8,0,0,1-11.32,0l-56-56a8,8,0,0,1,11.32-11.32L96,188.69,218.34,66.34a8,8,0,0,1,11.32,11.32Z'/%3E%3C/svg%3E") center / contain no-repeat;
+          mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 256 256' fill='black'%3E%3Cpath d='M229.66,77.66l-128,128a8,8,0,0,1-11.32,0l-56-56a8,8,0,0,1,11.32-11.32L96,188.69,218.34,66.34a8,8,0,0,1,11.32,11.32Z'/%3E%3C/svg%3E") center / contain no-repeat;
+  color: var(--fg-secondary);
+  flex-shrink: 0;
+}
+
+.cron-dd-freq .cron-dd-trigger { min-width: 128px; }
+
+.cron-dd-source .cron-dd-trigger { min-width: 128px; }
+
+.cron-dd-project .cron-dd-trigger { min-width: 200px; max-width: 340px; }
+
+/* Long project paths must truncate inside the trigger, not stretch the row. */
+.cron-dd-trigger :global(.cron-dd-text) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.cron-dd-weekday .cron-dd-trigger { min-width: 104px; }
+
+.cron-dd-monthday .cron-dd-trigger { min-width: 84px; }
+
+/* [hidden] needs to beat elements that carry an explicit `display` value. */
+.cron-dd[hidden],
+.cron-date[hidden],
+.cron-time[hidden],
+.cron-date-popup[hidden],
+.cron-time-popup[hidden],
+.cron-interval[hidden],
+.cron-tz-row[hidden],
+.cron-dd-panel[hidden] { display: none; }
+
+/* Day-of-month panel — 7-col grid so 31 entries fit compactly.
+   `:not([hidden])` keeps the [hidden] override (display: none) winning. */
+.cron-dd-monthday .cron-dd-panel:not([hidden]) {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+  min-width: 224px;
+  padding: 6px;
+}
+
+.cron-dd-monthday .cron-dd-item {
+  justify-content: center;
+  padding: 6px 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.cron-dd-monthday .cron-dd-item:global(.is-selected) {
+  background: var(--fg);
+  color: var(--bg-elevated);
+}
+
+.cron-dd-monthday .cron-dd-item:global(.is-selected)::after { display: none; }
+
+/* Date picker (calendar popover) */
+.cron-date { position: relative; display: inline-block; }
+
+.cron-date-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 168px;
+  padding: 8px 12px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--fg);
+  font-family: var(--font);
+  font-size: var(--text-body-sm);
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  transition: border-color var(--transition), background var(--transition);
+}
+
+.cron-date-trigger:hover { background: var(--bg-hover); }
+
+.cron-date:global(.open) .cron-date-trigger { border-color: var(--fg-quaternary); }
+
+.cron-date-text { flex: 1; text-align: left; }
+
+.cron-date-trigger svg { color: var(--fg-tertiary); flex-shrink: 0; }
+
+.cron-date-popup {
+  position: fixed;
+  z-index: 1200;
+  padding: 12px;
+  min-width: 260px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-md);
+}
+
+.cron-date-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 4px 10px;
+}
+
+.cron-date-title {
+  font-size: var(--text-body-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--fg);
+}
+
+.cron-date-weekdays,
+.cron-date-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+}
+
+.cron-date-weekdays > span {
+  text-align: center;
+  padding: 4px 0;
+  font-size: var(--text-caption);
+  font-weight: var(--weight-medium);
+  color: var(--fg-tertiary);
+  letter-spacing: 0.02em;
+}
+
+.cron-date-cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 32px;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--fg);
+  font-family: var(--font);
+  font-size: var(--text-body-sm);
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  transition: background var(--transition);
+}
+
+.cron-date-cell:hover { background: var(--bg-hover); }
+
+.cron-date-cell.is-other { color: var(--fg-quaternary); cursor: default; }
+
+.cron-date-cell.is-other:hover { background: transparent; }
+
+.cron-date-cell:global(.is-selected),
+.cron-date-cell:global(.is-selected):hover {
+  background: var(--fg);
+  color: var(--bg-elevated);
+  font-weight: var(--weight-semibold);
+}
+
+/* Time picker (wheel) */
+.cron-time { position: relative; display: inline-block; }
+
+.cron-time-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 120px;
+  padding: 8px 12px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--fg);
+  font-family: var(--font);
+  font-size: var(--text-body-sm);
+  line-height: var(--leading-composer-control);
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  transition: border-color var(--transition), background var(--transition);
+}
+
+.cron-time-trigger:hover { background: var(--bg-hover); }
+
+.cron-time:global(.open) .cron-time-trigger { border-color: var(--fg-quaternary); }
+
+.cron-time-trigger svg { color: var(--fg-tertiary); flex-shrink: 0; }
+
+.cron-time-popup {
+  position: fixed;
+  z-index: 1200;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-md);
+}
+
+/* Horizontal selection pill spanning both wheels — sits behind items at z=0. */
+.cron-time-band {
+  position: absolute;
+  left: 6px;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  height: 32px;
+  background: var(--bg-hover);
+  border-radius: var(--radius-sm);
+  pointer-events: none;
+  z-index: 0;
+}
+
+.cron-wheel {
+  position: relative;
+  z-index: 1;
+  height: 224px; /* 7 rows × 32px */
+  width: 78px;
+  overflow-y: scroll;
+  scroll-snap-type: y mandatory;
+  scrollbar-width: none;
+  /* Fade the top and bottom rows so only the centered 3-4 rows read clearly. */
+  mask-image: linear-gradient(to bottom, transparent 0, #000 22%, #000 78%, transparent 100%);
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 22%, #000 78%, transparent 100%);
+}
+
+.cron-wheel::-webkit-scrollbar { display: none; }
+
+.cron-wheel-item {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  height: 32px;
+  width: 100%;
+  padding: 0 18px 0 8px; /* right padding reserves space for ✓ */
+  background: transparent;
+  border: none;
+  color: var(--fg-tertiary);
+  font-family: var(--font);
+  font-size: var(--text-body-sm);
+  font-variant-numeric: tabular-nums;
+  scroll-snap-align: center;
+  cursor: pointer;
+  transition: color var(--transition);
+}
+
+.cron-wheel-item:hover { color: var(--fg-secondary); }
+
+.cron-wheel-item:global(.is-active) {
+  color: var(--fg);
+  font-weight: var(--weight-semibold);
+}
+
+.cron-wheel-item:global(.is-active)::after {
+  content: '';
+  position: absolute;
+  right: 8px;
+  width: 11px;
+  height: 11px;
+  background: var(--fg-secondary);
+  /* phosphor check（与 KlausIcons 统一图标库同源） */
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 256 256' fill='black'%3E%3Cpath d='M229.66,77.66l-128,128a8,8,0,0,1-11.32,0l-56-56a8,8,0,0,1,11.32-11.32L96,188.69,218.34,66.34a8,8,0,0,1,11.32,11.32Z'/%3E%3C/svg%3E") center / contain no-repeat;
+          mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 256 256' fill='black'%3E%3Cpath d='M229.66,77.66l-128,128a8,8,0,0,1-11.32,0l-56-56a8,8,0,0,1,11.32-11.32L96,188.69,218.34,66.34a8,8,0,0,1,11.32,11.32Z'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+
+.cron-wheel-pad { pointer-events: none; }
+
+/* Interval input */
+.cron-interval {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.cron-form-row .cron-interval-input {
+  width: 88px;
+  padding: 8px 12px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--fg);
+  font-family: var(--font);
+  font-size: var(--text-body-sm);
+  font-variant-numeric: tabular-nums;
+  outline: none;
+  transition: border-color var(--transition);
+}
+
+.cron-form-row .cron-interval-input:focus { border-color: var(--fg-quaternary); }
+
+.cron-interval-unit {
+  font-size: var(--text-body-sm);
+  color: var(--fg-secondary);
+}
+
+/* Custom cron inline input */
+.cron-form-row .cron-schedule-input {
+  flex: 1;
+  min-width: 0;
+  width: auto;
+  padding: 8px 12px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--fg);
+  font-family: var(--font-mono);
+  font-size: var(--text-small);
+  outline: none;
+  transition: border-color var(--transition);
+}
+
+.cron-form-row .cron-schedule-input:focus { border-color: var(--fg-quaternary); }
+
+/* Timezone row + Klaus-styled autocomplete (replaces native <datalist>) */
+.cron-tz-row { margin-top: 10px; display: flex; align-items: center; gap: 12px; }
+
+.cron-tz-row label { margin: 0; min-width: 52px; }
+
+.cron-tz { position: relative; flex: 1; min-width: 0; }
+
+.cron-form-row .cron-tz-input {
+  width: 100%;
+  padding: 8px 12px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--fg);
+  font-family: var(--font);
+  font-size: var(--text-body-sm);
+  outline: none;
+  transition: border-color var(--transition);
+}
+
+.cron-form-row .cron-tz-input:focus { border-color: var(--fg-quaternary); }
+
+.cron-tz-panel {
+  position: fixed;
+  z-index: 1200;
+  padding: 4px;
+  min-width: 200px;
+  max-height: 280px;
+  overflow-y: auto;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-md);
+}
+
+.cron-tz-panel[hidden] { display: none; }
+
+.cron-tz-item {
+  display: block;
+  width: 100%;
+  padding: 8px 10px;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-xs);
+  color: var(--fg);
+  font-family: var(--font);
+  font-size: var(--text-body-sm);
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--transition);
+  white-space: nowrap;
+}
+
+.cron-tz-item:hover { background: var(--bg-hover); }
+
+.cron-form-row label {
+  display: block;
+  font-size: var(--text-small);
+  line-height: var(--leading-settings-subtitle);
+  font-weight: var(--weight-semibold);
+  color: var(--fg-secondary);
+  margin-bottom: 6px;
+  letter-spacing: 0.02em;
+}
+
+.cron-form-row input,
+.cron-form-row textarea {
+  width: 100%;
+  padding: 9px 12px;
+  border: 1px solid var(--input-border);
+  border-radius: var(--radius-sm);
+  background: var(--input-bg);
+  color: var(--fg);
+  font-family: var(--font);
+  font-size: var(--text-body-sm);
+  line-height: var(--leading-composer-control);
+  outline: none;
+  transition: border-color var(--transition);
+  resize: vertical;
+}
+
+.cron-form-row textarea {
+  font-family: var(--font);
+  font-size: var(--text-body-sm);
+  line-height: 1.5;
+  min-height: 96px;
+}
+
+.cron-form-row input:focus,
+.cron-form-row textarea:focus { border-color: var(--input-focus); }
+
+.cron-form-hint {
+  font-size: var(--text-caption);
+  color: var(--fg-tertiary);
+  margin-top: 5px;
+  line-height: 1.5;
+}
+
+.cron-form-hint:global(.is-warning) {
+  color: var(--status-attn);
+  background: var(--warning-bg);
+  border-left: 2px solid var(--status-attn);
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+}
+
+.cron-modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 14px 20px;
+  border-top: 1px solid var(--border);
+}
+/* The save-error message is the variable-width sibling; at the card's
+   min(540px, 94vw) a long error squeezes 保存/取消 into vertical wrapping. */
+.cron-modal-footer :global(button) { flex-shrink: 0; white-space: nowrap; }
+
+.cron-form-save-error {
+  flex: 1;
+  color: var(--status-error);
+  font-size: var(--text-body-sm);
+  line-height: var(--leading-body);
+}
+
+.cron-modal-footer :global(button:disabled) {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.cron-modal-footer :global(.btn-primary),
+.cron-modal-footer :global(.btn-secondary) {
+  padding: 8px 16px;
+  border-radius: var(--radius-sm);
+  font-family: var(--font);
+  font-size: var(--text-body-sm);
+  line-height: var(--leading-composer-control);
+  font-weight: var(--weight-semibold);
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: background var(--transition), border-color var(--transition);
+}
+
+.cron-modal :global(.kls-select-text) {
+  line-height: var(--leading-composer-control);
+}
+
+.cron-modal-footer :global(.btn-primary) {
+  background: var(--accent);
+  color: var(--accent-text);
+}
+
+.cron-modal-footer :global(.btn-primary):hover { background: var(--accent-hover); }
+
+.cron-modal-footer :global(.btn-secondary) {
+  background: transparent;
+  color: var(--fg);
+  border-color: var(--border);
+}
+
+.cron-modal-footer :global(.btn-secondary):hover { background: var(--bg-hover); }
+
+/* ===== Split layout: master list + right detail panel ===== */
+.cron-split {
+  display: block;
+}
+
+/* When a task is selected the two columns sit side by side; the list narrows
+   and the detail panel takes the rest. */
+.cron-split:global(.has-detail) {
+  display: grid;
+  grid-template-columns: minmax(320px, 5fr) 7fr;
+  gap: 8px;
+  align-items: start;
+}
+
+.cron-split:global(.has-detail) .cron-pane-list {
+  display: block;
+}
+
+.cron-pane-detail:global(.active) {
+  display: block;
+  position: sticky;
+  top: 0;
+}
+
+.cron-detail-placeholder {
+  color: var(--fg-tertiary);
+  font-size: var(--text-body);
+  padding: 48px 24px;
+  text-align: center;
+}
+
+.cron-detail {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 20px;
+  background: var(--bg);
+}
+
+/* Pure semantic wrapper: the children (title, meta, action row) carry their own
+   margins, so the head must not add a layout layer of its own. The class was
+   referenced but never defined, which silently made the wrapper an anonymous
+   block box; `display: contents` states the intent and keeps it transparent
+   even if the card ever becomes a flex or grid container. */
+.cron-detail-head {
+  display: contents;
+}
+
+.cron-detail-title {
+  font-size: var(--text-title);
+  font-weight: var(--weight-semibold);
+  color: var(--fg);
+  letter-spacing: -0.01em;
+}
+
+.cron-detail-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-top: 6px;
+  font-size: var(--text-body-sm);
+  color: var(--fg-secondary);
+}
+
+.cron-detail-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 14px;
+  flex-wrap: wrap;
+}
+
+.cron-detail-danger:hover { color: var(--status-error); border-color: var(--status-error); }
+
+.cron-detail-prompt {
+  margin: 14px 0 0;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  background: var(--bg-hover);
+  color: var(--fg-secondary);
+  font-size: var(--text-body-sm);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.cron-detail-runs { margin-top: 22px; }
+
+.cron-detail-runs-title {
+  font-size: var(--text-body);
+  font-weight: var(--weight-semibold);
+  color: var(--fg);
+  margin-bottom: 12px;
+}
+
+.cron-detail-empty { color: var(--fg-tertiary); font-size: var(--text-body-sm); }
+
+.cron-run-open-chat {
+  margin-left: 6px;
+  color: var(--accent);
+  font-size: var(--text-badge);
+}
+
+/* Row anatomy: title + schedule summary + status line. */
+.cron-row-schedule {
+  font-size: var(--text-body-sm);
+  color: var(--fg-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cron-row:global(.is-selected) {
+  background: var(--bg-hover);
+}
+
+.cron-row:global(.is-selected) .cron-row-title { color: var(--fg); }
+
+/* Editor extras: model/thinking dropdown pair and notify-policy toggle. */
+.cron-model-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.cron-dd-model, .cron-dd-thinking { flex: 0 1 auto; min-width: 150px; }
+
+.cron-notify-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.cron-notify-track {
+  width: 34px;
+  height: 20px;
+  border-radius: 999px;
+  background: var(--fg-quaternary);
+  position: relative;
+  transition: background var(--transition);
+  flex-shrink: 0;
+}
+
+.cron-notify-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform var(--transition);
+}
+
+.cron-notify-toggle:global(.on) .cron-notify-track { background: var(--accent); }
+
+.cron-notify-toggle:global(.on) .cron-notify-thumb { transform: translateX(14px); }
+
+.cron-notify-label { font-size: var(--text-body-sm); color: var(--fg-secondary); }

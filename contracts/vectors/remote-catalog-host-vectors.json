@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "reason": "Remote metadata scans must not occupy turn-control capacity. Each page shares one settings connection for titles, bindings and worktree ownership, including distinct directories and root changes between pages.",
+  "scheduler": {
+    "total": 6,
+    "critical": 4,
+    "noncritical": 5,
+    "background": 4,
+    "backgroundThread": 2,
+    "backgroundCatalog": 1,
+    "maxQueued": 512,
+    "maxNoncriticalQueued": 448,
+    "maxConsumers": 2048,
+    "maxNoncriticalConsumers": 1792,
+    "maxRetainedBytes": 134217728,
+    "maxNoncriticalRetainedBytes": 100663296
+  },
+  "catalog": {
+    "defaultPageSize": 100,
+    "priority": "background",
+    "source": "thread_catalog",
+    "databaseConnectionsPerPage": 1,
+    "summaryMethod": "engine/readSessionSummary",
+    "hiddenIds": ["private", "__internal"],
+    "sourceUpdatedAt": 9000,
+    "savedRecency": 1000
+  }
+}

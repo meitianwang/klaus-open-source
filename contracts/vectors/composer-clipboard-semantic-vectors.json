@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "reason": "Bound hidden external link metadata and retain readable list/link structure in long text attachments without transferring ownership to an absent attachment tray.",
+  "hiddenLink": {
+    "minimumUnits": 5000,
+    "relativeLimit": "At least the greater of raw plain text and parsed visible text lengths",
+    "grouping": "Contiguous text with the same href and title, independent of other marks",
+    "visibleHref": "Case-sensitive substring inclusion removes href cost, but not title cost",
+    "fallback": "Available plain text, otherwise parsed visible text",
+    "authoredAtomPayload": "Opaque retained metadata is not external link cost"
+  },
+  "longPaste": {
+    "trigger": "Raw plain text has at least 5000 UTF-16 units",
+    "normalization": "Bounded HTML containing a link or list whose parsed visible text matches collapsed plain whitespace",
+    "plainIntent": "Retain original plain text",
+    "unmatchedOrUnsupported": "Retain original plain text",
+    "ownership": "Only a synchronous accepting callback transfers text into an attachment; otherwise the editor consumes the paste",
+    "messageEdit": "Text remains editable and undoable; sent attachments remain fixed",
+    "appearance": "Existing attachment card appearance and layout remain unchanged"
+  },
+  "links": [
+    { "label": "A[B]", "href": "https://e.test/x)y", "title": null, "text": "[A\\[B\\]](https://e.test/x\\)y)" },
+    { "label": "https://e.test", "href": "https://e.test", "title": null, "text": "[https://e.test](https://e.test)" }
+  ],
+  "nestedList": "3. A\n   B\n   - N\n4. C",
+  "code": "Use a fence longer than any backtick run in the content, with language and line indentation retained"
+}

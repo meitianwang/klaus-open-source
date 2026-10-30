@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "buildId": "cursor-diagnostics-20261020",
+  "reason": "Compare working and failing installations using content-free operation phases and exact build identities.",
+  "logFile": "cursor-diagnostics.log",
+  "previousLogFile": "cursor-diagnostics.log.previous",
+  "operationCorrelation": ["runId", "generation", "rpcRequestId", "operationId", "spanId", "parentId", "flowTraceId"],
+  "requiredCoverage": ["build identity", "local credential metadata", "browser grant", "refresh lock admission", "profile lookup", "catalog cache", "HTTP send", "response headers", "first body chunk", "body completion", "deadline cancellation", "engine exit code and signal", "scheduler deadline", "settings state publication"],
+  "forbiddenContent": ["tokens", "email addresses", "credential identifiers", "browser verifier", "full URLs", "request bodies", "response bodies", "prompts", "proxy values"],
+  "collection": "Copy only the current and previous dedicated diagnostic files. Do not copy the credential store or the entire configuration directory.",
+  "networkBehavior": "Instrumentation does not change proxy routing, HTTP serialization, request headers or provider endpoints."
+}

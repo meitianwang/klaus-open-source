@@ -1,0 +1,249 @@
+{
+  "reason": "Pin the dollar Markdown math capability and escaped native-to-WebKit markup for the iOS transcript. Escaped TeX dollar signs remain formula content; paired backslashes retain the closing delimiter.",
+  "inline": [
+    {
+      "name": "inlineDollar",
+      "text": "The value is $x^2$ now.",
+      "expected": [
+        {
+          "value": "x^2",
+          "display": false
+        }
+      ]
+    },
+    {
+      "name": "inlineDisplay",
+      "text": "Use $$  \\frac{a}{b}  $$ here.",
+      "expected": [
+        {
+          "value": "\\frac{a}{b}",
+          "display": true
+        }
+      ]
+    },
+    {
+      "name": "nestedDollarInsideDisplay",
+      "text": "$$a$b$$",
+      "expected": [
+        {
+          "value": "a$b",
+          "display": true
+        }
+      ]
+    },
+    {
+      "name": "currency",
+      "text": "Costs $5 and $7.",
+      "expected": []
+    },
+    {
+      "name": "whitespaceOpening",
+      "text": "$ x$",
+      "expected": []
+    },
+    {
+      "name": "whitespaceClosing",
+      "text": "$x $",
+      "expected": []
+    },
+    {
+      "name": "digitAfterClosing",
+      "text": "$x$7",
+      "expected": []
+    },
+    {
+      "name": "newline",
+      "text": "$x\ny$",
+      "expected": []
+    },
+    {
+      "name": "escapedDollar",
+      "text": "\\$x$ and $y$",
+      "expected": [
+        {
+          "value": "y",
+          "display": false
+        }
+      ]
+    },
+    {
+      "name": "codeSpan",
+      "text": "`$x$` and `` $z$ `` then $y$",
+      "expected": [
+        {
+          "value": "y",
+          "display": false
+        }
+      ]
+    },
+    {
+      "name": "linkDestination",
+      "text": "[file](https://example.test/$path$) and $x$",
+      "expected": [
+        {
+          "value": "x",
+          "display": false
+        }
+      ]
+    },
+    {
+      "name": "linkLabel",
+      "text": "[value $x$](https://example.test)",
+      "expected": [
+        {
+          "value": "x",
+          "display": false
+        }
+      ]
+    },
+    {
+      "name": "bracketNotDeclared",
+      "text": "\\(x\\) and \\[y\\]",
+      "expected": []
+    },
+    {
+      "name": "adjacent",
+      "text": "$a$$b$",
+      "expected": [
+        {
+          "value": "a",
+          "display": false
+        },
+        {
+          "value": "b",
+          "display": false
+        }
+      ]
+    },
+    {
+      "name": "CRLF",
+      "text": "$x\r\ny$",
+      "expected": []
+    },
+    {
+      "name": "displayCRLF",
+      "text": "$$x\r\ny$$",
+      "expected": []
+    },
+    {
+      "name": "unicodeAfterClosing",
+      "text": "$x$٢ and $y$²",
+      "expected": [
+        {
+          "value": "x",
+          "display": false
+        },
+        {
+          "value": "y",
+          "display": false
+        }
+      ]
+    },
+    {
+      "name": "angleAutolink",
+      "text": "<https://example.test/$x$> and $y$",
+      "expected": [
+        {
+          "value": "y",
+          "display": false
+        }
+      ]
+    },
+    {
+      "name": "HTMLTagAttribute",
+      "text": "<span title=\"$x$\">value $y$</span>",
+      "expected": [
+        {
+          "value": "y",
+          "display": false
+        }
+      ]
+    },
+    {
+      "name": "escapedDollarInTex",
+      "text": "$\\text{\\$5}$",
+      "expected": [
+        {
+          "value": "\\text{\\$5}",
+          "display": false
+        }
+      ]
+    },
+    {
+      "name": "doubleBackslashBeforeClose",
+      "text": "$x\\\\$",
+      "expected": [
+        {
+          "value": "x\\\\",
+          "display": false
+        }
+      ]
+    },
+    {
+      "name": "escapedClosingIncomplete",
+      "text": "$x\\$",
+      "expected": []
+    },
+    {
+      "name": "pairedBackslashThenEscapedDollar",
+      "text": "$x\\\\\\$5$",
+      "expected": [
+        {
+          "value": "x\\\\\\$5",
+          "display": false
+        }
+      ]
+    },
+    {
+      "name": "escapedNewlineStillNotInline",
+      "text": "$x\\\ny$",
+      "expected": []
+    }
+  ],
+  "block": [
+    {
+      "name": "multiline",
+      "text": "$$\n\\frac{a}{b}\n$$",
+      "expected": "\\frac{a}{b}"
+    },
+    {
+      "name": "sameLine",
+      "text": "$$x^2$$",
+      "expected": "x^2"
+    },
+    {
+      "name": "trailingNewline",
+      "text": "$$ x $$\n",
+      "expected": "x"
+    },
+    {
+      "name": "incomplete",
+      "text": "$$x",
+      "expected": null
+    },
+    {
+      "name": "trailingProse",
+      "text": "$$x$$ prose",
+      "expected": null
+    },
+    {
+      "name": "anotherParagraph",
+      "text": "$$x$$\nprose",
+      "expected": null
+    },
+    {
+      "name": "bracketsNotDeclared",
+      "text": "\\[x\\]",
+      "expected": null
+    },
+    {
+      "name": "escapedDollarInBlockTex",
+      "text": "$$\\text{\\$5}$$",
+      "expected": "\\text{\\$5}"
+    }
+  ],
+  "escapedHTML": {
+    "text": "<script>alert(\"x\")</script> & '",
+    "expected": "&lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt; &amp; &#39;"
+  }
+}

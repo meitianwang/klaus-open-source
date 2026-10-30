@@ -1,0 +1,341 @@
+/* Keyboard shortcuts settings tab: one rounded card with 0.5px hairline separators
+   inset from the row edges (`after` pseudo-elements), rows of
+   title/description on the left and binding chips + ghost icon buttons on the
+   right, a sticky search field, and the capture state replacing a chip in place.
+   Colours and radii come from the Klaus token layer, not hardcoded values. */
+
+.loading-row,
+.empty-row {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 8px 16px;
+  font-size: var(--text-small);
+  color: var(--fg-secondary);
+}
+
+/* ---- search ---- */
+
+.search-row {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  margin-bottom: 16px;
+  background: var(--bg);
+}
+
+.search-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 8px 0 12px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.search-field:focus-within {
+  border-color: var(--accent);
+}
+
+.search-icon {
+  flex-shrink: 0;
+  color: var(--fg-tertiary);
+}
+
+.search-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  font-size: var(--text-small);
+}
+
+.search-input::placeholder {
+  color: var(--fg-quaternary);
+}
+
+.search-clear,
+.search-mode-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--fg-tertiary);
+  cursor: pointer;
+}
+
+.search-clear:hover,
+.search-mode-toggle:hover {
+  background: var(--bg-hover);
+  color: var(--fg-secondary);
+}
+
+.search-mode-toggle[aria-pressed='true'] {
+  background: var(--bg-active);
+  color: var(--fg);
+}
+
+/* ---- list card ---- */
+
+.list-card {
+  overflow: hidden;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+
+.row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 12px 16px;
+}
+
+/* Hairline separator inset 16px from both edges. */
+.row:not(:last-child)::after {
+  content: '';
+  position: absolute;
+  right: 16px;
+  bottom: 0;
+  left: 16px;
+  height: 0.5px;
+  background: var(--border);
+  pointer-events: none;
+}
+
+.row-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.row-title {
+  color: var(--fg);
+  font-size: var(--text-body);
+  font-weight: var(--weight-medium);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.row-description {
+  display: block;
+  color: var(--fg-secondary);
+  font-size: var(--text-small);
+  line-height: 1.4;
+}
+
+.row-error {
+  display: block;
+  margin-top: 2px;
+  color: var(--danger);
+  font-size: var(--text-xs);
+}
+
+.row-control {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  flex-shrink: 0;
+  width: 384px;
+  max-width: 100%;
+}
+
+/* ---- one binding slot ---- */
+
+.binding-slot {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  min-height: 32px;
+}
+
+.binding-value {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 32px;
+  color: var(--fg-secondary);
+  font-size: var(--text-small);
+}
+
+.kbd {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 8px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, currentColor 10%, transparent);
+  color: var(--fg-secondary);
+  font-family: inherit;
+  font-size: var(--text-small);
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.unassigned {
+  color: var(--fg-quaternary);
+  font-size: var(--text-small);
+}
+
+.binding-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  flex-shrink: 0;
+  margin-left: 8px;
+}
+
+.icon-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--fg-tertiary);
+  cursor: pointer;
+}
+
+.icon-button:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+
+.icon-button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* ---- capture state ---- */
+
+.capture-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  width: 100%;
+}
+
+.capture-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.capture-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  width: 144px;
+  height: 32px;
+  padding: 0 10px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-md);
+  color: var(--fg);
+  font: inherit;
+  font-size: var(--text-small);
+  outline: none;
+}
+
+.capture-input[aria-invalid='true'] {
+  border-color: var(--warning);
+}
+
+.capture-input::placeholder {
+  color: var(--fg-quaternary);
+}
+
+.capture-conflict {
+  color: var(--warning);
+  font-size: var(--text-xs);
+}
+
+/* ---- reset-all dialog ---- */
+
+.dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--overlay-bg, rgba(0, 0, 0, 0.4));
+}
+
+.dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: min(400px, calc(100vw - 48px));
+  padding: 20px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+}
+
+.dialog h2 {
+  margin: 0;
+  color: var(--fg);
+  font-size: var(--text-body);
+  font-weight: var(--weight-medium);
+}
+
+.dialog p {
+  margin: 0;
+  color: var(--fg-secondary);
+  font-size: var(--text-small);
+  line-height: 1.5;
+}
+
+.dialog-error {
+  color: var(--danger) !important;
+}
+
+.dialog-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+/* The reset-all confirm keeps the button label and shows a spinner while
+   the mutation is in flight (`loading` prop), rather than swapping the text. */
+.btn-spinner {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  margin-right: 6px;
+  vertical-align: -2px;
+  border-radius: 50%;
+  border: 2px solid color-mix(in srgb, currentColor 30%, transparent);
+  border-top-color: currentColor;
+  animation: kb-spin 0.8s linear infinite;
+}
+
+@keyframes kb-spin {
+  to { transform: rotate(360deg); }
+}

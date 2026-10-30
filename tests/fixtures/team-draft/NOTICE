@@ -1,0 +1,26 @@
+Apache Tika
+Copyright 2021 The Apache Software Foundation
+
+This product includes software developed at
+The Apache Software Foundation (http://www.apache.org/).
+
+The following local fixtures are byte-for-byte identical to files
+published in Apache Tika 3.2.3, commit
+8e2ab0c58b62d74245b29689306ac6e1b79f36a1:
+
+  sample.doc   -> testWORD.doc
+  sample.docx  -> testWORD.docx
+  sample.ppt   -> testPPT.ppt
+  sample.pptx  -> testPPT.pptx
+  sample.xls   -> testEXCEL.xls
+  sample.xlsx  -> testEXCEL.xlsx
+
+Upstream directory:
+tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-microsoft-module/src/test/resources/test-documents/
+
+Source:
+https://github.com/apache/tika/tree/8e2ab0c58b62d74245b29689306ac6e1b79f36a1
+
+The local filenames differ; the file contents are unchanged.
+These fixtures are distributed under the Apache License, Version 2.0.
+See LICENSE in this directory.

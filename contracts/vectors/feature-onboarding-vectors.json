@@ -1,0 +1,157 @@
+{
+  "_why": "Feature discovery is two surfaces over one ledger: a 'what changed' card shown once per release family, and an optional spotlight walkthrough. These vectors pin the observable rules so a refactor cannot silently regress them: the two KV row names and the localStorage mirror name, the ledger's accumulative-array shape, release-family normalization and ordering, the announcement decision (first install records a baseline, an upgrade announces the window, a patch stays quiet), and the tour markers and their start gates. Both KV rows must also stay out of SessionConfiguration staleness: acknowledging a hint happens while the user is looking at a new feature, so it may never rebuild a live session (pinned separately by tests/session-wire.test.ts).",
+  "storage": {
+    "ledgerKey": "onboarding.feature_seen",
+    "baselineKey": "onboarding.last_seen_release_family",
+    "mirrorKey": "klaus_onboarding_mirror",
+    "uiOnlyKeys": ["onboarding.feature_seen", "onboarding.last_seen_release_family"],
+    "ledgerShape": ["workspace-files", "tour:workspace-files"],
+    "mirrorShape": { "ledger": ["workspace-files"] },
+    "_mirrorHoldsLedgerOnly": "the announcement window derives from the baseline row, so a mirror that also cached the window would announce a release the user has already seen until the KV read landed"
+  },
+  "releaseFamily": {
+    "cases": [
+      { "version": "0.5.0", "family": "0.5" },
+      { "version": "0.5.3", "family": "0.5" },
+      { "version": "1.10.2", "family": "1.10" },
+      { "version": "0.09.1", "family": "0.9" },
+      { "version": " 2.4.0 ", "family": "2.4" },
+      { "version": "nightly", "family": null },
+      { "version": "", "family": null },
+      { "version": null, "family": null }
+    ]
+  },
+  "compareReleaseFamilies": {
+    "cases": [
+      { "a": "0.5", "b": "0.4", "positive": true },
+      { "a": "0.10", "b": "0.9", "positive": true },
+      { "a": "1.0", "b": "0.99", "positive": true },
+      { "a": "0.5", "b": "0.5", "positive": false },
+      { "a": "0.4", "b": "0.5", "positive": false }
+    ]
+  },
+  "ledger": {
+    "parse": [
+      { "_why": "the stored row is a JSON string", "raw": "[\"a\",\"b\"]", "parsed": ["a", "b"] },
+      { "_why": "an already-decoded array is accepted too", "raw": ["a"], "parsed": ["a"] },
+      { "_why": "duplicates collapse", "raw": "[\"a\",\"a\",\"b\"]", "parsed": ["a", "b"] },
+      { "_why": "non-strings are dropped, empty strings are dropped", "raw": "[\"a\",1,null,\"\",true,\"b\"]", "parsed": ["a", "b"] },
+      { "_why": "a corrupt row degrades to an empty ledger rather than blocking boot", "raw": "not json", "parsed": [] },
+      { "_why": "an object is not a ledger", "raw": "{\"a\":true}", "parsed": [] },
+      { "_why": "an empty string is an empty ledger", "raw": "", "parsed": [] },
+      { "_why": "null means no row", "raw": null, "parsed": [] }
+    ],
+    "append": [
+      { "ledger": [], "id": "a", "result": ["a"] },
+      { "_why": "re-acknowledging is a no-op and must not grow the row", "ledger": ["a"], "id": "a", "result": ["a"] },
+      { "_why": "the input is never mutated", "ledger": ["a"], "id": "b", "result": ["a", "b"] },
+      { "_why": "an empty id is ignored", "ledger": ["a"], "id": "", "result": ["a"] }
+    ],
+    "_unionWhy": "The row is overwritten whole because settings.db KV has no append, so two windows acknowledging different features inside one round trip would let the later write clobber the earlier one and lose an acknowledgement the user already made. Union is correct here ONLY because the ledger is append-only: no code path removes an id, so merging cannot revive anything. A ledger that gained a 'forget this hint' action would need a tombstone instead.",
+    "union": [
+      { "_why": "a concurrent acknowledgement from another window survives our write", "base": ["a"], "other": ["b"], "result": ["a", "b"] },
+      { "_why": "base order is preserved and only the new id is appended", "base": ["a", "b"], "other": ["b", "c"], "result": ["a", "b", "c"] },
+      { "_why": "an identical ledger is a no-op", "base": ["a"], "other": ["a"], "result": ["a"] },
+      { "_why": "merging with nothing returns the base unchanged", "base": ["a", "b"], "other": [], "result": ["a", "b"] },
+      { "_why": "merging into nothing returns the other side", "base": [], "other": ["a"], "result": ["a"] },
+      { "_why": "neither input is mutated", "base": ["a"], "other": ["b"], "result": ["a", "b"], "baseAfter": ["a"], "otherAfter": ["b"] },
+      { "_why": "a tour completion marker is an id like any other and unions the same way", "base": ["a"], "other": ["tour:a"], "result": ["a", "tour:a"] },
+      { "_why": "empty ids from a corrupt row are dropped", "base": ["a"], "other": ["", "b"], "result": ["a", "b"] }
+    ]
+  },
+  "announcement": {
+    "registry": [
+      { "id": "pets", "kind": "release", "since": "0.5" },
+      { "id": "file-tree", "kind": "release", "since": "0.5" },
+      { "id": "queue", "kind": "release", "since": "0.4" },
+      { "id": "workspace-files", "kind": "evergreen", "since": null },
+      { "id": "bad-release-row", "kind": "release", "since": null }
+    ],
+    "cases": [
+      {
+        "_why": "a first install records the baseline and announces the family it shipped in, so the introducing release is not permanently invisible",
+        "baseline": null, "currentFamily": "0.5",
+        "kind": "announce", "features": ["pets", "file-tree"], "newBaseline": "0.5"
+      },
+      {
+        "_why": "a first install on a family with nothing in the registry records a baseline and stays quiet",
+        "baseline": null, "currentFamily": "0.7",
+        "kind": "baseline", "features": [], "newBaseline": "0.7"
+      },
+      {
+        "_why": "a patch release inside the announced family does not re-announce",
+        "baseline": "0.5", "currentFamily": "0.5",
+        "kind": "idle", "features": [], "newBaseline": null
+      },
+      {
+        "_why": "a downgrade does not re-announce either",
+        "baseline": "0.6", "currentFamily": "0.5",
+        "kind": "idle", "features": [], "newBaseline": null
+      },
+      {
+        "_why": "an upgrade announces the window, and a feature shipped before the baseline never resurfaces",
+        "baseline": "0.4", "currentFamily": "0.5",
+        "kind": "announce", "features": ["pets", "file-tree"], "newBaseline": "0.5"
+      },
+      {
+        "_why": "skipping two releases catches up on both, and 0.10 sorts above 0.9",
+        "baseline": "0.9", "currentFamily": "0.10",
+        "kind": "announce", "features": [], "newBaseline": "0.10"
+      },
+      {
+        "_why": "an unparseable running version cannot be decided, so nothing is written and nothing shows",
+        "baseline": "0.4", "currentFamily": null,
+        "kind": "idle", "features": [], "newBaseline": null
+      },
+      {
+        "_why": "evergreen hints are not tied to a release and never enter an announcement window",
+        "baseline": "0.4", "currentFamily": "0.5",
+        "kind": "announce", "features": ["pets", "file-tree"], "newBaseline": "0.5",
+        "mustNotContain": ["workspace-files", "bad-release-row"]
+      }
+    ]
+  },
+  "tour": {
+    "doneIdPrefix": "tour:",
+    "doneId": { "featureId": "workspace-files", "id": "tour:workspace-files" },
+    "isDone": [
+      { "ledger": ["tour:workspace-files"], "featureId": "workspace-files", "done": true },
+      { "_why": "arriving at the feature is not the same as finishing its walkthrough", "ledger": ["workspace-files"], "featureId": "workspace-files", "done": false },
+      { "ledger": [], "featureId": "workspace-files", "done": false }
+    ],
+    "mayStart": {
+      "_why": "This answers 'is anything else holding the screen'. Whether THIS arrival is eligible at all is startsTourOnArrival below, which needs the previous verdict and therefore lives with the sweep that has it.",
+      "_base": { "featureId": "workspace-files", "hasTour": true, "cardVisible": false, "tourActive": false, "ledger": [] },
+      "cases": [
+        { "_why": "nothing else on screen: the walkthrough may start", "start": true },
+        { "_why": "the card outranks the walkthrough", "cardVisible": true, "start": false },
+        { "_why": "only one walkthrough runs at a time", "tourActive": true, "start": false },
+        { "_why": "a completed walkthrough never replays", "ledger": ["tour:workspace-files"], "start": false },
+        { "_why": "a skipped walkthrough counts as declined and never replays", "ledger": ["tour:workspace-files"], "start": false },
+        { "_why": "an entry with no steps has nothing to start", "hasTour": false, "start": false }
+      ]
+    },
+    "startsOnArrival": {
+      "_why": "Only a false→true transition starts a walkthrough. This is the rule that keeps two interruptions from happening: a surface already open at boot (restored window state, a deep link) is acknowledged rather than greeted with a modal over the first frame, and a tour deferred because the card was up does not fire later on some unrelated mutation while the user is still sitting on that page — the card already told them about it.",
+      "_base": { "previous": false, "now": true, "initialSweep": false },
+      "cases": [
+        { "_why": "the user just navigated here: this is an arrival", "start": true },
+        { "_why": "the first sweep records what is already open without starting anything", "initialSweep": true, "start": false },
+        { "_why": "still sitting on a page already acknowledged is not a new arrival", "previous": true, "start": false },
+        { "_why": "leaving a surface starts nothing", "now": false, "start": false },
+        { "_why": "leaving and already-gone both start nothing", "previous": true, "now": false, "start": false },
+        { "_why": "an entry never evaluated before is treated as the first sweep's job", "previous": null, "initialSweep": true, "start": false }
+      ]
+    }
+  },
+  "mirror": {
+    "roundTrip": { "ledger": ["a", "tour:a"] },
+    "parse": [
+      { "raw": "{\"ledger\":[\"a\"]}", "parsed": ["a"] },
+      { "_why": "a mirror written by an older shape still yields its ledger", "raw": "{\"ledger\":[\"a\"],\"announced\":[\"b\"]}", "parsed": ["a"] },
+      { "_why": "corrupt mirror degrades to null, which means 'paint nothing yet'", "raw": "{", "parsed": null },
+      { "raw": "", "parsed": null },
+      { "raw": null, "parsed": null }
+    ]
+  }
+}

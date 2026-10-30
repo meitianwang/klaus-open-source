@@ -1,0 +1,670 @@
+/* Workspace 文件面板域样式（随 src/chat/workspace-panel.ts 拆出）。
+   workspace-file-shell / -tabs / -header / -body / -empty 等容器与 ws-children
+   为 index.html 静态骨架消费，留全局 styles.css；本 module 收 workspace-panel.ts
+   动态建 DOM 的 tab / code / viewer / ws-row 各族。
+   is-active / is-dirty / ready / is-zoomed / zoom-out / scale-to-fit / pixelated /
+   hljs-* / data-theme 为运行时全局名，:global 引用。 */
+
+.workspace-file-empty-state {
+  width: min(420px, 100%);
+  text-align: center;
+}
+
+.workspace-file-empty-icon {
+  width: 32px;
+  height: 32px;
+  margin: 0 auto 16px;
+  color: var(--fg-tertiary);
+}
+
+.workspace-file-empty-icon svg {
+  width: 100%;
+  height: 100%;
+}
+
+.workspace-file-empty-title {
+  color: var(--fg);
+  font-size: 16px;
+  line-height: 24px;
+  font-weight: var(--weight-normal);
+  margin-bottom: 8px;
+}
+
+.workspace-file-empty-desc {
+  color: var(--fg-tertiary);
+  font-size: 14px;
+  line-height: 20px;
+  margin-bottom: 0;
+}
+
+.workspace-file-tab {
+  position: relative;
+  flex: 0 1 220px;
+  min-width: 128px;
+  max-width: 240px;
+  height: 36px;
+  padding: 0 7px 0 12px;
+  border: 0;
+  border-right: 1px solid var(--border-subtle, var(--border));
+  border-top: 2px solid transparent;
+  background: transparent;
+  color: var(--fg-secondary);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font: inherit;
+  font-size: var(--text-body-sm);
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+
+.workspace-file-tab:hover {
+  background: color-mix(in srgb, var(--fg) 4%, transparent);
+  color: var(--fg);
+}
+
+.workspace-file-tab:global(.is-active) {
+  background: var(--bg);
+  color: var(--fg);
+  border-top-color: var(--accent);
+}
+
+.workspace-file-tab-icon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  color: var(--fg-tertiary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.workspace-file-tab-icon svg {
+  width: 14px;
+  height: 14px;
+}
+
+.workspace-file-tab-name {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+}
+
+.workspace-file-tab-close {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+  border: 0;
+  border-radius: var(--radius-xxs);
+  background: transparent;
+  color: var(--fg-tertiary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.workspace-file-tab-close svg {
+  width: 12px;
+  height: 12px;
+}
+
+.workspace-file-tab:hover .workspace-file-tab-close,
+.workspace-file-tab:global(.is-active) .workspace-file-tab-close,
+.workspace-file-tab-close:focus-visible {
+  opacity: 0.75;
+}
+
+.workspace-file-tab-close:hover {
+  opacity: 1;
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+
+.workspace-file-tab:global(.is-dirty) .workspace-file-tab-close {
+  opacity: 1;
+}
+
+.workspace-file-tab:global(.is-dirty) .workspace-file-tab-close svg {
+  display: none;
+}
+
+.workspace-file-tab:global(.is-dirty) .workspace-file-tab-close::before {
+  content: "";
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.workspace-file-tab:global(.is-dirty):hover .workspace-file-tab-close svg,
+.workspace-file-tab:global(.is-dirty) .workspace-file-tab-close:focus-visible svg {
+  display: block;
+}
+
+.workspace-file-tab:global(.is-dirty):hover .workspace-file-tab-close::before,
+.workspace-file-tab:global(.is-dirty) .workspace-file-tab-close:focus-visible::before {
+  content: none;
+}
+
+.workspace-code-frame {
+  --workspace-editor-bg: var(--bg);
+  --workspace-gutter-bg: color-mix(in srgb, var(--bg) 82%, var(--bg-surface));
+  min-height: 100%;
+  min-width: max-content;
+  display: grid;
+  grid-template-columns: 54px minmax(0, 1fr);
+  background: var(--workspace-editor-bg);
+  color: var(--fg);
+  font-family: var(--font-mono);
+  font-size: var(--text-body-sm);
+  line-height: 1.6;
+  letter-spacing: 0;
+  tab-size: 2;
+  font-variant-ligatures: none;
+}
+
+:global([data-theme="dark"]) .workspace-code-frame {
+  --workspace-editor-bg: var(--bg);
+  --workspace-gutter-bg: color-mix(in srgb, var(--bg) 82%, var(--bg-surface));
+}
+
+.workspace-code-gutter {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  margin: 0;
+  padding: 18px 10px 42px 8px;
+  min-height: 100%;
+  border-right: 1px solid var(--border-subtle, var(--border));
+  background: var(--workspace-gutter-bg);
+  color: var(--fg-quaternary);
+  font: inherit;
+  line-height: inherit;
+  text-align: right;
+  user-select: none;
+  white-space: pre;
+}
+
+.workspace-code-content {
+  position: relative;
+  min-width: max-content;
+  min-height: 100%;
+}
+
+.workspace-file-code {
+  margin: 0;
+  padding: 18px 32px 42px 16px;
+  min-width: max-content;
+  min-height: 100%;
+  box-sizing: border-box;
+  color: var(--fg);
+  font: inherit;
+  line-height: inherit;
+  tab-size: inherit;
+  white-space: pre;
+}
+
+.workspace-file-code code,
+.workspace-code-tokens {
+  display: block;
+  overflow: visible;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  line-height: inherit;
+  white-space: pre;
+}
+
+.workspace-code-frame:global(.is-editable) .workspace-code-content {
+  min-width: 100%;
+}
+
+.workspace-file-editor {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  min-width: 100%;
+  min-height: 100%;
+  margin: 0;
+  padding: 18px 32px 42px 16px;
+  border: 0;
+  outline: none;
+  resize: none;
+  box-sizing: border-box;
+  overflow: hidden;
+  background: transparent;
+  color: transparent;
+  caret-color: var(--fg);
+  -webkit-text-fill-color: transparent;
+  font: inherit;
+  line-height: inherit;
+  letter-spacing: inherit;
+  tab-size: inherit;
+  white-space: pre;
+}
+
+.workspace-file-editor::selection {
+  background: color-mix(in srgb, var(--input-focus) 28%, transparent);
+  -webkit-text-fill-color: transparent;
+}
+
+.workspace-code-frame :global(.hljs),
+.workspace-code-frame :global(.hljs) * {
+  background: transparent;
+  font: inherit;
+  line-height: inherit;
+  font-weight: inherit;
+  font-style: normal;
+}
+
+.workspace-code-frame :global(.hljs-keyword),
+.workspace-code-frame :global(.hljs-selector-tag),
+.workspace-code-frame :global(.hljs-built_in),
+.workspace-code-frame :global(.hljs-type),
+.workspace-code-frame :global(.hljs-literal),
+.workspace-code-frame :global(.hljs-doctag) {
+  color: var(--workspace-token-keyword);
+}
+
+.workspace-code-frame :global(.hljs-title),
+.workspace-code-frame :global(.hljs-title):global(.function_),
+.workspace-code-frame :global(.hljs-title):global(.class_),
+.workspace-code-frame :global(.hljs-name),
+.workspace-code-frame :global(.hljs-section),
+.workspace-code-frame :global(.hljs-selector-id) {
+  color: var(--workspace-token-entity);
+}
+
+.workspace-code-frame :global(.hljs-string),
+.workspace-code-frame :global(.hljs-regexp),
+.workspace-code-frame :global(.hljs-symbol),
+.workspace-code-frame :global(.hljs-bullet),
+.workspace-code-frame :global(.hljs-link) {
+  color: var(--workspace-token-string);
+}
+
+.workspace-code-frame :global(.hljs-number),
+.workspace-code-frame :global(.hljs-attr),
+.workspace-code-frame :global(.hljs-variable),
+.workspace-code-frame :global(.hljs-template-variable),
+.workspace-code-frame :global(.hljs-attribute),
+.workspace-code-frame :global(.hljs-selector-class),
+.workspace-code-frame :global(.hljs-selector-attr) {
+  color: var(--workspace-token-number);
+}
+
+.workspace-code-frame :global(.hljs-comment),
+.workspace-code-frame :global(.hljs-quote) {
+  color: var(--workspace-token-comment);
+}
+
+.workspace-code-frame :global(.hljs-meta),
+.workspace-code-frame :global(.hljs-operator),
+.workspace-code-frame :global(.hljs-tag),
+.workspace-code-frame :global(.hljs-punctuation) {
+  color: var(--workspace-token-meta);
+}
+
+.workspace-code-frame :global(.hljs-deletion) {
+  color: var(--workspace-token-invalid);
+}
+
+.workspace-code-frame :global(.hljs-addition) {
+  color: var(--workspace-token-string);
+}
+
+.workspace-file-message {
+  min-height: 100%;
+  padding: 24px 32px;
+  color: var(--fg-tertiary);
+  font-size: var(--text-body-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.workspace-file-image-viewer {
+  width: 100%;
+  height: 100%;
+  overflow: auto;
+  box-sizing: border-box;
+  padding: 24px 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background:
+    linear-gradient(45deg, color-mix(in srgb, var(--fg) 3%, transparent) 25%, transparent 25%),
+    linear-gradient(-45deg, color-mix(in srgb, var(--fg) 3%, transparent) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, color-mix(in srgb, var(--fg) 3%, transparent) 75%),
+    linear-gradient(-45deg, transparent 75%, color-mix(in srgb, var(--fg) 3%, transparent) 75%),
+    var(--bg);
+  background-size: 22px 22px;
+  background-position: 0 0, 0 11px, 11px -11px, -11px 0;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.workspace-file-image-viewer:global(.ready) {
+  cursor: zoom-in;
+}
+
+.workspace-file-image-viewer:global(.ready):global(.zoom-out) {
+  cursor: zoom-out;
+}
+
+.workspace-file-image-viewer:global(.is-zoomed) {
+  align-items: flex-start;
+  justify-content: flex-start;
+}
+
+.workspace-file-image-viewer img {
+  margin: auto;
+  flex: 0 0 auto;
+  max-width: none;
+  max-height: none;
+  object-fit: contain;
+  border: 1px solid var(--border-subtle, var(--border));
+  background: var(--bg);
+}
+
+.workspace-file-image-viewer img:global(.scale-to-fit) {
+  max-width: 100%;
+  max-height: 100%;
+  width: auto;
+  height: auto;
+}
+
+.workspace-file-image-viewer img:global(.pixelated) {
+  image-rendering: pixelated;
+}
+
+/* HTML 产物富预览：沙箱 iframe 铺满预览区，白底隔离宿主主题（产物自带样式）。 */
+.workspace-file-html-preview {
+  position: absolute;
+  inset: 0;
+  display: flex;
+}
+.workspace-file-html-preview iframe {
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  border: none;
+  background: #ffffff;
+}
+.workspace-file-markdown {
+  width: min(860px, 100%);
+  margin: 0 auto;
+  padding: 32px 36px 64px;
+  color: var(--fg);
+  font-size: var(--text-body);
+  line-height: 1.6;
+}
+
+.workspace-file-markdown h1,
+.workspace-file-markdown h2,
+.workspace-file-markdown h3 {
+  color: var(--fg);
+  line-height: 1.25;
+  margin: 1.3em 0 0.55em;
+  font-weight: var(--weight-semibold);
+}
+
+.workspace-file-markdown h1:first-child,
+.workspace-file-markdown h2:first-child,
+.workspace-file-markdown h3:first-child,
+.workspace-file-markdown p:first-child {
+  margin-top: 0;
+}
+
+.workspace-file-markdown h1 { font-size: var(--text-hero); }
+.workspace-file-markdown h2 { font-size: 1.25em; }
+.workspace-file-markdown h3 { font-size: 1.1em; }
+
+.workspace-file-markdown p,
+.workspace-file-markdown ul,
+.workspace-file-markdown ol,
+.workspace-file-markdown blockquote,
+.workspace-file-markdown table,
+.workspace-file-markdown pre {
+  margin: 0 0 14px;
+}
+
+.workspace-file-markdown ul,
+.workspace-file-markdown ol {
+  padding-left: 22px;
+}
+
+.workspace-file-markdown li + li {
+  margin-top: 4px;
+}
+
+.workspace-file-markdown a {
+  color: var(--fg);
+  text-decoration: underline;
+  text-decoration-color: var(--fg-quaternary);
+  text-underline-offset: 3px;
+}
+
+.workspace-file-markdown blockquote {
+  padding-left: 14px;
+  border-left: 2px solid var(--border);
+  color: var(--fg-secondary);
+}
+
+.workspace-file-markdown code:not(pre code) {
+  padding: 2px 5px;
+  border-radius: var(--radius-xxs);
+  background: var(--code-bg);
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+}
+
+.workspace-file-markdown pre {
+  overflow: auto;
+  padding: 13px 15px;
+  border-radius: var(--radius-xs);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle, var(--border));
+}
+
+.workspace-file-markdown pre code:global(.hljs),
+.workspace-file-markdown pre code {
+  padding: 0;
+  background: transparent;
+}
+
+.workspace-file-markdown img {
+  max-width: 100%;
+  height: auto;
+  display: block;
+  margin: 18px auto;
+}
+
+.workspace-file-markdown table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-body-sm);
+}
+
+.workspace-file-markdown th,
+.workspace-file-markdown td {
+  border: 1px solid var(--border);
+  padding: 7px 9px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.workspace-file-markdown th {
+  background: var(--bg-surface);
+  font-weight: var(--weight-semibold);
+}
+
+.workspace-file-svg-preview {
+  height: 100%;
+  box-sizing: border-box;
+}
+
+.ws-empty {
+  min-height: 220px;
+  padding: 42px 22px 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  color: var(--fg-tertiary);
+}
+.ws-empty-icon {
+  width: 30px;
+  height: 30px;
+  margin-bottom: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--fg-quaternary);
+}
+.ws-empty-icon svg {
+  width: 26px;
+  height: 26px;
+}
+.ws-empty-title {
+  max-width: 210px;
+  color: var(--fg);
+  font-size: var(--text-body);
+  font-weight: var(--weight-semibold);
+  line-height: 1.5;
+}
+.ws-empty-desc {
+  max-width: 220px;
+  margin-top: 5px;
+  color: var(--fg-tertiary);
+  font-size: var(--text-small);
+  line-height: 1.5;
+}
+.ws-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 6px;
+  border-radius: var(--radius-xxs);
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+  overflow: hidden;
+  font-size: var(--text-body-sm);
+  color: var(--fg-secondary);
+  transition: background-color 80ms ease, color 80ms ease;
+}
+.ws-row:hover {
+  background: color-mix(in srgb, var(--fg) 6%, transparent);
+  color: var(--fg);
+}
+.ws-row-context {
+  background: color-mix(in srgb, var(--fg) 9%, transparent);
+  color: var(--fg);
+}
+.ws-row-selected {
+  background: color-mix(in srgb, var(--fg) 8%, transparent);
+  color: var(--fg);
+}
+.ws-chevron {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--fg-tertiary);
+  transition: transform 100ms ease;
+}
+.ws-chevron svg { width: 10px; height: 10px; }
+.ws-row-file .ws-chevron { visibility: hidden; }
+details.ws-dir[open] > summary > .ws-chevron { transform: rotate(90deg); }
+.ws-icon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--fg-tertiary);
+}
+.ws-icon svg { width: 14px; height: 14px; }
+.ws-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ws-row-renaming {
+  overflow: visible;
+}
+.ws-row-renaming .ws-name {
+  overflow: visible;
+}
+.ws-rename-input {
+  width: 100%;
+  height: 18px;
+  min-width: 0;
+  padding: 0 4px;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-xxs);
+  background: var(--bg-surface);
+  color: var(--fg);
+  font: inherit;
+  line-height: 16px;
+  outline: none;
+}
+/* Hide native <details>/<summary> marker (Chromium + Firefox + Safari). */
+.ws-dir { margin: 0; padding: 0; }
+.ws-dir > summary { list-style: none; outline: none; }
+.ws-dir > summary::-webkit-details-marker { display: none; }
+.ws-dir > summary::marker { display: none; content: ''; }
+
+
+.workspace-file-tab:global(.is-preview) .workspace-file-tab-name { font-style: italic; }
+.workspace-editor-body {
+  overflow: hidden;
+}
+
+.workspace-document-notice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  color: var(--fg-secondary);
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border);
+  font-size: var(--text-body-sm);
+}
+
+.workspace-document-notice[hidden] { display: none; }
+.workspace-document-notice span { flex: 1; }
+.workspace-document-notice button {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+  padding: 4px 8px;
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+  cursor: pointer;
+}
+
+:global(.workspace-file-view-toggle.is-document-toggle) :global(.workspace-file-view-btn) {
+  width: auto;
+  min-width: 0;
+  padding-inline: 10px;
+  color: var(--fg-secondary);
+  font-size: var(--text-body-sm);
+  white-space: nowrap;
+}
+
+:global(.workspace-file-view-btn[hidden]) { display: none; }

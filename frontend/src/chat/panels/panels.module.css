@@ -1,0 +1,290 @@
+/* chat/panels 域样式（Batch 5 CSS Modules）。状态类/字形内嵌类/静态标记容器类经 :global() 引用；chat.ts 的跨界消费点同 import 本模块。 */
+
+/* Maximized panel: it takes the whole content row — the chat column collapses to
+   zero width (keeping its scroll state, not removed from layout) and the panel
+   fills the rest. The sidebar stays. */
+body:global(.artifacts-maximized) :global(#main) {
+  flex: 0 0 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+body:global(.artifacts-maximized) :global(#artifacts-panel):not(:global(.collapsed)) {
+  flex: 1 1 auto;
+  width: auto;
+  border-left: none;
+}
+
+body:global(.artifacts-maximized) :global(.panel-resizer) {
+  display: none;
+}
+
+.artifacts-tabs-scroll {
+  min-width: 0;
+  display: flex;
+  align-items: stretch;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  overscroll-behavior-x: contain;
+}
+
+.artifacts-tabs-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+.artifacts-tab {
+  position: relative;
+  padding: 0 8px;
+  border: none;
+  border-right: 1px solid var(--border-subtle);
+  border-radius: 0;
+  background: transparent;
+  color: var(--fg-tertiary);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+  max-width: 160px;
+  font-family: var(--font);
+  font-size: var(--text-small);
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+
+.artifacts-tab-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 15px;
+  height: 15px;
+}
+
+.artifacts-tab-trigger {
+  display: inline-flex;
+  align-items: center;
+  align-self: stretch;
+  gap: inherit;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.artifacts-tab-trigger:focus-visible {
+  outline: none;
+  background: var(--bg-hover);
+  color: var(--fg);
+  box-shadow: none;
+}
+
+/* inline-flex above would otherwise beat the UA's [hidden] display:none, which
+   is how the `more` trigger stays out of the strip until the tabs overflow. */
+.artifacts-tab[hidden] { display: none; }
+
+.artifacts-tab svg { width: 15px; height: 15px; flex-shrink: 0; }
+
+.artifacts-tab:hover { color: var(--fg); background: var(--bg-hover); }
+
+.artifacts-tab:global(.active) {
+  color: var(--fg);
+  background: var(--bg);
+  box-shadow: 0 1px 0 0 var(--bg);
+}
+
+.artifacts-tab-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Drag to reorder: the dragged tab dims and the drop edge is marked with a
+   2px accent bar, so the landing slot is visible before releasing. Only
+   instance tabs are draggable; the fixed pair never moves. */
+.artifacts-tab:global(.dragging) {
+  opacity: 0.45;
+}
+
+.artifacts-tab:global(.drop-before)::after,
+.artifacts-tab:global(.drop-after)::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--theme-accent, var(--fg));
+  pointer-events: none;
+  z-index: 3;
+}
+
+.artifacts-tab:global(.drop-before)::after { left: 0; }
+
+.artifacts-tab:global(.drop-after)::after { right: 0; }
+
+.artifacts-tab-countdown {
+  font-size: var(--text-badge);
+  color: var(--fg-quaternary);
+  font-variant-numeric: tabular-nums;
+  padding: 0 4px;
+}
+
+/* Close affordance floats over the tab's right edge instead of taking layout
+   space, and the label fades under it on hover so text never collides with the
+   glyph. */
+.artifacts-tab-actions {
+  position: absolute;
+  top: 0;
+  right: 2px;
+  bottom: 0;
+  width: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.artifacts-tab-instance:hover .artifacts-tab-label,
+.artifacts-tab-instance:focus-within .artifacts-tab-label {
+  mask-image: linear-gradient(to right, #000 calc(100% - 22px), transparent calc(100% - 6px));
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 22px), transparent calc(100% - 6px));
+}
+
+.artifacts-tab-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border: none;
+  background: transparent;
+  color: var(--fg-quaternary);
+  border-radius: var(--radius-xs);
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+  opacity: 0;
+  transition: opacity var(--transition), background var(--transition), color var(--transition);
+}
+
+.artifacts-tab-close svg { width: 11px; height: 11px; }
+
+.artifacts-tab:hover .artifacts-tab-close,
+.artifacts-tab-close:focus-visible { opacity: 1; }
+
+.artifacts-tab-close:hover { background: var(--bg-hover); color: var(--fg); }
+
+/* The panel-wide `+` and `more` triggers: same tab metrics as the surface tabs
+   so they line up inside the strip instead of reading as floating actions. */
+.artifacts-tab.artifacts-tab-new,
+.artifacts-tab.artifacts-tab-more {
+  padding: 0 6px;
+  color: var(--fg-tertiary);
+  border-right: none;
+  max-width: none;
+}
+
+/* `+` sits at the strip's right end, next to the maximize button, rather than
+   trailing the last tab — so it stays in one place as tabs are opened and
+   closed. Its menu is anchored to the button at open time, so it follows. */
+.artifacts-tab.artifacts-tab-new { margin-left: auto; }
+
+.artifacts-tab.artifacts-tab-new[aria-disabled="true"] { opacity: 0.4; pointer-events: none; }
+
+.artifacts-tab.artifacts-tab-new[aria-expanded="true"],
+.artifacts-tab.artifacts-tab-more[aria-expanded="true"] { color: var(--fg); background: var(--bg-hover); }
+
+/* Header dropdowns (`+` and `more`) — one set of metrics for both. Anchored
+   under their own trigger by panel-tabs.js, which sets left/top from the
+   button's box; the values here are only the pre-measure fallback.
+
+   Sized to its content: an icon column plus one short label per row. Anything
+   that needs a sentence (why an entry is unavailable) goes to the tooltip, so
+   the menu never stretches to fit prose. */
+.artifacts-menu {
+  position: absolute;
+  top: calc(var(--panel-tabbar-height, 34px) + 4px);
+  left: 8px;
+  min-width: 132px;
+  max-width: 220px;
+  max-height: 320px;
+  overflow-y: auto;
+  padding: 4px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-md);
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.artifacts-menu:global(.hidden) { display: none; }
+
+.artifacts-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  height: 26px;
+  padding: 0 8px;
+  border: none;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--fg);
+  font-family: var(--font);
+  font-size: var(--text-small);
+  font-weight: var(--weight-regular);
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--transition), color var(--transition);
+}
+
+.artifacts-menu-item:hover:not(:disabled) { background: var(--bg-hover); }
+
+.artifacts-menu-item:focus-visible {
+  outline: none;
+  background: var(--bg-hover);
+  box-shadow: none;
+}
+
+.artifacts-menu-item:global(.active) { background: color-mix(in srgb, var(--fg) 8%, transparent); }
+
+.artifacts-menu-item:disabled {
+  color: var(--fg-quaternary);
+  cursor: default;
+}
+
+.artifacts-menu-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  color: var(--fg-tertiary);
+}
+
+.artifacts-menu-icon svg { width: 14px; height: 14px; }
+
+.artifacts-menu-item:disabled .artifacts-menu-icon { color: var(--fg-quaternary); }
+
+.artifacts-menu-item:global(.active) .artifacts-menu-icon { color: var(--fg-secondary); }
+
+.artifacts-menu-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-context-menu-divider {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--border-subtle);
+}

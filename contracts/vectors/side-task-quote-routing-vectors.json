@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "reason": "Route explicit quotes to available side drafts using the active side tab first, then stored tab order within right and bottom panels, before creating another side task. Queued requests use a separate transfer path and do not become selection quotes.",
+  "targetCases": [
+    { "id": "right-active-precedes-strip-order", "panels": [{ "placement": "right", "activeId": "two", "tabs": ["one", "two"] }], "available": ["one", "two"], "target": "two" },
+    { "id": "non-side-active-uses-stored-order", "panels": [{ "placement": "right", "activeId": null, "tabs": ["three", "one", "two"] }], "available": ["one", "two", "three"], "target": "three" },
+    { "id": "unavailable-active-is-skipped", "panels": [{ "placement": "right", "activeId": "closing", "tabs": ["closing", "failed", "ready"] }], "available": ["ready"], "target": "ready" },
+    { "id": "active-id-outside-strip-is-ignored", "panels": [{ "placement": "right", "activeId": "stale", "tabs": ["one"] }], "available": ["one", "stale"], "target": "one" },
+    { "id": "right-precedes-bottom-even-if-bottom-is-active", "panels": [{ "placement": "bottom", "activeId": "bottom-two", "tabs": ["bottom-one", "bottom-two"] }, { "placement": "right", "activeId": null, "tabs": ["right-one"] }], "available": ["right-one", "bottom-one", "bottom-two"], "target": "right-one" },
+    { "id": "bottom-active-after-unavailable-right", "panels": [{ "placement": "right", "activeId": "unavailable", "tabs": ["unavailable"] }, { "placement": "bottom", "activeId": "bottom-two", "tabs": ["bottom-one", "bottom-two"] }], "available": ["bottom-one", "bottom-two"], "target": "bottom-two" },
+    { "id": "bottom-stored-order-fallback", "panels": [{ "placement": "bottom", "activeId": null, "tabs": ["bottom-two", "bottom-one"] }], "available": ["bottom-one", "bottom-two"], "target": "bottom-two" },
+    { "id": "pending-draft-is-a-reusable-target", "panels": [{ "placement": "right", "activeId": "pending-side-1", "tabs": ["pending-side-1"] }], "available": ["pending-side-1"], "target": "pending-side-1" },
+    { "id": "no-available-target", "panels": [{ "placement": "right", "activeId": "failed", "tabs": ["failed"] }], "available": [], "target": null }
+  ],
+  "handoff": { "maximumTasks": 8, "automaticSubmissions": 0, "pendingForks": 1 },
+  "initialTitle": { "first": "side_task_untitled", "third": "side_task_untitled 3" }
+}

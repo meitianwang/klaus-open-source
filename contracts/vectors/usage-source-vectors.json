@@ -1,0 +1,175 @@
+{
+  "reason": "The quota dashboard reads the current conversation's saved source independently of provider startup; drafts use the future default. Each source reads allowance from its provider credentials independently of the Klaus account. Ark console allowance uses independent OAuth STS credentials; allowance reads retain the console connection, and safe permission or renewal failures remain visible without exposing credentials. Cursor quotas use real plan percentages and preserve unavailable allowance states.",
+  "selections": [
+    {
+      "sessionId": "existing-qoder",
+      "mode": "auto",
+      "source": "qoder"
+    },
+    {
+      "sessionId": "existing-codex",
+      "mode": "auto",
+      "source": "codex"
+    },
+    {
+      "sessionId": "existing-qwenwork",
+      "mode": "auto",
+      "source": "qwenwork"
+    },
+    {
+      "sessionId": "existing-qoderwork",
+      "mode": "auto",
+      "source": "qoderwork"
+    },
+    {
+      "sessionId": "existing-workbuddy",
+      "mode": "auto",
+      "source": "workbuddy"
+    },
+    {
+      "sessionId": "existing-kimi",
+      "mode": "auto",
+      "source": "kimi"
+    },
+    {
+      "sessionId": "existing-bailian",
+      "mode": "auto",
+      "source": "bailian"
+    },
+    {
+      "sessionId": "existing-minimax",
+      "mode": "auto",
+      "source": "minimax"
+    },
+    {
+      "sessionId": "existing-zhipu",
+      "mode": "auto",
+      "source": "zhipu"
+    },
+    {
+      "sessionId": "existing-ark",
+      "mode": "auto",
+      "source": "ark"
+    },
+    {
+      "sessionId": "existing-cursor",
+      "mode": "cursor:fixture[effort=high,fast=true]",
+      "source": "cursor"
+    },
+    {
+      "sessionId": "latest-custom",
+      "mode": "auto",
+      "source": "custom"
+    }
+  ],
+  "queries": [
+    {
+      "sessionId": "existing-qoder",
+      "expectedMode": "qoder"
+    },
+    {
+      "sessionId": "existing-codex",
+      "expectedMode": "codex"
+    },
+    {
+      "sessionId": "existing-qwenwork",
+      "expectedMode": "qwenwork"
+    },
+    {
+      "sessionId": "existing-qoderwork",
+      "expectedMode": "qoderwork"
+    },
+    {
+      "sessionId": "existing-workbuddy",
+      "expectedMode": "workbuddy"
+    },
+    {
+      "sessionId": "existing-kimi",
+      "expectedMode": "kimi"
+    },
+    {
+      "sessionId": "existing-bailian",
+      "expectedMode": "bailian"
+    },
+    {
+      "sessionId": "existing-minimax",
+      "expectedMode": "minimax"
+    },
+    {
+      "sessionId": "existing-zhipu",
+      "expectedMode": "zhipu"
+    },
+    {
+      "sessionId": "existing-ark",
+      "expectedMode": "ark"
+    },
+    {
+      "sessionId": "existing-cursor",
+      "expectedMode": "cursor"
+    },
+    {
+      "expectedMode": "custom"
+    },
+    {
+      "sessionId": "existing-qoder",
+      "expectedMode": "qoder"
+    }
+  ],
+  "arkConsole": [
+    {
+      "answer": {
+        "signedIn": true,
+        "account": "fixture-account",
+        "consoleLoggedIn": true,
+        "quotaAvailable": true,
+        "windows": [
+          {
+            "id": "five_hour",
+            "usedPercent": 0.18,
+            "resetsAt": 1792022400000
+          },
+          {
+            "id": "weekly",
+            "usedPercent": 12.5
+          }
+        ]
+      },
+      "expected": {
+        "state": "ok",
+        "account": "fixture-account",
+        "consoleLoggedIn": true,
+        "windows": [
+          {
+            "id": "five_hour",
+            "usedPercent": 0.18,
+            "resetsAt": 1792022400000
+          },
+          {
+            "id": "weekly",
+            "usedPercent": 12.5
+          }
+        ]
+      }
+    },
+    {
+      "answer": {
+        "signedIn": true,
+        "consoleLoggedIn": true,
+        "quotaAvailable": false,
+        "windows": []
+      },
+      "expected": {
+        "state": "ok",
+        "account": null,
+        "consoleLoggedIn": true,
+        "quotaAvailable": false
+      }
+    },
+    {
+      "error": "Ark console allowance request failed (HTTP 403)"
+    },
+    {
+      "error": "Ark console login needs renewal; sign in again"
+    }
+  ]
+}

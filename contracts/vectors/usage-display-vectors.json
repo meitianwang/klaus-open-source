@@ -1,0 +1,9 @@
+{
+  "reason": "Both the colored quota bar and the percentage beside it describe remaining allowance, so one row never mixes two readings; the warning color still follows high usage.",
+  "cases": [
+    { "usedPercent": 0, "remainingPercent": 100, "highUsage": false },
+    { "usedPercent": 26, "remainingPercent": 74, "highUsage": false },
+    { "usedPercent": 90, "remainingPercent": 10, "highUsage": true },
+    { "usedPercent": 100, "remainingPercent": 0, "highUsage": true }
+  ]
+}

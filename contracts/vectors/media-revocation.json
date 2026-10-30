@@ -1,0 +1,6 @@
+{
+  "reason": "All media capabilities, including ordinary files, lose pending grants, pending responses and active streams when their owner is revoked.",
+  "actions": ["session", "close"],
+  "revokedResponseStatus": 403,
+  "grantLimit": 4096
+}

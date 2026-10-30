@@ -1,0 +1,259 @@
+{
+  "_why": "Cross-conversation delivery has two explicit routes: an idle recipient starts a turn, where requested model and effort overrides apply; a running recipient receives session/steer, where overrides cannot apply. Steer ACK means queue admission, not application. The notice makes that distinction visible and directs senders to check queued messages and replies before resending. Stable queue UUIDs and expectedTurnId preserve input identity and fence admission to the intended turn. Stopped/failed recipients keep pending input and require explicit owner resume; timeout remains unconfirmed and late applied can recover. Delegation envelopes carry sender identity to the model while displayText remains owner-facing. Private, deleted, internal and self targets are refused before engine calls; unattended delivery is refused when a human approval would be required. Remote delivery preserves destination and source host IDs, and an unavailable explicit host cannot silently fall through to a local conversation. Remote read routing is pinned in remote-thread-tools-vectors.json. Ultra is a local orchestration choice and must survive delegated turn overrides without folding into Max. Successful send receipts include a nonblocking, host-preserving wait action. Delivery alone does not collect the recipient result, and callers read completed replies after waiting instead of relying on an automatic return message.",
+  "delivery": [
+    {
+      "name": "an idle recipient starts a new turn and per-turn overrides apply",
+      "caller": "thread-a",
+      "arguments": {
+        "threadId": "thread-b",
+        "prompt": "Please finish the parser fix.",
+        "model": "gpt-5",
+        "thinking": "high"
+      },
+      "recipientWorking": false,
+      "expectedOk": true,
+      "expectedRoute": "turn",
+      "expectedOverridesApplied": true,
+      "expectedDelivered": "started",
+      "expectedEnvelopeSource": "thread-a",
+      "expectedEnvelopeInput": "Please finish the parser fix.",
+      "expectedDisplayText": "Please finish the parser fix.",
+      "expectedModel": "gpt-5",
+      "expectedEffort": "high"
+    },
+    {
+      "name": "a running recipient is steered and the overrides honestly do not apply",
+      "caller": "thread-a",
+      "arguments": {
+        "threadId": "thread-b",
+        "prompt": "Also check stderr.",
+        "model": "gpt-5",
+        "thinking": "high"
+      },
+      "recipientWorking": true,
+      "expectedOk": true,
+      "expectedRoute": "steer",
+      "expectedOverridesApplied": false,
+      "expectedDelivered": "steered",
+      "expectedEnvelopeSource": "thread-a",
+      "expectedEnvelopeInput": "Also check stderr.",
+      "expectedDisplayText": "Also check stderr.",
+      "_expectedModelNote": "The tool always forwards the overrides; the steer route cannot apply them, which is what expectedOverridesApplied and the notice report.",
+      "expectedModel": "gpt-5",
+      "expectedEffort": "high",
+      "expectNotice": true
+    },
+    {
+      "name": "a running recipient reports queue admission separately from application, even without overrides",
+      "caller": "thread-a",
+      "arguments": {
+        "threadId": "thread-b",
+        "prompt": "Continue."
+      },
+      "recipientWorking": true,
+      "expectedOk": true,
+      "expectedRoute": "steer",
+      "expectedOverridesApplied": false,
+      "expectedDelivered": "steered",
+      "expectedEnvelopeSource": "thread-a",
+      "expectedEnvelopeInput": "Continue.",
+      "expectedDisplayText": "Continue.",
+      "expectNotice": true
+    },
+    {
+      "name": "the thinking aliases the composer normalizes map onto engine effort names",
+      "caller": "thread-a",
+      "arguments": {
+        "threadId": "thread-b",
+        "prompt": "Think harder.",
+        "thinking": "minimal"
+      },
+      "recipientWorking": false,
+      "expectedOk": true,
+      "expectedRoute": "turn",
+      "expectedOverridesApplied": true,
+      "expectedEnvelopeSource": "thread-a",
+      "expectedEnvelopeInput": "Think harder.",
+      "expectedDisplayText": "Think harder.",
+      "expectedEffort": "low"
+    },
+    {
+      "name": "ultra retains the local orchestration mode",
+      "caller": "thread-a",
+      "arguments": {
+        "threadId": "thread-b",
+        "prompt": "Think hardest.",
+        "thinking": "ultra"
+      },
+      "recipientWorking": false,
+      "expectedOk": true,
+      "expectedRoute": "turn",
+      "expectedOverridesApplied": true,
+      "expectedEnvelopeSource": "thread-a",
+      "expectedEnvelopeInput": "Think hardest.",
+      "expectedDisplayText": "Think hardest.",
+      "expectedEffort": "ultra"
+    },
+    {
+      "name": "an archived recipient still receives the message and reports that it was archived",
+      "caller": "thread-a",
+      "arguments": {
+        "threadId": "thread-b",
+        "prompt": "Resume this."
+      },
+      "recipientWorking": false,
+      "recipientArchived": true,
+      "expectedOk": true,
+      "expectedRoute": "turn",
+      "expectedOverridesApplied": false,
+      "expectedEnvelopeSource": "thread-a",
+      "expectedEnvelopeInput": "Resume this.",
+      "expectedDisplayText": "Resume this.",
+      "expectedArchived": true
+    },
+    {
+      "name": "hostId 'local' is accepted on a write",
+      "caller": "thread-a",
+      "arguments": {
+        "threadId": "thread-b",
+        "prompt": "Local delivery.",
+        "hostId": "local"
+      },
+      "expectedDelivered": "started",
+      "recipientWorking": false,
+      "expectedOk": true,
+      "expectedRoute": "turn",
+      "expectedOverridesApplied": false,
+      "expectedEnvelopeSource": "thread-a",
+      "expectedEnvelopeInput": "Local delivery.",
+      "expectedDisplayText": "Local delivery."
+    }
+  ],
+  "refusals": [
+    {
+      "name": "a conversation cannot deliver to itself",
+      "caller": "thread-a",
+      "arguments": {
+        "threadId": "thread-a",
+        "prompt": "Loop."
+      },
+      "expectedError": "A conversation cannot target itself. Choose another conversation."
+    },
+    {
+      "name": "a private thread is not found",
+      "caller": "thread-a",
+      "arguments": {
+        "threadId": "private-thread",
+        "prompt": "Leak."
+      },
+      "private": [
+        "private-thread"
+      ],
+      "expectedError": "The conversation was not found."
+    },
+    {
+      "name": "an internal pseudo id is not addressable",
+      "caller": "thread-a",
+      "arguments": {
+        "threadId": "__internal",
+        "prompt": "Reach in."
+      },
+      "expectedError": "The conversation was not found."
+    },
+    {
+      "name": "an unknown conversation is not found",
+      "caller": "thread-a",
+      "arguments": {
+        "threadId": "thread-missing",
+        "prompt": "Nobody home."
+      },
+      "unknownTargets": [
+        "thread-missing"
+      ],
+      "expectedError": "The conversation was not found"
+    },
+    {
+      "name": "a scheduled run cannot change another conversation",
+      "caller": "thread-a",
+      "arguments": {
+        "threadId": "thread-b",
+        "prompt": "Unattended write."
+      },
+      "unattended": true,
+      "expectedError": "A scheduled run cannot change another conversation."
+    },
+    {
+      "name": "an empty prompt is refused before any delivery",
+      "caller": "thread-a",
+      "arguments": {
+        "threadId": "thread-b",
+        "prompt": "   "
+      },
+      "expectedInvalidArguments": true
+    },
+    {
+      "name": "an unknown argument is refused",
+      "caller": "thread-a",
+      "arguments": {
+        "threadId": "thread-b",
+        "prompt": "hi",
+        "attacker": "x"
+      },
+      "expectedInvalidArguments": true
+    },
+    {
+      "name": "a thinking value outside the engine ladder is refused",
+      "caller": "thread-a",
+      "arguments": {
+        "threadId": "thread-b",
+        "prompt": "hi",
+        "thinking": "none"
+      },
+      "expectedInvalidArguments": true
+    },
+    {
+      "name": "a foreign host is refused when the account transport is unavailable, without local delivery",
+      "caller": "thread-a",
+      "arguments": {
+        "threadId": "thread-b",
+        "prompt": "Land somewhere else.",
+        "hostId": "remote-host"
+      },
+      "expectedError": "Remote conversations are unavailable on this host."
+    }
+  ],
+  "setTitleDefaults": [
+    {
+      "name": "set_thread_title without a threadId targets the calling conversation",
+      "caller": "thread-a",
+      "arguments": {
+        "title": "Renamed by a peer"
+      },
+      "expectedTarget": "thread-a",
+      "expectedTitle": "Renamed by a peer"
+    },
+    {
+      "name": "set_thread_archived without a threadId targets the calling conversation",
+      "caller": "thread-a",
+      "arguments": {
+        "archived": true
+      },
+      "expectedTarget": "thread-a",
+      "expectedArchived": true
+    }
+  ],
+  "resultCollection": {
+    "wait": {
+      "tool": "wait_threads",
+      "arguments": {
+        "targets": [
+          {
+            "threadId": "thread-b",
+            "hostId": "local"
+          }
+        ],
+        "timeoutMs": 120000
+      }
+    }
+  }
+}

@@ -1,0 +1,149 @@
+/* Channels 页样式（Batch 5 CSS Modules，迁自 styles.css）。
+   状态类与共享原语经 :global() 引用；channels-page-content 为
+   index.html 静态容器类，:global 引用。 */
+
+.s-btn-ghost { border-color: transparent; }
+
+.s-btn-danger { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 28%, var(--border)); }
+
+.s-btn-danger:hover { background: var(--danger-bg); }
+
+/* Channel cards */
+.ch-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+
+.ch-card { background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); padding: 16px; transition: border-color var(--transition, 0.15s); }
+
+.ch-card:hover { border-color: var(--border); }
+
+.ch-card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+
+.ch-card-left { display: flex; align-items: center; gap: 12px; min-width: 0; }
+
+.ch-card-icon { border-radius: var(--radius-sm); flex-shrink: 0; }
+
+.ch-card-name { font-size: var(--text-emphasis); font-weight: var(--weight-semibold); color: var(--fg); }
+
+.ch-card-btn { padding: 5px 12px; border: 1px solid var(--border); border-radius: var(--radius-xs); background: var(--bg); color: var(--fg); font-size: var(--text-small); cursor: pointer; white-space: nowrap; }
+
+.ch-card-btn:hover { background: var(--bg-hover); }
+
+.ch-card-btn:global(.connected) { background: var(--success-bg); color: var(--status-ok); border-color: color-mix(in srgb, var(--status-ok) 30%, var(--border)); }
+
+.ch-card-desc { font-size: var(--text-body-sm); color: var(--fg-tertiary); line-height: 1.5; }
+
+.ch-form-field { display: flex; flex-direction: column; gap: 6px; }
+
+.ch-required { color: var(--danger); }
+
+/* Channel modal */
+.ch-modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 1100; align-items: center; justify-content: center; padding: 20px; }
+
+.ch-modal-overlay:global(.show) { display: flex; }
+
+.ch-modal { background: var(--bg); border-radius: var(--radius-md); max-width: 520px; width: 100%; max-height: 85vh; overflow: hidden; display: flex; flex-direction: column; box-shadow: 0 20px 40px rgba(0,0,0,0.2); }
+
+.ch-modal-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 20px; border-bottom: 1px solid var(--border-subtle); }
+
+.ch-modal-head-left { display: flex; align-items: center; gap: 12px; min-width: 0; }
+
+.ch-modal-icon { border-radius: var(--radius-sm); flex-shrink: 0; }
+
+.ch-modal-title { font-size: var(--text-title); font-weight: var(--weight-semibold); color: var(--fg); }
+
+.ch-modal-desc { font-size: var(--text-body-sm); color: var(--fg-tertiary); line-height: var(--leading-settings-subtitle); margin-top: 2px; }
+
+.ch-modal-close { background: none; border: none; color: var(--fg-tertiary); font-size: var(--text-hero); cursor: pointer; padding: 4px 10px; line-height: 1; border-radius: var(--radius-xs); }
+
+.ch-modal-close:hover { background: var(--bg-hover); color: var(--fg); }
+
+.ch-modal-body { padding: 20px; overflow-y: auto; }
+
+/* Modal guide */
+.ch-guide { font-size: var(--text-body-sm); color: var(--fg-tertiary); line-height: 1.6; margin-bottom: 20px; }
+
+.ch-guide-title { font-weight: var(--weight-semibold); color: var(--fg); margin-bottom: 8px; }
+
+.ch-guide-row { margin-bottom: 6px; }
+
+.ch-guide-num { font-weight: var(--weight-medium); color: var(--fg); }
+
+.ch-guide-link { margin-left: 6px; color: var(--accent); text-decoration: underline; }
+
+.ch-guide-action { margin-left: 6px; font-size: var(--text-small); padding: 2px 8px; }
+
+/* Modal form */
+.ch-form { display: flex; flex-direction: column; gap: 12px; }
+
+.ch-form-actions { display: flex; gap: 8px; margin-top: 16px; justify-content: flex-end; }
+
+.ch-form-actions :global(.kls-input) { flex: 1; min-width: 0; }
+
+.ch-checkbox-row { display: flex; align-items: center; gap: 8px; color: var(--fg); font-size: var(--text-body-sm); }
+
+.ch-checkbox-row input { margin: 0; }
+
+/* Connected state */
+.ch-connected { display: flex; flex-direction: column; gap: 12px; }
+
+.ch-connected-field { display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); }
+
+.ch-connected-label { font-size: var(--text-small); color: var(--fg-tertiary); margin-bottom: 2px; }
+
+.ch-connected-value { font-family: var(--font-mono, monospace); font-size: var(--text-body-sm); color: var(--fg); }
+
+/* QR flow */
+.ch-qr-wrap { text-align: center; padding: 8px 0; }
+
+.ch-qr-hint { font-size: var(--text-body-sm); color: var(--fg-tertiary); line-height: var(--leading-settings-subtitle); margin-bottom: 12px; }
+
+.ch-qr-img { width: 270px; max-width: 100%; height: auto; border-radius: var(--radius-sm); display: block; margin: 0 auto; }
+
+.ch-qr-status { margin-top: 10px; font-size: var(--text-small); line-height: var(--leading-settings-subtitle); color: var(--fg-tertiary); }
+
+:global(.channels-page-content) .ch-grid {
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 10px;
+}
+
+:global(.channels-page-content) .ch-card {
+  min-height: 118px;
+  padding: 14px 16px;
+  border-radius: var(--radius-sm);
+}
+
+:global(.channels-page-content) .ch-card-head {
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+:global(.channels-page-content) .ch-card-left {
+  gap: 10px;
+}
+
+:global(.channels-page-content) .ch-card-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-sm);
+}
+
+:global(.channels-page-content) .ch-card-name {
+  font-size: var(--text-emphasis);
+}
+
+:global(.channels-page-content) .ch-card-desc {
+  font-size: var(--text-small);
+  line-height: var(--leading-settings-subtitle);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+:global(.channels-page-content) .ch-card-btn {
+  padding: 4px 10px;
+  line-height: var(--leading-composer-control);
+}
+
+@media (max-width: 720px) {
+  :global(.channels-page-content) .ch-grid { grid-template-columns: 1fr; }
+}

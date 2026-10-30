@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "reason": "The PPT plugin uses Klaus-owned revisioned documents and native protocol adaptation, without a separate file service process.",
+  "exports": [
+    {"format": "pptx", "variant": "basic"},
+    {"format": "pptx", "variant": "current"},
+    {"format": "pptx", "variant": "pictures"},
+    {"format": "pdf"},
+    {"format": "png"},
+    {"format": "html"}
+  ],
+  "nativeChannels": ["ppt:transport-ready", "ppt:chat-request", "ppt:save-file"],
+  "mainChannels": ["ppt:list", "ppt:open", "ppt:open-result", "ppt:panel-show", "ppt:panel-set-bounds", "ppt:panel-hide", "ppt:panel-close", "ppt:chat-result"],
+  "ownership": {
+    "documents": "chat",
+    "requestAcknowledgement": "originating main window",
+    "publishFiles": "chat workspace roots",
+    "close": "flush editor, wait for saved state, release view and message ports, retain native document revisions"
+  },
+  "hosting": {"documentStore": "Klaus host", "separateFileServiceProcess": false, "runtimeBridgeVersion": 2},
+  "editing": ["text", "undo", "redo", "speaker notes", "automatic save", "live file updates", "reopen saved content"],
+  "excluded": ["comments", "external connectors", "Google Drive"],
+  "cancelledSave": {"ok": false, "cancelled": true}
+}

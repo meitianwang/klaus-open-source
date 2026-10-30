@@ -1,0 +1,15 @@
+node_modules
+dist/
+/frontend-dist/
+*.tsbuildinfo
+.DS_Store
+Thumbs.db
+# Build outputs staged by the engine and native helper scripts; never committed.
+/resources/bin/
+/resources/speech/
+/resources/recording/
+/resources/pip/
+/resources/computer-use/
+/release/
+__pycache__/
+*.pyc

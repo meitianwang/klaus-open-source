@@ -1,0 +1,151 @@
+.content { max-width: 960px; margin: 0 auto; }
+.permissionForm { display: grid; gap: 14px; }
+.permissionForm > .sectionHeading { margin: 6px 0 0; }
+.permissionForm .permissionCard > .permissionRow, .permissionForm .permissionCard > :global(.pref-row) { display: flex; align-items: center; justify-content: space-between; gap: 18px; min-height: 56px; padding: 15px 16px; border-top: 0; border-bottom: 1px solid var(--border); }
+.permissionForm .permissionCard > :global(.pref-row):nth-child(n) { border-top: 0; }
+.permissionForm .permissionCard > :last-child { border-bottom: 0; }
+.permissionForm [class*="profile-account-row-copy"] { min-width: 0; overflow-wrap: anywhere; }
+.permissionForm [class*="profile-account-row-value"] { flex-shrink: 0; }
+.permissionForm [class*="profile-account-card"] { margin: 0; }
+.sectionToolbar { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 10px; }
+.sectionToolbar h2 { margin: 0; }
+.riskSummary { font-size: var(--text-body-sm); line-height: 1.6; color: var(--fg); padding-bottom: 12px; border-bottom: 1px solid var(--border-subtle); }
+.dialogFooter { flex-wrap: wrap; align-items: center; }
+.dialogFooter .rememberOption { flex: 1 1 240px; min-width: 0; margin: 0 auto 0 0; padding: 0; border: 0; background: transparent; gap: 8px; }
+.dialogFooter .rememberOption:hover { background: transparent; }
+.dialogFooter .rememberOption > span:last-child { min-width: 0; }
+.taskPromptMessage { margin: 6px 0 0; overflow-wrap: anywhere; }
+.taskPromptMessage :global(.friend-msg-btn) { height: 26px; padding: 0 8px; font-size: var(--text-caption); font-weight: var(--weight-normal); background: transparent; }
+.taskPromptMessage :global(.friend-msg-btn):hover { background: var(--bg-hover); }
+.taskMeta { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.dangerSection :global(.kls-btn) { color: var(--danger); }
+.errorDetails { color: var(--fg-tertiary); font-size: var(--text-caption); }
+.errorDetails pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+@media (max-width: 560px) { .permissionForm [class*="profile-account-row"] { flex-wrap: wrap; } }
+.section { margin: 24px 0 36px; }
+.section h2 { margin: 0 0 12px; font-size: var(--text-body); font-weight: var(--weight-semibold); color: var(--fg); }
+/* Section headings pin under the sticky page header while the friend list
+   scrolls, so a long list never loses its "which block am I in" anchor. The
+   offset comes from a variable the page fills with the header's measured
+   height (the header grows when the action row wraps or the language does).
+   The band carries the page's own opaque backdrop — same fixed-attachment
+   recipe the header uses — so rows scrolling under it never show through.
+   Bottom padding plus a shortened bottom margin keep the resting layout
+   pixel-identical (the band's extra 10px folds into the heading's usual
+   12px gap); a top compensation would just be eaten by margin collapsing
+   against the section, so the band grows downward only. */
+.section h2.stickyHeading {
+  position: sticky;
+  top: var(--friends-header-height, 0px);
+  z-index: 4;
+  padding-bottom: 10px;
+  margin-bottom: 2px;
+  background:
+    radial-gradient(ellipse at 92% -8%, color-mix(in srgb, var(--accent) 5%, transparent) 0%, transparent 55%),
+    var(--bg);
+  background-attachment: fixed;
+}
+.section h2 span { margin-left: 7px; color: var(--fg-tertiary); font-size: var(--text-caption); font-weight: var(--weight-normal); }
+.row { display: flex; align-items: center; gap: 14px; padding: 20px 0; border-bottom: 1px solid var(--border-subtle); }
+.avatar { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; flex: 0 0 auto; border-radius: 50%; background: var(--bg-secondary); color: var(--fg-secondary); overflow: hidden; font-size: 19px; }
+/* Two classes on purpose: a host slot (e.g. the mention menu's 16px icon
+   column) ships its own `img` rule at the same specificity, and whichever
+   module stylesheet loads last would win. The extra class keeps the avatar's
+   own fill rule ahead of any same-specificity host rule. */
+.avatar.avatar img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.avatarLarge { width: 58px; height: 58px; font-size: 24px; }
+.avatarSmall { width: 20px; height: 20px; font-size: 11px; }
+.details { flex: 1; min-width: 0; }
+.name { color: var(--fg); font-size: var(--text-body); font-weight: var(--weight-medium); overflow-wrap: anywhere; }
+.status { display: flex; align-items: center; gap: 6px; margin-top: 5px; font-size: var(--text-caption); color: var(--fg-tertiary); }
+.dot { width: 6px; height: 6px; border-radius: 50%; background: var(--fg-quaternary); display: inline-block; }
+.online { background: var(--status-good, #3d8e66); }
+.actions { display: flex; gap: 8px; flex-shrink: 0; }
+.empty { text-align: center; padding: 40px 16px; color: var(--fg-tertiary); line-height: 1.7; }
+.error { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 0; color: var(--fg-secondary); }
+.lookupForm { margin: 12px 0 20px; }
+.lookupForm > label { display: block; margin-bottom: 8px; font-size: var(--text-body-sm); color: var(--fg-secondary); }
+.lookupFields { display: flex; gap: 10px; }
+.lookupFields input { flex: 1; min-width: 0; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-xs); color: var(--fg); background: var(--bg); font: inherit; }
+.lookupFields input:focus { outline: 2px solid var(--accent); outline-offset: 2px; }
+.profileResult { display: flex; align-items: center; gap: 14px; padding: 18px 0; }
+.profileResult strong { font-size: var(--text-body); color: var(--fg); }
+.profileResult p { margin: 6px 0 0; font-size: var(--text-body-sm); color: var(--fg-secondary); overflow-wrap: anywhere; }
+.accountBadge { margin-left: auto; font-size: var(--text-caption); color: var(--fg-tertiary); }
+.addNote, .muted { font-size: var(--text-caption); color: var(--fg-tertiary); line-height: 1.6; }
+.addNote { margin-top: 22px; padding-top: 16px; border-top: 1px solid var(--border-subtle); }
+.formError { color: var(--status-error, #b04040); font-size: var(--text-body-sm); line-height: 1.5; }
+.settingsSection { padding: 18px 0; border-top: 1px solid var(--border-subtle); }
+.remark { color: var(--fg-secondary); font-weight: var(--weight-regular); }
+.settingsSection h3, .grantSection h3 { margin: 0 0 8px; color: var(--fg); font-size: var(--text-body-sm); font-weight: var(--weight-semibold); }
+.settingsSection p { color: var(--fg-secondary); font-size: var(--text-body-sm); line-height: 1.7; }
+.wideModal { max-width: 660px; }
+.taskDevice { display: flex; align-items: center; gap: 7px; color: var(--fg-tertiary); font-size: var(--text-caption); margin: 0 0 18px 56px; }
+.grantSection { padding: 18px 0; border-top: 1px solid var(--border-subtle); }
+.sectionHeading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.sectionHeading h3 { margin: 0; }
+.directoryRow { display: flex; align-items: center; gap: 9px; padding: 10px 0; font-size: var(--text-body-sm); }
+.directoryRow > span:first-of-type { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.directoryRow > span:last-child:not(:first-of-type) { flex: 0 0 auto; }
+.appGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 14px; }
+.boundary { margin: 14px 0 0; font-size: var(--text-caption); line-height: 1.6; color: var(--fg-secondary); }
+@media (max-width: 700px) { .row { flex-wrap: wrap; } .actions { padding-left: 58px; width: 100%; } .lookupFields { flex-direction: column; } .appGrid { grid-template-columns: 1fr; } }
+
+/* Directory row inside the default-permission card: path on the left,
+   access select and remove button grouped on the right. */
+.directoryTitle { display: flex; align-items: center; gap: 8px; color: var(--fg); font-size: var(--text-small); overflow-wrap: anywhere; }
+.directoryControls { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+/* Dialog checkbox tiles keep the grid rhythm instead of the row margin. */
+.appGrid :global(.klaus-dialog-checkbox) { margin: 0; }
+
+.requestPermission { margin: 18px 0; }
+.requestPermission .muted { margin-left: 23px; }
+.status { flex-wrap: wrap; }
+.taskPrompt { white-space: pre-wrap; overflow-wrap: anywhere; }
+/* Authorization dialog: the task body keeps every character (the decision
+   reads it) but scrolls inside a bounded box so a long prompt cannot push the
+   grant editor and the allow button off screen. */
+.taskPromptScroll { max-height: 220px; overflow: auto; margin: 6px 0 8px; padding-right: 4px; }
+.taskPromptScroll p { margin: 6px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.scopeSummary { font-size: var(--text-body-sm); color: var(--fg-secondary); }
+.scopeSummary p { overflow-wrap: anywhere; }
+.scopeSummary ul { padding-left: 20px; }
+.scopeSummary li { margin: 8px 0; overflow-wrap: anywhere; }
+.templateCard { border: 1px solid var(--border-subtle); border-radius: var(--radius-xs); padding: 14px; margin: 14px 0; }
+.templateCard .actions { flex-wrap: wrap; }
+.deviceList { display: grid; gap: 10px; margin: 14px 0; }
+.deviceOption { display: flex; align-items: center; gap: 12px; padding: 14px; border: 1px solid var(--border-subtle); border-radius: var(--radius-xs); background: var(--bg); color: var(--fg); font: inherit; text-align: left; cursor: pointer; }
+.deviceOption > span { flex: 1; min-width: 0; }
+.deviceOption strong { display: block; font-size: var(--text-body-sm); font-weight: var(--weight-medium); }
+.deviceOption small { display: block; margin-top: 6px; color: var(--fg-tertiary); font-size: var(--text-caption); }
+.deviceOption[aria-pressed="true"] { border-color: var(--accent); }
+.deviceOption:disabled { opacity: .6; cursor: default; }
+@media (max-width: 700px) { .sectionHeading { align-items: flex-start; flex-wrap: wrap; } }
+/* The back control remains visible for pointer and keyboard navigation. */
+.backLink { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; margin: 0 -4px 0 -6px; border: 0; border-radius: var(--radius-sm); background: none; color: var(--fg-tertiary); cursor: pointer; padding: 0; transition: background var(--transition), color var(--transition); }
+.backLink:hover { background: color-mix(in srgb, var(--fg) 8%, transparent); color: var(--fg); }
+.taskPage { display: grid; gap: 14px; }
+/* The bulk set-aside for one friend's backlog sits between the detail header
+   and the task list, so it reads as a list-level action, not a row action. */
+.taskPageToolbar { display: flex; justify-content: flex-end; margin: -4px 0 2px; }
+.taskPageHeader { display: flex; align-items: center; gap: 12px; padding: 6px 0 12px; border-bottom: 1px solid var(--border); }
+.taskPageHeader .details { flex: 1; }
+/* My QR card: identity row above a centered code. The image keeps its own
+   width so the dialog never stretches to the PNG's pixel size. */
+.qrCard { display: grid; justify-items: center; gap: 18px; padding: 8px 0 4px; }
+.qrIdentity { display: flex; align-items: center; gap: 14px; width: 100%; }
+.qrIdentity strong { font-size: var(--text-body); color: var(--fg); }
+.qrIdentity p { margin: 4px 0 0; font-size: var(--text-body-sm); color: var(--fg-secondary); overflow-wrap: anywhere; }
+.qrImage { width: 200px; height: 200px; border-radius: var(--radius-md); background: #fff; padding: 10px; box-sizing: content-box; }
+/* Scan stage: the live camera view and its idle placeholder share one fixed
+   frame so switching routes never resizes the dialog. */
+/* Add-me link row under the QR: label, the link itself and a copy button on
+   one line; the link stays one truncated line so a long payload never grows
+   the dialog. */
+.inviteRow { display: flex; align-items: center; gap: 10px; width: 100%; min-width: 0; }
+.inviteLabel { flex: 0 0 auto; font-size: var(--text-body-sm); color: var(--fg-secondary); }
+.inviteLink { flex: 1; min-width: 0; font-size: var(--text-body-sm); color: var(--accent); text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.inviteLink:hover { text-decoration: underline; }
+.scanStage { display: grid; justify-items: center; padding: 4px 0 10px; }
+.scanVideo, .scanPlaceholder { width: 100%; max-width: 360px; aspect-ratio: 4 / 3; border-radius: var(--radius-md); background: var(--bg-secondary); object-fit: cover; }
+.scanPlaceholder { display: grid; place-items: center; color: var(--fg-quaternary); }

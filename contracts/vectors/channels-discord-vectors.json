@@ -1,0 +1,97 @@
+{
+  "chunk": [
+    [
+      ""
+    ],
+    [
+      "short"
+    ],
+    [
+      "line one\nline two",
+      "line three\nline four",
+      "line five\nline six"
+    ],
+    [
+      "para one\n\npara two",
+      " is a good deal",
+      " longer than the",
+      " limit"
+    ],
+    [
+      "one two three four",
+      " five six seven",
+      " eight nine ten"
+    ],
+    [
+      "unbroken-token-that-",
+      "never-fits-inside-th",
+      "e-limit-at-all"
+    ],
+    [
+      "aaaaaaaaaaaa",
+      "aaaaaaaaaaaa",
+      "aaaaaaaaaaaa",
+      "aaaa"
+    ],
+    [
+      "😀😀",
+      "😀😀",
+      "😀😀"
+    ]
+  ],
+  "stripBotMention": [
+    "hello",
+    "hello",
+    "",
+    "<@1234> hello"
+  ],
+  "safeAttachmentName": [
+    "note_1__x.txt",
+    "pic.png",
+    "a3"
+  ],
+  "inbound": [
+    {
+      "sessionKey": "discord:dm-1",
+      "text": "ping",
+      "messageType": "text",
+      "chatType": "private",
+      "senderId": "user-1",
+      "senderName": "ada",
+      "mentions": [],
+      "timestamp": 1714414322167,
+      "messageId": "1234567890123456789"
+    },
+    {
+      "sessionKey": "discord:chan-1",
+      "text": "please look\n[Discord attachments on this message: note_1__x.txt (text/plain, 2KB); pic.png (unknown, 2KB)]",
+      "messageType": "mixed",
+      "chatType": "group",
+      "senderId": "user-2",
+      "senderName": "bo",
+      "mentions": [
+        "999",
+        "user-3"
+      ],
+      "replyTo": {
+        "messageId": "1234567890123456700"
+      },
+      "timestamp": 1714414322167,
+      "messageId": "1234567890123456790"
+    },
+    {
+      "sessionKey": "discord:chan-2",
+      "text": "[Discord attachments on this message: a3 (application/pdf, 1KB)]",
+      "messageType": "mixed",
+      "chatType": "group",
+      "senderId": "user-4",
+      "senderName": "cy",
+      "mentions": [
+        "999"
+      ],
+      "timestamp": 1714414322167,
+      "messageId": "1234567890123456791"
+    },
+    null
+  ]
+}

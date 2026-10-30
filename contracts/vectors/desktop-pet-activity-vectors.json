@@ -1,0 +1,847 @@
+{
+  "description": "Desktop activity cards preserve actionable work, stable turn identity, newest-turn ordering and bounded terminal retention. Reading a completed result clears its card; a failed task remains actionable until dismissed or expired. Dismissal suppresses the current turn only. Explicit running summaries become visible only after successful current-turn completion. Waiting cards carry the current typed approval, question or elicitation.",
+  "streamProcessing": {
+    "reason": "Streaming content and unchanged activity must not rebuild retained task cards or read persistent settings on the host event loop.",
+    "retainedTasks": 64,
+    "packets": 256,
+    "contentMethods": [
+      "item/agentMessage/delta",
+      "item/reasoning/delta"
+    ],
+    "contentTypes": [
+      "text_delta",
+      "thinking_delta"
+    ],
+    "steadyStateLanguageReads": 0,
+    "snapshotLanguageReads": 1
+  },
+  "cases": [
+    {
+      "name": "tasks sort by newest turn across waiting, failure, completion and running states",
+      "steps": [
+        {
+          "chat": [
+            {
+              "type": "session_runtime_status",
+              "sessionId": "running",
+              "status": "active",
+              "turnId": "r"
+            }
+          ]
+        },
+        {
+          "advance": 1
+        },
+        {
+          "chat": [
+            {
+              "type": "session_runtime_status",
+              "sessionId": "done",
+              "status": "active",
+              "turnId": "d"
+            },
+            {
+              "type": "done",
+              "sessionId": "done",
+              "turnId": "d"
+            }
+          ]
+        },
+        {
+          "advance": 1
+        },
+        {
+          "chat": [
+            {
+              "type": "session_runtime_status",
+              "sessionId": "failed",
+              "status": "active",
+              "turnId": "f"
+            },
+            {
+              "type": "api_error",
+              "sessionId": "failed",
+              "turnId": "f",
+              "terminal": true
+            }
+          ]
+        },
+        {
+          "advance": 1
+        },
+        {
+          "input": "permission:request",
+          "value": {
+            "sessionId": "waiting",
+            "requestId": "ask"
+          }
+        },
+        {
+          "expected": [
+            {
+              "id": "waiting",
+              "status": "waiting",
+              "unread": true
+            },
+            {
+              "id": "failed",
+              "status": "failed",
+              "unread": true
+            },
+            {
+              "id": "done",
+              "status": "completed",
+              "unread": true
+            },
+            {
+              "id": "running",
+              "status": "running",
+              "unread": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "dismissal survives state changes until the next turn",
+      "steps": [
+        {
+          "chat": [
+            {
+              "type": "session_runtime_status",
+              "sessionId": "thread",
+              "status": "active",
+              "turnId": "one"
+            }
+          ]
+        },
+        {
+          "dismiss": "thread"
+        },
+        {
+          "input": "permission:request",
+          "value": {
+            "sessionId": "thread",
+            "requestId": "ask",
+            "turnId": "one"
+          }
+        },
+        {
+          "chat": [
+            {
+              "type": "done",
+              "sessionId": "thread",
+              "turnId": "one"
+            }
+          ]
+        },
+        {
+          "expected": []
+        },
+        {
+          "chat": [
+            {
+              "type": "session_runtime_status",
+              "sessionId": "thread",
+              "status": "active",
+              "turnId": "two"
+            }
+          ]
+        },
+        {
+          "expected": [
+            {
+              "id": "thread",
+              "status": "running",
+              "unread": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "partial question answer stays actionable",
+      "steps": [
+        {
+          "chat": [
+            {
+              "type": "session_runtime_status",
+              "sessionId": "thread",
+              "status": "active",
+              "turnId": "one"
+            }
+          ]
+        },
+        {
+          "input": "question:requested",
+          "value": {
+            "sessionId": "thread",
+            "turnId": "one",
+            "requestId": "ask",
+            "toolInput": {
+              "questions": [
+                {
+                  "question": "Choose a target",
+                  "options": [
+                    {
+                      "label": "Local"
+                    },
+                    {
+                      "label": "Remote"
+                    }
+                  ],
+                  "multiSelect": false
+                }
+              ]
+            }
+          }
+        },
+        {
+          "input": "question:resolved",
+          "value": {
+            "sessionId": "thread",
+            "turnId": "one",
+            "requestId": "ask",
+            "state": "pending"
+          }
+        },
+        {
+          "expected": [
+            {
+              "id": "thread",
+              "status": "waiting"
+            }
+          ]
+        },
+        {
+          "input": "question:resolved",
+          "value": {
+            "sessionId": "thread",
+            "turnId": "one",
+            "requestId": "ask",
+            "state": "answered"
+          }
+        },
+        {
+          "expected": [
+            {
+              "id": "thread",
+              "status": "running",
+              "unread": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "completion keeps its card for seven days",
+      "steps": [
+        {
+          "chat": [
+            {
+              "type": "session_runtime_status",
+              "sessionId": "thread",
+              "status": "active",
+              "turnId": "one"
+            },
+            {
+              "type": "done",
+              "sessionId": "thread",
+              "turnId": "one"
+            }
+          ]
+        },
+        {
+          "advance": 604799999
+        },
+        {
+          "expected": [
+            {
+              "id": "thread",
+              "status": "completed"
+            }
+          ]
+        },
+        {
+          "advance": 1
+        },
+        {
+          "expected": []
+        }
+      ]
+    },
+    {
+      "name": "failed task card expires after one hour",
+      "steps": [
+        {
+          "chat": [
+            {
+              "type": "session_runtime_status",
+              "sessionId": "thread",
+              "status": "active",
+              "turnId": "one"
+            },
+            {
+              "type": "api_error",
+              "sessionId": "thread",
+              "turnId": "one",
+              "terminal": true
+            }
+          ]
+        },
+        {
+          "advance": 3599999
+        },
+        {
+          "expected": [
+            {
+              "id": "thread",
+              "status": "failed"
+            }
+          ]
+        },
+        {
+          "advance": 1
+        },
+        {
+          "expected": []
+        }
+      ]
+    },
+    {
+      "name": "waiting card expires after twenty four hours",
+      "steps": [
+        {
+          "input": "elicit:request",
+          "value": {
+            "sessionId": "thread",
+            "requestId": "ask"
+          }
+        },
+        {
+          "advance": 86399999
+        },
+        {
+          "expected": [
+            {
+              "id": "thread",
+              "status": "waiting"
+            }
+          ]
+        },
+        {
+          "advance": 1
+        },
+        {
+          "expected": []
+        }
+      ]
+    },
+    {
+      "name": "reading terminal cards removes them without hiding running work",
+      "steps": [
+        {
+          "chat": [
+            {
+              "type": "session_runtime_status",
+              "sessionId": "thread",
+              "status": "active",
+              "turnId": "one"
+            }
+          ]
+        },
+        {
+          "acknowledge": "thread"
+        },
+        {
+          "expected": [
+            {
+              "id": "thread",
+              "status": "running"
+            }
+          ]
+        },
+        {
+          "chat": [
+            {
+              "type": "done",
+              "sessionId": "thread",
+              "turnId": "one"
+            }
+          ]
+        },
+        {
+          "acknowledge": "thread"
+        },
+        {
+          "expected": []
+        }
+      ]
+    },
+    {
+      "name": "cancelled work does not create a completion card",
+      "steps": [
+        {
+          "chat": [
+            {
+              "type": "session_runtime_status",
+              "sessionId": "thread",
+              "status": "active",
+              "turnId": "one"
+            },
+            {
+              "type": "interrupted",
+              "sessionId": "thread",
+              "turnId": "one"
+            },
+            {
+              "type": "session_runtime_status",
+              "sessionId": "thread",
+              "status": "idle",
+              "turnId": "one"
+            }
+          ]
+        },
+        {
+          "expected": []
+        }
+      ]
+    },
+    {
+      "name": "command approval carries its exact operation and review context",
+      "steps": [
+        {
+          "input": "permission:request",
+          "value": {
+            "sessionId": "thread",
+            "requestId": "approve",
+            "toolCallId": "tool",
+            "toolName": "Bash",
+            "message": "Run checks?",
+            "toolInput": {
+              "command": "npm test\nprintf done",
+              "cwd": "/project",
+              "privateCredential": "excluded"
+            }
+          }
+        },
+        {
+          "expected": [
+            {
+              "id": "thread",
+              "status": "waiting",
+              "attention": {
+                "id": "approve",
+                "toolCallId": "tool",
+                "message": "Run checks?",
+                "kind": "approval",
+                "toolName": "Bash",
+                "category": "command",
+                "command": "npm test\nprintf done",
+                "cwd": "/project"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "structured question carries exact choices and answer authority",
+      "steps": [
+        {
+          "input": "question:requested",
+          "value": {
+            "sessionId": "thread",
+            "requestId": "ask",
+            "turnId": "one",
+            "toolCallId": "tool",
+            "prompt": "Select the destination",
+            "state": "pending",
+            "answers": {
+              "Where?": "Local"
+            },
+            "attachmentsSupported": true,
+            "toolInput": {
+              "questions": [
+                {
+                  "question": "Where?",
+                  "header": "Destination",
+                  "options": [
+                    {
+                      "label": "Local",
+                      "description": "This machine",
+                      "preview": "Local preview"
+                    },
+                    {
+                      "label": "Remote"
+                    }
+                  ],
+                  "multiSelect": false
+                }
+              ]
+            }
+          }
+        },
+        {
+          "expected": [
+            {
+              "id": "thread",
+              "status": "waiting",
+              "attention": {
+                "id": "ask",
+                "turnId": "one",
+                "toolCallId": "tool",
+                "message": "Select the destination",
+                "kind": "question",
+                "responseChannel": "async-question",
+                "responseMode": "answers",
+                "questions": [
+                  {
+                    "question": "Where?",
+                    "header": "Destination",
+                    "options": [
+                      {
+                        "label": "Local",
+                        "description": "This machine",
+                        "preview": "Local preview"
+                      },
+                      {
+                        "label": "Remote"
+                      }
+                    ],
+                    "multiSelect": false,
+                    "allowFreeform": true
+                  }
+                ],
+                "answers": {
+                  "Where?": "Local"
+                },
+                "attachmentsSupported": true,
+                "state": "pending"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "server form preserves typed controls without raw schema metadata",
+      "steps": [
+        {
+          "input": "elicit:request",
+          "value": {
+            "sessionId": "thread",
+            "requestId": "form",
+            "type": "mcp-elicit",
+            "serverName": "Calendar",
+            "message": "Confirm event",
+            "requestedSchema": {
+              "type": "object",
+              "required": [
+                "count"
+              ],
+              "properties": {
+                "count": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 8,
+                  "default": 2
+                },
+                "send": {
+                  "type": "boolean",
+                  "default": false
+                }
+              },
+              "privateCredential": "excluded"
+            }
+          }
+        },
+        {
+          "expected": [
+            {
+              "id": "thread",
+              "status": "waiting",
+              "attention": {
+                "id": "form",
+                "message": "Confirm event",
+                "kind": "mcp-form",
+                "serverName": "Calendar",
+                "schema": {
+                  "required": [
+                    "count"
+                  ],
+                  "properties": {
+                    "count": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 8,
+                      "default": 2
+                    },
+                    "send": {
+                      "type": "boolean",
+                      "default": false
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "reading a failed task keeps its actionable failure",
+      "steps": [
+        {
+          "chat": [
+            {
+              "type": "session_runtime_status",
+              "sessionId": "thread",
+              "status": "active",
+              "turnId": "one"
+            },
+            {
+              "type": "api_error",
+              "sessionId": "thread",
+              "turnId": "one",
+              "terminal": true
+            }
+          ]
+        },
+        {
+          "acknowledge": "thread"
+        },
+        {
+          "expected": [
+            {
+              "id": "thread",
+              "status": "failed",
+              "unread": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "a newer running turn precedes an older approval",
+      "steps": [
+        {
+          "input": "permission:request",
+          "value": {
+            "sessionId": "waiting",
+            "requestId": "ask"
+          }
+        },
+        {
+          "advance": 1
+        },
+        {
+          "chat": [
+            {
+              "type": "session_runtime_status",
+              "sessionId": "running",
+              "status": "active",
+              "turnId": "new"
+            }
+          ]
+        },
+        {
+          "expected": [
+            {
+              "id": "running",
+              "status": "running"
+            },
+            {
+              "id": "waiting",
+              "status": "waiting"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "a completed phase update survives tool progress and clears at turn completion",
+      "steps": [
+        {
+          "chat": [
+            {
+              "type": "session_runtime_status",
+              "sessionId": "thread",
+              "status": "active",
+              "turnId": "one"
+            }
+          ]
+        },
+        {
+          "engine": {
+            "type": "productEvent",
+            "method": "item/completed",
+            "params": {
+              "sessionId": "engine:thread",
+              "submissionId": "one",
+              "item": {
+                "type": "tool_call",
+                "toolName": "update_running_summary",
+                "status": "completed",
+                "arguments": {
+                  "summary": "Reviewing the release checks"
+                },
+                "result": {
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Updated"
+                    }
+                  ],
+                  "isError": false
+                }
+              }
+            }
+          }
+        },
+        {
+          "chat": [
+            {
+              "type": "tool_start",
+              "sessionId": "thread",
+              "turnId": "one",
+              "toolName": "read",
+              "toolCallId": "read"
+            }
+          ]
+        },
+        {
+          "expected": [
+            {
+              "id": "thread",
+              "summary": "Reviewing the release checks"
+            }
+          ]
+        },
+        {
+          "chat": [
+            {
+              "type": "done",
+              "sessionId": "thread",
+              "turnId": "one"
+            }
+          ]
+        },
+        {
+          "expected": [
+            {
+              "id": "thread",
+              "summary": "Completed",
+              "status": "completed"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "dismissal hides the current view while unread terminal inventory survives restart",
+      "steps": [
+        {
+          "chat": [
+            {
+              "type": "session_runtime_status",
+              "sessionId": "thread",
+              "status": "active",
+              "turnId": "one"
+            }
+          ]
+        },
+        {
+          "chat": [
+            {
+              "type": "done",
+              "sessionId": "thread",
+              "turnId": "one"
+            }
+          ]
+        },
+        {
+          "dismiss": "thread",
+          "expected": []
+        },
+        {
+          "restart": true,
+          "expected": [
+            {
+              "id": "thread",
+              "status": "completed",
+              "unread": true
+            }
+          ]
+        },
+        {
+          "acknowledge": "thread",
+          "expected": []
+        },
+        {
+          "restart": true,
+          "expected": []
+        },
+        {
+          "chat": [
+            {
+              "type": "session_runtime_status",
+              "sessionId": "thread",
+              "status": "active",
+              "turnId": "two"
+            }
+          ]
+        },
+        {
+          "chat": [
+            {
+              "type": "api_error",
+              "sessionId": "thread",
+              "turnId": "two",
+              "error": "Task failed",
+              "terminal": true
+            }
+          ]
+        },
+        {
+          "dismiss": "thread",
+          "expected": []
+        },
+        {
+          "restart": true,
+          "expected": [
+            {
+              "id": "thread",
+              "status": "failed",
+              "unread": true
+            }
+          ]
+        },
+        {
+          "acknowledge": "thread",
+          "expected": [
+            {
+              "id": "thread",
+              "status": "failed",
+              "unread": false
+            }
+          ]
+        },
+        {
+          "clearCompleted": true,
+          "expected": []
+        },
+        {
+          "restart": true,
+          "expected": [
+            {
+              "id": "thread",
+              "status": "failed",
+              "unread": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

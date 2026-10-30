@@ -1,0 +1,58 @@
+{
+  "home": {
+    "files": {
+      ".qoder/skills/home-only/SKILL.md": "a Qoder IDE user skill\n",
+      ".claude.json": "{\"oauthAccount\":{\"accessToken\":\"not-for-import\"},\"mcpServers\":{\"zeta\":{\"command\":\"npx\"},\"alpha\":{\"command\":\"uvx\"}},\"projects\":{\"$ROOT/repos/one\":{\"mcpServers\":{\"local_fixture\":{\"command\":\"node\"}}}}}",
+      ".claude/CLAUDE.md": "# claude instructions\n",
+      ".claude/agents/notes.txt": "not markdown\n",
+      ".claude/agents/reviewer.md": "agent\n",
+      ".claude/commands/aa.md": "cmd\n",
+      ".claude/commands/nested/deep.md": "cmd\n",
+      ".claude/commands/skip.txt": "not markdown\n",
+      ".claude/commands/zz.md": "cmd\n",
+      ".claude/projects/-repo/11111111-2222-4333-8444-555555555555.jsonl": "{\"type\":\"user\",\"cwd\":\"$ROOT/repos/one\",\"timestamp\":\"$RECENT_TS\",\"message\":{\"role\":\"user\",\"content\":\"hello there\"}}\n{\"type\":\"assistant\",\"cwd\":\"$ROOT/repos/one\",\"timestamp\":\"$RECENT_TS_PLUS_5S\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"hi\"}]}}\n",
+      ".claude/projects/-repo/22222222-2222-4333-8444-555555555555.jsonl": "{\"type\":\"user\",\"cwd\":\"$ROOT/repos/gone\",\"timestamp\":\"$RECENT_TS\",\"message\":{\"role\":\"user\",\"content\":\"orphan\"}}\n",
+      ".claude/projects/-repo/33333333-2222-4333-8444-555555555555.jsonl": "{\"type\":\"user\",\"cwd\":\"$ROOT/repos/one\",\"timestamp\":\"2020-01-01T00:00:00.000Z\",\"message\":{\"role\":\"user\",\"content\":\"ancient\"}}\n",
+      ".claude/settings.json": "{\n  \"model\": \"claude-sonnet-4-5\",\n  \"permissions\": {\n    \"allow\": [\n      \"Bash(ls:*)\"\n    ],\n    \"deny\": []\n  },\n  \"env\": {\n    \"FOO\": \"bar\"\n  },\n  \"apiKeyHelper\": \"/bin/echo secret\",\n  \"ANTHROPIC_API_KEY\": \"sk-ant-not-a-real-key\",\n  \"awsAuthRefresh\": \"aws sso login\",\n  \"unknownKey\": 1,\n  \"hooks\": {\n    \"PreToolUse\": [\n      {\n        \"matcher\": \"Bash\",\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"echo pre\"\n          }\n        ]\n      }\n    ]\n  },\n  \"enabledPlugins\": {\n    \"code-reviewer@claude-plugins-official\": true,\n    \"formatter@other-marketplace\": true,\n    \"thing@disabled\": false\n  }\n}",
+      ".claude/skills/loose.md": "not a dir\n",
+      ".claude/skills/a-skill/SKILL.md": "---\nname: a-skill\ndescription: A fixture skill\n---\n",
+      ".claude/skills/b-skill/SKILL.md": "---\nname: b-skill\ndescription: Another fixture skill\n---\n",
+      ".codex/AGENTS.md": "# codex instructions\n",
+      ".codex/config.toml": "model = \"gpt-5\"\n[mcp_servers.codex_fixture]\ncommand = \"node\"\nargs = [\"server.js\"]\n",
+      ".qoder/commands/q2.md": "cmd\n",
+      ".qoderwork/commands/q1.md": "cmd\n",
+      ".qoderwork/projects/scratch/44444444-2222-4333-8444-555555555555.jsonl": "{\"type\":\"user\",\"cwd\":\"$ROOT/.qoderwork/workspace/scratch-session\",\"timestamp\":\"$RECENT_TS\",\"message\":{\"role\":\"user\",\"content\":\"scratch chat\"}}\n",
+      "Library/Application Support/Qoder/SharedClientCache/mcp.json": "{\"mcpServers\":{\"qoder_srv\":{\"command\":\"node\"}}}"
+    },
+    "emptyDirs": [
+      ".qoderwork/workspace/scratch-session",
+      "repos/one",
+      "repos/two"
+    ],
+    "symlinks": {},
+    "mtimeOffsetsSecs": {
+      ".claude/projects/-repo/11111111-2222-4333-8444-555555555555.jsonl": -86400,
+      ".claude/projects/-repo/22222222-2222-4333-8444-555555555555.jsonl": -86300,
+      ".claude/projects/-repo/33333333-2222-4333-8444-555555555555.jsonl": -315360000,
+      ".qoderwork/projects/scratch/44444444-2222-4333-8444-555555555555.jsonl": -86200
+    }
+  },
+  "workspace": {
+    "files": {
+      ".agents/agents/agents-only.md": "agents agent\n",
+      ".agents/agents/ignored.txt": "not markdown\n",
+      ".agents/commands/agents-only.md": "agents command\n",
+      ".agents/commands/shared.md": "agents shared command\n",
+      ".qoder/skills/agents-only/SKILL.md": "Qoder project skill\n",
+      ".claude/agents/local.md": "agent\n",
+      ".claude/settings.json": "{\"model\":\"opus\",\"apiKeyHelper\":\"x\"}",
+      ".klaus/settings.json": "{\"model\":\"existing\"}",
+      ".qoder/commands/shared.md": "qoder shared command\n",
+      "AGENTS.md": "# project agents\n",
+      "CLAUDE.md": "# project claude\n"
+    },
+    "emptyDirs": [],
+    "symlinks": {},
+    "mtimeOffsetsSecs": {}
+  }
+}

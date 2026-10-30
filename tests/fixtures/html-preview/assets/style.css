@@ -1,0 +1,3 @@
+body { margin: 24px; font-family: system-ui, sans-serif; }
+#title { color: rgb(17, 34, 51); }
+#result { padding: 16px; background: #eef3f8; white-space: pre-wrap; }

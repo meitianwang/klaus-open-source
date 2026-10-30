@@ -1,0 +1,71 @@
+{
+  "reason": "A Claude subscription login can carry a queue of accounts. The credential file defines account order and login generations; refreshed tokens are authoritative in the engine credential store. Status, the quota dashboard and rotation share the queue, while quota reads reuse inference authentication instead of expired login seeds.",
+  "storage": {
+    "file": "claude-subscription-oauth.json",
+    "queueKey": "accounts",
+    "accountRow": [
+      "id",
+      "tokens"
+    ],
+    "tokenFields": [
+      "accessToken",
+      "refreshToken",
+      "expiresAt",
+      "scopes",
+      "subscriptionType",
+      "rateLimitTier"
+    ],
+    "legacyKey": "claudeAiOauth",
+    "legacyReadsAs": "one account with id 'legacy', read without rewriting the file",
+    "writeShape": "every write replaces the whole accounts array under the shared directory lock"
+  },
+  "status": {
+    "signedOut": {
+      "loggedIn": false,
+      "accounts": []
+    },
+    "signedIn": [
+      "loggedIn",
+      "account",
+      "subscriptionType",
+      "accounts"
+    ],
+    "accountRow": [
+      "id",
+      "email",
+      "displayName",
+      "isCurrent"
+    ],
+    "currentRule": "the head of the queue is isCurrent; exactly one row is current"
+  },
+  "usage": {
+    "method": "claude/usage",
+    "authentication": "the engine reuses each account's refreshed credential namespace and refresh lock; the host never reads login tokens for quota requests",
+    "refresh": "renew expired tokens before querying and retry an unauthorized usage request once after renewal; queries never advance the account queue",
+    "topLevel": "the head account's state, windows and plan, for backward-compatible single-account readers",
+    "accountsRow": [
+      "id",
+      "label",
+      "isCurrent",
+      "state"
+    ],
+    "failureIsolation": "one account's usage failure reports state 'error' on its own row and never blanks the others",
+    "noAccounts": "state 'signed_out' with an empty accounts array",
+    "conditionalFields": {
+      "error": "present only on a row whose state is error",
+      "windows": "present only on a row whose state is ok"
+    }
+  },
+  "rotation": {
+    "triggers": [
+      "rate_limit",
+      "quota"
+    ],
+    "neverTriggers": [
+      "auth"
+    ],
+    "advance": "the failed account moves to the tail and the new order is persisted to the credential file",
+    "concurrent": "a caller whose failed account is no longer the head retries the current head without advancing again",
+    "cycleEnd": "the account that started the cycle failing again ends it; the refusal surfaces as the ordinary quota error and a later manual continue starts a fresh cycle"
+  }
+}

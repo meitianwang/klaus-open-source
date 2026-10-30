@@ -1,0 +1,111 @@
+{
+  "_why": "A running (or interrupted) conversation freezes the history layer so the live layer can own the in-flight turn without the two layers painting the same row twice. That freeze used to skip the read outright, which left a long session unable to page up to its EARLIER turns until the turn settled — the recurring 'can't scroll to the top while running' bug. The freeze is now a slice, not a skip: earlier turns may join history while the live layer keeps the current turn. Two pure decisions carry the whole contract. shouldReadHistoryDuringFreeze decides whether to spend the IPC at all; frozenHistorySlice decides which rows history may take. The invariant neither may break: history and live are concatenated with NO dedup in the renderer, so the slice must stop strictly before the first row the live layer owns. Rows with no turnId cannot be attributed to an earlier turn and are never taken during a freeze — the engine files the current turn's user message at turn start, so a read that surfaces no live-owned turnId means the rows are unattributable, and applying them would double-paint the optimistic bubble.",
+  "gate": {
+    "_fn": "shouldReadHistoryDuringFreeze",
+    "cases": [
+      {
+        "name": "not frozen: read as usual",
+        "input": { "liveLayerOwnsTurn": false, "historyLoaded": false, "liveTurnIdCount": 0 },
+        "expected": true
+      },
+      {
+        "name": "frozen with history already loaded: earlier turns are visible, skip the doomed read",
+        "input": { "liveLayerOwnsTurn": true, "historyLoaded": true, "liveTurnIdCount": 1 },
+        "expected": false
+      },
+      {
+        "name": "frozen, no history, live turn id unknown: new-chat first send, nothing to attribute, skip",
+        "input": { "liveLayerOwnsTurn": true, "historyLoaded": false, "liveTurnIdCount": 0 },
+        "expected": false
+      },
+      {
+        "name": "frozen, no history, live turn id known: long running session, read to recover earlier turns",
+        "input": { "liveLayerOwnsTurn": true, "historyLoaded": false, "liveTurnIdCount": 1 },
+        "expected": true
+      },
+      {
+        "name": "frozen after an interrupt, no history, interrupted turn id known: read to recover earlier turns",
+        "input": { "liveLayerOwnsTurn": true, "historyLoaded": false, "liveTurnIdCount": 2 },
+        "expected": true
+      }
+    ]
+  },
+  "slice": {
+    "_fn": "frozenHistorySlice",
+    "cases": [
+      {
+        "name": "no live turn id: cannot attribute, refuse",
+        "input": {
+          "liveTurnIds": [],
+          "rows": [{ "turnId": "turn-1" }, { "turnId": "turn-2" }],
+          "ownedRowCount": null
+        },
+        "expected": { "apply": false, "reason": "unknown-live-turn" }
+      },
+      {
+        "name": "rows carry no turnId at all: unattributable, refuse rather than double-paint",
+        "input": {
+          "liveTurnIds": ["turn-3"],
+          "rows": [{}, {}],
+          "ownedRowCount": null
+        },
+        "expected": { "apply": false, "reason": "unattributable-rows" }
+      },
+      {
+        "name": "rows carry turnIds but none is the live turn: unattributable, refuse",
+        "input": {
+          "liveTurnIds": ["turn-3"],
+          "rows": [{ "turnId": "turn-1" }, { "turnId": "turn-2" }],
+          "ownedRowCount": null
+        },
+        "expected": { "apply": false, "reason": "unattributable-rows" }
+      },
+      {
+        "name": "first row is the live turn: nothing earlier exists, refuse",
+        "input": {
+          "liveTurnIds": ["turn-1"],
+          "rows": [{ "turnId": "turn-1" }, { "turnId": "turn-1" }],
+          "ownedRowCount": null
+        },
+        "expected": { "apply": false, "reason": "no-earlier-rows" }
+      },
+      {
+        "name": "earlier turns precede the live turn: take strictly the earlier slice",
+        "input": {
+          "liveTurnIds": ["turn-3"],
+          "rows": [
+            { "turnId": "turn-1" },
+            { "turnId": "turn-1" },
+            { "turnId": "turn-2" },
+            { "turnId": "turn-2" },
+            { "turnId": "turn-3" }
+          ],
+          "ownedRowCount": null
+        },
+        "expected": { "apply": true, "rowCount": 4 }
+      },
+      {
+        "name": "history already owns those rows: no growth, skip to avoid a re-pull loop",
+        "input": {
+          "liveTurnIds": ["turn-3"],
+          "rows": [
+            { "turnId": "turn-1" },
+            { "turnId": "turn-2" },
+            { "turnId": "turn-3" }
+          ],
+          "ownedRowCount": 2
+        },
+        "expected": { "apply": false, "reason": "no-new-rows" }
+      },
+      {
+        "name": "a row before the boundary has no turnId: it still precedes the live turn, keep it",
+        "input": {
+          "liveTurnIds": ["turn-2"],
+          "rows": [{ "turnId": "turn-1" }, {}, { "turnId": "turn-2" }],
+          "ownedRowCount": null
+        },
+        "expected": { "apply": true, "rowCount": 2 }
+      }
+    ]
+  }
+}

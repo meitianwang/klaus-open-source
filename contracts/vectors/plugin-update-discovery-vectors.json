@@ -1,0 +1,20 @@
+{
+  "reason": "Plugin update discovery is a read-only metadata check shared by page entry, focus and the background timer. Valid cached results and in-flight checks are reused; failed checks keep the last catalog. Confirmed installation and activation receipts remain successful when a later projection refresh fails.",
+  "freshnessMs": 300000,
+  "retryAfterFailureMs": 60000,
+  "backgroundIntervalMs": 1800000,
+  "hiddenUninstalledMarketplace": {
+    "ok": true,
+    "skipped": true,
+    "reason": "no-installed-plugins"
+  },
+  "activationReceipt": {
+    "activationScope": "next_turn",
+    "appliedToCurrentSession": false,
+    "restartRequired": false
+  },
+  "projectionFailure": {
+    "ok": true,
+    "warningCode": "PLUGIN_PROJECTION_REFRESH_FAILED"
+  }
+}

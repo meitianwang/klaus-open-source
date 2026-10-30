@@ -1,0 +1,15 @@
+{
+  // Emit config: everything EXCEPT the preloads.
+  //
+  // `preload/**` is compiled by `scripts/build-preload.mjs` with esbuild, which bundles
+  // each entry into one self-contained file. `tsc` cannot produce a working preload: it
+  // would emit `require('./shim')`, and a sandboxed preload cannot require a relative
+  // module (see that script). Excluding the directory here rather than relying on build
+  // order is what makes correctness independent of which tool ran last — if `tsc` emitted
+  // after esbuild it would silently overwrite four working bundles with four broken ones.
+  //
+  // Preloads are still TYPECHECKED: `tsconfig.json` includes them and `npm run typecheck`
+  // runs it with `--noEmit`.
+  "extends": "./tsconfig.json",
+  "exclude": ["dist", "node_modules", "preload"]
+}

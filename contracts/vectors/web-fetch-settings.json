@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "reason": "Page fetching always uses the built-in reader. Provider sources are not selectable; a previously stored provider name is ignored when a page is read.",
+  "sources": [
+    "builtin"
+  ],
+  "default": "builtin",
+  "key": "klaus.webFetch.source",
+  "path": "webFetch.source",
+  "unavailableSelectionFallsBack": false,
+  "searchSelectionChangesFetch": false,
+  "unknownWritesRejected": true
+}

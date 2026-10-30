@@ -1,0 +1,275 @@
+{
+  "reason": "Changing one conversation's source must not change existing conversations; new conversations snapshot the latest complete choice. Desktop reconfiguration drops a stale config-file model pin when a source is selected; direct explicit per-request model overrides remain supported. Local Ultra wins over normalized provider effort so publishing a model cannot erase orchestration. Cursor persists exact concrete model variants, including effort and Fast, without changing other conversations. Every inference replacement carries verbosity, reasoning summary and search access, including explicit default resets.",
+  "inferenceProjection": [
+    {
+      "name": "selected custom provider ignores stale config model",
+      "init": {
+        "modelSelection": "custom:claude",
+        "config": {
+          "model": "opus[1m]",
+          "thinking": false
+        }
+      },
+      "resolved": {
+        "model": "opus[1m]",
+        "effort": "max",
+        "contextWindow": 1000000
+      },
+      "sources": {
+        "model": "user",
+        "effort": "user",
+        "contextWindow": "user"
+      },
+      "expected": {
+        "modelSelection": "custom:claude",
+        "config": {
+          "contextWindow": 1000000,
+          "thinking": false,
+          "modelVerbosity": null,
+          "reasoningSummary": "auto",
+          "webSearch": {
+            "access": "cached"
+          }
+        }
+      }
+    },
+    {
+      "name": "direct provider keeps explicit config model",
+      "init": {
+        "config": {
+          "thinking": false
+        }
+      },
+      "resolved": {
+        "model": "opus[1m]"
+      },
+      "sources": {
+        "model": "user"
+      },
+      "expected": {
+        "config": {
+          "model": "opus[1m]",
+          "thinking": false,
+          "modelVerbosity": null,
+          "reasoningSummary": "auto",
+          "webSearch": {
+            "access": "cached"
+          }
+        }
+      }
+    },
+    {
+      "name": "local Ultra retains native effort independently during model publication",
+      "init": {
+        "modelSelection": "codex:fixture",
+        "config": {
+          "thinking": true,
+          "effort": "low",
+          "ultraMode": true
+        }
+      },
+      "resolved": {
+        "effort": "xhigh"
+      },
+      "sources": {
+        "effort": "user"
+      },
+      "expected": {
+        "modelSelection": "codex:fixture",
+        "config": {
+          "thinking": true,
+          "effort": "low",
+          "modelVerbosity": null,
+          "reasoningSummary": "auto",
+          "webSearch": {
+            "access": "cached"
+          },
+          "ultraMode": true
+        }
+      }
+    }
+  ],
+  "steps": [
+    {
+      "name": "Qoder conversation",
+      "set": {
+        "sessionId": "one",
+        "mode": "qoder:qmodel_38max"
+      },
+      "sources": {
+        "one": "qoder"
+      },
+      "defaultSource": "qoder"
+    },
+    {
+      "name": "Second conversation chooses custom",
+      "set": {
+        "sessionId": "two",
+        "mode": "auto",
+        "source": "custom"
+      },
+      "sources": {
+        "one": "qoder",
+        "two": "custom"
+      },
+      "defaultSource": "custom"
+    },
+    {
+      "name": "Third conversation inherits custom",
+      "create": "three",
+      "sources": {
+        "one": "qoder",
+        "two": "custom",
+        "three": "custom"
+      },
+      "defaultSource": "custom"
+    },
+    {
+      "name": "Third conversation chooses Codex",
+      "set": {
+        "sessionId": "three",
+        "mode": "auto",
+        "source": "codex"
+      },
+      "sources": {
+        "one": "qoder",
+        "two": "custom",
+        "three": "codex"
+      },
+      "defaultSource": "codex"
+    },
+    {
+      "name": "Second conversation chooses custom again",
+      "set": {
+        "sessionId": "two",
+        "mode": "auto",
+        "source": "custom"
+      },
+      "sources": {
+        "one": "qoder",
+        "two": "custom",
+        "three": "codex"
+      },
+      "defaultSource": "custom"
+    },
+    {
+      "name": "New draft switches to Codex before creation",
+      "set": {
+        "mode": "auto",
+        "source": "codex"
+      },
+      "sources": {
+        "one": "qoder",
+        "two": "custom",
+        "three": "codex"
+      },
+      "defaultSource": "codex"
+    },
+    {
+      "name": "Fourth conversation snapshots draft",
+      "create": "four",
+      "sources": {
+        "one": "qoder",
+        "two": "custom",
+        "three": "codex",
+        "four": "codex"
+      },
+      "defaultSource": "codex"
+    },
+    {
+      "name": "Fourth conversation chooses QwenWork",
+      "set": {
+        "sessionId": "four",
+        "mode": "qwenwork:auto"
+      },
+      "sources": {
+        "one": "qoder",
+        "two": "custom",
+        "three": "codex",
+        "four": "qwenwork"
+      },
+      "defaultSource": "qwenwork"
+    },
+    {
+      "name": "Fifth conversation chooses WorkBuddy",
+      "set": {
+        "sessionId": "five",
+        "mode": "workbuddy:default-model"
+      },
+      "sources": {
+        "one": "qoder",
+        "two": "custom",
+        "three": "codex",
+        "four": "qwenwork",
+        "five": "workbuddy"
+      },
+      "defaultSource": "workbuddy"
+    },
+    {
+      "name": "Sixth conversation chooses QoderWork beside a QwenWork sibling",
+      "set": {
+        "sessionId": "six",
+        "mode": "qoderwork:qwork-auto"
+      },
+      "sources": {
+        "one": "qoder",
+        "two": "custom",
+        "three": "codex",
+        "four": "qwenwork",
+        "five": "workbuddy",
+        "six": "qoderwork"
+      },
+      "defaultSource": "qoderwork"
+    },
+    {
+      "name": "Seventh conversation chooses a concrete Cursor variant",
+      "set": {
+        "sessionId": "seven",
+        "mode": "cursor:fixture[effort=high,fast=true]"
+      },
+      "sources": {
+        "one": "qoder",
+        "two": "custom",
+        "three": "codex",
+        "four": "qwenwork",
+        "five": "workbuddy",
+        "six": "qoderwork",
+        "seven": "cursor"
+      },
+      "defaultSource": "cursor"
+    },
+    {
+      "name": "Eighth conversation snapshots the concrete Cursor choice",
+      "create": "eight",
+      "sources": {
+        "one": "qoder",
+        "two": "custom",
+        "three": "codex",
+        "four": "qwenwork",
+        "five": "workbuddy",
+        "six": "qoderwork",
+        "seven": "cursor",
+        "eight": "cursor"
+      },
+      "defaultSource": "cursor"
+    },
+    {
+      "name": "Another source changes future defaults without changing Cursor conversations",
+      "set": {
+        "sessionId": "two",
+        "mode": "custom:fixture"
+      },
+      "sources": {
+        "one": "qoder",
+        "two": "custom",
+        "three": "codex",
+        "four": "qwenwork",
+        "five": "workbuddy",
+        "six": "qoderwork",
+        "seven": "cursor",
+        "eight": "cursor"
+      },
+      "defaultSource": "custom"
+    }
+  ]
+}

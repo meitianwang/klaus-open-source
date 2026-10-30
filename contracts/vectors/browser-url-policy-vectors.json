@@ -1,0 +1,616 @@
+{
+  "urls": [
+    {
+      "input": "",
+      "origin": null,
+      "url": null,
+      "localUrl": false,
+      "denied": false,
+      "blockUser": null,
+      "blockAgent": "Browser Use can only open local pages in the in-app browser. Use the user-facing browser controls for non-local URLs."
+    },
+    {
+      "input": "   ",
+      "origin": null,
+      "url": null,
+      "localUrl": false,
+      "denied": false,
+      "blockUser": null,
+      "blockAgent": "Browser Use can only open local pages in the in-app browser. Use the user-facing browser controls for non-local URLs."
+    },
+    {
+      "input": "about:blank",
+      "origin": "about:blank",
+      "url": "about:blank",
+      "localUrl": true,
+      "denied": false,
+      "blockUser": null,
+      "blockAgent": null
+    },
+    {
+      "input": "  about:blank  ",
+      "origin": "about:blank",
+      "url": "about:blank",
+      "localUrl": true,
+      "denied": false,
+      "blockUser": null,
+      "blockAgent": null
+    },
+    {
+      "input": "about:srcdoc",
+      "origin": null,
+      "url": null,
+      "localUrl": false,
+      "denied": false,
+      "blockUser": null,
+      "blockAgent": "Browser Use can only open local pages in the in-app browser. Use the user-facing browser controls for non-local URLs."
+    },
+    {
+      "input": "localhost",
+      "origin": "http://localhost",
+      "url": "http://localhost/",
+      "localUrl": true,
+      "denied": true,
+      "blockUser": "Browser Use is blocked from opening http://localhost.",
+      "blockAgent": "Browser Use is blocked from opening http://localhost."
+    },
+    {
+      "input": "localhost:3000",
+      "origin": null,
+      "url": null,
+      "localUrl": false,
+      "denied": false,
+      "blockUser": null,
+      "blockAgent": "Browser Use can only open local pages in the in-app browser. Use the user-facing browser controls for non-local URLs."
+    },
+    {
+      "input": "localhost:3000/path?q=1#frag",
+      "origin": null,
+      "url": null,
+      "localUrl": false,
+      "denied": false,
+      "blockUser": null,
+      "blockAgent": "Browser Use can only open local pages in the in-app browser. Use the user-facing browser controls for non-local URLs."
+    },
+    {
+      "input": "127.0.0.1",
+      "origin": "https://127.0.0.1",
+      "url": "https://127.0.0.1/",
+      "localUrl": true,
+      "denied": false,
+      "blockUser": null,
+      "blockAgent": null
+    },
+    {
+      "input": "127.0.0.1:8080",
+      "origin": "http://127.0.0.1:8080",
+      "url": "http://127.0.0.1:8080/",
+      "localUrl": true,
+      "denied": false,
+      "blockUser": null,
+      "blockAgent": null
+    },
+    {
+      "input": "127.0.0.2:8080/x",
+      "origin": "http://127.0.0.2:8080",
+      "url": "http://127.0.0.2:8080/x",
+      "localUrl": false,
+      "denied": false,
+      "blockUser": null,
+      "blockAgent": "Browser Use can only open local pages in the in-app browser. Use the user-facing browser controls for non-local URLs."
+    },
+    {
+      "input": "0.0.0.0",
+      "origin": "http://0.0.0.0",
+      "url": "http://0.0.0.0/",
+      "localUrl": false,
+      "denied": false,
+      "blockUser": null,
+      "blockAgent": "Browser Use can only open local pages in the in-app browser. Use the user-facing browser controls for non-local URLs."
+    },
+    {
+      "input": "0.0.0.0:80",
+      "origin": "http://0.0.0.0",
+      "url": "http://0.0.0.0/",
+      "localUrl": false,
+      "denied": false,
+      "blockUser": null,
+      "blockAgent": "Browser Use can only open local pages in the in-app browser. Use the user-facing browser controls for non-local URLs."
+    },
+    {
+      "input": "::1",
+      "origin": null,
+      "url": null,
+      "localUrl": false,
+      "denied": false,
+      "blockUser": null,
+      "blockAgent": "Browser Use can only open local pages in the in-app browser. Use the user-facing browser controls for non-local URLs."
+    },
+    {
+      "input": "[::1]",
+      "origin": "http://[::1]",
+      "url": "http://[::1]/",
+      "localUrl": true,
+      "denied": false,
+      "blockUser": null,
+      "blockAgent": null
+    },
+    {
+      "input": "[::1]:8080",
+      "origin": "http://[::1]:8080",
+      "url": "http://[::1]:8080/",
+      "localUrl": true,
+      "denied": false,
+      "blockUser": null,
+      "blockAgent": null
+    },
+    {
+      "input": "example.com",
+      "origin": "https://example.com",
+      "url": "https://example.com/",
+      "localUrl": false,
+      "denied": false,
+      "blockUser": null,
+      "blockAgent": "Browser Use can only open local pages in the in-app browser. Use the user-facing browser controls for non-local URLs."
+    },
+    {
+      "input": "example.com/",
+      "origin": "https://example.com",
+      "url": "https://example.com/",
+      "localUrl": false,
+      "denied": false,
+      "blockUser": null,
+      "blockAgent": "Browser Use can only open local pages in the in-app browser. Use the user-facing browser controls for non-local URLs."
+    },
+    {
+      "input": "example.com:8443/a",
+      "origin": null,
+      "url": null,
+      "localUrl": false,
+      "denied": false,
+      "blockUser": null,
+      "blockAgent": "Browser Use can only open local pages in the in-app browser. Use the user-facing browser controls for non-local URLs."
+    },
+    {
+      "input": "EXAMPLE.COM",
+      "origin": "https://example.com",
+      "url": "https://example.com/",
+      "localUrl": false,
+      "denied": false,
+      "blockUser": null,
+      "blockAgent": "Browser Use can only open local pages in the in-app browser. Use the user-facing browser controls for non-local URLs."
+    },
+    {
+      "input": "https://EXAMPLE.com",
+      "origin": "https://example.com",
+      "url": "https://example.com/",
+      "localUrl": false,
+      "denied": false,
+      "blockUser": null,
+      "blockAgent": "Browser Use can only open local pages in the in-app browser. Use the user-facing browser controls for non-local URLs."
+    },
+    {
+      "input": "https://example.com",
+      "origin": "https://example.com",
+      "url": "https://example.com/",
+      "localUrl": false,
+      "denied": false,
+      "blockUser": null,
+      "blockAgent": "Browser Use can only open local pages in the in-app browser. Use the user-facing browser controls for non-local URLs."
+    },
+    {
+      "input": "https://example.com/",
+      "origin": "https://example.com",
+      "url": "https://example.com/",
+      "localUrl": false,
+      "denied": false,
+      "blockUser": null,
+      "blockAgent": "Browser Use can only open local pages in the in-app browser. Use the user-facing browser controls for non-local URLs."
+    },
+    {
+      "input": "https://example.com:443/",
+      "origin": "https://example.com",
+      "url": "https://example.com/",
+      "localUrl": false,
+      "denied": false,
+      "blockUser": null,
+      "blockAgent": "Browser Use can only open local pages in the in-app browser. Use the user-facing browser controls for non-local URLs."
+    },
+    {
+      "input": "https://example.com:8443/",
+      "origin": "https://example.com:8443",
+      "url": "https://example.com:8443/",
+      "localUrl": false,
+      "denied": false,
+      "blockUser": null,
+      "blockAgent": "Browser Use can only open local pages in the in-app browser. Use the user-facing browser controls for non-local URLs."
+    },
+    {
+      "input": "http://example.com:80/x",
+      "origin": "http://example.com",
+      "url": "http://example.com/x",
+      "localUrl": false,
+      "denied": false,
+      "blockUser": null,
+      "blockAgent": "Browser Use can only open local pages in the in-app browser. Use the user-facing browser controls for non-local URLs."
+    },
+    {
+      "input": "http://example.com:8080",
+      "origin": "http://example.com:8080",
+      "url": "http://example.com:8080/",
+      "localUrl": false,
+      "denied": false,
+      "blockUser": null,
+      "blockAgent": "Browser Use can only open local pages in the in-app browser. Use the user-facing browser controls for non-local URLs."
+    },
+    {
+      "input": "https://user:pw@example.com/secret",
+      "origin": "https://example.com",
+      "url": "https://user:pw@example.com/secret",
+      "localUrl": false,
+      "denied": false,
+      "blockUser": null,
+      "blockAgent": "Browser Use can only open local pages in the in-app browser. Use the user-facing browser controls for non-local URLs."
+    },
+    {
+      "input": "https://example.com/a/../b",
+      "origin": "https://example.com",
+      "url": "https://example.com/b",
+      "localUrl": false,
+      "denied": false,
+      "blockUser": null,
+      "blockAgent": "Browser Use can only open local pages in the in-app browser. Use the user-facing browser controls for non-local URLs."
+    },
+    {
+      "input": "https://example.com/a%20b?x=%2F",
+      "origin": "https://example.com",
+      "url": "https://example.com/a%20b?x=%2F",
+      "localUrl": false,
+      "denied": false,
+      "blockUser": null,
+      "blockAgent": "Browser Use can only open local pages in the in-app browser. Use the user-facing browser controls for non-local URLs."
+    },
+    {
+      "input": "https://example.com/#frag",
+      "origin": "https://example.com",
+      "url": "https://example.com/#frag",
+      "localUrl": false,
+      "denied": false,
+      "blockUser": null,
+      "blockAgent": "Browser Use can only open local pages in the in-app browser. Use the user-facing browser controls for non-local URLs."
+    },
+    {
+      "input": "https://example.com?q=1",
+      "origin": "https://example.com",
+      "url": "https://example.com/?q=1",
+      "localUrl": false,
+      "denied": false,
+      "blockUser": null,
+      "blockAgent": "Browser Use can only open local pages in the in-app browser. Use the user-facing browser controls for non-local URLs."
+    },
+    {
+      "input": "https://blocked.test/a",
+      "origin": "https://blocked.test",
+      "url": "https://blocked.test/a",
+      "localUrl": false,
+      "denied": true,
+      "blockUser": "Browser Use is blocked from opening https://blocked.test.",
+      "blockAgent": "Browser Use can only open local pages in the in-app browser. Use the user-facing browser controls for non-local URLs."
+    },
+    {
+      "input": "https://sub.blocked.test/a",
+      "origin": "https://sub.blocked.test",
+      "url": "https://sub.blocked.test/a",
+      "localUrl": false,
+      "denied": true,
+      "blockUser": "Browser Use is blocked from opening https://sub.blocked.test.",
+      "blockAgent": "Browser Use can only open local pages in the in-app browser. Use the user-facing browser controls for non-local URLs."
+    },
+    {
+      "input": "https://notblocked.test/a",
+      "origin": "https://notblocked.test",
+      "url": "https://notblocked.test/a",
+      "localUrl": false,
+      "denied": false,
+      "blockUser": null,
+      "blockAgent": "Browser Use can only open local pages in the in-app browser. Use the user-facing browser controls for non-local URLs."
+    },
+    {
+      "input": "https://xblocked.test/a",
+      "origin": "https://xblocked.test",
+      "url": "https://xblocked.test/a",
+      "localUrl": false,
+      "denied": false,
+      "blockUser": null,
+      "blockAgent": "Browser Use can only open local pages in the in-app browser. Use the user-facing browser controls for non-local URLs."
+    },
+    {
+      "input": "http://blocked.test",
+      "origin": "http://blocked.test",
+      "url": "http://blocked.test/",
+      "localUrl": false,
+      "denied": true,
+      "blockUser": "Browser Use is blocked from opening http://blocked.test.",
+      "blockAgent": "Browser Use can only open local pages in the in-app browser. Use the user-facing browser controls for non-local URLs."
+    },
+    {
+      "input": "https://evil.example",
+      "origin": "https://evil.example",
+      "url": "https://evil.example/",
+      "localUrl": false,
+      "denied": false,
+      "blockUser": null,
+      "blockAgent": "Browser Use can only open local pages in the in-app browser. Use the user-facing browser controls for non-local URLs."
+    },
+    {
+      "input": "https://deep.sub.evil.example/x",
+      "origin": "https://deep.sub.evil.example",
+      "url": "https://deep.sub.evil.example/x",
+      "localUrl": false,
+      "denied": false,
+      "blockUser": null,
+      "blockAgent": "Browser Use can only open local pages in the in-app browser. Use the user-facing browser controls for non-local URLs."
+    },
+    {
+      "input": "http://localhost:9999/admin",
+      "origin": "http://localhost:9999",
+      "url": "http://localhost:9999/admin",
+      "localUrl": true,
+      "denied": true,
+      "blockUser": "Browser Use is blocked from opening http://localhost:9999.",
+      "blockAgent": "Browser Use is blocked from opening http://localhost:9999."
+    },
+    {
+      "input": "http://localhost:9998/admin",
+      "origin": "http://localhost:9998",
+      "url": "http://localhost:9998/admin",
+      "localUrl": true,
+      "denied": true,
+      "blockUser": "Browser Use is blocked from opening http://localhost:9998.",
+      "blockAgent": "Browser Use is blocked from opening http://localhost:9998."
+    },
+    {
+      "input": "https://localhost:9999/admin",
+      "origin": "https://localhost:9999",
+      "url": "https://localhost:9999/admin",
+      "localUrl": true,
+      "denied": true,
+      "blockUser": "Browser Use is blocked from opening https://localhost:9999.",
+      "blockAgent": "Browser Use is blocked from opening https://localhost:9999."
+    },
+    {
+      "input": "file:///etc/hosts",
+      "origin": "file://",
+      "url": "file:///etc/hosts",
+      "localUrl": true,
+      "denied": false,
+      "blockUser": null,
+      "blockAgent": null
+    },
+    {
+      "input": "file://",
+      "origin": "file://",
+      "url": "file:///",
+      "localUrl": true,
+      "denied": false,
+      "blockUser": null,
+      "blockAgent": null
+    },
+    {
+      "input": "file:///",
+      "origin": "file://",
+      "url": "file:///",
+      "localUrl": true,
+      "denied": false,
+      "blockUser": null,
+      "blockAgent": null
+    },
+    {
+      "input": "FILE:///tmp/x",
+      "origin": "file://",
+      "url": "file:///tmp/x",
+      "localUrl": true,
+      "denied": false,
+      "blockUser": null,
+      "blockAgent": null
+    },
+    {
+      "input": "ftp://example.com/x",
+      "origin": null,
+      "url": null,
+      "localUrl": false,
+      "denied": false,
+      "blockUser": null,
+      "blockAgent": "Browser Use can only open local pages in the in-app browser. Use the user-facing browser controls for non-local URLs."
+    },
+    {
+      "input": "javascript:alert(1)",
+      "origin": null,
+      "url": null,
+      "localUrl": false,
+      "denied": false,
+      "blockUser": null,
+      "blockAgent": "Browser Use can only open local pages in the in-app browser. Use the user-facing browser controls for non-local URLs."
+    },
+    {
+      "input": "data:text/html,<b>x</b>",
+      "origin": null,
+      "url": null,
+      "localUrl": false,
+      "denied": false,
+      "blockUser": null,
+      "blockAgent": "Browser Use can only open local pages in the in-app browser. Use the user-facing browser controls for non-local URLs."
+    },
+    {
+      "input": "chrome://settings",
+      "origin": null,
+      "url": null,
+      "localUrl": false,
+      "denied": false,
+      "blockUser": null,
+      "blockAgent": "Browser Use can only open local pages in the in-app browser. Use the user-facing browser controls for non-local URLs."
+    },
+    {
+      "input": "mailto:a@b.com",
+      "origin": null,
+      "url": null,
+      "localUrl": false,
+      "denied": false,
+      "blockUser": null,
+      "blockAgent": "Browser Use can only open local pages in the in-app browser. Use the user-facing browser controls for non-local URLs."
+    },
+    {
+      "input": "//example.com/x",
+      "origin": "https://example.com",
+      "url": "https://example.com/x",
+      "localUrl": false,
+      "denied": false,
+      "blockUser": null,
+      "blockAgent": "Browser Use can only open local pages in the in-app browser. Use the user-facing browser controls for non-local URLs."
+    },
+    {
+      "input": "/relative/path",
+      "origin": "https://relative",
+      "url": "https://relative/path",
+      "localUrl": false,
+      "denied": false,
+      "blockUser": null,
+      "blockAgent": "Browser Use can only open local pages in the in-app browser. Use the user-facing browser controls for non-local URLs."
+    },
+    {
+      "input": "https://",
+      "origin": null,
+      "url": null,
+      "localUrl": false,
+      "denied": false,
+      "blockUser": null,
+      "blockAgent": "Browser Use can only open local pages in the in-app browser. Use the user-facing browser controls for non-local URLs."
+    },
+    {
+      "input": "https:///x",
+      "origin": "https://x",
+      "url": "https://x/",
+      "localUrl": false,
+      "denied": false,
+      "blockUser": null,
+      "blockAgent": "Browser Use can only open local pages in the in-app browser. Use the user-facing browser controls for non-local URLs."
+    },
+    {
+      "input": "http://[::1]:3000/x",
+      "origin": "http://[::1]:3000",
+      "url": "http://[::1]:3000/x",
+      "localUrl": true,
+      "denied": false,
+      "blockUser": null,
+      "blockAgent": null
+    },
+    {
+      "input": "https://xn--fsq.com/x",
+      "origin": "https://xn--fsq.com",
+      "url": "https://xn--fsq.com/x",
+      "localUrl": false,
+      "denied": false,
+      "blockUser": null,
+      "blockAgent": "Browser Use can only open local pages in the in-app browser. Use the user-facing browser controls for non-local URLs."
+    },
+    {
+      "input": "https://例子.测试/x",
+      "origin": "https://xn--fsqu00a.xn--0zwm56d",
+      "url": "https://xn--fsqu00a.xn--0zwm56d/x",
+      "localUrl": false,
+      "denied": false,
+      "blockUser": null,
+      "blockAgent": "Browser Use can only open local pages in the in-app browser. Use the user-facing browser controls for non-local URLs."
+    },
+    {
+      "input": "https://example.com\\backslash",
+      "origin": "https://example.com",
+      "url": "https://example.com/backslash",
+      "localUrl": false,
+      "denied": false,
+      "blockUser": null,
+      "blockAgent": "Browser Use can only open local pages in the in-app browser. Use the user-facing browser controls for non-local URLs."
+    },
+    {
+      "input": "https://ex ample.com",
+      "origin": null,
+      "url": null,
+      "localUrl": false,
+      "denied": false,
+      "blockUser": null,
+      "blockAgent": "Browser Use can only open local pages in the in-app browser. Use the user-facing browser controls for non-local URLs."
+    },
+    {
+      "input": "https://example.com:99999",
+      "origin": null,
+      "url": null,
+      "localUrl": false,
+      "denied": false,
+      "blockUser": null,
+      "blockAgent": "Browser Use can only open local pages in the in-app browser. Use the user-facing browser controls for non-local URLs."
+    },
+    {
+      "input": "my-host:1234",
+      "origin": null,
+      "url": null,
+      "localUrl": false,
+      "denied": false,
+      "blockUser": null,
+      "blockAgent": "Browser Use can only open local pages in the in-app browser. Use the user-facing browser controls for non-local URLs."
+    },
+    {
+      "input": "my_host:1234/x",
+      "origin": "http://my_host:1234",
+      "url": "http://my_host:1234/x",
+      "localUrl": false,
+      "denied": false,
+      "blockUser": null,
+      "blockAgent": "Browser Use can only open local pages in the in-app browser. Use the user-facing browser controls for non-local URLs."
+    },
+    {
+      "input": "weird.scheme+x:payload",
+      "origin": null,
+      "url": null,
+      "localUrl": false,
+      "denied": false,
+      "blockUser": null,
+      "blockAgent": "Browser Use can only open local pages in the in-app browser. Use the user-facing browser controls for non-local URLs."
+    },
+    {
+      "input": "a:1",
+      "origin": null,
+      "url": null,
+      "localUrl": false,
+      "denied": false,
+      "blockUser": null,
+      "blockAgent": "Browser Use can only open local pages in the in-app browser. Use the user-facing browser controls for non-local URLs."
+    },
+    {
+      "input": "1.2.3.4:5678",
+      "origin": "http://1.2.3.4:5678",
+      "url": "http://1.2.3.4:5678/",
+      "localUrl": false,
+      "denied": false,
+      "blockUser": null,
+      "blockAgent": "Browser Use can only open local pages in the in-app browser. Use the user-facing browser controls for non-local URLs."
+    },
+    {
+      "input": "https://1.2.3.4",
+      "origin": "https://1.2.3.4",
+      "url": "https://1.2.3.4/",
+      "localUrl": false,
+      "denied": false,
+      "blockUser": null,
+      "blockAgent": "Browser Use can only open local pages in the in-app browser. Use the user-facing browser controls for non-local URLs."
+    },
+    {
+      "input": "\thttps://example.com\n",
+      "origin": "https://example.com",
+      "url": "https://example.com/",
+      "localUrl": false,
+      "denied": false,
+      "blockUser": null,
+      "blockAgent": "Browser Use can only open local pages in the in-app browser. Use the user-facing browser controls for non-local URLs."
+    }
+  ]
+}

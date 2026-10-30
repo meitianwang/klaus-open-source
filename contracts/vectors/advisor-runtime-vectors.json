@@ -1,0 +1,155 @@
+{
+  "version": 1,
+  "reason": "Advisor is an independent global source-qualified model target. The host publishes only its identity through named session methods; the engine resolves credentials and captures the target for the turn. Unavailable targets never replace or block the main model. Cursor advisors require concrete variants instead of default or tier aliases.",
+  "cases": [
+    {
+      "name": "cross-source target ignores the chat source",
+      "main": "custom:main",
+      "model": "codex:gpt-5",
+      "enabled": true,
+      "target": {
+        "type": "source",
+        "source": "codex",
+        "modelId": "gpt-5"
+      }
+    },
+    {
+      "name": "Cursor advisor retains a concrete variant independently of the chat",
+      "main": "custom:main",
+      "model": "cursor:fixture[effort=high,fast=true]",
+      "enabled": true,
+      "target": {
+        "type": "source",
+        "source": "cursor",
+        "modelId": "fixture[effort=high,fast=true]"
+      }
+    },
+    {
+      "name": "same-source target has no strength requirement",
+      "main": "custom:strong",
+      "model": "custom:small",
+      "enabled": true,
+      "target": {
+        "type": "source",
+        "source": "custom",
+        "modelId": "small"
+      }
+    },
+    {
+      "name": "same model is a valid advisor",
+      "main": "custom:main",
+      "model": "custom:main",
+      "enabled": true,
+      "target": {
+        "type": "source",
+        "source": "custom",
+        "modelId": "main"
+      }
+    },
+    {
+      "name": "a source-local model identifier retains its colon",
+      "main": "codex:gpt-5",
+      "model": "custom:provider:model",
+      "enabled": true,
+      "target": {
+        "type": "source",
+        "source": "custom",
+        "modelId": "provider:model"
+      }
+    },
+    {
+      "name": "disabled target is explicitly cleared",
+      "main": "custom:main",
+      "model": "subscription:opus",
+      "enabled": false,
+      "target": null
+    },
+    {
+      "name": "signed-out source is not substituted by the host",
+      "main": "custom:main",
+      "model": "qoder:advisor",
+      "enabled": true,
+      "target": {
+        "type": "source",
+        "source": "qoder",
+        "modelId": "advisor"
+      }
+    },
+    {
+      "name": "unqualified legacy model remains unavailable",
+      "main": "custom:main",
+      "model": "opus",
+      "enabled": true,
+      "error": "ADVISOR_MODEL_INVALID"
+    },
+    {
+      "name": "retired source remains unavailable",
+      "main": "custom:main",
+      "model": "local:advisor",
+      "enabled": true,
+      "error": "ADVISOR_MODEL_INVALID"
+    },
+    {
+      "name": "enabled without a model behaves like disabled",
+      "main": "custom:main",
+      "model": "",
+      "enabled": true,
+      "target": null
+    },
+    {
+      "name": "Cursor alias auto cannot substitute a default advisor",
+      "main": "custom:main",
+      "model": "cursor:auto",
+      "enabled": true,
+      "error": "ADVISOR_MODEL_INVALID"
+    },
+    {
+      "name": "Cursor alias default@max cannot substitute a default advisor",
+      "main": "custom:main",
+      "model": "cursor:default@max",
+      "enabled": true,
+      "error": "ADVISOR_MODEL_INVALID"
+    },
+    {
+      "name": "Cursor alias high cannot substitute a default advisor",
+      "main": "custom:main",
+      "model": "cursor:high",
+      "enabled": true,
+      "error": "ADVISOR_MODEL_INVALID"
+    },
+    {
+      "name": "Cursor alias low[context=256k]@max cannot substitute a default advisor",
+      "main": "custom:main",
+      "model": "cursor:low[context=256k]@max",
+      "enabled": true,
+      "error": "ADVISOR_MODEL_INVALID"
+    }
+  ],
+  "invariants": {
+    "rankComparison": false,
+    "tierInheritance": false,
+    "disablePreservesChoice": true,
+    "credentialOwner": "engine",
+    "activeScope": "configuration",
+    "readiness": "unchecked",
+    "publicationMethods": [
+      "session/start",
+      "session/reconfigureModel"
+    ],
+    "runningTurnTarget": "immutable",
+    "contextBudget": {
+      "reason": "A smaller advisor window must not force binary payloads to be counted as text or replace the main conversation history.",
+      "mediaAccounting": "structured-content-with-image-dimension-headroom",
+      "overflowAction": "summarize-with-calling-main-model",
+      "summaryTarget": "captured-request-model-and-source",
+      "advisorTargetAfterSummary": "original-captured-target",
+      "summaryWritesMainHistory": false,
+      "summaryExecutesTools": false,
+      "summaryAndAdvisorShareDeadline": true,
+      "usageAccounting": "separate-physical-request-receipts",
+      "recheckSpendLimitAfterSummary": true,
+      "summaryFailure": "recoverable-tool-error-without-advisor-request",
+      "postSummaryCapacityCheck": true
+    }
+  }
+}

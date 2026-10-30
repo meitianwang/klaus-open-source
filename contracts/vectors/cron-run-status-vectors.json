@@ -1,0 +1,16 @@
+{
+  "reason": "Intentional stops are neutral terminal outcomes; execution errors and unclean restart recovery remain failures.",
+  "cases": [
+    { "status": "stopped", "expected": "stopped" },
+    { "status": "failed", "error": "Task interrupted", "expected": "stopped" },
+    { "status": "failed", "error": "interrupted (app shutdown)", "expected": "stopped" },
+    { "status": "success", "error": "Task interrupted", "expected": "stopped" },
+    { "status": "failed", "error": "interrupted (app restart)", "expected": "failed" },
+    { "status": "failed", "error": "cron run timed out after 1s", "expected": "failed" },
+    { "status": "failed", "error": "Engine process exited mid-run", "expected": "failed" },
+    { "status": "failed", "error": "Tool failed: Task interrupted", "expected": "failed" },
+    { "status": "success", "error": "tool failed", "expected": "failed" },
+    { "status": "success", "expected": "success" },
+    { "status": "running", "expected": "running" }
+  ]
+}

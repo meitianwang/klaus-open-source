@@ -1,0 +1,13 @@
+{
+  "_why": "Review and execution must use the full saved Spec, including user edits. Approval transport acknowledgement is not successful execution. Goal creation failure must preserve pending review and drafts.",
+  "path": "/project/.klaus/specs/approval.md",
+  "summary": "Implement a small CSV summary command.",
+  "document": "# CSV summary\n\n## Requirements\nRead a CSV file and report totals.\n\n## Design\nUse Decimal for exact totals.\n\n## API\nAccept a path and output JSON.\n\n## Acceptance\n0.10 plus 0.20 must equal 0.30.\n",
+  "edit": "\n## User acceptance\nWrite SPEC_APPROVAL_EDIT_CONFIRMED in RESULT.md.\n",
+  "approvalMustContainFullDocument": true,
+  "goalFailureConsumesApproval": false,
+  "goalFailureConsumesDraft": false,
+  "composerApprovedBanner": false,
+  "executionSuccessEvent": "tool_end",
+  "revisionAlgorithm": "sha256"
+}

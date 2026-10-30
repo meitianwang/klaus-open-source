@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "reason": "PDF operations use a client-managed environment selected by the agent, independently of native document input and the file-read tool.",
+  "toolName": "load_workspace_dependencies",
+  "resolveMethod": "session/resolveDynamicToolCall",
+  "readyState": "ready",
+  "requiredReadyPaths": ["pythonPath", "pdfSkillDir", "pdfHelperPath"],
+  "unavailableStates": ["failed", "unsupported", "installing", "missing", "disabled"],
+  "scope": "local",
+  "userSkillPrecedence": ["project", "global", "bundled"],
+  "settingsChannels": [
+    "settings:workspace-dependencies:get",
+    "settings:workspace-dependencies:diagnose",
+    "settings:workspace-dependencies:reinstall"
+  ],
+  "enabledKey": "klaus.workspaceDependencies",
+  "enabledDefault": "on",
+  "disabledState": "disabled",
+  "diagnoseRecordsLog": true,
+  "diagnoseFeedback": {
+    "reason": "A completed bundle check and a failed diagnostic request have different outcomes; status refreshes must preserve the visible result.",
+    "surface": "toast",
+    "ready": "success",
+    "bundleProblem": "warning",
+    "requestFailure": "danger",
+    "refreshPreservesResult": true
+  },
+  "reinstallRemoves": ["versions", "cache"]
+}

@@ -1,0 +1,93 @@
+{
+  "_why": "The directive is model-authored text, which is untrusted input, and its parsed attribute becomes the argument to klausSwitchSession. So every rejection case is pinned here: anything that is not exactly one well-formed directive on its own line stays visible text. That is the deliberate asymmetry — showing the user raw protocol syntax is a cosmetic wart, while swallowing a sentence the model wrote deletes content they were owed, and raising a card for a directive the model was merely DISCUSSING (inside a code fence) navigates somewhere the user never asked to go. Klaus accepts only threadId: create_thread builds the worktree BEFORE starting the conversation and always returns a real thread id, so a clientThreadId form would render a card nothing could resolve.",
+  "accepts": [
+    {
+      "name": "the documented form",
+      "line": "::created-thread{threadId=\"614cc8f1-8c61-5f4f-8ef8-8199ba8b267a\"}",
+      "expectedThreadId": "614cc8f1-8c61-5f4f-8ef8-8199ba8b267a"
+    },
+    {
+      "name": "trailing whitespace on the line is tolerated",
+      "line": "::created-thread{threadId=\"thread-b\"}   ",
+      "expectedThreadId": "thread-b"
+    },
+    {
+      "name": "a trailing tab is tolerated",
+      "line": "::created-thread{threadId=\"thread-b\"}\t",
+      "expectedThreadId": "thread-b"
+    },
+    {
+      "name": "leading whitespace is tolerated",
+      "line": "  ::created-thread{threadId=\"thread-b\"}",
+      "expectedThreadId": "thread-b"
+    },
+    {
+      "name": "a non-uuid id still parses: the host decides existence, not the syntax",
+      "line": "::created-thread{threadId=\"not-a-uuid-at-all\"}",
+      "expectedThreadId": "not-a-uuid-at-all"
+    },
+    {
+      "name": "an id containing spaces parses",
+      "line": "::created-thread{threadId=\"thread with spaces\"}",
+      "expectedThreadId": "thread with spaces"
+    },
+    {
+      "name": "an id containing angle brackets and ampersand parses unescaped",
+      "line": "::created-thread{threadId=\"a<b>&c\"}",
+      "expectedThreadId": "a<b>&c"
+    }
+  ],
+  "rejects": [
+    { "name": "ordinary prose", "line": "I created a chat for you." },
+    { "name": "empty line", "line": "" },
+    { "name": "the prefix alone with no attributes", "line": "::created-thread" },
+    { "name": "empty attribute braces", "line": "::created-thread{}" },
+    { "name": "missing the closing brace", "line": "::created-thread{threadId=\"thread-b\"" },
+    { "name": "missing the opening brace", "line": "::created-threadthreadId=\"thread-b\"}" },
+    { "name": "a single colon instead of two", "line": ":created-thread{threadId=\"thread-b\"}" },
+    { "name": "unpaired quote", "line": "::created-thread{threadId=\"thread-b}" },
+    { "name": "an unquoted value", "line": "::created-thread{threadId=thread-b}" },
+    { "name": "single quotes instead of double", "line": "::created-thread{threadId='thread-b'}" },
+    { "name": "an empty id", "line": "::created-thread{threadId=\"\"}" },
+    { "name": "a whitespace-only id", "line": "::created-thread{threadId=\"   \"}" },
+    { "name": "a newline inside the id", "line": "::created-thread{threadId=\"a\nb\"}" },
+    { "name": "an unknown attribute name", "line": "::created-thread{thread=\"thread-b\"}" },
+    { "name": "a second unknown attribute alongside threadId", "line": "::created-thread{threadId=\"thread-b\" kind=\"web\"}" },
+    { "name": "a clientThreadId form, which Klaus never emits", "line": "::created-thread{clientThreadId=\"pending-1\"}" },
+    { "name": "a different directive name", "line": "::code-comment{title=\"x\" body=\"y\" file=\"/a.ts\"}" },
+    { "name": "a directive glued after prose", "line": "Done. ::created-thread{threadId=\"thread-b\"}" },
+    { "name": "a directive glued before prose", "line": "::created-thread{threadId=\"thread-b\"} is ready." },
+    { "name": "two directives on one line", "line": "::created-thread{threadId=\"a\"} ::created-thread{threadId=\"b\"}" },
+    { "name": "an over-long id past the 512 bound", "line": "::created-thread{threadId=\"REPEAT\"}" }
+  ],
+  "markdownStructure": [
+    {
+      "name": "a standalone directive becomes its own paragraph, which is what the card pass looks for",
+      "source": "I created a chat.\n\n::created-thread{threadId=\"thread-b\"}\n",
+      "expectOwnParagraph": true
+    },
+    {
+      "name": "a directive inside a fenced block stays code and never becomes a paragraph",
+      "source": "Use this syntax:\n\n```\n::created-thread{threadId=\"thread-b\"}\n```\n",
+      "expectOwnParagraph": false,
+      "expectInsideCode": true
+    },
+    {
+      "name": "a directive inside a tilde fence stays code",
+      "source": "~~~\n::created-thread{threadId=\"thread-b\"}\n~~~\n",
+      "expectOwnParagraph": false,
+      "expectInsideCode": true
+    },
+    {
+      "name": "an inline code span keeps the directive as text",
+      "source": "Emit `::created-thread{threadId=\"x\"}` to link a chat.\n",
+      "expectOwnParagraph": false,
+      "expectInsideCode": true
+    },
+    {
+      "name": "a directive sharing a paragraph with prose is not its own paragraph",
+      "source": "Done. ::created-thread{threadId=\"thread-b\"} is ready.\n",
+      "expectOwnParagraph": false
+    }
+  ]
+}

@@ -1,0 +1,75 @@
+{
+  "reason": "The one-shot workspace file search is the only path the agent control surface (engine.fileSearch) and the packaging performance baseline both depend on, and the @-menu's persistent-session work changes native search semantics beside it. These vectors pin the one-shot contract first so every later change is a deliberate diff against a recorded baseline rather than a silent drift. The bare-array shape is load-bearing: wrapping it as {files:[...]} once made the mention menu render permanently empty. An unbound composer file picker may explicitly search its selected local workspace without creating a chat; invalid explicit roots must never redirect to a default directory.",
+  "resultShape": {
+    "bareArray": true,
+    "fields": [
+      "rel",
+      "name",
+      "isDir"
+    ],
+    "example": [
+      {
+        "rel": "src/app.ts",
+        "name": "app.ts",
+        "isDir": false
+      }
+    ]
+  },
+  "multiRoot": {
+    "extraRootsSearched": true,
+    "extraRootRelIsPrefixed": true,
+    "prefixJoin": "path.join(root, hit.rel)",
+    "primaryRootRelIsVerbatim": true
+  },
+  "limits": {
+    "corePendingSearchMax": 8,
+    "coreBusyCode": "BUSY",
+    "coreBusyMessage": "at most 8 file searches may be pending",
+    "hostActiveSearchMax": 32,
+    "hostBusyCode": "BUSY",
+    "sameOwnerSessionKeyIsExemptFromHostCap": true
+  },
+  "deadlineMs": 15000,
+  "invalidLimit": {
+    "code": "INVALID_LIMIT",
+    "minExclusive": -2147483648,
+    "maxExclusive": 2147483647,
+    "defaultWhenOmitted": 40
+  },
+  "truncation": {
+    "code": "SEARCH_LIMIT_EXCEEDED",
+    "neverReturnsPartialListing": true,
+    "entryBound": 200000,
+    "pathDataBoundBytes": 33554432
+  },
+  "cancellation": {
+    "oneActiveSearchPerOwnerAndSession": true,
+    "supersededSearchResolvesEmptyArray": true,
+    "supersededSearchDoesNotReject": true,
+    "cancelledOperationRejectsWithCode": "CANCELLED",
+    "completedAndCancelledLeaveNoTombstones": true
+  },
+  "freshness": {
+    "noWatcherCache": true,
+    "rebuildsEveryCall": true,
+    "deletedFileIsAbsentFromNextSearch": true,
+    "createdFileIsPresentInNextSearch": true
+  },
+  "missingRoot": {
+    "returnsEmptyArray": true,
+    "isNotAnError": true
+  },
+  "explicitDraftRoot": {
+    "startChannel": "engine:workspaceFileSearchSessionStart",
+    "requiresUnboundSession": true,
+    "absoluteExistingDirectory": true,
+    "homePrefixExpanded": true,
+    "rejectRemoteCode": "REMOTE_WORKSPACE",
+    "rejectInvalidCode": "INVALID_ROOT",
+    "rejectForeignOwnerCode": "RESOURCE_NOT_OWNED",
+    "neverCreatesChat": true,
+    "neverFallsBack": true,
+    "snapshotPinnedUntilStop": true,
+    "rootChangeClosesPreviousSnapshot": true
+  }
+}

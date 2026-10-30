@@ -1,0 +1,31 @@
+{
+  "reason": "Mobile optional-question recovery, answer retries and question attachments use the current named host channels. Snapshot questions are authoritative only when present, preserve capability metadata and cannot revive questions closed during the cut. Receipts retain the accepted answers from any answering client.",
+  "question": {
+    "sessionId": "s1", "requestId": "mobile-question-1", "turnId": "mobile-turn-1", "toolCallId": "mobile-tool-1",
+    "toolName": "ask_user_async", "responseChannel": "async-question", "attachmentsSupported": true,
+    "state": "pending", "answers": {},
+    "toolInput": { "questions": [
+      { "question": "Which details?", "header": "Details", "options": [{ "label": "Commands" }, { "label": "Screenshots" }] },
+      { "question": "Which format?", "header": "Format", "options": [{ "label": "Short paragraphs" }, { "label": "Three bullets" }] },
+      { "question": "Which tone?", "header": "Tone", "options": [{ "label": "Brief" }, { "label": "Detailed" }] }
+    ] }
+  },
+  "answer": {
+    "sessionId": "s1", "requestId": "mobile-question-1", "turnId": "mobile-turn-1", "clientResponseId": "mobile-response-1",
+    "answers": { "Which details?": "Screenshots, keep commas\nand newlines" }
+  },
+  "confirmed": {
+    "accepted": true, "requestId": "mobile-question-1", "turnId": "mobile-turn-1", "clientResponseId": "mobile-response-1",
+    "userMessageId": "mobile-user-message-1", "state": "pending"
+  },
+  "partial": {
+    "sessionId": "s1", "requestId": "mobile-question-1", "turnId": "mobile-turn-1", "state": "pending",
+    "answers": { "Which details?": "Commands" }, "clientResponseId": "mobile-partial-1", "userMessageId": "mobile-partial-message-1"
+  },
+  "closed": {
+    "sessionId": "s1", "requestId": "mobile-question-1", "turnId": "mobile-turn-1", "state": "expired", "answers": {}
+  },
+  "upload": { "name": "notes.txt", "type": "text/plain", "buffer": "bm90ZXMK" },
+  "attachmentLimits": { "image": 10485760, "general": 20971520, "body": 29360128 },
+  "permissionReceipt": { "decision": "allow", "updatedInput": { "answers": { "Which details?": "Commands" } } }
+}

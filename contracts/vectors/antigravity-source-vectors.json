@@ -1,0 +1,159 @@
+{
+  "version": 3,
+  "reason": "A direct cloud account source preserves model identity, explicit entitlements, per-model allowance windows and independent image/search/dictation selection.",
+  "source": "antigravity",
+  "selection": "antigravity:gemini-3.8-flash",
+  "media": {
+    "image": true,
+    "video": false,
+    "audio": false
+  },
+  "quota": [
+    {
+      "name": "signed out",
+      "input": {
+        "signedIn": false
+      },
+      "expected": {
+        "state": "signed_out"
+      }
+    },
+    {
+      "name": "separate model windows and unknown usage",
+      "input": {
+        "signedIn": true,
+        "plan": "Starter",
+        "windows": [
+          {
+            "id": "gemini_weekly",
+            "label": "Gemini",
+            "usedPercent": 12,
+            "resetsAt": "2026-10-26T00:00:00Z"
+          },
+          {
+            "id": "partner_weekly",
+            "label": "Claude and GPT",
+            "usedPercent": 100
+          },
+          {
+            "id": "unknown"
+          }
+        ]
+      },
+      "expected": {
+        "state": "ok",
+        "plan": "Starter",
+        "windows": [
+          {
+            "id": "gemini_weekly",
+            "label": "Gemini",
+            "usedPercent": 12,
+            "resetsAt": 1792972800000
+          },
+          {
+            "id": "partner_weekly",
+            "label": "Claude and GPT",
+            "usedPercent": 100
+          }
+        ]
+      }
+    },
+    {
+      "name": "balance without an invented total",
+      "input": {
+        "signedIn": true,
+        "credits": {
+          "remaining": 42
+        }
+      },
+      "expected": {
+        "state": "ok",
+        "credits": {
+          "remaining": 42,
+          "unit": "credits"
+        }
+      }
+    },
+    {
+      "name": "missing allowance is unavailable",
+      "input": {
+        "signedIn": true,
+        "windows": [
+          {
+            "id": "missing"
+          }
+        ]
+      },
+      "expected": {
+        "state": "ok",
+        "quotaAvailable": false
+      }
+    },
+    {
+      "name": "restricted and amount-only allowances",
+      "input": {
+        "signedIn": true,
+        "windows": [
+          {
+            "id": "restricted",
+            "disabled": true,
+            "description": "Account restricted"
+          },
+          {
+            "id": "amount",
+            "remainingAmount": 42
+          }
+        ]
+      },
+      "expected": {
+        "state": "ok",
+        "windows": [
+          {
+            "id": "restricted",
+            "disabled": true
+          },
+          {
+            "id": "amount",
+            "remaining": 42
+          }
+        ]
+      }
+    },
+    {
+      "name": "exact multiple credit pools",
+      "input": {
+        "signedIn": true,
+        "credits": {
+          "pools": [
+            {
+              "creditType": "GOOGLE_ONE_AI",
+              "creditAmount": "9007199254740993",
+              "minimumCreditAmountForUsage": "100"
+            },
+            {
+              "creditType": "CREDIT_TYPE_UNSPECIFIED",
+              "creditAmount": "42"
+            }
+          ]
+        }
+      },
+      "expected": {
+        "state": "ok",
+        "credits": {
+          "pools": [
+            {
+              "creditType": "GOOGLE_ONE_AI",
+              "creditAmount": "9007199254740993",
+              "minimumCreditAmountForUsage": "100"
+            },
+            {
+              "creditType": "CREDIT_TYPE_UNSPECIFIED",
+              "creditAmount": "42"
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "presentationReason": "Allowance titles identify the service groups; descriptive footnotes are omitted without merging balances or reset times. Amount-only service windows retain their reported remainingAmount balance."
+}

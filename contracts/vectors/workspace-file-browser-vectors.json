@@ -1,0 +1,15 @@
+{
+  "reason": "The workspace browser keeps file-type identity, keyboard access, preview ownership and persistent navigation state while loading directories on demand.",
+  "rowHeight": 28,
+  "fontSize": 13,
+  "iconSize": 16,
+  "directoryChevronSize": 10,
+  "defaultWidth": 250,
+  "minimumWidth": 200,
+  "maximumWidthFraction": 0.6,
+  "emptyIconSize": 32,
+  "emptyTitleSize": 16,
+  "emptyDescriptionSize": 14,
+  "preview": "A single click replaces the unedited preview; double click or editing pins its tab.",
+  "search": "Search covers the same local or remote file set as browsing, preserves ancestry, surfaces incomplete scans, and discards stale responses."
+}

@@ -1,0 +1,100 @@
+{
+  "reason": "Clipboard import preserves authored content, inline identity and active text marks while distinguishing visible HTML from literal text and native plain-paste intent.",
+  "urls": [
+    {
+      "text": "HTTPS://example.test/path",
+      "url": "HTTPS://example.test/path"
+    },
+    {
+      "text": "  https://example.test/path \n",
+      "url": "https://example.test/path"
+    },
+    {
+      "text": "https://example.test/with space",
+      "url": null
+    },
+    {
+      "text": "mailto:person@example.test",
+      "url": null
+    }
+  ],
+  "modifiers": {
+    "heldShift": "prefer-literal",
+    "releasedShift": "normal-paste",
+    "shiftInsert": "normal-paste",
+    "pointer": "use-current-shift",
+    "blurOrNewDraft": "clear-local-intent"
+  },
+  "plainHtml": {
+    "html": "<p><span style=\"color:red\">unformatted</span></p>",
+    "text": "unformatted",
+    "mark": "strong"
+  },
+  "media": [
+    {
+      "html": "<a href=\"https://outer.test\"><img src=\"https://media.test/photo\" alt=\"Picture\"></a>",
+      "text": "Picture (image)",
+      "links": [
+        "https://outer.test",
+        "https://media.test/photo"
+      ]
+    },
+    {
+      "html": "<img src=\"data:image/png;base64,AAAA\" alt=\"Local picture\">",
+      "text": "Local picture",
+      "links": []
+    },
+    {
+      "html": "<video aria-label=\"Clip\"><source src=\"https://media.test/clip\"></video>",
+      "text": "Clip",
+      "links": [
+        "https://media.test/clip"
+      ]
+    },
+    {
+      "html": "<svg aria-label=\"Diagram\"><path d=\"M0 0\"/></svg>",
+      "text": "Diagram",
+      "links": []
+    },
+    {
+      "html": "<img src=\"javascript:alert(1)\">",
+      "text": "image",
+      "links": []
+    }
+  ],
+  "html": {
+    "maximumRawUnits": 100000,
+    "oversizeWithText": "literal-fallback",
+    "oversizeWithoutText": "leave-selection-unchanged",
+    "unparseableWithText": "literal-fallback",
+    "unparseableWithoutText": "leave-selection-unchanged",
+    "media": "visible-text-or-safe-link",
+    "hidden": "discard",
+    "plainParagraph": "inherit-active-marks",
+    "math": "inline-or-block-code",
+    "maximumStructuredUnits": 5242880
+  },
+  "identity": {
+    "structuredOccurrences": "retain-existing-reference-and-quote-data",
+    "copiedQuote": "allocate-independent-occurrence",
+    "recognition": "validated-atom-elements-from-editor-or-submitted-copy",
+    "markerTextOrComments": "ordinary-html-limits",
+    "maximumMetadataDepth": 128,
+    "overdeepMetadata": "Keep readable clipboard text without importing an unsafe atom; incompatible saved documents use their separate text fallback.",
+    "malformedRetainedQuotes": "Restore full quote text before mutating tray membership; ordinary and message-edit submissions retain that recovered text and neighboring identities.",
+    "programmaticReplacement": "An existing quote outside a replacement retains its occurrence and cannot be cloned into inserted prose by a stale external offset."
+  },
+  "fileDrop": {
+    "classification": "Use each file item's directory entry; a directory name must not exclude unrelated files.",
+    "emptyOrdinaryFiles": "ignore",
+    "itemFallback": "Use nonempty FileList entries when no file items are exposed.",
+    "nativeDirectories": "Attach disk-backed directories as exact local path references with a trailing slash; never upload their bytes or infer image delivery from their name.",
+    "directoryRecovery": "Preserve directory identity through send, saved history, Edit and queue recovery; open directory cards with the system reveal action."
+  },
+  "composition": {
+    "uncommittedInput": "Keep the candidate in the editor without committing the ordinary chat draft.",
+    "commit": "Notify the owning input after final browser composition records settle, even if the final candidate text did not change.",
+    "replacedDocument": "Reject a deferred completion notification from a retired document generation.",
+    "keys": "The active input method owns composing Enter and Escape; no general post-commit cooldown is added."
+  }
+}

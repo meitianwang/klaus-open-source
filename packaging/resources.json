@@ -1,0 +1,39 @@
+{
+  "layoutVersion": 1,
+  "targets": ["darwin-arm64", "win32-x64"],
+  "sharedRoots": ["canvas", "plugins-builtin", "tray-icon.png", "workspace-skills", "workspace-runtime"],
+  "generatedRoots": ["plugins-seed"],
+  "optionalGeneratedRoots": ["plugins-official"],
+  "requiredAppFiles": [
+    "package.json", "contracts/channel-table.json", "contracts/engine/klaus-app-server.schema.json",
+    "dist/main/index.js", "dist/main/app/runtime.js", "dist/main/app/paths.js", "dist/contracts/legacy-ui-state.js",
+    "dist/main/browser/chrome-native-host.js", "dist/main/browser/chrome-wire.js", "dist/main/browser/types.js",
+    "dist/preload/main.js", "dist/preload/artifact.js", "dist/preload/canvas.js", "dist/preload/quick-input.js", "dist/preload/recorder.js", "dist/preload/pet.js"
+  ],
+  "requiredResourceFiles": [
+    "manual/klaus-manual.md",
+    "workspace-skills/pdf/SKILL.md", "workspace-skills/pdf/scripts/pdf.py",
+    "workspace-runtime/manifest.json", "workspace-runtime/requirements.lock",
+    "frontend/index.html", "frontend/artifact.html", "frontend/canvas.html", "frontend/quick-input.html", "frontend/recorder.html", "frontend/overlay.html",
+    "tray-icon.png", "canvas/recipes/index.md",
+    "plugins-builtin/browser/chrome-extension/manifest.json", "plugins-builtin/browser/chrome-extension/extension-id.json",
+    "plugins-builtin/browser/chrome-extension/background.js", "plugins-builtin/browser/chrome-extension/content-scripts/klaus.js",
+    "plugins-builtin/browser/skills/browser-use/SKILL.md",
+    "plugins-builtin/browser/skills/browser-use/references/operations.md",
+    "plugins-builtin/browser/skills/browser-use/references/files-and-tabs.md",
+    "frontend/pet.html",
+    "plugins-builtin/desktop-pet/plugin.json",
+    "plugins-builtin/desktop-pet/skills/create-desktop-pet/SKILL.md",
+    "plugins-builtin/desktop-pet/skills/create-desktop-pet/scripts/validate-pet.cjs",
+    "frontend/pets/klaus.webp",
+    "frontend/pets/luma.webp",
+    "frontend/pets/wick.webp",
+    "frontend/pets/quill.webp",
+    "frontend/pets/dapple.webp",
+    "frontend/pets/morrow.webp",
+    "frontend/pets/wisp.webp",
+    "frontend/pets/amble.webp",
+    "frontend/pets/twill.webp",
+    "frontend/third-party-notices/workspace-tree.txt"
+  ]
+}

@@ -1,0 +1,23 @@
+[
+  {
+    "name": "no session retains desired rows with unknown runtime",
+    "sessionId": "cold",
+    "desired": [{"id":"tool@local","name":"tool","enabled":true}],
+    "available": false,
+    "expected": {"sessionId":"cold","status":"no_session","plugins":[{"pluginId":"tool@local","desiredEnabled":true,"effectiveStatus":"unknown","restartRequired":false,"contributions":{"agents":[],"skills":[],"outputStyles":[],"hooks":[],"mcpServers":[],"lspServers":[]},"warnings":[],"errors":[]}],"diagnostics":[]}
+  },
+  {
+    "name": "stale enabled plugin carries scoped contributions and partial query diagnostics",
+    "sessionId":"live",
+    "desired":[{"id":"tool@local","name":"tool","enabled":true}],
+    "available":true,
+    "stale":true,
+    "results":{
+      "capabilities":{"ok":true,"value":{"effectiveRoots":["/project"],"missingRoots":null}},
+      "extensions":{"ok":true,"value":{"agents":[{"name":"helper","source":{"kind":"plugin","id":"TOOL"}}],"skills":[{"name":"foreign","source":{"kind":"project","id":"tool"}}],"hooks":[{"event":"Stop","source":{"kind":"plugin","id":"tool@local"}}],"suppressed":[{"source":{"kind":"plugin","id":"tool"},"reason":"duplicate"}]}},
+      "plugins":{"ok":true,"value":{"entries":[{"name":"tool","enabled":true,"permissionScope":{"mcpServers":[],"lspServers":["typescript"]}}],"capabilitySummaries":[{"pluginId":"tool@local","mcpServerNames":["must-not-win"]}],"warnings":[{"message":"global warning"}]}},
+      "installed":{"ok":false,"error":"ledger query unavailable"}
+    },
+    "expected":{"sessionId":"live","status":"ready","capabilities":{"effectiveRoots":["/project"],"missingRoots":[]},"extensions":{"agents":[{"name":"helper","source":{"kind":"plugin","id":"TOOL"}}],"skills":[{"name":"foreign","source":{"kind":"project","id":"tool"}}],"outputStyles":[],"hooks":[{"event":"Stop","source":{"kind":"plugin","id":"tool@local"}}],"suppressed":[{"source":{"kind":"plugin","id":"tool"},"reason":"duplicate"}]},"plugins":[{"pluginId":"tool@local","desiredEnabled":true,"effectiveStatus":"pending_restart","restartRequired":true,"contributions":{"agents":["helper"],"skills":[],"outputStyles":[],"hooks":["Stop"],"mcpServers":[],"lspServers":["typescript"]},"warnings":["global warning","extension: duplicate"],"errors":[]}],"diagnostics":[{"source":"installed_plugins","level":"error","message":"ledger query unavailable"},{"source":"plugins","level":"warning","message":"global warning"}]}
+  }
+]

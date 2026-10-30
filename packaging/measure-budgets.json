@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "name": "electron-migration-initial-budgets",
+  "targets": ["darwin-arm64", "win32-x64"],
+  "units": {
+    "memory": "KiB, sum of owned process RSS or WorkingSet; shared pages can be counted more than once",
+    "cpu": "percent, one logical CPU equals 100; cumulative CPU differences over the complete sampling window",
+    "latency": "milliseconds",
+    "wakeups": "per second; Electron process coverage only, unavailable on Windows and for other helpers"
+  },
+  "workload": { "rounds": 3, "sampleIntervalMs": 1000, "samplesPerStage": 10, "browserTabs": 3, "scrollInputsPerTab": 10, "fileCount": 3000, "fileQueries": 10, "ptyPayloadBytes": 8388608, "streamChunks": 200, "streamChunkIntervalMs": 50 },
+  "limits": { "freshFrontendReadyMs": 12000, "warmFrontendReadyMs": 8000, "idleRssKiB": 1572864, "loadedRssKiB": 3145728, "postCleanupRssGrowthKiB": 524288, "mainLoopP99Ms": 100, "mainLoopMaxMs": 500, "inputFrameP95Ms": 100, "fileSearchP95Ms": 1000, "ptyDurationMs": 15000, "shutdownMs": 10000, "idleCpuPercent": 5, "idleElectronWakeupsPerSecond": 120 },
+  "policy": "Initial absolute migration acceptance limits fixed before measurement. Do not relax limits after observing a result. Missing measurements are unavailable, never a successful zero. These limits do not establish a comparison with another client."
+}

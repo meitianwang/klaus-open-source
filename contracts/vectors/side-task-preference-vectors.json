@@ -1,0 +1,108 @@
+{
+  "reason": "A new side task snapshots its parent's model source, selection, native reasoning, Fast mode and independent orchestration boolean before engine startup, even when another conversation changed the defaults. Parent, sibling and future defaults remain independent.",
+  "cases": [
+    {
+      "name": "explicit parent model instead of another source's default",
+      "parent": {
+        "mode": "custom:qwen3.8-max",
+        "source": "custom",
+        "thinking": "max",
+        "fast": false
+      },
+      "default": {
+        "mode": "codex:gpt-6.1-sol",
+        "source": "codex",
+        "thinking": "low",
+        "fast": true
+      },
+      "resolved": "custom:qwen3.8-max",
+      "stored": "custom:qwen3.8-max"
+    },
+    {
+      "name": "auto selection retains the parent's source",
+      "parent": {
+        "mode": "auto",
+        "source": "qwenwork",
+        "thinking": "xhigh",
+        "fast": false
+      },
+      "default": {
+        "mode": "custom:fixture",
+        "source": "custom",
+        "thinking": "medium",
+        "fast": true
+      },
+      "resolved": "qwenwork:fixture",
+      "stored": "auto"
+    },
+    {
+      "name": "auto selection retains the parent's QoderWork source",
+      "parent": {
+        "mode": "auto",
+        "source": "qoderwork",
+        "thinking": "high",
+        "fast": false
+      },
+      "default": {
+        "mode": "qwenwork:fixture",
+        "source": "qwenwork",
+        "thinking": "medium",
+        "fast": false
+      },
+      "resolved": "qoderwork:fixture",
+      "stored": "auto"
+    },
+    {
+      "name": "tier selection inherits Codex Fast mode",
+      "parent": {
+        "mode": "high",
+        "source": "codex",
+        "thinking": "high",
+        "fast": true
+      },
+      "default": {
+        "mode": "auto",
+        "source": "custom",
+        "thinking": "off",
+        "fast": false
+      },
+      "resolved": "codex:fixture",
+      "stored": "codex:fixture"
+    },
+    {
+      "name": "child retains Ultra independently of future defaults",
+      "parent": {
+        "mode": "custom:qwen3.8-max",
+        "source": "custom",
+        "thinking": "xhigh",
+        "ultraMode": true,
+        "fast": false
+      },
+      "default": {
+        "mode": "codex:gpt-6.1-sol",
+        "source": "codex",
+        "thinking": "low",
+        "fast": true
+      },
+      "resolved": "custom:qwen3.8-max",
+      "stored": "custom:qwen3.8-max"
+    },
+    {
+      "name": "Cursor child retains its concrete effort and Fast variant",
+      "parent": {
+        "mode": "cursor:fixture[effort=high,fast=true]",
+        "source": "cursor",
+        "thinking": "high",
+        "fast": false
+      },
+      "default": {
+        "mode": "custom:fixture",
+        "source": "custom",
+        "thinking": "medium",
+        "fast": false
+      },
+      "resolved": "cursor:fixture[effort=high,fast=true]",
+      "stored": "cursor:fixture[effort=high,fast=true]"
+    }
+  ]
+}

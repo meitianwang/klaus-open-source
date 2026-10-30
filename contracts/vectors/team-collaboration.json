@@ -1,0 +1,107 @@
+{
+  "version": 1,
+  "surface": "team-collaboration",
+  "reason": "Introduce shared engineering projects without changing local workspace ownership or model-source preferences.",
+  "access": {
+    "guest": "sign-in-required",
+    "signedInWithoutSubscription": "allowed",
+    "platformAdminIsProjectMember": false,
+    "localDirectory": "private-per-account-per-device-per-project",
+    "agentInvocation": "owner-confirmed",
+    "staleWrite": "conflict-without-overwrite"
+  },
+  "project": {
+    "descriptionMaxLength": 150,
+    "identifierPattern": "^[A-Z]{3}$",
+    "list": {
+      "layout": "rows",
+      "rowHeight": 56,
+      "thumbnailSize": 40,
+      "searchFields": ["name", "description"],
+      "filters": ["all", "focused", "unfocused"],
+      "sorts": ["updated-desc", "created-desc", "name-asc", "name-desc"],
+      "focusScope": "account-and-device"
+    },
+    "create": {
+      "required": ["name", "identifier"],
+      "optional": ["description", "repositoryUrl", "coverIcon", "coverColor"],
+      "clonesRepository": false,
+      "agentWritesProject": false,
+      "agentCreatesIssues": false,
+      "agentPatchPreservesUserEditsAfterRequest": true
+    },
+    "invitations": {
+      "lifetimeDays": 7,
+      "multiUse": true,
+      "joinIsIdempotent": true,
+      "requireSignedInAcceptance": true,
+      "revocationBlocksAcceptance": true,
+      "disabledJoiningBlocksExistingLinks": true,
+      "ownerCannotLeave": true
+    },
+    "archive": {
+      "archivesActiveIssues": true,
+      "preservesDiscussions": true,
+      "restorePreservesPreviouslyArchivedIssues": true
+    },
+    "permanentDelete": {
+      "requiresArchivedProject": true,
+      "removesProjectAndIssues": true,
+      "preservesDiscussionsAndReferences": true,
+      "preservesDiscussionAccessControl": true
+    }
+  },
+  "issue": {
+    "statuses": ["backlog", "todo", "active", "review", "done", "cancelled"],
+    "priorities": ["urgent", "high", "medium", "low", "none"],
+    "createDefaults": { "status": "backlog", "priority": "none", "owner": "current-user" },
+    "views": ["all", "my", "backlog", "todo", "active", "review", "done", "cancelled"],
+    "board": {
+      "searchFields": ["title"],
+      "filterFields": ["status", "priority", "owner"],
+      "filterOperators": ["any", "none"],
+      "defaultCardFields": ["number", "priority", "description", "createdAt"],
+      "manualOrderRequiredForDrag": true,
+      "keyboardDrag": { "pickUp": "Space", "move": "Arrow keys", "drop": "Space", "cancel": "Escape" },
+      "supportsBatchChange": true,
+      "failedMoveRestoresPersistedState": true,
+      "savedFiltersScope": "account-project-device"
+    },
+    "detail": {
+      "sidePeek": true,
+      "previousNextWithinFilteredList": true,
+      "expandAndCollapse": true,
+      "copyAddress": true,
+      "properties": ["status", "priority", "owner"],
+      "propertiesWidth": { "initial": 360, "minimum": 268, "maximum": 400 },
+      "compactBelowWidth": 760,
+      "activityIsPersisted": true,
+      "reactions": true,
+      "attachments": ["upload", "preview", "download", "remove"],
+      "standaloneCommentComposer": false,
+      "relatedDiscussions": true
+    },
+    "discussion": {
+      "prefill": ["title", "description"],
+      "chooseExistingProjectMembers": true,
+      "invokeOwnAgentOnly": true,
+      "executionRequiresWorkspaceConfirmation": true,
+      "executionCreatesLocalChat": true,
+      "shareFinalResponseOnly": true,
+      "decisionsDoNotAutomaticallyOverwriteIssue": true
+    }
+  },
+  "securityScenarios": [
+    "outsider-cannot-read-project",
+    "member-cannot-escalate-own-role",
+    "last-owner-cannot-be-removed",
+    "expired-or-disabled-invitation-cannot-join",
+    "cookie-writes-reject-cross-origin",
+    "stale-version-does-not-overwrite",
+    "revoked-member-cannot-read-replayed-events",
+    "files-are-authorized-at-download-time",
+    "message-idempotency-cannot-change-body",
+    "two-hosts-cannot-start-one-execution-twice",
+    "account-switch-clears-private-view-state"
+  ]
+}

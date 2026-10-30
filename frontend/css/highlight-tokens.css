@@ -1,0 +1,102 @@
+/* Code token colors for the dark theme. Loaded after highlight-dark.css and page CSS. */
+:root {
+  --syntax-hljs-comment: var(--fg-tertiary);
+  --syntax-hljs-code: var(--fg-tertiary);
+  --syntax-hljs-formula: var(--fg-tertiary);
+  --syntax-hljs-quote: var(--fg-tertiary);
+  --syntax-hljs-doctag: var(--syntax-keyword);
+  --syntax-hljs-keyword: var(--syntax-keyword);
+  --syntax-hljs-meta-keyword: var(--syntax-keyword);
+  --syntax-hljs-template-tag: var(--syntax-keyword);
+  --syntax-hljs-type: var(--syntax-type);
+  --syntax-hljs-variable-language: var(--syntax-variable);
+  --syntax-hljs-title: var(--syntax-type);
+  --syntax-hljs-title-class: var(--syntax-type);
+  --syntax-hljs-title-class-inherited: var(--syntax-type);
+  --syntax-hljs-title-function: var(--syntax-type);
+  --syntax-hljs-name: var(--syntax-type);
+  --syntax-hljs-section: var(--syntax-type);
+  --syntax-hljs-attr: var(--syntax-property);
+  --syntax-hljs-attribute: var(--syntax-property);
+  --syntax-hljs-literal: var(--syntax-number);
+  --syntax-hljs-meta: var(--syntax-punctuation, var(--fg-tertiary));
+  --syntax-hljs-number: var(--syntax-number);
+  --syntax-hljs-variable: var(--syntax-variable);
+  --syntax-hljs-selector-attr: var(--syntax-property);
+  --syntax-hljs-selector-class: var(--syntax-property);
+  --syntax-hljs-selector-id: var(--syntax-type);
+  --syntax-hljs-operator: var(--syntax-operator);
+  --syntax-hljs-punctuation: var(--syntax-punctuation, var(--fg-tertiary));
+  --syntax-hljs-tag: var(--syntax-operator);
+  --syntax-hljs-regexp: var(--syntax-string);
+  --syntax-hljs-string: var(--syntax-string);
+  --syntax-hljs-built-in: var(--syntax-property);
+  --syntax-hljs-symbol: var(--syntax-string);
+  --syntax-hljs-property: var(--syntax-property);
+  --syntax-hljs-bullet: var(--syntax-string);
+  --syntax-hljs-link: var(--syntax-string);
+  --syntax-hljs-params: var(--syntax-variable);
+  --syntax-hljs-subst: var(--syntax-variable);
+  --syntax-hljs-strong: var(--syntax-keyword);
+  --syntax-hljs-emphasis: var(--syntax-keyword);
+}
+
+:is(.msg.assistant, .aw-body, .workspace-code-frame, .diff-code) .hljs,
+:is(.msg.assistant, .aw-body, .workspace-code-frame, .diff-code) .hljs * {
+  background: transparent;
+}
+
+:is(.msg.assistant, .aw-body, .workspace-code-frame, .diff-code) .hljs-comment { color: var(--syntax-hljs-comment); }
+:is(.msg.assistant, .aw-body, .workspace-code-frame, .diff-code) .hljs-code { color: var(--syntax-hljs-code); }
+:is(.msg.assistant, .aw-body, .workspace-code-frame, .diff-code) .hljs-formula { color: var(--syntax-hljs-formula); }
+:is(.msg.assistant, .aw-body, .workspace-code-frame, .diff-code) .hljs-quote { color: var(--syntax-hljs-quote); }
+:is(.msg.assistant, .aw-body, .workspace-code-frame, .diff-code) .hljs-doctag { color: var(--syntax-hljs-doctag); }
+:is(.msg.assistant, .aw-body, .workspace-code-frame, .diff-code) .hljs-keyword { color: var(--syntax-hljs-keyword); }
+:is(.msg.assistant, .aw-body, .workspace-code-frame, .diff-code) .hljs-meta .hljs-keyword { color: var(--syntax-hljs-meta-keyword); }
+:is(.msg.assistant, .aw-body, .workspace-code-frame, .diff-code) .hljs-template-tag { color: var(--syntax-hljs-template-tag); }
+:is(.msg.assistant, .aw-body, .workspace-code-frame, .diff-code) .hljs-type { color: var(--syntax-hljs-type); }
+:is(.msg.assistant, .aw-body, .workspace-code-frame, .diff-code) .hljs-variable.language_ { color: var(--syntax-hljs-variable-language); }
+:is(.msg.assistant, .aw-body, .workspace-code-frame, .diff-code) .hljs-title { color: var(--syntax-hljs-title); }
+:is(.msg.assistant, .aw-body, .workspace-code-frame, .diff-code) .hljs-title.class_ { color: var(--syntax-hljs-title-class); }
+:is(.msg.assistant, .aw-body, .workspace-code-frame, .diff-code) .hljs-title.class_.inherited__ { color: var(--syntax-hljs-title-class-inherited); }
+:is(.msg.assistant, .aw-body, .workspace-code-frame, .diff-code) .hljs-title.function_ { color: var(--syntax-hljs-title-function); }
+:is(.msg.assistant, .aw-body, .workspace-code-frame, .diff-code) .hljs-name { color: var(--syntax-hljs-name); }
+:is(.msg.assistant, .aw-body, .workspace-code-frame, .diff-code) .hljs-section { color: var(--syntax-hljs-section); }
+:is(.msg.assistant, .aw-body, .workspace-code-frame, .diff-code) .hljs-attr { color: var(--syntax-hljs-attr); }
+:is(.msg.assistant, .aw-body, .workspace-code-frame, .diff-code) .hljs-attribute { color: var(--syntax-hljs-attribute); }
+:is(.msg.assistant, .aw-body, .workspace-code-frame, .diff-code) .hljs-literal { color: var(--syntax-hljs-literal); }
+:is(.msg.assistant, .aw-body, .workspace-code-frame, .diff-code) .hljs-meta { color: var(--syntax-hljs-meta); }
+:is(.msg.assistant, .aw-body, .workspace-code-frame, .diff-code) .hljs-number { color: var(--syntax-hljs-number); }
+:is(.msg.assistant, .aw-body, .workspace-code-frame, .diff-code) .hljs-variable { color: var(--syntax-hljs-variable); }
+:is(.msg.assistant, .aw-body, .workspace-code-frame, .diff-code) .hljs-selector-attr { color: var(--syntax-hljs-selector-attr); }
+:is(.msg.assistant, .aw-body, .workspace-code-frame, .diff-code) .hljs-selector-class { color: var(--syntax-hljs-selector-class); }
+:is(.msg.assistant, .aw-body, .workspace-code-frame, .diff-code) .hljs-selector-id { color: var(--syntax-hljs-selector-id); }
+:is(.msg.assistant, .aw-body, .workspace-code-frame, .diff-code) .hljs-operator { color: var(--syntax-hljs-operator); }
+:is(.msg.assistant, .aw-body, .workspace-code-frame, .diff-code) .hljs-punctuation { color: var(--syntax-hljs-punctuation); }
+:is(.msg.assistant, .aw-body, .workspace-code-frame, .diff-code) .hljs-tag { color: var(--syntax-hljs-tag); }
+:is(.msg.assistant, .aw-body, .workspace-code-frame, .diff-code) .hljs-regexp { color: var(--syntax-hljs-regexp); }
+:is(.msg.assistant, .aw-body, .workspace-code-frame, .diff-code) .hljs-string { color: var(--syntax-hljs-string); }
+:is(.msg.assistant, .aw-body, .workspace-code-frame, .diff-code) .hljs-meta .hljs-string { color: var(--syntax-hljs-string); }
+:is(.msg.assistant, .aw-body, .workspace-code-frame, .diff-code) .hljs-built_in { color: var(--syntax-hljs-built-in); }
+:is(.msg.assistant, .aw-body, .workspace-code-frame, .diff-code) .hljs-symbol { color: var(--syntax-hljs-symbol); }
+:is(.msg.assistant, .aw-body, .workspace-code-frame, .diff-code) .hljs-property { color: var(--syntax-hljs-property); }
+:is(.msg.assistant, .aw-body, .workspace-code-frame, .diff-code) .hljs-bullet { color: var(--syntax-hljs-bullet); }
+:is(.msg.assistant, .aw-body, .workspace-code-frame, .diff-code) .hljs-link { color: var(--syntax-hljs-link); }
+:is(.msg.assistant, .aw-body, .workspace-code-frame, .diff-code) .hljs-params { color: var(--syntax-hljs-params); }
+:is(.msg.assistant, .aw-body, .workspace-code-frame, .diff-code) .hljs-subst { color: var(--syntax-hljs-subst); }
+:is(.msg.assistant, .aw-body, .workspace-code-frame, .diff-code) .hljs-strong {
+  color: var(--syntax-hljs-strong);
+  font-weight: 600;
+}
+:is(.msg.assistant, .aw-body, .workspace-code-frame, .diff-code) .hljs-emphasis {
+  color: var(--syntax-hljs-emphasis);
+  font-style: italic;
+}
+:is(.msg.assistant, .aw-body, .workspace-code-frame, .diff-code) .hljs-addition {
+  color: var(--theme-diff-added);
+  background-color: var(--theme-diff-added-bg);
+}
+:is(.msg.assistant, .aw-body, .workspace-code-frame, .diff-code) .hljs-deletion {
+  color: var(--theme-diff-removed);
+  background-color: var(--theme-diff-removed-bg);
+}

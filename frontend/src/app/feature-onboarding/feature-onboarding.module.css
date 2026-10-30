@@ -1,0 +1,186 @@
+/* Feature discovery: the "what changed" card and the spotlight tour. */
+
+/* ---- "what changed in this release" card ---- */
+
+.card-backdrop {
+  position: fixed;
+  inset: 0;
+  /* Above tooltips (10000) and dialogs (2000), below the image lightbox
+     (20000) so a screenshot the user opened while reading stays reachable. */
+  z-index: 12000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: color-mix(in srgb, var(--bg) 55%, transparent);
+  backdrop-filter: blur(2px);
+}
+
+.card {
+  width: min(520px, 100%);
+  max-height: min(70vh, 620px);
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+}
+
+.card-header {
+  padding: 18px 20px 12px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.card-eyebrow {
+  display: block;
+  margin: 0 0 4px;
+  font-size: var(--text-caption);
+  color: var(--fg-tertiary);
+}
+
+.card-title {
+  margin: 0;
+  font-size: var(--text-title);
+  font-weight: var(--weight-medium);
+  color: var(--fg);
+}
+
+.card-body {
+  padding: 6px 20px 14px;
+  overflow-y: auto;
+  flex: 1 1 auto;
+}
+
+.feature-row {
+  display: flex;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.feature-row:last-child { border-bottom: none; }
+
+.feature-marker {
+  flex: 0 0 auto;
+  width: 6px;
+  height: 6px;
+  margin-top: 7px;
+  border-radius: 50%;
+  background: var(--status-error);
+}
+
+.feature-text { min-width: 0; }
+
+.feature-name {
+  display: block;
+  font-size: var(--text-body);
+  font-weight: var(--weight-medium);
+  color: var(--fg);
+}
+
+.feature-desc {
+  display: block;
+  margin-top: 2px;
+  font-size: var(--text-body-sm);
+  line-height: var(--leading-normal);
+  color: var(--fg-secondary);
+}
+
+.card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 12px 20px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.card-actions { display: flex; gap: 8px; }
+
+/* ---- spotlight tour ---- */
+
+/* The dim surround. The hole is a separate element whose box-shadow paints
+   everything outside it, so no SVG mask and no four-rect assembly is needed and
+   the highlight keeps crisp rounded corners. */
+.tour-hole {
+  position: fixed;
+  z-index: 15000;
+  pointer-events: none;
+  border-radius: var(--radius-sm);
+  box-shadow:
+    0 0 0 9999px color-mix(in srgb, #000 62%, transparent),
+    0 0 0 2px var(--status-error);
+  transition: all 160ms ease;
+}
+
+.tour-bubble {
+  position: fixed;
+  z-index: 15001;
+  width: min(320px, calc(100vw - 32px));
+  padding: 14px 16px 12px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  transition: top 160ms ease, left 160ms ease;
+}
+
+.tour-step-count {
+  display: block;
+  margin-bottom: 6px;
+  font-size: var(--text-caption);
+  color: var(--fg-tertiary);
+}
+
+.tour-title {
+  margin: 0 0 6px;
+  font-size: var(--text-body);
+  font-weight: var(--weight-medium);
+  color: var(--fg);
+}
+
+.tour-body {
+  margin: 0;
+  font-size: var(--text-body-sm);
+  line-height: var(--leading-normal);
+  color: var(--fg-secondary);
+}
+
+.tour-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.tour-skip {
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--fg-tertiary);
+  font-family: var(--font);
+  font-size: var(--text-body-sm);
+  cursor: pointer;
+}
+
+.tour-skip:hover { color: var(--fg-secondary); }
+
+.tour-nav { display: flex; gap: 8px; }
+
+.tour-progress {
+  display: flex;
+  gap: 4px;
+  margin-top: 12px;
+}
+
+.tour-pip {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--fg-quaternary);
+}
+
+.tour-pip[data-current='1'] { background: var(--status-error); }

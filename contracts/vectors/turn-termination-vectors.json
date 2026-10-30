@@ -1,0 +1,189 @@
+{
+  "_why": "How a Turn's END reaches the renderer is a client-owned contract. The engine settles a user stop as a COMPLETED turn whose stopReason is `aborted`; projecting that as a bare `done` told the renderer the turn finished normally, so the history layer replaced the partial reply the engine never persisted and the visible answer vanished. Pinning the mapping here means changing it is a deliberate edit to this file with a reason, and the desktop gate fails if the shell and this file disagree.",
+  "projection": {
+    "source": "turn.completed notification (PoolEvent::Client(ClientEvent::TurnCompleted))",
+    "reasonPath": ["result", "stopReason"],
+    "byStopReason": {
+      "aborted": "interrupted",
+      "completed": "done",
+      "prompt_too_long": "done",
+      "auth_failed": "done",
+      "turn_limit_exhausted": "done",
+      "spend_limit_exhausted": "done",
+      "error": "done"
+    },
+    "missingResultProjectsAs": "done",
+    "eventFields": [
+      "type",
+      "sessionId",
+      "turnId",
+      "finalMessageId"
+    ],
+    "turnIdAlwaysPresent": true
+  },
+  "failureProjection": {
+    "_why": "A failed Turn is terminal but is not a user interruption, so it remains a terminal api_error and is persisted as failed. Continue eligibility is an independent renderer decision: a failed Turn may start a recovery Turn through explicit continue-if-idle admission without being mislabeled as interrupted.",
+    "source": "turn/failed notification",
+    "byErrorCode": {
+      "aborted": [
+        "interrupted"
+      ],
+      "auth_failed": [
+        "auth_required",
+        "interrupted"
+      ],
+      "default": [
+        "api_error"
+      ]
+    },
+    "apiErrorIsTerminal": true,
+    "turnIdSource": "detail.turnId with submissionId fallback",
+    "apiErrorFields": [
+      "type",
+      "sessionId",
+      "turnId",
+      "terminal",
+      "error",
+      "kind",
+      "retryAfterMs"
+    ]
+  },
+  "abortedSideEffects": {
+    "_why": "An aborted turn is not an accomplishment. Announcing 'Task completed' for it, or spending a model call to title the conversation from it, both read as the stop having been ignored.",
+    "suppressesTaskCompletedNotification": true,
+    "suppressesTitleGeneration": true
+  },
+  "taskNotifications": {
+    "_why": "A desktop task notification is an outcome, not generic activity. Only a completed Turn with a final assistant reply or an explicit non-aborted terminal failure is eligible; retries, approval waits, auth prompts, user stops and queued continuations are not task outcomes.",
+    "completedRequires": ["stopReason=completed", "non-empty finalText", "no queued continuation"],
+    "failedSources": ["turn/failed except aborted/auth_failed", "turn/completed with a non-empty failure stopReason", "engine process exit while a Turn is running and not already stopping", "automation Turn completed after a tool failure"],
+    "fields": ["sessionId", "taskName", "outcome", "summary"],
+    "clickAction": "deep-link:open-session"
+  },
+  "sidebarRecency": {
+    "_why": "Conversation order describes completed work, not rollout activity. User input, thinking, tool calls, title changes, failures and interruptions may write session data but must not make a row newer.",
+    "field": "updatedAt",
+    "initialValue": "session createdAt",
+    "advancesOnlyWhen": ["stopReason=completed", "non-empty finalText"],
+    "storage": "settings.db session_recency",
+    "runtimeAuditMayReorder": false,
+    "completedTurnRefreshMayReorder": true,
+    "queuedContinuationStillAdvances": true,
+    "_coverage": "Exercise the host event receiver and persistent session-list overlay: only an owned completed final reply advances recency, including one followed by a queued continuation. Metadata writes and duplicate terminal delivery cannot advance it.",
+    "completionCases": [
+      { "name": "completed final reply", "result": { "stopReason": "completed", "finalText": "Finished the task." }, "advancesRecency": true },
+      { "name": "empty completion", "result": { "stopReason": "completed", "finalText": "" }, "advancesRecency": false },
+      { "name": "whitespace completion", "result": { "stopReason": "completed", "finalText": " \n\t " }, "advancesRecency": false },
+      { "name": "missing final reply", "result": { "stopReason": "completed" }, "advancesRecency": false },
+      { "name": "user interruption", "result": { "stopReason": "aborted", "finalText": "Partial reply" }, "advancesRecency": false },
+      { "name": "authentication failure", "result": { "stopReason": "auth_failed", "finalText": "Partial reply" }, "advancesRecency": false },
+      { "name": "turn limit exhaustion", "result": { "stopReason": "turn_limit_exhausted", "finalText": "Partial reply" }, "advancesRecency": false },
+      { "name": "spend limit exhaustion", "result": { "stopReason": "spend_limit_exhausted", "finalText": "Partial reply" }, "advancesRecency": false },
+      { "name": "prompt too long", "result": { "stopReason": "prompt_too_long", "finalText": "Partial reply" }, "advancesRecency": false },
+      { "name": "failed turn", "result": { "stopReason": "error", "finalText": "Partial reply" }, "advancesRecency": false },
+      { "name": "missing result", "result": null, "advancesRecency": false }
+    ]
+  },
+  "history": {
+    "_why": "The message sent time, task completion time, stopped label, elapsed time, cancelled tool calls and final-reply identity must survive a reload, so they come back with the transcript rather than living only in the open window. The engine's resume must reinstall the turn index its rollout replay rebuilds; dropping it made reopened turns lose both their visible clocks and terminal state.",
+    "method": "session/history",
+    "fields": ["turnStartedAtMs", "turnFinishedAtMs", "turnStatuses", "turnDurations", "turnErrors", "turnErrorKinds", "turnCancelledTools", "turnFinalMessageIds"],
+    "interruptedStatusValue": "interrupted",
+    "inferredStatusCoverage": {
+      "_why": "Resume infers `interrupted` for a Turn with no recorded terminal, because a kill never writes one: an app relaunch for a permission grant SIGKILLs the engine child mid-Turn. Inference used to walk only the message index, so a Turn killed before its first message became durable — `turn_context` is written eagerly at turn start, the first message only on the stream's first poll — resumed with NO status at all. The host then rendered it as an ordinary turn and offered no way to continue the thread it had cut off. Inference now also covers every turn the rollout opened.",
+      "evidence": ["a turn with messages but no recorded terminal", "a turn whose turn_context was written but whose first message was never durable"],
+      "inferredStatusOmits": ["turnFinishedAtMs", "turnDurations"],
+      "reason": "Inference writes the status alone. That absence is what lets the host tell a killed Turn from one the user rewound past, whose recorded terminal does carry a finish time."
+    },
+    "newestTurnIdentification": {
+      "_why": "A killed Turn can carry a status and a start time yet render no transcript row of its own, either because it never produced one or because resume's tool-call repair dropped its last assistant message. Identifying the newest Turn by walking rows backwards then lands on the Turn BEFORE it and offers no Continue. Order now comes from turnStartedAtMs, with the row walk kept as the fallback for a rollout old enough to predate that field.",
+      "primarySource": "turnStartedAtMs",
+      "fallbackSource": "newest transcript row carrying a turnId",
+      "rewoundTurnStaysSettled": true,
+      "pinnedBy": ["apps/desktop/frontend/src/chat/stream-store.test.ts: a restart-killed Turn with no rendered row still offers continue", "apps/desktop/frontend/src/chat/stream-store.test.ts: a Turn the user rewound past never comes back as a continue offer"]
+    }
+  },
+  "runtimeReconciliation": {
+    "_why": "A terminal event can be persisted even when the webview misses its push. The renderer's running indicator is DERIVED from the engine turn lifecycle (session_runtime_status frames plus terminal events), never mirrored from activity frames; the sidebar row follows exactly two sources, the turn lifecycle and the shell's live-turn registry, while sub-agent and background-process activity stays Monitor-only and can never light a row; the registry is the audit's input. Two consecutive idle snapshots stop a stale animation, and session/history restores the persisted terminal status instead of leaving the Turn spinning forever. The audit may no longer be the ONLY recovery: a stop click settles the renderer synchronously (see stopSettlement).",
+    "sessionListField": "isWorking",
+    "workingSource": "shell live-turn registry",
+    "idleConfirmations": 2,
+    "settledAction": "seal-live-layer-and-reload-history"
+  },
+  "terminalEventDelivery": {
+    "_why": "A terminal event is the engine's own word that a turn ended. The pre-2026-10-06 host guard dropped a terminal event whose turnId did not match the shell's running-turn registry, which froze the renderer in a running state with no event left to clear it (the registry stayed dirty and the audit trusted the registry). Terminal events ALWAYS reach the renderer and are applied under the turnId they carry; the registry is settled only when the event names the running turn.",
+    "alwaysForwarded": true,
+    "registrySettledWhen": "event turnId (or its submission/engine alias) names the running turn, or the event names no turn",
+    "foreignTerminalEvent": "forwarded; settles no registry entry; renderer applies it under its own turnId",
+    "idleFrameAfterTerminal": {
+      "type": "session_runtime_status",
+      "status": "idle",
+      "turnId": "the terminal event's turnId or null"
+    }
+  },
+  "runtimeStatusProjection": {
+    "_why": "The running indicator is a lifecycle fact. The host projects exactly two status frames per turn lifecycle: `active` once on turn/started (the engine's engine-turn UUID, not the submission id), `idle` once per terminal event. Provider retries and mid-turn request frames project stream_mode/requesting but MUST NOT emit status frames, or a settled turn could be reopened by activity noise.",
+    "activeSource": "turn/started productEvent detail.turnId",
+    "idleSource": "every terminal chat event (done | interrupted | terminal api_error)",
+    "rendererApplies": "active opens running under the named turn; idle settles running unless it names a foreign still-running turn",
+    "idleDeferredDuringStopWindow": "an idle frame that arrives while a stop is in flight (stop intent recorded, verdict not in) or while an interrupted Turn still owns the live layer is ignored by the renderer: the interrupted event settles that state a moment later. Settling on the stop's own idle frame clears the Turn's start stamp and re-opens history reads whose pre-flush disk capture holds nothing, which erases the optimistic user bubble (2026-10-10 regression); a drifted session whose interrupted word never arrives still converges through the working-registry reconciliation"
+  },
+  "stopSettlement": {
+    "_why": "The host clears its running registry on Stop, but that optimistic idle frame cannot settle the live transcript before cancellation is confirmed. The engine's final accepted outcome waits until the captured foreground reservation has retired, so the renderer can settle that turn and accept a successor without racing a still-occupied execution slot. Tools get a bounded cooperative cancellation interval before their unfinished execution future is dropped.",
+    "expectedTurnIdRole": "locates the turn; a mismatch is a harmless no-op, never a state freeze",
+    "noTurnInFlight": "settles the registry and projects an idle frame; answers accepted:false",
+    "acceptedPath": "clear registry, project idle frame, dispatch turn/interrupt, settle parked reverse requests, then await the correlated engine cancellation outcome",
+    "confirmedRendererSettlement": {
+      "requires": ["accepted=true", "confirmed=true", "no interruptionError", "the captured turn still owns the pending Stop"],
+      "action": "apply the shared interrupted event handler immediately",
+      "preserves": ["partial assistant output", "optimistic user bubble", "queued drafts", "existing independent tool failures"],
+      "lateTerminal": "duplicate interruption is ignored; a foreign terminal cannot clear a newer turn's Stop",
+      "continueDelayMs": 700
+    },
+    "engineConfirmation": {
+      "dispatchAcknowledgement": "identifies the interrupt control only; it does not confirm cancellation",
+      "acceptedOutcome": "sent only after the captured foreground reservation is removed",
+      "toolCancellationGraceMs": 100,
+      "afterGrace": "drop unfinished foreground tool execution and retain an interrupted result",
+      "requestPreparation": "system prompt resolution, turn-entry hooks and reminders observe the turn cancellation signal without waiting for their external work to return",
+      "preparationCancellation": "drop the pending preparation future, preserve accepted persistence ownership, and publish one interrupted terminal through the normal lifecycle before confirming Stop",
+      "cancelledPreparationModelCalls": 0,
+      "nextInput": "a start-if-idle submitted after the final accepted outcome can reserve the next foreground turn",
+      "lateFrameFence": "persisted interrupted turn identities remain closed while the successor is pending without a turn ID"
+    },
+    "rpcFailure": "unconfirmed outcome is surfaced and request loading is released in finally; the captured stop intent remains pending for a terminal event or runtime reconciliation",
+    "rendererRefusalRetry": "none; retract local Stop intent without retargeting another turn",
+    "engineNoActiveTurnRetry": "none; a rejected captured turn fence is not retried against another turn"
+  },
+  "composerContinue": {
+    "_why": "The button role follows the current conversation and the asynchronously loaded terminal history, not a cached boolean from a different conversation. An ordinary draft still sends its text rather than continuing an old turn.",
+    "roleAcrossSessionSwitchAndDraft": [true, false, true, false, true]
+  },
+  "channels": {
+    "_why": "Stop and resume are separate named channels. Resuming uses turn/submit with continue-if-idle and an empty input list to continue history without replaying the last user message. Explicit continuation preserves the empty-message rejection for ordinary submissions and shares the atomic idle gate. A stop names the Turn it was aimed at: a request still travelling when its own Turn ends must be refused instead of waiting for another terminal event or aborting whichever Turn starts next, and the host is the only side that knows which Turn is actually in flight.",
+    "stop": {
+      "channel": "chat:interrupt",
+      "request": ["sessionId", "expectedTurnId"],
+      "reply": ["ok", "accepted", "interruptedTurnId"],
+      "refusesStaleTurn": true,
+      "refusesSettledTurn": true
+    },
+    "resume": { "channel": "chat:continue", "facade": "turn/submit", "mode": "continue-if-idle", "input": [], "reply": ["ok"] }
+  },
+  "interruptWindow": {
+    "_why": "A stop settles the running registry optimistically so the click feels instant, but the engine turn keeps winding down until its terminal event lands. In that gap the session looks idle to every isWorking guard: on 2026-10-08 a history read took the stale-binding rebuild path, session/close killed the aborting turn and the transcript showed a red 'session shutdown closed Setup context admission' failure instead of a stop. The window keeps teardown paths treating the session as occupied until the engine's own terminal word arrives.",
+    "opensOn": "chat:interrupt accepted for a running turn",
+    "closesOn": ["engine terminal event (done/interrupted/terminal api_error) for the session", "session forget or connection invalidation", "deadline expiry"],
+    "deadlineMs": 15000,
+    "blocksWhileOpen": ["stale-binding rebuild close in resolveLiveSession", "idle session retirement candidacy"],
+    "explicitCloseStillCloses": true,
+    "explicitCloseInterruptsFirst": true
+  },
+  "teardownFailureProjection": {
+    "_why": "The engine's shutdown gates refuse a turn with engine-internal strings ('session shutdown closed ...'). Those refusals only ever come from the session going away, never from a provider failure, so the renderer settles them as a user stop: a live terminal api_error carrying the marker becomes interrupted with no error card, and a history merge projects a saved failed turn carrying it as interrupted. Durability persistence failures do not carry the marker and stay visible failures. New turns settle as aborted engine-side; this projection is the safety net for races and for transcripts saved before that fix.",
+    "marker": "session shutdown closed",
+    "liveTerminalProjectsAs": "interrupted",
+    "historyFailedTurnProjectsAs": "interrupted",
+    "errorRowSuppressed": true
+  }
+}

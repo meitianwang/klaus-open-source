@@ -1,0 +1,226 @@
+{
+  "_why": "Selected skills, Agent or Plugin references, and positioned pasted-text chips carry user-facing identity that raw model text alone cannot always recover. The transcript must restore that identity after history reload and rewind. The host sends a separate display snapshot, the engine persists it as provider-invisible metadata immediately after the user message, and the shell projects it back as localRender. Sent identity chips have no tooltip attributes.",
+  "submittedRowStability": {
+    "_why": "Turn and message acknowledgements, streamed output, and action availability updates must retain the submitted row, its decoded images, and text selection. Replacing the row replays its entrance animation and makes sent attachments flash.",
+    "transitions": ["turn-id", "message-uuid", "stream-delta", "running", "archived", "read-only", "document-snapshot"],
+    "preserveNodes": ["row", "bubble", "body", "text", "thumbnail", "avatar"],
+    "removedMediaSubtrees": 0,
+    "removedBodySubtrees": 0,
+    "structuredDocumentReplay": {
+      "_why": "Ordinary submissions carry structured documents. An equivalent persisted snapshot must update clipboard metadata without unwrapping visible content or resetting text selection.",
+      "copyCurrent": true
+    },
+    "preserveSelection": true,
+    "continuity": {
+      "_why": "A submitted row keeps one React owner through provisional conversation promotion, saved-history ownership and paged refresh. Its previous decoded thumbnail remains visible until the durable source decodes. A bounded history response cannot erase its missing user opener or an already loaded older window.",
+      "transitions": ["pending conversation promotion", "turn acknowledgement", "message acknowledgement", "streamed output", "history arrives before its user row", "saved history takes ownership", "durable preview decodes", "history refresh", "older history prepends", "paged refresh retains the loaded window", "cold replay restores one durable thumbnail", "resumed turns preserve steered message order and identity"],
+      "promotionVisibility": {
+        "_why": "The host can still classify a newly created conversation as draft-only while its submitted message is visible. Browser scope binding and store notifications must retain the transcript surface so its entrance animation is not replayed.",
+        "hideCountAfterSubmission": 0,
+        "entranceCountPerRow": 1
+      },
+      "retainMissingUserUntilSaved": true,
+      "retainLoadedOlderWindowOnRefresh": true,
+      "decodeBeforePreviewSwap": true,
+      "thumbnailCountPerImage": 1
+    }
+  },
+  "send": {
+    "channel": "chat:send",
+    "field": "displayMetadata",
+    "facade": "turn/start",
+    "option": "displayMetadata"
+  },
+  "rollout": {
+    "type": "system",
+    "subtype": "user_display",
+    "position": "after-user",
+    "association": "messageUuid",
+    "payloadField": "localRender",
+    "providerVisible": false
+  },
+  "history": {
+    "field": "localRender",
+    "value": {
+      "displayText": "/push-code",
+      "attachments": [],
+      "pastedCards": [],
+      "selectedTextAttachments": [],
+      "slashCommand": {
+        "name": "push-code",
+        "kind": "skill"
+      }
+    }
+  },
+  "rewind": {
+    "textSource": "localRender.displayText",
+    "metadataField": "displayMetadata"
+  },
+  "pastedTextOrdering": {
+    "_why": "Pasted text is a host-owned file reference: the tray card renders before the bubble and the bubble keeps only the typed body. Histories without a display snapshot restore the same card from the `# Files pasted by the user:` section in the stored text.",
+    "displayText": "给我配置一个自定义模型，请求如下：",
+    "requestText": "给我配置一个自定义模型，请求如下：\n\n# Files pasted by the user:\n\n## \"curl -X POST https://example.test\": /cfg/pasted-text/00000000-0000-4000-8000-000000000000/pasted-text.txt\n",
+    "pastedCards": [
+      {
+        "path": "/cfg/pasted-text/00000000-0000-4000-8000-000000000000/pasted-text.txt",
+        "preview": "curl -X POST https://example.test",
+        "text": "curl -X POST https://example.test"
+      }
+    ],
+    "renderOrder": [
+      "pastedCard",
+      "displayText"
+    ]
+  },
+  "sideTaskQuotes": {
+    "_why": "Side submissions previously skipped quote positioning and rendered references above the user bubble. Start, queue, steer, and upload replay must carry the same inline positions as the main composer. Adjacent quotes preserve authored display order even when created in reverse order.",
+    "routes": [
+      "start",
+      "queue",
+      "steer",
+      "upload-replay"
+    ],
+    "quoteText": "写 harness 三件套 (stub 桥接、场景脚本、页面)",
+    "displayText": "这是啥",
+    "requestOffset": 0,
+    "renderOrder": [
+      "quote",
+      "displayText"
+    ],
+    "historyReplay": "same-user-bubble",
+    "whileParentRunning": {
+      "_why": "Explicit selected text is a new side-user payload, independent of hidden completed-turn inheritance. Even an unsealed streamed sentence must reach the side model without waiting for the parent.",
+      "quoteText": "Current streamed sentence, not yet persisted in parent history.",
+      "displayText": "Explain this sentence.",
+      "waitForParent": false
+    },
+    "sameOffset": {
+      "displayText": "ab",
+      "selectedTextAttachments": [
+        {
+          "text": "later",
+          "requestOffset": 1,
+          "displayOrder": 1
+        },
+        {
+          "text": "first",
+          "requestOffset": 1,
+          "displayOrder": 0
+        }
+      ],
+      "orderedTexts": [
+        "first",
+        "later"
+      ]
+    }
+  },
+  "externalFriendMessage": {
+    "_why": "A friend task's model-facing text is the approval envelope: provenance lines plus the grant and prompt as JSON. The bubble, the copy action and the seeded title must show the sender's prose instead, so the short text rides the same display snapshot as composer sends, and the envelope is never an edit draft.",
+    "send": {
+      "field": "displayMetadata",
+      "shape": {
+        "externalFriendMessage": true,
+        "displayText": "Sender: prompt",
+        "sender": {
+          "userId": "user-1",
+          "displayName": "Mia",
+          "avatarUrl": "https://account.example.test/a.png"
+        }
+      }
+    },
+    "liveFrame": {
+      "event": "user_message",
+      "field": "message.message.localRender",
+      "sameAsHistoryReplay": true
+    },
+    "bubble": {
+      "textSource": "localRender.displayText",
+      "envelopeLeak": false
+    },
+    "copy": "localRender.displayText",
+    "collapse": {
+      "_why": "A friend task's prompt can run to thousands of characters; rendering it verbatim makes the row's height track the message and pushes every control off screen. Long externally delivered messages collapse to a summary shell (lead line, size meta, expand and reader entries) whose hidden pre carries the full text for inline expand and the reader; short messages and the owner's own typing render verbatim. Copy still returns the whole original.",
+      "threshold": "more than 12 non-empty lines or more than 800 characters",
+      "shell": "div.friend-msg-collapsed inside the msg user bubble: lead line, size meta, expand and reader buttons, hidden pre.friend-msg-full holding the escaped full text",
+      "shortMessage": "verbatim bubble, no shell",
+      "friendsPage": "the same summary layer in the friends page task row: lead, request bullets, path chips, size meta, inline expand, reader and copy"
+    },
+    "edit": false,
+    "titleSeed": "localRender.displayText",
+    "replyDelivery": {
+      "_why": "A friend reply lands in the ORIGINATING conversation through the inter-conversation delivery choke point, with the same envelope-versus-prose split. Both of its routes must persist the snapshot: the new-turn options and the steer wire, plus the pushed user frame on the turn route.",
+      "routes": [
+        "turn",
+        "steer"
+      ],
+      "turn": {
+        "optionsField": "displayMetadata",
+        "frameField": "message.message.localRender"
+      },
+      "steer": {
+        "wireField": "displayMetadata"
+      },
+      "internalDelegationGetsSnapshot": false
+    },
+    "senderColumn": {
+      "_why": "A transcript that mixes the owner typing and incoming friend messages must read like a group chat: the externally delivered row shows the sender avatar and name on the LEFT and flips to left alignment, while the owner's own typing stays right-aligned. Rows whose snapshot predates sender identity recover the name from the host-authored JSON paragraph of the model-facing envelope (no avatar there); rows with no recoverable identity retain a localized unnamed-friend label and left-side initial.",
+      "row": "external-sender-row class on the msg-group user",
+      "column": "external-sender-col before the bubble: avatar circle (image over initial) plus name caption",
+      "avatar": "initial fallback like the friends page; the img carries the media-figure anchor so a dead URL hides it and keeps the initial",
+      "absentSender": "localized unnamed-friend label and left-side initial",
+      "tooltip": false,
+      "friendPresentation": {
+        "_why": "A full-width reply card hid the existing sender gutter and made incoming friend messages lose their shared conversation layout. Keep the avatar outside the bubble and retain readable provenance when the gutter is hidden.",
+        "body": "left-aligned-user-bubble-with-shared-Markdown",
+        "provenance": "current-directory-name-friend-tag-and-original-request-link-above-bubble",
+        "identity": "directory-remark-and-avatar-before-delivery-snapshot",
+        "actions": "display-text-copy-time-reply-notice-and-quote-to-local-composer-without-auto-run",
+        "terminalStatus": "system-row-without-sender-avatar",
+        "notice": "append-only-message-no-model-turn-or-context",
+        "replyProcessing": "ordinary-assistant-content-only-for-authorized-related-follow-up",
+        "delivery": "sent-after-durable-server-acceptance-delivered-after-device-ack"
+      }
+    },
+    "agentSenderColumn": {
+      "_why": "Cross-conversation and cross-device deliveries are authored by the agent on this account, so their rows carry the agent's own avatar (the image the owner set on the profile page, published to window by the profile bootstrap) in a left sender column, while the provenance line above the bubble keeps naming the sending chat or computer unchanged.",
+      "row": "data-external-sender=\"true\" on the delegation row",
+      "column": "data-agent-sender-col before the bubble",
+      "avatarSource": "bundled product asset agent-avatar.png (the agent official face), fallback initial K",
+      "label": "unchanged provenance line above the bubble"
+    },
+    "ownerSenderColumn": {
+      "_why": "The owner's own rows (typed, steered follow-ups, non-blocking question answers) read as mine in a group chat: the profile page avatar sits on the RIGHT of the bubble, mirroring the external sender column; without an uploaded avatar it falls back to the display-name initial. Externally delivered rows keep their single left column.",
+      "row": "data-owner-sender=\"true\" on the msg-group user row",
+      "column": "data-owner-sender-col after the bubble",
+      "avatarSource": "avatar_data_url kv (profile page / sidebar avatar), published to window by the profile bootstrap",
+      "nameCaption": false
+    }
+  },
+  "sentSkillTooltip": {
+    "title": false,
+    "dataKlausTip": false
+  },
+  "composerReferences": {
+    "modelText": "@agent-Explore inspect the migration",
+    "displayText": "@agent-Explore inspect the migration",
+    "tokens": [
+      {
+        "kind": "agent",
+        "name": "Explore",
+        "value": "@agent-Explore",
+        "range": {
+          "start": 0,
+          "end": 14
+        },
+        "source": "configured"
+      }
+    ],
+    "lifecycle": [
+      "draft",
+      "optimistic-user-message",
+      "history-replay",
+      "rewind"
+    ],
+    "tooltip": false
+  }
+}

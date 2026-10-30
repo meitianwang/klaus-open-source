@@ -1,0 +1,73 @@
+{
+  "reason": "Picked resources and filesystem targets are independent inline references. Their authored order, repeated occurrences, exact targets, clipboard identities and history survive editing and draft navigation. Directory completion continues a query; insertion creates a reference.",
+  "skills": [
+    {
+      "name": "alpha-skill",
+      "displayName": "Alpha skill",
+      "kind": "skill",
+      "source": "skills"
+    },
+    {
+      "name": "beta-skill",
+      "displayName": "Beta skill",
+      "kind": "skill",
+      "source": "skills"
+    }
+  ],
+  "prose": "a ",
+  "userOnlySkill": {
+    "name": "private-review",
+    "displayName": "Private review",
+    "kind": "skill",
+    "source": "skills",
+    "path": "/fixture/plugins/review (copy)/custom/SKILL.md"
+  },
+  "mixedKinds": [
+    "skill",
+    "plugin",
+    "conversation",
+    "mcp",
+    "skill"
+  ],
+  "cleared": {
+    "text": "",
+    "references": []
+  },
+  "send": {
+    "visibleOccurrences": 2,
+    "uniqueResourceTargets": 1,
+    "executesOnSelection": false
+  },
+  "workspace": {
+    "legacyText": "Compare @\"src/a.ts\" with @\"src/a.ts\" inside @\"My Folder/\".",
+    "kinds": [
+      "file",
+      "file",
+      "folder"
+    ],
+    "values": [
+      "@\"src/a.ts\"",
+      "@\"src/a.ts\"",
+      "@\"My Folder/\""
+    ],
+    "quotedTarget": {
+      "rel": "/other root/a\"b.ts",
+      "path": "/other root/a\"b.ts",
+      "value": "[a\"b.ts](klaus:file/%2Fother%20root%2Fa%22b.ts)"
+    },
+    "directoryCompletion": {
+      "before": "inspect @My",
+      "rel": "My Folder",
+      "after": "inspect @My Folder/",
+      "query": "My Folder/",
+      "insertsReference": false
+    },
+    "folderInsertion": {
+      "rel": "src/components/",
+      "name": "Components",
+      "kind": "folder",
+      "value": "@\"src/components/\"",
+      "id": "src/components"
+    }
+  }
+}

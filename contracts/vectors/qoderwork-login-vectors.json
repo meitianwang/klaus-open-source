@@ -1,0 +1,4 @@
+{
+  "reason": "QoderWork authorizes on the portal that serves its account picker, under its own OAuth client and its own deep link, so a QoderWork login is a distinct session from any other Qoder-family login on the same machine. The browser entry accepts six device-flow parameters and no API-only security state. The host forwards the engine URL unchanged and opens it; a failed browser handoff does not cancel the flow, because the settings card also shows the URL.",
+  "authUrl": "https://qoder.com/device/selectAccounts?challenge=fixture-challenge&challenge_method=S256&nonce=fixture-nonce&machine_id=fixture-machine&client_id=1c5e33e1-364d-4ce6-b02c-acaa81274a5c&redirect_uri=qoder-work://"
+}

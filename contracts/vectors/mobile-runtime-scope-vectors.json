@@ -1,0 +1,33 @@
+{
+  "version": 2,
+  "reason": "Legacy runtime model writes must explicitly name a session or null default scope, and must never inherit the desktop renderer selection. iOS output-style reads and writes stay on the same explicit device even when another device is reachable. Rejected desktop output-style mutations must return an explicit conflict instead of reporting success.",
+  "rendererSessionId": "s1",
+  "invalidWrites": [
+    {
+      "mainModel": "custom:fixture"
+    },
+    {
+      "thinkingLevel": "high"
+    },
+    {
+      "sessionId": "",
+      "thinkingLevel": "high"
+    },
+    {
+      "sessionId": "missing",
+      "thinkingLevel": "high"
+    }
+  ],
+  "sessionWrite": {
+    "sessionId": "s2",
+    "mainModel": "custom:fixture",
+    "thinkingLevel": "high"
+  },
+  "defaultWrite": {
+    "sessionId": null,
+    "thinkingLevel": "medium"
+  },
+  "rejectedStyleWrite": {
+    "outputStyle": "Missing Style"
+  }
+}

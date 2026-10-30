@@ -1,0 +1,106 @@
+{
+  "description": "The nine Inkbound character identities replace the previous built-in catalog. Persisted selections migrate to their corresponding character without resetting other preferences. Selection migration, bounded sizing, visibility and sprite dimensions remain shared host and renderer contracts.",
+  "builtInPets": [
+    { "id": "klaus", "name": "Klaus" },
+    { "id": "luma", "name": "Luma" },
+    { "id": "wick", "name": "Wick" },
+    { "id": "quill", "name": "Quill" },
+    { "id": "dapple", "name": "Dapple" },
+    { "id": "morrow", "name": "Morrow" },
+    { "id": "wisp", "name": "Wisp" },
+    { "id": "amble", "name": "Amble" },
+    { "id": "twill", "name": "Twill" }
+  ],
+  "selectionMigration": {
+    "preferences": {
+      "enabled": false,
+      "size": 168,
+      "visibility": "on-demand",
+      "showPet": false,
+      "showActivity": false,
+      "shortcut": "Control+Shift+P",
+      "language": "zh"
+    },
+    "cases": [
+      { "input": "dewey", "expected": "luma" },
+      { "input": "fireball", "expected": "wick" },
+      { "input": "hoots", "expected": "quill" },
+      { "input": "rocky", "expected": "dapple" },
+      { "input": "seedy", "expected": "morrow" },
+      { "input": "stacky", "expected": "wisp" },
+      { "input": "bsod", "expected": "amble" },
+      { "input": "null-signal", "expected": "twill" },
+      { "input": "klaus", "expected": "klaus" },
+      { "input": "luma", "expected": "luma" },
+      { "input": "wick", "expected": "wick" },
+      { "input": "quill", "expected": "quill" },
+      { "input": "dapple", "expected": "dapple" },
+      { "input": "morrow", "expected": "morrow" },
+      { "input": "wisp", "expected": "wisp" },
+      { "input": "amble", "expected": "amble" },
+      { "input": "twill", "expected": "twill" },
+      { "input": null, "expected": null },
+      { "input": "custom:my-companion", "expected": "custom:my-companion" },
+      { "input": "__proto__", "expected": "__proto__" },
+      { "input": "constructor", "expected": "constructor" },
+      { "input": "toString", "expected": "toString" },
+      { "input": "hasOwnProperty", "expected": "hasOwnProperty" }
+    ]
+  },
+  "settings": [
+    { "input": { "size": 20 }, "expected": { "size": 80 } },
+    { "input": { "size": 112 }, "expected": { "size": 112 } },
+    { "input": { "size": 400 }, "expected": { "size": 224 } },
+    { "input": { "selectedPetId": null }, "expected": { "selectedPetId": null, "showPet": false } },
+    { "input": { "visibility": "on-demand", "enabled": true }, "expected": { "visibility": "on-demand", "enabled": true } }
+  ],
+  "sprites": {
+    "columns": 8,
+    "cellWidth": 192,
+    "cellHeight": 208,
+    "width": 1536,
+    "versions": [ { "version": 1, "height": 1872, "rows": 9 }, { "version": 2, "height": 2288, "rows": 11 } ],
+    "lookDirections": 16
+  },
+  "spontaneous": {
+    "description": "An untouched companion starts one of her own reactions after a random quiet interval instead of only breathing. The cadence bounds, reaction set, loop count and suppression conditions are fixed here.",
+    "animations": ["jumping", "waving", "waiting", "running"],
+    "delayMs": { "min": 45000, "max": 180000 },
+    "loops": 3,
+    "suppressedBy": ["hidden", "menu-open", "stashed", "editing", "voice-panel", "attachment-menu", "greeting", "reduced-motion", "busy-tasks", "interaction-reaction"],
+    "precedence": [
+      { "reaction": "jumping", "spontaneous": "waving", "topTaskStatus": "running", "firstAwake": false, "expected": "jumping" },
+      { "reaction": null, "spontaneous": "waving", "topTaskStatus": "running", "firstAwake": false, "expected": "waving" },
+      { "reaction": null, "spontaneous": null, "topTaskStatus": "completed", "firstAwake": false, "expected": "review" },
+      { "reaction": null, "spontaneous": null, "topTaskStatus": "waiting", "firstAwake": false, "expected": "waiting" },
+      { "reaction": null, "spontaneous": null, "topTaskStatus": null, "firstAwake": true, "expected": "waving" },
+      { "reaction": null, "spontaneous": null, "topTaskStatus": null, "firstAwake": false, "expected": "idle" }
+    ]
+  },
+  "windowInteraction": {
+    "description": "Keyboard focus must not turn transparent space into a mouse target. Focus changes preserve access to other application windows.",
+    "pointerCases": [
+      { "keyboard": false, "point": { "x": 2, "y": 2 }, "ignore": false },
+      { "keyboard": true, "point": { "x": 2, "y": 2 }, "ignore": false },
+      { "keyboard": true, "point": { "x": 100, "y": 100 }, "ignore": true },
+      { "keyboard": false, "point": { "x": 100, "y": 100 }, "ignore": true }
+    ],
+    "initialReleaseCalls": 0,
+    "restorePreviousWindowOnInputClose": true,
+    "preserveNewWindowOnBlur": true
+  },
+  "styleIsolation": {
+    "description": "The companion window must not change existing application surfaces, including when its stylesheet is included through a shared chunk.",
+    "documentSelector": "html[data-klaus-window=\"pet\"]",
+    "preserveComponentSpecificity": true,
+    "windowEntryReachableFromMain": false,
+    "unscopedWindowResets": false
+  },
+  "shortcuts": { "macOS": "Alt+Space", "default": "Super+Alt+P" },
+  "permissions": {
+    "reason": "The companion owns its controls and only shares the exact owner-aware dictation transports; direct session and file access remain unavailable.",
+    "role": "pet", "channelNamespace": "desktop-pet:", "mayReadSessionsDirectly": false, "mayReadFilesDirectly": false,
+    "sharedVoiceInvokeChannels": ["voice:config:get", "voice:mic-permission", "voice:session:audio", "voice:session:cancel", "voice:session:start", "voice:session:stop", "voice:transcribe"],
+    "sharedVoicePushChannels": ["voice:session:event"]
+  }
+}

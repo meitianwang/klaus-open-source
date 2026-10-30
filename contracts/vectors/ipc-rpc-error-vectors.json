@@ -1,0 +1,27 @@
+[
+  {
+    "error": {
+      "kind": "server",
+      "code": -32000,
+      "message": "Session input receiver is closed",
+      "data": { "request": "private engine diagnostic" }
+    },
+    "message": "app-server rpc error -32000: Session input receiver is closed"
+  },
+  {
+    "error": { "kind": "server", "code": -32602, "message": "" },
+    "message": "app-server rpc error -32602: "
+  },
+  {
+    "error": { "kind": "closed", "request": "private request payload" },
+    "message": "app-server client closed"
+  },
+  {
+    "error": { "kind": "io", "message": "Broken pipe", "stack": "private local stack" },
+    "message": "app-server io error: Broken pipe"
+  },
+  {
+    "error": { "kind": "timeout", "method": "turn/start", "params": "private message body" },
+    "message": "app-server request timed out: turn/start"
+  }
+]

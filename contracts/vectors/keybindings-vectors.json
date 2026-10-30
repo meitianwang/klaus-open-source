@@ -1,0 +1,839 @@
+{
+  "_why": "The keybinding engine's rules are documented beside the implementation in contracts/keybindings.ts. These vectors pin the observable rules so a refactor cannot silently regress them: the file shape and its two distinct empty meanings (absent command = registry default, key:null = explicitly unassigned), the resolution order (custom -> platformDefaultKeybindings -> defaultKeybindings, where a platform array REPLACES rather than merges), accelerator formatting on all three platforms including the ⌃⌥⇧⌘ order and the Shift+/ -> ? fold, capture normalization (Ctrl,Command,Alt,Shift order, Up not ArrowUp, Space not ' '), chord-prefix conflict detection, the equivalent-command exemption that lets ⌘K open the command menu everywhere except the work panel where it starts the close-tabs chord, reserved native-Find keys versus the find-handoff key (⌘F binds like any command key and only an active in-surface find bar takes it over), lenient parsing of a hand-edited file, sorted+indented+newline-terminated writes, and the os-global single-binding rule.",
+  "storage": {
+    "fileName": "keybindings.json",
+    "serialized": "[\n  {\n    \"command\": \"newChat\",\n    \"key\": \"CmdOrCtrl+Alt+N\"\n  }\n]\n",
+    "rowShape": {
+      "command": "newChat",
+      "key": "CmdOrCtrl+Alt+N"
+    },
+    "explicitUnassignedShape": {
+      "command": "newChat",
+      "key": null
+    },
+    "sortIsByCommandId": {
+      "input": [
+        {
+          "command": "toggleSidebar",
+          "key": "CmdOrCtrl+B"
+        },
+        {
+          "command": "archiveThread",
+          "key": "CmdOrCtrl+Shift+A"
+        }
+      ],
+      "output": [
+        {
+          "command": "archiveThread",
+          "key": "CmdOrCtrl+Shift+A"
+        },
+        {
+          "command": "toggleSidebar",
+          "key": "CmdOrCtrl+B"
+        }
+      ]
+    },
+    "lenientParse": {
+      "emptyFileYieldsNoBindings": {
+        "raw": "",
+        "bindings": []
+      },
+      "whitespaceOnlyYieldsNoBindings": {
+        "raw": "   \n ",
+        "bindings": []
+      },
+      "malformedJsonYieldsNoBindings": {
+        "raw": "[{\"command\":",
+        "bindings": []
+      },
+      "nonArrayYieldsNoBindings": {
+        "raw": "{\"command\":\"newChat\"}",
+        "bindings": []
+      },
+      "unknownCommandIsDropped": {
+        "raw": "[{\"command\":\"notARealCommand\",\"key\":\"CmdOrCtrl+Q\"}]",
+        "bindings": []
+      },
+      "rowWithoutCommandIsDropped": {
+        "raw": "[{\"key\":\"CmdOrCtrl+Q\"}]",
+        "bindings": []
+      },
+      "rowWithNonStringKeyIsDropped": {
+        "raw": "[{\"command\":\"newChat\",\"key\":42}]",
+        "bindings": []
+      },
+      "validRowSurvives": {
+        "raw": "[{\"command\":\"newChat\",\"key\":\"CmdOrCtrl+Alt+N\"}]",
+        "bindings": [
+          {
+            "command": "newChat",
+            "key": "CmdOrCtrl+Alt+N"
+          }
+        ]
+      }
+    }
+  },
+  "resolution": {
+    "absentCommandUsesRegistryDefault": {
+      "commandId": "newChat",
+      "bindings": [],
+      "platform": "macOS",
+      "effective": [
+        "CmdOrCtrl+N"
+      ]
+    },
+    "explicitNullForcesEmpty": {
+      "commandId": "newChat",
+      "bindings": [
+        {
+          "command": "newChat",
+          "key": null
+        }
+      ],
+      "platform": "macOS",
+      "effective": []
+    },
+    "customOverridesDefault": {
+      "commandId": "newChat",
+      "bindings": [
+        {
+          "command": "newChat",
+          "key": "CmdOrCtrl+Alt+N"
+        }
+      ],
+      "platform": "macOS",
+      "effective": [
+        "CmdOrCtrl+Alt+N"
+      ]
+    },
+    "multipleBindingsArePreservedInOrder": {
+      "commandId": "newChat",
+      "bindings": [
+        {
+          "command": "newChat",
+          "key": "CmdOrCtrl+Alt+N"
+        },
+        {
+          "command": "newChat",
+          "key": "CmdOrCtrl+Shift+O"
+        }
+      ],
+      "platform": "macOS",
+      "effective": [
+        "CmdOrCtrl+Alt+N",
+        "CmdOrCtrl+Shift+O"
+      ]
+    },
+    "platformDefaultReplacesRatherThanMerges": {
+      "commandId": "previousThread",
+      "bindings": [],
+      "macOS": [
+        "Command+Shift+[",
+        "Command+Alt+Left"
+      ],
+      "windows": [
+        "Ctrl+Shift+[",
+        "Ctrl+PageUp"
+      ]
+    },
+    "emptyPlatformArrayMeansNoBinding": {
+      "commandId": "workspaceCloseTab",
+      "bindings": [],
+      "macOS": [],
+      "windows": [
+        "Ctrl+W"
+      ]
+    },
+    "macOnlyCommandHasNoBindingElsewhere": {
+      "commandId": "macOnlyProbe",
+      "macOS": [
+        "CmdOrCtrl+Alt+Shift+C"
+      ],
+      "windows": []
+    }
+  },
+  "format": {
+    "macOS": [
+      {
+        "accelerator": "CmdOrCtrl+Shift+T",
+        "label": "⇧⌘T"
+      },
+      {
+        "accelerator": "CmdOrCtrl+Alt+Shift+C",
+        "label": "⌥⇧⌘C"
+      },
+      {
+        "accelerator": "Control+Alt+Shift+Command+C",
+        "label": "⌃⌥⇧⌘C"
+      },
+      {
+        "accelerator": "CmdOrCtrl+/",
+        "label": "⌘/"
+      },
+      {
+        "accelerator": "Shift+Escape",
+        "label": "⇧Esc"
+      },
+      {
+        "accelerator": "Alt+Space",
+        "label": "⌥Space"
+      },
+      {
+        "accelerator": "Super+Alt+P",
+        "label": "⌥⌘P"
+      },
+      {
+        "accelerator": "Command+Enter",
+        "label": "⌘⏎"
+      },
+      {
+        "accelerator": "CmdOrCtrl+K CmdOrCtrl+S",
+        "label": "⌘K ⌘S"
+      },
+      {
+        "accelerator": "Control+`",
+        "label": "⌃`"
+      },
+      {
+        "accelerator": "CmdOrCtrl+Shift+/",
+        "label": "⌘?"
+      },
+      {
+        "accelerator": "CmdOrCtrl+Plus",
+        "label": "⌘+"
+      },
+      {
+        "accelerator": "LeftOption+RightOption",
+        "label": "⌥ + ⌥"
+      },
+      {
+        "accelerator": "LeftCommand+RightCommand",
+        "label": "⌘ + ⌘"
+      },
+      {
+        "accelerator": "LeftShift+RightShift",
+        "label": "⇧ + ⇧"
+      },
+      {
+        "accelerator": "Fn",
+        "label": "Fn"
+      },
+      {
+        "accelerator": "MouseBack",
+        "label": "Mouse Back"
+      }
+    ],
+    "_note_macOS": "⌃ appears ONLY for an explicit Control token. CmdOrCtrl contributes Command alone, so CmdOrCtrl+Alt+Shift+C is ⌥⇧⌘C — verified by running the formatter itself, not by hand. Plus renders as + only on macOS.",
+    "windows": [
+      {
+        "accelerator": "CmdOrCtrl+Shift+T",
+        "label": "Ctrl+Shift+T"
+      },
+      {
+        "accelerator": "CmdOrCtrl+Alt+Shift+C",
+        "label": "Ctrl+Alt+Shift+C"
+      },
+      {
+        "accelerator": "Control+Alt+Shift+Command+C",
+        "label": "Ctrl+Alt+Shift+Win+C"
+      },
+      {
+        "accelerator": "Shift+Escape",
+        "label": "Shift+Esc"
+      },
+      {
+        "accelerator": "Super+Alt+P",
+        "label": "Alt+Win+P"
+      },
+      {
+        "accelerator": "CmdOrCtrl+Shift+/",
+        "label": "Ctrl+Shift+/"
+      },
+      {
+        "accelerator": "CmdOrCtrl+Plus",
+        "label": "Ctrl+Plus"
+      },
+      {
+        "accelerator": "LeftOption+RightOption",
+        "label": "Right Option"
+      }
+    ],
+    "_note_windows": "Order is Ctrl,Alt,Shift,Cmd,Super,Win, so Super+Alt+P prints Alt+Win+P. The whole-segment aliases apply on macOS only, so LeftOption+RightOption falls through to per-token handling where the LAST unrecognized token becomes the main key: 'Right Option'.",
+    "linux": [
+      {
+        "accelerator": "Super+Alt+P",
+        "label": "Alt+Super+P"
+      },
+      {
+        "accelerator": "Command+Shift+G",
+        "label": "Shift+Super+G"
+      }
+    ],
+    "_note_linux": "Command maps to Super on Linux (not Win, and not Cmd), and the same modifier order applies."
+  },
+  "capture": [
+    {
+      "event": {
+        "key": "t",
+        "ctrlKey": false,
+        "metaKey": true,
+        "altKey": false,
+        "shiftKey": true
+      },
+      "accelerator": "Command+Shift+T"
+    },
+    {
+      "event": {
+        "key": "t",
+        "ctrlKey": true,
+        "metaKey": true,
+        "altKey": true,
+        "shiftKey": false
+      },
+      "accelerator": "Ctrl+Command+Alt+T"
+    },
+    {
+      "event": {
+        "key": "ArrowUp",
+        "ctrlKey": false,
+        "metaKey": true,
+        "altKey": false,
+        "shiftKey": false
+      },
+      "accelerator": "Command+Up"
+    },
+    {
+      "event": {
+        "key": " ",
+        "ctrlKey": true,
+        "metaKey": false,
+        "altKey": false,
+        "shiftKey": false
+      },
+      "accelerator": "Ctrl+Space"
+    },
+    {
+      "event": {
+        "key": "+",
+        "ctrlKey": true,
+        "metaKey": false,
+        "altKey": false,
+        "shiftKey": false
+      },
+      "accelerator": "Ctrl+Plus"
+    },
+    {
+      "event": {
+        "key": "Escape",
+        "ctrlKey": false,
+        "metaKey": false,
+        "altKey": false,
+        "shiftKey": true
+      },
+      "accelerator": "Shift+Escape"
+    },
+    {
+      "event": {
+        "key": "f5",
+        "ctrlKey": false,
+        "metaKey": false,
+        "altKey": false,
+        "shiftKey": false
+      },
+      "accelerator": "F5"
+    },
+    {
+      "event": {
+        "key": "Shift",
+        "ctrlKey": false,
+        "metaKey": false,
+        "altKey": false,
+        "shiftKey": true
+      },
+      "accelerator": null
+    },
+    {
+      "event": {
+        "key": "Meta",
+        "ctrlKey": false,
+        "metaKey": true,
+        "altKey": false,
+        "shiftKey": false
+      },
+      "accelerator": null
+    }
+  ],
+  "matching": [
+    {
+      "accelerator": "CmdOrCtrl+K",
+      "platform": "macOS",
+      "event": {
+        "key": "k",
+        "ctrlKey": false,
+        "metaKey": true,
+        "altKey": false,
+        "shiftKey": false
+      },
+      "matches": true
+    },
+    {
+      "accelerator": "CmdOrCtrl+K",
+      "platform": "macOS",
+      "event": {
+        "key": "k",
+        "ctrlKey": true,
+        "metaKey": false,
+        "altKey": false,
+        "shiftKey": false
+      },
+      "matches": false
+    },
+    {
+      "accelerator": "CmdOrCtrl+K",
+      "platform": "windows",
+      "event": {
+        "key": "k",
+        "ctrlKey": true,
+        "metaKey": false,
+        "altKey": false,
+        "shiftKey": false
+      },
+      "matches": true
+    },
+    {
+      "accelerator": "CmdOrCtrl+K",
+      "platform": "windows",
+      "event": {
+        "key": "k",
+        "ctrlKey": false,
+        "metaKey": true,
+        "altKey": false,
+        "shiftKey": false
+      },
+      "matches": false
+    },
+    {
+      "accelerator": "CmdOrCtrl+K",
+      "platform": "macOS",
+      "event": {
+        "key": "k",
+        "ctrlKey": false,
+        "metaKey": true,
+        "altKey": true,
+        "shiftKey": false
+      },
+      "matches": false
+    },
+    {
+      "accelerator": "Shift+Escape",
+      "platform": "macOS",
+      "event": {
+        "key": "Escape",
+        "ctrlKey": false,
+        "metaKey": false,
+        "altKey": false,
+        "shiftKey": true
+      },
+      "matches": true
+    },
+    {
+      "accelerator": "Shift+=",
+      "platform": "macOS",
+      "event": {
+        "key": "+",
+        "ctrlKey": false,
+        "metaKey": false,
+        "altKey": false,
+        "shiftKey": true
+      },
+      "matches": true
+    },
+    {
+      "accelerator": "CmdOrCtrl+K W",
+      "platform": "macOS",
+      "segments": [
+        {
+          "key": "k",
+          "metaKey": true
+        },
+        {
+          "key": "w",
+          "bare": true
+        }
+      ]
+    }
+  ],
+  "conflicts": [
+    {
+      "held": "CmdOrCtrl+K CmdOrCtrl+S",
+      "captured": "CmdOrCtrl+K",
+      "platform": "macOS",
+      "conflicts": true,
+      "why": "a chord prefix overlap is a conflict in both directions"
+    },
+    {
+      "held": "CmdOrCtrl+K",
+      "captured": "CmdOrCtrl+K CmdOrCtrl+S",
+      "platform": "macOS",
+      "conflicts": true
+    },
+    {
+      "held": "CmdOrCtrl+K",
+      "captured": "Command+K",
+      "platform": "macOS",
+      "conflicts": true,
+      "why": "formatting normalizes both to ⌘K"
+    },
+    {
+      "held": "CmdOrCtrl+K",
+      "captured": "CmdOrCtrl+Shift+K",
+      "platform": "macOS",
+      "conflicts": false
+    },
+    {
+      "held": "CmdOrCtrl+F",
+      "captured": "CmdOrCtrl+F",
+      "platform": "macOS",
+      "conflicts": true,
+      "handoffFind": "find",
+      "why": "the find-handoff key is an ordinary command key: it conflicts like any binding and is reported by its holder, not by a Find name"
+    },
+    {
+      "held": "Command+G",
+      "captured": "CmdOrCtrl+G",
+      "platform": "macOS",
+      "reservedFind": "findNext"
+    },
+    {
+      "held": "Shift+F3",
+      "captured": "Shift+F3",
+      "platform": "windows",
+      "reservedFind": "findPrevious"
+    }
+  ],
+  "equivalentCommands": {
+    "pairs": [
+      [
+        "closeTab",
+        "closeWindow"
+      ],
+      [
+        "nextThread",
+        "nextRecentThread"
+      ],
+      [
+        "previousThread",
+        "previousRecentThread"
+      ],
+      [
+        "goToLine",
+        "focusBrowserAddressBar"
+      ],
+      [
+        "openCommandMenu",
+        "workspaceCloseAll"
+      ],
+      [
+        "openCommandMenu",
+        "workspaceCloseUnsaved"
+      ]
+    ],
+    "exemptFromConflict": {
+      "left": "openCommandMenu",
+      "right": "workspaceCloseAll",
+      "accelerator": "CmdOrCtrl+K",
+      "conflicts": false
+    },
+    "symmetric": {
+      "left": "workspaceCloseAll",
+      "right": "openCommandMenu",
+      "conflicts": false
+    },
+    "selfIsEquivalent": {
+      "left": "newChat",
+      "right": "newChat",
+      "conflicts": false
+    }
+  },
+  "updates": {
+    "setPutsNewKeyFirstAndKeepsRest": {
+      "current": [
+        "CmdOrCtrl+N",
+        "CmdOrCtrl+Shift+O"
+      ],
+      "accelerator": "CmdOrCtrl+Alt+N",
+      "result": [
+        "CmdOrCtrl+Alt+N",
+        "CmdOrCtrl+Shift+O"
+      ]
+    },
+    "setOnEmptyBindsOne": {
+      "current": [],
+      "accelerator": "CmdOrCtrl+Alt+N",
+      "result": [
+        "CmdOrCtrl+Alt+N"
+      ]
+    },
+    "appendAddsAtEnd": {
+      "current": [
+        "CmdOrCtrl+N"
+      ],
+      "accelerator": "CmdOrCtrl+Shift+O",
+      "result": [
+        "CmdOrCtrl+N",
+        "CmdOrCtrl+Shift+O"
+      ]
+    },
+    "appendDedupes": {
+      "current": [
+        "CmdOrCtrl+N"
+      ],
+      "accelerator": "CmdOrCtrl+N",
+      "result": [
+        "CmdOrCtrl+N"
+      ]
+    },
+    "removeLeavesExplicitNullWhenLastGoes": {
+      "current": [
+        "CmdOrCtrl+N"
+      ],
+      "remove": "CmdOrCtrl+N",
+      "storedRows": [
+        {
+          "command": "newChat",
+          "key": null
+        }
+      ]
+    },
+    "clearWritesExplicitNull": {
+      "storedRows": [
+        {
+          "command": "newChat",
+          "key": null
+        }
+      ]
+    },
+    "resetDeletesEveryRow": {
+      "storedRows": [],
+      "effective": [
+        "CmdOrCtrl+N"
+      ],
+      "why": "with no rows the registry default applies again"
+    }
+  },
+  "globalShortcuts": {
+    "osGlobalCommands": [
+      "summonMainWindow",
+      "openQuickInput"
+    ],
+    "appendIsRejected": {
+      "commandId": "summonMainWindow",
+      "update": "append",
+      "error": "OS-global shortcuts support one keybinding."
+    },
+    "validation": [
+      {
+        "accelerator": "K",
+        "platform": "windows",
+        "valid": false,
+        "message": "Shortcut must include Cmd/Ctrl or Alt."
+      },
+      {
+        "accelerator": "Shift+K",
+        "platform": "windows",
+        "valid": false,
+        "message": "Shortcut must include Cmd/Ctrl or Alt."
+      },
+      {
+        "accelerator": "Alt+K",
+        "platform": "windows",
+        "valid": true
+      },
+      {
+        "accelerator": "CmdOrCtrl+Shift+K",
+        "platform": "windows",
+        "valid": true
+      },
+      {
+        "accelerator": "Command+Alt+K",
+        "platform": "windows",
+        "valid": true
+      },
+      {
+        "accelerator": "Alt+K+L",
+        "platform": "windows",
+        "valid": false,
+        "message": "Shortcut must include exactly one non-modifier key."
+      },
+      {
+        "accelerator": "",
+        "platform": "windows",
+        "valid": false,
+        "message": "Shortcut cannot be empty."
+      },
+      {
+        "accelerator": "Alt+K",
+        "platform": "macOS",
+        "valid": true
+      },
+      {
+        "accelerator": "LeftCommand+RightCommand",
+        "platform": "macOS",
+        "valid": true
+      }
+    ],
+    "_note_validation": "Verified against the validation path itself. A left+right bare-modifier pair is VALID on macOS (the `bare` check short-circuits validation to null). The CommandOrControl spelling that Klaus's existing defaults use is accepted only because validateGlobalAccelerator adds it to the primary-modifier set; a stricter check that omits it would reject CommandOrControl+Shift+K as 'exactly one non-modifier key'.",
+    "bareModifiers": [
+      {
+        "accelerator": "LeftCommand+RightCommand",
+        "platform": "macOS",
+        "bare": true,
+        "combination": "DoubleCommand"
+      },
+      {
+        "accelerator": "LeftOption+RightOption",
+        "platform": "macOS",
+        "bare": true,
+        "combination": "DoubleOption"
+      },
+      {
+        "accelerator": "LeftShift+RightShift",
+        "platform": "macOS",
+        "bare": true,
+        "combination": "DoubleShift"
+      },
+      {
+        "accelerator": "Ctrl+Alt",
+        "platform": "macOS",
+        "bare": true,
+        "combination": "Ctrl+Alt"
+      },
+      {
+        "accelerator": "Fn",
+        "platform": "macOS",
+        "bare": true,
+        "combination": "Fn"
+      },
+      {
+        "accelerator": "Ctrl+Alt",
+        "platform": "windows",
+        "bare": false
+      },
+      {
+        "accelerator": "Alt+K",
+        "platform": "macOS",
+        "bare": false
+      },
+      {
+        "accelerator": "Shift",
+        "platform": "macOS",
+        "bare": false
+      }
+    ],
+    "_note_bareModifiers": "combination is the canonical bare-modifier name. Left+right pairs map to a Double* name via the bare-modifier table (NOT the modifier pressed), which is what the label formatter renders as ⌘ + ⌘ and what the skip set uses to avoid the input-monitoring prompt. Fn alone is bare via that table. The `bare` flag is macOS-gated; combination is not, so Ctrl+Alt has a combination on Windows too but bare=false there."
+  },
+  "menu": {
+    "chordsAreExcluded": {
+      "commandId": "workspaceCloseAll",
+      "effective": [
+        "CmdOrCtrl+K W"
+      ],
+      "menu": []
+    },
+    "mouseButtonsAreExcluded": {
+      "effective": [
+        "CmdOrCtrl+[",
+        "MouseBack"
+      ],
+      "menu": [
+        "CmdOrCtrl+["
+      ]
+    },
+    "findHandoffKeysAreExcluded": {
+      "effective": [
+        "CmdOrCtrl+F"
+      ],
+      "menu": [],
+      "platform": "macOS",
+      "why": "a native menu accelerator is resolved in the main process ahead of the renderer in every surface, so the find-handoff key must never ride the menu or it would swallow the key where no find bar exists"
+    },
+    "firstUsableBindingIsTheMenuAccelerator": {
+      "effective": [
+        "CmdOrCtrl+K W",
+        "CmdOrCtrl+Alt+N"
+      ],
+      "menu": [
+        "CmdOrCtrl+Alt+N"
+      ]
+    }
+  },
+  "ordering": {
+    "groupOrder": [
+      "thread",
+      "navigation",
+      "panels",
+      "workspace",
+      "skills",
+      "configure",
+      "app"
+    ],
+    "ungroupedSortsLast": {
+      "commandId": "showKeyboardShortcuts",
+      "group": null,
+      "section": "general"
+    },
+    "priorityIdsLeadTheirGroup": {
+      "priorityIds": [
+        "newChat",
+        "archiveThread"
+      ],
+      "ids": [
+        "forkThread",
+        "archiveThread",
+        "newChat"
+      ],
+      "sorted": [
+        "newChat",
+        "archiveThread",
+        "forkThread"
+      ]
+    },
+    "sameGroupSortsById": {
+      "ids": [
+        "toggleTerminal",
+        "toggleBrowserPanel"
+      ],
+      "sorted": [
+        "toggleBrowserPanel",
+        "toggleTerminal"
+      ]
+    }
+  },
+  "dialog": {
+    "sectionOrder": [
+      "thread",
+      "navigation",
+      "panels",
+      "workspace",
+      "skills",
+      "configure",
+      "app",
+      "general"
+    ],
+    "rowsWithoutBindingsAreOmitted": {
+      "commandId": "forkThread",
+      "bindings": [],
+      "listed": false
+    },
+    "clearedCommandIsOmitted": {
+      "commandId": "newChat",
+      "bindings": [
+        {
+          "command": "newChat",
+          "key": null
+        }
+      ],
+      "listed": false
+    }
+  }
+}

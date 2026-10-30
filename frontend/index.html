@@ -1,0 +1,901 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- Platform marker: lets CSS drop the macOS traffic-light left padding on
+       Windows (where native window controls sit top-right via titleBarOverlay).
+       Runs before any stylesheet paints so there is no layout flash. -->
+  <script>document.documentElement.classList.add(/win/i.test(navigator.platform) ? 'platform-win32' : 'platform-darwin');</script>
+  <!-- Motion gate: mirrors the system's "reduce motion" setting onto the root
+       element so css/motion.css can quiet every animation at once, instead of
+       each stylesheet polling matchMedia on its own. Set before any stylesheet
+       paints, for the same reason as the platform marker above. -->
+  <script>
+    (function () {
+      var query = window.matchMedia('(prefers-reduced-motion: reduce)');
+      var apply = function () {
+        document.documentElement.setAttribute('data-reduced-motion', query.matches ? 'true' : 'false');
+      };
+      apply();
+      query.addEventListener('change', apply);
+    })();
+  </script>
+  <!-- connect-src carries `ipc: http://ipc.localhost`, which is VESTIGIAL here: those
+       schemes belonged to the retired Tauri shell, whose injected IPC first tried
+       fetch(ipc://localhost/<cmd>) and only fell back to window.ipc.postMessage after a
+       CSP refusal. The Electron bridge calls `ipcRenderer.invoke` through
+       `contextBridge` instead (bridge/ipc.ts), which is not a network request, so
+       nothing in this page fetches those origins. The entries are left in place rather
+       than removed: dropping a CSP source is a behaviour change that needs its own
+       verification, and a vestigial allow-list entry costs nothing. -->
+  <!-- img-src/media-src must carry `klaus-media:` (and its Windows http origin
+       `http://klaus-media.localhost`): every local media byte in the transcript —
+       sent-attachment thumbnails, generated-image figures, markdown images —
+       loads over that scheme (media.rs), and a scheme absent from the CSP is a
+       silently blocked <img>, i.e. a blank thumbnail. -->
+  <!-- `https://img.alicdn.com` is the QwenWork gateway's model-glyph CDN: the
+       qwenwork catalog ships a per-model icon URL and picker rows render it. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' klaus-pet: data: blob: file: klaus-media: http://klaus-media.localhost https://klaus-ai.cn https://img.alicdn.com; media-src 'self' blob: file: klaus-media: http://klaus-media.localhost; frame-src 'self' klaus-media: blob: file:; style-src 'self' 'unsafe-inline'; font-src 'self'; script-src 'self' 'unsafe-inline'; connect-src 'self' klaus-media: ipc: http://ipc.localhost;">
+  <title>Klaus</title>
+  <link rel="stylesheet" href="css/styles.css">
+  <link rel="stylesheet" href="css/motion.css">
+  <link rel="stylesheet" href="vendor/highlight-dark.css">
+  <link rel="stylesheet" href="css/highlight-tokens.css">
+  <!-- xterm.css 随 @xterm/xterm 动态 import 进来（终端打开才加载）；
+       katex.min.css（含字体）由 src/vendor-globals.ts 从 npm 包 import。 -->
+</head>
+<body>
+  <!-- Boot screen: visible immediately so startup never presents a blank window. -->
+  <div id="boot-screen" class="boot-screen">
+    <div class="boot-shell">
+      <img src="logo.png" alt="Klaus" class="boot-logo" />
+      <div class="boot-title">Klaus</div>
+      <div class="boot-progress" aria-hidden="true"><span></span></div>
+    </div>
+  </div>
+
+  <!-- Login screen (shown on boot when not signed in to Klaus web server).
+       Two-column card: the left column carries the brand story and the single
+       action; the right column is a live ink-sky canvas. One button on purpose:
+       which provider to use (email, Google, GitHub) is chosen on the web
+       login page, so provider changes never need a client release. -->
+  <div id="app" style="visibility:hidden" data-pip-anchor-host="klaus-main-thread">
+    <div class="app-titlebar-drag-strip" aria-hidden="true"></div>
+    <div class="app-titlebar-controls" data-pip-obstacle="app-titlebar">
+      <div class="titlebar-left">
+        <button class="sidebar-toggle" id="sidebar-toggle" data-i18n-aria-label="toggle_sidebar" aria-label="Toggle sidebar" aria-controls="sidebar" aria-expanded="true">
+          <span data-kls-icon="titlebar-sidebar-toggle"></span>
+          <span data-kls-icon="titlebar-sidebar-toggle-collapsed"></span>
+        </button>
+      </div>
+      <!-- Command menu entry: absolutely pinned to the right
+           end of the sidebar band, above the conversation list it searches —
+           it sits on the sidebar header row's trailing edge, so it
+           reads as "search chats", never "search this chat". aria-label
+           only: the titlebar is not one of the five tooltip-bearing rail
+           entries. -->
+      <!-- Activity view toggle (priority threads): the
+           icon-only button that lives on the sidebar header row's trailing
+           edge, left of the search entry. Icon-only with a localized
+           aria-label, like every other control on this surface. -->
+      <button id="titlebar-activity" class="artifacts-toggle-btn titlebar-activity-btn" type="button" aria-pressed="false" aria-label="View activity">
+        <span aria-hidden="true" data-kls-icon="sidebar-activity"></span>
+      </button>
+      <button id="titlebar-search" class="artifacts-toggle-btn titlebar-search-btn" data-i18n-aria-label="titlebar_search" aria-label="Search">
+        <span data-kls-icon="titlebar-search"></span>
+      </button>
+      <div id="titlebar-session-title" class="titlebar-session-title" aria-hidden="true"></div>
+      <div class="titlebar-right header-right">
+        <!-- 折叠统计 pill + 引擎状态角标 — React 岛（src/chat/status-bar.tsx），
+             订阅 stream store 渲染。 -->
+        <span id="collapse-stats-host" style="display:contents"></span>
+        <span id="status-host" style="display:contents"></span>
+        <button id="artifacts-panel-toggle" class="artifacts-toggle-btn" data-i18n-aria-label="artifacts_toggle" aria-label="Toggle artifacts panel">
+          <span data-kls-icon="titlebar-panel-toggle"></span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Command menu React island (src/chat/command-menu/host.tsx). The panel
+         itself portals to document.body; this span is only the root. -->
+    <span id="command-menu-host" style="display:contents"></span>
+
+    <!-- Side rail: vertical entry points for the right panel,
+         floating at the window's right edge. Buttons keep their historical
+         ids so existing chat.js handlers and state sync (side-task hiding,
+         syncTopModeButtons) stay wired. Hidden while the artifacts panel is
+         open — the panel header tabs take over mode switching there. -->
+    <div id="side-rail" class="side-rail" role="toolbar" aria-orientation="vertical" data-klaus-tooltips="off" data-pip-obstacle="side-rail">
+      <button id="monitor-panel-toggle" class="artifacts-toggle-btn side-rail-btn monitor-header-btn" data-klaus-tooltips="on" data-klaus-tip-placement="left" data-i18n-title="monitor_title" title="Overview" data-i18n-aria-label="monitor_title" aria-label="Overview" aria-controls="artifacts-panel" aria-expanded="false">
+        <span data-kls-icon="rail-monitor"></span>
+      </button>
+      <!-- Present only while a side task can actually be created: a side task
+           forks the main task, so it needs a user message first. side-tasks.js
+           toggles `hidden` from that same gate, which is the same gate the `+`
+           menu uses to decide whether to list the entry at all. -->
+      <button id="side-task-new" class="artifacts-toggle-btn side-rail-btn side-task-header-new" type="button" aria-label="Side task" hidden>
+        <span data-kls-icon="rail-side-task-new"></span>
+      </button>
+      <button id="workspace-panel-toggle" class="artifacts-toggle-btn side-rail-btn workspace-header-btn" data-klaus-tooltips="on" data-klaus-tip-placement="left" data-i18n-title="files_view_nav" title="Files" data-i18n-aria-label="files_view_nav" aria-label="Files" aria-controls="artifacts-panel" aria-expanded="false">
+        <span data-kls-icon="rail-workspace"></span>
+      </button>
+      <button id="browser-panel-toggle" class="artifacts-toggle-btn side-rail-btn browser-header-btn" data-klaus-tooltips="on" data-klaus-tip-placement="left" data-i18n-title="browser_settings" title="Browser" data-i18n-aria-label="browser_settings" aria-label="Browser" aria-controls="artifacts-panel" aria-expanded="false">
+        <span data-kls-icon="rail-browser"></span>
+      </button>
+      <button id="btn-diff" class="artifacts-toggle-btn side-rail-btn diff-header-btn" data-klaus-tooltips="on" data-klaus-tip-placement="left" data-i18n-title="diff_view_nav" title="Changes" data-i18n-aria-label="diff_view_nav" aria-label="Changes">
+        <span data-kls-icon="rail-diff"></span>
+      </button>
+      <button id="terminal-toggle" class="artifacts-toggle-btn side-rail-btn terminal-header-btn" data-klaus-tooltips="on" data-klaus-tip-placement="left" data-i18n-title="terminal_toggle" title="Terminal" data-i18n-aria-label="terminal_toggle" aria-label="Terminal" aria-controls="terminal-panel" aria-expanded="false">
+        <span data-kls-icon="rail-terminal"></span>
+      </button>
+    </div>
+
+    <!-- Sidebar -->
+    <div id="sidebar" class="sidebar" data-klaus-tooltips="off" data-pip-obstacle="sidebar">
+      <!-- Sidebar nav icons — [data-kls-icon] slots filled by src/icons/static-mount.ts
+           from the unified icon library (@phosphor-icons as the main source, lucide
+           for glyphs phosphor has no equivalent of). -->
+      <div class="sidebar-nav">
+        <button class="sidebar-nav-item" id="btn-new-chat">
+          <span data-kls-icon="sb-nav-new-chat"></span>
+          <span data-i18n="new_action">New</span>
+        </button>
+        <!-- Server-gated entry: hidden until the host resolves the
+             teamCollaboration feature gate for this account
+             (src/chat/sidebar/feature-gate.ts). Fail-closed at first paint so
+             an unentitled account never sees it flash. -->
+        <button class="sidebar-nav-item" id="btn-team-collaboration" hidden>
+          <span data-kls-icon="sb-nav-team-collaboration"></span>
+          <span data-i18n="tc_nav">团队协作</span>
+        </button>
+        <!-- Extensions group — MCP / Skills / Plugins / Slash Commands / Agents
+             fold under one parent entry. Parent only toggles the fold;
+             navigation stays on the child buttons, whose ids are unchanged so
+             existing chat.js handlers and programmatic .click() deep links
+             keep working. -->
+        <button class="sidebar-nav-item" id="btn-extensions" aria-expanded="false" aria-controls="extensions-children">
+          <!-- Glyph swaps to a fold caret on hover (right = collapsed,
+               down = expanded). -->
+          <span data-kls-icon="sb-nav-extensions"></span>
+          <span data-kls-icon="sb-nav-extensions-caret"></span>
+          <span data-i18n="extensions">Extensions</span>
+        </button>
+        <div class="sidebar-nav-children" id="extensions-children">
+          <div class="sidebar-nav-children-inner">
+            <button class="sidebar-nav-item sidebar-nav-subitem" id="btn-mcp">
+              <span data-kls-icon="sb-nav-mcp"></span>
+              <span data-i18n="mcp">连接器</span>
+            </button>
+            <button class="sidebar-nav-item sidebar-nav-subitem" id="btn-skills">
+              <!-- 4-pointed sparkle — "skills/magic/abilities" metaphor. -->
+              <span data-kls-icon="sb-nav-skills"></span>
+              <span data-i18n="skills">Skills</span>
+            </button>
+            <button class="sidebar-nav-item sidebar-nav-subitem" id="btn-plugins">
+              <span data-kls-icon="sb-nav-plugins"></span>
+              <span data-i18n="plugins">Plugins</span>
+            </button>
+            <button class="sidebar-nav-item sidebar-nav-subitem" id="btn-slash-commands">
+              <span data-kls-icon="slash-command-fill"></span>
+              <span data-i18n="slash_commands">Slash Commands</span>
+            </button>
+            <button class="sidebar-nav-item sidebar-nav-subitem" id="btn-agents">
+              <span data-kls-icon="sb-nav-agents"></span>
+              <span data-i18n="agents">Agents</span>
+            </button>
+          </div>
+        </div>
+        <button class="sidebar-nav-item" id="btn-channels">
+          <span data-kls-icon="sb-nav-channels"></span>
+          <span data-i18n="channels">Channels</span>
+        </button>
+        <button class="sidebar-nav-item" id="btn-cron">
+          <span data-kls-icon="sb-nav-cron"></span>
+          <span data-i18n="cron">Scheduled Tasks</span>
+          <!-- Dot indicator: lights up when a cron run failed (hard fail or
+               soft fail = success-with-tool-error) and hasn't been viewed yet.
+               Toggled by chat.js updateCronNavBadge(). Hidden when idle. -->
+          <span class="sidebar-nav-dot" id="btn-cron-dot" aria-hidden="true"></span>
+        </button>
+        <button class="sidebar-nav-item" id="btn-memory">
+          <!-- Crescent moon — visual cue for "dream" / consolidation. Same path
+               as before but rendered as path-fill (the path describes a 1-unit
+               crescent ribbon between two arcs at radius 5.5 / 4.5). -->
+          <span data-kls-icon="sb-nav-memory"></span>
+          <span data-i18n="memory">Memory</span>
+          <!-- Dot indicator: lights up while a dream is running (CSS class
+               'has-active' toggled by src/pages/memory when dream:event status
+               is 'running'). Hidden by default — no extra noise when idle. -->
+          <span class="sidebar-nav-dot" id="btn-memory-dot" aria-hidden="true"></span>
+        </button>
+        <button class="sidebar-nav-item" id="btn-friends">
+          <span data-kls-icon="sb-nav-friends"></span>
+          <span data-i18n="friends">Friends</span>
+        </button>
+      </div>
+
+      <div class="sidebar-scroll" id="sidebar-scroll">
+        <div class="session-list" id="session-list"></div>
+      </div>
+
+      <div class="sidebar-footer">
+        <div id="user-menu" class="user-menu">
+          <button class="user-menu-item" id="menu-settings">
+            <span data-kls-icon="user-menu-settings"></span>
+            <span data-i18n="menu_settings">Settings</span>
+          </button>
+          <button class="user-menu-item" id="menu-theme">
+            <!-- Half-filled disc: the standard "theme" mark, path-fill on the
+                 16x16 grid like the sidebar glyphs. -->
+            <span data-kls-icon="user-menu-theme"></span>
+            <span data-i18n="menu_theme">Theme</span>
+            <span data-kls-icon="user-menu-arrow"></span>
+          </button>
+          <button class="user-menu-item" id="menu-font">
+            <span data-kls-icon="user-menu-font"></span>
+            <span data-i18n="menu_font">Font size</span>
+            <span data-kls-icon="user-menu-arrow"></span>
+          </button>
+          <button class="user-menu-item" id="menu-language">
+            <span data-kls-icon="user-menu-language"></span>
+            <span data-i18n="menu_language">Language</span>
+            <span data-kls-icon="user-menu-arrow"></span>
+          </button>
+          <!-- Guest-only sign-in block: guests have nothing to log out of, so the
+               destructive row is replaced by an account sign-in entry. The two
+               follow-up rows (copy link / cancel) only exist while a browser
+               sign-in is in flight; the whole block hides for signed-in users. -->
+          <div class="user-menu-sep" id="menu-login-sep" hidden></div>
+          <button class="user-menu-item user-menu-login" id="menu-login" hidden>
+            <span data-kls-icon="user-menu-login"></span>
+            <span data-i18n="menu_login">Sign in</span>
+          </button>
+          <button class="user-menu-item user-menu-login-sub" id="menu-login-copy" hidden>
+            <span data-kls-icon="user-menu-login-copy"></span>
+            <span data-i18n="login_copy_link">Copy sign-in link</span>
+          </button>
+          <button class="user-menu-item user-menu-login-sub" id="menu-login-cancel" hidden>
+            <span data-kls-icon="user-menu-login-cancel"></span>
+            <span data-i18n="login_cancel">Cancel</span>
+          </button>
+          <div class="user-menu-sep" id="menu-logout-sep"></div>
+          <button class="user-menu-item" id="menu-logout">
+            <span data-kls-icon="user-menu-logout"></span>
+            <span data-i18n="menu_logout">Logout</span>
+          </button>
+        </div>
+        <div id="user-menu-lang" class="user-menu-sub"></div>
+        <!-- Theme submenu: light/dark/system on top, then the palette list.
+             Both are rebuilt on open so they follow the live language and the
+             variant that is actually active. -->
+        <div id="user-menu-theme" class="user-menu-sub user-menu-sub-theme"></div>
+        <div id="user-menu-font" class="user-menu-sub user-menu-sub-font"></div>
+        <div class="sidebar-user" id="sidebar-user">
+          <button type="button" class="sidebar-profile" id="sidebar-profile" data-i18n-aria-label="profile" aria-label="Profile">
+          <div class="sidebar-avatar">U</div>
+          <div class="sidebar-user-info">
+            <div class="sidebar-username">User</div>
+          </div>
+          </button>
+          <button class="sidebar-update-restart" id="sidebar-update-restart" type="button" aria-label="Restart to update" aria-live="polite" hidden>
+            <span class="sidebar-update-icon-ready" aria-hidden="true"><span data-kls-icon="sidebar-user-update"></span></span>
+            <span class="sidebar-update-icon-busy" aria-hidden="true"><span data-kls-icon="s-lead-spinner-track"></span></span>
+            <span class="sidebar-update-restart-label">Restart to update</span>
+          </button>
+          <button class="sidebar-user-settings" id="sidebar-user-usage" aria-label="Usage" aria-haspopup="dialog" aria-expanded="false">
+            <!-- Gauge：lucide circle-gauge——缺口圆环 + 圆头指针 + 轴心。 -->
+            <span data-kls-icon="sidebar-user-usage"></span>
+          </button>
+          <button class="sidebar-user-settings" id="sidebar-user-settings" data-i18n-aria-label="menu_settings" aria-label="Settings" aria-haspopup="menu" aria-expanded="false">
+            <span data-kls-icon="sidebar-user-gear"></span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Sidebar width is fixed (--sidebar-width); no manual resize handle. -->
+
+    <!-- Main -->
+    <div id="main">
+      <div id="header"></div>
+      <!-- Export / report-issue header buttons were removed; both actions live
+           in the per-session context menu (⋯ button / right-click) now.
+           Side tasks no longer take over the main area with a top tab bar:
+           they live in the right #artifacts-panel (data-mode="side-chat"),
+           rendered alongside the main conversation. -->
+
+      <!-- Welcome -->
+      <div id="welcome" class="welcome">
+        <div class="welcome-inner">
+          <div class="welcome-title">
+            <!-- Logo + 问候语 — React 岛（src/chat/welcome.tsx）。 -->
+          </div>
+          <!-- The shared composer (#input-wrapper) docks here while the
+               new-session screen is visible (chat.js moves it back above the
+               terminal panel once a conversation has messages). Living in the
+               normal flex flow keeps its width and centering in sync with the
+               right monitor panel collapsing/expanding. -->
+          <div id="welcome-composer-slot" class="welcome-composer-slot"></div>
+          <!-- Example-prompt suggestions (new-session rows):
+               borderless left-aligned rows showing a concrete task each; a
+               click fills the same sentence into the composer. -->
+          <div class="welcome-chips">
+            <!-- 示例任务行 — React 岛（src/chat/welcome.tsx）：三行 chip 与
+                 字形组件内渲染，点击填 composer。 -->
+          </div>
+        </div>
+      </div>
+
+      <!-- Channel-binding banner (cron-run sessions bound to an IM). Sits
+           just above the messages list so the user knows results will be
+           forwarded somewhere they might not have open. -->
+      <div id="cron-channel-banner" class="cron-channel-banner" hidden></div>
+
+      <!-- 会话花费达上限的持久提示:累计花费 ≥ klaus.engine.maxBudgetUsd 时显示,冷会话重开仍超即再现。 -->
+      <div id="budget-banner" class="budget-banner" hidden></div>
+
+      <!-- The sub-agent transcript used to swap this column out from under the
+           main conversation (a banner here plus a #subagent-messages sibling).
+           That made inspecting a sub-agent an exit from the conversation you
+           were reading, and it could only ever show one. It is a tab in the
+           right panel now (#subagent-panel), so the main transcript keeps
+           streaming in place and several sub-agents can be open at once. -->
+
+      <nav id="turn-navigation" class="turn-navigation" aria-label="User message navigation" hidden inert>
+        <div id="turn-navigation-list" class="turn-navigation-list"></div>
+        <div id="turn-navigation-tooltip" class="turn-navigation-tooltip" role="tooltip" hidden></div>
+      </nav>
+
+      <!-- Messages -->
+      <div id="messages" tabindex="-1" style="display:none"></div>
+
+      <div id="archived-session-banner" class="archived-session-banner" hidden>
+        <div class="archived-session-copy">
+          <strong data-i18n="archived_session_read_only_title">Archived conversation</strong>
+          <span data-i18n="archived_session_read_only">This conversation is read-only.</span>
+        </div>
+        <button id="archived-session-continue" type="button" data-i18n="archived_session_continue">Continue in a branch</button>
+      </div>
+
+      <!-- Input -->
+      <div id="input-wrapper" data-pip-obstacle="thread-footer">
+        <!-- Scroll-to-latest (chat-timeline floating controls):
+             floats at the transcript's bottom edge — centered on the seam where
+             the transcript meets the composer — and is shown by the shared
+             bottom-following controller while unseen content sits below. It
+             lives in the composer wrapper (not the activity rail, whose row only
+             exists while a turn capsule is up) so its position never depends on
+             which composer rows are visible, and it travels with the composer
+             between the welcome and conversation docks. -->
+        <button id="scroll-to-bottom" class="scroll-to-bottom" type="button" aria-hidden="true" tabindex="-1" data-i18n-title="scroll_to_bottom" title="Scroll to bottom">
+          <span data-kls-icon="chat-scroll-to-bottom"></span>
+          <span data-kls-icon="chat-scroll-to-bottom-spin" aria-hidden="true"></span>
+        </button>
+        <!-- 回合胶囊（进度 + 审查）— React 岛（src/chat/action-dots.tsx）：只在回合
+             跑着且真有内容时渲染，不常驻。住在 wrapper 内部才能跟着 composer 在
+             welcome / 对话两个 dock 之间搬家。 -->
+        <!-- Persistent controls reserve their own row above all composer content. -->
+        <div class="composer-activity-rail">
+          <span id="action-dots-host" style="display:contents"></span>
+        </div>
+        <div id="composer-plus-menu" class="composer-plus-menu kls-select-panel hidden" role="menu" aria-label="Add menu"></div>
+        <div id="composer-plus-submenu" class="composer-plus-menu composer-plus-submenu kls-select-panel hidden" role="menu" aria-label="Add submenu"></div>
+        <div class="composer-content">
+        <!-- Attached status stack (`data-composer-rail`). Every row
+             that sits above the input — the goal indicator, the queued/steered
+             follow-ups — lives in ONE bordered container whose bottom edge is open,
+             so the stack and the input card below read as a single card instead of
+             separate widgets floating over the transcript. The container is the
+             queue's parent element, which is what `syncComposerStatusOrder` already
+             anchors on, so goal/spec insertion keeps working unchanged.
+             Visibility is pure CSS (`:has(> :not([hidden]))`): the queue owns its own
+             `hidden` from a React effect and the goal row is added/removed, so a JS
+             mirror of that state would race both. -->
+        <div id="composer-status-stack" class="composer-status-stack">
+          <div id="worktree-availability" class="worktree-availability composer-status-row" role="status" hidden>
+            <span id="worktree-availability-message" class="composer-status-row-title"></span>
+            <button id="worktree-availability-action" type="button" hidden></button>
+          </div>
+          <div id="follow-up-queue" class="follow-up-queue" hidden></div>
+        </div>
+        <!-- Run context row ("运行于" strip): working directory,
+             run mode (local / worktree) and branch picker live above the input
+             card and travel with the composer between welcome and chat docks. -->
+        <div id="composer-context-row" class="composer-context-row">
+          <span class="composer-context-label" data-i18n="context_runs_in">Runs in</span>
+          <button id="workdir-btn" type="button">
+            <span data-kls-icon="workdir-folder"></span>
+            <span class="workdir-label" data-i18n="project_no_project">不使用项目</span>
+            <span data-kls-icon="workdir-caret"></span>
+            <span class="workdir-clear" role="button" tabindex="0" data-i18n-title="workdir_clear_title" title="Clear" hidden>
+              <span data-kls-icon="workdir-clear"></span>
+            </span>
+          </button>
+          <div id="run-mode-select" class="kls-select kls-select--flat" hidden></div>
+          <button id="branch-btn" class="composer-branch-btn" type="button" hidden>
+            <span data-kls-icon="composer-branch"></span>
+            <span class="branch-label"></span>
+            <span data-kls-icon="composer-branch-caret"></span>
+          </button>
+        </div>
+        <div id="question-composer-slot"></div>
+        <div id="input-area">
+          <div id="previews"></div>
+          <!-- 语音实时预览条：录音/转写中显示流式 partial 文本 + 时长，final 上屏后隐藏。 -->
+          <div id="voice-live-strip" hidden>
+            <span class="voice-live-dot" aria-hidden="true"></span>
+            <span id="voice-live-text"></span>
+            <span id="voice-live-timer">0:00</span>
+          </div>
+          <!-- No accept filter: any file can be attached. Images are inlined as
+               content parts, everything else is handed to the model as a path
+               (frontend/src/chat/composer/attachment-policy.ts). The side
+               composer clones this input, so this is the picker for both. -->
+          <input type="file" id="file-input" multiple hidden>
+          <div id="slash-input-line">
+            <button id="slash-token" class="slash-token hidden" type="button" title="Clear slash command" aria-label="Clear slash command">
+              <span data-kls-icon="slash-token"></span>
+              <span id="slash-token-label"></span>
+            </button>
+            <div id="input" contenteditable="true" role="textbox" aria-multiline="true" data-i18n-placeholder="placeholder" data-placeholder="Send a message..." placeholder="Send a message..."></div>
+          </div>
+          <div class="input-row">
+            <button id="composer-plus-btn" type="button">
+              <span data-kls-icon="composer-plus"></span>
+            </button>
+            <!-- Auth mode pill — React island (src/chat/auth-pill.tsx). -->
+            <span id="auth-mode-pill-host" style="display:contents"></span>
+            <div id="main-model-select" class="kls-select kls-select--flat kls-select--model"></div>
+            <div id="permission-select" class="kls-select kls-select--flat kls-select--permission"></div>
+            <!-- Context usage is a passive indicator with hover details. -->
+            <span id="ctx-usage-chip" class="ctx-pie-btn" role="img" hidden></span>
+            <!-- 语音输入：点击开始/停止录音，停止后自动转写并填入输入框。 -->
+            <button id="voice-input-btn" type="button" data-i18n-title="voice_input_start" title="Voice input" data-voice-state="idle">
+              <span data-kls-icon="voice-mic"></span>
+              <span data-kls-icon="voice-stop"></span>
+              <span data-kls-icon="voice-busy"></span>
+            </button>
+            <button id="send" disabled data-i18n-title="send_stop" title="Send / Stop">
+              <span data-kls-icon="send-arrow"></span>
+              <span data-kls-icon="send-stop"></span>
+              <span data-kls-icon="send-stopping"></span>
+              <span data-kls-icon="send-continue"></span>
+              <span class="send-esc-hint" aria-hidden="true">Esc</span>
+            </button>
+          </div>
+        </div>
+        </div>
+      </div>
+
+      <!-- Composer home anchor: conversation-mode dock point for
+           #input-wrapper (see syncComposerDock in chat.js). The integrated
+           terminal used to play this role before it moved into the
+           artifacts panel as a mode surface. -->
+      <div id="composer-home-anchor" hidden aria-hidden="true"></div>
+
+      <div id="team-collaboration-view">
+        <div id="team-collaboration-view-content"></div>
+      </div>
+
+      <!-- MCP Services view (independent overlay) -->
+      <div id="mcp-view">
+        <div id="mcp-view-content"></div>
+      </div>
+
+      <!-- Skills view (independent overlay) -->
+      <div id="skills-view">
+        <div id="skills-view-content"></div>
+      </div>
+
+      <!-- Plugins view (independent overlay) -->
+      <div id="plugins-view">
+        <div id="plugins-view-content"></div>
+      </div>
+
+      <!-- Slash Commands view (independent overlay) -->
+      <div id="slash-commands-view">
+        <div id="slash-commands-view-content"></div>
+      </div>
+
+      <!-- Agents view (independent overlay) -->
+      <div id="agents-view">
+        <div id="agents-view-content"></div>
+      </div>
+
+      <!-- Channels view (independent overlay) -->
+      <div id="channels-view">
+        <div class="channels-inner">
+          <!-- Sticky header host — the moon / action row / title / subtitle are
+               injected by js/ui-page-header.js (see pages/channels.js), the same
+               factory every page header comes from. -->
+          <div class="kls-page-header kls-sticky-header" id="channels-header"></div>
+          <div id="channels-view-content" class="channels-page-content"></div>
+        </div>
+      </div>
+
+      <!-- Scheduled Tasks view (independent overlay) -->
+      <!-- Scheduled Tasks — React 岛（src/pages/cron）：页头/双档 tab/任务行/运行时间线/
+           表单弹窗全部组件内渲染，静态骨架已收编。 -->
+      <div id="cron-view">
+        <div id="cron-view-content"></div>
+      </div>
+
+      <!-- Memory view (independent overlay).
+           A "current dream" card (title / subtitle / status / turns
+           / files), plus history list with infinite scroll + time filter,
+           plus read-only memory file browser. -->
+      <div id="friends-view">
+        <div id="friends-view-content"></div>
+      </div>
+      <div id="profile-view">
+        <div id="profile-view-content"></div>
+      </div>
+      <div id="memory-view">
+        <div id="memory-view-content"></div>
+      </div>
+
+
+    </div>
+
+    <div id="artifacts-panel-resizer" class="panel-resizer panel-resizer-artifacts" role="separator" aria-label="Resize monitor panel" aria-orientation="vertical" aria-valuemin="260" aria-valuemax="640" aria-valuenow="300"></div>
+
+    <!-- Monitor panel (right side). Toggled by #artifacts-panel-toggle in #header (collapsed) or #artifacts-panel-toggle-inner here (expanded). Hosts both task progress and produced artifacts in one always-on monitor surface. -->
+    <aside id="artifacts-panel" class="artifacts-panel" data-mode="monitor" data-klaus-tooltips="off" data-pip-work-panel="thread">
+      <div class="artifacts-header" data-pip-panel-header>
+        <!-- Tab strip. Every panel surface is a tab: Monitor is the fixed landing
+             tab; files, Spec, terminals, browser pages, changes and side tasks
+             are closable instance tabs created on demand. The React root in
+             src/chat/panels/panel-tabs.tsx is the ONLY renderer of this strip;
+             nothing else may inject
+             buttons here. -->
+        <div id="artifacts-tabs" class="artifacts-tabs" role="tablist"></div>
+        <!-- Maximize applies to every surface, not just the browser: the panel
+             takes the whole content area and the sidebar folds away, then
+             restore puts both back where they were. -->
+        <button id="artifacts-maximize-toggle" class="artifacts-toggle-btn artifacts-maximize-toggle" data-i18n-aria-label="artifacts_maximize" aria-label="Maximize panel" aria-pressed="false">
+          <span data-kls-icon="panel-maximize-expand"></span>
+          <span data-kls-icon="panel-maximize-restore"></span>
+        </button>
+        <button id="artifacts-panel-toggle-inner" class="artifacts-toggle-btn" data-i18n-aria-label="artifacts_toggle" aria-label="Toggle monitor panel">
+          <span data-kls-icon="titlebar-panel-toggle"></span>
+        </button>
+      </div>
+	      <div class="artifacts-body" data-pip-home-surface="thread-summary-panel">
+	        <div class="artifacts-section browser-panel-section" id="monitor-section-browser">
+	          <div class="browser-toolbar">
+	            <button id="browser-back" class="browser-tool-btn" data-i18n-aria-label="browser_back" aria-label="Back">
+	              <span data-kls-icon="browser-nav-back"></span>
+	            </button>
+	            <button id="browser-forward" class="browser-tool-btn" data-i18n-aria-label="browser_forward" aria-label="Forward">
+	              <span data-kls-icon="browser-nav-forward"></span>
+	            </button>
+	            <button id="browser-reload" class="browser-tool-btn" data-i18n-aria-label="browser_reload" aria-label="Reload">
+	              <span data-kls-icon="browser-nav-reload"></span>
+	            </button>
+	            <input id="browser-url-input" class="browser-url-input" data-i18n-placeholder="browser_url_placeholder" placeholder="Enter URL" autocomplete="off" spellcheck="false">
+	            <button id="browser-screenshot" class="browser-tool-btn" data-i18n-aria-label="browser_screenshot" aria-label="Screenshot">
+	              <span data-kls-icon="browser-nav-screenshot"></span>
+	            </button>
+	          </div>
+	          <div id="browser-panel-host" class="browser-panel-host">
+	            <div id="browser-panel-empty" class="browser-panel-empty" data-i18n="browser_use_open">Open Browser</div>
+	          </div>
+	        </div>
+        <!-- The overview reads top-down as: what this conversation plans, which
+             background agents and processes are active or finished, what it
+             produced, and what it leaned on. Plan, subagents, background processes,
+             artifacts, and references remain standing before they have entries. -->
+        <!-- Plan: the current authoritative Task snapshot for this conversation. -->
+        <div class="artifacts-section artifacts-section-overview" id="monitor-section-plan" data-pip-summary-section>
+          <div class="artifacts-section-header">
+            <span class="artifacts-section-title" data-i18n="overview_plan_title">Plan</span>
+          </div>
+          <div class="artifacts-section-body">
+            <div class="artifacts-group" id="monitor-plan-group-tasks" hidden>
+              <div class="artifacts-group-body" id="monitor-tasks-body"></div>
+            </div>
+            <div class="ctx-empty" id="monitor-plan-empty" data-i18n="overview_plan_empty">Progress appears here once tasks are generated</div>
+          </div>
+        </div>
+        <div class="artifacts-section artifacts-section-overview" id="monitor-section-subagents" data-pip-summary-section>
+          <div class="artifacts-section-header">
+            <span class="artifacts-section-title" data-i18n="overview_subagents_title">Subagents</span>
+          </div>
+          <div class="artifacts-section-body" id="monitor-subagents-body">
+            <div class="ctx-empty" data-i18n="overview_subagents_empty">No background subagents yet</div>
+          </div>
+        </div>
+        <div class="artifacts-section artifacts-section-overview" id="monitor-section-background-processes" data-pip-summary-section>
+          <div class="artifacts-section-header">
+            <span class="artifacts-section-title" data-i18n="overview_background_processes_title">Background processes</span>
+          </div>
+          <div class="artifacts-section-body" id="monitor-background-processes-body">
+            <div class="ctx-empty" data-i18n="overview_background_processes_empty">No background processes yet</div>
+          </div>
+        </div>
+        <div class="artifacts-section artifacts-section-overview" id="monitor-section-computer-use" hidden data-pip-summary-section>
+          <div class="artifacts-section-header">
+            <span class="artifacts-section-title" data-i18n="computer_use_pip_title">Computer Use</span>
+          </div>
+          <div class="artifacts-section-body" id="monitor-computer-use-body"></div>
+        </div>
+        <div class="artifacts-section workspace-file-sidebar" id="monitor-section-workspace">
+          <div class="artifacts-section-header">
+            <span class="artifacts-section-title" data-i18n="artifacts_section_outputs">Workspace</span>
+          </div>
+          <div class="artifacts-section-body">
+            <div id="workspace-tree-resizer" role="separator" tabindex="0" aria-orientation="vertical" data-i18n-aria-label="workspace_tree_resize" aria-label="Resize file tree"></div>
+            <div id="artifacts-list" class="artifacts-list"></div>
+          </div>
+        </div>
+        <!-- Artifacts: the files THIS conversation changed, from the engine's own
+             per-edit record. It used to BE the git changed-file list under a
+             second title, which meant a cwd outside a repository printed "not a
+             git repository" where the produced files belong, and a mid-session
+             commit erased what the conversation had done. Project-wide git
+             state remains available in the dedicated Changes surface. -->
+        <div class="artifacts-section artifacts-section-overview" id="monitor-section-artifacts" data-pip-summary-section>
+          <div class="artifacts-section-header">
+            <span class="artifacts-section-title" data-i18n="overview_artifacts_title">Artifacts</span>
+            <span class="artifacts-section-meta" id="monitor-artifacts-count"></span>
+          </div>
+          <div class="artifacts-section-body" id="monitor-artifacts-body"></div>
+        </div>
+        <!-- References: what this conversation actually leaned on, grouped by the
+             page that owns each kind (skills / memory / connectors). Sub-tabs
+             instead of one long list so a busy session stays readable, and a tab
+             with nothing in it is not rendered at all. -->
+        <div class="artifacts-section artifacts-section-overview" id="monitor-section-references" data-pip-summary-section>
+          <div class="artifacts-section-header">
+            <span class="artifacts-section-title" data-i18n="references_panel_title">References</span>
+          </div>
+          <div class="artifacts-section-body">
+            <div class="artifacts-subtabs" id="monitor-references-tabs" role="tablist"></div>
+            <div id="monitor-references-body"></div>
+          </div>
+        </div>
+        <!-- Changes owns its review toolbar, diff list and file tree. -->
+        <div id="diff-view">
+          <div id="diff-view-content"></div>
+        </div>
+        <!-- Workspace file surface — lives inside the panel (data-mode="workspace"):
+             explorer tree in the left column, file tabs + preview here. -->
+        <div id="workspace-main-view" aria-label="Workspace file">
+          <div class="workspace-file-empty" id="workspace-file-empty"></div>
+          <div class="workspace-file-shell" id="workspace-file-shell" hidden>
+            <div class="workspace-file-tabs" id="workspace-file-tabs" role="tablist" aria-label="Open workspace files"></div>
+            <div class="workspace-file-header">
+              <div class="workspace-file-titleblock">
+                <div class="workspace-file-title" id="workspace-file-title"></div>
+                <div class="workspace-file-meta">
+                  <div class="workspace-file-path" id="workspace-file-path"></div>
+                  <span class="workspace-file-status" id="workspace-file-status" hidden></span>
+                </div>
+              </div>
+              <div class="workspace-file-actions">
+                <div class="workspace-file-view-toggle" id="workspace-file-view-toggle" hidden>
+                  <button type="button" class="workspace-file-view-btn" id="workspace-file-view-preview" data-i18n-aria-label="artifacts_view_preview" aria-label="Preview">
+                    <span data-kls-icon="ws-file-preview"></span>
+                  </button>
+                  <button type="button" class="workspace-file-view-btn" id="workspace-file-view-source" data-i18n-aria-label="artifacts_view_source" aria-label="Source">
+                    <span data-kls-icon="ws-file-source"></span>
+                  </button>
+                </div>
+                <div class="workspace-file-zoom-controls" id="workspace-file-zoom-controls" hidden>
+                  <button type="button" class="workspace-file-zoom-btn" id="workspace-file-zoom-out" data-i18n-aria-label="workspace_zoom_out" aria-label="Zoom out">
+                    <span data-kls-icon="ws-file-zoom-out"></span>
+                  </button>
+                  <button type="button" class="workspace-file-zoom-label" id="workspace-file-zoom-fit" data-i18n-aria-label="workspace_zoom_fit" aria-label="Fit image">Fit</button>
+                  <button type="button" class="workspace-file-zoom-btn" id="workspace-file-zoom-reset" data-i18n-aria-label="workspace_zoom_reset" aria-label="Actual size">1:1</button>
+                  <button type="button" class="workspace-file-zoom-btn" id="workspace-file-zoom-in" data-i18n-aria-label="workspace_zoom_in" aria-label="Zoom in">
+                    <span data-kls-icon="ws-file-zoom-in"></span>
+                  </button>
+                </div>
+                <button class="kls-icon-btn" id="workspace-file-copy" data-i18n-aria-label="artifacts_copy_path" aria-label="Copy path">
+                  <span data-kls-icon="ws-file-copy"></span>
+                </button>
+                <button class="kls-icon-btn" id="workspace-file-reveal" data-i18n-aria-label="workspace_menu_reveal" aria-label="Reveal in folder">
+                  <span data-kls-icon="ws-file-reveal"></span>
+                </button>
+              </div>
+            </div>
+            <div class="workspace-file-truncated" id="workspace-file-truncated" hidden></div>
+            <div class="workspace-file-body" id="workspace-file-body"></div>
+          </div>
+        </div>
+        <!-- Integrated terminal — a first-class panel mode (data-mode="terminal").
+             Lives here (not in #main) so the side rail / header tabs can swap
+             it in and out like every other panel surface. xterm sessions stay
+             alive across mode switches; only visibility changes. -->
+        <section id="terminal-panel" class="terminal-panel" data-terminal-state="idle" hidden aria-label="Terminal">
+          <!-- Every pty of this conversation lives in this side list, under a
+               single Terminal tab in the strip above: a second shell costs a
+               row here instead of a whole outer tab, so the strip stays about
+               surfaces (Monitor / Files / Terminal) rather than filling up with
+               near-identical shells. -->
+          <div class="terminal-list" aria-label="Terminals">
+            <div class="terminal-list-header">
+              <span class="terminal-list-count" id="terminal-list-count"></span>
+              <button id="terminal-list-new" class="terminal-list-new" type="button" data-i18n-aria-label="terminal_new" aria-label="New terminal">
+                <span data-kls-icon="terminal-list-new"></span>
+              </button>
+            </div>
+            <div class="terminal-list-body" id="terminal-list-body" role="tablist" aria-orientation="vertical"></div>
+          </div>
+          <div id="terminal-container" class="terminal-container"></div>
+        </section>
+        <!-- Side-chat surface (data-mode="side-chat"): a self-contained mini
+             conversation that lives beside the main chat. Its own
+             tab row (side tasks + new), transcript and composer; it never takes
+             over the main area. -->
+        <section id="side-chat-panel" class="side-chat-panel" aria-label="Side task">
+          <div id="side-chat-expired" class="side-chat-expired" hidden>
+            <span data-i18n="side_task_expired">This side task has expired.</span>
+            <button id="side-chat-recreate" type="button" data-i18n="side_task_recreate">Create side task</button>
+          </div>
+          <div id="side-messages" class="side-messages" tabindex="-1"></div>
+          <div id="side-chat-empty" class="side-chat-empty" role="status" aria-live="polite" hidden></div>
+          <!-- The side composer is a clone of the main #input-wrapper (identical
+               markup/behaviour), injected here by chat.js so the side chat's
+               composer matches the main chat exactly. -->
+          <div id="side-composer-host" class="side-composer-host"></div>
+        </section>
+        <!-- Dynamic subagent detail surface. Monitor rows create task-specific,
+             closable tabs; this body renders whichever task tab is active. -->
+        <section id="subagent-panel" class="subagent-panel" aria-label="Subagent">
+          <div id="subagent-detail-view" class="subagent-detail-view">
+            <div class="subagent-panel-header">
+              <span id="subagent-panel-avatar" class="subagent-panel-avatar"></span>
+              <span class="subagent-panel-heading">
+                <span id="subagent-panel-title" class="subagent-panel-title"></span>
+                <span id="subagent-panel-description" class="subagent-panel-description"></span>
+              </span>
+              <span id="subagent-panel-model" class="subagent-panel-model" hidden></span>
+            </div>
+            <div id="subagent-messages" class="subagent-messages"></div>
+          </div>
+        </section>
+        <!-- Background process detail is an owned, nonpersistent panel tab. The
+             process remains session-scoped; closing this view never stops it. -->
+        <section id="background-process-panel" class="background-process-panel" data-i18n-aria-label="background_process_detail" aria-label="Background process">
+          <div class="background-process-panel-header">
+            <span class="background-process-panel-icon" aria-hidden="true" data-kls-icon="tool-bash"></span>
+            <span class="background-process-panel-heading">
+              <span id="background-process-panel-command" class="background-process-panel-command"></span>
+              <span id="background-process-panel-status" class="background-process-panel-status"></span>
+            </span>
+            <button id="background-process-panel-stop" class="background-process-panel-stop" type="button" data-i18n="background_process_stop">Stop</button>
+          </div>
+          <dl class="background-process-panel-meta">
+            <div id="background-process-panel-pid-row" hidden><dt data-i18n="background_process_pid">PID</dt><dd id="background-process-panel-pid"></dd></div>
+            <div><dt data-i18n="background_process_cwd">Working directory</dt><dd id="background-process-panel-cwd"></dd></div>
+          </dl>
+          <div id="background-process-panel-error" class="background-process-panel-error" role="status" hidden></div>
+          <div class="background-process-output-heading" data-i18n="background_process_output">Output</div>
+          <pre id="background-process-panel-output" class="background-process-panel-output" tabindex="0"></pre>
+        </section>
+        <!-- Spec is a normal right-panel tab. The shared tab strip owns its close
+             affordance; this section contains only document-specific controls. -->
+        <section id="spec-panel" class="spec-panel spec-document-panel" aria-label="Spec">
+          <!-- The document controller retains each document and its annotation
+               draft while the shared outer tab remains a single Spec surface. -->
+          <div class="spec-document-empty" data-i18n="spec_document_empty">Spec documents will appear here once generated.</div>
+        </section>
+        <!-- Canvas is rendered by an isolated native child webview over this host.
+             The placeholder owns layout only; canvas.html keeps the generated
+             component away from the main window's full host bridge. -->
+        <section id="canvas-panel" class="canvas-panel" aria-label="Canvas">
+          <div id="canvas-panel-host" class="canvas-panel-host"></div>
+        </section>
+        <!-- The isolated editor paints over this rectangle using the shared tab chrome. -->
+        <section id="prototype-panel" class="prototype-panel" data-i18n-aria-label="prototype_title" aria-label="Prototype">
+          <div id="prototype-panel-host" class="prototype-panel-host"></div>
+        </section>
+        <section id="video-editing-panel" class="video-editing-panel" data-i18n-aria-label="video_editing_title" aria-label="Video Editing">
+          <div id="video-editing-panel-host" class="video-editing-panel-host"></div>
+        </section>
+        <section id="ppt-panel" class="ppt-panel" data-i18n-aria-label="ppt_title" aria-label="PPT">
+          <div id="ppt-panel-host" class="ppt-panel-host"></div>
+        </section>
+        <!-- Diagram surface (data-mode="digram"): the digram plugin's own
+             render panel. The agent (or a hand-written .digram.json) produces a
+             declarative document; this panel draws it with the in-house SVG
+             renderer (src/chat/digram/), never draw.io. Toolbar owns zoom,
+             export (PNG/JPG/SVG) and undo/redo; the SVG host is where render.ts
+             writes and where edit.ts wires drag editing. -->
+        <section id="digram-panel" class="digram-panel" aria-label="Diagram">
+          <div class="digram-toolbar">
+            <select id="digram-doc-select" class="digram-doc-select" aria-label="Diagram"></select>
+            <div class="digram-toolbar-spacer"></div>
+            <button id="digram-undo" class="digram-tool-btn" data-i18n-aria-label="digram_undo" aria-label="Undo" disabled>
+              <span data-kls-icon="digram-undo"></span>
+            </button>
+            <button id="digram-redo" class="digram-tool-btn" data-i18n-aria-label="digram_redo" aria-label="Redo" disabled>
+              <span data-kls-icon="digram-redo"></span>
+            </button>
+            <div class="digram-toolbar-sep"></div>
+            <button id="digram-zoom-out" class="digram-tool-btn" data-i18n-aria-label="digram_zoom_out" aria-label="Zoom out">
+              <span data-kls-icon="digram-zoom-out"></span>
+            </button>
+            <button id="digram-zoom-fit" class="digram-zoom-label" data-i18n-aria-label="digram_zoom_fit" aria-label="Fit">Fit</button>
+            <button id="digram-zoom-reset" class="digram-tool-btn" data-i18n-aria-label="digram_zoom_reset" aria-label="Actual size">1:1</button>
+            <button id="digram-zoom-in" class="digram-tool-btn" data-i18n-aria-label="digram_zoom_in" aria-label="Zoom in">
+              <span data-kls-icon="digram-zoom-in"></span>
+            </button>
+            <div class="digram-toolbar-sep"></div>
+            <button id="digram-export" class="digram-tool-btn" data-i18n-aria-label="digram_export" aria-label="Export">
+              <span data-kls-icon="digram-export"></span>
+            </button>
+          </div>
+          <div id="digram-canvas" class="digram-canvas">
+            <div id="digram-empty" class="digram-empty" data-i18n="digram_empty">No diagram yet</div>
+          </div>
+        </section>
+
+        <!-- 3D surface (data-mode="blender"): the blender plugin's viewport. A
+             persistent headless Blender owns the document; this panel draws it
+             with three.js (src/chat/blender/) and drags against it, so an agent
+             tool call and a user drag mutate the same scene. The overlay layers
+             sit above the canvas: the install card is the only route to the
+             ~350 MB runtime download, and the outliner/inspector are the panels
+             a 3D user expects. -->
+        <section id="model3d-panel" class="model3d-panel" aria-label="3D Studio">
+          <div class="model3d-toolbar">
+            <select id="model3d-doc-select" class="model3d-doc-select" aria-label="3D scene"></select>
+            <span id="model3d-title" class="model3d-title" data-i18n="model3d_title">3D Studio</span>
+            <button id="model3d-play" class="model3d-tool-btn" data-i18n-aria-label="model3d_play" aria-label="Play animation" hidden>
+              <span data-kls-icon="goal-resume"></span>
+            </button>
+            <select id="model3d-clip" class="model3d-doc-select" data-i18n-aria-label="model3d_clip" aria-label="Animation clip" hidden></select>
+            <input id="model3d-frame" type="range" min="1" max="250" value="1" step="1" data-i18n-aria-label="model3d_frame" aria-label="Animation frame" style="width:100px;min-width:40px" hidden>
+            <output id="model3d-frame-value" hidden>1</output>
+            <div class="model3d-toolbar-spacer"></div>
+            <button id="model3d-fit" class="model3d-tool-btn" data-i18n-aria-label="model3d_fit" aria-label="Frame all">
+              <span data-kls-icon="model3d-fit"></span>
+            </button>
+            <button id="model3d-grid" class="model3d-tool-btn" data-i18n-aria-label="model3d_grid" aria-label="Toggle grid">
+              <span data-kls-icon="model3d-grid"></span>
+            </button>
+          </div>
+          <div id="model3d-viewport" class="model3d-viewport">
+            <div id="model3d-empty" class="model3d-empty" data-i18n="model3d_empty">No 3D scene yet</div>
+            <div id="model3d-outliner" class="model3d-outliner" hidden></div>
+            <div id="model3d-inspector" class="model3d-inspector" hidden></div>
+          </div>
+          <div id="model3d-statusbar" class="model3d-statusbar" hidden>
+            <span id="model3d-status-text"></span>
+          </div>
+        </section>
+      </div>
+    </aside>
+
+    <!-- Artifact preview is now a separate native BrowserWindow.
+         See main/artifact-window.ts + renderer/artifact.html. -->
+
+
+    <!-- Settings view — full-window overlay (covers both chat sidebar and main) -->
+    <div id="settings-view">
+      <!-- Settings sidebar — React 岛（src/pages/settings/settings-nav.tsx）：
+           返回键 + 分组 + 20 个 tab 项与其 path-fill 字形全部组件内渲染。 -->
+      <div class="settings-sidebar"></div>
+      <div class="settings-main">
+        <div class="settings-content" id="settings-content"></div>
+      </div>
+    </div>
+
+    <!-- Drop overlay -->
+    <div class="drop-overlay" id="drop-overlay">
+      <span data-kls-icon="drop-overlay"></span>
+      <span data-i18n="drop_files">Drop files to upload</span>
+    </div>
+  </div>
+
+  <!-- Keep the viewport-positioned picker outside animated and scrolling composer ancestors. -->
+  <div id="slash-menu" class="slash-menu kls-select-panel hidden" role="listbox" aria-label="Slash commands"></div>
+
+  <!-- 唯一 JS 入口：bridge + 全部 UI 脚本的保序 import 链见 src/main.ts。
+       module 求值时序等价于旧 defer 链（DOM 就绪后、DOMContentLoaded 前）。 -->
+  <script type="module" src="src/main.ts"></script>
+</body>
+</html>

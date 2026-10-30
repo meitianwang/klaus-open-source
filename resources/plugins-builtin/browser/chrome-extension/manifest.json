@@ -1,0 +1,62 @@
+{
+  "manifest_version": 3,
+  "name": "Klaus",
+  "version": "0.1.0",
+  "description": "Control Chrome with Klaus.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAsHG8yZblva3ItjpFuCmWaLpE0/QFuH+Fy1aElFVDY4j6wnjrr+b//3gIIj8fkbmE20OQvH52VnD0avvVhgkFcaX2ozlq0Ohn8E1L/0XQw0eSFykZVumXD6T6djPrseN5cnl2tuxCCUD+Dc13UPytMCgu/jQiW4w7FkGQOZOGEM+ExL811wQfuqNRYzzgngF4Ix0+SIfOJl+lV20tucAhorQzT+J5+E3OS2wMPyPyVKdCzhsE9U4O1hkmsiWKnGeSzVgGXfuBPrF2HU8l4D0k2hoBm2mci8KlAN8wps8Pg4AOdrtiTxRTMORPeoZgHoPXZCw+AphTDZxAHFmV6KcwcQIDAQAB",
+  "action": {
+    "default_icon": {
+      "16": "images/icon16.png",
+      "32": "images/icon32.png",
+      "48": "images/icon48.png",
+      "128": "images/icon128.png"
+    },
+    "default_popup": "popup.html",
+    "default_title": "Klaus"
+  },
+  "icons": {
+    "16": "images/icon16.png",
+    "32": "images/icon32.png",
+    "48": "images/icon48.png",
+    "128": "images/icon128.png"
+  },
+  "permissions": [
+    "alarms",
+    "bookmarks",
+    "contentSettings",
+    "debugger",
+    "downloads",
+    "downloads.ui",
+    "favicon",
+    "history",
+    "nativeMessaging",
+    "notifications",
+    "readingList",
+    "scripting",
+    "sessions",
+    "storage",
+    "tabGroups",
+    "tabs",
+    "topSites"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'none'; connect-src 'self'; font-src 'self' https://cdn.openai.com;"
+  },
+  "web_accessible_resources": [
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "resources": [
+        "images/cursor-chat.png"
+      ]
+    }
+  ]
+}

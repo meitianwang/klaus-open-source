@@ -1,0 +1,76 @@
+{
+  "reason": "Ultra is a raw reasoning selection projected from the stored menu preset. The final child reasoning selection determines its built-in delegation mode; configured or model-owned hint text takes precedence. Saved native preferences remain available when leaving the preset. Ultra requests resolve the supported collaboration effort, then max, then the last declared non-Ultra value, then medium. A native selection atomically exits Ultra, including direct reasoning writes. Existing chats retain their own selection without replacing future defaults. Role fields are applied after validated call/default selections. Full-history forks inherit the initiating step's configuration. Shared tree execution permits and resident reservations have separate lifetimes; completion does not unload a resident. Permission changes retain their own confirmation and rollback contracts.",
+  "mode": "ultra",
+  "requestEffort": {
+    "preferredField": "multiAgentReasoningEffort",
+    "fallbackOrder": ["max", "lastDeclaredNative", "medium"],
+    "preserveCustomValues": true,
+    "persistentMapping": "disabled",
+    "normalizeUltraResultRecursively": false
+  },
+  "ordinaryModeWithoutSpawnTool": true,
+  "internalQueriesReceiveDelegationMode": false,
+  "reselectionKeepsEnabled": true,
+  "defaultWriteScope": "draft",
+  "noNativeEffortMenu": ["default", "ultra"],
+  "restrictedPermission": "default",
+  "noEffortChoices": [],
+  "limitedModelChoices": [
+    "low",
+    "high"
+  ],
+  "workflowCapability": true,
+  "scopedRestrictedPermission": {
+    "defaultMode": "default",
+    "before": "bypassPermissions",
+    "after": "default",
+    "publicationScope": "session"
+  },
+  "wireField": "ultraMode",
+  "nativeMenuSelection": {
+    "level": "low",
+    "ultraMode": false,
+    "publicationCount": 1
+  },
+  "storedPreferenceCases": [
+    {
+      "nativeEffort": "low",
+      "ultraMode": true
+    },
+    {
+      "nativeEffort": "off",
+      "ultraMode": true
+    },
+    {
+      "nativeEffort": "max",
+      "ultraMode": false
+    }
+  ],
+  "childSelection": {
+    "stages": ["capturedParent", "validatedCallOrDefault", "explicitRoleFields"],
+    "invalidCallFailsBeforeRole": true,
+    "modelOnlyCallUsesModelDefault": true,
+    "modelOnlyRoleKeepsSelectedEffort": true,
+    "ordinaryEffortOverridesInheritedUltra": true,
+    "rawEffort": ["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra", "persistent", "custom"],
+    "forkTurnsDefault": "all",
+    "legacyForkContext": "rejected",
+    "fullForkAppliesModelAndEffort": true,
+    "fullForkHasImplicitTurnCeiling": false,
+    "explorationModelDefault": "inherit",
+    "runningChildrenFollowParentSettingChanges": false,
+    "workflowUsesInitiatingStepCapture": true
+  },
+  "concurrency": {
+    "configuredTotalDefault": 4,
+    "defaultChildCapacity": 3,
+    "rootCountsAsExecution": false,
+    "waitingChildRetainsExecutionPermit": true,
+    "executionAdmission": "checkThenAdmit",
+    "completionUnloadsResident": false,
+    "fullResidency": "evictEligibleLruOrReject",
+    "depthLimitEnforced": false,
+    "workflowSharesTreeLimits": true,
+    "creationResultRequiresInputAdmission": true
+  }
+}

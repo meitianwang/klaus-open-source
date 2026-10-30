@@ -1,0 +1,331 @@
+.pet-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  color: var(--fg);
+}
+.pet-settings button,
+.pet-settings-shortcut button,
+.pet-settings input,
+.pet-settings select,
+.pet-settings summary {
+  font: inherit;
+  color: inherit;
+}
+.pet-settings button,
+.pet-settings-shortcut button,
+.pet-settings summary {
+  cursor: pointer;
+}
+.pet-settings button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.pet-settings-button {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-elevated);
+  color: var(--fg);
+  padding: 6px 11px;
+  font-size: 12px;
+  white-space: nowrap;
+  line-height: 1.4;
+}
+.pet-settings-button:hover {
+  background: var(--bg-hover);
+}
+.pet-settings-icon {
+  border: 0;
+  background: transparent;
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 17px;
+  line-height: 1;
+}
+.pet-settings-icon:hover {
+  background: var(--bg-hover);
+}
+.pet-settings-shortcut {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--fg-secondary);
+  font-size: 12px;
+  flex-wrap: wrap;
+}
+.pet-settings-shortcut > button:not(.pet-settings-icon) {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 3px 7px;
+  min-height: 26px;
+}
+.pet-settings-shortcut .capturing {
+  outline: 2px solid var(--input-focus);
+}
+.pet-settings-shortcut kbd {
+  font: inherit;
+}
+.pet-settings-shortcut > .pet-shortcut-cancel {
+  border: 0;
+  background: transparent;
+  padding: 3px;
+}
+.pet-settings-section {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+.pet-settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  min-height: 58px;
+}
+.pet-settings-row > div:first-child {
+  min-width: 0;
+}
+.pet-settings-row label {
+  font-size: 13px;
+  font-weight: 500;
+}
+.pet-settings-row p {
+  font-size: 12px;
+  color: var(--fg-secondary);
+  margin: 5px 0 0;
+  line-height: 1.5;
+}
+.pet-settings-preview {
+  position: relative;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 22px 20px;
+  min-height: 210px;
+  overflow: hidden;
+}
+.pet-preview-art {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  pointer-events: none;
+  user-select: none;
+}
+.pet-sprite {
+  background-repeat: no-repeat;
+  flex: none;
+}
+.pet-preview-mini,
+.pet-none-art {
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 28px;
+  width: 170px;
+  height: 43px;
+  box-shadow: 0 4px 12px #00000010;
+  padding: 0 8px;
+}
+.pet-preview-mini span:first-child,
+.pet-none-art span:first-child {
+  font-size: 23px;
+}
+.pet-preview-mini i,
+.pet-none-art i {
+  height: 18px;
+  width: 1px;
+  background: var(--border);
+}
+.pet-preview-customize {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+}
+.pet-settings-section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.pet-settings-section-heading h2 {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 0;
+}
+.pet-settings-section-heading > div {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.pet-settings-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+.pet-settings-tile-wrap {
+  position: relative;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  min-width: 0;
+}
+.pet-settings-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 224px;
+  width: 100%;
+  text-align: center;
+  border: 1px solid transparent;
+  border-radius: 16px;
+  background: var(--bg);
+  padding: 18px 12px;
+}
+.pet-settings-grid > .pet-settings-tile {
+  border-color: var(--border);
+}
+.pet-settings-tile .pet-sprite {
+  pointer-events: auto;
+}
+.pet-settings-tile:hover {
+  background: var(--bg-hover);
+}
+.pet-settings-tile strong {
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+.pet-settings-tile p {
+  font-size: 12px;
+  color: var(--fg-secondary);
+  line-height: 1.45;
+  margin: -6px 0 0;
+  min-height: 35px;
+  max-width: 190px;
+}
+.pet-settings-tile-wrap.selected,
+.pet-settings-grid > .pet-settings-tile.selected {
+  border-color: var(--border-strong, var(--border));
+  box-shadow: 0 0 0 1px var(--border-strong, var(--border));
+}
+.pet-none-art {
+  margin: 28px 0 25px;
+  width: 128px;
+  height: 38px;
+  font-size: 13px;
+}
+.pet-tile-update {
+  position: absolute;
+  right: 10px;
+  top: 10px;
+}
+.pet-settings-dialog {
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 21px 24px;
+  width: 560px;
+  max-width: calc(100vw - 40px);
+  margin: auto;
+  box-shadow: 0 20px 80px #00000030;
+}
+.pet-settings-dialog::backdrop {
+  background: #0005;
+  backdrop-filter: blur(3px);
+}
+.pet-dialog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+.pet-dialog-header h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+.pet-dialog-header > button {
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  font-size: 22px;
+  color: var(--fg-secondary);
+}
+.pet-size-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.pet-size-control input {
+  width: 150px;
+  accent-color: var(--input-focus, #4388e8);
+}
+.pet-size-control button {
+  border: 0;
+  border-radius: 6px;
+  padding: 5px 8px;
+  background: transparent;
+  font-size: 12px;
+}
+.pet-size-control button:hover {
+  background: var(--bg-hover);
+}
+.pet-settings-error {
+  position: relative;
+  padding: 10px 32px 10px 12px;
+  border: 1px solid #e34e4e60;
+  background: #e34e4e0b;
+  border-radius: 8px;
+  color: var(--danger, #e34e4e);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.pet-settings-error > button {
+  position: absolute;
+  top: 5px;
+  right: 7px;
+  background: transparent;
+  border: 0;
+  color: inherit;
+  font-size: 20px;
+}
+.pet-settings-empty {
+  padding: 24px;
+  color: var(--fg-secondary);
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+@media (max-width: 760px) {
+  .pet-settings-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .pet-settings-row {
+    align-items: flex-start;
+  }
+  .pet-size-control {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+}
+@media (max-width: 430px) {
+  .pet-settings-grid {
+    grid-template-columns: 1fr;
+  }
+  .pet-settings-shortcut {
+    flex-wrap: wrap;
+  }
+  .pet-settings-section-heading {
+    align-items: flex-start;
+  }
+}

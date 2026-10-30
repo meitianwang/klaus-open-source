@@ -1,0 +1,19 @@
+/* Window resets must remain local even when stylesheets share a bundle. */
+:where(html[data-klaus-window="voice-chat"]),
+:where([data-klaus-window="voice-chat"]) body,
+:where([data-klaus-window="voice-chat"]) #root { margin: 0; width: 100%; height: 100%; overflow: hidden; background: transparent; user-select: none; }
+html[data-klaus-window="voice-chat"] { --fg: #1a1c1f; --bg: #fff; --bg-hover: #e9e9e9; --border: #d0d0d0; }
+html[data-klaus-window="voice-chat"][data-theme="dark"] { --fg: #f3f3f3; --bg: #1c1c1c; --bg-hover: #444; --border: #666; }
+.voice-chat-native { position: absolute; right: 28px; bottom: 8px; width: 112px; height: 154px; }
+.voice-chat-native-orb { display: grid; place-items: center; position: absolute; inset: 0 0 auto; width: 112px; height: 121px; border: 0; padding: 0; background: transparent; cursor: pointer; }
+.voice-chat-native[data-voice-phase="inactive"] .voice-chat-launch-dot { animation: none; }
+.voice-chat-native-controls { position: absolute; left: 12px; top: 110px; width: 88px; height: 38px; }
+.voice-chat-native-controls .voice-chat-control { position: absolute; width: 24px; height: 24px; border: 1px solid color-mix(in srgb, var(--fg) 15%, transparent); background: color-mix(in srgb, var(--bg) 80%, transparent); backdrop-filter: blur(18px); box-shadow: 0 1px 6px #00000012; color: var(--fg); }
+.voice-chat-native-controls [data-voice-chat-action="microphone"] { left: 0; top: 0; }
+.voice-chat-native-controls [data-voice-chat-action="end"] { left: 32px; top: 7px; }
+.voice-chat-native-controls [data-voice-chat-action="speaker"] { left: 64px; top: 0; }
+.voice-chat-native-controls .voice-chat-glyph svg { width: 14px; height: 14px; }
+.voice-chat-native-controls .voice-chat-microphone-muted { background: #e02e2a; color: #fff; }
+.voice-chat-native-controls .voice-chat-output-muted { background: color-mix(in srgb, var(--fg) 18%, var(--bg)); }
+.voice-chat-native-error { position: absolute; right: -20px; bottom: calc(100% + 8px); width: max-content; max-width: 260px; box-sizing: border-box; margin: 0; padding: 10px 14px; border: 1px solid color-mix(in srgb, #d5312d 25%, transparent); border-radius: 18px; background: var(--bg); box-shadow: 0 2px 12px #00000018; font: 12px/1.4 system-ui; color: #d5312d; text-align: left; overflow-wrap: anywhere; }
+.voice-chat-native-error-below { top: calc(100% + 8px); bottom: auto; }

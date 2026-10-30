@@ -1,0 +1,2201 @@
+/* Animations used across this module. They live here rather than in
+   css/styles.css because CSS Modules localizes animation names: a bare
+   reference to a keyframes defined outside the module compiles to a scoped
+   name nothing defines, and the element renders frozen. */
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes thinking-bounce {
+  0%, 80%, 100% { opacity: 0.3; transform: scale(0.8); }
+  40% { opacity: 1; transform: scale(1); }
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 1; }
+}
+
+@keyframes ctx-spin { to { transform: rotate(360deg); } }
+
+.code-block pre {
+  font-size: var(--code-font-size);
+}
+
+/* 发送后的附件行：外形全部来自 styles.css 的 .kls-attach-* primitive（与输入框
+   待发行同一份），这里只管行在气泡栈里的对齐：右对齐、不超过气泡宽。 */
+.sent-attachments {
+  justify-content: flex-end;
+  max-width: min(100%, 520px);
+}
+
+.user-image-thumb {
+  cursor: zoom-in;
+}
+
+/* 发送附件缩略图加载失败（图片清理后转录仍引用）：36px 方块里收成图标缺省。
+   图标由 TranscriptView 的 error 委派注入（.kls-media-broken-icon），alt 文件名
+   不展示——缩略图本就不带名字，气泡旁有名字卡。 */
+.user-image-thumb.is-media-broken {
+  cursor: default;
+}
+.user-image-thumb.is-media-broken img {
+  display: none;
+}
+.user-image-thumb.is-media-broken .kls-media-broken-icon svg,
+.user-image-thumb.is-media-broken .kls-media-broken-icon {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  opacity: 0.55;
+}
+
+/* 产物图（工具结果里的生成图）：限宽而不拉伸，一行放不下自然换行；
+   点击进 lightbox（zoom-in 光标就是那个承诺）。 */
+.media-figures {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 8px 0 4px;
+}
+
+/* 回合末尾的出图区块：它是正文列（.msg-group）的兄弟节点，必须跟回合改动卡、
+   图表卡同一套列约束——居中、限宽 720。少了这条约束，图会贴住容器左缘，而
+   正文列是居中的，两者就错开了。 */
+.turn-media {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  max-width: 720px;
+  margin: 4px auto;
+}
+
+.media-figure {
+  padding: 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+  overflow: hidden;
+  cursor: zoom-in;
+  line-height: 0px;
+  max-width: min(100%, 440px);
+}
+
+.media-figure img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+/* 加载失败的产物图（源文件被清理/移动，转录仍引用）：Chromium 会把 alt 文件名
+   画成破损图条，在 line-height:0 + overflow:hidden 的卡里叠成一团。收敛成图标
+   + 截断文件名的缺省卡（图标/文件名节点由 TranscriptView 的 error 委派注入，
+   见 .kls-media-broken-*），点击放大对它失效（见点击守卫）。 */
+.media-figure.is-media-broken {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  max-width: min(100%, 440px);
+  cursor: pointer;
+  line-height: 1.4;
+  color: var(--fg-tertiary);
+  font-size: var(--text-small);
+}
+.media-figure.is-media-broken img {
+  display: none;
+}
+.media-figure.is-media-broken .kls-media-broken-icon svg,
+.media-figure.is-media-broken .kls-media-broken-icon {
+  flex: none;
+  display: inline-flex;
+  width: 16px;
+  height: 16px;
+}
+.media-figure.is-media-broken .kls-media-broken-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  user-select: text;
+  cursor: text;
+}
+
+:global(.msg).notice {
+  display: inline-block;
+  background: var(--bg-surface);
+  color: var(--fg-tertiary);
+  border: 1px solid var(--border-subtle);
+  font-size: var(--text-small);
+  font-family: var(--font-mono);
+  padding: 4px 12px;
+  border-radius: 999px;
+  line-height: 1.5;
+}
+
+:global(.msg).notice:global(.multiline) {
+  max-width: min(720px, 100%);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  text-align: left;
+  white-space: pre-wrap;
+}
+
+:global(.msg-group).notice { display: flex; justify-content: flex-start; padding: 4px 0; }
+
+/* ===== Thinking ===== */
+.thinking-indicator {
+  max-width: 720px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 8px 0;
+  color: var(--fg-tertiary);
+  font-size: var(--text-body);
+}
+
+.thinking-dots { display: flex; gap: 4px; }
+
+.thinking-dots span {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--fg-quaternary);
+  animation: thinking-bounce 1.4s infinite;
+}
+
+.thinking-dots span:nth-child(2) { animation-delay: 0.16s; }
+
+.thinking-dots span:nth-child(3) { animation-delay: 0.32s; }
+
+.turn-activity-indicator {
+  max-width: 720px;
+  margin: 2px auto;
+  padding: 6px 10px;
+  color: var(--fg-tertiary);
+  animation: fade-in .15s ease;
+}
+
+.turn-activity-indicator :global(.streaming-dots) {
+  margin-left: 0;
+}
+
+.thinking-label {
+  font-weight: var(--weight-medium);
+}
+
+/* 进行中的思考内容跟主文档流一起长，不自己做限高滚动盒。它曾经是 max-height:200px
+ * + overflow-y:auto，代价是吸底裂成两套（盒内吸底 + 主视口吸底），而盒子内部滚动
+ * 不改外部高度，主视口根本感知不到思考在长。删掉容器后只剩一套吸底。 */
+.thinking-content {
+  flex-basis: 100%;
+  border-left: 2px solid var(--border);
+  padding-left: 12px;
+  margin-top: 4px;
+  margin-left: 2px;
+  font-size: var(--text-body);
+  color: var(--fg-tertiary);
+  line-height: var(--leading-prose);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.thinking-content:empty { display: none; }
+
+.thinking-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--text-small);
+  color: var(--fg-tertiary);
+  cursor: pointer;
+  padding: 4px 0;
+}
+
+.thinking-toggle:hover { color: var(--fg-secondary); }
+
+.thinking-chevron {
+  width: 12px;
+  height: 12px;
+  transition: transform .2s;
+}
+
+:global(.thinking-done):global(.open) .thinking-chevron { transform: rotate(90deg); }
+
+/* 已收口思考的展开体：同样不做限高内滚（理由同 .thinking-content——嵌套滚动容器
+ * 让吸底裂成两套）。展开动画改走 grid-template-rows 的 0fr → 1fr：它能过渡到
+ * 内容的真实高度，不用拿 max-height 假装一个上限（那个上限既剪掉长思考，又把它
+ * 变成一个新的内滚容器）。.thinking-done 本身是全局类，布局声明在 styles.css。 */
+:global(.thinking-done) {
+  display: grid;
+  grid-template-rows: auto 0fr;
+  transition: grid-template-rows .3s ease;
+}
+
+:global(.thinking-done):global(.open) { grid-template-rows: auto 1fr; }
+
+.thinking-detail {
+  /* grid 行被压到 0fr 时靠它裁切内容；展开后跟主文档流一起长。 */
+  overflow: hidden;
+  font-size: var(--text-body);
+  color: var(--fg-tertiary);
+  line-height: var(--leading-prose);
+  white-space: pre-wrap;
+  word-break: break-word;
+  border-left: 2px solid var(--border);
+  padding-left: 12px;
+}
+
+/* OpenAI 系思考摘要的节标题（formatThinkingHtml 从 **标题** 拆出）：独立成行，
+ * 比正文略重一档，连续多节之间留小间距，避免多个标题粘连成一行。 */
+.thinking-detail .thinking-headline,
+.thinking-content .thinking-headline {
+  display: block;
+  font-weight: var(--weight-medium);
+  color: var(--fg-secondary);
+}
+
+.thinking-detail .thinking-headline + .thinking-headline,
+.thinking-content .thinking-headline + .thinking-headline { margin-top: 4px; }
+
+/* ===== Process folds ===== */
+.activity-active-label,
+.activity-thinking-placeholder {
+  color: var(--fg-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.activity-thinking-placeholder { width: 100%; max-width: 720px; margin: 8px auto; color: var(--fg-activity); font-size: var(--text-body); line-height: 24px; }
+.activity-waiting-label {
+  position: relative;
+}
+.activity-waiting-sweep {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 100%;
+  overflow: hidden;
+  pointer-events: none;
+  transform: translateX(-50%);
+  mask-image: linear-gradient(90deg, #0000 0%, #000 20% 30%, #0000 50% 100%);
+}
+.activity-waiting-highlight {
+  display: block;
+  width: 100%;
+  color: var(--loading-shimmer-highlight, #ffffffbf);
+  transform: translateX(50%);
+}
+:global([data-theme="dark"]) .activity-waiting-highlight { color: var(--loading-shimmer-highlight, #0009); }
+.activity-waiting-label[data-sweeping] .activity-waiting-sweep { animation: activity-waiting-sweep 1s steps(48, end); }
+.activity-waiting-label[data-sweeping] .activity-waiting-highlight { animation: activity-waiting-highlight 1s steps(48, end); }
+@keyframes activity-waiting-sweep { from { transform: translateX(-50%); } to { transform: translateX(125%); } }
+@keyframes activity-waiting-highlight { from { transform: translateX(50%); } to { transform: translateX(-125%); } }
+@media (prefers-reduced-motion: reduce) {
+  .activity-waiting-sweep { display: none; }
+}
+
+/* ===== Tool items — 单行调用记录，可点击展开看 Input/Output =====
+ * 设计语言：每行独立的 inline 行（无外层共享竖线，避免多张工具粘连），左
+ * 侧细线 stroke icon 标识工具类别，状态收敛成右侧 pill 徽章。Hover 浅灰
+ * 底，open 后下方拉出 Input/Output detail（缩进对齐 icon 起始）。整体保
+ * 持极简，不引入卡片/阴影，与 thinking 胶囊和 agent-row 同档视觉重量。 */
+.tool-container {
+  max-width: 720px;
+  margin: 2px auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.tool-item-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 10px;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-small);
+  color: var(--fg-secondary);
+  cursor: pointer;
+  user-select: none;
+  transition: background var(--transition), color var(--transition);
+}
+
+.tool-item-header:hover { background: var(--bg-hover); }
+
+.tool-value {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-small);
+  color: var(--fg-tertiary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tool-value.terminal-cmd { color: var(--fg-secondary); }
+
+/* 状态 — running 浅灰底脉动点；done 极淡 ✓；error 收敛成小红点 */
+.tool-status {
+  font-size: var(--text-caption);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+  padding: 1px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+  font-weight: var(--weight-medium);
+}
+
+.tool-status:global(.running) {
+  color: var(--fg-tertiary);
+  background: var(--bg-surface);
+}
+
+/* 等待批准：与执行中同一副外观（同属在途），但点是静止的 */
+.tool-status:global(.awaiting) {
+  color: var(--fg-tertiary);
+  background: var(--bg-surface);
+}
+
+.tool-status:global(.awaiting) .tool-dot {
+  animation: none;
+}
+
+.tool-status:global(.done) {
+  color: var(--fg-quaternary);
+  padding: 1px 6px;
+}
+
+.tool-status:global(.error) {
+  color: var(--danger);
+  background: transparent;
+  padding: 1px 6px;
+}
+
+.tool-status:global(.interrupted) {
+  color: var(--fg-quaternary);
+  background: transparent;
+  padding: 1px 6px;
+}
+
+.tool-status:global(.interrupted) .tool-dot {
+  animation: none;
+}
+
+.tool-secondary { /* 历史/agent 沿用：灰小字，无背景 */
+  font-size: var(--text-caption);
+  color: var(--fg-quaternary);
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.tool-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: pulse 1.4s infinite;
+  flex-shrink: 0;
+}
+
+.tool-status:global(.error) .tool-dot {
+  width: 6px;
+  height: 6px;
+  animation: none;
+}
+
+.tool-status:global(.done) :global(.tool-check) {
+  width: 11px;
+  height: 11px;
+}
+
+.tool-item-header:hover :global(.tool-chevron) { opacity: 1; }
+
+:global(.tool-item):global(.done) .tool-value { color: var(--fg-quaternary); }
+
+:global(.tool-item):global(.done):hover .tool-value,
+:global(.tool-item):global(.done):global(.open)  .tool-value { color: var(--fg-tertiary); }
+
+:global(.tool-item):global(.interrupted) .tool-value { color: var(--fg-quaternary); }
+
+:global(.tool-item):global(.interrupted):hover .tool-value,
+:global(.tool-item):global(.interrupted):global(.open) .tool-value { color: var(--fg-tertiary); }
+
+.background-process-open {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  margin: 0 0 8px 24px;
+  padding: 0 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--fg-tertiary);
+  font: inherit;
+  font-size: var(--text-caption);
+  cursor: pointer;
+}
+.background-process-open:hover { background: var(--bg-hover); color: var(--fg); }
+
+.tool-detail-field-key {
+  color: var(--fg-quaternary);
+  font-weight: var(--weight-medium);
+  white-space: nowrap;
+  padding-top: 1px;
+}
+
+.tool-detail-field-val {
+  color: var(--fg);
+  white-space: pre-wrap;
+  word-break: break-word;
+  min-width: 0;
+}
+
+.tool-detail-field-val:global(.long) {
+  grid-column: 1 / -1;
+  background: var(--bg);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  margin-top: -2px;
+  max-height: 180px;
+  overflow: auto;
+  color: var(--fg-secondary);
+}
+
+:global(.tool-detail-pre).tool-detail-error { color: var(--danger); }
+
+.turn-changes {
+  color: var(--fg);
+}
+
+.diagram-artifacts {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: 720px;
+  margin: 4px auto;
+}
+
+.diagram-artifact-card {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) max-content 14px;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 52px;
+  padding: 8px 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+  color: var(--fg);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.diagram-artifact-card:hover {
+  border-color: var(--input-border);
+  background: var(--bg-hover);
+}
+
+.diagram-artifact-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--fg-secondary);
+}
+
+.diagram-artifact-icon svg,
+.diagram-artifact-chevron svg {
+  width: 15px;
+  height: 15px;
+}
+
+.diagram-artifact-copy {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 2px;
+}
+
+.diagram-artifact-title {
+  overflow: hidden;
+  color: var(--fg);
+  font-size: var(--text-body-sm);
+  font-weight: var(--weight-medium);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.diagram-artifact-hint,
+.diagram-artifact-open {
+  color: var(--fg-tertiary);
+  font-size: var(--text-caption);
+}
+
+.diagram-artifact-open { white-space: nowrap; }
+.diagram-artifact-chevron { display: inline-flex; color: var(--fg-quaternary); }
+
+/* 回合改动区块：常显一行，不做 hover 才现身的处理——里面是文件列表和审查
+   按钮，藏在 hover 后面等于没有。头部 hover 只换第二行：默认总统计，
+   悬停变「查看变更」带箭头，与参照行为一致。 */
+.turn-changes {
+  max-width: 720px;
+  margin: 4px auto 8px;
+  overflow: hidden;
+  border-radius: 12px;
+  background: color-mix(in oklab, var(--bg-elevated) 50%, transparent);
+}
+
+.turn-changes-head { position: relative; }
+
+/* 整头隐形按钮：点头部任意处打开该回合的 Changes 记录。 */
+.turn-changes-head-btn {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  background: transparent;
+  border-radius: 12px;
+  cursor: pointer;
+}
+
+.turn-changes-head-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.turn-changes-head-content {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  pointer-events: none;
+}
+
+.turn-changes-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  border-radius: 10px;
+  background: color-mix(in oklab, var(--bg-surface) 92%, transparent);
+  color: var(--fg-secondary);
+}
+
+.turn-changes-icon svg { width: 24px; height: 24px; }
+
+.turn-changes-copy {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.turn-changes-title {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--fg);
+  font-size: var(--text-body-sm);
+  font-weight: var(--weight-medium);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.turn-changes-sub {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+}
+
+.turn-changes-sub-default { display: inline-flex; }
+
+.turn-changes-sub-hover {
+  display: none;
+  align-items: center;
+  gap: 4px;
+  color: var(--fg-secondary);
+  font-size: var(--text-caption);
+}
+
+.turn-changes-sub-arrow { display: inline-flex; color: var(--fg-secondary); }
+.turn-changes-sub-arrow svg { width: 12px; height: 12px; }
+
+@media (hover: hover) {
+  .turn-changes-head:hover .turn-changes-sub-default,
+  .turn-changes-head:focus-within .turn-changes-sub-default { display: none; }
+  .turn-changes-head:hover .turn-changes-sub-hover,
+  .turn-changes-head:focus-within .turn-changes-sub-hover { display: inline-flex; }
+  .turn-changes-head:hover .turn-changes-head-btn,
+  .turn-changes-head:focus-within .turn-changes-head-btn {
+    background: color-mix(in oklab, var(--bg-hover) 30%, transparent);
+  }
+}
+
+.turn-changes-stats {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: var(--text-caption);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+/* +N/-N 行统计着色：原全局 .diff-add/.diff-del 规则随 diff 页迁 CSS Modules 后
+   变为 diff 域局部类，本域的字面量类名失配。在本域内重建，限定在统计位下不外溢。 */
+.turn-changes-stats :global(.diff-add) { color: var(--theme-diff-added); }
+.turn-changes-stats :global(.diff-del) { color: var(--theme-diff-removed); }
+
+.turn-changes-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  pointer-events: auto;
+}
+
+.turn-changes-review {
+  border: 1px solid var(--border);
+  background: color-mix(in oklab, var(--bg) 60%, transparent);
+  color: var(--fg);
+  border-radius: 8px;
+  padding: 5px 10px;
+  font-family: var(--font);
+  font-size: var(--text-small);
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background var(--transition), border-color var(--transition);
+}
+
+.turn-changes-review:hover { background: var(--bg-hover); border-color: var(--border-strong); }
+
+.turn-changes-files {
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.turn-changes-file {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  height: 36px;
+  padding: 4px 12px;
+  font-size: var(--text-small);
+  color: var(--fg);
+  background: color-mix(in oklab, var(--bg-surface) 70%, transparent);
+  border: 0;
+  cursor: pointer;
+  text-align: left;
+}
+
+.turn-changes-file:hover { background: color-mix(in oklab, var(--bg-hover) 60%, transparent); }
+
+.turn-changes-file-path {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+}
+
+.turn-changes-file-dir {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--fg-tertiary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.turn-changes-file-base {
+  max-width: 100%;
+  flex-shrink: 0;
+  overflow: hidden;
+  color: var(--fg);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.turn-changes-file-note {
+  color: var(--fg-tertiary);
+  font-size: var(--text-caption);
+  white-space: nowrap;
+}
+
+@media (max-width: 720px) { .turn-changes-file-note { display: none; } }
+
+.turn-changes-file-stats {
+  display: inline-flex;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: var(--text-caption);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.turn-changes-file-stats :global(.diff-add) { color: var(--theme-diff-added); }
+.turn-changes-file-stats :global(.diff-del) { color: var(--theme-diff-removed); }
+
+.turn-changes-toggle {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  height: 36px;
+  padding: 4px 12px;
+  background: none;
+  border: 0;
+  font-size: var(--text-small);
+  color: var(--fg);
+  cursor: pointer;
+  text-align: left;
+}
+
+.turn-changes-toggle > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.turn-changes-toggle:hover { background: color-mix(in oklab, var(--bg-hover) 30%, transparent); }
+
+.turn-changes-toggle-chevron {
+  display: inline-flex;
+  margin-left: 8px;
+  color: var(--fg-secondary);
+  transition: transform var(--transition);
+}
+
+.turn-changes-toggle-chevron svg { width: 12px; height: 12px; }
+
+.turn-changes-toggle[aria-expanded="true"] .turn-changes-toggle-chevron { transform: rotate(180deg); }
+
+/* 行的无障碍名是全路径的视觉隐藏副本，可见路径是截断展示。 */
+.tc-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* 悬停 diff 预览：包裹层不占布局（display: contents），浮层固定定位挂在
+   行上方，指针穿透，只在打开态才构建内容。 */
+.tc-preview-wrap { display: contents; }
+
+.tc-preview {
+  position: fixed;
+  z-index: 60;
+  transform: translateY(-100%);
+  pointer-events: none;
+}
+
+.tc-preview-body {
+  display: block;
+  max-height: min(420px, calc(100vh - 16px));
+  overflow: hidden;
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  background: var(--bg-elevated);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .18);
+}
+
+:global(.permission-card.permission-resolved) {
+  opacity: 0.6;
+  box-shadow: none;
+  border-color: var(--border-subtle);
+}
+
+/* 卡头定式（与 question-chip 同族）：小图标 + 类型标注 [· 工具名]，右侧等待正计时。 */
+.permission-chip {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--text-caption);
+  color: var(--fg-tertiary);
+  margin-bottom: 10px;
+}
+
+.permission-chip-icon { display: inline-flex; align-items: center; flex-shrink: 0; }
+
+.permission-chip svg { width: 12px; height: 12px; display: block; }
+
+.permission-chip-sep { opacity: 0.5; }
+
+.permission-chip-tool {
+  font-family: var(--font-mono);
+  font-weight: var(--weight-medium);
+  color: var(--fg-secondary);
+}
+
+.permission-chip-timer {
+  margin-left: auto;
+  flex-shrink: 0;
+  font-size: var(--text-caption);
+  color: var(--fg-quaternary);
+  font-variant-numeric: tabular-nums;
+}
+
+.permission-message {
+  font-size: var(--text-body-sm);
+  color: var(--fg);
+  line-height: var(--leading-permission-text);
+  margin-bottom: 10px;
+}
+
+/* 被审批的对象（命令/路径/URL）：审批的核心信息不折叠，常驻可见。 */
+.permission-target {
+  font-family: var(--font-mono);
+  font-size: var(--text-small);
+  line-height: var(--leading-permission-text);
+  color: var(--fg-secondary);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-xs);
+  padding: 7px 10px;
+  margin-bottom: 10px;
+  word-break: break-all;
+  max-height: 108px;
+  overflow-y: auto;
+}
+
+/* Friend message confirmation: who receives it and how, then the exact text. */
+.friend-confirm-rows { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; font-size: var(--text-small); color: var(--fg); }
+.friend-confirm-row { display: grid; grid-template-columns: minmax(64px, max-content) minmax(0, 1fr); gap: 12px; line-height: var(--leading-permission-text); }
+.friend-confirm-label { color: var(--fg-tertiary); }
+.friend-confirm-message {
+  font-size: var(--text-body-sm);
+  line-height: var(--leading-permission-text);
+  color: var(--fg);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-xs);
+  padding: 8px 10px;
+  margin-bottom: 10px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 220px;
+  overflow-y: auto;
+}
+.friend-confirm-editor {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  font: inherit;
+  font-size: var(--text-body-sm);
+  line-height: var(--leading-permission-text);
+  color: var(--fg);
+  background: var(--input-bg, var(--bg));
+  border: 1px solid var(--input-border, var(--border));
+  border-radius: var(--radius-xs);
+  padding: 8px 10px;
+  margin-bottom: 10px;
+  resize: vertical;
+}
+.friend-confirm-editor:focus { outline: none; border-color: var(--input-focus, var(--border-strong)); }
+.friend-confirm-hint { font-size: var(--text-caption, 12px); color: var(--fg-tertiary); }
+
+.permission-input-details { margin-bottom: 12px; }
+
+.permission-input-details summary {
+  font-size: var(--text-small);
+  color: var(--fg-tertiary);
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.permission-input-details summary::-webkit-details-marker { display: none; }
+
+.permission-input-details summary::before {
+  content: '▸';
+  font-size: var(--text-badge);
+  transition: transform var(--transition);
+  display: inline-block;
+}
+
+.permission-input-details[open] summary::before { transform: rotate(90deg); }
+
+.permission-input-details summary:hover { color: var(--fg-secondary); }
+
+.permission-input-preview {
+  font-family: var(--font-mono);
+  font-size: var(--text-small);
+  background: var(--bg-surface);
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  max-height: 160px;
+  overflow-y: auto;
+  margin-top: 8px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: var(--fg-secondary);
+}
+
+.permission-suggestions { margin-bottom: 12px; }
+
+/* ---- Spec 计划审阅卡（exit_plan_mode 文档审阅面）---- */
+.plan-review-path {
+  font-family: var(--font-mono);
+  font-size: var(--text-badge);
+  color: var(--fg-tertiary);
+  margin: 2px 0 8px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.plan-review-open {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--fg-tertiary);
+  cursor: pointer;
+}
+
+.plan-review-open:hover { background: var(--bg-hover); color: var(--fg-secondary); }
+
+.plan-review-editor {
+  width: 100%;
+  min-height: 240px;
+  resize: vertical;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  font-family: var(--font-mono);
+  font-size: var(--text-small);
+  color: var(--fg);
+  margin-bottom: 12px;
+  box-sizing: border-box;
+}
+
+.plan-review-editor:global(.hidden) { display: none; }
+
+.permission-suggestion {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--text-small);
+  color: var(--fg-secondary);
+  padding: 3px 0;
+  cursor: pointer;
+  user-select: none;
+}
+
+.permission-suggestion input[type="checkbox"],
+.permission-suggestion input[type="radio"] {
+  width: 14px;
+  height: 14px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+/* 追问卡（引擎内置 ask_user）—— 复用 .permission-card，仅追加选项纵向排列与自由文本框样式。 */
+.elicit-card .permission-suggestions { display: flex; flex-direction: column; gap: 2px; }
+
+.elicit-card .permission-suggestion { display: flex; }
+
+.elicit-text {
+  width: 100%;
+  box-sizing: border-box;
+  margin-bottom: 12px;
+  padding: 6px 8px;
+  font-size: var(--text-small);
+  font-family: inherit;
+  color: var(--fg);
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
+  border-radius: var(--radius-xs);
+  resize: vertical;
+}
+
+.elicit-text:focus { outline: none; border-color: var(--input-focus); }
+
+.elicit-other-text { margin: 4px 0 6px 20px; width: calc(100% - 20px); }
+
+/* 脚部定式（与 question-footer 同族）：分隔线 + 右对齐按钮；终态文案靠左。 */
+.permission-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.permission-btn {
+  min-height: 28px;
+  padding: 0 14px;
+  border-radius: var(--radius-sm);
+  font-family: var(--font);
+  font-size: var(--text-small);
+  font-weight: var(--weight-medium);
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--fg-secondary);
+  cursor: pointer;
+  transition: background var(--transition), border-color var(--transition), color var(--transition);
+}
+
+.permission-btn:hover { background: var(--bg-hover); color: var(--fg); }
+
+.permission-btn:focus-visible { outline: none; background: var(--bg-hover); color: var(--fg); box-shadow: none;}
+
+.permission-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.permission-btn-allow { background: var(--accent); color: var(--accent-text); }
+
+.permission-btn-allow:hover { background: var(--accent-hover); color: var(--accent-text); }
+
+/* 中间档：描边次级（允许并在本会话内记住该工具 / 计划卡的编辑切换）。 */
+.permission-btn-session { border-color: var(--border); }
+
+.permission-btn-session:hover { border-color: var(--border-strong); background: var(--bg-hover); }
+
+/* 拒绝/跳过：幽灵档，不与主操作争重。 */
+.permission-btn-deny { color: var(--fg-tertiary); }
+
+.permission-btn-deny:hover { color: var(--fg); }
+
+/* 目标模式开关：靠左（margin-right:auto 把三颗按钮推到右侧），跟随卡内次级文本。 */
+.plan-review-goal-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: auto;
+  font-size: var(--text-small);
+  color: var(--fg-secondary);
+  cursor: pointer;
+  user-select: none;
+}
+
+.plan-review-goal-toggle input {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.plan-review-goal-toggle:hover { color: var(--fg); }
+
+.permission-result {
+  margin-right: auto;
+  font-size: var(--text-small);
+  font-weight: var(--weight-medium);
+  color: var(--fg-tertiary);
+}
+
+.permission-allowed::before {
+  content: '✓ ';
+  color: var(--fg-secondary);
+  margin-right: 2px;
+}
+
+/* Structured questions occupy the composer while a reply is pending. */
+.question-card {
+  width: 100%;
+  margin: 8px 0;
+  padding: 0 0 8px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xxl);
+  background: var(--bg-elevated);
+  color: var(--fg);
+  outline: none;
+  max-height: min(60vh, 560px);
+  overflow-y: auto;
+}
+.question-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 16px 12px 8px 16px; }
+.question-title { min-width: 0; font-size: var(--text-body-sm); font-weight: var(--weight-semibold); line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+.question-navigation { display: flex; align-items: center; gap: 2px; flex-shrink: 0; }
+.question-navigation button { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border: 0; border-radius: var(--radius-xs); background: transparent; color: var(--fg-secondary); cursor: pointer; }
+.question-navigation button:hover:not(:disabled) { background: var(--bg-hover); }
+.question-navigation button:disabled { opacity: .3; cursor: default; }
+.question-navigation svg { width: 14px; height: 14px; }
+.question-back { display: inline-flex; transform: rotate(180deg); }
+.question-count { color: var(--fg-secondary); font-size: var(--text-caption); white-space: nowrap; }
+.question-options { display: flex; flex-direction: column; gap: 4px; padding: 0 8px; }
+.question-option { display: flex; align-items: flex-start; gap: 8px; min-height: 32px; width: 100%; padding: 6px 8px; text-align: start; border: 0; border-radius: var(--radius-md); background: transparent; color: inherit; cursor: pointer; font-family: inherit; }
+.question-option:hover:not(:disabled), .question-option:global(.is-selected) { background: color-mix(in srgb, var(--fg) 5%, transparent); }
+.question-option:focus-visible, .question-navigation button:focus-visible, .question-btn:focus-visible { outline: none; background: var(--bg-hover); box-shadow: none; }
+.question-option:disabled { cursor: default; }
+.question-option-badge { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; width: 22px; height: 22px; margin-top: 1px; border: 1px solid var(--border); border-radius: 50%; color: var(--fg-secondary); font-size: var(--text-caption); }
+.question-option-badge svg { width: 14px; height: 14px; }
+.question-checkbox { border-radius: var(--radius-xs); }
+.question-option:global(.is-selected) .question-checkbox { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+.question-option-body { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.question-option-label { display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px; font-size: var(--text-body-sm); font-weight: var(--weight-medium); line-height: 1.6; overflow-wrap: anywhere; }
+.question-option-desc { font-size: var(--text-body-sm); color: var(--fg-secondary); line-height: 1.5; overflow-wrap: anywhere; }
+.question-recommended { font-size: var(--text-caption); font-weight: var(--weight-regular); color: var(--fg-secondary); padding: 0 5px; border: 1px solid var(--border-subtle); border-radius: var(--radius-xxs); }
+.question-option-preview { display: block; font-family: var(--font-mono); font-size: var(--text-caption); white-space: pre-wrap; overflow: auto; max-height: 140px; background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-xs); margin-top: 6px; padding: 8px; }
+.question-custom { display: flex; align-items: flex-start; gap: 8px; padding: 6px 8px; margin: 4px 8px 0; border-radius: var(--radius-md); }
+.question-custom:focus-within { background: color-mix(in srgb, var(--fg) 5%, transparent); box-shadow: none; }
+.question-custom textarea { flex: 1; min-width: 0; min-height: 26px; max-height: 120px; field-sizing: content; resize: none; padding: 3px 0; border: 0; outline: none; background: transparent; color: var(--fg); font-family: inherit; font-size: var(--text-body-sm); line-height: 1.5; }
+.question-custom textarea::placeholder { color: var(--fg-tertiary); }
+.question-actions { flex-wrap: wrap; align-items: center; }
+.question-actions .question-btn { display: inline-flex; align-items: center; gap: 4px; }
+.question-actions .question-btn svg { width: 14px; height: 14px; }
+/* 附件行外形全部来自 styles.css 的 .kls-attach-* primitive（与输入框待发行、
+   发送后气泡同一份）；这里只把行对齐到卡片文字列。 */
+.question-attachments { padding: 4px 16px; }
+.question-uploading { padding: 4px 16px; color: var(--fg-secondary); font-size: var(--text-caption); }
+.question-btn { flex-shrink: 0; min-height: 28px; padding: 3px 10px; border: 1px solid var(--border); border-radius: 999px; background: var(--bg-surface); color: var(--fg); font-family: inherit; font-size: var(--text-caption); cursor: pointer; }
+.question-btn:hover:not(:disabled) { background: var(--bg-hover); }
+.question-btn:disabled { opacity: .5; cursor: default; }
+.question-error { display: flex; gap: 8px; align-items: center; padding: 8px 16px; font-size: var(--text-small); color: var(--danger); }
+.async-question-card { border-radius: 24px; margin: 0; padding-bottom: 12px; }
+.async-question-card .question-header { align-items: center; padding: 16px 16px 12px; }
+.async-question-card .question-title { display: flex; align-items: center; gap: 8px; color: var(--fg-secondary); font-weight: var(--weight-regular); }
+.async-question-card .question-title svg { width: 16px; height: 16px; }
+.async-question-prompt { padding: 8px 16px 12px; font-size: var(--text-body-sm); font-weight: var(--weight-medium); line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+.async-question-card .question-option-badge { width: 20px; height: 20px; border-radius: 5px; background: color-mix(in srgb, var(--fg) 5%, transparent); }
+.async-question-card .question-custom { align-items: center; }
+.async-question-card .question-custom > .question-option-badge { border: 0; background: transparent; }
+.async-question-card .question-custom textarea { padding: 0; }
+.async-question-card .question-actions { margin-top: 0; padding-top: 0; padding-bottom: 0; }
+.question-attach { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; padding: 4px; border: 0; background: transparent; color: var(--fg); cursor: pointer; }
+.question-attach svg { width: 18px; height: 18px; }
+.question-countdown { display: inline-block; margin-inline-start: 6px; padding: 1px 6px; border-radius: 999px; color: var(--input-focus); background: color-mix(in srgb, var(--input-focus) 10%, transparent); }
+.question-send { border: 0; color: var(--bg); background: var(--fg); }
+.question-send:disabled { opacity: .4; }
+.question-send:hover:not(:disabled) { background: var(--fg-secondary); }
+.async-question-text { width: 100%; max-width: 720px; margin: 8px auto; color: var(--fg); font-size: var(--text-body-sm); line-height: 1.6; overflow-wrap: anywhere; }
+.async-question-text p { margin: 0 0 8px; white-space: pre-wrap; }
+.async-question-chip { display: inline-flex; align-items: center; gap: 6px; margin: 0 0 8px; padding: 5px 10px; border: 1px solid var(--border); border-radius: 999px; font: inherit; color: var(--fg); background: var(--bg-elevated); cursor: pointer; }
+.async-question-chip svg { width: 16px; height: 16px; }
+.async-question-chip:focus-visible { outline: none; border-color: var(--input-focus); }
+.question-attach:focus-visible { outline: none; background: var(--bg-hover); box-shadow: none; }
+.question-reply + .question-reply { margin-top: 16px; }
+.question-reply-quote { opacity: .7; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-bottom: 6px; }
+.question-reply-answer p { margin: 0; }
+.question-reply-answer p + p { margin-top: 8px; }
+.question-summary {
+  width: 100%;
+  /* 平铺路径（回合无最终回复时的 live 尾巴、历史重放）下父容器是全宽滚动区，
+     折叠区内的父容器才是 720 正文列。卡片自身必须自带列约束，否则整卡撑满
+     滚动区、左缘贴边，比左对齐的正文凸出去。 */
+  max-width: min(720px, 100%);
+  margin: 8px auto 10px;
+  padding: 12px 14px 11px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--fg);
+  font-size: var(--text-body-sm);
+  opacity: .62;
+  pointer-events: none;
+}
+.question-chip { display: inline-flex; align-items: center; gap: 5px; color: var(--fg-tertiary); font-size: var(--text-caption); margin-bottom: 10px; }
+.question-chip svg { width: 12px; height: 12px; }
+.question-chip-sep { opacity: .5; }
+.question-chip-kind { color: var(--fg-secondary); font-weight: var(--weight-medium); }
+.question-summary-row { margin-bottom: 8px; }
+.question-summary-row + .question-summary-row { margin-top: 14px; padding-top: 14px; border-top: 1px dashed var(--border-subtle); }
+.question-summary-row:last-child { margin-bottom: 0; }
+.question-summary-question { display: flex; gap: 6px; margin-bottom: 8px; color: var(--fg); font-size: var(--text-body-sm); font-weight: var(--weight-semibold); line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+.question-summary-index { flex-shrink: 0; color: var(--fg-tertiary); font-weight: var(--weight-medium); }
+.question-summary-answer { display: flex; align-items: center; gap: 8px; padding: 6px 2px; color: var(--fg-secondary); font-size: var(--text-body-sm); white-space: pre-wrap; overflow-wrap: anywhere; }
+.question-summary-skipped { color: var(--fg-tertiary); }
+@media (max-width: 480px) {
+  .question-header { flex-wrap: wrap; }
+  .question-navigation { margin-left: auto; }
+}
+
+/* ===== Code block enhancements ===== */
+.code-block { position: relative; margin: 12px 0; }
+
+.code-block pre { margin: 0; }
+
+.code-lang {
+  position: absolute;
+  top: 8px;
+  left: 14px;
+  font-size: var(--text-caption);
+  font-weight: var(--weight-semibold);
+  color: var(--fg-quaternary);
+  text-transform: uppercase;
+  font-family: var(--font);
+  letter-spacing: 0.04em;
+}
+
+.code-block:has(.code-lang) pre { padding-top: 32px; }
+
+.code-block:hover :global(.code-copy) { opacity: 1; }
+
+.file-card-icon {
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-sm);
+  background: var(--fg);
+  color: var(--bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--text-small);
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0.02em;
+}
+
+.file-card-info { flex: 1; min-width: 0; }
+
+.file-card-name { font-size: var(--text-body); font-weight: var(--weight-medium); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg); }
+
+.file-card-hint { font-size: var(--text-small); color: var(--fg-tertiary); margin-top: 2px; }
+
+.file-card-dl {
+  flex-shrink: 0;
+  padding: 6px 14px;
+  border-radius: var(--radius-sm);
+  background: var(--fg);
+  color: var(--bg);
+  font-size: var(--text-body-sm);
+  font-weight: var(--weight-semibold);
+  text-decoration: none;
+  cursor: pointer;
+  transition: background var(--transition);
+}
+
+.file-card-dl:hover { background: var(--accent-hover); }
+
+/* ===== Fork message (套路 5) =====
+   Collapses the long <fork-boilerplate> protocol block so the user only sees
+   the directive line, with a toggle to peek at the boilerplate. */
+:global(.msg-group).fork-message .fork-bubble {
+  border: 1px dashed var(--border);
+  background: var(--bg-elevated);
+  border-radius: var(--radius-md);
+  padding: 10px 12px;
+}
+
+:global(.msg-group).fork-message .fork-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--text-small);
+  color: var(--fg-tertiary);
+  margin-bottom: 6px;
+}
+
+:global(.msg-group).fork-message :global(.fork-icon) { width: 14px; height: 14px; flex-shrink: 0; }
+
+:global(.msg-group).fork-message .fork-label { font-weight: var(--weight-semibold); color: var(--fg); }
+
+:global(.msg-group).fork-message .fork-toggle {
+  margin-left: auto;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 2px 8px;
+  cursor: pointer;
+  color: var(--fg-tertiary);
+  font-size: var(--text-caption);
+}
+
+:global(.msg-group).fork-message .fork-toggle:hover { color: var(--fg); background: var(--bg-hover, var(--bg)); }
+
+:global(.msg-group).fork-message .fork-directive {
+  font-size: var(--text-body);
+  color: var(--fg);
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+:global(.msg-group).fork-message .fork-boilerplate {
+  margin-top: 8px;
+  padding: 8px 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: var(--text-caption);
+  color: var(--fg-tertiary);
+  white-space: pre-wrap;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+:global(.msg-group).fork-message .fork-boilerplate:global(.hidden) { display: none; }
+
+:global(.msg-group):global(.teammate) .teammate-bubble {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--teammate-color, var(--accent));
+  border-radius: var(--radius-md);
+  padding: 10px 12px;
+}
+
+.teammate-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+  font-size: var(--text-small);
+}
+
+.teammate-summary { color: var(--fg-tertiary); font-size: var(--text-small); flex: 1; }
+
+.teammate-content { font-size: var(--text-body); color: var(--fg); line-height: 1.6; }
+
+.teammate-content :is(p, ul, ol, pre):last-child { margin-bottom: 0; }
+
+.teammate-card-feedback { color: var(--fg-tertiary); font-size: var(--text-body-sm); }
+
+.teammate-card-meta { color: var(--fg-quaternary); font-size: var(--text-caption); margin-top: 4px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+
+.teammate-card-markdown { font-size: var(--text-body-sm); line-height: 1.6; }
+
+.teammate-card-markdown :is(p, ul, ol, pre):last-child { margin-bottom: 0; }
+
+/* ===== Turn work divider / interrupted Turn status =====
+   This belongs to the Turn it names: a left-aligned muted line followed by a
+   hairline rule, occupying the seam between the Turn's activity and whatever
+   comes next. While the Turn runs the same row carries the live elapsed time;
+   an interrupted Turn keeps it as its terminal status. Deliberately not a
+   centered pill and not a separate message. */
+.turn-terminal-status {
+  max-width: 720px;
+  margin: 6px auto 14px;
+  padding: 0 4px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.turn-terminal-label {
+  color: var(--fg-tertiary);
+  font-size: var(--text-small);
+  line-height: 1.4;
+  /* Digits must not reflow the label while the number changes. */
+  font-variant-numeric: tabular-nums;
+}
+
+.turn-terminal-rule {
+  width: 100%;
+  height: 0;
+  border-top: 1px solid var(--border);
+}
+
+/* Loading placeholder in the work divider's label slot: a quiet shimmer bar
+   holding the seam while a running Turn's start time is still synchronizing.
+   The explanatory text stays available to assistive tech only. */
+.turn-work-loading {
+  display: inline-block;
+  width: 9rem;
+  height: 1em;
+  border-radius: 4px;
+  background: linear-gradient(90deg, var(--border) 25%, var(--fg-tertiary) 50%, var(--border) 75%);
+  background-size: 200% 100%;
+  animation: turn-work-shimmer 1.4s ease-in-out infinite;
+}
+
+.turn-work-loading-text {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@keyframes turn-work-shimmer {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
+}
+
+/* Live errors and replayed failures share the same compact notice row. */
+:global(.msg-group).error-notice-row {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin: 6px auto 8px;
+}
+
+/* ===== Reconnect status line (engine retry progress) =====
+   Retry progress renders as a quiet inline line (grey icon + text), not a
+   bordered pill, so a transient blip does not read as an error card. */
+:global(.msg-group).reconnect-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 4px auto;
+  color: var(--fg-quaternary);
+  font-size: var(--text-small);
+}
+.reconnect-icon {
+  display: inline-flex;
+  flex-shrink: 0;
+}
+/* The Wi-Fi glyph renders at the icon's native 16px beside 14px text. */
+.reconnect-icon svg { width: 16px; height: 16px; }
+.reconnect-text {
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ===== Capacity retry offer under a terminal overload/rate-limit error =====
+   The countdown resubmits the turn on its own; the button is the manual path. */
+.overload-retry-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 6px;
+  color: var(--fg-tertiary);
+  font-size: var(--text-small);
+}
+.overload-retry-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-variant-numeric: tabular-nums;
+}
+.overload-retry-count svg { width: 14px; height: 14px; }
+.overload-retry-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  background: var(--bg-surface);
+  color: var(--fg-secondary);
+  font: inherit;
+  cursor: pointer;
+}
+.overload-retry-btn svg { width: 13px; height: 13px; }
+.overload-retry-btn:hover:not(:disabled) { color: var(--fg); border-color: var(--border); }
+.overload-retry-btn:disabled { opacity: 0.55; cursor: default; }
+
+:global(.msg):global(.assistant).aborted { opacity: 0.85; }
+
+/* Compaction remains in the activity stream while its lifecycle changes. */
+:global(.msg-group).compaction-row {
+  display: flex; flex-direction: column; align-items: flex-start;
+  padding: 0;
+  width: 100%;
+  max-width: 720px;
+  margin: 8px auto;
+}
+
+.compaction-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  border: 0;
+  font-size: var(--text-body);
+  font-weight: var(--weight-regular);
+  line-height: 24px;
+  color: var(--fg-activity);
+  font-family: inherit;
+  cursor: default;
+  transition: background var(--transition), color var(--transition);
+}
+
+/* 历史读取失败提示条：居中胶囊，danger 色调，
+   带重试按钮；存在期间自动翻页状态机停用。 */
+.transcript-load-failed {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 0 4px;
+}
+
+.transcript-history-sentinel {
+  width: 100%;
+  height: 1px;
+  pointer-events: none;
+}
+
+.branch-banner {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  align-self: flex-start;
+  margin: 2px 0 6px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--bg-hover);
+  border: 1px solid var(--border-subtle);
+  font-size: var(--text-small);
+  color: var(--fg-secondary);
+  font-family: inherit;
+  cursor: pointer;
+  transition: background var(--transition), color var(--transition);
+}
+
+.branch-banner:hover {
+  background: var(--bg-elevated);
+  color: var(--fg);
+}
+
+.branch-banner-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 46ch;
+}
+
+.transcript-load-failed-text {
+  font-size: var(--text-small);
+  color: var(--danger);
+}
+
+.transcript-load-failed-retry {
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: var(--bg-hover);
+  border: 1px solid var(--border-subtle);
+  font-size: var(--text-small);
+  color: var(--fg-secondary);
+  font-family: inherit;
+  cursor: pointer;
+  transition: background var(--transition), color var(--transition);
+}
+
+.transcript-load-failed-retry:hover {
+  background: var(--bg-elevated);
+  color: var(--fg);
+}
+
+.compaction-pill:global(.is-clickable) {
+  cursor: pointer;
+}
+
+.compaction-pill:global(.is-clickable):hover {
+  color: var(--fg);
+}
+
+.compaction-pill > svg { width: 16px; height: 16px; flex-shrink: 0; }
+
+.compaction-spinner {
+  width: 14px; height: 14px;
+  border: 1.5px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: ctx-spin 0.8s linear infinite;
+  flex-shrink: 0;
+}
+
+.compaction-label {
+  min-width: 0;
+  white-space: normal;
+}
+
+.compaction-restored {
+  width: 100%;
+  min-width: 0;
+  margin-top: 8px;
+  color: var(--fg-activity);
+  font-size: var(--text-body-sm);
+}
+
+.compaction-restored summary { cursor: pointer; }
+.compaction-restored pre {
+  max-height: 320px;
+  overflow: auto;
+  margin: 6px 0 0;
+  padding: 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  color: var(--fg-secondary);
+  font-size: var(--text-caption);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* Worktree-init row: same pill language as compaction, but a failed init is a
+   hard stop (the message never sent), so it takes the danger tone. */
+:global(.msg-group).worktree-init-row[data-state='failed'] .compaction-pill {
+  color: var(--danger);
+}
+
+/* ===== Compact summary card =====
+   Labeled card with an UPPERCASE accent header + body text. Body uses
+   max-height collapsible: full content rendered, expand toggle appears
+   only if it overflows ~300px. */
+:global(.msg-group).compact-summary-row {
+  display: flex; justify-content: flex-start;
+  padding: 0 4px 0 24px;
+  margin: 8px 0;
+}
+
+.compact-summary-card {
+  max-width: 100%;
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  position: relative;
+}
+
+.compact-summary-head {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--text-caption);
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--accent);
+  opacity: 0.75;
+}
+
+.compact-summary-body {
+  font-size: var(--text-body-sm);
+  color: var(--fg-secondary);
+  line-height: 1.6;
+  max-height: 320px;
+  overflow: hidden;
+  position: relative;
+}
+
+.compact-summary-card:global(.expanded) .compact-summary-body {
+  max-height: none;
+}
+
+/* Bottom fade — only present when the card is collapsible AND collapsed.
+ * 80px keeps the fade short enough to show that more text follows. */
+.compact-summary-card.has-toggle:not(:global(.expanded)) .compact-summary-body::after {
+  content: '';
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  height: 80px;
+  background: linear-gradient(to top, var(--bg-surface) 0%, var(--bg-surface) 25%, transparent 100%);
+  pointer-events: none;
+}
+
+.compact-summary-body p { margin: 0.5em 0; }
+
+.compact-summary-body p:first-child { margin-top: 0; }
+
+.compact-summary-body p:last-child { margin-bottom: 0; }
+
+.compact-summary-body code {
+  background: var(--bg-hover);
+  padding: 1px 5px;
+  border-radius: var(--radius-xxs);
+  font-size: var(--text-small);
+}
+
+.compact-summary-body pre {
+  background: var(--code-bg);
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  overflow-x: auto;
+  font-size: var(--text-small);
+}
+
+/* Floating Show more / Show less button — bottom-right, hover-revealed.
+ * Transparent until you mouse over the card,
+ * stays visible while the body is expanded so it's discoverable to
+ * collapse again. */
+.compact-summary-toggle {
+  position: absolute;
+  bottom: 8px;
+  right: 8px;
+  padding: 4px 12px;
+  font-size: var(--text-caption);
+  font-weight: var(--weight-medium);
+  font-family: inherit;
+  color: var(--fg-secondary);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  opacity: 0;
+  transition: opacity 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+  z-index: 2;
+}
+
+.compact-summary-card:hover .compact-summary-toggle,
+.compact-summary-toggle:focus-visible { opacity: 1; }
+
+.compact-summary-card:global(.expanded) .compact-summary-toggle { opacity: 1; }
+
+.compact-summary-toggle:hover {
+  background: var(--bg-hover);
+  border-color: var(--input-border);
+  color: var(--fg);
+}
+
+/* ==================== 选区引用浮层（quote-selection.tsx） ==================== */
+/* 选区引用浮动操作条：portal 到 body 的 position:fixed
+   工具条，随选区定位，按钮带分隔线。 */
+.quote-toolbar {
+  position: fixed;
+  z-index: 10000;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  box-sizing: border-box;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--bg-elevated) 92%, transparent);
+  border: 1px solid var(--border-subtle);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  max-width: min(480px, calc(100vw - 24px));
+}
+
+.quote-toolbar-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  max-width: 160px;
+  padding: 3px 6px;
+  border: none;
+  border-radius: var(--radius-xxs);
+  background: transparent;
+  color: var(--fg-secondary);
+  font-size: var(--text-small);
+  font-family: inherit;
+  line-height: 16px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.quote-toolbar-btn:hover {
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+
+.quote-toolbar-separator {
+  width: 1px;
+  height: 14px;
+  flex: 0 0 1px;
+  background: var(--border-subtle);
+}
+
+/* Subagent lifecycle chips open their conversation surface. */
+.subagent-activities { width: 100%; max-width: 720px; margin-inline: auto; display: flex; align-items: flex-start; gap: 6px; min-width: 0; color: var(--fg-activity); font-size: var(--text-body); line-height: 20px; }
+.subagent-avatar-stack { display: inline-flex; height: 20px; align-items: center; flex-shrink: 0; gap: 6px; }
+.subagent-avatar-stack > span { display: inline-flex; }
+.subagent-avatar-stack > [data-animate-entrance] { transform-origin: 0; animation: subagent-chip-enter 280ms cubic-bezier(.23, 1, .32, 1) both; }
+@keyframes subagent-chip-enter {
+  0% { opacity: 0; transform: translate(-8px, 4px) scale(.92); }
+  70% { opacity: 1; transform: translate(1px, -1px) scale(1.02); }
+  100% { opacity: 1; transform: translate(0, 0) scale(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .subagent-avatar-stack > [data-animate-entrance] { animation: none; }
+}
+.subagent-activity-avatar { display: inline-flex; padding: 0; border: 0; background: none; color: inherit; cursor: pointer; border-radius: 2px; }
+.subagent-activity-avatar:focus-visible { outline: 2px solid var(--fg); outline-offset: 0; }
+/* Inline text flow on purpose: the status label must stay glued to the names
+   in text order, and any atomic or flex box around the names would blockify
+   the pair into separate innerText lines. Long single names are bounded by
+   the JS preview; a long NAME LIST wraps instead of running past the row,
+   because each name button truncates inside its own inline-block box. */
+.subagent-activity-text { min-width: 0; }
+.subagent-activity-status { white-space: nowrap; }
+.subagent-activity-names, .subagent-activity-names > span { display: inline; }
+.subagent-activity-separator { white-space: nowrap; }
+.subagent-activity-name { display: inline-block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: start; cursor: pointer; border-radius: 2px; }
+.subagent-activity-name:hover { color: var(--fg); }
+.subagent-activity-name:focus-visible { outline: 2px solid var(--fg); outline-offset: 0; color: var(--fg); }
+
+/* App-control activities share their compact row between streaming and replay. */
+.chat-activity {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  min-width: 0;
+  padding: 4px 0;
+  border: 0;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--fg-activity);
+  font: inherit;
+  font-size: var(--text-body);
+  text-align: start;
+  vertical-align: middle;
+}
+
+.chat-activity svg { flex-shrink: 0; color: var(--fg-secondary); }
+.chat-activity-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-activity-link { cursor: pointer; }
+.chat-activity-link:hover .chat-activity-label { color: var(--fg); }
+.chat-activity-link:focus-visible { outline: none; }
+.chat-activity-link:focus-visible .chat-activity-label { color: var(--fg); }
+.chat-activity-summary { color: var(--fg-quaternary); }
+.activity-fold-toggle:hover .chat-activity-summary { color: var(--fg); }
+
+.chat-send-disclosure { max-width: 100%; }
+.chat-send-disclosure > summary {
+  display: flex;
+  cursor: pointer;
+  list-style: none;
+}
+.chat-send-disclosure > summary::-webkit-details-marker { display: none; }
+.chat-send-disclosure > summary > svg:last-child { transition: transform 120ms ease; }
+.chat-send-disclosure[open] > summary > svg:last-child { transform: rotate(90deg); }
+.chat-send-disclosure > summary:focus-visible { outline: none; background: var(--bg-hover); box-shadow: none; }
+.chat-send-disclosure:not([open]) .chat-send-body { display: none; }
+.chat-send-body {
+  max-width: min(720px, 100%);
+  margin: 4px 0 10px 22px;
+  padding: 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+}
+.chat-send-heading { color: var(--fg-secondary); font-size: var(--text-caption); }
+.chat-send-message {
+  max-height: 360px;
+  margin: 8px 0 0;
+  overflow: auto;
+  color: var(--fg);
+  font: inherit;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.chat-send-open {
+  margin-top: 10px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  cursor: pointer;
+}
+.chat-send-open:focus-visible { outline: none; background: var(--bg-hover); box-shadow: none; }
+
+/*
+ * The `::created-thread` cards: each directive
+ * becomes ONE full-width row button mounted OUTSIDE the message body, and a
+ * multi-directive message stacks them in a hairline-divided shell capped at
+ * three visible rows. Mapping onto this codebase's tokens: the icon box is
+ * `--bg-surface` at 92% over the elevated shell,
+ * the hover wash is `--bg-hover`, the focus ring is inset
+ * `--input-focus`, and the chevron tooltip is a CSS-only hover
+ * bubble — allowed here because the row's only visible text is the card title,
+ * and "Open chat" is the tooltip policy's icon-only-control case.
+ */
+.created-thread-list {
+  display: flex;
+  flex-direction: column;
+  margin: 10px 0 2px;
+  border-radius: var(--radius-sm);
+  background: color-mix(in oklab, var(--bg-elevated) 50%, transparent);
+  /*
+   * Deliberately NOT `overflow: hidden`: the row's hover tooltip escapes the
+   * shell upward, and a clipping shell cut it into a black stub at the shell's
+   * top/right edge. The rounded corners are therefore carried by the first and
+   * last row instead, which clips nothing.
+   */
+}
+.created-thread-list > * + * { border-top: 1px solid var(--border-subtle); }
+.created-thread-list > :first-child { border-radius: var(--radius-sm) var(--radius-sm) 0 0; }
+.created-thread-list > :last-child { border-radius: 0 0 var(--radius-sm) var(--radius-sm); }
+.created-thread-list > :only-child { border-radius: var(--radius-sm); }
+
+.created-thread-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  padding: 12px var(--radius-md);
+  border: 0;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  font-size: var(--text-body);
+  font-weight: 500;
+  text-align: start;
+  cursor: pointer;
+}
+.created-thread-card:hover { background: color-mix(in oklab, var(--bg-hover) 30%, transparent); }
+.created-thread-card:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--input-focus);
+}
+.created-thread-card-compact { padding: 6px; }
+.created-thread-card-compact .created-thread-icon { width: 28px; height: 28px; border-radius: var(--radius-xs); }
+
+.created-thread-icon {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-sm);
+  background: color-mix(in oklab, var(--bg-surface) 92%, transparent);
+  color: var(--fg-secondary);
+}
+.created-thread-icon svg { width: 16px; height: 16px; }
+
+.created-thread-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.created-thread-trailing {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  color: var(--fg-quaternary);
+}
+.created-thread-chevron { transition: transform 120ms ease; }
+
+.created-thread-more {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  height: 40px;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: var(--fg-tertiary);
+  font: inherit;
+  font-size: var(--text-body);
+  cursor: pointer;
+}
+.created-thread-more:hover { background: color-mix(in oklab, var(--bg-hover) 30%, transparent); }
+.created-thread-more:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--input-focus);
+}
+.created-thread-list[data-collapsed="false"] .created-thread-more svg { transform: rotate(180deg); }
+.created-thread-list[data-collapsed="true"] [data-hidden-overflow] { display: none; }
+
+/*
+ * A message delegated from another conversation, folded out of its
+ * `<klaus-delegation>` envelope. Shape: an ORDINARY user bubble with one
+ * small provenance line above it, not a card of its own. The bubble therefore
+ * carries the same `.msg-group.user` styling as a typed message; only this label
+ * row is extra. Right-aligned to sit on the bubble's own edge.
+ */
+.delegation-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  padding: 0 1px 2px;
+  font-size: var(--text-caption);
+  color: var(--fg-quaternary);
+  user-select: none;
+}
+
+.delegation-label-row svg { width: 12px; height: 12px; flex-shrink: 0; }
+
+/* A scheduled run's trigger message carries one small provenance line above the
+ * bubble, mirroring the delegation label row: right-aligned caption on the
+ * bubble's own edge, never a card of its own. */
+.automation-source-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  padding: 0 1px 2px;
+  font-size: var(--text-caption);
+  color: var(--fg-quaternary);
+  user-select: none;
+}
+
+.automation-source-row svg { width: 12px; height: 12px; flex-shrink: 0; }
+.delegation-source-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.delegation-source-link:hover { color: var(--fg-secondary); }
+.delegation-source-link:focus-visible { outline: none; color: var(--fg-secondary); }
+.chat-activity-active { position: relative; color: var(--fg-tertiary); }
+.chat-activity-sweep {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 100%;
+  overflow: hidden;
+  pointer-events: none;
+  transform: translateX(-50%);
+  mask-image: linear-gradient(90deg, transparent 0%, black 20% 30%, transparent 50% 100%);
+  -webkit-mask-image: linear-gradient(90deg, transparent 0%, black 20% 30%, transparent 50% 100%);
+}
+.chat-activity-highlight { display: block; width: 100%; color: var(--fg); transform: translateX(50%); }
+.chat-activity-sweeping .chat-activity-sweep,
+.chat-activity-sweeping .chat-activity-highlight { animation-duration: 1s; animation-timing-function: steps(48, end); animation-iteration-count: 1; }
+.chat-activity-sweeping .chat-activity-sweep { animation-name: chat-activity-sweep; }
+.chat-activity-sweeping .chat-activity-highlight { animation-name: chat-activity-highlight; }
+@keyframes chat-activity-sweep { from { transform: translateX(-50%); } to { transform: translateX(125%); } }
+@keyframes chat-activity-highlight { from { transform: translateX(50%); } to { transform: translateX(-125%); } }
+@media (prefers-reduced-motion: reduce) { .chat-activity-sweep { display: none; } }
+
+.chat-activity-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: fit-content;
+  max-width: 100%;
+  padding: 4px 0;
+  border: 0;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--fg-tertiary);
+  font: inherit;
+  font-size: var(--text-body);
+  text-align: start;
+  cursor: pointer;
+}
+.chat-activity-toggle:hover { color: var(--fg); }
+.chat-activity-toggle:focus-visible { outline: none; color: var(--fg); }
+.chat-activity-toggle svg { flex-shrink: 0; width: 16px; height: 16px; }
+.chat-activity-toggle .activity-fold-chevron { opacity: 0; }
+.chat-activity-toggle:hover .activity-fold-chevron,
+.chat-activity-toggle:focus-visible .activity-fold-chevron,
+.chat-activity-fold:global(.open) .activity-fold-chevron { opacity: 1; }
+.chat-activity-collapse { display: grid; grid-template-rows: 0fr; opacity: 0; transition: grid-template-rows .3s cubic-bezier(.19, 1, .22, 1), opacity .3s cubic-bezier(.19, 1, .22, 1); }
+.chat-activity-fold:global(.open) .chat-activity-collapse { grid-template-rows: 1fr; opacity: 1; }
+.chat-activity-body { min-height: 0; max-height: 224px; overflow: auto; padding-inline-start: 8px; }
+@media (prefers-reduced-motion: reduce) { .chat-activity-collapse { transition: none; } }
+
+.activity-active-label, .activity-summary-label { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; }
+.activity-active-label > svg, .activity-summary-label > svg { flex-shrink: 0; }
+.activity-active-label > span, .activity-summary-label > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Group-chat style sender columns: an externally delivered row puts the
+   sender's avatar and name on the LEFT of the bubble; the owner's own rows
+   (typed, steered, question answers) put the owner avatar on the RIGHT. The
+   bubble, its provenance label and its hover actions live in the main column,
+   which spans the row alone: the avatar column is taken out of the flow and
+   hung over the gutter OUTSIDE the 720px content column (see the global
+   stylesheet), so it never narrows the reading column. The row is the
+   containing block of that hang. */
+.external-sender-row, .owner-sender-row {
+  position: relative;
+}
+.user-row-main {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+.external-sender-row .user-row-main { align-items: flex-start; }
+/* The bubble/actions/label overrides for flipped rows live in the global
+   stylesheet, keyed on the row's data-external-sender attribute: they target
+   literal class names, and a compound `:global()` selector here is dropped by
+   the CSS-module compiler. The gutter hang of the sender column itself lives
+   there too, keyed on its three data-*-sender-col attributes for the same
+   reason. */
+.external-sender-col, .owner-sender-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+  max-width: 64px;
+  user-select: none;
+}
+.transcript-avatar {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--bg-secondary, var(--bg-hover));
+  border: 1px solid var(--border);
+  color: var(--fg-secondary);
+  overflow: hidden;
+  font-size: 13px;
+}
+.transcript-avatar img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+/* A dead avatar URL falls back to the initial: the transcript's broken-image
+   handler marks the IMG itself (it is the media figure here), hides it and
+   injects a broken-image icon the 28px circle has no room for, so the icon is
+   hidden here too and only the fallback glyph remains. */
+.transcript-avatar img:global(.is-media-broken) { display: none; }
+.transcript-avatar :global(.kls-media-broken-icon) { display: none; }
+.transcript-avatar svg { width: 16px; height: 16px; }
+.external-sender-name {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-caption);
+  color: var(--fg-tertiary);
+}
+
+.question-custom input[type="password"] { flex: 1; min-width: 0; padding: 0; border: 0; outline: 0; background: transparent; color: var(--fg); font: inherit; }
+
+/* Read-only authored structure keeps literal text spacing within each block. */
+.user-document { white-space: normal; }
+.user-document p { white-space: pre-wrap; margin: 0; }
+.user-document p + p { margin-block-start: .5em; }
+.user-document pre { white-space: pre-wrap; overflow-wrap: anywhere; margin: .5em 0; }
+.user-document ul, .user-document ol { margin: .5em 0; padding-inline-start: 1.5em; }
+.user-document blockquote { margin: .5em 0; padding-inline-start: .75em; border-inline-start: 2px solid currentColor; }
+.user-document img { max-width: 100%; height: auto; }

@@ -1,0 +1,515 @@
+{
+  "version": 2,
+  "reason": "Model menus retain concrete identities, fixed budgets and truthful account state while known Antigravity selections are admitted by the cloud service at request time.",
+  "selectionPolicy": {
+    "knownRestrictedMemberSelectable": true,
+    "restrictedNativeThinkingSelectable": true,
+    "reportedAvailable": false,
+    "unknownMemberSelectable": false
+  },
+  "entries": [
+    {
+      "key": "gemini-3.8-flash-high",
+      "display_name": "Gemini 3.8 Flash (High)",
+      "isDefault": true,
+      "providerMetadata": {
+        "thinkingBudget": -1,
+        "minThinkingBudget": 32,
+        "supportsThinking": true,
+        "modelProvider": "MODEL_PROVIDER_GOOGLE",
+        "model": "MODEL_PLACEHOLDER_M318",
+        "apiProvider": "API_PROVIDER_GOOGLE_GEMINI"
+      },
+      "capabilities": {
+        "mediaInputMimeTypes": [
+          "audio/wav"
+        ]
+      },
+      "contextWindow": 1048576
+    },
+    {
+      "key": "gemini-3.8-flash-medium",
+      "display_name": "Gemini 3.8 Flash (Medium)",
+      "isDefault": false,
+      "providerMetadata": {
+        "thinkingBudget": 4000,
+        "minThinkingBudget": 32,
+        "supportsThinking": true,
+        "modelProvider": "MODEL_PROVIDER_GOOGLE",
+        "model": "MODEL_PLACEHOLDER_M319",
+        "apiProvider": "API_PROVIDER_GOOGLE_GEMINI"
+      },
+      "capabilities": {
+        "mediaInputMimeTypes": [
+          "audio/wav"
+        ]
+      },
+      "contextWindow": 1048576
+    },
+    {
+      "key": "gemini-3.8-flash-low",
+      "display_name": "Gemini 3.8 Flash (Low)",
+      "isDefault": false,
+      "providerMetadata": {
+        "thinkingBudget": 1000,
+        "minThinkingBudget": 32,
+        "supportsThinking": true,
+        "modelProvider": "MODEL_PROVIDER_GOOGLE",
+        "model": "MODEL_PLACEHOLDER_M320",
+        "apiProvider": "API_PROVIDER_GOOGLE_GEMINI"
+      },
+      "capabilities": {
+        "mediaInputMimeTypes": [
+          "audio/wav"
+        ]
+      },
+      "contextWindow": 1048576
+    },
+    {
+      "key": "claude-sonnet-4-6",
+      "display_name": "Claude Sonnet 4.6 (Thinking)",
+      "isDefault": false,
+      "providerMetadata": {
+        "thinkingBudget": 1024,
+        "supportsThinking": true,
+        "modelProvider": "MODEL_PROVIDER_ANTHROPIC",
+        "vertexModelId": "claude-sonnet-4-6@default",
+        "model": "MODEL_PLACEHOLDER_M35",
+        "apiProvider": "API_PROVIDER_ANTHROPIC_VERTEX"
+      },
+      "capabilities": {
+        "mediaInputMimeTypes": []
+      },
+      "contextWindow": 250000
+    },
+    {
+      "key": "claude-opus-4-6-thinking",
+      "display_name": "Claude Opus 4.6 (Thinking)",
+      "isDefault": false,
+      "providerMetadata": {
+        "thinkingBudget": 1024,
+        "supportsThinking": true,
+        "modelProvider": "MODEL_PROVIDER_ANTHROPIC",
+        "vertexModelId": "claude-opus-4-6@default",
+        "model": "MODEL_PLACEHOLDER_M26",
+        "apiProvider": "API_PROVIDER_ANTHROPIC_VERTEX"
+      },
+      "capabilities": {
+        "mediaInputMimeTypes": []
+      },
+      "contextWindow": 250000
+    },
+    {
+      "key": "gpt-oss-120b-medium",
+      "display_name": "GPT-OSS 120B (Medium)",
+      "isDefault": false,
+      "providerMetadata": {
+        "thinkingBudget": 8192,
+        "supportsThinking": true,
+        "modelProvider": "MODEL_PROVIDER_OPENAI",
+        "vertexModelId": "openai/gpt-oss-120b-maas",
+        "model": "MODEL_OPENAI_GPT_OSS_120B_MEDIUM",
+        "apiProvider": "API_PROVIDER_OPENAI_VERTEX"
+      },
+      "capabilities": {
+        "mediaInputMimeTypes": []
+      },
+      "contextWindow": 131072
+    },
+    {
+      "key": "chat_20706",
+      "display_name": "chat_20706",
+      "isDefault": false,
+      "providerMetadata": {
+        "modelProvider": "MODEL_PROVIDER_GOOGLE",
+        "model": "MODEL_CHAT_20706",
+        "apiProvider": "API_PROVIDER_INTERNAL"
+      },
+      "capabilities": {
+        "mediaInputMimeTypes": []
+      },
+      "contextWindow": 16384,
+      "purpose": "completion",
+      "disabled": true
+    },
+    {
+      "key": "chat_23310",
+      "display_name": "chat_23310",
+      "isDefault": false,
+      "providerMetadata": {
+        "modelProvider": "MODEL_PROVIDER_GOOGLE",
+        "model": "MODEL_CHAT_23310",
+        "apiProvider": "API_PROVIDER_INTERNAL"
+      },
+      "capabilities": {
+        "mediaInputMimeTypes": []
+      },
+      "contextWindow": 32768,
+      "purpose": "completion",
+      "disabled": true
+    },
+    {
+      "key": "gemini-2.5-flash",
+      "display_name": "Gemini 3.5 Flash Lite",
+      "isDefault": false,
+      "providerMetadata": {
+        "thinkingLevel": 1,
+        "minThinkingBudget": 128,
+        "supportsThinking": true,
+        "modelProvider": "MODEL_PROVIDER_GOOGLE",
+        "model": "MODEL_GOOGLE_GEMINI_2_5_FLASH",
+        "apiProvider": "API_PROVIDER_GOOGLE_GEMINI"
+      },
+      "capabilities": {
+        "mediaInputMimeTypes": [
+          "audio/wav"
+        ]
+      },
+      "contextWindow": 1048576
+    },
+    {
+      "key": "gemini-2.5-flash-lite",
+      "display_name": "Gemini 3.5 Flash Lite",
+      "isDefault": false,
+      "providerMetadata": {
+        "thinkingLevel": 1,
+        "minThinkingBudget": 128,
+        "supportsThinking": true,
+        "modelProvider": "MODEL_PROVIDER_GOOGLE",
+        "model": "MODEL_GOOGLE_GEMINI_2_5_FLASH_LITE",
+        "apiProvider": "API_PROVIDER_GOOGLE_GEMINI"
+      },
+      "capabilities": {
+        "mediaInputMimeTypes": [
+          "audio/wav"
+        ]
+      },
+      "contextWindow": 1048576
+    },
+    {
+      "key": "gemini-2.5-flash-thinking",
+      "display_name": "Gemini 3.5 Flash Lite",
+      "isDefault": false,
+      "providerMetadata": {
+        "thinkingLevel": 1,
+        "minThinkingBudget": 128,
+        "supportsThinking": true,
+        "modelProvider": "MODEL_PROVIDER_GOOGLE",
+        "model": "MODEL_GOOGLE_GEMINI_2_5_FLASH_THINKING",
+        "apiProvider": "API_PROVIDER_GOOGLE_GEMINI"
+      },
+      "capabilities": {
+        "mediaInputMimeTypes": [
+          "audio/wav"
+        ]
+      },
+      "contextWindow": 1048576
+    },
+    {
+      "key": "gemini-2.5-pro",
+      "display_name": "Gemini 2.5 Pro",
+      "isDefault": false,
+      "providerMetadata": {
+        "thinkingBudget": 1024,
+        "minThinkingBudget": 128,
+        "supportsThinking": true,
+        "modelProvider": "MODEL_PROVIDER_GOOGLE",
+        "model": "MODEL_GOOGLE_GEMINI_2_5_PRO",
+        "apiProvider": "API_PROVIDER_GOOGLE_GEMINI"
+      },
+      "capabilities": {
+        "mediaInputMimeTypes": []
+      },
+      "contextWindow": 1048576
+    },
+    {
+      "key": "gemini-3-flash",
+      "display_name": "Gemini 3 Flash",
+      "isDefault": false,
+      "providerMetadata": {
+        "thinkingBudget": -1,
+        "minThinkingBudget": 128,
+        "supportsThinking": true,
+        "modelProvider": "MODEL_PROVIDER_GOOGLE",
+        "model": "MODEL_PLACEHOLDER_M18",
+        "apiProvider": "API_PROVIDER_GOOGLE_GEMINI"
+      },
+      "capabilities": {
+        "mediaInputMimeTypes": [
+          "audio/wav"
+        ]
+      },
+      "contextWindow": 1048576
+    },
+    {
+      "key": "gemini-3-flash-agent",
+      "display_name": "Gemini 3.5 Flash (High)",
+      "isDefault": false,
+      "providerMetadata": {
+        "thinkingBudget": -1,
+        "minThinkingBudget": 32,
+        "supportsThinking": true,
+        "modelProvider": "MODEL_PROVIDER_GOOGLE",
+        "model": "MODEL_PLACEHOLDER_M84",
+        "apiProvider": "API_PROVIDER_GOOGLE_GEMINI"
+      },
+      "capabilities": {
+        "mediaInputMimeTypes": [
+          "audio/wav"
+        ]
+      },
+      "contextWindow": 1048576
+    },
+    {
+      "key": "gemini-3.1-flash-image",
+      "display_name": "Gemini 3.1 Flash Image",
+      "isDefault": false,
+      "providerMetadata": {
+        "modelProvider": "MODEL_PROVIDER_GOOGLE",
+        "model": "MODEL_PLACEHOLDER_M21",
+        "apiProvider": "API_PROVIDER_GOOGLE_GEMINI"
+      },
+      "capabilities": {
+        "mediaInputMimeTypes": []
+      },
+      "contextWindow": 65536,
+      "purpose": "image",
+      "disabled": true
+    },
+    {
+      "key": "gemini-3.1-flash-lite",
+      "display_name": "Gemini 3.1 Flash Lite",
+      "isDefault": false,
+      "providerMetadata": {
+        "thinkingLevel": 1,
+        "minThinkingBudget": 128,
+        "supportsThinking": true,
+        "modelProvider": "MODEL_PROVIDER_GOOGLE",
+        "model": "MODEL_PLACEHOLDER_M50",
+        "apiProvider": "API_PROVIDER_GOOGLE_GEMINI"
+      },
+      "capabilities": {
+        "mediaInputMimeTypes": [
+          "audio/wav"
+        ]
+      },
+      "contextWindow": 1048576
+    },
+    {
+      "key": "gemini-3.5-flash-extra-low",
+      "display_name": "Gemini 3.5 Flash (Low)",
+      "isDefault": false,
+      "providerMetadata": {
+        "thinkingBudget": 1000,
+        "minThinkingBudget": 32,
+        "supportsThinking": true,
+        "modelProvider": "MODEL_PROVIDER_GOOGLE",
+        "model": "MODEL_PLACEHOLDER_M187",
+        "apiProvider": "API_PROVIDER_GOOGLE_GEMINI"
+      },
+      "capabilities": {
+        "mediaInputMimeTypes": [
+          "audio/wav"
+        ]
+      },
+      "contextWindow": 1048576
+    },
+    {
+      "key": "gemini-3.5-flash-lite",
+      "display_name": "Gemini 3.5 Flash Lite",
+      "isDefault": false,
+      "providerMetadata": {
+        "thinkingLevel": 1,
+        "minThinkingBudget": 128,
+        "supportsThinking": true,
+        "modelProvider": "MODEL_PROVIDER_GOOGLE",
+        "model": "MODEL_PLACEHOLDER_M198",
+        "apiProvider": "API_PROVIDER_GOOGLE_GEMINI"
+      },
+      "capabilities": {
+        "mediaInputMimeTypes": [
+          "audio/wav"
+        ]
+      },
+      "contextWindow": 1048576,
+      "purpose": "search",
+      "disabled": true
+    },
+    {
+      "key": "gemini-3.5-flash-low",
+      "display_name": "Gemini 3.5 Flash (Medium)",
+      "isDefault": false,
+      "providerMetadata": {
+        "thinkingBudget": 4000,
+        "minThinkingBudget": 32,
+        "supportsThinking": true,
+        "modelProvider": "MODEL_PROVIDER_GOOGLE",
+        "model": "MODEL_PLACEHOLDER_M20",
+        "apiProvider": "API_PROVIDER_GOOGLE_GEMINI"
+      },
+      "capabilities": {
+        "mediaInputMimeTypes": [
+          "audio/wav"
+        ]
+      },
+      "contextWindow": 1048576
+    },
+    {
+      "key": "gemini-3.8-flash-tiered",
+      "display_name": "gemini-3.8-flash-tiered",
+      "isDefault": false,
+      "providerMetadata": {
+        "thinkingBudget": -1,
+        "minThinkingBudget": 32,
+        "supportsThinking": true,
+        "modelProvider": "MODEL_PROVIDER_GOOGLE",
+        "model": "MODEL_PLACEHOLDER_M322",
+        "apiProvider": "API_PROVIDER_GOOGLE_GEMINI"
+      },
+      "capabilities": {
+        "mediaInputMimeTypes": [
+          "audio/wav"
+        ]
+      },
+      "contextWindow": 1048576
+    },
+    {
+      "key": "tab_flash_lite_preview",
+      "display_name": "tab_flash_lite_preview",
+      "isDefault": false,
+      "providerMetadata": {
+        "modelProvider": "MODEL_PROVIDER_GOOGLE",
+        "model": "MODEL_PLACEHOLDER_M19",
+        "apiProvider": "API_PROVIDER_GOOGLE_GEMINI"
+      },
+      "capabilities": {
+        "mediaInputMimeTypes": []
+      },
+      "contextWindow": 16384
+    },
+    {
+      "key": "tab_jump_flash_lite_preview",
+      "display_name": "tab_jump_flash_lite_preview",
+      "isDefault": false,
+      "providerMetadata": {
+        "modelProvider": "MODEL_PROVIDER_GOOGLE",
+        "model": "MODEL_PLACEHOLDER_M28",
+        "apiProvider": "API_PROVIDER_GOOGLE_GEMINI"
+      },
+      "capabilities": {
+        "mediaInputMimeTypes": []
+      },
+      "contextWindow": 16384
+    },
+    {
+      "key": "gemini-4-argon-low",
+      "display_name": "Gemini 4 Argon (Low)",
+      "disabled": true,
+      "unavailableReason": "Subscription required",
+      "providerMetadata": {
+        "thinkingLevel": 1
+      },
+      "capabilities": {}
+    },
+    {
+      "key": "gemini-4-argon-medium",
+      "display_name": "Gemini 4 Argon (Medium)",
+      "disabled": true,
+      "unavailableReason": "Subscription required",
+      "providerMetadata": {
+        "thinkingLevel": 2
+      },
+      "capabilities": {}
+    },
+    {
+      "key": "gemini-4-argon-high",
+      "display_name": "Gemini 4 Argon (High)",
+      "disabled": true,
+      "unavailableReason": "Subscription required",
+      "providerMetadata": {
+        "thinkingLevel": 3
+      },
+      "capabilities": {}
+    },
+    {
+      "key": "claude-sonnet-5-5-low",
+      "display_name": "Claude Sonnet 5.5 (Low)",
+      "disabled": true,
+      "unavailableReason": "Subscription required",
+      "providerMetadata": {
+        "thinkingLevel": 1
+      },
+      "capabilities": {}
+    },
+    {
+      "key": "claude-sonnet-5-5-medium",
+      "display_name": "Claude Sonnet 5.5 (Medium)",
+      "disabled": true,
+      "unavailableReason": "Subscription required",
+      "providerMetadata": {
+        "thinkingLevel": 2
+      },
+      "capabilities": {}
+    },
+    {
+      "key": "claude-sonnet-5-5-high",
+      "display_name": "Claude Sonnet 5.5 (High)",
+      "disabled": true,
+      "unavailableReason": "Subscription required",
+      "providerMetadata": {
+        "thinkingLevel": 3
+      },
+      "capabilities": {}
+    },
+    {
+      "key": "claude-sonnet-5-5-max",
+      "display_name": "Claude Sonnet 5.5 (Max)",
+      "disabled": true,
+      "unavailableReason": "Subscription required",
+      "providerMetadata": {
+        "thinkingLevel": 200
+      },
+      "capabilities": {}
+    },
+    {
+      "key": "claude-opus-5-5-low",
+      "display_name": "Claude Opus 5.5 (Low)",
+      "disabled": true,
+      "unavailableReason": "Subscription required",
+      "providerMetadata": {
+        "thinkingLevel": 1
+      },
+      "capabilities": {}
+    },
+    {
+      "key": "claude-opus-5-5-medium",
+      "display_name": "Claude Opus 5.5 (Medium)",
+      "disabled": true,
+      "unavailableReason": "Subscription required",
+      "providerMetadata": {
+        "thinkingLevel": 2
+      },
+      "capabilities": {}
+    },
+    {
+      "key": "claude-opus-5-5-high",
+      "display_name": "Claude Opus 5.5 (High)",
+      "disabled": true,
+      "unavailableReason": "Subscription required",
+      "providerMetadata": {
+        "thinkingLevel": 3
+      },
+      "capabilities": {}
+    },
+    {
+      "key": "claude-opus-5-5-max",
+      "display_name": "Claude Opus 5.5 (Max)",
+      "disabled": true,
+      "unavailableReason": "Subscription required",
+      "providerMetadata": {
+        "thinkingLevel": 200
+      },
+      "capabilities": {}
+    }
+  ]
+}

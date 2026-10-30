@@ -1,0 +1,605 @@
+/* chat/composer 域样式（Batch 5 CSS Modules）。状态类/字形内嵌类/静态标记容器类经 :global() 引用；chat.ts 的跨界消费点同 import 本模块。 */
+
+:global(#previews).has-files,
+:global(#side-previews).has-files {
+  display: flex;
+  /* 附件行贴住输入框文字列：垂直上下各收 8px 咬进 composer 内边距，左侧留 2px
+     落在输入文字的同一条竖线上（16px 卡内边距 + 2px 输入内边距）。 */
+  margin: -8px 0 -8px 2px;
+}
+
+/* 待发附件项：外形（36px 图片方块 / 26px 文件·粘贴 chip、悬停才显形的角标叉号）
+   全部来自 styles.css 的 .kls-attach-* primitive——发送后的气泡与提问卡复用同一
+   份。这里只留 quote 变体自己的覆盖。 */
+
+/* A quote is text, not a thumbnail with a corner badge. Keep its close action
+   directly beside the chip so the control never stretches to the far edge of
+   the composer when the preview row grows. */
+.quote-preview-item {
+  gap: 4px;
+  max-width: min(262px, 100%);
+}
+
+.quote-preview-item :global(.kls-attach-remove) {
+  position: static;
+  flex: 0 0 18px;
+  width: 18px;
+  height: 18px;
+  opacity: 1;
+  box-shadow: none;
+}
+
+:is(:global(#main-model-select), :global(#side-model-select)) .main-model-trigger-text {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 164px;
+}
+
+:is(:global(#main-model-select), :global(#side-model-select)) .main-model-trigger-model,
+:is(:global(#main-model-select), :global(#side-model-select)) .main-model-trigger-thinking {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+:is(:global(#main-model-select), :global(#side-model-select)) .main-model-trigger-thinking {
+  color: var(--fg-secondary);
+}
+
+/* 合一面板：模型列表固定高度内滚动，底部常驻「推理强度 当前值 ›」行，
+   档位在侧边子菜单里选；窗口矮时列表先让高。 */
+:is(:global(#main-model-select), :global(#side-model-select)) .main-model-menu-panel {
+  min-width: 188px;
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 24px);
+  overflow: hidden;
+}
+
+:is(:global(#main-model-select), :global(#side-model-select)) .main-model-menu-panel[hidden] { display: none; }
+
+:is(:global(#main-model-select), :global(#side-model-select)) .main-model-submenu-panel {
+  min-width: 148px;
+}
+
+.main-model-list {
+  flex: 0 1 auto;
+  min-height: 0;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+/* Gateway catalog rows carry copy the plain pickers do not: a brand glyph, a
+   wrapping description and a right-aligned credit multiplier. Rows therefore
+   leave the single-line nowrap contract of the generic select item. */
+.main-model-list :global(.kls-select-item) {
+  align-items: flex-start;
+  white-space: normal;
+}
+
+.main-model-list :global(.kls-select-item-desc) {
+  white-space: normal;
+}
+
+.main-model-item-icon {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
+  border-radius: 4px;
+  object-fit: contain;
+}
+
+.main-model-item-factor {
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: var(--fg-tertiary);
+  font-size: var(--text-caption);
+  font-variant-numeric: tabular-nums;
+}
+
+.main-model-menu-separator {
+  flex-shrink: 0;
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--border);
+}
+
+.main-model-submenu-row { flex-shrink: 0; }
+
+.main-model-fast-row { flex-shrink: 0; gap: 8px; }
+.main-model-fast-row :global(.kls-select-item-desc) { white-space: normal; }
+.main-model-fast-row > :global(.kls-icon-host),
+.main-model-trigger-fast { color: var(--theme-accent); }
+.main-model-trigger-fast { display: inline-flex; flex-shrink: 0; }
+
+.main-model-fast-switch {
+  flex-shrink: 0;
+  width: 28px;
+  height: 16px;
+  margin-left: auto;
+  padding: 2px;
+  border-radius: 999px;
+  background: var(--bg-surface);
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+.main-model-fast-switch::before {
+  content: '';
+  display: block;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--fg-secondary);
+}
+.main-model-fast-row[aria-checked="true"] .main-model-fast-switch { background: var(--accent); }
+.main-model-fast-row[aria-checked="true"] .main-model-fast-switch::before {
+  transform: translateX(12px);
+  background: var(--bg-elevated);
+}
+
+/* 「思考等级 当前值 ›」同行展示（copy 默认是 label/desc 上下堆叠的列布局），
+   当前值靠右紧贴展开箭头，字号与 label 同档。 */
+.main-model-submenu-row :global(.kls-select-item-copy) {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.main-model-submenu-row :global(.kls-select-item-desc) {
+  color: var(--fg-secondary);
+  font-size: var(--text-body-sm);
+  white-space: nowrap;
+}
+
+.main-model-submenu-caret {
+  margin-left: auto;
+  color: var(--fg-tertiary);
+  font-size: var(--text-title);
+  line-height: 1;
+}
+
+.composer-plus-list {
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow-y: auto;
+}
+
+/* 面板直接子元素（分隔线 + 管理页脚）不参与收缩，始终完整可见 */
+:global(.composer-plus-submenu) > .composer-plus-item,
+:global(.composer-plus-submenu) > .composer-plus-sep {
+  flex-shrink: 0;
+}
+
+.composer-plus-sep {
+  height: 1px;
+  margin: 3px 2px;
+  background: var(--border-subtle);
+}
+
+.composer-plus-item:global(.is-active),
+.composer-plus-item:global(.is-active):hover {
+  background: var(--bg-hover);
+}
+
+.composer-plus-item:disabled { opacity: 1; }
+
+.composer-plus-item:global(.kls-select-item) {
+  min-height: 30px;
+  justify-content: flex-start;
+  gap: 8px;
+}
+
+.composer-plus-item-described:global(.kls-select-item) {
+  min-height: 48px;
+}
+
+.composer-plus-item:global(.is-muted) {
+  cursor: default;
+  color: var(--fg-tertiary);
+  opacity: 1;
+}
+
+.composer-plus-item:global(.is-muted):hover { background: transparent; }
+
+.composer-plus-item:global(.is-muted) .composer-plus-label {
+  color: var(--fg-tertiary);
+  font-weight: var(--weight-regular);
+}
+
+.composer-plus-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 15px;
+  height: 15px;
+  color: var(--fg-tertiary);
+}
+
+.composer-plus-chevron {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  margin-left: auto;
+  color: var(--fg-tertiary);
+}
+
+.composer-plus-icon svg,
+.composer-plus-chevron svg {
+  width: 100%;
+  height: 100%;
+}
+
+/* 菜单项自带 .composer-plus-check 对勾，屏蔽 kls-select 通用 is-selected 的 ::after 对勾，避免双勾 */
+.composer-plus-item:global(.is-selected)::after { display: none; }
+
+.composer-plus-item:global(.is-selected) .composer-plus-label {
+  font-weight: var(--weight-medium);
+}
+
+.composer-plus-copy {
+  min-width: 0;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.composer-plus-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-small);
+  color: var(--fg);
+}
+
+.composer-plus-description {
+  color: var(--fg-tertiary);
+  font-size: var(--text-small);
+  font-weight: var(--weight-regular);
+  line-height: 16px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+/* Compact switch shared by the session mode entries. */
+.composer-plus-switch {
+  position: relative;
+  flex-shrink: 0;
+  width: 30px;
+  height: 17px;
+  margin-left: auto;
+  border: 1px solid color-mix(in srgb, var(--fg-quaternary) 24%, var(--border));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--fg-quaternary) 54%, var(--bg-surface));
+  transition: background var(--transition), border-color var(--transition);
+}
+
+.composer-plus-switch::before {
+  content: '';
+  position: absolute;
+  top: 1px;
+  left: 1px;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: var(--bg);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.16);
+  transition: transform var(--transition), background var(--transition);
+}
+
+.composer-plus-switch:global(.is-on) {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.composer-plus-switch:global(.is-on)::before {
+  transform: translateX(13px);
+  background: var(--accent-text);
+}
+
+.composer-plus-manage {
+  color: var(--fg-secondary);
+}
+
+.slash-menu-group {
+  padding: 8px 10px 4px;
+  color: var(--fg-quaternary);
+  font-size: var(--text-caption);
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.slash-menu-item:global(.kls-select-item) {
+  justify-content: flex-start;
+  align-items: center;
+  gap: 10px;
+  min-height: 34px;
+}
+
+.slash-menu-item:global(.active) { background: var(--bg-hover); }
+
+.slash-menu-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 17px;
+  height: 17px;
+  flex: 0 0 auto;
+  color: var(--fg-tertiary);
+}
+
+.slash-menu-icon svg {
+  width: 100%;
+  height: 100%;
+}
+
+.slash-menu-copy {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+}
+
+.slash-menu-item-name {
+  flex: 0 0 auto;
+  font-size: var(--text-body-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--fg);
+}
+
+.slash-menu-item-slug {
+  flex: 0 0 auto;
+  font-size: var(--text-small);
+  color: var(--fg-tertiary);
+}
+
+.slash-menu-item-desc {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: var(--text-body-sm);
+  color: var(--fg-tertiary);
+}
+
+/* An immediate context action keeps its title and current usage on one row. */
+.compact-command-row:global(.kls-select-item) {
+  min-height: 0;
+  padding: 5px 8px;
+  line-height: 18px;
+  gap: 8px;
+  border-radius: 9999px;
+}
+.compact-command-row .slash-menu-icon {
+  width: 16px;
+  height: 16px;
+  color: var(--fg);
+}
+.compact-command-row .slash-menu-copy { gap: 8px; align-items: center; }
+.compact-command-row .slash-menu-item-name {
+  max-width: 60%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.compact-command-row .slash-menu-item-desc { flex: 1; white-space: nowrap; }
+
+.mention-menu-icon {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  color: var(--fg-tertiary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.mention-menu-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.mention-menu-icon img {
+  width: 16px;
+  height: 16px;
+  object-fit: contain;
+}
+
+/* Friend rows carry a real avatar disc, wider than the 16px glyph slot. */
+.mention-friend-icon {
+  width: 20px;
+  height: 20px;
+}
+
+.mention-browser-tab .mention-menu-main {
+  flex-direction: row;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.mention-browser-tab .mention-menu-name {
+  font-weight: var(--weight-regular);
+  flex: 0 1 auto;
+}
+
+.mention-browser-tab .mention-menu-path {
+  flex: 1 1 auto;
+}
+
+.mention-menu-main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+
+.mention-menu-name,
+.mention-menu-path {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mention-menu-name {
+  font-size: var(--text-body-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--fg);
+}
+
+.mention-menu-path {
+  font-size: var(--text-small);
+  color: var(--fg-tertiary);
+}
+
+/* A group's own placeholder line while it has no rows: "Loading…", an error, or
+   "no matches". It is a non-interactive div (never a selectable row), so the
+   keyboard never lands on it. */
+.mention-menu-state {
+  padding: 6px 10px;
+  font-size: var(--text-small);
+  color: var(--fg-quaternary);
+}
+
+.mention-menu-state-error {
+  color: var(--fg-tertiary);
+}
+
+.mention-menu-error-detail {
+  display: block;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  margin-top: 3px;
+}
+
+.mention-menu-retry {
+  margin-left: 8px;
+  color: var(--fg);
+  text-decoration: underline;
+  font: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+.ultra-access-card {
+  width: min(92vw, 460px);
+}
+
+.ultra-access-card :global(.klaus-dialog-title) {
+  padding-right: 24px;
+}
+
+.ultra-access-close {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--fg-secondary);
+  cursor: pointer;
+}
+
+.ultra-access-close:hover,
+.ultra-access-close:focus-visible {
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+
+.ultra-access-footer {
+  flex-wrap: wrap;
+}
+
+.ultra-access-footer :global(.klaus-dialog-btn) {
+  flex: 1;
+  white-space: nowrap;
+}
+
+/* Full-access confirmation dialog: same shell as the shared klaus-dialog, with
+   a capability list that spells out what leaving the sandbox covers. */
+.bypass-confirm-card {
+  width: min(92vw, 460px);
+}
+
+.bypass-confirm-scopes {
+  display: flex;
+  flex-direction: column;
+  margin: 12px 0 10px;
+  padding: 4px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-hover);
+}
+
+.bypass-confirm-scope {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 0;
+}
+
+.bypass-confirm-scope + .bypass-confirm-scope {
+  border-top: 1px solid var(--border);
+}
+
+.bypass-confirm-scope-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  margin-top: 1px;
+  color: var(--fg-secondary);
+}
+
+.bypass-confirm-scope-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.bypass-confirm-scope-title {
+  font-size: var(--text-body-sm);
+  font-weight: var(--weight-medium);
+  color: var(--fg);
+}
+
+.bypass-confirm-scope-desc {
+  font-size: var(--text-caption);
+  color: var(--fg-tertiary);
+  line-height: 1.4;
+}
+
+.bypass-confirm-risk {
+  color: var(--fg-tertiary);
+}
+
+.bypass-confirm-learn-more {
+  font: inherit;
+  color: var(--accent);
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.bypass-confirm-learn-more:hover {
+  color: var(--accent-hover);
+}

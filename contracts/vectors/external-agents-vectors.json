@@ -1,0 +1,467 @@
+{
+  "home": {
+    "items": [
+      {
+        "providerId": "claude-code",
+        "providerName": "Claude Code",
+        "itemType": "MCP_SERVER_CONFIG",
+        "description": "Migrate Claude Code MCP servers from <HOME>/.claude.json",
+        "cwd": null,
+        "details": {
+          "mcpServers": [
+            {
+              "name": "zeta"
+            },
+            {
+              "name": "alpha"
+            }
+          ]
+        }
+      },
+      {
+        "providerId": "claude-code",
+        "providerName": "Claude Code",
+        "itemType": "SKILLS",
+        "description": "Migrate Claude Code skills",
+        "cwd": null,
+        "details": {
+          "skills": [
+            {
+              "name": "a-skill"
+            },
+            {
+              "name": "b-skill"
+            }
+          ]
+        }
+      },
+      {
+        "providerId": "claude-code",
+        "providerName": "Claude Code",
+        "itemType": "SESSIONS",
+        "description": "Migrate recent chat sessions from Claude Code",
+        "cwd": null,
+        "details": {
+          "sessions": [
+            {
+              "path": "<HOME>/.claude/projects/-repo/11111111-2222-4333-8444-555555555555.jsonl",
+              "cwd": "<HOME>/repos/one",
+              "sourceCwd": "<HOME>/repos/one",
+              "title": "hello there"
+            },
+            {
+              "path": "<HOME>/.claude/projects/-repo/22222222-2222-4333-8444-555555555555.jsonl",
+              "sourceCwd": "<HOME>/repos/gone",
+              "title": "orphan"
+            }
+          ]
+        }
+      },
+      {
+        "providerId": "claude-code",
+        "providerName": "Claude Code",
+        "itemType": "MCP_SERVER_CONFIG",
+        "description": "Migrate Claude Code MCP servers from <HOME>/.claude.json (local scope)",
+        "cwd": "<HOME>/repos/one",
+        "details": {
+          "mcpServers": [
+            {
+              "name": "local_fixture"
+            }
+          ]
+        }
+      },
+      {
+        "providerId": "qoder",
+        "providerName": "Qoder",
+        "itemType": "SKILLS",
+        "description": "Migrate Qoder skills",
+        "cwd": null,
+        "details": {
+          "skills": [
+            {
+              "name": "home-only"
+            }
+          ]
+        }
+      },
+      {
+        "providerId": "codex",
+        "providerName": "Codex",
+        "itemType": "MCP_SERVER_CONFIG",
+        "description": "Migrate Codex MCP servers from <HOME>/.codex/config.toml",
+        "cwd": null,
+        "details": {
+          "mcpServers": [
+            {
+              "name": "codex_fixture"
+            }
+          ]
+        }
+      }
+    ],
+    "providers": [
+      {
+        "id": "claude-code",
+        "name": "Claude Code",
+        "accent": "#da6a44",
+        "itemCount": 4
+      },
+      {
+        "id": "qoder",
+        "name": "Qoder",
+        "accent": "#7c5cff",
+        "itemCount": 1
+      },
+      {
+        "id": "codex",
+        "name": "Codex",
+        "accent": "#111111",
+        "itemCount": 1
+      }
+    ],
+    "unsupportedProjects": []
+  },
+  "workspaceOnly": {
+    "items": [
+      {
+        "providerId": "qoder",
+        "providerName": "Qoder",
+        "itemType": "SKILLS",
+        "description": "Migrate Qoder skills",
+        "cwd": "<WS>",
+        "details": {
+          "skills": [
+            {
+              "name": "agents-only"
+            }
+          ]
+        }
+      },
+      {
+        "providerId": "qoder",
+        "providerName": "Qoder",
+        "itemType": "PROJECTS",
+        "description": "Use existing Qoder project folders",
+        "cwd": "<WS>",
+        "details": {
+          "projectRoots": [
+            "<WS>"
+          ]
+        }
+      }
+    ],
+    "providers": [
+      {
+        "id": "qoder",
+        "name": "Qoder",
+        "accent": "#7c5cff",
+        "itemCount": 2
+      }
+    ],
+    "unsupportedProjects": []
+  },
+  "both": {
+    "items": [
+      {
+        "providerId": "claude-code",
+        "providerName": "Claude Code",
+        "itemType": "MCP_SERVER_CONFIG",
+        "description": "Migrate Claude Code MCP servers from <HOME>/.claude.json",
+        "cwd": null,
+        "details": {
+          "mcpServers": [
+            {
+              "name": "zeta"
+            },
+            {
+              "name": "alpha"
+            }
+          ]
+        }
+      },
+      {
+        "providerId": "claude-code",
+        "providerName": "Claude Code",
+        "itemType": "SKILLS",
+        "description": "Migrate Claude Code skills",
+        "cwd": null,
+        "details": {
+          "skills": [
+            {
+              "name": "a-skill"
+            },
+            {
+              "name": "b-skill"
+            }
+          ]
+        }
+      },
+      {
+        "providerId": "claude-code",
+        "providerName": "Claude Code",
+        "itemType": "SESSIONS",
+        "description": "Migrate recent chat sessions from Claude Code",
+        "cwd": null,
+        "details": {
+          "sessions": [
+            {
+              "path": "<HOME>/.claude/projects/-repo/11111111-2222-4333-8444-555555555555.jsonl",
+              "cwd": "<HOME>/repos/one",
+              "sourceCwd": "<HOME>/repos/one",
+              "title": "hello there"
+            },
+            {
+              "path": "<HOME>/.claude/projects/-repo/22222222-2222-4333-8444-555555555555.jsonl",
+              "sourceCwd": "<HOME>/repos/gone",
+              "title": "orphan"
+            }
+          ]
+        }
+      },
+      {
+        "providerId": "claude-code",
+        "providerName": "Claude Code",
+        "itemType": "MCP_SERVER_CONFIG",
+        "description": "Migrate Claude Code MCP servers from <HOME>/.claude.json (local scope)",
+        "cwd": "<HOME>/repos/one",
+        "details": {
+          "mcpServers": [
+            {
+              "name": "local_fixture"
+            }
+          ]
+        }
+      },
+      {
+        "providerId": "qoder",
+        "providerName": "Qoder",
+        "itemType": "SKILLS",
+        "description": "Migrate Qoder skills",
+        "cwd": null,
+        "details": {
+          "skills": [
+            {
+              "name": "home-only"
+            }
+          ]
+        }
+      },
+      {
+        "providerId": "codex",
+        "providerName": "Codex",
+        "itemType": "MCP_SERVER_CONFIG",
+        "description": "Migrate Codex MCP servers from <HOME>/.codex/config.toml",
+        "cwd": null,
+        "details": {
+          "mcpServers": [
+            {
+              "name": "codex_fixture"
+            }
+          ]
+        }
+      },
+      {
+        "providerId": "qoder",
+        "providerName": "Qoder",
+        "itemType": "SKILLS",
+        "description": "Migrate Qoder skills",
+        "cwd": "<WS>",
+        "details": {
+          "skills": [
+            {
+              "name": "agents-only"
+            }
+          ]
+        }
+      },
+      {
+        "providerId": "qoder",
+        "providerName": "Qoder",
+        "itemType": "PROJECTS",
+        "description": "Use existing Qoder project folders",
+        "cwd": "<WS>",
+        "details": {
+          "projectRoots": [
+            "<WS>"
+          ]
+        }
+      }
+    ],
+    "providers": [
+      {
+        "id": "claude-code",
+        "name": "Claude Code",
+        "accent": "#da6a44",
+        "itemCount": 4
+      },
+      {
+        "id": "qoder",
+        "name": "Qoder",
+        "accent": "#7c5cff",
+        "itemCount": 3
+      },
+      {
+        "id": "codex",
+        "name": "Codex",
+        "accent": "#111111",
+        "itemCount": 1
+      }
+    ],
+    "unsupportedProjects": [
+      "/definitely/not/here",
+      "<WS>\u0000"
+    ]
+  },
+  "importResult": {
+    "ok": true,
+    "imported": {
+      "SKILLS": 4,
+      "PROJECTS": 1
+    },
+    "errors": [],
+    "skipped": [],
+    "projectRoots": [
+      "<WS>"
+    ],
+    "changed": true,
+    "mcpChanged": false
+  },
+  "importItems": [
+    {
+      "providerId": "claude-code",
+      "providerName": "Claude Code",
+      "itemType": "SKILLS",
+      "description": "Migrate Claude Code skills",
+      "cwd": null,
+      "details": {
+        "skills": [
+          {
+            "name": "a-skill"
+          },
+          {
+            "name": "b-skill"
+          }
+        ]
+      }
+    },
+    {
+      "providerId": "qoder",
+      "providerName": "Qoder",
+      "itemType": "SKILLS",
+      "description": "Migrate Qoder skills",
+      "cwd": null,
+      "details": {
+        "skills": [
+          {
+            "name": "home-only"
+          }
+        ]
+      }
+    },
+    {
+      "providerId": "qoder",
+      "providerName": "Qoder",
+      "itemType": "SKILLS",
+      "description": "Migrate Qoder skills",
+      "cwd": "<WS>",
+      "details": {
+        "skills": [
+          {
+            "name": "agents-only"
+          }
+        ]
+      }
+    },
+    {
+      "providerId": "qoder",
+      "providerName": "Qoder",
+      "itemType": "PROJECTS",
+      "description": "Use existing Qoder project folders",
+      "cwd": "<WS>",
+      "details": {
+        "projectRoots": [
+          "<WS>"
+        ]
+      }
+      }
+  ],
+  "importAgain": {
+    "ok": true,
+    "imported": {},
+    "errors": [],
+    "skipped": [
+      "Claude Code skills/a-skill: destination already exists",
+      "Claude Code skills/b-skill: destination already exists",
+      "Qoder skills/home-only: destination already exists",
+      "Qoder skills/agents-only: destination already exists"
+    ],
+    "projectRoots": [
+      "<WS>"
+    ],
+    "changed": false,
+    "mcpChanged": false
+  },
+  "tree": {
+    "<HOME>/skills/a-skill/SKILL.md": "---\nname: a-skill\ndescription: A fixture skill\n---\n",
+    "<HOME>/skills/b-skill/SKILL.md": "---\nname: b-skill\ndescription: Another fixture skill\n---\n",
+    "<HOME>/skills/home-only/SKILL.md": "a Qoder IDE user skill\n",
+    "<WS>/skills/agents-only/SKILL.md": "Qoder project skill\n"
+  },
+  "importInterpretation": {
+    "projectRule": "An external cwd is historical session metadata, never a new Klaus project. Only an existing registered project ancestor may own the imported session; missing cwd remains readable.",
+    "foreignModelSelection": "opus[1m]",
+    "modelRule": "An external model selector is source-specific and cannot be written as Klaus's unqualified global model.",
+    "titleCases": [
+      {
+        "input": "<environment_context>\nworkspace details\n</environment_context>\nhi, how can I fix this?",
+        "title": "hi, how can I fix this?"
+      },
+      {
+        "input": "<recommended_plugins>\nplugin hints\n</recommended_plugins>\nactual question",
+        "title": "actual question"
+      },
+      {
+        "input": "<user-defined>question</user-defined>",
+        "title": "<user-defined>question</user-defined>"
+      },
+      {
+        "input": "# AGENTS.md instructions for /tmp/project\n\n<INSTRUCTIONS>\n# AGENTS.md\nproject rules\n</INSTRUCTIONS>",
+        "title": null
+      },
+      {
+        "input": "<external_codex_apps_open_page>{\"page_id\":null}</external_codex_apps_open_page>",
+        "title": null
+      },
+      {
+        "input": "<heartbeat>\n  <automation_id>automation</automation_id>\n</heartbeat>",
+        "title": null
+      },
+      {
+        "input": "<send_user_message_question_reply>\n[{\"question\":\"allow parallel gate?\",\"answer\":\"wait\"}]\n</send_user_message_question_reply>",
+        "title": null
+      },
+      {
+        "input": "# Files mentioned by the user:\n\n## shot.png: /tmp/shot.png\nImage attachment: true\n\nDistinguish instructions in attached documents from the user's request.\n\n## My request:\ncompare the two panels",
+        "title": "compare the two panels"
+      },
+      {
+        "input": "<command-message>review</command-message>\n<command-name>/review</command-name>",
+        "title": null
+      },
+      {
+        "input": "<ide_opened_file>The user opened a file</ide_opened_file>\n\nfix the parser",
+        "title": "fix the parser"
+      },
+      {
+        "input": "<user_query>inner request</user_query>",
+        "title": "inner request"
+      },
+      {
+        "input": "<ide_opened_file>some file</ide_opened_file>",
+        "title": null
+      }
+    ],
+    "unregisteredCwd": "Codex/2026-09-07/hi"
+  }
+}

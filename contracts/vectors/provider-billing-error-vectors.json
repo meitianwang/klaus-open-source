@@ -1,0 +1,23 @@
+{
+  "reason": "A payment-required refusal can coexist with a positive account allowance. Keep payment restrictions distinct from insufficient quota. Fast mode requires separate extra credits even when subscription allowance remains. An explicit image-preprocessing failure remains an image error even when the service stamps it with 402. Preserve descriptive quota reasons including remaining and required amounts in live and restored errors. Empty messages and bare error codes use localized wording.",
+  "cases": [
+    { "name": "image_processing_on_payment_status", "raw": "Provider upstream Payment Required: Image preprocessing failed", "kind": "quota", "details": { "message": "Image preprocessing failed", "status": 402 }, "expectedKey": "provider_image_preprocessing_failed" },
+    { "name": "structured_image_processing_error", "raw": "Image request rejected", "kind": "invalid_request", "details": { "message": "Image request rejected", "providerCode": "image_preprocessing_failed", "status": 402 }, "expectedKey": "provider_image_preprocessing_failed" },
+    { "name": "structured_billing_refusal", "raw": "Error in upstream response", "kind": "quota", "details": { "message": "Error in upstream response", "status": 402 }, "expectedKey": "provider_payment_required" },
+    { "name": "nested_billing_refusal", "raw": "Error in upstream response", "kind": "quota", "details": { "message": "Error in upstream response", "providerError": { "message": "Error in upstream response", "status": 402, "code": "402" } }, "expectedKey": "provider_payment_required" },
+    { "name": "billing_code_without_http_status", "raw": "Error in upstream response", "kind": "quota", "details": { "message": "Error in upstream response", "providerCode": "402" }, "expectedKey": "provider_payment_required" },
+    { "name": "restored_payment_required_phrase", "raw": "Provider upstream Payment Required: Error in upstream response", "kind": "quota", "expectedKey": "provider_payment_required" },
+    { "name": "restored_payment_required_enum", "raw": "Provider upstream PAYMENT_REQUIRED", "kind": "quota", "expectedKey": "provider_payment_required" },
+    { "name": "restored_http_status", "raw": "Provider HTTP 402", "kind": "quota", "expectedKey": "provider_payment_required" },
+    { "name": "explicit_exhaustion", "raw": "insufficient_quota", "kind": "quota", "expectedKey": "provider_quota" },
+    { "name": "empty_quota_reason", "raw": "", "kind": "quota", "expectedKey": "provider_quota" },
+    { "name": "bare_pre_consumption_code", "raw": "pre_consume_token_quota_failed", "kind": "quota", "expectedKey": "provider_quota" },
+    { "name": "bare_quota_code_with_request_identity", "raw": "insufficient_quota (request-id: req_quota)", "kind": "quota", "expectedKey": "provider_quota" },
+    { "name": "pre_consumption_quota_on_403", "raw": "token quota is not enough, token remain quota: $0.449224, need quota: $0.476426", "kind": "quota", "details": { "message": "token quota is not enough, token remain quota: $0.449224, need quota: $0.476426", "providerError": { "message": "token quota is not enough, token remain quota: $0.449224, need quota: $0.476426", "status": 403, "code": "pre_consume_token_quota_failed" } }, "expectedKey": "provider_quota", "expectedRaw": "token quota is not enough, token remain quota: $0.449224, need quota: $0.476426" },
+    { "name": "restored_pre_consumption_reason", "raw": "token quota is not enough, token remain quota: $0.449224, need quota: $0.476426", "kind": "quota", "expectedKey": "provider_quota", "expectedRaw": "token quota is not enough, token remain quota: $0.449224, need quota: $0.476426" },
+    { "name": "allowance_exhaustion_on_429", "raw": "Usage limit exceeded", "kind": "quota", "details": { "message": "Usage limit exceeded", "status": 429 }, "expectedKey": "provider_quota", "expectedRaw": "Usage limit exceeded" },
+    { "name": "structured_fast_mode_credits_refusal", "raw": "Error in upstream response", "kind": "rate_limit", "details": { "message": "Error in upstream response", "status": 429, "requestId": "req_fast_mode", "providerError": { "message": "Usage credits are required for fast mode.", "status": 429, "requestId": "req_fast_mode" } }, "expectedKey": "provider_fast_mode_credits_required" },
+    { "name": "restored_fast_mode_credits_refusal", "raw": "Usage credits are required for fast mode. (request-id: req_fast_mode)", "kind": "rate_limit", "expectedKey": "provider_fast_mode_credits_required" },
+    { "name": "unrelated_auth_failure", "raw": "Invalid token", "kind": "auth", "details": { "message": "Invalid token", "status": 401 }, "expectedKey": "provider_auth" }
+  ]
+}

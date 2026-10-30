@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "reason": "Review mutations use only the exact displayed snapshot, preserve unrelated index and working content, and refuse incomplete or inapplicable selections.",
+  "requiresSnapshot": true,
+  "missingSnapshotCode": "REVIEW_ACTION_UNAVAILABLE",
+  "staleSnapshotCode": "DIFF_SNAPSHOT_CHANGED",
+  "noChangeCode": "REVIEW_ACTION_NO_CHANGES",
+  "rejectedScopes": [
+    {
+      "source": "last-turn",
+      "action": "stage",
+      "filePath": "source.txt"
+    },
+    {
+      "source": "commit",
+      "action": "revert",
+      "filePath": "source.txt"
+    },
+    {
+      "source": "staged",
+      "action": "stage",
+      "filePath": "source.txt"
+    },
+    {
+      "source": "uncommitted",
+      "action": "unstage",
+      "filePath": "source.txt"
+    },
+    {
+      "source": "staged",
+      "action": "revert"
+    }
+  ],
+  "hunkPolicy": {
+    "text": "apply one host-rebuilt hunk with its original ranges and newline notes",
+    "binary": "whole file only",
+    "rename": "tracked relation metadata applies with the selected hunk; inferred moves require the whole file",
+    "embeddedRepository": "whole parent-index pointer only; preserve the nested checkout and refuse hunk actions"
+  },
+  "stagedRevertPolicy": "The working file must match the displayed index. Undisplayed working edits cause a conflict.",
+  "gitlinks": {
+    "stageAndUnstage": "Apply captured canonical mode160000 pointers only to the parent index; preserve nested HEAD and dirty/untracked bytes.",
+    "untracked": "Export and stage the recorded nested HEAD pointer without recursive file reads.",
+    "revert": "Explicitly unavailable; never report success without restoring the nested checkout.",
+    "races": "Reject stale capture/index pointers and preserve late nested working revisions."
+  }
+}

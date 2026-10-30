@@ -1,0 +1,189 @@
+{
+  "version": 1,
+  "reason": "High, medium and low are one shared mapping of source-qualified model references, independent of each conversation's main model. Retired source rows are migration evidence, not auxiliary routes. Cursor targets retain concrete variant parameters. Cursor targets that require local login re-import are unavailable; auxiliary targets reject default and tier aliases. New subagents require an explicit model argument that overrides role defaults. The configuration switch defaults off and offers only tiers; enabling it offers only source-qualified shared catalog entries. Invalid or unavailable child selections fall back to the captured parent model, while continuations retain their original model.",
+  "storageCases": [
+    {
+      "name": "custom source retains model identity",
+      "source": "custom",
+      "legacy": "{\"high\":\"strong\",\"medium\":\"regular\",\"low\":\"fast\"}",
+      "expected": {
+        "high": {
+          "source": "custom",
+          "modelId": "strong"
+        },
+        "medium": {
+          "source": "custom",
+          "modelId": "regular"
+        },
+        "low": {
+          "source": "custom",
+          "modelId": "fast"
+        }
+      }
+    },
+    {
+      "name": "subscription aliases preserve their owning source",
+      "source": "subscription",
+      "legacy": "{\"high\":\"opus\",\"low\":\"haiku\"}",
+      "expected": {
+        "high": {
+          "source": "subscription",
+          "modelId": "opus"
+        },
+        "medium": null,
+        "low": {
+          "source": "subscription",
+          "modelId": "haiku"
+        }
+      }
+    },
+    {
+      "name": "an empty map explicitly follows each conversation's main model",
+      "source": "codex",
+      "legacy": "{}",
+      "expected": {
+        "high": null,
+        "medium": null,
+        "low": null
+      }
+    },
+    {
+      "name": "malformed old data remains evidence and does not invent routes",
+      "source": "custom",
+      "legacy": "{broken",
+      "warning": "invalid_legacy_mapping",
+      "expected": {
+        "high": null,
+        "medium": null,
+        "low": null
+      }
+    },
+    {
+      "name": "Cursor tier retains effort and Fast identity",
+      "source": "cursor",
+      "legacy": "{\"high\":\"fixture[effort=high,fast=true]\",\"low\":\"fixture[effort=low,fast=false]\"}",
+      "expected": {
+        "high": {
+          "source": "cursor",
+          "modelId": "fixture[effort=high,fast=true]"
+        },
+        "medium": null,
+        "low": {
+          "source": "cursor",
+          "modelId": "fixture[effort=low,fast=false]"
+        }
+      }
+    }
+  ],
+  "routeInvariants": {
+    "example": {
+      "high": {
+        "source": "subscription",
+        "modelId": "opus"
+      },
+      "medium": {
+        "source": "custom",
+        "modelId": "qwen"
+      },
+      "low": {
+        "source": "custom",
+        "modelId": "fast"
+      }
+    },
+    "mainModelChangedByMapping": false,
+    "explicitUnavailableFallback": false,
+    "subagentModelSelection": {
+      "required": true,
+      "omission": "reject",
+      "inherit": "reject",
+      "catalogSetting": "klaus.subagentModelCatalog",
+      "catalogDefault": false,
+      "disabledChoices": ["low", "medium", "high"],
+      "enabledChoices": "shared-source-qualified-catalog",
+      "enabledTiers": false,
+      "disabledConcreteSelection": "reject",
+      "emptyCatalog": "new-child-unavailable",
+      "effectiveAt": "next-inference-step",
+      "explicitSelectionOverridesRoleModel": true,
+      "invalidOrUnavailable": "captured-parent-model",
+      "continuation": "original-child-model"
+    },
+    "providerAndCredentialTravelTogether": true,
+    "inFlightSnapshotReplaced": false,
+    "liveUpdatePayload": "modelTierTargets-only",
+    "tierReceiptConsumesPendingMainSelection": false,
+    "closedGenerationCanPublishLateRoutes": false,
+    "compactionTier": "medium",
+    "compactionTriggerWindow": "main"
+  },
+  "invalidCursorModels": [
+    "auto",
+    "AUTO",
+    "auto-smart",
+    "default",
+    "high",
+    "medium",
+    "low",
+    "auto[fast=true]",
+    "default@max",
+    "low[context=256k]@max"
+  ],
+  "cursorNeedsReimport": {
+    "source": "cursor",
+    "state": {
+      "loggedIn": true,
+      "needsReimport": true,
+      "reason": "cursor_client_metadata_missing"
+    },
+    "status": "unavailable",
+    "reasonCode": "MODEL_SOURCE_NEEDS_REIMPORT"
+  },
+  "settingsUi": {
+    "reason": "Model tiers retain summary cards and an explicit editor with Save and Cancel. A media function uses compact source/model rows whenever any mode has multiple models, including when the selected mode has only one. Other functions whose modes all have one or no concrete model use a single dropdown without model text below. Music always retains Source and Model rows; a single music model displays a disabled service default label while preserving its effective identity. Multiple music models retain their concrete choices. Advisor uses the same compact rows without repeating the selected model on the left. Image generation and editing share the same model selection; no separate editing-model row is shown. Source changes use the exact remembered model immediately. Pending saves preserve usable controls across remounts, and rapid choices save in order. Image, video, speech and music defaults share one multimodal section with two columns in reading order and one column at narrow content widths. Subscription credentials are configured once in the shared source tabs without a language heading or repeated modality account sections. Custom media endpoints remain editable only in the custom source tab.",
+    "tierControl": "cards-with-edit-modal",
+    "followChatWritesNull": true,
+    "unavailableCurrentRetained": true,
+    "conflictRequiresExplicitSelection": true,
+    "sourceConfigurationOnDefaults": false,
+    "nativeMediaModelsOnDefaults": [
+      "image",
+      "video",
+      "music"
+    ],
+    "nativeMediaModelsOnSources": false,
+    "mediaControl": "function-card-or-single-dropdown",
+    "mediaSelectionAtomic": true,
+    "tierDraftRequiresSave": true,
+    "tierCancelWrites": false,
+    "singleModelFunctionDropdowns": 1,
+    "multipleModelFunctionDropdowns": 2,
+    "modelNamesOutsideControls": false,
+    "advisorRepeatedModelSummary": false,
+    "defaultModelRowPaddingY": 8,
+    "sharedImageModel": true,
+    "mediaSourceAndModelChangeTogether": true,
+    "mediaPendingClearsModel": false,
+    "mediaPendingDisablesReadyModels": false,
+    "mediaRapidChoicesSerialized": true,
+    "multimodalSection": {
+      "title": "Multimodal models",
+      "rows": [
+        [
+          "image",
+          "video"
+        ],
+        [
+          "audio",
+          "music"
+        ]
+      ],
+      "narrowLayout": "single-column",
+      "selectionBehaviorChanged": false
+    },
+    "musicModelRows": 2,
+    "singleMusicModelPresentation": "disabled-service-default",
+    "sourceCredentialSections": 1,
+    "sourceLanguageHeading": false,
+    "customMediaEndpointsOnSource": "custom"
+  }
+}

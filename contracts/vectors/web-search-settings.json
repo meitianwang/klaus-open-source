@@ -1,0 +1,1583 @@
+{
+  "version": 8,
+  "reason": "Search credentials are managed once under model sources; effective source selection belongs to feature configuration. The picker catalog is the verified subscription search set and no longer filters on stored credentials; a subscription without credentials stays selectable and reports its missing connection after selection. Retired Brave preferences resolve to Bing without changing enablement, access limits or domain filters. Other explicit sources remain unchanged.",
+  "default": {
+    "source": "builtin",
+    "enabled": true,
+    "mode": "client"
+  },
+  "sources": [
+    {
+      "name": "QwenWork native search keeps its source on the client wire",
+      "input": {
+        "source": "qwenwork"
+      },
+      "expected": {
+        "source": "qwenwork",
+        "enabled": true,
+        "mode": "client"
+      }
+    },
+    {
+      "name": "explicit WorkBuddy search preserves its independent backend",
+      "input": {
+        "source": "workbuddy"
+      },
+      "expected": {
+        "source": "workbuddy",
+        "enabled": true,
+        "mode": "client"
+      }
+    },
+    {
+      "name": "disabled WorkBuddy search retains its source",
+      "input": {
+        "source": "workbuddy",
+        "enabled": false
+      },
+      "expected": {
+        "source": "workbuddy",
+        "enabled": false,
+        "mode": "off"
+      }
+    },
+    {
+      "name": "explicit cursor remains cursor on the client wire",
+      "input": {
+        "source": "cursor"
+      },
+      "expected": {
+        "source": "cursor",
+        "enabled": true,
+        "mode": "client"
+      }
+    },
+    {
+      "name": "disabled cursor remembers its source",
+      "input": {
+        "source": "cursor",
+        "enabled": false
+      },
+      "expected": {
+        "source": "cursor",
+        "enabled": false,
+        "mode": "off"
+      }
+    },
+    {
+      "name": "unconfigured search uses Bing",
+      "input": {},
+      "expected": {
+        "source": "builtin",
+        "enabled": true,
+        "mode": "client"
+      }
+    },
+    {
+      "name": "unknown source uses Bing",
+      "input": {
+        "source": "unknown"
+      },
+      "expected": {
+        "source": "builtin",
+        "enabled": true,
+        "mode": "client"
+      }
+    },
+    {
+      "name": "stored builtin keeps its stable value",
+      "input": {
+        "source": "builtin"
+      },
+      "expected": {
+        "source": "builtin",
+        "enabled": true,
+        "mode": "client"
+      }
+    },
+    {
+      "name": "explicit native remains native",
+      "input": {
+        "source": "native"
+      },
+      "expected": {
+        "source": "native",
+        "enabled": true,
+        "mode": "native"
+      }
+    },
+    {
+      "name": "retired source uses Bing",
+      "input": {
+        "source": "brave"
+      },
+      "expected": {
+        "source": "builtin",
+        "enabled": true,
+        "mode": "client"
+      }
+    },
+    {
+      "name": "retired custom endpoint resolves to Bing",
+      "input": {
+        "source": "custom"
+      },
+      "expected": {
+        "source": "builtin",
+        "enabled": true,
+        "mode": "client"
+      }
+    },
+    {
+      "name": "explicit codex remains codex on the client wire",
+      "input": {
+        "source": "codex"
+      },
+      "expected": {
+        "source": "codex",
+        "enabled": true,
+        "mode": "client"
+      }
+    },
+    {
+      "name": "explicit qoder remains qoder on the client wire",
+      "input": {
+        "source": "qoder"
+      },
+      "expected": {
+        "source": "qoder",
+        "enabled": true,
+        "mode": "client"
+      }
+    },
+    {
+      "name": "explicit qoderwork remains qoderwork on the client wire",
+      "input": {
+        "source": "qoderwork"
+      },
+      "expected": {
+        "source": "qoderwork",
+        "enabled": true,
+        "mode": "client"
+      }
+    },
+    {
+      "name": "explicit bailian remains bailian on the client wire",
+      "input": {
+        "source": "bailian"
+      },
+      "expected": {
+        "source": "bailian",
+        "enabled": true,
+        "mode": "client"
+      }
+    },
+    {
+      "name": "explicit Claude subscription remains on the client wire",
+      "input": {
+        "source": "subscription"
+      },
+      "expected": {
+        "source": "subscription",
+        "enabled": true,
+        "mode": "client"
+      }
+    },
+    {
+      "name": "explicit kimi remains kimi on the client wire",
+      "input": {
+        "source": "kimi"
+      },
+      "expected": {
+        "source": "kimi",
+        "enabled": true,
+        "mode": "client"
+      }
+    },
+    {
+      "name": "explicit minimax remains minimax on the client wire",
+      "input": {
+        "source": "minimax"
+      },
+      "expected": {
+        "source": "minimax",
+        "enabled": true,
+        "mode": "client"
+      }
+    },
+    {
+      "name": "explicit zhipu remains zhipu on the client wire",
+      "input": {
+        "source": "zhipu"
+      },
+      "expected": {
+        "source": "zhipu",
+        "enabled": true,
+        "mode": "client"
+      }
+    },
+    {
+      "name": "disabled codex remembers its source",
+      "input": {
+        "source": "codex",
+        "enabled": false
+      },
+      "expected": {
+        "source": "codex",
+        "enabled": false,
+        "mode": "off"
+      }
+    },
+    {
+      "name": "legacy client selects Bing",
+      "input": {
+        "mode": "client"
+      },
+      "expected": {
+        "source": "builtin",
+        "enabled": true,
+        "mode": "client"
+      }
+    },
+    {
+      "name": "legacy native remains native",
+      "input": {
+        "mode": "native"
+      },
+      "expected": {
+        "source": "native",
+        "enabled": true,
+        "mode": "native"
+      }
+    },
+    {
+      "name": "legacy off stays disabled",
+      "input": {
+        "mode": "off"
+      },
+      "expected": {
+        "source": "builtin",
+        "enabled": false,
+        "mode": "off"
+      }
+    },
+    {
+      "name": "stored off stays disabled",
+      "input": {
+        "enabled": "off"
+      },
+      "expected": {
+        "source": "builtin",
+        "enabled": false,
+        "mode": "off"
+      }
+    },
+    {
+      "name": "disabled native remembers its source",
+      "input": {
+        "source": "native",
+        "enabled": false,
+        "mode": "off"
+      },
+      "expected": {
+        "source": "native",
+        "enabled": false,
+        "mode": "off"
+      }
+    },
+    {
+      "name": "retired source uses Bing while disabled",
+      "input": {
+        "source": "brave",
+        "enabled": "false",
+        "mode": "off"
+      },
+      "expected": {
+        "source": "builtin",
+        "enabled": false,
+        "mode": "off"
+      }
+    },
+    {
+      "name": "retired custom source drops a stale native mode",
+      "input": {
+        "source": "custom",
+        "mode": "native"
+      },
+      "expected": {
+        "source": "builtin",
+        "enabled": true,
+        "mode": "client"
+      }
+    },
+    {
+      "name": "explicit enable overrides stale off mode",
+      "input": {
+        "source": "builtin",
+        "enabled": true,
+        "mode": "off"
+      },
+      "expected": {
+        "source": "builtin",
+        "enabled": true,
+        "mode": "client"
+      }
+    },
+    {
+      "name": "legacy auto keeps native search",
+      "input": {
+        "mode": "auto"
+      },
+      "expected": {
+        "source": "native",
+        "enabled": true,
+        "mode": "native"
+      }
+    },
+    {
+      "name": "legacy indexed keeps native search",
+      "input": {
+        "mode": "indexed"
+      },
+      "expected": {
+        "source": "native",
+        "enabled": true,
+        "mode": "native"
+      }
+    },
+    {
+      "name": "legacy cached keeps native search",
+      "input": {
+        "mode": "cached"
+      },
+      "expected": {
+        "source": "native",
+        "enabled": true,
+        "mode": "native"
+      }
+    },
+    {
+      "name": "legacy live keeps native search",
+      "input": {
+        "mode": "live"
+      },
+      "expected": {
+        "source": "native",
+        "enabled": true,
+        "mode": "native"
+      }
+    },
+    {
+      "name": "legacy disabled keeps search off",
+      "input": {
+        "mode": "disabled"
+      },
+      "expected": {
+        "source": "builtin",
+        "enabled": false,
+        "mode": "off"
+      }
+    },
+    {
+      "name": "explicit Bing overrides legacy indexed source",
+      "input": {
+        "source": "builtin",
+        "mode": "indexed"
+      },
+      "expected": {
+        "source": "builtin",
+        "enabled": true,
+        "mode": "client"
+      }
+    },
+    {
+      "name": "explicit disabled flag overrides legacy auto",
+      "input": {
+        "enabled": false,
+        "mode": "auto"
+      },
+      "expected": {
+        "source": "native",
+        "enabled": false,
+        "mode": "off"
+      }
+    },
+    {
+      "name": "explicit enabled flag overrides legacy disabled",
+      "input": {
+        "source": "codex",
+        "enabled": true,
+        "mode": "disabled"
+      },
+      "expected": {
+        "source": "codex",
+        "enabled": true,
+        "mode": "client"
+      }
+    },
+    {
+      "name": "retired source does not become model-native from a legacy mode",
+      "input": {
+        "source": "brave",
+        "mode": "native"
+      },
+      "expected": {
+        "source": "builtin",
+        "enabled": true,
+        "mode": "client"
+      }
+    }
+  ],
+  "reads": [
+    {
+      "name": "unset rows remain unset for the shared Bing default",
+      "values": {},
+      "source": null,
+      "enabled": null
+    },
+    {
+      "name": "engine native mode is visible without desktop metadata",
+      "values": {
+        "webSearch": {
+          "mode": "native"
+        }
+      },
+      "source": "native",
+      "enabled": "on"
+    },
+    {
+      "name": "engine client mode resolves to Bing",
+      "values": {
+        "webSearch": {
+          "mode": "client"
+        }
+      },
+      "source": "builtin",
+      "enabled": "on"
+    },
+    {
+      "name": "engine off mode remains disabled",
+      "values": {
+        "webSearch": {
+          "mode": "off"
+        }
+      },
+      "source": "builtin",
+      "enabled": "off"
+    },
+    {
+      "name": "retired custom source reads as Bing under disabled wire mode",
+      "values": {
+        "desktop": {
+          "webSearch": {
+            "source": "custom"
+          }
+        },
+        "webSearch": {
+          "mode": "off"
+        }
+      },
+      "source": "builtin",
+      "enabled": "off"
+    },
+    {
+      "name": "engine auto mode is shown as native",
+      "values": {
+        "webSearch": {
+          "mode": "auto"
+        }
+      },
+      "source": "native",
+      "enabled": "on"
+    },
+    {
+      "name": "engine indexed mode is shown as native",
+      "values": {
+        "webSearch": {
+          "mode": "indexed"
+        }
+      },
+      "source": "native",
+      "enabled": "on"
+    },
+    {
+      "name": "engine cached mode is shown as native",
+      "values": {
+        "webSearch": {
+          "mode": "cached"
+        }
+      },
+      "source": "native",
+      "enabled": "on"
+    },
+    {
+      "name": "engine live mode is shown as native",
+      "values": {
+        "webSearch": {
+          "mode": "live"
+        }
+      },
+      "source": "native",
+      "enabled": "on"
+    },
+    {
+      "name": "engine disabled mode is shown as off",
+      "values": {
+        "webSearch": {
+          "mode": "disabled"
+        }
+      },
+      "source": "builtin",
+      "enabled": "off"
+    },
+    {
+      "name": "desktop Bing source overrides engine indexed",
+      "values": {
+        "desktop": {
+          "webSearch": {
+            "source": "builtin"
+          }
+        },
+        "webSearch": {
+          "mode": "indexed"
+        }
+      },
+      "source": "builtin",
+      "enabled": "on"
+    },
+    {
+      "name": "desktop off overrides engine auto",
+      "values": {
+        "desktop": {
+          "webSearch": {
+            "enabled": false
+          }
+        },
+        "webSearch": {
+          "mode": "auto"
+        }
+      },
+      "source": "native",
+      "enabled": "off"
+    },
+    {
+      "name": "desktop retired custom and on override engine disabled",
+      "values": {
+        "desktop": {
+          "webSearch": {
+            "source": "custom",
+            "enabled": true
+          }
+        },
+        "webSearch": {
+          "mode": "disabled"
+        }
+      },
+      "source": "builtin",
+      "enabled": "on"
+    },
+    {
+      "name": "desktop codex source is visible on the client wire",
+      "values": {
+        "desktop": {
+          "webSearch": {
+            "source": "codex"
+          }
+        },
+        "webSearch": {
+          "mode": "client"
+        }
+      },
+      "source": "codex",
+      "enabled": "on"
+    },
+    {
+      "name": "desktop qoderwork source survives disabled wire mode",
+      "values": {
+        "desktop": {
+          "webSearch": {
+            "source": "qoderwork"
+          }
+        },
+        "webSearch": {
+          "mode": "off"
+        }
+      },
+      "source": "qoderwork",
+      "enabled": "off"
+    },
+    {
+      "name": "Cursor search source survives engine config reads",
+      "values": {
+        "webSearch": {
+          "mode": "client",
+          "source": "cursor"
+        }
+      },
+      "source": "cursor",
+      "enabled": "on"
+    },
+    {
+      "name": "retired desktop source reads as Bing without enabling search",
+      "values": {
+        "desktop": {
+          "webSearch": {
+            "source": "brave",
+            "enabled": false
+          }
+        },
+        "webSearch": {
+          "mode": "off",
+          "source": "brave"
+        }
+      },
+      "source": "builtin",
+      "enabled": "off"
+    },
+    {
+      "name": "retired wire source reads as Bing",
+      "values": {
+        "webSearch": {
+          "mode": "client",
+          "source": "brave"
+        }
+      },
+      "source": "builtin",
+      "enabled": "on"
+    }
+  ],
+  "mutations": [
+    {
+      "name": "enable unconfigured search uses client mode",
+      "initial": {},
+      "writes": [
+        {
+          "key": "klaus.webSearch.enabled",
+          "value": "on"
+        }
+      ],
+      "expected": {
+        "desktop": {
+          "webSearch": {
+            "enabled": true
+          }
+        },
+        "webSearch": {
+          "mode": "client",
+          "source": "builtin"
+        }
+      }
+    },
+    {
+      "name": "disable and re-enable unconfigured search keeps Bing",
+      "initial": {},
+      "writes": [
+        {
+          "key": "klaus.webSearch.enabled",
+          "value": "off"
+        },
+        {
+          "key": "klaus.webSearch.enabled",
+          "value": "on"
+        }
+      ],
+      "expected": {
+        "desktop": {
+          "webSearch": {
+            "enabled": true
+          }
+        },
+        "webSearch": {
+          "mode": "client",
+          "source": "builtin"
+        }
+      }
+    },
+    {
+      "name": "select builtin maps to its wire mode",
+      "initial": {},
+      "writes": [
+        {
+          "key": "klaus.webSearch.source",
+          "value": "builtin"
+        }
+      ],
+      "expected": {
+        "desktop": {
+          "webSearch": {
+            "source": "builtin"
+          }
+        },
+        "webSearch": {
+          "mode": "client",
+          "source": "builtin"
+        }
+      }
+    },
+    {
+      "name": "disable and re-enable builtin preserves selection",
+      "initial": {
+        "desktop": {
+          "webSearch": {
+            "source": "builtin",
+            "enabled": true
+          }
+        },
+        "webSearch": {
+          "mode": "client"
+        }
+      },
+      "writes": [
+        {
+          "key": "klaus.webSearch.enabled",
+          "value": "off"
+        },
+        {
+          "key": "klaus.webSearch.enabled",
+          "value": "on"
+        }
+      ],
+      "expected": {
+        "desktop": {
+          "webSearch": {
+            "source": "builtin",
+            "enabled": true
+          }
+        },
+        "webSearch": {
+          "mode": "client",
+          "source": "builtin"
+        }
+      }
+    },
+    {
+      "name": "select native maps to its wire mode",
+      "initial": {},
+      "writes": [
+        {
+          "key": "klaus.webSearch.source",
+          "value": "native"
+        }
+      ],
+      "expected": {
+        "desktop": {
+          "webSearch": {
+            "source": "native"
+          }
+        },
+        "webSearch": {
+          "mode": "native",
+          "source": "native"
+        }
+      }
+    },
+    {
+      "name": "disable and re-enable native preserves selection",
+      "initial": {
+        "desktop": {
+          "webSearch": {
+            "source": "native",
+            "enabled": true
+          }
+        },
+        "webSearch": {
+          "mode": "native"
+        }
+      },
+      "writes": [
+        {
+          "key": "klaus.webSearch.enabled",
+          "value": "off"
+        },
+        {
+          "key": "klaus.webSearch.enabled",
+          "value": "on"
+        }
+      ],
+      "expected": {
+        "desktop": {
+          "webSearch": {
+            "source": "native",
+            "enabled": true
+          }
+        },
+        "webSearch": {
+          "mode": "native",
+          "source": "native"
+        }
+      }
+    },
+    {
+      "name": "enable edits retire a saved Brave source to Bing",
+      "initial": {
+        "desktop": {
+          "webSearch": {
+            "source": "brave",
+            "enabled": true
+          }
+        },
+        "webSearch": {
+          "mode": "client"
+        }
+      },
+      "writes": [
+        {
+          "key": "klaus.webSearch.enabled",
+          "value": "off"
+        },
+        {
+          "key": "klaus.webSearch.enabled",
+          "value": "on"
+        }
+      ],
+      "expected": {
+        "desktop": {
+          "webSearch": {
+            "source": "builtin",
+            "enabled": true
+          }
+        },
+        "webSearch": {
+          "mode": "client",
+          "source": "builtin"
+        }
+      }
+    },
+    {
+      "name": "enable edits retire a saved custom source to Bing",
+      "initial": {
+        "desktop": {
+          "webSearch": {
+            "source": "custom",
+            "enabled": true
+          }
+        },
+        "webSearch": {
+          "mode": "client"
+        }
+      },
+      "writes": [
+        {
+          "key": "klaus.webSearch.enabled",
+          "value": "off"
+        },
+        {
+          "key": "klaus.webSearch.enabled",
+          "value": "on"
+        }
+      ],
+      "expected": {
+        "desktop": {
+          "webSearch": {
+            "source": "builtin",
+            "enabled": true
+          }
+        },
+        "webSearch": {
+          "mode": "client",
+          "source": "builtin"
+        }
+      }
+    },
+    {
+      "name": "select codex keeps the client wire and names the source",
+      "initial": {},
+      "writes": [
+        {
+          "key": "klaus.webSearch.source",
+          "value": "codex"
+        }
+      ],
+      "expected": {
+        "desktop": {
+          "webSearch": {
+            "source": "codex"
+          }
+        },
+        "webSearch": {
+          "mode": "client",
+          "source": "codex"
+        }
+      }
+    },
+    {
+      "name": "select qoder keeps the client wire and names the source",
+      "initial": {},
+      "writes": [
+        {
+          "key": "klaus.webSearch.source",
+          "value": "qoder"
+        }
+      ],
+      "expected": {
+        "desktop": {
+          "webSearch": {
+            "source": "qoder"
+          }
+        },
+        "webSearch": {
+          "mode": "client",
+          "source": "qoder"
+        }
+      }
+    },
+    {
+      "name": "select qoderwork keeps the client wire and names the source",
+      "initial": {},
+      "writes": [
+        {
+          "key": "klaus.webSearch.source",
+          "value": "qoderwork"
+        }
+      ],
+      "expected": {
+        "desktop": {
+          "webSearch": {
+            "source": "qoderwork"
+          }
+        },
+        "webSearch": {
+          "mode": "client",
+          "source": "qoderwork"
+        }
+      }
+    },
+    {
+      "name": "select bailian keeps the client wire and names the source",
+      "initial": {},
+      "writes": [
+        {
+          "key": "klaus.webSearch.source",
+          "value": "bailian"
+        }
+      ],
+      "expected": {
+        "desktop": {
+          "webSearch": {
+            "source": "bailian"
+          }
+        },
+        "webSearch": {
+          "mode": "client",
+          "source": "bailian"
+        }
+      }
+    },
+    {
+      "name": "disable and re-enable codex preserves selection",
+      "initial": {
+        "desktop": {
+          "webSearch": {
+            "source": "codex",
+            "enabled": true
+          }
+        },
+        "webSearch": {
+          "mode": "client",
+          "source": "codex"
+        }
+      },
+      "writes": [
+        {
+          "key": "klaus.webSearch.enabled",
+          "value": "off"
+        },
+        {
+          "key": "klaus.webSearch.enabled",
+          "value": "on"
+        }
+      ],
+      "expected": {
+        "desktop": {
+          "webSearch": {
+            "source": "codex",
+            "enabled": true
+          }
+        },
+        "webSearch": {
+          "mode": "client",
+          "source": "codex"
+        }
+      }
+    },
+    {
+      "name": "changing a source preserves explicit off",
+      "initial": {
+        "desktop": {
+          "webSearch": {
+            "source": "builtin",
+            "enabled": false
+          }
+        },
+        "webSearch": {
+          "mode": "off"
+        }
+      },
+      "writes": [
+        {
+          "key": "klaus.webSearch.source",
+          "value": "native"
+        }
+      ],
+      "expected": {
+        "desktop": {
+          "webSearch": {
+            "source": "native",
+            "enabled": false
+          }
+        },
+        "webSearch": {
+          "mode": "off",
+          "source": "native"
+        }
+      }
+    },
+    {
+      "name": "changing a source preserves legacy off",
+      "initial": {
+        "webSearch": {
+          "mode": "off"
+        }
+      },
+      "writes": [
+        {
+          "key": "klaus.webSearch.source",
+          "value": "codex"
+        }
+      ],
+      "expected": {
+        "desktop": {
+          "webSearch": {
+            "source": "codex"
+          }
+        },
+        "webSearch": {
+          "mode": "off",
+          "source": "codex"
+        }
+      }
+    },
+    {
+      "name": "enabling legacy native preserves explicit native mode",
+      "initial": {
+        "webSearch": {
+          "mode": "native"
+        }
+      },
+      "writes": [
+        {
+          "key": "klaus.webSearch.enabled",
+          "value": "on"
+        }
+      ],
+      "expected": {
+        "desktop": {
+          "webSearch": {
+            "enabled": true,
+            "source": "native"
+          }
+        },
+        "webSearch": {
+          "mode": "native",
+          "source": "native"
+        }
+      }
+    },
+    {
+      "name": "clearing native source resets to Bing",
+      "initial": {
+        "desktop": {
+          "webSearch": {
+            "source": "native",
+            "enabled": true
+          }
+        },
+        "webSearch": {
+          "mode": "native"
+        }
+      },
+      "writes": [
+        {
+          "key": "klaus.webSearch.source",
+          "value": ""
+        }
+      ],
+      "expected": {
+        "desktop": {
+          "webSearch": {
+            "enabled": true
+          }
+        },
+        "webSearch": {
+          "mode": "client",
+          "source": "builtin"
+        }
+      }
+    },
+    {
+      "name": "clearing legacy native source resets to Bing",
+      "initial": {
+        "webSearch": {
+          "mode": "native"
+        }
+      },
+      "writes": [
+        {
+          "key": "klaus.webSearch.source",
+          "value": ""
+        }
+      ],
+      "expected": {
+        "webSearch": {
+          "mode": "client",
+          "source": "builtin"
+        },
+        "desktop": {
+          "webSearch": {}
+        }
+      }
+    },
+    {
+      "name": "clearing disabled flag enables the default browser search",
+      "initial": {
+        "desktop": {
+          "webSearch": {
+            "enabled": false
+          }
+        },
+        "webSearch": {
+          "mode": "off"
+        }
+      },
+      "writes": [
+        {
+          "key": "klaus.webSearch.enabled",
+          "value": ""
+        }
+      ],
+      "expected": {
+        "webSearch": {
+          "mode": "client",
+          "source": "builtin"
+        },
+        "desktop": {
+          "webSearch": {}
+        }
+      }
+    },
+    {
+      "name": "disabling and re-enabling legacy native preserves its source",
+      "initial": {
+        "webSearch": {
+          "mode": "native"
+        }
+      },
+      "writes": [
+        {
+          "key": "klaus.webSearch.enabled",
+          "value": "off"
+        },
+        {
+          "key": "klaus.webSearch.enabled",
+          "value": "on"
+        }
+      ],
+      "expected": {
+        "desktop": {
+          "webSearch": {
+            "source": "native",
+            "enabled": true
+          }
+        },
+        "webSearch": {
+          "mode": "native",
+          "source": "native"
+        }
+      }
+    },
+    {
+      "name": "disable and re-enable legacy auto retains native selection",
+      "initial": {
+        "webSearch": {
+          "mode": "auto"
+        }
+      },
+      "writes": [
+        {
+          "key": "klaus.webSearch.enabled",
+          "value": "off"
+        },
+        {
+          "key": "klaus.webSearch.enabled",
+          "value": "on"
+        }
+      ],
+      "expected": {
+        "desktop": {
+          "webSearch": {
+            "source": "native",
+            "enabled": true
+          }
+        },
+        "webSearch": {
+          "mode": "native",
+          "source": "native"
+        }
+      }
+    },
+    {
+      "name": "disable and re-enable legacy indexed retains native selection",
+      "initial": {
+        "webSearch": {
+          "mode": "indexed"
+        }
+      },
+      "writes": [
+        {
+          "key": "klaus.webSearch.enabled",
+          "value": "off"
+        },
+        {
+          "key": "klaus.webSearch.enabled",
+          "value": "on"
+        }
+      ],
+      "expected": {
+        "desktop": {
+          "webSearch": {
+            "source": "native",
+            "enabled": true,
+            "lastEnabledAccess": "indexed"
+          }
+        },
+        "webSearch": {
+          "mode": "native",
+          "source": "native",
+          "access": "indexed"
+        }
+      }
+    },
+    {
+      "name": "disable and re-enable legacy cached retains native selection",
+      "initial": {
+        "webSearch": {
+          "mode": "cached"
+        }
+      },
+      "writes": [
+        {
+          "key": "klaus.webSearch.enabled",
+          "value": "off"
+        },
+        {
+          "key": "klaus.webSearch.enabled",
+          "value": "on"
+        }
+      ],
+      "expected": {
+        "desktop": {
+          "webSearch": {
+            "source": "native",
+            "enabled": true,
+            "lastEnabledAccess": "cached"
+          }
+        },
+        "webSearch": {
+          "mode": "native",
+          "source": "native",
+          "access": "cached"
+        }
+      }
+    },
+    {
+      "name": "disable and re-enable legacy live retains native selection",
+      "initial": {
+        "webSearch": {
+          "mode": "live"
+        }
+      },
+      "writes": [
+        {
+          "key": "klaus.webSearch.enabled",
+          "value": "off"
+        },
+        {
+          "key": "klaus.webSearch.enabled",
+          "value": "on"
+        }
+      ],
+      "expected": {
+        "desktop": {
+          "webSearch": {
+            "source": "native",
+            "enabled": true,
+            "lastEnabledAccess": "live"
+          }
+        },
+        "webSearch": {
+          "mode": "native",
+          "source": "native",
+          "access": "live"
+        }
+      }
+    },
+    {
+      "name": "changing source preserves legacy disabled",
+      "initial": {
+        "webSearch": {
+          "mode": "disabled"
+        }
+      },
+      "writes": [
+        {
+          "key": "klaus.webSearch.source",
+          "value": "codex"
+        }
+      ],
+      "expected": {
+        "desktop": {
+          "webSearch": {
+            "source": "codex"
+          }
+        },
+        "webSearch": {
+          "mode": "off",
+          "source": "codex"
+        }
+      }
+    },
+    {
+      "name": "enabling legacy disabled selects Bing by default",
+      "initial": {
+        "webSearch": {
+          "mode": "disabled"
+        }
+      },
+      "writes": [
+        {
+          "key": "klaus.webSearch.enabled",
+          "value": "on"
+        }
+      ],
+      "expected": {
+        "desktop": {
+          "webSearch": {
+            "enabled": true
+          }
+        },
+        "webSearch": {
+          "mode": "client",
+          "source": "builtin"
+        }
+      }
+    },
+    {
+      "name": "Cursor source survives an atomic disable and enable",
+      "initial": {},
+      "writes": [
+        {
+          "key": "klaus.webSearch.source",
+          "value": "cursor"
+        },
+        {
+          "key": "klaus.webSearch.enabled",
+          "value": "off"
+        },
+        {
+          "key": "klaus.webSearch.enabled",
+          "value": "on"
+        }
+      ],
+      "expected": {
+        "desktop": {
+          "webSearch": {
+            "source": "cursor",
+            "enabled": true
+          }
+        },
+        "webSearch": {
+          "mode": "client",
+          "source": "cursor"
+        }
+      }
+    }
+  ],
+  "retirements": [
+    {
+      "name": "retired sources retain disabled access and domain restrictions",
+      "values": {
+        "desktop": {
+          "webSearch": {
+            "source": "brave",
+            "enabled": false
+          }
+        },
+        "webSearch": {
+          "mode": "off",
+          "source": "brave",
+          "access": "disabled",
+          "blockedDomains": [
+            "blocked.test"
+          ],
+          "maxUses": 2
+        }
+      },
+      "expected": {
+        "desktop": {
+          "webSearch": {
+            "source": "builtin",
+            "enabled": false
+          }
+        },
+        "webSearch": {
+          "mode": "off",
+          "source": "builtin",
+          "access": "disabled",
+          "blockedDomains": [
+            "blocked.test"
+          ],
+          "maxUses": 2
+        }
+      }
+    },
+    {
+      "name": "a valid desktop source survives a retired wire source",
+      "values": {
+        "desktop": {
+          "webSearch": {
+            "source": "native"
+          }
+        },
+        "webSearch": {
+          "mode": "client",
+          "source": "brave"
+        }
+      },
+      "expected": {
+        "desktop": {
+          "webSearch": {
+            "source": "native"
+          }
+        },
+        "webSearch": {
+          "mode": "native",
+          "source": "native"
+        }
+      }
+    },
+    {
+      "name": "a valid wire source survives a retired desktop source",
+      "values": {
+        "desktop": {
+          "webSearch": {
+            "source": "brave"
+          }
+        },
+        "webSearch": {
+          "mode": "client",
+          "source": "codex"
+        }
+      },
+      "expected": {
+        "desktop": {
+          "webSearch": {
+            "source": "codex"
+          }
+        },
+        "webSearch": {
+          "mode": "client",
+          "source": "codex"
+        }
+      }
+    },
+    {
+      "name": "wire-only retirement uses Bing without a credential",
+      "values": {
+        "webSearch": {
+          "mode": "client",
+          "source": "brave"
+        }
+      },
+      "expected": {
+        "desktop": {
+          "webSearch": {
+            "source": "builtin"
+          }
+        },
+        "webSearch": {
+          "mode": "client",
+          "source": "builtin"
+        }
+      }
+    },
+    {
+      "name": "retirement preserves implicit cached access across isolation modes",
+      "values": {
+        "sandboxMode": "danger-full-access",
+        "webSearch": {
+          "source": "brave",
+          "mode": "cached"
+        }
+      },
+      "expected": {
+        "sandboxMode": "danger-full-access",
+        "desktop": {
+          "webSearch": {
+            "source": "builtin"
+          }
+        },
+        "webSearch": {
+          "source": "builtin",
+          "mode": "client",
+          "access": "cached"
+        }
+      }
+    },
+    {
+      "name": "retirement preserves implicit indexed access across isolation modes",
+      "values": {
+        "sandboxMode": "danger-full-access",
+        "webSearch": {
+          "source": "brave",
+          "mode": "indexed"
+        }
+      },
+      "expected": {
+        "sandboxMode": "danger-full-access",
+        "desktop": {
+          "webSearch": {
+            "source": "builtin"
+          }
+        },
+        "webSearch": {
+          "source": "builtin",
+          "mode": "client",
+          "access": "indexed"
+        }
+      }
+    },
+    {
+      "name": "retirement preserves implicit live access across isolation modes",
+      "values": {
+        "sandboxMode": "danger-full-access",
+        "webSearch": {
+          "source": "brave",
+          "mode": "live"
+        }
+      },
+      "expected": {
+        "sandboxMode": "danger-full-access",
+        "desktop": {
+          "webSearch": {
+            "source": "builtin"
+          }
+        },
+        "webSearch": {
+          "source": "builtin",
+          "mode": "client",
+          "access": "live"
+        }
+      }
+    }
+  ]
+}

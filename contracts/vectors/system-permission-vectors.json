@@ -1,0 +1,65 @@
+{
+  "_why": "System settings must report observed permission states instead of constants. Every check is passive: it belongs to the Electron main process, launches no target, and requests no consent. The request entry points are separate and run only from the settings page's explicit grant button.",
+  "request": {
+    "_why": "Completing a request does not prove consent. A failed request must provide feedback instead of silently leaving the same grant button.",
+    "granted": "refresh the observed permission state",
+    "denied": "refresh the observed state and open the corresponding System Settings pane",
+    "unknown": "refresh the observed state and show an authorization request failure",
+    "pending": "disable permission actions and label the active grant button as requesting authorization"
+  },
+  "automation": {
+    "targetBundleId": "com.apple.systemevents",
+    "descriptor": "running-process PID (a bundle-id descriptor measured procNotFound even while the target ran)",
+    "launchTarget": "only after the passive query reports the target absent (procNotFound); System Events is a faceless system agent, and Apple's query resolves the target to a running process, so the recorded decision is unobservable otherwise",
+    "askUserIfNeeded": false,
+    "statusCases": [
+      { "name": "authorized", "osStatus": 0, "status": "granted" },
+      { "name": "authorization denied", "osStatus": -1743, "status": "denied" },
+      { "name": "authorization not determined", "osStatus": -1744, "status": "unknown" },
+      { "name": "target is not running", "osStatus": -600, "status": "unknown" },
+      { "name": "descriptor or target unavailable", "osStatus": -50, "status": "unknown" },
+      { "name": "unexpected native failure", "osStatus": -1, "status": "unknown" }
+    ],
+    "unsupportedPlatform": "unknown",
+    "probeFailure": "unknown"
+  },
+  "photos": {
+    "source": "PHPhotoLibrary authorizationStatusForAccessLevel(readWrite), passive read",
+    "statusCases": [
+      { "name": "not determined", "authorizationStatus": 0, "status": "unknown" },
+      { "name": "restricted", "authorizationStatus": 1, "status": "unknown" },
+      { "name": "denied", "authorizationStatus": 2, "status": "denied" },
+      { "name": "limited selection", "authorizationStatus": 3, "status": "granted" },
+      { "name": "authorized", "authorizationStatus": 4, "status": "granted" },
+      { "name": "framework unreadable", "authorizationStatus": -1, "status": "unknown" }
+    ],
+    "unsupportedPlatform": "unknown",
+    "probeFailure": "unknown"
+  },
+  "location": {
+    "source": "CLLocationManager authorizationStatus plus locationServicesEnabled, passive read",
+    "servicesDisabled": "denied",
+    "statusCases": [
+      { "name": "not determined", "authorizationStatus": 0, "status": "unknown" },
+      { "name": "restricted", "authorizationStatus": 1, "status": "denied" },
+      { "name": "denied", "authorizationStatus": 2, "status": "denied" },
+      { "name": "authorized always", "authorizationStatus": 3, "status": "granted" },
+      { "name": "framework unreadable", "authorizationStatus": -1, "status": "unknown" }
+    ],
+    "unsupportedPlatform": "unknown",
+    "probeFailure": "unknown"
+  },
+  "notification": {
+    "source": "UNUserNotificationCenter getNotificationSettings, passive read in the main process",
+    "statusCases": [
+      { "name": "not determined", "authorizationStatus": 0, "status": "unknown" },
+      { "name": "denied", "authorizationStatus": 1, "status": "denied" },
+      { "name": "authorized", "authorizationStatus": 2, "status": "granted" },
+      { "name": "provisional quiet delivery", "authorizationStatus": 3, "status": "unknown" },
+      { "name": "ephemeral", "authorizationStatus": 4, "status": "unknown" },
+      { "name": "settings unreadable", "authorizationStatus": -1, "status": "unknown" }
+    ],
+    "unsupportedPlatform": "unknown",
+    "probeFailure": "unknown"
+  }
+}

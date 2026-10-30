@@ -1,0 +1,123 @@
+{
+  "_why": "The overview panel's shape is a client-owned contract: the renderer builds its summary from these section ids, this order, and these standing/conditional rules. Pinning them here means a reorder or a rename is a deliberate edit to this file with a reason, not an accident that silently drops a section into the wrong mode. Changing a value here without changing the renderer (or the reverse) fails the desktop gate.",
+  "sections": [
+    { "id": "monitor-section-plan", "presence": "standing", "overviewOnly": true, "collapsible": true, "railDot": false },
+    { "id": "monitor-section-subagents", "presence": "standing", "overviewOnly": true, "collapsible": true, "railDot": false },
+    { "id": "monitor-section-background-processes", "presence": "standing", "overviewOnly": true, "collapsible": true, "railDot": false },
+    { "id": "monitor-section-artifacts", "presence": "standing", "overviewOnly": true, "collapsible": true, "railDot": false },
+    { "id": "monitor-section-references", "presence": "standing", "overviewOnly": true, "collapsible": true, "railDot": false }
+  ],
+  "groups": {
+    "monitor-section-plan": ["monitor-plan-group-tasks"]
+  },
+  "rules": {
+    "planUsesCurrentTaskSnapshot": {
+      "source": "tasks:list",
+      "notification": "task_list",
+      "store": "frontend/src/chat/task-state.ts",
+      "viewportRows": 6,
+      "viewportMeasurement": "actual-first-six-row-bounds",
+      "allRowsRetained": true,
+      "scrollReset": "session-or-plan-identity",
+      "why": "The obsolete per-turn todo projection duplicated the current Task plan and had no session recovery. The Plan section now presents only the authoritative Task snapshot shared with the progress capsule. Its viewport fits the first six actual rows, recalculates after size or row changes, and keeps later rows reachable by scrolling."
+    },
+    "allSectionsStanding": true,
+    "standingSectionsShowEmptyState": true,
+    "groupsHideWhenEmpty": true,
+    "emptySubTabsHidden": true,
+    "defaultCollapsedWhenNoContent": true,
+    "keptOpenWhenEmpty": [],
+    "collapseStateKeys": ["klaus_monitor_sections_collapsed", "klaus_monitor_sections_expanded"],
+    "referenceTabs": {
+      "order": ["skills", "memory", "mcp"],
+      "hiddenWhenEmpty": true,
+      "rowOpensOwningPage": true,
+      "why": "One tab per page that owns the thing, so a row can open that page and the tab strip doubles as an index of which kinds this conversation touched. Memory is a tab rather than its own section: a write is one of the things the conversation leaned on, and its own section disappeared whenever nothing had been written yet. Subagents are deliberately absent because engine-confirmed background runs own their standing Monitor section; listing them as references would double-count one fact."
+    },
+    "subagentsUseMonitorAndDynamicTabs": {
+      "monitorSection": "monitor-section-subagents",
+      "presence": "standing",
+      "emptyStateKey": "overview_subagents_empty",
+      "viewportRows": 6,
+      "viewportMeasurement": "actual-first-six-row-bounds",
+      "allRowsRetained": true,
+      "independentScroll": true,
+      "scrollReset": "session-identity",
+      "viewportWhy": "Keep the section discoverable before any background agent exists. Its own first-six-row viewport prevents a long history from pushing later sections away, preserves scroll on status refresh, and resets when the active session changes. Existing collapse preferences still apply.",
+      "renderedBy": "frontend/src/chat/overview/subagents.ts",
+      "showsDescription": false,
+      "backgroundMarker": "isBackground",
+      "tabKind": "subagent",
+      "mode": "subagent",
+      "tabIdentity": "taskId",
+      "detailView": "subagent-detail-view",
+      "selectionOwner": "KlausSubagentPanel",
+      "transcriptRemainsReadOnly": true,
+      "why": "Only engine-confirmed background subagents appear in the Monitor, ordered with active runs before terminal runs. Each row opens a task-id-specific, closable detail tab; reopening the same task activates its existing tab, closing follows MRU fallback, and session switches drop all subagent tabs. Foreground subagents stay in the conversation as one independent status row per spawn and may expand their transcript inline. Live sub-agent activity never lights the sidebar row or the composer busy state: a settled conversation stays settled while a long-lived background child finishes, the same rule the background-process entry states for a persistent preview server. The Monitor section and its detail tabs are the only standing surface for child activity, so the row can never strand lit off a child the turn no longer waits for."
+    },
+    "backgroundProcessesUseMonitorAndDynamicTabs": {
+      "monitorSection": "monitor-section-background-processes",
+      "presence": "standing",
+      "emptyStateKey": "overview_background_processes_empty",
+      "viewportRows": 6,
+      "viewportMeasurement": "actual-first-six-row-bounds",
+      "allRowsRetained": true,
+      "independentScroll": true,
+      "scrollReset": "session-identity",
+      "viewportWhy": "Keep the section discoverable before any process exists. Its own first-six-row viewport keeps every process reachable without growing the overview indefinitely or sharing the subagent scroll position. Status refresh preserves scroll and a session switch resets it; existing collapse preferences still apply.",
+      "renderedBy": "frontend/src/chat/overview/background-processes.ts",
+      "source": "session:background-processes",
+      "notification": "backgroundProcess/changed",
+      "tabKind": "background-process",
+      "mode": "background-process",
+      "tabIdentity": "shellId",
+      "detailView": "background-process-panel",
+      "selectionOwner": "KlausBackgroundProcessPanel",
+      "statusActive": ["pending", "running", "paused"],
+      "statusTerminal": ["completed", "failed", "stopped"],
+      "why": "Background processes are session-scoped engine state, not subagents and not side tasks. Active rows precede terminal rows, each shell opens a closable owned detail tab with independent offset-based output, and session switches drop the view without dropping the cached process lifecycle. A persistent preview server remains visible and stoppable in Monitor but does not make a completed conversation look like a running Turn in the sidebar. The thread row menu's Stop entry: an active turn goes through the composer's interrupt, an idle thread terminates its active background processes after confirmation, and the Monitor stays the only standing list."
+    },
+    "artifactsUseSessionAndTurnProjections": {      "id": "monitor-section-artifacts",
+      "renderedBy": "frontend/src/chat/overview/artifacts.ts",
+      "source": "session:file-changes",
+      "sourceGroupedBy": "turn",
+      "panelGroupedBy": "session",
+      "panelDedupeBy": "path",
+      "capsuleGroupedBy": "turnId",
+      "emptyStateKey": "overview_artifacts_empty",
+      "linksTo": "monitor-section-diff-files",
+      "why": "The engine record remains turn-scoped because the capsule and transcript need each request's exact files and line counts. The Overview panel is the session projection of that same record: it lists every path this conversation touched once, preserves first-touch order, and applies the latest file state and metadata. Its line totals are cumulative recorded turn effects, not a working-tree or session-baseline net diff; null still means unknown and propagates. This source remains separate from git so commits during a session cannot erase the conversation's artifacts, edits by other actors are not attributed to it, and non-repository workspaces still work. Sub-agent writes are included because the engine folds nested activity into the parent turn."
+    },
+    "specArtifactsUseDocumentRegistry": {
+      "source": "SpecDocumentModel documents scoped to the active session",
+      "visibility": "show a separate Spec group only when documents exist; retain Files-only layout and show the empty state only when both groups are empty",
+      "interaction": "a Spec row reopens its document in the existing Spec panel; a Files row keeps its Workspace behavior",
+      "reason": "Spec documents must remain reachable after their panel is closed without misclassifying them as file changes"
+    },
+    "diffFilesIsDiffOnly": {
+      "id": "monitor-section-diff-files",
+      "modes": ["diff"],
+      "why": "The changed-file list is the Changes surface's own navigation column and appears in no other mode. It was dual-purpose (one element set, two titles) while the summary borrowed it as the artifacts section; that ended when artifacts got its own session-scoped source, so the git list no longer leaks into the summary and the summary's emptiness no longer depends on git."
+    },
+    "noRailDot": {
+      "why": "The rail dot belonged to the attention section, which is gone: approvals, MCP authorization and extension failures no longer have a summary row to point at. Nothing else in the summary is worth interrupting a closed panel for, so the dot has no owner and the class plus its style are removed rather than left dangling."
+    },
+    "removedSections": {
+      "monitor-section-attention": "Approvals still land as cards in the transcript and still drive the app badge (trackApprovalRequest); MCP authorization still opens the browser and posts a transcript notice; extension failures now post a transcript notice instead of a summary row. What is gone is the aggregated list, its per-row actions, the MCP connection probe mirror, and the rail dot.",
+      "monitor-section-schedule": "A cron-run session no longer names the task that produced it here. The sidebar still groups runs under their task, which is where a schedule is edited anyway.",
+      "monitor-section-memory-writes": "Memory writes moved into the references section's memory tab, so the same rows are still reachable \u2014 one tab instead of a section that only existed after a pass had written something."
+    }
+  },
+  "events": {
+    "diff_update": { "feeds": "monitor-section-artifacts", "owner": "artifacts store refetch", "alsoFeeds": "monitor-section-diff-files", "payload": "turnId + changes[{path,kind,added,removed}]", "why": "One edit is one event, so neither consumer folds it locally: the artifacts store refetches the engine's session record and the diff store reloads the working-tree summary. Two folds of the same stream would drift. A third consumer used to fold it in the live layer into an inline transcript card, and drifted exactly as predicted \u2014 keyed on a turnId the event did not carry, it collapsed to one session-wide card that replaced its content on every edit and so permanently read '1 file'. The payload is now the engine's own measurement (line counts included, null when unmeasurable) rather than diff text, because the card counted files by regexing paths back out of a header the shell had just built." },
+    "tasks_changed": { "feeds": "monitor-section-subagents + transcript subagent rows + task-specific subagent workspaces", "owner": "tasksBySession accumulator" },
+    "backgroundProcess/changed": { "feeds": "monitor-section-background-processes + background-process-panel + transcript result cards", "owner": "session-scoped background process cache", "hiddenTaskNotificationText": true, "why": "A background server outliving its Turn is still shown in Monitor, not as a running conversation. The model-only task-notification remains hidden as transport text; terminal lifecycle records project the persistent clickable result card instead." },
+    "memory_write": { "feeds": "monitor-section-references", "tab": "memory", "onlyCompletedRunsWithFiles": true },
+    "extension_failure": {
+      "feeds": "transcript notice for plugin and skill kinds only",
+      "kinds": ["hook", "plugin", "skill"],
+      "droppedAtHost": "hook",
+      "why": "All three kinds degrade silently by design so a broken one cannot break a turn. Plugin and skill failures keep the transcript notice (no other surface names them). Hook failures are dropped at the host projection boundary and written to the host log instead: hooks are managed from Settings \u2192 Hooks with a trust gate, and the desktop surface stays silent about their runtime failures in the conversation \u2014 the split between the Hooks settings page and the transcript is deliberate."
+    }
+  }
+}

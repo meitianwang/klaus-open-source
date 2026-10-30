@@ -1,0 +1,21 @@
+[data-user-message-body] { min-width: 0; }
+[data-user-message-body] > :first-child { margin-top: 0; }
+[data-user-message-body] > :last-child { margin-bottom: 0; }
+[data-user-message-ellipsis] { line-height: inherit; user-select: none; }
+[data-user-message-toggle] {
+  display: block;
+  margin-top: 6px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--fg-secondary);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+[data-user-message-toggle][hidden], [data-user-message-ellipsis][hidden] { display: none; }
+[data-user-message-toggle]:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+@media print {
+  [data-user-message-body] { max-height: none !important; overflow: visible !important; }
+  [data-user-message-ellipsis], [data-user-message-toggle] { display: none !important; }
+}

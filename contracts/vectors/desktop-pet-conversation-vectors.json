@@ -1,0 +1,107 @@
+{
+  "description": "A selected conversation renders authoritative visible history, then applies only event frames beyond its atomic stream cut. Shared-revision projections remain one batch; replayed batches and unrelated sessions cannot duplicate visible content.",
+  "cases": [
+    {
+      "name": "an active turn before a completed key",
+      "reason": "Turn status keys are stable identifiers serialized in key order, not chronological order. A later completed key cannot hide an active turn.",
+      "sessionId": "thread",
+      "snapshot": {
+        "streamId": "epoch",
+        "revision": 0,
+        "messages": [],
+        "turnStatuses": {
+          "11111111-1111-4111-8111-111111111111": "running",
+          "ffffffff-ffff-4fff-8fff-ffffffffffff": "completed"
+        }
+      },
+      "buffered": [],
+      "batches": [],
+      "expected": [],
+      "expectedRunning": true
+    },
+    {
+      "name": "all historical turns terminal",
+      "reason": "Completed and failed historical turns must not keep a history-only conversation active.",
+      "sessionId": "thread",
+      "snapshot": {
+        "streamId": "epoch",
+        "revision": 0,
+        "messages": [],
+        "turnStatuses": {
+          "11111111-1111-4111-8111-111111111111": "completed",
+          "ffffffff-ffff-4fff-8fff-ffffffffffff": "failed"
+        }
+      },
+      "buffered": [],
+      "batches": [],
+      "expected": [],
+      "expectedRunning": false
+    },
+    {
+      "name": "history-only running metadata keeps the selected conversation active",
+      "reason": "Atomic original-history follow snapshots publish the active core turn as running.",
+      "sessionId": "thread",
+      "snapshot": {
+        "streamId": "epoch",
+        "revision": 0,
+        "messages": [],
+        "turnStatuses": {
+          "turn": "running"
+        }
+      },
+      "buffered": [],
+      "batches": [],
+      "expected": [],
+      "expectedRunning": true
+    },
+    {
+      "name": "history-only inProgress metadata keeps the selected conversation active",
+      "reason": "Thread-oriented history projections may retain the inProgress status spelling.",
+      "sessionId": "thread",
+      "snapshot": {
+        "streamId": "epoch",
+        "revision": 0,
+        "messages": [],
+        "turnStatuses": {
+          "turn": "inProgress"
+        }
+      },
+      "buffered": [],
+      "batches": [],
+      "expected": [],
+      "expectedRunning": true
+    },
+    {
+      "name": "canonical live user envelopes render without a history reload",
+      "sessionId": "thread",
+      "snapshot": { "streamId": "epoch", "revision": 0, "messages": [{ "uuid": "saved-private", "role": "assistant", "phase": "analysis", "text": "Private history" }] },
+      "buffered": [],
+      "batches": [[{ "type": "user_message", "sessionId": "thread", "sourceStreamId": "epoch", "sourceRevision": 1, "turnId": "turn", "message": { "uuid": "realtime:request:item", "message": { "content": [{ "type": "text", "text": "Spoken request" }] } } }]],
+      "expected": [{ "id": "realtime:request:item", "role": "user", "text": "Spoken request" }]
+    },
+    {
+      "name": "atomic cut retains a later visible delta",
+      "sessionId": "thread",
+      "snapshot": { "streamId": "epoch", "revision": 7, "messages": [{ "uuid": "reply", "role": "assistant", "text": "Saved" }] },
+      "buffered": [{ "type": "text_delta", "sessionId": "thread", "sourceStreamId": "epoch", "sourceRevision": 7, "messageId": "reply", "text": "Saved" }, { "type": "text_delta", "sessionId": "thread", "sourceStreamId": "epoch", "sourceRevision": 8, "messageId": "reply", "text": " later" }],
+      "batches": [[{ "type": "text_delta", "sessionId": "thread", "sourceStreamId": "epoch", "sourceRevision": 8, "messageId": "reply", "text": " later" }]],
+      "expected": [{ "id": "reply", "role": "assistant", "text": "Saved later" }]
+    },
+    {
+      "name": "all same-revision projections are applied before cursor advance",
+      "sessionId": "thread",
+      "snapshot": { "streamId": "epoch", "revision": 1, "messages": [] },
+      "buffered": [],
+      "batches": [[{ "type": "stream_mode", "sessionId": "thread", "sourceStreamId": "epoch", "sourceRevision": 2, "mode": "responding" }, { "type": "text_delta", "sessionId": "thread", "sourceStreamId": "epoch", "sourceRevision": 2, "messageId": "reply", "text": "One" }, { "type": "text_delta", "sessionId": "thread", "sourceStreamId": "epoch", "sourceRevision": 2, "messageId": "reply", "text": " two" }]],
+      "expected": [{ "id": "reply", "role": "assistant", "text": "One two" }]
+    },
+    {
+      "name": "foreign sessions and private analysis are excluded",
+      "sessionId": "thread",
+      "snapshot": { "streamId": "epoch", "revision": 0, "messages": [] },
+      "buffered": [],
+      "batches": [[{ "type": "text_delta", "sessionId": "other", "sourceStreamId": "epoch", "sourceRevision": 1, "messageId": "foreign", "text": "Other conversation" }, { "type": "text_delta", "sessionId": "thread", "sourceStreamId": "epoch", "sourceRevision": 2, "messageId": "private", "phase": "analysis", "text": "Private" }, { "type": "text_delta", "sessionId": "thread", "sourceStreamId": "epoch", "sourceRevision": 3, "messageId": "visible", "phase": "final_answer", "text": "Visible" }]],
+      "expected": [{ "id": "visible", "role": "assistant", "text": "Visible" }]
+    }
+  ]
+}

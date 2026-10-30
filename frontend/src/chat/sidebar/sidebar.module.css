@@ -1,0 +1,892 @@
+/* chat/sidebar 域样式（Batch 5 CSS Modules）。状态类/字形内嵌类/静态标记容器类经 :global() 引用；chat.ts 的跨界消费点同 import 本模块。 */
+
+/* Sidebar icons are 100% hollow path-fill (path geometry over stroke).
+   3 are bespoke vendored paths (compose /
+   chats-thin / clock); 5 are hand-crafted hollow versions for Klaus-specific
+   concepts (MCP / skills / plugins / slash / moon) — see [index.html](../index.html). */
+.session-item svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+/* Section head: a real toggle button (aria-expanded) with a disclosure chevron.
+   The chevron is hidden until hover/focus but forced visible while the
+   section is collapsed, rotated -90deg. */
+.sidebar-section-head {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+/* The toggle spans the row so the whole head is clickable, but the label is
+   shrink-to-fit and the chevron follows it immediately, so a
+   hidden chevron never pushes the label right and the head does not read as
+   indented. The badge and head actions sit outside the button at the row's
+   trailing edge. */
+.sidebar-section-toggle {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 10px 8px 4px 8px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--fg-tertiary);
+  cursor: pointer;
+  font-family: var(--font);
+  text-align: start;
+}
+
+.sidebar-section-toggle:hover {
+  color: var(--fg-secondary);
+  background: var(--bg-hover);
+}
+
+/* Focus speaks background like hover: no outline on this surface. */
+.sidebar-section-toggle:focus-visible {
+  outline: none;
+  color: var(--fg-secondary);
+  background: var(--bg-hover);
+  box-shadow: none;
+}
+
+/* The chevron sits immediately after the label text — never before
+   it, so a hidden chevron cannot push the label right. It is invisible until the
+   head is hovered or focused, and forced visible while collapsed, rotated from
+   "down" to "right". */
+.sidebar-section-chevron {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 14px;
+  width: 14px;
+  height: 14px;
+  opacity: 0;
+  transition: transform 0.15s ease, opacity 0.15s ease;
+}
+
+.sidebar-section-chevron svg {
+  width: 12px;
+  height: 12px;
+  fill: currentColor;
+}
+
+.sidebar-section-toggle:hover .sidebar-section-chevron,
+.sidebar-section-toggle:focus-visible .sidebar-section-chevron {
+  opacity: 1;
+}
+
+.sidebar-section-toggle:global(.is-collapsed) .sidebar-section-chevron {
+  opacity: 1;
+  transform: rotate(-90deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebar-section-chevron {
+    transition: none;
+  }
+}
+
+/* Section labels stay one step below navigation text. Shrink-to-fit so the
+   chevron follows the text rather than sitting at the row's far edge. */
+.sidebar-section-label {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-small);
+  font-weight: var(--weight-regular);
+  color: inherit;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+/* Aggregate status badge on a collapsed section head. The lead slot's own
+   geometry (12px dot / spinner) is reused, so this only reserves the space. */
+.sidebar-section-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  margin-inline-start: 4px;
+}
+
+/* Hover-only action on a section head (new project). Icon-only control on the
+   sidebar, so it carries a localized aria-label and no tooltip. */
+.sidebar-section-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  visibility: hidden;
+  flex: 0 0 20px;
+  width: 20px;
+  height: 20px;
+  margin-inline-end: 6px;
+  padding: 2px;
+  border: none;
+  border-radius: var(--radius-xxs);
+  background: none;
+  color: var(--fg-quaternary);
+  cursor: pointer;
+}
+
+.sidebar-section-action svg {
+  width: 16px;
+  height: 16px;
+}
+
+.sidebar-section-head:hover .sidebar-section-action,
+.sidebar-section-head:focus-within .sidebar-section-action {
+  visibility: visible;
+}
+
+.sidebar-section-action:hover {
+  color: var(--fg);
+  background: var(--bg-hover);
+}
+
+.sidebar-section-action:focus-visible {
+  visibility: visible;
+  outline: none;
+  color: var(--fg);
+  background: var(--bg-hover);
+  box-shadow: none;
+}
+
+.unified-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  padding-bottom: 8px;
+}
+
+.sidebar-task-section {
+  min-width: 0;
+}
+
+.sidebar-task-section + .sidebar-task-section {
+  margin-top: 2px;
+}
+
+.sidebar-task-section-body {
+  min-width: 0;
+}
+
+.s-automation-source {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 14px;
+  width: 14px;
+  height: 14px;
+  color: var(--fg-tertiary);
+}
+
+.s-automation-source svg {
+  width: 14px;
+  height: 14px;
+  fill: currentColor;
+}
+
+/* Session/thread row — same shape as sidebar-nav-item, same
+   muted-fg behavior: inactive 85%, hover/active 100%. */
+.session-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: calc(var(--text-body) * 1.5 + 8px);
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: var(--text-body);
+  font-weight: var(--weight-regular);
+  color: var(--fg-secondary);
+  transition: background var(--transition), color var(--transition);
+  position: relative;
+}
+
+.session-item:hover,
+.session-item:global(.active),
+.session-item:global(.session-row-context) {
+  background: color-mix(in srgb, var(--fg) 8%, transparent);
+  color: var(--fg);
+}
+
+/* Keyboard focus speaks background, like hover and selection: the sidebar's
+   visual language has no outline anywhere (selected and hovered rows are
+   background-only), so the global focus fallback ring would add a stroke
+   that does not belong on this surface. */
+.session-item:focus-visible {
+  outline: none;
+  background: color-mix(in srgb, var(--fg) 8%, transparent);
+  color: var(--fg);
+  box-shadow: none;
+}
+
+/* Leading slot — fixed 12px box every leaf row in the sidebar carries
+   (sessions, project threads, cron runs) so titles align into a single
+   column. It holds the row's whole status story on the left: read → 5px
+   gray dot, complete-unread → blue dot, failed → red dot, working →
+   spinner (the old right-side spinner/black-dot pair was removed in favour
+   of this; the right edge belongs to time and the ⋯ menu slot). Scoped to
+   the class alone: the slot is a shared primitive, not a per-row-type
+   variant, so a new row type gets the exact same geometry for free. */
+.s-lead {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 12px;
+  width: 12px;
+  height: 12px;
+}
+
+.s-lead::before {
+  content: '';
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--fg) 22%, transparent);
+}
+
+.s-lead:global(.is-unread)::before {
+  background: var(--unread-dot);
+}
+
+.s-lead:global(.is-failed)::before {
+  background: var(--error-accent);
+}
+
+.s-lead:global(.is-working)::before {
+  content: none;
+}
+
+/* Keyframes must be declared in the module that animates with them: CSS
+   Modules localizes animation names, so a bare reference to a keyframes that
+   only exists in css/styles.css compiles to a scoped name nothing defines and
+   the element renders frozen (this spinner sat still for exactly that reason). */
+@keyframes kls-spin { to { transform: rotate(360deg); } }
+
+.s-lead svg {
+  width: 12px;
+  height: 12px;
+  fill: currentColor;
+  color: var(--fg-tertiary);
+  animation: kls-spin 0.9s linear infinite;
+}
+
+.s-lead :global(.s-lead-spinner-track) {
+  opacity: 0.3;
+}
+
+.session-item :global(.s-channel-badge) {
+  font-size: var(--text-badge);
+  font-weight: var(--weight-semibold);
+  padding: 1px 6px;
+  border-radius: var(--radius-xxs);
+  background: var(--border);
+  color: var(--fg-tertiary);
+  flex-shrink: 0;
+  letter-spacing: .3px;
+}
+
+.session-item :global(.s-draft-badge) {
+  font-size: var(--text-badge);
+  font-weight: var(--weight-semibold);
+  padding: 1px 6px;
+  border-radius: var(--radius-xxs);
+  background: var(--warning-bg);
+  color: var(--warning);
+  flex-shrink: 0;
+  letter-spacing: .3px;
+}
+
+/* Hidden, never unmounted: display:none freed the badge's width and let the
+   title re-ellipsize on every hover. */
+.session-item:hover :global(.s-draft-badge) { visibility: hidden; }
+
+/* Wrapper for the HTML-string parts of a row (lead slot, badges, branch icon,
+   menu button). The title between them is a real React element so it can own
+   its marquee measurement, which means the row is no longer one flat string —
+   display:contents keeps these parts direct flex participants of the row, so
+   the layout is byte-identical to when they were inlined. */
+.contents {
+  display: contents;
+}
+
+.session-item .s-title {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Always in flow, only toggled visible: the row's geometry must not depend on
+   hover/selection. A display:none → inline-flex toggle moved layout twice on
+   every switch — the 24px box exceeded the row's 20px content area (28px
+   min-height − 2×4px padding) and grew the row to 32px, pushing every row
+   below it down 4px, while the reclaimed 24px + 8px gap re-ellipsized the
+   title. 20px keeps the row at 28px; the reserved slot keeps the title width
+   constant. */
+.session-item :global(.session-menu-action) {
+  display: inline-flex;
+  visibility: hidden;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 20px;
+  width: 20px;
+  height: 20px;
+  background: none;
+  border: none;
+  color: var(--fg-quaternary);
+  cursor: pointer;
+  padding: 2px;
+  border-radius: var(--radius-xxs);
+}
+
+.session-item :global(.session-menu-action) svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* ⋯ shows on hover/focus AND on the selected row (user spec). */
+.session-item:hover :global(.session-menu-action),
+.session-item:focus-within :global(.session-menu-action),
+.session-item:global(.active) :global(.session-menu-action) { visibility: visible; }
+
+.session-item :global(.session-menu-action):hover,
+.session-item :global(.session-menu-action):focus-visible { color: var(--fg); background: var(--bg-hover); box-shadow: none; }
+
+/* Same focus-as-background rule as the rows: no outline on this surface. */
+.session-item :global(.session-menu-action):focus-visible { outline: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .s-lead svg {
+      animation: none;
+    }
+}
+
+.project-sb-group { margin-bottom: 8px; }
+
+.project-sb-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 0 var(--sidebar-gutter);
+}
+
+.project-sb-item {
+  margin-left: calc(-1 * var(--sidebar-gutter));
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: calc(var(--text-body) * 1.5 + 8px);
+  padding: 4px 8px;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  color: var(--fg-secondary);
+  font-size: var(--text-body);
+  font-weight: var(--weight-regular);
+  user-select: none;
+  transition: background var(--transition), color var(--transition);
+}
+
+.project-sb-item:hover,
+.project-sb-item:global(.active) {
+  background: color-mix(in srgb, var(--fg) 8%, transparent);
+  color: var(--fg);
+}
+
+.project-sb-item:global(.active) { font-weight: var(--weight-regular); }
+
+.project-sb-item:focus-visible {
+  outline: none;
+  background: color-mix(in srgb, var(--fg) 8%, transparent);
+  color: var(--fg);
+  box-shadow: none;
+}
+
+/* Row-level cap for the leading glyph. The folder-family entries carry a
+   sizing class baked in (library.ts shell option), but identity glyphs such
+   as the friend row's users-three ship with no width/height and no class:
+   as an unsized flex item a 1:1-viewBox svg inflates to the row's height and
+   stretches the whole row to hundreds of px. Same contract as
+   .sidebar-nav-item svg / .session-item svg. Direct child only, so the
+   trailing action buttons keep their own 15px rule below. */
+.project-sb-item > svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.project-sb-title {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Aggregate status badge on a collapsed project row
+   (rendered only when folded). Reuses the lead slot's dot/spinner geometry. */
+.project-sb-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+}
+
+.project-sb-badge:empty {
+  display: none;
+}
+
+/* Numeric attention badge on a friend group row: requests awaiting this
+   computer's owner plus conversations holding unread friend messages. Same
+   geometry as the retired entry badge, but on the row that owns attention. */
+.s-group-count {
+  flex: 0 0 auto;
+  min-width: 18px;
+  padding: 1px 5px;
+  border-radius: var(--radius-xs);
+  background: var(--bg-hover);
+  color: var(--fg-secondary);
+  font-size: var(--text-caption);
+  text-align: center;
+}
+
+.project-sb-more,
+.project-sb-new {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 22px;
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--fg-tertiary);
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: background var(--transition), color var(--transition), opacity var(--transition), transform var(--transition);
+}
+
+.project-sb-more {
+  margin-left: auto;
+}
+
+.project-sb-item:hover .project-sb-more,
+.project-sb-item:hover .project-sb-new,
+.project-sb-item:global(.active) .project-sb-more,
+.project-sb-item:global(.active) .project-sb-new,
+.project-sb-item:focus-within .project-sb-more {
+  opacity: 0.78;
+  pointer-events: auto;
+}
+
+.project-sb-item:focus-within .project-sb-new {
+  opacity: 0.78;
+  pointer-events: auto;
+}
+
+.project-sb-more:hover,
+.project-sb-new:hover {
+  background: color-mix(in srgb, var(--fg) 8%, transparent);
+  color: var(--fg);
+  opacity: 1;
+}
+
+.project-sb-more:active,
+.project-sb-new:active { transform: scale(0.96); }
+
+.project-sb-more:focus-visible,
+.project-sb-new:focus-visible {
+  outline: none;
+  background: color-mix(in srgb, var(--fg) 8%, transparent);
+  color: var(--fg);
+  opacity: 1;
+  box-shadow: none;
+}
+
+.project-sb-more svg,
+.project-sb-new svg {
+  width: 15px;
+  height: 15px;
+}
+
+.project-thread-list {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  /* No horizontal padding: the list nests inside .project-sb-body, which
+     already applies the sidebar gutter — doubling it indented thread rows
+     12px deeper than plain session rows. */
+  padding: 0 0 4px;
+  overflow: hidden;
+}
+
+.project-thread-list:global(.is-animating) {
+  will-change: height, opacity, transform;
+  transition:
+    height 210ms cubic-bezier(0.16, 1, 0.3, 1),
+    padding-top 210ms cubic-bezier(0.16, 1, 0.3, 1),
+    padding-bottom 210ms cubic-bezier(0.16, 1, 0.3, 1),
+    opacity 160ms ease,
+    transform 210ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.project-thread-list:global(.is-closing) {
+  pointer-events: none;
+}
+
+.project-thread-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: calc(var(--text-body) * 1.5 + 8px);
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  color: var(--fg-secondary);
+  cursor: pointer;
+  font-size: var(--text-body);
+  font-weight: var(--weight-regular);
+  transition: background var(--transition), color var(--transition);
+}
+
+.project-thread-item:hover,
+.project-thread-item:global(.active),
+.project-thread-item:global(.session-row-context) {
+  background: color-mix(in srgb, var(--fg) 8%, transparent);
+  color: var(--fg);
+}
+
+/* Same focus-as-background rule as .session-item: no outline on this surface. */
+.project-thread-item:focus-visible {
+  outline: none;
+  background: color-mix(in srgb, var(--fg) 8%, transparent);
+  color: var(--fg);
+  box-shadow: none;
+}
+
+.project-thread-title {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+/* Same fixed-geometry rule as .session-menu-action: in flow at all times,
+   20px so it fits the 28px row's content box, only visibility toggles. */
+.project-thread-menu {
+  display: inline-flex;
+  visibility: hidden;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  background: none;
+  border: none;
+  color: var(--fg-quaternary);
+  cursor: pointer;
+  padding: 2px;
+  border-radius: var(--radius-xxs);
+}
+
+.project-thread-menu svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* ⋯ shows on hover/focus AND on the selected row (user spec). */
+.project-thread-item:hover .project-thread-menu,
+.project-thread-item:focus-within .project-thread-menu,
+.project-thread-item:global(.active) .project-thread-menu {
+  visibility: visible;
+}
+
+.project-thread-menu:hover,
+.project-thread-menu:focus-visible {
+  color: var(--fg);
+  background: var(--bg-hover);
+  box-shadow: none;
+}
+
+.project-thread-menu:focus-visible {
+  outline: none;
+}
+
+.project-thread-more {
+  align-self: flex-start;
+  min-height: calc(var(--text-body) * 1.5 + 8px);
+  /* Left edge sits on the title column: 8px row padding + 12px lead slot +
+     8px gap. */
+  margin: 1px 0 6px 28px;
+  padding: 4px 8px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--fg-quaternary);
+  cursor: pointer;
+  font-family: var(--font);
+  font-size: var(--text-body);
+}
+
+.project-thread-more:hover,
+.project-thread-more:focus-visible {
+  outline: none;
+  background: color-mix(in srgb, var(--fg) 8%, transparent);
+  color: var(--fg-secondary);
+  box-shadow: none;
+}
+
+
+/* 受管 worktree 会话 badge：与渠道 badge 同形，用 accent 描边区分。 */
+.s-worktree-badge {
+  border: 1px solid var(--border);
+  color: var(--fg-secondary);
+}
+
+/* ==================== waiting-state chips ==================== */
+
+/* A waiting row's chip IS the state; the faint idle dot beside it would
+   double-report. Hide the lead dot on waiting rows only. */
+.session-item:global(.is-waiting) .s-lead::before,
+.project-thread-item:global(.is-waiting) .s-lead::before {
+  content: none;
+}
+
+/* Awaiting approval — green capsule chip in the title line. */
+.session-item :global(.s-status-chip),
+.project-thread-item :global(.s-status-chip) {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  max-width: 150px;
+  overflow: hidden;
+  padding: 1px 10px;
+  border-radius: 999px;
+  font-size: var(--text-badge);
+  font-weight: var(--weight-semibold);
+  letter-spacing: .3px;
+  white-space: nowrap;
+}
+
+.session-item :global(.s-status-chip) > *,
+.project-thread-item :global(.s-status-chip) > * {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+:global(.s-status-chip):global(.is-approval) {
+  background: color-mix(in srgb, var(--status-ok) 20%, transparent);
+  color: var(--status-ok);
+}
+
+:global(.s-status-chip):global(.is-friend) {
+  background: color-mix(in srgb, var(--status-info, #2f6fed) 15%, transparent);
+  color: var(--status-info, #2f6fed);
+}
+
+/* Needs input — blue pill at the row's trailing edge. It is a real
+   button: clicking snoozes the wait for a minute. The countdown fill drains
+   across the pill while a snooze is running. */
+:global(.s-status-pill) {
+  position: relative;
+  display: inline-grid;
+  grid-template-columns: 1fr;
+  align-items: center;
+  flex-shrink: 0;
+  max-width: 150px;
+  min-width: 0;
+  overflow: hidden;
+  padding: 1px 10px;
+  border: none;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--status-busy) 15%, transparent);
+  color: var(--status-busy);
+  font-family: var(--font);
+  font-size: var(--text-badge);
+  font-weight: var(--weight-semibold);
+  letter-spacing: .3px;
+  cursor: pointer;
+}
+
+:global(.s-status-pill):hover {
+  background: color-mix(in srgb, var(--status-busy) 25%, transparent);
+}
+
+:global(.s-status-pill):focus-visible {
+  outline: none;
+  background: color-mix(in srgb, var(--status-busy) 25%, transparent);
+  box-shadow: none;
+}
+
+:global(.s-status-pill-label) {
+  position: relative;
+  grid-column: 1;
+  grid-row: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The drain: full-width bar that holds until the animation starts, then shrinks
+   to zero over the snooze window. Delay/duration are set inline per row from the
+   live deadline, so a re-render re-syncs the bar without a re-mount. */
+:global(.s-status-pill-fill) {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: color-mix(in srgb, var(--status-busy) 25%, transparent);
+  transform-origin: left center;
+  animation: kls-status-pill-drain 60s linear forwards;
+}
+
+@keyframes kls-status-pill-drain {
+  from { transform: scaleX(1); }
+  to { transform: scaleX(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :global(.s-status-pill)-fill {
+    animation-play-state: paused;
+  }
+}
+
+/* Waiting rows keep their geometry: the pill occupies the trailing edge next to
+   the (hidden-on-idle) menu button, where the status pill belongs. */
+
+/* ==================== project drag-reorder ====================
+   The Projects section is one ordered list the user arranges by dragging. A
+   group (its row plus the thread list under it) moves as a block, so the block
+   gets its own wrapper: that wrapper is what the sortable transform is applied
+   to, and what the neighbours make room for. */
+
+.project-reorder-group {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  /* The row and its thread list were direct siblings of the section body
+     before the wrapper existed, so they inherited its 1px row gap. The wrapper
+     reproduces that gap inside itself, or an expanded group would sit its
+     threads flush against its own row. */
+  gap: 1px;
+}
+
+/* The group in flight. The lifted overlay is what follows the pointer, so the
+   source only marks the slot being vacated: dimmed, not hidden, because a fully
+   hidden source collapses the list and makes the drop position unreadable. */
+.project-reorder-group.is-dragging {
+  opacity: 0.2;
+}
+
+/* The insertion line, rendered as a SIBLING above the group it precedes.
+   Zero height, so it cannot shift a single row: the make-way motion belongs to
+   the sortable transform alone, and a line with layout height of its own would
+   double it. The negative bottom margin exactly cancels the extra row gap a
+   zero-height flex item inserts into the section body, so painting the line
+   changes nothing about the list's height. */
+.project-reorder-indicator {
+  position: relative;
+  height: 0;
+  flex: none;
+  margin-bottom: -1px;
+  pointer-events: none;
+}
+
+/* The line itself, inset from both edges so it reads as a marker inside the
+   column rather than as a rule across the whole sidebar. */
+.project-reorder-indicator::before {
+  content: '';
+  position: absolute;
+  top: -1px;
+  left: 8px;
+  right: 8px;
+  height: 2px;
+  border-radius: 999px;
+  background: var(--info);
+}
+
+/* The dot marks which side the group lands on, so the line reads as an
+   insertion point rather than as another divider between rows. */
+.project-reorder-indicator::after {
+  content: '';
+  position: absolute;
+  top: -4px;
+  left: 4px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: 2px solid var(--info);
+  background: var(--bg);
+}
+
+/* The lifted copy. Bordered, shadowed and clipped like a row of its own so it
+   reads as the thing being carried rather than as a smear of the row underneath
+   it. Glyph and name only: the hover actions and the aggregate status badge
+   describe the row where it sits, and painting them on a floating copy invites a
+   click that cannot happen. */
+.project-reorder-overlay {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 320px;
+  min-height: calc(var(--text-body) * 1.5 + 8px);
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  box-shadow: var(--shadow-md);
+  color: var(--fg);
+  font-size: var(--text-body);
+  font-weight: var(--weight-regular);
+  overflow: hidden;
+}
+
+.project-reorder-overlay-icon {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+}
+
+.project-reorder-overlay-icon > svg {
+  width: 16px;
+  height: 16px;
+}
+
+.project-reorder-overlay-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Screen-reader output for the keyboard reorder path. The drag path is announced
+   through the drag context's own live region; an alt+arrow move never starts a
+   drag, so it needs one of its own. */
+.project-reorder-live {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* The make-way motion is the only animated part of a drop; suppressing it
+     leaves the reorder itself intact. */
+  .project-reorder-group {
+    transition: none;
+  }
+}

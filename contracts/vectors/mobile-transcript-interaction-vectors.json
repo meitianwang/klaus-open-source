@@ -1,0 +1,631 @@
+{
+  "description": "Independent protocol scenes for mobile reply interaction acceptance.",
+  "scenes": {
+    "tools": [
+      {
+        "type": "stream_mode",
+        "sessionId": "sess-align",
+        "mode": "requesting",
+        "turnId": "parity-turn"
+      },
+      {
+        "type": "thinking_delta",
+        "sessionId": "sess-align",
+        "thinking": "Check the implementation and verify the changes."
+      },
+      {
+        "type": "text_delta",
+        "sessionId": "sess-align",
+        "text": "I will inspect the source and run the focused checks.",
+        "messageId": "process",
+        "phase": "commentary"
+      },
+      {
+        "type": "tool_start",
+        "sessionId": "sess-align",
+        "toolCallId": "shell-check",
+        "toolName": "shell",
+        "args": {
+          "command": "swift test --filter TranscriptTests",
+          "cwd": "/workspace/klaus"
+        }
+      },
+      {
+        "type": "progress",
+        "sessionId": "sess-align",
+        "toolCallId": "shell-check",
+        "content": "Building…\n"
+      },
+      {
+        "type": "tool_end",
+        "sessionId": "sess-align",
+        "toolCallId": "shell-check",
+        "toolName": "shell",
+        "content": "Test Suite TranscriptTests passed.\nExecuted 12 tests, with 0 failures.",
+        "exitCode": 0,
+        "durationMs": 1240,
+        "isError": false
+      },
+      {
+        "type": "tool_start",
+        "sessionId": "sess-align",
+        "toolCallId": "edit-source",
+        "toolName": "apply_patch",
+        "args": {
+          "patch": "*** Begin Patch\n*** Update File: Sources/Transcript.swift\n@@ -12,2 +12,3 @@\n-let state = \"running\"\n+let state = event.state\n+render(state)\n return state\n*** End Patch"
+        }
+      },
+      {
+        "type": "tool_end",
+        "sessionId": "sess-align",
+        "toolCallId": "edit-source",
+        "toolName": "apply_patch",
+        "content": "Updated Sources/Transcript.swift",
+        "isError": false
+      },
+      {
+        "type": "text_delta",
+        "sessionId": "sess-align",
+        "text": "The transcript now preserves every tool state and result.",
+        "messageId": "answer",
+        "phase": "final_answer"
+      },
+      {
+        "type": "done",
+        "sessionId": "sess-align",
+        "turnId": "parity-turn"
+      }
+    ],
+    "states": [
+      {
+        "type": "stream_mode",
+        "sessionId": "sess-align",
+        "mode": "requesting",
+        "turnId": "parity-turn"
+      },
+      {
+        "type": "thinking_delta",
+        "sessionId": "sess-align",
+        "thinking": "Check the implementation and verify the changes."
+      },
+      {
+        "type": "text_delta",
+        "sessionId": "sess-align",
+        "text": "I will inspect the source and run the focused checks.",
+        "messageId": "process",
+        "phase": "commentary"
+      },
+      {
+        "type": "tool_start",
+        "sessionId": "sess-align",
+        "toolCallId": "stopped-shell",
+        "toolName": "shell",
+        "args": {
+          "command": "swift test",
+          "cwd": "/workspace/klaus"
+        }
+      },
+      {
+        "type": "interrupted",
+        "sessionId": "sess-align",
+        "turnId": "parity-turn"
+      },
+      {
+        "type": "stream_mode",
+        "sessionId": "sess-align",
+        "mode": "requesting",
+        "turnId": "second-turn"
+      },
+      {
+        "type": "tool_start",
+        "sessionId": "sess-align",
+        "toolCallId": "failed-shell",
+        "toolName": "shell",
+        "args": {
+          "command": "swift test --filter MissingTest"
+        }
+      },
+      {
+        "type": "tool_end",
+        "sessionId": "sess-align",
+        "toolCallId": "failed-shell",
+        "toolName": "shell",
+        "content": "No matching tests found.",
+        "isError": true,
+        "exitCode": 1
+      },
+      {
+        "type": "tool_start",
+        "sessionId": "sess-align",
+        "toolCallId": "awaiting-edit",
+        "toolName": "apply_patch",
+        "args": {
+          "patch": "*** Begin Patch\n*** Update File: Sources/Transcript.swift\n@@ -12,2 +12,3 @@\n-let state = \"running\"\n+let state = event.state\n+render(state)\n return state\n*** End Patch"
+        }
+      },
+      {
+        "type": "permission_pending",
+        "sessionId": "sess-align",
+        "requestId": "approval-check",
+        "toolName": "apply_patch",
+        "toolCallId": "awaiting-edit",
+        "message": "Allow changes to Transcript.swift?",
+        "toolInput": {
+          "patch": "*** Begin Patch\n*** Update File: Sources/Transcript.swift\n@@ -12,2 +12,3 @@\n-let state = \"running\"\n+let state = event.state\n+render(state)\n return state\n*** End Patch"
+        }
+      }
+    ],
+    "subagent": [
+      {
+        "type": "stream_mode",
+        "sessionId": "sess-align",
+        "mode": "requesting",
+        "turnId": "parity-turn"
+      },
+      {
+        "type": "thinking_delta",
+        "sessionId": "sess-align",
+        "thinking": "Check the implementation and verify the changes."
+      },
+      {
+        "type": "text_delta",
+        "sessionId": "sess-align",
+        "text": "I will inspect the source and run the focused checks.",
+        "messageId": "process",
+        "phase": "commentary"
+      },
+      {
+        "type": "tool_start",
+        "sessionId": "sess-align",
+        "toolCallId": "agent-check",
+        "toolName": "spawn_agent",
+        "args": {
+          "description": "Review the transcript"
+        }
+      },
+      {
+        "type": "tasks_changed",
+        "sessionId": "sess-align",
+        "tasks": {
+          "agent-check": {
+            "id": "reviewer",
+            "agentId": "reviewer",
+            "name": "Reviewer",
+            "status": "running",
+            "toolCallId": "agent-check"
+          }
+        }
+      },
+      {
+        "type": "tool_end",
+        "sessionId": "sess-align",
+        "toolCallId": "agent-check",
+        "toolName": "spawn_agent",
+        "content": "Started Reviewer",
+        "isError": false
+      },
+      {
+        "type": "agent_progress",
+        "sessionId": "sess-align",
+        "agentId": "reviewer",
+        "name": "Reviewer",
+        "event": {
+          "type": "stream_mode",
+          "sessionId": "sess-align",
+          "mode": "requesting"
+        }
+      },
+      {
+        "type": "agent_progress",
+        "sessionId": "sess-align",
+        "agentId": "reviewer",
+        "name": "Reviewer",
+        "event": {
+          "type": "text_delta",
+          "sessionId": "sess-align",
+          "text": "Inspecting the tool lifecycle.",
+          "messageId": "child-process",
+          "phase": "commentary"
+        }
+      },
+      {
+        "type": "agent_progress",
+        "sessionId": "sess-align",
+        "agentId": "reviewer",
+        "name": "Reviewer",
+        "event": {
+          "type": "tool_start",
+          "sessionId": "sess-align",
+          "toolCallId": "child-read",
+          "toolName": "read",
+          "args": {
+            "path": "Sources/Transcript.swift"
+          }
+        }
+      },
+      {
+        "type": "agent_progress",
+        "sessionId": "sess-align",
+        "agentId": "reviewer",
+        "name": "Reviewer",
+        "event": {
+          "type": "tool_end",
+          "sessionId": "sess-align",
+          "toolCallId": "child-read",
+          "toolName": "read",
+          "content": "let state = event.state\nrender(state)",
+          "isError": false
+        }
+      },
+      {
+        "type": "agent_progress",
+        "sessionId": "sess-align",
+        "agentId": "reviewer",
+        "name": "Reviewer",
+        "event": {
+          "type": "text_delta",
+          "sessionId": "sess-align",
+          "text": "The interrupted state is preserved correctly.",
+          "messageId": "child-answer",
+          "phase": "final_answer"
+        }
+      },
+      {
+        "type": "tool_start",
+        "sessionId": "sess-align",
+        "toolName": "send_message",
+        "toolCallId": "agent-message",
+        "args": {
+          "target": "reviewer",
+          "message": "Please check the interrupted state."
+        }
+      },
+      {
+        "type": "tool_end",
+        "sessionId": "sess-align",
+        "toolName": "send_message",
+        "toolCallId": "agent-message",
+        "content": "{\"recipients\": [{\"agentId\": \"reviewer\", \"name\": \"Reviewer\", \"status\": \"running\"}]}",
+        "isError": false
+      }
+    ],
+    "elicitation": [
+      {
+        "type": "stream_mode",
+        "sessionId": "sess-align",
+        "mode": "requesting",
+        "turnId": "parity-turn"
+      },
+      {
+        "type": "thinking_delta",
+        "sessionId": "sess-align",
+        "thinking": "Check the implementation and verify the changes."
+      },
+      {
+        "type": "text_delta",
+        "sessionId": "sess-align",
+        "text": "I will inspect the source and run the focused checks.",
+        "messageId": "process",
+        "phase": "commentary"
+      },
+      {
+        "type": "elicit_pending",
+        "sessionId": "sess-align",
+        "requestId": "profile-form",
+        "prompt": "Choose the environment for this check.",
+        "kind": "mcp-form",
+        "serverName": "Workspace",
+        "toolCallId": "form-tool",
+        "requestedSchema": {
+          "type": "object",
+          "required": [
+            "environment"
+          ],
+          "properties": {
+            "environment": {
+              "type": "string",
+              "title": "Environment",
+              "enum": [
+                "Development",
+                "Staging"
+              ],
+              "default": "Development"
+            },
+            "includeLogs": {
+              "type": "boolean",
+              "title": "Include logs",
+              "default": true
+            }
+          }
+        }
+      }
+    ],
+    "questions": [
+      {
+        "type": "stream_mode",
+        "sessionId": "sess-align",
+        "mode": "requesting",
+        "turnId": "parity-turn"
+      },
+      {
+        "type": "thinking_delta",
+        "sessionId": "sess-align",
+        "thinking": "Check the implementation and verify the changes."
+      },
+      {
+        "type": "text_delta",
+        "sessionId": "sess-align",
+        "text": "I will inspect the source and run the focused checks.",
+        "messageId": "process",
+        "phase": "commentary"
+      },
+      {
+        "type": "elicit_pending",
+        "sessionId": "sess-align",
+        "requestId": "question-flow",
+        "prompt": "Confirm the verification scope.",
+        "toolInput": {
+          "questions": [
+            {
+              "question": "Which checks should run?",
+              "header": "Checks",
+              "options": [
+                {
+                  "label": "Focused tests",
+                  "description": "Verify the changed behavior."
+                },
+                {
+                  "label": "Full suite",
+                  "description": "Run every test."
+                }
+              ]
+            },
+            {
+              "question": "Which appearance should be checked?",
+              "header": "Theme",
+              "multiSelect": true,
+              "options": [
+                {
+                  "label": "Light"
+                },
+                {
+                  "label": "Dark"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    ],
+    "streaming": [
+      {
+        "type": "stream_mode",
+        "sessionId": "sess-align",
+        "mode": "requesting",
+        "turnId": "streaming-turn"
+      },
+      {
+        "type": "text_delta",
+        "sessionId": "sess-align",
+        "text": "I will check each event as it arrives.\n\nCheck 1: preserve the tool lifecycle and output.\n\nCheck 2: preserve the tool lifecycle and output.\n\nCheck 3: preserve the tool lifecycle and output.\n\nCheck 4: preserve the tool lifecycle and output.\n\nCheck 5: preserve the tool lifecycle and output.\n\nCheck 6: preserve the tool lifecycle and output.\n\nCheck 7: preserve the tool lifecycle and output.\n\nCheck 8: preserve the tool lifecycle and output.\n\nCheck 9: preserve the tool lifecycle and output.\n\nCheck 10: preserve the tool lifecycle and output.\n\nCheck 11: preserve the tool lifecycle and output.\n\nCheck 12: preserve the tool lifecycle and output.",
+        "messageId": "stream-process",
+        "phase": "commentary"
+      },
+      {
+        "type": "tool_start",
+        "sessionId": "sess-align",
+        "toolCallId": "stream-shell",
+        "toolName": "shell",
+        "args": {
+          "command": "swift test --filter StreamingTests"
+        }
+      },
+      {
+        "type": "progress",
+        "sessionId": "sess-align",
+        "toolCallId": "stream-shell",
+        "content": "Validated event 1.\n"
+      },
+      {
+        "type": "progress",
+        "sessionId": "sess-align",
+        "toolCallId": "stream-shell",
+        "content": "Validated event 2.\n"
+      },
+      {
+        "type": "progress",
+        "sessionId": "sess-align",
+        "toolCallId": "stream-shell",
+        "content": "Validated event 3.\n"
+      },
+      {
+        "type": "progress",
+        "sessionId": "sess-align",
+        "toolCallId": "stream-shell",
+        "content": "Validated event 4.\n"
+      },
+      {
+        "type": "progress",
+        "sessionId": "sess-align",
+        "toolCallId": "stream-shell",
+        "content": "Validated event 5.\n"
+      },
+      {
+        "type": "progress",
+        "sessionId": "sess-align",
+        "toolCallId": "stream-shell",
+        "content": "Validated event 6.\n"
+      },
+      {
+        "type": "progress",
+        "sessionId": "sess-align",
+        "toolCallId": "stream-shell",
+        "content": "Validated event 7.\n"
+      },
+      {
+        "type": "progress",
+        "sessionId": "sess-align",
+        "toolCallId": "stream-shell",
+        "content": "Validated event 8.\n"
+      },
+      {
+        "type": "progress",
+        "sessionId": "sess-align",
+        "toolCallId": "stream-shell",
+        "content": "Validated event 9.\n"
+      },
+      {
+        "type": "progress",
+        "sessionId": "sess-align",
+        "toolCallId": "stream-shell",
+        "content": "Validated event 10.\n"
+      },
+      {
+        "type": "progress",
+        "sessionId": "sess-align",
+        "toolCallId": "stream-shell",
+        "content": "Validated event 11.\n"
+      },
+      {
+        "type": "progress",
+        "sessionId": "sess-align",
+        "toolCallId": "stream-shell",
+        "content": "Validated event 12.\n"
+      },
+      {
+        "type": "progress",
+        "sessionId": "sess-align",
+        "toolCallId": "stream-shell",
+        "content": "Validated event 13.\n"
+      },
+      {
+        "type": "progress",
+        "sessionId": "sess-align",
+        "toolCallId": "stream-shell",
+        "content": "Validated event 14.\n"
+      },
+      {
+        "type": "tool_end",
+        "sessionId": "sess-align",
+        "toolCallId": "stream-shell",
+        "toolName": "shell",
+        "content": "All streamed events retained.",
+        "exitCode": 0,
+        "isError": false
+      },
+      {
+        "type": "text_delta",
+        "sessionId": "sess-align",
+        "text": "Streaming verification complete.",
+        "messageId": "stream-final",
+        "phase": "final_answer"
+      },
+      {
+        "type": "done",
+        "sessionId": "sess-align",
+        "turnId": "streaming-turn"
+      }
+    ],
+    "rich": [
+      {
+        "type": "stream_mode",
+        "sessionId": "sess-align",
+        "mode": "requesting",
+        "turnId": "rich-turn"
+      },
+      {
+        "type": "tool_start",
+        "sessionId": "sess-align",
+        "toolCallId": "rich-read",
+        "toolName": "read",
+        "args": {
+          "path": "Sources/Transcript.swift"
+        }
+      },
+      {
+        "type": "tool_end",
+        "sessionId": "sess-align",
+        "toolCallId": "rich-read",
+        "toolName": "read",
+        "content": "let state = event.state\nrender(state)",
+        "isError": false
+      },
+      {
+        "type": "tool_start",
+        "sessionId": "sess-align",
+        "toolCallId": "rich-result",
+        "toolName": "mcp__workspace__preview",
+        "args": {}
+      },
+      {
+        "type": "tool_end",
+        "sessionId": "sess-align",
+        "toolCallId": "rich-result",
+        "toolName": "mcp__workspace__preview",
+        "content": "Image and diagram ready.",
+        "contentBlocks": [
+          {
+            "type": "image",
+            "source": {
+              "type": "base64",
+              "media_type": "image/svg+xml",
+              "data": "PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIzNjAiIGhlaWdodD0iOTYiIHZpZXdCb3g9IjAgMCAzNjAgOTYiPjxyZWN0IHg9IjEiIHk9IjEiIHdpZHRoPSIzNTgiIGhlaWdodD0iOTQiIHJ4PSIxMiIgZmlsbD0iI2YwZjdmMiIgc3Ryb2tlPSIjYjBkN2JiIi8+PHBhdGggZD0ibTI1IDQ4IDEyIDEyIDI0LTI3IiBmaWxsPSJub25lIiBzdHJva2U9IiMwMGEyNDAiIHN0cm9rZS13aWR0aD0iMyIvPjx0ZXh0IHg9IjgwIiB5PSI1NSIgZm9udC1mYW1pbHk9InN5c3RlbS11aSIgZm9udC1zaXplPSIxOCIgZmlsbD0iIzI1NDgyZiI+SW1hZ2UgcmVzdWx0IHByZXNlcnZlZDwvdGV4dD48L3N2Zz4="
+            }
+          }
+        ],
+        "artifacts": [
+          {
+            "kind": "diagram",
+            "id": "parity-diagram",
+            "title": "Event lifecycle"
+          }
+        ],
+        "isError": false
+      },
+      {
+        "type": "done",
+        "sessionId": "sess-align",
+        "turnId": "rich-turn"
+      }
+    ]
+  },
+  "previewDocument": {
+    "id": "parity-diagram",
+    "title": "Event lifecycle",
+    "pages": [
+      {
+        "id": "main",
+        "nodes": [
+          {
+            "id": "event",
+            "x": 0,
+            "y": 0,
+            "w": 150,
+            "h": 64,
+            "shape": "rounded",
+            "label": "Engine event",
+            "tone": "info"
+          },
+          {
+            "id": "ui",
+            "x": 220,
+            "y": 0,
+            "w": 150,
+            "h": 64,
+            "shape": "rounded",
+            "label": "iOS transcript",
+            "tone": "success"
+          }
+        ],
+        "edges": [
+          {
+            "id": "event-ui",
+            "from": "event",
+            "to": "ui",
+            "arrowTo": "arrow"
+          }
+        ]
+      }
+    ]
+  }
+}

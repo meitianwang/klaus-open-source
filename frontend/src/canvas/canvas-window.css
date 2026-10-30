@@ -1,0 +1,449 @@
+/* The isolated Canvas panel webview's own chrome. Deliberately small: everything inside
+   .cv-body is painted by the canvas from SDK tokens, so this file only styles
+   the frame around it plus the failure panel.
+
+   The token values here are duplicated from the SDK's literal palettes rather
+   than read from css/styles.css, because this window does not load the app
+   stylesheet — the canvas page is intentionally standalone. canvas-tokens.test.ts
+   pins both copies against the stylesheet.
+
+   Three layers, in this order:
+     1. `:root` carries the DARK values as the base.
+     2. `prefers-color-scheme: light` overrides them, so the frame matches the OS
+        during the moment before the host reports the app's actual setting. The
+        alternative — defaulting to dark unconditionally — flashed a dark frame at
+        every light-mode user on every open.
+     3. `[data-theme]` wins over both. The bridge sets it from the app's real
+        setting (which may be `light` on a dark OS or vice versa), so the explicit
+        attribute has to beat the media query rather than tie with it. */
+
+:root {
+  color-scheme: dark;
+  --cv-bg: #181818;
+  --cv-chrome: #141414;
+  --cv-fg: #dfdfdf;
+  --cv-fg-secondary: rgba(255, 255, 255, 0.7);
+  --cv-fg-tertiary: rgba(255, 255, 255, 0.5);
+  --cv-border: rgba(255, 255, 255, 0.08);
+  --cv-hover: rgba(255, 255, 255, 0.06);
+  --cv-danger: #ff5f57;
+  --cv-danger-bg: rgba(255, 95, 87, 0.16);
+  /* The blue highlight. Same value in both themes, matching --theme-accent in
+     the app stylesheet, so it is declared once here rather than per theme. */
+  --cv-accent: #339cff;
+  --cv-radius: 8px;
+  --cv-font: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --cv-font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono',
+    monospace;
+}
+
+/* The light values, factored out so the media query and the explicit attribute
+   cannot drift apart. */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) {
+    color-scheme: light;
+    --cv-bg: #ffffff;
+    --cv-chrome: #f9f9f9;
+    --cv-fg: #1a1c1f;
+    --cv-fg-secondary: rgba(26, 28, 31, 0.7);
+    --cv-fg-tertiary: rgba(26, 28, 31, 0.5);
+    --cv-border: rgba(26, 28, 31, 0.08);
+    --cv-hover: rgba(26, 28, 31, 0.05);
+    --cv-danger: #c9241c;
+    --cv-danger-bg: rgba(201, 36, 28, 0.12);
+  }
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+  --cv-bg: #ffffff;
+  --cv-chrome: #f9f9f9;
+  --cv-fg: #1a1c1f;
+  --cv-fg-secondary: rgba(26, 28, 31, 0.7);
+  --cv-fg-tertiary: rgba(26, 28, 31, 0.5);
+  --cv-border: rgba(26, 28, 31, 0.08);
+  --cv-hover: rgba(26, 28, 31, 0.05);
+  --cv-danger: #c9241c;
+  --cv-danger-bg: rgba(201, 36, 28, 0.12);
+}
+
+/* Explicit dark, for a dark-mode app on a light-mode OS. */
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --cv-bg: #181818;
+  --cv-chrome: #141414;
+  --cv-fg: #dfdfdf;
+  --cv-fg-secondary: rgba(255, 255, 255, 0.7);
+  --cv-fg-tertiary: rgba(255, 255, 255, 0.5);
+  --cv-border: rgba(255, 255, 255, 0.08);
+  --cv-hover: rgba(255, 255, 255, 0.06);
+  --cv-danger: #ff5f57;
+  --cv-danger-bg: rgba(255, 95, 87, 0.16);
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body,
+#canvas-root {
+  height: 100%;
+}
+
+body {
+  background: var(--cv-bg);
+  color: var(--cv-fg);
+  font-family: var(--cv-font);
+  font-size: 14px;
+  font-weight: 430;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+.cv-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.cv-titlebar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+  height: 34px;
+  padding: 0 8px;
+  background: var(--cv-chrome);
+  border-bottom: 1px solid var(--cv-border);
+}
+
+.cv-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--cv-fg-secondary);
+  /* The title is inside the drag region, so it must not swallow the drag. */
+  pointer-events: none;
+}
+
+.cv-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+/* Micro-rounded rectangle, matching the app's button rule. No pills.
+   `background-color`, never the `background` shorthand: the shorthand also resets
+   background-image / position / size, and mixing shorthand and longhand across
+   these rules left the active state computing to transparent while the
+   border-color and color from the same block applied. One longhand, one meaning. */
+.cv-action {
+  height: 24px;
+  padding: 0 9px;
+  border: 1px solid var(--cv-border);
+  border-radius: var(--cv-radius);
+  background-color: transparent;
+  color: var(--cv-fg-secondary);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 100ms cubic-bezier(0, 0, 0.2, 1);
+}
+
+.cv-action:hover {
+  background-color: var(--cv-hover);
+  color: var(--cv-fg);
+}
+
+.cv-action:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* The annotation toggle while the mode is on. Ink fill, matching the app's
+   primary button, so "this mode is active" reads at a glance. */
+.cv-action.is-active,
+.cv-action.is-primary {
+  background-color: var(--cv-fg);
+  border-color: var(--cv-fg);
+  color: var(--cv-bg);
+}
+
+.cv-action.is-active:hover,
+.cv-action.is-primary:hover {
+  opacity: 0.86;
+  background-color: var(--cv-fg);
+  color: var(--cv-bg);
+}
+
+/* ── Canvas switcher ──────────────────────────────────────────────────────
+   Anchored under its trigger in the title bar. z-index above the annotation
+   layer so opening it while annotating does not bury it. */
+.cv-switcher-menu {
+  position: absolute;
+  top: calc(100% + 5px);
+  right: 0;
+  z-index: 60;
+  min-width: 200px;
+  max-width: 340px;
+  max-height: 320px;
+  overflow-y: auto;
+  padding: 4px;
+  border: 1px solid var(--cv-border);
+  border-radius: var(--cv-radius);
+  background: var(--cv-bg);
+  box-shadow: 0 12px 32px -12px rgba(0, 0, 0, 0.45);
+}
+
+.cv-switcher-item {
+  display: block;
+  width: 100%;
+  padding: 5px 8px;
+  border: none;
+  border-radius: var(--cv-radius);
+  background-color: transparent;
+  color: var(--cv-fg);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  /* A canvas name is a kebab slug and can be long; truncate rather than wrap so
+     the menu stays one row per canvas. */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cv-switcher-item:hover {
+  background-color: var(--cv-hover);
+}
+
+.cv-switcher-empty {
+  margin: 0;
+  padding: 6px 8px;
+  color: var(--cv-fg-tertiary);
+  font-size: 13px;
+}
+
+/* ── Annotation mode ───────────────────────────────────────────────────────
+   The scrim is transparent, not dimmed: the user is being asked to READ the
+   canvas and pick something, and dimming it makes that harder.
+
+   `pointer-events: none` is load-bearing, not hygiene. The layer hit-tests with
+   `document.elementFromPoint`, which returns the TOPMOST element at a
+   coordinate — so a scrim that accepts pointer events returns itself for every
+   position and nothing is ever highlighted. The cursor is set on the body
+   instead, since a non-interactive element cannot carry one. */
+.cv-annotate-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  pointer-events: none;
+}
+
+/* Crosshair while the mode is on, applied to the page because the scrim itself
+   is transparent to the pointer. */
+body:has(.cv-annotate-scrim) .cv-body,
+body:has(.cv-annotate-scrim) .cv-body * {
+  cursor: crosshair !important;
+}
+
+.cv-annotate-box {
+  position: fixed;
+  z-index: 41;
+  pointer-events: none;
+  border: 1px solid var(--cv-accent);
+  border-radius: 4px;
+  background: rgba(51, 156, 255, 0.10);
+  transition: top 60ms linear, left 60ms linear, width 60ms linear, height 60ms linear;
+}
+
+.cv-annotate-box.is-picked {
+  border-width: 2px;
+  background: rgba(51, 156, 255, 0.16);
+  transition: none;
+}
+
+.cv-annotate-hint {
+  position: fixed;
+  z-index: 42;
+  left: 50%;
+  bottom: 20px;
+  transform: translateX(-50%);
+  padding: 5px 11px;
+  border-radius: var(--cv-radius);
+  background: var(--cv-fg);
+  color: var(--cv-bg);
+  font-size: 13px;
+  font-weight: 500;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.cv-annotate-card {
+  position: fixed;
+  z-index: 42;
+  width: 360px;
+  max-width: calc(100vw - 16px);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 11px;
+  border: 1px solid var(--cv-border);
+  border-radius: var(--cv-radius);
+  background: var(--cv-bg);
+  box-shadow: 0 12px 32px -12px rgba(0, 0, 0, 0.45);
+  /* The card is the one part of the layer that must take clicks. */
+  pointer-events: auto;
+  cursor: default;
+}
+
+.cv-annotate-card * {
+  cursor: auto;
+}
+
+/* The quoted element text. Capped at three lines: it is context, not the point,
+   and a quoted table would push the input off screen. */
+.cv-annotate-quote {
+  margin: 0;
+  padding-left: 8px;
+  border-left: 2px solid var(--cv-border);
+  color: var(--cv-fg-tertiary);
+  font-size: 12px;
+  line-height: 1.5;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.cv-annotate-input {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--cv-border);
+  border-radius: var(--cv-radius);
+  background: var(--cv-chrome);
+  color: var(--cv-fg);
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.5;
+  resize: vertical;
+  outline: none;
+}
+
+.cv-annotate-input:focus {
+  border-color: var(--cv-accent);
+}
+
+.cv-annotate-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.cv-annotate-failed {
+  margin-right: auto;
+  color: var(--cv-danger);
+  font-size: 12px;
+}
+
+.cv-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  /* 40px is the SDK's `page` spacing role: the canvas's own outer inset lives
+     here so a canvas never has to draw its own page margin. */
+  padding: 40px;
+}
+
+/* Thin scrollbars, matching the app. Applied to the body and to any SDK
+   ScrollArea, which marks itself with data-canvas-scroll. */
+.cv-body,
+[data-canvas-scroll] {
+  scrollbar-width: thin;
+  scrollbar-color: var(--cv-border) transparent;
+}
+
+.cv-body::-webkit-scrollbar,
+[data-canvas-scroll]::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.cv-body::-webkit-scrollbar-track,
+[data-canvas-scroll]::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.cv-body::-webkit-scrollbar-thumb,
+[data-canvas-scroll]::-webkit-scrollbar-thumb {
+  min-height: 24px;
+  border: 3px solid transparent;
+  border-radius: 6px;
+  background: var(--cv-border);
+  background-clip: padding-box;
+}
+
+.cv-body::-webkit-scrollbar-thumb:hover,
+[data-canvas-scroll]::-webkit-scrollbar-thumb:hover {
+  background: var(--cv-fg-tertiary);
+  background-clip: padding-box;
+}
+
+.cv-error {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  max-width: 720px;
+  padding: 20px;
+  border: 1px solid var(--cv-danger);
+  border-radius: var(--cv-radius);
+  background: var(--cv-danger-bg);
+}
+
+.cv-error-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--cv-fg);
+}
+
+/* The message is compiler output: monospace, and it must wrap rather than
+   overflow, because a long type error is the common case. */
+.cv-error-message {
+  font-family: var(--cv-font-mono);
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--cv-fg);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.cv-error-line {
+  display: inline-block;
+  margin-right: 8px;
+  padding: 0 5px;
+  border-radius: 4px;
+  background: var(--cv-danger);
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.cv-error-path {
+  font-family: var(--cv-font-mono);
+  font-size: 12px;
+  color: var(--cv-fg-tertiary);
+  word-break: break-all;
+}

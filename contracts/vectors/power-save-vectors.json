@@ -1,0 +1,24 @@
+{
+  "_why": "Sleep prevention follows active local conversation lifecycle, remote access readiness and external power. Window requests remain independent, and active realtime voice has display priority. Persisted preferences are separate from transient operating-system assertions so assertion errors cannot change saved values or abort startup. Shutdown refusals and obsolete renderer failures do not show a power error because the host owns final assertion cleanup; current failures remain visible in the selected interface language and retryable.",
+  "defaults": { "preventSleepWhileRunning": false, "keepRemoteControlAwakeWhilePluggedIn": false },
+  "migration": { "legacyTaskKey": "cron.keep_awake", "taskKey": "power.prevent_sleep_while_running", "remoteKey": "power.keep_remote_control_awake_while_plugged_in", "missingRemoteUsesStoredTaskPreference": true },
+  "scope": { "taskHost": "local", "activeFlagsDoNotExcludeWaits": true, "independentActiveChildrenHoldLocks": true, "idlePersistentChildrenHoldLocks": false, "excludedConversations": ["archived", "temporary", "side conversation"], "backgroundProcessesAreNotActiveConversations": true, "scheduledSlotsDoNotHoldLocks": true, "localExecutionAllowed": "Local execution is available without an account plan gate.", "realtimeVoice": "The phase is unavailable until a realtime conversation host exists; dictation and computer interaction do not impersonate one." },
+  "policyCases": [
+    { "name": "idle app", "active": false, "task": true, "remote": false, "voice": "inactive", "expected": [false, false, false] },
+    { "name": "active local conversation", "active": true, "task": true, "remote": false, "voice": "inactive", "expected": [true, false, false] },
+    { "name": "approval wait remains active", "active": true, "task": true, "remote": false, "voice": "inactive", "expected": [true, false, false] },
+    { "name": "user input wait remains active", "active": true, "task": true, "remote": false, "voice": "inactive", "expected": [true, false, false] },
+    { "name": "disabled task preference", "active": true, "task": false, "remote": false, "voice": "inactive", "expected": [false, false, false] },
+    { "name": "remote execution without a local turn", "active": false, "task": true, "remote": false, "voice": "inactive", "expected": [false, false, false] },
+    { "name": "remote connection is independent", "active": false, "task": false, "remote": true, "voice": "inactive", "expected": [false, true, false] },
+    { "name": "voice starting", "active": false, "task": false, "remote": false, "voice": "starting", "expected": [false, false, false] },
+    { "name": "voice active despite disabled task preference", "active": false, "task": false, "remote": false, "voice": "active", "expected": [false, false, true] },
+    { "name": "voice stopping", "active": false, "task": false, "remote": false, "voice": "stopping", "expected": [false, false, false] },
+    { "name": "realtime host unavailable", "active": false, "task": false, "remote": false, "voice": "unavailable", "expected": [false, false, false] }
+  ],
+  "priority": ["prevent-display-sleep", "prevent-app-suspension", null],
+  "cleanup": ["renderer unmount", "web contents destroyed", "renderer process gone", "main frame navigation", "app shutdown"],
+  "observerErrors": { "shutdownRefusalCode": "APP_CLOSING", "afterUnmount": "ignore", "supersededRequest": "ignore", "currentFailure": "report and allow retry", "finalRelease": "best effort", "localizationKey": "power_update_failed" },
+  "powerChanges": ["on-ac", "on-battery"],
+  "ui": { "hideTaskToggleOn": "win32", "remoteToggleLocation": "remote access settings" }
+}

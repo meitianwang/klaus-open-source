@@ -1,0 +1,170 @@
+{
+  "_why": "Pins browser-tool discovery and Electron input behavior. Typed locators encode an omitted selector as an empty string; decoding must preserve their accessible criteria while direct empty selectors remain invalid. Typed log timestamps use integer milliseconds while raw event timestamps retain source precision. Capability queries identify the requested backend without changing selection and never advertise unavailable operations as supported. Browser computer scroll uses a viewport-centered wheel event by default because a synthesized gesture at the top-left could stall on document editors.",
+  "browserTargetedOperations": ["navigate", "back", "forward", "reload", "click", "type", "locator", "snapshot", "read_page", "screenshot", "console", "network", "eval", "computer", "tabs", "new_tab", "close", "history", "tabs_content", "claim_tab", "mark_tab", "file_upload", "download", "batch", "visibility", "read_urls"],
+  "capabilityQueries": {
+    "unavailable": ["gif_creator", "upload_image", "shortcuts_list", "shortcuts_execute"],
+    "externalOnly": ["history", "claim_tab", "tabs_content", "mark_tab"],
+    "selection": "A query reports the requested browserId and the unchanged selectedBrowserId; tool metadata identifies the queried backend."
+  },
+  "fileUpload": {
+    "reason": "Browser acknowledgement and subsequent page-owned input state are different facts. A page may clear or replace an input synchronously after receiving its real files.",
+    "protocol": "DOM.setFileInputFiles with a verified backendNodeId",
+    "acknowledged": true,
+    "observations": ["attached", "input-empty", "input-detached", "different-files", "unavailable"],
+    "permission": "Only an actual Not allowed protocol error produces local-file access guidance; no permission preflight blocks an otherwise accepted upload.",
+    "completion": "A browser acknowledgement is not evidence that the site's server completed an upload."
+  },
+  "batchFailure": {
+    "reason": "A stopped batch must expose failure and retain completed side effects across both host and engine tool results.",
+    "operations": [{ "type": "wait_for", "ms": 0 }, { "type": "missing-operation" }, { "type": "wait_for", "ms": 0 }],
+    "isError": true, "partial": true, "errorCode": "host_error", "completed": 1, "failedStep": 2, "stepErrorCode": "unavailable"
+  },
+  "logTimestamps": [
+    { "input": 0, "expected": 0 },
+    { "input": 20.75, "expected": 20 },
+    { "input": 1791461309627.746, "expected": 1791461309627 }
+  ],
+  "typedLocators": [
+    { "operation": { "type": "locator", "selector": "", "action": "click", "options": { "role": "button", "text": "Save", "exact": true } }, "kind": "click", "criteria": { "role": "button", "text": "Save", "exact": true } },
+    { "operation": { "type": "locator", "selector": "", "action": "fill", "value": "Updated", "options": { "label": "Name" } }, "kind": "type", "criteria": { "label": "Name", "text": "Updated", "clear": true } },
+    { "operation": { "type": "locator", "selector": "", "action": "count", "options": { "placeholder": "Search" } }, "kind": "locator", "criteria": { "placeholder": "Search" } },
+    { "operation": { "type": "locator", "selector": "", "action": "screenshot", "options": { "ref": "element-1" } }, "kind": "screenshot", "criteria": { "ref": "element-1" } }
+  ],
+  "operationNames": [
+    "navigate", "back", "forward", "reload", "snapshot", "screenshot", "click", "type", "eval", "console",
+    "network", "read_page", "find", "form_input", "select_option", "set_checked", "page_assets", "webmcp", "cdp", "computer",
+    "tabs", "new_tab", "locator", "element_info", "wait_for", "page_text", "batch", "resize", "close", "gif_creator",
+    "upload_image", "file_upload", "shortcuts_list", "shortcuts_execute", "switch_browser", "list_connected_browsers", "select_browser", "browser_for_url", "capabilities", "visibility",
+    "history", "tabs_content", "read_urls", "claim_tab", "resolve_tab", "content_export", "download", "clipboard", "dialog", "permission", "mark_tab"
+  ],
+  "mustDeclare": {
+    "navigate": ["url", "waitUntil", "viewport", "tabId", "target"],
+    "back": ["tabId"],
+    "forward": ["tabId"],
+    "reload": ["tabId"],
+    "snapshot": ["selector", "includeText", "includeLinks", "tabId"],
+    "screenshot": ["fullPage", "selector", "text", "ref", "annotate", "clip", "format", "quality", "save", "timeoutMs", "frames", "tabId"],
+    "click": ["text", "role", "label", "placeholder", "ref", "exact", "selector", "x", "y", "targetId", "button", "clickCount", "force", "modifiers", "timeoutMs", "frames", "tabId"],
+    "type": ["text", "label", "placeholder", "role", "ref", "selector", "clear", "key", "pressEnter", "delayMs", "timeoutMs", "frames", "tabId"],
+    "eval": ["script", "args", "readOnly", "tabId"],
+    "console": ["limit", "sinceMs", "levels", "clear", "tabId"],
+    "network": ["limit", "sinceMs", "urlFilter", "includeBodies", "clear", "tabId"],
+    "read_page": ["includeText", "filter", "ref", "selector", "depth", "maxChars", "tabId"],
+    "find": ["query", "limit", "tabId", "targetId"],
+    "form_input": ["fields", "submit", "tabId"],
+    "select_option": ["value", "text", "label", "role", "selector", "ref", "timeoutMs", "frames", "tabId"],
+    "set_checked": ["checked", "force", "text", "label", "role", "selector", "ref", "timeoutMs", "frames", "tabId"],
+    "page_assets": ["action", "kinds", "assetIds", "tabId"],
+    "webmcp": ["name", "input", "tabId"],
+    "cdp": ["method", "params", "action", "methods", "afterSequence", "limit", "timeoutMs", "targetId", "tabId"],
+    "computer": ["action", "coordinate", "ref", "selector", "startCoordinate", "path", "keys", "text", "amount", "scrollX", "scrollY", "scrollDirection", "duration", "save", "timeoutMs", "frames", "tabId"],
+    "tabs": [],
+    "new_tab": ["url"],
+    "locator": ["text", "role", "label", "placeholder", "selector", "testId", "ref", "within", "has", "any", "hasText", "textContent", "hasNot", "hasNotText", "state", "attribute", "exact", "limit", "timeoutMs", "frames", "targetId", "tabId"],
+    "element_info": ["x", "y", "includeNonInteractable", "targetId", "tabId"],
+    "wait_for": ["url", "loadState", "ms", "durationMs", "selector", "ref", "text", "role", "label", "placeholder", "testId", "state", "timeoutMs", "frames", "targetId", "tabId"],
+    "page_text": ["includeText", "filter", "ref", "selector", "depth", "maxChars", "tabId"],
+    "batch": ["operations"],
+    "resize": ["width", "height", "deviceScaleFactor", "isMobile", "reset", "tabId"],
+    "close": ["target", "tabId", "keep"],
+    "gif_creator": [],
+    "upload_image": [],
+    "file_upload": ["files", "selector", "text", "label", "ref", "timeoutMs", "frames", "tabId"],
+    "shortcuts_list": [],
+    "shortcuts_execute": [],
+    "switch_browser": [],
+    "list_connected_browsers": [],
+    "select_browser": ["deviceId"],
+    "browser_for_url": ["url"],
+    "capabilities": ["deviceId"],
+    "visibility": ["visible", "target"],
+    "history": ["query", "queries", "limit", "from", "to"],
+    "tabs_content": [],
+    "read_urls": ["urls", "contentType", "maxChars", "timeoutMs", "waitUntil"],
+    "claim_tab": ["tabId"],
+    "resolve_tab": ["mention"],
+    "content_export": ["format", "selector", "maxChars", "gsuite", "gid", "timeoutMs", "tabId"],
+    "download": ["url", "waitOnly", "filename", "selector", "ref", "text", "role", "label", "placeholder", "testId", "x", "y", "timeoutMs", "frames", "targetId", "tabId"],
+    "clipboard": ["action", "text", "items", "tabId"],
+    "dialog": ["action", "accept", "promptText", "tabId"],
+    "permission": ["action", "origin", "permissions", "permission", "setting"],
+    "mark_tab": ["status", "tabId", "name"]
+  },
+  "defaults": {
+    "click.timeoutMs": 3000,
+    "navigate.waitUntil": "load",
+    "screenshot.format": "jpeg",
+    "screenshot.quality": 80,
+    "screenshot.save": true,
+    "set_checked.checked": true,
+    "close.target": "session",
+    "download.timeoutMs": 60000,
+    "read_urls.contentType": "text",
+    "read_urls.timeoutMs": 20000
+  },
+  "computerScroll": {
+    "default": { "method": "Input.dispatchMouseEvent", "params": { "type": "mouseWheel", "x": 320, "y": 240, "deltaX": 0, "deltaY": 200, "pointerType": "mouse" } },
+    "explicit": { "type": "mouseWheel", "x": 25, "y": 75, "deltaX": -45, "deltaY": 0, "pointerType": "mouse" }
+  },
+  "runPreview": {
+    "producer": "exact host dynamic tool run_preview; its URL and name come from structured arguments, never terminal text",
+    "background": "one task-owned Browser page is created without changing the selected page or revealing the panel",
+    "manual": "the tool has an ordinary activity row; website resources in assistant replies provide independent opening actions",
+    "history": "replay renders tool details without navigation; a website action opens the referenced URL on explicit click",
+    "scope": "host checks session, focus revision, URL policy and the tool-call key on each visible action"
+  },
+  "siteReferences": {
+    "producer": "assistant Markdown web links, including autolinks; tools, code examples, images and user messages do not create website resources",
+    "projections": "turn-end cards before message actions, session artifact rows, and website type and icon in turn hover previews",
+    "opening": "application browser, installed Google Chrome, system default browser, and copy link; successful opening remembers the target, copying does not",
+    "state": "cards show fixed website labels; only the menu loads, and opening failures show a notification",
+    "history": "resources replay from saved assistant content with no navigation and historical sessions remain clickable"
+  },
+  "interactiveWidget": {
+    "producer": "exact host dynamic show_widget tool bound to the session and tool call; replace or unique patch with restricted project/widget or user skill template paths",
+    "snapshot": "host-owned immutable revision file, content hash checked when granting and serving a session-scoped capability URL",
+    "media": "separate klaus-media://widget token with sandbox allow-scripts allow-forms, no same-origin, connect-src none, form-action none, and host-blocked child frame navigation; ordinary previews retain their stricter CSP",
+    "message": "only the exact opaque iframe source with matching session, widget, revision and nonce may send bounded pure JSON to the top-level chat handler",
+    "submission": "submit:false changes only the draft; submit:true requires a top-level user confirmation and a fresh revision check before a clean message is queued or sent",
+    "negative": "no iframe scripts during tool execution, no cross-session or stale-revision interaction, no implicit send or foreign draft/attachment inclusion"
+  },
+  "panelAutoOpen": {
+    "acknowledgementTimeoutMs": 600,
+    "vectors": [
+      { "kind": "navigate", "fields": {}, "opens": true },
+      { "kind": "back", "fields": {}, "opens": true },
+      { "kind": "forward", "fields": {}, "opens": true },
+      { "kind": "reload", "fields": {}, "opens": true },
+      { "kind": "click", "fields": {}, "opens": true },
+      { "kind": "type", "fields": {}, "opens": true },
+      { "kind": "form_input", "fields": {}, "opens": true },
+      { "kind": "select_option", "fields": {}, "opens": true },
+      { "kind": "set_checked", "fields": {}, "opens": true },
+      { "kind": "computer", "fields": {}, "opens": true },
+      { "kind": "new_tab", "fields": {}, "opens": true },
+      { "kind": "tabs", "fields": { "action": "new" }, "opens": true },
+      { "kind": "tabs", "fields": { "action": "select" }, "opens": true },
+      { "kind": "run_preview", "fields": {}, "opens": false },
+      { "kind": "snapshot", "fields": {}, "opens": false },
+      { "kind": "read_page", "fields": {}, "opens": false },
+      { "kind": "screenshot", "fields": {}, "opens": false },
+      { "kind": "tabs", "fields": { "action": "list" }, "opens": false }
+    ]
+  },
+  "descriptionFragments": {
+    "navigate": "never type a URL",
+    "find": "does not understand visual descriptions",
+    "select_option": "use this tool",
+    "cdp": "Prefer the named browser operations",
+    "computer": "Prefer click/type with a locator",
+    "resize": "reset: true before finishing",
+    "switch_browser": "Takes no arguments",
+    "browser_for_url": "instead of guessing",
+    "webmcp": "List them before",
+    "dialog": "blocks its other operations",
+    "gif_creator": "repeated screenshot",
+    "upload_image": "Use file_upload",
+    "shortcuts_list": "locator, click and type",
+    "shortcuts_execute": "locator, click and type"
+  }
+}

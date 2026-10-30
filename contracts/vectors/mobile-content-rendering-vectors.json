@@ -1,0 +1,1782 @@
+{
+  "reason": "Mobile content projection preserves complete user-authored payloads, explicit final ownership, post-answer chronology and compaction restoration. Successful generated or reported media and diagrams stay visible outside process disclosures; process screenshots remain inside them. These are independent input/expected vectors, not comparisons between clients. Identity metadata restores explicit skill/reference attribution at validated UTF-16 ranges, and final reply ownership starts at the entire public assistant row rather than its last text block.",
+  "userCases": [
+    {
+      "name": "positioned pasted card preserves request body",
+      "message": {
+        "id": "m",
+        "role": "user",
+        "text": "Request\n\ncurl -X POST example",
+        "timestamp": 0,
+        "localRender": {
+          "displayText": "Request",
+          "pastedCards": [
+            {
+              "text": "curl -X POST example",
+              "requestOffset": 7
+            }
+          ]
+        }
+      },
+      "elements": [
+        [
+          "text",
+          "Request"
+        ],
+        [
+          "paste",
+          "curl -X POST example"
+        ]
+      ],
+      "attachments": []
+    },
+    {
+      "name": "quotes preserve positions and same-offset authored order",
+      "message": {
+        "id": "m",
+        "role": "user",
+        "text": "",
+        "timestamp": 0,
+        "localRender": {
+          "displayText": "ab",
+          "selectedTextAttachments": [
+            {
+              "text": "later",
+              "requestOffset": 1,
+              "displayOrder": 1
+            },
+            {
+              "text": "first",
+              "requestOffset": 1,
+              "displayOrder": 0
+            }
+          ]
+        }
+      },
+      "elements": [
+        [
+          "text",
+          "a"
+        ],
+        [
+          "quote",
+          "first"
+        ],
+        [
+          "quote",
+          "later"
+        ],
+        [
+          "text",
+          "b"
+        ]
+      ],
+      "attachments": []
+    },
+    {
+      "name": "explicit empty display text never resurrects model payload",
+      "message": {
+        "id": "m",
+        "role": "user",
+        "text": "internal payload",
+        "timestamp": 0,
+        "localRender": {
+          "displayText": "",
+          "pastedCards": [
+            {
+              "text": "full input"
+            }
+          ]
+        }
+      },
+      "elements": [
+        [
+          "paste",
+          "full input"
+        ]
+      ],
+      "attachments": []
+    },
+    {
+      "name": "UTF16 positions preserve emoji before quote",
+      "message": {
+        "id": "m",
+        "role": "user",
+        "text": "",
+        "timestamp": 0,
+        "localRender": {
+          "displayText": "😀x",
+          "selectedTextAttachments": [
+            {
+              "text": "quote",
+              "requestOffset": 2
+            }
+          ]
+        }
+      },
+      "elements": [
+        [
+          "text",
+          "😀"
+        ],
+        [
+          "quote",
+          "quote"
+        ],
+        [
+          "text",
+          "x"
+        ]
+      ],
+      "attachments": []
+    },
+    {
+      "name": "path-only image and PDF survive replay",
+      "message": {
+        "id": "m",
+        "role": "user",
+        "text": "",
+        "timestamp": 0,
+        "contentBlocks": [
+          {
+            "type": "image",
+            "path": "/pool/sent.png"
+          },
+          {
+            "type": "document",
+            "path": "/pool/abcd.pdf",
+            "filename": "report.pdf"
+          },
+          {
+            "type": "text",
+            "text": "Describe these"
+          }
+        ]
+      },
+      "elements": [
+        [
+          "text",
+          "Describe these"
+        ]
+      ],
+      "attachments": [
+        [
+          "image",
+          "sent.png",
+          "/pool/sent.png"
+        ],
+        [
+          "file",
+          "report.pdf",
+          "/pool/abcd.pdf"
+        ]
+      ]
+    },
+    {
+      "name": "legacy selected text envelope restores inline quote",
+      "message": {
+        "id": "m",
+        "role": "user",
+        "text": "# Selected text:\n\n## Selection 1\nquoted text\n\n## My request:\n⟦Selection 1⟧Explain\n",
+        "timestamp": 0
+      },
+      "elements": [
+        [
+          "quote",
+          "quoted text"
+        ],
+        [
+          "text",
+          "Explain"
+        ]
+      ],
+      "attachments": []
+    },
+    {
+      "name": "nested-agent prompt stays literal",
+      "composerAuthored": false,
+      "message": {
+        "id": "m",
+        "role": "user",
+        "text": "# Selected text:\n\n## Selection 1\nquoted text\n\n## My request:\nExplain\n",
+        "timestamp": 0
+      },
+      "elements": [
+        [
+          "text",
+          "# Selected text:\n\n## Selection 1\nquoted text\n\n## My request:\nExplain\n"
+        ]
+      ],
+      "attachments": []
+    },
+    {
+      "name": "question answer preserves prompt attribution and omits transport syntax",
+      "message": {
+        "id": "answer",
+        "role": "user",
+        "text": "<question_answers>opaque transport</question_answers>",
+        "timestamp": 0,
+        "questionAnswer": {
+          "questions": [
+            {
+              "question": "Which mode?"
+            }
+          ],
+          "answers": {
+            "Which mode?": "**Safe**"
+          }
+        },
+        "steered": true
+      },
+      "elements": [
+        [
+          "question",
+          "Which mode?"
+        ],
+        [
+          "answer",
+          "**Safe**"
+        ]
+      ],
+      "attachments": []
+    },
+    {
+      "name": "question answer keeps authored cards",
+      "message": {
+        "id": "answer",
+        "role": "user",
+        "text": "<question_answers>opaque transport</question_answers>",
+        "timestamp": 0,
+        "localRender": {
+          "displayText": "",
+          "pastedCards": [
+            {
+              "text": "extra context"
+            }
+          ]
+        },
+        "questionAnswer": {
+          "questions": [
+            {
+              "question": "Which mode?"
+            }
+          ],
+          "answers": {
+            "Which mode?": "Safe"
+          }
+        }
+      },
+      "elements": [
+        [
+          "paste",
+          "extra context"
+        ],
+        [
+          "question",
+          "Which mode?"
+        ],
+        [
+          "answer",
+          "Safe"
+        ]
+      ],
+      "attachments": []
+    },
+    {
+      "name": "file block keeps declared fileName and preview path",
+      "message": {
+        "id": "files",
+        "role": "user",
+        "text": "",
+        "timestamp": 0,
+        "contentBlocks": [
+          {
+            "type": "file",
+            "path": "/workspace/report.txt",
+            "fileName": "Report"
+          }
+        ]
+      },
+      "elements": [],
+      "attachments": [
+        [
+          "file",
+          "Report",
+          "/workspace/report.txt"
+        ]
+      ]
+    },
+    {
+      "name": "desktop media URL and persisted image produce one preview",
+      "message": {
+        "id": "image",
+        "role": "user",
+        "text": "Look",
+        "timestamp": 0,
+        "localRender": {
+          "displayText": "Look",
+          "attachments": [
+            {
+              "type": "image",
+              "name": "photo.png",
+              "src": "klaus-media://localhost/opaque"
+            }
+          ]
+        },
+        "contentBlocks": [
+          {
+            "type": "image",
+            "name": "photo.png",
+            "path": "/pool/photo.png"
+          }
+        ]
+      },
+      "elements": [
+        [
+          "text",
+          "Look"
+        ]
+      ],
+      "attachments": [
+        [
+          "image",
+          "photo.png",
+          "/pool/photo.png"
+        ]
+      ]
+    },
+    {
+      "name": "native image bytes and replay path reconcile by attachment name",
+      "message": {
+        "id": "image",
+        "role": "user",
+        "text": "",
+        "timestamp": 0,
+        "attachments": [
+          {
+            "id": "photo",
+            "type": "image",
+            "name": "photo.png",
+            "mimeType": "image/png",
+            "dataUrl": "data:image/png;base64,aGVsbG8="
+          }
+        ],
+        "contentBlocks": [
+          {
+            "type": "image",
+            "name": "photo.png",
+            "path": "/pool/photo.png"
+          }
+        ]
+      },
+      "elements": [],
+      "attachments": [
+        [
+          "image",
+          "photo.png",
+          "/pool/photo.png"
+        ]
+      ]
+    },
+    {
+      "name": "distinct image paths with same filename remain separate",
+      "message": {
+        "id": "images",
+        "role": "user",
+        "text": "",
+        "timestamp": 0,
+        "contentBlocks": [
+          {
+            "type": "image",
+            "name": "photo.png",
+            "path": "/pool/first.png"
+          },
+          {
+            "type": "image",
+            "name": "photo.png",
+            "path": "/pool/second.png"
+          }
+        ]
+      },
+      "elements": [],
+      "attachments": [
+        [
+          "image",
+          "photo.png",
+          "/pool/first.png"
+        ],
+        [
+          "image",
+          "photo.png",
+          "/pool/second.png"
+        ]
+      ]
+    },
+    {
+      "name": "distinct native images with the same name retain both byte payloads",
+      "message": {
+        "id": "images",
+        "role": "user",
+        "text": "",
+        "timestamp": 0,
+        "attachments": [
+          {
+            "id": "first",
+            "type": "image",
+            "name": "photo.png",
+            "mimeType": "image/png",
+            "dataUrl": "data:image/png;base64,Zmlyc3Q="
+          },
+          {
+            "id": "second",
+            "type": "image",
+            "name": "photo.png",
+            "mimeType": "image/png",
+            "dataUrl": "data:image/png;base64,c2Vjb25k"
+          }
+        ]
+      },
+      "elements": [],
+      "attachments": [
+        [
+          "image",
+          "photo.png",
+          ""
+        ],
+        [
+          "image",
+          "photo.png",
+          ""
+        ]
+      ],
+      "dataUrls": [
+        "data:image/png;base64,Zmlyc3Q=",
+        "data:image/png;base64,c2Vjb25k"
+      ]
+    },
+    {
+      "name": "two same-name native images reconcile replay one to one",
+      "message": {
+        "id": "images",
+        "role": "user",
+        "text": "",
+        "timestamp": 0,
+        "attachments": [
+          {
+            "id": "first",
+            "type": "image",
+            "name": "photo.png",
+            "mimeType": "image/png",
+            "dataUrl": "data:image/png;base64,Zmlyc3Q="
+          },
+          {
+            "id": "second",
+            "type": "image",
+            "name": "photo.png",
+            "mimeType": "image/png",
+            "dataUrl": "data:image/png;base64,c2Vjb25k"
+          }
+        ],
+        "contentBlocks": [
+          {
+            "type": "image",
+            "name": "photo.png",
+            "path": "/pool/first.png"
+          },
+          {
+            "type": "image",
+            "name": "photo.png",
+            "path": "/pool/second.png"
+          }
+        ]
+      },
+      "elements": [],
+      "attachments": [
+        [
+          "image",
+          "photo.png",
+          "/pool/first.png"
+        ],
+        [
+          "image",
+          "photo.png",
+          "/pool/second.png"
+        ]
+      ],
+      "dataUrls": [
+        "data:image/png;base64,Zmlyc3Q=",
+        "data:image/png;base64,c2Vjb25k"
+      ]
+    },
+    {
+      "name": "same-name native files remain separate",
+      "message": {
+        "id": "files",
+        "role": "user",
+        "text": "",
+        "timestamp": 0,
+        "attachments": [
+          {
+            "id": "first",
+            "type": "file",
+            "name": "report.pdf",
+            "mimeType": "application/pdf"
+          },
+          {
+            "id": "second",
+            "type": "file",
+            "name": "report.pdf",
+            "mimeType": "application/pdf"
+          }
+        ]
+      },
+      "elements": [],
+      "attachments": [
+        [
+          "file",
+          "report.pdf",
+          ""
+        ],
+        [
+          "file",
+          "report.pdf",
+          ""
+        ]
+      ]
+    },
+    {
+      "name": "skill slash identity preserves request text",
+      "message": {
+        "id": "identity",
+        "role": "user",
+        "text": "model payload",
+        "timestamp": 0,
+        "localRender": {
+          "displayText": "/push-code inspect",
+          "slashCommand": {
+            "name": "push-code",
+            "kind": "skill"
+          }
+        }
+      },
+      "elements": [
+        [
+          "identity",
+          "/push-code"
+        ],
+        [
+          "text",
+          " inspect"
+        ]
+      ],
+      "attachments": [],
+      "identities": [
+        [
+          "skill",
+          "push-code",
+          "/push-code",
+          ""
+        ]
+      ]
+    },
+    {
+      "name": "agent metadata attributes the configured reference",
+      "message": {
+        "id": "identity",
+        "role": "user",
+        "text": "model payload",
+        "timestamp": 0,
+        "localRender": {
+          "displayText": "@agent-Explore inspect the migration",
+          "composerReferences": [
+            {
+              "kind": "agent",
+              "name": "Explore",
+              "value": "@agent-Explore",
+              "range": {
+                "start": 0,
+                "end": 14
+              },
+              "source": "configured"
+            }
+          ]
+        }
+      },
+      "elements": [
+        [
+          "identity",
+          "@agent-Explore"
+        ],
+        [
+          "text",
+          " inspect the migration"
+        ]
+      ],
+      "attachments": [],
+      "identities": [
+        [
+          "agent",
+          "Explore",
+          "@agent-Explore",
+          "configured"
+        ]
+      ]
+    },
+    {
+      "name": "plugin range and boundary cards retain authored order",
+      "message": {
+        "id": "identity",
+        "role": "user",
+        "text": "model payload",
+        "timestamp": 0,
+        "localRender": {
+          "displayText": "before @tools after",
+          "composerReferences": [
+            {
+              "kind": "plugin",
+              "name": "tools",
+              "value": "@tools",
+              "range": {
+                "start": 7,
+                "end": 13
+              },
+              "source": "plugin"
+            }
+          ],
+          "selectedTextAttachments": [
+            {
+              "text": "quote",
+              "requestOffset": 7
+            }
+          ],
+          "pastedCards": [
+            {
+              "text": "paste",
+              "requestOffset": 13
+            }
+          ]
+        }
+      },
+      "elements": [
+        [
+          "text",
+          "before "
+        ],
+        [
+          "quote",
+          "quote"
+        ],
+        [
+          "identity",
+          "@tools"
+        ],
+        [
+          "paste",
+          "paste"
+        ],
+        [
+          "text",
+          " after"
+        ]
+      ],
+      "attachments": [],
+      "identities": [
+        [
+          "plugin",
+          "tools",
+          "@tools",
+          "plugin"
+        ]
+      ]
+    },
+    {
+      "name": "UTF16 identity range after emoji preserves neighboring text",
+      "message": {
+        "id": "identity",
+        "role": "user",
+        "text": "model payload",
+        "timestamp": 0,
+        "localRender": {
+          "displayText": "😀 @agent-Explore.",
+          "composerReferences": [
+            {
+              "kind": "agent",
+              "name": "Explore",
+              "value": "@agent-Explore",
+              "range": {
+                "start": 3,
+                "end": 17
+              },
+              "source": "configured"
+            }
+          ]
+        }
+      },
+      "elements": [
+        [
+          "text",
+          "😀 "
+        ],
+        [
+          "identity",
+          "@agent-Explore"
+        ],
+        [
+          "text",
+          "."
+        ]
+      ],
+      "attachments": [],
+      "identities": [
+        [
+          "agent",
+          "Explore",
+          "@agent-Explore",
+          "configured"
+        ]
+      ]
+    },
+    {
+      "name": "stale identity range remains literal",
+      "message": {
+        "id": "identity",
+        "role": "user",
+        "text": "model payload",
+        "timestamp": 0,
+        "localRender": {
+          "displayText": "@tools",
+          "composerReferences": [
+            {
+              "kind": "plugin",
+              "name": "tools",
+              "value": "@bad",
+              "range": {
+                "start": 0,
+                "end": 6
+              },
+              "source": "plugin"
+            }
+          ]
+        }
+      },
+      "elements": [
+        [
+          "text",
+          "@tools"
+        ]
+      ],
+      "attachments": [],
+      "identities": []
+    },
+    {
+      "name": "a card within a reference keeps both literal fragments",
+      "message": {
+        "id": "identity",
+        "role": "user",
+        "text": "model payload",
+        "timestamp": 0,
+        "localRender": {
+          "displayText": "@tools",
+          "composerReferences": [
+            {
+              "kind": "plugin",
+              "name": "tools",
+              "value": "@tools",
+              "range": {
+                "start": 0,
+                "end": 6
+              },
+              "source": "plugin"
+            }
+          ],
+          "pastedCards": [
+            {
+              "text": "inside",
+              "requestOffset": 3
+            }
+          ]
+        }
+      },
+      "elements": [
+        [
+          "text",
+          "@to"
+        ],
+        [
+          "paste",
+          "inside"
+        ],
+        [
+          "text",
+          "ols"
+        ]
+      ],
+      "attachments": [],
+      "identities": []
+    },
+    {
+      "name": "unknown reference source does not erase valid identity",
+      "message": {
+        "id": "identity",
+        "role": "user",
+        "text": "model payload",
+        "timestamp": 0,
+        "localRender": {
+          "displayText": "@tools",
+          "composerReferences": [
+            {
+              "kind": "plugin",
+              "name": "tools",
+              "value": "@tools",
+              "range": {
+                "start": 0,
+                "end": 6
+              },
+              "source": "future"
+            }
+          ]
+        }
+      },
+      "elements": [
+        [
+          "identity",
+          "@tools"
+        ]
+      ],
+      "attachments": [],
+      "identities": [
+        [
+          "plugin",
+          "tools",
+          "@tools",
+          "future"
+        ]
+      ]
+    },
+    {
+      "name": "selected command does not replace a longer literal token",
+      "message": {
+        "id": "identity",
+        "role": "user",
+        "text": "model payload",
+        "timestamp": 0,
+        "localRender": {
+          "displayText": "/push-code-extra",
+          "slashCommand": {
+            "name": "push-code",
+            "kind": "skill"
+          }
+        }
+      },
+      "elements": [
+        [
+          "text",
+          "/push-code-extra"
+        ]
+      ],
+      "attachments": [],
+      "identities": []
+    },
+    {
+      "name": "invalid reference does not resurrect explicitly empty display text",
+      "message": {
+        "id": "identity",
+        "role": "user",
+        "text": "model payload",
+        "timestamp": 0,
+        "localRender": {
+          "displayText": "",
+          "composerReferences": [
+            {
+              "kind": "agent",
+              "name": "Explore",
+              "value": "@agent-Explore",
+              "range": {
+                "start": 0,
+                "end": 14
+              },
+              "source": "configured"
+            }
+          ]
+        }
+      },
+      "elements": [],
+      "attachments": [],
+      "identities": []
+    },
+    {
+      "name": "skill display name retains canonical token",
+      "message": {
+        "id": "identity",
+        "role": "user",
+        "text": "model payload",
+        "timestamp": 0,
+        "localRender": {
+          "displayText": "/deploy now",
+          "slashCommand": {
+            "name": "deploy",
+            "displayName": "Deploy changes",
+            "kind": "skill",
+            "source": "project"
+          }
+        }
+      },
+      "elements": [
+        [
+          "identity",
+          "/deploy"
+        ],
+        [
+          "text",
+          " now"
+        ]
+      ],
+      "attachments": [],
+      "identities": [
+        [
+          "skill",
+          "deploy",
+          "/deploy",
+          "project"
+        ]
+      ],
+      "displayNames": [
+        "Deploy changes"
+      ]
+    },
+    {
+      "name": "overlapping references select the complete outer identity",
+      "message": {
+        "id": "identity",
+        "role": "user",
+        "text": "model payload",
+        "timestamp": 0,
+        "localRender": {
+          "displayText": "[Chat](klaus:conversation/session)",
+          "composerReferences": [
+            {
+              "kind": "plugin",
+              "name": "Chat",
+              "value": "Chat",
+              "range": {
+                "start": 1,
+                "end": 5
+              },
+              "source": "plugin"
+            },
+            {
+              "kind": "conversation",
+              "name": "Chat",
+              "value": "[Chat](klaus:conversation/session)",
+              "range": {
+                "start": 0,
+                "end": 34
+              }
+            }
+          ]
+        }
+      },
+      "elements": [
+        [
+          "identity",
+          "[Chat](klaus:conversation/session)"
+        ]
+      ],
+      "attachments": [],
+      "identities": [
+        [
+          "conversation",
+          "Chat",
+          "[Chat](klaus:conversation/session)",
+          ""
+        ]
+      ]
+    },
+    {
+      "name": "device reference preserves friendly identity",
+      "message": {
+        "id": "identity",
+        "role": "user",
+        "text": "model payload",
+        "timestamp": 0,
+        "localRender": {
+          "displayText": "Use @device-dev-1",
+          "composerReferences": [
+            {
+              "kind": "device",
+              "name": "Studio Mac",
+              "value": "@device-dev-1",
+              "range": {
+                "start": 4,
+                "end": 17
+              }
+            }
+          ]
+        }
+      },
+      "elements": [
+        [
+          "text",
+          "Use "
+        ],
+        [
+          "identity",
+          "@device-dev-1"
+        ]
+      ],
+      "attachments": [],
+      "identities": [
+        [
+          "device",
+          "Studio Mac",
+          "@device-dev-1",
+          ""
+        ]
+      ]
+    },
+    {
+      "name": "legacy configured agent address restores identity without snapshot",
+      "message": {
+        "id": "legacy",
+        "role": "user",
+        "text": "@agent-Explore inspect the migration",
+        "timestamp": 0
+      },
+      "elements": [
+        [
+          "identity",
+          "@agent-Explore"
+        ],
+        [
+          "text",
+          " inspect the migration"
+        ]
+      ],
+      "attachments": [],
+      "identities": [
+        [
+          "agent",
+          "Explore",
+          "@agent-Explore",
+          "configured"
+        ]
+      ]
+    },
+    {
+      "name": "nested-agent prompt retains literal configured address",
+      "composerAuthored": false,
+      "message": {
+        "id": "nested",
+        "role": "user",
+        "text": "@agent-Explore inspect the migration",
+        "timestamp": 0
+      },
+      "elements": [
+        [
+          "text",
+          "@agent-Explore inspect the migration"
+        ]
+      ],
+      "attachments": [],
+      "identities": []
+    },
+    {
+      "name": "arbitrary plugin and worker strings remain literal without metadata",
+      "message": {
+        "id": "literal",
+        "role": "user",
+        "text": "@worker @tools inspect",
+        "timestamp": 0
+      },
+      "elements": [
+        [
+          "text",
+          "@worker @tools inspect"
+        ]
+      ],
+      "attachments": [],
+      "identities": []
+    }
+  ],
+  "foldCases": [
+    {
+      "name": "post-final operation retains chronological position",
+      "blocks": [
+        {
+          "type": "tool_use",
+          "id": "read",
+          "name": "read",
+          "__result": {
+            "is_error": false,
+            "content": [
+              {
+                "type": "image",
+                "path": "/tmp/check.png"
+              }
+            ]
+          }
+        },
+        {
+          "type": "text",
+          "text": "Answer",
+          "phase": "final_answer"
+        },
+        {
+          "type": "tool_use",
+          "id": "write",
+          "name": "write",
+          "__result": {
+            "is_error": false,
+            "content": [
+              {
+                "type": "image",
+                "path": "/tmp/write.png"
+              }
+            ]
+          }
+        }
+      ],
+      "process": [
+        0
+      ],
+      "final": 1,
+      "post": [
+        2
+      ],
+      "allowed": true
+    },
+    {
+      "name": "native final ownership wins over later legacy text",
+      "blocks": [
+        {
+          "type": "tool_use",
+          "id": "read",
+          "name": "read",
+          "__result": {
+            "is_error": false,
+            "content": [
+              {
+                "type": "image",
+                "path": "/tmp/check.png"
+              }
+            ]
+          }
+        },
+        {
+          "type": "text",
+          "text": "Answer",
+          "phase": "final_answer"
+        },
+        {
+          "type": "text",
+          "text": "Post-answer status"
+        }
+      ],
+      "process": [
+        0
+      ],
+      "final": 1,
+      "post": [
+        2
+      ],
+      "allowed": true
+    },
+    {
+      "name": "persisted final reply ownership wins over legacy tail",
+      "blocks": [
+        {
+          "type": "tool_use",
+          "id": "read",
+          "name": "read",
+          "__result": {
+            "is_error": false,
+            "content": [
+              {
+                "type": "image",
+                "path": "/tmp/check.png"
+              }
+            ]
+          }
+        },
+        {
+          "type": "text",
+          "text": "Answer"
+        },
+        {
+          "type": "text",
+          "text": "Post-answer status"
+        }
+      ],
+      "owned": [
+        1
+      ],
+      "process": [
+        0
+      ],
+      "final": 1,
+      "post": [
+        2
+      ],
+      "allowed": true
+    },
+    {
+      "name": "active unphased narration never prematurely folds",
+      "running": true,
+      "blocks": [
+        {
+          "type": "tool_use",
+          "id": "read",
+          "name": "read",
+          "__result": {
+            "is_error": false,
+            "content": [
+              {
+                "type": "image",
+                "path": "/tmp/check.png"
+              }
+            ]
+          }
+        },
+        {
+          "type": "text",
+          "text": "Investigating"
+        }
+      ],
+      "process": [
+        0,
+        1
+      ],
+      "final": null,
+      "post": [],
+      "allowed": false
+    },
+    {
+      "name": "legacy tool tail is not a final answer",
+      "blocks": [
+        {
+          "type": "text",
+          "text": "Investigating"
+        },
+        {
+          "type": "tool_use",
+          "id": "read",
+          "name": "read",
+          "__result": {
+            "is_error": false,
+            "content": [
+              {
+                "type": "image",
+                "path": "/tmp/check.png"
+              }
+            ]
+          }
+        }
+      ],
+      "process": [
+        0,
+        1
+      ],
+      "final": null,
+      "post": [],
+      "allowed": false
+    },
+    {
+      "name": "private reasoning contributes no visible process",
+      "blocks": [
+        {
+          "type": "thinking",
+          "thinking": "private"
+        },
+        {
+          "type": "text",
+          "text": "Answer",
+          "phase": "final_answer"
+        }
+      ],
+      "process": [],
+      "final": 1,
+      "post": [],
+      "allowed": false
+    },
+    {
+      "name": "multiple native final phases start at first public reply block",
+      "blocks": [
+        {
+          "type": "tool_use",
+          "id": "read",
+          "name": "read",
+          "__result": {
+            "is_error": false,
+            "content": []
+          }
+        },
+        {
+          "type": "text",
+          "text": "Answer part1",
+          "phase": "final_answer"
+        },
+        {
+          "type": "image",
+          "path": "/tmp/final.png"
+        },
+        {
+          "type": "text",
+          "text": "Answer part2",
+          "phase": "final_answer"
+        },
+        {
+          "type": "tool_use",
+          "id": "post",
+          "name": "read",
+          "__result": {
+            "is_error": false,
+            "content": []
+          }
+        }
+      ],
+      "process": [
+        0
+      ],
+      "final": 1,
+      "post": [
+        2,
+        3,
+        4
+      ],
+      "allowed": true,
+      "finalText": "Answer part1\nAnswer part2"
+    }
+  ],
+  "deliverableCases": [
+    {
+      "name": "explicit generation produces visible image without filename report",
+      "blocks": [
+        {
+          "type": "tool_use",
+          "id": "generate_image",
+          "name": "generate_image",
+          "__result": {
+            "is_error": false,
+            "content": [
+              {
+                "type": "image",
+                "path": "/tmp/generated.png"
+              }
+            ]
+          }
+        }
+      ],
+      "finalText": "Done",
+      "media": [
+        "/tmp/generated.png"
+      ],
+      "diagrams": [],
+      "suppressed": [
+        "/tmp/generated.png"
+      ]
+    },
+    {
+      "name": "process screenshot stays in activity",
+      "blocks": [
+        {
+          "type": "tool_use",
+          "id": "browser_screenshot",
+          "name": "browser_screenshot",
+          "__result": {
+            "is_error": false,
+            "content": [
+              {
+                "type": "image",
+                "path": "/tmp/check.png"
+              }
+            ]
+          }
+        }
+      ],
+      "finalText": "Done",
+      "media": [],
+      "diagrams": [],
+      "suppressed": []
+    },
+    {
+      "name": "reported screenshot becomes a deliverable",
+      "blocks": [
+        {
+          "type": "tool_use",
+          "id": "browser_screenshot",
+          "name": "browser_screenshot",
+          "__result": {
+            "is_error": false,
+            "content": [
+              {
+                "type": "image",
+                "path": "/tmp/check.png"
+              }
+            ]
+          }
+        }
+      ],
+      "finalText": "See check.png",
+      "media": [
+        "/tmp/check.png"
+      ],
+      "diagrams": [],
+      "suppressed": [
+        "/tmp/check.png"
+      ]
+    },
+    {
+      "name": "duplicate media and diagrams render once",
+      "blocks": [
+        {
+          "type": "tool_use",
+          "id": "generate_image",
+          "name": "generate_image",
+          "__result": {
+            "is_error": false,
+            "content": [
+              {
+                "type": "image",
+                "path": "/tmp/a.png"
+              }
+            ],
+            "artifact": {
+              "kind": "diagram",
+              "id": "d1",
+              "title": "Diagram"
+            }
+          }
+        },
+        {
+          "type": "tool_use",
+          "id": "generateimage",
+          "name": "generateimage",
+          "__result": {
+            "is_error": false,
+            "content": [
+              {
+                "type": "image",
+                "path": "/tmp/a.png"
+              }
+            ],
+            "artifact": {
+              "kind": "diagram",
+              "id": "d1",
+              "title": "Diagram"
+            }
+          }
+        }
+      ],
+      "finalText": "Done",
+      "media": [
+        "/tmp/a.png"
+      ],
+      "diagrams": [
+        "d1"
+      ],
+      "suppressed": [
+        "/tmp/a.png"
+      ]
+    },
+    {
+      "name": "final inline image owns the only rendering",
+      "blocks": [
+        {
+          "type": "tool_use",
+          "id": "generate_image",
+          "name": "generate_image",
+          "__result": {
+            "is_error": false,
+            "content": [
+              {
+                "type": "image",
+                "path": "/tmp/a.png"
+              }
+            ]
+          }
+        }
+      ],
+      "inline": [
+        "/tmp/a.png"
+      ],
+      "finalText": "![cover](/tmp/a.png)",
+      "media": [],
+      "diagrams": [],
+      "suppressed": [
+        "/tmp/a.png"
+      ]
+    },
+    {
+      "name": "failed result does not claim a successful deliverable",
+      "blocks": [
+        {
+          "type": "tool_use",
+          "id": "generate_image",
+          "name": "generate_image",
+          "__result": {
+            "is_error": true,
+            "content": [
+              {
+                "type": "image",
+                "path": "/tmp/a.png"
+              }
+            ],
+            "artifact": {
+              "kind": "diagram",
+              "id": "d1"
+            }
+          }
+        }
+      ],
+      "finalText": "Failed",
+      "media": [],
+      "diagrams": [],
+      "suppressed": []
+    },
+    {
+      "name": "active turn does not promote incomplete generated media",
+      "running": true,
+      "blocks": [
+        {
+          "type": "tool_use",
+          "id": "generate_image",
+          "name": "generate_image",
+          "__result": {
+            "is_error": false,
+            "content": [
+              {
+                "type": "image",
+                "path": "/tmp/a.png"
+              }
+            ]
+          }
+        }
+      ],
+      "finalText": "",
+      "media": [],
+      "diagrams": [],
+      "suppressed": []
+    }
+  ],
+  "compactionCases": [
+    {
+      "name": "adjacent restoration belongs to boundary disclosure",
+      "messages": [
+        {
+          "id": "boundary",
+          "role": "notice",
+          "text": "",
+          "timestamp": 0,
+          "kind": "compaction"
+        },
+        {
+          "id": "restore",
+          "role": "user",
+          "text": "Fresh files",
+          "timestamp": 0,
+          "kind": "compact-file-restore"
+        }
+      ],
+      "visibleRows": 1,
+      "restoredText": "Fresh files"
+    },
+    {
+      "name": "standalone restoration remains independently discoverable",
+      "messages": [
+        {
+          "id": "restore",
+          "role": "user",
+          "text": "Fresh files",
+          "timestamp": 0,
+          "kind": "compact-file-restore"
+        }
+      ],
+      "visibleRows": 1,
+      "restoredText": null
+    }
+  ],
+  "transcriptCases": [
+    {
+      "name": "same turn split by steer retains independent stable segment identities",
+      "messages": [
+        {
+          "id": "before",
+          "role": "assistant",
+          "text": "Before",
+          "timestamp": 0,
+          "turnId": "t"
+        },
+        {
+          "id": "steer",
+          "role": "user",
+          "text": "Also test",
+          "timestamp": 1,
+          "turnId": "t",
+          "steered": true
+        },
+        {
+          "id": "after",
+          "role": "assistant",
+          "text": "After",
+          "timestamp": 2,
+          "turnId": "t"
+        }
+      ],
+      "ids": [
+        "turn-t-before",
+        "row-steer",
+        "turn-t-after"
+      ]
+    }
+  ],
+  "ownedReplyCases": [
+    {
+      "name": "entire owned final reply survives pre-answer folding",
+      "messages": [
+        {
+          "id": "process",
+          "role": "assistant",
+          "text": "",
+          "timestamp": 0,
+          "contentBlocks": [
+            {
+              "type": "tool_use",
+              "id": "read",
+              "name": "read",
+              "__result": {
+                "is_error": false,
+                "content": []
+              }
+            }
+          ]
+        },
+        {
+          "id": "final",
+          "role": "assistant",
+          "text": "",
+          "timestamp": 1,
+          "isFinalReply": true,
+          "contentBlocks": [
+            {
+              "type": "thinking",
+              "thinking": "private"
+            },
+            {
+              "type": "text",
+              "text": "Answer part1"
+            },
+            {
+              "type": "image",
+              "path": "/tmp/final.png"
+            },
+            {
+              "type": "text",
+              "text": "Answer part2 ![result](/tmp/final.png)"
+            }
+          ]
+        },
+        {
+          "id": "post",
+          "role": "assistant",
+          "text": "",
+          "timestamp": 2,
+          "contentBlocks": [
+            {
+              "type": "tool_use",
+              "id": "post",
+              "name": "read",
+              "__result": {
+                "is_error": false,
+                "content": []
+              }
+            }
+          ]
+        }
+      ],
+      "owned": [
+        2,
+        3,
+        4
+      ],
+      "process": [
+        0
+      ],
+      "final": 2,
+      "post": [
+        3,
+        4,
+        5
+      ],
+      "finalText": "Answer part1\nAnswer part2 ![result](/tmp/final.png)"
+    },
+    {
+      "name": "owned final reply beginning with media preserves first image",
+      "messages": [
+        {
+          "id": "process",
+          "role": "assistant",
+          "text": "",
+          "timestamp": 0,
+          "contentBlocks": [
+            {
+              "type": "tool_use",
+              "id": "read",
+              "name": "read",
+              "__result": {
+                "is_error": false,
+                "content": []
+              }
+            }
+          ]
+        },
+        {
+          "id": "final",
+          "role": "assistant",
+          "text": "",
+          "timestamp": 1,
+          "isFinalReply": true,
+          "contentBlocks": [
+            {
+              "type": "image",
+              "path": "/tmp/final.png"
+            },
+            {
+              "type": "text",
+              "text": "Final image explanation"
+            }
+          ]
+        },
+        {
+          "id": "post",
+          "role": "assistant",
+          "text": "",
+          "timestamp": 2,
+          "contentBlocks": [
+            {
+              "type": "tool_use",
+              "id": "post",
+              "name": "read",
+              "__result": {
+                "is_error": false,
+                "content": []
+              }
+            }
+          ]
+        }
+      ],
+      "owned": [
+        1,
+        2
+      ],
+      "process": [
+        0
+      ],
+      "final": 1,
+      "post": [
+        2,
+        3
+      ],
+      "finalText": "Final image explanation"
+    }
+  ]
+}

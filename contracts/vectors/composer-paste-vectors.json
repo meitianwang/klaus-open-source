@@ -1,0 +1,91 @@
+{
+  "_why": "The structured editor owns rich and literal text insertion. Attachment routing preserves the current document and selection, and plain file URI text remains editable prose.",
+  "cases": [
+    {
+      "name": "ordinary prose remains with the editor",
+      "input": {
+        "browserFileCount": 0,
+        "uriPathCount": 0,
+        "looksFileLike": false,
+        "largeText": false
+      },
+      "expected": {
+        "route": "plain-text",
+        "preventBrowserDefault": true
+      }
+    },
+    {
+      "name": "clipboard image remains a browser file attachment",
+      "input": {
+        "browserFileCount": 1,
+        "uriPathCount": 0,
+        "looksFileLike": true,
+        "largeText": false
+      },
+      "expected": {
+        "route": "browser-files",
+        "preventBrowserDefault": true
+      }
+    },
+    {
+      "name": "file URI remains a path attachment",
+      "input": {
+        "browserFileCount": 0,
+        "uriPathCount": 1,
+        "looksFileLike": true,
+        "largeText": false
+      },
+      "expected": {
+        "route": "uri-paths",
+        "preventBrowserDefault": true
+      }
+    },
+    {
+      "name": "large prose remains a pasted-text attachment",
+      "input": {
+        "browserFileCount": 0,
+        "uriPathCount": 0,
+        "looksFileLike": false,
+        "largeText": true
+      },
+      "expected": {
+        "route": "large-text",
+        "preventBrowserDefault": true
+      }
+    },
+    {
+      "name": "native file clipboard waits for host paths without becoming a text card",
+      "input": {
+        "browserFileCount": 0,
+        "uriPathCount": 0,
+        "looksFileLike": true,
+        "largeText": true
+      },
+      "expected": {
+        "route": "plain-text",
+        "preventBrowserDefault": true
+      }
+    },
+    {
+      "name": "a file URI supplied as ordinary text remains prose",
+      "input": {
+        "browserFileCount": 0,
+        "uriPathCount": 1,
+        "looksFileLike": false,
+        "largeText": false
+      },
+      "expected": {
+        "route": "plain-text",
+        "preventBrowserDefault": true
+      }
+    }
+  ],
+  "attachmentSelection": "File and large-text attachment insertion leaves the editor text, selection and history unchanged.",
+  "creationFailure": "Remove pending state and cancel only the affected draft submission; never insert the full failed paste.",
+  "textModes": {
+    "attachmentPriority": "File and large-text routing precedes literal/code paste modes.",
+    "forcedPlain": "Replace with literal text, retaining current editor marks and ignoring clipboard formatting.",
+    "code": "Insert literal normalized text, remove trailing newlines, and preserve the code block.",
+    "urlOverSelection": "Only unmodified URL paste over nonempty prose without inline atoms creates a link, then collapses the caret to the end."
+  }
+}

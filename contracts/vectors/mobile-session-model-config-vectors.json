@@ -1,0 +1,540 @@
+{
+  "reason": "Session model configuration is explicitly scoped to the selected device and conversation; discovery previews never mutate preferences, and first-send initialization does not change future defaults. Ultra stays available as a local mode across model sources, including providers without an effort parameter. Cursor local login re-import disables discovery and selection until the device has complete credentials. Native Fast state and eligibility are scoped to the same conversation and preserve explicit extra-credit billing independently of quota windows. Ultra is carried by ultraMode independently of native thinkingLevel; missing fields from older clients preserve the current selection. TRAE CN and Kiro source discovery is device-scoped, and native effort selections retain their exact source-qualified members. Kiro routing aliases are excluded from concrete model choices.",
+  "feature": {
+    "sessionModelConfig": true
+  },
+  "snapshotFields": [
+    "sessionId",
+    "source",
+    "selection",
+    "resolvedSelection",
+    "thinkingLevel",
+    "catalogSource",
+    "sources",
+    "models",
+    "fastMode",
+    "fastModeSupported",
+    "ultraMode"
+  ],
+  "sourceOrder": [
+    "subscription",
+    "codex",
+    "cursor",
+    "qoder",
+    "qwenwork",
+    "qoderwork",
+    "workbuddy",
+    "antigravity",
+    "trae",
+    "kiro",
+    "kimi",
+    "bailian",
+    "minimax",
+    "zhipu",
+    "ark",
+    "custom"
+  ],
+  "thinkingLevels": [
+    "off",
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max"
+  ],
+  "defaultScope": null,
+  "invalidUpdates": [
+    {
+      "source": "codex"
+    },
+    {
+      "sessionId": "",
+      "thinkingLevel": "high"
+    },
+    {
+      "sessionId": "missing",
+      "thinkingLevel": "high"
+    },
+    {
+      "sessionId": "s2",
+      "source": "local",
+      "selection": "local:fixture"
+    },
+    {
+      "sessionId": "s2",
+      "source": "codex",
+      "selection": "custom:fixture"
+    },
+    {
+      "sessionId": "s2",
+      "source": "codex",
+      "selection": "codex:removed",
+      "thinkingLevel": "high"
+    },
+    {
+      "sessionId": "s2",
+      "source": "qoder",
+      "selection": "auto"
+    },
+    {
+      "sessionId": "s2",
+      "selection": "custom:fixture",
+      "thinkingLevel": "invalid-effort"
+    },
+    {
+      "sessionId": "s2"
+    },
+    {
+      "sessionId": "s2",
+      "thinkingLevel": "high",
+      "unexpected": true
+    }
+  ],
+  "liveUpdate": {
+    "sessionId": "s2",
+    "source": "codex",
+    "selection": "codex:fixture",
+    "thinkingLevel": "max"
+  },
+  "promotionPreference": {
+    "source": "codex",
+    "selection": "codex:fixture",
+    "thinkingLevel": "xhigh"
+  },
+  "previewOptionalFields": [
+    "catalogDefaultSelection"
+  ],
+  "previewRule": "A source query resolves auto for catalogSource without changing saved source, selection or thinking; catalogDefaultSelection is present even when catalogSource equals saved source.",
+  "snapshot": {
+    "sessionId": "s2",
+    "source": "custom",
+    "selection": "custom:fixture",
+    "resolvedSelection": "custom:fixture",
+    "thinkingLevel": "medium",
+    "catalogSource": "custom",
+    "sources": [
+      {
+        "value": "subscription",
+        "label": "Claude Subscription",
+        "available": false,
+        "reason": "Sign in to this source on this device."
+      },
+      {
+        "value": "codex",
+        "label": "Codex",
+        "available": true
+      },
+      {
+        "value": "cursor",
+        "label": "Cursor",
+        "available": false,
+        "reason": "Sign in to this source on this device."
+      },
+      {
+        "value": "qoder",
+        "label": "Qoder",
+        "available": false,
+        "reason": "Sign in to this source on this device."
+      },
+      {
+        "value": "qwenwork",
+        "label": "QwenWork",
+        "available": false,
+        "reason": "Sign in to this source on this device."
+      },
+      {
+        "value": "qoderwork",
+        "label": "QoderWork",
+        "available": false,
+        "reason": "Sign in to this source on this device."
+      },
+      {
+        "value": "workbuddy",
+        "label": "WorkBuddy",
+        "available": false,
+        "reason": "Sign in to this source on this device."
+      },
+      {
+        "value": "antigravity",
+        "label": "Antigravity",
+        "available": false,
+        "reason": "Sign in to this source on this device."
+      },
+      {
+        "value": "trae",
+        "label": "TRAE CN",
+        "available": false,
+        "reason": "Sign in to this source on this device."
+      },
+      {
+        "value": "kiro",
+        "label": "Kiro",
+        "available": false,
+        "reason": "Sign in to this source on this device."
+      },
+      {
+        "value": "kimi",
+        "label": "Kimi",
+        "available": false,
+        "reason": "Sign in to this source on this device."
+      },
+      {
+        "value": "bailian",
+        "label": "Bailian Token Plan",
+        "available": false,
+        "reason": "Sign in to this source on this device."
+      },
+      {
+        "value": "minimax",
+        "label": "MiniMax M Plan",
+        "available": false,
+        "reason": "Sign in to this source on this device."
+      },
+      {
+        "value": "zhipu",
+        "label": "Zhipu Coding Plan",
+        "available": false,
+        "reason": "Sign in to this source on this device."
+      },
+      {
+        "value": "ark",
+        "label": "Ark Coding Plan",
+        "available": false,
+        "reason": "Sign in to this source on this device."
+      },
+      {
+        "value": "custom",
+        "label": "Custom",
+        "available": true
+      }
+    ],
+    "models": [
+      {
+        "value": "custom:fixture",
+        "label": "Custom fixture",
+        "supportedThinkingLevels": [
+          "off",
+          "high"
+        ],
+        "defaultThinkingLevel": "high",
+        "description": "Fixture model"
+      },
+      {
+        "value": "custom:no-thinking",
+        "label": "No effort control"
+      },
+      {
+        "value": "custom:auto-default",
+        "label": "Source default",
+        "supportedThinkingLevels": [
+          "medium",
+          "high"
+        ],
+        "defaultThinkingLevel": "medium"
+      }
+    ],
+    "fastMode": false,
+    "fastModeSupported": false,
+    "ultraMode": false
+  },
+  "previewSnapshot": {
+    "sessionId": "s2",
+    "source": "custom",
+    "selection": "custom:fixture",
+    "resolvedSelection": "custom:fixture",
+    "thinkingLevel": "medium",
+    "catalogSource": "codex",
+    "sources": [
+      {
+        "value": "subscription",
+        "label": "Claude Subscription",
+        "available": false,
+        "reason": "Sign in to this source on this device."
+      },
+      {
+        "value": "codex",
+        "label": "Codex",
+        "available": true
+      },
+      {
+        "value": "cursor",
+        "label": "Cursor",
+        "available": false,
+        "reason": "Sign in to this source on this device."
+      },
+      {
+        "value": "qoder",
+        "label": "Qoder",
+        "available": false,
+        "reason": "Sign in to this source on this device."
+      },
+      {
+        "value": "qwenwork",
+        "label": "QwenWork",
+        "available": false,
+        "reason": "Sign in to this source on this device."
+      },
+      {
+        "value": "qoderwork",
+        "label": "QoderWork",
+        "available": false,
+        "reason": "Sign in to this source on this device."
+      },
+      {
+        "value": "workbuddy",
+        "label": "WorkBuddy",
+        "available": false,
+        "reason": "Sign in to this source on this device."
+      },
+      {
+        "value": "antigravity",
+        "label": "Antigravity",
+        "available": false,
+        "reason": "Sign in to this source on this device."
+      },
+      {
+        "value": "trae",
+        "label": "TRAE CN",
+        "available": false,
+        "reason": "Sign in to this source on this device."
+      },
+      {
+        "value": "kiro",
+        "label": "Kiro",
+        "available": false,
+        "reason": "Sign in to this source on this device."
+      },
+      {
+        "value": "kimi",
+        "label": "Kimi",
+        "available": false,
+        "reason": "Sign in to this source on this device."
+      },
+      {
+        "value": "bailian",
+        "label": "Bailian Token Plan",
+        "available": false,
+        "reason": "Sign in to this source on this device."
+      },
+      {
+        "value": "minimax",
+        "label": "MiniMax M Plan",
+        "available": false,
+        "reason": "Sign in to this source on this device."
+      },
+      {
+        "value": "zhipu",
+        "label": "Zhipu Coding Plan",
+        "available": false,
+        "reason": "Sign in to this source on this device."
+      },
+      {
+        "value": "ark",
+        "label": "Ark Coding Plan",
+        "available": false,
+        "reason": "Sign in to this source on this device."
+      },
+      {
+        "value": "custom",
+        "label": "Custom",
+        "available": true
+      }
+    ],
+    "models": [
+      {
+        "value": "codex:fixture",
+        "label": "6.1 Sol",
+        "supportedThinkingLevels": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "defaultThinkingLevel": "high",
+        "description": "Fixture model"
+      },
+      {
+        "value": "codex:no-thinking",
+        "label": "No effort control"
+      },
+      {
+        "value": "codex:auto-default",
+        "label": "Source default",
+        "supportedThinkingLevels": [
+          "medium",
+          "high"
+        ],
+        "defaultThinkingLevel": "medium"
+      }
+    ],
+    "catalogDefaultSelection": "codex:auto-default",
+    "fastMode": false,
+    "fastModeSupported": false,
+    "ultraMode": false
+  },
+  "consistencyRule": "Slow resolution or discovery re-reads saved preferences before returning; superseded refresh passes cannot broadcast a stale configuration after a newer edit.",
+  "sessionChangedFrame": {
+    "type": "model_config_changed",
+    "modelConfig": {
+      "sessionId": "s2",
+      "source": "custom",
+      "selection": "custom:fixture",
+      "resolvedSelection": "custom:fixture",
+      "thinkingLevel": "medium",
+      "catalogSource": "custom",
+      "sources": [
+        {
+          "value": "subscription",
+          "label": "Claude Subscription",
+          "available": false,
+          "reason": "Sign in to this source on this device."
+        },
+        {
+          "value": "codex",
+          "label": "Codex",
+          "available": true
+        },
+        {
+          "value": "cursor",
+          "label": "Cursor",
+          "available": false,
+          "reason": "Sign in to this source on this device."
+        },
+        {
+          "value": "qoder",
+          "label": "Qoder",
+          "available": false,
+          "reason": "Sign in to this source on this device."
+        },
+        {
+          "value": "qwenwork",
+          "label": "QwenWork",
+          "available": false,
+          "reason": "Sign in to this source on this device."
+        },
+        {
+          "value": "qoderwork",
+          "label": "QoderWork",
+          "available": false,
+          "reason": "Sign in to this source on this device."
+        },
+        {
+          "value": "workbuddy",
+          "label": "WorkBuddy",
+          "available": false,
+          "reason": "Sign in to this source on this device."
+        },
+        {
+          "value": "antigravity",
+          "label": "Antigravity",
+          "available": false,
+          "reason": "Sign in to this source on this device."
+        },
+        {
+          "value": "trae",
+          "label": "TRAE CN",
+          "available": false,
+          "reason": "Sign in to this source on this device."
+        },
+        {
+          "value": "kiro",
+          "label": "Kiro",
+          "available": false,
+          "reason": "Sign in to this source on this device."
+        },
+        {
+          "value": "kimi",
+          "label": "Kimi",
+          "available": false,
+          "reason": "Sign in to this source on this device."
+        },
+        {
+          "value": "bailian",
+          "label": "Bailian Token Plan",
+          "available": false,
+          "reason": "Sign in to this source on this device."
+        },
+        {
+          "value": "minimax",
+          "label": "MiniMax M Plan",
+          "available": false,
+          "reason": "Sign in to this source on this device."
+        },
+        {
+          "value": "zhipu",
+          "label": "Zhipu Coding Plan",
+          "available": false,
+          "reason": "Sign in to this source on this device."
+        },
+        {
+          "value": "ark",
+          "label": "Ark Coding Plan",
+          "available": false,
+          "reason": "Sign in to this source on this device."
+        },
+        {
+          "value": "custom",
+          "label": "Custom",
+          "available": true
+        }
+      ],
+      "models": [
+        {
+          "value": "custom:fixture",
+          "label": "Custom fixture",
+          "supportedThinkingLevels": [
+            "off",
+            "high"
+          ],
+          "defaultThinkingLevel": "high",
+          "description": "Fixture model"
+        },
+        {
+          "value": "custom:no-thinking",
+          "label": "No effort control"
+        },
+        {
+          "value": "custom:auto-default",
+          "label": "Source default",
+          "supportedThinkingLevels": [
+            "medium",
+            "high"
+          ],
+          "defaultThinkingLevel": "medium"
+        }
+      ],
+      "fastMode": false,
+      "fastModeSupported": false,
+      "ultraMode": false
+    },
+    "sessionId": "s2"
+  },
+  "savedResponseNeedsRefresh": {
+    "ok": true,
+    "modelConfigRefreshNeeded": true
+  },
+  "acceptedWriteRule": "POST returns 202 after a confirmed named setter acknowledgment. Normal responses include modelConfig; a subsequent projection failure omits it and includes modelConfigRefreshNeeded:true, schedules a snapshot refresh, and never rejects or reapplies the saved edit.",
+  "frameScopeRule": "Every model_config_changed frame includes an explicit top-level sessionId matching modelConfig.sessionId; null identifies defaults for new drafts.",
+  "relay": {
+    "reason": "Model configuration must cross the authenticated cloud relay with the exact selected conversation and catalog source; route discovery must not silently fall back to desktop defaults.",
+    "suffix": "/model-config",
+    "desktopPath": "/api/mobile/model-config",
+    "methods": [
+      "GET",
+      "POST"
+    ],
+    "sessionId": "session/手机 scope?#%",
+    "source": "codex",
+    "stripQueryParameters": [
+      "token"
+    ],
+    "duplicateScopeParameters": "preserve for desktop validation"
+  },
+  "cursorNeedsReimport": {
+    "value": "cursor",
+    "label": "Cursor",
+    "available": false,
+    "reason": "Import the current local Cursor login again on this device."
+  }
+}

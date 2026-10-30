@@ -1,0 +1,110 @@
+{
+  "version": 2,
+  "reason": "Changes preserves exact repository and recorded-turn snapshots, hydrates only their own bounded sides, and exports recorded patches with explicit file routing.",
+  "defaultSource": "branch",
+  "remoteDefaultSelection": [
+    "origin first; remaining git remote order",
+    "refs/remotes/<remote>/HEAD",
+    "git remote show <remote> HEAD branch",
+    "existing refs/remotes/<remote>/main then master",
+    "first available remote; no HEAD fallback"
+  ],
+  "gitScopes": {
+    "branch": "merge-base(HEAD, selected base) to working tree",
+    "uncommitted": "HEAD or empty tree to working tree",
+    "unstaged": "index to working tree",
+    "staged": "HEAD or empty tree to index",
+    "commit": "parent or empty tree to selected commit"
+  },
+  "lastTurnSelection": "latest available turn with recorded changes, all repositories; no live Git substitution",
+  "repositorySelectionFromLastTurn": {
+    "source": "uncommitted",
+    "baseBranch": null,
+    "commitSha": null
+  },
+  "vectors": [
+    {
+      "name": "empty record",
+      "input": {
+        "fileChanges": []
+      },
+      "expected": {
+        "turnId": null,
+        "files": []
+      }
+    },
+    {
+      "name": "reverted newest turn",
+      "input": {
+        "fileChanges": [
+          {
+            "turnId": "latest",
+            "files": [
+              {
+                "path": "/repo/a",
+                "kind": "modify",
+                "added": 0,
+                "removed": 0,
+                "turnDiff": ""
+              }
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "turnId": "latest",
+        "files": []
+      }
+    },
+    {
+      "name": "two repository paths preserve snapshots",
+      "input": {
+        "fileChanges": [
+          {
+            "turnId": "t",
+            "files": [
+              {
+                "path": "/repo-a/src/index.ts",
+                "kind": "create",
+                "added": 1,
+                "removed": 0,
+                "turnDiff": "@@ -0,0 +1,1 @@\n+new\n"
+              },
+              {
+                "path": "/repo-b/src/index.ts",
+                "kind": "modify",
+                "added": null,
+                "removed": null,
+                "turnDiff": "Binary files differ"
+              }
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "turnId": "t",
+        "files": [
+          {
+            "path": "/repo-a/src/index.ts",
+            "kind": "create",
+            "added": 1,
+            "removed": 0,
+            "turnDiff": "@@ -0,0 +1,1 @@\n+new\n"
+          },
+          {
+            "path": "/repo-b/src/index.ts",
+            "kind": "modify",
+            "added": null,
+            "removed": null,
+            "turnDiff": "Binary files differ"
+          }
+        ]
+      }
+    }
+  ],
+  "snapshotIdentity": "Resolved scope and repository-qualified path, including rename relation and exact before/after object or content identities.",
+  "fullContents": "Read resolved Git/index/working sides only when requested, retain original raw patches, and never substitute live files for historical patches.",
+  "generatedFileMetadata": "Explicit Git attributes may filter presentation; unavailable attributes never suppress coherent changes or snapshot identities.",
+  "patchTransport": "Repository patches retain canonical Git paths, fixed context and raw metadata. Recorded copy transport binds one proven file to quoted a/b paths while keeping original hunks, modes, object IDs and binary payloads; unprovable transports report patchCopyUnavailable without hiding the recorded diff.",
+  "richContents": "Verified bounded snapshot media remain available when encoded patch transport truncates. Complete recorded SVG sides may preview; unavailable historical media never reads current files."
+}

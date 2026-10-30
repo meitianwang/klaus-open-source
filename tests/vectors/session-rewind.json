@@ -1,0 +1,6 @@
+[
+  {"name":"missing anchor is a refusal","messages":[{"type":"user","uuid":"one","content":[]}],"uuid":"missing","expected":"uuid-not-found"},
+  {"name":"assistant anchors cannot truncate a turn","messages":[{"type":"assistant","uuid":"answer","content":[]}],"uuid":"answer","expected":"not-a-user-message"},
+  {"name":"meta users do not count as user turns","messages":[{"type":"user","uuid":"one","content":[{"type":"text","text":"first"}]},{"type":"user","uuid":"meta","isMeta":true,"content":[]},{"type":"user","uuid":"two","content":[]}],"uuid":"one","expected":{"numTurns":2,"text":"first","displayMetadata":null}},
+  {"name":"display text survives expanded commands","messages":[{"type":"user","uuid":"one","content":[{"type":"text","text":"expanded instructions"}]},{"type":"system","subtype":"user_display","text":"{\"messageUuid\":\"one\",\"localRender\":{\"displayText\":\"/inspect file.txt\",\"slashCommand\":{\"name\":\"inspect\"}}}"}],"uuid":"one","expected":{"numTurns":1,"text":"/inspect file.txt","displayMetadata":{"displayText":"/inspect file.txt","slashCommand":{"name":"inspect"}}}}
+]

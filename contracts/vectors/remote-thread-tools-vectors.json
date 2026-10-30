@@ -1,0 +1,73 @@
+{
+  "_why": "Same-account remote conversation tools address a pair of hostId and threadId. Local aliases must retain existing behavior while an explicit foreign host must never fall through to a same-id local conversation. Remote reads must retain the destination host in their nested thread header, and wait snapshots, cursors, failures, and wake identities must remain distinct across hosts. Receiver delivery is idempotent for one caller-provided return address and requestId within the authenticated destination account, including retries after the original caller disconnects. The return address is routing metadata, not authorization; every reply must independently resolve and authorize its destination under the replying account. These vectors pin observable routing and snapshot behavior; the companion tests connect two real ThreadToolsService instances through a bounded fake relay. Unconfirmed admission and confirmed removal preserve stable messageId through both relay ends instead of becoming generic errors that invite unsafe resends. Collection hints retain public host/thread identities, including same-id chats on different computers. Unconfirmed or removed messages do not receive a successful collection hint.",
+  "uncertainDelivery": [
+    {
+      "name": "remote uncertain admission preserves the durable input identity",
+      "state": "unconfirmed",
+      "messageId": "ed0246d2-40ee-4d2d-8e5d-16c5e3632e48"
+    },
+    {
+      "name": "remote confirmed removal is consumed without claiming applied",
+      "state": "removed",
+      "messageId": "2373d65a-b58f-4b51-aa78-fb1c61a2ae38"
+    }
+  ],
+  "readRouting": [
+    { "name": "omitted host reads the local same-id thread", "arguments": { "threadId": "same" }, "expectedHost": "local", "expectedDevice": "device-a" },
+    { "name": "explicit local reads the local same-id thread", "arguments": { "threadId": "same", "hostId": "local" }, "expectedHost": "local", "expectedDevice": "device-a" },
+    { "name": "the device id of this computer is a local alias", "arguments": { "threadId": "same", "hostId": "device-a" }, "expectedHost": "local", "expectedDevice": "device-a" },
+    { "name": "a remote read keeps the remote nested host identity", "arguments": { "threadId": "same", "hostId": "device-b" }, "expectedHost": "device-b", "expectedDevice": "device-b" }
+  ],
+  "sendRouting": [
+    { "name": "omitted host delivers locally", "arguments": { "threadId": "same", "prompt": "Inspect the result." }, "expectedDevice": "device-a" },
+    { "name": "the current device alias delivers locally", "arguments": { "threadId": "same", "hostId": "device-a", "prompt": "Inspect the result." }, "expectedDevice": "device-a" },
+    { "name": "foreign host delivers only to the remote same-id thread", "arguments": { "threadId": "same", "hostId": "device-b", "prompt": "Inspect the result." }, "expectedDevice": "device-b" }
+  ],
+  "snapshots": [
+    {
+      "name": "remote completion returns the remote address and cursor",
+      "arguments": { "targets": [{ "threadId": "same", "hostId": "device-b" }], "timeoutMs": 0 },
+      "expectedWake": { "threadId": "same", "hostId": "device-b", "reason": "turnCompleted" },
+      "expectedPolls": [{"threadId": "same", "hostId": "device-b", "cursor": "turn-b:completed", "text": "Remote finished.", "changed": true, "textTruncated": false, "readResult": {"tool": "read_thread", "arguments": {"threadId": "same", "hostId": "device-b", "turnLimit": 1, "includeOutputs": false}, "expectedTurnId": "turn-b"}}],
+      "expectedTimedOut": false
+    },
+    {
+      "name": "equal thread ids on different hosts stay distinct",
+      "arguments": { "targets": [{ "threadId": "same", "hostId": "local" }, { "threadId": "same", "hostId": "device-b" }], "timeoutMs": 0 },
+      "expectedWake": { "threadId": "same", "hostId": "device-b", "reason": "turnCompleted" },
+      "expectedPolls": [{"threadId": "same", "hostId": "local", "cursor": "turn-a:inProgress", "text": "Local working.", "changed": true, "textTruncated": false, "readResult": null}, {"threadId": "same", "hostId": "device-b", "cursor": "turn-b:completed", "text": "Remote finished.", "changed": true, "textTruncated": false, "readResult": {"tool": "read_thread", "arguments": {"threadId": "same", "hostId": "device-b", "turnLimit": 1, "includeOutputs": false}, "expectedTurnId": "turn-b"}}],
+      "expectedTimedOut": false
+    },
+    {
+      "name": "a remote cursor suppresses already delivered final text",
+      "arguments": { "targets": [{ "threadId": "same", "hostId": "device-b", "afterCursor": "turn-b:completed" }], "timeoutMs": 0 },
+      "expectedWake": null,
+      "expectedPolls": [{"threadId": "same", "hostId": "device-b", "cursor": "turn-b:completed", "text": null, "changed": false, "textTruncated": false, "readResult": null}],
+      "expectedTimedOut": true
+    },
+    {
+      "name": "a local cursor does not suppress the same-id remote completion",
+      "localCompleted": true,
+      "arguments": { "targets": [{ "threadId": "same", "hostId": "local", "afterCursor": "turn-a:completed" }, { "threadId": "same", "hostId": "device-b" }], "timeoutMs": 0 },
+      "expectedWake": { "threadId": "same", "hostId": "device-b", "reason": "turnCompleted" },
+      "expectedPolls": [{"threadId": "same", "hostId": "local", "cursor": "turn-a:completed", "text": null, "changed": false, "textTruncated": false, "readResult": null}, {"threadId": "same", "hostId": "device-b", "cursor": "turn-b:completed", "text": "Remote finished.", "changed": true, "textTruncated": false, "readResult": {"tool": "read_thread", "arguments": {"threadId": "same", "hostId": "device-b", "turnLimit": 1, "includeOutputs": false}, "expectedTurnId": "turn-b"}}],
+      "expectedTimedOut": false
+    },
+    {
+      "name": "an offline remote target does not hide local completion",
+      "offline": true,
+      "localCompleted": true,
+      "arguments": { "targets": [{ "threadId": "same", "hostId": "device-b" }, { "threadId": "same", "hostId": "local" }], "timeoutMs": 0 },
+      "expectedWake": { "threadId": "same", "hostId": "local", "reason": "turnCompleted" },
+      "expectedPolls": [{"threadId": "same", "hostId": "local", "cursor": "turn-a:completed", "text": "Local working.", "changed": true, "textTruncated": false, "readResult": {"tool": "read_thread", "arguments": {"threadId": "same", "hostId": "local", "turnLimit": 1, "includeOutputs": false}, "expectedTurnId": "turn-a"}}],
+      "expectedErrors": [{ "threadId": "same", "hostId": "device-b" }],
+      "expectedTimedOut": false
+    }
+  ],
+  "remoteCreation": [
+    { "name": "a project row on a peer creates the conversation on that peer", "host": "device-b", "path": "/remote/portal", "expectedCreatedOn": "device-b" },
+    { "name": "a tuple naming this computer creates locally without a relay hop", "host": "local", "path": "/local/portal", "expectedCreatedOn": "local" },
+    { "name": "an offline peer refuses creation instead of queueing it", "host": "device-b", "path": "/remote/portal", "offline": true, "expectedError": "offline or reconnecting" },
+    { "name": "a tuple that is not a list_projects id is refused", "host": "device-b", "path": "/not/listed", "expectedError": "Unknown projectId" }
+  ]
+}

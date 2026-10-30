@@ -1,0 +1,122 @@
+{
+  "schemaVersion": 1,
+  "reason": "Payload-limit failures remain distinct from token-window failures and retain original nested provider diagnostics, recovery outcome and forward-compatible JSON fields in live and restored history, without inventing HTTP status for stream errors. Bounded input-length refusals retain their context-overflow kind even when the provider code is a generic parameter error. Gateway 408 failures retain timeout classification and distinguish exhausted retries, disabled retries and permanent refusals.",
+  "projectionCases": [
+    {
+      "name": "gateway_timeout_retry_exhausted_retains_source_kind",
+      "error": {"code":"provider_error","message":"connection closed","kind":"timeout","requestId":"req_gateway","providerError":{"kind":"timeout","message":"connection closed","status":408,"code":"model_proxy_ultra_inner_error","type":"model_proxy_ultra_inner_error","requestId":"req_gateway"},"recoveryReason":"retries-exhausted"},
+      "expectedKind": "unknown",
+      "expectedText": "connection closed (request-id: req_gateway)",
+      "expectedDetails": {"code":"provider_error","message":"connection closed","kind":"timeout","requestId":"req_gateway","status":408,"providerCode":"model_proxy_ultra_inner_error","providerType":"model_proxy_ultra_inner_error","providerError":{"kind":"timeout","message":"connection closed","status":408,"code":"model_proxy_ultra_inner_error","type":"model_proxy_ultra_inner_error","requestId":"req_gateway"},"recoveryReason":"retries-exhausted"}
+    },
+    {
+      "name": "gateway_timeout_retry_disabled_retains_source_kind",
+      "error": {"code":"provider_error","message":"connection unknown error","kind":"timeout","requestId":"req_disabled","providerError":{"kind":"timeout","message":"connection unknown error","status":408,"code":"model_proxy_ultra_inner_error","type":"model_proxy_ultra_inner_error","requestId":"req_disabled"},"recoveryReason":"retries-disabled"},
+      "expectedKind": "unknown",
+      "expectedText": "connection unknown error (request-id: req_disabled)",
+      "expectedDetails": {"code":"provider_error","message":"connection unknown error","kind":"timeout","requestId":"req_disabled","status":408,"providerCode":"model_proxy_ultra_inner_error","providerType":"model_proxy_ultra_inner_error","providerError":{"kind":"timeout","message":"connection unknown error","status":408,"code":"model_proxy_ultra_inner_error","type":"model_proxy_ultra_inner_error","requestId":"req_disabled"},"recoveryReason":"retries-disabled"}
+    },
+    {
+      "name": "canonical_nested_permanent_refusal_not_retried",
+      "error": {"code":"provider_error","message":"Fixture refusal","kind":"invalid_request","requestId":"req_permanent","providerError":{"kind":"invalid_request","message":"Fixture refusal","status":400,"code":"invalid_request_error","type":"invalid_request_error","requestId":"req_permanent"},"recoveryReason":"not-retryable"},
+      "expectedKind": "invalid_request",
+      "expectedText": "Fixture refusal (request-id: req_permanent)",
+      "expectedDetails": {"code":"provider_error","message":"Fixture refusal","kind":"invalid_request","requestId":"req_permanent","status":400,"providerCode":"invalid_request_error","providerType":"invalid_request_error","providerError":{"kind":"invalid_request","message":"Fixture refusal","status":400,"code":"invalid_request_error","type":"invalid_request_error","requestId":"req_permanent"},"recoveryReason":"not-retryable"}
+    },
+    {
+      "name": "payload_refusal_retains_original_provider_diagnostics",
+      "error": {"code":"provider_error","kind":"request_too_large","message":"Request body exceeds the allowed limit","status":413,"requestId":"req_payload","providerType":"request_too_large","providerCode":"BODY_LIMIT"},
+      "expectedKind": "request_too_large",
+      "expectedText": "Request body exceeds the allowed limit (request-id: req_payload)",
+      "expectedDetails": {"code":"provider_error","kind":"request_too_large","message":"Request body exceeds the allowed limit","status":413,"requestId":"req_payload","providerType":"request_too_large","providerCode":"BODY_LIMIT"}
+    },
+    {
+      "name": "stream_payload_refusal_does_not_invent_http_status",
+      "error": {"code":"provider_error","kind":"request_too_large","message":"Stream request was too large","requestId":"req_stream"},
+      "expectedKind": "request_too_large",
+      "expectedText": "Stream request was too large (request-id: req_stream)",
+      "expectedDetails": {"code":"provider_error","kind":"request_too_large","message":"Stream request was too large","requestId":"req_stream"}
+    },
+    {
+      "name": "explicit_context_refusal_remains_a_token_window_failure",
+      "error": {"code":"provider_error","kind":"prompt_too_long","message":"Input exceeds the model context window","status":413,"requestId":"req_context"},
+      "expectedKind": "prompt_too_long",
+      "expectedText": "Input exceeds the model context window (request-id: req_context)",
+      "expectedDetails": {"code":"provider_error","kind":"prompt_too_long","message":"Input exceeds the model context window","status":413,"requestId":"req_context"}
+    },
+    {
+      "name": "bounded_input_range_retains_context_kind_and_parameter_diagnostics",
+      "error": {"code":"provider_error","kind":"prompt_too_long","message":"Range of input length should be [1, 983616]","providerError":{"kind":"prompt_too_long","message":"Range of input length should be [1, 983616]","status":400,"code":"invalid_parameter_error","type":"invalid_request_error","requestId":"req_input_range"}},
+      "expectedKind": "prompt_too_long",
+      "expectedText": "Range of input length should be [1, 983616] (request-id: req_input_range)",
+      "expectedDetails": {"code":"provider_error","kind":"prompt_too_long","message":"Range of input length should be [1, 983616]","status":400,"providerCode":"invalid_parameter_error","providerType":"invalid_request_error","requestId":"req_input_range","providerError":{"kind":"prompt_too_long","message":"Range of input length should be [1, 983616]","status":400,"code":"invalid_parameter_error","type":"invalid_request_error","requestId":"req_input_range"}}
+    },
+    {
+      "name": "legacy_payload_status_without_kind_is_not_a_context_failure",
+      "error": {"code":"provider_error","message":"Request body exceeds the allowed limit","status":413},
+      "expectedKind": "request_too_large",
+      "expectedText": "Request body exceeds the allowed limit",
+      "expectedDetails": {"code":"provider_error","kind":"request_too_large","message":"Request body exceeds the allowed limit","status":413}
+    },
+    {
+      "name": "canonical_nested_http_payload",
+      "error": {"code":"provider_error","message":"Terminal payload rejection","kind":"request_too_large","requestId":"req_nested_http","retryAfterMs":1250,"providerError":{"kind":"request_too_large","message":"HTTP 413: Request body exceeds 16 MiB","status":413,"code":"BODY_LIMIT","type":"request_too_large","requestId":"req_nested_http","retryAfterMs":1250,"providerHint":{"origin":"provider","attempt":2}},"recoveryReason":"request-payload-not-retried","diagnosticExtension":{"version":2}},
+      "expectedKind": "request_too_large",
+      "expectedText": "Terminal payload rejection (request-id: req_nested_http)",
+      "expectedDetails": {"code":"provider_error","message":"Terminal payload rejection","kind":"request_too_large","requestId":"req_nested_http","retryAfterMs":1250,"status":413,"providerCode":"BODY_LIMIT","providerType":"request_too_large","providerError":{"kind":"request_too_large","message":"HTTP 413: Request body exceeds 16 MiB","status":413,"code":"BODY_LIMIT","type":"request_too_large","requestId":"req_nested_http","retryAfterMs":1250,"providerHint":{"origin":"provider","attempt":2}},"recoveryReason":"request-payload-not-retried","diagnosticExtension":{"version":2}}
+    },
+    {
+      "name": "canonical_nested_statusless_stream",
+      "error": {"code":"provider_error","message":"Terminal stream rejection","kind":"request_too_large","requestId":"req_nested_sse","providerError":{"kind":"request_too_large","message":"Stream payload exceeds the allowed limit","code":"BODY_LIMIT","type":"request_too_large","requestId":"req_nested_sse"},"recoveryReason":"request-payload-not-retried"},
+      "expectedKind": "request_too_large",
+      "expectedText": "Terminal stream rejection (request-id: req_nested_sse)",
+      "expectedDetails": {"code":"provider_error","message":"Terminal stream rejection","kind":"request_too_large","requestId":"req_nested_sse","providerCode":"BODY_LIMIT","providerType":"request_too_large","providerError":{"kind":"request_too_large","message":"Stream payload exceeds the allowed limit","code":"BODY_LIMIT","type":"request_too_large","requestId":"req_nested_sse"},"recoveryReason":"request-payload-not-retried"}
+    },
+    {
+      "name": "canonical_nested_context_recovery",
+      "error": {"code":"prompt_too_long","message":"Context recovery exhausted","kind":"prompt_too_long","requestId":"req_nested_context","providerError":{"kind":"prompt_too_long","message":"Input length exceeds the model context window","status":400,"code":"context_length_exceeded","type":"invalid_request_error","requestId":"req_nested_context"},"recoveryReason":"reactive-compaction-exhausted"},
+      "expectedKind": "prompt_too_long",
+      "expectedText": "Context recovery exhausted (request-id: req_nested_context)",
+      "expectedDetails": {"code":"prompt_too_long","message":"Context recovery exhausted","kind":"prompt_too_long","requestId":"req_nested_context","status":400,"providerCode":"context_length_exceeded","providerType":"invalid_request_error","providerError":{"kind":"prompt_too_long","message":"Input length exceeds the model context window","status":400,"code":"context_length_exceeded","type":"invalid_request_error","requestId":"req_nested_context"},"recoveryReason":"reactive-compaction-exhausted"}
+    },
+    {
+      "name": "nested_kind_fallback_preserves_unrecognized_root_kind",
+      "error": {"code":"provider_error","message":"Terminal payload rejection","kind":"future_failure","providerError":{"kind":"request_too_large","message":"Original provider refusal","code":"BODY_LIMIT","type":"request_too_large","requestId":"req_nested_fallback"}},
+      "expectedKind": "request_too_large",
+      "expectedText": "Terminal payload rejection (request-id: req_nested_fallback)",
+      "expectedDetails": {"code":"provider_error","message":"Terminal payload rejection","kind":"future_failure","providerCode":"BODY_LIMIT","providerType":"request_too_large","requestId":"req_nested_fallback","providerError":{"kind":"request_too_large","message":"Original provider refusal","code":"BODY_LIMIT","type":"request_too_large","requestId":"req_nested_fallback"}}
+    }
+  ],
+  "historyCases": [
+    {
+      "name": "restored_diagnostics_retain_request_identity",
+      "input": {"history":[],"turnErrors":{"turn-payload":"Request body exceeds the allowed limit"},"turnErrorKinds":{"turn-payload":"request_too_large"},"turnErrorDetails":{"turn-payload":{"message":"Request body exceeds the allowed limit","kind":"request_too_large","status":413,"requestId":"req_payload"}}},
+      "expectedText": "Request body exceeds the allowed limit (request-id: req_payload)",
+      "expectedKind": "request_too_large"
+    },
+    {
+      "name": "restored_request_identity_is_not_duplicated",
+      "input": {"history":[],"turnErrors":{"turn-payload":"Request body exceeds the allowed limit (request-id: req_payload)"},"turnErrorKinds":{"turn-payload":"unknown"},"turnErrorDetails":{"turn-payload":{"message":"Request body exceeds the allowed limit","kind":"request_too_large","status":413,"requestId":"req_payload"}}},
+      "expectedText": "Request body exceeds the allowed limit (request-id: req_payload)",
+      "expectedKind": "request_too_large"
+    },
+    {
+      "name": "canonical_nested_http_payload_restored",
+      "input": {"history":[],"turnErrors":{"turn-payload":"Terminal payload rejection"},"turnErrorKinds":{"turn-payload":"unknown"},"turnErrorDetails":{"turn-payload":{"code":"provider_error","message":"Terminal payload rejection","kind":"request_too_large","requestId":"req_nested_http","providerError":{"kind":"request_too_large","message":"HTTP 413: Request body exceeds 16 MiB","status":413,"code":"BODY_LIMIT","type":"request_too_large","requestId":"req_nested_http","providerHint":{"origin":"provider","attempt":2}},"recoveryReason":"request-payload-not-retried","diagnosticExtension":{"version":2}}}},
+      "expectedText": "Terminal payload rejection (request-id: req_nested_http)",
+      "expectedKind": "request_too_large"
+    },
+    {
+      "name": "canonical_nested_statusless_stream_restored",
+      "input": {"history":[],"turnErrors":{"turn-payload":"Terminal stream rejection"},"turnErrorKinds":{"turn-payload":"unknown"},"turnErrorDetails":{"turn-payload":{"code":"provider_error","message":"Terminal stream rejection","kind":"request_too_large","providerError":{"kind":"request_too_large","message":"Stream payload exceeds the allowed limit","code":"BODY_LIMIT","type":"request_too_large","requestId":"req_nested_sse"},"recoveryReason":"request-payload-not-retried"}}},
+      "expectedText": "Terminal stream rejection (request-id: req_nested_sse)",
+      "expectedKind": "request_too_large"
+    },
+    {
+      "name": "canonical_nested_context_recovery_restored",
+      "input": {"history":[],"turnErrors":{"turn-payload":"Context recovery exhausted"},"turnErrorKinds":{"turn-payload":"unknown"},"turnErrorDetails":{"turn-payload":{"code":"prompt_too_long","message":"Context recovery exhausted","kind":"prompt_too_long","requestId":"req_nested_context","providerError":{"kind":"prompt_too_long","message":"Input length exceeds the model context window","status":400,"code":"context_length_exceeded","type":"invalid_request_error","requestId":"req_nested_context"},"recoveryReason":"reactive-compaction-exhausted"}}},
+      "expectedText": "Context recovery exhausted (request-id: req_nested_context)",
+      "expectedKind": "prompt_too_long"
+    }
+  ]
+}

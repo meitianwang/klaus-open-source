@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'self' 'unsafe-inline'">
+  <title>Klaus Quick Input</title>
+  <style>
+    /* 独立小窗：自包含样式，不加载主渲染层的大 CSS。跟随系统深浅色。 */
+    :root {
+      --qi-bg: rgba(255, 255, 255, 0.96);
+      --qi-fg: #1a1c1f;
+      --qi-fg-dim: rgba(26, 28, 31, 0.45);
+      --qi-border: rgba(26, 28, 31, 0.12);
+      --qi-shadow: 0 12px 40px rgba(0, 0, 0, 0.22);
+      --qi-accent: #1a1c1f;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --qi-bg: rgba(32, 33, 36, 0.96);
+        --qi-fg: #f2f2f2;
+        --qi-fg-dim: rgba(242, 242, 242, 0.45);
+        --qi-border: rgba(255, 255, 255, 0.12);
+        --qi-shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
+        --qi-accent: #ffffff;
+      }
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { background: transparent; height: 100%; overflow: hidden; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      display: flex;
+      align-items: stretch;
+      padding: 8px;
+    }
+    .qi-card {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      background: var(--qi-bg);
+      border: 1px solid var(--qi-border);
+      border-radius: 12px;
+      box-shadow: var(--qi-shadow);
+      padding: 12px 16px 8px;
+      -webkit-app-region: drag; /* 整卡可拖动；输入行内再取消 */
+    }
+    .qi-row { display: flex; align-items: center; gap: 10px; -webkit-app-region: no-drag; }
+    .qi-logo { width: 18px; height: 18px; flex: none; opacity: 0.85; }
+    .qi-logo svg { width: 100%; height: 100%; fill: var(--qi-accent); }
+    /* 语音输入按钮：idle 麦克风 / recording 红色脉冲 / transcribing 旋转。 */
+    #qi-mic {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 26px;
+      height: 26px;
+      flex: none;
+      border: none;
+      border-radius: 6px;
+      background: transparent;
+      color: var(--qi-fg-dim);
+      cursor: pointer;
+    }
+    #qi-mic:hover:not(:disabled) { color: var(--qi-fg); }
+    #qi-mic svg { width: 15px; height: 15px; display: none; }
+    #qi-mic[data-voice-state="idle"] .qi-mic-icon { display: block; }
+    #qi-mic[data-voice-state="recording"] .qi-stop-icon { display: block; }
+    #qi-mic:is([data-voice-state="starting"], [data-voice-state="transcribing"]) .qi-busy-icon { display: block; animation: qi-spin 0.9s linear infinite; }
+    #qi-mic[data-voice-state="recording"] {
+      color: #e02e2a;
+      animation: qi-pulse 1.4s ease-in-out infinite;
+    }
+    @keyframes qi-pulse {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(224, 46, 42, 0.35); }
+      50% { box-shadow: 0 0 0 5px rgba(224, 46, 42, 0); }
+    }
+    @keyframes qi-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+    #qi-input {
+      flex: 1;
+      border: none;
+      outline: none;
+      background: transparent;
+      color: var(--qi-fg);
+      font-size: 15px;
+      line-height: 24px;
+      caret-color: var(--qi-accent);
+    }
+    #qi-input::placeholder { color: var(--qi-fg-dim); }
+    #qi-live-text { color: var(--qi-fg-dim); font-size: 12px; line-height: 1.4; max-height: 42px; overflow: auto; white-space: pre-wrap; -webkit-app-region: no-drag; }
+    #qi-live-text[hidden] { display: none; }
+    .qi-hint {
+      display: flex;
+      justify-content: flex-end;
+      gap: 12px;
+      font-size: 11px;
+      color: var(--qi-fg-dim);
+      -webkit-app-region: no-drag;
+      user-select: none;
+    }
+    .qi-hint kbd {
+      font-family: inherit;
+      font-size: 10px;
+      border: 1px solid var(--qi-border);
+      border-radius: 4px;
+      padding: 0 4px;
+      margin-right: 2px;
+    }
+  </style>
+</head>
+<body>
+  <div class="qi-card">
+    <div class="qi-row">
+      <span class="qi-logo" aria-hidden="true">
+        <svg viewBox="0 0 256 256" fill="currentColor"><path d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm0,192a88,88,0,1,1,88-88A88.1,88.1,0,0,1,128,216Zm16-40a8,8,0,0,1-8,8,16,16,0,0,1-16-16V128a8,8,0,0,1,0-16,16,16,0,0,1,16,16v40A8,8,0,0,1,144,176ZM112,84a12,12,0,1,1,12,12A12,12,0,0,1,112,84Z"/></svg>
+      </span>
+      <input id="qi-input" type="text" autocomplete="off" spellcheck="false" placeholder="Ask Klaus anything…">
+      <!-- 语音输入：点击录音/停止，转写后填入输入框。 -->
+      <button id="qi-mic" type="button" data-voice-state="idle" aria-label="Voice input">
+        <svg class="qi-mic-icon" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M128,176a48.05,48.05,0,0,0,48-48V64a48,48,0,0,0-96,0v64A48.05,48.05,0,0,0,128,176ZM96,64a32,32,0,0,1,64,0v64a32,32,0,0,1-64,0Zm40,143.6V240a8,8,0,0,1-16,0V207.6A80.11,80.11,0,0,1,48,128a8,8,0,0,1,16,0,64,64,0,0,0,128,0,8,8,0,0,1,16,0A80.11,80.11,0,0,1,136,207.6Z"/></svg>
+        <svg class="qi-stop-icon" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M216,56V200a16,16,0,0,1-16,16H56a16,16,0,0,1-16-16V56A16,16,0,0,1,56,40H200A16,16,0,0,1,216,56Z"/></svg>
+        <svg class="qi-busy-icon" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M232,128a104,104,0,0,1-208,0c0-41,23.81-78.36,60.66-95.27a8,8,0,0,1,6.68,14.54C60.15,61.59,40,93.27,40,128a88,88,0,0,0,176,0c0-34.73-20.15-66.41-51.34-80.73a8,8,0,0,1,6.68-14.54C208.19,49.64,232,87,232,128Z"/></svg>
+      </button>
+    </div>
+    <div id="qi-live-text" role="status" hidden></div>
+    <div class="qi-hint">
+      <span><kbd>Enter</kbd><span id="qi-hint-send">Send</span></span>
+      <span><kbd>Esc</kbd><span id="qi-hint-close">Close</span></span>
+    </div>
+  </div>
+  <!-- 页面逻辑（原内联 script）已迁 src/quick-input-main.ts，由构建插件与
+       bridge api 一起打包内联（CSP unsafe-inline 约束，见 vite.config.ts）。 -->
+</body>
+</html>

@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "editions": {
+    "domestic": {
+      "id": "domestic",
+      "application": "ai.klaus.desktop",
+      "helperApplication": "ai.klaus.desktop.helper",
+      "productName": "Klaus",
+      "executableName": "Klaus",
+      "artifactPrefix": "Klaus",
+      "protocol": "klaus",
+      "configDirectory": ".klaus",
+      "serverUrl": "https://klaus-ai.cn",
+      "supportEmail": "support@klaus-ai.cn",
+      "defaultLanguage": null,
+      "mobilePort": 27189,
+      "nsisGuid": "3e8bf0c1-fe6e-4fa0-8902-90e1048edb7b",
+      "keychainService": "agent-engine",
+      "legacyIdentity": true,
+      "chromeDiscoveryName": "klaus-browser-use"
+    },
+    "international": {
+      "id": "international",
+      "application": "ai.klaus.desktop.international",
+      "helperApplication": "ai.klaus.desktop.international.helper",
+      "productName": "Klaus International",
+      "executableName": "Klaus International",
+      "artifactPrefix": "Klaus-International",
+      "protocol": "klaus-international",
+      "configDirectory": ".klaus-international",
+      "serverUrl": "https://klaus-ai.site",
+      "supportEmail": "support@klaus-ai.cn",
+      "defaultLanguage": "en",
+      "mobilePort": 27190,
+      "nsisGuid": "412ebde1-73f6-5ae1-9152-7883fa45bb33",
+      "keychainService": "agent-engine-international",
+      "legacyIdentity": false,
+      "chromeDiscoveryName": "klaus-browser-use-international"
+    }
+  }
+}

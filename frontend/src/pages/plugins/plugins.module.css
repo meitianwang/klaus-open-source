@@ -1,0 +1,50 @@
+/* Plugin operation feedback belongs to its item, in both list and detail views. */
+.pl-version { color: var(--fg-tertiary); font-size: var(--text-small); white-space: nowrap; }
+.pl-market-note { margin: 16px 0; padding: 12px 14px; border-radius: var(--radius-md); background: var(--bg-hover); color: var(--fg-secondary); font-size: var(--text-small); }
+.pl-market-note p { margin: 0 0 8px; }
+.pl-update-toolbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin: 12px 0 20px; color: var(--fg-tertiary); font-size: var(--text-small); }
+.pl-update-toolbar > span { display: inline-flex; align-items: center; gap: 8px; }
+.pl-batch-status { margin: 0 0 16px; font-size: var(--text-small); color: var(--fg-secondary); }
+.pl-card-wrap { min-width: 0; display: flex; flex-direction: column; }
+.pl-card-wrap > :global(.kls-market-card) { flex: 1; }
+.pl-card-wrap :global(.kls-market-controls) { flex-wrap: wrap; justify-content: flex-end; }
+.pl-row-wrap { min-width: 0; }
+.pl-note-error { border: 1px solid color-mix(in srgb, var(--danger) 22%, transparent); }
+.pl-error-details { flex-basis: 100%; min-width: 0; font-size: var(--text-caption); color: var(--fg-tertiary); }
+.pl-error-details summary { cursor: pointer; }
+.pl-error-details p { white-space: pre-wrap; overflow-wrap: anywhere; margin: 8px 0 0; }
+.pl-spinner { display: inline-block; width: 12px; height: 12px; flex-shrink: 0; border: 1.5px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: plugin-spin .8s linear infinite; vertical-align: -2px; margin-right: 6px; }
+@keyframes plugin-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .pl-spinner { animation: none; } }
+.pl-detail { max-width: 920px; margin: 0 auto; padding: 8px 0 36px; }
+.pl-detail-nav { display: flex; align-items: center; gap: 12px; margin-bottom: 36px; color: var(--fg-tertiary); font-size: var(--text-small); }
+.pl-detail-heading { display: flex; gap: 18px; align-items: flex-start; flex-wrap: wrap; }
+.pl-detail-logo { width: 64px; height: 64px; display: grid; place-items: center; border-radius: var(--radius-lg); background: var(--bg-hover); flex-shrink: 0; overflow: hidden; }
+.pl-detail-logo img { max-width: 48px; max-height: 48px; object-fit: contain; }
+.pl-detail-title { flex: 1; min-width: 140px; }
+.pl-detail-title h2 { margin: 0 0 8px; font-size: var(--text-hero); font-weight: var(--weight-semibold); color: var(--fg); }
+.pl-detail-title > p { margin: 8px 0 0; color: var(--fg-tertiary); font-size: var(--text-small); }
+.pl-detail-badges { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.pl-detail-actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.pl-detail-description { margin: 28px 0; line-height: var(--leading-prose); color: var(--fg-secondary); }
+.pl-detail-enable { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 16px 0; margin: 20px 0; border-bottom: 1px solid var(--border); }
+.pl-detail-enable p { color: var(--fg-tertiary); font-size: var(--text-small); margin: 6px 0 0; }
+.pl-detail-meta { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 12px 28px; margin: 24px 0; font-size: var(--text-small); }
+.pl-detail-meta dt { color: var(--fg-tertiary); }
+.pl-detail-meta dd { margin: 0; color: var(--fg-secondary); overflow-wrap: anywhere; }
+.pl-detail-section { margin-top: 32px; }
+.pl-detail-section h3 { display: flex; gap: 10px; align-items: center; font-size: var(--text-emphasis); margin: 0 0 16px; }
+.pl-detail-section ul { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--border); }
+.pl-detail-section li { padding: 14px 0; border-bottom: 1px solid var(--border); overflow-wrap: anywhere; color: var(--fg-secondary); }
+.pl-detail-footer { display: flex; justify-content: flex-end; padding-top: 28px; margin-top: 32px; border-top: 1px solid var(--border); }
+.pl-nav-count { margin-left: auto; min-width: 18px; padding: 1px 5px; border-radius: var(--radius-xs); background: var(--bg-hover); color: var(--fg-secondary); font-size: var(--text-caption); text-align: center; }
+.pl-nav-count[hidden] { display: none; }
+@media (max-width: 700px) {
+  .pl-detail-actions { flex-basis: 100%; }
+  .pl-detail-nav { margin-bottom: 24px; }
+  .pl-detail-meta { gap: 10px 16px; }
+  .pl-card-wrap :global(.kls-market-body) { flex-wrap: wrap; }
+  .pl-card-wrap :global(.kls-market-controls) { margin-left: auto; }
+  .pl-row-wrap :global(.mcp-entry-main) { flex-wrap: wrap; }
+  .pl-row-wrap :global(.mcp-entry-controls) { margin-left: auto; }
+}

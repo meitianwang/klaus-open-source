@@ -1,0 +1,35 @@
+[
+  {
+    "user": {"shared":{"command":"user"},"off":{"command":"off","enabled":false},"bad":{"url":"https://example.invalid"}},
+    "project": {"shared":{"command":"project","args":["arg",7],"env":{"KEEP":"value","DROP":2},"disabledTools":["write","",false]},"project":{"type":"sse","url":"https://example.invalid/project","oauth":{},"alwaysLoad":true}},
+    "local": {"shared":{"type":"http","url":"https://example.invalid/local","headers":{"Authorization":"fixture"}},"unsupported":{"type":"websocket","url":"wss://example.invalid"}},
+    "expected": {"servers":[{"name":"shared","transport":"http","url":"https://example.invalid/local","headers":{"Authorization":"fixture"}},{"name":"project","transport":"sse","url":"https://example.invalid/project","oauth":{},"alwaysLoad":true}],"skipped":[{"name":"off","reason":"disabled","scope":"user"},{"name":"bad","reason":"unsupported-transport:stdio","scope":"user"},{"name":"unsupported","reason":"unsupported-transport:websocket","scope":"local"}]}
+  },
+  {
+    "user": {"stdio":{"type":"stdio","command":"node","args":["server.js",4],"env":{"TEXT":"literal","NON_STRING":false},"disabledTools":["write","",1],"alwaysLoad":true}},
+    "project": {},
+    "local": {},
+    "expected": {"servers":[{"name":"stdio","transport":"stdio","command":"node","args":["server.js"],"env":{"TEXT":"literal"},"alwaysLoad":true,"disabledTools":["write"]}],"skipped":[]}
+  },
+  {
+    "reason": "A selected disabled project override suppresses its lower user definition.",
+    "user": {"shared":{"command":"must-not-start"}},
+    "project": {"shared":{"command":"off","enabled":false}},
+    "local": {},
+    "expected": {"servers":[],"skipped":[{"name":"shared","scope":"project","reason":"disabled"}]}
+  },
+  {
+    "reason": "An invalid selected local override is reported instead of activating a lower server.",
+    "user": {"shared":{"command":"must-not-start"}},
+    "project": {"shared":{"command":"also-must-not-start"}},
+    "local": {"shared":{"url":"https://example.invalid/no-transport"}},
+    "expected": {"servers":[],"skipped":[{"name":"shared","scope":"local","reason":"unsupported-transport:stdio"}]}
+  },
+  {
+    "reason": "A valid higher declaration replaces the lower off row without a duplicate skipped status.",
+    "user": {"shared":{"command":"off","enabled":false}},
+    "project": {"shared":{"type":"unknown"}},
+    "local": {"shared":{"command":"selected"}},
+    "expected": {"servers":[{"name":"shared","transport":"stdio","command":"selected"}],"skipped":[]}
+  }
+]

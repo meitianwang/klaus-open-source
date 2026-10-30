@@ -1,0 +1,16 @@
+[
+  { "check": "inlineWheelScrollsTranscript", "reason": "A page without remaining vertical scroll must pass the wheel to its transcript even when page overscroll chaining is disabled." },
+  { "check": "upwardWheelReleasesFollowing", "reason": "Upward wheel input inside a frame must release the transcript's automatic following." },
+  { "check": "followWriteKeepsReadingPosition", "reason": "Subsequent content updates must preserve the position chosen by an upward gesture." },
+  { "check": "downwardWheelScrollsTranscript", "reason": "Boundary wheel forwarding must work in both directions." },
+  { "check": "nativeChainingDoesNotDoubleScroll", "reason": "Forwarding cancels the original default action so native cross-frame chaining cannot apply the same delta twice." },
+  { "check": "nestedPanelKeepsItsScroll", "reason": "A scrollable page control consumes input while it has room in the requested direction." },
+  { "check": "nestedBoundaryReturnsToTranscript", "reason": "A nested control at its upper edge must allow the reader to continue upward into the conversation." },
+  { "check": "horizontalPanelKeepsHorizontalGestures", "reason": "Predominantly horizontal trackpad gestures remain inside a horizontal page control." },
+  { "check": "diagonalUpwardWheelEscapesHorizontalPanel", "reason": "Small horizontal trackpad drift must not trap an upward reading gesture at a vertical boundary." },
+  { "check": "cappedPageKeepsItsScroll", "reason": "A page taller than the frame height cap retains its own scrolling." },
+  { "check": "cappedBoundaryReturnsToTranscript", "reason": "A height-capped page at its upper edge forwards upward input to its transcript." },
+  { "check": "expandedPageDoesNotScrollBackground", "reason": "A wide preview scrolls its own page while the conversation stays in place." },
+  { "check": "expandedBoundaryDoesNotScrollBackground", "reason": "The wide preview must keep background scrolling blocked at its own page boundary." },
+  { "check": "collapseRestoresTranscriptScrolling", "reason": "Closing the preview restores ordinary inline wheel forwarding on the same frame." }
+]

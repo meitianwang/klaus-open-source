@@ -1,0 +1,58 @@
+.voice-chat-composer-controls { display: contents; }
+#input-wrapper:is([data-voice-chat="active-empty"], [data-voice-chat="active-draft"]):has(#ctx-usage-chip[hidden]) .voice-chat-composer-controls > [data-voice-chat-action="speaker"] { margin-left: auto; }
+#side-input-wrapper:is([data-voice-chat="active-empty"], [data-voice-chat="active-draft"]) .voice-chat-composer-controls > [data-voice-chat-action="speaker"] { margin-left: auto; }
+/* Same 30px circular footprint as the send button so the right-hand cluster
+   reads as one control family; the primary (filled) variant also inherits the
+   send button's glyph-to-disc ratio below. */
+.voice-chat-control { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 30px; width: 30px; height: 30px; padding: 0; border: 1px solid transparent; border-radius: 50%; color: var(--fg, #1a1c1f); background: transparent; cursor: pointer; }
+.voice-chat-control:hover:not(:disabled) { background: var(--bg-hover, #ececec); }
+.voice-chat-control:focus-visible { outline: 2px solid var(--accent, #3874fa); outline-offset: 3px; }
+.voice-chat-control:disabled { opacity: .45; cursor: default; }
+.voice-chat-glyph { display: flex; align-items: center; justify-content: center; }
+.voice-chat-glyph svg { display: block; fill: currentColor; width: 20px; height: 20px; }
+.voice-chat-glyph-speaker svg, .voice-chat-glyph-speakerMuted svg { width: 14px; height: 14px; }
+/* Filled composer buttons (voice start / call end) share the send button's
+   anatomy: a 30px hit target whose painted disc is the 16px content box and a
+   10px glyph, so both icons read at the same size in the row. Scoped to the
+   composer so the floating call window keeps its own scale. */
+:is(#input-wrapper, #side-input-wrapper) .voice-chat-primary { padding: 7px; border-width: 0; background-clip: content-box; }
+:is(#input-wrapper, #side-input-wrapper) .voice-chat-primary .voice-chat-glyph svg { width: 10px; height: 10px; }
+.voice-chat-primary { color: var(--bg, #fff); background: var(--fg, #1a1c1f); }
+.voice-chat-primary:hover:not(:disabled) { background: var(--fg-secondary, #555); }
+.voice-chat-microphone-muted { background: #e02e2a; color: #fff; }
+.voice-chat-microphone-muted:hover:not(:disabled) { background: #c82724; }
+.voice-chat-output-muted { background: var(--bg-hover, #eee); border-color: var(--border, #d8d8d8); }
+#input-wrapper[data-voice-chat="launch"] #send,
+#input-wrapper[data-voice-chat="active-empty"] #send,
+#input-wrapper:is([data-voice-chat="active-empty"], [data-voice-chat="active-draft"]) #voice-input-btn,
+#side-input-wrapper[data-voice-chat="launch"] #side-send,
+#side-input-wrapper[data-voice-chat="active-empty"] #side-send,
+#side-input-wrapper:is([data-voice-chat="active-empty"], [data-voice-chat="active-draft"]) #side-voice-input-btn { display: none !important; }
+.voice-chat-stage { position: absolute; inset-inline: 0; bottom: 0; z-index: 20; width: 100%; max-width: 900px; height: 208px; margin-inline: auto; padding-inline: 48px; pointer-events: none; }
+.voice-chat-stage-content { position: absolute; inset-inline: 48px; top: 0; display: flex; flex-direction: column; align-items: center; gap: 4px; transform: translateY(-28px); }
+.voice-chat-orb { display: block; width: 112px; height: 112px; }
+.voice-chat-orb-space { display: block; width: 112px; height: 112px; }
+.voice-chat-orb-presentation { position: absolute; left: var(--voice-chat-orb-x, 50%); top: var(--voice-chat-orb-y, calc(100% - 236px)); width: 112px; height: 112px; z-index: 31; pointer-events: none; transform: translateX(-50%); }
+.voice-chat-orb-handoff { animation: voice-chat-orb-flight 1125ms cubic-bezier(.2, .9, .3, 1) both; }
+.voice-chat-orb[hidden] { display: none; }
+.voice-chat-task-status { max-width: 100%; color: var(--fg-secondary, #666); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.voice-chat-inline-error { color: var(--danger, #d5312d); font-size: 12px; }
+.voice-chat-launch { position: absolute; inset: 0 0 var(--voice-chat-composer-height, 140px); z-index: 30; background: var(--bg, #fff); display: flex; flex-direction: column; align-items: center; justify-content: center; }
+.voice-chat-launch-dot { width: 50px; height: 50px; border-radius: 50%; background: var(--fg, #1a1c1f); animation: voice-chat-pulse .7s ease-in-out infinite; }
+.voice-chat-launch-connected { animation: voice-chat-handoff 1125ms ease-in-out both; pointer-events: none; }
+.voice-chat-launch-connected .voice-chat-launch-dot { animation: voice-chat-reveal 1125ms ease-in-out both; }
+.voice-chat-failure { gap: 12px; text-align: center; padding: 24px; }
+.voice-chat-failure h2 { margin: 0; font-size: 20px; font-weight: 600; }
+.voice-chat-failure p { margin: 0; color: var(--fg-secondary, #666); font-size: 14px; }
+.voice-chat-failure .voice-chat-failure-detail { max-width: 420px; font-size: 12px; }
+.voice-chat-error-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px; margin-top: 8px; }
+.voice-chat-error-actions button { background: transparent; color: var(--fg, #1a1c1f); border: 0; border-radius: 999px; padding: 8px 16px; cursor: pointer; font: inherit; font-size: 13px; }
+.voice-chat-error-actions .voice-chat-retry { background: var(--fg, #1a1c1f); color: var(--bg, #fff); }
+.voice-chat-spin { animation: voice-chat-spin 1s linear infinite; }
+.voice-chat-accessible-transcript { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+@keyframes voice-chat-spin { to { transform: rotate(360deg); } }
+@keyframes voice-chat-pulse { 50% { transform: scale(1.04); } }
+@keyframes voice-chat-handoff { 0%, 45% { opacity: 1; } 100% { opacity: 0; } }
+@keyframes voice-chat-reveal { 0% { transform: scale(1); } 70%, 100% { transform: scale(1.52); background: #548ff2; } }
+@keyframes voice-chat-orb-flight { from { transform: translate(calc(-50% + var(--voice-chat-flight-x, 0px)), var(--voice-chat-flight-y, 0px)) scale(.75); } to { transform: translate(-50%, 0) scale(1); } }
+@media (prefers-reduced-motion: reduce) { .voice-chat-launch-dot, .voice-chat-launch-connected, .voice-chat-launch-connected .voice-chat-launch-dot, .voice-chat-spin, .voice-chat-orb-handoff { animation: none; } }

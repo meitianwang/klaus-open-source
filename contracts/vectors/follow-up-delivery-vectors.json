@@ -1,0 +1,145 @@
+{
+  "reason": "Active input uses its captured live binding and bypasses lifecycle mutations such as title persistence; a closing, retired or changed binding is refused before issuance. A turn/submit mode=steer ACK confirms admission, not application. expectedTurnId binds the steer to its intended running turn and queueMessageId gives the input its durable UUID. Actual correlated rejection alone is failed. Confirmation timeout, malformed receipt and binding retirement are unconfirmed, never permanent api_error. The bounded connection listener stays alive after timeout so late applied replaces uncertainty. Interrupted/failed turns reconcile exact UUIDs against authoritative queue snapshots: still-pending input is pending, preserved for explicit session/resumeQueued. A stopped turn never resumes automatically. Engine pending rows remain visible after restart without exposing ephemeral correlation IDs. A confirmed removal is removed, clears its keyed notice and retires its receipt observer; a stale or refused removal preserves observation.",
+  "identity": {
+    "sessionId": "conversation",
+    "engineSessionId": "engine-session",
+    "messageId": "message-one",
+    "text": "Inspect the final tool result",
+    "delivery": "user",
+    "targetTurnId": "target-turn"
+  },
+  "request": {
+    "method": "turn/submit",
+    "params": {
+      "sessionId": "engine-session",
+      "input": "Inspect the final tool result",
+      "submissionId": "steer-message-one",
+      "delivery": "user",
+      "expectedTurnId": "target-turn",
+      "queueMessageId": "message-one",
+      "mode": "steer"
+    }
+  },
+  "delegationRequest": {
+    "method": "turn/submit",
+    "params": {
+      "sessionId": "engine-session",
+      "input": "Inspect the final tool result",
+      "submissionId": "steer-message-one",
+      "delivery": "delegation",
+      "expectedTurnId": "target-turn",
+      "queueMessageId": "message-one",
+      "mode": "steer"
+    }
+  },
+  "ack": {
+    "status": "steered",
+    "submissionId": "steer-message-one",
+    "turnId": "target-turn"
+  },
+  "reply": {
+    "ok": true,
+    "messageId": "message-one"
+  },
+  "queued": {
+    "type": "follow_up_status",
+    "sessionId": "conversation",
+    "messageId": "message-one",
+    "text": "Inspect the final tool result",
+    "state": "engine_queued"
+  },
+  "applied": {
+    "type": "follow_up_status",
+    "sessionId": "conversation",
+    "messageId": "message-one",
+    "text": "Inspect the final tool result",
+    "state": "applied"
+  },
+  "delegationIdentity": {
+    "sessionId": "conversation",
+    "engineSessionId": "engine-session",
+    "messageId": "message-one",
+    "text": "<klaus-delegation>\n  <source-thread-id>sender-thread</source-thread-id>\n  <input>Inspect the final tool result</input>\n</klaus-delegation>",
+    "delivery": "delegation",
+    "targetTurnId": "target-turn"
+  },
+  "delegationQueued": {
+    "type": "follow_up_status",
+    "sessionId": "conversation",
+    "messageId": "message-one",
+    "text": "<klaus-delegation>\n  <source-thread-id>sender-thread</source-thread-id>\n  <input>Inspect the final tool result</input>\n</klaus-delegation>",
+    "state": "engine_queued"
+  },
+  "delegationApplied": {
+    "type": "follow_up_status",
+    "sessionId": "conversation",
+    "messageId": "message-one",
+    "text": "<klaus-delegation>\n  <source-thread-id>sender-thread</source-thread-id>\n  <input>Inspect the final tool result</input>\n</klaus-delegation>",
+    "state": "applied",
+    "delegation": {
+      "input": "Inspect the final tool result",
+      "sourceThreadId": "sender-thread"
+    }
+  },
+  "outcomes": [
+    {
+      "name": "applied",
+      "envelope": {
+        "steered": {
+          "applied": true
+        }
+      },
+      "state": "applied"
+    },
+    {
+      "name": "rejected input",
+      "envelope": {
+        "error": "This input cannot join the running turn"
+      },
+      "state": "failed",
+      "error": "This input cannot join the running turn"
+    },
+    {
+      "name": "not applied",
+      "envelope": {
+        "steered": {
+          "applied": false
+        }
+      },
+      "state": "unconfirmed",
+      "reason": "invalid_receipt"
+    },
+    {
+      "name": "invalid terminal",
+      "envelope": {
+        "steered": {}
+      },
+      "state": "unconfirmed",
+      "reason": "invalid_receipt"
+    }
+  ],
+  "rendererFailures": [],
+  "pending": {
+    "type": "follow_up_status",
+    "sessionId": "conversation",
+    "messageId": "message-one",
+    "text": "Inspect the final tool result",
+    "state": "pending",
+    "reason": "interrupted"
+  },
+  "unconfirmed": {
+    "type": "follow_up_status",
+    "sessionId": "conversation",
+    "messageId": "message-one",
+    "text": "Inspect the final tool result",
+    "state": "unconfirmed",
+    "reason": "confirmation_timeout"
+  },
+  "removed": {
+    "type": "follow_up_status",
+    "sessionId": "conversation",
+    "messageId": "message-one",
+    "text": "Inspect the final tool result",
+    "state": "removed"
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "reason": "Replay persistence must not repeatedly serialize or synchronously write historical payloads while servicing transport receipts.",
+  "replay": {
+    "maxMessagesPerClient": 1024,
+    "maxBytesPerClient": 67108864,
+    "ttlMs": 300000,
+    "maxClients": 128
+  },
+  "receipt": {
+    "ttlMs": 2592000000,
+    "durableBeforeAcknowledgement": true,
+    "independentOfReplayJournal": true
+  },
+  "journal": {
+    "legacyVersion": 1,
+    "format": "sqlite-incremental",
+    "owner": "worker",
+    "restoreFramesPerAcknowledgedBatch": 4,
+    "ackOnlyAppendedPayloadBytes": 0,
+    "flushIncludesChangesDuringWrite": true,
+    "failedWritesHotRetry": false
+  }
+}

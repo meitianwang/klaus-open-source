@@ -1,0 +1,284 @@
+{
+  "computerUse": {
+    "settings": [
+      {
+        "enabled": true,
+        "availableOnThisPlatform": true,
+        "allowedApps": [],
+        "deniedApps": []
+      },
+      {
+        "enabled": false,
+        "availableOnThisPlatform": true,
+        "allowedApps": [],
+        "deniedApps": []
+      },
+      {
+        "enabled": true,
+        "availableOnThisPlatform": true,
+        "allowedApps": [],
+        "deniedApps": []
+      },
+      {
+        "enabled": true,
+        "availableOnThisPlatform": true,
+        "allowedApps": [],
+        "deniedApps": []
+      },
+      {
+        "enabled": true,
+        "availableOnThisPlatform": true,
+        "allowedApps": ["Notes", "Safari"],
+        "deniedApps": ["Terminal"]
+      }
+    ],
+    "mutations": [
+      {
+        "settings": {
+          "enabled": false,
+          "availableOnThisPlatform": true,
+          "allowedApps": [],
+          "deniedApps": []
+        },
+        "kv": {
+          "computer_use.enabled": "0"
+        }
+      },
+      {
+        "settings": {
+          "enabled": true,
+          "availableOnThisPlatform": true,
+          "allowedApps": [],
+          "deniedApps": []
+        },
+        "kv": {
+          "computer_use.enabled": "1"
+        }
+      },
+      {
+        "settings": {
+          "enabled": true,
+          "availableOnThisPlatform": true,
+          "allowedApps": ["Notes", "Mail"],
+          "deniedApps": ["Terminal"]
+        },
+        "kv": {
+          "computer_use.allowed_apps": "[\"Notes\",\"Mail\"]",
+          "computer_use.denied_apps": "[\"Terminal\"]"
+        }
+      }
+    ]
+  },
+  "imageGen": {
+    "get": [
+      {},
+      {},
+      {},
+      {},
+      {},
+      {
+        "provider": "openai-compatible",
+        "apiKey": "sk-x"
+      },
+      {
+        "baseUrl": ""
+      },
+      {
+        "baseUrl": "",
+        "apiKey": "",
+        "model": ""
+      },
+      {},
+      {},
+      {
+        "provider": "openai-compatible",
+        "model": "dall-e-3"
+      },
+      {
+        "provider": "google",
+        "apiKey": "k"
+      },
+      {
+        "provider": "google",
+        "apiKey": "k"
+      },
+      {
+        "provider": "doubao-ark",
+        "apiKey": "k"
+      },
+      {
+        "provider": "doubao-ark",
+        "apiKey": "k"
+      },
+      {
+        "provider": "openai-compatible",
+        "apiKey": "k"
+      },
+      {
+        "provider": "google"
+      },
+      {
+        "provider": "openai-compatible",
+        "apiKey": "k"
+      },
+      {},
+      {
+        "provider": "local",
+        "localModel": "z-image-turbo"
+      },
+      {}
+    ],
+    "set": [
+      {
+        "config": {},
+        "raw": "{}",
+        "result": {
+          "ok": true,
+          "config": {}
+        }
+      },
+      {
+        "config": {
+          "baseUrl": "https://api.example.test",
+          "apiKey": "sk-x",
+          "model": "dall-e-3"
+        },
+        "raw": "{\"provider\":\"openai-compatible\",\"baseUrl\":\"https://api.example.test\",\"apiKey\":\"sk-x\",\"model\":\"dall-e-3\"}",
+        "result": {
+          "ok": true,
+          "config": {
+            "provider": "openai-compatible",
+            "baseUrl": "https://api.example.test",
+            "apiKey": "sk-x",
+            "model": "dall-e-3"
+          }
+        }
+      },
+      {
+        "config": {
+          "baseUrl": "  https://api.example.test  ",
+          "apiKey": "  sk-x  ",
+          "model": "  dall-e-3  "
+        },
+        "raw": "{\"provider\":\"openai-compatible\",\"baseUrl\":\"https://api.example.test\",\"apiKey\":\"sk-x\",\"model\":\"dall-e-3\"}",
+        "result": {
+          "ok": true,
+          "config": {
+            "provider": "openai-compatible",
+            "baseUrl": "https://api.example.test",
+            "apiKey": "sk-x",
+            "model": "dall-e-3"
+          }
+        }
+      },
+      {
+        "config": {
+          "baseUrl": "",
+          "apiKey": "",
+          "model": ""
+        },
+        "raw": "{}",
+        "result": {
+          "ok": true,
+          "config": {}
+        }
+      },
+      {
+        "config": {
+          "baseUrl": "   ",
+          "apiKey": "   ",
+          "model": "   "
+        },
+        "raw": "{}",
+        "result": {
+          "ok": true,
+          "config": {}
+        }
+      },
+      {
+        "config": {
+          "model": "auto"
+        },
+        "raw": "{}",
+        "result": {
+          "ok": true,
+          "config": {}
+        }
+      },
+      {
+        "config": {
+          "model": "  auto  "
+        },
+        "raw": "{}",
+        "result": {
+          "ok": true,
+          "config": {}
+        }
+      },
+      {
+        "config": {
+          "apiKey": "sk-x"
+        },
+        "raw": "{\"provider\":\"openai-compatible\",\"apiKey\":\"sk-x\"}",
+        "result": {
+          "ok": true,
+          "config": {
+            "provider": "openai-compatible",
+            "apiKey": "sk-x"
+          }
+        }
+      },
+      {
+        "config": {
+          "provider": "google",
+          "apiKey": "sk-x"
+        },
+        "raw": "{\"provider\":\"google\",\"apiKey\":\"sk-x\"}",
+        "result": {
+          "ok": true,
+          "config": {
+            "provider": "google",
+            "apiKey": "sk-x"
+          }
+        }
+      },
+      {
+        "config": {
+          "baseUrl": 42,
+          "apiKey": true,
+          "model": null
+        },
+        "raw": "{}",
+        "result": {
+          "ok": true,
+          "config": {}
+        }
+      },
+      {
+        "config": {
+          "provider": "local",
+          "localModel": " z-image-turbo "
+        },
+        "raw": "{\"provider\":\"local\",\"localModel\":\"z-image-turbo\"}",
+        "result": {
+          "ok": true,
+          "config": {
+            "provider": "local",
+            "localModel": "z-image-turbo"
+          }
+        }
+      },
+      {
+        "config": {
+          "provider": "local",
+          "localModel": ""
+        },
+        "raw": "{}",
+        "result": {
+          "ok": true,
+          "config": {}
+        }
+      }
+    ]
+  }
+}

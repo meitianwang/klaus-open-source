@@ -1,0 +1,128 @@
+{
+  "reason": "Visibility remains latched until explicitly toggled; summoning never opens the editor, and retained draft content survives collapsed presentation. The selected conversation remains the submission destination without duplicating its title as a reply card; explicit message quotations remain visible. Floating input must be attributable to a current measured presentation. Its transparent native surface can extend beyond the desktop while visible content stays in the work area; placeholder layouts must not move restored anchors, and toolbar gestures distinguish movement from button clicks.",
+  "focus": {
+    "staleLayoutAccepted": false,
+    "staleVisibilityAccepted": false,
+    "currentLayoutAccepted": true,
+    "restoresStashedPetOnSummon": true
+  },
+  "motion": {
+    "intervalMs": 16,
+    "maximumStepMs": 32,
+    "decay": 0.88,
+    "bounce": 0.7,
+    "minimumSpeed": 65,
+    "maximumDurationMs": 900
+  },
+  "display": {
+    "origin": {
+      "x": -1440,
+      "y": 900
+    },
+    "restoredOrigin": {
+      "x": 100,
+      "y": -900
+    },
+    "point": {
+      "x": -1300,
+      "y": 1050
+    },
+    "expectedPoint": {
+      "x": 240,
+      "y": -750
+    }
+  },
+  "draw": {
+    "mascotConstraint": "work-area",
+    "accessoryMargin": 16,
+    "shadowPadding": 28,
+    "mascotLocalPositionStableAcrossPlacement": true,
+    "viewportStableDuringNativeDrag": true,
+    "preservesSavedAnchorBeforeFirstMeasurement": true,
+    "macAllowsLargerThanScreen": true,
+    "compactControlsBottomReserve": 60,
+    "notificationAndControlsClampIndependently": true,
+    "accessoryClampTracksNativeOrigin": true,
+    "notificationsReserveCurrentControls": true
+  },
+  "toolbar": {
+    "idle": {
+      "width": 23.5,
+      "height": 6,
+      "interactiveControls": false
+    },
+    "compact": {
+      "width": 80,
+      "height": 40,
+      "controlCount": 2
+    },
+    "withActivity": {
+      "width": 120,
+      "height": 40,
+      "controlCount": 3
+    },
+    "proximityEnterDistance": 40,
+    "proximityExitDistance": 56,
+    "dismissDelayMs": 300,
+    "nonemptyDraftSurvivesBlur": true,
+    "automaticConversationReplyCard": false,
+    "explicitMessageReplyPreserved": true,
+    "selectedConversationDestinationPreserved": true,
+    "voiceButtonStartsClient": true,
+    "mascotClick": "open-main-composer",
+    "petControlGap": 4,
+    "buttonsCanStartDrag": true,
+    "movementActivatesButton": false,
+    "plainClickActivatesButtonOnce": true,
+    "textFieldsRetainSelection": true
+  },
+  "shortcut": {
+    "trigger": "left-and-right-press",
+    "modes": [
+      "DoubleCommand",
+      "DoubleAlt",
+      "DoubleOption",
+      "DoubleShift"
+    ],
+    "onceUntilAllReleased": true,
+    "otherKeysCancel": true
+  },
+  "visibility": {
+    "alwaysVisibleShortcut": "show-or-hide",
+    "onDemandShortcut": "show-or-hide",
+    "shortcutOpensEditor": false,
+    "outsideClickHides": false,
+    "blurHides": false,
+    "reopenCollapsed": true,
+    "reopenPreservesDraft": true,
+    "shortcutCancelsPendingOnDemandFocus": true,
+    "shortcutDuringReservedInteraction": "ignore",
+    "visibleAfterHideWithLayoutUpdates": false,
+    "visibleAfterExplicitReopen": true,
+    "showRestoresStashedPet": true
+  },
+  "submission": {
+    "compactBeforeAcknowledgement": true,
+    "retainsKeyboardFocus": true,
+    "reopensOnTyping": true,
+    "newChatEnablesActivity": true,
+    "notificationWidth": 330,
+    "notificationMinimumHeight": 56,
+    "preferredPetGap": 12,
+    "notificationClick": "open-main-task",
+    "reply": "inline-follow-up",
+    "steeringDurationMs": 3000,
+    "expandedHistoryExcludesNotifications": true
+  },
+  "menus": {
+    "pet": [
+      "Settings",
+      "Hide Mini"
+    ],
+    "notification": [
+      "Mute chat"
+    ],
+    "voicePresented": [],
+    "editableTargets": "editing-menu"
+  }
+}

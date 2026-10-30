@@ -1,0 +1,233 @@
+{
+  "reason": "The follow-up queue bar projects the engine-owned durable next-turn queue through the desktop adapter. The host republishes complete engine snapshots after metadata mutations and atomic admission, so the renderer installs each push outright and keeps no parallel list. Three properties are load-bearing and are pinned here: a later revision replaces the cached rows; an out-of-order older push is rejected outright rather than merged, so it cannot resurrect a row the user already deleted or undo a reorder they already made; and a row that lost its identity or payload is dropped instead of being drawn half-empty, because such a row cannot be edited, reordered or sent. Dropped means neither text NOR inline media survived: an image-only message has empty text by construction and is still a complete sendable turn, so requiring text there would silently eat exactly that message. The `interrupted` flag comes from the host rather than being re-derived from a pause-reason string the renderer must not know. Execution claims belong to the conversation: at most one row is dispatching in a conversation, including across store instances, while other conversations can claim independently. A busy manual request succeeds as still queued and returns the authoritative snapshot without issuing another admission RPC or removing the row. Commit or safe release permits the next claim; a released head retains its order. Unknown delivery remains saved and paused and is never retried automatically.",
+  "executionClaims": {
+    "scope": "conversation",
+    "maxDispatchingRowsPerConversation": 1,
+    "sharedAcrossStoreInstances": true,
+    "otherConversationsBlocked": false,
+    "busyManualReply": { "ok": true, "queued": true, "snapshot": "authoritative" },
+    "busyManualAdmissionRpcCount": 0,
+    "busyManualRemovesRow": false,
+    "releaseRetainsHeadOrder": true,
+    "automaticallyRetryUnknownDelivery": false
+  },
+  "vectors": [
+    {
+      "name": "a queued message arrives as one row with its stored payload",
+      "event": {
+        "type": "client_queue_snapshot",
+        "sessionId": "conversation",
+        "revision": 1,
+        "interrupted": false,
+        "items": [
+          {
+            "id": "queued-one",
+            "createdAt": 1700000000000,
+            "item": {
+              "id": "queued-one",
+              "displayText": "Check the final tool output",
+              "finalText": "Check the final tool output",
+              "media": [],
+              "liveAttachments": []
+            }
+          }
+        ]
+      },
+      "expect": {
+        "revision": 1,
+        "interrupted": false,
+        "rows": [
+          { "id": "queued-one", "pausedReason": null, "dispatching": false, "createdAt": 1700000000000, "preview": "Check the final tool output" }
+        ]
+      }
+    },
+    {
+      "name": "a later revision replaces the cached rows outright",
+      "event": {
+        "type": "client_queue_snapshot",
+        "sessionId": "conversation",
+        "revision": 2,
+        "interrupted": false,
+        "items": []
+      },
+      "expect": { "revision": 2, "interrupted": false, "rows": [] }
+    },
+    {
+      "name": "a user interruption pauses the queue without marking a row failed",
+      "event": {
+        "type": "client_queue_snapshot",
+        "sessionId": "conversation",
+        "revision": 3,
+        "interrupted": true,
+        "items": [
+          {
+            "id": "queued-two",
+            "createdAt": 1700000001000,
+            "item": {
+              "id": "queued-two",
+              "displayText": "Then run the tests",
+              "finalText": "Then run the tests",
+              "media": [],
+              "liveAttachments": []
+            }
+          }
+        ]
+      },
+      "expect": {
+        "revision": 3,
+        "interrupted": true,
+        "rows": [{ "id": "queued-two", "pausedReason": null, "dispatching": false, "createdAt": 1700000001000, "preview": "Then run the tests" }]
+      }
+    },
+    {
+      "name": "a failed delivery keeps its reason and an in-flight row keeps its claim",
+      "event": {
+        "type": "client_queue_snapshot",
+        "sessionId": "conversation",
+        "revision": 4,
+        "interrupted": false,
+        "items": [
+          {
+            "id": "queued-three",
+            "pausedReason": "The engine refused this input",
+            "createdAt": 1700000002000,
+            "item": {
+              "id": "queued-three",
+              "displayText": "Summarise the diff",
+              "finalText": "Summarise the diff",
+              "media": [],
+              "liveAttachments": []
+            }
+          },
+          {
+            "id": "queued-four",
+            "dispatching": true,
+            "createdAt": 1700000003000,
+            "item": {
+              "id": "queued-four",
+              "displayText": "Open the file",
+              "finalText": "Open the file",
+              "media": [],
+              "liveAttachments": []
+            }
+          }
+        ]
+      },
+      "expect": {
+        "revision": 4,
+        "interrupted": false,
+        "rows": [
+          { "id": "queued-three", "pausedReason": "The engine refused this input", "dispatching": false, "createdAt": 1700000002000, "preview": "Summarise the diff" },
+          { "id": "queued-four", "pausedReason": null, "dispatching": true, "createdAt": 1700000003000, "preview": "Open the file" }
+        ]
+      }
+    },
+    {
+      "name": "a row that lost its payload is dropped rather than drawn half-empty",
+      "event": {
+        "type": "client_queue_snapshot",
+        "sessionId": "conversation",
+        "revision": 5,
+        "interrupted": false,
+        "items": [
+          { "id": "corrupt", "createdAt": 1700000004000, "item": {} },
+          { "id": "", "createdAt": 1700000005000, "item": { "displayText": "no id", "finalText": "no id", "media": [], "liveAttachments": [] } },
+          {
+            "id": "attachment-only",
+            "createdAt": 1700000006000,
+            "item": {
+              "id": "attachment-only",
+              "displayText": "",
+              "finalText": "",
+              "media": [],
+              "liveAttachments": [{ "type": "file", "name": "report.pdf" }]
+            }
+          }
+        ]
+      },
+      "expect": { "revision": 5, "interrupted": false, "rows": [] }
+    },
+    {
+      "name": "an image-only queued message is kept: inline media alone is a sendable turn",
+      "event": {
+        "type": "client_queue_snapshot",
+        "sessionId": "conversation",
+        "revision": 6,
+        "interrupted": false,
+        "items": [
+          {
+            "id": "image-only",
+            "createdAt": 1700000007000,
+            "item": {
+              "id": "image-only",
+              "displayText": "",
+              "finalText": "",
+              "media": [{ "type": "image", "path": "/uploads/shot.png", "name": "shot.png" }],
+              "liveAttachments": [{ "type": "image", "name": "shot.png", "src": "blob:shot" }]
+            }
+          },
+          {
+            "id": "live-image-only",
+            "createdAt": 1700000008000,
+            "item": {
+              "id": "live-image-only",
+              "displayText": "",
+              "finalText": "",
+              "media": [],
+              "liveAttachments": [{ "type": "image", "name": "paste.png", "src": "blob:paste" }]
+            }
+          }
+        ]
+      },
+      "expect": {
+        "revision": 6,
+        "interrupted": false,
+        "rows": [
+          { "id": "image-only", "pausedReason": null, "dispatching": false, "createdAt": 1700000007000, "preview": "" },
+          { "id": "live-image-only", "pausedReason": null, "dispatching": false, "createdAt": 1700000008000, "preview": "" }
+        ]
+      }
+    }
+  ],
+  "staleRevision": {
+    "name": "an out-of-order older push cannot restore a consumed row",
+    "event": {
+      "type": "client_queue_snapshot",
+      "sessionId": "background",
+      "revision": 1,
+      "interrupted": false,
+      "items": [
+        {
+          "id": "consumed",
+          "createdAt": 1700000007000,
+          "item": {
+            "id": "consumed",
+            "displayText": "Already dispatched",
+            "finalText": "Already dispatched",
+            "media": [],
+            "liveAttachments": []
+          }
+        }
+      ]
+    },
+    "expect": { "revision": 2, "rows": [] }
+  },
+  "dispatched": {
+    "name": "a host dispatch announces its own user bubble with the stored payload",
+    "event": {
+      "type": "queued_follow_up_dispatched",
+      "sessionId": "conversation",
+      "id": "queued-one",
+      "item": {
+        "id": "queued-one",
+        "displayText": "Check the final tool output",
+        "finalText": "Check the final tool output",
+        "media": [],
+        "liveAttachments": [],
+        "pastedCards": [],
+        "selectedTextAttachments": []
+      }
+    },
+    "expect": { "text": "Check the final tool output" }
+  }
+}

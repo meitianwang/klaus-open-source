@@ -1,0 +1,7 @@
+{
+  "reason": "Canvas prototypes share a versioned document between direct editing and agent tools; stale full-document writes must fail and history restoration must preserve later revisions.",
+  "first": { "title": "First" },
+  "second": { "title": "Second" },
+  "expectedVersions": [0, 1, 2, 3],
+  "historyAfterRestore": [1, 2]
+}

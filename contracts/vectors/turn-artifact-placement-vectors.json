@@ -1,0 +1,35 @@
+{
+  "reason": "A replayed turn may occupy non-contiguous history segments. Duplicate card keys left old DOM before the next chat's first message. Each turn now owns one artifact footer, anchored to its last explicit final answer or its last segment when no final answer exists; segment render keys remain unique without reordering history.",
+  "pagination": {
+    "ownershipSource": "complete history before pagination and compaction filtering",
+    "hiddenOwner": "omit the footer until its owning reply or terminal segment is visible"
+  },
+  "cases": [
+    {
+      "name": "ordinary completed turns",
+      "units": [["user", "a", "ua"], ["final", "a", "fa"], ["user", "b", "ub"], ["final", "b", "fb"]],
+      "cards": [["a", "fa"], ["b", "fb"]]
+    },
+    {
+      "name": "interleaved turn resumes with another final answer",
+      "units": [["user", "a", "ua"], ["tools", "a", "ta"], ["final", "a", "fa"], ["user", "b", "ub"], ["final", "b", "fb"], ["tools", "a", "ta2"], ["final", "a", "fa2"]],
+      "cards": [["b", "fb"], ["a", "fa2"]]
+    },
+    {
+      "name": "late activity does not move the card away from its final answer",
+      "units": [["user", "a", "ua"], ["final", "a", "fa"], ["user", "b", "ub"], ["final", "b", "fb"], ["tools", "a", "ta2"]],
+      "cards": [["a", "fa"], ["b", "fb"]]
+    },
+    {
+      "name": "turn without final answer owns one footer at its last segment",
+      "units": [["user", "a", "ua"], ["tools", "a", "ta"], ["user", "b", "ub"], ["final", "b", "fb"], ["tools", "a", "ta2"]],
+      "cards": [["b", "fb"], ["a", "ta2"]]
+    },
+    {
+      "name": "no fragment of an active turn gets a completed footer",
+      "activeTurnId": "a",
+      "units": [["user", "a", "ua"], ["final", "a", "fa"], ["user", "b", "ub"], ["final", "b", "fb"], ["tools", "a", "ta2"]],
+      "cards": [["b", "fb"]]
+    }
+  ]
+}

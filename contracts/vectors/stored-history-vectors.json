@@ -1,0 +1,403 @@
+{
+  "_why": "Stored main and child history must use the complete provider-free facade envelope. Original assistant grouping, UUIDs, thinking signatures, tool aliases/output, cancellation maps and notifications must not be reconstructed from lossy inspection items. Stored reads do not start providers or writers and do not introduce a total history size cap.",
+  "reply": {
+    "threadId": "saved-thread",
+    "history": [
+      {
+        "type": "user",
+        "uuid": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "Saved question"
+          }
+        ]
+      },
+      {
+        "type": "assistant",
+        "uuid": "assistant",
+        "content": [
+          {
+            "type": "thinking",
+            "text": "Saved reasoning",
+            "signature": "original-signature"
+          },
+          {
+            "type": "text",
+            "text": "Saved answer",
+            "phase": "final_answer"
+          },
+          {
+            "type": "tool_use",
+            "id": "call",
+            "name": "Bash",
+            "input": {
+              "command": "printf saved"
+            }
+          },
+          {
+            "type": "tool_use",
+            "id": "cancelled-call",
+            "name": "Read",
+            "input": {
+              "file_path": "/work/file"
+            }
+          }
+        ]
+      },
+      {
+        "type": "tool_result",
+        "uuid": "result",
+        "toolUseId": "call",
+        "content": [
+          {
+            "type": "text",
+            "text": "saved output"
+          }
+        ],
+        "isError": false,
+        "output": {
+          "structuredOutput": {
+            "answer": 42
+          }
+        }
+      }
+    ],
+    "historyTurnIds": {
+      "user": "turn",
+      "assistant": "turn",
+      "result": "turn"
+    },
+    "turnFinalMessageIds": {
+      "turn": "assistant"
+    },
+    "turnStatuses": {
+      "turn": "interrupted"
+    },
+    "turnStartedAtMs": {
+      "turn": 0
+    },
+    "turnFinishedAtMs": {
+      "turn": 1123
+    },
+    "turnDurations": {
+      "turn": 1123
+    },
+    "turnCancelledTools": {
+      "turn": [
+        "cancelled-call"
+      ]
+    },
+    "turnErrors": {},
+    "turnErrorKinds": {},
+    "agentNotifications": [
+      {
+        "notificationId": "detached-notice",
+        "source": "background-task",
+        "status": "completed",
+        "agentId": "child",
+        "timestamp": 1123
+      }
+    ]
+  },
+  "expectedMessageUuids": [
+    "user",
+    "assistant"
+  ],
+  "expectedAssistantBlockTypes": [
+    "thinking",
+    "text",
+    "tool_use",
+    "tool_use"
+  ],
+  "resultPairing": [
+    {
+      "name": "reused ID in separate indexed turns",
+      "messages": [
+        {
+          "type": "user",
+          "uuid": "u1",
+          "content": [
+            {
+              "type": "text",
+              "text": "request"
+            }
+          ]
+        },
+        {
+          "type": "assistant",
+          "uuid": "a1",
+          "content": [
+            {
+              "type": "tool_use",
+              "id": "same-id",
+              "name": "Bash",
+              "input": {
+                "command": "a1"
+              }
+            }
+          ]
+        },
+        {
+          "type": "tool_result",
+          "uuid": "r1",
+          "toolUseId": "same-id",
+          "content": [
+            {
+              "type": "text",
+              "text": "first output"
+            }
+          ],
+          "isError": false
+        },
+        {
+          "type": "user",
+          "uuid": "u2",
+          "content": [
+            {
+              "type": "text",
+              "text": "request"
+            }
+          ]
+        },
+        {
+          "type": "assistant",
+          "uuid": "a2",
+          "content": [
+            {
+              "type": "tool_use",
+              "id": "same-id",
+              "name": "Bash",
+              "input": {
+                "command": "a2"
+              }
+            }
+          ]
+        },
+        {
+          "type": "tool_result",
+          "uuid": "r2",
+          "toolUseId": "same-id",
+          "content": [
+            {
+              "type": "text",
+              "text": "second output"
+            }
+          ],
+          "isError": false
+        }
+      ],
+      "turnIds": {
+        "u1": "t1",
+        "a1": "t1",
+        "r1": "t1",
+        "u2": "t2",
+        "a2": "t2",
+        "r2": "t2"
+      },
+      "expected": [
+        "first output",
+        "second output"
+      ]
+    },
+    {
+      "name": "legacy transcript without a turn index",
+      "messages": [
+        {
+          "type": "user",
+          "uuid": "u1",
+          "content": [
+            {
+              "type": "text",
+              "text": "request"
+            }
+          ]
+        },
+        {
+          "type": "assistant",
+          "uuid": "a1",
+          "content": [
+            {
+              "type": "tool_use",
+              "id": "same-id",
+              "name": "Bash",
+              "input": {
+                "command": "a1"
+              }
+            }
+          ]
+        },
+        {
+          "type": "tool_result",
+          "uuid": "r1",
+          "toolUseId": "same-id",
+          "content": [
+            {
+              "type": "text",
+              "text": "first output"
+            }
+          ],
+          "isError": false
+        },
+        {
+          "type": "user",
+          "uuid": "u2",
+          "content": [
+            {
+              "type": "text",
+              "text": "request"
+            }
+          ]
+        },
+        {
+          "type": "assistant",
+          "uuid": "a2",
+          "content": [
+            {
+              "type": "tool_use",
+              "id": "same-id",
+              "name": "Bash",
+              "input": {
+                "command": "a2"
+              }
+            }
+          ]
+        },
+        {
+          "type": "tool_result",
+          "uuid": "r2",
+          "toolUseId": "same-id",
+          "content": [
+            {
+              "type": "text",
+              "text": "second output"
+            }
+          ],
+          "isError": false
+        }
+      ],
+      "turnIds": {},
+      "expected": [
+        "first output",
+        "second output"
+      ]
+    },
+    {
+      "name": "repeated ID in successive legacy assistant messages",
+      "messages": [
+        {
+          "type": "user",
+          "uuid": "u1",
+          "content": [
+            {
+              "type": "text",
+              "text": "request"
+            }
+          ]
+        },
+        {
+          "type": "assistant",
+          "uuid": "a1",
+          "content": [
+            {
+              "type": "tool_use",
+              "id": "same-id",
+              "name": "Bash",
+              "input": {
+                "command": "a1"
+              }
+            }
+          ]
+        },
+        {
+          "type": "tool_result",
+          "uuid": "r1",
+          "toolUseId": "same-id",
+          "content": [
+            {
+              "type": "text",
+              "text": "first output"
+            }
+          ],
+          "isError": false
+        },
+        {
+          "type": "assistant",
+          "uuid": "a2",
+          "content": [
+            {
+              "type": "tool_use",
+              "id": "same-id",
+              "name": "Bash",
+              "input": {
+                "command": "a2"
+              }
+            }
+          ]
+        },
+        {
+          "type": "tool_result",
+          "uuid": "r2",
+          "toolUseId": "same-id",
+          "content": [
+            {
+              "type": "text",
+              "text": "second output"
+            }
+          ],
+          "isError": false
+        }
+      ],
+      "turnIds": {},
+      "expected": [
+        "first output",
+        "second output"
+      ]
+    },
+    {
+      "name": "imported result preceding its only call",
+      "messages": [
+        {
+          "type": "user",
+          "uuid": "u1",
+          "content": [
+            {
+              "type": "text",
+              "text": "request"
+            }
+          ]
+        },
+        {
+          "type": "tool_result",
+          "uuid": "r1",
+          "toolUseId": "same-id",
+          "content": [
+            {
+              "type": "text",
+              "text": "first output"
+            }
+          ],
+          "isError": false
+        },
+        {
+          "type": "assistant",
+          "uuid": "a1",
+          "content": [
+            {
+              "type": "tool_use",
+              "id": "same-id",
+              "name": "Bash",
+              "input": {
+                "command": "a1"
+              }
+            }
+          ]
+        }
+      ],
+      "turnIds": {},
+      "expected": [
+        "first output"
+      ]
+    }
+  ]
+}

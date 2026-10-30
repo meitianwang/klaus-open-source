@@ -1,0 +1,41 @@
+{
+  "reason": "Native Windows preparation is one shared local operation. Completion precedes independent configuration and permission selection; updating an existing installation does not change those choices.",
+  "timingMs": { "completion": 1200000, "timedOutMode": 300000, "finalize": 500, "success": 5000 },
+  "environment": [
+    { "platform": "win32", "local": true, "eligible": true },
+    { "platform": "darwin", "local": true, "eligible": false },
+    { "platform": "linux", "local": true, "eligible": false },
+    { "platform": "win32", "local": false, "eligible": false },
+    { "platform": "win32", "local": true, "engineInWsl": true, "eligible": false },
+    { "platform": "win32", "local": true, "editorInWsl": true, "eligible": false },
+    { "platform": "win32", "local": true, "runInWsl": true, "eligible": false }
+  ],
+  "enablePolicy": { "preset": "default", "approvalPolicy": "on-request", "approvalsReviewer": "user", "sandboxMode": "workspace-write", "networkAllowed": false },
+  "permissionPresentation": {
+    "reason": "Temporary read-only execution uses the existing Request approval presentation while the saved selection remains available after preparation.",
+    "savedPresets": ["default", "auto", "bypassPermissions"],
+    "unmatchedDisplay": null,
+    "pendingEffectiveMode": "read-only",
+    "pendingDisplay": "default"
+  },
+  "errorCases": [
+    { "message": "failed to load configuration: invalid value", "category": "config_load" },
+    { "message": "Error: error loading default config.toml: invalid value", "category": "config_load" },
+    { "message": "orchestrator_helper_launch_canceled: administrator approval was canceled", "category": "uac_canceled" },
+    { "message": "orchestrator_sandbox_dir_create_failed: access denied", "category": "helper_launch" },
+    { "message": "orchestrator_elevation_check_failed: token unavailable", "category": "helper_launch" },
+    { "message": "orchestrator_elevation_required: administrator token required", "category": "helper_launch" },
+    { "message": "orchestrator_payload_serialize_failed: invalid request", "category": "helper_launch" },
+    { "message": "orchestrator_helper_launch_failed: executable unavailable", "category": "helper_launch" },
+    { "message": "orchestrator_helper_exit_nonzero: exit status 1", "category": "helper_failed" },
+    { "message": "orchestrator_helper_report_read_failed: report unavailable", "category": "helper_failed" },
+    { "message": "orchestrator_helper_incomplete: setup incomplete", "category": "helper_failed" },
+    { "message": "helper_user_provision_failed: access denied", "category": "helper_failed" },
+    { "message": "Timed out waiting for Windows sandbox setup completion", "category": "setup_timeout" },
+    { "message": "failed to persist windows sandbox mode: disk full", "category": "config_write" },
+    { "message": "an unrelated helper_failed detail", "category": "setup_failed" },
+    { "message": "Timed out waiting for Windows sandbox setup completion: another cause", "category": "setup_failed" },
+    { "message": "Cannot retry the same Windows sandbox setup mode immediately after a timeout", "category": "setup_failed" },
+    { "message": "unclassified setup failure", "category": "setup_failed" }
+  ]
+}

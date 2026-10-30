@@ -1,0 +1,12 @@
+{
+  "reason": "Editor dependencies retain their language and diagram features while loading syntax data, binary engines and layout workers through separate offline resource boundaries.",
+  "rendererJavaScriptBudgetBytes": 500000,
+  "highlighting": [
+    { "language": "cpp", "source": "#include <vector>\nint main() { return 42; }", "keyword": "return", "keywordColor": "#D73A49" },
+    { "language": "emacs-lisp", "source": "(defun sample (x) (+ x 1))", "keyword": "defun", "keywordColor": "#D73A49" }
+  ],
+  "minimumLayoutAlgorithms": 9,
+  "workerIdleReleaseMs": 5000,
+  "resourceOrigin": "self",
+  "eagerGrammarRequests": 0
+}

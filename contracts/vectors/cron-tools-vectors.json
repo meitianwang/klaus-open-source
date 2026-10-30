@@ -1,0 +1,69 @@
+{
+  "specs": [
+    {
+      "type": "function",
+      "name": "CronCreate",
+      "description": "Schedule a persistent local task that gives a saved prompt to Klaus at a future time, once or repeatedly. Use for reminders, recurring work, monitoring, follow-ups, or requests to check back later; do not use shell sleep or timers as a scheduling workaround. Write clear, cohesive, human-readable instructions. Inspect existing tasks with CronList before creating a replacement or duplicate. Preserve the user's notification intent in monitoring prompts: unless periodic updates were explicitly requested, stay quiet while the state is unchanged or non-actionable and notify only for a meaningful change, completion, failure, or required user action. Confirm the schedule in plain language; do not expose raw cron syntax unless requested.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "cron": {
+            "type": "string",
+            "description": "Standard five-field cron expression in this computer's local timezone: minute hour day-of-month month day-of-week. For example, */5 * * * * runs every five minutes and 0 9 * * 1-5 runs at 09:00 on weekdays."
+          },
+          "prompt": {
+            "type": "string",
+            "description": "Clear, cohesive instructions replayed at each scheduled run. Preserve the task scope, relevant context, completion conditions, and the user's notification intent."
+          },
+          "recurring": {
+            "description": "True (default) runs at every matching slot. False runs at the next matching slot and then disables the task. Use false for one-shot reminders and pin the intended minute, hour, day, and month.",
+            "type": "boolean"
+          },
+          "name": {
+            "description": "Optional short, human-readable task name.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "cron",
+          "prompt"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "type": "function",
+      "name": "CronList",
+      "description": "List tool-created scheduled tasks with their IDs, schedules, and prompts. Inspect this list when the user asks about an existing task or before replacing an existing schedule.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      }
+    },
+    {
+      "type": "function",
+      "name": "CronDelete",
+      "description": "Cancel a tool-created scheduled task by an ID returned by CronCreate or CronList. Use only for the task the user asked to cancel or replace. This removes its saved run history.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Task ID to cancel, returned by CronCreate or CronList."
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      }
+    }
+  ],
+  "idPattern": "^cron-[0-9a-z]+-[0-9a-z]{4}$",
+  "weekdayLabel": "Weekdays at 9:00 AM",
+  "missingCreateArguments": "Invalid arguments: cron: Invalid input: expected string, received undefined; prompt: Invalid input: expected string, received undefined",
+  "invalidExpression": "cron 表达式无效：\"invalid\"。应为 5 个字段：分 时 日 月 周。",
+  "unreachableExpression": "cron 表达式 \"0 0 31 2 *\" 在未来一年内没有任何可触发时刻。",
+  "promptChangeReason": "Clarify local scheduling, existing-task inspection, readable saved instructions, monitoring notification intent, and cancellation scope without changing tool arguments or behavior."
+}

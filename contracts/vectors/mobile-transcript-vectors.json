@@ -1,0 +1,109 @@
+{
+  "reason": "Mobile renders the desktop event contract, keeps elicitation distinct from approval, and reads child histories without creating another engine surface. Interaction replies preserve opaque IDs in JSON and reject expired ownership; stop requests carry their expected turn and succeed only on explicit acceptance.",
+  "interactionTransport": {
+    "permissionEndpoint": "/api/mobile/permissions/respond",
+    "elicitationEndpoint": "/api/mobile/elicitations/respond",
+    "requestIds": [
+      "form 1",
+      "form/1",
+      "form%1",
+      "form%2F1",
+      " form 1 "
+    ],
+    "expiredStatus": 409
+  },
+  "interrupt": {
+    "expectedTurnId": "turn-1",
+    "accepted": {
+      "accepted": true
+    },
+    "rejectedResults": [
+      {
+        "accepted": false
+      },
+      {
+        "ok": true
+      },
+      {
+        "accepted": "true"
+      }
+    ],
+    "rejectedStatus": 409,
+    "rejectedCode": "interrupt_rejected"
+  },
+  "elicitation": {
+    "requestId": "1:elicit:question-1",
+    "sessionId": "s1",
+    "prompt": "Choose a destination",
+    "toolName": "ask_user",
+    "responseChannel": "elicit",
+    "toolInput": {
+      "questions": [
+        {
+          "id": "destination",
+          "question": "Where should the file go?",
+          "options": [
+            {
+              "label": "Project",
+              "description": "Save in the workspace"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "response": {
+    "response": {
+      "kind": "answers",
+      "answers": {
+        "destination": "Project"
+      }
+    }
+  },
+  "childHistory": {
+    "messages": [
+      {
+        "type": "assistant",
+        "uuid": "child-message",
+        "turnId": "child-turn",
+        "contentBlocks": [
+          {
+            "type": "text",
+            "text": "Child reply",
+            "phase": "final_answer"
+          }
+        ]
+      }
+    ],
+    "turnStatuses": {
+      "child-turn": "interrupted"
+    },
+    "turnDurations": {
+      "child-turn": 3000
+    }
+  },
+  "childEvent": {
+    "type": "agent_progress",
+    "sessionId": "s1",
+    "agentId": "child-1",
+    "event": {
+      "type": "tool_end",
+      "toolCallId": "child-tool",
+      "toolName": "generate_image",
+      "isError": false,
+      "content": "Created preview",
+      "media": [
+        {
+          "path": "/fixture/media/result.png",
+          "mimeType": "image/png"
+        }
+      ],
+      "artifact": {
+        "kind": "diagram",
+        "id": "diagram-1",
+        "title": "Architecture"
+      }
+    }
+  },
+  "_why": "turnChanges removed 2026-09-21: projectSessionHistory never produced it; the phone has no history-level per-turn file changes (live diff_update counters are the only source)."
+}

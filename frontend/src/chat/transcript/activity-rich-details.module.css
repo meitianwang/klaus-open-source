@@ -1,0 +1,44 @@
+.images { display: flex; flex-wrap: wrap; gap: 8px; margin: 2px 0 10px; }
+.image {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 80px;
+  height: 80px;
+  flex: 0 0 80px;
+  overflow: hidden;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-secondary);
+  color: var(--fg-secondary);
+  cursor: pointer;
+}
+.image img { display: block; width: 100%; height: 100%; object-fit: contain; }
+.image:global(.is-media-broken) img { display: none; }
+.image:global(.is-media-broken) :global(.kls-media-broken-icon),
+.image:global(.is-media-broken) :global(.kls-media-broken-icon) svg { width: 24px; height: 24px; }
+.image:focus-visible, .source:focus-visible, .manage:focus-visible { outline: 2px solid var(--input-focus); outline-offset: 2px; }
+.sources, .schedules { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
+.caption { display: flex; flex-wrap: wrap; gap: 8px; color: var(--fg-secondary); font-size: var(--text-caption, 12px); }
+.source {
+  display: flex; align-items: center; gap: 8px; min-width: 0; width: 100%; padding: 8px;
+  border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-secondary);
+  color: var(--fg); text-align: start; font: inherit; cursor: pointer;
+}
+.source > span:not(:global(.kls-icon-host)) { min-width: 0; flex: 1; }
+.sourceTitle { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.source:hover, .manage:hover { background: var(--bg-hover); }
+.schedule { display: flex; align-items: flex-start; gap: 10px; padding: 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-secondary); color: var(--fg); }
+.scheduleInfo { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.scheduleName { overflow-wrap: anywhere; }
+.manage { display: inline-flex; align-items: center; gap: 4px; align-self: flex-start; padding: 4px 0; border: 0; border-radius: var(--radius-xs); color: var(--fg-secondary); background: transparent; font: inherit; cursor: pointer; }
+.notice { margin: 4px 0 8px; color: var(--fg-secondary); font-size: var(--text-caption, 12px); }
+.friendDetails { display: flex; flex-direction: column; gap: 10px; min-width: 0; margin-bottom: 10px; color: var(--fg); }
+.friendAction { border: 0; background: transparent; color: var(--fg-muted); padding: 0; font: inherit; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+.friendAction:disabled { opacity: .45; cursor: default; }
+.friendRecipient, .friendRow { display: flex; align-items: flex-start; gap: 8px; min-width: 0; }
+.friendRecipient { align-items: center; overflow-wrap: anywhere; }
+.friendInfo { min-width: 0; overflow-wrap: anywhere; }
+.friendMessage { padding: 12px 14px; border-radius: var(--radius-sm); background: var(--bg-secondary); white-space: pre-wrap; overflow-wrap: anywhere; }
+.friendFailure { white-space: pre-wrap; overflow-wrap: anywhere; color: var(--fg-secondary); }

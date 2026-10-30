@@ -1,0 +1,22 @@
+{
+  "//": "Declaration-only build of the Canvas SDK. The emitted .d.ts files ARE the authoring contract: the shell provisions them to ~/.klaus/canvas/sdk/, the canvas skill tells the model to read them before writing a canvas, and canvas_check validates every named import against what index.d.ts re-exports. Generating them from the implementation is what keeps those three consumers from drifting — a hand-written declaration set would go stale the first time a prop changed. Run via `npm run canvas:sdk-types`.",
+  "extends": "./tsconfig.frontend.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "declaration": true,
+    "emitDeclarationOnly": true,
+    "declarationMap": false,
+    "outDir": "resources/canvas/sdk",
+    "rootDir": "frontend/src/canvas/sdk",
+    "types": []
+  },
+  "include": [
+    "frontend/src/canvas/sdk/**/*.ts",
+    "frontend/src/canvas/sdk/**/*.tsx"
+  ],
+  "//exclude": "Tests are not part of the authoring contract, and `types: []` above strips the bun/node globals they need — so including them would fail this build for a reason that has nothing to do with the SDK's public surface.",
+  "exclude": [
+    "frontend/src/canvas/sdk/**/*.test.ts",
+    "frontend/src/canvas/sdk/**/*.test.tsx"
+  ]
+}

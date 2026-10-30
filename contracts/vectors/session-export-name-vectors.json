@@ -1,0 +1,96 @@
+{
+  "_why": "The export save dialog uses the first user message rather than a generated or renamed sidebar title. Keep the first 50 Unicode code points, retain letters/numbers and ._-, collapse other runs to hyphens, and use klaus-session when no name remains. Export reads original complete history messages, so multiple text blocks in one assistant message keep one label and tool results retain their original position. A conversation started by a delegation has the `<klaus-delegation>` envelope as its first user message; export folds an EXACT single envelope to the prose it carries (same rule as the renderer) so the saved file and its name are readable, while text that merely contains the tag inline is left intact.",
+  "vectors": [
+    {
+      "text": "  修复 bug  ",
+      "name": "修复-bug.txt"
+    },
+    {
+      "text": "Review: app/test.ts?",
+      "name": "Review-app-test.ts.txt"
+    },
+    {
+      "text": "Keep .dot_file-name",
+      "name": "Keep-.dot_file-name.txt"
+    },
+    {
+      "text": "!!!",
+      "name": "klaus-session.txt"
+    },
+    {
+      "text": "😀 release 🎯 ready",
+      "name": "release-ready.txt"
+    },
+    {
+      "text": "01234567890123456789012345678901234567890123456789012345",
+      "name": "01234567890123456789012345678901234567890123456789.txt"
+    },
+    {
+      "text": "<klaus-delegation>\n  <source-thread-id>thread-a</source-thread-id>\n  <input>Stop and report what you found</input>\n</klaus-delegation>",
+      "name": "Stop-and-report-what-you-found.txt"
+    }
+  ],
+  "body": {
+    "messages": [
+      {
+        "type": "user",
+        "uuid": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": " hello "
+          },
+          {
+            "type": "text",
+            "text": "world "
+          }
+        ]
+      },
+      {
+        "type": "assistant",
+        "uuid": "assistant",
+        "content": [
+          {
+            "type": "thinking",
+            "text": "Reasoning is not plain dialogue"
+          },
+          {
+            "type": "text",
+            "text": "first "
+          },
+          {
+            "type": "text",
+            "text": "second"
+          }
+        ]
+      },
+      {
+        "type": "tool_result",
+        "uuid": "result",
+        "content": [
+          {
+            "type": "text",
+            "text": "output"
+          }
+        ]
+      },
+      {
+        "type": "system",
+        "subtype": "metadata",
+        "text": "not exported"
+      },
+      {
+        "type": "assistant",
+        "uuid": "image-only",
+        "content": [
+          {
+            "type": "image",
+            "mimeType": "image/png",
+            "base64": "AAAA"
+          }
+        ]
+      }
+    ],
+    "text": "User:\nhello world\n\nAssistant:\nfirst second\n\nTool result:\noutput"
+  }
+}

@@ -1,0 +1,93 @@
+{
+  "reason": "Realtime voice uses an independently configured source for both new and existing conversations. Its entry stays visible without provider capability; startup reports missing configuration before creating an empty conversation.",
+  "targets": [
+    {
+      "explicit": "requested",
+      "companion": "pet",
+      "main": "visible",
+      "expected": "requested"
+    },
+    {
+      "companion": "pet",
+      "main": "visible",
+      "expected": "pet"
+    },
+    {
+      "main": "visible",
+      "expected": "visible"
+    },
+    {
+      "main": null,
+      "expected": null
+    },
+    {
+      "companion": null,
+      "main": "next",
+      "expected": "next"
+    }
+  ],
+  "sources": [
+    {
+      "source": "cursor",
+      "mode": "auto",
+      "configuredSource": "subscription:codex",
+      "expectedSource": "subscription:codex",
+      "available": true
+    },
+    {
+      "source": "qwenwork",
+      "mode": "auto",
+      "configuredSource": "audio-source",
+      "expectedSource": "audio-source",
+      "available": true
+    },
+    {
+      "source": "codex",
+      "mode": "auto",
+      "configuredSource": "",
+      "expectedSource": "",
+      "available": false,
+      "reason": "realtime-source-not-configured"
+    },
+    {
+      "source": "codex",
+      "mode": "auto",
+      "configuredSource": "subscription:codex",
+      "expectedSource": "subscription:codex",
+      "available": true
+    },
+    {
+      "source": "custom",
+      "mode": "custom:audio-source",
+      "configuredSource": "audio-source",
+      "expectedSource": "audio-source",
+      "available": true
+    },
+    {
+      "source": "custom",
+      "mode": "auto",
+      "expectedSource": "",
+      "available": false,
+      "reason": "realtime-source-not-configured"
+    },
+    {
+      "source": "qwenwork",
+      "mode": "auto",
+      "expectedSource": "",
+      "available": false,
+      "reason": "realtime-source-not-configured"
+    }
+  ],
+  "presentation": {
+    "unsupportedZh": "所选实时语音来源不可用或不支持实时语音聊天，仍可使用输入框中的语音输入。",
+    "notConfiguredZh": "请先在「设置 → 语音」中选择实时语音来源。",
+    "entryRequiresProviderCapability": false,
+    "sourcePreference": "desktop_pet.realtime_provider",
+    "errorSurface": "voice panel only",
+    "dictationSource": "voice.input.source",
+    "dictationDestination": "editable draft",
+    "liveCallRetainsConversation": true,
+    "draftLimit": 8000,
+    "oversizedTranscript": "retain in draft and block sending with a localized notice"
+  }
+}

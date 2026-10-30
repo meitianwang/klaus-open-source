@@ -1,0 +1,32 @@
+{
+  "_why": "Real desktop sessions exposed rejected documented key names, incomplete observations, unstable window ordinals and misleading execution errors. These cases pin the supported behavior independently of any other implementation.",
+  "keyCases": [
+    { "input": "Page_Down", "normalized": "pagedown" },
+    { "input": "Next", "normalized": "pagedown" },
+    { "input": "Prior", "normalized": "pageup" },
+    { "input": "Page_Up", "normalized": "pageup" },
+    { "input": "super+comma", "normalized": "super+," },
+    { "input": " Control_L + a ", "normalized": "control_l+a" },
+    { "input": "Shift_R+Tab", "normalized": "shift_r+tab" },
+    { "input": "ControlOrMeta+A", "normalized": "controlormeta+shift+a" },
+    { "input": "KP_0", "normalized": "kp_0" },
+    { "input": "KP_Enter", "normalized": "kp_enter" },
+    { "input": "KP_Add", "normalized": "kp_add" },
+    { "input": "KP_Page_Down", "normalized": "pagedown" },
+    { "input": "Delete", "normalized": "delete" },
+    { "input": "BackSpace", "normalized": "backspace" },
+    { "input": "super+plus", "normalized": "super+plus" },
+    { "input": "super++", "normalized": "super+plus" },
+    { "input": "question", "normalized": "?" },
+    { "input": "shift", "normalized": "shift" }
+  ],
+  "invalidKeys": ["arbitrary+action", "super+", "super++a", "", "unknown_key"],
+  "clickChord": { "key": "Control_L+a", "duration": 0.2, "count": 2, "releaseOnCancel": true },
+  "longOperation": { "nativeTimeoutMs": 120000, "progressToken": "echo", "reportCompletionPercentage": false, "extendDeadlineWhileActive": true },
+  "windowRoot": "nativeWindowId",
+  "inputState": { "synthetic": "shared private event source", "pointerChordDelivery": "same system stream for down and up", "physicalGuard": "hardware event source", "releaseBeforeSourceDisposal": true, "preserveModifierSides": true },
+  "windowsInput": { "_why": "Extended and Unicode encodings may share scan values without identifying the same held key.", "cleanupIdentity": ["virtualKey", "scanCode", "extended", "unicode"], "keypadEqual": "native keypad mapping or explicit unsupported layout" },
+  "appRecoveryIdentifiers": ["path", "bundleId", "pid"],
+  "observation": { "accessibilityActivation": "set once and poll readiness", "accessibilityReadinessTimeoutMs": 5000, "settleAfterInputMs": 1000, "additionalLoadingWaitMs": 5000, "retryInput": false, "reportTruncation": true },
+  "errors": { "notStarted": "No input was sent", "startedOrUnconfirmed": "may have executed" }
+}

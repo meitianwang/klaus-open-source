@@ -1,0 +1,168 @@
+{
+  "version": 21,
+  "reason": "Claude streaming captures the application's Chinese or English language hint at recording start and retains it during same-source recovery; an English-only default delays Chinese previews until stop. All supported subscription dictation sources use native continuous PCM transport and incremental transcript events through the shared streaming session, including Claude, Codex and WorkBuddy. Realtime admission rejects unavailable native routes instead of silently starting file segments. File transcription remains an explicit compatibility choice or an announced same-source recovery bound to the original login. TRAE CN adds an independent subscription-backed PCM transcription and streaming dictation source; native refinement and duplex voice remain separate. Recognition provider selection belongs in Voice Input settings for both dictation modes, alongside personalization and a correction dictionary. Refinement and language detection are automatic, with no separate refinement, recognition-language or memory-list controls. Both modes honor the saved provider, with explicit errors instead of automatic substitution. Real-time capture supports signed WebSocket recognition routes, revisable interim snapshots and same-source recovery bound to the original credential. Voice conversation retains its independent source preference. Live dictation accumulates completed utterances and revises only the active utterance so stopping preserves every sentence. End-of-audio acknowledgment is separate from the authoritative whole-recording result, which is inserted and persisted exactly once. Supported realtime sources configure session-native refinement before the first audio frame and publish its complete result without a second text-model request. A short latency budget never discards a pending refinement result; recording duration freezes at stop.",
+  "settingsUi": {
+    "control": "combobox",
+    "name": "voice-source-select",
+    "recognitionModeControl": false,
+    "currentRecognizerVisible": false,
+    "accountPlacement": "shared provider sources page",
+    "disabledDuringSave": true,
+    "initialLoad": {
+      "preferences": "local settings without waiting for capabilities",
+      "capabilities": "background refresh with section-level failure and retry",
+      "dictionary": "independent request with section-level loading and retry",
+      "absentSource": "unselected until system availability is known; never persist a guessed default",
+      "lateCapabilityResult": "update capabilities without replacing local preferences"
+    },
+    "page": "voiceInput",
+    "section": "voice-source"
+  },
+  "voicePreferences": {
+    "automaticRefinement": true,
+    "textRefinementRouting": { "preference": "current model_tiers:global.low read for each request", "unset": "follow the dictating chat main model; standalone dictation uses its remembered default", "sources": "selected subscription or custom source through the engine provider resolver", "legacySourceRows": "migration evidence only; never a live voice model preference", "methods": ["engine/completeText", "engine/cancelTextCompletion"], "credentials": "remain in engine", "updates": "next request captures the new target; in-flight work retains its original model and cancellation owner" },
+    "nativeRefinementSources": ["qoder", "qoderwork", "qwenwork"],
+    "refinementCompletion": "wait for a complete result; a delayed backup races complete refinement without committing raw text or cancelling the pending primary",
+    "recordingTimer": "freeze when stop is requested",
+    "recognitionLanguageControl": false,
+    "memoryList": false,
+    "personalization": { "key": "voice.learning.enabled", "enable": "direct", "disable": "confirmation", "disabled": "generic refinement and dictionary corrections remain active" },
+    "correctionTracking": { "startDelayMs": 200, "idleMs": 15000, "triggers": ["idle", "focus leaves composer", "send"], "ignore": ["unchanged dictation", "cleared draft", "wholesale rewrite", "changed conversation"] },
+    "dictionary": { "termMaxLength": 100, "termLengthUnit": "UTF-16", "sourceFilters": ["all", "learned", "manual"], "perWordEnabledControl": false, "edit": "single term; preserve id and source", "delete": "confirm single or selected words", "autoAdded": "notify with undo", "csv": { "maxBytes": 5242880, "maxWords": 3000, "batchSize": 200, "header": false, "previewBeforeImport": true } }
+  },
+  "selectionKey": "voice.input.source",
+  "experience": {
+    "key": "voice.input.experience",
+    "default": "realtime",
+    "choices": ["realtime", "compatibility"],
+    "realtimeSources": ["system", "claude", "codex", "workbuddy", "antigravity", "trae", "qoder", "qoderwork", "qwenwork"],
+    "selection": "use the saved voice.input.source in both modes; never substitute another provider; an absent preference retains the platform default",
+    "unavailable": "show recovery guidance; file transcription requires an explicit compatibility choice"
+  },
+  "streamingDictation": {
+    "sampleRate": 16000,
+    "channels": 1,
+    "encoding": "s16le",
+    "frameMs": 100,
+    "acknowledgment": "audio and end requests require ok=true; absent or rejected acknowledgments fail capture explicitly",
+    "captureStart": "immediate capture with a bounded FIFO while the remote session connects",
+    "methods": ["engine/dictationStart", "engine/dictationAppendAudio", "engine/dictationEnd"],
+    "notification": "engine/dictationEvent",
+    "languageHint": { "source": "claude", "parameter": "engine/dictationStart.language", "selection": "capture current application language at start: zh for Chinese, en for English", "recovery": "retain the captured hint even if application language changes during recording", "otherSources": "preserve native language detection without a hint" },
+    "partial": "replaceable full text snapshot, including corrections to existing words",
+    "assembly": "completed utterances accumulate in arrival order; interim revisions replace only the current utterance, including repeated sentences",
+    "completion": "the complete recording transcript supersedes provisional text without discarding completed utterances; a supported interim tail is appended once",
+    "publication": { "previews": "display only; never composer insertion, refinement or history", "stop": "flush capture tail and acknowledge end-of-audio; wait for the whole-recording result", "final": "refine the complete raw transcript, then insert and persist once; a final result may revise earlier preview words", "lateEvents": "ignore preview and terminal events after finalization or cancellation" },
+    "refinement": "configure bounded dictionary, enabled personalization and conversation context at recording start; consume a matching native complete result directly; when native refinement is unavailable or slow, use complete host refinement",
+    "nativeRefinement": { "parameter": "engine/dictationStart.refinement.messages", "roles": ["user", "assistant"], "recognizedEvent": "whole-recording raw text after audio drains; internal backup input only, never a final insertion", "finalFields": ["text", "rawText", "polished", "refinementComplete"], "resultScope": "whole recording; replace rather than append", "hostBypass": "refinementComplete=true even when the service did not need to change any words", "backup": { "delayMs": 6000, "perThirtySecondsMs": 500, "input": "complete recognized text", "winner": "first complete refinement only; reject truncated or raw fallback responses; cancel and fence the losing route" } },
+    "recovery": "retain complete PCM during recording; transient transport failure recovers with the same source and the credential generation returned by dictationStart; missing or replaced account generations terminate before uploading retained audio"
+  },
+  "sources": [
+    "system",
+    "custom",
+    "claude",
+    "codex",
+    "workbuddy",
+    "antigravity",
+    "trae",
+    "qoder",
+    "qoderwork",
+    "qwenwork"
+  ],
+  "absentPreference": {
+    "systemAvailable": "system",
+    "systemUnavailable": "custom"
+  },
+  "unknownSavedPreference": "unavailable",
+  "selectedSourceFailure": "preserve selection and report error",
+  "pcm16Mono16000Wav": [
+    "claude",
+    "qoder",
+    "qoderwork",
+    "qwenwork",
+    "antigravity",
+      "trae"
+  ],
+  "uploadContainers": {
+    "webmOpus32k": [
+      "custom",
+      "codex",
+      "workbuddy"
+    ],
+    "pcm16Mono16000Wav": [
+      "claude",
+      "qoder",
+      "qoderwork",
+      "qwenwork",
+      "antigravity",
+      "trae"
+    ],
+    "encoder": "platform WebCodecs AudioEncoder; no bundled codec dependency",
+    "fallback": "encoder unavailability, encode failure or provider format rejection degrades the session to WAV; the final pass retries once with WAV"
+  },
+  "fileTranscription": {
+    "capture": "acknowledged audio worklet frames, 16 kHz mono PCM16, 100 ms per frame",
+    "ledger": "frames retained in memory; the full-session audio materializes without a post-stop transcode",
+    "segments": "first request by 2 s; later silence-aware cuts between 1.5 s and 5 s; sequential single-flight file transcriptions",
+    "partialAdmission": "one partial per owner, never gates the full-audio pass, aborted when it is admitted, raw text without polish or history",
+    "completion": "the full-audio final pass is authoritative; recovery requires every interval including the tail and consumes host receipts once",
+    "receiptRetention": "at most 256 source-matched receipts per owner; retained through provider waits and removed on recovery consumption, cancellation, owner detach or count eviction",
+    "downgrade": "two consecutive partial failures or a provider limit code disable partials for the session",
+    "liveSurfaces": [
+      "chat composer strip",
+      "desktop companion optional callback"
+    ],
+    "finalOnlySurfaces": [
+      "quick input"
+    ]
+  },
+  "oauthCredentials": "engine only",
+  "publicationFence": [
+    "owner generation",
+    "abort signal",
+    "unchanged saved source"
+  ],
+  "retainedFeatures": [
+    "microphone permission",
+    "hotwords",
+    "automatic refinement",
+    "personalized phrasing",
+    "automatic dictionary corrections",
+    "bounded history",
+    "system partial transcription",
+    "native cloud interim transcription",
+    "compatibility file previews"
+  ],
+  "captureConsumers": [
+    "chat",
+    "quick input",
+    "desktop companion"
+  ],
+  "localeOverrideSources": [],
+  "providerAudioMaxBytes": {
+    "workbuddy": 16777216,
+    "qoder": 12582912,
+    "qoderwork": 12582912,
+    "qwenwork": 12582912,
+    "antigravity": 12582912,
+    "trae": 12582912
+  },
+  "unavailableCapability": "hidden unless explicitly selected; preserve saved selection and show recovery",
+  "runtimeAdmission": {
+    "claude": "current selected subscription account readiness",
+    "codex": "current selected subscription account readiness",
+    "workbuddy": "actual transcription capability and account readiness",
+    "antigravity": "actual transcription capability and account readiness",
+    "trae": "actual transcription capability and account readiness"
+  },
+  "captureConfig": "checks only the selected account; full availability is requested by settings",
+  "transcriptionTimeoutMs": {
+    "default": 60000,
+    "partial": 20000,
+    "qwenwork": 450000,
+    "antigravity": 450000,
+    "trae": 450000
+  },
+  "nativeRpcTimeoutMarginMs": 30000,
+  "authenticationErrors": "Signed-out and expired credentials retain the selected source and expose account recovery."
+}

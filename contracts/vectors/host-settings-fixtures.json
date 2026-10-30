@@ -1,0 +1,66 @@
+{
+  "computerUse": {
+    "stores": [
+      {},
+      { "computer_use.enabled": "0" },
+      { "computer_use.enabled": "1" },
+      { "computer_use.enabled": "yes" },
+      {
+        "computer_use.allowed_apps": "[\"Notes\",\"Safari\"]",
+        "computer_use.denied_apps": "[\"Terminal\"]"
+      }
+    ],
+    "mutations": [
+      { "op": "setEnabled", "value": false },
+      { "op": "setEnabled", "value": true },
+      {
+        "op": "setApps",
+        "payload": {
+          "allowedApps": ["Notes", "  Notes ", "Mail", ""],
+          "deniedApps": ["Terminal"]
+        }
+      }
+    ],
+    "mutationSeed": {}
+  },
+  "imageGen": {
+    "source": "codex",
+    "stores": [
+      {},
+      { "image_generation.model_config:codex": "" },
+      { "image_generation.model_config:codex": "not json" },
+      { "image_generation.model_config:codex": "[]" },
+      { "image_generation.model_config:codex": "{}" },
+      { "image_generation.model_config:codex": "{\"apiKey\":\"sk-x\"}" },
+      { "image_generation.model_config:codex": "{\"baseUrl\":\"\"}" },
+      { "image_generation.model_config:codex": "{\"baseUrl\":\"\",\"apiKey\":\"\",\"model\":\"\"}" },
+      { "image_generation.model_config:codex": "{\"model\":\"auto\"}" },
+      { "image_generation.model_config:codex": "{\"model\":\"  auto  \"}" },
+      { "image_generation.model_config:codex": "{\"model\":\"dall-e-3\"}" },
+      { "image_generation.model_config:codex": "{\"provider\":\"google-gemini\",\"apiKey\":\"k\"}" },
+      { "image_generation.model_config:codex": "{\"provider\":\"google-imagen\",\"apiKey\":\"k\"}" },
+      { "image_generation.model_config:codex": "{\"provider\":\"doubao-ark\",\"apiKey\":\"k\"}" },
+      { "image_generation.model_config:codex": "{\"provider\":\" doubao-ark \",\"apiKey\":\"k\"}" },
+      { "image_generation.model_config:codex": "{\"provider\":\"nope\",\"apiKey\":\"k\"}" },
+      { "image_generation.model_config:codex": "{\"provider\":\"google\"}" },
+      { "image_generation.model_config:codex": "{\"provider\":42,\"apiKey\":\"k\"}" },
+      { "image_generation.model_config:codex": "{\"apiKey\":123}" },
+      { "image_generation.model_config:codex": "{\"provider\":\"local\",\"localModel\":\"z-image-turbo\"}" },
+      { "image_generation.model_config:codex": "{\"provider\":\"local\"}" }
+    ],
+    "sets": [
+      { "source": "codex" },
+      { "source": "codex", "baseUrl": "https://api.example.test", "apiKey": "sk-x", "model": "dall-e-3" },
+      { "source": "codex", "baseUrl": "  https://api.example.test  ", "apiKey": "  sk-x  ", "model": "  dall-e-3  " },
+      { "source": "codex", "baseUrl": "", "apiKey": "", "model": "" },
+      { "source": "codex", "baseUrl": "   ", "apiKey": "   ", "model": "   " },
+      { "source": "codex", "model": "auto" },
+      { "source": "codex", "model": "  auto  " },
+      { "source": "codex", "apiKey": "sk-x" },
+      { "source": "codex", "provider": "google", "apiKey": "sk-x" },
+      { "source": "codex", "baseUrl": 42, "apiKey": true, "model": null },
+      { "source": "codex", "provider": "local", "localModel": " z-image-turbo " },
+      { "source": "codex", "provider": "local", "localModel": "" }
+    ]
+  }
+}

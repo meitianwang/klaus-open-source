@@ -1,0 +1,10 @@
+{
+  "reason": "A model-source menu must not publish or apply a selection after its conversation or configuration changes.",
+  "cases": [
+    { "name": "same conversation", "opened": "a", "current": "a", "invalidate": false, "selectable": true },
+    { "name": "different conversation", "opened": "a", "current": "b", "invalidate": false, "selectable": false },
+    { "name": "draft became a conversation", "opened": null, "current": "a", "invalidate": false, "selectable": false },
+    { "name": "configuration changed", "opened": "a", "current": "a", "invalidate": true, "selectable": false },
+    { "name": "draft stays a draft", "opened": null, "current": null, "invalidate": false, "selectable": true }
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "reason": "Side-task opening presents the existing full composer immediately, with an ordinary tab and no preparation or creation labels. Pending drafts accept text and quotes, while Send and model/reasoning selection require a real session. Promotion retains the draft; cancellation releases it and closes late forks. Main send reserves its captured snapshot while immediate transcript feedback owns preparation; running follow-ups retain their queue behavior. Successful model caches and duplicate side-send protection remain independent of presentation.",
+  "pending": { "badge": "", "composerHidden": false, "transcriptHidden": false, "emptyHidden": true, "sendDisabled": true, "modelDisabled": true },
+  "creating": { "hostCreates": 1, "reusesOpeningTab": true },
+  "activated": { "composerHidden": false },
+  "cancelled": { "lateTaskClosed": true, "activeSideId": null },
+  "eligibility": { "positiveFallbackReads": 1, "loadedHistoryReads": 0, "maximumTasks": 8 },
+  "selection": { "quotes": ["Quoted passage"], "automaticSubmissions": 0 },
+  "send": { "duplicateSubmissions": 1, "failureConsumesDraft": false, "consumedRunningDraftButton": "submit_tooltip_stop" },
+  "main": { "preparationUi": false, "transcriptPreparationUi": true, "runningFollowUpReserved": false }
+}

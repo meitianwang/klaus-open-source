@@ -1,0 +1,618 @@
+{
+  "_why": "Full event projection must use the active session binding. A global source change cannot retarget an existing subscription card or change a running session's retry budget. The retired official and on-device sources no longer appear: every remaining bound source gets the re-login card on auth failure. The context-free mapChatEvents contract remains independent.",
+  "inputs": {
+    "retry": {
+      "type": "rawSessionEvent",
+      "params": {
+        "sessionId": "engine-session",
+        "event": {
+          "event": {
+            "type": "provider.decision",
+            "event": {
+              "kind": "retry_scheduled",
+              "attempt": 1,
+              "debug": {
+                "errorKind": "rate_limit"
+              }
+            }
+          }
+        }
+      }
+    },
+    "rawAuth": {
+      "type": "rawSessionEvent",
+      "params": {
+        "sessionId": "engine-session",
+        "event": {
+          "event": {
+            "type": "turn.completed",
+            "stopReason": "auth_failed"
+          }
+        }
+      }
+    },
+    "typedAuth": {
+      "type": "productEvent",
+      "method": "turn/failed",
+      "params": {
+        "sessionId": "engine-session",
+        "submissionId": "turn-1",
+        "detail": {
+          "error": {
+            "code": "auth_failed",
+            "message": "Session credential expired"
+          }
+        }
+      }
+    },
+    "retryNetworkWait": {
+      "type": "rawSessionEvent",
+      "params": {
+        "sessionId": "engine-session",
+        "event": {
+          "event": {
+            "type": "provider.decision",
+            "event": {
+              "kind": "retry_scheduled",
+              "attempt": 3,
+              "maxAttempts": 3,
+              "phase": "networkWait",
+              "debug": {
+                "errorKind": "network"
+              }
+            }
+          }
+        }
+      }
+    },
+    "retryWithBudget": {
+      "type": "rawSessionEvent",
+      "params": {
+        "sessionId": "engine-session",
+        "event": {
+          "event": {
+            "type": "provider.decision",
+            "event": {
+              "kind": "retry_scheduled",
+              "attempt": 1,
+              "maxAttempts": 5,
+              "phase": "stream",
+              "debug": {
+                "errorKind": "rate_limit"
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "authCases": [
+    {
+      "name": "Codex subscription",
+      "source": "codex",
+      "rawAuth": [
+        {
+          "type": "auth_required",
+          "sessionId": "engine-session",
+          "reason": "token_invalid",
+          "mode": "codex"
+        },
+        {
+          "type": "interrupted",
+          "sessionId": "engine-session"
+        }
+      ],
+      "typedAuth": [
+        {
+          "type": "auth_required",
+          "sessionId": "engine-session",
+          "reason": "Session credential expired",
+          "mode": "codex"
+        },
+        {
+          "type": "interrupted",
+          "sessionId": "engine-session",
+          "turnId": "turn-1"
+        }
+      ]
+    },
+    {
+      "name": "Claude subscription",
+      "source": "subscription",
+      "rawAuth": [
+        {
+          "type": "auth_required",
+          "sessionId": "engine-session",
+          "reason": "token_invalid",
+          "mode": "subscription"
+        },
+        {
+          "type": "interrupted",
+          "sessionId": "engine-session"
+        }
+      ],
+      "typedAuth": [
+        {
+          "type": "auth_required",
+          "sessionId": "engine-session",
+          "reason": "Session credential expired",
+          "mode": "subscription"
+        },
+        {
+          "type": "interrupted",
+          "sessionId": "engine-session",
+          "turnId": "turn-1"
+        }
+      ]
+    },
+    {
+      "name": "Qoder subscription",
+      "source": "qoder",
+      "rawAuth": [
+        {
+          "type": "auth_required",
+          "sessionId": "engine-session",
+          "reason": "token_invalid",
+          "mode": "qoder"
+        },
+        {
+          "type": "interrupted",
+          "sessionId": "engine-session"
+        }
+      ],
+      "typedAuth": [
+        {
+          "type": "auth_required",
+          "sessionId": "engine-session",
+          "reason": "Session credential expired",
+          "mode": "qoder"
+        },
+        {
+          "type": "interrupted",
+          "sessionId": "engine-session",
+          "turnId": "turn-1"
+        }
+      ]
+    },
+    {
+      "name": "QwenWork subscription",
+      "source": "qwenwork",
+      "rawAuth": [
+        {
+          "type": "auth_required",
+          "sessionId": "engine-session",
+          "reason": "token_invalid",
+          "mode": "qwenwork"
+        },
+        {
+          "type": "interrupted",
+          "sessionId": "engine-session"
+        }
+      ],
+      "typedAuth": [
+        {
+          "type": "auth_required",
+          "sessionId": "engine-session",
+          "reason": "Session credential expired",
+          "mode": "qwenwork"
+        },
+        {
+          "type": "interrupted",
+          "sessionId": "engine-session",
+          "turnId": "turn-1"
+        }
+      ]
+    },
+    {
+      "name": "QoderWork subscription",
+      "source": "qoderwork",
+      "rawAuth": [
+        {
+          "type": "auth_required",
+          "sessionId": "engine-session",
+          "reason": "token_invalid",
+          "mode": "qoderwork"
+        },
+        {
+          "type": "interrupted",
+          "sessionId": "engine-session"
+        }
+      ],
+      "typedAuth": [
+        {
+          "type": "auth_required",
+          "sessionId": "engine-session",
+          "reason": "Session credential expired",
+          "mode": "qoderwork"
+        },
+        {
+          "type": "interrupted",
+          "sessionId": "engine-session",
+          "turnId": "turn-1"
+        }
+      ]
+    },
+    {
+      "name": "WorkBuddy subscription",
+      "source": "workbuddy",
+      "rawAuth": [
+        {
+          "type": "auth_required",
+          "sessionId": "engine-session",
+          "reason": "token_invalid",
+          "mode": "workbuddy"
+        },
+        {
+          "type": "interrupted",
+          "sessionId": "engine-session"
+        }
+      ],
+      "typedAuth": [
+        {
+          "type": "auth_required",
+          "sessionId": "engine-session",
+          "reason": "Session credential expired",
+          "mode": "workbuddy"
+        },
+        {
+          "type": "interrupted",
+          "sessionId": "engine-session",
+          "turnId": "turn-1"
+        }
+      ]
+    },
+    {
+      "name": "Kimi membership",
+      "source": "kimi",
+      "rawAuth": [
+        {
+          "type": "auth_required",
+          "sessionId": "engine-session",
+          "reason": "token_invalid",
+          "mode": "kimi"
+        },
+        {
+          "type": "interrupted",
+          "sessionId": "engine-session"
+        }
+      ],
+      "typedAuth": [
+        {
+          "type": "auth_required",
+          "sessionId": "engine-session",
+          "reason": "Session credential expired",
+          "mode": "kimi"
+        },
+        {
+          "type": "interrupted",
+          "sessionId": "engine-session",
+          "turnId": "turn-1"
+        }
+      ]
+    },
+    {
+      "name": "Bailian Token Plan",
+      "source": "bailian",
+      "rawAuth": [
+        {
+          "type": "auth_required",
+          "sessionId": "engine-session",
+          "reason": "token_invalid",
+          "mode": "bailian"
+        },
+        {
+          "type": "interrupted",
+          "sessionId": "engine-session"
+        }
+      ],
+      "typedAuth": [
+        {
+          "type": "auth_required",
+          "sessionId": "engine-session",
+          "reason": "Session credential expired",
+          "mode": "bailian"
+        },
+        {
+          "type": "interrupted",
+          "sessionId": "engine-session",
+          "turnId": "turn-1"
+        }
+      ]
+    },
+    {
+      "name": "MiniMax M Plan",
+      "source": "minimax",
+      "rawAuth": [
+        {
+          "type": "auth_required",
+          "sessionId": "engine-session",
+          "reason": "token_invalid",
+          "mode": "minimax"
+        },
+        {
+          "type": "interrupted",
+          "sessionId": "engine-session"
+        }
+      ],
+      "typedAuth": [
+        {
+          "type": "auth_required",
+          "sessionId": "engine-session",
+          "reason": "Session credential expired",
+          "mode": "minimax"
+        },
+        {
+          "type": "interrupted",
+          "sessionId": "engine-session",
+          "turnId": "turn-1"
+        }
+      ]
+    },
+    {
+      "name": "Zhipu Coding Plan",
+      "source": "zhipu",
+      "rawAuth": [
+        {
+          "type": "auth_required",
+          "sessionId": "engine-session",
+          "reason": "token_invalid",
+          "mode": "zhipu"
+        },
+        {
+          "type": "interrupted",
+          "sessionId": "engine-session"
+        }
+      ],
+      "typedAuth": [
+        {
+          "type": "auth_required",
+          "sessionId": "engine-session",
+          "reason": "Session credential expired",
+          "mode": "zhipu"
+        },
+        {
+          "type": "interrupted",
+          "sessionId": "engine-session",
+          "turnId": "turn-1"
+        }
+      ]
+    },
+    {
+      "name": "Ark Coding Plan",
+      "source": "ark",
+      "rawAuth": [
+        {
+          "type": "auth_required",
+          "sessionId": "engine-session",
+          "reason": "token_invalid",
+          "mode": "ark"
+        },
+        {
+          "type": "interrupted",
+          "sessionId": "engine-session"
+        }
+      ],
+      "typedAuth": [
+        {
+          "type": "auth_required",
+          "sessionId": "engine-session",
+          "reason": "Session credential expired",
+          "mode": "ark"
+        },
+        {
+          "type": "interrupted",
+          "sessionId": "engine-session",
+          "turnId": "turn-1"
+        }
+      ]
+    },
+    {
+      "name": "Custom provider",
+      "source": "custom",
+      "rawAuth": [
+        {
+          "type": "auth_required",
+          "sessionId": "engine-session",
+          "reason": "token_invalid",
+          "mode": "custom"
+        },
+        {
+          "type": "interrupted",
+          "sessionId": "engine-session"
+        }
+      ],
+      "typedAuth": [
+        {
+          "type": "auth_required",
+          "sessionId": "engine-session",
+          "reason": "Session credential expired",
+          "mode": "custom"
+        },
+        {
+          "type": "interrupted",
+          "sessionId": "engine-session",
+          "turnId": "turn-1"
+        }
+      ]
+    }
+  ],
+  "retryCases": [
+    {
+      "name": "missing config",
+      "init": {},
+      "maxRetries": 5,
+      "phase": null,
+      "maxAttempts": null,
+      "input": "retry",
+      "attempt": 1,
+      "kind": "rate_limit"
+    },
+    {
+      "name": "missing budget",
+      "init": {
+        "config": {}
+      },
+      "maxRetries": 5,
+      "phase": null,
+      "maxAttempts": null,
+      "input": "retry",
+      "attempt": 1,
+      "kind": "rate_limit"
+    },
+    {
+      "name": "profile budget",
+      "init": {
+        "config": {
+          "maxRetries": 7
+        }
+      },
+      "maxRetries": 7,
+      "phase": null,
+      "maxAttempts": null,
+      "input": "retry",
+      "attempt": 1,
+      "kind": "rate_limit"
+    },
+    {
+      "name": "disabled retry",
+      "init": {
+        "config": {
+          "maxRetries": 0
+        }
+      },
+      "maxRetries": 0,
+      "phase": null,
+      "maxAttempts": null,
+      "input": "retry",
+      "attempt": 1,
+      "kind": "rate_limit"
+    },
+    {
+      "name": "fractional budget",
+      "init": {
+        "config": {
+          "maxRetries": 7.9
+        }
+      },
+      "maxRetries": 7,
+      "phase": null,
+      "maxAttempts": null,
+      "input": "retry",
+      "attempt": 1,
+      "kind": "rate_limit"
+    },
+    {
+      "name": "negative budget",
+      "init": {
+        "config": {
+          "maxRetries": -1
+        }
+      },
+      "maxRetries": 5,
+      "phase": null,
+      "maxAttempts": null,
+      "input": "retry",
+      "attempt": 1,
+      "kind": "rate_limit"
+    },
+    {
+      "name": "null budget",
+      "init": {
+        "config": {
+          "maxRetries": null
+        }
+      },
+      "maxRetries": 5,
+      "phase": null,
+      "maxAttempts": null,
+      "input": "retry",
+      "attempt": 1,
+      "kind": "rate_limit"
+    },
+    {
+      "name": "string budget",
+      "init": {
+        "config": {
+          "maxRetries": "7"
+        }
+      },
+      "maxRetries": 5,
+      "phase": null,
+      "maxAttempts": null,
+      "input": "retry",
+      "attempt": 1,
+      "kind": "rate_limit"
+    },
+    {
+      "name": "boolean budget",
+      "init": {
+        "config": {
+          "maxRetries": false
+        }
+      },
+      "maxRetries": 5,
+      "phase": null,
+      "maxAttempts": null,
+      "input": "retry",
+      "attempt": 1,
+      "kind": "rate_limit"
+    },
+    {
+      "name": "engine budget wins over init",
+      "init": {
+        "config": {
+          "maxRetries": 7
+        }
+      },
+      "maxAttempts": 5,
+      "maxRetries": 5,
+      "phase": "stream",
+      "input": "retryWithBudget",
+      "attempt": 1,
+      "kind": "rate_limit"
+    },
+    {
+      "name": "network wait has no budget",
+      "input": "retryNetworkWait",
+      "init": {},
+      "maxRetries": 3,
+      "phase": "networkWait",
+      "maxAttempts": 3,
+      "attempt": 3,
+      "kind": "network"
+    }
+  ],
+  "terminalIdleFrame": {
+    "_why": "The renderer's running indicator is derived from the engine turn lifecycle. Every terminal chat frame (interrupted, done, terminal api_error) is followed by an explicit idle session_runtime_status frame carrying the terminal frame's turnId (null when unnamed), so a renderer whose copy of the truth drifted converges without trusting the host registry. Amended 2026-10-06 with the stale-running-state fix.",
+    "type": "session_runtime_status",
+    "status": "idle",
+    "turnId": "the terminal frame's turnId, or null",
+    "emittedAfter": [
+      "interrupted",
+      "done",
+      "terminal api_error"
+    ]
+  },
+  "cursorRecoveryCases": [
+    {
+      "name": "expired access snapshot",
+      "reason": "cursor_adopted_credential_needs_reimport",
+      "recover": true
+    },
+    {
+      "name": "missing request metadata",
+      "reason": "cursor_client_metadata_missing",
+      "recover": true
+    },
+    {
+      "name": "endpoint refusal preserves account state",
+      "reason": "cursor_inference_not_enabled",
+      "recover": false
+    },
+    {
+      "name": "unknown authentication error",
+      "reason": "cursor_unknown_auth_error",
+      "recover": false
+    }
+  ]
+}

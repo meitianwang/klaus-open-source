@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "reason": "Live conversation audio has an independent lifecycle while sharing the ordinary text composer, history and task execution. Main and side composers share one call, bind controls to their own conversation and use the same button geometry. Closing a side conversation first ends its matching call. An audio reservation protects its writer from idle retirement, including reservations acquired during a background probe.",
+  "composerButton": { "hitTarget": 30, "paintedDisc": 16, "glyph": 10 },
+  "idleRetirement": {
+    "protectedPhases": ["connecting", "active", "stopping"],
+    "recheckAfterBackgroundProbe": true,
+    "releasedReservation": "eligible"
+  },
+  "cases": [
+    { "id": "empty-composer", "input": { "phase": "inactive", "available": true, "hasText": false, "hasAttachments": false }, "primary": "start", "editor": "editable" },
+    { "id": "draft-composer", "input": { "phase": "inactive", "available": true, "hasText": true, "hasAttachments": false }, "primary": "send", "editor": "editable" },
+    { "id": "connecting", "input": { "phase": "connecting", "available": true }, "primary": "cancel", "muteEnabled": false },
+    { "id": "active-empty", "input": { "phase": "active", "hasText": false, "hasAttachments": false }, "primary": "end", "controls": ["speaker", "microphone", "end"] },
+    { "id": "active-draft", "input": { "phase": "active", "hasText": true, "hasAttachments": false }, "primary": "send", "controls": ["speaker", "microphone"], "submit": "ordinary-task" },
+    { "id": "active-attachment", "input": { "phase": "active", "hasText": false, "hasAttachments": true }, "primary": "send", "controls": ["speaker", "microphone"], "submit": "ordinary-task" },
+    { "id": "stopping", "input": { "phase": "stopping", "error": false }, "primary": "ending", "primaryDisabled": true },
+    { "id": "failed-stop", "input": { "phase": "active", "stopFailed": true }, "primary": "end", "primaryDisabled": false, "media": "retained", "notice": "danger-toast" },
+    { "id": "navigate-away", "input": { "phase": "active", "matchingFocusedView": false }, "presentation": "floating", "call": "continues", "target": "original-conversation" },
+    { "id": "return-to-conversation", "input": { "phase": "active", "matchingFocusedView": true }, "presentation": "conversation", "call": "continues" },
+    { "id": "side-composer", "target": "side-conversation", "call": "shared", "draftPrimary": "send", "emptyPrimary": "start", "runningPrimary": "stop", "continuePrimary": "continue" },
+    { "id": "close-side-conversation", "matchingCall": "stop-before-close", "unrelatedCall": "continues", "stopFailure": "retain-conversation" },
+    { "id": "native-controls", "controls": ["microphone", "end", "speaker"], "size": 24, "gap": 8, "orbRegion": [112, 121] },
+    { "id": "native-connecting", "controls": ["spinner"], "disabled": true, "presentation": "voice-dot", "muteControls": "absent", "companionRequired": false },
+    { "id": "native-failure", "notice": "temporary-danger-pill", "wrapping": true, "screenEdgeFallback": "above" },
+    { "id": "locked-or-renderer-gone", "call": "stops", "resources": "released" },
+    { "id": "unsupported-source", "input": { "phase": "inactive", "available": false }, "start": "hidden", "fallback": "none" }
+  ]
+}

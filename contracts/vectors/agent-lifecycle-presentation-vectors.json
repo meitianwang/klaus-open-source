@@ -1,0 +1,234 @@
+{
+  "reason": "Child lifecycle rows belong to their owning process. Adjacent notices form a bounded group with the latest notice per child; completion folds that process rather than deleting records or leaving a terminal tail. Saved late notices remain in the original process across later turns. A receipt whose named turn is absent from the transcript has no owner to settle into and is dropped instead of stranding at the tail.",
+  "cases": [
+    {
+      "name": "completed child releases earlier start",
+      "events": [
+        [
+          "alpha",
+          "started"
+        ],
+        [
+          "alpha",
+          "completed"
+        ]
+      ],
+      "open": false
+    },
+    {
+      "name": "failed child releases earlier progress",
+      "events": [
+        [
+          "alpha",
+          "started"
+        ],
+        [
+          "alpha",
+          "updated"
+        ],
+        [
+          "alpha",
+          "failed"
+        ]
+      ],
+      "open": false
+    },
+    {
+      "name": "cancelled child releases earlier start",
+      "events": [
+        [
+          "alpha",
+          "started"
+        ],
+        [
+          "alpha",
+          "cancelled"
+        ]
+      ],
+      "open": false
+    },
+    {
+      "name": "background child remains visible after parent final",
+      "events": [
+        [
+          "alpha",
+          "started"
+        ]
+      ],
+      "open": true
+    },
+    {
+      "name": "each sibling must settle independently",
+      "events": [
+        [
+          "alpha",
+          "started"
+        ],
+        [
+          "beta",
+          "started"
+        ],
+        [
+          "alpha",
+          "completed"
+        ]
+      ],
+      "open": true
+    },
+    {
+      "name": "all siblings settled",
+      "events": [
+        [
+          "alpha",
+          "started"
+        ],
+        [
+          "beta",
+          "started"
+        ],
+        [
+          "alpha",
+          "completed"
+        ],
+        [
+          "beta",
+          "completed"
+        ]
+      ],
+      "open": false
+    },
+    {
+      "name": "persistent teammate finished run folds while waiting for another prompt",
+      "events": [
+        [
+          "alpha",
+          "started"
+        ],
+        [
+          "alpha",
+          "completed"
+        ]
+      ],
+      "tasks": {
+        "alpha": "pending"
+      },
+      "open": false
+    },
+    {
+      "name": "registered completion settles historic start without optional clocks",
+      "events": [
+        [
+          "alpha",
+          "started"
+        ]
+      ],
+      "tasks": {
+        "alpha": "completed"
+      },
+      "open": false
+    },
+    {
+      "name": "registered completion settles historic update",
+      "events": [
+        [
+          "alpha",
+          "updated"
+        ]
+      ],
+      "tasks": {
+        "alpha": "completed"
+      },
+      "open": false
+    },
+    {
+      "name": "latest completion wins over stale running snapshot",
+      "events": [
+        [
+          "alpha",
+          "started"
+        ],
+        [
+          "alpha",
+          "completed"
+        ]
+      ],
+      "tasks": {
+        "alpha": "running"
+      },
+      "open": false
+    }
+  ],
+  "rules": {
+    "startedVisible": true,
+    "terminalRowsRetainedInCompletedProcess": true,
+    "terminalRowsKeepOriginalTurn": true,
+    "historicalStartCannotPinCompletedProcess": true,
+    "explicitDisclosureChoiceSurvivesHandoff": true,
+    "childUsesStreamingTranscript": true,
+    "unphasedChildTerminalTailIsFinal": true,
+    "explicitCommentaryIsNeverInferredFinal": true,
+    "persistentRunCompletionIndependentOfTaskLifetime": true,
+    "adjacentLifecycleStatesShareBoundedGroup": true,
+    "latestNoticePerChildWithinGroup": true,
+    "savedLateRowsAcrossTurnsReturnToOwningProcess": true,
+    "ordinaryResumedTextKeepsChronology": true,
+    "lastGroupReflectsCurrentOwnedCompletion": true,
+    "laterParentOwnershipSettlesOlderProcess": true,
+    "replayedIdentitiesSkipEntranceAnimation": true,
+    "newIdentityAnimatesOncePerTurn": true,
+    "unknownTerminalRecordsHaveNoDeadControl": true,
+    "knownTerminalRecordsOpenConversation": true,
+    "localizedCountAndPluralStatusMatchReference": true,
+    "savedSpawnOnlyRowsReflectCurrentCompletion": true,
+    "savedSpawnOnlyRowsSkipReplayAnimation": true,
+    "lateLifecycleRowsSelectFinalOwningSegment": true,
+    "mixedResumedSegmentsReturnOnlyLifecycleRowsToProcess": true,
+    "flatSavedCommentaryRetainsExplicitPhase": true,
+    "liveResumedTextKeepsChronology": true,
+    "aliasIdentitySharedByGroupingAndEntrance": true,
+    "unregisteredSavedSpawnHasNoDeadControl": true,
+    "unownedLifecycleRowsAreDropped": true,
+    "activeChildBeforeTaskRegistrationHydratesExistingFacade": true,
+    "parentSwitchDuringHydrationCannotOpenAnotherChild": true,
+    "earlyLifecycleIdentityCoalescesIntoTaskCallAndOpenTab": true
+  },
+  "compactPresentation": {
+    "maxNamedItems": 3,
+    "overflowNamedItems": 2,
+    "maxAvatars": 4,
+    "overflowCountAction": "text",
+    "unnamedVisibleAvatarsOpenConversation": true,
+    "cases": [
+      {
+        "agents": 1,
+        "names": 1,
+        "avatars": 1,
+        "hidden": 0
+      },
+      {
+        "agents": 3,
+        "names": 3,
+        "avatars": 3,
+        "hidden": 0
+      },
+      {
+        "agents": 4,
+        "names": 2,
+        "avatars": 4,
+        "hidden": 2
+      },
+      {
+        "agents": 20,
+        "names": 2,
+        "avatars": 4,
+        "hidden": 18
+      }
+    ],
+    "avatarSizePx": 16,
+    "avatarGapPx": 6,
+    "lineHeightPx": 20,
+    "longNames": "wrap without truncation",
+    "entranceMs": 280,
+    "wireAdapter": "Klaus explicitly reports failed lifecycle receipts. Retain the finished-with-errors label in the owning process; failure is settled and cannot pin a fold open."
+  }
+}

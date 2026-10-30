@@ -1,0 +1,10 @@
+{
+  "reason": "Usage queries must retain imported Codex accounts, reuse valid access tokens, and distinguish refresh errors from a missing login.",
+  "expiryCases": [
+    { "name": "legacy valid JWT without stored expiry", "secondsUntilExpiry": 3600, "refreshCalls": 0, "usageState": "ok" },
+    { "name": "near-expiry JWT requires refresh", "secondsUntilExpiry": 30, "refreshCalls": 1, "usageState": "error" },
+    { "name": "expired JWT requires refresh", "secondsUntilExpiry": -3600, "refreshCalls": 1, "usageState": "error" },
+    { "name": "unknown expiry must not mean unlimited validity", "secondsUntilExpiry": null, "refreshCalls": 1, "usageState": "error" }
+  ],
+  "refreshFailureStatuses": [400, 401, 403, 429, 500]
+}

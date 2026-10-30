@@ -1,0 +1,40 @@
+{
+  "reason": "A failed or malformed engine page cannot replace a complete renderer snapshot with empty or partial history. Only the named facade ThreadPage shape is accepted.",
+  "invalid": [
+    null,
+    [],
+    {},
+    {
+      "unexpected": true
+    },
+    {
+      "sessions": []
+    },
+    {
+      "sessions": {
+        "threads": []
+      }
+    },
+    {
+      "sessions": {
+        "items": [
+          {
+            "title": "Missing identity"
+          }
+        ]
+      }
+    },
+    {
+      "sessions": {
+        "items": [],
+        "nextCursor": 42
+      }
+    },
+    {
+      "sessions": {
+        "items": [],
+        "nextCursor": ""
+      }
+    }
+  ]
+}

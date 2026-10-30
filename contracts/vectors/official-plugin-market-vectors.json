@@ -1,0 +1,5 @@
+{
+  "reason": "The published first-party prototype is discoverable before installation, while unapproved third-party catalog rows stay hidden and installed rows remain manageable.",
+  "visibleIds": ["browser@builtin", "fixture@local", "prototype-studio@klaus-official"],
+  "hiddenId": "hidden@other"
+}

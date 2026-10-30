@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "description": "Chat listing rows must expose their input and returned page through the standard tool disclosure. Compact routing previously discarded the output before it reached that disclosure. Live and replay rows share this behavior, including failed and interrupted calls.",
+  "cases": [
+    {
+      "toolName": "list_threads",
+      "args": { "limit": 10, "hostId": "local" },
+      "labels": {
+        "running": ["Listing chats", "正在列出聊天"],
+        "done": ["Listed chats", "已列出聊天"],
+        "error": ["Couldn’t list chats", "未能列出聊天"],
+        "interrupted": ["Listed chats", "已列出聊天"],
+        "awaiting-approval": ["Listing chats", "正在列出聊天"]
+      }
+    },
+    {
+      "toolName": "list_archived_threads",
+      "args": { "limit": 5, "cursor": "older-page" },
+      "labels": {
+        "running": ["Listing archived chats", "正在列出已归档聊天"],
+        "done": ["Listed archived chats", "已列出已归档聊天"],
+        "error": ["Couldn’t list archived chats", "未能列出已归档聊天"],
+        "interrupted": ["Listed archived chats", "已列出已归档聊天"]
+      }
+    },
+    {
+      "toolName": "klaus_query",
+      "args": { "key": "session", "action": "list", "arguments": { "limit": 10 } },
+      "labels": {
+        "running": ["Listing chats", "正在列出聊天"],
+        "done": ["Listed chats", "已列出聊天"],
+        "error": ["Couldn’t list chats", "未能列出聊天"],
+        "interrupted": ["Listed chats", "已列出聊天"]
+      }
+    }
+  ]
+}

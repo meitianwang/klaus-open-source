@@ -1,0 +1,30 @@
+{
+  "_why": "Editing and resending a stopped message must replace its local user bubble. Local composer turns have no user_message echo, and history excludes the running turn, so removing the old bubble without installing its replacement leaves an empty transcript. The edit acknowledgement may arrive after replacement thinking, output, termination, or history handoff; accepting it must preserve those events. Once history contains the replacement, superseded local snapshots must not restore the original request, even without its UUID. Missing display metadata is filled from the matching edited payload; saved metadata and later turns remain authoritative.",
+  "original": { "uuid": "original-user", "turnId": "original-turn", "text": "Original request" },
+  "replacement": { "uuid": "replacement-user", "turnId": "replacement-turn", "text": "Edited request" },
+  "earlier": { "uuid": "earlier-user", "role": "user", "turnId": "earlier-turn", "text": "Earlier request" },
+  "defaultLocalRender": { "attachments": [], "slashCommand": null, "composerReferences": [] },
+  "cases": [
+    { "name": "stopped first message, acknowledgement before events", "events": [], "running": true, "terminal": null },
+    { "name": "replacement thinking before acknowledgement", "events": ["requesting", "thinking"], "running": true, "terminal": null },
+    { "name": "replacement reply before acknowledgement", "events": ["requesting", "text"], "running": true, "terminal": null },
+    { "name": "replacement tool before acknowledgement", "events": ["requesting", "tool"], "running": true, "terminal": null },
+    { "name": "replacement completion before acknowledgement", "events": ["requesting", "text", "done"], "running": false, "terminal": "completed" },
+    { "name": "replacement interruption before acknowledgement", "events": ["requesting", "text", "interrupted"], "running": false, "terminal": "interrupted" },
+    { "name": "replacement failure before acknowledgement", "events": ["requesting", "failed"], "running": false, "terminal": "failed" }
+  ],
+  "laggingHistory": [
+    { "name": "completion", "events": ["requesting", "text", "done"], "terminal": "completed" },
+    { "name": "failure", "events": ["requesting", "failed"], "terminal": "failed" }
+  ],
+  "display": {
+    "text": "Expanded edited request",
+    "displayText": "Edited request",
+    "attachments": [{ "path": "/pool/photo.png", "name": "photo.png", "isImage": true }],
+    "slashCommand": { "name": "review" },
+    "composerReferences": [{ "kind": "file", "path": "/repo/readme.md" }],
+    "composerDocument": { "version": 1, "blocks": [{ "type": "text", "text": "Edited request" }] },
+    "pastedCards": [{ "text": "Pasted context" }],
+    "selectedTextAttachments": [{ "text": "Quoted context", "requestOffset": 0 }]
+  }
+}

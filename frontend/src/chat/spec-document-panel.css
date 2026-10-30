@@ -1,0 +1,60 @@
+.spec-document-panel { min-width: 0; overflow: hidden; }
+.spec-document-panel [hidden] { display: none !important; }
+.spec-document-toolbar { display: flex; align-items: center; gap: 8px; padding: 6px 16px; min-height: 20px; flex-shrink: 0; }
+.spec-document-icon { display: flex; flex: none; color: var(--fg-secondary); }
+.spec-document-icon svg { width: 14px; height: 14px; }
+.spec-document-title, .spec-document-select { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; color: var(--fg); }
+.spec-document-title { flex: 1; }
+.spec-document-select { flex: 1; max-width: 300px; border: none; background: transparent; font-family: inherit; padding: 2px 0; }
+.spec-document-actions { margin-left: auto; display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.spec-document-actions button, .spec-document-find button { width: 20px; height: 20px; display: inline-flex; align-items: center; justify-content: center; padding: 0; border: none; border-radius: 4px; background: transparent; color: var(--fg-secondary); cursor: pointer; }
+.spec-document-actions button svg, .spec-document-find button svg { width: 16px; height: 16px; }
+.spec-document-actions button:hover:not(:disabled), .spec-document-find button:hover:not(:disabled) { background: var(--bg-hover); color: var(--fg); }
+.spec-document-actions button:disabled, .spec-document-find button:disabled { opacity: .4; cursor: default; }
+.spec-document-actions button:focus-visible, .spec-document-find button:focus-visible { outline: none; background: var(--bg-hover); color: var(--fg); box-shadow: none;}
+/* A find field is a text entry: the ring is its focus language. */
+.spec-document-select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; box-shadow: none; }
+.spec-document-find { display: flex; align-items: center; gap: 6px; flex-shrink: 0; margin: 0 16px 6px auto; padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-surface); max-width: calc(100% - 32px); }
+.spec-document-find input { width: 180px; min-width: 48px; height: 20px; padding: 0 6px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg-surface); color: var(--fg); font-size: 12px; outline-color: var(--accent); }
+.spec-document-find-count { min-width: 42px; text-align: right; font-size: 12px; color: var(--fg-tertiary); }
+.spec-document-views { flex: 1; min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
+.spec-document-view { position: relative; display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden; }
+.spec-document-body { flex: 1; min-height: 0; overflow: auto; padding: 16px 20px; }
+.spec-document-panel .spec-document-content { padding: 0; margin: 0; border: 0; background: transparent; max-height: none; overflow: visible; user-select: text; color: var(--fg); font-size: var(--text-body-sm); line-height: 1.6; overflow-wrap: break-word; }
+/* The document lives outside transcript bubbles, so it needs its own scoped Markdown rhythm. */
+.spec-document-content :is(p, ul, ol, blockquote) { margin: 0 0 14px; }
+.spec-document-content :is(h1, h2, h3, h4, h5, h6) { margin: 24px 0 16px; line-height: 1.25; font-weight: var(--weight-semibold); }
+.spec-document-content h1 { font-size: 1.6em; }
+.spec-document-content h2 { font-size: 1.3em; }
+.spec-document-content h3 { font-size: 1.15em; }
+.spec-document-content h4 { font-size: 1em; }
+.spec-document-content h5 { font-size: .875em; }
+.spec-document-content h6 { font-size: .85em; }
+.spec-document-content > :first-child { margin-top: 0; }
+.spec-document-content > :last-child { margin-bottom: 0; }
+.spec-document-content :is(ul, ol) { padding-inline-start: 2em; }
+.spec-document-content li + li { margin-top: .25em; }
+.spec-document-content li p { margin-bottom: .7em; }
+.spec-document-content li :is(ul, ol) { margin-bottom: 1rem; }
+.spec-document-content li > :last-child { margin-bottom: 0; }
+.spec-document-content blockquote { padding-left: 12px; border-left: 3px solid var(--border); color: var(--fg-secondary); }
+.spec-document-content a { color: var(--accent); text-decoration: none; }
+.spec-document-content a:hover { text-decoration: underline; }
+.spec-document-content code { font-family: var(--font-mono); }
+.spec-document-content code:not(pre code) { padding: 1px 5px; background: var(--code-bg); border-radius: var(--radius-xxs); font-size: .92em; }
+.spec-document-content pre { margin: 8px 0 14px; padding: 12px 14px; overflow-x: auto; background: var(--code-bg); border-radius: var(--radius-sm); font-size: var(--text-small); line-height: 1.6; }
+.spec-document-content pre code { padding: 0; background: transparent; }
+.spec-document-content table { width: 100%; border-collapse: collapse; margin: 0 0 14px; font-size: var(--text-small); }
+.spec-document-content :is(th, td) { padding: 6px 10px; border: 1px solid var(--border); text-align: left; }
+.spec-document-content th { background: var(--bg-surface); font-weight: var(--weight-semibold); }
+.spec-document-content hr { margin: 16px 0; border: 0; border-top: 1px solid var(--border); }
+.spec-document-content :is(img, video) { max-width: 100%; height: auto; }
+.spec-document-content mark.spec-document-match { color: inherit; background: color-mix(in srgb, var(--accent) 22%, transparent); border-radius: 2px; }
+.spec-document-content mark.spec-document-match.is-current { outline: 1px solid var(--accent); background: color-mix(in srgb, var(--accent) 38%, transparent); }
+.spec-document-status { padding: 4px 20px; font-size: 12px; color: var(--fg-tertiary); overflow-wrap: anywhere; flex-shrink: 0; }
+.spec-document-empty { padding: 32px 20px; text-align: center; font-size: 13px; color: var(--fg-tertiary); }
+.spec-document-panel .spec-annotations { flex-shrink: 0; max-height: 160px; overflow: auto; margin: 8px 20px; }
+.spec-document-footer { padding: 6px 20px 12px; display: flex; justify-content: flex-end; flex-shrink: 0; }
+.spec-document-footer button { border: none; border-radius: 4px; padding: 4px 10px; background: var(--accent); color: var(--accent-text); font-size: 12px; cursor: pointer; }
+.spec-document-footer button:disabled { opacity: .5; cursor: default; }
+@media (max-width: 700px) { .spec-document-toolbar { padding-inline: 12px; } .spec-document-actions { gap: 4px; } }

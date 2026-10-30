@@ -1,0 +1,25 @@
+{
+  "reason": "Image copy acknowledges success only after the platform clipboard write finishes, and preserves an asynchronous write failure in its result. Scoped metadata inspection uses HEAD and reports missing, denied, busy and invalid references without transferring image bytes. Recognized image signatures determine MIME for display and saved filenames even when a capture has a mislabeled suffix.",
+  "copySuccess": {
+    "ok": true
+  },
+  "copyFailure": {
+    "ok": false,
+    "error": "Clipboard write failed"
+  },
+  "inspection": {
+    "request": {
+      "inspect": true
+    },
+    "transfersImageBytes": false,
+    "mimeType": "recognized-image-content-before-filename-suffix",
+    "reasons": [
+      "not-found",
+      "denied",
+      "busy",
+      "invalid",
+      "unavailable"
+    ],
+    "retryUsesNewScopedCapability": true
+  }
+}

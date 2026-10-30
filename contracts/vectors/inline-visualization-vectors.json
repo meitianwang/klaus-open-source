@@ -1,0 +1,11 @@
+[
+  { "source": "::klaus-inline-vis{path=\"/home/me/.klaus/visualizations/abc123/home-dashboard.html\"}", "parses": true, "path": "/home/me/.klaus/visualizations/abc123/home-dashboard.html", "reason": "well-formed" },
+  { "source": "::klaus-inline-vis{path=\"/tmp/vis.html\" mode=\"wide\"}", "parses": true, "path": "/tmp/vis.html", "reason": "wide-mode" },
+  { "source": "The chart is ready: ::klaus-inline-vis{path=\"/tmp/vis.html\"}", "parses": false, "path": null, "reason": "prose-glued" },
+  { "source": "::klaus-inline-vis{path=\"vis.html\"}", "parses": false, "path": null, "reason": "relative-path" },
+  { "source": "::klaus-inline-vis{path=\"\"}", "parses": false, "path": null, "reason": "empty-path" },
+  { "source": "::klaus-inline-vis{path=\"/tmp/sub/dir/page.html\"}", "parses": true, "path": "/tmp/sub/dir/page.html", "reason": "nested-path" },
+  { "source": "::klaus-inline-vis{}", "parses": false, "path": null, "reason": "missing-path-attribute" },
+  { "source": "::klaus-inline-vis{unknown=\"x\"}", "parses": false, "path": null, "reason": "unknown-attribute-only" },
+  { "source": "::klaus-inline-vis{path=\"/tmp/vis.html\"}   ", "parses": true, "path": "/tmp/vis.html", "reason": "line-with-trailing-space" }
+]
