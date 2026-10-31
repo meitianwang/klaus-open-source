@@ -5,7 +5,7 @@ import { friendDisplayName } from '../../pages/friends/display-name'
 import { friendsRuntimeSnapshot, subscribeFriendsRuntime } from '../../pages/friends/runtime-state'
 import { friendOutgoingActionPending, friendOutgoingActionsRevision, performFriendOutgoingAction, subscribeFriendOutgoingActions } from '../../pages/friends/outgoing-actions'
 import type { ActivityToolData } from './activity-tool-model'
-import { activityRecord, activityResultObjects, activityResultText, friendRecipientName, friendSendResult, friendSendToolName } from './activity-semantic'
+import { activityErrorText, activityRecord, activityResultObjects, friendRecipientName, friendSendResult, friendSendToolName } from './activity-semantic'
 import styles from './activity-rich-details.module.css'
 import { friendOutgoingStatusKey } from './friend-presentation'
 
@@ -53,7 +53,7 @@ export function FriendActivityDetails({ tool, locale }: { tool: ActivityToolData
   // The owner may have edited the text before it left; the result carries what was sent.
   const message = sent.prompt ?? (typeof args.prompt === 'string' ? args.prompt : typeof args.question === 'string' ? args.question : '')
   const failed = tool.state === 'error' || tool.state === 'interrupted'
-  const failure = failed ? activityResultText(tool.output) : ''
+  const failure = failed ? activityErrorText(tool.output) : ''
   return <div className={styles.friendDetails} data-friend-result={sending ? 'send' : 'list'} data-friend-kind={sending ? kind : undefined}>
     {sending ? <>
       <div className={styles.friendRecipient}><Icon name="tool-friends" size={16} /><span>{recipient}</span></div>

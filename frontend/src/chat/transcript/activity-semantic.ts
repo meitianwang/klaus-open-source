@@ -252,3 +252,10 @@ export function activityResultText(output: string | undefined): string {
   const text = activityResultObjects(output).flatMap(item => typeof item.text === 'string' ? [item.text] : typeof item.content === 'string' ? [item.content] : [])
   return text.length ? [...new Set(text)].join('\n') : output ?? ''
 }
+
+/** Remove the model-facing error envelope from the human-readable failure reason. */
+export function activityErrorText(output: string | undefined): string {
+  const text = activityResultText(output)
+  const match = /^\s*<tool_use_error(?:\s+tool="[^"]*")?\s*>\r?\n?([\s\S]*?)\r?\n?<\/tool_use_error>\s*$/.exec(text)
+  return match?.[1] ?? text
+}

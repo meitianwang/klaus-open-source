@@ -158,4 +158,13 @@ describe('friend activity results', () => {
     expect(html).toContain('Friend is offline.')
     expect(html).not.toContain('data-friend-delivery')
   })
+
+  test('shows the failure reason without the model-facing error envelope', () => {
+    const output = '<tool_use_error tool="reply_to_friend">\nPermissions changed while awaiting approval; retry this action under the current policy.\n</tool_use_error>'
+    for (const value of [output, { success: false, contentItems: [{ type: 'inputText', text: output }] }]) {
+      const html = render(tool('reply_to_friend', value, 'error'))
+      expect(html).toContain('Permissions changed while awaiting approval; retry this action under the current policy.')
+      expect(html).not.toContain('tool_use_error')
+    }
+  })
 })
