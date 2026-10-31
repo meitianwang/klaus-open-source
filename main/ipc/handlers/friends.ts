@@ -31,13 +31,6 @@ export function registerFriendsHandlers(registry: ChannelRegistry, service: Frie
     const result = await service.setRemark(payload(context));
     context.assertCurrent?.(); return result as unknown as Json;
   }, 'friends');
-  // Whether a message Klaus drafted waits for the owner before reaching this friend.
-  registry.register('friends:set-agent-confirmation', async context => {
-    if (context.role !== 'main') throw new IpcHandlerError('FORBIDDEN_CHANNEL', 'Friends management is available in the main window');
-    context.assertCurrent?.();
-    const result = await service.setAgentConfirmation(payload(context));
-    context.assertCurrent?.(); return result as unknown as Json;
-  }, 'friends');
   // The owner's own scannable add-me card. The QR itself is produced host-side
   // (the renderer never sees the encoder); these channels only hand out the
   // finished card and carry its two outward actions.
@@ -87,7 +80,6 @@ export function registerFriendsHandlers(registry: ChannelRegistry, service: Frie
     'friends:set-default-grant': 'setDefaultGrant', 'friends:resolve-access-request': 'resolveAccessRequest',
     'friends:pending-access-requests': 'pendingAccessRequests',
     'friends:retry-send': 'retrySend', 'friends:prepare-local-assist': 'prepareLocalAssist',
-    'friends:resolve-send-confirmation': 'resolveSendConfirmation', 'friends:pending-send-confirmations': 'pendingSendConfirmations',
     'friends:request-reply': 'requestReply',
   } as const;
   for (const [channel, method] of Object.entries(runtimeOperations)) registry.register(channel, async context => {

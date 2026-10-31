@@ -883,10 +883,7 @@
   overflow-y: auto;
 }
 
-/* Friend message confirmation: who receives it and how, then the exact text. */
-.friend-confirm-rows { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; font-size: var(--text-small); color: var(--fg); }
-.friend-confirm-row { display: grid; grid-template-columns: minmax(64px, max-content) minmax(0, 1fr); gap: 12px; line-height: var(--leading-permission-text); }
-.friend-confirm-label { color: var(--fg-tertiary); }
+/* The exact text of a friend message waiting for the owner's approval. */
 .friend-confirm-message {
   font-size: var(--text-body-sm);
   line-height: var(--leading-permission-text);
@@ -901,23 +898,6 @@
   max-height: 220px;
   overflow-y: auto;
 }
-.friend-confirm-editor {
-  display: block;
-  width: 100%;
-  box-sizing: border-box;
-  font: inherit;
-  font-size: var(--text-body-sm);
-  line-height: var(--leading-permission-text);
-  color: var(--fg);
-  background: var(--input-bg, var(--bg));
-  border: 1px solid var(--input-border, var(--border));
-  border-radius: var(--radius-xs);
-  padding: 8px 10px;
-  margin-bottom: 10px;
-  resize: vertical;
-}
-.friend-confirm-editor:focus { outline: none; border-color: var(--input-focus, var(--border-strong)); }
-.friend-confirm-hint { font-size: var(--text-caption, 12px); color: var(--fg-tertiary); }
 
 .permission-input-details { margin-bottom: 12px; }
 

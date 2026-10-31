@@ -1,7 +1,7 @@
 {
   "summary": {
-    "invokeDeclared": 710,
-    "pushDeclared": 75
+    "invokeDeclared": 707,
+    "pushDeclared": 73
   },
   "rows": [
     {
@@ -1113,10 +1113,6 @@
       "kind": "invoke"
     },
     {
-      "channel": "friends:pending-send-confirmations",
-      "kind": "invoke"
-    },
-    {
       "channel": "friends:prepare-local-assist",
       "kind": "invoke"
     },
@@ -1138,10 +1134,6 @@
     },
     {
       "channel": "friends:resolve-access-request",
-      "kind": "invoke"
-    },
-    {
-      "channel": "friends:resolve-send-confirmation",
       "kind": "invoke"
     },
     {
@@ -1174,10 +1166,6 @@
     },
     {
       "channel": "friends:send-message",
-      "kind": "invoke"
-    },
-    {
-      "channel": "friends:set-agent-confirmation",
       "kind": "invoke"
     },
     {
@@ -2982,14 +2970,6 @@
     },
     {
       "channel": "friend:access-resolved",
-      "kind": "push"
-    },
-    {
-      "channel": "friend:send-confirmation",
-      "kind": "push"
-    },
-    {
-      "channel": "friend:send-confirmation-resolved",
       "kind": "push"
     },
     {

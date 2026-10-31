@@ -12,7 +12,6 @@ import { createFriendsPageController, failureText, grantSubmission } from './dat
 import { FRIEND_INVITE_EVENT, takeQueuedFriendInvite } from './invite'
 import { decodeImageFile, decodeVideoFrame } from './qr-scan'
 import { writeClipboardText } from '../../clipboard'
-import { PrefToggleRow } from '../settings/kv'
 import styles from './friends.module.css'
 
 export const FRIENDS_PAGE_VISIBLE_EVENT = 'klaus:friends-page-visible'
@@ -331,12 +330,9 @@ export function FriendsPage() {
   // The remark draft loads once per opened friend; runtime refreshes must not
   // clobber what the owner is typing.
   const [remarkDraft, setRemarkDraft] = useState<string | null>(null)
-  // Absent on the friend means confirm: only an explicit false sends without asking.
-  const [confirmDraft, setConfirmDraft] = useState(true)
   useEffect(() => {
     const friend = friends.find(row => row.id === settingsId)
     setRemarkDraft(friend ? friend.remark ?? '' : null)
-    setConfirmDraft(friend?.confirmAgentMessages !== false)
     const template = runtime?.templates.find(row => row.friendId === settingsId && row.deviceId === currentDeviceId)
     setSettingsAllowed(!!friend && receiveChoice(friend.allowIncomingAgentTasks, template?.grant.policy) !== 'off')
   }, [settingsId])
@@ -362,10 +358,9 @@ export function FriendsPage() {
   // still enables the button.
   const remarkChanged = !!settingsFriend && remarkDraft !== null && remarkDraft.trim() !== (settingsFriend.remark ?? '')
   const receivingChanged = !!settingsFriend && settingsAllowed !== settingsFriend.allowIncomingAgentTasks
-  const confirmChanged = !!settingsFriend && confirmDraft !== (settingsFriend.confirmAgentMessages !== false)
   const grantReady = !!settingsStaged.grant && settingsAllowed
   const saveSettings = async () => {
-    if (!settingsFriend || settingsSaving || settingsAllowed && !grantReady || !(remarkChanged || receivingChanged || confirmChanged || grantReady)) return
+    if (!settingsFriend || settingsSaving || settingsAllowed && !grantReady || !(remarkChanged || receivingChanged || grantReady)) return
     const friend = settingsFriend
     const remark = remarkDraft === null ? null : remarkDraft.trim()
     if (!settingsAllowed && friend.allowIncomingAgentTasks) {
@@ -385,10 +380,6 @@ export function FriendsPage() {
       }
       if (remark !== null && remark !== (friend.remark ?? '')) {
         const ok = await manage(`remark:${friend.id}`, () => window.klaus.friends.setRemark({ friendId: friend.id, remark }))
-        if (!ok) throw new Error(controller.getSnapshot().actionError || t('friends_action_error'))
-      }
-      if (confirmChanged) {
-        const ok = await manage(`agent-confirmation:${friend.id}`, () => window.klaus.friends.setAgentConfirmation({ friendId: friend.id, confirm: confirmDraft }))
         if (!ok) throw new Error(controller.getSnapshot().actionError || t('friends_action_error'))
       }
       setSettingsId(null)
@@ -453,16 +444,12 @@ export function FriendsPage() {
     })()}>{t('friends_accept')}</button></>}><div className={styles.profileResult}><FriendAvatar large name={friendDisplayName(acceptingFriend)} url={acceptingFriend.avatarUrl} /><div><strong>{friendDisplayName(acceptingFriend)}</strong>{'email' in acceptingFriend && typeof acceptingFriend.email === 'string' && <p>{acceptingFriend.email}</p>}</div><span className={styles.accountBadge}>{t('friends_klaus_account')}</span></div><ReceiveChoiceRow value={acceptChoice} disabled={busy} onChange={setAcceptChoice} />{state.actionError && <p className={styles.formError} role="alert">{state.actionError}</p>}</FriendsDialog>}
     {settingsFriend && <FriendsDialog wide title={`${friendDisplayName(settingsFriend)} · ${t('friends_settings')}`} closeDisabled={busy || settingsSaving} onClose={() => setSettingsId(null)} footer={<>
       <button className="kls-btn kls-btn-secondary" disabled={busy || settingsSaving} onClick={() => setSettingsId(null)}>{t('friends_cancel')}</button>
-      <button className="kls-btn kls-btn-primary" disabled={busy || settingsSaving || settingsAllowed && !grantReady || !(remarkChanged || receivingChanged || confirmChanged || grantReady)} onClick={() => void saveSettings()}>{t(settingsSaving ? 'friends_saving' : 'friends_save')}</button>
+      <button className="kls-btn kls-btn-primary" disabled={busy || settingsSaving || settingsAllowed && !grantReady || !(remarkChanged || receivingChanged || grantReady)} onClick={() => void saveSettings()}>{t(settingsSaving ? 'friends_saving' : 'friends_save')}</button>
     </>}>
       <div className={styles.profileResult}><FriendAvatar large name={friendDisplayName(settingsFriend)} url={settingsFriend.avatarUrl} /><strong>{friendDisplayName(settingsFriend)}</strong></div>
       <div className={styles.settingsSection}><h3>{t('friends_remark')}</h3>
         <div className={styles.lookupFields}><input id="friends-remark" aria-label={t('friends_remark')} disabled={busy || settingsSaving} maxLength={200} value={remarkDraft ?? ''} placeholder={t('friends_remark_placeholder')} onChange={event => setRemarkDraft(event.target.value)} /></div>
         <p className={styles.muted}>{t('friends_remark_hint')}</p>
-      </div>
-      <div className={styles.settingsSection} data-friend-agent-confirmation><h3>{t('friends_section_agent_messages')}</h3>
-        <PrefToggleRow id="friends-confirm-agent-messages" label={t('friends_confirm_agent_messages')} desc={t('friends_confirm_agent_messages_hint')}
-          checked={confirmDraft} disabled={busy || settingsSaving} onChange={setConfirmDraft} />
       </div>
       <div className={styles.settingsSection}><h3>{t('friends_permission_single')}</h3>
         {settingsGrant && settingsApps ? <GrantEditor receiving={settingsAllowed} onReceivingChange={setSettingsAllowed} draft={settingsGrant} apps={settingsApps} disabled={busy || settingsSaving} sharedRoot={friendSharedRoot(runtime?.friendFilesRoot, settingsFriend.id)} targets={runtime?.executionTargets} onPickDirectory={pickDirectory} onChange={next => setSettingsGrant(value => value ? next(value) : value)} /> : <p className={styles.muted}>{t('friends_apps_loading')}</p>}

@@ -81,9 +81,6 @@ export function PermissionCard({ req, startedAt, resolved, sessionId }: {
   if (req.toolName === 'request_directory_access') {
     return <FriendAccessCard req={req} startedAt={startedAt} resolved={resolved} sessionId={sessionId} />
   }
-  if (req.toolName === 'friend_send_confirmation') {
-    return <FriendSendConfirmationCard req={req} startedAt={startedAt} resolved={resolved} sessionId={sessionId} />
-  }
   if (FRIEND_MESSAGE_APPROVAL_TOOLS.has(req.toolName)) {
     return <FriendMessageApprovalCard req={req} startedAt={startedAt} resolved={resolved} sessionId={sessionId} />
   }
@@ -195,7 +192,7 @@ export function PermissionCard({ req, startedAt, resolved, sessionId }: {
 // ==================== Friend message approval card ====================
 
 const FRIEND_MESSAGE_APPROVAL_TOOLS = new Set([
-  'send_message_to_friend', 'reply_to_friend', 'send_friend_progress', 'ask_friend_for_information',
+  'send_message_to_friend', 'reply_to_friend', 'ask_friend_for_information',
 ])
 
 /** An outbound friend message is a communication decision, not a sandbox grant.
@@ -221,8 +218,7 @@ export function FriendMessageApprovalCard({ req, resolved, sessionId }: {
   const task = runtime?.tasks.find(row => row.threadId === sessionId || row.ownerChatThreadId === sessionId)
   const suppliedName = typeof input.friendName === 'string' && input.friendName.trim() ? input.friendName : ''
   const name = suppliedName || task?.senderDisplayName || friendId || t('friend_identity_tag')
-  const action = req.toolName === 'reply_to_friend' ? 'reply' : req.toolName === 'send_friend_progress' ? 'progress'
-    : req.toolName === 'ask_friend_for_information' ? 'question' : 'send'
+  const action = req.toolName === 'reply_to_friend' ? 'reply' : req.toolName === 'ask_friend_for_information' ? 'question' : 'send'
   const message = typeof input.prompt === 'string' ? input.prompt : typeof input.question === 'string' ? input.question : ''
   const messageId = `friend-message-${req.requestId}`
   const respond = async (decision: 'allow' | 'deny') => {
@@ -309,79 +305,6 @@ export function FriendAccessCard({ req, startedAt, resolved, sessionId }: {
             </label>
             <button className={`${styles['permission-btn']} ${styles['permission-btn-deny']}`} disabled={locked} onClick={() => void respond('decline')}>{t('friend_access_decline')}</button>
             <button className={`${styles['permission-btn']} ${styles['permission-btn-allow']}`} disabled={locked} onClick={() => void respond('approve')}>{t(responseState.phase === 'submitting' ? 'spec_question_submitting' : 'friend_access_approve')}</button>
-          </>
-        )}
-      </div>
-    </div>
-  )
-}
-
-// ==================== Friend message confirmation card ====================
-
-// A message Klaus wrote for a friend waits here before anything leaves this
-// computer. The owner sees who receives it, what kind of message it is and the
-// exact text, and can send it, edit it first or not send it. The card answers
-// the host, which then completes the parked tool call either way.
-export function FriendSendConfirmationCard({ req, startedAt, resolved, sessionId }: {
-  req: any
-  startedAt: number
-  resolved: null | { decision: string }
-  sessionId: string
-}) {
-  const t = useT()
-  const input = (req.toolInput || {}) as { friendName?: unknown; intent?: unknown; onReply?: unknown; prompt?: unknown; reason?: unknown }
-  const name = typeof input.friendName === 'string' && input.friendName.trim() ? input.friendName : t('friend_identity_tag')
-  const notice = input.intent === 'notice'
-  const original = typeof input.prompt === 'string' ? input.prompt : ''
-  const [editing, setEditing] = useState(false)
-  const [draft, setDraft] = useState(original)
-  const submission = useMemo(createQuestionSubmissionController, [req.requestId, sessionId])
-  const responseState = useSyncExternalStore(submission.subscribe, submission.getSnapshot, submission.getSnapshot)
-  const locked = !!resolved || responseState.phase !== 'pending'
-  useEffect(() => {
-    if (resolved) submission.resolve(resolved.decision === 'allow' ? 'submitted' : 'skipped')
-  }, [submission, resolved?.decision])
-  const edited = editing && draft.trim() !== original.trim()
-  const respond = async (decision: 'send' | 'decline') => {
-    if (decision === 'send' && editing && !draft.trim()) return
-    const succeeded = await submission.send(
-      () => w().klaus.friends.resolveSendConfirmation({ requestId: req.requestId, decision, ...(decision === 'send' && edited ? { prompt: draft.trim() } : {}) }),
-      decision === 'send' ? 'submitted' : 'skipped',
-    )
-    if (!succeeded) return
-    w().untrackApprovalRequest?.(req.requestId)
-    resolveLiveApproval(sessionId, req.requestId, { decision: decision === 'send' ? 'allow' : 'deny' })
-  }
-  const row = (label: string, value: string, field: string) => <div className={`${styles['friend-confirm-row']}`} data-friend-confirm-field={field}>
-    <span className={`${styles['friend-confirm-label']}`}>{label}</span><span>{value}</span>
-  </div>
-  return (
-    <div className={`permission-card${resolved ? ' permission-resolved' : ''}`} id={`perm-${req.requestId}`}
-      data-tool-name="friend_send_confirmation" data-session-id={sessionId} aria-busy={!resolved && locked}>
-      <ApprovalChip iconHtml={rawIconHtml(notice ? 'tool-friend-send' : 'tool-friends')} label={t(notice ? 'friend_confirm_chip_notice' : 'friend_confirm_chip_request').replace('{name}', name)}
-        timer={resolved ? null : <WaitingTimer startedAt={startedAt} />} />
-      <div className={`${styles['friend-confirm-rows']}`}>
-        {row(t('friend_confirm_recipient'), name, 'recipient')}
-        {row(t('friend_confirm_type'), t(notice ? 'friend_confirm_type_notice' : 'friend_confirm_type_request'), 'type')}
-        {!notice && (input.onReply === 'follow_up' || input.onReply === 'display')
-          ? row(t('friend_confirm_after_reply'), t(input.onReply === 'follow_up' ? 'friend_confirm_follow_up' : 'friend_confirm_display'), 'after-reply') : null}
-      </div>
-      {editing && !resolved
-        ? <textarea className={`${styles['friend-confirm-editor']}`} aria-label={t('friend_confirm_message_label')} value={draft} disabled={locked}
-            rows={Math.min(10, Math.max(3, draft.split('\n').length + 1))} onChange={event => setDraft(event.target.value)} autoFocus />
-        : <div className={`${styles['friend-confirm-message']}`} data-friend-confirm-message>{editing ? draft : original}</div>}
-      {input.reason !== 'task' && !resolved ? <div className={`${styles['friend-confirm-hint']}`}>{t('friend_confirm_hint')}</div> : null}
-      {responseState.failed ? <div className="spec-question-error" role="alert">{t('spec_question_submit_failed')}</div> : null}
-      <div className={`${styles['permission-actions']}`}>
-        {resolved ? (
-          <div className={`${styles['permission-result']} ${resolved.decision === 'allow' ? 'permission-allowed' : 'permission-denied'}`}>
-            {resolved.decision === 'allow' ? t('friend_confirm_sent') : t('friend_confirm_declined')}
-          </div>
-        ) : (
-          <>
-            <button className={`${styles['permission-btn']} ${styles['permission-btn-deny']}`} disabled={locked} onClick={() => void respond('decline')}>{t('friend_confirm_decline')}</button>
-            {!editing ? <button className={`${styles['permission-btn']} ${styles['permission-btn-session']}`} disabled={locked} onClick={() => setEditing(true)}>{t('friend_confirm_edit')}</button> : null}
-            <button className={`${styles['permission-btn']} ${styles['permission-btn-allow']}`} disabled={locked || editing && !draft.trim()} onClick={() => void respond('send')}>{t(responseState.phase === 'submitting' ? 'spec_question_submitting' : 'friend_confirm_send')}</button>
           </>
         )}
       </div>

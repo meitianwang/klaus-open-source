@@ -71,10 +71,13 @@ h.test('direct composer forwarding bypasses the local model and preserves non-ch
     const sent=f.requests.find(row=>row.type==='send')!;
     assert.equal(sent.prompt,'Explain the literal '+token+' in this log.');assert.equal(sent.onReply,'display');
     // The composer row is written into the conversation's engine history once,
-    // with the full text as typed; history is never fabricated from the ledger.
+    // tagged as the owner's message to the friend, with the words as typed apart
+    // from the recipient chip; history is never fabricated from the ledger.
     await waitFor(()=>f.engineAppends.length===1,1000,'engine publication');
     const saved=f.engineAppends[0]!;
-    assert.equal(saved.sessionId,'owner-thread');assert.equal(saved.messageId,'friend-dispatch-dispatch-one');assert.equal(saved.text,text);
+    assert.equal(saved.sessionId,'owner-thread');assert.equal(saved.messageId,'friend-dispatch-dispatch-one');
+    assert.match(saved.text,/^<owner-message to="[^"]+" purpose="request for them to handle" at="[^"]+">\nExplain the literal @friend-[^ ]+ in this log\.\n<\/owner-message>$/u);
+    assert.equal(object(saved.metadata as JsonObject).displayText,text);
     assert.equal(object(saved.metadata as JsonObject).friendOutgoingMessage,true);
     assert.deepEqual(object(f.service.projectHistory({messages:[]},'owner-thread')).messages,[]);
     const live=object(f.pushed[0]);
@@ -116,7 +119,8 @@ h.test('notices persist across restart and never enter an engine turn or follow-
     assert.deepEqual(f.created[0]!.friendConversationGroup,{accountId:SELF,friendshipId:FRIEND,friendUserId:PEER});
     assert.equal(object(f.created[0]!.hostMetadata).threadSource,undefined);
     assert.equal(friendSessionScope(f.root,'receiver-thread'),undefined);
-    assert.equal(await f.service.composerContext('Make a local todo.',{},'receiver-thread'),'');
+    // The conversation carries the friend rules on each turn; the notice itself starts nothing.
+    assert.match(await f.service.composerContext('Make a local todo.',{},'receiver-thread'),/^<friend-context as-of="[^"]+">[\s\S]*No collaboration is open\.\n<\/friend-context>$/u);
     await f.restart();await f.service.receive(note,signal());
     const messages=new FriendMessageStore(f.root).list(SELF,'receiver-thread');assert.equal(messages.length,1);assert.equal(messages[0]!.metadata.friendIntent,'notice');assert.equal(f.turns.length,0);assert.equal(f.followUps.length,0);
     assert.equal(withSettingsTransaction(f.root,db=>friendConversationGroups(db,['receiver-thread'],SELF)).get('receiver-thread')?.friendshipId,FRIEND);
@@ -149,13 +153,10 @@ h.test('clarification is structured, ends the receiver turn, and preserves the r
     const result=await f.tool('receiver-thread','ask_friend_for_information',{question:'Which project should I inspect?'},'question-call');
     assert.match(JSON.stringify(result),/Do not wait/);
     assert.equal(f.store.get(SELF,receipt.taskId)?.status,'running','independent receiver work can finish before final');
-    // Findings for the friend travel as explicit progress; the final answer stays with the owner.
-    await f.tool('receiver-thread','send_friend_progress',{prompt:'B is checked.'},'progress-call');
     f.turns[0]!.resolve({reply:'Owner note: B is checked; I asked for the project name for A.'});
     await waitFor(()=>f.store.get(SELF,receipt.taskId)?.status==='needs-input',1000,'receiver final');
     assert.equal(f.turns.length,1,'an open question is not a missing reply, so no reminder turn runs');
     const question=f.requests.find(row=>row.replyType==='needs_input')!;assert.equal(question.replyToRequestId,'root-inbound');assert(question.questionId);
-    assert(f.requests.some(row=>row.replyType==='progress'&&row.prompt==='B is checked.'),'independent progress delivery');
     assert(!f.requests.some(row=>String(row.prompt??'').includes('Owner note')),'the final answer never reaches the friend');
     await f.service.receive(f.incoming({requestId:'supplement-one',supplementToRequestId:'root-inbound',questionId:String(question.questionId),prompt:'Inspect the image-service project.'}),signal());
     await waitFor(()=>f.turns.length===2,1000,'supplement follow-up');
@@ -250,7 +251,9 @@ h.test('saved friend notices expose renderer fields without a model turn',async(
     const projected=object(f.service.projectHistory({messages:[]},'owner-thread',{kind:'page',turns:[{id:'owner-thread-preamble'}],hasMore:false}));
     assert.deepEqual(projected.messages,[]);
     await waitFor(()=>f.engineAppends.length===1,1000,'engine publication');
-    assert.deepEqual(f.engineAppends[0],{sessionId:'owner-thread',messageId:'friend-message-notice',text:'Hello',metadata});
+    const { text: published, ...row } = f.engineAppends[0]!;
+    assert.deepEqual(row,{sessionId:'owner-thread',messageId:'friend-message-notice',metadata});
+    assert.match(published,/^<friend-message from="[^"]+" purpose="notice" at="[^"]+">\nHello\n<\/friend-message>$/u);
     assert.equal(f.turns.length,0);
     const detail=object(f.service.projectHistory({messages:[]},'owner-thread',{kind:'items'}));
     assert.deepEqual(detail.messages,[]);

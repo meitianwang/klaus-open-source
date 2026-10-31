@@ -244,11 +244,13 @@ void (async () => {
       // Auxiliary task model picks add two settings channels exposed on the
       // featureModels surface: `settings:feature-models:get/set`.
       // 706 is the inventory the committed contract already declared when this
-      // count was last reconciled. Friend drafts add four owner-only transports:
+      // count was last reconciled. Friend drafts added four owner-only transports:
       // resolving and recovering a drafted message's confirmation, the
       // per-friend confirmation preference and the request that Klaus reply to a
-      // task that closed without one.
-      assert.equal(channels.size, 710);
+      // task that closed without one. Friend messages now follow the
+      // conversation's permission mode, so the three confirmation transports are
+      // gone again and only the reply request remains.
+      assert.equal(channels.size, 707);
       const companionChannels = [...channels].filter(channel => channel.startsWith('desktop-pet:'));
       assert.equal(companionChannels.length, 58);
       for (const channel of companionChannels) {

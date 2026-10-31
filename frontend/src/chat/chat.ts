@@ -14137,19 +14137,6 @@ klausApi.on.friendsChanged?.(() => {
         toolInput: { path: request.path, access: request.access, reason: request.reason, remember: request.remember === true } })
     }
   }).catch(() => {})
-  // Send confirmations park the model's tool call in host memory too; recover
-  // their cards the same way so a reload never strands a waiting message.
-  void klausApi.friends.pendingSendConfirmations?.().then((rows: any) => {
-    for (const row of Array.isArray(rows) ? rows : []) {
-      const request = row as { id?: string; sessionId?: string; friendId?: string; friendName?: string; intent?: string; onReply?: string; prompt?: string; reason?: string }
-      if (!request.id || !request.sessionId) continue
-      const known = pendingPermissionsBySession.get(request.sessionId)?.some(req => req.requestId === request.id)
-        || getSessionStream(request.sessionId).liveUnits.some(unit => 'req' in unit && (unit as { req?: { requestId?: string } }).req?.requestId === request.id)
-      if (known) continue
-      showPermissionRequest({ requestId: request.id, sessionId: request.sessionId, toolName: 'friend_send_confirmation',
-        toolInput: { friendId: request.friendId, friendName: request.friendName, intent: request.intent, onReply: request.onReply, prompt: request.prompt, reason: request.reason } })
-    }
-  }).catch(() => {})
 })
 // A conversation switch must not leave the previous conversation's model on the
 // trigger while this one's persisted selection is still in flight. Clear the
@@ -14725,20 +14712,6 @@ klausApi.on.friendAccessResolved?.((resolution: any) => {
     else pendingPermissionsBySession.set(sid, filtered)
   }
   resolveLiveApproval('', requestId, { decision: resolution.approved === true ? 'allow' : 'deny' })
-})
-// Confirming a message Klaus wrote for a friend rides the same approval route.
-klausApi.on.friendSendConfirmation?.(showPermissionRequest)
-klausApi.on.friendSendConfirmationResolved?.((resolution: any) => {
-  const requestId = typeof resolution?.requestId === 'string' ? resolution.requestId : ''
-  if (!requestId) return
-  untrackApprovalRequest(requestId)
-  for (const [sid, list] of pendingPermissionsBySession) {
-    const filtered = list.filter(req => req.requestId !== requestId)
-    if (filtered.length === list.length) continue
-    if (filtered.length === 0) pendingPermissionsBySession.delete(sid)
-    else pendingPermissionsBySession.set(sid, filtered)
-  }
-  resolveLiveApproval('', requestId, { decision: resolution.decision === 'send' ? 'allow' : 'deny' })
 })
 klausApi.on.memorySnapshotPrompt(showMemorySnapshotPrompt)
 // 目标快照：引擎自己改的那几种变化（模型建/完成、预算停掉、回合失败

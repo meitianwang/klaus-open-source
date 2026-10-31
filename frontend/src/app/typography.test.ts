@@ -173,9 +173,9 @@ describe('desktop typography', () => {
     const activity = readFileSync(new URL('../chat/transcript/activity-tool.module.css', import.meta.url), 'utf8')
     expect(activity.match(/line-height: var\(--leading-code-compact\);/g)).toHaveLength(2)
     const transcript = readFileSync(new URL('../chat/transcript/transcript.module.css', import.meta.url), 'utf8')
-    // The permission message and target set the role; the friend confirmation
-    // rows reuse it for the same dense decision text, so they count together.
-    expect(transcript.match(/line-height: var\(--leading-permission-text\);/g)).toHaveLength(5)
+    // The permission message and target set the role; the text of a friend
+    // message awaiting approval reuses it for the same dense decision text.
+    expect(transcript.match(/line-height: var\(--leading-permission-text\);/g)).toHaveLength(3)
     const disclosure = readFileSync(new URL('../chat/transcript/activity-disclosure.module.css', import.meta.url), 'utf8')
     // Transcript cards span the column; the old narrower centered permission
     // override must not come back.

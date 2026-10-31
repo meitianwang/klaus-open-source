@@ -36,8 +36,7 @@ describe('friend message approval', () => {
     expect(html).not.toContain(I18N.zh.permission_chip)
   })
 
-  test('progress and clarification actions have their own localized labels', () => {
-    expect(render('send_friend_progress')).toContain(I18N.zh.friend_message_approval_allow_progress)
+  test('clarification has its own localized label', () => {
     const question = render('ask_friend_for_information', { friendId: 'friend-a', question: 'Which directory should I use?' })
     expect(question).toContain(I18N.zh.friend_message_approval_allow_question)
     expect(question).toContain(I18N.zh.friend_message_approval_question.replace('{name}', 'friend-a'))

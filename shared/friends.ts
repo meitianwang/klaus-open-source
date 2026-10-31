@@ -19,9 +19,6 @@ export interface FriendSummary {
   /** The owner's private note for this friend, stored on this computer only.
    *  Absent when the owner never set one; an empty string clears it. */
   remark?: string;
-  /** Whether a message Klaus drafted waits for the owner's confirmation before it
-   *  goes to this friend. Stored on this computer; absent means confirm. */
-  confirmAgentMessages?: boolean;
 }
 
 export interface FriendsSnapshot {
@@ -146,14 +143,6 @@ export interface FriendTaskSummary {
   /** When the owner last handed this ordinary-conversation request to their Klaus. */
   ownerHandoffAt?: number;
 }
-/** A message Klaus drafted that waits for the owner before it reaches a friend. */
-export interface FriendSendConfirmation {
-  id: string; sessionId: string; friendId: string; friendName: string;
-  intent: FriendMessageIntent; onReply?: FriendOnReply; prompt: string;
-  /** `task` when the draft came from a friend task; that confirmation cannot be turned off. */
-  reason?: 'task';
-  createdAt: number;
-}
 export interface FriendGrantTemplate {
   id: string; friendId: string; deviceId: string; grant: FriendTaskGrant; updatedAt: number;
 }
@@ -181,8 +170,6 @@ export interface FriendsRuntimeSnapshot {
   /** Directory requests running friend tasks are parked on, awaiting this
    *  computer's owner; empty unless a task asked and nobody answered yet. */
   accessRequests?: FriendAccessRequest[];
-  /** Drafted messages waiting for this computer's owner to send or discard. */
-  sendConfirmations?: FriendSendConfirmation[];
   error?: string;
 }
 

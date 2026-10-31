@@ -1594,9 +1594,6 @@ expose('klaus', {
     setDefaultGrant: (args: { grant: FriendTaskGrant }): Promise<FriendsRuntimeSnapshot> => call('friends:set-default-grant', args),
     resolveAccessRequest: (args: { requestId: string; decision: 'approve' | 'decline'; remember?: boolean }): Promise<FriendsRuntimeSnapshot> => call('friends:resolve-access-request', args),
     pendingAccessRequests: (): Promise<any[]> => call('friends:pending-access-requests'),
-    resolveSendConfirmation: (args: { requestId: string; decision: 'send' | 'decline'; prompt?: string }): Promise<FriendsRuntimeSnapshot> => call('friends:resolve-send-confirmation', args),
-    pendingSendConfirmations: (): Promise<any[]> => call('friends:pending-send-confirmations'),
-    setAgentConfirmation: (args: { friendId: string; confirm: boolean }): Promise<FriendsSnapshot> => call('friends:set-agent-confirmation', args),
     requestReply: (args: { taskId: string }): Promise<FriendsRuntimeSnapshot> => call('friends:request-reply', args),
     lookup: (email: string): Promise<{ profile: FriendProfile | null }> => call('friends:lookup', { email }),
     request: (args: { email: string; allowIncomingAgentTasks: boolean; grant?: FriendTaskGrant }): Promise<FriendsSnapshot> => call('friends:request', args),
@@ -1671,10 +1668,6 @@ expose('klaus', {
       subscribe('friend:access-request', (req: any) => cb(req)),
     friendAccessResolved: (cb: (resolution: any) => void): Unsubscribe =>
       subscribe('friend:access-resolved', (resolution: any) => cb(resolution)),
-    friendSendConfirmation: (cb: (req: any) => void): Unsubscribe =>
-      subscribe('friend:send-confirmation', (req: any) => cb(req)),
-    friendSendConfirmationResolved: (cb: (resolution: any) => void): Unsubscribe =>
-      subscribe('friend:send-confirmation-resolved', (resolution: any) => cb(resolution)),
     planningInputRequested: (cb: (req: PlanningInputRequest) => void): Unsubscribe => subscribe('planning-input:requested', cb),
     planningInputResolved: (cb: (req: PlanningInputRequest) => void): Unsubscribe => subscribe('planning-input:resolved', cb),
     questionRequested: (cb: (req: AsyncQuestionRequest) => void): Unsubscribe =>
