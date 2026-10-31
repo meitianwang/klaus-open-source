@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
-import { attachFriendFollowUps, friendMessageActionsHtml, friendOutgoingForMessage, friendRequestTarget, friendStatusDisplay, renderFriendCardHtml, renderFriendOutgoingStatusHtml, supersededFriendRequestIds } from './friend-presentation'
+import { attachFriendFollowUps, friendMessageActionsHtml, friendOutgoingForMessage, friendRequestTarget, friendStatusDisplay, isIncomingFriendRequest, renderFriendCardHtml, renderFriendOutgoingStatusHtml, supersededFriendRequestIds } from './friend-presentation'
 import { friendDisplayName } from '../../pages/friends/display-name'
 import { t as globalT } from '../../i18n'
 import { renderFriendMessageHtml } from '../../friend-message-summary'
@@ -99,6 +99,30 @@ describe('friend messages', () => {
     expect(question).toContain('data-friend-compose-action="supplement"')
     expect(question).toContain('data-friend-question-id="q-1"')
     expect(question).toContain('data-friend-request-id="root-1"')
+  })
+  test('a friend answering our request can be replied to and handed over like any message', () => {
+    // The host records a response to one of our requests with the request's
+    // purpose plus the request it answers and its result type.
+    const local = external('那就快去休息吧', { protocolVersion: 3, friendIntent: 'request', requestId: 'their-reply', messageId: 'their-reply',
+      replyToRequestId: 'our-request', requestCreatedAt: 1, replyType: 'completed' })
+    expect(isIncomingFriendRequest(local)).toBe(false)
+    const actions = friendMessageActionsHtml(local, { friendshipId: 'friend-1', displayName: 'Nick' }, t)
+    expect(actions).toContain('data-friend-compose-action="reply"')
+    expect(actions).toContain('data-friend-compose-action="handoff"')
+    // A friend's own request still waits for its card.
+    const request = external('看下磁盘', { protocolVersion: 3, friendIntent: 'request', requestId: 'req-9', messageId: 'req-9' })
+    expect(isIncomingFriendRequest(request)).toBe(true)
+    expect(friendMessageActionsHtml(request, { friendshipId: 'friend-1', displayName: 'Nick' }, t)).toBe('')
+    // A response row never hides an earlier request row that shares no id with it.
+    expect([...supersededFriendRequestIds([request, local])]).toEqual([])
+  })
+  test('reply sends with a paper plane and handoff shows the Klaus mark', () => {
+    const actions = friendMessageActionsHtml(external('hello', { friendIntent: 'notice', messageId: 'event-3' }), { friendshipId: 'friend-1', displayName: 'Mia' }, t)
+    const [reply, handoff] = actions.split('</button>')
+    expect(reply).toContain('data-friend-compose-action="reply"')
+    expect(reply).toContain('M227.32,28.68')
+    expect(handoff).toContain('data-friend-compose-action="handoff"')
+    expect(handoff).toContain('M24 5 38.5 13v16.5')
   })
   test('friend message actions are icon buttons that sit in the message action bar with a tooltip', () => {
     const actions = friendMessageActionsHtml(external('hello', { friendIntent: 'notice', messageId: 'event-2' }), { friendshipId: 'friend-1', displayName: 'Mia' }, t)

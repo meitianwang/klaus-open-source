@@ -60,6 +60,15 @@ const FRIEND_ACTION_LABEL: Record<FriendComposeAction, string> = {
 }
 
 /**
+ * A friend's own request waiting for a decision here. A response to one of our
+ * requests carries the same purpose, but it names the request it answers and
+ * its result type, and it is answered like any other message.
+ */
+export function isIncomingFriendRequest(local: any): boolean {
+  return local?.friendIntent === 'request' && !local.replyToRequestId && typeof local.replyType !== 'string'
+}
+
+/**
  * The icon buttons a friend message offers next to its time and copy control:
  * answer the sender (or add the information they asked for) and hand the
  * message to this computer's Klaus. Each is icon-only, so its name rides both
@@ -79,7 +88,7 @@ export function friendMessageActionsHtml(local: any, sender: any, t: (key: strin
   // A request's decisions are the card's job: offering reply and handoff next
   // to them would present the same choice twice. A request that arrived in the
   // owner's ordinary conversation is a plain message again once it is decided.
-  if (!state && local.friendIntent === 'request' && (local.ownerChat !== true || options.ownerRequestOpen !== false)) return ''
+  if (!state && isIncomingFriendRequest(local) && (local.ownerChat !== true || options.ownerRequestOpen !== false)) return ''
   const messageId = local.messageId || local.requestId || ''
   const sentence = state ? t(`chat_friend_status_${state.status}`).replace('{name}', name) : ''
   const text = state ? state.detail || local.displayText || sentence : local.displayText || ''
@@ -173,7 +182,7 @@ export function supersededFriendRequestIds(locals: any[]): ReadonlySet<string> {
   const requestIds = new Set<string>()
   for (const local of locals) {
     if (local?.externalFriendMessage !== true || typeof local?.requestId !== 'string') continue
-    if (local.friendIntent === 'request') requestIds.add(local.requestId)
+    if (isIncomingFriendRequest(local)) requestIds.add(local.requestId)
     else if (requestIds.has(local.requestId)) superseded.add(local.requestId)
   }
   return superseded

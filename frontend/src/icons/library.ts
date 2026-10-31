@@ -158,6 +158,7 @@ import slidersHorizontalSvg from '@phosphor-icons/core/assets/regular/sliders-ho
 import sidebarSimpleSvg from '@phosphor-icons/core/assets/regular/sidebar-simple.svg?raw'
 import puzzlePieceSvg from '@phosphor-icons/core/assets/regular/puzzle-piece.svg?raw'
 import sparkleSvg from '@phosphor-icons/core/assets/regular/sparkle.svg?raw'
+import paperPlaneTiltSvg from '@phosphor-icons/core/assets/regular/paper-plane-tilt.svg?raw'
 import stairsSvg from '@phosphor-icons/core/assets/regular/stairs.svg?raw'
 import squaresFourSvg from '@phosphor-icons/core/assets/regular/squares-four.svg?raw'
 import robotSvg from '@phosphor-icons/core/assets/regular/robot.svg?raw'
@@ -416,11 +417,11 @@ export const LIBRARY: Record<string, string> = {
   'tool-friends': shell(usersThreeSvg, { cls: 'tool-item-icon' }),
   'tool-friend-send': shell(chatCircleTextSvg, { cls: 'tool-item-icon' }),
   'tool-friend-reply': shell(arrowBendUpLeftSvg, { cls: 'tool-item-icon' }),
-  // Friend message action bar: answer the sender, add requested information,
-  // or hand the message to this computer's Klaus.
-  'friend-reply': shell(arrowBendUpLeftSvg),
+  // Friend message action bar: send an answer back to the sender, or add the
+  // information they asked for. Handing a message to this computer's Klaus uses
+  // the Klaus mark (raw-glyphs `friend-handoff`).
+  'friend-reply': shell(paperPlaneTiltSvg),
   'friend-supplement': shell(chatCircleTextSvg),
-  'friend-handoff': shell(sparkleSvg),
   // Title glyph of the card for a friend's request in the owner's own conversation.
   'friend-request': shell(usersThreeSvg),
   'tool-agent': shell(userSvg, { cls: 'tool-item-icon' }),

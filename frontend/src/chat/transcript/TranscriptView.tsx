@@ -104,7 +104,7 @@ import { openFriendMessageReader } from '../../friend-message-reader'
 import { normalizeComposerReferences, type ComposerReferenceToken } from '../composer/reference-token'
 import { isWorktreeSessionWorkdir } from '../worktree-path'
 import { useDeviceNamesVersion } from '../device-names'
-import { attachFriendFollowUps, friendMessageActionsHtml, friendOutgoingForMessage, friendRequestTarget, friendStatusDisplay, renderFriendCardHtml, renderFriendOutgoingStatusHtml, resolveFriendIdentity } from './friend-presentation'
+import { attachFriendFollowUps, friendMessageActionsHtml, friendOutgoingForMessage, friendRequestTarget, friendStatusDisplay, isIncomingFriendRequest, renderFriendCardHtml, renderFriendOutgoingStatusHtml, resolveFriendIdentity } from './friend-presentation'
 import { automationMessageLabel } from './automation-source'
 import { friendsRuntimeSnapshot, subscribeFriendsRuntime } from '../../pages/friends/runtime-state'
 import { friendOutgoingActionPending, friendOutgoingActionsRevision, performFriendOutgoingAction, subscribeFriendOutgoingActions } from '../../pages/friends/outgoing-actions'
@@ -2900,7 +2900,7 @@ export function UserMessageRow({ msg, composerAuthored, archived, running, readO
     })
   }, [isFriend ? html : built?.content?.bubble?.html ?? contentHtml, copyText, isFriend, t, inlineEdit.state])
   if (!built) return null
-  const friendRequestId = isFriend && msg.localRender?.friendIntent === 'request' && typeof msg.localRender?.requestId === 'string'
+  const friendRequestId = isFriend && isIncomingFriendRequest(msg.localRender) && typeof msg.localRender?.requestId === 'string'
     ? msg.localRender.requestId : undefined
   if (friendRequestId && supersededFriendRequestIds?.has(friendRequestId)) return null
   if (isFriend && friendStatusDisplay(msg.localRender)) {
@@ -2917,7 +2917,7 @@ export function UserMessageRow({ msg, composerAuthored, archived, running, readO
     // A request's decision belongs with the message that asks for it: the card
     // renders right under that bubble, aligned with the sender column, instead
     // of floating at the end of the conversation.
-    const approvalRequestId = msg.localRender?.friendIntent === 'request' && typeof msg.localRender?.requestId === 'string'
+    const approvalRequestId = isIncomingFriendRequest(msg.localRender) && typeof msg.localRender?.requestId === 'string'
       ? msg.localRender.requestId : ''
     // A request paired to an ordinary conversation is answered there by the
     // owner; it never offers the friend-task approval.
@@ -4319,7 +4319,7 @@ export function TranscriptView({ sessionId, container, scroll = 'none', readOnly
   for (const unit of [...historyUnits, ...selectSessionStream(chatStreamStore.getState(), sessionId).liveUnits]) {
     const local = (unit as any)?.msg?.localRender
     if (local?.externalFriendMessage !== true || typeof local?.requestId !== 'string') continue
-    if (local.friendIntent === 'request') { inlineApprovalRequests.add(local.requestId); friendRequestIds.add(local.requestId) }
+    if (isIncomingFriendRequest(local)) { inlineApprovalRequests.add(local.requestId); friendRequestIds.add(local.requestId) }
     else if (friendRequestIds.has(local.requestId)) supersededRequestIds.add(local.requestId)
   }
 
