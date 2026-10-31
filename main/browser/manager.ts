@@ -614,7 +614,7 @@ export class BrowserManager {
     };
     this.browserSession.setPermissionCheckHandler((contents, permission, requestingOrigin, details) => {
       const keys = keysFor(contents, permission, requestingOrigin, details.mediaType ? [details.mediaType] : []);
-      return this.decisions.granted(keys);
+      return this.decisions.granted(keys, permission);
     });
     this.browserSession.setPermissionRequestHandler((contents, permission, callback, details) => {
       const requestedUrl = details.requestingUrl || contents.getURL();
@@ -629,6 +629,7 @@ export class BrowserManager {
       void this.decisions.resolve(keys,
         () => this.options.requestPermission?.(request) ?? Promise.resolve(false),
         () => !this.disposed && !contents.isDestroyed() && contents.getURL() === request.pageUrl && this.permissionKey(contents, permission, requestedUrl) === key && !this.decisions.denied(keys),
+        permission,
       ).then(allowed => callback(allowed), () => callback(false));
     });
     this.browserSession.setDevicePermissionHandler(() => false);
@@ -644,7 +645,7 @@ export class BrowserManager {
     const origin = new URL(this.assertNavigation(command.params.origin)).origin;
     const asked = command.method === 'Browser.grantPermissions' ? command.params.permissions as Json[] : [object(command.params.permission).name!];
     const aliases: Record<string, string> = { clipboardReadWrite: 'clipboard-read', clipboardSanitizedWrite: 'clipboard-sanitized-write', durableStorage: 'persistent-storage', midiSysex: 'midiSysex', pointerLock: 'pointerLock', audioCapture: 'audioCapture', videoCapture: 'videoCapture', camera: 'videoCapture', microphone: 'audioCapture' };
-    const accepted = new Set(['geolocation','notifications','clipboard-read','clipboard-sanitized-write','persistent-storage','midi','midiSysex','pointerLock','fullscreen','audioCapture','videoCapture','sensors','idle-detection','local-fonts']);
+    const accepted = new Set(['geolocation','notifications','clipboard-read','clipboard-sanitized-write','persistent-storage','midi','midiSysex','pointerLock','fullscreen','audioCapture','videoCapture','sensors','idle-detection','local-fonts','screen-wake-lock']);
     const names = asked.map(name => aliases[String(name)] ?? String(name));
     if (names.some(name => !accepted.has(name))) throw new BrowserError('unavailable', `IAB does not implement these permission names: ${names.filter(name => !accepted.has(name)).join(', ')}.`);
     const setting = command.method === 'Browser.grantPermissions' ? 'granted' : String(command.params.setting);

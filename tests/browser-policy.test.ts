@@ -447,6 +447,30 @@ h.test('the permission answer channel settles only the owning window and never g
   assertEqual(await parked.answered, true, 'the parked caller sees the allow');
 });
 
+h.test('screen wake locks settle without prompting and other permissions retain their decisions', async () => {
+  const vector = JSON.parse(readFileSync(join(__dirname, '../../contracts/vectors/browser-tool-contracts.json'), 'utf8')) as {
+    permissionDefaults: { vectors: Array<{ permission: string; granted: boolean }> };
+  };
+  for (const row of vector.permissionDefaults.vectors) {
+    const decisions = new BrowserPermissionDecisions();
+    const keys = [JSON.stringify(['task', 'https://console.example.com', row.permission])];
+    let asked = 0;
+    const ask = () => { asked += 1; return Promise.resolve(false); };
+    assertEqual(decisions.granted(keys, row.permission), row.granted, `${row.permission} check uses its default`);
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      assertEqual(await decisions.resolve(keys, ask, () => true, row.permission), row.granted, `${row.permission} request ${attempt}`);
+    }
+    assertEqual(asked, row.granted ? 0 : 1, `${row.permission} prompt count`);
+    assertEqual(decisions.granted([], row.permission), false, 'an unidentified page is never granted');
+    decisions.set(keys, 'denied');
+    assertEqual(decisions.granted(keys, row.permission), false, 'explicit denial overrides the default');
+    assertEqual(await decisions.resolve(keys, ask, () => true, row.permission), false, 'an explicitly denied request stays silent');
+    assertEqual(asked, row.granted ? 0 : 1, 'explicit denial does not open another question');
+    decisions.clear();
+    assertEqual(decisions.granted(keys, row.permission), row.granted, 'clearing decisions restores the default');
+  }
+});
+
 h.test('remembered permission decisions stop a page that re-asks from reopening the dialog', async () => {
   const decisions = new BrowserPermissionDecisions();
   const keys = [JSON.stringify(['task', 'https://bpms.example.com', 'screen-wake-lock'])];

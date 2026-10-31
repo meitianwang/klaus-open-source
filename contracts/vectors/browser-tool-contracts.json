@@ -106,6 +106,18 @@
     "default": { "method": "Input.dispatchMouseEvent", "params": { "type": "mouseWheel", "x": 320, "y": 240, "deltaX": 0, "deltaY": 200, "pointerType": "mouse" } },
     "explicit": { "type": "mouseWheel", "x": 25, "y": 75, "deltaX": -45, "deltaY": 0, "pointerType": "mouse" }
   },
+  "permissionDefaults": {
+    "reason": "Screen wake locks only keep the display awake and can be requested repeatedly after visibility changes; they must not interrupt browsing with a permission dialog.",
+    "vectors": [
+      { "permission": "screen-wake-lock", "granted": true },
+      { "permission": "geolocation", "granted": false },
+      { "permission": "notifications", "granted": false },
+      { "permission": "audioCapture", "granted": false },
+      { "permission": "videoCapture", "granted": false },
+      { "permission": "clipboard-read", "granted": false },
+      { "permission": "unknown", "granted": false }
+    ]
+  },
   "runPreview": {
     "producer": "exact host dynamic tool run_preview; its URL and name come from structured arguments, never terminal text",
     "background": "one task-owned Browser page is created without changing the selected page or revealing the panel",

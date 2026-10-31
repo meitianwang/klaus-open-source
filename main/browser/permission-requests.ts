@@ -92,9 +92,10 @@ export class BrowserPermissionDecisions {
   private readonly denials = new Set<string>()
   private readonly inflight = new Map<string, Promise<boolean>>()
 
-  /** True when every key is granted and none of them is denied. */
-  granted(keys: string[]): boolean {
-    return keys.length > 0 && keys.every(key => this.grants.has(key) && !this.denials.has(key))
+  /** Screen wake locks need no prompt; explicit denials still take precedence. */
+  granted(keys: string[], permission?: string): boolean {
+    return keys.length > 0 && keys.every(key =>
+      !this.denials.has(key) && (this.grants.has(key) || permission === 'screen-wake-lock'))
   }
 
   denied(keys: string[]): boolean {
@@ -108,9 +109,9 @@ export class BrowserPermissionDecisions {
    * remembered only while `accept` still holds at answer time, so an allow
    * answered after the page moved away grants nothing and asks again later.
    */
-  resolve(keys: string[], ask: () => Promise<boolean>, accept: () => boolean): Promise<boolean> {
+  resolve(keys: string[], ask: () => Promise<boolean>, accept: () => boolean, permission?: string): Promise<boolean> {
     if (this.denied(keys)) return Promise.resolve(false)
-    if (this.granted(keys)) return Promise.resolve(true)
+    if (this.granted(keys, permission)) return Promise.resolve(true)
     const promptKey = [...keys].sort().join('|')
     const open = this.inflight.get(promptKey)
     if (open) return open
