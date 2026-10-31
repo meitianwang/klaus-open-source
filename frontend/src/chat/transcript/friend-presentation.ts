@@ -69,14 +69,26 @@ export function isIncomingFriendRequest(local: any): boolean {
 }
 
 /**
- * The icon buttons a friend message offers next to its time and copy control:
- * answer the sender (or add the information they asked for) and hand the
- * message to this computer's Klaus. Each is icon-only, so its name rides both
- * the accessible label and the transcript tooltip. Empty when the message has
- * no actions (a request whose decision card owns them, or a status with no
- * follow-up).
+ * A message whose purpose is asking this computer to do something: a friend's
+ * request waiting for a decision, or one already running as a task. Its label
+ * reads "asks you to handle this" or "sent a task"; notices and responses to
+ * our own messages are everything else.
  */
-export function friendMessageActionsHtml(local: any, sender: any, t: (key: string) => string, options: { ownerRequestOpen?: boolean } = {}): string {
+export function friendMessageAsksToHandle(local: any): boolean {
+  return local?.externalFriendMessage === true && !friendStatusDisplay(local) && local.friendIntent !== 'notice'
+    && !local.replyToRequestId && typeof local.requestCreatedAt !== 'number' && typeof local.replyType !== 'string'
+}
+
+/**
+ * The icon buttons a friend message offers next to its time and copy control.
+ * Every message the friend sent can be answered: reply, or add the information
+ * a question asked for. Every one that is not a request can also be handed to
+ * this computer's Klaus; a request is handled through its own decision card or
+ * task. Each button is icon-only, so its name rides both the accessible label
+ * and the transcript tooltip. Lines this computer wrote itself (a relocated
+ * conversation, a missing reply) carry no actions here.
+ */
+export function friendMessageActionsHtml(local: any, sender: any, t: (key: string) => string): string {
   if (externalMessageDisplay(local) === null) return ''
   const { name } = resolveFriendIdentity(sender)
   const friendId = sender?.friendshipId || local.friendId || ''
@@ -85,10 +97,6 @@ export function friendMessageActionsHtml(local: any, sender: any, t: (key: strin
   // A relocated exchange is orientation only, and a missing reply is answered
   // by its own action in the status line.
   if (state?.status === 'moved' || state?.status === 'unreplied') return ''
-  // A request's decisions are the card's job: offering reply and handoff next
-  // to them would present the same choice twice. A request that arrived in the
-  // owner's ordinary conversation is a plain message again once it is decided.
-  if (!state && isIncomingFriendRequest(local) && (local.ownerChat !== true || options.ownerRequestOpen !== false)) return ''
   const messageId = local.messageId || local.requestId || ''
   const sentence = state ? t(`chat_friend_status_${state.status}`).replace('{name}', name) : ''
   const text = state ? state.detail || local.displayText || sentence : local.displayText || ''
@@ -99,9 +107,11 @@ export function friendMessageActionsHtml(local: any, sender: any, t: (key: strin
       + ` data-friend-question-id="${escapeHtml(local.questionId || '')}" data-friend-request-id="${escapeHtml(local.replyToRequestId || local.requestId || '')}"`
       + ` data-friend-text="${escapeHtml(text)}">${rawIconHtml(`friend-${action}`)}</button>`
   }
-  // A failed or declined exchange has nothing to answer; it can still be handed over.
-  if (state) return button('handoff')
-  return button(local.replyType === 'needs_input' ? 'supplement' : 'reply') + button('handoff')
+  // A status this computer recorded (a send that failed here, a legacy line) is
+  // not something the friend said; it can still be handed over.
+  if (state && typeof local.replyType !== 'string') return button('handoff')
+  const answer = button(local.replyType === 'needs_input' ? 'supplement' : 'reply')
+  return friendMessageAsksToHandle(local) ? answer : answer + button('handoff')
 }
 
 export function renderFriendCardHtml(local: any, sender: any, t: (key: string) => string, requestTarget?: string, sessionId = '', runtime?: FriendsRuntimeSnapshot | null): string {

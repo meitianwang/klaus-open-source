@@ -100,21 +100,28 @@ describe('friend messages', () => {
     expect(question).toContain('data-friend-question-id="q-1"')
     expect(question).toContain('data-friend-request-id="root-1"')
   })
-  test('a friend answering our request can be replied to and handed over like any message', () => {
-    // The host records a response to one of our requests with the request's
-    // purpose plus the request it answers and its result type.
-    const local = external('那就快去休息吧', { protocolVersion: 3, friendIntent: 'request', requestId: 'their-reply', messageId: 'their-reply',
-      replyToRequestId: 'our-request', requestCreatedAt: 1, replyType: 'completed' })
-    expect(isIncomingFriendRequest(local)).toBe(false)
-    const actions = friendMessageActionsHtml(local, { friendshipId: 'friend-1', displayName: 'Nick' }, t)
-    expect(actions).toContain('data-friend-compose-action="reply"')
-    expect(actions).toContain('data-friend-compose-action="handoff"')
-    // A friend's own request still waits for its card.
-    const request = external('看下磁盘', { protocolVersion: 3, friendIntent: 'request', requestId: 'req-9', messageId: 'req-9' })
-    expect(isIncomingFriendRequest(request)).toBe(true)
-    expect(friendMessageActionsHtml(request, { friendshipId: 'friend-1', displayName: 'Nick' }, t)).toBe('')
+  test('every friend message can be answered; everything except a request can be handed to Klaus', () => {
+    const sender = { friendshipId: 'friend-1', displayName: 'Nick' }
+    const actionsOf = (local: any) => [...friendMessageActionsHtml(local, sender, t).matchAll(/data-friend-compose-action="([a-z]+)"/g)].map(match => match[1])
+    const cases: Array<[string, any, string[]]> = [
+      ['notice', external('周五发布改到下周一', { protocolVersion: 3, friendIntent: 'notice', requestId: 'n-1', messageId: 'n-1' }), ['reply', 'handoff']],
+      // The host records a response to one of our requests with the request's
+      // purpose plus the request it answers and its result type.
+      ['result of our request', external('那就快去休息吧', { protocolVersion: 3, friendIntent: 'request', requestId: 'r-1', messageId: 'r-1', replyToRequestId: 'ours', requestCreatedAt: 1, replyType: 'completed' }), ['reply', 'handoff']],
+      ['progress on our request', external('还在看', { protocolVersion: 3, friendIntent: 'request', requestId: 'p-1', messageId: 'p-1', replyToRequestId: 'ours', requestCreatedAt: 1, replyType: 'progress' }), ['reply', 'handoff']],
+      ['question about our request', external('哪个项目？', { protocolVersion: 3, friendIntent: 'request', requestId: 'q-1', messageId: 'q-1', replyToRequestId: 'ours', requestCreatedAt: 1, replyType: 'needs_input', questionId: 'q' }), ['supplement', 'handoff']],
+      ['declined our request', external('不方便', { protocolVersion: 3, friendIntent: 'request', requestId: 'd-1', messageId: 'd-1', replyToRequestId: 'ours', requestCreatedAt: 1, replyType: 'rejected', friendStatus: 'rejected', statusDetail: '不方便' }), ['reply', 'handoff']],
+      ['request in a friend task conversation', external('看下磁盘', { protocolVersion: 3, friendIntent: 'request', requestId: 'req-9', messageId: 'req-9' }), ['reply']],
+      ['request in an ordinary conversation', external('看下磁盘', { protocolVersion: 3, friendIntent: 'request', ownerChat: true, requestId: 'req-8', messageId: 'req-8' }), ['reply']],
+      ['approved task', external('看下磁盘', { externalFriendMessage: true, requestId: 'req-7', messageId: 'req-7' }), ['reply']],
+    ]
+    for (const [name, local, expected] of cases) expect([name, actionsOf(local)]).toEqual([name, expected])
+    // A reply to a request answers that request's message.
+    expect(friendMessageActionsHtml(cases[5][1], sender, t)).toContain('data-friend-message-id="req-9"')
+    expect(isIncomingFriendRequest(cases[1][1])).toBe(false)
+    expect(isIncomingFriendRequest(cases[5][1])).toBe(true)
     // A response row never hides an earlier request row that shares no id with it.
-    expect([...supersededFriendRequestIds([request, local])]).toEqual([])
+    expect([...supersededFriendRequestIds([cases[5][1], cases[1][1]])]).toEqual([])
   })
   test('reply sends with a paper plane and handoff shows the Klaus mark', () => {
     const actions = friendMessageActionsHtml(external('hello', { friendIntent: 'notice', messageId: 'event-3' }), { friendshipId: 'friend-1', displayName: 'Mia' }, t)
@@ -144,11 +151,13 @@ describe('friend messages', () => {
     const html = renderFriendCardHtml(external('check the pool', { friendIntent: 'request', requestId: 'req-1', messageId: 'req-1' }), { friendshipId: 'friend-1', displayName: 'Nick' }, t)
     expect(html).toContain('chat_friend_request_incoming')
     expect(html).toContain('check the pool')
-    // The decision card under the bubble owns the actions.
+    // The decision stays on the card under the bubble; the row can only be answered.
     expect(html).not.toContain('data-friend-compose-action')
-    expect(friendMessageActionsHtml(external('check the pool', { friendIntent: 'request', requestId: 'req-1', messageId: 'req-1' }), { friendshipId: 'friend-1', displayName: 'Nick' }, t)).toBe('')
+    const actions = friendMessageActionsHtml(external('check the pool', { friendIntent: 'request', requestId: 'req-1', messageId: 'req-1' }), { friendshipId: 'friend-1', displayName: 'Nick' }, t)
+    expect(actions).toContain('data-friend-compose-action="reply"')
+    expect(actions).not.toContain('data-friend-compose-action="handoff"')
   })
-  test('failed and rejected records retain a local handoff containing the full cause', () => {
+  test('a send that failed on this computer keeps only the handoff', () => {
     const full = 'A complete failure detail. '.repeat(30) + '<last cause>'
     for (const status of ['failed', 'rejected']) {
       const html = renderFriendCardHtml(external('Short status', { friendStatus: status, statusDetail: full, messageId: 'failed-event' }), { friendshipId: 'friend-a', displayName: 'Mia' }, t)
@@ -157,19 +166,6 @@ describe('friend messages', () => {
       expect(html).toContain('&lt;last cause&gt;')
       expect(html).not.toContain('data-friend-compose-action="reply"')
     }
-  })
-  test('a request in an ordinary conversation is decided on its card, then reads as a plain message', () => {
-    const local = external('check the pool', { friendIntent: 'request', ownerChat: true, requestId: 'req-2', messageId: 'req-2' })
-    const sender = { friendshipId: 'friend-1', displayName: 'Nick' }
-    expect(renderFriendCardHtml(local, sender, t)).toContain('chat_friend_request_incoming')
-    // While the request is open (or its state is not known yet) the card owns the choices.
-    expect(friendMessageActionsHtml(local, sender, t)).toBe('')
-    expect(friendMessageActionsHtml(local, sender, t, { ownerRequestOpen: true })).toBe('')
-    const actions = friendMessageActionsHtml(local, sender, t, { ownerRequestOpen: false })
-    expect(actions).toContain('data-friend-compose-action="reply"')
-    expect(actions).toContain('data-friend-compose-action="handoff"')
-    // A handoff carries the friend's text, which becomes the local prompt.
-    expect(actions).toContain('data-friend-text="check the pool"')
   })
   test('a task that ended without a reply offers a Klaus reply until one is delivered', () => {
     const local = external('fixed status', { friendStatus: 'unreplied', statusDetail: 'fixed status', friendTaskId: 'task-9' })

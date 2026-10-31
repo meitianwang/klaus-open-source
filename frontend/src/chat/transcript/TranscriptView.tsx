@@ -23,7 +23,6 @@ import { extractGoalImageReferences } from '../goals/goal-image-references'
 import { AsyncQuestionComposer, AsyncQuestionText } from './async-question-view'
 import { isTaskMutationTool } from '../task-state'
 import { FriendOwnerChatRequest, FriendTaskApproval } from './friend-task-approval'
-import { friendInboxRevision, ownerChatRequestOpen, subscribeFriendInbox } from '../friend-inbox'
 // Streamed and replayed messages share one turn/activity projection. Explicit
 // message phases identify final answers; session-owned disclosure keys survive
 // streaming updates, history handoff, and nested disclosure unmounts.
@@ -2859,12 +2858,7 @@ export function UserMessageRow({ msg, composerAuthored, archived, running, readO
   // click resolve. See `MsgActionsSpec.editTurn`.
   // A friend message's reply and handoff are icon buttons in the same bar as its
   // time and copy control, revealed on hover like every other message action.
-  // An ordinary-conversation request is decided on its card; the row offers
-  // reply and handoff again only once that decision is made.
-  useSyncExternalStore(subscribeFriendInbox, friendInboxRevision, friendInboxRevision)
-  const ownerRequestOpen = isFriend && msg.localRender?.ownerChat === true && typeof msg.localRender?.requestId === 'string'
-    ? ownerChatRequestOpen(msg.localRender.requestId) : false
-  const friendActions = isFriend && !readOnly ? friendMessageActionsHtml(msg.localRender, sender, t, { ownerRequestOpen }) : ''
+  const friendActions = isFriend && !readOnly ? friendMessageActionsHtml(msg.localRender, sender, t) : ''
   const actions = renderMsgActionsHtml({ ts: msg.timestamp, copyText, uuid: isFriend ? undefined : msg.uuid, editTurn: isFriend ? undefined : turnId, kind: 'user', archived, running, readOnly: isFriend || readOnly, canEdit: editable, extraHtml: friendActions, copyTooltip: !!friendActions })
 
   const friendIds = [...new Set<string>([

@@ -94,16 +94,6 @@ export function ownerChatTask(requestId: string): FriendTaskSummary | null {
   return snapshot.tasks.find(task => task.requestId === requestId && !!task.ownerChatThreadId) ?? null
 }
 
-/**
- * Whether an ordinary-conversation request still waits for its owner. Before the
- * inbox has loaded the answer is unknown, and an open request is assumed so the
- * row never offers actions that the decision card owns.
- */
-export function ownerChatRequestOpen(requestId: string): boolean {
-  if (!snapshot) return true
-  return ownerChatPendingTask(requestId) !== null
-}
-
 const SETTLED_STATUSES = ['rejected', 'cancelled', 'ignored']
 
 /** The newest decided request of this conversation worth a quiet status line. */
