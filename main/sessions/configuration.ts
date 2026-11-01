@@ -46,6 +46,8 @@ interface ConfigurationDeps {
 
 /** Inference preferences fence the next capture; permission policy retains its lifecycle. */
 export class SessionConfiguration {
+  private subagentModelSync: Promise<void> = Promise.resolve();
+
   constructor(private readonly deps: ConfigurationDeps) {}
 
   markChanged(sessionId?: string): void {
@@ -137,8 +139,17 @@ export class SessionConfiguration {
     }
   }
 
-  private async syncSubagentModels(scope?: RuntimeConfigScope, onlyEnabled = false): Promise<void> {
-    if (!this.deps.updateRuntimeConfig) { this.markChanged(); return; }
+  private syncSubagentModels(scope?: RuntimeConfigScope, onlyEnabled = false): Promise<void> {
+    // A later toggle or source refresh must not overtake an earlier catalog load
+    // and then be overwritten by its stale policy.
+    const next = this.subagentModelSync.then(() => this.publishSubagentModels(scope, onlyEnabled));
+    this.subagentModelSync = next.catch(() => {});
+    return next;
+  }
+
+  private async publishSubagentModels(scope?: RuntimeConfigScope, onlyEnabled = false): Promise<void> {
+    const updateRuntimeConfig = this.deps.updateRuntimeConfig;
+    if (!updateRuntimeConfig) { this.markChanged(); return; }
     let failure: unknown;
     let catalog: Promise<SubagentModelOption[]> | undefined;
     const load = () => catalog ??= loadSubagentModelOptions({
@@ -146,19 +157,19 @@ export class SessionConfiguration {
       request: (method, params) => this.deps.request(method, params as Record<string, Json>) as Promise<Json>,
       sourceStatus: this.deps.modelSourceStatus,
     });
-    for (const binding of this.deps.state.bindings()) {
-      if (!this.matchesScope(binding.rendererId, scope) || this.deps.isUnattended?.(binding.rendererId)) continue;
+    await Promise.all(this.deps.state.bindings().map(async binding => {
+      if (!this.matchesScope(binding.rendererId, scope) || this.deps.isUnattended?.(binding.rendererId)) return;
       try {
         const values = await this.resolvedSettings(binding.rendererId);
-        if (onlyEnabled && values.subagentModelCatalog !== true) continue;
+        if (onlyEnabled && values.subagentModelCatalog !== true) return;
         const policy = await resolveSubagentModelPolicy(values, load);
-        await this.deps.updateRuntimeConfig(binding.rendererId, { ...policy });
+        await updateRuntimeConfig(binding.rendererId, { ...policy });
       } catch (error) {
         this.deps.state.markStale(binding.rendererId);
         this.deps.log('subagent-model-policy-failed', error instanceof Error ? error.message : String(error));
         failure ??= error;
       }
-    }
+    }));
     if (failure) throw failure;
   }
 

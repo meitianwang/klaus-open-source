@@ -29,6 +29,7 @@ const vector = JSON.parse(readFileSync(join(__dirname, '../../contracts/vectors/
   policyConfiguration: { persistedKeys: string[]; defaultMode: string; workspaceTable: { writable_roots: string[]; network_access: boolean; exclude_tmpdir_env_var: boolean; exclude_slash_tmp: boolean } };
   granularPolicies: Array<{ input: JsonObject; expected: GranularApprovalPolicy; preset: 'default' | null }>;
   executionPolicyCases: Array<{ name: string; policy: RuntimePolicy; expected: JsonObject }>;
+  subagentModelPublication: { save: string; liveUpdate: string; ordering: string; sessions: string; failure: string };
 };
 function fresh(): string { const root = mkdtempSync(join(tmpdir(), 'klaus-runtime-settings-')); roots.push(root); return root; }
 function fixture(initial: JsonObject = {}) {
@@ -422,6 +423,33 @@ h.test('the subagent catalog switch defaults off and persists independently at u
   assert.equal(object(f.files.get(f.projectPath)).subagentModelCatalog, false);
   await assert.rejects(f.settings.writeRow('klaus.subagentModelCatalog', 'unsupported'), /Unknown runtime setting value/);
 });
+h.test('catalog refreshes preserve toggle order while updating independent sessions in parallel', async () => {
+  assert.equal(vector.subagentModelPublication.ordering, 'serialized-refreshes');
+  assert.equal(vector.subagentModelPublication.sessions, 'parallel');
+  const f = fixture({ subagentModelCatalog: true }), state = new HostState();
+  state.rememberSession('first', 'engine-first', {}); state.rememberSession('second', 'engine-second', {});
+  const updates: string[] = [];
+  let release!: () => void;
+  const pending = new Promise<void>(resolve => { release = resolve; });
+  const config = new SessionConfiguration({ state, configRoot: f.root, request: f.request, log() {},
+    modelSourceStatus: async () => ({ loggedIn: false }),
+    updateRuntimeConfig: async (id, update) => {
+      updates.push(`${id}:${update.subagentModelCatalog}`);
+      if (id === 'first' && update.subagentModelCatalog) await pending;
+    } });
+  const enabling = config.settingsChanged('klaus.subagentModelCatalog');
+  let disabling: Promise<void> | undefined;
+  try {
+    await new Promise<void>(resolve => setImmediate(resolve));
+    assert.deepEqual(updates, ['first:true', 'second:true'], 'one slow session cannot hold back another');
+    await f.settings.writeRow('klaus.subagentModelCatalog', 'off');
+    disabling = config.settingsChanged('klaus.subagentModelCatalog');
+    await new Promise<void>(resolve => setImmediate(resolve));
+    assert.equal(updates.length, 2, 'a later refresh waits for the earlier publication');
+  } finally { release(); }
+  await enabling; await disabling;
+  assert.deepEqual(updates, ['first:true', 'second:true', 'first:false', 'second:false']);
+});
 h.test('live subagent model policy uses the shared catalog and clears it when the scoped switch is disabled', async () => {
   const f = fixture({ modelProviders: { fixture: { name: 'Fixture Model', provider: 'openai', model: 'wire-model' } } }), state = new HostState();
   state.rememberSession('matching', 'engine-matching', { cwd: f.project });
@@ -457,6 +485,7 @@ h.test('live subagent model policy uses the shared catalog and clears it when th
   assert.equal(updates.length, 0);
 });
 h.test('catalog policy publication continues after a rejected binding and reports the failure', async () => {
+  assert.equal(vector.subagentModelPublication.failure, 'mark-binding-stale-and-log');
   const f = fixture(), state = new HostState(), visited: string[] = [];
   state.rememberSession('failed', 'engine-failed', {}); state.rememberSession('ready', 'engine-ready', {});
   const config = new SessionConfiguration({ state, configRoot: f.root, request: f.request, log() {},
