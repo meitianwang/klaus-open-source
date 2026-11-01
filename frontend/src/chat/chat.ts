@@ -4195,6 +4195,12 @@ function friendRowsForSidebar() {
   for (const session of groupedLocalSessions()) {
     const id = session.friendGroupId
     if (!id) continue
+    // Only a friendship of the signed-in account owns a sidebar group: the
+    // directory is that account's accepted-friend ledger, so conversations
+    // left over from another login stay out of this sidebar entirely. Every
+    // other bucket skips friend-bound sessions, so hiding the group hides its
+    // conversations here too, without deleting anything.
+    if (!friendDirectory.some(row => row.id === id)) continue
     const existing = groups.get(id) ?? { id, name: friendDirectoryName(id), updatedAt: 0 }
     existing.updatedAt = Math.max(existing.updatedAt, session.updatedAt || 0)
     groups.set(id, existing)
