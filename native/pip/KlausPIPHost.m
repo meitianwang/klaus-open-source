@@ -159,7 +159,12 @@ static BOOL KlausPIPValidFrame(CGRect frame) {
         isfinite(frame.origin.x) && isfinite(frame.origin.y) &&
         isfinite(frame.size.width) && isfinite(frame.size.height) &&
         isfinite(CGRectGetMaxX(frame)) && isfinite(CGRectGetMaxY(frame)) &&
-        frame.size.width > 0 && frame.size.height > 0;
+        frame.size.width > 0 && frame.size.height > 0 &&
+        // Finite but absurd magnitudes (e.g. an unsigned-wrapped offset near 2^64) pass the
+        // checks above and then hit AppKit's own INT-range assertion inside setFrame:, so
+        // bound the frame to coordinates a screen could actually address.
+        fabs(frame.origin.x) <= 1e6 && fabs(frame.origin.y) <= 1e6 &&
+        frame.size.width <= 1e6 && frame.size.height <= 1e6;
 }
 
 static NSString *KlausPIPDiagnosticString(id value, NSUInteger limit) {
@@ -770,10 +775,14 @@ static void KlausPIPCompletionSpring(CALayer *layer, NSString *key, id from, id 
     BOOL right = [self.anchor hasSuffix:@"right"], top = [self.anchor hasPrefix:@"top"];
     NSMutableArray<NSValue *> *frames = [NSMutableArray array];
     CGRect envelope = CGRectNull;
+    // Stagger offsets must stay in CGFloat arithmetic: an int ternary multiplied by an
+    // NSUInteger index converts the negative literal to unsigned first, turning -28 into
+    // 2^64-28 and throwing every stacked card frame out to ~2^64.
+    CGFloat staggerX = right ? -28 : 28, staggerY = top ? -22 : 22;
     for (NSUInteger index = 0; index < visible.count; index++) {
         CGSize size = [self sizeForItem:visible[index]];
-        CGRect frame = CGRectMake(anchor.x - (right ? size.width : 0) + (right ? -28 : 28) * index,
-                                   anchor.y - (top ? size.height : 0) + (top ? -22 : 22) * index, size.width, size.height);
+        CGRect frame = CGRectMake(anchor.x - (right ? size.width : 0) + staggerX * (CGFloat)index,
+                                   anchor.y - (top ? size.height : 0) + staggerY * (CGFloat)index, size.width, size.height);
         [frames addObject:[NSValue valueWithRect:frame]]; envelope = CGRectUnion(envelope, frame);
     }
     envelope = CGRectInset(envelope, -32, -36);
