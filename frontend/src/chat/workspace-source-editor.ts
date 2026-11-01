@@ -51,13 +51,12 @@ export function createSourceEditor(options: SourceEditorOptions) {
     themeType: document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light',
     preferredHighlighter: 'shiki-js',
     disableFileHeader: true,
-    overflow: 'scroll',
+    overflow: 'wrap',
     stickyHeaders: false,
     createEditor(type, settings, key) {
       if (type === 'file' && state) restoring = state.document.getText() !== content
       const instance = new Editor(type, {
         ...settings,
-        ownsVerticalViewport: true,
         ...(type === 'file' && state ? { initialState: state } : {}),
         onAttach() {
           attached = true
