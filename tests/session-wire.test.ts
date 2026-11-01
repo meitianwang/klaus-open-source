@@ -4967,6 +4967,29 @@ h.test('a friend dispatch generates its title from the accepted send like a loca
   await service.shutdown();
 });
 
+h.test('an appended friend message titles its conversation without a turn, past the friend name placeholder', async () => {
+  const root = byoRoot(), client = new FakeClient()
+    .reply('engine/readSessionSummary', { session: { id: 'thread', title: 'Nick', hostMetadata: { friend: { friendshipId: 'f1', userId: 'u1', displayName: 'Nick' } } } })
+    .reply('session/appendDisplayMessage', { appended: true })
+    .reply('session/generateTitle', { generatedTitle: { threadId: 'thread', title: { title: '约周末爬山', persisted: false } } })
+    .reply('session/updateTitle', { title: { threadId: 'thread', title: '约周末爬山' } });
+  const logs: string[] = [];
+  const { service, state } = serviceWith(client, root, undefined, { log: (kind, detail) => logs.push(`${kind}: ${detail}`) });
+  await service.client(); state.rememberSession('thread', 'live', {});
+  // A status note this computer wrote is not the conversation's words.
+  await service.appendDisplayMessage('thread', 'friend-moved-x', '<friend-status about="Nick" at="21:00">\nmoved\n</friend-status>', { externalFriendMessage: true, friendStatus: 'moved', displayText: 'moved' });
+  await new Promise(resolve => setTimeout(resolve, 30));
+  assertEqual(client.sent('session/generateTitle').length, 0, 'a status note starts no title request');
+  await service.appendDisplayMessage('thread', 'friend-message-1', '<friend-message from="Nick" purpose="notice" at="21:05">\n周末一起爬山吗\n</friend-message>',
+    { externalFriendMessage: true, friendIntent: 'notice', displayText: '周末一起爬山吗', sender: { displayName: 'Nick' } });
+  await waitFor(() => readSessionTitle('thread', root)?.source === 'ai', 2000, `appended message generates a title; logs=${logs.join(' | ')}`);
+  const prompt = String(object(client.sent('session/generateTitle')[0])?.prompt);
+  assert(prompt.includes('周末一起爬山吗'), 'the written words are the title input');
+  assert(!prompt.includes('friend-message') && !prompt.includes('Nick'), 'the friend tags are not title input');
+  assertEqual(client.sent('session/generateTitle').length, 1, 'one generation attempt');
+  await service.shutdown();
+});
+
 h.test('setup lifecycle reconciliation announces unhappy terminal setup once per process', async () => {
   assertDeepEqual(setupLifecycleNotices(recoveryVectors.setupLifecycle.reply, 'thread'), [recoveryVectors.setupLifecycle.notice], 'only an unhappy terminal setup becomes a warning');
 

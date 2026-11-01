@@ -546,9 +546,12 @@ export class SessionService {
       authorizeGeneration: async id => {
         const engine = this.attached, engineId = deps.state.liveSession(id);
         if (engine && engineId) await this.refreshModelTierTargetsIfNeeded(id, engine.client, engineId);
-        this.requireTurnAuthorization(id);
+        this.requireInferenceReady(id);
       },
-      engineTitle: async id => (await this.threadRow(id)).title,
+      engineTitle: async id => {
+        const row = await this.threadRow(id);
+        return friendPlaceholderTitle(row) ? '' : row.title;
+      },
       serialize: (id, action) => this.mutate(id, action),
       publish: event => {
         deps.onThreadRow?.({ id: event.sessionId!, title: event.title! });
@@ -556,6 +559,7 @@ export class SessionService {
       },
       adaptiveTitlesEnabled: () => this.deps.adaptiveTitlesEnabled?.() ?? false,
       firstUserContent: id => readFirstUserContent(this.configRoot, id),
+      ensureLive: id => this.titleSession(id) ? this.resolveLiveSession(id) : Promise.resolve(),
       log: (kind, detail) => this.deps.log?.(kind, detail),
     });
   }
@@ -1860,6 +1864,15 @@ export class SessionService {
     const scope = friendSessionScope(this.configRoot, rendererId);
     if (scope && scope.active !== true) throw new IpcHandlerError('FRIEND_TASK_NOT_AUTHORIZED', 'Authorize or restart this task from the Friends page before continuing');
     if (scope && this.deps.friendAccountId && scope.accountId !== this.deps.friendAccountId()) throw new IpcHandlerError('ACCOUNT_CHANGED', 'The friend task belongs to another account');
+    this.requireInferenceReady(rendererId);
+  }
+
+  /**
+   * The engine-side readiness every model request needs. A title is a label
+   * for this computer's owner and never acts on a friend's request, so a
+   * friend task waiting for approval, or already finished, is still titled.
+   */
+  private requireInferenceReady(rendererId: string): void {
     if (this.pendingSessionCloses.has(rendererId)) throw new IpcHandlerError('SESSION_CLEANUP_PENDING', 'The previous session is still closing. Please retry shortly.');
     if (this.pendingActivations.has(rendererId)) throw new SessionPreparationPendingError(undefined);
     if (this.deps.state.inferenceUncertain(rendererId)) throw new IpcHandlerError('MODEL_STATE_UNCERTAIN', 'The engine has not confirmed which model is active. Retry to reconcile and apply the saved model.');
@@ -2720,6 +2733,13 @@ export class SessionService {
     this.assertRequestOwner();
     await this.request('session/appendDisplayMessage', { sessionId: engineId, messageId, text, metadata });
     this.assertPublicThread(rendererId);
+    // A friend conversation can open with appended rows and no turn. Its first
+    // written message titles it through the same single-attempt pipeline as a
+    // first turn; notes this computer recorded are not the conversation's words.
+    if (metadata.friendStatus !== undefined || metadata.friendContinuation === true) return;
+    this.rememberTitleInput(rendererId, { text, displayMetadata: metadata });
+    void this.requestOwner.exit(() => this.titles.firstTurnReady(rendererId))
+      .catch(error => this.deps.log?.('session-title-pipeline-failed', String(error)));
   }
   private trackSessionRecovery<T>(rendererId: string, action: () => Promise<T>): Promise<T> {
     const recovery = Promise.resolve().then(action);
@@ -5274,9 +5294,25 @@ export function randomMessageId(): string {
 export { inheritedEnv };
 
 /**
+ * Friend conversations created before titles were generated for them were named
+ * after the friend ("Nick", or "Nick · first line" for a task). That name is a
+ * host placeholder, not a title: the pipeline treats it like an untitled
+ * conversation. A rename stays protected by its custom title record.
+ */
+export function friendPlaceholderTitle(row: Record<string, Json>): boolean {
+  const title = typeof row.title === 'string' ? row.title.trim() : '';
+  const friend = object(object(row.hostMetadata ?? row.host_metadata)?.friend);
+  const name = typeof friend?.displayName === 'string' ? friend.displayName.trim() : '';
+  return !!title && !!name && (title === name || title.startsWith(`${name} · `));
+}
+
+/**
  * The stored first user content of a conversation: untitled recovery reads the
  * rollout head instead of paging the engine, because a conversation without a
- * local turn may never have been attached in this process.
+ * local turn may never have been attached in this process. A row with a display
+ * record titles by what was shown, so the tags around a friend message or a
+ * channel envelope never become title input; notes this computer recorded are
+ * skipped.
  */
 async function readFirstUserContent(configRoot: string, sessionId: string): Promise<string | undefined> {
   const dir = join(configRoot, 'sessions');
@@ -5288,10 +5324,23 @@ async function readFirstUserContent(configRoot: string, sessionId: string): Prom
     try {
       const buffer = Buffer.alloc(262144);
       const read = readSync(fd, buffer, 0, buffer.length, 0);
+      const rows: Record<string, unknown>[] = [];
       for (const line of buffer.toString('utf8', 0, read).split('\n')) {
         if (!line.includes('"kind":"message"') && !line.includes('"kind":"event"')) continue;
-        let row: Record<string, unknown>;
-        try { row = JSON.parse(line) as Record<string, unknown>; } catch { continue; }
+        try { rows.push(JSON.parse(line) as Record<string, unknown>); } catch { continue; }
+      }
+      // The display record follows its user message, so collect them all first.
+      const displays = new Map<string, Record<string, unknown>>();
+      for (const row of rows) {
+        const message = row.message as Record<string, unknown> | undefined;
+        if (row.kind !== 'message' || message?.type !== 'system' || typeof message.text !== 'string' || !message.text.includes('"localRender"')) continue;
+        try {
+          const record = JSON.parse(message.text) as Record<string, unknown>;
+          const render = record.localRender;
+          if (typeof record.messageUuid === 'string' && render !== null && typeof render === 'object' && !Array.isArray(render)) displays.set(record.messageUuid, render as Record<string, unknown>);
+        } catch { continue; }
+      }
+      for (const row of rows) {
         if (row.kind === 'event' && row.event === 'user_goal_instruction') {
           const objective = (row.payload as Record<string, unknown> | undefined)?.objective;
           if (typeof objective === 'string' && objective.trim()) return objective;
@@ -5299,6 +5348,9 @@ async function readFirstUserContent(configRoot: string, sessionId: string): Prom
         }
         const message = row.message as Record<string, unknown> | undefined;
         if (row.kind !== 'message' || message?.type !== 'user') continue;
+        const display = typeof message.uuid === 'string' ? displays.get(message.uuid) : undefined;
+        if (display && (display.friendStatus !== undefined || display.friendContinuation === true)) continue;
+        if (typeof display?.displayText === 'string' && display.displayText.trim()) return display.displayText;
         const content = Array.isArray(message.content) ? message.content : [];
         const text = content
           .filter((block): block is Record<string, unknown> => typeof block === 'object' && block !== null && (block as Record<string, unknown>).type === 'text')
@@ -5319,7 +5371,7 @@ async function readFirstUserContent(configRoot: string, sessionId: string): Prom
         const record = JSON.parse(String(row.record_json)) as Record<string, unknown>;
         const metadata = record.metadata as Record<string, unknown> | undefined;
         const text = typeof metadata?.displayText === 'string' ? metadata.displayText : typeof record.text === 'string' ? record.text : '';
-        if (text.trim() && metadata?.friendStatus !== 'failed') return text;
+        if (text.trim() && metadata?.friendStatus === undefined && metadata?.friendContinuation !== true) return text;
       } catch { continue; }
     }
     return undefined;

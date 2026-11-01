@@ -64,6 +64,19 @@ describe('prediction source revisions', () => {
     expect(select('b', stream).sessionId).toBe('b')
     expect(select('a', stream).sourceRevision).not.toBe(previous.sourceRevision)
   })
+
+  test('a user row pushed without a turn re-reads the source; other live unit changes do not', () => {
+    const select = createPredictionSessionSelector()
+    const friendRow = { type: 'live-user', msg: { uuid: 'friend-message-1' } }
+    const stream = { ...sourceState(), liveUnits: [] }
+    const empty = select('a', stream).sourceRevision
+    const arrived = select('a', { ...stream, liveUnits: [friendRow] }).sourceRevision
+    expect(arrived).not.toBe(empty)
+    // A new array with the same newest user row and an unrelated unit keeps the read.
+    expect(select('a', { ...stream, liveUnits: [friendRow, { type: 'live-text' }] }).sourceRevision).toBe(arrived)
+    expect(select('a', { ...stream, liveUnits: [{ ...friendRow }, { type: 'live-text' }] }).sourceRevision).toBe(arrived)
+    expect(select('a', { ...stream, liveUnits: [friendRow, { type: 'live-user', msg: { uuid: 'friend-message-2' } }] }).sourceRevision).not.toBe(arrived)
+  })
 })
 
 describe('prediction source turns', () => {

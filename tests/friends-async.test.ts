@@ -84,6 +84,20 @@ h.test('direct composer forwarding bypasses the local model and preserves non-ch
     assert.equal(object(live.message).role,'user');assert.equal(object(live.message).content,text);
   }finally{await f.close();}
 });
+h.test('the open conversation sees a friend row only after the engine holds it',async()=>{
+  const f=fixture();try{
+    let release!:()=>void;const gate=new Promise<void>(resolve=>{release=resolve;});
+    const append=f.deps.appendDisplayMessage!;
+    f.deps.appendDisplayMessage=async(...args)=>{await gate;await append(...args);};
+    await f.service.receive(f.incoming({requestId:'notice-gated',intent:'notice',onReply:undefined,prompt:'Lunch?'}),signal());
+    await new Promise(resolve=>setTimeout(resolve,20));
+    // Until the engine accepted the row, the composer would read the previous source.
+    assert.equal(f.pushed.length,0);
+    release();
+    await waitFor(()=>f.pushed.length===1,1000,'row pushed after the engine append');
+    assert.equal(f.engineAppends.length,1);
+  }finally{await f.close();}
+});
 h.test('server acceptance returns immediately while an offline peer has not replied',async()=>{
   const f=fixture();try{
     const receipt=await f.service.send(FRIEND,'Check A','owner-thread',signal(),'out-one',{intent:'request',onReply:'follow_up',taskId:'consumer-task'});
@@ -117,6 +131,8 @@ h.test('notices persist across restart and never enter an engine turn or follow-
     const note=f.incoming({requestId:'notice-one',intent:'notice',onReply:undefined,prompt:'Service restored.'});
     const receipt=await f.service.receive(note,signal());assert.equal(receipt.awaitingAuthorization,false);assert.equal(f.turns.length,0);
     assert.deepEqual(f.created[0]!.friendConversationGroup,{accountId:SELF,friendshipId:FRIEND,friendUserId:PEER});
+    // The conversation starts untitled; its first message titles it like any other conversation.
+    assert.equal(f.created[0]!.title,undefined);
     assert.equal(object(f.created[0]!.hostMetadata).threadSource,undefined);
     assert.equal(friendSessionScope(f.root,'receiver-thread'),undefined);
     // The conversation carries the friend rules on each turn; the notice itself starts nothing.

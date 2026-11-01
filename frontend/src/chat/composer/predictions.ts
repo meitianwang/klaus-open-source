@@ -10,6 +10,22 @@ export interface PredictionSourceState {
   activeTurnId: string | null
   liveTurnId: string | null
   lastTerminalStatus: string | null
+  liveUnits?: readonly { type: string; msg?: { uuid?: unknown } }[]
+}
+
+/**
+ * The newest user row added without a turn, such as a friend's message. It
+ * becomes the conversation's suggestion source on its own, so its identity is
+ * part of the revision. Only this scalar is compared: the live unit list itself
+ * is replaced by unrelated stream updates and would restart every source read.
+ */
+function latestLiveUserId(units: PredictionSourceState['liveUnits']): unknown {
+  if (!units) return null
+  for (let index = units.length - 1; index >= 0; index--) {
+    const unit = units[index]!
+    if (unit.type === 'live-user') return unit.msg?.uuid ?? null
+  }
+  return null
 }
 
 /** Keep source reads alive through unrelated immutable stream updates. */
@@ -17,7 +33,7 @@ export function createPredictionSessionSelector() {
   let previous: { session: PredictionSession; values: unknown[] } | null = null
   return (sessionId: string, state: PredictionSourceState): PredictionSession => {
     const values = [state.history, state.historyGeneration, state.turnStatuses,
-      state.activeTurnId, state.liveTurnId, state.lastTerminalStatus]
+      state.activeTurnId, state.liveTurnId, state.lastTerminalStatus, latestLiveUserId(state.liveUnits)]
     if (previous?.session.sessionId === sessionId && values.every((value, index) => Object.is(value, previous!.values[index]))) {
       return previous.session
     }

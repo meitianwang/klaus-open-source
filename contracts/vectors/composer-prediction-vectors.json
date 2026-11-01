@@ -62,12 +62,14 @@
   },
   "sourceTurn": {
     "live": "latest admitted generation",
+    "appendedRow": "a user row the host appends without a turn (a friend's message) reserves the next generation and becomes the source while no turn runs; it is persisted, so a resumed session agrees",
     "resumed": "highest persisted admission generation, with legacy retained-context fallback",
     "messageFreeTerminals": true,
     "clockTies": "admission generation independent of context append order",
     "rollback": "persist a clear watermark and use retained transcript",
     "renderer": "resolve named engine context before selecting the per-turn cache; revisions track history and turn lifecycle, not the stream object identity",
     "revisionReason": "Unrelated immutable stream updates must not discard every pending source reply and prevent prediction lookup.",
+    "liveUserRevision": "the uuid of the newest live user row is part of the revision, compared as a scalar, so a pushed friend message re-reads the source; the host pushes that row only after the engine accepted it",
     "cancelledRead": "abort queued source admission before restoring a retired binding",
     "recovery": {
       "trigger": "window focus",
