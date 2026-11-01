@@ -4171,7 +4171,11 @@ function friendshipIdFromKey(key: string | null): string | null {
 let friendDirectory: Array<{ id: string; userId?: string; name: string; avatarUrl?: string | null }> = []
 ;(window as any).getFriendDirectoryEntry = (friendshipId?: string, userId?: string) => friendDirectory.find(row => friendshipId ? row.id === friendshipId : !!userId && row.userId === userId)
 function friendDirectoryName(friendshipId: string): string {
-  return friendDirectory.find(row => row.id === friendshipId)?.name || friendshipId
+  // A friendship this account cannot resolve (removed, or left over from an
+  // earlier login on this machine) still owns its local conversations, so the
+  // group stays reachable under a localized placeholder instead of leaking the
+  // raw friendship id into the sidebar.
+  return friendDirectory.find(row => row.id === friendshipId)?.name || tt('sidebar_friend_unknown') || 'Unknown friend'
 }
 async function refreshFriendDirectory(): Promise<void> {
   try {

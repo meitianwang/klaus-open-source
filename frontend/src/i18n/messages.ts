@@ -551,6 +551,8 @@ export const I18N: { en: Record<string, string>; zh: Record<string, string> } = 
     // spinner or a dot shows here (no count), so two labels suffice.
     sidebar_badge_working: 'Working',
     sidebar_badge_attention: 'Needs attention',
+    // Friend group row whose friendship this account can no longer resolve.
+    sidebar_friend_unknown: 'Unknown friend',
     // Sidebar header controls + waiting chips. The activity toggle is icon-only, so
     // these three are its aria-labels in its three states.
     sidebar_activity_view: 'View activity',
@@ -4503,6 +4505,8 @@ browser_ext_connected: 'Extension connected',
     // 因此两条文案即可。
     sidebar_badge_working: '有任务进行中',
     sidebar_badge_attention: '有待处理项',
+    // 当前账号已无法解析其好友关系的分组行名称。
+    sidebar_friend_unknown: '未知好友',
     // 侧栏顶栏控件与等待态标识。活动视图开关是纯图标按钮，这三条是它的三态
     // aria-label。
     sidebar_activity_view: '查看活动',
