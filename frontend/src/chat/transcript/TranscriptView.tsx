@@ -30,7 +30,7 @@ import styles from './transcript.module.css'
 import chatStyles from '../chat.module.css'
 import { activityCollapseState, describeActivity, projectActivity, turnCollapseState, transcriptPageStart, type ActivityEntry, type ActivitySummary, type ActivityAction } from './activity-model'
 import { ActivityTool, activityToolDisplayName, activityToolIconName, activityToolPresentation, delegatedToolOutput, type ActivityToolData } from './activity-tool'
-import { friendSendToolName, semanticActivity, semanticActivityLabel } from './activity-semantic'
+import { semanticActivity, semanticActivityLabel } from './activity-semantic'
 import { mediaGenerationKind, mediaGenerationLabel, mediaGenerationSummaryState } from './media-generation-activity'
 import { ActivityDisclosure } from './activity-disclosure'
 import { isAgentActionToolName, isHiddenAgentMessageTool } from './activity-agent-action-model'
@@ -1801,32 +1801,6 @@ function groupAdjacentAgentEvents<T extends Unit | LiveUnit>(units: T[]): T[] {
   }).reverse()
 }
 
-/**
- * Split each settled friend send out of a turn's process units. The send keeps
- * the same single-tool unit shape the fold renders (`tool:<id>` key), so the row
- * keeps its React identity and disclosure state when it moves out of the fold.
- * A send that is still running or awaiting approval stays in the fold until it
- * settles.
- */
-export function liftFriendSendUnits(units: Unit[]): { remaining: Unit[]; sends: Unit[] } {
-  const remaining: Unit[] = []
-  const sends: Unit[] = []
-  for (const unit of units) {
-    if (unit.type !== 'tools' || !unit.segment?.tools?.length) { remaining.push(unit); continue }
-    const kept: SegmentTool[] = []
-    unit.segment.tools.forEach((tool, index) => {
-      // Saved history marks a call whose result has not landed yet as `done`
-      // with a pending result; it has not settled, so it stays in the fold.
-      if (!friendSendToolName(tool.toolName) || tool.pendingResult || (tool.state !== 'done' && tool.state !== 'error')) { kept.push(tool); return }
-      const key = tool.toolCallId || `${unit.key}:${index}`
-      sends.push({ ...unit, key: `tool:${key}`, segment: { kind: 'tools', tools: [tool] } })
-    })
-    if (kept.length === unit.segment.tools.length) remaining.push(unit)
-    else if (kept.length) remaining.push({ ...unit, segment: { ...unit.segment, tools: kept } })
-  }
-  return { remaining, sends }
-}
-
 export function activityEntries(units: Unit[], turnKey: string, interrupted: boolean, recordedWorkflowIds: Set<string>,
   livePlanReviewIds: ReadonlySet<string> = new Set()): ActivityEntry<FoldItem>[] {
   // Once a child reports its own lifecycle inline, the settled spawn call row
@@ -2353,10 +2327,10 @@ export function foldTurnGroups(
     // activity it interrupted. A delegation that OPENS the group (the delivered
     // message started this turn, so it is the turn's first unit) still leads the
     // turn via `leading`, exactly like the user bubble it stands in for.
-    // A message the friend received is an outward action the owner must see
-    // without opening the fold, so each settled friend send leaves the process
-    // region and sits directly above the turn's final answer.
-    const { remaining: foldedUnits, sends: friendSends } = liftFriendSendUnits(processUnits)
+    // Friend sends stay inside the process region at their arrival position.
+    // Lifting them out put settled cards below commentary that followed them
+    // and left them unfolded after the turn settled.
+    const foldedUnits = processUnits
     const entries = activityEntries(foldedUnits, turnKey, isTurnCancelled, recordedWorkflowIds, livePlanReviewIds)
     const projected = groupTurnActivities(entries, turnId, turnKey, isTurnInProgress, turnCollapseOverrides, lastText !== null)
     const persistent = projected.filter(isPersistentTurnNode)
@@ -2403,7 +2377,6 @@ export function foldTurnGroups(
         kind: 'work-divider', key: `work-divider:${turnKey}`, startedAtMs, completedAtMs,
       })
     }
-    nodes.push(...friendSends.map(unit => ({ kind: 'unit' as const, unit })))
     if (lastText) nodes.push({ kind: 'unit', unit: lastText })
     nodes.push(...groupTurnActivities(activityEntries(post, turnKey, isTurnCancelled, recordedWorkflowIds, livePlanReviewIds), turnId, turnKey, isTurnInProgress, turnCollapseOverrides))
     if (failUnit) nodes.push({ kind: 'unit', unit: failUnit })
@@ -4818,28 +4791,6 @@ export function liveActivityEntries(liveUnits: LiveUnit[], tools: Record<string,
   })
 }
 
-/**
- * The live counterpart of {@link liftFriendSendUnits}. A settled friend send
- * becomes its own node keyed by its call id — the same key the fold gives the
- * single-call entry — so the row is the same item before and after it moves.
- */
-export function liftLiveFriendSends(units: LiveUnit[], tools: Record<string, ToolCardState>): { remaining: LiveUnit[]; sends: LiveActivityNode[] } {
-  const remaining: LiveUnit[] = []
-  const sends: LiveActivityNode[] = []
-  for (const unit of units) {
-    if (unit.type !== 'live-tools') { remaining.push(unit); continue }
-    const lifted = unit.order.filter(id => {
-      const card = tools[id]
-      return !!card && !!friendSendToolName(card.toolName) && (card.status === 'ok' || card.status === 'error')
-    })
-    if (!lifted.length) { remaining.push(unit); continue }
-    const kept = unit.order.filter(id => !lifted.includes(id))
-    if (kept.length) remaining.push({ ...unit, order: kept })
-    for (const id of lifted) sends.push({ kind: 'unit', key: id, turnId: unit.turnId, unit: { ...unit, key: `tool:${id}`, order: [id] } })
-  }
-  return { remaining, sends }
-}
-
 function projectLiveTurn(
   liveUnits: LiveUnit[], tools: Record<string, ToolCardState>, running: boolean,
   _thinkingActive: boolean, interrupted: boolean, recordedWorkflowIds: Set<string>,
@@ -4894,9 +4845,9 @@ function projectLiveTurn(
     leading.push({ kind: 'unit', key: unit.key, unit })
   }
   const persistentTypes = new Set(['live-approval-review-notice', 'live-approval-review', 'live-goal-completion', 'live-planning-question', 'live-proposed-plan', 'live-user', 'live-delegation', 'live-permission', 'live-plan-review', 'live-execution-mode', 'live-elicit', 'live-ask', 'live-auth', 'live-plan', 'live-file', 'live-error', 'live-turn-status'])
-  // Same rule as the saved-history projection: a settled friend send leaves the
-  // process disclosure and sits directly above the final answer.
-  const { remaining: foldedBefore, sends: friendSends } = liftLiveFriendSends(before, tools)
+  // Same rule as the saved-history projection: friend sends keep their arrival
+  // position inside the process disclosure.
+  const foldedBefore = before
   // Retain child lifecycle evidence inside the process disclosure after completion.
   const entries = liveActivityEntries(foldedBefore, tools, recordedWorkflowIds)
   const project = (values: ActivityEntry<LiveUnit>[], active: boolean, tailClosed = false): LiveActivityNode[] => projectActivity(values, active, tailClosed).map(node => {
@@ -4953,7 +4904,6 @@ function projectLiveTurn(
       kind: 'work-divider', key: 'work-divider', startedAtMs: startedAtMs ?? Date.now(), completedAtMs,
     })
   }
-  result.push(...friendSends)
   if (final) result.push({ kind: 'unit', key: final.key, unit: {
     ...final,
     goalCompletion: !running && !interrupted && !liveUnits.some(unit => unit.type === 'live-error')
