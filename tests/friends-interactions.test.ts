@@ -14,7 +14,7 @@ const h=new Harness(),SELF='owner',PEER='peer',FRIEND='friend',LOCAL='local-devi
 const signal=()=>new AbortController().signal;
 function fixture(devices=[REMOTE]){
   const root=mkdtempSync(join(tmpdir(),'friend-interactions-'));
-  const requests:any[]=[],created:any[]=[],turns:any[]=[],followUps:any[]=[];
+  const requests:any[]=[],created:any[]=[],turns:any[]=[],followUps:any[]=[],sent:any[]=[];
   const store=new FriendTaskStore(root);let fail=false,obsolete=false;
   const deps:FriendsDeps={configRoot:root,serverURL:'https://fixture.invalid',account:()=>({userId:SELF,token:'fixture-token'}),enabled:()=>false,
     deviceId:async()=>LOCAL,ensureTransport:async()=>({deviceId:LOCAL,connected:true}),fetch:async(_url,init)=>{
@@ -30,6 +30,7 @@ function fixture(devices=[REMOTE]){
       captureFriendContinuation:async(_id,stepId,taskId)=>({taskId:'original-turn',stepId,generation:'original-input',...(taskId?{nativeTask:{taskId,generation:'task-generation',fingerprint:'task-content'}}:{})}),
       deliverFriendFollowUp:async(_id,request)=>{request.assertCurrent?.();if(obsolete)return {admitted:false,obsolete:true};followUps.push(request);return {admitted:true};},
       canReuseFriendTaskSession:id=>!turns.some(row=>row.id===id&&!row.done),
+      send:async(id,payload)=>{sent.push({id,payload});return null;},
       sendAndWait:async(id,payload)=>{const turn:any={id,payload,done:false};const settled=new Promise<{reply:string|null}>(resolve=>{turn.resolve=resolve;});turns.push(turn);try{return await settled;}finally{turn.done=true;}},
     }};
   const service=new FriendsService(deps);
@@ -37,21 +38,33 @@ function fixture(devices=[REMOTE]){
   const reply=(rootId:string,change:Partial<FriendMessage>={})=>incoming({kind:'reply',intent:undefined,onReply:undefined,requestId:'result-one',replyType:'completed',replyToRequestId:rootId,targetDeviceId:LOCAL,targetThreadId:'owner-thread',prompt:'A result',...change});
   /** The receiving model delivers the task result from inside the running turn of conversation `id`. */
   const answer=(id:string,text:string)=>service.execute('reply_to_friend',{prompt:text},{sessionId:id,unattended:false,signal:signal(),assertCurrent(){}},'result-'+id);
-  return {root,store,service,deps,requests,created,turns,followUps,incoming,reply,answer,fail(value:boolean){fail=value;},obsolete(value:boolean){obsolete=value;},async close(){for(const turn of turns)turn.resolve({reply:'Fixture cleanup'});await service.close();rmSync(root,{recursive:true,force:true});}};
+  return {root,store,service,deps,requests,created,turns,followUps,sent,incoming,reply,answer,fail(value:boolean){fail=value;},obsolete(value:boolean){obsolete=value;},async close(){for(const turn of turns)turn.resolve({reply:'Fixture cleanup'});await service.close();rmSync(root,{recursive:true,force:true});}};
 }
 const grant={deviceId:LOCAL,mode:'manual',computerUse:false,apps:[],directories:[],remember:false};
 
-h.test('completed friend tasks prepare an independent local chat without starting a model',async()=>{
+h.test('handing a friend message over starts a local turn recorded as the friend message',async()=>{
   const f=fixture();try{
     const admitted=await f.service.receive(f.incoming(),signal());await f.service.approve({taskId:admitted.taskId,grant});
     await waitFor(()=>f.turns.length===1,1000,'friend task');await f.answer('local-1','Done');f.turns[0].resolve({reply:'Owner note: done'});
     await waitFor(()=>f.store.get(SELF,admitted.taskId)?.status==='completed',1000,'completed');
     await waitFor(()=>friendSessionScope(f.root,'local-1')?.active===false,1000,'released grant');
-    const result=await f.service.prepareLocalAssist({sessionId:'local-1',friendId:FRIEND});
+    const result=await f.service.prepareLocalAssist({sessionId:'local-1',friendId:FRIEND,text:'Inspect A.',messageId:'msg-1'});
     assert.notEqual(result.sessionId,'local-1');assert.equal(friendSessionScope(f.root,result.sessionId),undefined);
-    assert.equal(f.created[1].options.friendConversationGroup.friendshipId,FRIEND);assert.equal(f.turns.length,1);
+    assert.equal(f.created[1].options.friendConversationGroup.friendshipId,FRIEND);
+    assert.equal(f.turns.length,1);
+    assert.equal(f.sent.length,1);assert.equal(f.sent[0].id,result.sessionId);
+    const payload=f.sent[0].payload;
+    assert.equal(payload.displayMetadata.externalFriendMessage,true);
+    assert.equal(payload.displayMetadata.displayText,'Inspect A.');
+    assert.equal(payload.displayMetadata.sender.friendshipId,FRIEND);
+    assert.equal(payload.displayMetadata.messageId,'msg-1');
+    assert(payload.text.includes('<friend-message'));assert(payload.text.includes('Inspect A.'));assert(payload.text.includes('"displayName":"Peer"'));
     assert.equal(await f.service.composerContext('Make a local todo.',{},result.sessionId),'');
-    assert.equal((await f.service.prepareLocalAssist({sessionId:'owner-thread',friendId:FRIEND})).sessionId,'owner-thread');
+    // An unscoped source gets its own conversation too: the handed message never
+    // re-enters the conversation it was handed from as the owner's words.
+    const second=await f.service.prepareLocalAssist({sessionId:'owner-thread',friendId:FRIEND,text:'A note'});
+    assert.notEqual(second.sessionId,'owner-thread');assert.equal(f.sent.length,2);
+    await assert.rejects(f.service.prepareLocalAssist({sessionId:'owner-thread',friendId:FRIEND}),/handoff needs/);
   }finally{await f.close();}
 });
 h.test('failed transmissions retry the same request and expose retry controls only until accepted',async()=>{

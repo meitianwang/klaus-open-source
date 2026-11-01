@@ -57,22 +57,15 @@ describe('explicit friend composition', () => {
     expect(hasFriendQuoteInstruction('quoted-context', [{ range: { start: 0, end: 14 } }])).toBe(false)
     expect(hasFriendQuoteInstruction('quoted-context summarize it', [{ range: { start: 0, end: 14 } }])).toBe(true)
   })
-  test('local handoff prepares a separate host-approved local target', async () => {
-    const calls: Array<{ sessionId: string; friendId: string }> = []
-    const target = await friendComposeTarget({ action: 'handoff', sessionId: 'closed-friend-task', friendId: 'friend-a' }, 'current-chat', async request => {
-      calls.push(request); return { sessionId: 'local-chat' }
-    })
-    expect(target).toBe('local-chat')
-    expect(calls).toEqual([{ sessionId: 'closed-friend-task', friendId: 'friend-a' }])
+  test('a handoff resolves no composer target: the host prepares the local chat', () => {
+    // The host call that opens the local conversation also submits the friend
+    // message as its first turn, so target resolution keeps every action here.
+    expect(friendComposeTarget({ action: 'handoff', sessionId: 'friend-chat', friendId: 'friend-a' }, 'current-chat')).toBe('friend-chat')
+    expect(friendComposeTarget({ action: 'handoff', sessionId: '', friendId: 'friend-a' }, 'current-chat')).toBe('current-chat')
     expect(friendComposeMetadata({ intent: 'request', quotedMessageId: 'notice-one' }, false)).toEqual({})
   })
-  test('handwritten replies retain their original conversation and never prepare local AI', async () => {
-    for (const action of ['reply', 'supplement']) expect(await friendComposeTarget({ action, sessionId: 'original', friendId: 'friend-a' }, 'current', async () => { throw new Error('Must not prepare local AI') })).toBe('original')
-  })
-  test('an invalid local target cannot fall back into the ended friend task', async () => {
-    let failure: unknown
-    try { await friendComposeTarget({ action: 'handoff', sessionId: 'closed', friendId: 'friend-a' }, 'closed', async () => ({ sessionId: '' })) } catch (error) { failure = error }
-    expect((failure as Error)?.message).toContain('could not be prepared')
+  test('handwritten replies retain their original conversation', () => {
+    for (const action of ['reply', 'supplement']) expect(friendComposeTarget({ action, sessionId: 'original', friendId: 'friend-a' }, 'current')).toBe('original')
   })
 
 })

@@ -17,17 +17,14 @@ export interface FriendMessageComposeRequest {
   friendId?: string
 }
 
-/** Preparing a local handoff must not reopen the remote task's authorization. */
-export async function friendComposeTarget(
-  request: FriendMessageComposeRequest,
-  currentSessionId: string | null,
-  prepareLocalAssist: (input: { sessionId: string; friendId: string }) => Promise<{ sessionId: string }>,
-): Promise<string> {
-  const sessionId = request.sessionId || currentSessionId || ''
-  if (request.action !== 'handoff' || !sessionId || !request.friendId) return sessionId
-  const result = await prepareLocalAssist({ sessionId, friendId: request.friendId })
-  if (!result || typeof result.sessionId !== 'string' || !result.sessionId) throw new Error('The local conversation could not be prepared')
-  return result.sessionId
+/**
+ * The conversation a compose action starts from: reply-style actions stay in the
+ * conversation they were asked in. A handoff resolves its local conversation
+ * through the host call that also submits the friend message as its first turn,
+ * so it never passes through here.
+ */
+export function friendComposeTarget(request: FriendMessageComposeRequest, currentSessionId: string | null): string {
+  return request.sessionId || currentSessionId || ''
 }
 
 export function friendSendLabel(names: string[], intent: FriendMessageIntent, t: (key: string) => string): string {

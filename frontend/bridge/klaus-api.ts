@@ -1585,7 +1585,7 @@ expose('klaus', {
     approve: (args: { taskId: string; grant: FriendTaskGrant }): Promise<FriendsRuntimeSnapshot> => call('friends:approve', args),
     retryReply: (args: { taskId: string }): Promise<FriendsRuntimeSnapshot> => call('friends:retry-reply', args),
     retrySend: (args: { requestId: string }): Promise<FriendsRuntimeSnapshot> => call('friends:retry-send', args),
-    prepareLocalAssist: (args: { sessionId: string; friendId: string }): Promise<{ sessionId: string }> => call('friends:prepare-local-assist', args),
+    prepareLocalAssist: (args: { sessionId: string; friendId: string; text: string; messageId?: string }): Promise<{ sessionId: string }> => call('friends:prepare-local-assist', args),
     reject: (args: { taskId: string }): Promise<FriendsRuntimeSnapshot> => call('friends:reject', args),
     ignore: (args: { scope: 'task' | 'friend' | 'all'; taskId?: string; friendId?: string }): Promise<FriendsRuntimeSnapshot> => call('friends:ignore', args),
     cancel: (args: { taskId: string } | { requestId: string }): Promise<FriendsRuntimeSnapshot> => call('friends:cancel', args),

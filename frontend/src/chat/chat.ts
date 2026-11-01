@@ -14921,7 +14921,29 @@ window.addEventListener('klaus:friend-message-compose', (event: Event) => {
   const preparation = ++friendComposePreparation
   const originalView = window.currentSessionId
   void (async () => {
-    const targetSessionId = await friendComposeTarget(detail, originalView || null, input => klausApi.friends.prepareLocalAssist(input))
+    if (action === 'handoff') {
+      // Hand a friend message to this device's Klaus: the host opens the local
+      // conversation and starts its first turn on that very message, recorded as
+      // the friend's own input. The text is never resubmitted as the owner's
+      // words, and the model context keeps the sender attribution.
+      const prepared = await klausApi.friends.prepareLocalAssist({
+        sessionId: detail.sessionId || originalView || '',
+        friendId: detail.friendId,
+        text: detail.text,
+        ...(typeof detail.messageId === 'string' && detail.messageId ? { messageId: detail.messageId } : {}),
+      })
+      if (preparation !== friendComposePreparation || window.currentSessionId !== originalView) return
+      const targetSessionId = prepared?.sessionId
+      if (!targetSessionId) throw new Error('The local conversation could not be prepared')
+      if (targetSessionId !== window.currentSessionId) {
+        // The ordinary switch saves the old composer draft before opening the local one.
+        await window.klausSwitchSession?.(targetSessionId)
+        if (preparation !== friendComposePreparation || window.currentSessionId !== targetSessionId) return
+      }
+      inputEl.focus()
+      return
+    }
+    const targetSessionId = friendComposeTarget(detail, originalView || null)
     if (preparation !== friendComposePreparation || window.currentSessionId !== originalView) return
     if (targetSessionId && targetSessionId !== window.currentSessionId) {
       // The ordinary switch saves the old composer draft before opening the local one.
@@ -14930,21 +14952,6 @@ window.addEventListener('klaus:friend-message-compose', (event: Event) => {
     }
   const existing = composedInputDraft()
   const key = window.currentSessionId || '__new'
-  // Hand a friend message to this device's Klaus: submit it as the prompt of
-  // the newly opened local conversation. Do not leave it as a quote that needs
-  // a separate owner instruction.
-  if (action === 'handoff') {
-    if (!parkedFriendDrafts.has(key) && (existing.text.trim() || pendingFiles.length)) {
-      parkedFriendDrafts.set(key, { draft: existing, files: [...pendingFiles] })
-      if (!persistParkedFriendDrafts()) { parkedFriendDrafts.delete(key); return }
-    }
-    pendingFiles = []
-    setComposerText(detail.text)
-    renderPreviews(); autoResize(); updateSendBtn(); persistComposerDraft()
-    await send()
-    inputEl.focus()
-    return
-  }
   const explicitReply = action === 'reply' || action === 'supplement' || action === 'answer'
   const hasForeignRecipient = existing.references.some(reference => reference.kind === 'friend')
   if (explicitReply || hasForeignRecipient) {

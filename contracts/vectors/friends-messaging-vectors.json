@@ -60,8 +60,8 @@
   "ignoredExpiryNotice": "never-expire-by-elapsed-time",
   "outgoingStatuses": ["sent", "delivered", "awaiting_authorization", "processing", "needs_input", "replied", "rejected", "cancelled", "failed"],
   "asyncInteraction": {
-    "_why": "Display messages remain unread until seen without running a model. Explicit local assistance uses owner authority in an unscoped chat and submits the friend's message as the owner's prompt. Request progress updates the original bubble; all originally targeted device results contribute to a single asynchronous continuation that requires an explicit unresolved consuming task, rechecks its identity and original input, and gives owner updates priority.",
-    "localAssist": "prepare-unscoped-local-chat-then-submit-friend-message-as-owner-input",
+    "_why": "Display messages remain unread until seen without running a model. Explicit local assistance opens a local chat whose first turn is the friend's message itself, recorded with the friend's sender attribution instead of the owner's prompt. Request progress updates the original bubble; all originally targeted device results contribute to a single asynchronous continuation that requires an explicit unresolved consuming task, rechecks its identity and original input, and gives owner updates priority.",
+    "localAssist": "prepare-local-chat-then-start-first-turn-on-the-friend-message-with-sender-attribution",
     "cancel": "durable-idempotent-user-cancellation",
     "retry": "same-transmission-identity",
     "progress": "host-authored-state-events-without-chat-bubbles",
