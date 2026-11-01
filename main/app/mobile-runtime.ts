@@ -27,6 +27,7 @@ export function createMobileRuntime(deps: {
   friendDisconnected?: () => void;
   registry: ChannelRegistry; router: IpcRouter; sessions: SessionService; configRoot: string;
   relayURL: string; account(): MobileAccount | undefined; isClosing(): boolean; authorizationExpired?(): void;
+  hostname?: string;
   log?: (event: string, fields: JsonObject) => void;
   diagnosticsEnabled?: () => boolean;
   threadTools?: Pick<ThreadToolsService, 'receiveRemote'>;
@@ -56,6 +57,7 @@ export function createMobileRuntime(deps: {
     friendMessage: deps.friendMessage,
     friendRevoked: deps.friendRevoked, friendConnected: deps.friendConnected, friendDisconnected: deps.friendDisconnected,
     configRoot: deps.configRoot, relayURL: deps.relayURL, account: deps.account,
+    hostname: deps.hostname,
     authorizationExpired: deps.authorizationExpired,
     deviceStatus: deps.deviceStatus,
     log: deps.log,

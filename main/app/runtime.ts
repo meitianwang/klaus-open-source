@@ -9,7 +9,7 @@ import { appshotContextText } from '../../contracts/appshot-context';
 import type { PetAppshotContext } from '../../contracts/desktop-pet-composer';
 import { PetActivityStore } from '../pets/activity-store';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
-import { homedir } from 'node:os';
+import { homedir, hostname } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { basename, dirname, join, resolve } from 'node:path';
 import { configRootFrom } from '../services/config-root';
@@ -31,7 +31,7 @@ import { registerThreadTools, ThreadToolsService, withThreadToolsGate, type Thre
 import { RemoteThreadClient } from '../services/remote-thread-client';
 import { conversationContextBlock } from '../services/conversation-mention';
 import { deviceContextBlock } from '../services/device-mention';
-import { MobileSettingsStore } from '../services/mobile/settings';
+import { ensureProfileScopedDeviceSeed, MobileSettingsStore } from '../services/mobile/settings';
 import { createThreadWaitSignals } from '../services/thread-wait-signals';
 import { threadToolsEnabled } from '../services/session-init';
 import { WorkspaceDependenciesManager } from '../services/workspace-dependencies';
@@ -282,6 +282,16 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
   if (served.missing) throw new Error(`Frontend is not built: ${served.root}`);
   const edition = currentDesktopEdition();
   const configRoot = configRootFrom();
+  // Isolated development launches share this machine with the installed application.
+  // The machine-derived device identity would let both instances register one server
+  // device row and overwrite each other's authorization token on every relay
+  // registration, failing friend requests of whichever instance did not register
+  // last. Seed a profile-scoped device identity before any friend or relay call
+  // derives one. instance-identity.ts already rejected invalid fixture combinations
+  // before this runtime was constructed, so the environment marks a validated launch.
+  const profileScopedDevice = !app.isPackaged && process.env.KLAUS_TEST === '1'
+    && /^ai\.klaus\.instance-fixture\.[a-zA-Z0-9_-]{1,40}$/.test(process.env.KLAUS_INSTANCE_FIXTURE_ID ?? '')
+    ? ensureProfileScopedDeviceSeed(configRoot) : false;
   const engineExecutable = resolveFixtureEngineBinary({
     stagedBinary: join(engineBinDir(), process.platform === 'win32' ? 'klaus-agent-stdio.exe' : 'klaus-agent-stdio'),
     fixtureBinary: options.engineFixtureBinary, testMode: process.env.KLAUS_TEST === '1', packaged: app.isPackaged,
@@ -2033,6 +2043,7 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
   mobile = createMobileRuntime({ registry, router, sessions, threadTools,
     connectionChanged: () => powerRuntime?.changed(),
     friendMessage: (message, signal) => friends!.receive(message, signal), media, files, digram, configRoot, relayURL: account.serverUrl,
+    hostname: profileScopedDevice ? `${hostname()} (dev preview)` : undefined,
     friendRevoked: friendshipId => friends!.revokeIncoming(friendshipId),
     friendDisconnected: () => friends!.transportDisconnected(),
     friendConnected: () => { void friends!.reconcileAuthorization().catch(error => log.write('friends-reconcile', String(error))); },

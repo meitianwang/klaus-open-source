@@ -36,6 +36,29 @@ export class MobileSettingsStore {
     });
   }
 }
+/**
+ * Isolated development launches run on the same machine as the installed application,
+ * and the machine-derived device identity would make both instances register ONE server
+ * device row: every relay registration overwrites the row's authorization token, so the
+ * instance that did not register last fails the source-device authorization of friend
+ * requests. A per-profile seed moves the development instance onto its own device
+ * identity; the cached machine-derived identities are dropped together with it so the
+ * next derivation picks the seeded one up.
+ */
+export function ensureProfileScopedDeviceSeed(configRoot: string): boolean {
+  return withSettingsTransaction(configRoot, db => {
+    const existing = (db.prepare('SELECT value FROM settings WHERE key=?').get('mobile_bridge.device_seed') as { value?: string } | undefined)?.value?.trim();
+    if (existing) return true;
+    db.prepare('INSERT INTO settings(key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').run('mobile_bridge.device_seed', randomUUID());
+    db.prepare("DELETE FROM settings WHERE key LIKE 'desktop_device_identity.account.v1.%'").run();
+    // The relay pins a bridge to the device identity that first claimed it, so the
+    // old bridge would keep rejecting the new identity even after the old desktop
+    // socket is gone. Mint a fresh bridge together with the fresh identity.
+    db.prepare('INSERT INTO settings(key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').run('mobile_bridge.relay_id', randomBytes(18).toString('base64url'));
+    return true;
+  });
+}
+
 export async function readMobileMachineIdentifier(platform: NodeJS.Platform): Promise<string | undefined> {
   if (platform !== 'darwin') return undefined;
   try {

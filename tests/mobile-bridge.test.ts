@@ -15,7 +15,7 @@ import type { JsonObject } from '../main/services/service-types';
 import { PNG_FIXTURE_BASE64 } from './fixtures/media';
 import type { Json } from '../main/ipc/contract';
 import { projectRows, projectWorkspaceGroups } from '../main/services/mobile/projection';
-import { mobileDeviceId, MobileSettingsStore } from '../main/services/mobile/settings';
+import { ensureProfileScopedDeviceSeed, mobileDeviceId, MobileSettingsStore } from '../main/services/mobile/settings';
 import { MobileRelay } from '../main/services/mobile/relay';
 import { ClientMessageChunks, ReliableDelivery, ReliableDeliveryStore, stopSocket } from '../main/services/mobile/transport';
 import { activeFollowEvents, followQuestions } from '../main/services/mobile/follow-snapshot';
@@ -31,6 +31,7 @@ import { registerMobileNewChatTests } from './mobile-new-chat-tests';
 import { registerMobileFollowUpTests } from './mobile-follow-up-tests';
 
 const h = new Harness(), deadline = setTimeout(() => { process.stderr.write('Mobile fixture exceeded 90 seconds\n'); process.exit(1); }, 90_000);
+
 const transcriptVector = JSON.parse(readFileSync(join(__dirname, '../../contracts/vectors/mobile-transcript-vectors.json'), 'utf8')) as Record<string, JsonObject>;
 const interactionVector = JSON.parse(readFileSync(join(__dirname, '../../contracts/vectors/mobile-transcript-interaction-vectors.json'), 'utf8')) as Record<string, JsonObject>;
 const remoteStreamVector = JSON.parse(readFileSync(join(__dirname, '../../contracts/vectors/mobile-remote-stream-vectors.json'), 'utf8')) as Record<string, JsonObject>;
@@ -49,6 +50,30 @@ async function resumePhone(f: Awaited<ReturnType<typeof mobileFixture>>, clientI
   const ready = await client.next('transport_ready'); return { ...client, ready };
 }
 void (async () => {
+  await h.test('profile-scoped device seed moves a development profile onto its own device identity', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'klaus-mobile-seed-'));
+    try {
+      const machine = () => Promise.resolve('shared-machine-identifier');
+      const store = new MobileSettingsStore(root, 'https://relay.example');
+      const before = store.read();
+      const shared = await mobileDeviceId(root, 'user-seed', 'darwin', machine);
+      assert.equal(await mobileDeviceId(root, 'user-seed', 'darwin', machine), shared, 'the machine identity is stable before seeding');
+      assert.equal(ensureProfileScopedDeviceSeed(root), true);
+      const scoped = await mobileDeviceId(root, 'user-seed', 'darwin', machine);
+      assert.notEqual(scoped, shared, 'seeding drops the cached machine-derived identity');
+      assert.equal(await mobileDeviceId(root, 'user-seed', 'darwin', machine), scoped, 'the seeded identity is stable');
+      const after = store.read();
+      assert.notEqual(after.relayId, before.relayId, 'seeding rotates the relay bridge the old identity claimed');
+      assert.equal(ensureProfileScopedDeviceSeed(root), true, 'a seeded profile keeps its seed');
+      assert.equal(await mobileDeviceId(root, 'user-seed', 'darwin', machine), scoped, 'a second launch keeps the seeded identity');
+      assert.equal(store.read().relayId, after.relayId, 'a second launch keeps the rotated bridge');
+      const other = await mkdtemp(join(tmpdir(), 'klaus-mobile-seed-other-'));
+      try {
+        assert.equal(ensureProfileScopedDeviceSeed(other), true);
+        assert.notEqual(await mobileDeviceId(other, 'user-seed', 'darwin', machine), scoped, 'two development profiles get distinct identities');
+      } finally { await rm(other, { recursive: true, force: true }); }
+    } finally { await rm(root, { recursive: true, force: true }); }
+  });
   await h.test('fixture teardown closes outbound clients even when a test leaves one connected', async () => {
     const f = await mobileFixture(); let client: Awaited<ReturnType<typeof f.connect>> | undefined;
     try { await f.enable(); client = await f.connect(); await client.next('hello'); }
