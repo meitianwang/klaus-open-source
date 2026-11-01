@@ -129,6 +129,39 @@ h.test('a friend mention is not part of the generation input', async () => {
   assertEqual(visibleSeedText('@friend-2158597b-d2f5-48a9-a883-4d7f809de5aa').trim(), '', 'a mention-only send has no title input');
 });
 
+h.test('friend context tags keep only the written words as generation input', async () => {
+  const owner = '<owner-message to="Nick" purpose="notice" at="2026-10-31 21:04">\n心情不好\n</owner-message>';
+  assertEqual(visibleSeedText(owner).trim(), '心情不好', 'the owner message keeps its words, not its attributes');
+  const friend = '<friend-message from="Nick" purpose="notice" answers="your message at 21:04: 心情不好" at="2026-10-31 21:05">\n为啥\n</friend-message>';
+  assertEqual(visibleSeedText(friend).trim(), '为啥', 'the friend message keeps its words, not the quoted answer');
+  assertEqual(visibleSeedText('<friend-status about="Nick" at="21:06">\nThe original conversation was deleted.\n</friend-status>').trim(), '', 'a note this computer wrote is not title input');
+  assertEqual(visibleSeedText('<friend-context as-of="x">\nrules\n</friend-context>\n帮我看下日程').trim(), '帮我看下日程', 'the per-turn note is dropped and the message remains');
+});
+
+h.test('recovery attaches the conversation before generating and skips notes-only content', async () => {
+  const f = await fixture();
+  const attached: string[] = [];
+  const titles = new SessionTitles({
+    configRoot: f.root, serialize: f.serialize, client: async () => f.client,
+    liveSession: id => attached.includes(id) ? 'live-' + id : undefined,
+    ensureCurrent: () => {}, authorizeGeneration: () => {}, engineTitle: async () => '',
+    publish: event => { f.events.push(event); }, adaptiveTitlesEnabled: () => false,
+    firstUserContent: async id => id === 'notes' ? '<friend-status about="Nick" at="21:06">\nmoved\n</friend-status>' : '<friend-message from="Nick" purpose="notice" at="21:05">\n周末一起爬山吗\n</friend-message>',
+    ensureLive: async id => { attached.push(id); },
+    now: () => f.state.now,
+  });
+  try {
+    f.client.generate = async () => generatedReply('约周末爬山', 'friend-thread');
+    assertEqual(await titles.recoverUntitled('friend-thread'), true, 'an unattached friend conversation is attached and titled');
+    assertDeepEqual(attached, ['friend-thread'], 'the conversation was attached before generation');
+    assertEqual(readSessionTitle('friend-thread', f.root)?.title, '约周末爬山', 'the generated title is durable');
+    const prompt = String(generations(f)[0]?.params.prompt);
+    assert(prompt.includes('周末一起爬山吗') && !prompt.includes('friend-message') && !prompt.includes('Nick'), 'the friend tags are not title input');
+    assertEqual(await titles.recoverUntitled('notes'), false, 'a conversation holding only notes is not titled');
+    assertDeepEqual(attached, ['friend-thread'], 'nothing is attached for notes-only content');
+  } finally { titles.close(); await cleanup(f); }
+});
+
 h.test('an untitled live conversation recovers its title from stored first content once', async () => {
   const f = await fixture();
   try {

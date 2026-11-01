@@ -154,6 +154,11 @@ function withoutDelegationEnvelopes(value: string): string {
 export function visibleSeedText(value: string): string {
   const withoutContext = withoutDelegationEnvelopes(value
     .replace(/<referenced-resources>[\s\S]*?<\/referenced-resources>/g, ' ')
+    // Friend traffic reaches the model wrapped in tags that name who sent it and
+    // what it answers. Notes this computer wrote carry no words of the
+    // conversation; a message keeps only what was actually written.
+    .replace(/<(friend-status|friend-context)\b[^>]*>[\s\S]*?<\/\1>/giu, ' ')
+    .replace(/<(owner-message|friend-message|friend-request)\b[^>]*>([\s\S]*?)<\/\1>/giu, (_match, _tag, body: string) => ` ${body} `)
     // Friend mentions are composer chips serialized as their routing token.
     .replace(/@friend-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/giu, ' '));
   const tokens = scannableReferenceTokens(withoutContext);
@@ -250,6 +255,13 @@ export interface SessionTitlesDeps<C extends AcknowledgedClient = AcknowledgedCl
   adaptiveTitlesEnabled(): boolean;
   /** The stored first user content of a conversation, for untitled recovery. */
   firstUserContent(sessionId: string): Promise<string | undefined>;
+  /**
+   * Attach the conversation's engine session before recovery runs. A
+   * conversation whose content arrived without a local turn (a friend's
+   * message, a dispatched request) is often opened before anything attached
+   * it in this process, and generation needs a live session.
+   */
+  ensureLive?(sessionId: string): Promise<unknown>;
   log?(kind: string, detail: string): void;
   now?(): number;
 }
@@ -329,7 +341,15 @@ export class SessionTitles<C extends AcknowledgedClient = AcknowledgedClient> {
     if (record?.title || (record?.attemptedAt != null && !this.retryDue(record.attemptedAt))) return false;
     this.recoverySeen.add(sessionId);
     const input = await this.deps.firstUserContent(sessionId).catch(() => undefined);
-    if (!input || this.closed) return false;
+    if (!input || !visibleSeedText(input).trim() || this.closed) return false;
+    // Attach outside the mutation queue: the pipeline below takes it again.
+    if (this.deps.ensureLive) {
+      try { await this.deps.ensureLive(sessionId); } catch (error) {
+        this.deps.log?.('session-title-recovery-attach-failed', String(error));
+        return false;
+      }
+    }
+    if (this.closed) return false;
     return this.runPipeline(sessionId, input);
   }
 

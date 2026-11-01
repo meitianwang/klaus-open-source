@@ -217,7 +217,6 @@ export class FriendsService {
    *  friend, which opens with a note saying where the earlier messages went. */
   private async replacementThread(context: Context, friend: FriendSummary, deleted: string, friendSource: string, arrivedAt?: number): Promise<string> {
     const session = object(await this.deps.sessions.newSession({
-      title: friend.remark || friend.displayName,
       friendConversationGroup: { accountId: context.account.userId, friendshipId: friend.id, friendUserId: friend.userId },
       hostMetadata: { friend: { friendshipId: friend.id, userId: friend.userId, displayName: friend.displayName } },
     }));
@@ -263,10 +262,11 @@ export class FriendsService {
   }
   private appendDisplay(message: FriendDisplayMessage, followUp?: Parameters<FriendMessageStore['append']>[1], completion?:Parameters<FriendMessageStore['append']>[2]): void {
     if (this.messages.append(message, followUp, completion)) {
-      this.deps.pushMessage?.(message.sessionId, friendDisplayRow(message));
       // The engine owns the transcript. The local row stays the delivery record
       // and the fallback when the conversation cannot accept an append now.
-      this.publishToEngine(message);
+      // The open conversation sees the row once the engine holds it, so the
+      // composer reads its suggestion source after the row became that source.
+      void this.publishToEngine(message).finally(() => this.deps.pushMessage?.(message.sessionId, friendDisplayRow(message)));
       this.deps.changed?.();
     }
   }
@@ -274,9 +274,9 @@ export class FriendsService {
    *  The local ledger is the delivery record; the engine owns the transcript.
    *  The model reads the message tagged with who sent it, what it is for and
    *  what it answers; the transcript keeps showing the plain text. */
-  private publishToEngine(message: FriendDisplayMessage): void {
+  private publishToEngine(message: FriendDisplayMessage): Promise<void> {
     const append = this.deps.appendDisplayMessage;
-    if (!append) return;
+    if (!append) return Promise.resolve();
     const text = friendContextText(message.text, message.metadata, message.timestamp, {
       friendName: friendId => this.friendLabel(message.accountId, friendId),
       outgoing: requestId => this.tasks.outbox(message.accountId, requestId),
@@ -285,7 +285,7 @@ export class FriendsService {
         return row ? { text: string(row.metadata.displayText) || row.text, timestamp: row.timestamp } : undefined;
       },
     });
-    void append.call(this.deps, message.sessionId, message.id, text, message.metadata as JsonObject)
+    return append.call(this.deps, message.sessionId, message.id, text, message.metadata as JsonObject)
       .then(() => this.messages.markEngineSynced(message.accountId, [message.id]))
       .catch(error => this.deps.log?.('friend-display-append-failed', failureText(error)));
   }
@@ -321,7 +321,7 @@ export class FriendsService {
     const alreadyPresent = stored.filter(row => present.has(row.id) && !synced.has(row.id)).map(row => row.id);
     if (alreadyPresent.length) this.messages.markEngineSynced(account.userId, alreadyPresent);
     const recorded = new Set([...present, ...synced, ...alreadyPresent]);
-    for (const row of stored) if (!recorded.has(row.id)) this.publishToEngine(row);
+    for (const row of stored) if (!recorded.has(row.id)) void this.publishToEngine(row);
     return history;
   }
   private syncInbox(): Promise<void> {
@@ -789,7 +789,6 @@ export class FriendsService {
         this.deps.changed?.();
       } else {
         const row = object(await this.deps.sessions.newSession({ ...newSessionOptions,
-          title: task.senderDisplayName + ' · ' + task.prompt.split('\n')[0]!.slice(0, 60),
           // The approved resource grant owns this task policy before its session exists.
           runtimePolicyOverride: friendTaskRuntimePolicy(scope, friendGrantPreset(scope)),
           friendScope: scope, hostMetadata: metadata }));
@@ -1259,7 +1258,6 @@ export class FriendsService {
       if(scope.accountId!==context.account.userId||scope.friendshipId!==friendId)failure('FRIEND_SCOPE_DENIED','The message does not belong to this friendship');
       const friend=await this.accepted(context,friendId,false);
       const session=object(await this.deps.sessions.newSession({
-        title:friend.remark||friend.displayName,
         friendConversationGroup:{accountId:context.account.userId,friendshipId:friend.id,friendUserId:friend.userId},
         hostMetadata:{friend:{friendshipId:friend.id,userId:friend.userId,displayName:friend.displayName}},
       }));
@@ -1552,7 +1550,6 @@ export class FriendsService {
       const paired=this.tasks.chatSession(context.account.userId,friend.id,message.sourceThreadId);
       const threadId=await this.liveThread(answered) ?? await this.liveThread(paired)
         ?? (answered||paired ? await this.replacementThread(context,friend,(answered||paired)!,message.sourceThreadId,message.sentAt) : id(object(await this.deps.sessions.newSession({
-          title:friend.remark||friend.displayName,
           friendConversationGroup:{accountId:context.account.userId,friendshipId:friend.id,friendUserId:friend.userId},
           hostMetadata:{friend:{friendshipId:friend.id,userId:friend.userId,displayName:friend.displayName}},
         })).id,'threadId'));
@@ -1638,7 +1635,6 @@ export class FriendsService {
               workdir: scratch,
               ...(parkedTarget?.kind === 'project' ? { localWorkdir: parkedTarget.root, projectRoot: parkedTarget.root }
                 : parkedTarget?.kind === 'workspace' ? { workspaceId: parkedTarget.id } : {}),
-              title: friend.displayName + ' · ' + message.prompt.split('\n')[0]!.slice(0, 60),
               runtimePolicyOverride: friendTaskRuntimePolicy(parkedScope, friendGrantPreset(parkedScope)),
               friendScope: parkedScope,
               hostMetadata: { threadSource: 'friend', friend: { friendshipId: friend.id, userId: friend.userId, displayName: friend.displayName }, friendTask: { taskId: admitted.task.id, mode: standing.mode } },
