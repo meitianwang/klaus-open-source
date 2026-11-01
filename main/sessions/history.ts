@@ -184,13 +184,21 @@ function mimeFromPath(path: string): string | undefined {
   return mimeForExtension(path.slice(dot + 1));
 }
 
+/** Source identity only; media authorization still comes from the projected result. */
+function readImageSourcePath(toolName: string, input: Json | undefined): string | undefined {
+  if (toolName !== 'read' && toolName !== 'Read') return undefined;
+  const record = obj(input);
+  const path = strOpt(record.file_path) ?? strOpt(record.path);
+  return path !== undefined && isAbsolute(path) && !/[\u0000-\u001f\u007f]/u.test(path) ? path : undefined;
+}
+
 /**
  * `collect_tool_results` (`engine.rs`): index a tool result by the `tool_use` id it answers.
  *
  * A tool result is its OWN message in the engine's history, but the renderer shows it as part
  * of the tool card, so replay attaches it back onto its `tool_use` block as `__result`.
  */
-function collectToolResults(message: JsonObject, results: Map<string, Json>, configRoot: string | undefined, toolName: string): void {
+function collectToolResults(message: JsonObject, results: Map<string, Json>, configRoot: string | undefined, toolName: string, toolInput?: Json): void {
   if (str(message.type) !== 'tool_result') return;
   const id = strOpt(message.toolUseId);
   if (id === undefined || id.length === 0) return;
@@ -202,6 +210,15 @@ function collectToolResults(message: JsonObject, results: Map<string, Json>, con
   if (obj(message.output).found === true && obj(message.output).kind === 'image' && artifactPaths.length === 1) {
     const images = normalized.filter(block => obj(block).type === 'image');
     if (images.length === 1 && obj(images[0]).path !== artifactPaths[0]) obj(images[0]).sourcePath = artifactPaths[0]!;
+  }
+  // Some saved rollouts keep the read result's path in a separate lifecycle event,
+  // while the message retains only the returned bytes. The owning successful read
+  // call still proves which source those bytes came from. This is an identity alias
+  // for the pooled copy, not a new file-read grant.
+  const sourcePath = readImageSourcePath(toolName, toolInput);
+  if (message.isError !== true && sourcePath !== undefined) {
+    const images = normalized.filter(block => obj(block).type === 'image');
+    if (images.length === 1 && obj(images[0]).path !== sourcePath && obj(images[0]).sourcePath === undefined) obj(images[0]).sourcePath = sourcePath;
   }
   const content = inspected?.media.length
     ? [...normalized.filter(block => obj(block).type !== 'image'), ...inspected.media.map(media => ({ type: 'image', ...media }))]
@@ -247,7 +264,7 @@ function indexToolResults(messages: JsonObject[], turnIds: JsonObject, configRoo
     const owner = messages[positions[Math.max(0, low - 1)]!]!;
     const owned = results.get(owner) ?? new Map<string, Json>();
     const call = arr(owner.content).map(obj).find(block => block.type === 'tool_use' && block.id === message.toolUseId);
-    collectToolResults(message, owned, configRoot, str(call?.name)); results.set(owner, owned);
+    collectToolResults(message, owned, configRoot, str(call?.name), call?.input); results.set(owner, owned);
   });
   return results;
 }

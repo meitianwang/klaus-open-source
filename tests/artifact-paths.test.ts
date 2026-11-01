@@ -356,6 +356,22 @@ h.test('a read image retains its original identity after pooling and cold histor
   assert(cold.has('s1', image.path as string), 'the stable image copy is also available');
 });
 
+h.test('a saved read image recovers its source identity when result metadata is stored separately', async () => {
+  const { root, file } = await fixture();
+  const history = projectSessionHistory({ history: [
+    { type: 'assistant', uuid: 'call', content: [{ type: 'tool_use', id: 'read-file', name: 'Read', input: { file_path: file } }] },
+    { type: 'tool_result', toolUseId: 'read-file', content: [{ type: 'image', mimeType: 'image/png', base64: PNG_FIXTURE_BASE64 }] },
+  ] }, 's1', root) as Record<string, Json>;
+  const message = (history.messages as Array<Record<string, Json>>)[0]!;
+  const call = (message.contentBlocks as Array<Record<string, Json>>)[0]!;
+  const result = call.__result as Record<string, Json>;
+  const image = (result.content as Array<Record<string, Json>>).find(block => block.type === 'image')!;
+  assert(image.sourcePath === file && image.path !== file, 'the pooled image keeps the source identity from its owning read call');
+  const cold = new SessionArtifactPaths({ canonicalize: realpathSync });
+  recordArtifactPathsFromHistory(cold, 's1', history);
+  assert(cold.has('s1', image.path as string), 'cold history still authorizes the immutable image bytes');
+});
+
 const publications = JSON.parse(readFileSync(join(__dirname, '../../contracts/vectors/ui-screenshot-delivery.json'), 'utf8')).publicationCases as
   Array<{ name: string; source: string; path: string; allowed: boolean }>;
 for (const vector of publications) h.test(`managed image publication contract: ${vector.name}`, async () => {

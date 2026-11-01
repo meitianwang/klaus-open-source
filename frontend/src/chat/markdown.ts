@@ -98,8 +98,10 @@ function escapedImageHref(path: string): string {
 }
 
 /**
- * Rewrite relative image hrefs and exact recovered source paths in `text`, using the paths
- * this turn's tools actually produced.
+ * Rewrite relative image hrefs and recovered source paths in `text`, using the paths
+ * this turn's tools actually produced. An absolute reference whose parent directory
+ * was mistyped can also recover through a unique confirmed basename; ambiguous names
+ * remain untouched rather than guessing which image the reply meant.
  *
  * Why: a model that just generated an image often writes `![](image-178997….png)`
  * — the bare filename it saw in the tool result — instead of the absolute path.
@@ -136,10 +138,13 @@ export function resolveRelativeImagePaths(text: string, produced: ReadonlySet<st
   return rewriteImages(text, token => {
     const raw = token.href
     const absolute = normalizeImageHrefToPath(raw)
-    if ((absolute && (!aliases.get(absolute) || !produced.has(aliases.get(absolute)!))) || /^(?:https?:|blob:|data:)/i.test(raw)) return token.raw
+    if (/^(?:https?:|blob:|data:)/i.test(raw)) return token.raw
     let decoded = raw.trim()
     try { decoded = decodeURIComponent(decoded) } catch { /* A malformed escape keeps its raw spelling. */ }
-    const resolved = absolute ? aliases.get(absolute) : byName.get(decoded.split(/[\\/]/).pop() || '')
+    const exactAlias = absolute ? aliases.get(absolute) : undefined
+    const resolved = exactAlias && produced.has(exactAlias)
+      ? exactAlias
+      : byName.get((absolute || decoded).split(/[\\/]/).pop() || '')
     if (!resolved) return token.raw
     // A bare href ends at the first space or paren, so an absolute path carrying
     // one (`/Users/me/My Documents/a.png`, which is what the model's own
