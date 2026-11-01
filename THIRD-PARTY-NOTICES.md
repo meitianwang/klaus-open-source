@@ -21,6 +21,18 @@ here conveys no right to use those marks.
 
 ## Vendored source
 
+### Liquid orb shader
+
+`scripts/subagent-avatar-orb/effect.wgsl` is the liquid glass shader from
+https://github.com/LerSent001/orb at commit
+`8d1736e1fc5b41a5037b524403f35b7952b038f0`.
+
+- License: MIT, Copyright (c) 2026 LerSent001.
+- The license is retained beside the shader and in
+  `frontend/public/third-party-notices/liquid-orb.txt`.
+- It is used only by the asset generator. The client ships pre-rendered WebP
+  images and contains no runtime shader or GPU renderer.
+
 ### highlight.js theme
 
 `frontend/vendor/highlight-dark.css` is the "GitHub Dark" theme for highlight.js

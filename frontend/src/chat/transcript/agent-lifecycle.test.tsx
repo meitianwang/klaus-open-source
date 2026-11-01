@@ -102,7 +102,7 @@ describe('agent lifecycle records', () => {
   for (const vector of lifecycleVectors.compactPresentation.cases) test(`${vector.agents} children use bounded names and avatars`, () => {
     const events = Array.from({ length: vector.agents }, (_, index) => ({ taskId: `task-${index}`, agentId: `child-${index}`, name: `Review ${index}`, status: 'started' as const }))
     const markup = renderToStaticMarkup(<AgentLifecycleRow event={events[0]} events={events} />)
-    expect(markup.match(/class="subagent-avatar"/g) || []).toHaveLength(vector.avatars)
+    expect(markup.match(/data-avatar-id="/g) || []).toHaveLength(vector.avatars)
     expect(markup.match(/data-agent-conversation-id=/g) || []).toHaveLength(vector.avatars)
     const text = markup.replace(/<[^>]+>/g, '')
     for (let index = 0; index < vector.names; index++) expect(text).toContain(`Review ${index}`)

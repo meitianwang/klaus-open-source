@@ -377,7 +377,7 @@ function snapshot() {
     animatedAvatars: visible.querySelectorAll('[data-animate-entrance]').length,
     streamingText: getSessionStream(parentElement.hidden ? childStreamId! : parent).liveUnits.some(unit => unit.type === 'live-text' && unit.streaming),
     imagesLoaded: images.every(img => img.complete && img.naturalWidth > 0),
-    avatarsDrawn: visible.querySelectorAll('.subagent-avatar svg .subagent-avatar-mark rect').length > 0,
+    avatarsDrawn: visible.querySelectorAll('.subagent-avatar img.subagent-avatar-image').length > 0,
   }
 }
 host.lifecycleFixture = { outgoingParentStart, outgoingParentFinish, outgoingParentReplay, queuedReplay, nestedStart, nestedFinish, communicationStart, communicationReplay, queuedNavigation, start, progress, finishChild, finishParent, finishGate, handoff, crowdStart, crowdFinish, crowdHistory, fallbackHistory, aliasHistory, uncachedHistory, registerUncachedChild, snapshot, back, frames,

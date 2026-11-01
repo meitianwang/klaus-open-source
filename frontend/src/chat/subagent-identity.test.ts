@@ -12,7 +12,7 @@ describe('task-based subagent identity', () => {
   test('keeps authored titles, avatar identities and peer addresses intact when switching language', () => {
     const task = { description: '检查权限', avatarId: 0, agentName: 'reviewer', agentId: 'child' }
     const original = structuredClone(task)
-    const avatar = subagentAvatarHtml(task.avatarId, 20, 'running', task.agentId)
+    const avatar = subagentAvatarHtml(task.avatarId, 20, 'completed', task.agentId)
     for (const locale of ['en', 'zh-CN', 'en']) {
       expect(subagentDisplayName('task', task, locale)).toBe('检查权限')
       expect(subagentAvatarHtml(task.avatarId, 20, 'completed', task.agentId)).toBe(avatar)

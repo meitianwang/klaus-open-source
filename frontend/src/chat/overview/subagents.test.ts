@@ -368,11 +368,10 @@ describe('subagent lifecycle model', () => {
     )).toEqual({ agentId: 'child', avatarId: 12, status: 'running' })
   })
 
-  test('keeps geometric avatars stable across status changes and provides both themes', () => {
+  test('keeps static avatars identical across status changes', () => {
     expect(subagentAvatarHtml(3, 20, 'running')).toBe(subagentAvatarHtml(3, 20, 'completed'))
     expect(subagentAvatarHtml(3, 20)).not.toBe(subagentAvatarHtml(4, 20))
-    expect(subagentAvatarHtml(3, 20)).toContain('<svg viewBox="0 0 16 16"')
-    expect(subagentAvatarHtml(3, 20)).toMatch(/data-avatar-hue="\d+"/)
+    expect(subagentAvatarHtml(3, 20)).toContain('orb-3.webp')
     expect(subagentAvatarHtml(3, 20, 'completed')).toContain('data-avatar-id="3"')
   })
 })

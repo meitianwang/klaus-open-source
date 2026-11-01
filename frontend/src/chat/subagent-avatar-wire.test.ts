@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
-import { readFileSync } from 'node:fs'
+import { readFileSync, statSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { SUBAGENT_AVATAR_HUES, subagentAvatarHtml, subagentAvatarPattern } from './subagent-avatar'
+import { SUBAGENT_AVATAR_VARIANTS, subagentAvatarHtml } from './subagent-avatar'
 
 const read = (relativePath: string) => readFileSync(fileURLToPath(new URL(relativePath, import.meta.url)), 'utf8')
 const CHAT = read('./chat.ts')
@@ -32,25 +32,26 @@ describe('geometric subagent avatar wiring', () => {
     expect(CHAT).toContain('subagentAvatarHtml(task.avatarId, 24, status, subagentConversationId(taskId, task))')
   })
 
-  test('colours the mark from theme variables without decorative animation', () => {
-    expect(STYLES).toContain('[data-theme="dark"] .subagent-avatar {')
-    expect(STYLES).toContain('.subagent-avatar .subagent-avatar-mark { fill: var(--subagent-avatar-ink); }')
-    for (let hue = 0; hue < SUBAGENT_AVATAR_HUES; hue++) expect(STYLES).toContain(`.subagent-avatar[data-avatar-hue="${hue}"]`)
-    expect(STYLES).not.toContain('subagent-orb')
+  test('uses static images without a runtime renderer or animation', () => {
+    expect(STYLES).toContain('.subagent-avatar-image {')
+    expect(STYLES).not.toContain('subagent-avatar-canvas')
+    expect(STYLES).not.toContain('subagent-avatar-glint')
+    expect(STYLES).not.toContain('data-orb-renderer')
+    const running = subagentAvatarHtml(3, 20, 'running')
+    expect(running).toBe(subagentAvatarHtml(3, 20, 'completed'))
+    expect(running).toContain('<img class="subagent-avatar-image"')
+    expect(running).not.toMatch(/<canvas|<script|data-orb-renderer/)
   })
 
-  test('draws a self-contained mirrored mark for every identity, including large ids', () => {
-    for (const id of [0, 1, 27, 28, 4096, 1_000_000_123]) {
-      const html = subagentAvatarHtml(id, 20)
-      expect(html).toContain('<svg viewBox="0 0 16 16"')
-      expect(html).toContain(`data-avatar-id="${id}"`)
-      expect(html).not.toMatch(/<img|<script|<foreignObject|(?:href|src)=/)
-      const { cells, hue } = subagentAvatarPattern(id)
-      expect(cells.length).toBeGreaterThan(0)
-      expect(hue).toBeGreaterThanOrEqual(0)
-      expect(hue).toBeLessThan(SUBAGENT_AVATAR_HUES)
-      for (const [column, row] of cells) expect(cells).toContainEqual([3 - column, row])
+  test('ships lightweight orb assets and keeps full identities when artwork repeats', () => {
+    for (let variant = 0; variant < SUBAGENT_AVATAR_VARIANTS; variant++) {
+      const path = fileURLToPath(new URL(`../../public/subagent-avatars/orb-${variant}.webp`, import.meta.url))
+      const bytes = statSync(path).size
+      expect(bytes).toBeGreaterThan(500)
+      expect(bytes).toBeLessThan(10_000)
     }
-    expect(subagentAvatarHtml(28, 20)).not.toBe(subagentAvatarHtml(0, 20))
+    const repeated = subagentAvatarHtml(SUBAGENT_AVATAR_VARIANTS, 20)
+    expect(repeated).toContain('orb-0.webp')
+    expect(repeated).toContain(`data-avatar-id="${SUBAGENT_AVATAR_VARIANTS}"`)
   })
 })
