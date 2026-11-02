@@ -8,15 +8,16 @@
 import { mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import type {
-  BrowserImportCookie,
-  BrowserImportExtension,
-  BrowserImportHistoryEntry,
-  BrowserImportPassword,
-  BrowserImportTarget,
-  BrowserPasswordDecryptor,
-  BrowserSecretContext,
-  BrowserSourceRoot,
+import {
+  BrowserImportDecryptError,
+  type BrowserImportCookie,
+  type BrowserImportExtension,
+  type BrowserImportHistoryEntry,
+  type BrowserImportPassword,
+  type BrowserImportTarget,
+  type BrowserPasswordDecryptor,
+  type BrowserSecretContext,
+  type BrowserSourceRoot,
 } from '../contracts/browser-import';
 
 export const CHROME_EPOCH_OFFSET_MS = 11_644_473_600_000n;
@@ -188,10 +189,16 @@ export function createExtension(profileDirectoryPath: string, fixture: Extension
 
 export class RecordingDecryptor implements BrowserPasswordDecryptor {
   readonly calls: Array<{ bytes: Uint8Array; context: BrowserSecretContext }> = [];
-  constructor(private readonly stripPrefix = 'v10-') {}
+  constructor(private readonly stripPrefix = 'v10-', private readonly rejectPrefix = 'v20-') {}
   async decrypt(input: Uint8Array, context: BrowserSecretContext): Promise<string> {
     this.calls.push({ bytes: Uint8Array.from(input), context });
     const text = Buffer.from(input).toString('utf8');
+    if (this.rejectPrefix && text.startsWith(this.rejectPrefix)) {
+      throw new BrowserImportDecryptError(
+        'app_bound_encryption_unsupported',
+        'The synthetic decryptor only rejects the app-bound fixture prefix.',
+      );
+    }
     return text.startsWith(this.stripPrefix) ? text.slice(this.stripPrefix.length) : text;
   }
 }

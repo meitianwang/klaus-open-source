@@ -30,6 +30,7 @@ import {
   BROWSER_IMPORT_CATEGORIES,
   BROWSER_IMPORT_DEFAULT_LIMITS,
   BROWSER_IMPORT_DEFAULT_SELECTION,
+  BrowserImportDecryptError,
   browserImportHostnameAllowed,
   resolveBrowserImportSelection,
   type BrowserCookieSameSite,
@@ -52,7 +53,6 @@ import { BrowserError } from './types';
 const CHROME_EPOCH_OFFSET_MS = 11_644_473_600_000n;
 const MAX_ISSUES = 64;
 const MAX_SECRET_LENGTH = 16 * 1024;
-const APP_BOUND_PREFIXES = new Set(['v11', 'v20']);
 const EXTENSION_ID = /^[a-p]{32}$/u;
 const EXTENSION_VERSION = /^[0-9]+(?:\.[0-9]+){0,7}$/u;
 const PATH_SEGMENT = /^[A-Za-z0-9][A-Za-z0-9 ._-]*$/u;
@@ -61,13 +61,6 @@ class ImportAbortedError extends Error {
   constructor() {
     super('The browser import was cancelled.');
     this.name = 'ImportAbortedError';
-  }
-}
-
-class UnsupportedEncryptionError extends Error {
-  constructor(readonly prefix: string) {
-    super('The profile uses app-bound encryption that this host cannot decrypt.');
-    this.name = 'UnsupportedEncryptionError';
   }
 }
 
@@ -344,21 +337,42 @@ async function withDatabaseSnapshot<T>(
 ): Promise<T> {
   throwIfAborted(signal);
   await mkdir(tempRoot, { recursive: true, mode: 0o700 });
-  const directory = await mkdtemp(join(tempRoot, 'snapshot-'));
-  const target = join(directory, basename(source));
-  try {
-    await copyStableDatabase(source, target, signal);
-    const database = new DatabaseSync(target);
+  let lastError: Error | undefined;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    throwIfAborted(signal);
+    const directory = await mkdtemp(join(tempRoot, 'snapshot-'));
+    const target = join(directory, basename(source));
+    let database: DatabaseSync | undefined;
     try {
-      database.exec('PRAGMA busy_timeout = 3000');
+      await copyStableDatabase(source, target, signal);
+      try {
+        database = new DatabaseSync(target);
+        database.exec('PRAGMA busy_timeout = 3000');
+        const rows = database.prepare('PRAGMA quick_check').all() as Array<{ quick_check?: unknown }>;
+        if (rows[0]?.quick_check !== 'ok') {
+          throw new BrowserError('snapshot_corrupted', 'The browser database snapshot failed its integrity check.');
+        }
+      } catch (error) {
+        if (error instanceof ImportAbortedError) throw error;
+        throw error instanceof BrowserError
+          ? error
+          : new BrowserError('snapshot_corrupted', 'The browser database snapshot could not be read or verified.');
+      }
       database.exec('PRAGMA query_only = ON');
       return await work(database);
+    } catch (error) {
+      if (error instanceof ImportAbortedError) throw error;
+      if (error instanceof BrowserError && (error.code === 'snapshot_unstable' || error.code === 'snapshot_corrupted')) {
+        lastError = error;
+        continue;
+      }
+      throw error;
     } finally {
-      database.close();
+      database?.close();
+      await rm(directory, { recursive: true, force: true });
     }
-  } finally {
-    await rm(directory, { recursive: true, force: true });
   }
+  throw lastError ?? new BrowserError('snapshot_corrupted', 'The browser database snapshot could not be made consistent.');
 }
 
 /* ------------------------------------------------------------------------- *
@@ -390,24 +404,31 @@ interface HistoryRow {
   visit_time?: unknown;
 }
 
-function encryptionPrefix(bytes: Uint8Array): string | undefined {
-  if (bytes.byteLength < 3) return undefined;
-  const prefix = String.fromCharCode(bytes[0]!, bytes[1]!, bytes[2]!);
-  return /^v[0-9]{2}$/u.test(prefix) ? prefix : undefined;
+function decryptErrorCode(error: unknown): string | undefined {
+  if (error instanceof BrowserImportDecryptError) return error.code;
+  if (error !== null && typeof error === 'object' && 'code' in error) {
+    const code = (error as { code?: unknown }).code;
+    if (typeof code === 'string' && /^[a-z0-9_]+$/u.test(code)) return code;
+  }
+  return undefined;
 }
 
 async function decryptSecret(
   dependencies: BrowserImportDependencies,
   bytes: Uint8Array,
-  context: { kind: 'cookie' | 'password'; host?: string; originUrl?: string },
+  context: { kind: 'cookie' | 'password'; host?: string; originUrl?: string; family?: 'chrome' | 'chromium' | 'edge' },
 ): Promise<string> {
-  const prefix = encryptionPrefix(bytes);
-  if (prefix && APP_BOUND_PREFIXES.has(prefix)) throw new UnsupportedEncryptionError(prefix);
-  const plain = await dependencies.decryptor.decrypt(bytes, context);
-  if (typeof plain !== 'string' || plain.length > MAX_SECRET_LENGTH) {
-    throw new BrowserError('decrypt_invalid', 'The decryption adapter returned an unsupported value.');
+  try {
+    const plain = await dependencies.decryptor.decrypt(bytes, { ...context, platform: process.platform });
+    if (typeof plain !== 'string' || plain.length > MAX_SECRET_LENGTH) {
+      throw new BrowserError('decrypt_invalid', 'The decryption adapter returned an unsupported value.');
+    }
+    return plain;
+  } catch (error) {
+    if (error instanceof BrowserError) throw error;
+    const code = decryptErrorCode(error) ?? 'decryption_failed';
+    throw new BrowserImportDecryptError(code, 'The decryption adapter could not decrypt the value.');
   }
-  return plain;
 }
 
 async function readCookies(
@@ -416,6 +437,7 @@ async function readCookies(
   limits: Required<BrowserImportLimits>,
   allowlist: readonly string[] | undefined,
   errors: ReturnType<typeof issueSink>,
+  sourceFamily: 'chrome' | 'chromium' | 'edge' | undefined,
 ): Promise<BrowserImportCookie[]> {
   const path = join(profileDirectory, 'Cookies');
   if (!(await isRegularFile(path))) {
@@ -429,7 +451,11 @@ async function readCookies(
         is_secure, is_httponly, samesite FROM cookies LIMIT ?`, limits.maxCookieRows + 1));
   } catch (error) {
     if (error instanceof ImportAbortedError) throw error;
-    errors.add('cookies', 'cookies_unreadable', 'The cookie database could not be read.');
+    if (error instanceof BrowserError && ['snapshot_unstable', 'snapshot_corrupted', 'database_unavailable'].includes(error.code)) {
+      errors.add('cookies', error.code, error.message);
+    } else {
+      errors.add('cookies', 'cookies_unreadable', 'The cookie database could not be read.');
+    }
     return [];
   }
 
@@ -453,11 +479,15 @@ async function readCookies(
     const encrypted = bytesValue(row.encrypted_value);
     if (!value && encrypted && encrypted.byteLength > 0) {
       try {
-        value = await decryptSecret(dependencies, encrypted, { kind: 'cookie', host: domain });
+        value = await decryptSecret(dependencies, encrypted, {
+          kind: 'cookie',
+          host: domain,
+          ...(sourceFamily ? { family: sourceFamily } : {}),
+        });
       } catch (error) {
         decryptionFailures += 1;
-        if (error instanceof UnsupportedEncryptionError) {
-          errors.add('cookies', 'app_bound_encryption_unsupported', 'Cookies use app-bound encryption, which this host cannot decrypt.');
+        if (error instanceof BrowserImportDecryptError && error.code === 'app_bound_encryption_unsupported') {
+          errors.add('cookies', 'app_bound_encryption_unsupported', 'The host cannot decrypt app-bound cookies on this platform.');
         }
         continue;
       }
@@ -488,6 +518,7 @@ async function readPasswords(
   profileDirectory: string,
   limits: Required<BrowserImportLimits>,
   errors: ReturnType<typeof issueSink>,
+  sourceFamily: 'chrome' | 'chromium' | 'edge' | undefined,
 ): Promise<BrowserImportPassword[]> {
   const path = join(profileDirectory, 'Login Data');
   if (!(await isRegularFile(path))) {
@@ -501,7 +532,11 @@ async function readPasswords(
         WHERE blacklisted_by_user = 0 AND length(password_value) > 0 LIMIT ?`, limits.maxLoginRows + 1));
   } catch (error) {
     if (error instanceof ImportAbortedError) throw error;
-    errors.add('passwords', 'passwords_unreadable', 'The login database could not be read.');
+    if (error instanceof BrowserError && ['snapshot_unstable', 'snapshot_corrupted', 'database_unavailable'].includes(error.code)) {
+      errors.add('passwords', error.code, error.message);
+    } else {
+      errors.add('passwords', 'passwords_unreadable', 'The login database could not be read.');
+    }
     return [];
   }
 
@@ -520,12 +555,16 @@ async function readPasswords(
     const encrypted = bytesValue(row.password_value);
     if (!originUrl || !encrypted || encrypted.byteLength === 0) continue;
     try {
-      const password = await decryptSecret(dependencies, encrypted, { kind: 'password', originUrl });
+      const password = await decryptSecret(dependencies, encrypted, {
+        kind: 'password',
+        originUrl,
+        ...(sourceFamily ? { family: sourceFamily } : {}),
+      });
       passwords.push({ originUrl, username, password });
     } catch (error) {
       decryptionFailures += 1;
-      if (error instanceof UnsupportedEncryptionError) {
-        errors.add('passwords', 'app_bound_encryption_unsupported', 'Saved passwords use app-bound encryption, which this host cannot decrypt.');
+      if (error instanceof BrowserImportDecryptError && error.code === 'app_bound_encryption_unsupported') {
+        errors.add('passwords', 'app_bound_encryption_unsupported', 'The host cannot decrypt app-bound saved passwords on this platform.');
       }
     }
   }
@@ -553,7 +592,11 @@ async function readHistory(
         FROM visits v JOIN urls u ON u.id = v.url ORDER BY v.visit_time ASC LIMIT ?`, limits.maxHistoryRows + 1));
   } catch (error) {
     if (error instanceof ImportAbortedError) throw error;
-    errors.add('history', 'history_unreadable', 'The history database could not be read.');
+    if (error instanceof BrowserError && ['snapshot_unstable', 'snapshot_corrupted', 'database_unavailable'].includes(error.code)) {
+      errors.add('history', error.code, error.message);
+    } else {
+      errors.add('history', 'history_unreadable', 'The history database could not be read.');
+    }
     return [];
   }
 
@@ -816,13 +859,15 @@ export async function importBrowserProfile(
       sink.add('profile', 'profile_unavailable', 'The selected browser profile can no longer be read.');
       return result;
     }
+    const sourceFamily = dependencies.roots.find(root => root.id === request.sourceId)?.family;
 
     if (parsed.selection.cookies) {
-      const cookies = await readCookies(dependencies, profileDirectory, limits, parsed.allowlist, sink);
+      const cookies = await readCookies(dependencies, profileDirectory, limits, parsed.allowlist, sink, sourceFamily);
       if (cookies.length > 0) {
         if (!dependencies.target.applyCookies) {
           sink.add('cookies', 'apply_target_unavailable', 'The browser target cannot apply cookies.');
         } else {
+          throwIfAborted(dependencies.signal);
           try {
             await dependencies.target.applyCookies(cookies);
             result.counts.cookies = cookies.length;
@@ -834,11 +879,12 @@ export async function importBrowserProfile(
     }
 
     if (parsed.selection.passwords) {
-      const passwords = await readPasswords(dependencies, profileDirectory, limits, sink);
+      const passwords = await readPasswords(dependencies, profileDirectory, limits, sink, sourceFamily);
       if (passwords.length > 0) {
         if (!dependencies.target.applyPasswords) {
           sink.add('passwords', 'apply_target_unavailable', 'The browser target cannot apply saved passwords.');
         } else {
+          throwIfAborted(dependencies.signal);
           try {
             await dependencies.target.applyPasswords(passwords);
             result.counts.passwords = passwords.length;
@@ -855,6 +901,7 @@ export async function importBrowserProfile(
         if (!dependencies.target.applyHistory) {
           sink.add('history', 'apply_target_unavailable', 'The browser target cannot apply history.');
         } else {
+          throwIfAborted(dependencies.signal);
           try {
             await dependencies.target.applyHistory(entries);
             result.counts.history = entries.length;

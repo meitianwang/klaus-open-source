@@ -11,6 +11,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { BrowserImportTarget } from '../contracts/browser-import';
 import { discoverBrowserProfiles } from '../main/browser/profile-discovery';
 import { importBrowserProfile } from '../main/browser/profile-import';
 import { assert, assertDeepEqual, assertEqual, Harness } from './harness';
@@ -140,7 +141,7 @@ h.test('cookie import preserves fields, applies the hostname allowlist and uses 
   );
 });
 
-h.test('encrypted logins go only through the decryptor and app-bound blobs fail structurally', async () => {
+h.test('encrypted logins are delegated to the decryptor and app-bound failure is structured', async () => {
   const { source, profileDir, tempRoot } = fixture();
   createLogins(profileDir, [
     { origin: 'https://example.test/login', username: 'synthetic', encrypted: Buffer.from('v10-SyntheticSecret') },
@@ -160,7 +161,10 @@ h.test('encrypted logins go only through the decryptor and app-bound blobs fail 
 
   assertEqual(result.ok, false, 'unsupported encryption is not reported as success');
   assertEqual(result.counts.passwords, 1, 'only the supported row is applied');
-  assertEqual(decryptor.calls.length, 1, 'app-bound bytes are never handed to the decryptor');
+  assertEqual(decryptor.calls.length, 2, 'both encrypted rows are delegated to the decryptor');
+  assertEqual(decryptor.calls[0]?.context.family, 'chrome', 'source family is available to the decryptor');
+  const boundCall = decryptor.calls.find(call => Buffer.from(call.bytes).toString('utf8').startsWith('v20-'));
+  assert(boundCall, 'v20 bytes reach the injected decryptor for a platform decision');
   assertEqual(target.passwords[0]?.password, 'SyntheticSecret', 'plaintext reaches only the target');
   assert(result.errors.some(issue => issue.code === 'app_bound_encryption_unsupported'), 'structured encryption error');
 
@@ -169,11 +173,35 @@ h.test('encrypted logins go only through the decryptor and app-bound blobs fail 
   assert(!serialized.includes('AppBoundSecret'), 'result never contains an encrypted or plaintext secret');
 });
 
+h.test('v11 derived-key secrets are not hard-rejected as app-bound', async () => {
+  const { source, profileDir, tempRoot } = fixture();
+  createLogins(profileDir, [
+    { origin: 'https://example.test/login', username: 'derived', encrypted: Buffer.from('v11-DerivedKeySecret') },
+  ]);
+
+  const decryptor = new RecordingDecryptor('v11-', '');
+  const target = new RecordingTarget();
+  const result = await importBrowserProfile(
+    {
+      sourceId: 'chrome',
+      profileId: 'Default',
+      categories: { cookies: false, passwords: true, history: false, extensions: false },
+    },
+    { roots: [source], decryptor, target, tempRoot },
+  );
+
+  assertEqual(result.ok, true, 'v11 is left to the injected decryptor');
+  assertEqual(result.counts.passwords, 1, 'derived-key row imported');
+  assertEqual(target.passwords[0]?.password, 'DerivedKeySecret', 'plaintext reaches only the target');
+  assertEqual(decryptor.calls[0]?.context.platform, process.platform, 'platform is available to the decryptor');
+});
+
 h.test('history timestamps become epoch milliseconds and are marked source other', async () => {
   const { source, profileDir, tempRoot } = fixture();
   createHistory(profileDir, [
     { url: 'https://example.test/one', title: 'One', visitedAt: 1_700_000_000_000 },
     { url: 'https://example.test/two', visitedAt: 1_700_000_001_000 },
+    { url: 'https://example.test/bad', title: 'Bad', visitedAt: -1 },
   ]);
 
   const target = new RecordingTarget();
@@ -186,12 +214,13 @@ h.test('history timestamps become epoch milliseconds and are marked source other
     { roots: [source], decryptor: new RecordingDecryptor(), target, tempRoot },
   );
 
-  assertEqual(result.ok, true, 'history import completes');
-  assertEqual(result.counts.history, 2, 'both visits imported');
+  assertEqual(result.ok, false, 'a skipped row is a structured error');
+  assertEqual(result.counts.history, 2, 'usable visits imported');
   assertDeepEqual(target.history, [
     { url: 'https://example.test/one', title: 'One', visitedAt: 1_700_000_000_000, source: 'other' },
     { url: 'https://example.test/two', title: 'https://example.test/two', visitedAt: 1_700_000_001_000, source: 'other' },
   ], 'Chrome storage time becomes epoch milliseconds and source other');
+  assert(result.errors.some(issue => issue.code === 'history_rows_skipped'), 'invalid timestamp reported');
 });
 
 h.test('SQLite snapshots include WAL rows and leave the original file untouched', async () => {
@@ -218,6 +247,24 @@ h.test('SQLite snapshots include WAL rows and leave the original file untouched'
   open.close();
   assert(existsSync(tempRoot), 'temporary root was created');
   assertDeepEqual(readdirSync(tempRoot), [], 'snapshot directories are removed in finally');
+});
+
+h.test('a corrupted SQLite file is retried and then reported as a snapshot error', async () => {
+  const { source, profileDir, tempRoot } = fixture();
+  writeFileSync(join(profileDir, 'History'), 'this is not a SQLite database');
+  const target = new RecordingTarget();
+  const result = await importBrowserProfile(
+    {
+      sourceId: 'chrome',
+      profileId: 'Default',
+      categories: { cookies: false, passwords: false, history: true, extensions: false },
+    },
+    { roots: [source], decryptor: new RecordingDecryptor(), target, tempRoot },
+  );
+
+  assertEqual(result.ok, false, 'corrupt data is not a success');
+  assertEqual(result.counts.history, 0, 'no history rows are applied');
+  assert(result.errors.some(issue => issue.code === 'snapshot_corrupted'), 'explicit snapshot integrity error');
 });
 
 h.test('extensions need explicit confirmation and install from an app-owned copy', async () => {
@@ -323,6 +370,74 @@ h.test('cancellation returns a structured result and leaves no snapshots behind'
   assert(result.errors.some(issue => issue.code === 'cancelled'), 'structured cancellation error');
   assertEqual(target.cookies.length, 0, 'target was not called');
   assert(!existsSync(tempRoot) || readdirSync(tempRoot).length === 0, 'no temporary snapshot remains');
+});
+
+h.test('cancellation after a target batch keeps applied counts without starting the next category', async () => {
+  const { source, profileDir, tempRoot } = fixture();
+  createCookies(profileDir, [{ host: 'example.test', name: 'cookie', value: 'a' }]);
+  createLogins(profileDir, [
+    { origin: 'https://example.test/login', username: 'user', encrypted: Buffer.from('v10-password') },
+  ]);
+  const controller = new AbortController();
+  let passwordsCalled = false;
+  const target: BrowserImportTarget = {
+    async applyCookies() {
+      controller.abort();
+    },
+    async applyPasswords() {
+      passwordsCalled = true;
+    },
+  };
+  const result = await importBrowserProfile(
+    {
+      sourceId: 'chrome',
+      profileId: 'Default',
+      categories: { cookies: true, passwords: true, history: false, extensions: false },
+    },
+    { roots: [source], decryptor: new RecordingDecryptor(), target, tempRoot, signal: controller.signal },
+  );
+
+  assertEqual(result.cancelled, true, 'cancellation after apply is reported');
+  assertEqual(result.counts.cookies, 1, 'a successfully applied batch stays counted');
+  assertEqual(result.counts.passwords, 0, 'the next category is not counted');
+  assertEqual(passwordsCalled, false, 'the next target callback is not invoked');
+  assert(!existsSync(tempRoot) || readdirSync(tempRoot).length === 0, 'snapshots are cleaned after cancellation');
+});
+
+h.test('extension copy honors file limits and rejects invalid manifests', async () => {
+  const { source, profileDir, tempRoot, extensionRoot } = fixture();
+  const manyId = 'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
+  createExtension(profileDir, {
+    id: manyId,
+    version: '1.0.0',
+    files: { 'a.txt': 'a', 'b.txt': 'b', 'c.txt': 'c' },
+  });
+  const invalidId = 'ffffffffffffffffffffffffffffffff';
+  createExtension(profileDir, { id: invalidId, version: 'not-a-version' });
+
+  const target = new RecordingTarget();
+  const result = await importBrowserProfile(
+    {
+      sourceId: 'chrome',
+      profileId: 'Default',
+      allowUnverifiedExtensions: true,
+      categories: { cookies: false, passwords: false, history: false, extensions: true },
+    },
+    {
+      roots: [source],
+      decryptor: new RecordingDecryptor(),
+      target,
+      tempRoot,
+      extensionRoot,
+      limits: { maxExtensionFiles: 2 },
+    },
+  );
+
+  assertEqual(result.ok, false, 'bounded or invalid extensions are not successful');
+  assertEqual(result.counts.extensions, 0, 'no extension counted as installed');
+  assert(result.errors.some(issue => issue.code === 'extension_file_limit'), 'file bound reported');
+  assert(result.errors.some(issue => issue.code === 'extension_version_invalid'), 'invalid manifest version reported');
+  assertEqual(target.extensions.length, 0, 'install callback was not called');
 });
 
 h.test('row limits bound reads and report a structured error', async () => {

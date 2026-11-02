@@ -163,12 +163,31 @@ export interface BrowserSecretContext {
   kind: 'cookie' | 'password';
   host?: string;
   originUrl?: string;
+  /** Platform of the source browser profile. */
+  platform?: NodeJS.Platform;
+  /** Browser family of the source root. */
+  family?: 'chrome' | 'chromium' | 'edge';
+}
+
+/**
+ * Decryptors throw this to report a structured, non-recoverable failure.
+ * The host decides whether a given prefix/platform/family is unsupported;
+ * this module does not hard-code app-bound rejection.
+ */
+export class BrowserImportDecryptError extends Error {
+  constructor(readonly code: string, message: string) {
+    super(message);
+    this.name = 'BrowserImportDecryptError';
+  }
 }
 
 export interface BrowserPasswordDecryptor {
   /**
    * Decrypt one Chromium-encrypted blob. Implementations must not log or
    * persist either the encrypted input or the plaintext result.
+   *
+   * Throw BrowserImportDecryptError('app_bound_encryption_unsupported', ...)
+   * when the host cannot decrypt app-bound secrets on the current platform.
    */
   decrypt(input: Uint8Array, context: BrowserSecretContext): Promise<string>;
 }
