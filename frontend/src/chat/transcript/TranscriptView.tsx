@@ -105,6 +105,7 @@ import { isWorktreeSessionWorkdir } from '../worktree-path'
 import { useDeviceNamesVersion } from '../device-names'
 import { attachFriendFollowUps, friendMessageActionsHtml, friendOutgoingForMessage, friendRequestTarget, friendStatusDisplay, isIncomingFriendRequest, renderFriendCardHtml, renderFriendOutgoingStatusHtml, resolveFriendIdentity } from './friend-presentation'
 import { automationMessageLabel } from './automation-source'
+import { placeFriendReplies } from './friend-reply-placement'
 import { friendsRuntimeSnapshot, subscribeFriendsRuntime } from '../../pages/friends/runtime-state'
 import { friendOutgoingActionPending, friendOutgoingActionsRevision, performFriendOutgoingAction, subscribeFriendOutgoingActions } from '../../pages/friends/outgoing-actions'
 import { renderComposerReferencePillHtml } from '../composer/reference-pill'
@@ -1378,6 +1379,8 @@ export function segmentsFromBlocks(blocks: any[], thinkingDurationMs: number | u
 export interface Unit {
   goalCompletion?: GoalCompletionSummary
   friendFollowUp?: boolean
+  /** A received collaboration result presented inside its requesting process. */
+  friendReplyInProcess?: boolean
   websiteReferences?: SiteReference[]
   type: 'agent-event' | 'compaction' | 'compact-file-restore' | 'compact-summary' | 'turn-status' | 'fail-hint' | 'user' | 'fork' | 'teammate' | 'delegation' | 'thinking' | 'text' | 'tools' | 'ask-user' | 'proposed-plan' | 'goal-completion' | 'approval-review' | 'workflow-record'
   key: string
@@ -1716,7 +1719,8 @@ function isAnswerToTurn(msg: any, turnId?: string): boolean {
 }
 
 function isPersistentTurnNode(node: RenderNode): boolean {
-  return node.kind === 'unit' && !(node.unit.type === 'user' && node.unit.msg?.questionAnswer && node.unit.hasFollowingFinalAnswer)
+  return node.kind === 'unit' && !node.unit.friendReplyInProcess
+    && !(node.unit.type === 'user' && node.unit.msg?.questionAnswer && node.unit.hasFollowingFinalAnswer)
     && (['user', 'delegation', 'workflow-record', 'proposed-plan', 'goal-completion', 'approval-review'].includes(node.unit.type)
     || node.unit.type === 'ask-user' && !isSettledAskUserUnit(node.unit))
 }
@@ -2033,6 +2037,7 @@ export function foldTurnGroups(
   shellTurnIds: ReadonlySet<string> = new Set(),
   turnWorkCompletedAtMs: Record<string, number> = {},
   goalCompletionByTurn: ReadonlyMap<string, GoalCompletionSummary> = transcriptGoalCompletions(units),
+  friendReplyBoundaryTurnIds: ReadonlySet<string> = new Set(),
 ): { key: string; turnId?: string; nodes: RenderNode[] }[] {
   const renderedGroups: { key: string; turnId?: string; nodes: RenderNode[] }[] = []
   const recordedWorkflowIds = new Set(units.flatMap(unit => unit.type === 'goal-completion' && unit.segment?.goal ? [`goal:${unit.segment.goal.goalId}`] : []))
@@ -2089,7 +2094,7 @@ export function foldTurnGroups(
     }
     if (group.units.length && (!process || hasFinal || !process.hasFinal)) processByTurn.set(group.turnId, { group, hasFinal })
   }
-  groups = groups.filter(group => group.units.length > 0)
+  groups = placeFriendReplies(groups.filter(group => group.units.length > 0), friendReplyBoundaryTurnIds)
 
   // A continuation can fail before producing a message. Its recorded terminal
   // diagnostics still need a group when the live error hands over to history.
@@ -2210,7 +2215,7 @@ export function foldTurnGroups(
     // New history names the final assistant message explicitly. The positional
     // fallback keeps imported/legacy transcripts readable when that metadata is
     // absent, but must never override an explicit final reply followed by tools.
-    const finalUnit = [...group.units].reverse().find(unit => unit.type !== 'agent-event')
+    const finalUnit = [...group.units].reverse().find(unit => unit.type !== 'agent-event' && !unit.friendReplyInProcess)
     const explicitFinal = [...group.units].reverse().find(unit => unit.type === 'text' && unit.isFinalReply && unit.segment?.text?.trim()) || null
     const lastText: Unit | null = explicitFinal || (!isTurnInProgress && finalUnit?.type === 'text' && finalUnit.segment?.text?.trim() && finalUnit.segment?.phase !== 'commentary' ? finalUnit : null)
     if (lastText) {
@@ -2300,6 +2305,7 @@ export function foldTurnGroups(
     let pastFinal = false
     for (const original of group.units) {
       if (original === lastText) { pastFinal = true; continue }
+      if (original.friendReplyInProcess) { processUnits.push(original); continue }
       const unit = original.type === 'user' && isAnswerToTurn(original.msg, turnId)
         ? { ...original, hasFollowingFinalAnswer: !!lastText && !pastFinal } : original
       // The initial owner input leads its turn even if its live acknowledgement
@@ -3978,8 +3984,14 @@ export function TranscriptView({ sessionId, container, scroll = 'none', readOnly
     ? w().getKnownSessionInfo?.(sessionId)?.hostMetadata?.delegatedFrom : undefined
   const historyUnits = useMemo(() => unitsFromMessages(timestamped, legacyCreator), [timestamped, legacyCreator])
   const goalCompletionByTurn = useTranscriptGoalCompletions(sessionId, keyedHistory)
-  const foldedTurnGroups = useMemo(() => foldTurnGroups(historyUnits, running && activeTurnId ? { turnId: activeTurnId } : null, turnStatuses, turnCollapseOverrides, turnErrors, turnDurations, turnCancelledTools, livePlanReviewIds, turnErrorKinds, worktreeRowStatus !== 'running' ? worktreeRowStatus : null, artifactAnchors, turnErrorDetails, turnStartedAtMs, shellTurnIds, turnWorkCompletedAtMs, goalCompletionByTurn),
-    [historyUnits, running, activeTurnId, turnStatuses, turnCollapseOverrides, turnErrors, turnDurations, turnCancelledTools, livePlanReviewIds, turnErrorKinds, worktreeRowStatus, artifactAnchors, turnErrorDetails, turnStartedAtMs, subagentsRevision, shellTurnIds, turnWorkCompletedAtMs, goalCompletionByTurn])
+  const friendReplyBoundaries = useMemo(() => new Set((savedTranscript?.islands.slice(1) ?? [])
+    .filter(island => island.olderBoundary.status === 'available' && island.olderBoundary.boundaryId)
+    .flatMap(island => {
+      const turn = savedTranscript?.entitiesByKey[island.entries[0]?.value]?.id
+      return turn ? [turn] : []
+    })), [savedTranscript])
+  const foldedTurnGroups = useMemo(() => foldTurnGroups(historyUnits, running && activeTurnId ? { turnId: activeTurnId } : null, turnStatuses, turnCollapseOverrides, turnErrors, turnDurations, turnCancelledTools, livePlanReviewIds, turnErrorKinds, worktreeRowStatus !== 'running' ? worktreeRowStatus : null, artifactAnchors, turnErrorDetails, turnStartedAtMs, shellTurnIds, turnWorkCompletedAtMs, goalCompletionByTurn, friendReplyBoundaries),
+    [historyUnits, running, activeTurnId, turnStatuses, turnCollapseOverrides, turnErrors, turnDurations, turnCancelledTools, livePlanReviewIds, turnErrorKinds, worktreeRowStatus, artifactAnchors, turnErrorDetails, turnStartedAtMs, subagentsRevision, shellTurnIds, turnWorkCompletedAtMs, goalCompletionByTurn, friendReplyBoundaries])
   const turnGroups = useMemo(() => {
     const groups = [...foldedTurnGroups]
     for (const island of savedTranscript?.islands.slice(1) ?? []) {

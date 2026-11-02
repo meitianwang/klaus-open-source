@@ -1,0 +1,18 @@
+{
+  "reason": "Replies to assistant-issued collaborations are process evidence of the request that produced them, even when display-only delivery is persisted after the requesting turn ends. Presentation must not rewrite durable message or turn identities, detach subsequent model work, hide unassociated arrivals, or absorb human-authored exchanges.",
+  "rules": {
+    "anchor": "accepted-send-tool-request-id-and-matching-friend",
+    "placement": "requesting-turn-process-disclosure",
+    "lateArrival": "after-existing-process-before-visible-final-answer",
+    "storedIdentity": "unchanged",
+    "missingAnchor": "standalone-until-request-history-loads",
+    "humanRequest": "standalone",
+    "needsInput": "standalone",
+    "progress": "standalone",
+    "localStatus": "standalone",
+    "historyGap": "do-not-cross",
+    "replyWithModelWork": "retain-own-turn-opener"
+  },
+  "terminalReplies": ["completed", "rejected", "failed", "cancelled"],
+  "unassociatedArrivals": ["missing-request", "different-friend", "human-request", "new-request", "notice", "needs-input", "progress", "local-status", "unknown-reply", "failed-send"]
+}
