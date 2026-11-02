@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "reason": "Browser authorization and local credential reuse have independent entrypoints. Completed authorization preserves credential ownership while cancellation fences stale replies.",
+  "reason": "Browser authorization and local credential reuse have independent entrypoints. Completed authorization preserves credential ownership while cancellation fences stale replies. Connected accounts expose sign-out with confirmation.",
   "start": {
     "ok": true,
     "flowId": "fixture-flow-one",
@@ -27,6 +27,8 @@
       "start",
       "importLocal"
     ],
-    "signedInActions": []
+    "signedInActions": [
+      "logout"
+    ]
   }
 }

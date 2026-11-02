@@ -910,6 +910,7 @@ export function SubscriptionCardBody({ mode, reloadSeq, reload, activateModelOnL
   // credential state instead of a skeleton, and the read below confirms it.
   const [status, setStatus] = useState<any>(() => subscriptionStatusCache.get(mode) ?? null)
   const [statusMsg, setStatusMsg] = useState('')
+  const [logoutError, setLogoutError] = useState('')
   const [loginBusy, setLoginBusy] = useState(false)
   const authActionBusyRef = useRef(false)
   const [importBusy, setImportBusy] = useState(false)
@@ -937,6 +938,7 @@ export function SubscriptionCardBody({ mode, reloadSeq, reload, activateModelOnL
 
   useEffect(() => {
     let cancelled = false
+    setLogoutError('')
     const cached = subscriptionStatusCache.get(mode)
     if (cached) setStatus(cached)
     noteCursorSettings(mode, 'status_read_begin', cached)
@@ -982,6 +984,7 @@ export function SubscriptionCardBody({ mode, reloadSeq, reload, activateModelOnL
   const onLogin = async (workbuddyRegion?: 'cn' | 'intl') => {
     if (authActionBusyRef.current) return
     authActionBusyRef.current = true
+    setLogoutError('')
     setLoginBusy(true)
     try {
       await source.login(source, setStatusMsg, reload, {
@@ -996,6 +999,7 @@ export function SubscriptionCardBody({ mode, reloadSeq, reload, activateModelOnL
   const onImport = async (workbuddyRegion?: 'cn' | 'intl') => {
     if (authActionBusyRef.current) return
     authActionBusyRef.current = true
+    setLogoutError('')
     setImportBusy(true)
     try {
       await importLocalSubscription(source, setStatusMsg, reload, {
@@ -1012,16 +1016,18 @@ export function SubscriptionCardBody({ mode, reloadSeq, reload, activateModelOnL
 
   const onLogout = async () => {
     if (!(await w().klausDialog.confirm(t(source.confirmLogout)))) return
+    setLogoutError('')
     try {
       const result = await source.api().logout()
-      if (result?.ok !== true) throw new Error(authErrorText(source, result?.error))
+      if (result?.ok !== true) throw new Error(result?.error || '')
       // The auth-mode write remounts the settings tab; seed the signed-out
       // state so the remounted card does not paint the old logged-in row.
       subscriptionStatusCache.set(mode, { loggedIn: false })
       window.dispatchEvent(new Event('klaus:auth-mode-changed'))
       reload()
     } catch (error: any) {
-      setStatusMsg(error?.message || t('profile_logout_failed'))
+      const message = authErrorText(source, error?.message)
+      setLogoutError(message === t('auth_unknown_error') ? t('profile_logout_failed') : message)
     }
   }
 
@@ -1119,9 +1125,7 @@ export function SubscriptionCardBody({ mode, reloadSeq, reload, activateModelOnL
   // leave a band of stray spacing under the key field.
   const actions = status.unavailable
     ? <button className="btn-sm" onClick={reload}>{t('auth_status_retry')}</button>
-    : (mode === 'antigravity' || mode === 'trae' || mode === 'kiro') && signedIn
-      ? null
-      : accounts.length > 0
+    : accounts.length > 0
       // Queued sources can add or refresh another account.
       ? <>
           <button className="btn-xs btn-danger" id={`${prefix}-logout-btn`} onClick={() => { void onLogout() }}>{t(source.logoutLabel)}</button>
@@ -1263,6 +1267,7 @@ export function SubscriptionCardBody({ mode, reloadSeq, reload, activateModelOnL
           {actions}
         </div>
       ) : null}
+      {logoutError ? <div role="alert" className={styles['settings-status-text']}>{logoutError}</div> : null}
       {mode === 'cursor' && loginBusy ? <div className="card-actions"><button className="btn-sm" id="cursor-auth-cancel-btn" onClick={() => { void cancelCursorLogin().then(() => setStatusMsg(t('cursor_auth_cancelled'))).catch(error => setStatusMsg(authErrorText(source, error?.message || String(error)))) }}>{t('cancel')}</button></div> : null}
       {(!['antigravity', 'trae', 'kiro'].includes(mode) || !signedIn) && status.error ? <div className={styles['settings-status-text']}>{authErrorText(source, status.error)}</div>
         : mode === 'cursor' && status.needsLogin ? <div className={styles['settings-status-text']}>{t('cursor_browser_login_expired')}</div>

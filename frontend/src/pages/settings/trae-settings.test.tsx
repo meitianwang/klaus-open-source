@@ -116,7 +116,7 @@ test('browser sign-in and local reuse have independent actions and preserve thei
   })
 })
 
-test('committed browser sign-in survives a card refresh and the account card has zero buttons', async () => {
+test('committed browser sign-in survives a card refresh and retains only sign-out', async () => {
   const requests: unknown[] = []
   await withAccountWindow(async (calls, target) => {
     target.window.klaus.session.setMainModel = async (...args: unknown[]) => { calls.push(['set', ...args]); await cancelTraeLogin() }
@@ -125,8 +125,10 @@ test('committed browser sign-in survives a card refresh and the account card has
     expect(requests).toEqual(['reload'])
     const html = renderToStaticMarkup(createElement(SubscriptionCardBody, { mode: 'trae', reloadSeq: 0, reload: () => {} }))
     expect(html).toContain(I18N.en.auth_logged_in)
-    expect(html).not.toContain('<button')
-    expect(html).not.toContain('card-actions')
+    expect(html).toContain('id="trae-auth-logout-btn"')
+    expect(html.match(/<button/g)).toHaveLength(1)
+    expect(html).not.toContain('id="trae-auth-login-btn"')
+    expect(html).not.toContain('id="trae-auth-import-btn"')
   }, { start: async () => browserFlow(), poll: async () => ({ ok: true }), cancel: async (flowId: string) => { requests.push(['cancel', flowId]); return { ok: true } } })
 })
 

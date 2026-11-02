@@ -6,6 +6,7 @@ import { authErrorText, cancelAntigravityLogin, cancelCursorLogin, importLocalSu
 import { IMAGE_GENERATION_SOURCES, VIDEO_GENERATION_SOURCES, AUDIO_GENERATION_SOURCES } from './generation-sources'
 import { resolveWebSearchSettings } from '../../../../contracts/web-search-settings'
 import { I18N } from '../../i18n/messages'
+import loginVectors from '../../../../contracts/vectors/antigravity-login-vectors.json'
 
 test('Antigravity is an independent cloud source with supported media and search selections', () => {
   expect(AUTH_MODE_ORDER).toContain('antigravity')
@@ -74,8 +75,12 @@ test('browser completion preserves its originating session and retires cancellat
     expect(requests).toEqual(['reload'])
     const html = renderToStaticMarkup(createElement(SubscriptionCardBody, { mode: 'antigravity', reloadSeq: 0, reload: () => {} }))
     expect(html).toContain(I18N.en.auth_logged_in)
-    expect(html).not.toContain('<button')
-    expect(html).not.toContain('card-actions')
+    for (const action of loginVectors.accountCard.signedInActions) {
+      expect(html).toContain(`id="antigravity-auth-${action}-btn"`)
+    }
+    expect(html.match(/<button/g)).toHaveLength(loginVectors.accountCard.signedInActions.length)
+    expect(html).not.toContain('id="antigravity-auth-login-btn"')
+    expect(html).not.toContain('id="antigravity-auth-import-btn"')
   }, {
     start: async () => browserFlow(),
     poll: async () => { (globalThis as any).window.currentSessionId = 'other-session'; return { ok: true } },
