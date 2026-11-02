@@ -279,7 +279,7 @@
 
 .mention-browser-tab .mention-menu-name {
   font-weight: var(--weight-regular);
-  flex: 0 1 auto;
+  flex: 0 0 auto;
 }
 
 .mention-browser-tab .mention-menu-path {
@@ -307,10 +307,11 @@
   font-size: inherit;
   font-weight: var(--weight-regular);
   color: var(--fg);
-  flex: 0 1 auto;
+  flex: 0 0 auto;
 }
 
 .mention-menu-path {
+  min-width: 0;
   font-size: inherit;
   color: var(--fg-tertiary);
   flex: 1 1 auto;

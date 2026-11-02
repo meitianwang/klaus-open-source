@@ -30,7 +30,7 @@ globals.klaus = {
   },
   settings: { mobileBridge: { devices: async () => ({ ok: true, devices: [{ id: 'device-fixture', name: 'Fixture computer', platform: 'darwin', status: 'online' }] }) } },
   friends: { list: async () => ({ friends: [{ id: fixtureFriendId, status: 'accepted', displayName: 'Fixture friend', online: true }] }) },
-  agents: { definitions: { list: async () => ({ agents: [{ agentType: 'reviewer', filename: 'Reviewer', whenToUse: 'Review changes' }] }) } },
+  agents: { definitions: { list: async () => ({ agents: [{ agentType: 'reviewer', filename: 'Reviewer', whenToUse: 'Review changes and report concrete findings. '.repeat(80) }] }) } },
   browserUse: { mentionTabs: async () => ({ ok: true, tabs: [], errors: [] }) },
   on: { browserUseState: () => () => {}, klausAuthUpdated: () => () => {} },
 }
