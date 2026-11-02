@@ -684,6 +684,97 @@ h.test('cancellation after a target batch keeps applied counts without starting 
   assert(!existsSync(tempRoot) || readdirSync(tempRoot).length === 0, 'snapshots are cleaned after cancellation');
 });
 
+h.test('cancellation inside the only cookie apply is reported with the applied count', async () => {
+  const { source, profileDir, tempRoot } = fixture();
+  createCookies(profileDir, [{ host: 'example.test', name: 'cookie', value: 'a' }]);
+  const controller = new AbortController();
+  const target: BrowserImportTarget = {
+    async applyCookies() {
+      controller.abort();
+    },
+  };
+  const result = await importBrowserProfile(
+    {
+      sourceId: 'chrome',
+      profileId: 'Default',
+      categories: { cookies: true, passwords: false, history: false, extensions: false },
+    },
+    { roots: [source], decryptor: new RecordingDecryptor(), target, tempRoot, signal: controller.signal },
+  );
+
+  assertEqual(result.cancelled, true, 'abort after the only callback is reported');
+  assertEqual(result.ok, false, 'cancelled cookies-only import is not a success');
+  assertEqual(result.counts.cookies, 1, 'the applied cookie count is preserved');
+  assert(result.errors.some(issue => issue.code === 'cancelled'), 'structured cancellation error');
+});
+
+h.test('cancellation in the last history apply preserves prior and history counts', async () => {
+  const { source, profileDir, tempRoot } = fixture();
+  createCookies(profileDir, [{ host: 'example.test', name: 'cookie', value: 'a' }]);
+  createHistory(profileDir, [{ url: 'https://example.test/page', visitedAt: 1_700_000_000_000 }]);
+  const controller = new AbortController();
+  let cookiesApplied = false;
+  const target: BrowserImportTarget = {
+    async applyCookies() {
+      cookiesApplied = true;
+    },
+    async applyHistory() {
+      controller.abort();
+    },
+  };
+  const result = await importBrowserProfile(
+    {
+      sourceId: 'chrome',
+      profileId: 'Default',
+      categories: { cookies: true, passwords: false, history: true, extensions: false },
+    },
+    { roots: [source], decryptor: new RecordingDecryptor(), target, tempRoot, signal: controller.signal },
+  );
+
+  assertEqual(cookiesApplied, true, 'earlier category was applied');
+  assertEqual(result.cancelled, true, 'abort after last history callback is reported');
+  assertEqual(result.ok, false, 'cancelled history-last import is not a success');
+  assertEqual(result.counts.cookies, 1, 'earlier cookie count is preserved');
+  assertEqual(result.counts.history, 1, 'the last history count is preserved');
+});
+
+h.test('cancellation after a successful extension install preserves the installed count', async () => {
+  const { source, profileDir, tempRoot, extensionRoot } = fixture();
+  const id = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+  createExtension(profileDir, { id, version: '1.0.0' });
+  const controller = new AbortController();
+  let installs = 0;
+  const target: BrowserImportTarget = {
+    async installExtension(extension) {
+      installs += 1;
+      controller.abort();
+      return { id: extension.id };
+    },
+  };
+  const result = await importBrowserProfile(
+    {
+      sourceId: 'chrome',
+      profileId: 'Default',
+      allowUnverifiedExtensions: true,
+      categories: { cookies: false, passwords: false, history: false, extensions: true },
+    },
+    {
+      roots: [source],
+      decryptor: new RecordingDecryptor(),
+      target,
+      tempRoot,
+      extensionRoot,
+      signal: controller.signal,
+    },
+  );
+
+  assertEqual(installs, 1, 'the extension install callback ran once');
+  assertEqual(result.cancelled, true, 'abort after the last extension install is reported');
+  assertEqual(result.ok, false, 'cancelled extension import is not a success');
+  assertEqual(result.counts.extensions, 1, 'the successful extension count is preserved');
+  assert(result.errors.some(issue => issue.code === 'cancelled'), 'structured cancellation error');
+});
+
 h.test('extension copy honors file limits and rejects invalid manifests', async () => {
   const { source, profileDir, tempRoot, extensionRoot } = fixture();
   const manyId = 'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';

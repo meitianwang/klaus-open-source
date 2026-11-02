@@ -861,19 +861,20 @@ async function importExtensions(
   errors: ReturnType<typeof issueSink>,
   sourceId: string,
   profileId: string,
-): Promise<number> {
+  progress: { installed: number },
+): Promise<void> {
   if (!dependencies.extensionRoot || !isAbsolute(dependencies.extensionRoot)) {
     errors.add('extensions', 'extension_target_unavailable', 'No app-owned extension directory was provided.');
-    return 0;
+    return;
   }
   if (!dependencies.target.installExtension) {
     errors.add('extensions', 'extension_install_unavailable', 'The browser target cannot install extensions.');
-    return 0;
+    return;
   }
   const extensionsDirectory = join(profileDirectory, 'Extensions');
   if (!(await isSafeDirectory(extensionsDirectory))) {
     errors.add('extensions', 'extensions_unavailable', 'The profile has no readable extension directory.');
-    return 0;
+    return;
   }
   const extensionsReal = await realpath(extensionsDirectory);
   const entries = (await readdir(extensionsReal, { withFileTypes: true }))
@@ -886,12 +887,12 @@ async function importExtensions(
   const runKey = createHash('sha256').update(`${sourceId}\0${profileId}`).digest('hex').slice(0, 16);
   const ownedRoot = join(dependencies.extensionRoot, runKey);
   await mkdir(ownedRoot, { recursive: true, mode: 0o700 });
-  let installed = 0;
 
   for (const entry of entries.slice(0, limits.maxExtensions)) {
     throwIfAborted(dependencies.signal);
     const sourceDirectory = join(extensionsReal, entry.name);
     let targetDirectory: string | undefined;
+    let installedSuccessfully = false;
     try {
       const info = await lstat(sourceDirectory);
       if (info.isSymbolicLink() || !info.isDirectory()) {
@@ -935,9 +936,11 @@ async function importExtensions(
       } else if (!manifest.idVerified) {
         throw new BrowserError('extension_id_unverified', 'The target did not return the installed extension id and the package has no verifiable key.');
       }
-      installed += 1;
+      installedSuccessfully = true;
+      progress.installed += 1;
+      throwIfAborted(dependencies.signal);
     } catch (error) {
-      if (targetDirectory) await rm(targetDirectory, { recursive: true, force: true });
+      if (targetDirectory && !installedSuccessfully) await rm(targetDirectory, { recursive: true, force: true });
       if (error instanceof ImportAbortedError) throw error;
       if (error instanceof BrowserError) {
         errors.add('extensions', error.code, error.message);
@@ -948,7 +951,7 @@ async function importExtensions(
       }
     }
   }
-  return installed;
+  return;
 }
 
 /* ------------------------------------------------------------------------- *
@@ -1033,7 +1036,9 @@ export async function importBrowserProfile(
           try {
             await dependencies.target.applyCookies(cookies);
             result.counts.cookies = cookies.length;
+            throwIfAborted(dependencies.signal);
           } catch (error) {
+            if (dependencies.signal?.aborted) throw new ImportAbortedError();
             sink.add('cookies', 'apply_cookies_failed', `The browser target rejected the cookie batch (${safeTargetError(error)}).`);
           }
         }
@@ -1050,7 +1055,9 @@ export async function importBrowserProfile(
           try {
             await dependencies.target.applyPasswords(passwords);
             result.counts.passwords = passwords.length;
+            throwIfAborted(dependencies.signal);
           } catch (error) {
+            if (dependencies.signal?.aborted) throw new ImportAbortedError();
             sink.add('passwords', 'apply_passwords_failed', `The browser target rejected the password batch (${safeTargetError(error)}).`);
           }
         }
@@ -1067,7 +1074,9 @@ export async function importBrowserProfile(
           try {
             await dependencies.target.applyHistory(entries);
             result.counts.history = entries.length;
+            throwIfAborted(dependencies.signal);
           } catch (error) {
+            if (dependencies.signal?.aborted) throw new ImportAbortedError();
             sink.add('history', 'apply_history_failed', `The browser target rejected the history batch (${safeTargetError(error)}).`);
           }
         }
@@ -1075,14 +1084,20 @@ export async function importBrowserProfile(
     }
 
     if (parsed.selection.extensions) {
-      result.counts.extensions = await importExtensions(
-        dependencies,
-        profileDirectory,
-        limits,
-        sink,
-        request.sourceId,
-        request.profileId,
-      );
+      const extensionProgress = { installed: 0 };
+      try {
+        await importExtensions(
+          dependencies,
+          profileDirectory,
+          limits,
+          sink,
+          request.sourceId,
+          request.profileId,
+          extensionProgress,
+        );
+      } finally {
+        result.counts.extensions = extensionProgress.installed;
+      }
     }
   } catch (error) {
     if (error instanceof ImportAbortedError || dependencies.signal?.aborted) {
@@ -1095,6 +1110,12 @@ export async function importBrowserProfile(
     }
   }
 
+  if (dependencies.signal?.aborted && !result.cancelled) {
+    result.cancelled = true;
+    if (!sink.errors.some(issue => issue.code === 'cancelled')) {
+      sink.add('profile', 'cancelled', 'The browser import was cancelled.');
+    }
+  }
   result.ok = !result.cancelled && result.errors.length === 0;
   return result;
 }
