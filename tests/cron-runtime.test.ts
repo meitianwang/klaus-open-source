@@ -141,6 +141,19 @@ h.test('legacy task rows gain unrestricted permission during migration', async (
   assertEqual(migrated.workspaceId, null, 'legacy task is not silently bound to a workspace');
   await f.runtime.close();
 });
+h.test('corrupted persisted permission presets are rejected instead of being promoted to full access', async () => {
+  const f = fixture();
+  f.add('corrupt', { workdir: '/tmp/corrupt' });
+  withSettingsTransaction(f.store.configRoot, db => {
+    db.prepare("UPDATE cron_tasks SET permission_preset='dangerous' WHERE id='corrupt'").run();
+  });
+  const error = await assertRejects(() => Promise.resolve(f.store.getTask('corrupt')), 'corrupted stored preset is refused');
+  assert(typeof error === 'object' && error != null && String((error as Error).message).includes('invalid stored permission preset'), 'the refusal explains the bad preset');
+  const runNow = await f.runtime.runNow('corrupt');
+  assertEqual(runNow.ok, false, 'a corrupted task cannot start');
+  assert(typeof runNow.error === 'string' && runNow.error.includes('invalid stored permission preset'), 'the run failure surfaces the same explanation');
+  await f.runtime.close();
+});
 h.test('startup cancellation cannot start a late engine turn and shutdown waits for ownership', async () => {
   let release!: (value: Json) => void;
   const starting = new Promise<Json>(resolve => { release = resolve; });

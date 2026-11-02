@@ -77,10 +77,12 @@ function permissionPreset(value: unknown): CronPermissionPreset {
   }
   return value as CronPermissionPreset;
 }
-function storedPermissionPreset(value: unknown): CronPermissionPreset {
-  return typeof value === 'string' && CRON_PERMISSION_PRESETS.includes(value as CronPermissionPreset)
-    ? value as CronPermissionPreset
-    : 'bypassPermissions';
+function storedPermissionPreset(value: unknown, taskId: string): CronPermissionPreset {
+  if (value === undefined || value === null) return 'bypassPermissions';
+  if (typeof value === 'string' && CRON_PERMISSION_PRESETS.includes(value as CronPermissionPreset)) {
+    return value as CronPermissionPreset;
+  }
+  throw new IpcHandlerError('CRON_PERMISSION_PRESET_INVALID', `Scheduled task ${taskId} has an invalid stored permission preset: ${typeof value === 'string' ? JSON.stringify(value) : typeof value}. Only ${CRON_PERMISSION_PRESETS.join(', ')} are allowed, or omit the field for the legacy default.`);
 }
 function binding(raw: unknown): Json {
   if (typeof raw !== 'string') return null;
@@ -97,7 +99,7 @@ function task(row: Record<string, unknown>): JsonObject {
     channelBinding: binding(row.channel_binding), createdBy: optional(row.created_by),
     notificationPolicy: policy === 'all_runs' ? 'all_runs' : 'failed_runs_only',
     model: optional(row.model), workdir: optional(row.workdir), workspaceId: optional(row.workspace_id),
-    permissionPreset: storedPermissionPreset(row.permission_preset),
+    permissionPreset: storedPermissionPreset(row.permission_preset, string(row.id)),
     createdAt: integer(row.created_at) ?? 0, updatedAt: integer(row.updated_at) ?? 0,
   };
 }

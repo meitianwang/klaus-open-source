@@ -3,7 +3,7 @@ import { Cron } from 'croner';
 import { presetRuntimePolicy } from '../../contracts/runtime-settings';
 import type { Json } from '../ipc/contract';
 import type { ClientEvent } from '../engine/protocol';
-import { CronStore } from './cron-store';
+import { CRON_PERMISSION_PRESETS, CronStore } from './cron-store';
 import type { CronPermissionPreset } from './cron-store';
 import { object, string, errorMessage, type JsonObject, type ServicePush } from './service-types';
 
@@ -75,7 +75,8 @@ export class CronRuntime {
     }
   }
   async runNow(id: string): Promise<JsonObject> {
-    const task = this.deps.store.getTask(id);
+    let task: JsonObject | null;
+    try { task = this.deps.store.getTask(id); } catch (error) { return { ok: false, error: errorMessage(error) }; }
     if (this.closed || !task || this.running.has(id)) return { ok: false, error: 'task not found or already running' };
     const entry = this.execute(task, 'manual');
     try {
@@ -119,6 +120,9 @@ export class CronRuntime {
   private async drive(entry: Running): Promise<void> {
     const taskId = string(entry.task.id), taskName = string(entry.task.name) || taskId;
     const permissionPreset = entry.task.permissionPreset as CronPermissionPreset;
+    if (typeof permissionPreset !== 'string' || !CRON_PERMISSION_PRESETS.includes(permissionPreset as CronPermissionPreset)) {
+      throw new Error(`Scheduled task ${taskId} has an invalid permission preset: ${JSON.stringify(permissionPreset)}. Only ${CRON_PERMISSION_PRESETS.join(', ')} are allowed, or omit the field for the legacy default.`);
+    }
     const workdir = typeof entry.task.workdir === 'string' && entry.task.workdir ? entry.task.workdir : null;
     const workspaceId = typeof entry.task.workspaceId === 'string' && entry.task.workspaceId ? entry.task.workspaceId : null;
     let result: Outcome;
