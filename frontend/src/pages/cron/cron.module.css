@@ -512,6 +512,10 @@ button.cron-run-open { cursor: pointer; }
 
 .cron-dd-project .cron-dd-trigger { min-width: 200px; max-width: 340px; }
 
+.cron-dd-target .cron-dd-trigger { min-width: 240px; max-width: 420px; }
+
+.cron-dd-permission .cron-dd-trigger { min-width: 200px; max-width: 320px; }
+
 /* Long project paths must truncate inside the trigger, not stretch the row. */
 .cron-dd-trigger :global(.cron-dd-text) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 

@@ -8,8 +8,11 @@ import type { ReactNode, RefObject } from 'react'
 import { useT } from '../../i18n'
 import { rawIconHtml } from '../../components/Icon'
 import { AUTH_MODE_ORDER, sourceLabel } from '../settings/model-shared'
-import { channelLabelOf, compileSchedule, fmtDate, pad2, parseSchedule, resolvedCronTaskTimezone, retainedCronTaskFields } from './data'
-import type { CronTask } from './data'
+import {
+  channelLabelOf, compileSchedule, cronExecutionValue, cronPermissionPreset, fmtDate, pad2,
+  parseCronExecutionValue, parseSchedule, resolvedCronTaskTimezone, retainedCronTaskFields,
+} from './data'
+import type { CronPermissionPreset, CronTask } from './data'
 import { cronThinkingItems, cronThinkingLevels, cronThinkingSelection, cronThinkingValue, DEFAULT_THINKING_LEVEL, THINKING_LEVELS } from './model-thinking'
 import styles from './cron.module.css'
 
@@ -36,7 +39,7 @@ export function positionPopup(anchor: HTMLElement, popup: HTMLElement): void {
   })
 }
 
-type PopupId = 'freq' | 'weekday' | 'monthday' | 'date' | 'time' | 'tz' | 'source' | 'model' | 'thinking' | 'project' | null
+type PopupId = 'freq' | 'weekday' | 'monthday' | 'date' | 'time' | 'tz' | 'source' | 'model' | 'thinking' | 'location' | 'permission' | null
 
 // ---- Custom dropdown (button + floating panel) ----
 // Preferred over a native <select> so the open panel matches Klaus styling
@@ -200,6 +203,7 @@ export function CronTaskFormModal({ existing, onClose, onSaved }: {
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState('')
   const editingId = existing?.id ?? null
+  const initialLocation = cronExecutionValue(existing)
 
   // ---- Schedule picker state（openForm 的初始化逻辑内嵌在 useState 惰性求值里） ----
   const initial = (() => {
@@ -268,29 +272,67 @@ export function CronTaskFormModal({ existing, onClose, onSaved }: {
   const channelHostRef = useRef<HTMLDivElement>(null)
   const channelSelectRef = useRef<any>(null)
 
-  // ---- Project binding（定时任务跑在哪个项目目录里） ----
-  const [projectItems, setProjectItems] = useState<Array<{ value: string; label: string }>>([])
-  const [workdirValue, setWorkdirValue] = useState(existing?.workdir ?? '')
+  // ---- Execution location: an ordinary session, one project, or every folder in a workspace. ----
+  const [locationItems, setLocationItems] = useState<Array<{ value: string; label: string }>>([
+    { value: '', label: t('cron_form_project_none') },
+  ])
+  const [locationValue, setLocationValue] = useState(initialLocation)
+  const [workspaceLoadFailed, setWorkspaceLoadFailed] = useState(false)
+  const [permissionPreset, setPermissionPreset] = useState<CronPermissionPreset>(() => cronPermissionPreset(existing?.permissionPreset))
   useEffect(() => {
     let cancelled = false
     ;(async () => {
-      let roots: string[] = []
+      let projects: Array<{ root: string; label: string }> = []
       const labels: Record<string, string> = {}
       try {
         const state = await w().klaus.projects?.list?.()
-        roots = Array.isArray(state?.roots)
+        const roots = Array.isArray(state?.roots)
           ? state.roots.map((root: any) => (typeof root === 'string' ? root : root?.path)).filter((value: any) => typeof value === 'string' && !value.startsWith('ssh://'))
           : []
         if (state?.labels && typeof state.labels === 'object') Object.assign(labels, state.labels)
+        projects = [...new Set<string>(roots)].map(root => ({
+          root,
+          label: labels[root] || root.split('/').filter(Boolean).pop() || root,
+        }))
       } catch {}
+      let workspaces: Array<{ id: string; name: string }> = []
+      let failed = false
+      try {
+        const state = await w().klaus.workspaces?.list?.()
+        workspaces = (Array.isArray(state?.workspaces) ? state.workspaces : [])
+          .filter((row: any) => row && typeof row.id === 'string' && row.id)
+          .map((row: any) => ({ id: row.id, name: typeof row.name === 'string' && row.name ? row.name : row.id }))
+      } catch { failed = true }
       if (cancelled) return
-      const items = [...new Set(roots)].map(root => ({ value: root, label: labels[root] || root.split('/').filter(Boolean).pop() || root }))
-      // A stored directory that no longer registers as a project stays pickable
-      // so editing the task does not silently drop the binding.
-      if (workdirValue && !items.some(item => item.value === workdirValue)) {
-        items.unshift({ value: workdirValue, label: workdirValue.split('/').filter(Boolean).pop() || workdirValue })
+      const items: Array<{ value: string; label: string }> = [
+        { value: '', label: t('cron_form_project_none') },
+        ...projects.map(project => ({
+          value: `project:${project.root}`,
+          label: t('cron_form_project_label').replace('{name}', project.label),
+        })),
+        ...workspaces.map(workspace => ({
+          value: `workspace:${workspace.id}`,
+          label: t('cron_form_workspace_label').replace('{name}', workspace.name),
+        })),
+      ]
+      // A saved location that is no longer available stays selected. Clearing it
+      // here would silently turn a project or workspace run into an ordinary one.
+      if (initialLocation.startsWith('project:')) {
+        const root = initialLocation.slice('project:'.length)
+        if (!items.some(item => item.value === initialLocation)) {
+          const name = labels[root] || root.split('/').filter(Boolean).pop() || root
+          items.splice(1, 0, { value: initialLocation, label: t('cron_form_project_unavailable').replace('{name}', name) })
+        }
+      } else if (initialLocation.startsWith('workspace:')) {
+        const id = initialLocation.slice('workspace:'.length)
+        if (!items.some(item => item.value === initialLocation)) {
+          const label = failed ? t('cron_form_workspace_label').replace('{name}', id)
+            : t('cron_form_workspace_unavailable').replace('{name}', id)
+          items.splice(1, 0, { value: initialLocation, label })
+        }
       }
-      setProjectItems(items)
+      setLocationItems(items)
+      setWorkspaceLoadFailed(failed)
     })()
     return () => { cancelled = true }
   }, [])
@@ -525,7 +567,7 @@ export function CronTaskFormModal({ existing, onClose, onSaved }: {
     const id = editingId ?? ('task-' + now.toString(36))
     const tz = resolvedCronTaskTimezone(existing, isCustom, tzInputRef.current?.value || '')
     const model = modelValue || undefined
-    const workdir = workdirValue || undefined
+    const target = parseCronExecutionValue(locationValue)
     const thinking = modelValue.startsWith('cursor:') || thinkingLevelsOf(modelValue).includes(displayedThinking) ? displayedThinking : DEFAULT_THINKING_LEVEL
 
     // channelBinding is only written on create. Edits retain whatever the
@@ -571,7 +613,9 @@ export function CronTaskFormModal({ existing, onClose, onSaved }: {
         channelBinding,
         createdBy,
         model: model || null,
-        workdir: workdir || null,
+        workdir: target.kind === 'project' ? target.root : null,
+        workspaceId: target.kind === 'workspace' ? target.id : null,
+        permissionPreset,
         thinking,
         notificationPolicy: notifyPolicy || 'failed_runs_only',
         createdAt: editingId ? undefined : now,
@@ -609,6 +653,11 @@ export function CronTaskFormModal({ existing, onClose, onSaved }: {
   ]
   // Day-of-month dropdown (1-31).
   const monthdayItems = Array.from({ length: 31 }, (_, i) => ({ value: String(i + 1), label: String(i + 1) }))
+  const permissionItems = [
+    { value: 'default', label: t('perm_manual') },
+    { value: 'auto', label: t('perm_auto') },
+    { value: 'bypassPermissions', label: t('perm_bypass') },
+  ]
 
   // Time picker is meaningless for interval / hourly / custom.
   const timeHidden = freq === 'interval' || freq === 'hourly' || freq === 'custom'
@@ -755,12 +804,25 @@ export function CronTaskFormModal({ existing, onClose, onSaved }: {
           <div className={styles['cron-form-row']}>
             <label>{t('cron_form_project')}</label>
             <CronDd
-              id="cron-form-project" cls={styles['cron-dd-project']} value={workdirValue}
-              items={[{ value: '', label: t('cron_form_project_none') }, ...projectItems]}
-              open={openPopup === 'project'} onToggle={() => togglePopup('project')}
-              onPick={(v) => { setWorkdirValue(v); setOpenPopup(null) }}
+              id="cron-form-location" cls={`${styles['cron-dd-project']} ${styles['cron-dd-target']}`} value={locationValue}
+              items={locationItems}
+              open={openPopup === 'location'} onToggle={() => togglePopup('location')}
+              onPick={(v) => { setLocationValue(v); setOpenPopup(null) }}
             />
-            <p className={styles['cron-form-hint']}>{t('cron_form_project_hint')}</p>
+            <p className={styles['cron-form-hint']}>
+              {workspaceLoadFailed ? t('cron_form_workspace_load_failed') : t('cron_form_project_hint')}
+            </p>
+          </div>
+
+          <div className={styles['cron-form-row']}>
+            <label>{t('cron_form_permission')}</label>
+            <CronDd
+              id="cron-form-permission" cls={styles['cron-dd-permission']} value={permissionPreset}
+              items={permissionItems}
+              open={openPopup === 'permission'} onToggle={() => togglePopup('permission')}
+              onPick={(v) => { setPermissionPreset(cronPermissionPreset(v)); setOpenPopup(null) }}
+            />
+            <p className={styles['cron-form-hint']}>{t('cron_form_permission_hint')}</p>
           </div>
 
           <div className={styles['cron-form-row']}>

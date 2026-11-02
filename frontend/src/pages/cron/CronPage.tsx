@@ -9,8 +9,9 @@ import { PageHeader } from '../../components/PageHeader'
 import { ModalPortal } from '../../components/ModalPortal'
 import { rawIconHtml } from '../../components/Icon'
 import {
-  CRON_PAGE_RELOAD_EVENT, CRON_PAGE_VISIBLE_EVENT, channelLabelOf, effectiveCronRunStatus, humanizeSchedule,
-  navigateToCronRunSession, pad2, relFromNow, runMatchesSearch, sortTasksFlat, startOfDay, taskMatchesSearch,
+  CRON_PAGE_RELOAD_EVENT, CRON_PAGE_VISIBLE_EVENT, channelLabelOf, cronExecutionTarget, cronPermissionPreset,
+  effectiveCronRunStatus, humanizeSchedule, navigateToCronRunSession, pad2, relFromNow, runMatchesSearch,
+  sortTasksFlat, startOfDay, taskMatchesSearch,
 } from './data'
 import type { CronRun, CronStatus, CronTask } from './data'
 import { CronTaskFormModal } from './form'
@@ -78,6 +79,9 @@ export function CronPage() {
   const [kebab, setKebab] = useState<KebabState | null>(null)
   const [tasksLoaded, setTasksLoaded] = useState(false)
   const [tasksError, setTasksError] = useState('')
+  const [executionNames, setExecutionNames] = useState<{ projects: Record<string, string>; workspaces: Record<string, string> }>({
+    projects: {}, workspaces: {},
+  })
   const [pendingTaskIds, setPendingTaskIds] = useState<Set<string>>(() => new Set())
   const pendingTaskIdsRef = useRef(new Set<string>())
   const visibleRef = useRef(true)
@@ -126,6 +130,37 @@ export function CronPage() {
   }, [t])
 
   useEffect(() => { void loadTasks() }, [loadTasks])
+
+  // Detail rows name the saved location. The saved id/path remains displayed
+  // when a project or workspace was removed, so a history row never implies
+  // that the task silently became an ordinary session.
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      const projects: Record<string, string> = {}, workspaces: Record<string, string> = {}
+      const [projectState, workspaceState] = await Promise.allSettled([
+        w().klaus.projects?.list?.(),
+        w().klaus.workspaces?.list?.(),
+      ])
+      if (projectState.status === 'fulfilled') {
+        const roots = Array.isArray(projectState.value?.roots) ? projectState.value.roots : []
+        const labels = projectState.value?.labels && typeof projectState.value.labels === 'object' ? projectState.value.labels : {}
+        for (const raw of roots) {
+          const root = typeof raw === 'string' ? raw : raw?.path
+          if (typeof root !== 'string' || !root || root.startsWith('ssh://')) continue
+          projects[root] = labels[root] || root.split('/').filter(Boolean).pop() || root
+        }
+      }
+      if (workspaceState.status === 'fulfilled') {
+        const rows = Array.isArray(workspaceState.value?.workspaces) ? workspaceState.value.workspaces : []
+        for (const row of rows) {
+          if (row && typeof row.id === 'string' && row.id) workspaces[row.id] = typeof row.name === 'string' && row.name ? row.name : row.id
+        }
+      }
+      if (!cancelled) setExecutionNames({ projects, workspaces })
+    })()
+    return () => { cancelled = true }
+  }, [])
 
   // onShow 进入（含语言切换 reload 由 useT 承担）→ 全量刷新。
   useEffect(() => {
@@ -301,6 +336,25 @@ export function CronPage() {
     || tasks.find(task => task.id === selectedId)
     || null
 
+  const executionLabel = (task: CronTask): string => {
+    const target = cronExecutionTarget(task)
+    if (target.kind === 'workspace') {
+      const name = executionNames.workspaces[target.id]
+      return name ? t('cron_form_workspace_label').replace('{name}', name)
+        : t('cron_form_workspace_unavailable').replace('{name}', target.id)
+    }
+    if (target.kind === 'project') {
+      const name = executionNames.projects[target.root] || target.root.split('/').filter(Boolean).pop() || target.root
+      return t('cron_form_project_label').replace('{name}', name)
+    }
+    return t('cron_form_project_none')
+  }
+
+  const permissionLabel = (task: CronTask): string => {
+    const preset = cronPermissionPreset(task.permissionPreset)
+    return t(preset === 'default' ? 'perm_manual' : preset === 'auto' ? 'perm_auto' : 'perm_bypass')
+  }
+
   const renderTaskRow = (task: CronTask) => {
     const title = task.name || task.id
     const running = status.running.includes(task.id)
@@ -369,6 +423,7 @@ export function CronPage() {
       groups.get(key)!.rows.push(r)
     }
     const meta: string[] = [humanizeSchedule(task.schedule) || t('cron_custom_schedule')]
+    meta.push(executionLabel(task), permissionLabel(task))
     if (task.channelBinding) meta.push(channelLabelOf(task.channelBinding.channelId))
     return (
       <div className={styles['cron-detail']} key={task.id}>

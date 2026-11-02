@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import {
-  compileSchedule, cronDeleteSucceeded, effectiveCronRunStatus, navigateToCronRunSession, parseSchedule,
+  compileSchedule, cronDeleteSucceeded, cronExecutionTarget, cronExecutionValue, cronPermissionPreset,
+  effectiveCronRunStatus, navigateToCronRunSession, parseCronExecutionValue, parseSchedule,
   resolvedCronTaskTimezone, retainedCronTaskFields,
 } from './data'
 import type { CronTask } from './data'
@@ -35,15 +36,36 @@ describe('scheduled-task page host contracts', () => {
       workdir: '/tmp/proj',
     })).toEqual({
       enabled: false, description: 'context', thinking: 'high', timeoutSeconds: 900,
-      model: 'codex:fixture', workdir: '/tmp/proj', notificationPolicy: 'failed_runs_only',
+      model: 'codex:fixture', workdir: '/tmp/proj', workspaceId: null,
+      permissionPreset: 'bypassPermissions', notificationPolicy: 'failed_runs_only',
     })
     expect(retainedCronTaskFields({ id: 'task-1', enabled: false, description: 'context', thinking: 'high', timeoutSeconds: 900 })).toEqual({
       enabled: false, description: 'context', thinking: 'high', timeoutSeconds: 900,
-      model: null, workdir: null, notificationPolicy: 'failed_runs_only',
+      model: null, workdir: null, workspaceId: null, permissionPreset: 'bypassPermissions',
+      notificationPolicy: 'failed_runs_only',
     })
-    expect(retainedCronTaskFields(null)).toEqual({ enabled: true, notificationPolicy: 'failed_runs_only' })
+    expect(retainedCronTaskFields(null)).toEqual({
+      enabled: true, permissionPreset: 'bypassPermissions', notificationPolicy: 'failed_runs_only',
+    })
+    expect(retainedCronTaskFields({
+      id: 'task-2', workspaceId: 'workspace-1', permissionPreset: 'auto',
+    })).toMatchObject({ workspaceId: 'workspace-1', permissionPreset: 'auto', workdir: null })
     expect(resolvedCronTaskTimezone({ id: 'task-1', timezone: 'Asia/Shanghai' }, false, '')).toBe('Asia/Shanghai')
     expect(resolvedCronTaskTimezone(null, true, ' America/Los_Angeles ')).toBe('America/Los_Angeles')
+  })
+
+  test('keeps execution locations mutually exclusive and defaults legacy permissions open', () => {
+    expect(cronExecutionTarget({ workdir: '/tmp/proj', workspaceId: null })).toEqual({ kind: 'project', root: '/tmp/proj' })
+    expect(cronExecutionTarget({ workdir: '/tmp/proj', workspaceId: 'ws-1' })).toEqual({ kind: 'workspace', id: 'ws-1' })
+    expect(cronExecutionTarget({ workdir: null, workspaceId: null })).toEqual({ kind: 'none' })
+    expect(cronExecutionValue({ workdir: '/tmp/proj' })).toBe('project:/tmp/proj')
+    expect(parseCronExecutionValue('workspace:ws-1')).toEqual({ kind: 'workspace', id: 'ws-1' })
+    expect(parseCronExecutionValue('project:/tmp/proj')).toEqual({ kind: 'project', root: '/tmp/proj' })
+    expect(parseCronExecutionValue('')).toEqual({ kind: 'none' })
+    expect(cronPermissionPreset(undefined)).toBe('bypassPermissions')
+    expect(cronPermissionPreset('bogus')).toBe('bypassPermissions')
+    expect(cronPermissionPreset('default')).toBe('default')
+    expect(cronPermissionPreset('auto')).toBe('auto')
   })
 
   test('keeps non-zero hourly cron expressions lossless and classifies soft failures', () => {

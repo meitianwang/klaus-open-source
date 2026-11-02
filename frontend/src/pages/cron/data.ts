@@ -24,6 +24,10 @@ export interface CronTask {
   model?: string | null
   /** Project directory the run session binds to; empty runs projectless. */
   workdir?: string | null
+  /** Saved multi-folder workspace the run session binds to. Mutually exclusive with workdir. */
+  workspaceId?: string | null
+  /** Initial permission preset for each run. Missing legacy rows keep the historical full-access default. */
+  permissionPreset?: CronPermissionPreset | null
   timeoutSeconds?: number | null
   deleteAfterRun?: boolean
   timezone?: string
@@ -33,6 +37,39 @@ export interface CronTask {
   notificationPolicy?: 'failed_runs_only' | 'all_runs'
   createdAt?: number
   updatedAt?: number
+}
+
+export type CronPermissionPreset = 'default' | 'auto' | 'bypassPermissions'
+export type CronExecutionTarget =
+  | { kind: 'none' }
+  | { kind: 'project'; root: string }
+  | { kind: 'workspace'; id: string }
+
+/** The run's saved location. A workspace wins if an older or malformed row carries both. */
+export function cronExecutionTarget(task: Pick<CronTask, 'workdir' | 'workspaceId'> | null | undefined): CronExecutionTarget {
+  const workspaceId = task?.workspaceId?.trim()
+  if (workspaceId) return { kind: 'workspace', id: workspaceId }
+  const root = task?.workdir?.trim()
+  return root ? { kind: 'project', root } : { kind: 'none' }
+}
+
+/** Dropdown values need one string; the stored row still keeps workdir and workspaceId separate. */
+export function cronExecutionValue(task: Pick<CronTask, 'workdir' | 'workspaceId'> | null | undefined): string {
+  const target = cronExecutionTarget(task)
+  return target.kind === 'workspace' ? `workspace:${target.id}`
+    : target.kind === 'project' ? `project:${target.root}`
+      : ''
+}
+
+export function parseCronExecutionValue(value: string): CronExecutionTarget {
+  if (value.startsWith('workspace:')) return { kind: 'workspace', id: value.slice('workspace:'.length) }
+  if (value.startsWith('project:')) return { kind: 'project', root: value.slice('project:'.length) }
+  return { kind: 'none' }
+}
+
+/** Unknown values in an old row cannot identify a preset; those rows historically ran fully open. */
+export function cronPermissionPreset(value: unknown): CronPermissionPreset {
+  return value === 'default' || value === 'auto' || value === 'bypassPermissions' ? value : 'bypassPermissions'
 }
 
 export interface CronRun {
@@ -58,8 +95,8 @@ export function cronDeleteSucceeded(result: unknown): boolean {
   return payload.ok === true || payload.deleted === true
 }
 
-export function retainedCronTaskFields(existing: CronTask | null): Pick<CronTask, 'enabled' | 'description' | 'thinking' | 'timeoutSeconds' | 'model' | 'workdir' | 'notificationPolicy'> {
-  if (!existing) return { enabled: true, notificationPolicy: 'failed_runs_only' }
+export function retainedCronTaskFields(existing: CronTask | null): Pick<CronTask, 'enabled' | 'description' | 'thinking' | 'timeoutSeconds' | 'model' | 'workdir' | 'workspaceId' | 'permissionPreset' | 'notificationPolicy'> {
+  if (!existing) return { enabled: true, permissionPreset: 'bypassPermissions', notificationPolicy: 'failed_runs_only' }
   return {
     enabled: existing.enabled !== false,
     description: existing.description,
@@ -67,6 +104,8 @@ export function retainedCronTaskFields(existing: CronTask | null): Pick<CronTask
     timeoutSeconds: existing.timeoutSeconds,
     model: existing.model ?? null,
     workdir: existing.workdir ?? null,
+    workspaceId: existing.workspaceId ?? null,
+    permissionPreset: cronPermissionPreset(existing.permissionPreset),
     notificationPolicy: existing.notificationPolicy === 'all_runs' ? 'all_runs' : 'failed_runs_only',
   }
 }
@@ -265,6 +304,9 @@ export function taskMatchesSearch(task: CronTask, searchQuery: string): boolean 
     task.prompt,
     task.schedule,
     humanizeSchedule(task.schedule),
+    task.workdir,
+    task.workspaceId,
+    task.permissionPreset,
     task.channelBinding?.label,
     task.channelBinding?.targetId,
     task.channelBinding?.channelId,
