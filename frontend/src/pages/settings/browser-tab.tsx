@@ -424,7 +424,7 @@ function BrowserHistoryPanel({ onBack }: { onBack: () => void }) {
     setLoading(true)
     setError('')
     try {
-      const page = await service.history({ query: debounced, source, cursor: reset ? null : cursor, limit: 50 })
+      const page = await service.history({ query: debounced, source, cursor: reset ? null : cursor, limit: 100 })
       if (seq !== sequence.current) return
       if (failed(page)) { setError(t('browser_settings_history_load_failed')); return }
       const next = Array.isArray(page.items) ? page.items : []
@@ -555,7 +555,7 @@ function BrowserDownloadsPanel({ onBack }: { onBack: () => void }) {
     setLoading(true)
     setError('')
     try {
-      const page = await service.downloads({ query: debounced, cursor: reset ? null : cursor, limit: 50 })
+      const page = await service.downloads({ query: debounced, cursor: reset ? null : cursor, limit: 100 })
       if (seq !== sequence.current) return
       if (failed(page)) { setError(t('browser_settings_downloads_load_failed')); return }
       const next = (Array.isArray(page.items) ? page.items : []).map(mergeLive)
@@ -582,7 +582,7 @@ function BrowserDownloadsPanel({ onBack }: { onBack: () => void }) {
       const service = api()
       if (!mounted.current || !service?.downloads) return
       try {
-        const page = await service.downloads({ query: debounced, cursor: null, limit: 50 })
+        const page = await service.downloads({ query: debounced, cursor: null, limit: 100 })
         if (!mounted.current || failed(page)) return
         const firstPage = (Array.isArray(page.items) ? page.items : []).map(mergeLive)
         setItems(current => mergeFirstDownloadPage(current, firstPage))
