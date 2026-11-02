@@ -59,7 +59,7 @@ test('Kiro errors localize in both languages without changing unrelated source m
   }
 })
 
-test('committed Kiro login survives remount cancellation and displays an account with zero buttons', async () => {
+test('committed Kiro login survives remount cancellation and retains only sign-out', async () => {
   const target = globalThis as any, old = target.window, calls: unknown[] = []
   const source = SUBSCRIPTION_SOURCES.kiro
   target.window = { ...old, klaus: {
@@ -75,7 +75,9 @@ test('committed Kiro login survives remount cancellation and displays an account
     expect(calls).toEqual([['auto', 'kiro-fixture', 'kiro']])
     const html = renderToStaticMarkup(createElement(SubscriptionCardBody, { mode: 'kiro', reloadSeq: 0, reload: () => {} }))
     expect(html).toContain('Fixture account')
-    expect(html).not.toContain('<button')
-    expect(html).not.toContain('card-actions')
+    expect(html).toContain('id="kiro-auth-logout-btn"')
+    expect(html.match(/<button/g)).toHaveLength(1)
+    expect(html).not.toContain('id="kiro-auth-login-btn"')
+    expect(html).not.toContain('id="kiro-auth-import-btn"')
   } finally { await cancelKiroLogin(); target.window = old }
 })

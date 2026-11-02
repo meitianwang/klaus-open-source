@@ -58,8 +58,8 @@ void (async () => {
       await waitFor(() => evaluate<boolean>("Boolean(document.querySelector('.klaus-dialog-overlay.active .klaus-dialog-confirm'))"), 10_000, 'local account reuse asks for confirmation');
       await evaluate("document.querySelector('.klaus-dialog-overlay.active .klaus-dialog-confirm').click(); true");
       await waitFor(() => evaluate<boolean>("window.klaus.traeAuth.status().then(status => status.loggedIn === true && status.needsLogin !== true)"), 90_000, 'the account connects through the real host');
-      await waitFor(() => evaluate<boolean>("!document.getElementById('trae-auth-login-btn') && !document.getElementById('trae-auth-import-btn')"), 30_000, 'connected account actions disappear');
-      assertEqual(await evaluate<number>("document.getElementById('trae-auth-card')?.querySelectorAll('button').length ?? -1"), 0, 'the connected account card has no buttons');
+      await waitFor(() => evaluate<boolean>("Boolean(document.getElementById('trae-auth-logout-btn')) && !document.getElementById('trae-auth-login-btn') && !document.getElementById('trae-auth-import-btn')"), 30_000, 'the connected account retains sign-out without login or import');
+      assertEqual(await evaluate<number>("document.getElementById('trae-auth-card')?.querySelectorAll('button').length ?? -1"), 1, 'the connected account card retains only sign-out');
       const state = await evaluate<{ connected: boolean; source: string; models: number; unavailable: number }>(`(async () => {
         const status = await window.klaus.traeAuth.status();
         const saved = await window.klaus.session.getMainModel(undefined, {resolve:false});
@@ -97,8 +97,11 @@ void (async () => {
       assertEqual(state.speech, true, 'dictation uses its independently selected account source');
     });
 
-    await h.test('disconnect through the account API leaves both recovery actions available', async () => {
-      await evaluate('window.klaus.traeAuth.logout()');
+    await h.test('disconnect through the account card leaves both recovery actions available', async () => {
+      await evaluate("document.getElementById('trae-auth-logout-btn').click(); true");
+      await waitFor(() => evaluate<boolean>("Boolean(document.querySelector('.klaus-dialog-overlay.active .klaus-dialog-confirm'))"), 10_000, 'disconnect asks for confirmation');
+      await evaluate("document.querySelector('.klaus-dialog-overlay.active .klaus-dialog-confirm').click(); true");
+      await waitFor(() => evaluate<boolean>("Boolean(document.getElementById('trae-auth-login-btn')) && Boolean(document.getElementById('trae-auth-import-btn'))"), 30_000, 'disconnect restores both account recovery actions');
       await waitFor(() => evaluate<boolean>("window.klaus.traeAuth.status().then(status => status.loggedIn === false)"), 30_000, 'the isolated account disconnects');
       const status = await evaluate<{ loggedIn: boolean }>('window.klaus.traeAuth.status()');
       assertEqual(status.loggedIn, false, 'no stale connected status survives logout');

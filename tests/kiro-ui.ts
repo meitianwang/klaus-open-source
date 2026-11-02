@@ -76,8 +76,8 @@ void (async () => {
       await waitFor(() => evaluate<boolean>("Boolean(document.querySelector('.klaus-dialog-overlay.active .klaus-dialog-confirm'))"), 10_000, 'the account reuse dialog appears');
       await evaluate("document.querySelector('.klaus-dialog-overlay.active .klaus-dialog-confirm').click(); true");
       await waitFor(() => evaluate<boolean>('window.klaus.kiroAuth.status().then(state => state.loggedIn === true && state.needsLogin !== true)'), 30_000, 'the fixture account connects through the engine');
-      await waitFor(() => evaluate<boolean>("!document.getElementById('kiro-auth-login-btn') && !document.getElementById('kiro-auth-import-btn')"), 30_000, 'connected account actions disappear');
-      assertEqual(await evaluate<number>("document.getElementById('kiro-auth-card')?.querySelectorAll('button').length ?? -1"), 0, 'the connected account has zero buttons');
+      await waitFor(() => evaluate<boolean>("Boolean(document.getElementById('kiro-auth-logout-btn')) && !document.getElementById('kiro-auth-login-btn') && !document.getElementById('kiro-auth-import-btn')"), 30_000, 'the connected account retains sign-out without login or import');
+      assertEqual(await evaluate<number>("document.getElementById('kiro-auth-card')?.querySelectorAll('button').length ?? -1"), 1, 'the connected account card retains only sign-out');
       assertEqual(readFileSync(tokenPath, 'utf8'), external, 'the imported external grant remains unchanged');
       const state = await evaluate<any>(`(async () => ({ source: (await window.klaus.session.getMainModel(undefined, {resolve:false})).source, catalog: await window.klaus.kiroAuth.models(), usage: await window.klaus.usage.subscriptions(), search: await window.klaus.settings.webSearchSources.get() }))()`);
       assertEqual(state.source, 'kiro', 'the source activates only after adoption');
@@ -142,8 +142,15 @@ void (async () => {
       await evaluate('window.closeSettings(); true');
     });
 
-    await h.test('disconnect affects only the isolated Klaus connection', async () => {
-      await evaluate('window.klaus.kiroAuth.logout()');
+    await h.test('disconnect through the account card preserves the external grant', async () => {
+      await evaluate("window.openSettings('models'); true");
+      await waitFor(() => evaluate<boolean>("Boolean(document.querySelector('[data-source-tab=\"kiro\"]'))"), 30_000, 'the source tab remains available');
+      await evaluate("document.querySelector('[data-source-tab=\"kiro\"]').click(); true");
+      await waitFor(() => evaluate<boolean>("Boolean(document.getElementById('kiro-auth-logout-btn'))"), 30_000, 'the connected account appears');
+      await evaluate("document.getElementById('kiro-auth-logout-btn').click(); true");
+      await waitFor(() => evaluate<boolean>("Boolean(document.querySelector('.klaus-dialog-overlay.active .klaus-dialog-confirm'))"), 10_000, 'disconnect asks for confirmation');
+      await evaluate("document.querySelector('.klaus-dialog-overlay.active .klaus-dialog-confirm').click(); true");
+      await waitFor(() => evaluate<boolean>("Boolean(document.getElementById('kiro-auth-login-btn')) && Boolean(document.getElementById('kiro-auth-import-btn'))"), 30_000, 'disconnect restores both account recovery actions');
       assertEqual(await evaluate<boolean>('window.klaus.kiroAuth.status().then(state => state.loggedIn)'), false, 'the source disconnects');
       assertEqual(readFileSync(tokenPath, 'utf8'), external, 'disconnect preserves the external login');
     });
