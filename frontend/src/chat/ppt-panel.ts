@@ -1,12 +1,20 @@
 // The full presentation editor lives in an isolated native view over this host.
 import type { PptOpenPayload } from '../../bridge/ppt-api'
-import { createNativeEditorPanel, type NativeEditorPanelEnvironment } from './native-editor-panel'
+import { createNativeEditorPanel, type NativeEditorBounds, type NativeEditorPanelEnvironment } from './native-editor-panel'
 
 export type PptPanelEnvironment = NativeEditorPanelEnvironment
 export function createPptPanel(env: PptPanelEnvironment) {
   return createNativeEditorPanel(env, {
     title: 'ppt_title', openFailed: 'ppt_open_failed', backgroundPending: 'ppt_background_pending',
   })
+}
+
+export function pptPanelBounds(rect: Pick<DOMRectReadOnly, 'left' | 'top' | 'width' | 'height'> | null | undefined): NativeEditorBounds | null {
+  if (!rect) return null
+  const { left: x, top: y, width, height } = rect
+  if (![x, y, width, height].every(Number.isFinite) || width <= 0 || height <= 0) return null
+  // The host converts CSS pixels using the window zoom before rounding.
+  return { x, y, width, height }
 }
 
 const w = () => window as any
@@ -28,12 +36,7 @@ export function initPptPanel(): void {
     currentSession: () => w().getCurrentSessionId?.() || '',
     visible: () => !!host && panel?.getAttribute('data-mode') === 'ppt' && !panel.classList.contains('collapsed')
       && document.visibilityState !== 'hidden',
-    bounds: () => {
-      const rect = host?.getBoundingClientRect()
-      return rect && rect.width > 0 && rect.height > 0 ? {
-        x: Math.round(rect.left), y: Math.round(rect.top), width: Math.round(rect.width), height: Math.round(rect.height),
-      } : null
-    },
+    bounds: () => pptPanelBounds(host?.getBoundingClientRect()),
     layout: () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))),
     openMode: () => w().openArtifactsPanel?.('ppt'),
     openTab: payload => w().KlausPanelTabs?.openPpt?.(payload) ?? Promise.resolve(false),

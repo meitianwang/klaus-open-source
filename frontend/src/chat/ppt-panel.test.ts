@@ -3,12 +3,32 @@ import { readFileSync } from 'node:fs'
 import { runInNewContext } from 'node:vm'
 import { JsxEmit, ModuleKind, ScriptTarget, transpileModule } from 'typescript'
 import { createStore } from 'zustand/vanilla'
-import { createPptPanel } from './ppt-panel'
+import { createPptPanel, pptPanelBounds } from './ppt-panel'
 import { normalizeToolResultForReplay, normalizeVisualArtifact, visualArtifactHintState } from './transcript/factories'
 
 const script = transpileModule(`${readFileSync(new URL('./panels/panel-tabs.tsx', import.meta.url), 'utf8')}\n;({ store, closePpt: id => closeTab(find('ppt', id)) });`, {
   compilerOptions: { target: ScriptTarget.ES2022, module: ModuleKind.CommonJS, jsx: JsxEmit.ReactJSX },
 }).outputText
+
+test('PPT bounds preserve fractional CSS pixels for the host zoom conversion', () => {
+  expect(pptPanelBounds({ left: 100.25, top: 44.75, width: 0.3, height: 0.49 }))
+    .toEqual({ x: 100.25, y: 44.75, width: 0.3, height: 0.49 })
+  expect(pptPanelBounds({ left: -0.25, top: 0, width: 460.4, height: 960.2 }))
+    .toEqual({ x: -0.25, y: 0, width: 460.4, height: 960.2 })
+})
+
+test('PPT bounds defer hidden or invalid layout measurements', () => {
+  expect(pptPanelBounds(null)).toBeNull()
+  expect(pptPanelBounds(undefined)).toBeNull()
+  for (const rect of [
+    { left: 100, top: 44, width: 0, height: 960 },
+    { left: 100, top: 44, width: 460, height: -1 },
+    { left: Number.NaN, top: 44, width: 460, height: 960 },
+    { left: 100, top: Number.POSITIVE_INFINITY, width: 460, height: 960 },
+    { left: 100, top: 44, width: Number.POSITIVE_INFINITY, height: 960 },
+    { left: 100, top: 44, width: 460, height: Number.NaN },
+  ]) expect(pptPanelBounds(rect)).toBeNull()
+})
 
 function tabsFixture() {
   let session = 'chat-a', mode = 'monitor', active = ''

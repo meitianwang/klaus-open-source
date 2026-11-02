@@ -8702,11 +8702,10 @@ body.non-chat-view .side-rail {
 .artifacts-panel[data-session-switch-layout] {
   transition: none;
 }
-/* The embedded browser is a native webview positioned by absolute screen
-   bounds; it cannot follow a CSS width animation, so during the .2s open/close
-   it chases the growing panel frame by frame — the URL-bar area "jitter". Snap
-   the browser panel (no width transition) so the webview is placed once. */
-.artifacts-panel[data-mode="browser"] {
+/* These native views paint over renderer-owned screen bounds. Open at the
+   final width so their first layout does not measure a growing container. */
+.artifacts-panel[data-mode="browser"],
+.artifacts-panel[data-mode="ppt"] {
   transition: none;
 }
 
