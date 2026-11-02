@@ -3898,6 +3898,17 @@ spinner (data-chat-timeline-scroll-generating): the affordance then
   align-self: center;
   vertical-align: -2px;
 }
+/* The browser-tab fallback glyph carries a baked-in brand class whose global
+   32px size rule outranks the width/height attributes injected at call time,
+   so the glyph escaped its 16px slot and broke the chip line. Pin every glyph
+   and favicon inside a chip icon slot to the slot box: composer chips, mirror
+   chips and sent pills then keep their 16px icon whatever the glyph ships. */
+.slash-token-icon :is(svg, img),
+.slash-pill-icon :is(svg, img) {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
 #slash-input-line.has-slash-token #input .composer-reference-token {
   visibility: hidden;
 }
