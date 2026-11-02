@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { LEGACY_CRON_STOP_ERRORS } from '../../contracts/cron-runs';
+import type { PermissionPreset } from '../../contracts/runtime-settings';
 import type { DatabaseSync, SQLInputValue } from 'node:sqlite';
 import type { Json } from '../ipc/contract';
 import { IpcHandlerError } from '../ipc/registry';
@@ -14,6 +15,7 @@ CREATE TABLE IF NOT EXISTS cron_tasks (
   thinking TEXT, light_context INTEGER DEFAULT 0, timeout_seconds INTEGER,
   delete_after_run INTEGER DEFAULT 0, timezone TEXT, deliver TEXT, webhook_url TEXT,
   webhook_token TEXT, failure_alert TEXT, channel_binding TEXT, created_by TEXT, engine_mode TEXT,
+  workspace_id TEXT, permission_preset TEXT,
   created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
 );
 CREATE TABLE IF NOT EXISTS cron_runs (
@@ -24,7 +26,9 @@ CREATE TABLE IF NOT EXISTS cron_runs (
 CREATE INDEX IF NOT EXISTS idx_cron_runs_started ON cron_runs(started_at DESC);
 CREATE INDEX IF NOT EXISTS idx_cron_runs_task ON cron_runs(task_id);
 `;
-const TASK_COLUMNS = 'id,name,description,schedule,prompt,enabled,thinking,timeout_seconds,delete_after_run,timezone,channel_binding,created_by,notification_policy,model,workdir,created_at,updated_at';
+const TASK_COLUMNS = 'id,name,description,schedule,prompt,enabled,thinking,timeout_seconds,delete_after_run,timezone,channel_binding,created_by,notification_policy,model,workdir,workspace_id,permission_preset,created_at,updated_at';
+export const CRON_PERMISSION_PRESETS = ['default', 'auto', 'bypassPermissions'] as const satisfies readonly PermissionPreset[];
+export type CronPermissionPreset = typeof CRON_PERMISSION_PRESETS[number];
 // Pre-notification-policy databases miss the column; CREATE TABLE IF NOT EXISTS
 // cannot add it, so every operation migrates first (cheap PRAGMA check).
 function ensureColumns(db: DatabaseSync): void {
@@ -40,6 +44,17 @@ function ensureColumns(db: DatabaseSync): void {
   if (!columns.some(column => column.name === 'workdir')) {
     db.exec("ALTER TABLE cron_tasks ADD COLUMN workdir TEXT");
   }
+  if (!columns.some(column => column.name === 'workspace_id')) {
+    db.exec("ALTER TABLE cron_tasks ADD COLUMN workspace_id TEXT");
+  }
+  const permissionPresetAdded = !columns.some(column => column.name === 'permission_preset');
+  if (permissionPresetAdded) {
+    db.exec("ALTER TABLE cron_tasks ADD COLUMN permission_preset TEXT");
+  }
+  // Tasks written before the policy pick existed ran with the scheduler's
+  // previous unrestricted override. Persist that behavior explicitly so a
+  // later permission default cannot silently tighten or widen old tasks.
+  db.prepare("UPDATE cron_tasks SET permission_preset='bypassPermissions' WHERE permission_preset IS NULL").run();
   const migration = 'migrated.cron_stopped_runs_v1';
   if (!db.prepare('SELECT 1 FROM settings WHERE key=?').get(migration)) {
     db.prepare("UPDATE cron_runs SET status='stopped',error=NULL WHERE status IN ('failed','success') AND error IN (?,?)")
@@ -49,6 +64,24 @@ function ensureColumns(db: DatabaseSync): void {
 }
 function integer(value: unknown): number | undefined { return typeof value === 'number' && Number.isSafeInteger(value) ? value : undefined; }
 function optional(value: unknown): string | null { return typeof value === 'string' ? value : null; }
+function optionalText(payload: JsonObject, key: string): string | null {
+  const value = payload[key];
+  if (value === undefined || value === null) return null;
+  if (typeof value !== 'string') throw new IpcHandlerError('BAD_REQUEST', `${key} must be a string or null`);
+  return value.trim() || null;
+}
+function permissionPreset(value: unknown): CronPermissionPreset {
+  if (value === undefined || value === null) return 'bypassPermissions';
+  if (typeof value !== 'string' || !CRON_PERMISSION_PRESETS.includes(value as CronPermissionPreset)) {
+    throw new IpcHandlerError('BAD_REQUEST', `permissionPreset must be one of ${CRON_PERMISSION_PRESETS.join(', ')}`);
+  }
+  return value as CronPermissionPreset;
+}
+function storedPermissionPreset(value: unknown): CronPermissionPreset {
+  return typeof value === 'string' && CRON_PERMISSION_PRESETS.includes(value as CronPermissionPreset)
+    ? value as CronPermissionPreset
+    : 'bypassPermissions';
+}
 function binding(raw: unknown): Json {
   if (typeof raw !== 'string') return null;
   try { const value = object(JSON.parse(raw)); return Object.hasOwn(value, 'channelId') && Object.hasOwn(value, 'targetId') ? value : null; }
@@ -63,7 +96,8 @@ function task(row: Record<string, unknown>): JsonObject {
     deleteAfterRun: row.delete_after_run === 1, timezone: optional(row.timezone),
     channelBinding: binding(row.channel_binding), createdBy: optional(row.created_by),
     notificationPolicy: policy === 'all_runs' ? 'all_runs' : 'failed_runs_only',
-    model: optional(row.model), workdir: optional(row.workdir),
+    model: optional(row.model), workdir: optional(row.workdir), workspaceId: optional(row.workspace_id),
+    permissionPreset: storedPermissionPreset(row.permission_preset),
     createdAt: integer(row.created_at) ?? 0, updatedAt: integer(row.updated_at) ?? 0,
   };
 }
@@ -103,20 +137,25 @@ export class CronStore {
     this.operation(true, db => {
       const id = string(payload.id);
       if (!id) throw new IpcHandlerError('BAD_REQUEST', 'task id required');
+      const workdir = optionalText(payload, 'workdir');
+      const workspaceId = optionalText(payload, 'workspaceId');
+      if (workdir && workspaceId) throw new IpcHandlerError('BAD_REQUEST', 'workspaceId and workdir are mutually exclusive');
+      const selectedPermission = permissionPreset(payload.permissionPreset);
       const existing = db.prepare('SELECT channel_binding,created_by FROM cron_tasks WHERE id=?').get(id), now = Date.now();
       const retainedBinding = binding(existing?.channel_binding);
       const channelBinding = payload.channelBinding !== undefined && payload.channelBinding !== null ? JSON.stringify(payload.channelBinding) : retainedBinding !== null ? JSON.stringify(retainedBinding) : null;
-      db.prepare(`INSERT INTO cron_tasks (id,user_id,name,description,schedule,prompt,enabled,thinking,timeout_seconds,delete_after_run,timezone,channel_binding,created_by,notification_policy,model,workdir,created_at,updated_at)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET
+      db.prepare(`INSERT INTO cron_tasks (id,user_id,name,description,schedule,prompt,enabled,thinking,timeout_seconds,delete_after_run,timezone,channel_binding,created_by,notification_policy,model,workdir,workspace_id,permission_preset,created_at,updated_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET
         name=excluded.name,description=excluded.description,schedule=excluded.schedule,prompt=excluded.prompt,
         enabled=excluded.enabled,thinking=excluded.thinking,timeout_seconds=excluded.timeout_seconds,
         delete_after_run=excluded.delete_after_run,timezone=excluded.timezone,notification_policy=excluded.notification_policy,
-        model=excluded.model,workdir=excluded.workdir,updated_at=excluded.updated_at`).run(
+        model=excluded.model,workdir=excluded.workdir,workspace_id=excluded.workspace_id,
+        permission_preset=excluded.permission_preset,updated_at=excluded.updated_at`).run(
         id, optional(payload.userId), optional(payload.name), optional(payload.description), string(payload.schedule), string(payload.prompt), Number(payload.enabled === true), optional(payload.thinking),
         integer(payload.timeoutSeconds) ?? null, Number(payload.deleteAfterRun === true), optional(payload.timezone), channelBinding,
         optional(payload.createdBy) ?? optional(existing?.created_by) ?? 'manual',
         payload.notificationPolicy === 'all_runs' ? 'all_runs' : 'failed_runs_only',
-        optional(payload.model), optional(payload.workdir),
+        optional(payload.model), workdir, workspaceId, selectedPermission,
         integer(payload.createdAt) || now, now,
       );
     });

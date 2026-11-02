@@ -3,7 +3,7 @@
     {
       "type": "function",
       "name": "CronCreate",
-      "description": "Schedule a persistent local task that gives a saved prompt to Klaus at a future time, once or repeatedly. Use for reminders, recurring work, monitoring, follow-ups, or requests to check back later; do not use shell sleep or timers as a scheduling workaround. Write clear, cohesive, human-readable instructions. Inspect existing tasks with CronList before creating a replacement or duplicate. Preserve the user's notification intent in monitoring prompts: unless periodic updates were explicitly requested, stay quiet while the state is unchanged or non-actionable and notify only for a meaningful change, completion, failure, or required user action. Confirm the schedule in plain language; do not expose raw cron syntax unless requested.",
+      "description": "Schedule a persistent local task that gives a saved prompt to Klaus at a future time, once or repeatedly. Use for reminders, recurring work, monitoring, follow-ups, or requests to check back later; do not use shell sleep or timers as a scheduling workaround. Write clear, cohesive, human-readable instructions. Inspect existing tasks with CronList before creating a replacement or duplicate. Preserve the user's notification intent in monitoring prompts: unless periodic updates were explicitly requested, stay quiet while the state is unchanged or non-actionable and notify only for a meaningful change, completion, failure, or required user action. Confirm the schedule in plain language; do not expose raw cron syntax unless requested. Pass the user's chosen project directory, workspace, and permission preset when they name one.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -22,6 +22,23 @@
           "name": {
             "description": "Optional short, human-readable task name.",
             "type": "string"
+          },
+          "workdir": {
+            "description": "Optional project directory for every run. Mutually exclusive with workspaceId.",
+            "type": "string"
+          },
+          "workspaceId": {
+            "description": "Optional workspace whose project directories every run may use. Mutually exclusive with workdir.",
+            "type": "string"
+          },
+          "permissionPreset": {
+            "description": "Optional permission preset for each run. Omit to preserve the previous unrestricted scheduled-task behavior; an explicit value follows the ordinary conversation presets.",
+            "type": "string",
+            "enum": [
+              "default",
+              "auto",
+              "bypassPermissions"
+            ]
           }
         },
         "required": [
@@ -63,7 +80,9 @@
   "idPattern": "^cron-[0-9a-z]+-[0-9a-z]{4}$",
   "weekdayLabel": "Weekdays at 9:00 AM",
   "missingCreateArguments": "Invalid arguments: cron: Invalid input: expected string, received undefined; prompt: Invalid input: expected string, received undefined",
+  "mutuallyExclusiveLocation": "workdir 与 workspaceId 不能同时设置。",
+  "invalidPermissionPreset": "permissionPreset 必须是 default、auto、bypassPermissions 之一。",
   "invalidExpression": "cron 表达式无效：\"invalid\"。应为 5 个字段：分 时 日 月 周。",
   "unreachableExpression": "cron 表达式 \"0 0 31 2 *\" 在未来一年内没有任何可触发时刻。",
-  "promptChangeReason": "Clarify local scheduling, existing-task inspection, readable saved instructions, monitoring notification intent, and cancellation scope without changing tool arguments or behavior."
+  "promptChangeReason": "Clarify local scheduling, existing-task inspection, readable saved instructions, monitoring notification intent, and cancellation scope, and expose the chosen project, workspace, and permission preset for scheduled runs."
 }

@@ -1,8 +1,10 @@
 import { requireInterruptConfirmation } from '../sessions/turn-interrupt';
 import { Cron } from 'croner';
+import { presetRuntimePolicy } from '../../contracts/runtime-settings';
 import type { Json } from '../ipc/contract';
 import type { ClientEvent } from '../engine/protocol';
 import { CronStore } from './cron-store';
+import type { CronPermissionPreset } from './cron-store';
 import { object, string, errorMessage, type JsonObject, type ServicePush } from './service-types';
 
 export function nextScheduledSlot(schedule: string, timezone: string | null | undefined, after: number): number | null {
@@ -24,7 +26,8 @@ interface Running {
 }
 export interface CronRuntimeDeps {
   store: CronStore;
-  newSession(options: { title: string; runtimePolicyOverride: import('../../contracts/runtime-settings').RuntimePolicy; hostMetadata: JsonObject; workdir?: string | null }): Promise<Json>;
+  newSession(options: { title: string; runtimePolicyOverride: import('../../contracts/runtime-settings').RuntimePolicy; hostMetadata: JsonObject;
+    workdir?: string | null; projectRoot?: string | null; workspaceId?: string | null }): Promise<Json>;
   send(sessionId: string, prompt: string, displayMetadata?: JsonObject): Promise<unknown>;
   interrupt(sessionId: string): Promise<unknown>;
   rendererId(engineId: string): string | undefined;
@@ -115,10 +118,13 @@ export class CronRuntime {
   }
   private async drive(entry: Running): Promise<void> {
     const taskId = string(entry.task.id), taskName = string(entry.task.name) || taskId;
+    const permissionPreset = entry.task.permissionPreset as CronPermissionPreset;
+    const workdir = typeof entry.task.workdir === 'string' && entry.task.workdir ? entry.task.workdir : null;
+    const workspaceId = typeof entry.task.workspaceId === 'string' && entry.task.workspaceId ? entry.task.workspaceId : null;
     let result: Outcome;
     try {
-      const row = object(await this.deps.newSession({ title: taskName, runtimePolicyOverride: { approvalPolicy: 'never', sandboxMode: 'danger-full-access', approvalsReviewer: 'user', sandboxNetworkAllowed: true },
-        ...(typeof entry.task.workdir === 'string' && entry.task.workdir ? { workdir: entry.task.workdir } : {}),
+      const row = object(await this.deps.newSession({ title: taskName, runtimePolicyOverride: presetRuntimePolicy(permissionPreset),
+        ...(workspaceId ? { workspaceId } : workdir ? { workdir, projectRoot: workdir } : {}),
         hostMetadata: { threadSource: 'automation', automation: {
           taskId, taskName, runId: entry.runId, triggerType: entry.trigger,
           ...(typeof entry.task.thinking === 'string' && entry.task.thinking ? { thinking: entry.task.thinking } : {}),

@@ -1,12 +1,12 @@
 import { randomBytes } from 'node:crypto';
 import type { Json } from '../ipc/contract';
-import { CronStore } from './cron-store';
+import { CRON_PERMISSION_PRESETS, CronStore } from './cron-store';
 import { object, string, type JsonObject } from './service-types';
 
 export const CRON_TOOL_SPECS: Json[] = [
   {
     type: 'function', name: 'CronCreate',
-    description: 'Schedule a persistent local task that gives a saved prompt to Klaus at a future time, once or repeatedly. Use for reminders, recurring work, monitoring, follow-ups, or requests to check back later; do not use shell sleep or timers as a scheduling workaround. Write clear, cohesive, human-readable instructions. Inspect existing tasks with CronList before creating a replacement or duplicate. Preserve the user\'s notification intent in monitoring prompts: unless periodic updates were explicitly requested, stay quiet while the state is unchanged or non-actionable and notify only for a meaningful change, completion, failure, or required user action. Confirm the schedule in plain language; do not expose raw cron syntax unless requested.',
+    description: 'Schedule a persistent local task that gives a saved prompt to Klaus at a future time, once or repeatedly. Use for reminders, recurring work, monitoring, follow-ups, or requests to check back later; do not use shell sleep or timers as a scheduling workaround. Write clear, cohesive, human-readable instructions. Inspect existing tasks with CronList before creating a replacement or duplicate. Preserve the user\'s notification intent in monitoring prompts: unless periodic updates were explicitly requested, stay quiet while the state is unchanged or non-actionable and notify only for a meaningful change, completion, failure, or required user action. Confirm the schedule in plain language; do not expose raw cron syntax unless requested. Pass the user\'s chosen project directory, workspace, and permission preset when they name one.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -14,6 +14,9 @@ export const CRON_TOOL_SPECS: Json[] = [
         prompt: { type: 'string', description: 'Clear, cohesive instructions replayed at each scheduled run. Preserve the task scope, relevant context, completion conditions, and the user\'s notification intent.' },
         recurring: { description: 'True (default) runs at every matching slot. False runs at the next matching slot and then disables the task. Use false for one-shot reminders and pin the intended minute, hour, day, and month.', type: 'boolean' },
         name: { description: 'Optional short, human-readable task name.', type: 'string' },
+        workdir: { description: 'Optional project directory for every run. Mutually exclusive with workspaceId.', type: 'string' },
+        workspaceId: { description: 'Optional workspace whose project directories every run may use. Mutually exclusive with workdir.', type: 'string' },
+        permissionPreset: { description: 'Optional permission preset for each run. Omit to preserve the previous unrestricted scheduled-task behavior; an explicit value follows the ordinary conversation presets.', type: 'string', enum: [...CRON_PERMISSION_PRESETS] },
       },
       required: ['cron', 'prompt'], additionalProperties: false,
     },
@@ -186,15 +189,26 @@ export function executeCronTool(store: CronStore, name: string, input: unknown):
     } catch { return toolText('定时任务系统不可用。', false); }
   }
   if (name !== 'CronCreate') return toolText(`Dynamic tool is not registered: ${name}`, false);
-  const parsed = parseToolInput(input, ['cron', 'prompt'], ['name'], ['recurring']);
+  const parsed = parseToolInput(input, ['cron', 'prompt'], ['name', 'workdir', 'workspaceId', 'permissionPreset'], ['recurring']);
   if (parsed.error) return toolText(parsed.error, false);
   const args = parsed.value!, schedule = string(args.cron).trim(), prompt = string(args.prompt);
   if (!parseCronFields(schedule)) return toolText(`cron 表达式无效："${schedule}"。应为 5 个字段：分 时 日 月 周。`, false);
   if (!hasUpcomingRun(schedule)) return toolText(`cron 表达式 "${schedule}" 在未来一年内没有任何可触发时刻。`, false);
+  const workdir = string(args.workdir).trim(), workspaceId = string(args.workspaceId).trim();
+  if (workdir && workspaceId) return toolText('workdir 与 workspaceId 不能同时设置。', false);
+  const requestedPermission = string(args.permissionPreset).trim();
+  if (args.permissionPreset !== undefined && !requestedPermission) {
+    return toolText(`permissionPreset 必须是 ${CRON_PERMISSION_PRESETS.join('、')} 之一。`, false);
+  }
+  const permissionPreset = requestedPermission || 'bypassPermissions';
+  if (!CRON_PERMISSION_PRESETS.includes(permissionPreset as typeof CRON_PERMISSION_PRESETS[number])) {
+    return toolText(`permissionPreset 必须是 ${CRON_PERMISSION_PRESETS.join('、')} 之一。`, false);
+  }
   try {
     if (store.toolTasks().length >= 50) return toolText('定时任务过多（上限 50），请先取消一个再创建。', false);
     const recurring = args.recurring !== false, id = newTaskId();
     store.upsertTask({ id, userId: 'desktop', name: string(args.name) || [...prompt].slice(0, 40).join(''), schedule, prompt,
+      ...(workdir ? { workdir } : {}), ...(workspaceId ? { workspaceId } : {}), permissionPreset,
       enabled: true, deleteAfterRun: !recurring, createdBy: 'klaus_chat', createdAt: Date.now() });
     const human = cronToolScheduleLabel(schedule);
     return toolText(recurring

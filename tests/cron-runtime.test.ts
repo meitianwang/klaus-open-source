@@ -75,14 +75,70 @@ h.test('scheduled runs freeze the stored model pick and project directory onto t
   const f = fixture({ newSession: async options => { sessions.push(options as Record<string, unknown>); return { id: `session-${sessions.length}` }; } });
   f.add('bound', { enabled: false, model: 'codex:fixture', thinking: 'high', workdir: '/tmp/proj' });
   f.add('plain', { enabled: false });
+  f.add('workspace', { enabled: false, workspaceId: 'workspace-1', permissionPreset: 'default' });
   await f.runtime.runNow('bound');
   await f.runtime.runNow('plain');
+  await f.runtime.runNow('workspace');
   const bound = object(sessions[0]), plain = object(sessions[1]);
+  const workspace = object(sessions[2]);
   const boundAutomation = object(object(bound.hostMetadata).automation);
   assertEqual(string(boundAutomation.model), 'codex:fixture', 'model frozen into run metadata');
   assertEqual(string(boundAutomation.thinking), 'high', 'thinking frozen into run metadata');
   assertEqual(string(bound.workdir), '/tmp/proj', 'project directory handed to session creation');
+  assertEqual(string(bound.projectRoot), '/tmp/proj', 'project membership follows the scheduled project directory');
+  assertDeepEqual(object(bound.runtimePolicyOverride), { approvalPolicy: 'never', sandboxMode: 'danger-full-access', approvalsReviewer: 'user', sandboxNetworkAllowed: true }, 'legacy task keeps unrestricted execution');
   assert(!Object.hasOwn(plain, 'workdir'), 'projectless task creates a scratch session');
+  assert(!Object.hasOwn(plain, 'workspaceId'), 'projectless task does not bind a workspace');
+  assertDeepEqual(object(workspace.runtimePolicyOverride), { approvalPolicy: 'on-request', sandboxMode: 'workspace-write', approvalsReviewer: 'user', sandboxNetworkAllowed: false }, 'workspace task initializes from its saved preset');
+  assertEqual(string(workspace.workspaceId), 'workspace-1', 'workspace handed to session creation');
+  assert(!Object.hasOwn(workspace, 'workdir'), 'workspace task does not also bind one project directory');
+  await f.runtime.close();
+});
+h.test('scheduled runs initialize each saved permission preset through the ordinary policy mapping', async () => {
+  const sessions: Array<Record<string, unknown>> = [];
+  const f = fixture({ newSession: async options => { sessions.push(options as Record<string, unknown>); return { id: `session-${sessions.length}` }; } });
+  f.add('default', { enabled: false, permissionPreset: 'default' });
+  f.add('auto', { enabled: false, permissionPreset: 'auto' });
+  f.add('bypass', { enabled: false, permissionPreset: 'bypassPermissions' });
+  await f.runtime.runNow('default');
+  await f.runtime.runNow('auto');
+  await f.runtime.runNow('bypass');
+  assertDeepEqual(object(sessions[0]).runtimePolicyOverride, { approvalPolicy: 'on-request', sandboxMode: 'workspace-write', approvalsReviewer: 'user', sandboxNetworkAllowed: false }, 'default asks for approval in the workspace');
+  assertDeepEqual(object(sessions[1]).runtimePolicyOverride, { approvalPolicy: 'on-request', sandboxMode: 'workspace-write', approvalsReviewer: 'auto_review', sandboxNetworkAllowed: false }, 'automatic approval keeps the workspace sandbox');
+  assertDeepEqual(object(sessions[2]).runtimePolicyOverride, { approvalPolicy: 'never', sandboxMode: 'danger-full-access', approvalsReviewer: 'user', sandboxNetworkAllowed: true }, 'bypass removes ordinary approval prompts');
+  await f.runtime.close();
+});
+h.test('task location and permission fields are persisted and validated', async () => {
+  const f = fixture();
+  f.add('project', { workdir: '/tmp/project', permissionPreset: 'auto' });
+  f.add('workspace', { workspaceId: 'workspace-1', permissionPreset: 'default' });
+  assertDeepEqual(f.store.getTask('project'), {
+    id: 'project', name: 'project', description: null, schedule: '* * * * *', prompt: 'Task', enabled: true,
+    thinking: null, timeoutSeconds: null, deleteAfterRun: false, timezone: null, channelBinding: null,
+    createdBy: 'manual', notificationPolicy: 'failed_runs_only', model: null, workdir: '/tmp/project',
+    workspaceId: null, permissionPreset: 'auto', createdAt: f.store.getTask('project')!.createdAt,
+    updatedAt: f.store.getTask('project')!.updatedAt,
+  }, 'project location and permission persist');
+  assertEqual(f.store.getTask('workspace')?.workspaceId, 'workspace-1', 'workspace identity persists');
+  assertEqual(f.store.getTask('workspace')?.workdir, null, 'workspace task stores no project directory');
+  assertEqual(f.store.getTask('workspace')?.permissionPreset, 'default', 'explicit default preset persists');
+  await assertRejects(() => Promise.resolve(f.add('both', { workdir: '/tmp/project', workspaceId: 'workspace-1' })), 'location choices are mutually exclusive');
+  await assertRejects(() => Promise.resolve(f.add('bad-preset', { permissionPreset: 'always' })), 'unknown permission presets are rejected');
+  await assertRejects(() => Promise.resolve(f.add('bad-workspace', { workspaceId: 42 })), 'non-string workspace ids are rejected');
+  assertEqual(f.store.getTask('both'), null, 'invalid task is not stored');
+  await f.runtime.close();
+});
+h.test('legacy task rows gain unrestricted permission during migration', async () => {
+  const f = fixture();
+  f.add('legacy', { workdir: '/tmp/legacy' });
+  withSettingsTransaction(f.store.configRoot, db => {
+    db.exec('ALTER TABLE cron_tasks DROP COLUMN permission_preset');
+    db.exec('ALTER TABLE cron_tasks DROP COLUMN workspace_id');
+  });
+  const migrated = f.store.getTask('legacy')!;
+  assertEqual(migrated.permissionPreset, 'bypassPermissions', 'pre-policy task keeps its previous unrestricted behavior');
+  assertEqual(migrated.workdir, '/tmp/legacy', 'legacy project binding is retained');
+  assertEqual(migrated.workspaceId, null, 'legacy task is not silently bound to a workspace');
   await f.runtime.close();
 });
 h.test('startup cancellation cannot start a late engine turn and shutdown waits for ownership', async () => {
@@ -219,6 +275,7 @@ h.test('Cron tools preserve the boundary between manual rows and tool-owned task
   const task = f.store.toolTasks()[0]!;
   assert(new RegExp(String(vector.idPattern)).test(String(task.id)), 'created id follows the public format');
   assertEqual(task.deleteAfterRun, true, 'one-shot persisted');
+  assertEqual(task.permissionPreset, 'bypassPermissions', 'omitted permission keeps the unrestricted scheduled-task default');
   assert(cronToolResultText(executeCronTool(f.store, 'CronList', {})).includes('Weekdays at 9:00 AM（一次性）：Reminder'), 'list is human readable');
   const run = f.store.createRun(String(task.id), String(task.name), 'manual');
   f.store.finishRun(run.runId, 'success', 12);
@@ -226,6 +283,39 @@ h.test('Cron tools preserve the boundary between manual rows and tool-owned task
   assertEqual(executeCronTool(f.store, 'CronDelete', { id: task.id }).success, true, 'model can cancel its own task');
   assertEqual(f.store.listRuns({ taskId: String(task.id) }).length, 0, 'cancelling a tool task removes its run history');
   assertEqual(f.store.listTasks().length, 1, 'manual task remains intact');
+  await f.runtime.close();
+});
+h.test('CronCreate carries project, workspace and permission choices without losing strict validation', async () => {
+  const f = fixture();
+  const vector = JSON.parse(readFileSync(vectorPath('cron-tools-vectors.json'), 'utf8')) as Record<string, string>;
+  const project = executeCronTool(f.store, 'CronCreate', {
+    cron: '0 9 * * *', prompt: 'Project task', workdir: '/tmp/project', permissionPreset: 'auto',
+  });
+  const workspace = executeCronTool(f.store, 'CronCreate', {
+    cron: '0 10 * * *', prompt: 'Workspace task', workspaceId: 'workspace-1', permissionPreset: 'default',
+  });
+  assertEqual(project.success, true, 'project task created');
+  assertEqual(workspace.success, true, 'workspace task created');
+  const tasks = f.store.toolTasks();
+  assertEqual(tasks[0]?.workdir, '/tmp/project', 'project directory retained');
+  assertEqual(tasks[0]?.workspaceId, null, 'project task has no workspace');
+  assertEqual(tasks[0]?.permissionPreset, 'auto', 'project task permission retained');
+  assertEqual(tasks[1]?.workspaceId, 'workspace-1', 'workspace retained');
+  assertEqual(tasks[1]?.workdir, null, 'workspace task has no project directory');
+  assertEqual(tasks[1]?.permissionPreset, 'default', 'workspace task permission retained');
+  assertEqual(cronToolResultText(executeCronTool(f.store, 'CronCreate', {
+    cron: '0 11 * * *', prompt: 'Invalid', workdir: '/tmp/project', workspaceId: 'workspace-1',
+  })), vector.mutuallyExclusiveLocation, 'mutually exclusive locations rejected');
+  assertEqual(cronToolResultText(executeCronTool(f.store, 'CronCreate', {
+    cron: '0 12 * * *', prompt: 'Invalid', permissionPreset: 'always',
+  })), vector.invalidPermissionPreset, 'invalid permission preset rejected');
+  assertEqual(cronToolResultText(executeCronTool(f.store, 'CronCreate', {
+    cron: '0 12 * * *', prompt: 'Invalid', permissionPreset: '',
+  })), vector.invalidPermissionPreset, 'empty permission preset rejected');
+  assertEqual(cronToolResultText(executeCronTool(f.store, 'CronCreate', {
+    cron: '0 13 * * *', prompt: 'Invalid', workdir: 42,
+  })), 'Invalid arguments: workdir: Invalid input: expected string, received number', 'wrong field types rejected');
+  assertEqual(f.store.toolTasks().length, 2, 'invalid create calls do not persist tasks');
   await f.runtime.close();
 });
 h.test('historical cron conversations receive automation metadata once', async () => {

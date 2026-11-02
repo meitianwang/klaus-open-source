@@ -1533,7 +1533,7 @@ export const CONTROL_SURFACES: ControlSurface[] = [
   },
   {
     "key": "cron",
-    "about": "Scheduled tasks: cron-expression jobs that run unattended with permissions auto-granted. A run is capped at 5 minutes unless the task sets its own timeoutSeconds (at most 24 hours). Run history and the scheduler lines in ~/.klaus/electron-host.log (JSON lines with kind 'cron') are how a missed run is diagnosed.",
+    "about": "Scheduled tasks: cron-expression jobs that run unattended. Each run follows the task's saved permission preset; tasks created without one keep the previous unrestricted default. A run is capped at 5 minutes unless the task sets its own timeoutSeconds (at most 24 hours). Run history and the scheduler lines in ~/.klaus/electron-host.log (JSON lines with kind 'cron') are how a missed run is diagnosed.",
     "reads": [
       {
         "action": "list",
@@ -1568,7 +1568,7 @@ export const CONTROL_SURFACES: ControlSurface[] = [
       {
         "action": "upsert",
         "channel": "settings:cron:upsert",
-        "args": "{ id: string (mint one to create; reuse it to edit), name: string, description?: string, schedule: string (cron expression), prompt: string, timezone?: string, enabled?: boolean (default FALSE — send true or the task never runs), model?: string (source:modelId frozen into the task; omit for the app default), thinking?: string, workdir?: string (project directory the run works in; omit for a plain conversation), notificationPolicy?: 'failed_runs_only' (default) | 'all_runs', timeoutSeconds?: number (per-run timeout in seconds; values above 86400 are capped, default 300), deleteAfterRun?: boolean (a one-shot: after its run the task is DISABLED, not deleted — the card and its run history stay), channelBinding?: object (create-only; shaped { channelId, targetId, chatType 'direct'|'group', accountId?, threadId? } — delivers each run's reply to that chat, and a failed run delivers the failure notice instead) } — a full replace: every omitted field is reset, so on an edit resend the existing values from `list`",
+        "args": "{ id: string (mint one to create; reuse it to edit), name: string, description?: string, schedule: string (cron expression), prompt: string, timezone?: string, enabled?: boolean (default FALSE — send true or the task never runs), model?: string (source:modelId frozen into the task; omit for the app default), thinking?: string, workdir?: string (project directory the run works in; omit for a plain conversation; mutually exclusive with workspaceId), workspaceId?: string (workspace whose project directories the run may use; mutually exclusive with workdir), permissionPreset?: 'default' | 'auto' | 'bypassPermissions' (per-run conversation permission; omitted keeps the previous unrestricted scheduled-task default), notificationPolicy?: 'failed_runs_only' (default) | 'all_runs', timeoutSeconds?: number (per-run timeout in seconds; values above 86400 are capped, default 300), deleteAfterRun?: boolean (a one-shot: after its run the task is DISABLED, not deleted — the card and its run history stay), channelBinding?: object (create-only; shaped { channelId, targetId, chatType 'direct'|'group', accountId?, threadId? } — delivers each run's reply to that chat, and a failed run delivers the failure notice instead) } — a full replace: every omitted field is reset, so on an edit resend the existing values from `list`",
         "confirm": false,
         "currentSession": false
       },
