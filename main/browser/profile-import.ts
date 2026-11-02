@@ -1,0 +1,893 @@
+/**
+ * Bounded import of local data from a Chromium-family profile.
+ *
+ * Every database is copied to a disposable snapshot before it is opened. The
+ * original profile is only ever read: Preferences and SecurePreferences are
+ * never opened or written, and extension packages are copied into an
+ * app-owned directory before the target install callback runs.
+ *
+ * The host injects the source roots, the platform secret decryptor and the
+ * browser target. This module deliberately has no OS keychain or CEF
+ * dependency of its own.
+ */
+
+import { createHash } from 'node:crypto';
+import { constants as fsConstants } from 'node:fs';
+import {
+  copyFile,
+  lstat,
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  realpath,
+  rm,
+} from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { basename, isAbsolute, join, sep } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
+import {
+  BROWSER_IMPORT_CATEGORIES,
+  BROWSER_IMPORT_DEFAULT_LIMITS,
+  BROWSER_IMPORT_DEFAULT_SELECTION,
+  browserImportHostnameAllowed,
+  resolveBrowserImportSelection,
+  type BrowserCookieSameSite,
+  type BrowserImportCookie,
+  type BrowserImportCounts,
+  type BrowserImportDependencies,
+  type BrowserImportExtension,
+  type BrowserImportHistoryEntry,
+  type BrowserImportIssue,
+  type BrowserImportLimits,
+  type BrowserImportPassword,
+  type BrowserImportRequest,
+  type BrowserImportResult,
+  type BrowserImportSelection,
+  type BrowserProfileCandidate,
+} from '../../contracts/browser-import';
+import { discoverBrowserProfiles } from './profile-discovery';
+import { BrowserError } from './types';
+
+const CHROME_EPOCH_OFFSET_MS = 11_644_473_600_000n;
+const MAX_ISSUES = 64;
+const MAX_SECRET_LENGTH = 16 * 1024;
+const APP_BOUND_PREFIXES = new Set(['v11', 'v20']);
+const EXTENSION_ID = /^[a-p]{32}$/u;
+const EXTENSION_VERSION = /^[0-9]+(?:\.[0-9]+){0,7}$/u;
+const PATH_SEGMENT = /^[A-Za-z0-9][A-Za-z0-9 ._-]*$/u;
+
+class ImportAbortedError extends Error {
+  constructor() {
+    super('The browser import was cancelled.');
+    this.name = 'ImportAbortedError';
+  }
+}
+
+class UnsupportedEncryptionError extends Error {
+  constructor(readonly prefix: string) {
+    super('The profile uses app-bound encryption that this host cannot decrypt.');
+    this.name = 'UnsupportedEncryptionError';
+  }
+}
+
+class ExtensionCopyLimitError extends Error {
+  constructor(readonly code: 'extension_file_limit' | 'extension_size_limit') {
+    super(code === 'extension_file_limit'
+      ? 'The extension exceeds the file-count limit.'
+      : 'The extension exceeds the total-size limit.');
+    this.name = 'ExtensionCopyLimitError';
+  }
+}
+
+function emptyCounts(): BrowserImportCounts {
+  return { cookies: 0, passwords: 0, history: 0, extensions: 0 };
+}
+
+function failure(
+  request: Pick<BrowserImportRequest, 'sourceId' | 'profileId'>,
+  code: string,
+  message: string,
+  category: BrowserImportIssue['category'] = 'profile',
+): BrowserImportResult {
+  return {
+    ok: false,
+    cancelled: false,
+    sourceId: typeof request.sourceId === 'string' ? request.sourceId : '',
+    profileId: typeof request.profileId === 'string' ? request.profileId : '',
+    counts: emptyCounts(),
+    errors: [{ category, code, message }],
+  };
+}
+
+function throwIfAborted(signal: AbortSignal | undefined): void {
+  if (signal?.aborted) throw new ImportAbortedError();
+}
+
+function objectRecord(value: unknown): Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === 'string' ? value : undefined;
+}
+
+function numberValue(value: unknown): number | undefined {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'bigint') {
+    const converted = Number(value);
+    return Number.isSafeInteger(converted) ? converted : undefined;
+  }
+  return undefined;
+}
+
+function booleanValue(value: unknown): boolean {
+  return value === true || value === 1 || value === 1n;
+}
+
+function bytesValue(value: unknown): Uint8Array | undefined {
+  if (value instanceof Uint8Array) return value;
+  if (value instanceof ArrayBuffer) return new Uint8Array(value);
+  if (ArrayBuffer.isView(value)) return new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
+  return undefined;
+}
+
+function chromeTimeToUnixMillis(value: unknown): number | undefined {
+  const numeric = typeof value === 'bigint' ? value : (() => {
+    const number = numberValue(value);
+    return number === undefined || number < 0 ? undefined : BigInt(Math.trunc(number));
+  })();
+  if (numeric === undefined || numeric <= 0n) return undefined;
+  const milliseconds = numeric / 1000n - CHROME_EPOCH_OFFSET_MS;
+  if (milliseconds < 0n || milliseconds > BigInt(Number.MAX_SAFE_INTEGER)) return undefined;
+  return Number(milliseconds);
+}
+
+function sameSiteValue(value: unknown): BrowserCookieSameSite {
+  const numeric = numberValue(value);
+  if (numeric === 0) return 'no_restriction';
+  if (numeric === 1) return 'lax';
+  if (numeric === 2) return 'strict';
+  return 'unspecified';
+}
+
+function normalizedLimit(value: unknown, fallback: number, label: keyof BrowserImportLimits): number {
+  if (value === undefined) return fallback;
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 1 || value > 1_000_000) {
+    throw new BrowserError('invalid_request', `${label} must be a positive integer within the supported bound.`);
+  }
+  return value;
+}
+
+function resolvedLimits(limits: BrowserImportLimits | undefined): Required<BrowserImportLimits> {
+  return {
+    maxCookieRows: normalizedLimit(limits?.maxCookieRows, BROWSER_IMPORT_DEFAULT_LIMITS.maxCookieRows, 'maxCookieRows'),
+    maxLoginRows: normalizedLimit(limits?.maxLoginRows, BROWSER_IMPORT_DEFAULT_LIMITS.maxLoginRows, 'maxLoginRows'),
+    maxHistoryRows: normalizedLimit(limits?.maxHistoryRows, BROWSER_IMPORT_DEFAULT_LIMITS.maxHistoryRows, 'maxHistoryRows'),
+    maxExtensions: normalizedLimit(limits?.maxExtensions, BROWSER_IMPORT_DEFAULT_LIMITS.maxExtensions, 'maxExtensions'),
+    maxExtensionFiles: normalizedLimit(limits?.maxExtensionFiles, BROWSER_IMPORT_DEFAULT_LIMITS.maxExtensionFiles, 'maxExtensionFiles'),
+    maxExtensionBytes: normalizedLimit(limits?.maxExtensionBytes, BROWSER_IMPORT_DEFAULT_LIMITS.maxExtensionBytes, 'maxExtensionBytes'),
+  };
+}
+
+function validateSelection(selection: BrowserImportSelection | undefined): Required<BrowserImportSelection> {
+  const resolved = resolveBrowserImportSelection(selection);
+  for (const category of BROWSER_IMPORT_CATEGORIES) {
+    if (typeof resolved[category] !== 'boolean') {
+      throw new BrowserError('invalid_request', `The ${category} selection must be a boolean.`);
+    }
+  }
+  return resolved;
+}
+
+function normalizeAllowlist(values: readonly string[] | undefined): string[] | undefined {
+  if (!values || values.length === 0) return undefined;
+  if (!Array.isArray(values) || values.length > 512) {
+    throw new BrowserError('invalid_request', 'The cookie hostname allowlist is too large.');
+  }
+  const normalized: string[] = [];
+  for (const raw of values) {
+    if (typeof raw !== 'string') throw new BrowserError('invalid_request', 'Cookie hostnames must be strings.');
+    const entry = raw.trim().toLowerCase();
+    if (!entry || entry.length > 253 || /[\s\/\\?#@:]/u.test(entry)) {
+      throw new BrowserError('invalid_request', 'A cookie hostname in the allowlist is invalid.');
+    }
+    const wildcard = entry.startsWith('*.');
+    const host = (wildcard ? entry.slice(2) : entry).replace(/^\./u, '');
+    const labels = host.split('.');
+    if (!host || labels.some(label => label.length === 0) || !/^[a-z0-9.-]+$/u.test(host)) {
+      throw new BrowserError('invalid_request', 'A cookie hostname in the allowlist is invalid.');
+    }
+    normalized.push(`${wildcard ? '*.' : ''}${host}`);
+  }
+  return [...new Set(normalized)];
+}
+
+function issueSink(): { errors: BrowserImportIssue[]; add: (category: BrowserImportIssue['category'], code: string, message: string, count?: number) => void } {
+  const errors: BrowserImportIssue[] = [];
+  const byKey = new Map<string, BrowserImportIssue>();
+  return {
+    errors,
+    add(category, code, message, count = 1) {
+      const key = `${category}\0${code}`;
+      const existing = byKey.get(key);
+      if (existing) {
+        existing.count = (existing.count ?? 1) + count;
+        return;
+      }
+      if (byKey.size >= MAX_ISSUES) return;
+      const issue: BrowserImportIssue = { category, code, message, ...(count > 1 ? { count } : {}) };
+      byKey.set(key, issue);
+      errors.push(issue);
+    },
+  };
+}
+
+function safeTargetError(error: unknown): string {
+  if (error !== null && typeof error === 'object' && 'code' in error) {
+    const code = (error as { code?: unknown }).code;
+    if (typeof code === 'string' && /^[a-z0-9_]+$/u.test(code)) return code;
+  }
+  return 'target_error';
+}
+
+/**
+ * Read integer columns as bigints. Chromium timestamps exceed JavaScript's
+ * safe integer range, and node:sqlite rejects such values unless the statement
+ * opts into bigint reads.
+ */
+function queryRows<T>(database: DatabaseSync, sql: string, ...parameters: Array<number | bigint | string | null>): T[] {
+  const statement = database.prepare(sql);
+  statement.setReadBigInts(true);
+  return statement.all(...parameters) as unknown as T[];
+}
+
+async function isRegularFile(path: string): Promise<boolean> {
+  try {
+    const info = await lstat(path);
+    return info.isFile();
+  } catch {
+    return false;
+  }
+}
+
+async function isSafeDirectory(path: string): Promise<boolean> {
+  try {
+    const info = await lstat(path);
+    return info.isDirectory() && !info.isSymbolicLink();
+  } catch {
+    return false;
+  }
+}
+
+function isWithinRoot(rootReal: string, candidateReal: string): boolean {
+  const prefix = rootReal.endsWith(sep) ? rootReal : `${rootReal}${sep}`;
+  return candidateReal === rootReal || candidateReal.startsWith(prefix);
+}
+
+async function resolveProfileDirectory(dependencies: BrowserImportDependencies, candidate: BrowserProfileCandidate): Promise<string | undefined> {
+  const source = dependencies.roots.find(root => root.id === candidate.sourceId);
+  if (!source) return undefined;
+  try {
+    const rootReal = await realpath(source.userDataDir);
+    const profileReal = await realpath(join(rootReal, candidate.profileId));
+    if (!isWithinRoot(rootReal, profileReal)) return undefined;
+    return profileReal;
+  } catch {
+    return undefined;
+  }
+}
+
+/* ------------------------------------------------------------------------- *
+ * Stable SQLite snapshots
+ * ------------------------------------------------------------------------- */
+
+async function fileSignature(path: string): Promise<string> {
+  try {
+    const info = await lstat(path, { bigint: true });
+    if (!info.isFile()) return 'missing';
+    return `${info.size}:${info.mtimeNs}:${info.ino}`;
+  } catch {
+    return 'missing';
+  }
+}
+
+async function databaseSignature(path: string): Promise<string> {
+  return [
+    await fileSignature(path),
+    await fileSignature(`${path}-wal`),
+    await fileSignature(`${path}-shm`),
+  ].join('|');
+}
+
+async function copyIfPresent(source: string, target: string): Promise<void> {
+  try {
+    const info = await lstat(source);
+    if (!info.isFile()) {
+      await rm(target, { force: true });
+      return;
+    }
+    await copyFile(source, target);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      await rm(target, { force: true });
+      return;
+    }
+    throw error;
+  }
+}
+
+async function copyStableDatabase(source: string, target: string, signal: AbortSignal | undefined): Promise<void> {
+  if (!(await isRegularFile(source))) {
+    throw new BrowserError('database_unavailable', 'The requested browser database is not available.');
+  }
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    throwIfAborted(signal);
+    const before = await databaseSignature(source);
+    await copyFile(source, target);
+    await copyIfPresent(`${source}-wal`, `${target}-wal`);
+    await copyIfPresent(`${source}-shm`, `${target}-shm`);
+    const after = await databaseSignature(source);
+    if (before === after) return;
+    await rm(target, { force: true });
+    await rm(`${target}-wal`, { force: true });
+    await rm(`${target}-shm`, { force: true });
+  }
+  throw new BrowserError('snapshot_unstable', 'The browser database changed while it was being copied.');
+}
+
+async function withDatabaseSnapshot<T>(
+  source: string,
+  tempRoot: string,
+  signal: AbortSignal | undefined,
+  work: (database: DatabaseSync) => T | Promise<T>,
+): Promise<T> {
+  throwIfAborted(signal);
+  await mkdir(tempRoot, { recursive: true, mode: 0o700 });
+  const directory = await mkdtemp(join(tempRoot, 'snapshot-'));
+  const target = join(directory, basename(source));
+  try {
+    await copyStableDatabase(source, target, signal);
+    const database = new DatabaseSync(target);
+    try {
+      database.exec('PRAGMA busy_timeout = 3000');
+      database.exec('PRAGMA query_only = ON');
+      return await work(database);
+    } finally {
+      database.close();
+    }
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+}
+
+/* ------------------------------------------------------------------------- *
+ * Category readers
+ * ------------------------------------------------------------------------- */
+
+interface CookieRow {
+  host_key?: unknown;
+  name?: unknown;
+  value?: unknown;
+  encrypted_value?: unknown;
+  path?: unknown;
+  expires_utc?: unknown;
+  has_expires?: unknown;
+  is_secure?: unknown;
+  is_httponly?: unknown;
+  samesite?: unknown;
+}
+
+interface LoginRow {
+  origin_url?: unknown;
+  username_value?: unknown;
+  password_value?: unknown;
+}
+
+interface HistoryRow {
+  url?: unknown;
+  title?: unknown;
+  visit_time?: unknown;
+}
+
+function encryptionPrefix(bytes: Uint8Array): string | undefined {
+  if (bytes.byteLength < 3) return undefined;
+  const prefix = String.fromCharCode(bytes[0]!, bytes[1]!, bytes[2]!);
+  return /^v[0-9]{2}$/u.test(prefix) ? prefix : undefined;
+}
+
+async function decryptSecret(
+  dependencies: BrowserImportDependencies,
+  bytes: Uint8Array,
+  context: { kind: 'cookie' | 'password'; host?: string; originUrl?: string },
+): Promise<string> {
+  const prefix = encryptionPrefix(bytes);
+  if (prefix && APP_BOUND_PREFIXES.has(prefix)) throw new UnsupportedEncryptionError(prefix);
+  const plain = await dependencies.decryptor.decrypt(bytes, context);
+  if (typeof plain !== 'string' || plain.length > MAX_SECRET_LENGTH) {
+    throw new BrowserError('decrypt_invalid', 'The decryption adapter returned an unsupported value.');
+  }
+  return plain;
+}
+
+async function readCookies(
+  dependencies: BrowserImportDependencies,
+  profileDirectory: string,
+  limits: Required<BrowserImportLimits>,
+  allowlist: readonly string[] | undefined,
+  errors: ReturnType<typeof issueSink>,
+): Promise<BrowserImportCookie[]> {
+  const path = join(profileDirectory, 'Cookies');
+  if (!(await isRegularFile(path))) {
+    errors.add('cookies', 'cookies_unavailable', 'The profile has no readable cookie database.');
+    return [];
+  }
+  let rows: CookieRow[];
+  try {
+    rows = await withDatabaseSnapshot(path, dependencies.tempRoot ?? join(tmpdir(), 'klaus-browser-import'), dependencies.signal, database =>
+      queryRows<CookieRow>(database, `SELECT host_key, name, value, encrypted_value, path, expires_utc, has_expires,
+        is_secure, is_httponly, samesite FROM cookies LIMIT ?`, limits.maxCookieRows + 1));
+  } catch (error) {
+    if (error instanceof ImportAbortedError) throw error;
+    errors.add('cookies', 'cookies_unreadable', 'The cookie database could not be read.');
+    return [];
+  }
+
+  if (rows.length > limits.maxCookieRows) {
+    const omitted = rows.length - limits.maxCookieRows;
+    rows = rows.slice(0, limits.maxCookieRows);
+    errors.add('cookies', 'cookie_row_limit', 'The cookie database exceeds the configured row limit.', omitted);
+  }
+
+  const cookies: BrowserImportCookie[] = [];
+  let decryptionFailures = 0;
+  for (const row of rows) {
+    throwIfAborted(dependencies.signal);
+    const domain = stringValue(row.host_key) ?? '';
+    if (!domain || !browserImportHostnameAllowed(domain, allowlist)) continue;
+    const name = stringValue(row.name) ?? '';
+    const pathValue = stringValue(row.path) || '/';
+    if (!name || !pathValue) continue;
+
+    let value = stringValue(row.value) ?? '';
+    const encrypted = bytesValue(row.encrypted_value);
+    if (!value && encrypted && encrypted.byteLength > 0) {
+      try {
+        value = await decryptSecret(dependencies, encrypted, { kind: 'cookie', host: domain });
+      } catch (error) {
+        decryptionFailures += 1;
+        if (error instanceof UnsupportedEncryptionError) {
+          errors.add('cookies', 'app_bound_encryption_unsupported', 'Cookies use app-bound encryption, which this host cannot decrypt.');
+        }
+        continue;
+      }
+    }
+
+    const expiry = row.has_expires === undefined || booleanValue(row.has_expires)
+      ? chromeTimeToUnixMillis(row.expires_utc)
+      : undefined;
+    cookies.push({
+      domain,
+      path: pathValue,
+      name,
+      value,
+      httpOnly: booleanValue(row.is_httponly),
+      secure: booleanValue(row.is_secure),
+      sameSite: sameSiteValue(row.samesite),
+      ...(expiry === undefined ? {} : { expiresAt: expiry }),
+    });
+  }
+  if (decryptionFailures > 0) {
+    errors.add('cookies', 'cookie_decryption_failed', 'Some cookies could not be decrypted and were skipped.', decryptionFailures);
+  }
+  return cookies;
+}
+
+async function readPasswords(
+  dependencies: BrowserImportDependencies,
+  profileDirectory: string,
+  limits: Required<BrowserImportLimits>,
+  errors: ReturnType<typeof issueSink>,
+): Promise<BrowserImportPassword[]> {
+  const path = join(profileDirectory, 'Login Data');
+  if (!(await isRegularFile(path))) {
+    errors.add('passwords', 'passwords_unavailable', 'The profile has no readable login database.');
+    return [];
+  }
+  let rows: LoginRow[];
+  try {
+    rows = await withDatabaseSnapshot(path, dependencies.tempRoot ?? join(tmpdir(), 'klaus-browser-import'), dependencies.signal, database =>
+      queryRows<LoginRow>(database, `SELECT origin_url, username_value, password_value FROM logins
+        WHERE blacklisted_by_user = 0 AND length(password_value) > 0 LIMIT ?`, limits.maxLoginRows + 1));
+  } catch (error) {
+    if (error instanceof ImportAbortedError) throw error;
+    errors.add('passwords', 'passwords_unreadable', 'The login database could not be read.');
+    return [];
+  }
+
+  if (rows.length > limits.maxLoginRows) {
+    const omitted = rows.length - limits.maxLoginRows;
+    rows = rows.slice(0, limits.maxLoginRows);
+    errors.add('passwords', 'login_row_limit', 'The login database exceeds the configured row limit.', omitted);
+  }
+
+  const passwords: BrowserImportPassword[] = [];
+  let decryptionFailures = 0;
+  for (const row of rows) {
+    throwIfAborted(dependencies.signal);
+    const originUrl = stringValue(row.origin_url) ?? '';
+    const username = stringValue(row.username_value) ?? '';
+    const encrypted = bytesValue(row.password_value);
+    if (!originUrl || !encrypted || encrypted.byteLength === 0) continue;
+    try {
+      const password = await decryptSecret(dependencies, encrypted, { kind: 'password', originUrl });
+      passwords.push({ originUrl, username, password });
+    } catch (error) {
+      decryptionFailures += 1;
+      if (error instanceof UnsupportedEncryptionError) {
+        errors.add('passwords', 'app_bound_encryption_unsupported', 'Saved passwords use app-bound encryption, which this host cannot decrypt.');
+      }
+    }
+  }
+  if (decryptionFailures > 0) {
+    errors.add('passwords', 'password_decryption_failed', 'Some saved passwords could not be decrypted and were skipped.', decryptionFailures);
+  }
+  return passwords;
+}
+
+async function readHistory(
+  dependencies: BrowserImportDependencies,
+  profileDirectory: string,
+  limits: Required<BrowserImportLimits>,
+  errors: ReturnType<typeof issueSink>,
+): Promise<BrowserImportHistoryEntry[]> {
+  const path = join(profileDirectory, 'History');
+  if (!(await isRegularFile(path))) {
+    errors.add('history', 'history_unavailable', 'The profile has no readable history database.');
+    return [];
+  }
+  let rows: HistoryRow[];
+  try {
+    rows = await withDatabaseSnapshot(path, dependencies.tempRoot ?? join(tmpdir(), 'klaus-browser-import'), dependencies.signal, database =>
+      queryRows<HistoryRow>(database, `SELECT u.url AS url, u.title AS title, v.visit_time AS visit_time
+        FROM visits v JOIN urls u ON u.id = v.url ORDER BY v.visit_time ASC LIMIT ?`, limits.maxHistoryRows + 1));
+  } catch (error) {
+    if (error instanceof ImportAbortedError) throw error;
+    errors.add('history', 'history_unreadable', 'The history database could not be read.');
+    return [];
+  }
+
+  if (rows.length > limits.maxHistoryRows) {
+    const omitted = rows.length - limits.maxHistoryRows;
+    rows = rows.slice(0, limits.maxHistoryRows);
+    errors.add('history', 'history_row_limit', 'The history database exceeds the configured row limit.', omitted);
+  }
+
+  const entries: BrowserImportHistoryEntry[] = [];
+  let invalidTimestamps = 0;
+  for (const row of rows) {
+    throwIfAborted(dependencies.signal);
+    const url = stringValue(row.url) ?? '';
+    const visitedAt = chromeTimeToUnixMillis(row.visit_time);
+    if (!url || visitedAt === undefined) {
+      invalidTimestamps += 1;
+      continue;
+    }
+    const title = stringValue(row.title)?.trim() || url;
+    entries.push({ url, title: title.slice(0, 2_048), visitedAt, source: 'other' });
+  }
+  if (invalidTimestamps > 0) {
+    errors.add('history', 'history_rows_skipped', 'Some history rows had no usable URL or timestamp.', invalidTimestamps);
+  }
+  return entries;
+}
+
+/* ------------------------------------------------------------------------- *
+ * Extension copy
+ * ------------------------------------------------------------------------- */
+
+interface ExtensionManifest {
+  id: string;
+  version: string;
+  name?: string;
+}
+
+function safeExtensionName(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const name = value.trim().replace(/[\u0000-\u001f\u007f]/gu, ' ');
+  return name ? name.slice(0, 256) : undefined;
+}
+
+async function readExtensionManifest(directory: string, expectedId: string): Promise<ExtensionManifest> {
+  const path = join(directory, 'manifest.json');
+  const info = await lstat(path);
+  if (!info.isFile() || info.isSymbolicLink()) throw new BrowserError('extension_manifest_invalid', 'The extension manifest is not a regular file.');
+  const real = await realpath(path);
+  if (!isWithinRoot(directory, real)) throw new BrowserError('extension_escape_rejected', 'The extension manifest resolves outside its package.');
+
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = objectRecord(JSON.parse(await readFile(real, 'utf8')) as unknown);
+  } catch {
+    throw new BrowserError('extension_manifest_invalid', 'The extension manifest is not valid JSON.');
+  }
+  const manifestId = stringValue(parsed.id);
+  if (manifestId !== undefined && manifestId !== expectedId) {
+    throw new BrowserError('extension_id_mismatch', 'The extension manifest id does not match its directory.');
+  }
+  const version = stringValue(parsed.version)?.trim() ?? '';
+  if (!EXTENSION_VERSION.test(version) || version.length > 64) {
+    throw new BrowserError('extension_version_invalid', 'The extension manifest has no supported version.');
+  }
+  const name = safeExtensionName(parsed.name);
+  return { id: expectedId, version, ...(name ? { name } : {}) };
+}
+
+interface CopyBudget {
+  files: number;
+  bytes: number;
+  maxFiles: number;
+  maxBytes: number;
+}
+
+async function copyExtensionTree(
+  source: string,
+  target: string,
+  sourceRoot: string,
+  budget: CopyBudget,
+  signal: AbortSignal | undefined,
+): Promise<void> {
+  throwIfAborted(signal);
+  const entries = await readdir(source, { withFileTypes: true });
+  entries.sort((a, b) => a.name.localeCompare(b.name));
+  for (const entry of entries) {
+    throwIfAborted(signal);
+    const sourcePath = join(source, entry.name);
+    const targetPath = join(target, entry.name);
+    const info = await lstat(sourcePath);
+    if (info.isSymbolicLink()) throw new BrowserError('extension_symlink_rejected', 'The extension package contains a symbolic link.');
+    const real = await realpath(sourcePath);
+    if (!isWithinRoot(sourceRoot, real)) throw new BrowserError('extension_escape_rejected', 'The extension package escapes its directory.');
+    if (info.isDirectory()) {
+      await mkdir(targetPath, { recursive: true, mode: 0o700 });
+      await copyExtensionTree(sourcePath, targetPath, sourceRoot, budget, signal);
+      continue;
+    }
+    if (!info.isFile()) throw new BrowserError('extension_entry_rejected', 'The extension package contains an unsupported filesystem entry.');
+    budget.files += 1;
+    budget.bytes += Number(info.size);
+    if (budget.files > budget.maxFiles) throw new ExtensionCopyLimitError('extension_file_limit');
+    if (budget.bytes > budget.maxBytes) throw new ExtensionCopyLimitError('extension_size_limit');
+    await copyFile(sourcePath, targetPath, fsConstants.COPYFILE_EXCL);
+  }
+}
+
+async function importExtensions(
+  dependencies: BrowserImportDependencies,
+  profileDirectory: string,
+  limits: Required<BrowserImportLimits>,
+  errors: ReturnType<typeof issueSink>,
+  sourceId: string,
+  profileId: string,
+): Promise<number> {
+  if (!dependencies.extensionRoot || !isAbsolute(dependencies.extensionRoot)) {
+    errors.add('extensions', 'extension_target_unavailable', 'No app-owned extension directory was provided.');
+    return 0;
+  }
+  if (!dependencies.target.installExtension) {
+    errors.add('extensions', 'extension_install_unavailable', 'The browser target cannot install extensions.');
+    return 0;
+  }
+  const extensionsDirectory = join(profileDirectory, 'Extensions');
+  if (!(await isSafeDirectory(extensionsDirectory))) {
+    errors.add('extensions', 'extensions_unavailable', 'The profile has no readable extension directory.');
+    return 0;
+  }
+  const extensionsReal = await realpath(extensionsDirectory);
+  const entries = (await readdir(extensionsReal, { withFileTypes: true }))
+    .filter(entry => entry.isDirectory() && EXTENSION_ID.test(entry.name))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  if (entries.length > limits.maxExtensions) {
+    errors.add('extensions', 'extension_row_limit', 'The profile exceeds the configured extension limit.', entries.length - limits.maxExtensions);
+  }
+
+  const runKey = createHash('sha256').update(`${sourceId}\0${profileId}`).digest('hex').slice(0, 16);
+  const ownedRoot = join(dependencies.extensionRoot, runKey);
+  await mkdir(ownedRoot, { recursive: true, mode: 0o700 });
+  let installed = 0;
+
+  for (const entry of entries.slice(0, limits.maxExtensions)) {
+    throwIfAborted(dependencies.signal);
+    const sourceDirectory = join(extensionsReal, entry.name);
+    let targetDirectory: string | undefined;
+    try {
+      const info = await lstat(sourceDirectory);
+      if (info.isSymbolicLink() || !info.isDirectory()) {
+        errors.add('extensions', 'extension_symlink_rejected', 'An extension directory is a symbolic link and was skipped.');
+        continue;
+      }
+      const sourceReal = await realpath(sourceDirectory);
+      if (!isWithinRoot(extensionsReal, sourceReal)) {
+        errors.add('extensions', 'extension_escape_rejected', 'An extension directory resolves outside the extensions root.');
+        continue;
+      }
+      const manifest = await readExtensionManifest(sourceReal, entry.name);
+      targetDirectory = join(ownedRoot, `${manifest.id}-${manifest.version}`);
+      await rm(targetDirectory, { recursive: true, force: true });
+      await mkdir(targetDirectory, { recursive: true, mode: 0o700 });
+      const budget: CopyBudget = {
+        files: 0,
+        bytes: 0,
+        maxFiles: limits.maxExtensionFiles,
+        maxBytes: limits.maxExtensionBytes,
+      };
+      await copyExtensionTree(sourceReal, targetDirectory, sourceReal, budget, dependencies.signal);
+      throwIfAborted(dependencies.signal);
+      const extension: BrowserImportExtension = {
+        id: manifest.id,
+        version: manifest.version,
+        ...(manifest.name ? { name: manifest.name } : {}),
+        path: targetDirectory,
+      };
+      await dependencies.target.installExtension(extension);
+      installed += 1;
+    } catch (error) {
+      if (targetDirectory) await rm(targetDirectory, { recursive: true, force: true });
+      if (error instanceof ImportAbortedError) throw error;
+      if (error instanceof BrowserError) {
+        errors.add('extensions', error.code, error.message);
+      } else if (error instanceof ExtensionCopyLimitError) {
+        errors.add('extensions', error.code, error.message);
+      } else {
+        errors.add('extensions', 'extension_install_failed', 'An extension could not be installed.');
+      }
+    }
+  }
+  return installed;
+}
+
+/* ------------------------------------------------------------------------- *
+ * Entry point
+ * ------------------------------------------------------------------------- */
+
+function parseRequest(request: BrowserImportRequest): { selection: Required<BrowserImportSelection>; allowlist?: string[] } {
+  if (typeof request.sourceId !== 'string' || !request.sourceId.trim() || request.sourceId.length > 128) {
+    throw new BrowserError('invalid_request', 'A source identifier is required.');
+  }
+  if (typeof request.profileId !== 'string' || !PATH_SEGMENT.test(request.profileId)) {
+    throw new BrowserError('invalid_request', 'A supported profile identifier is required.');
+  }
+  const selection = validateSelection(request.categories);
+  const allowlist = selection.cookies ? normalizeAllowlist(request.cookieHostnameAllowlist) : undefined;
+  if (selection.extensions && request.allowUnverifiedExtensions !== true) {
+    throw new BrowserError('extensions_not_confirmed', 'Extension import requires explicit confirmation.');
+  }
+  return { selection, ...(allowlist ? { allowlist } : {}) };
+}
+
+/**
+ * Import the requested categories from one profile.
+ *
+ * The original profile is never written. Category failures are aggregated in
+ * the result so a partial import can still report its counts, while `ok` stays
+ * false whenever an error or cancellation occurred.
+ */
+export async function importBrowserProfile(
+  request: BrowserImportRequest,
+  dependencies: BrowserImportDependencies,
+): Promise<BrowserImportResult> {
+  let parsed: { selection: Required<BrowserImportSelection>; allowlist?: string[] };
+  let limits: Required<BrowserImportLimits>;
+  try {
+    parsed = parseRequest(request);
+    limits = resolvedLimits(dependencies.limits);
+  } catch (error) {
+    const message = error instanceof BrowserError && error.code === 'extensions_not_confirmed'
+      ? error.message
+      : 'The browser import request is invalid.';
+    const category = error instanceof BrowserError && error.code === 'extensions_not_confirmed' ? 'extensions' : 'profile';
+    return failure(request, error instanceof BrowserError ? error.code : 'invalid_request', message, category);
+  }
+
+  const sink = issueSink();
+  const result: BrowserImportResult = {
+    ok: false,
+    cancelled: false,
+    sourceId: request.sourceId,
+    profileId: request.profileId,
+    counts: emptyCounts(),
+    errors: sink.errors,
+  };
+
+  try {
+    const discovery = await discoverBrowserProfiles(dependencies.roots, dependencies.signal);
+    throwIfAborted(dependencies.signal);
+    const candidate = discovery.profiles.find(profile =>
+      profile.sourceId === request.sourceId && profile.profileId === request.profileId);
+    if (!candidate) {
+      const sourceErrors = discovery.errors.filter(issue => issue.sourceId === request.sourceId);
+      for (const issue of sourceErrors) sink.add('discovery', issue.code, issue.message);
+      sink.add('profile', 'profile_not_found', 'The selected browser profile is no longer available.');
+      return result;
+    }
+
+    const profileDirectory = await resolveProfileDirectory(dependencies, candidate);
+    if (!profileDirectory) {
+      sink.add('profile', 'profile_unavailable', 'The selected browser profile can no longer be read.');
+      return result;
+    }
+
+    if (parsed.selection.cookies) {
+      const cookies = await readCookies(dependencies, profileDirectory, limits, parsed.allowlist, sink);
+      if (cookies.length > 0) {
+        if (!dependencies.target.applyCookies) {
+          sink.add('cookies', 'apply_target_unavailable', 'The browser target cannot apply cookies.');
+        } else {
+          try {
+            await dependencies.target.applyCookies(cookies);
+            result.counts.cookies = cookies.length;
+          } catch (error) {
+            sink.add('cookies', 'apply_cookies_failed', `The browser target rejected the cookie batch (${safeTargetError(error)}).`);
+          }
+        }
+      }
+    }
+
+    if (parsed.selection.passwords) {
+      const passwords = await readPasswords(dependencies, profileDirectory, limits, sink);
+      if (passwords.length > 0) {
+        if (!dependencies.target.applyPasswords) {
+          sink.add('passwords', 'apply_target_unavailable', 'The browser target cannot apply saved passwords.');
+        } else {
+          try {
+            await dependencies.target.applyPasswords(passwords);
+            result.counts.passwords = passwords.length;
+          } catch (error) {
+            sink.add('passwords', 'apply_passwords_failed', `The browser target rejected the password batch (${safeTargetError(error)}).`);
+          }
+        }
+      }
+    }
+
+    if (parsed.selection.history) {
+      const entries = await readHistory(dependencies, profileDirectory, limits, sink);
+      if (entries.length > 0) {
+        if (!dependencies.target.applyHistory) {
+          sink.add('history', 'apply_target_unavailable', 'The browser target cannot apply history.');
+        } else {
+          try {
+            await dependencies.target.applyHistory(entries);
+            result.counts.history = entries.length;
+          } catch (error) {
+            sink.add('history', 'apply_history_failed', `The browser target rejected the history batch (${safeTargetError(error)}).`);
+          }
+        }
+      }
+    }
+
+    if (parsed.selection.extensions) {
+      result.counts.extensions = await importExtensions(
+        dependencies,
+        profileDirectory,
+        limits,
+        sink,
+        request.sourceId,
+        request.profileId,
+      );
+    }
+  } catch (error) {
+    if (error instanceof ImportAbortedError || dependencies.signal?.aborted) {
+      result.cancelled = true;
+      sink.add('profile', 'cancelled', 'The browser import was cancelled.');
+    } else if (error instanceof BrowserError) {
+      sink.add('profile', error.code, error.message);
+    } else {
+      sink.add('profile', 'import_failed', 'The browser import did not complete.');
+    }
+  }
+
+  result.ok = !result.cancelled && result.errors.length === 0;
+  return result;
+}
+
+export { BROWSER_IMPORT_DEFAULT_SELECTION };

@@ -1,0 +1,230 @@
+/**
+ * Product-facing shapes for importing local data from a Chromium-family profile.
+ *
+ * Discovery reads only the browser's Local State index and checks which
+ * supported data files exist. Import is driven by an explicit user action; no
+ * password is read during discovery, and the host decides which categories to
+ * pass to the target.
+ */
+
+export const BROWSER_IMPORT_CATEGORIES = ['cookies', 'passwords', 'history', 'extensions'] as const;
+export type BrowserImportCategory = typeof BROWSER_IMPORT_CATEGORIES[number];
+
+export interface BrowserImportSelection {
+  cookies?: boolean;
+  passwords?: boolean;
+  history?: boolean;
+  extensions?: boolean;
+}
+
+/** Cookies and passwords are useful defaults; history and extensions need a choice. */
+export const BROWSER_IMPORT_DEFAULT_SELECTION: Readonly<Required<BrowserImportSelection>> = Object.freeze({
+  cookies: true,
+  passwords: true,
+  history: false,
+  extensions: false,
+});
+
+export interface BrowserSourceRoot {
+  /** Stable identifier chosen by the host, for example "chrome" or "edge". */
+  id: string;
+  /** User-facing source name. */
+  label: string;
+  /** Root that contains "Local State" and the profile directories. */
+  userDataDir: string;
+  family?: 'chrome' | 'chromium' | 'edge';
+}
+
+export interface BrowserProfileArtifacts {
+  cookies: boolean;
+  passwords: boolean;
+  history: boolean;
+  extensions: boolean;
+}
+
+export interface BrowserProfileCandidate extends BrowserProfileArtifacts {
+  sourceId: string;
+  sourceLabel: string;
+  /** Directory name under the source root, for example "Default". */
+  profileId: string;
+  displayName: string;
+  lastUsed: boolean;
+}
+
+export interface BrowserDiscoveryIssue {
+  sourceId: string | null;
+  code: string;
+  message: string;
+}
+
+export interface BrowserDiscoveryResult {
+  profiles: BrowserProfileCandidate[];
+  errors: BrowserDiscoveryIssue[];
+}
+
+export interface BrowserImportRequest {
+  sourceId: string;
+  profileId: string;
+  categories?: BrowserImportSelection;
+  /**
+   * Optional list of cookie hostnames. An entry matches itself and, with a
+   * leading "*." prefix, its subdomains. An absent or empty list imports all
+   * cookies whose value can be decrypted.
+   */
+  cookieHostnameAllowlist?: readonly string[];
+  /** Extensions are imported only after this explicit confirmation. */
+  allowUnverifiedExtensions?: boolean;
+}
+
+export interface BrowserImportLimits {
+  maxCookieRows?: number;
+  maxLoginRows?: number;
+  maxHistoryRows?: number;
+  maxExtensions?: number;
+  maxExtensionFiles?: number;
+  maxExtensionBytes?: number;
+}
+
+export const BROWSER_IMPORT_DEFAULT_LIMITS: Readonly<Required<BrowserImportLimits>> = Object.freeze({
+  maxCookieRows: 10_000,
+  maxLoginRows: 10_000,
+  maxHistoryRows: 50_000,
+  maxExtensions: 100,
+  maxExtensionFiles: 4_000,
+  maxExtensionBytes: 128 * 1024 * 1024,
+});
+
+export type BrowserCookieSameSite = 'unspecified' | 'no_restriction' | 'lax' | 'strict';
+
+export interface BrowserImportCookie {
+  domain: string;
+  path: string;
+  name: string;
+  value: string;
+  httpOnly: boolean;
+  secure: boolean;
+  sameSite: BrowserCookieSameSite;
+  /** Epoch milliseconds, omitted for a session cookie. */
+  expiresAt?: number;
+}
+
+export interface BrowserImportPassword {
+  originUrl: string;
+  username: string;
+  password: string;
+}
+
+export interface BrowserImportHistoryEntry {
+  url: string;
+  title: string;
+  /** Epoch milliseconds. Imported history is never attributed to the agent. */
+  visitedAt: number;
+  source: 'other';
+}
+
+export interface BrowserImportExtension {
+  id: string;
+  version: string;
+  name?: string;
+  /** Absolute path to the app-owned copy. */
+  path: string;
+}
+
+export interface BrowserImportCounts {
+  cookies: number;
+  passwords: number;
+  history: number;
+  extensions: number;
+}
+
+export interface BrowserImportIssue {
+  category: BrowserImportCategory | 'profile' | 'discovery';
+  code: string;
+  message: string;
+  /** Number of rows or files represented by an aggregated issue. */
+  count?: number;
+}
+
+/**
+ * The result deliberately contains no row values. Callers may show counts and
+ * structured errors; cookie values and decrypted passwords stay out of the
+ * renderer and out of logs.
+ */
+export interface BrowserImportResult {
+  ok: boolean;
+  cancelled: boolean;
+  sourceId: string;
+  profileId: string;
+  counts: BrowserImportCounts;
+  errors: BrowserImportIssue[];
+}
+
+export interface BrowserSecretContext {
+  kind: 'cookie' | 'password';
+  host?: string;
+  originUrl?: string;
+}
+
+export interface BrowserPasswordDecryptor {
+  /**
+   * Decrypt one Chromium-encrypted blob. Implementations must not log or
+   * persist either the encrypted input or the plaintext result.
+   */
+  decrypt(input: Uint8Array, context: BrowserSecretContext): Promise<string>;
+}
+
+export interface BrowserImportTarget {
+  applyCookies?(cookies: readonly BrowserImportCookie[]): Promise<void>;
+  applyPasswords?(passwords: readonly BrowserImportPassword[]): Promise<void>;
+  applyHistory?(entries: readonly BrowserImportHistoryEntry[]): Promise<void>;
+  installExtension?(extension: BrowserImportExtension): Promise<void>;
+}
+
+export interface BrowserImportDependencies {
+  /** Source roots selected by the host. Discovery touches nothing else. */
+  roots: readonly BrowserSourceRoot[];
+  /** OS keychain or platform decryption adapter supplied by the host. */
+  decryptor: BrowserPasswordDecryptor;
+  /** Browser runtime sink supplied by the host. */
+  target: BrowserImportTarget;
+  /** App-owned directory that receives bounded extension copies. */
+  extensionRoot?: string;
+  /** Scratch directory for stable SQLite snapshots. Created when absent. */
+  tempRoot?: string;
+  signal?: AbortSignal;
+  limits?: BrowserImportLimits;
+}
+
+/**
+ * Resolve the request's category flags without making the caller repeat the
+ * defaults. Unknown values are treated as invalid by the import entry point.
+ */
+export function resolveBrowserImportSelection(
+  selection: BrowserImportSelection | undefined,
+): Required<BrowserImportSelection> {
+  return {
+    cookies: selection?.cookies ?? BROWSER_IMPORT_DEFAULT_SELECTION.cookies,
+    passwords: selection?.passwords ?? BROWSER_IMPORT_DEFAULT_SELECTION.passwords,
+    history: selection?.history ?? BROWSER_IMPORT_DEFAULT_SELECTION.history,
+    extensions: selection?.extensions ?? BROWSER_IMPORT_DEFAULT_SELECTION.extensions,
+  };
+}
+
+/**
+ * Match a cookie host against a normalized allowlist. A plain entry matches
+ * exactly; a "*.example.com" entry matches example.com and its subdomains.
+ */
+export function browserImportHostnameAllowed(hostname: string, allowlist: readonly string[] | undefined): boolean {
+  if (!allowlist || allowlist.length === 0) return true;
+  const host = hostname.trim().toLowerCase().replace(/^\./u, '');
+  if (!host) return false;
+  for (const entry of allowlist) {
+    if (entry.startsWith('*.')) {
+      const base = entry.slice(2);
+      if (host === base || host.endsWith(`.${base}`)) return true;
+    } else if (host === entry) {
+      return true;
+    }
+  }
+  return false;
+}
