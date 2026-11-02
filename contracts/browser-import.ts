@@ -299,3 +299,95 @@ export function browserImportHostnameAllowed(hostname: string, allowlist: readon
   }
   return false;
 }
+
+export const BROWSER_IMPORT_PROFILE_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9 ._-]*$/u;
+export const BROWSER_IMPORT_MAX_ALLOWLIST_ENTRIES = 512;
+export const BROWSER_IMPORT_MAX_ALLOWLIST_HOST_LENGTH = 253;
+
+export interface BrowserImportValidatedRequest {
+  sourceId: string;
+  profileId: string;
+  selection: Required<BrowserImportSelection>;
+  allowlist?: string[];
+  allowUnverifiedExtensions?: boolean;
+}
+
+export type BrowserImportRequestValidation =
+  | { ok: true; value: BrowserImportValidatedRequest }
+  | { ok: false; code: string; message: string };
+
+function validationFailure(code: string, message: string): BrowserImportRequestValidation {
+  return { ok: false, code, message };
+}
+
+function normalizeBrowserImportAllowlist(values: unknown): string[] | BrowserImportRequestValidation {
+  if (values === undefined) return [];
+  if (!Array.isArray(values) || values.length > BROWSER_IMPORT_MAX_ALLOWLIST_ENTRIES) {
+    return validationFailure('invalid_request', 'The cookie hostname allowlist is too large.');
+  }
+  const normalized: string[] = [];
+  for (const raw of values) {
+    if (typeof raw !== 'string') return validationFailure('invalid_request', 'Cookie hostnames must be strings.');
+    const entry = raw.trim().toLowerCase();
+    if (!entry || entry.length > BROWSER_IMPORT_MAX_ALLOWLIST_HOST_LENGTH || /[\s\/\\?#@:]/u.test(entry)) {
+      return validationFailure('invalid_request', 'A cookie hostname in the allowlist is invalid.');
+    }
+    const wildcard = entry.startsWith('*.');
+    const host = (wildcard ? entry.slice(2) : entry).replace(/^\./u, '');
+    const labels = host.split('.');
+    if (!host || labels.some(label => label.length === 0) || !/^[a-z0-9.-]+$/u.test(host)) {
+      return validationFailure('invalid_request', 'A cookie hostname in the allowlist is invalid.');
+    }
+    normalized.push(`${wildcard ? '*.' : ''}${host}`);
+  }
+  return [...new Set(normalized)];
+}
+
+/**
+ * Pure request validation shared by the import entry point and the job service.
+ * It does not read roots, profiles, databases, credentials or Keychain data.
+ */
+export function validateBrowserImportRequest(input: unknown): BrowserImportRequestValidation {
+  if (input === null || typeof input !== 'object' || Array.isArray(input)) {
+    return validationFailure('invalid_request', 'An import request is required.');
+  }
+  const request = input as Record<string, unknown>;
+  if (typeof request.sourceId !== 'string' || !request.sourceId.trim() || request.sourceId.length > 128) {
+    return validationFailure('invalid_request', 'A source identifier is required.');
+  }
+  if (typeof request.profileId !== 'string' || !request.profileId.trim()
+    || request.profileId.length > 128 || !BROWSER_IMPORT_PROFILE_ID_PATTERN.test(request.profileId)) {
+    return validationFailure('invalid_request', 'A supported profile identifier is required.');
+  }
+  if (request.categories !== undefined
+    && (request.categories === null || typeof request.categories !== 'object' || Array.isArray(request.categories))) {
+    return validationFailure('invalid_request', 'The category selection is invalid.');
+  }
+  const categories = (request.categories ?? {}) as Record<string, unknown>;
+  for (const category of BROWSER_IMPORT_CATEGORIES) {
+    if (categories[category] !== undefined && typeof categories[category] !== 'boolean') {
+      return validationFailure('invalid_request', `The ${category} selection must be a boolean.`);
+    }
+  }
+  const selection = resolveBrowserImportSelection(categories as BrowserImportSelection);
+  const allowlistResult = normalizeBrowserImportAllowlist(request.cookieHostnameAllowlist);
+  if (!Array.isArray(allowlistResult)) return allowlistResult;
+  if (request.allowUnverifiedExtensions !== undefined && typeof request.allowUnverifiedExtensions !== 'boolean') {
+    return validationFailure('invalid_request', 'The extension confirmation must be a boolean.');
+  }
+  if (selection.extensions && request.allowUnverifiedExtensions !== true) {
+    return validationFailure('extensions_not_confirmed', 'Extension import requires explicit confirmation.');
+  }
+  return {
+    ok: true,
+    value: {
+      sourceId: request.sourceId,
+      profileId: request.profileId,
+      selection,
+      ...(allowlistResult.length > 0 ? { allowlist: allowlistResult } : {}),
+      ...(request.allowUnverifiedExtensions === undefined
+        ? {}
+        : { allowUnverifiedExtensions: request.allowUnverifiedExtensions }),
+    },
+  };
+}

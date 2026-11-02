@@ -27,12 +27,11 @@ import { tmpdir } from 'node:os';
 import { basename, isAbsolute, join, sep } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import {
-  BROWSER_IMPORT_CATEGORIES,
   BROWSER_IMPORT_DEFAULT_LIMITS,
   BROWSER_IMPORT_DEFAULT_SELECTION,
   BrowserImportDecryptError,
   browserImportHostnameAllowed,
-  resolveBrowserImportSelection,
+  validateBrowserImportRequest,
   type BrowserCookieSameSite,
   type BrowserImportCookie,
   type BrowserImportCounts,
@@ -56,7 +55,6 @@ const MAX_SECRET_LENGTH = 16 * 1024;
 const MAX_EXTENSION_MANIFEST_BYTES = 1024 * 1024;
 const EXTENSION_ID = /^[a-p]{32}$/u;
 const EXTENSION_VERSION = /^[0-9]+(?:\.[0-9]+){0,7}$/u;
-const PATH_SEGMENT = /^[A-Za-z0-9][A-Za-z0-9 ._-]*$/u;
 const LIMIT_BOUNDS: Record<keyof BrowserImportLimits, number> = {
   maxCookieRows: 1_000_000,
   maxLoginRows: 1_000_000,
@@ -176,39 +174,6 @@ function resolvedLimits(limits: BrowserImportLimits | undefined): Required<Brows
     maxExtensionBytes: normalizedLimit(limits?.maxExtensionBytes, BROWSER_IMPORT_DEFAULT_LIMITS.maxExtensionBytes, 'maxExtensionBytes'),
     maxDatabaseBytes: normalizedLimit(limits?.maxDatabaseBytes, BROWSER_IMPORT_DEFAULT_LIMITS.maxDatabaseBytes, 'maxDatabaseBytes'),
   };
-}
-
-function validateSelection(selection: BrowserImportSelection | undefined): Required<BrowserImportSelection> {
-  const resolved = resolveBrowserImportSelection(selection);
-  for (const category of BROWSER_IMPORT_CATEGORIES) {
-    if (typeof resolved[category] !== 'boolean') {
-      throw new BrowserError('invalid_request', `The ${category} selection must be a boolean.`);
-    }
-  }
-  return resolved;
-}
-
-function normalizeAllowlist(values: readonly string[] | undefined): string[] | undefined {
-  if (!values || values.length === 0) return undefined;
-  if (!Array.isArray(values) || values.length > 512) {
-    throw new BrowserError('invalid_request', 'The cookie hostname allowlist is too large.');
-  }
-  const normalized: string[] = [];
-  for (const raw of values) {
-    if (typeof raw !== 'string') throw new BrowserError('invalid_request', 'Cookie hostnames must be strings.');
-    const entry = raw.trim().toLowerCase();
-    if (!entry || entry.length > 253 || /[\s\/\\?#@:]/u.test(entry)) {
-      throw new BrowserError('invalid_request', 'A cookie hostname in the allowlist is invalid.');
-    }
-    const wildcard = entry.startsWith('*.');
-    const host = (wildcard ? entry.slice(2) : entry).replace(/^\./u, '');
-    const labels = host.split('.');
-    if (!host || labels.some(label => label.length === 0) || !/^[a-z0-9.-]+$/u.test(host)) {
-      throw new BrowserError('invalid_request', 'A cookie hostname in the allowlist is invalid.');
-    }
-    normalized.push(`${wildcard ? '*.' : ''}${host}`);
-  }
-  return [...new Set(normalized)];
 }
 
 function issueSink(): { errors: BrowserImportIssue[]; add: (category: BrowserImportIssue['category'], code: string, message: string, count?: number) => void } {
@@ -959,18 +924,12 @@ async function importExtensions(
  * ------------------------------------------------------------------------- */
 
 function parseRequest(request: BrowserImportRequest): { selection: Required<BrowserImportSelection>; allowlist?: string[] } {
-  if (typeof request.sourceId !== 'string' || !request.sourceId.trim() || request.sourceId.length > 128) {
-    throw new BrowserError('invalid_request', 'A source identifier is required.');
-  }
-  if (typeof request.profileId !== 'string' || !PATH_SEGMENT.test(request.profileId)) {
-    throw new BrowserError('invalid_request', 'A supported profile identifier is required.');
-  }
-  const selection = validateSelection(request.categories);
-  const allowlist = selection.cookies ? normalizeAllowlist(request.cookieHostnameAllowlist) : undefined;
-  if (selection.extensions && request.allowUnverifiedExtensions !== true) {
-    throw new BrowserError('extensions_not_confirmed', 'Extension import requires explicit confirmation.');
-  }
-  return { selection, ...(allowlist ? { allowlist } : {}) };
+  const validation = validateBrowserImportRequest(request);
+  if (!validation.ok) throw new BrowserError(validation.code, validation.message);
+  return {
+    selection: validation.value.selection,
+    ...(validation.value.allowlist ? { allowlist: validation.value.allowlist } : {}),
+  };
 }
 
 /**
