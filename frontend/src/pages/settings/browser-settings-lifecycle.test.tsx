@@ -88,6 +88,34 @@ afterEach(() => { happyWindow.document.body.innerHTML = ''; FakeIntersectionObse
 afterAll(() => { happyWindow.close?.() })
 
 describe('browser settings React lifecycle', () => {
+  test('agent control off keeps manual browser settings and data management usable', async () => {
+    const writes: any[] = []
+    const off = { ...base, enabled: false, browserAvailable: true }
+    installApi({
+      get: async () => off,
+      setPreferences: async (patch: any) => { writes.push(patch); return { ok: true, settings: { ...off, ...patch } } },
+    })
+    const { root } = await mount()
+    expect(happyWindow.document.querySelector('#browser-web-target').disabled).toBe(false)
+    expect(happyWindow.document.querySelector('#browser-clear-data').disabled).toBe(false)
+    expect(happyWindow.document.querySelector('#browser-history-manage').disabled).toBe(false)
+    const target = happyWindow.document.querySelector('#browser-web-target')
+    await act(async () => { target.value = 'in-app'; target.dispatchEvent(new happyWindow.Event('change', { bubbles: true })) })
+    expect(writes).toEqual([{ webUrlTarget: 'in-app' }])
+    expect(happyWindow.document.body.textContent).not.toContain('currently unavailable')
+    await act(async () => { root.unmount() })
+  })
+
+  test('runtime unavailability disables manual controls independently of agent control', async () => {
+    installApi({ get: async () => ({ ...base, enabled: true, browserAvailable: false }) })
+    const { root } = await mount()
+    expect(happyWindow.document.querySelector('#browser-web-target').disabled).toBe(true)
+    expect(happyWindow.document.querySelector('#browser-clear-data').disabled).toBe(true)
+    expect(happyWindow.document.querySelector('#browser-history-manage').disabled).toBe(true)
+    expect(happyWindow.document.body.textContent).toContain('currently unavailable')
+    await act(async () => { root.unmount() })
+  })
+
   test('an external subscription wins over an older initial read', async () => {
     const initial = deferred<any>()
     let push: any

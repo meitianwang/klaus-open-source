@@ -196,7 +196,7 @@ export function BrowserSettingsView({
   onSetOriginPolicy, onRemoveOrigin, onSetSitePermission, onOpenChromeSetup,
 }: BrowserSettingsViewProps) {
   const t = useT()
-  const disabled = !snapshot.enabled
+  const disabled = snapshot.browserAvailable === false
   const [clearExpanded, setClearExpanded] = useState(false)
   const clearing = busy.startsWith('clear:')
   const [originDraft, setOriginDraft] = useState('')
