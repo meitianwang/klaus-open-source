@@ -90,6 +90,11 @@
     "progress": "host-authored-state-events-without-chat-bubbles",
     "aggregation": "all-originally-targeted-devices",
     "continuation": "required-consuming-task-and-original-input-generation",
+    "continuationIdentity": {
+      "_why": "Saved input and reply associations use the engine turn ID; mid-turn admission uses the distinct facade submission ID. Comparing the submission ID with saved history rejects a valid request before sending it.",
+      "engineTurnId": "original-engine-turn",
+      "submissionId": "original-submission"
+    },
     "ownerCorrection": "defer-current-turn-admission-until-owner-update-settles",
     "legacyUnboundContinuation": "display-reply-with-local-assistance-without-inference",
     "toolDetails": "live-request-state-and-explicit-onReply"

@@ -4445,8 +4445,8 @@ export class SessionService {
    * `<fork-boilerplate>`), so `text` carries the envelope and `displayText`
    * carries what the owner of that conversation actually reads.
    */
-  /** Capture the exact task turn; a session being busy is not enough to correlate a reply. */
-  friendTurnId(targetId: string): string | null { return this.deps.state.runningSubmissionId(targetId) ?? null; }
+  /** Correlate replies with the engine turn used by saved history, not its submission identity. */
+  friendTurnId(targetId: string): string | null { return this.deps.state.runningTurnId(targetId) ?? null; }
   canReuseFriendTaskSession(targetId: string): boolean {
     return !this.closing && !this.isSessionClosing(targetId) && !this.deps.state.isWorking(targetId)
       && !this.deps.state.inInterruptWindow(targetId) && !this.hostedTurns.has(targetId) && !this.startingTurns.has(targetId);
