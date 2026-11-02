@@ -1,0 +1,9 @@
+{
+  "_why": "Agent/plugin authorization and manual built-in-browser availability are independent. BrowserState.enabled reports manual availability so the panel remains usable when only the agent is off; agent operations still reject while enabled is false.",
+  "cases": [
+    { "name": "agent off, browser available", "agentEnabled": false, "available": true, "stateEnabled": true, "agentRejected": true },
+    { "name": "agent on, browser available", "agentEnabled": true, "available": true, "stateEnabled": true, "agentRejected": false },
+    { "name": "agent off, browser unavailable", "agentEnabled": false, "available": false, "stateEnabled": false, "agentRejected": true },
+    { "name": "agent on, browser unavailable", "agentEnabled": true, "available": false, "stateEnabled": false, "agentRejected": true }
+  ]
+}

@@ -105,7 +105,7 @@ export function registerBrowserHandlers(registry: ChannelRegistry, deps: Browser
   register('browser-use:hide', () => manager.hide());
   register('browser-use:set-bounds', fields => manager.setBounds(fields.bounds));
   register('browser-use:set-conversation', fields => manager.setConversation(string(fields.conversationId, 'conversationId')));
-  register('browser-use:view-available', () => ({ available: manager.isEnabled(), rendering: 'native' }));
+  register('browser-use:view-available', () => ({ available: manager.isAvailable(), rendering: 'native' }));
   register('browser-use:view-input', () => { throw new BrowserError('unavailable', 'Native browser input is handled by the page. Input replay has been retired.'); });
   register('browser-use:navigate', async fields => {
     const owner = manager.conversationId;
@@ -139,12 +139,12 @@ export function registerBrowserHandlers(registry: ChannelRegistry, deps: Browser
     else if (action !== 'list') throw new BrowserError('invalid_request', `Unknown browser tabs action: ${String(action)}`);
     return { ...manager.ok(owner), tabs: manager.state(owner).tabs };
   });
-  register('settings:browser-use:get', () => deps.getSettings?.() ?? { enabled: manager.isEnabled(), chromeEnabled: false }, false);
+  register('settings:browser-use:get', () => deps.getSettings?.() ?? { enabled: manager.isEnabled(), browserAvailable: manager.isAvailable(), chromeEnabled: false }, false);
   register('settings:browser-use:set-enabled', async fields => {
     if (typeof fields.enabled !== 'boolean') throw new BrowserError('invalid_request', 'enabled must be a boolean.');
     if (!deps.setEnabled) throw new BrowserError('unavailable', 'Browser plugin settings are not connected to the engine yet.');
     const result = await deps.setEnabled(fields.enabled);
-    if (object(result).ok !== false && fields.enabled === false) manager.hide();
+    // Disabling agent control must not hide or destroy the user's manual page.
     manager.publish(); return result;
   }, false);
   for (const action of ['set-chrome-enabled', 'set-approval-mode', 'set-screenshot-mode', 'add-origin', 'remove-origin',

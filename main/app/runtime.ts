@@ -1392,6 +1392,7 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
   });
   early.add(() => model3d.shutdown());
   registerModel3DHandlers(registry, { service: model3d });
+  let browserRuntimeAvailable = true;
   const browserPreferences = new BrowserPreferences({
     configRoot, request: (method, params) => sessions.request(method, object(params) ?? {}),
     resourceDirs,
@@ -1403,10 +1404,19 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
         browserPermissions.clear();
         browser.refreshPermissions();
       }
-      emit('settings:browser-use:changed', browserPreferences.get());
+      emit('settings:browser-use:changed', browserSnapshot());
       browser.publish();
     },
   });
+  const browserSnapshot = (): Json => ({ ...browserPreferences.get(), browserAvailable: browserRuntimeAvailable });
+  const withBrowserAvailability = (result: Json): Json => {
+    const value = object(result);
+    if (!value) return result;
+    const settings = object(value.settings) ?? {};
+    return Object.keys(settings).length
+      ? { ...value, settings: { ...settings, browserAvailable: browserRuntimeAvailable } }
+      : value;
+  };
   // Browser pages ask for permissions through the product window's own dialog
   // rather than an operating-system box: park the question, push it to the
   // renderer and wait for its answer channel.
@@ -1424,7 +1434,10 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
     },
   });
   const browser: BrowserManager = new BrowserManager({
-    window, configRoot, managedWindows: true, emit: (channel, value) => sendToMainWindow(mainWindows.get(browser.windowId) ?? window, channel, value), enabled: () => browserPreferences.enabled(),
+    window, configRoot, managedWindows: true,
+    emit: (channel, value) => sendToMainWindow(mainWindows.get(browser.windowId) ?? window, channel, value),
+    enabled: () => browserPreferences.enabled(),
+    available: () => browserRuntimeAvailable,
     navigationAllowed: url => browserPreferences.allowsNavigation(url),
     authorize: (sessionId, url, resource, signal) => browserAccess.authorize(sessionId, url, resource, signal),
     sitePermission: (origin, permission) => browserPreferences.sitePermission(origin, permission),
@@ -1440,7 +1453,7 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
       return answered;
     },
   });
-  early.add(() => browser.dispose());
+  early.add(() => { browserRuntimeAvailable = false; browser.dispose(); });
   const annotationStaging = new Map<string, string>();
   const browserAnnotations = new AnnotationSessionManager({ browser, persistence: {
     save: async input => {
@@ -1497,14 +1510,14 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
       if (passive !== undefined) return passive;
       browser.adoptWindow(owner); return undefined;
     },
-    manager: browser, annotations: browserAnnotations, preview: runPreview, sites: new SiteOpener(configRoot, browser), chrome: browserMcp.chrome, permissions: browserPermissions, getSettings: () => browserPreferences.get(),
-    setEnabled: enabled => browserPreferences.setEnabled(enabled),
-    mutateSettings: (action, value) => browserPreferences.mutate(action, value),
+    manager: browser, annotations: browserAnnotations, preview: runPreview, sites: new SiteOpener(configRoot, browser), chrome: browserMcp.chrome, permissions: browserPermissions, getSettings: () => browserSnapshot(),
+    setEnabled: async enabled => withBrowserAvailability(await browserPreferences.setEnabled(enabled)),
+    mutateSettings: async (action, value) => withBrowserAvailability(await browserPreferences.mutate(action, value)),
     chooseDownloadDirectory: async () => {
       const result = await dialog.showOpenDialog(focusedMainWindow(), { properties: ['openDirectory', 'createDirectory'],
         defaultPath: String(browserPreferences.get().downloadDirectory ?? app.getPath('downloads')) });
       if (result.canceled || !result.filePaths[0]) return { ok: true, cancelled: true };
-      return browserPreferences.mutate('set-preferences', { downloadDirectory: result.filePaths[0] });
+      return withBrowserAvailability(await browserPreferences.mutate('set-preferences', { downloadDirectory: result.filePaths[0] }));
     },
   });
   const native = createNativeRuntime(window, registry, {

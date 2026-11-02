@@ -57,7 +57,10 @@ export interface BrowserManagerOptions {
   window: BrowserWindow;
   configRoot: string;
   emit: (channel: string, payload: Json) => void;
+  /** Agent/plugin authorization. Manual browser surfaces do not depend on it. */
   enabled?: () => boolean;
+  /** Manual built-in browser availability. Runtime shutdown clears this. */
+  available?: () => boolean;
   navigationAllowed?: (url: string) => boolean;
   /**
    * Persistent origin policy. The manager consults this before task-scoped
@@ -81,6 +84,8 @@ export interface BrowserManagerOptions {
   managedWindows?: boolean;
 }
 
+export type BrowserOperationLease = (() => void) & { readonly signal: AbortSignal };
+
 /** Owns every IAB page; the renderer and MCP server only refer to these pages. */
 export class BrowserManager {
   readonly browserSession: Session;
@@ -93,6 +98,9 @@ export class BrowserManager {
   private readonly decisions = new BrowserPermissionDecisions();
   private readonly activeOperations = new Map<string, { turnId: string; source: string; initiator: string }>();
   private readonly operationSignals = new Map<string, AbortSignal | undefined>();
+  private readonly operationControllers = new Map<string, Set<AbortController>>();
+  /** Invalidated whenever agent settings change; queued calls retain the old generation. */
+  private control = new AbortController();
   private readonly agentVisits = new Map<number, Set<string>>();
   private readonly agentPageLeases = new Set<number>();
   private readonly agentInputPages = new Set<number>();
@@ -134,7 +142,7 @@ export class BrowserManager {
       changed: event => options.emit('browser-use:downloads-changed', json(event)),
     });
     this.dialogPreloadId = this.browserSession.registerPreloadScript({ type: 'frame', filePath: join(__dirname, 'dialog-preload.js') });
-    this.dialogs = new BrowserDialogs({ window: options.window, isEnabled: () => this.isEnabled(), isPresented: page => this.shown?.handle === page.handle && options.window.isVisible() && !options.window.isMinimized(), navigationAllowed: url => this.assertNavigation(url), timeoutMs: options.dialogTimeoutMs });
+    this.dialogs = new BrowserDialogs({ window: options.window, isEnabled: () => this.isAvailable(), isPresented: page => this.shown?.handle === page.handle && options.window.isVisible() && !options.window.isMinimized(), navigationAllowed: url => this.assertNavigation(url), timeoutMs: options.dialogTimeoutMs });
     // A native parent keeps background tabs capturable. BaseWindow adds no
     // renderer; the same WebContentsView moves to the visible panel on demand.
     this.parking = new BaseWindow({ width: 1280, height: 800, show: false, frame: false, focusable: false, skipTaskbar: true, hiddenInMissionControl: true });
@@ -189,7 +197,7 @@ export class BrowserManager {
     } else if (channel === 'browser-use:set-bounds') saved.bounds = browserBounds(fields.bounds);
     else if (channel === 'browser-use:hide') saved.wantedVisible = false;
     else if (channel !== 'browser-use:state' && channel !== 'browser-use:view-available') return undefined;
-    if (channel === 'browser-use:view-available') return { available: this.isEnabled(), rendering: 'native' };
+    if (channel === 'browser-use:view-available') return { available: this.isAvailable(), rendering: 'native' };
     const state = json({ ...this.state(saved.current), visible: false, presentationTransferred: true });
     return channel === 'browser-use:state' ? state : { ok: true, state };
   }
@@ -204,7 +212,11 @@ export class BrowserManager {
     const configured = this.options.downloadDirectory?.();
     return configured && configured.trim() ? resolve(configured) : resolve(this.options.configRoot, 'browser-downloads');
   }
+  /** Agent/plugin gate. Agent operations must reject when this is false. */
   isEnabled(): boolean { return !this.disposed && (this.options.enabled?.() ?? true); }
+
+  /** Manual built-in browser availability. Plugin off keeps this true. */
+  isAvailable(): boolean { return !this.disposed && (this.options.available?.() ?? true); }
 
   /** Persistent site policy; an undefined result means the page should ask. */
   sitePermission(origin: string, permission: string): 'granted' | 'denied' | undefined {
@@ -240,6 +252,9 @@ export class BrowserManager {
 
   /** Settings changes take effect for permission questions already remembered. */
   refreshPermissions(): void {
+    this.control.abort();
+    this.abortAgentOperations();
+    this.control = new AbortController();
     this.authorizationEpoch++;
     this.decisions.clear();
     this.approvedAgentNavigations.clear();
@@ -281,7 +296,7 @@ export class BrowserManager {
   private installNavigationGate(): void {
     this.browserSession.webRequest.onBeforeRequest({ urls: ['<all_urls>'], types: ['mainFrame'] }, (details, callback) => {
       const page = [...this.pages.values()].find(entry => entry.contentsId === details.webContentsId);
-      if (!page || !this.isEnabled()) { callback({ cancel: true }); return; }
+      if (!page || !this.isAvailable()) { callback({ cancel: true }); return; }
       try { this.assertNavigation(details.url); }
       catch { callback({ cancel: true }); return; }
       const hasPageLease = this.agentPageLeases.has(page.handle) || this.pendingMainFrameAuthorizations.has(page.handle);
@@ -289,13 +304,18 @@ export class BrowserManager {
         ? this.pendingMainFrameAuthorizations.get(page.handle)
         : this.operationSignals.get(page.owner);
       if (this.consumeApprovedNavigation(page.owner, details.url)) {
+        if (!this.isEnabled() || signal?.aborted) { callback({ cancel: true }); return; }
         this.agentPageLeases.add(page.handle);
         this.markAgentVisit(page, details.url);
         callback({});
         return;
       }
       const agentContext = this.agentInputPages.has(page.handle) || hasPageLease;
+      // No lease/input means a human navigation. It remains available when the
+      // agent is off. An owned agent surface, however, must obey the gate.
       if (!agentContext) { callback({}); return; }
+      if (!this.isEnabled()) { callback({ cancel: true }); return; }
+      if (signal?.aborted) { callback({ cancel: true }); return; }
       // Without a host policy callback the page is still an agent surface:
       // attribute the visit and let the navigation proceed. A configured
       // callback owns the decision below.
@@ -334,6 +354,17 @@ export class BrowserManager {
   private requireEnabled(): void {
     if (this.disposed) throw new BrowserError('unavailable', 'The browser manager has shut down.');
     if (!this.isEnabled()) throw new BrowserError('unavailable', 'Browser Use is disabled. Enable the Browser plugin to use it.');
+  }
+
+  private requireAvailable(): void {
+    if (this.disposed) throw new BrowserError('unavailable', 'The browser runtime is unavailable.');
+    if (!this.isAvailable()) throw new BrowserError('unavailable', 'The built-in browser is unavailable.');
+  }
+
+  /** Abort agent work only; manual pages, downloads and navigation stay alive. */
+  abortAgentOperations(sessionId?: string): void {
+    const ids = sessionId === undefined ? [...this.operationControllers.keys()] : [sessionId];
+    for (const id of ids) for (const controller of [...(this.operationControllers.get(id) ?? [])]) controller.abort();
   }
 
   private conversation(id: string): Conversation {
@@ -381,7 +412,7 @@ export class BrowserManager {
     const active = conversation.active === undefined ? undefined : this.pages.get(conversation.active);
     const live = active && this.alive(active) ? active.view.webContents : undefined;
     return {
-      enabled: this.isEnabled(), visible: sessionId === this.current && !!this.shown && this.isEnabled(),
+      enabled: this.isAvailable(), visible: sessionId === this.current && !!this.shown && this.isAvailable(),
       conversationId: sessionId, focusRevision: this.revision,
       ...(active ? { tabId: active.id } : {}), url: live?.getURL() || 'about:blank', title: live?.getTitle() || '',
       loading: live?.isLoading() ?? false,
@@ -400,24 +431,47 @@ export class BrowserManager {
   publish(): void { if (!this.disposed) this.options.emit('browser-use:state', json(this.state())); }
   publishTabInventoryChange(): void { if (!this.disposed) this.options.emit('browser-use:state', json({ ...this.state(), tabInventoryChanged: true })); }
 
-  beginOperation(sessionId: string, name: string, signal?: AbortSignal): () => void {
+  /** Capture the current agent-control generation before entering the queue. */
+  agentControlSignal(signal?: AbortSignal): AbortSignal {
+    if (signal?.aborted) return signal;
+    return signal ? AbortSignal.any([signal, this.control.signal]) : this.control.signal;
+  }
+
+  beginOperation(sessionId: string, name: string, signal?: AbortSignal): BrowserOperationLease {
+    this.requireEnabled();
+    if (signal?.aborted) throw new BrowserError('cancelled', 'The browser operation was cancelled.');
     const route = { turnId: randomUUID(), source: 'agent', initiator: name };
     const activePage = this.conversation(sessionId).active;
     const inputPage = activePage !== undefined && AGENT_INPUT_OPERATIONS.has(name) ? activePage : undefined;
     const navigationPage = activePage !== undefined && AGENT_NAVIGATION_OPERATIONS.has(name) ? activePage : undefined;
     if (inputPage !== undefined) this.agentInputPages.add(inputPage);
     if (navigationPage !== undefined) this.agentPageLeases.add(navigationPage);
-    this.activeOperations.set(sessionId, route);
-    this.operationSignals.set(sessionId, signal);
+    const controller = new AbortController();
+    const abort = (): void => controller.abort();
+    if (signal?.aborted) controller.abort();
+    else signal?.addEventListener('abort', abort, { once: true });
+    const controllers = this.operationControllers.get(sessionId) ?? new Set<AbortController>();
+    controllers.add(controller); this.operationControllers.set(sessionId, controllers);
+    const previousRoute = this.activeOperations.get(sessionId);
+    const previousSignal = this.operationSignals.get(sessionId);
+    if (!previousRoute) this.activeOperations.set(sessionId, route);
+    this.operationSignals.set(sessionId, controller.signal);
     this.publish();
-    return () => {
+    const finish = (() => {
+      signal?.removeEventListener('abort', abort);
+      controllers.delete(controller);
+      if (!controllers.size) this.operationControllers.delete(sessionId);
       if (this.activeOperations.get(sessionId) === route) this.activeOperations.delete(sessionId);
-      if (this.operationSignals.get(sessionId) === signal) this.operationSignals.delete(sessionId);
+      if (this.operationSignals.get(sessionId) === controller.signal) {
+        if (previousRoute && previousSignal !== undefined) this.operationSignals.set(sessionId, previousSignal);
+        else this.operationSignals.delete(sessionId);
+      }
       if (inputPage !== undefined) this.agentInputPages.delete(inputPage);
       if (navigationPage !== undefined) this.agentPageLeases.delete(navigationPage);
       this.approvedAgentNavigations.delete(sessionId);
       this.publish();
-    };
+    }) as BrowserOperationLease;
+    return Object.assign(finish, { signal: controller.signal });
   }
 
   listPages(sessionId: string): BrowserPage[] {
@@ -437,15 +491,16 @@ export class BrowserManager {
     return page;
   }
 
-  async ensurePage(sessionId: string): Promise<BrowserPage> {
-    this.requireEnabled();
+  async ensurePage(sessionId: string, signal?: AbortSignal): Promise<BrowserPage> {
+    if (signal?.aborted) throw new BrowserError('cancelled', 'The browser operation was cancelled.');
+    this.requireAvailable();
     const active = this.conversation(sessionId).active;
     if (active !== undefined) { const page = this.page(sessionId, active); await page.ready; return page; }
-    return this.createTab(sessionId, 'about:blank');
+    return this.createTab(sessionId, 'about:blank', true, signal);
   }
 
   private addPage(sessionId: string, contents?: WebContents, activate = true, keepInactive = false): BrowserPage {
-    this.requireEnabled();
+    this.requireAvailable();
     const preferences: Electron.WebPreferences = {
       session: this.browserSession, sandbox: true, contextIsolation: true, nodeIntegration: false,
       // With sandbox explicitly true this enables only the restricted preload
@@ -473,10 +528,11 @@ export class BrowserManager {
     return page;
   }
 
-  async createTab(sessionId: string, input: unknown = 'about:blank', activate = true): Promise<BrowserPage> {
+  async createTab(sessionId: string, input: unknown = 'about:blank', activate = true, signal?: AbortSignal): Promise<BrowserPage> {
+    if (signal?.aborted) throw new BrowserError('cancelled', 'The browser operation was cancelled.');
     const url = this.assertNavigation(input);
     const page = this.addPage(sessionId, undefined, activate);
-    try { await page.ready; await this.navigate(page, url); return page; }
+    try { await page.ready; if (signal?.aborted) throw new BrowserError('cancelled', 'The browser operation was cancelled.'); await this.navigate(page, url, {}, signal); return page; }
     catch (error) { this.closeTab(sessionId, page.handle); throw error; }
   }
 
@@ -486,19 +542,22 @@ export class BrowserManager {
     catch (error) { this.closeTab(sessionId, page.handle); throw error; }
   }
 
-  async navigate(page: BrowserPage, input: unknown, fields: BrowserObject = {}): Promise<void> {
-    this.requireEnabled();
+  async navigate(page: BrowserPage, input: unknown, fields: BrowserObject = {}, signal?: AbortSignal): Promise<void> {
+    if (signal?.aborted) throw new BrowserError('cancelled', 'The browser operation was cancelled.');
+    this.requireAvailable();
     const url = this.assertNavigation(input);
     this.page(page.owner, page.handle);
     await page.ready;
-    this.requireEnabled(); this.page(page.owner, page.handle);
+    if (signal?.aborted) throw new BrowserError('cancelled', 'The browser operation was cancelled.');
+    this.requireAvailable(); this.page(page.owner, page.handle);
     page.error = undefined;
-    await navigateForRead(page.cdp, url, fields);
+    await navigateForRead(page.cdp, url, fields, signal);
     this.publish();
   }
 
-  async historyAction(page: BrowserPage, action: 'back' | 'forward' | 'reload'): Promise<void> {
-    this.requireEnabled();
+  async historyAction(page: BrowserPage, action: 'back' | 'forward' | 'reload', signal?: AbortSignal): Promise<void> {
+    if (signal?.aborted) throw new BrowserError('cancelled', 'The browser operation was cancelled.');
+    this.requireAvailable();
     const contents = page.view.webContents;
     const history = contents.navigationHistory;
     if (action !== 'reload') {
@@ -510,13 +569,16 @@ export class BrowserManager {
         clearTimeout(timer);
         contents.removeListener('did-stop-loading', loaded);
         contents.removeListener('destroyed', closed);
+        signal?.removeEventListener('abort', aborted);
         if (error) reject(error); else resolveDone();
       };
       const loaded = (): void => finish();
       const closed = (): void => finish(new BrowserError('stale_tab', 'The page closed while navigating.'));
+      const aborted = (): void => finish(new BrowserError('cancelled', 'The browser operation was cancelled.'));
       const timer = setTimeout(() => finish(new BrowserError('timeout', 'Browser navigation timed out.')), 30_000);
       contents.once('did-stop-loading', loaded);
       contents.once('destroyed', closed);
+      signal?.addEventListener('abort', aborted, { once: true });
       try {
         if (action === 'reload') contents.reload();
         else if (action === 'back') history.goBack();
@@ -584,7 +646,7 @@ export class BrowserManager {
     contents.on('render-process-gone', (_event, details) => { page.error = `Browser page stopped: ${details.reason}`; this.publish(); });
     contents.on('destroyed', () => this.forget(page));
     contents.setWindowOpenHandler(details => {
-      try { this.assertNavigation(details.url); this.requireEnabled(); } catch { return { action: 'deny' }; }
+      try { this.assertNavigation(details.url); this.requireAvailable(); } catch { return { action: 'deny' }; }
       const agentPopup = this.activeOperations.has(page.owner)
         && AGENT_POPUP_OPERATIONS.has(this.activeOperations.get(page.owner)?.initiator ?? '');
       return {
@@ -681,12 +743,12 @@ export class BrowserManager {
   }
 
   async show(request: BrowserScope & { bounds?: unknown } = {}): Promise<BrowserObject> {
-    this.requireEnabled();
+    this.requireAvailable();
     const scope = this.scope(request);
     const generation = ++this.presentationRevision;
     const page = request.targetId ? this.page(scope.sessionId, request.targetId) : await this.ensurePage(scope.sessionId);
     await page.ready;
-    this.requireEnabled(); this.page(scope.sessionId, page.handle);
+    this.requireAvailable(); this.page(scope.sessionId, page.handle);
     this.scope(scope);
     if (generation !== this.presentationRevision) throw new BrowserError('stale_scope', 'The browser visibility request was superseded.');
     if (request.bounds !== undefined) this.bounds = browserBounds(request.bounds);
@@ -764,7 +826,7 @@ export class BrowserManager {
     const window = this.options.window;
     const active = this.conversation(this.current).active;
     const page = active === undefined ? undefined : this.pages.get(active);
-    if (this.disposed || !this.wantedVisible || !this.isEnabled() || window.isDestroyed() || !window.isVisible() || window.isMinimized() || !page || !this.alive(page)) {
+    if (this.disposed || !this.wantedVisible || !this.isAvailable() || window.isDestroyed() || !window.isVisible() || window.isMinimized() || !page || !this.alive(page)) {
       this.detach(); this.dialogs.present(); return;
     }
     if (this.shown !== page) {
@@ -830,7 +892,7 @@ export class BrowserManager {
   }
 
   async requestPanel(sessionId: string, page?: BrowserPage): Promise<boolean> {
-    if (sessionId !== this.current || !this.isEnabled()) return false;
+    if (sessionId !== this.current || !this.isAvailable()) return false;
     const focusRevision = this.revision;
     const opened = new Promise<boolean>(resolve => {
       const waiter: PanelOpenWaiter = { sessionId, focusRevision, ...(page ? { targetId: page.id } : {}), resolve };
@@ -869,7 +931,7 @@ export class BrowserManager {
 
   private permissionKey(contents: WebContents | null, permission: string, url: string): string | undefined {
     const page = [...this.pages.values()].find(entry => entry.view.webContents === contents);
-    if (!page || !this.isEnabled()) return undefined;
+    if (!page || !this.isAvailable()) return undefined;
     try {
       const origin = new URL(this.assertNavigation(url)).origin;
       if (origin === 'null') return undefined;
@@ -952,13 +1014,13 @@ export class BrowserManager {
 
   private readonly onDownload = (event: Electron.Event, item: Electron.DownloadItem, contents: WebContents): void => {
     const page = [...this.pages.values()].find(entry => entry.view.webContents === contents);
-    if (!page || !this.isEnabled()) { event.preventDefault(); return; }
+    if (!page || !this.isAvailable()) { event.preventDefault(); return; }
     const chain = item.getURLChain().filter(url => !/^(?:blob|data):/u.test(url));
     try { for (const url of chain) this.assertNavigation(url); }
     catch { event.preventDefault(); return; }
     const source = this.agentInputPages.has(page.handle) || this.agentPageLeases.has(page.handle) ? 'agent' : 'other';
     const initiatorUrl = page.view.webContents.getURL();
-    const signal = this.operationSignals.get(page.owner);
+    const signal = source === 'agent' ? this.operationSignals.get(page.owner) : undefined;
     try { item.pause(); } catch { /* The item may already be terminal. */ }
     void this.downloads.accept(page.id, page.owner, item, source, initiatorUrl, signal).catch(() => {
       try { item.cancel(); } catch { /* already canceled */ }
@@ -972,10 +1034,10 @@ export class BrowserManager {
     cdp: BrowserCdp = page.cdp,
     signal?: AbortSignal,
   ): Promise<BrowserObject> {
-    this.requireEnabled(); this.page(page.owner,page.handle);
+    this.requireAvailable(); this.page(page.owner,page.handle);
     return this.downloads.download(
       page.id, page.owner, cdp, fields, waitMs,
-      signal ?? this.operationSignals.get(page.owner),
+      signal,
       page.view.webContents.getURL(),
     );
   }
@@ -1068,6 +1130,8 @@ export class BrowserManager {
   }
 
   releaseConversation(sessionId: string): void {
+    this.abortAgentOperations(sessionId);
+    this.operationControllers.delete(sessionId);
     this.settlePanelOpenWaiters(false, waiter => waiter.sessionId === sessionId);
     this.decisions.forget(key => (JSON.parse(key) as string[])[0] === sessionId);
     this.authorizationEpoch++;
@@ -1090,6 +1154,10 @@ export class BrowserManager {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    this.control.abort();
+    this.abortAgentOperations();
+    this.operationControllers.clear();
+    this.operationSignals.clear();
     this.settlePanelOpenWaiters(false);
     this.presentationRevision += 1;
     this.dialogs.dispose();

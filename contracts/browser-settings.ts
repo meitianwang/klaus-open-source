@@ -12,7 +12,13 @@ export const WEB_URL_TARGET_KEY = 'browser:site_open_target';
 export const LOCAL_URL_TARGET_KEY = 'browser:local_site_open_target';
 
 export interface BrowserSettingsSnapshot {
+  /** Agent/plugin authorization. */
   enabled: boolean;
+  /**
+   * Derived manual built-in-browser availability. Not persisted. Missing means
+   * an older host where the browser is available.
+   */
+  browserAvailable?: boolean;
   chromeEnabled: boolean;
   showFullUrl: boolean;
   annotationScreenshots: 'always' | 'necessary';
