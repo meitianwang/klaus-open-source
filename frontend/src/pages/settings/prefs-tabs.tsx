@@ -358,6 +358,8 @@ export function PreferencesTab() {
           })}
         </div>
       </div>
+      <div className="settings-section"><RuntimeSettingsTab embedded /></div>
+      {/* Workspace excludes is deliberately the last section of the preferences page. */}
       <div className="settings-section">
         <div className={styles['settings-section-heading']}>
           <div className={styles['settings-section-title-info-row']}>
@@ -402,7 +404,6 @@ export function PreferencesTab() {
           </div>
         </div>
       </div>
-      <div className="settings-section"><RuntimeSettingsTab embedded /></div>
     </SettingsPage>
   )
 }
