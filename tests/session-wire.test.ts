@@ -6235,66 +6235,66 @@ function approvedFriendWireFixture(mode: FriendTaskGrant['mode'] = 'auto-edit') 
   const friendScope = { accountId: 'wire-owner', friendshipId: message.friendshipId, friendUserId: message.senderUserId, taskId: admitted.id, grant, active: true };
   return { root, resources, store, taskId: admitted.id, friendScope };
 }
-h.test('a friend session fails closed on an old engine and preserves an inactive history scope after startup rollback', async () => {
-  const f = approvedFriendWireFixture(), client = new FakeClient(); const { service } = serviceWith(client, f.root);
-  try {
-    const error = await assertRejects(() => service.newSession({ friendScope: f.friendScope }), 'Missing task-scope engine capability refuses startup');
-    assertEqual(object(error)?.code, 'FRIEND_SCOPE_UNSUPPORTED', 'The missing capability is explicit');
-    assertEqual(client.sent('session/start').length, 0, 'No unrestricted engine session starts');
-    const id = withSettingsDb(f.root, db => (db.prepare('SELECT thread_id FROM friend_task_session_scopes').get() as { thread_id: string }).thread_id);
-    assertEqual(friendSessionScope(f.root, id)?.active, false, 'Failed history remains scoped and inactive');
-    await assertRejects(() => service.forkSession(id), 'Failed friend history cannot be forked unrestricted');
-  } finally { await service.shutdown(); }
-});
-h.test('supported friend initialization carries exact read/write roots and cannot fork or create a side task', async () => {
-  const f = approvedFriendWireFixture(), client = new FakeClient().reply('session/start', { sessionId: 'friend-wire-engine' }); client.capabilities = { taskResourceScope: 1 };
+h.test('friend initialization uses the ordinary runtime and no longer requires task-scope capability', async () => {
+  const f = approvedFriendWireFixture(), client = new FakeClient().reply('session/start', { sessionId: 'friend-wire-engine' });
   const { service } = serviceWith(client, f.root);
   try {
-    const row = await service.newSession({ friendScope: f.friendScope, runtimePolicyOverride: presetRuntimePolicy('bypassPermissions') }) as Record<string, Json>;
+    await service.newSession({ friendScope: f.friendScope });
+    assertEqual(client.sent('session/start').length, 1, 'A friend conversation starts through the ordinary session facade');
+    const config = object(object(rowAt(client.sent('session/start'), 0, 'Friend start').init)?.config)!;
+    assertEqual(config.taskResourceScope, undefined, 'Friend conversations do not receive a task resource scope');
+  } finally { await service.shutdown(); }
+});
+h.test('friend initialization seeds the grant policy and initial roots without exposing the friends parent', async () => {
+  const f = approvedFriendWireFixture(), client = new FakeClient().reply('session/start', { sessionId: 'friend-wire-engine' });
+  const { service } = serviceWith(client, f.root);
+  try {
+    const row = await service.newSession({ friendScope: f.friendScope }) as Record<string, Json>;
     const init = rowAt(client.sent('session/start'), 0, 'Friend start').init as Record<string, Json>, config = init.config as Record<string, Json>;
     assertEqual(init.permissionMode, undefined, 'Legacy modes do not reach the engine');
-    assertDeepEqual(config.taskResourceScope, { taskId: f.taskId, mode: 'auto-edit', readRoots: [...f.friendScope.grant.directories.map(dir => dir.path), join(f.root, 'friends'), join(f.root, 'friends', 'wire-friend')], writeRoots: [join(f.resources, 'write'), join(f.root, 'friends'), join(f.root, 'friends', 'wire-friend')], networkAllowed: false }, 'The named facade receives the immutable resource scope plus the product shared space');
-    assertEqual(config.useStoredPermissionRules, false, 'Global stored approvals cannot expand resources'); assert(!('confineReads' in config), 'Task resource scope owns the read ceiling');
+    assertEqual(config.taskResourceScope, undefined, 'The ordinary runtime carries no task resource scope');
+    const roots = ((object(config?.sandbox_workspace_write ?? {})?.writable_roots ?? []) as string[])
+      .filter(root => !root.includes(join('visualizations', '')));
+    assertDeepEqual(roots, [join(f.root, 'friends', 'wire-friend'), join(f.resources, 'write')], 'Only this friendship folder and owner-granted writable roots seed the sandbox');
+    assert(!roots.includes(join(f.root, 'friends')), 'The parent folder never exposes other friendships');
     assertDeepEqual((sessionRuntimePolicy(String(row.id), f.root) as { policy?: unknown } | undefined)?.policy ?? null, presetRuntimePolicy('auto'), 'The friend conversation freezes the grant preset as its own policy row');
-    assert(!String(init.developerInstructions).includes('### Inline Visualizations'), 'A confined friend task is not promised an ungranted visualization directory');
-    assert(!String(init.developerInstructions).includes('::klaus-inline-vis'), 'No unavailable visualization directive is advertised');
-    await assertRejects(() => service.createSideTask(String(row.id)), 'Friend task cannot create an unrestricted side task');
+    const instructions = String(init.developerInstructions);
+    assert(instructions.includes('### Inline Visualizations'), 'A friend conversation receives the same visualization support as an ordinary one');
+    assert(instructions.includes('The conversation\'s current permission settings govern local access.'), 'The model is pointed at the ordinary live permission policy');
     await assertRejects(() => service.forkSession(String(row.id)), 'Friend task cannot fork');
-    assertEqual(client.sent('session/startSideTask').length, 0, 'No side facade starts'); assertEqual(client.sent('session/forkLive').length, 0, 'No fork facade starts');
+    assertEqual(client.sent('session/forkLive').length, 0, 'No fork facade starts');
   } finally { await service.shutdown(); }
 });
 const friendShellExecution = (JSON.parse(readFileSync(vectorPath('friends-messaging-vectors.json'), 'utf8')) as {
   shellExecution: {
     injectedCommandAskRules: string[];
     sandboxMode: string;
+    sandboxModeByPreset: Record<FriendExecutionPreset, string>;
     presets: Array<{ preset: FriendExecutionPreset; grantMode: FriendTaskGrant['mode']; approvalPolicy: string; approvalsReviewer: string }>;
   };
 }).shellExecution;
 for (const expected of friendShellExecution.presets) h.test(`friend ${expected.preset} uses its execution policy without blanket command approval rules`, async () => {
   const f = approvedFriendWireFixture(expected.grantMode), client = new FakeClient().reply('session/start', { sessionId: 'friend-preset-engine' });
-  client.capabilities = { taskResourceScope: 1 };
   const { service } = serviceWith(client, f.root);
   try {
     await service.newSession({ friendScope: f.friendScope });
     const config = object(object(rowAt(client.sent('session/start'), 0, 'friend preset start').init)?.config)!;
     assertDeepEqual(config.ask ?? [], friendShellExecution.injectedCommandAskRules, 'The host does not override the execution preset with blanket command ask rules');
     assertDeepEqual({ approvalPolicy: config.approval_policy, approvalsReviewer: config.approvals_reviewer, sandboxMode: config.sandbox_mode },
-      { approvalPolicy: expected.approvalPolicy, approvalsReviewer: expected.approvalsReviewer, sandboxMode: friendShellExecution.sandboxMode },
-      'The selected execution policy retains the friend sandbox boundary');
-    assertDeepEqual(config.taskResourceScope, { taskId: f.taskId, mode: expected.grantMode,
-      readRoots: [...f.friendScope.grant.directories.map(dir => dir.path), join(f.root, 'friends'), join(f.root, 'friends', 'wire-friend')],
-      writeRoots: [join(f.resources, 'write'), join(f.root, 'friends'), join(f.root, 'friends', 'wire-friend')], networkAllowed: false },
-      'Every preset preserves the exact approved roots, read-only directory and network ceiling');
-    assertEqual(config.useStoredPermissionRules, false, 'Stored global approvals cannot enlarge the grant');
+      { approvalPolicy: expected.approvalPolicy, approvalsReviewer: expected.approvalsReviewer, sandboxMode: friendShellExecution.sandboxModeByPreset[expected.preset] },
+      'The grant seeds the ordinary preset instead of a separate friend policy');
+    assertEqual(config.taskResourceScope, undefined, 'Every preset uses the ordinary runtime without a task scope');
+    const roots = ((object(config?.sandbox_workspace_write ?? {})?.writable_roots ?? []) as string[])
+      .filter(root => !root.includes(join('visualizations', '')));
+    assertDeepEqual(roots, [join(f.root, 'friends', 'wire-friend'), join(f.resources, 'write')], 'The initial roots stay the same across presets');
   } finally { await service.shutdown(); }
 });
-h.test('friend full access survives session rebuild and turn admission without widening the grant', async () => {
+h.test('friend full access survives rebuild and turn admission as the ordinary unrestricted policy', async () => {
   const f = approvedFriendWireFixture(), client = new FakeClient()
     .reply('config/read', { values: {}, resolved: { approval_policy: 'on-request', sandbox_mode: 'workspace-write' }, sources: {} })
     .reply('session/start', { sessionId: 'friend-wire-engine' }).reply('session/close', {})
     .reply('engine/windowsSandboxReadiness', { status: 'ready' }).reply('session/setRuntimePolicy', {})
     .replySubmit('start-if-idle', 'friend-turn').replyAcknowledged('session/updateConfig', { [goalReadLifecycle.runtimeConfigOutcomeField]: {} });
-  client.capabilities = { taskResourceScope: 1 };
   let scopedId = '';
   const projection = new WindowsRuntimePolicyProjection({ isNativeLocal: id => id === scopedId, request: (method, params) => client.requestWithTimeout(method, params) });
   const { service, state } = serviceWith(client, f.root, undefined, { runtimePolicyProjection: projection });
@@ -6308,31 +6308,28 @@ h.test('friend full access survives session rebuild and turn admission without w
     const config = object(object(started.init)?.config)!;
     assertDeepEqual(config.ask ?? [], friendShellExecution.injectedCommandAskRules, 'A rebuild cannot restore blanket command ask rules after a preset change');
     assertEqual(config.approval_policy, 'never', 'rebuild preserves the selected bypass policy');
-    assertEqual(config.sandbox_mode, 'workspace-write', 'full access does not remove the friendship filesystem cap');
-    assertEqual(object(config.taskResourceScope)?.mode, 'auto-edit', 'the approved task resource scope stays bound');
+    assertEqual(config.sandbox_mode, 'danger-full-access', 'full access is the ordinary unrestricted sandbox');
+    assertEqual(config.taskResourceScope, undefined, 'full access carries no task resource scope');
     const admission = rowAt(client.sent('session/setRuntimePolicy'), 0, 'full-access friend admission');
     assertDeepEqual({ approvalPolicy: admission.approvalPolicy, sandboxMode: admission.sandboxMode, networkAllowed: admission.networkAllowed },
-      { approvalPolicy: 'never', sandboxMode: 'workspace-write', networkAllowed: false }, 'turn admission cannot restore the grant ask level or widen network access');
+      { approvalPolicy: 'never', sandboxMode: 'danger-full-access', networkAllowed: true }, 'turn admission preserves the conversation selection');
   } finally { await service.shutdown(); }
 });
-h.test('temporary Windows policy preserves the independent friend resource ceiling', async () => {
+h.test('temporary Windows policy does not reintroduce a friend task scope', async () => {
   const f = approvedFriendWireFixture(), client = new FakeClient().reply('session/start', { sessionId: 'friend-windows' })
     .reply('engine/windowsSandboxReadiness', { status: 'notConfigured' });
-  client.capabilities = { taskResourceScope: 1 };
   const projection = new WindowsRuntimePolicyProjection({ isNativeLocal: () => true, request: (method, params) => client.requestWithTimeout(method, params) });
   const { service } = serviceWith(client, f.root, undefined, { runtimePolicyProjection: projection });
   try {
     await service.newSession({ friendScope: f.friendScope });
     const init = rowAt(client.sent('session/start'), 0, 'confined projected start').init as Record<string, Json>, config = init.config as Record<string, Json>;
     assertEqual(config.sandbox_mode, 'read-only', 'native preparation temporarily constrains execution');
-    assertDeepEqual(config.taskResourceScope, { taskId: f.taskId, mode: 'auto-edit', readRoots: [...f.friendScope.grant.directories.map(dir => dir.path), join(f.root, 'friends'), join(f.root, 'friends', 'wire-friend')],
-      writeRoots: [join(f.resources, 'write'), join(f.root, 'friends'), join(f.root, 'friends', 'wire-friend')], networkAllowed: false }, 'the approved read, write and network ceiling is unchanged');
-    assertEqual(config.useStoredPermissionRules, false, 'global rules still cannot expand the scoped task');
+    assertEqual(config.taskResourceScope, undefined, 'the temporary Windows policy leaves the ordinary runtime in place');
   } finally { await service.shutdown(); }
 });
 
 h.test('a claimed friend scope cannot start without a matching persisted active owner approval', async () => {
-  const f = approvedFriendWireFixture(), client = new FakeClient(); client.capabilities = { taskResourceScope: 1 }; const { service } = serviceWith(client, f.root);
+  const f = approvedFriendWireFixture(), client = new FakeClient(); const { service } = serviceWith(client, f.root);
   try {
     f.store.update('wire-owner', f.taskId, ['starting'], { status: 'pending' });
     await assertRejects(() => service.newSession({ friendScope: f.friendScope }), 'The task field does not substitute for an owner approval');

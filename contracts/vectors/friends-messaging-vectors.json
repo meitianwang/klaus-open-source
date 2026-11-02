@@ -1,5 +1,5 @@
 {
-  "reason": "Friendship admits requests, never execution. Each incoming task persists without model inference until the receiving owner approves immutable directory/app scope. The designated receiver is account-owned; replies bind the original device/request/conversation. Revocation ends active work and retained histories cannot become unrestricted sessions.",
+  "reason": "Friendship admits requests, never execution. Each incoming task persists without model inference until the receiving owner approves its defaults. The grant seeds the conversation's first ordinary permission policy plus its initial writable roots; after that the conversation keeps its own policy. The designated receiver is account-owned; replies bind the original device/request/conversation. Revocation ends active work and retained histories cannot become unrestricted sessions.",
   "friendId": "11111111-1111-4111-8111-111111111111",
   "selfUserId": "22222222-2222-4222-8222-222222222222",
   "friendUserId": "33333333-3333-4333-8333-333333333333",
@@ -9,16 +9,23 @@
   "permissionMode": "default",
   "protocolVersion": 3,
   "engineScopeCapability": 1,
+  "taskResourceScope": "not-used-for-friend-conversations",
   "resourceModes": [
     "manual",
     "auto-edit",
     "scoped-auto"
   ],
-  "resourceModesWhy": "The approved directories and applications are the boundary and never widen with a preset. The preset only decides how much a scoped conversation asks inside that boundary, so all three presets must stay distinguishable: collapsing two of them made one of the owner's choices silently do nothing.",
+  "resourceModesWhy": "The legacy grant mode seeds only the first permission policy for the task conversation. The conversation's own saved policy is authoritative afterward, so grant or global-default changes never overwrite a selection the owner made in the conversation.",
   "shellExecution": {
-    "_why": "Shell approval follows the conversation's current execution preset inside the immutable task resource scope. Injecting blanket command ask rules conflicts with the full-access preset and rejects even harmless commands before scoped automatic approval.",
+    "_why": "Friend conversations use the ordinary runtime policy instead of a task resource scope. The grant only seeds the first policy and adds initial writable roots. Default and automatic-review keep workspace-write; full access is the ordinary danger-full-access policy.",
     "injectedCommandAskRules": [],
-    "sandboxMode": "workspace-write",
+    "sandboxMode": "per-preset",
+    "taskResourceScope": null,
+    "sandboxModeByPreset": {
+      "default": "workspace-write",
+      "auto": "workspace-write",
+      "bypassPermissions": "danger-full-access"
+    },
     "presets": [
       { "preset": "default", "grantMode": "manual", "approvalPolicy": "on-request", "approvalsReviewer": "user" },
       { "preset": "auto", "grantMode": "auto-edit", "approvalPolicy": "on-request", "approvalsReviewer": "auto_review" },
@@ -57,8 +64,10 @@
   "replyRequiresCloudOriginRoute": true,
   "lostReceiptRecovery": "owner-routing-facts",
   "deletePolicy": "bilateral-revoke-retain-local-history",
-  "globalBypassExpandsScope": false,
-  "allowPrivateContextAutoload": false,
+  "globalBypassExpandsScope": true,
+  "globalBypassExpandsScopeWhy": "Full access is the same danger-full-access preset as an ordinary conversation, so it is not narrowed by the friend grant's directories. The grant's application selection and task-admission identity remain independent.",
+  "allowPrivateContextAutoload": true,
+  "allowPrivateContextAutoloadWhy": "A friend conversation uses the ordinary host context and tool loading path; the friend's message remains untrusted and is never permission authority.",
   "offlineQueue": "all-messages-durably-accepted-before-device-acknowledgement",
   "requestPermissionField": "allowIncomingAgentTasks",
   "mentionKind": "friend",
@@ -118,9 +127,9 @@
     "ownerConversationRequest": "ask-each-time-waits-for-owner-automatic-hands-to-klaus-when-free"
   },
   "friendPermissionModel": "one-grant-per-friend-per-device",
-  "sharedFriendSpace": "product-owned-root-with-one-subdirectory-per-friendship-always-readable-and-writable",
-  "executionTarget": "owner-chosen-at-approval-none-or-registered-project-or-workspace",
-  "targetlessSession": "friendship-folder-conversation",
+  "sharedFriendSpace": "friendship-subdirectory-only-without-exposing-the-parent-root",
+  "executionTarget": "owner-chosen-at-approval-none-or-registered-project-or-workspace-adds-initial-roots",
+  "targetlessSession": "friendship-subdirectory-conversation",
   "friendSidebarGrouping": "one-folder-per-friendship-keyed-by-friendship-id-named-by-remark-then-display-name",
   "friendNoticeSidebarGrouping": {
     "_why": "Display-only conversations belong to their sender's friendship without acquiring a task grant. Existing unlinked notice conversations recover their group from the first durable display record; replies routed into an owner's existing conversation retain that conversation's group.",

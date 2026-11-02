@@ -98,7 +98,7 @@ import { IpcRouter } from '../ipc/router';
 import { PushBroadcaster, RendererReadyLatch, pushEventName, pushPayload } from '../ipc/push';
 import { HOST_CHANNELS, WindowRoleRegistry, WebContentsPushTransport, handleWindowOp, attributeCaller, type WindowOp } from '../ipc/binding';
 import { acquireRuntimeInvoke } from '../ipc/runtime-dispatcher';
-import { FriendsService, FRIEND_TOOL_SPECS, FRIEND_TASK_TOOL_NAMES, FRIEND_TASK_ONLY_TOOL_NAMES, FRIEND_OWNER_WAIT_MS } from '../services/friends';
+import { FriendsService, FRIEND_TOOL_SPECS, FRIEND_TASK_ONLY_TOOL_NAMES, FRIEND_OWNER_WAIT_MS } from '../services/friends';
 import { friendSessionScope, forgetFriendSession } from '../services/friend-session-scope';
 import { registerFriendsHandlers } from '../ipc/handlers/friends';
 import { registerSessionHandlers } from '../ipc/handlers/sessions';
@@ -718,7 +718,6 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
       }
     },
     onActivated: async id => {
-      if (friendSessionScope(configRoot, id)) return;
       const catalog = state.skillCatalog(id), engineId = state.liveSession(id);
       if (!catalog || !engineId) return;
       const registration = await skillWatcher.subscribe([catalog.cwd, ...workspaces.extraRoots(id)]);
@@ -762,14 +761,14 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
       // never see them: the same tool name must not mean two filesystems.
       const remoteScoped = rendererId ? workspaces.remoteBinding(rendererId) : null;
       const scoped = gated.filter(spec => string(object(spec)?.name).startsWith('remote_') === (remoteScoped !== null));
-      // A scoped friend task gets only the tools that answer its requester or ask
-      // its owner; every other conversation lacks the task-only reply tools.
+      // Friend conversations use the ordinary host tool catalog. Only their
+      // task-only reply and access-request tools are added to it.
       return rendererId && friendSessionScope(configRoot, rendererId)
-        ? scoped.filter(spec => FRIEND_TASK_TOOL_NAMES.has(string(object(spec)?.name)))
+        ? scoped
         : scoped.filter(spec => !FRIEND_TASK_ONLY_TOOL_NAMES.has(string(object(spec)?.name)));
     },
     productContextNote: rendererId => [productContextNote(), runningSummaryContextNote(runningSummaryAvailable(desktopPet?.snapshot())),
-      !workspaces.remoteBinding(rendererId) && !friendSessionScope(configRoot, rendererId) ? workspaceDependencyNote() : '',
+      !workspaces.remoteBinding(rendererId) ? workspaceDependencyNote() : '',
     ].filter(Boolean).join('\n\n'),
     spawnOptions: () => ({
       command: engineExecutable,
@@ -826,9 +825,6 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
     pushChatEvents: list => chat.enqueue(list),
     hostCapabilitiesRevision: () => mcpRevision,
     hostCapabilities: async (id, cwd, configValues) => {
-      const friendScope = friendSessionScope(configRoot, id);
-      if (friendScope) return friendScope.active === true && friendScope.accountId === communicationAccount()?.userId && friendScope.grant?.computerUse
-        ? computerUse!.hostCapabilities(id) : { mcpServers: [], runtimeCapabilityRoots: [] };
       const values = configValues ?? await readHostConfiguration();
       const declarations = await mcp.resolvedServerSet(cwd, values, workspaces.extraRoots(id));
       await refreshDigramEnabled(values);

@@ -1,4 +1,4 @@
-import { classifyRuntimePolicy, decodeRuntimePolicy, presetRuntimePolicy, type RuntimePolicy } from '../../contracts/runtime-settings';
+import { presetRuntimePolicy, type RuntimePolicy } from '../../contracts/runtime-settings';
 import { withSettingsDb, withSettingsTransaction } from './settings';
 import type { DatabaseSync } from 'node:sqlite';
 import { friendExecutionPreset, type FriendExecutionPreset, type FriendTaskGrant } from '../../shared/friends';
@@ -124,29 +124,28 @@ export function deactivateAllFriendSessions(root: string): void {
   withSettingsTransaction(root, db => { db.exec(TASK_DDL); db.prepare('UPDATE friend_task_session_scopes SET active=0').run(); });
 }
 
-/** The execution permission a friend task runs with: the conversation's own
- *  preset, capped by the friendship boundary. The sandbox stays workspace-write
- *  no matter how permissive the preset is, because the granted scope — not the
- *  sandbox lift — is what confines a friend task; only the command network flag
- *  follows the grant. */
-export function friendTaskRuntimePolicy(scope: FriendSessionScope, preset: FriendExecutionPreset): RuntimePolicy {
-  return { ...presetRuntimePolicy(preset), sandboxMode: 'workspace-write', sandboxNetworkAllowed: scope.active === true && scope.grant?.network === true };
-}
-/** Reapply the conversation's own selected preset, not the grant that seeded it.
- *  The friendship still caps the filesystem and network even at full access. */
-export function friendTaskSessionRuntimePolicy(scope: FriendSessionScope, sessionId: string, configRoot: string): RuntimePolicy {
-  return friendTaskRuntimePolicy(scope, friendTaskSessionPreset(scope, sessionId, configRoot));
-}
-/** The selected preset remains distinguishable from the capped execution policy. */
-export function friendTaskSessionPreset(scope: FriendSessionScope, sessionId: string, configRoot: string): FriendExecutionPreset {
-  const saved = sessionRuntimePolicy(sessionId, configRoot);
-  const policy = saved ? decodeRuntimePolicy(saved.policy) : undefined;
-  return (policy ? classifyRuntimePolicy(policy) : undefined) ?? friendGrantPreset(scope);
-}
 /** The preset a stored grant asks for, read from its scope mode. */
 export function friendGrantPreset(scope: FriendSessionScope): FriendExecutionPreset {
   return friendExecutionPreset(scope.grant?.mode ?? 'manual');
 }
-export function friendTaskScopeMode(scope: FriendSessionScope | undefined): 'manual' | 'auto-edit' | 'scoped-auto' {
-  return scope?.active === true ? scope.grant?.mode ?? 'manual' : 'manual';
+
+/** The grant is only a seed for the conversation's first permission policy.
+ *  Workspace networking follows the grant's network switch; full access uses the
+ *  ordinary unrestricted policy. Once a policy row exists, the user's selection
+ *  is authoritative and later grant or global-default changes never rewrite it. */
+export function friendInitialRuntimePolicy(scope: FriendSessionScope): RuntimePolicy {
+  const policy = presetRuntimePolicy(friendGrantPreset(scope));
+  return policy.sandboxMode === 'workspace-write'
+    ? { ...policy, sandboxNetworkAllowed: scope.active === true && scope.grant?.network === true }
+    : policy;
+}
+
+/** Persist the grant-derived policy only when this conversation has none yet.
+ *  Returns the seed for the caller's init; an existing row wins and returns
+ *  undefined so normal policy resolution reads it. */
+export function friendPolicySeed(scope: FriendSessionScope, sessionId: string, configRoot: string): RuntimePolicy | undefined {
+  if (sessionRuntimePolicy(sessionId, configRoot)) return undefined;
+  const policy = friendInitialRuntimePolicy(scope);
+  sessionRuntimePolicy(sessionId, configRoot, { policy: { ...policy } });
+  return policy;
 }

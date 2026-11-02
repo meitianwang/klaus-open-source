@@ -21,7 +21,7 @@ import {
 import { type EngineRequest, type JsonObject, type ServicePush, object, string, errorMessage, SerialMutations } from './service-types';
 import { classifyRuntimePolicy, presetRuntimePolicy } from '../../contracts/runtime-settings';
 import { runtimePolicyForSession } from './runtime-policy';
-import { friendSessionScope, friendTaskSessionPreset, friendTaskSessionRuntimePolicy } from './friend-session-scope';
+import { friendPolicySeed, friendSessionScope } from './friend-session-scope';
 import type { RuntimePolicyProjection } from './windows-runtime-policy';
 
 export interface ComposerChange { kind: 'model' | 'thinking' | 'fast' | 'permission'; sessionId?: string }
@@ -496,9 +496,9 @@ export class ComposerService {
     const values = await this.engine.resolved(sessionId ? await this.deps.sessionCwd?.(sessionId) : undefined);
     const configured = runtimePolicyForSession('', values, this.configRoot);
     const friendScope = sessionId ? friendSessionScope(this.configRoot, sessionId) : undefined;
-    const friendPreset = friendScope ? friendTaskSessionPreset(friendScope, sessionId, this.configRoot) : undefined;
-    const { policy } = friendScope ? { policy: friendTaskSessionRuntimePolicy(friendScope, sessionId, this.configRoot) }
-      : runtimePolicyForSession(sessionId, values, this.configRoot), preset = friendPreset ?? classifyRuntimePolicy(policy);
+    const seed = friendScope ? friendPolicySeed(friendScope, sessionId, this.configRoot) : undefined;
+    const { policy } = runtimePolicyForSession(sessionId, values, this.configRoot, seed);
+    const preset = classifyRuntimePolicy(policy);
     const mode = preset;
     const effective = this.deps.runtimePolicyProjection?.applies(sessionId)
       ? await this.deps.runtimePolicyProjection.project(sessionId, policy) : { policy };
@@ -512,8 +512,8 @@ export class ComposerService {
       if (sessionId) {
         const values = await this.engine.resolved(await this.deps.sessionCwd?.(sessionId));
         const friendScope = friendSessionScope(this.configRoot, sessionId);
-        const current = friendScope ? { policy: friendTaskSessionRuntimePolicy(friendScope, sessionId, this.configRoot) }
-          : runtimePolicyForSession(sessionId, values, this.configRoot);
+        const seed = friendScope ? friendPolicySeed(friendScope, sessionId, this.configRoot) : undefined;
+        const current = runtimePolicyForSession(sessionId, values, this.configRoot, seed);
         const policy = presetRuntimePolicy(mode as import('../../contracts/runtime-settings').PermissionPreset, current.policy);
         const selection = applySessionRuntimePolicy(sessionId, { policy: { ...policy } }, this.configRoot);
         try { await this.deps.onSessionConfigChanged({ kind: 'permission', sessionId }); }

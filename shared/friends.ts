@@ -61,17 +61,17 @@ export interface FriendMessage {
 export type FriendTaskPolicy = 'approve' | 'auto' | 'reject';
 /** Where an authorized friend task conversation runs on the receiving computer.
  *  `none` keeps it an ordinary projectless conversation; a project or workspace
- *  target binds the conversation to that container and widens the granted scope
- *  with the target's roots. Absent on stored rows written before the choice
- *  existed; those behave as `none`. */
+ *  target binds the conversation to that container and adds the target's roots
+ *  to its initial writable roots. Absent on stored rows written before the
+ *  choice existed; those behave as `none`. */
 export type FriendTaskTarget =
   | { kind: 'none' }
   | { kind: 'project'; root: string }
   | { kind: 'workspace'; id: string };
-/** The execution permission a friend task runs with, expressed as the same
- *  three presets an ordinary conversation offers: ask for everything, approve
- *  low-risk work automatically, or approve nothing inside the granted scope.
- *  It is stored on the grant as the engine's task-resource scope mode. */
+/** The initial execution permission for a friend task conversation. It is the
+ *  same three-preset policy an ordinary conversation offers; after it seeds the
+ *  conversation's own policy row, later grant changes do not overwrite that
+ *  choice. The stored grant mode remains as the seed for legacy and new rows. */
 export type FriendExecutionPreset = 'default' | 'auto' | 'bypassPermissions';
 export const FRIEND_EXECUTION_PRESETS: FriendExecutionPreset[] = ['default', 'auto', 'bypassPermissions'];
 export function friendExecutionPreset(mode: FriendTaskGrant['mode']): FriendExecutionPreset {

@@ -3,7 +3,6 @@ import type { ModelUpdateOrigin } from './model-updates';
 import type { Json } from '../ipc/contract';
 import type { HostState } from '../services/host-state';
 import type { ComposerChange } from '../services/composer';
-import { friendSessionScope, friendTaskSessionRuntimePolicy } from '../services/friend-session-scope';
 import { SIDEBAR_UI_STATE_KEYS } from '../../contracts/sidebar-collapse';
 import { FEATURE_ONBOARDING_UI_STATE_KEYS } from '../../contracts/feature-onboarding';
 import { RUNTIME_POLICY_SETTING_KEYS, resolveWebSearchAccess, sandboxWorkspaceWrite, type RuntimeConfigScope } from '../../contracts/runtime-settings';
@@ -185,21 +184,12 @@ export class SessionConfiguration {
     for (const binding of this.deps.state.bindings()) {
       if (sessionId !== undefined && binding.rendererId !== sessionId) continue;
       if (!this.matchesScope(binding.rendererId, scope)) continue;
-      if (this.deps.isUnattended?.(binding.rendererId)) continue;
       // Publish the admitting conversation's frozen policy and resource scope together.
       try {
         // Search freshness may be implicit even when the conversation pins its
         // permission preset, so both publications need the current raw intent.
         const values = await this.resolvedSettings(binding.rendererId);
-        const friendScope = friendSessionScope(this.deps.configRoot, binding.rendererId);
-        const restricted = Boolean(friendScope);
-        // A friend conversation keeps its preset in its own policy row like any
-        // other conversation; the grant caps the sandbox and the scope, not the
-        // preset, so the row — not the grant and not the global default — answers
-        // what was picked here. Sessions started before the row existed fall back
-        // to the grant so an old conversation never inherits a stranger's preset.
-        const override = restricted ? friendTaskSessionRuntimePolicy(friendScope!, binding.rendererId, this.deps.configRoot) : undefined;
-        const requested = runtimePolicyForSession(binding.rendererId, values, this.deps.configRoot, override, false);
+        const requested = runtimePolicyForSession(binding.rendererId, values, this.deps.configRoot, undefined, false);
         const effective = this.deps.runtimePolicyProjection?.applies(binding.rendererId)
           ? await this.deps.runtimePolicyProjection.project(binding.rendererId, requested.policy) : { policy: requested.policy };
         const { policy } = effective;
@@ -211,19 +201,16 @@ export class SessionConfiguration {
           ...(workspace ? { sandboxWorkspaceWrite: workspace } : {}),
         });
         if (workspace) this.deps.state.applyWorkspaceSettings(binding.rendererId, binding.engineId, workspace);
-        if (!restricted) {
-          if (this.deps.updateRuntimeConfig) {
-            await this.deps.updateRuntimeConfig(binding.rendererId, { webSearchAccess: resolveWebSearchAccess(values, policy.sandboxMode) });
-          } else this.deps.state.markStale(binding.rendererId);
-        }
+        if (this.deps.updateRuntimeConfig) {
+          await this.deps.updateRuntimeConfig(binding.rendererId, { webSearchAccess: resolveWebSearchAccess(values, policy.sandboxMode) });
+        } else this.deps.state.markStale(binding.rendererId);
         // Prompting off makes the engine answer its own parked approvals without telling
         // the host, so the card would stay open waiting for a reply nobody reads. Only a
         // publication that actually reached bypass settles them: a failed one leaves the
         // engine still asking, and Plan keeps asking by definition.
         if (policy.approvalPolicy === 'never') await this.deps.settleBypassedApprovals?.(binding.rendererId);
-        // The engine re-reads the live approval policy on every decision inside a
-        // task scope, so the publication above retunes a scoped conversation in
-        // place; a preset picked here takes effect without rebuilding the session.
+        // The engine re-reads the live approval policy on every decision, so the
+        // publication above retunes a conversation in place.
       } catch (error) {
         this.deps.state.markStale(binding.rendererId);
         this.deps.log('live-policy-failed', error instanceof Error ? error.message : String(error));

@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
-import { tmpdir, homedir } from 'node:os';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Json } from '../main/ipc/contract';
 import { IpcHandlerError } from '../main/ipc/registry';
 import { MobileError } from '../main/services/mobile/protocol';
-import { FriendsService, FRIEND_TOOL_SPECS, FRIEND_TASK_TOOL_NAMES, type FriendsDeps } from '../main/services/friends';
+import { FriendsService, FRIEND_TOOL_SPECS, type FriendsDeps } from '../main/services/friends';
 import { FriendMessageStore } from '../main/services/friend-message-store';
 import { FriendTaskStore } from '../main/services/friend-task-store';
 import { WorkspaceStore } from '../main/services/workspaces';
@@ -17,7 +17,6 @@ import type { MobileAccount } from '../main/services/mobile/protocol';
 import { object, type JsonObject } from '../main/services/service-types';
 import { SessionConfiguration } from '../main/sessions/configuration';
 import { friendScratchFriendshipId } from '../main/services/friend-directory';
-import { friendTaskScopeMode } from '../main/services/friend-session-scope';
 import { setSessionPermissionPreset } from '../main/services/session-store';
 import { HostState } from '../main/services/host-state';
 import { kvGet, kvSet, withSettingsDb } from '../main/services/settings';
@@ -127,10 +126,10 @@ h.test('committed vectors pin v3 requests, scoped execution, designated receiver
   assert.equal(vector.offlineQueue, 'all-messages-durably-accepted-before-device-acknowledgement');
   assert.deepEqual(vector.taskPolicy, ['approve', 'auto', 'reject']); assert.equal(vector.taskPolicyDefault, 'approve');
   assert.equal(vector.friendPermissionModel, 'one-grant-per-friend-per-device'); assert.equal(vector.chatContinuity, 'one-conversation-per-friend-and-originating-conversation-while-the-approved-location-matches');
-  assert.equal(vector.sharedFriendSpace, 'product-owned-root-with-one-subdirectory-per-friendship-always-readable-and-writable');
-  assert.equal(vector.executionTarget, 'owner-chosen-at-approval-none-or-registered-project-or-workspace'); assert.equal(vector.targetlessSession, 'friendship-folder-conversation');
+  assert.equal(vector.sharedFriendSpace, 'friendship-subdirectory-only-without-exposing-the-parent-root');
+  assert.equal(vector.executionTarget, 'owner-chosen-at-approval-none-or-registered-project-or-workspace-adds-initial-roots'); assert.equal(vector.targetlessSession, 'friendship-subdirectory-conversation');
   assert.equal(vector.friendSidebarGrouping, 'one-folder-per-friendship-keyed-by-friendship-id-named-by-remark-then-display-name');
-  assert.equal(vector.pendingStartsModel, false); assert.equal(vector.globalBypassExpandsScope, false); assert.equal(vector.resourcePermissionDefault, false);
+  assert.equal(vector.pendingStartsModel, false); assert.equal(vector.globalBypassExpandsScope, true); assert.equal(vector.resourcePermissionDefault, false);
   assert.deepEqual(vector.resourceModes, ['manual', 'auto-edit', 'scoped-auto']);
   assert.deepEqual(vector.pendingTaskNotice.noticeFields, ['sender', 'prompt', 'friendTaskId']);
   assert.equal(vector.pendingTaskNotice.clickAction, 'deep-link:friend-task'); assert.equal(vector.pendingTaskNotice.groupEncoding, 'friend-task:<taskId>');
@@ -232,7 +231,7 @@ h.test('owner approval scopes each task, and one source conversation keeps one c
     kvSet('composer.permission_mode', 'bypassPermissions', f.root);
     const first = await f.service.receive(f.incoming(), freshSignal());
     await f.service.approve({ taskId: first.taskId, grant: f.grant() as unknown as Json }); await reached(f, first.taskId, 'running');
-    assert.equal(f.created.length, 1); assert.equal(object(f.created[0]!.runtimePolicyOverride).sandboxMode, 'workspace-write');
+    assert.equal(f.created.length, 1); assert.equal(f.created[0]!.runtimePolicyOverride, undefined, 'The grant seeds the session policy instead of overriding it from the host');
     const scope = friendSessionScope(f.root, f.turns[0]!.id)!; assert.equal(scope.active, true); assert.equal(scope.taskId, first.taskId); assert.deepEqual(scope.grant!.directories, f.grant().directories); assert.equal(scope.grant!.network, false);
     assert(String(f.turns[0]!.payload.text).includes('external untrusted content')); assert(String(f.turns[0]!.payload.text).includes(join(f.resources, 'write')));
     // The bubble, copy and title follow the display snapshot; the envelope stays model-facing.
@@ -252,7 +251,7 @@ h.test('owner approval scopes each task, and one source conversation keeps one c
     // A different originating conversation gets its own chat.
     const third = await f.service.receive(f.incoming({ requestId: 'third-request', sourceThreadId: 'another-source-thread' }), freshSignal());
     await f.service.approve({ taskId: third.taskId, grant: f.grant() as unknown as Json }); await reached(f, third.taskId, 'running');
-    assert.equal(f.created.length, 2); assert.notEqual(f.turns[2]!.id, f.turns[0]!.id); assert.equal(object(f.created[1]!.runtimePolicyOverride).sandboxMode, 'workspace-write');
+    assert.equal(f.created.length, 2); assert.notEqual(f.turns[2]!.id, f.turns[0]!.id); assert.equal(f.created[1]!.runtimePolicyOverride, undefined, 'A later task keeps the same ordinary session initialization');
     await f.answer(2, 'Third result'); await reached(f, third.taskId, 'completed');
     // Completed chats are kept for continuation; their scopes are only deactivated.
     assert.equal(f.retired.length, 0, 'a finished chat is not retired');
@@ -644,24 +643,27 @@ h.test('missing or substituted owner route facts cannot restore an outgoing repl
     assert.equal(f.calls.filter(row => row.body.type === 'delivery-route').length, 0); assert.equal(f.delivered.length, 0);
   } finally { await f.close(); }
 });
-h.test('grant validation uses real directories, protected roots, device identity, installed applications and valid modes', async () => {
+h.test('grant validation uses real directories, device identity, installed applications and valid modes', async () => {
   const f = fixture(); const apps = async () => ({ available: true, apps: [{ id: 'fixture.editor', name: 'Editor' }] });
   try {
-    const valid = await validateFriendGrant(f.grant({ computerUse: true, apps: ['fixture.editor'], directories: [{ path: join(f.resources, 'read'), access: 'read' }, { path: join(f.resources, 'read'), access: 'write' }] }), LOCAL, f.root, apps);
-    assert.deepEqual(valid.directories, [{ path: join(f.resources, 'read'), access: 'write' }]); assert.deepEqual(valid.apps, ['fixture.editor']);
+    const valid = await validateFriendGrant(f.grant({ computerUse: true, apps: ['fixture.editor'], directories: [{ path: join(f.resources, 'read'), access: 'read' }, { path: join(f.resources, 'read'), access: 'write' }, { path: f.root, access: 'read' }] }), LOCAL, f.root, apps);
+    assert.deepEqual(valid.directories, [{ path: join(f.resources, 'read'), access: 'write' }, { path: f.root, access: 'read' }], 'The owner may seed an initial writable root anywhere, including the profile directory'); assert.deepEqual(valid.apps, ['fixture.editor']);
     writeFileSync(join(f.resources, 'file'), 'file');
-    const invalid: unknown[] = [f.grant({ deviceId: 'other' }), f.grant({ mode: 'bypassPermissions' as FriendTaskGrant['mode'] }), f.grant({ computerUse: true, apps: ['unknown'] }), f.grant({ apps: ['fixture.editor'] }), f.grant({ directories: [{ path: f.root, access: 'read' }] }), f.grant({ directories: [{ path: f.parent, access: 'write' }] }), f.grant({ directories: [{ path: homedir(), access: 'read' }] }), f.grant({ directories: [{ path: join(f.resources, 'file'), access: 'read' }] }), { ...f.grant(), allowCredentials: true }];
+    const invalid: unknown[] = [f.grant({ deviceId: 'other' }), f.grant({ mode: 'bypassPermissions' as FriendTaskGrant['mode'] }), f.grant({ computerUse: true, apps: ['unknown'] }), f.grant({ apps: ['fixture.editor'] }), f.grant({ directories: [{ path: join(f.resources, 'file'), access: 'read' }] }), { ...f.grant(), allowCredentials: true }];
     for (const input of invalid) await assert.rejects(validateFriendGrant(input, LOCAL, f.root, apps));
     await assert.rejects(validateFriendGrant(f.grant({ computerUse: true, apps: ['fixture.editor'] }), LOCAL, f.root, async () => ({ available: false, apps: [] })));
     const stored = await validateFriendGrant(f.grant(), LOCAL, f.root, apps); renameSync(join(f.resources, 'read'), join(f.resources, 'old-read')); symlinkSync(join(f.resources, 'write'), join(f.resources, 'read'), 'dir'); await assert.rejects(revalidateFriendGrant(stored, LOCAL, f.root, apps), /changed identity/u);
   } finally { await f.close(); }
 });
-h.test('global bypass presets cannot elevate an approved auto-edit task or a revoked task scope', async () => {
+h.test('a friend conversation keeps its frozen preset when the global default changes', async () => {
   const f = fixture(); try {
-    const task = await f.service.receive(f.incoming(), freshSignal()); await f.service.approve({ taskId: task.taskId, grant: f.grant() as unknown as Json }); await reached(f, task.taskId, 'running'); kvSet('composer.permission_mode', 'bypassPermissions', f.root);
-    const requests: Array<{ method: string; params: JsonObject }> = []; const scopedId = f.turns[0]!.id;
+    const task = await f.service.receive(f.incoming(), freshSignal()); await f.service.approve({ taskId: task.taskId, grant: f.grant() as unknown as Json }); await reached(f, task.taskId, 'running');
+    const scopedId = f.turns[0]!.id;
+    setSessionPermissionPreset(scopedId, 'auto', f.root);
+    kvSet('composer.permission_mode', 'bypassPermissions', f.root);
+    const requests: Array<{ method: string; params: JsonObject }> = [];
     const state = new HostState(); state.rememberSession(scopedId, 'friend-engine', {}); state.rememberSession('ordinary', 'ordinary-engine', {});
-    const configuration = new SessionConfiguration({ state, configRoot: f.root, log: () => {}, request: async (method, params) => {
+    const configuration = new SessionConfiguration({ state, configRoot: f.root, isUnattended: id => id === scopedId, log: () => {}, request: async (method, params) => {
       if (method === 'config/read') { assert.deepEqual(params, {}); return { resolved: {} }; }
       requests.push({ method, params: params as JsonObject }); return { ok: true };
     }, refreshModelTiers: async () => {} });
@@ -673,6 +675,7 @@ h.test('a scoped conversation retunes live on a preset change and keeps its own 
   const f = fixture(); try {
     const task = await f.service.receive(f.incoming(), freshSignal()); await f.service.approve({ taskId: task.taskId, grant: f.grant() as unknown as Json }); await reached(f, task.taskId, 'running');
     const scopedId = f.turns[0]!.id;
+    setSessionPermissionPreset(scopedId, 'auto', f.root);
     const state = new HostState(); state.rememberSession(scopedId, 'friend-engine', {}); state.rememberSession('ordinary', 'ordinary-engine', {});
     const requests: Array<{ method: string; params: JsonObject }> = [];
     const updates: Array<{ sessionId: string; update: Record<string, Json> }> = [];
@@ -682,26 +685,17 @@ h.test('a scoped conversation retunes live on a preset change and keeps its own 
     }, refreshModelTiers: async () => {}, updateRuntimeConfig: async (sessionId, update) => { updates.push({ sessionId, update }); } });
     kvSet('composer.permission_mode', 'bypassPermissions', f.root);
     await configuration.composerChanged({ kind: 'permission' });
-    // The friend conversation's preset lives in its own policy row (frozen from the
-    // grant at start, or inherited from the grant when no row exists yet), so a
-    // global default change cannot retune it. The engine re-reads the live policy
-    // inside the task scope, so neither conversation needs a rebuild.
+    // The friend conversation's preset lives in its own policy row (seeded from
+    // the grant at session init), so a global default change cannot retune it.
+    // The engine re-reads the live policy, so neither conversation needs a rebuild.
     assert.equal(state.isStale(scopedId), false); assert.equal(state.isStale('ordinary'), false);
     const scopedPush = requests.find(row => row.params.sessionId === 'friend-engine');
     assert.equal(scopedPush?.params.sandboxMode, 'workspace-write', 'the friendship sandbox cap survives any preset');
     assert.equal(scopedPush?.params.approvalsReviewer, 'auto_review', 'the grant preset, not the global default, drives the scoped push');
-    assert.deepEqual(updates, [{ sessionId: 'ordinary', update: { webSearchAccess: 'cached' } }]);
-  } finally { await f.close(); }
-});
-
-h.test('task execution intent belongs to the active grant', async () => {
-  const f = fixture(); try {
-    for (const mode of ['manual', 'auto-edit', 'scoped-auto'] as const) {
-      const scope = { accountId: 'owner', friendshipId: 'friend', friendUserId: 'peer', active: true, grant: f.grant({ mode }) };
-      assert.equal(friendTaskScopeMode(scope), mode);
-      assert.equal(friendTaskScopeMode({ ...scope, active: false }), 'manual');
-    }
-    assert.equal(friendTaskScopeMode(undefined), 'manual');
+    assert.deepEqual(updates, [
+      { sessionId: 'approved-session-1', update: { webSearchAccess: 'cached' } },
+      { sessionId: 'ordinary', update: { webSearchAccess: 'cached' } },
+    ], 'both conversations receive ordinary search publication while the friend keeps its frozen preset');
   } finally { await f.close(); }
 });
 
@@ -862,7 +856,6 @@ h.test('the final answer stays with the owner; the friend receives only what rep
 h.test('Klaus has no progress tool; only reply_to_friend completes a request', async () => {
   const f = fixture(); try {
     assert(!FRIEND_TOOL_SPECS.some(spec => spec.name === 'send_friend_progress'));
-    assert(!FRIEND_TASK_TOOL_NAMES.has('send_friend_progress'));
     const task = await f.service.receive(f.incoming(), freshSignal());
     await f.service.approve({ taskId: task.taskId, grant: f.grant() as unknown as Json }); await reached(f, task.taskId, 'running');
     await assert.rejects(f.tool(f.turns[0]!.id, 'send_friend_progress', { prompt: 'Halfway there' }), /Unknown friend tool/u);
@@ -1266,12 +1259,13 @@ h.test('a declined directory request lets the parked turn continue without it', 
     await f.answer(0, 'Continued without it'); await reached(f, admitted.taskId, 'completed');
   } finally { await f.close(); }
 });
-h.test('credential directories cannot enter a friend task through a runtime request', async () => {
+h.test('a directory request still rejects a file path instead of adding it to the grant', async () => {
   const f = fixture(); try {
     const admitted = await f.service.receive(f.incoming(), freshSignal());
     await f.service.approve({ taskId: admitted.taskId, grant: f.grant() as unknown as Json }); await reached(f, admitted.taskId, 'running');
     const session = f.turns[0]!.id;
-    await assert.rejects(f.service.execute('request_directory_access', { path: join(homedir(), '.ssh') }, { sessionId: session, unattended: false, signal: freshSignal(), assertCurrent() {} }, 'call-4'), /cannot include application credentials/);
+    writeFileSync(join(f.resources, 'file'), 'file');
+    await assert.rejects(f.service.execute('request_directory_access', { path: join(f.resources, 'file') }, { sessionId: session, unattended: false, signal: freshSignal(), assertCurrent() {} }, 'call-4'), /must name a directory/);
     await f.answer(0, 'done'); await reached(f, admitted.taskId, 'completed');
   } finally { await f.close(); }
 });

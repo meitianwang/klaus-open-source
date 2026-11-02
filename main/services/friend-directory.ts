@@ -26,13 +26,12 @@ export function ensureFriendFilesDir(configRoot: string, friendshipId: string): 
 }
 
 /**
- * The roots a friend task session may always read and write, on top of whatever the
- * owner granted: the shared space itself plus this friendship's subdirectory. Kept
- * separate from the stored grant so revoking an owner-added directory never removes
- * the product directory, and a stored grant never has to name it.
+ * The product-owned root a friend task conversation starts in. Only this
+ * friendship's subdirectory is exposed; the parent directory contains other
+ * friendships and must never be part of a conversation's roots.
  */
 export function friendFilesRoots(configRoot: string, friendshipId: string): string[] {
-  return [friendFilesRoot(configRoot), friendFilesDir(configRoot, friendshipId)];
+  return [friendFilesDir(configRoot, friendshipId)];
 }
 
 /** Whether a conversation workdir is the product-owned friendship scratch space

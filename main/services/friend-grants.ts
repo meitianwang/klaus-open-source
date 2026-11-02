@@ -1,14 +1,9 @@
 import { realpath, stat } from 'node:fs/promises';
-import { homedir } from 'node:os';
-import { isAbsolute, relative, resolve } from 'node:path';
+import { isAbsolute } from 'node:path';
 import type { FriendTaskGrant, FriendAppsSnapshot, FriendExecutionTargets } from '../../shared/friends';
 import { IpcHandlerError } from '../ipc/registry';
 
 function invalid(message: string): never { throw new IpcHandlerError('INVALID_FRIEND_GRANT', message); }
-function contains(root: string, path: string): boolean {
-  const inside = relative(root, path);
-  return inside === '' || !inside.startsWith('..') && !isAbsolute(inside);
-}
 /** The execution location a grant names must exist in this computer's registry:
  *  a stale or invented project/workspace must never bind a friend conversation. */
 function validateTarget(value: unknown, targets: FriendExecutionTargets | null | undefined): FriendTaskGrant['target'] {
@@ -42,8 +37,6 @@ export async function validateFriendGrant(value: unknown, deviceId: string, conf
   if (input.policy !== undefined && !['approve', 'auto', 'reject'].includes(String(input.policy))) return invalid('Choose a valid task policy');
   if (typeof input.computerUse !== 'boolean' || typeof input.remember !== 'boolean' || input.network !== undefined && typeof input.network !== 'boolean') return invalid('The permission choices are invalid');
   if (!Array.isArray(input.directories) || input.directories.length > 32 || !Array.isArray(input.apps) || input.apps.length > 64) return invalid('The resource list is too large');
-  const protectedPaths = [resolve(configRoot), ...['.ssh', '.gnupg', '.aws', '.azure', '.kube', '.config/gcloud'].map(name => resolve(homedir(), name))];
-  const protectedRoots = await Promise.all(protectedPaths.map(path => realpath(path).catch(() => path)));
   const directories = new Map<string, 'read' | 'write'>();
   for (const raw of input.directories) {
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return invalid('A directory permission is invalid');
@@ -53,7 +46,6 @@ export async function validateFriendGrant(value: unknown, deviceId: string, conf
     // Check every saved root before deduplication can merge a changed alias into another grant.
     if (pinnedRoots && path !== row.path) return invalid('A saved directory changed identity; authorize its current location again');
     if (!(await stat(path)).isDirectory()) return invalid('A resource grant must name a directory');
-    if (protectedRoots.some(secret => contains(path, secret) || contains(secret, path))) return invalid('The grant cannot include application credentials or private account storage');
     const access = row.access as 'read' | 'write';
     if (directories.get(path) !== 'write') directories.set(path, access);
   }
