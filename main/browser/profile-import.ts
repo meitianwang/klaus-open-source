@@ -587,9 +587,12 @@ async function readCookies(
           },
         });
       } catch (error) {
+        if (dependencies.signal?.aborted || (error instanceof BrowserImportDecryptError && error.code === 'cancelled')) {
+          throw new ImportAbortedError();
+        }
         decryptionFailures += 1;
-        if (error instanceof BrowserImportDecryptError && error.code === 'app_bound_encryption_unsupported') {
-          errors.add('cookies', 'app_bound_encryption_unsupported', 'The host cannot decrypt app-bound cookies on this platform.');
+        if (error instanceof BrowserImportDecryptError && error.code !== 'decryption_failed') {
+          errors.add('cookies', error.code, 'The browser decryptor rejected a cookie value.');
         }
         continue;
       }
@@ -672,9 +675,12 @@ async function readPasswords(
       });
       passwords.push({ originUrl, username, password });
     } catch (error) {
+      if (dependencies.signal?.aborted || (error instanceof BrowserImportDecryptError && error.code === 'cancelled')) {
+        throw new ImportAbortedError();
+      }
       decryptionFailures += 1;
-      if (error instanceof BrowserImportDecryptError && error.code === 'app_bound_encryption_unsupported') {
-        errors.add('passwords', 'app_bound_encryption_unsupported', 'The host cannot decrypt app-bound saved passwords on this platform.');
+      if (error instanceof BrowserImportDecryptError && error.code !== 'decryption_failed') {
+        errors.add('passwords', error.code, 'The browser decryptor rejected a saved password.');
       }
     }
   }
