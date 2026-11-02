@@ -92,7 +92,18 @@ async function run() {
   }
   if (process.env.PPT_CAPTURE === '1') {
     const active = [...service.editors.values()].find(entry => entry.id === id);
-    const image = await active.view.webContents.capturePage(); writeFileSync(join(logs, 'editor.png'), image.toPNG());
+    const content = active.view.webContents.mainFrame.frames.find(frame => frame.url.includes('.ppt-content/_f/') && !frame.url.includes('__frame_renew=1'));
+    await content.executeJavaScript('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
+    let image;
+    const captureDeadline = Date.now() + 5000;
+    while (!image) {
+      try { image = await active.view.webContents.capturePage(); }
+      catch (error) {
+        if (error.message !== 'UnknownVizError' || Date.now() >= captureDeadline) throw error;
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+    }
+    writeFileSync(join(logs, 'editor.png'), image.toPNG());
   }
   console.log(process.env.PPT_EXTENDED === '1' ? `PPT native editor: ${process.env.PPT_EDIT_ONLY === '1' ? 'PPTX' : 'all formats'}, ownership, concurrent exports, editing, undo/redo, automatic save, live updates and reopening passed.` : 'PPT native editor rendered two slides and exported an OOXML presentation.');
 }

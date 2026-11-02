@@ -23,6 +23,29 @@ class Port extends EventEmitter {
   postMessage(value: unknown): void { this.sent.push(value); }
   close(): void { this.emit('close'); }
 }
+function decodeEditorMatch(literal: string): string {
+  const body = literal.slice(1, -1);
+  return body.replace(/\\(?:u\{([0-9a-fA-F]+)\}|u([0-9a-fA-F]{4})|x([0-9a-fA-F]{2})|([nrt"'\\]))/g, (_match: string, codePoint?: string, unicode?: string, hex?: string, escaped?: string) => {
+    if (codePoint) return String.fromCodePoint(parseInt(codePoint, 16));
+    if (unicode) return String.fromCharCode(parseInt(unicode, 16));
+    if (hex) return String.fromCharCode(parseInt(hex, 16));
+    return escaped === 'n' ? '\n' : escaped === 'r' ? '\r' : escaped === 't' ? '\t' : escaped ?? '';
+  });
+}
+function encodeLocalizedLiteral(value: string, quote: string): string {
+  let escaped = '';
+  for (const ch of value) {
+    if (ch === '\\') escaped += '\\\\';
+    else if (ch === quote) escaped += `\\${quote}`;
+    else if (ch === '\n') escaped += '\\n';
+    else if (ch === '\r') escaped += '\\r';
+    else if (ch === '\t') escaped += '\\t';
+    else if (ch === '\u2028') escaped += '\\u2028';
+    else if (ch === '\u2029') escaped += '\\u2029';
+    else escaped += ch;
+  }
+  return `${quote}${escaped}${quote}`;
+}
 void (async () => {
   try {
     let boot: any;
@@ -39,6 +62,8 @@ void (async () => {
       assert(shell.includes(`data-frame-uuid="${doc.id}"`) && shell.includes('frame-shell'));
       const content = await (await page('/_f/v1/index.html')).text();
       assert(content.includes('__FRAME_PREAMBLE') && content.includes('artifact-type/app.js'));
+      const contentCsp = (await page('/_f/v1/index.html')).headers.get('content-security-policy') ?? '';
+      assert(contentCsp.includes("media-src 'self' blob: data:"), 'content CSP allows local uploaded media');
       const kernel = await page('/_runtime/kernel.DmOuV5QR.js'); assertEqual(kernel.status, 200);
       const redirect = await page('/_t?v=v1'); assertEqual(redirect.status, 302);
       assert(redirect.headers.get('location')?.startsWith('/_f/v1/index.html'));
@@ -108,14 +133,29 @@ void (async () => {
       assert(Object.keys(await catalog.json() as Record<string, string>).length > 1000);
       assertEqual((await zhPage('/i18n/frame-shell/nope.json', true)).status, 404);
       assertEqual((await zhPage('/i18n/frame-shell/../runtime-manifest.json', true)).status, 404);
-      const entries = JSON.parse(readFileSync(join(plugin, 'i18n/editor/zh-Hans.json'), 'utf8')) as { match: string; zh: string }[];
-      assert(entries.length > 100);
-      const sample = entries[0]!;
-      const editor = await (await zhPage('/_f/v1/artifact-type/app.js')).text();
-      assert(editor.includes(sample.zh) && !editor.includes(sample.match));
       const english = await (await page('/_f/v1/artifact-type/app.js')).text();
       assertEqual(english, readFileSync(join(plugin, 'runtime/dist/artifact-type/app.js'), 'utf8'));
-      assert(english.includes(sample.match) && !english.includes(sample.zh));
+      const entries = JSON.parse(readFileSync(join(plugin, 'i18n/editor/zh-Hans.json'), 'utf8')) as { match: string; zh: string }[];
+      assert(entries.length > 100);
+      const semanticSamples = [
+        'This presentation has no slides yet. Add one, or let Klaus add some.',
+        'No speaker notes in this presentation yet—add them under a slide (Speaker notes, by the thumbnails)',
+      ].map(display => {
+        const sample = entries.find(candidate => typeof candidate.match === 'string'
+          && decodeEditorMatch(candidate.match).includes(display)
+          && english.includes(candidate.match));
+        assert(sample, `the editor catalog has the stable UI sentence: ${display}`);
+        return sample;
+      });
+      const editor = await (await zhPage('/_f/v1/artifact-type/app.js')).text();
+      for (const sample of semanticSamples) {
+        const quote = sample.match[0]!;
+        assert(quote === '"' || quote === "'", `the catalog sample is a quoted JS literal: ${sample.match}`);
+        const localized = encodeLocalizedLiteral(sample.zh, quote);
+        assert(editor.includes(localized), `the localized bundle has the encoded literal for ${JSON.stringify(sample.match)}`);
+        assert(!editor.includes(sample.match), `the English source literal was replaced for ${JSON.stringify(sample.match)}`);
+        assert(!english.includes(localized), `the English bundle does not contain the localized literal for ${JSON.stringify(sample.match)}`);
+      }
       const index = await (await zhPage('/_f/v1/index.html')).text();
       assert(index.includes('<html lang="zh-Hans"'));
     });

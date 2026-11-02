@@ -5,6 +5,12 @@ const vectors = require('../contracts/vectors/presentation-editor-vectors.json')
 async function assertServiceBoundaries(service, window, id, log) {
   const current = await service.call('fixture', 'ppt_inspect', { id });
   assert.equal(current.isError, undefined);
+  assert(service.toolSpecs().some(tool => tool.name === 'ppt_import_asset'));
+  const diagnostics = await service.call('fixture', 'ppt_inspect', { id, diagnostics: true });
+  assert.equal(diagnostics.isError, undefined);
+  assert.equal(diagnostics.structuredContent.diagnostics.saved, true);
+  assert(Array.isArray(diagnostics.structuredContent.diagnostics.files));
+  assert(Array.isArray(diagnostics.structuredContent.diagnostics.assets));
   for (const channel of vectors.nativeChannels) await assert.rejects(service.invoke({ channel, args: [{}], role: 'main', senderId: window.webContents.id }));
   for (const channel of vectors.mainChannels) await assert.rejects(service.invoke({ channel, args: [{ sessionId: 'fixture', id }], role: 'ppt', senderId: window.webContents.id }));
   const foreign = await service.call('other-fixture', 'ppt_inspect', { id });

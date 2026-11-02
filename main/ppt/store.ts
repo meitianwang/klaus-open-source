@@ -21,6 +21,16 @@ export interface PptDocument { id: string; owner: string; title: string; version
 export interface PptFile { path: string; sha256: string; size: number; contentType: string }
 export interface PptPublish { baseVersion?: string; writes: { path: string; bytes: Uint8Array; contentType?: string }[]; remove?: string[]; ifMatch?: Record<string, string | null> }
 export interface PptPublishResult { version: string; seq: number; shas: Record<string, string>; changed: { path: string; sha256: string | null }[]; unchanged?: boolean }
+export interface PptAuthoringIssue { path?: string; line?: number; col?: number; message: string; severity?: string }
+export interface PptValidationRecord {
+  version: string;
+  contentHash?: string;
+  shas: Record<string, string>;
+  errors: PptAuthoringIssue[];
+  warnings: PptAuthoringIssue[];
+  slides?: unknown;
+  at: string;
+}
 interface FileEntry { sha256: string; size: number; contentType: string }
 interface AssetEntry extends FileEntry { name: string; createdAt?: number; deleted?: boolean }
 interface Snapshot { schema: 1; document: PptDocument; files: Record<string, FileEntry> }
@@ -46,6 +56,8 @@ function contentType(path: string, supplied?: string): string {
   if (typeof type !== 'string' || type.length > 256 || !/^[a-z0-9!#$&^_.+-]+\/[a-z0-9!#$&^_.+-]+(?:;[\x20-\x7e]*)?$/i.test(type)) return fail('invalid_argument', 'Invalid presentation content type.');
   return type;
 }
+/** The content type the store assigns to a presentation path. */
+export function presentationContentType(path: string): string { return contentType(path); }
 function textType(type: string): boolean { return /^(?:text\/|application\/(?:json|javascript|xml)|image\/svg\+xml)/i.test(type); }
 function checkedBytes(value: Uint8Array, type: string): Buffer {
   if (!(value instanceof Uint8Array)) return fail('invalid_argument', 'Presentation file bytes are required.');
@@ -311,9 +323,43 @@ export class PptStore {
       return { id: assetId, url: `_blob/${assetId}`, sizeBytes: bytes.length };
     });
   }
-  assets(owner: string, id: string): { id: string; url: string; sizeBytes: number; type: string; name: string; createdAt?: number }[] {
+  assets(owner: string, id: string): { id: string; url: string; sizeBytes: number; type: string; name: string; sha256: string; createdAt?: number }[] {
     const state = this.manifest(owner, id);
-    return Object.entries(state.assets).filter(([, asset]) => !asset.deleted).map(([assetId, asset]) => ({ id: assetId, url: `_blob/${assetId}`, sizeBytes: asset.size, type: asset.contentType, name: asset.name, ...(asset.createdAt !== undefined ? { createdAt: asset.createdAt } : {}) }));
+    return Object.entries(state.assets).filter(([, asset]) => !asset.deleted).map(([assetId, asset]) => ({ id: assetId, url: `_blob/${assetId}`, sizeBytes: asset.size, type: asset.contentType, name: asset.name, sha256: asset.sha256, ...(asset.createdAt !== undefined ? { createdAt: asset.createdAt } : {}) }));
+  }
+  /**
+   * The last authoring result describes the exact file hashes it validated.
+   * It is advisory metadata, not a revision: a later manual edit changes the
+   * live hashes without invalidating the saved document.
+   */
+  recordValidation(owner: string, id: string, record: PptValidationRecord): void {
+    this.manifest(owner, id);
+    const path = this.documentDirectory(owner, id);
+    this.lock(path, () => atomicJson(path, 'validation.json', record));
+  }
+  validation(owner: string, id: string): PptValidationRecord | undefined {
+    this.manifest(owner, id);
+    const parent = this.documentDirectory(owner, id), path = join(parent, 'validation.json');
+    if (!existsSync(path)) return undefined;
+    try {
+      const row = object(jsonAt(parent, 'validation.json')), shas = object(row.shas);
+      if (typeof row.version !== 'string' || !row.version || typeof row.at !== 'string' || !date(row.at)) return undefined;
+      if (Object.values(shas).some(value => typeof value !== 'string' || !HASH.test(value))) return undefined;
+      const list = (value: unknown) => Array.isArray(value) ? value.flatMap(item => {
+        const issue = object(item), message = issue.message;
+        if (typeof message !== 'string') return [];
+        return [{ message, ...(typeof issue.path === 'string' ? { path: issue.path } : {}), ...(Number.isSafeInteger(issue.line) && Number(issue.line) > 0 ? { line: Number(issue.line) } : {}), ...(Number.isSafeInteger(issue.col) && Number(issue.col) > 0 ? { col: Number(issue.col) } : {}), ...(typeof issue.severity === 'string' ? { severity: issue.severity } : {}) }];
+      }) : [];
+      return {
+        version: row.version,
+        shas: shas as Record<string, string>,
+        errors: list(row.errors),
+        warnings: list(row.warnings),
+        at: row.at,
+        ...(typeof row.contentHash === 'string' ? { contentHash: row.contentHash } : {}),
+        ...(row.slides !== undefined && row.slides !== null ? { slides: row.slides } : {}),
+      };
+    } catch { return undefined; }
   }
   deleteAsset(owner: string, id: string, assetId: string): void {
     if (typeof assetId !== 'string' || !ASSET.test(assetId)) return fail('invalid_argument', 'Invalid presentation asset id.');

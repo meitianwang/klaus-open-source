@@ -124,7 +124,7 @@ h.test('binary assets persist independently from slide revision changes', () => 
   assert.match(uploaded.id, /^[a-f0-9]{32}$/); assert.equal(uploaded.url, `_blob/${uploaded.id}`); assert.equal(uploaded.sizeBytes, binary.length);
   assert.deepEqual(Buffer.from(new PptStore(root).asset(owner, doc.id, uploaded.id).bytes), binary);
   assert.equal(store.asset(owner, doc.id, uploaded.id).type, 'image/png'); assert.equal(store.get(owner, doc.id).version, doc.version);
-  const listed = store.assets(owner, doc.id); assert.equal(listed.length, 1); assert.equal(listed[0]!.name, 'Image fixture.png'); assert.equal(typeof listed[0]!.createdAt, 'number');
+  const listed = store.assets(owner, doc.id); assert.equal(listed.length, 1); assert.equal(listed[0]!.name, 'Image fixture.png'); assert.equal(listed[0]!.sha256, hash(binary)); assert.equal(typeof listed[0]!.createdAt, 'number');
   store.deleteAsset(owner, doc.id, uploaded.id); store.deleteAsset(owner, doc.id, uploaded.id);
   assert.deepEqual(store.assets(owner, doc.id), []);
   assert.deepEqual(Buffer.from(new PptStore(root).asset(owner, doc.id, uploaded.id).bytes), binary);
@@ -133,6 +133,17 @@ h.test('binary assets persist independently from slide revision changes', () => 
   rejects('not_found', () => store.asset('another-chat', doc.id, uploaded.id));
   store.retitle(owner, doc.id, 'Renamed presentation'); assert.equal(store.get(owner, doc.id).title, 'Renamed presentation');
   assert.equal(store.get(owner, doc.id).version, doc.version);
+}));
+
+h.test('validation records describe exact saved hashes without creating a revision', () => fixture((store, root) => {
+  const doc = store.open(owner, 'Validation'), saved = store.publish(owner, doc.id, { writes: [{ path: firstPath, bytes: bytes(firstHtml) }] });
+  store.recordValidation(owner, doc.id, { version: saved.version, shas: { [firstPath]: saved.shas[firstPath]! }, errors: [], warnings: [{ path: firstPath, line: 2, col: 3, message: 'note' }], contentHash: 'content-hash', slides: [{ id: 'slide-a' }], at: new Date().toISOString() });
+  const record = store.validation(owner, doc.id);
+  assert.equal(record?.version, 'v2'); assert.equal(record?.shas[firstPath], saved.shas[firstPath]); assert.equal(record?.contentHash, 'content-hash'); assert.equal(record?.warnings[0]!.line, 2);
+  assert.equal(store.get(owner, doc.id).version, 'v2');
+  const path = join(storage(root, doc.id), 'validation.json'); writeFileSync(path, '{not json');
+  assert.equal(store.validation(owner, doc.id), undefined);
+  assert.equal(store.get(owner, doc.id).version, 'v2');
 }));
 
 h.test('live write locks reject concurrent writers and stale locks can recover', () => fixture((store, root) => {

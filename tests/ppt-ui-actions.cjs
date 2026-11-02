@@ -1,4 +1,4 @@
-const { readFileSync, writeFileSync } = require('node:fs');
+const { existsSync, readFileSync, writeFileSync } = require('node:fs');
 const { join } = require('node:path');
 
 async function waitFor(check, label, timeout = 15000) {
@@ -83,29 +83,41 @@ async function editAndReopen(service, window, id, profile, log) {
   log('native-image', { id: asset.id, rendered: true, bytesPreservedAfterDelete: true });
   const good = await read();
   writeFileSync(patch, good.content.replace(/(\s*<aside>.*?<\/aside>)(\s*<\/section>)/s, '$2$1'));
+  const validatorAvailable = (() => { try { const root = service.options.pluginRoot?.(); return typeof root === 'string' && existsSync(join(root, 'authoring', 'validate.cjs')); } catch { return false; } })();
   const invalid = await service.call('fixture', 'ppt_publish', { id, base_version: good.version, files: [{ path: patch, as: 'project/slides/slide-a.html' }] });
-  if (invalid.isError) throw Error(JSON.stringify(invalid));
-  const fixButton = await waitFor(() => frame.executeJavaScript(`(()=>{const button=[...document.querySelectorAll('button')].find(node=>node.textContent==='Ask Klaus to fix');const rect=button?.getBoundingClientRect();return rect?{x:rect.x+rect.width/2,y:rect.y+rect.height/2}:null})()`), 'document repair action');
-  let repairRequest;
-  const emit = service.options.emit;
-  service.options.emit = (channel, payload, target) => {
-    emit(channel, payload, target);
-    if (channel === 'ppt:chat-request') {
-      repairRequest = payload;
-      void service.invoke({ channel: 'ppt:chat-result', role: 'main', senderId: window.webContents.id, args: [{ requestId: payload.requestId, ok: true }] }).catch(error => log('repair-ack-error', { error: String(error) }));
-    }
-  };
-  try {
-    await click(fixButton.x, fixButton.y);
-    await waitFor(() => repairRequest, 'own-chat repair request');
-    if (repairRequest.sessionId !== 'fixture' || repairRequest.id !== id || !repairRequest.text.includes('outside any')) throw Error('The repair request did not carry its owning document and parse error.');
-    await waitFor(() => frame.executeJavaScript('document.body.innerText.includes("Added to your message to Klaus")'), 'accepted repair feedback');
-    log('repair-request', repairRequest);
-  } finally { service.options.emit = emit; }
-  writeFileSync(patch, good.content);
-  const restored = await service.call('fixture', 'ppt_publish', { id, base_version: (await read()).version, files: [{ path: patch, as: 'project/slides/slide-a.html' }] });
-  if (restored.isError) throw Error(JSON.stringify(restored));
-  await waitFor(() => frame.executeJavaScript('!document.body.innerText.includes("Ask Klaus to fix") && document.body.innerText.includes("Agent update")'), 'valid content restored');
+  if (validatorAvailable) {
+    if (!invalid.isError) throw Error('Invalid presentation content must be rejected before saving.');
+    const afterInvalid = await service.call('fixture', 'ppt_inspect', { id });
+    if (afterInvalid.structuredContent.version !== good.version) throw Error('Rejected publish changed the saved version.');
+    log('atomic-validation', { rejected: true, version: good.version, errors: invalid.structuredContent?.errors ?? null });
+    writeFileSync(patch, good.content);
+    const restored = await service.call('fixture', 'ppt_publish', { id, base_version: good.version, files: [{ path: patch, as: 'project/slides/slide-a.html' }] });
+    if (restored.isError) throw Error(JSON.stringify(restored));
+    await waitFor(() => frame.executeJavaScript('!document.body.innerText.includes("Ask Klaus to fix") && document.body.innerText.includes("Agent update")'), 'valid content restored');
+  } else {
+    if (invalid.isError) throw Error(JSON.stringify(invalid));
+    const fixButton = await waitFor(() => frame.executeJavaScript(`(()=>{const button=[...document.querySelectorAll('button')].find(node=>node.textContent==='Ask Klaus to fix');const rect=button?.getBoundingClientRect();return rect?{x:rect.x+rect.width/2,y:rect.y+rect.height/2}:null})()`), 'document repair action');
+    let repairRequest;
+    const emit = service.options.emit;
+    service.options.emit = (channel, payload, target) => {
+      emit(channel, payload, target);
+      if (channel === 'ppt:chat-request') {
+        repairRequest = payload;
+        void service.invoke({ channel: 'ppt:chat-result', role: 'main', senderId: window.webContents.id, args: [{ requestId: payload.requestId, ok: true }] }).catch(error => log('repair-ack-error', { error: String(error) }));
+      }
+    };
+    try {
+      await click(fixButton.x, fixButton.y);
+      await waitFor(() => repairRequest, 'own-chat repair request');
+      if (repairRequest.sessionId !== 'fixture' || repairRequest.id !== id || !repairRequest.text.includes('outside any')) throw Error('The repair request did not carry its owning document and parse error.');
+      await waitFor(() => frame.executeJavaScript('document.body.innerText.includes("Added to your message to Klaus")'), 'accepted repair feedback');
+      log('repair-request', repairRequest);
+    } finally { service.options.emit = emit; }
+    writeFileSync(patch, good.content);
+    const restored = await service.call('fixture', 'ppt_publish', { id, base_version: (await read()).version, files: [{ path: patch, as: 'project/slides/slide-a.html' }] });
+    if (restored.isError) throw Error(JSON.stringify(restored));
+    await waitFor(() => frame.executeJavaScript('!document.body.innerText.includes("Ask Klaus to fix") && document.body.innerText.includes("Agent update")'), 'valid content restored');
+  }
   contents.debugger.removeListener('message', attached); contents.debugger.detach();
   await service.removeEditor(editor);
   if (editor.partition.listenerCount('will-download') !== 0) throw Error('The closed presentation retained a download listener.');

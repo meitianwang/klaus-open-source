@@ -20,5 +20,19 @@
   "hosting": {"documentStore": "Klaus host", "separateFileServiceProcess": false, "runtimeBridgeVersion": 2, "emptyRevision": "list the served index.html entry; load before first publish and accept live updates", "attribution": "none for local documents", "contentSandbox": {"allow-scripts": true, "allow-same-origin": true, "allow-popups": false}},
   "editing": ["text", "undo", "redo", "speaker notes", "automatic save", "live file updates", "reopen saved content"],
   "excluded": ["comments", "external connectors", "Google Drive"],
+  "authoring": {
+    "validator": "authoring/validate.cjs",
+    "export": "validateFiles",
+    "candidate": "complete saved snapshot",
+    "validReceipt": {"saved": true, "validated": true},
+    "invalidReceipt": {"saved": false, "validated": false, "versionUnchanged": true},
+    "diagnostics": ["errors", "warnings", "slides", "contentHash", "files", "assets"]
+  },
+  "agentTools": ["ppt_open", "ppt_inspect", "ppt_publish", "ppt_import_asset", "ppt_export"],
+  "media": {
+    "assetUrlPrefix": "_blob/",
+    "assetTypes": ["image/png", "image/jpeg", "image/gif", "image/webp", "image/avif", "image/svg+xml", "video/mp4", "video/webm", "audio/mpeg", "audio/ogg", "audio/wav", "font/woff", "font/woff2", "font/ttf", "font/otf"],
+    "contentCsp": "media-src 'self' blob: data:"
+  },
   "cancelledSave": {"ok": false, "cancelled": true}
 }

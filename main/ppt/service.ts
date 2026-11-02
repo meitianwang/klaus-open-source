@@ -10,12 +10,20 @@ import { HOST_CHANNELS } from '../ipc/host-channels';
 import { decodeBinary } from '../ipc/binary';
 import { VisualCapabilityServer } from '../visuals/capability-server';
 import { inside, message, record, text, type Data } from '../visuals/data';
-import { PptStore, type PptDocument } from './store';
+import { PptStore, presentationContentType, type PptDocument, type PptFile, type PptValidationRecord } from './store';
 import { PptRuntime } from './runtime';
 import { pptTools } from './tools';
+import { authoringResult, authoringValidator, type AuthoringCandidate, type AuthoringIssue, type AuthoringResult } from './authoring';
 
 const SHELL_ORIGIN = `${APP_SCHEME}://${APP_HOST}`;
 const CONTENT_SUFFIX = '.ppt-content';
+const ASSET_TYPES = new Set([
+  'image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/avif', 'image/svg+xml',
+  'video/mp4', 'video/webm', 'audio/mpeg', 'audio/ogg', 'audio/wav',
+  'font/woff', 'font/woff2', 'font/ttf', 'font/otf',
+]);
+type IssueLike = { message: string; path?: string; line?: number; col?: number; severity?: string };
+const issueList = (issues: IssueLike[]): Data[] => issues.map(issue => ({ message: issue.message, ...(issue.path ? { path: issue.path } : {}), ...(issue.line ? { line: issue.line } : {}), ...(issue.col ? { col: issue.col } : {}), ...(issue.severity ? { severity: issue.severity } : {}) }));
 interface ExportWait { request: string; path: string; resolve(value: Data): void; reject(error: Error): void; timer: ReturnType<typeof setTimeout> }
 interface Editor { id: string; owner: string; window: BrowserWindow; view: WebContentsView; partition: Session; locale: string; loading: Promise<void>; failure?: string; exporting?: boolean; exportWait?: ExportWait; download?: (event: Electron.Event, item: DownloadItem) => void }
 export interface PptOptions {
@@ -127,9 +135,105 @@ export class PptService {
     const row = this.store.get(owner, wanted);
     return { row, id: row.id };
   }
+  private readRoots(owner: string): string[] {
+    return this.options.readRoots(owner).flatMap(root => { try { return [realpathSync(root)]; } catch { return []; } });
+  }
+  private workspaceFile(owner: string, input: string): { path: string; bytes: Uint8Array; size: number } {
+    if (!isAbsolute(input)) throw new Error('Presentation source files require absolute paths.');
+    const path = realpathSync(input);
+    if (!this.readRoots(owner).some(root => inside(root, path)) || !statSync(path).isFile()) throw new Error('The presentation file is outside the chat workspace.');
+    return { path, bytes: new Uint8Array(readFileSync(path)), size: statSync(path).size };
+  }
+  private candidate(owner: string, id: string, writes: { path: string; bytes: Uint8Array; contentType?: string }[], remove: string[]): AuthoringCandidate {
+    const entries = new Map<string, { path: string; bytes: Uint8Array; contentType: string }>();
+    for (const file of this.store.files(owner, id)) entries.set(file.path, { path: file.path, bytes: this.store.read(owner, id, file.path), contentType: file.contentType });
+    for (const write of writes) entries.set(write.path, { path: write.path, bytes: write.bytes, contentType: write.contentType ?? presentationContentType(write.path) });
+    for (const path of remove) entries.delete(path);
+    return { files: [...entries.values()].sort((left, right) => left.path.localeCompare(right.path)).map(file => {
+      const text = /^(?:text\/|application\/(?:json|javascript|xml)|image\/svg\+xml)/i.test(file.contentType);
+      return { path: file.path, contentType: file.contentType, size: file.bytes.byteLength, sha256: createHash('sha256').update(file.bytes).digest('hex'), ...(text ? { content: new TextDecoder().decode(file.bytes) } : {}) };
+    }) };
+  }
+  private validatePublish(owner: string, id: string, writes: { path: string; bytes: Uint8Array; contentType?: string }[], remove: string[]): { candidate: AuthoringCandidate; result?: AuthoringResult } {
+    const validate = authoringValidator(this.options.pluginRoot());
+    const candidate = this.candidate(owner, id, writes, remove);
+    if (!validate) {
+      this.log('ppt-validation-skipped', { id, reason: 'authoring validator missing' });
+      return { candidate };
+    }
+    return { candidate, result: authoringResult(validate(candidate)) };
+  }
+  private snapshotHash(candidate: AuthoringCandidate): string {
+    return createHash('sha256').update(JSON.stringify(candidate.files.map(file => [file.path, file.sha256]))).digest('hex');
+  }
+  private validationRecord(version: string, candidate: AuthoringCandidate, result: AuthoringResult): PptValidationRecord {
+    return {
+      version,
+      contentHash: result.contentHash ?? this.snapshotHash(candidate),
+      shas: Object.fromEntries(candidate.files.map(file => [file.path, file.sha256])),
+      errors: result.errors,
+      warnings: result.warnings,
+      at: new Date().toISOString(),
+      ...(result.slides !== undefined ? { slides: result.slides } : {}),
+    };
+  }
+  private diagnosticsContext(owner: string, id: string): { files: PptFile[]; result?: AuthoringResult; record?: PptValidationRecord; valid: boolean; source: string } {
+    const document = this.store.get(owner, id), files = this.store.files(owner, id);
+    const fresh = this.validatePublish(owner, id, [], []);
+    let record = this.store.validation(owner, id);
+    if (fresh.result) {
+      record = this.validationRecord(document.version, fresh.candidate, fresh.result);
+      try { this.store.recordValidation(owner, id, record); }
+      catch (error) { this.log('ppt-validation-record-error', { id, error: message(error) }); }
+    }
+    const matches = record !== undefined && record.version === document.version
+      && files.length === Object.keys(record.shas).length
+      && files.every(file => record!.shas[file.path] === file.sha256);
+    const valid = fresh.result ? fresh.result.valid && fresh.result.errors.length === 0 : matches && record!.errors.length === 0;
+    return { files, result: fresh.result, record: matches ? record : undefined, valid, source: fresh.result ? 'snapshot' : matches ? 'cached' : 'none' };
+  }
+  private diagnostics(owner: string, id: string): Data {
+    const context = this.diagnosticsContext(owner, id), document = this.store.get(owner, id);
+    const record = context.record, result = context.result;
+    const errors = result ? result.errors : (record?.errors ?? []);
+    const warnings = result ? result.warnings : (record?.warnings ?? []);
+    const slides = result?.slides ?? record?.slides;
+    const contentHash = result?.contentHash ?? record?.contentHash;
+    const assetRows = this.store.assets(owner, id).map(asset => ({ id: asset.id, url: asset.url, contentType: asset.type, name: asset.name, sizeBytes: asset.sizeBytes, ...(asset.sha256 ? { sha256: asset.sha256 } : {}), ...(asset.createdAt !== undefined ? { createdAt: new Date(asset.createdAt).toISOString() } : {}) }));
+    return {
+      version: document.version,
+      saved: true,
+      validated: context.valid,
+      source: context.source,
+      ...(record ? { validationVersion: record.version, validatedAt: record.at } : {}),
+      ...(contentHash ? { contentHash } : {}),
+      errors: issueList(errors),
+      warnings: issueList(warnings),
+      ...(slides !== undefined ? { slides: slides as Json } : {}),
+      files: context.files.map(file => ({ path: file.path, saved: true, validated: context.source !== 'none' && !errors.some(issue => issue.path === undefined || issue.path === file.path), sha256: file.sha256, size: file.size, contentType: file.contentType })),
+      assets: assetRows,
+    };
+  }
+  private fileDiagnostics(owner: string, id: string, file: PptFile): Data {
+    const context = this.diagnosticsContext(owner, id), record = context.record, result = context.result;
+    const errors = (result ? result.errors : (record?.errors ?? [])).filter(issue => issue.path === undefined || issue.path === file.path);
+    const warnings = (result ? result.warnings : (record?.warnings ?? [])).filter(issue => issue.path === undefined || issue.path === file.path);
+    const contentHash = result?.contentHash ?? record?.contentHash;
+    return {
+      path: file.path,
+      saved: true,
+      validated: context.source !== 'none' && errors.length === 0,
+      source: context.source,
+      ...(record ? { validationVersion: record.version, validatedAt: record.at } : {}),
+      ...(contentHash ? { contentHash } : {}),
+      errors: issueList(errors),
+      warnings: issueList(warnings),
+    };
+  }
   private inspect(owner: string, id: string, args: Data = {}): Data {
     const document = this.store.get(owner, id), files = this.store.files(owner, id);
-    if (args.path === undefined) return { slug: id, version: document.version, files: files.map(file => ({ path: file.path, sha256: file.sha256, size: file.size, content_type: file.contentType })) };
+    const includeDiagnostics = args.diagnostics === true;
+    if (args.path === undefined) return { slug: id, version: document.version, files: files.map(file => ({ path: file.path, sha256: file.sha256, size: file.size, content_type: file.contentType })), ...(includeDiagnostics ? { diagnostics: this.diagnostics(owner, id) } : {}) };
     const path = text(args.path, 'presentation file path'), entry = files.find(file => file.path === path);
     if (!entry) throw new Error('The presentation file does not exist.');
     if (!/^(?:text\/|application\/(?:json|javascript|xml)|image\/svg\+xml)/.test(entry.contentType)) throw new Error('Only presentation text files can be inspected.');
@@ -144,7 +248,7 @@ export class PptService {
     }
     if (!selected.length && lines.length && Number(offset) <= lines.length) throw new Error('This presentation line is too large to inspect.');
     const next = Number(offset) - 1 + selected.length < lines.length ? Number(offset) + selected.length : undefined;
-    return { slug: id, version: document.version, path, content_type: entry.contentType, size: entry.size, total_lines: lines.length, content: selected.join(''), ...(args.offset !== undefined ? { offset: Number(offset) } : {}), ...(next !== undefined ? { next_offset: next } : {}) };
+    return { slug: id, version: document.version, path, content_type: entry.contentType, size: entry.size, total_lines: lines.length, content: selected.join(''), ...(args.offset !== undefined ? { offset: Number(offset) } : {}), ...(next !== undefined ? { next_offset: next } : {}), ...(includeDiagnostics ? { diagnostics: this.fileDiagnostics(owner, id, entry) } : {}) };
   }
   private rectangle(value: unknown, window: BrowserWindow): Electron.Rectangle {
     const fields = record(value);
@@ -296,6 +400,7 @@ export class PptService {
     if (pending) { clearTimeout(pending.timer); editor.exportWait = undefined; pending.reject(error instanceof Error ? error : new Error(message(error))); }
   }
   private success(data: Data, artifact?: Data): Data { const result = artifact ? { ...data, artifact } : data; return { content: [{ type: 'text', text: JSON.stringify(result) }], structuredContent: result }; }
+  private failure(data: Data): Data { return { isError: true, content: [{ type: 'text', text: JSON.stringify(data) }], structuredContent: data }; }
   async call(owner: string, name: string, args: Data): Promise<Data> {
     if (this.retiring.has(owner)) return { isError: true, content: [{ type: 'text', text: 'The presentation chat is closing.' }] };
     const operation = this.performCall(owner, name, args);
@@ -320,23 +425,39 @@ export class PptService {
       const found = await this.resolve(owner, args.id); this.recent.set(owner, found.id);
       if (name === 'ppt_inspect') {
         if (args.path === undefined && (args.offset !== undefined || args.limit !== undefined)) throw new Error('A file path is required for a partial read.');
+        if (args.diagnostics !== undefined && typeof args.diagnostics !== 'boolean') throw new Error('Presentation diagnostics must be a boolean.');
         return this.success({ id: found.id, ...this.inspect(owner, found.id, args) });
       }
       if (name === 'ppt_publish') {
         if (!Array.isArray(args.files) || args.files.length + (Array.isArray(args.remove) ? args.remove.length : 0) > 256) throw new Error('Publish at most 256 files at once.');
-        const roots = this.options.readRoots(owner).flatMap(root => { try { return [realpathSync(root)]; } catch { return []; } });
         let total = 0;
         const files = args.files.map(value => {
           const file = record(value), input = text(file.path, 'local file path'), as = text(file.as, 'presentation path');
-          if (!isAbsolute(input)) throw new Error('Presentation source files require absolute paths.');
-          const path = realpathSync(input);
-          if (!roots.some(root => inside(root, path)) || !statSync(path).isFile()) throw new Error('The presentation file is outside the chat workspace.');
-          total += statSync(path).size; if (total > 256 * 1024 * 1024) throw new Error('Presentation files exceed 256 MB.');
-          return { path: as, bytes: new Uint8Array(readFileSync(path)) };
+          const source = this.workspaceFile(owner, input);
+          total += source.size; if (total > 256 * 1024 * 1024) throw new Error('Presentation files exceed 256 MB.');
+          return { path: as, bytes: source.bytes };
         });
+        const remove = args.remove !== undefined ? args.remove as string[] : [];
+        const validation = this.validatePublish(owner, found.id, files, remove);
+        if (validation.result) {
+          const valid = validation.result.valid && validation.result.errors.length === 0;
+          if (!valid) return this.failure({ id: found.id, version: found.row.version, saved: false, validated: false, errors: issueList(validation.result.errors), warnings: issueList(validation.result.warnings), ...(validation.result.slides !== undefined ? { slides: validation.result.slides as Json } : {}), ...(validation.result.contentHash !== undefined ? { contentHash: validation.result.contentHash } : {}) });
+        }
         const result = this.store.publish(owner, found.id, { baseVersion: text(args.base_version, 'presentation version'), writes: files, ...(args.remove !== undefined ? { remove: args.remove as string[] } : {}) });
+        if (validation.result) {
+          try { this.store.recordValidation(owner, found.id, this.validationRecord(result.version, validation.candidate, validation.result)); }
+          catch (error) { this.log('ppt-validation-record-error', { id: found.id, error: message(error) }); }
+        }
         this.runtime.changed(owner, found.id);
-        return this.success({ id: found.id, slug: found.id, ...result }, { kind: 'ppt', id: found.id, title: found.row.title ?? 'Presentation' });
+        return this.success({ id: found.id, slug: found.id, saved: true, validated: validation.result !== undefined, ...(validation.result ? { contentHash: validation.result.contentHash, warnings: issueList(validation.result.warnings), ...(validation.result.slides !== undefined ? { slides: validation.result.slides as Json } : {}) } : {}), ...result }, { kind: 'ppt', id: found.id, title: found.row.title ?? 'Presentation' });
+      }
+      if (name === 'ppt_import_asset') {
+        const source = this.workspaceFile(owner, text(args.path, 'asset path'));
+        const contentType = presentationContentType(source.path);
+        if (!ASSET_TYPES.has(contentType)) throw new Error(`Unsupported presentation asset type: ${contentType}.`);
+        const name = basename(source.path).slice(0, 180) || 'Asset';
+        const asset = this.store.putAsset(owner, found.id, source.bytes, contentType, name);
+        return this.success({ id: found.id, saved: true, assetId: asset.id, url: asset.url, sizeBytes: asset.sizeBytes, contentType, name, sha256: createHash('sha256').update(source.bytes).digest('hex') }, { kind: 'ppt', id: found.id, title: found.row.title ?? 'Presentation' });
       }
       if (name === 'ppt_export') return this.success(await this.export(owner, found.id, text(args.format, 'export format'), typeof args.variant === 'string' ? args.variant : undefined));
       throw new Error('Unknown presentation operation.');
