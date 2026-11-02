@@ -154,6 +154,19 @@ h.test('corrupted persisted permission presets are rejected instead of being pro
   assert(typeof runNow.error === 'string' && runNow.error.includes('invalid stored permission preset'), 'the run failure surfaces the same explanation');
   await f.runtime.close();
 });
+h.test('invalid runtime permission snapshots settle failed runs without starting a session', async () => {
+  let starts = 0;
+  const f = fixture({ newSession: async () => { starts++; return { id: 'unexpected' }; } });
+  f.add('invalid-snapshot');
+  const task = f.store.getTask('invalid-snapshot')!;
+  f.store.getTask = () => ({ ...task, permissionPreset: 'unsupported' });
+  const result = await f.runtime.runNow('invalid-snapshot');
+  assertEqual(result.ok, false, 'the run reports its invalid initialization policy');
+  await waitFor(() => f.store.listRuns()[0]?.status === 'failed', 1000, 'invalid startup is finalized');
+  assertEqual(starts, 0, 'no execution session is created');
+  assertDeepEqual(f.runtime.status().running, [], 'the failed run releases scheduler ownership');
+  await f.runtime.close();
+});
 h.test('startup cancellation cannot start a late engine turn and shutdown waits for ownership', async () => {
   let release!: (value: Json) => void;
   const starting = new Promise<Json>(resolve => { release = resolve; });

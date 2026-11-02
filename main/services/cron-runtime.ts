@@ -120,13 +120,13 @@ export class CronRuntime {
   private async drive(entry: Running): Promise<void> {
     const taskId = string(entry.task.id), taskName = string(entry.task.name) || taskId;
     const permissionPreset = entry.task.permissionPreset as CronPermissionPreset;
-    if (typeof permissionPreset !== 'string' || !CRON_PERMISSION_PRESETS.includes(permissionPreset as CronPermissionPreset)) {
-      throw new Error(`Scheduled task ${taskId} has an invalid permission preset: ${JSON.stringify(permissionPreset)}. Only ${CRON_PERMISSION_PRESETS.join(', ')} are allowed, or omit the field for the legacy default.`);
-    }
     const workdir = typeof entry.task.workdir === 'string' && entry.task.workdir ? entry.task.workdir : null;
     const workspaceId = typeof entry.task.workspaceId === 'string' && entry.task.workspaceId ? entry.task.workspaceId : null;
     let result: Outcome;
     try {
+      if (typeof permissionPreset !== 'string' || !CRON_PERMISSION_PRESETS.includes(permissionPreset)) {
+        throw new Error(`Scheduled task ${taskId} has an invalid permission preset.`);
+      }
       const row = object(await this.deps.newSession({ title: taskName, runtimePolicyOverride: presetRuntimePolicy(permissionPreset),
         ...(workspaceId ? { workspaceId } : workdir ? { workdir, projectRoot: workdir } : {}),
         hostMetadata: { threadSource: 'automation', automation: {
