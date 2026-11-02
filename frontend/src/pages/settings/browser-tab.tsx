@@ -197,7 +197,8 @@ export function BrowserSettingsView({
 }: BrowserSettingsViewProps) {
   const t = useT()
   const disabled = !snapshot.enabled
-  const [clearKinds, setClearKinds] = useState<string[]>(['history', 'downloads', 'cookies', 'cache', 'siteData'])
+  const [clearExpanded, setClearExpanded] = useState(false)
+  const clearing = busy.startsWith('clear:')
   const [originDraft, setOriginDraft] = useState('')
   const [originError, setOriginError] = useState('')
   const [siteOriginDraft, setSiteOriginDraft] = useState('')
@@ -254,21 +255,24 @@ export function BrowserSettingsView({
           <BrowserSelectRow id="browser-local-target" label={t('browser_settings_open_local')} desc={t('browser_settings_open_local_desc')} value={snapshot.localUrlTarget} options={localTargets} disabled={disabled} onChange={value => onPatch({ localUrlTarget: value as SiteOpenTargetId })} />
           <PrefToggleRow id="browser-show-full-url" label={t('browser_settings_show_full_url')} desc={t('browser_settings_show_full_url_desc')} checked={snapshot.showFullUrl} disabled={disabled} onChange={checked => onPatch({ showFullUrl: checked })} />
           <BrowserSelectRow id="browser-annotation-screenshots" label={t('browser_settings_annotation')} desc={t('browser_settings_annotation_desc')} value={snapshot.annotationScreenshots} options={annotationOptions} disabled={disabled} onChange={value => onPatch({ annotationScreenshots: value })} />
-          <div className={`pref-row ${styles['browser-clear-row']}`}>
+          <div className="pref-row">
             <div className={styles['browser-copy']}>
               <div className={settingsStyles['pref-row-label']}>{t('browser_settings_clear_data')}</div>
               <div className={settingsStyles['pref-row-desc']}>{t('browser_settings_clear_data_desc')}</div>
-              <div className={styles['browser-checkboxes']}>
-                {CLEAR_KINDS.map(kind => (
-                  <label key={kind} className={styles['browser-checkbox']}>
-                    <input type="checkbox" checked={clearKinds.includes(kind)} onChange={event => setClearKinds(current => event.target.checked ? [...current, kind] : current.filter(value => value !== kind))} />
-                    <span>{t(`browser_settings_data_${kind}`)}</span>
-                  </label>
-                ))}
-              </div>
             </div>
-            <button type="button" id="browser-clear-data" className={styles['browser-action-btn']} disabled={disabled || !clearKinds.length || busy === 'clear'} onClick={() => onClearData(clearKinds)}>{t('browser_settings_clear_selected')}</button>
+            <div className={styles['browser-row-actions']}>
+              <button type="button" id="browser-clear-data" className={styles['browser-action-btn']} disabled={disabled || clearing} aria-busy={busy === 'clear:all' || undefined} onClick={() => onClearData([...CLEAR_KINDS])}>{t(busy === 'clear:all' ? 'browser_settings_clearing' : 'browser_settings_clear_all')}</button>
+              <button type="button" className={styles['browser-disclosure']} aria-controls="browser-clear-data-options" aria-expanded={clearExpanded} aria-label={t('browser_settings_clear_options')} disabled={disabled || clearing} onClick={() => setClearExpanded(value => !value)}>
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true" className={clearExpanded ? styles['browser-disclosure-open'] : undefined}><path d="m4 6 4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
+              </button>
+            </div>
           </div>
+          {clearExpanded && <div id="browser-clear-data-options" className={styles['browser-clear-options']}>
+            {CLEAR_KINDS.map(kind => <div key={kind} className={`pref-row ${styles['browser-clear-option']}`}>
+              <div className={settingsStyles['pref-row-label']}>{t(`browser_settings_data_${kind}`)}</div>
+              <button type="button" className={styles['browser-action-btn']} disabled={disabled || clearing} aria-busy={busy === `clear:${kind}` || undefined} onClick={() => onClearData([kind])}>{t(busy === `clear:${kind}` ? 'browser_settings_clearing' : 'browser_settings_clear_one')}</button>
+            </div>)}
+          </div>}
           <div className="pref-row">
             <div className={styles['browser-copy']}>
               <div className={settingsStyles['pref-row-label']}>{t('browser_settings_history_label')}</div>
@@ -689,6 +693,7 @@ export function BrowserSettingsTab() {
   const readSequence = useRef(0)
   const mutationSequence = useRef(0)
   const pendingMutations = useRef(0)
+  const clearingRef = useRef(false)
   const queue = useRef<Promise<void>>(Promise.resolve())
 
   const apply = useCallback((next: BrowserSettingsSnapshot) => {
@@ -779,9 +784,11 @@ export function BrowserSettingsTab() {
   }, [mutate])
 
   const clearData = useCallback(async (kinds: string[]) => {
+    if (clearingRef.current) return
+    clearingRef.current = true
     readSequence.current++
     pendingMutations.current++
-    setBusy('clear')
+    setBusy(`clear:${kinds.length === CLEAR_KINDS.length ? 'all' : kinds[0]}`)
     try {
       const requests = kinds.length === CLEAR_KINDS.length ? ['all'] : kinds
       let cleared = 0
@@ -794,7 +801,10 @@ export function BrowserSettingsTab() {
       }
       if (cleared) w().showToast?.(t('browser_settings_clear_done').replace('{count}', String(cleared)))
       if (firstError) showError(t, firstError)
+    } catch (clearError: any) {
+      showError(t, clearError?.message || t('browser_settings_save_failed'))
     } finally {
+      clearingRef.current = false
       pendingMutations.current--
       if (pendingMutations.current === 0) {
         setBusy('')

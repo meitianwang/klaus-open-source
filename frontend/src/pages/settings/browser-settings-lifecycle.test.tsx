@@ -117,6 +117,37 @@ describe('browser settings React lifecycle', () => {
     await act(async () => { root.unmount() })
   })
 
+  test('individual clearing stays scoped and a rejected request can be retried', async () => {
+    const calls: string[] = []
+    let rejectClear: (error: Error) => void = () => {}
+    installApi({
+      get: async () => ({ ...base }),
+      subscribe: () => () => {},
+      clearData: (kind: string) => {
+        calls.push(kind)
+        if (calls.length === 1) return new Promise((_resolve, reject) => { rejectClear = reject })
+        return Promise.resolve({ ok: true })
+      },
+    })
+    const { root } = await mount()
+    expect(happyWindow.document.querySelector('#browser-clear-data-options')).toBeNull()
+    const disclosure = happyWindow.document.querySelector('[aria-controls="browser-clear-data-options"]')
+    await click(disclosure)
+    const options = happyWindow.document.querySelector('#browser-clear-data-options')
+    const history = options.querySelector('button')
+    await click(history)
+    await click(history)
+    expect(calls).toEqual(['history'])
+    expect(history.getAttribute('aria-busy')).toBe('true')
+    expect((happyWindow.document.querySelector('#browser-clear-data') as any).disabled).toBe(true)
+    await act(async () => { rejectClear(new Error('clear failed')) })
+    expect((happyWindow as any).__toasts).toContain('clear failed')
+    expect(history.disabled).toBe(false)
+    await click(happyWindow.document.querySelector('#browser-clear-data'))
+    expect(calls).toEqual(['history', 'all'])
+    await act(async () => { root.unmount() })
+  })
+
   test('history pagination failure exposes retry without polling', async () => {
     const calls: any[] = []
     let page = 0
