@@ -1689,7 +1689,6 @@ export class SessionService {
       config.fork = false;
       config.memory = { enabled: false, user: false, project: false, local: false, allowExternalIncludes: false };
       config.allow = [];
-      config.ask = ['bash', 'bash_output', 'exec_command', 'write_stdin', 'kill_shell'];
       config.sandbox_workspace_write = { ...sandboxWorkspaceWrite(config.sandbox_workspace_write), writable_roots: [] };
       hostWritableRoots.length = 0;
       const grant = scoped?.active === true ? scoped.grant : undefined;

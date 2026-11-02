@@ -87,7 +87,7 @@ import { AgentTaskTracker } from '../main/sessions/agent-tasks';
 import { DesktopNotifications, type DesktopNotice } from '../main/services/notifications';
 import { friendSessionScope } from '../main/services/friend-session-scope';
 import { FriendMessageStore } from '../main/services/friend-message-store';
-import type { FriendTaskGrant, FriendMessage } from '../shared/friends';
+import type { FriendExecutionPreset, FriendTaskGrant, FriendMessage } from '../shared/friends';
 
 const h = new Harness();
 
@@ -6139,13 +6139,13 @@ h.test('question attachment I/O cannot submit after the session is retired and e
   await service.shutdown();
 });
 
-function approvedFriendWireFixture() {
+function approvedFriendWireFixture(mode: FriendTaskGrant['mode'] = 'auto-edit') {
   const parent = freshRoot(), root = join(parent, 'profile'), resources = join(parent, 'resources');
   mkdirSync(root); mkdirSync(resources); mkdirSync(join(resources, 'read')); mkdirSync(join(resources, 'write'));
   kvSet('auth_mode', 'custom', root); kvSet('composer.permission_mode', 'bypassPermissions', root);
   const store = new FriendTaskStore(root);
   const message: FriendMessage = { kind: 'task', requestId: 'wire-request', friendshipId: 'wire-friend', senderUserId: 'wire-peer', senderDisplayName: 'Peer', senderDeviceId: 'peer-device', sourceThreadId: 'peer-origin', prompt: 'Approved task', sentAt: Date.now() };
-  const grant: FriendTaskGrant = { deviceId: 'local-device', mode: 'auto-edit', computerUse: false, apps: [], directories: [{ path: join(resources, 'read'), access: 'read' }, { path: join(resources, 'write'), access: 'write' }], remember: false, network: false };
+  const grant: FriendTaskGrant = { deviceId: 'local-device', mode, computerUse: false, apps: [], directories: [{ path: join(resources, 'read'), access: 'read' }, { path: join(resources, 'write'), access: 'write' }], remember: false, network: false };
   const admitted = store.admit('wire-owner', 'local-device', message, 'wire-fingerprint', null).task;
   store.update('wire-owner', admitted.id, ['pending'], { status: 'starting', grant });
   const friendScope = { accountId: 'wire-owner', friendshipId: message.friendshipId, friendUserId: message.senderUserId, taskId: admitted.id, grant, active: true };
@@ -6179,6 +6179,31 @@ h.test('supported friend initialization carries exact read/write roots and canno
     assertEqual(client.sent('session/startSideTask').length, 0, 'No side facade starts'); assertEqual(client.sent('session/forkLive').length, 0, 'No fork facade starts');
   } finally { await service.shutdown(); }
 });
+const friendShellExecution = (JSON.parse(readFileSync(vectorPath('friends-messaging-vectors.json'), 'utf8')) as {
+  shellExecution: {
+    injectedCommandAskRules: string[];
+    sandboxMode: string;
+    presets: Array<{ preset: FriendExecutionPreset; grantMode: FriendTaskGrant['mode']; approvalPolicy: string; approvalsReviewer: string }>;
+  };
+}).shellExecution;
+for (const expected of friendShellExecution.presets) h.test(`friend ${expected.preset} uses its execution policy without blanket command approval rules`, async () => {
+  const f = approvedFriendWireFixture(expected.grantMode), client = new FakeClient().reply('session/start', { sessionId: 'friend-preset-engine' });
+  client.capabilities = { taskResourceScope: 1 };
+  const { service } = serviceWith(client, f.root);
+  try {
+    await service.newSession({ friendScope: f.friendScope });
+    const config = object(object(rowAt(client.sent('session/start'), 0, 'friend preset start').init)?.config)!;
+    assertDeepEqual(config.ask ?? [], friendShellExecution.injectedCommandAskRules, 'The host does not override the execution preset with blanket command ask rules');
+    assertDeepEqual({ approvalPolicy: config.approval_policy, approvalsReviewer: config.approvals_reviewer, sandboxMode: config.sandbox_mode },
+      { approvalPolicy: expected.approvalPolicy, approvalsReviewer: expected.approvalsReviewer, sandboxMode: friendShellExecution.sandboxMode },
+      'The selected execution policy retains the friend sandbox boundary');
+    assertDeepEqual(config.taskResourceScope, { taskId: f.taskId, mode: expected.grantMode,
+      readRoots: [...f.friendScope.grant.directories.map(dir => dir.path), join(f.root, 'friends'), join(f.root, 'friends', 'wire-friend')],
+      writeRoots: [join(f.resources, 'write'), join(f.root, 'friends'), join(f.root, 'friends', 'wire-friend')], networkAllowed: false },
+      'Every preset preserves the exact approved roots, read-only directory and network ceiling');
+    assertEqual(config.useStoredPermissionRules, false, 'Stored global approvals cannot enlarge the grant');
+  } finally { await service.shutdown(); }
+});
 h.test('friend full access survives session rebuild and turn admission without widening the grant', async () => {
   const f = approvedFriendWireFixture(), client = new FakeClient()
     .reply('config/read', { values: {}, resolved: { approval_policy: 'on-request', sandbox_mode: 'workspace-write' }, sources: {} })
@@ -6197,6 +6222,7 @@ h.test('friend full access survives session rebuild and turn admission without w
     await service.send(scopedId, { text: 'Run with the selected full-access preset' });
     const started = rowAt(client.sent('session/start'), 1, 'full-access friend rebuild');
     const config = object(object(started.init)?.config)!;
+    assertDeepEqual(config.ask ?? [], friendShellExecution.injectedCommandAskRules, 'A rebuild cannot restore blanket command ask rules after a preset change');
     assertEqual(config.approval_policy, 'never', 'rebuild preserves the selected bypass policy');
     assertEqual(config.sandbox_mode, 'workspace-write', 'full access does not remove the friendship filesystem cap');
     assertEqual(object(config.taskResourceScope)?.mode, 'auto-edit', 'the approved task resource scope stays bound');
