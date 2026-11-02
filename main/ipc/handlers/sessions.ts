@@ -29,6 +29,7 @@ export function registerSessionHandlers(registry: ChannelRegistry, deps: {
         projectRoot: value.projectRoot as string | null | undefined });
     },
     'session:list': () => sessions.listSessions(),
+    'session:runtime-state': () => ({ workingSessionIds: state.runningSessions().filter(id => sessions.isCatalogVisible(id)) }),
     'session:list-archived': () => sessions.listArchivedSessions(),
     'session:view-retain': context => {
       context.assertCurrent?.();

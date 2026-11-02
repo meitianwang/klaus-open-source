@@ -963,7 +963,7 @@ h.test('the contract documents every role the binding can attribute', () => {
   const roles = contract.roles.map((r) => r.role).sort();
   assertDeepEqual(
     roles,
-    ['artifact', 'canvas', 'main', 'overlay', 'pet', 'prototype', 'quick-input', 'recorder', 'video-editing', 'voice-chat'],
+    ['artifact', 'canvas', 'main', 'overlay', 'pet', 'ppt', 'prototype', 'quick-input', 'recorder', 'video-editing', 'voice-chat'],
     'the documented window roles including the isolated voice surface',
   );
   for (const role of roles) {

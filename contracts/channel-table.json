@@ -6,7 +6,7 @@
     "bridgeDir": "frontend/bridge"
   },
   "summary": {
-    "registeredInvoke": 707,
+    "registeredInvoke": 708,
     "registeredPush": 73,
     "roles": 11
   },
@@ -597,6 +597,7 @@
         "session:pick-workdir",
         "session:pick-workdirs",
         "session:rename",
+        "session:runtime-state",
         "session:set-collaboration-mode",
         "session:set-fast-mode",
         "session:set-main-model",

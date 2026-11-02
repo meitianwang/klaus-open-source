@@ -241,7 +241,7 @@ window.getKnownSessionInfo = (sessionId: string) => findKnownSession(sessionId)
 // Keyed by sessionId; cleared at each text-block boundary (finalize/tool_start)
 // and on done/reload.
 const liveStreamText = new Map()
-const runningSessions = new Set()
+const runningSessions = new Set<string>()
 const stoppingSessions = new Set<string>()
 const sessionRuntimeIdleObservations = new Map<string, number>()
 const SESSION_RUNTIME_AUDIT_INTERVAL_MS = 15_000
@@ -1165,7 +1165,7 @@ function updateSidebarWorkingSource(set: Set<string>, sessionId: string, working
   if (render && before !== sidebarSessionStatusKind(sessionId)) renderSessionList()
 }
 
-function syncSidebarWorkingFromSessions(list: SessionInfo[], { reconcileRuntime = false } = {}) {
+function syncSidebarWorkingFromSessions(list: Pick<SessionInfo, 'id' | 'isWorking'>[], { reconcileRuntime = false } = {}) {
   for (const s of list || []) {
     if (!s?.id) continue
     updateSidebarWorkingSource(sidebarListedWorkingSessions, s.id, !!s.isWorking, { render: false })
@@ -1218,13 +1218,35 @@ async function auditSessionRuntimeState() {
   if (sessionRuntimeAuditInFlight) return
   sessionRuntimeAuditInFlight = true
   try {
-    const titleVersionsAtRequest = new Map(sessionTitleVersions)
-    const pinVersionsAtRequest = sessionPinning.snapshot()
-    const liveSessions = await klausApi.session.list()
-    const merged = mergeSessionsPreservingFreshTitles(sessionPinning.mergeSnapshot(liveSessions, pinVersionsAtRequest), titleVersionsAtRequest)
-    sessions = mergeSidebarSessionSnapshot(sessions, merged)
-    syncSidebarWorkingFromSessions(sessions, { reconcileRuntime: true })
-    renderSessionList()
+    const runtimeAtRequest = chatStreamStore.getState().sessions
+    const { workingSessionIds } = await klausApi.session.runtimeState()
+    const working = new Set<string>(workingSessionIds)
+    const candidates = new Set<string>([...runningSessions, ...sidebarListedWorkingSessions, ...working,
+      ...Object.keys(runtimeAtRequest).filter(id => runtimeAtRequest[id]?.running)])
+    const snapshot: Pick<SessionInfo, 'id' | 'isWorking'>[] = []
+    for (const id of candidates) {
+      if (isSessionStreamRetired(id)) continue
+      const before = runtimeAtRequest[id], current = getSessionStream(id)
+      // Token updates do not change this identity. A newer start or terminal
+      // event owns the status even when an older IPC reply arrives afterwards.
+      if ((before?.running ?? false) !== current.running
+        || (before?.activeTurnId ?? null) !== current.activeTurnId
+        || (before?.liveTurnId ?? null) !== current.liveTurnId
+        || (before?.turnStartedAt ?? 0) !== current.turnStartedAt
+        || (before?.lastTerminalStatus ?? null) !== current.lastTerminalStatus) {
+        sessionRuntimeIdleObservations.delete(id)
+        continue
+      }
+      snapshot.push({ id, isWorking: working.has(id) })
+    }
+    const statuses = new Map(snapshot.map(row => [row.id, row.isWorking]))
+    const statusChanged = sessions.some(row => statuses.has(row.id) && !!row.isWorking !== statuses.get(row.id))
+    if (statusChanged) sessions = sessions.map(row => statuses.has(row.id) ? { ...row, isWorking: statuses.get(row.id) } : row)
+    syncSidebarWorkingFromSessions(snapshot, { reconcileRuntime: true })
+    if (statusChanged) renderSessionList()
+    // A missed start can reveal a conversation created outside this renderer.
+    // Discover its metadata once; ordinary status recovery never scans storage.
+    if (snapshot.some(row => row.isWorking && !sessions.some(known => known.id === row.id))) void updateSessionInList()
   } catch {
     // A failed audit is not evidence that a Turn ended. The next interval retries.
   } finally {
@@ -1237,6 +1259,7 @@ function setSessionRunning(sessionId: string, running: boolean) {
   if (!sessionId) return
   const before = sidebarSessionStatusKind(sessionId)
   if (running) {
+    sessionRuntimeIdleObservations.delete(sessionId)
     runningSessions.add(sessionId)
     markSidebarSessionSeen(sessionId, { render: false })
   }
@@ -9546,7 +9569,7 @@ function renderQueueInto(api: FollowUpQueueApi | null, sessionId: string | null)
   // 已画过发送气泡的自有 steer 在运行期不重复成行：引擎队列里它从被接受到被
   // 回合消费之间一直占一行，而气泡已经说了同一句话。
   const engineRows = sessionId ? engineFollowUpRows(engineQueueBySession.get(sessionId), hiddenLocallySentSteers(sessionId)) : []
-  const banner = engineRows.length > 0 && !runningSessions.has(sessionId) ? tt('follow_up_engine_pending_header')
+  const banner = engineRows.length > 0 && !runningSessions.has(sessionId || '') ? tt('follow_up_engine_pending_header')
     : snapshot?.interrupted && rows.length > 0 ? tt('follow_up_interrupted_header') : null
   api.render([...engineRows.map(row => ({ id: `engine:${row.id}`, readOnly: true, removable: row.removable, mutationPending: clientQueueMutationPending(sessionId || '', `engine:${row.id}`), paused: false,
     pausedTitle: '', pausedDetail: '', dispatching: row.reserved, preview: row.text,

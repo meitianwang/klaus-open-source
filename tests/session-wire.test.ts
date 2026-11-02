@@ -836,6 +836,90 @@ h.test('a threadId beginning __ is not sent, so it cannot become a persistent th
 // 2. listSessions page nesting.
 // ---------------------------------------------------------------------------
 
+const runtimeStateVector = JSON.parse(readFileSync(vectorPath('session-runtime-state-vectors.json'), 'utf8')) as {
+  channel: string; workingSessionIds: string[]; excludedSessionIds: string[]; expectedConcurrentCatalogScans: number;
+};
+
+h.test('runtime state reads only the host registry and filters hidden conversations', async () => {
+  const root = freshRoot(), client = new FakeClient();
+  const { service, state } = serviceWith(client, root, undefined, {
+    isPrivateThread: id => runtimeStateVector.excludedSessionIds.includes(id),
+  });
+  for (const id of [...runtimeStateVector.workingSessionIds, ...runtimeStateVector.excludedSessionIds, '__internal']) state.markTurnRunning(id);
+  const registry = new ChannelRegistry();
+  registerSessionHandlers(registry, { sessions: service, state, events: {} as SessionEventPump,
+    configRoot: root, chooseExportPath: async () => undefined });
+  const handler = registry.lookup(runtimeStateVector.channel)!;
+  const context = { channel: runtimeStateVector.channel, role: 'main' as const, senderId: 1, args: [] };
+  assertDeepEqual(await handler(context), { workingSessionIds: runtimeStateVector.workingSessionIds }, 'only visible working conversations are returned');
+  state.clearTurnRunning(runtimeStateVector.workingSessionIds[0]!);
+  assertDeepEqual(await handler(context), { workingSessionIds: runtimeStateVector.workingSessionIds.slice(1) }, 'the snapshot observes new host state immediately');
+  assertEqual(client.calls.length, 0, 'status recovery never attaches to the engine or reads its catalog');
+});
+
+h.test('concurrent complete catalog readers share one scan and release it after success or failure', async () => {
+  let release!: () => void, started = 0;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  class DelayedCatalogClient extends FakeClient {
+    override async requestWithTimeout(method: string, params: Json): Promise<unknown> {
+      if (method === 'engine/listSessions') { started++; await gate; }
+      return super.requestWithTimeout(method, params);
+    }
+  }
+  const client = new DelayedCatalogClient().reply('engine/listSessions', { sessions: { items: [{ id: 'shared' }], nextCursor: null } });
+  const { service } = serviceWith(client, freshRoot());
+  const readers = [service.listSessions(), service.listSessions(), service.listSessions()];
+  await waitFor(() => started > 0, 1000, 'catalog read entered');
+  assertEqual(started, runtimeStateVector.expectedConcurrentCatalogScans, 'overlapping readers do not duplicate a storage scan');
+  release();
+  for (const rows of await Promise.all(readers)) assertEqual(object(rows[0])?.id, 'shared', 'every reader receives the complete snapshot');
+  client.reply('engine/listSessions', { sessions: { items: [] } });
+  assertDeepEqual(await service.listSessions(), [], 'a settled read never hides later catalog changes');
+  client.reply('engine/listSessions', { sessions: { items: [null] } });
+  const failed = await Promise.allSettled([service.listSessions(), service.listSessions()]);
+  assert(failed.every(result => result.status === 'rejected'), 'invalid replies reject every reader');
+  client.reply('engine/listSessions', { sessions: { items: [{ id: 'recovered' }] } });
+  assertEqual(object((await service.listSessions())[0])?.id, 'recovered', 'a rejected read does not pin the scope');
+});
+
+h.test('active and archived catalog readers keep independent scans', async () => {
+  const client = new FakeClient().replySequence('engine/listSessions', [
+    { sessions: { items: [{ id: 'active' }] } },
+    { sessions: { items: [{ id: 'archived', archived: true }] } },
+  ]);
+  const { service } = serviceWith(client, freshRoot());
+  const [active, archived] = await Promise.all([service.listSessions(), service.listArchivedSessions()]);
+  assertEqual(object(active[0])?.id, 'active', 'active scope receives its own rows');
+  assertEqual(object(archived[0])?.id, 'archived', 'archived scope receives its own rows');
+  assertEqual(client.sent('engine/listSessions').length, 2, 'different scopes are not conflated');
+});
+
+h.test('catalog mutations retire older shared reads without letting late snapshots replace recovery state', async () => {
+  let release!: () => void, captured = false, fail = false;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  class SnapshotClient extends FakeClient {
+    override async requestWithTimeout(method: string, params: Json): Promise<unknown> {
+      if (method === 'engine/listSessions' && fail) throw Error('catalog temporarily unavailable');
+      const reply = await super.requestWithTimeout(method, params);
+      if (method === 'engine/listSessions' && !captured) { captured = true; await gate; }
+      return reply;
+    }
+  }
+  const client = new SnapshotClient().replySequence('engine/listSessions', [
+    { sessions: { items: [] } }, { sessions: { items: [{ id: 'restored' }] } },
+  ]).replyAcknowledged('session/unarchiveSession', { unarchived: { threadId: 'restored', status: 'restored' } });
+  const { service } = serviceWith(client, freshRoot());
+  const old = service.listSessions();
+  await waitFor(() => captured, 1000, 'old catalog snapshot captured');
+  assertEqual(object(await service.setArchived('restored', false))?.ok, true, 'unarchive completes before the next read');
+  const refreshed = await service.listSessions();
+  assertEqual(object(refreshed[0])?.id, 'restored', 'post-mutation readers do not join the older snapshot');
+  release();
+  assertDeepEqual(await old, [], 'the older caller receives its captured snapshot');
+  fail = true;
+  assertEqual(object((await service.listSessions())[0])?.id, 'restored', 'a late stale result cannot overwrite the recovery cache');
+});
+
 h.test('listSessions reads the nested page, not a top-level array', async () => {
   const root = freshRoot();
   const client = new FakeClient();

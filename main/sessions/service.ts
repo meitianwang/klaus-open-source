@@ -439,6 +439,7 @@ export class SessionService {
   private readonly completedRecency = new Set<string>();
   private readonly announcedSetupNotices = new Set<string>();
   private readonly sessionSnapshots = new Map<SessionListScope, Json[]>();
+  private readonly sessionListReads = new Map<SessionListScope, Promise<Json[]>>();
   private readonly idleRetirementKeeps = new Set<string>();
   private readonly inactiveLiveSessions = new Map<string, { engineId: string; since: number }>();
   private cancelIdleRetirementTimer?: () => void;
@@ -1240,7 +1241,13 @@ export class SessionService {
 
   private mutate<T>(id: string, callback: () => Promise<T>): Promise<T> {
     const previous = this.mutations.get(id) ?? Promise.resolve();
-    const next = previous.catch(() => {}).then(() => { this.assertRequestOwner(); this.assertPublicThread(id); return callback(); });
+    const next = previous.catch(() => {}).then(async () => {
+      this.assertRequestOwner(); this.assertPublicThread(id);
+      // Reads after a mutation must not join a snapshot captured before it.
+      this.sessionListReads.clear();
+      try { return await callback(); }
+      finally { this.sessionListReads.clear(); }
+    });
     this.mutations.set(id, next);
     void next.finally(() => { if (this.mutations.get(id) === next) this.mutations.delete(id); }).catch(() => {});
     return next;
@@ -1520,6 +1527,7 @@ export class SessionService {
       if (turn.finished) this.hostedTurns.delete(id);
     }
     this.attached = undefined;
+    this.sessionListReads.clear();
     this.cancelDeferredClientQueue();
     this.goalHydrationScopes.clear();
     this.deps.state.workflows.invalidateGoalReads();
@@ -3586,13 +3594,25 @@ export class SessionService {
     return object(this.decorateSessionRows([row])[0]) ?? null;
   }
 
-  private async listSessionPageRecovering(scope: SessionListScope): Promise<Json[]> {
+  private listSessionPageRecovering(scope: SessionListScope): Promise<Json[]> {
+    const existing = this.sessionListReads.get(scope);
+    if (existing) return existing;
+    const read: Promise<Json[]> = this.readSessionPageRecovering(scope, () => this.sessionListReads.get(scope) === read).finally(() => {
+      if (this.sessionListReads.get(scope) === read) this.sessionListReads.delete(scope);
+    });
+    this.sessionListReads.set(scope, read);
+    return read;
+  }
+
+  private async readSessionPageRecovering(scope: SessionListScope, current: () => boolean): Promise<Json[]> {
     const includeArchived = scope === 'archived';
     try {
       const rows = await this.listSessionPage(includeArchived);
-      this.sessionSnapshots.set(scope, rows);
-      try { writeSessionListSnapshot(scope, rows, this.configRoot); }
-      catch (error) { this.deps.log?.('session-list-cache-write-failed', sessionFailureMessage(error)); }
+      if (current()) {
+        this.sessionSnapshots.set(scope, rows);
+        try { writeSessionListSnapshot(scope, rows, this.configRoot); }
+        catch (error) { this.deps.log?.('session-list-cache-write-failed', sessionFailureMessage(error)); }
+      }
       return rows;
     } catch (error) {
       if (error instanceof IpcHandlerError && error.code === 'INVALID_ENGINE_RESPONSE') throw error;

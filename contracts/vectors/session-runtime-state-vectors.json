@@ -1,0 +1,10 @@
+{
+  "reason": "Runtime recovery reads the host working registry without enumerating stored conversations. Concurrent catalog readers share one complete scan per scope.",
+  "channel": "session:runtime-state",
+  "workingSessionIds": ["running-chat", "background-chat"],
+  "excludedSessionIds": ["private-chat", "side-task"],
+  "idleConfirmations": 2,
+  "historicalRows": 5000,
+  "expectedCatalogReadsDuringAudit": 0,
+  "expectedConcurrentCatalogScans": 1
+}

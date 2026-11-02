@@ -415,7 +415,7 @@ h.test('the committed contract is not stale against the generator', async () => 
 h.test('the contract shape is the version this host reads', async () => {
   const contract = loadContract() as ChannelContract;
   assertEqual(contract.version, 1, 'version 1');
-  assertEqual(contract.roles.length, 10, 'ten window roles including the isolated video editor');
+  assertEqual(contract.roles.length, 11, 'eleven isolated window roles');
   const artifact = contract.roles.find((r) => r.role === 'artifact');
   const main = contract.roles.find((r) => r.role === 'main');
   assert(artifact!.invoke.length < main!.invoke.length, 'preview has a smaller independent capability surface');

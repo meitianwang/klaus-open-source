@@ -1,6 +1,6 @@
 {
   "summary": {
-    "invokeDeclared": 707,
+    "invokeDeclared": 708,
     "pushDeclared": 73
   },
   "rows": [
@@ -1978,6 +1978,10 @@
     },
     {
       "channel": "session:rename",
+      "kind": "invoke"
+    },
+    {
+      "channel": "session:runtime-state",
       "kind": "invoke"
     },
     {

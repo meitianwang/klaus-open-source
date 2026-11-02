@@ -245,6 +245,7 @@ expose('klaus', {
   session: {
     new: (opts?: { workdir?: string | null; workspaceId?: string | null; projectRoot?: string | null }) => call('session:new', opts ?? {}),
     list: () => call('session:list'),
+    runtimeState: (): Promise<{ workingSessionIds: string[] }> => call('session:runtime-state'),
     listArchived: () => call('session:list-archived'),
     retainView: (sessionId: string, viewId: string) => call('session:view-retain', { sessionId, viewId }),
     releaseView: (sessionId: string, viewId: string) => call('session:view-release', { sessionId, viewId }),
