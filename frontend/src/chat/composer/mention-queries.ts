@@ -25,11 +25,9 @@ import { BROWSER_TAB_MENTIONS_REFRESH_MS, browserTabDetail, browserTabLabel, nor
  *    The old getters swallowed failures into `[]`, which made "the device
  *    service is down" indistinguishable from "you have no devices".
  *
- * Query keys deliberately EXCLUDE the search text for the three list groups:
- * they fetch the whole list once and filtering happens at display time
- * (`filterMentionRows`). So typing re-filters cached rows without refetching —
- * which is exactly why the old per-keystroke request storm cannot recur here.
- * Only the file group's key includes the query, because that one searches.
+ * Small resource lists share cached raw rows. Conversations and browser tabs
+ * use query-scoped, bounded host searches so their full catalogs never cross
+ * the renderer bridge. Conversation requests are debounced by the menu.
  */
 
 export type Translate = (key: string) => string
@@ -55,7 +53,7 @@ export const MENTION_BROWSER_TABS_KEY = 'mention-browser-tabs'
 export const pluginsQueryKey = (sessionId: string | null): readonly unknown[] => [MENTION_PLUGINS_KEY, sessionId]
 export const friendsQueryKey = (): readonly unknown[] => [MENTION_FRIENDS_KEY]
 export const devicesQueryKey = (): readonly unknown[] => [MENTION_DEVICES_KEY]
-export const conversationsQueryKey = (): readonly unknown[] => [MENTION_CONVERSATIONS_KEY]
+export const conversationsQueryKey = (query: string): readonly unknown[] => [MENTION_CONVERSATIONS_KEY, query.trim()]
 // The host filters before applying the tab cap; each query needs its own result.
 export const browserTabsQueryKey = (sessionId: string | null, query: string): readonly unknown[] => [MENTION_BROWSER_TABS_KEY, sessionId, query.trim()]
 
@@ -154,12 +152,19 @@ export async function fetchDeviceRows(): Promise<DeviceRow[]> {
     }))
 }
 
-/** Local conversations with a title, as raw rows. The full list — truncation is display-side. */
-export async function fetchConversationRows(): Promise<ConversationRow[]> {
+export const CONVERSATION_CANDIDATE_LIMIT = 50
+export const CONVERSATION_QUERY_DEBOUNCE_MS = 100
+
+/** Read a bounded title-search page; the full session catalog stays in the host. */
+export async function fetchConversationRows(query: string, signal?: AbortSignal): Promise<ConversationRow[]> {
+  const needle = query.trim()
+  if (!needle || needle.length > 256) return []
+  signal?.throwIfAborted()
   const api = klaus()?.session
-  if (!api?.list) return []
-  const listed = await api.list()
-  return (Array.isArray(listed) ? listed : [])
+  if (!api?.mentionCandidates) throw new Error('conversation_search_unavailable')
+  const result = await api.mentionCandidates({ query: needle, limit: CONVERSATION_CANDIDATE_LIMIT })
+  signal?.throwIfAborted()
+  return (Array.isArray(result?.items) ? result.items : []).slice(0, CONVERSATION_CANDIDATE_LIMIT)
     .filter((row: any) => row?.id && typeof row.title === 'string' && row.title.trim())
     .map((row: any): ConversationRow => ({ id: String(row.id), title: String(row.title) }))
 }

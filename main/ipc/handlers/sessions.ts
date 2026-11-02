@@ -29,6 +29,17 @@ export function registerSessionHandlers(registry: ChannelRegistry, deps: {
         projectRoot: value.projectRoot as string | null | undefined });
     },
     'session:list': () => sessions.listSessions(),
+    'session:mention-candidates': context => {
+      const value = payload(context);
+      if (value.query !== undefined && typeof value.query !== 'string') throw new IpcHandlerError('BAD_REQUEST', 'query must be a string');
+      if (value.cursor !== undefined && typeof value.cursor !== 'string') throw new IpcHandlerError('BAD_REQUEST', 'cursor must be a string');
+      if (value.limit !== undefined && typeof value.limit !== 'number') throw new IpcHandlerError('BAD_REQUEST', 'limit must be a number');
+      return sessions.mentionCandidates({
+        ...(typeof value.query === 'string' ? { query: value.query } : {}),
+        ...(typeof value.cursor === 'string' ? { cursor: value.cursor } : {}),
+        ...(typeof value.limit === 'number' ? { limit: value.limit } : {}),
+      }) as unknown as Promise<Json>;
+    },
     'session:runtime-state': () => ({ workingSessionIds: state.runningSessions().filter(id => sessions.isCatalogVisible(id)) }),
     'session:list-archived': () => sessions.listArchivedSessions(),
     'session:view-retain': context => {

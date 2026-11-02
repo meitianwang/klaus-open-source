@@ -38,17 +38,13 @@ describe('agent reference chip wire', () => {
     expect(DEVICE_NAMES).toContain('klaus?.settings?.mobileBridge?.devices')
   })
 
-  // The conversation group's "search the full catalog, truncate only at display"
-  // property moved with the refactor: the queryFn returns every titled row and
-  // the section projects + filters at display time.
-  test('conversation mentions fetch the full catalog, truncating only at display', () => {
+  test('conversation mentions use bounded title search without a full-catalog fallback', () => {
     const fnAnchor = MENTION_QUERIES.indexOf('export async function fetchConversationRows(')
     expect(fnAnchor).toBeGreaterThan(-1)
     const fn = MENTION_QUERIES.slice(fnAnchor, MENTION_QUERIES.indexOf('// --- Projections', fnAnchor))
-    // Truncating inside the queryFn would cache only the first screen's rows and
-    // lock every later title search to them; the cap belongs to filterMentionRows
-    // in the section builder, which filters before it slices.
-    expect(fn).not.toContain('.slice(')
+    expect(fn).toContain('api.mentionCandidates(')
+    expect(fn).not.toContain('api.list(')
+    expect(fn).toContain('CONVERSATION_CANDIDATE_LIMIT')
     expect(fn).toContain("typeof row.title === 'string' && row.title.trim()")
     // The section builder applies the display filter, not the fetch.
     expect(SLASH_MENU).toContain('remoteSection(')
@@ -66,7 +62,7 @@ describe('agent reference chip wire', () => {
     const listGroups = SLASH_MENU.slice(pluginsAnchor, filesAnchor)
     expect(listGroups).not.toContain('!!sessionId', 'list groups must not be session-gated')
     const filesBlock = SLASH_MENU.slice(filesAnchor, SLASH_MENU.indexOf('\n', filesAnchor))
-    expect(filesBlock).toContain('true, sessionId, root, query')
+    expect(filesBlock).toContain('!isCategoryLevel || !!normalizedQuery, sessionId, root, query')
     const searchHook = SLASH_MENU.slice(SLASH_MENU.indexOf('function useFileSearchSession('), filesAnchor)
     expect(searchHook).toContain('const available = enabled && !!(sessionId || root)')
     expect(searchHook).toContain('if (!available) return')
@@ -117,6 +113,7 @@ describe('agent reference chip wire', () => {
     // cache instead of re-issuing a request per keystroke (the request-storm
     // guard, now structural rather than an in-flight promise).
     expect(MENTION_QUERIES).toContain('export const devicesQueryKey = (): readonly unknown[] => [MENTION_DEVICES_KEY]')
-    expect(MENTION_QUERIES).toContain('export const conversationsQueryKey = (): readonly unknown[] => [MENTION_CONVERSATIONS_KEY]')
+    expect(MENTION_QUERIES).toContain('[MENTION_CONVERSATIONS_KEY, query.trim()]')
+    expect(SLASH_MENU).toContain('CONVERSATION_QUERY_DEBOUNCE_MS')
   })
 })

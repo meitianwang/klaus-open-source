@@ -39,15 +39,24 @@ function sourcePriority(section: string, entry: MentionEntry, query: string): nu
 export function contextMenuSections(sections: MentionSection[], query: string): MentionSection[] {
   const needle = query.trim().toLocaleLowerCase()
   if (!needle) return sections.map(section => {
-    const limit = section.key === 'skills' ? 2 : section.key === 'apps' ? 3 : section.key === 'agents' ? 5 : section.key === 'sites' ? 2 : undefined
+    const limit = section.key === 'conversations' || section.key === 'files' ? 0
+      : section.key === 'skills' ? 2 : section.key === 'apps' ? 3 : section.key === 'agents' ? 5 : section.key === 'sites' ? 2 : undefined
     return { ...section, rows: limit === undefined ? section.rows : section.rows.slice(0, limit) }
   })
-  let order = 0
-  const candidates = sections.flatMap(section => section.rows.map(entry => ({
-    entry, order: order++, score: matchScore(entry, query), priority: sourcePriority(section.key, entry, needle),
-  }))).filter(candidate => candidate.score > 0)
-  candidates.sort((left, right) => left.priority - right.priority || right.score - left.score || left.order - right.order)
-  const rows = candidates.slice(0, CONTEXT_RESULT_LIMIT).map(candidate => candidate.entry)
+  const candidates: Array<{ entry: MentionEntry; score: number; priority: number }> = []
+  for (const section of sections) for (const entry of section.rows) {
+    const score = matchScore(entry, needle)
+    if (score <= 0) continue
+    const priority = sourcePriority(section.key, entry, needle)
+    const index = candidates.findIndex(candidate => priority < candidate.priority || (priority === candidate.priority && score > candidate.score))
+    if (index < 0) {
+      if (candidates.length < CONTEXT_RESULT_LIMIT) candidates.push({ entry, score, priority })
+    } else {
+      candidates.splice(index, 0, { entry, score, priority })
+      if (candidates.length > CONTEXT_RESULT_LIMIT) candidates.pop()
+    }
+  }
+  const rows = candidates.map(candidate => candidate.entry)
   const pending = sections.find(section => section.state?.kind === 'loading')
   const failed = sections.find(section => section.state?.kind === 'error')
   return [{ key: 'search-results', labelKey: null, rows,

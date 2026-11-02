@@ -15,9 +15,19 @@ globals.PLUGIN_NAME_ZH_OVERRIDES = {}
 globals.PLUGIN_NAME_TOKEN_ZH = {}
 globals.SKILL_TEXT_I18N = {}
 const fixtureFriendId = '11111111-1111-4111-8111-111111111111'
+let conversations = [{ id: 'chat-fixture', title: 'Review menus' }]
+const catalogStats = { fullListReads: 0, searches: [] as Array<{ query: string; limit: number }>, returned: 0, fileOpens: 0, fileSearches: 0 }
 globals.klaus = {
   plugins: { list: async () => [{ id: 'review-tools', name: 'Review tools', installed: true, enabled: true }] },
-  session: { list: async () => [{ id: 'chat-fixture', title: 'Review menus' }] },
+  session: {
+    list: async () => { catalogStats.fullListReads++; throw new Error('Unexpected full conversation catalog read') },
+    mentionCandidates: async ({ query, limit }: { query: string; limit: number }) => {
+      catalogStats.searches.push({ query, limit })
+      const items = conversations.filter(row => row.title.toLowerCase().includes(query.toLowerCase())).slice(0, limit)
+      catalogStats.returned += items.length
+      return { items, nextCursor: null }
+    },
+  },
   settings: { mobileBridge: { devices: async () => ({ ok: true, devices: [{ id: 'device-fixture', name: 'Fixture computer', platform: 'darwin', status: 'online' }] }) } },
   friends: { list: async () => ({ friends: [{ id: fixtureFriendId, status: 'accepted', displayName: 'Fixture friend', online: true }] }) },
   agents: { definitions: { list: async () => ({ agents: [{ agentType: 'reviewer', filename: 'Reviewer', whenToUse: 'Review changes' }] }) } },
@@ -51,7 +61,10 @@ function mount(owner: string) {
     slashCommandDescription: command => command.description || '', slashCommandDisplayName: command => command.displayName || command.name,
     slashCommandGroupLabel: key => key, commandGroupKey: command => command.kind === 'skill' ? 'skills' : 'shortcuts',
     folderIconSvg: () => '▱', fileIconSvg: () => '▤', pluginIconSvg: () => '◇', deviceIconHtml: () => '▣', categoryIconHtml: () => '▤', conversationIconHtml: () => '○',
-    openFileSearchSession: () => ({ search: async () => files, close: async () => {} } as any),
+    openFileSearchSession: () => {
+      catalogStats.fileOpens++
+      return { search: async () => { catalogStats.fileSearches++; return files }, close: async () => {} } as any
+    },
     contextCommands: async () => commands, contextMcp: async () => [{ name: 'Fixture tools' }],
     contextActions: () => [{ name: 'Add photos and files', path: 'context-action:attach-files', rel: '', kind: 'action', isDir: false, action: () => { attachments++ } }],
     onMentionMenuEmpty: () => discovery?.empty(), onRequestClose: () => discovery?.hide(true),
@@ -61,6 +74,7 @@ function mount(owner: string) {
     load: async () => commands, matches: (command, query) => command.name.includes(query),
     command: (command, range) => { commandSelections++; if (command.kind === 'skill') insert(skillReference(command), range); else control.replaceRange(range.start, range.end, `/${command.name} `, 'insertText') },
     reference: async (entry: MentionEntry) => entry.kind === 'mcp' || entry.kind === 'plugin' ? resourceReference(entry.kind, entry.name, entry.path)
+      : entry.kind === 'conversation' ? { kind: 'conversation', name: entry.name, id: entry.conversationId!, value: `[${entry.name}](klaus:conversation/${encodeURIComponent(entry.conversationId!)})` }
       : entry.kind === 'agent' ? { kind: 'agent', name: entry.name, value: `@agent-${entry.path}`, source: 'configured' }
         : workspaceReference({ ...entry, path: `/fixture-project/${entry.rel}` }), insert, failure: error => { throw error },
   })
@@ -93,4 +107,12 @@ function mount(owner: string) {
     },
   }
 }
-globals.contextFixture = { main: mount('main'), side: mount('side'), ready: true }
+globals.contextFixture = { main: mount('main'), side: mount('side'), ready: true,
+  clearQueries() { queryClient.clear() },
+  catalogStats,
+  setConversationCount(count: number) {
+    conversations = Array.from({ length: count }, (_, index) => ({ id: `perf-chat-${index}`, title: `Catalog conversation ${String(index).padStart(5, '0')}` }))
+    catalogStats.fullListReads = 0; catalogStats.searches = []; catalogStats.returned = 0; catalogStats.fileOpens = 0; catalogStats.fileSearches = 0
+    queryClient.clear()
+  },
+}

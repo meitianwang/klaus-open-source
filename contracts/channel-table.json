@@ -6,7 +6,7 @@
     "bridgeDir": "frontend/bridge"
   },
   "summary": {
-    "registeredInvoke": 708,
+    "registeredInvoke": 709,
     "registeredPush": 73,
     "roles": 11
   },
@@ -593,6 +593,7 @@
         "session:history-page",
         "session:list",
         "session:list-archived",
+        "session:mention-candidates",
         "session:new",
         "session:pick-workdir",
         "session:pick-workdirs",

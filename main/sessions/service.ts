@@ -71,6 +71,8 @@ import { buildMessageInput } from '../services/attachments';
 import { withSteerMarker } from '../../contracts/steer-marker';
 import { editPrepareFromRow, historyTurnIds, planEditResend, planRewind, rawHistoryMessages, resolveEditTarget, userDisplayMetadata, userMessageUuidForTurn } from './lifecycle';
 import { SideQuestions, querySideQuestion, type SideQuestionIdentity, type SideQuestionInput } from './side-questions';
+import { MentionTitleOverrides, SessionMentionCatalog } from '../services/session-mention-catalog';
+import { decodeSessionMentionCursor, normalizeSessionMentionQuery, SESSION_MENTION_CURSOR_MAX_BYTES, SESSION_MENTION_DEFAULT_LIMIT, SESSION_MENTION_MAX_LIMIT, SESSION_MENTION_QUERY_MAX_CHARS, type SessionMentionPage, type SessionMentionRequest } from '../../shared/session-mentions';
 import { configuredInference } from './inference';
 import { applyRuntimeSettings, runtimePolicyForSession } from '../services/runtime-policy';
 import { applyEffectiveRuntimePolicy, type RuntimePolicyProjection } from '../services/windows-runtime-policy';
@@ -440,6 +442,16 @@ export class SessionService {
   private readonly announcedSetupNotices = new Set<string>();
   private readonly sessionSnapshots = new Map<SessionListScope, Json[]>();
   private readonly sessionListReads = new Map<SessionListScope, Promise<Json[]>>();
+  /** Titles acknowledged on this host, newer than a snapshot that has not converged yet. */
+  private readonly mentionTitles = new MentionTitleOverrides();
+  /**
+   * The composer menu searches the snapshot above instead of reading the engine
+   * directory. The catalog rebuilds only when that snapshot array is replaced.
+   */
+  private readonly mentionCatalog = new SessionMentionCatalog({
+    visible: id => this.isCatalogVisible(id),
+    titleFor: (id, fallback) => this.mentionTitles.get(id) ?? fallback,
+  });
   private readonly idleRetirementKeeps = new Set<string>();
   private readonly inactiveLiveSessions = new Map<string, { engineId: string; since: number }>();
   private cancelIdleRetirementTimer?: () => void;
@@ -556,6 +568,7 @@ export class SessionService {
       },
       serialize: (id, action) => this.mutate(id, action),
       publish: event => {
+        if (typeof event.sessionId === 'string') this.rememberMentionTitle(event.sessionId, event.title);
         deps.onThreadRow?.({ id: event.sessionId!, title: event.title! });
         deps.pushChatEvents([event]);
       },
@@ -3513,6 +3526,41 @@ export class SessionService {
     return this.listSessionPageRecovering('archived');
   }
 
+  /**
+   * Search the conversation menu without reading the engine directory again.
+   *
+   * An empty query is an empty result: the menu is a search surface, not a
+   * second recent-conversation list. The first non-empty query may wait on the
+   * same in-flight catalog read `session:list` already shares; every later query
+   * filters the host's indexed snapshot. Rows leave this method as `{id,title}`.
+   */
+  async mentionCandidates(options: SessionMentionRequest = {}): Promise<SessionMentionPage> {
+    if (options.query !== undefined && typeof options.query !== 'string') {
+      throw new IpcHandlerError('BAD_REQUEST', 'query must be a string');
+    }
+    if (options.cursor !== undefined && (typeof options.cursor !== 'string' || !options.cursor
+      || Buffer.byteLength(options.cursor) > SESSION_MENTION_CURSOR_MAX_BYTES)) {
+      throw new IpcHandlerError('BAD_REQUEST', 'cursor must be a non-empty string of at most 4096 bytes');
+    }
+    const limit = options.limit ?? SESSION_MENTION_DEFAULT_LIMIT;
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > SESSION_MENTION_MAX_LIMIT) {
+      throw new IpcHandlerError('BAD_REQUEST', `limit must be an integer between 1 and ${SESSION_MENTION_MAX_LIMIT}`);
+    }
+    const query = normalizeSessionMentionQuery(options.query);
+    if ([...query].length > SESSION_MENTION_QUERY_MAX_CHARS) {
+      throw new IpcHandlerError('BAD_REQUEST', `query must be at most ${SESSION_MENTION_QUERY_MAX_CHARS} characters`);
+    }
+    const cursor = options.cursor === undefined ? undefined : decodeSessionMentionCursor(options.cursor);
+    if (options.cursor !== undefined && !cursor) throw new IpcHandlerError('BAD_REQUEST', 'cursor is not a conversation search cursor');
+    if (!query) return { items: [], nextCursor: null };
+    if (cursor && cursor.query !== query) {
+      throw new IpcHandlerError('BAD_REQUEST', 'cursor belongs to a different conversation search');
+    }
+    let snapshot = this.sessionSnapshots.get('active');
+    if (snapshot === undefined) snapshot = await this.listSessionPageRecovering('active');
+    return this.mentionCatalog.page(snapshot, query, limit, cursor ?? undefined);
+  }
+
   /** One metadata-only active catalog page; the caller owns scan/checkpoint state. */
   async catalogPage(options: { cursor?: string; limit?: number; signal?: AbortSignal } = {}): Promise<{
     rows: Json[]; nextCursor?: string; sourceWatermarks: Record<string, number>; membershipFingerprint?: string; metadataFingerprint?: string;
@@ -3546,6 +3594,14 @@ export class SessionService {
     return { rows: this.decorateSessionRows(visible), ...(page.nextCursor ? { nextCursor: page.nextCursor } : {}),
       ...(page.membershipFingerprint ? { membershipFingerprint: page.membershipFingerprint } : {}),
       ...(page.metadataFingerprint ? { metadataFingerprint: page.metadataFingerprint } : {}), sourceWatermarks };
+  }
+
+  /** A host-acknowledged title outranks a snapshot that has not refreshed yet. */
+  private rememberMentionTitle(id: string, title: unknown): void {
+    if (!id || typeof title !== 'string') return;
+    const value = title.trim();
+    if (!value) { this.mentionTitles.delete(id); return; }
+    this.mentionTitles.set(id, value);
   }
 
   /** Cached catalog entries recheck current ownership without reading settings.db. */
@@ -3585,10 +3641,15 @@ export class SessionService {
 
   private async readSessionPageRecovering(scope: SessionListScope, current: () => boolean): Promise<Json[]> {
     const includeArchived = scope === 'archived';
+    const titlesThrough = this.mentionTitles.capture();
     try {
       const rows = await this.listSessionPage(includeArchived);
       if (current()) {
         this.sessionSnapshots.set(scope, rows);
+        // A title written while this read was in flight stays newer than the
+        // result. Titles that predate the read yield to the converged snapshot,
+        // so a later external rename can win.
+        if (scope === 'active') this.mentionTitles.prune(titlesThrough);
         try { writeSessionListSnapshot(scope, rows, this.configRoot); }
         catch (error) { this.deps.log?.('session-list-cache-write-failed', sessionFailureMessage(error)); }
       }
@@ -3604,7 +3665,11 @@ export class SessionService {
       this.deps.log?.('session-list-cache-fallback', `${scope}: ${errorMessage(error)}`);
       const visible = cached.filter(row => !this.deps.isPrivateThread?.(String(object(row)?.id ?? '')));
       for (const row of visible) { const value = object(row); if (value) this.deps.onThreadRow?.(value); }
-      return this.decorateSessionRows(visible);
+      const decorated = this.decorateSessionRows(visible);
+      // Keep a validated fallback so a failing catalog is not re-read for every
+      // search query. A later successful read still replaces this array.
+      if (current()) this.sessionSnapshots.set(scope, decorated);
+      return decorated;
     }
   }
 
@@ -4917,6 +4982,7 @@ export class SessionService {
     this.deps.state.forgetSession(rendererId, 'session-deleted');
     this.deps.state.workflows.forget(rendererId);
     this.deleted.add(rendererId);
+    this.mentionTitles.delete(rendererId);
     this.readableHistories.delete(rendererId);
     this.threadHistoryCache.invalidateSession(rendererId);
     // The successful engine deletion includes its durable queue and receipts.
@@ -4985,6 +5051,7 @@ export class SessionService {
       threadId: id, title: title.trim(), ...(live ? { sessionId: live } : {}),
     }, 'title');
     this.titles.recordRename(id, title);
+    this.rememberMentionTitle(id, title);
     this.deps.onThreadRow?.({ id, title: title.trim() });
   }
   rename(id: string, title: string): Promise<null> {

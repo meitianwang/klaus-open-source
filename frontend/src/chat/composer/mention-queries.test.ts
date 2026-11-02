@@ -74,18 +74,33 @@ describe('mention query functions return raw rows and never resolve labels', () 
     ])
   })
 
-  test('conversations: the full titled list, untruncated (truncation is display-side)', async () => {
-    const many = Array.from({ length: 12 }, (_, i) => ({ id: `c${i}`, title: `Chat ${i}` }))
-    many.push({ id: 'untitled', title: '   ' })
-    setKlaus({ session: { list: async () => many } })
-    const rows = await fetchConversationRows()
-    expect(rows).toHaveLength(12, 'the blank-titled row is dropped, the rest are all kept')
-    expect(rows[0]).toEqual({ id: 'c0', title: 'Chat 0' })
+  test('conversations: empty queries never read the full catalog or request candidates', async () => {
+    let calls = 0
+    setKlaus({ session: { list: async () => { calls++; return [] }, mentionCandidates: async () => { calls++; return { items: [] } } } })
+    expect(await fetchConversationRows('   ')).toEqual([])
+    expect(calls).toBe(0)
   })
 
-  test('conversations: an absent session API yields no rows, not an error', async () => {
-    setKlaus({})
-    expect(await fetchConversationRows()).toEqual([])
+  test('conversations: search requests a bounded raw title page and keeps late catalog matches', async () => {
+    const calls: unknown[] = []
+    setKlaus({ session: { list: () => { throw new Error('unexpected full list') }, mentionCandidates: async (request: unknown) => {
+      calls.push(request)
+      return { items: [{ id: 'old-chat-9999', title: 'Historical match' }, { id: 'untitled', title: '   ' }] }
+    } } })
+    expect(await fetchConversationRows(' Historical ')).toEqual([{ id: 'old-chat-9999', title: 'Historical match' }])
+    expect(calls).toEqual([{ query: 'Historical', limit: 50 }])
+  })
+
+  test('conversations: an unavailable search is an error, never a full-list fallback', async () => {
+    setKlaus({ session: { list: () => { throw new Error('unexpected full list') } } })
+    await rejects(fetchConversationRows('match'), /conversation_search_unavailable/)
+  })
+
+  test('conversations: cancelled or oversized searches cannot publish stale candidates', async () => {
+    const controller = new AbortController()
+    setKlaus({ session: { mentionCandidates: async () => { controller.abort(); return { items: [{ id: 'one', title: 'Match' }] } } } })
+    await rejects(fetchConversationRows('match', controller.signal))
+    expect(await fetchConversationRows('x'.repeat(257))).toEqual([])
   })
 })
 
@@ -161,8 +176,9 @@ describe('mention query keys', () => {
     // the query text is not in these keys, so it cannot change them.
     expect(pluginsQueryKey('s1')).toEqual([MENTION_PLUGINS_KEY, 's1'])
     expect(devicesQueryKey()).toEqual([MENTION_DEVICES_KEY])
-    expect(conversationsQueryKey()).toEqual([MENTION_CONVERSATIONS_KEY])
-    // Plugins are session-scoped (project skills differ), devices/conversations are not.
+    expect(conversationsQueryKey(' match ')).toEqual([MENTION_CONVERSATIONS_KEY, 'match'])
+    expect(conversationsQueryKey('one')).not.toEqual(conversationsQueryKey('two'))
+    // Plugins are session-scoped; device lists are shared and title searches are query-scoped.
     expect(pluginsQueryKey('s1')).not.toEqual(pluginsQueryKey('s2'))
     expect(devicesQueryKey()).toEqual(devicesQueryKey())
     // The file group has no query key: it is driven by a persistent search

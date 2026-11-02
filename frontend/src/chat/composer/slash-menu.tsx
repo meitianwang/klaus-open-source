@@ -17,7 +17,7 @@ import { slashRowLabels } from './slash-row-labels'
 import { useT } from '../../i18n'
 import { queryClient } from '../../app/query-client'
 import {
-  conversationsQueryKey, CONVERSATIONS_STALE_MS,
+  conversationsQueryKey, CONVERSATIONS_STALE_MS, CONVERSATION_QUERY_DEBOUNCE_MS,
   devicesQueryKey, DEVICES_STALE_MS, friendsQueryKey, FRIENDS_STALE_MS, fetchFriendRows, projectFriendRows,
   fetchConversationRows, fetchDeviceRows, fetchPluginRows, browserTabsQueryOptions, subscribeBrowserTabMentionChanges, MENTION_BROWSER_TABS_KEY,
   pluginsQueryKey, PLUGINS_STALE_MS,
@@ -306,12 +306,22 @@ function MentionMenu({ request, actions, store }: {
     staleTime: FRIENDS_STALE_MS,
     enabled: isCategoryLevel,
   })
+  const normalizedQuery = query.trim()
+  const [conversationQuery, setConversationQuery] = useState('')
+  useEffect(() => {
+    if (!normalizedQuery) { setConversationQuery(''); return }
+    const timer = window.setTimeout(() => setConversationQuery(normalizedQuery), CONVERSATION_QUERY_DEBOUNCE_MS)
+    return () => window.clearTimeout(timer)
+  }, [normalizedQuery])
   const conversations = useQuery({
-    queryKey: conversationsQueryKey(),
-    queryFn: () => fetchConversationRows(),
+    queryKey: conversationsQueryKey(conversationQuery),
+    queryFn: ({ signal }) => fetchConversationRows(conversationQuery, signal),
     staleTime: CONVERSATIONS_STALE_MS,
-    enabled: isCategoryLevel,
+    enabled: isCategoryLevel && !!normalizedQuery && conversationQuery === normalizedQuery,
   })
+  const conversationData = normalizedQuery && conversationQuery === normalizedQuery ? conversations.data : undefined
+  const conversationsPending = !!normalizedQuery && (conversationQuery !== normalizedQuery || conversations.isFetching)
+  const conversationsFailed = !!normalizedQuery && conversationQuery === normalizedQuery && conversations.isError
   const browserTabs = useQuery({
     ...browserTabsQueryOptions(sessionId, query),
     enabled: isCategoryLevel,
@@ -322,7 +332,7 @@ function MentionMenu({ request, actions, store }: {
       void queryClient.invalidateQueries({ queryKey: [MENTION_BROWSER_TABS_KEY, sessionId] })
     }, window)
   }, [isCategoryLevel, sessionId])
-  const files = useFileSearchSession(actions.openFileSearchSession, true, sessionId, root, query)
+  const files = useFileSearchSession(actions.openFileSearchSession, !isCategoryLevel || !!normalizedQuery, sessionId, root, query)
 
   const sections = useMemo<MentionSection[]>(() => {
     if (!isCategoryLevel) {
@@ -368,7 +378,7 @@ function MentionMenu({ request, actions, store }: {
       { key: 'commands', labelKey: 'composer_slash_commands', rows: commandRows.filter(row => actions.commandGroupKey(row.command) !== 'skills'),
         ...(commands.isError ? { state: { kind: 'error' as const, labelKey: 'composer_load_failed' } }
           : !commands.data && commands.isFetching ? { state: { kind: 'loading' as const, labelKey: 'loading' } } : {}) },
-      remoteSection('conversations', 'mention_group_conversations', conversations, rows => projectConversationRows(rows, t), '', {
+      remoteSection('conversations', 'mention_group_conversations', { data: conversationData, isFetching: conversationsPending, isError: conversationsFailed }, rows => projectConversationRows(rows, t), '', {
         loading: 'mention_group_conversations_loading', error: 'mention_group_conversations_error', empty: 'mention_group_empty',
       }),
       { key: 'skills', labelKey: 'skills', rows: commandRows.filter(row => actions.commandGroupKey(row.command) === 'skills') },
@@ -377,10 +387,16 @@ function MentionMenu({ request, actions, store }: {
       }),
     ]
     return contextMenuSections(sourceSections, query)
-  }, [isCategoryLevel, scope, sessionId, root, query, plugins, devices, friends, conversations, browserTabs, files, commands, mcp, agents, actions, t, lang])
+  }, [isCategoryLevel, scope, sessionId, root, query,
+    plugins.data, plugins.isFetching, plugins.isError, devices.data, devices.isFetching, devices.isError,
+    friends.data, friends.isFetching, friends.isError, conversationData, conversationsPending, conversationsFailed,
+    browserTabs.data, browserTabs.isFetching, browserTabs.isError, files.data, files.isFetching, files.isError,
+    commands.data, commands.isFetching, commands.isError, mcp.data, mcp.isFetching, mcp.isError,
+    agents.data, agents.isFetching, agents.isError, actions, t, lang])
 
   const rows = useMemo<MentionRow[]>(() => mentionRows(sections), [sections])
   const selectable = useMemo(() => selectableEntries(rows), [rows])
+  const selectableIndexes = useMemo(() => new Map(selectable.map((entry, index) => [entry, index])), [selectable])
 
   // Publish the selectable rows so the imperative navigate/clickActive API can
   // address them. useLayoutEffect so it lands before the user can interact.
@@ -397,7 +413,9 @@ function MentionMenu({ request, actions, store }: {
   }, [store, selectable, selectionKey, selectionRequest])
 
   const hasPendingOrError = sections.some(section => section.state?.kind === 'loading' || section.state?.kind === 'error')
-  const hover = (index: number) => store.setState({ activeIdx: index })
+  const hover = (index: number) => {
+    if (store.getState().activeIdx !== index) store.setState({ activeIdx: index })
+  }
 
   return (
     <>
@@ -429,7 +447,7 @@ function MentionMenu({ request, actions, store }: {
         const entry = row.entry
         // activeIdx addresses the selectable list, not the render list; find this
         // item's position among selectable rows.
-        const selectableIndex = selectable.indexOf(entry)
+        const selectableIndex = selectableIndexes.get(entry)!
         if (entry.kind === 'browser-tab' && entry.browserTab) {
           return <button
             type="button" key={`i-${row.sectionKey}-${entry.path}`} role="option"
@@ -489,7 +507,8 @@ function MentionMenu({ request, actions, store }: {
           />
         )
       })}
-      {selectable.length === 0 && !hasPendingOrError && <div className={styles['mention-menu-state']} data-context-empty>{t('mention_group_empty')}</div>}
+      {isCategoryLevel && !normalizedQuery && <div className={styles['mention-menu-state']} data-context-search-hint>{t('mention_files_chats_search_hint')}</div>}
+      {selectable.length === 0 && !hasPendingOrError && (!isCategoryLevel || !!normalizedQuery) && <div className={styles['mention-menu-state']} data-context-empty>{t('mention_group_empty')}</div>}
     </>
   )
 }
@@ -711,6 +730,7 @@ export function mountSlashMenu(container: HTMLElement | null, actions: SlashMenu
         && previous.mentionRequest?.sessionId === request.sessionId
         && previous.mentionRequest?.root === request.root
       const sameQuery = sameMenu && previous.mentionRequest?.query === request.query
+      if (sameQuery && previous.mentionRequest?.activation === request.activation) return
       store.setState({ mode: 'workspace', mentionRequest: request, slashItems: [],
         mentionSelectable: sameQuery ? previous.mentionSelectable : [], activeIdx: sameQuery ? previous.activeIdx : -1 })
     },

@@ -24,6 +24,7 @@ import type { PetMainCapture } from '../../contracts/desktop-pet-appshot'
 import './webview-integration.js'
 import type { FriendsSnapshot, FriendProfile, FriendsRuntimeSnapshot, FriendAppsSnapshot, FriendTaskGrant, FriendCard, FriendMessageIntent, FriendOnReply } from '../../shared/friends'
 import type { BrowserTabMention } from '../../shared/browser-tab-mention'
+import type { SessionMentionPage, SessionMentionRequest } from '../../shared/session-mentions'
 import type { SiteOpenRequest, SiteOpenResult, SiteOpenTargets } from '../../contracts/browser-sites'
 import type { DesktopDistribution } from '../../shared/desktop-edition'
 import { desktopDistribution } from '../src/app/distribution'
@@ -245,6 +246,13 @@ expose('klaus', {
   session: {
     new: (opts?: { workdir?: string | null; workspaceId?: string | null; projectRoot?: string | null }) => call('session:new', opts ?? {}),
     list: () => call('session:list'),
+    /**
+     * Search conversation titles for the composer menu. Empty or whitespace-only
+     * queries return no items. The host searches its cached catalog and returns
+     * only `{id,title}` rows; pass `nextCursor` back to continue a page.
+     */
+    mentionCandidates: (opts: SessionMentionRequest = {}): Promise<SessionMentionPage> =>
+      call('session:mention-candidates', opts),
     runtimeState: (): Promise<{ workingSessionIds: string[] }> => call('session:runtime-state'),
     listArchived: () => call('session:list-archived'),
     retainView: (sessionId: string, viewId: string) => call('session:view-retain', { sessionId, viewId }),

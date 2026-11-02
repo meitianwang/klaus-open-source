@@ -1,7 +1,8 @@
 {
-  "reason": "Keyboard and button activation share one searchable context list. Button activation preserves the authored draft until a resource or action is selected. Source groups become a globally ranked result list while searching.",
+  "reason": "Keyboard and button activation share one searchable context list. Button activation preserves the authored draft until a resource or action is selected. Source groups become a globally ranked result list while searching. Files and conversations are search-only; bounded debounced conversation queries reuse the host catalog instead of sending it to the renderer.",
   "queryLimit": 8,
-  "emptySourceLimits": { "agents": 5, "apps": 3, "skills": 2, "sites": 2 },
+  "emptySourceLimits": { "agents": 5, "apps": 3, "skills": 2, "sites": 2, "conversations": 0, "files": 0 },
+  "conversationSearch": { "debounceMs": 100, "candidateLimit": 50, "emptyQueryRequests": 0, "scrollLoadsMore": false },
   "keyboard": { "confirm": "Enter", "dismiss": "Escape", "tabSelects": false, "spaceSelects": false, "numberShortcuts": false },
   "presentation": { "panelRadius": 16, "rowRadius": 12, "gutter": 4, "rowFontSize": 14, "rowLineHeight": 20, "fixedWidth": false, "sideSubmenu": false, "shadow": "none" },
   "activation": [

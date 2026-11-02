@@ -1,6 +1,6 @@
 {
   "summary": {
-    "invokeDeclared": 708,
+    "invokeDeclared": 709,
     "pushDeclared": 73
   },
   "rows": [
@@ -1962,6 +1962,10 @@
     },
     {
       "channel": "session:list-archived",
+      "kind": "invoke"
+    },
+    {
+      "channel": "session:mention-candidates",
       "kind": "invoke"
     },
     {
