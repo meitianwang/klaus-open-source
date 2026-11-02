@@ -73,7 +73,7 @@ const mentionRoutes = `window.mountComposerMentionRoutes = (inputEl, helpers) =>
     isSkillCommand, skillReference, resourceReference, referencesFromEditor, migrateSkillDraft, reconcileSlashDraft, selectedSlashCommandFromDraft,
     workspaceReference, workspaceReferencesIn, composerQueryInText, composerDraftFromControl, routeComposerPickerKey, composerTokenDataWithinDepth, mountSlashMenu } = helpers;
   let selectedSlashCommand = null, selectedSlashCommandRange = null, composerReferenceTokens = [], pendingFiles = [],
-    activeSlashTriggerRange = null, workspaceAtTrigger = null, workspaceMentionScope = null, composerMenuMode = null, slashRequestSeq = 0;
+    activeSlashTriggerRange = null, workspaceAtTrigger = null, workspaceMentionScope = null, syntheticMention = null, composerMenuMode = null, slashRequestSeq = 0;
   const cacheSlashCommand = () => {}, forgetInlineQuoteEntries = () => {}, renderPreviews = () => {}, autoResize = () => {},
     updateSendBtn = () => {}, persistComposerDraft = () => {}, resetHistoryBrowsing = () => {}, refreshSelectedSlashCommand = async () => {},
     normalizeComposerTokenSelection = () => {}, handleSlashMenu = () => {}, handleWorkspaceMentionMenu = () => {},

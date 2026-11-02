@@ -10,12 +10,13 @@ export interface ComposerQuery {
 
 const QUERY = /(?:^|\s)([/@$])([\p{L}\p{N}\p{M}.:_/\\-]*)$/u
 const SLASH_QUERY = /(?:^|\s)(\/)(?!\s)([\p{L}\p{N}\p{M}.:_\\ -]*)$/u
+const MENTION_QUERY = /(?:^|\s)(@)([\p{L}\p{N}\p{M}.:_/\\ -]*)$/u
 
 /** Match only the editable text immediately before an empty selection. */
 export function composerQueryInText(text: string, start: number, end = start): ComposerQuery | null {
   if (!Number.isInteger(start) || start !== end || start < 0 || start > text.length) return null
   const before = text.slice(0, start)
-  const matches = [QUERY.exec(before), SLASH_QUERY.exec(before)].filter((match): match is RegExpExecArray => !!match)
+  const matches = [QUERY.exec(before), SLASH_QUERY.exec(before), MENTION_QUERY.exec(before)].filter((match): match is RegExpExecArray => !!match)
   if (!matches.length) return null
   const match = matches.sort((a, b) => b.index - a.index)[0]
   return { prefix: match[1] as ComposerQuery['prefix'], query: match[2],

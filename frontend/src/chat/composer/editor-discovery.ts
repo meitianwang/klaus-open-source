@@ -5,6 +5,7 @@ import { sameComposerQuery } from './composer-query'
 import { isSkillCommand } from './resource-reference'
 import type { ComposerReferenceToken } from './reference-token'
 import type { MentionEntry, SlashMenuApi } from './slash-menu'
+import { syntheticContextQuery, resolveSyntheticContextQuery, type SyntheticContextQuery } from './context-menu-model'
 
 export interface EditorDiscoveryContext {
   owner: string
@@ -14,14 +15,18 @@ export interface EditorDiscoveryContext {
 
 export function routeComposerPickerKey(event: KeyboardEvent, options: {
   composing: boolean; visible: boolean
+  context?: boolean
+  alternateNavigation?: boolean
   navigate(direction: number): void
   select(intent: 'insert' | 'complete'): void
   escape(): void
 }): boolean {
+  const alternateKeys = options.alternateNavigation ?? (typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform))
+  const alternate = options.context && alternateKeys && event.ctrlKey && !event.metaKey && ['n', 'p'].includes(event.key.toLowerCase())
   if (event.defaultPrevented || event.isComposing || event.keyCode === 229 || options.composing || !options.visible
-    || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return false
-  if (event.key === 'ArrowDown' || event.key === 'ArrowUp') options.navigate(event.key === 'ArrowDown' ? 1 : -1)
-  else if (event.key === 'Enter' || event.key === 'Tab') options.select(event.key === 'Tab' ? 'complete' : 'insert')
+    || event.metaKey || event.ctrlKey && !alternate || event.altKey || event.shiftKey) return false
+  if (event.key === 'ArrowDown' || event.key === 'ArrowUp' || alternate) options.navigate(event.key === 'ArrowDown' || alternate && event.key.toLowerCase() === 'n' ? 1 : -1)
+  else if (event.key === 'Enter' || event.key === 'Tab' && !options.context) options.select(event.key === 'Tab' ? 'complete' : 'insert')
   else if (event.key === 'Escape') options.escape()
   else return false
   event.preventDefault()
@@ -48,18 +53,26 @@ export function createEditorDiscovery(options: {
   let mode: 'slash' | 'workspace' | null = null
   let scope: 'files' | 'folders' | null = null
   let published: { query: ComposerQuery; context: EditorDiscoveryContext; revision: number } | null = null
+  let synthetic: SyntheticContextQuery | null = null
   const contextKey = (value: EditorDiscoveryContext | null) => JSON.stringify(value)
+  const activeQuery = (): ComposerQuery | null => {
+    if (!synthetic) return control.queryAtCaret()
+    const typed = control.queryAtCaret()
+    if (typed && typed.start >= synthetic.start) { synthetic = null; return typed }
+    const query = resolveSyntheticContextQuery(synthetic, input.value, input.selectionStart, input.selectionEnd, contextKey(options.context()))
+    return query ? { ...query, prefix: '@' } : null
+  }
   const current = (value: NonNullable<typeof published>) => control.revision === value.revision
-    && contextKey(options.context()) === contextKey(value.context) && sameComposerQuery(value.query, control.queryAtCaret())
+    && contextKey(options.context()) === contextKey(value.context) && sameComposerQuery(value.query, activeQuery())
     && input.ownerDocument.activeElement === input
-  const close = () => { mode = null; scope = null; published = null; menu.hide() }
+  const close = () => { mode = null; scope = null; published = null; synthetic = null; menu.hide() }
   const hide = (dismiss = false) => {
     sequence++
     if (dismiss) control.dismissQuery()
     close()
   }
   const refresh = async () => {
-    const request = ++sequence, query = control.queryAtCaret(), context = options.context()
+    const request = ++sequence, query = activeQuery(), context = options.context()
     if (!query || !context || options.prefixes && !options.prefixes.includes(query.prefix)
       || control.composing || input.ownerDocument.activeElement !== input) { close(); return }
     const value = { query, context, revision: control.revision }
@@ -67,7 +80,7 @@ export function createEditorDiscovery(options: {
       if (mode !== 'workspace' || published?.query.start !== query.start || contextKey(published?.context || null) !== contextKey(context)) scope = null
       mode = 'workspace'
       published = value
-      menu.showMention({ query: query.query, scope, sessionId: context.sessionId, root: context.root })
+      menu.showMention({ query: query.query, scope, sessionId: context.sessionId, root: context.root, activation: synthetic ? 'synthetic' : 'typed' })
       return
     }
     if (mode === 'workspace') close()
@@ -92,6 +105,14 @@ export function createEditorDiscovery(options: {
     void refresh()
   }
   return {
+    open() {
+      hide()
+      input.focus()
+      synthetic = syntheticContextQuery(input.value, input.selectionStart, input.selectionEnd, contextKey(options.context()))
+      void refresh()
+    },
+    isSynthetic() { return synthetic !== null && menu.isOpen() },
+    isContextOpen() { return mode === 'workspace' && menu.isOpen() },
     refresh,
     hide,
     empty() { if (mode === 'workspace') hide() },
@@ -105,6 +126,18 @@ export function createEditorDiscovery(options: {
     async selectMention(entry: MentionEntry, intent: 'insert' | 'complete' = 'insert') {
       const value = published
       if (!value || !current(value) || value.query.prefix !== '@') { hide(); return }
+      if (entry.kind === 'command' && entry.command) {
+        hide()
+        options.command(entry.command, value.query)
+        input.focus()
+        return
+      }
+      if (entry.kind === 'action' && entry.action) {
+        hide()
+        control.replaceRange(value.query.start, value.query.end, '', 'insertReplacementText')
+        entry.action()
+        return
+      }
       if (entry.kind === 'category' && entry.category) { setScope(entry.category); return }
       if (entry.isDir && intent === 'complete') {
         const path = /[\\/]$/.test(entry.rel) ? entry.rel : `${entry.rel}/`
@@ -124,7 +157,9 @@ export function createEditorDiscovery(options: {
       } catch (error) { if (request === sequence && current(value)) { hide(); options.failure(error) } }
     },
     keydown(event: KeyboardEvent) {
-      return routeComposerPickerKey(event, { composing: control.composing, visible: mode !== null && menu.isOpen() && !!published && current(published),
+      const selectable = event.key === 'Escape' || (menu.activeIndex?.() ?? 0) >= 0
+      return routeComposerPickerKey(event, { composing: control.composing, visible: selectable && mode !== null && menu.isOpen() && !!published && current(published),
+        context: mode === 'workspace',
         navigate: direction => menu.navigate(direction), select: intent => menu.clickActive(intent),
         escape: () => { if (mode === 'workspace' && scope) setScope(null); else hide(true) } })
     },

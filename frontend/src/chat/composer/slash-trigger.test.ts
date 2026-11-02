@@ -23,7 +23,7 @@ function fixture(vector: typeof vectors.slashCases[number]) {
   const cursor = vector.cursor ?? value.length
   const shown: string[][] = []
   const context = {
-    composerQueryInText, sameComposerQuery, mainComposerControl: null,
+    composerQueryInText, sameComposerQuery, mainComposerControl: null, syntheticMention: null,
     ...goalShortcuts,
     ...planShortcuts,
     ...compactCommands,

@@ -1,0 +1,12 @@
+{
+  "reason": "Keyboard and button activation share one searchable context list. Button activation preserves the authored draft until a resource or action is selected. Source groups become a globally ranked result list while searching.",
+  "queryLimit": 8,
+  "emptySourceLimits": { "agents": 5, "apps": 3, "skills": 2, "sites": 2 },
+  "keyboard": { "confirm": "Enter", "dismiss": "Escape", "tabSelects": false, "spaceSelects": false, "numberShortcuts": false },
+  "presentation": { "panelRadius": 16, "rowRadius": 12, "gutter": 4, "rowFontSize": 14, "rowLineHeight": 20, "fixedWidth": false, "sideSubmenu": false, "shadow": "none" },
+  "activation": [
+    { "text": "Review the change", "start": 17, "end": 17, "after": "Review the change", "caret": 17, "query": "", "range": [17, 17] },
+    { "text": "Review  later", "start": 7, "end": 7, "after": "Review diagram later", "caret": 14, "query": "diagram", "range": [7, 14] },
+    { "text": "Review chosen text later", "start": 7, "end": 18, "after": "Review chosen text later", "caret": 7, "selectionEnd": 18, "query": "", "range": [7, 7] }
+  ]
+}

@@ -6681,30 +6681,35 @@ single repository — `disabled` + `disabledReason`). The row keeps its
   min-width: 0;
   width: auto;
 }
-/* Leave room for the mode descriptions while retaining compact submenu rows. */
-.composer-plus-menu.kls-select-panel {
-  width: min(360px, calc(100vw - 32px));
-  max-height: min(360px, calc(100vh - 180px));
-  padding: 4px;
-}
-.composer-plus-submenu.kls-select-panel {
-  width: min(280px, calc(100vw - 32px));
-  padding: 4px;
-  /* 页脚固定：面板自身不滚，列表部分由 .composer-plus-list 内部滚动 */
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-.composer-plus-menu.hidden { display: none; }
 .slash-menu.workspace-mention-menu {
   max-width: calc(100vw - 16px);
+  --context-menu-row-height: 0px;
+  --context-menu-font-size: 14px;
+  --context-menu-line-height: 20px;
+  --context-menu-row-padding-y: 6px;
+  --context-menu-row-padding-x: 8px;
+  --context-menu-row-radius: 12px;
+  --context-menu-max-height: calc(10 * max(var(--context-menu-row-height), var(--context-menu-line-height) + 2 * var(--context-menu-row-padding-y)) + 10px);
+  border-radius: 16px;
+  box-shadow: none;
+  padding: 4px;
+  background: var(--bg-elevated);
+  scroll-padding-top: 28px;
 }
 .slash-menu.manual-compact-menu { border-radius: 9999px; }
 .slash-menu.hidden { display: none; }
 .workspace-mention-menu .workspace-mention-menu-item.kls-select-item {
-  gap: 10px;
-  min-height: 44px;
+  gap: 8px;
+  min-height: var(--context-menu-row-height);
+  padding: var(--context-menu-row-padding-y) var(--context-menu-row-padding-x);
+  border-radius: var(--context-menu-row-radius);
+  font-size: var(--context-menu-font-size);
+  line-height: var(--context-menu-line-height);
   align-items: center;
+}
+.workspace-mention-menu .workspace-mention-menu-item.active,
+.workspace-mention-menu .workspace-mention-menu-item:hover {
+  background: var(--bg-hover);
 }
 .code-copy {
   position: absolute;

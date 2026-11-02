@@ -48,6 +48,7 @@
     "typecheck:frontend": "tsc --noEmit -p tsconfig.frontend.json",
     "canvas:sdk-types": "tsc -p tsconfig.canvas-sdk.json",
     "test:frontend": "bun test ./frontend/src",
+    "test:composer-context": "node scripts/run-electron-test.mjs tests/composer-context-electron.cjs",
     "test:turn-navigation": "node scripts/run-turn-navigation-test.mjs",
     "test:subagent-lifecycle": "node scripts/run-subagent-lifecycle-test.mjs",
     "audit:command-map": "node scripts/audit-runtime-channels.mjs",

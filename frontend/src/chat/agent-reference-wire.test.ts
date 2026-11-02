@@ -66,7 +66,7 @@ describe('agent reference chip wire', () => {
     const listGroups = SLASH_MENU.slice(pluginsAnchor, filesAnchor)
     expect(listGroups).not.toContain('!!sessionId', 'list groups must not be session-gated')
     const filesBlock = SLASH_MENU.slice(filesAnchor, SLASH_MENU.indexOf('\n', filesAnchor))
-    expect(filesBlock).toContain('!isCategoryLevel, sessionId, root, query')
+    expect(filesBlock).toContain('true, sessionId, root, query')
     const searchHook = SLASH_MENU.slice(SLASH_MENU.indexOf('function useFileSearchSession('), filesAnchor)
     expect(searchHook).toContain('const available = enabled && !!(sessionId || root)')
     expect(searchHook).toContain('if (!available) return')

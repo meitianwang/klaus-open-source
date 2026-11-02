@@ -3,7 +3,8 @@ import { GoalEditor, GoalProgressRow } from './components'
 import { GoalEditorController } from './editor-state'
 import { reviewGoalResume } from './draft-review'
 import type { GoalSnapshot } from './types'
-import { mountComposerPlusMenu } from '../composer/plus-menu'
+import { mountSlashMenu } from '../composer/slash-menu'
+import { queryClient } from '../../app/query-client'
 import { activateGoalShortcut, withGoalShortcut } from '../composer/goal-shortcut'
 import { goalSurfaceEligible, removeSideWorkflowControls } from '../composer/workflow-surface'
 import { t } from '../../i18n'
@@ -11,7 +12,7 @@ import { t } from '../../i18n'
 const fixtureWindow = window as typeof window & { tt: typeof t; goalInteractionFixture: unknown; currentLang: string }
 fixtureWindow.currentLang = 'en'
 fixtureWindow.tt = t
-document.body.innerHTML = `<main><div id="editor"></div><div id="resume-fixture"></div><div id="restricted-goal"></div><div id="restricted-editor"></div><section id="input-wrapper"><button id="composer-plus-btn">+</button><textarea id="input"></textarea><div id="composer-plus-menu"></div><div id="composer-plus-submenu"></div><div id="slash-menu"></div><div id="goal-indicator">Current goal</div><button id="goal-mode-badge">Goal</button><div id="planning-input-panel"></div></section><section id="side-host"></section></main>`
+document.body.innerHTML = `<main><div id="editor"></div><div id="resume-fixture"></div><div id="restricted-goal"></div><div id="restricted-editor"></div><section id="input-wrapper"><button id="composer-plus-btn">+</button><textarea id="input"></textarea><div id="slash-menu"></div><div id="goal-indicator">Current goal</div><button id="goal-mode-badge">Goal</button><div id="planning-input-panel"></div></section><section id="side-host"></section></main>`
 const goal: GoalSnapshot = { goalId: 'fixture-goal', threadId: 'fixture-thread', objective: 'Original objective', status: 'active', tokenBudget: null, tokensUsed: 0, timeUsedSeconds: 0, createdAtMs: 1, updatedAtMs: Date.now() }
 const controller = new GoalEditorController(goal)
 const saves: string[] = []
@@ -64,26 +65,24 @@ side.querySelectorAll<HTMLElement>('[id]').forEach(element => { element.id = `si
 removeSideWorkflowControls(side)
 document.getElementById('side-host')!.append(side)
 let goalEnabled = false, toggles = 0
-const menu = mountComposerPlusMenu({
-  menuEl: document.getElementById('composer-plus-menu')!, submenuEl: document.getElementById('composer-plus-submenu')!,
-  btnEl: document.getElementById('composer-plus-btn')!,
-  loaders: { skills: async () => [], plugins: async () => [], mcp: async () => [], slashCommands: async () => withGoalShortcut([], t('composer_goal')) },
-  actions: {
-    icons: {}, selectCommand: () => {}, selectReference: () => {}, openSkillsView: () => {}, openPluginsView: () => {}, openMcpView: () => {}, pickFile: () => {},
-    getSpecEnabled: () => false, refreshSpecEnabled: async () => false, toggleSpecEnabled: async () => {},
-    isGoalAvailable: () => goalSurfaceEligible({ threadSource: menuEligible ? 'user' : 'friend' }, false),
-    getGoalEnabled: () => goalEnabled, toggleGoalEnabled: async () => { toggles++; goalEnabled = !goalEnabled }, onOpen: () => {},
-  },
-})
+const menu = mountSlashMenu(document.getElementById('slash-menu'), {
+  commandIconSvg: () => '', slashCommandDescription: () => '', slashCommandDisplayName: command => command.name === 'goal' ? t('composer_goal') : command.displayName || command.name,
+  slashCommandGroupLabel: key => key, commandGroupKey: () => 'shortcuts', folderIconSvg: () => '', fileIconSvg: () => '',
+  pluginIconSvg: () => '', deviceIconHtml: () => '', categoryIconHtml: () => '', conversationIconHtml: () => '',
+  openFileSearchSession: () => null,
+  contextCommands: async () => goalSurfaceEligible({ threadSource: menuEligible ? 'user' : 'friend' }, false) ? withGoalShortcut([], t('composer_goal')) : [],
+  onMentionMenuEmpty: () => {}, onSelectCommand: () => {},
+  onSelectMention: entry => { if (entry.command) { toggles++; goalEnabled = !goalEnabled; menu?.hide() } },
+}, { wrapper: document.getElementById('input-wrapper')!, input: document.getElementById('input')! })
 if (!menu) throw new Error('Composer menu fixture did not mount')
 fixtureWindow.goalInteractionFixture = {
   snapshot: () => ({ restrictedText: restrictedController.getSnapshot().text, restrictedSaves: [...restrictedSaves], restrictedPauses, restrictedClears, restrictedResumes, restrictedOpens, resumes, fullResumeObjective, text: controller.getSnapshot().text, saves: [...saves], toggles, goalEnabled, menuOpen: menu.isOpen(),
     editorMenus: document.querySelectorAll('#editor [role="listbox"], #editor .cm-tooltip-autocomplete, #editor input[type="file"]').length,
     sideWorkflowControls: side.querySelectorAll('#side-slash-menu, #side-composer-plus-menu, #side-goal-indicator, #side-goal-mode-badge, #side-planning-input-panel').length,
   }),
-  restrictMenu: () => { menuEligible = false },
+  restrictMenu: () => { menuEligible = false; queryClient.removeQueries({ queryKey: ['composer-context-commands'] }) },
   advanceResumeAccounting: () => { resumeGoal = { ...resumeGoal, tokensUsed: 99, revision: 5 }; renderResume() },
-  openMenu: () => menu.open(), closeMenu: () => menu.close(),
+  openMenu: () => menu.showMention({ sessionId: 'fixture-menu', query: '', scope: null, activation: 'synthetic' }), closeMenu: () => menu.hide(),
   activateSlash: async (sessionId: string | null) => {
     fixtureWindow.currentSessionId = sessionId
     let draft = '/goal Complete the authored objective', armed = false, enableCalls = 0

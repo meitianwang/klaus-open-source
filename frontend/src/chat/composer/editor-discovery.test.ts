@@ -13,7 +13,7 @@ function fixture() {
   let query: ComposerQuery | null = { prefix: '/', start: 0, end: 2, query: 'a' }
   let context: EditorDiscoveryContext | null = { owner: 'side-a:1', sessionId: 'side-a' }
   const calls = { shown: [] as unknown[], inserted: [] as unknown[], commands: [] as unknown[], failures: [] as unknown[], edits: [] as unknown[], hidden: 0, dismissed: 0, continued: 0 }
-  const input = { ownerDocument: { activeElement: null as unknown }, focus() { this.ownerDocument.activeElement = this } }
+  const input = { value: '/a', selectionStart: 2, selectionEnd: 2, ownerDocument: { activeElement: null as unknown }, focus() { this.ownerDocument.activeElement = this } }
   input.focus()
   const control = { revision: 1, composing: false, queryAtCaret: () => query,
     dismissQuery() { calls.dismissed++; query = null },
@@ -31,6 +31,47 @@ function fixture() {
   return { calls, input, control, discovery, closeMenu: () => { open = false }, query: (value: ComposerQuery | null) => { query = value },
     context: (value: EditorDiscoveryContext | null) => { context = value }, load: (value: typeof load) => { load = value }, reference: (value: typeof reference) => { reference = value } }
 }
+
+test('button discovery owns a query without inserting a trigger into the draft', async () => {
+  const f = fixture()
+  f.input.value = 'Review '; f.input.selectionStart = f.input.selectionEnd = 7
+  f.discovery.open()
+  expect(f.input.value).toBe('Review ')
+  expect(f.calls.shown.at(-1)).toMatchObject({ activation: 'synthetic', query: '', sessionId: 'side-a' })
+  f.input.value = 'Review diagram'; f.input.selectionStart = f.input.selectionEnd = 14; f.control.revision++
+  await f.discovery.refresh()
+  expect(f.calls.shown.at(-1)).toMatchObject({ activation: 'synthetic', query: 'diagram' })
+  await f.discovery.selectMention({ kind: 'command', name: 'Diagram', path: 'diagram', rel: '', isDir: false, command: { name: 'diagram', kind: 'skill' } })
+  expect(f.calls.commands).toEqual([[{ name: 'diagram', kind: 'skill' }, { prefix: '@', start: 7, end: 14, query: 'diagram' }]])
+  expect(f.calls.inserted).toEqual([])
+})
+
+test('context actions consume only their owned query and never dispatch after a binding change', async () => {
+  const f = fixture()
+  f.query({ prefix: '@', start: 3, end: 7, query: 'add' }); await f.discovery.refresh()
+  let opened = 0
+  const action = { kind: 'action' as const, name: 'Attach files', path: 'attach', rel: '', isDir: false, action: () => { opened++ } }
+  await f.discovery.selectMention(action)
+  expect(f.calls.edits).toEqual([[3, 7, '']])
+  expect(opened).toBe(1)
+  f.query({ prefix: '@', start: 0, end: 1, query: '' }); await f.discovery.refresh()
+  f.context({ owner: 'side-b:2', sessionId: 'side-b' })
+  await f.discovery.selectMention(action)
+  expect(opened).toBe(1)
+})
+
+test('context keyboard uses Enter while Tab, spaces and digits retain normal editor behavior', () => {
+  const calls: string[] = []
+  const options = { context: true, alternateNavigation: true, composing: false, visible: true,
+    navigate: (direction: number) => calls.push(`move:${direction}`), select: () => calls.push('select'), escape: () => calls.push('close') }
+  const key = (name: string, extra = {}) => ({ key: name, preventDefault() {}, stopImmediatePropagation() {}, ...extra } as KeyboardEvent)
+  for (const name of ['Tab', ' ', '1', '2', '3']) expect(routeComposerPickerKey(key(name), options)).toBe(false)
+  expect(calls).toEqual([])
+  for (const name of ['ArrowDown', 'ArrowUp', 'Enter', 'Escape']) expect(routeComposerPickerKey(key(name), options)).toBe(true)
+  expect(calls).toEqual(['move:1', 'move:-1', 'select', 'close'])
+  expect(routeComposerPickerKey(key('n', { ctrlKey: true }), options)).toBe(true)
+  expect(routeComposerPickerKey(key('Enter', { isComposing: true }), options)).toBe(false)
+})
 
 test('each editor publishes only its own scoped catalog', async () => {
   const one = fixture(), two = fixture()
@@ -67,7 +108,7 @@ test('async reference resolution cannot insert into a later binding of the same 
   expect(f.calls.inserted).toEqual([])
 })
 
-test('category Escape returns to the root and directory Tab continues a spaced path', async () => {
+test('category Escape returns to the root and explicit directory completion continues a spaced path', async () => {
   const f = fixture()
   f.query({ prefix: '@', start: 0, end: 2, query: 'f' }); await f.discovery.refresh()
   await f.discovery.selectMention({ kind: 'category', category: 'files', name: 'Files', path: '', rel: '', isDir: false })

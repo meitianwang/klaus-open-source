@@ -63,7 +63,8 @@ import { effectiveModelSource } from '../pages/settings/model-shared'
 import { cursorErrorText } from '../app/cursor-errors'
 import { mountWindowsSandboxBanner, type WindowsSandboxBannerMount } from './composer/windows-sandbox-banner'
 import { mountPermissionSelect, permissionPresetFromResponse, type PermissionSelectApi, type PermissionPreset } from './composer/permission-select'
-import { mountComposerPlusMenu } from './composer/plus-menu'
+import { syntheticContextQuery, resolveSyntheticContextQuery, type SyntheticContextQuery } from './composer/context-menu-model'
+import { queryClient } from '../app/query-client'
 import { activatePlanShortcut, isPlanShortcut, withPlanShortcut } from './composer/plan-shortcut'
 import { configurePlanningQuestions, receivePlanningQuestion, planningQuestionReadToken, reconcilePlanningQuestionRead, pendingPlanningQuestions, subscribePlanningQuestions, PlanningQuestionView } from './planning/questions-runtime'
 import type { GoalSnapshot as GoalWireSnapshot, PlanningInputRequest } from '../../../contracts/planning-goals'
@@ -416,6 +417,7 @@ let workspaceAtTrigger: { start: number; end: number; query?: string } | null = 
 // of every project path: picking a category first is what keeps a large
 // workspace out of the first screen of the picker. Null = category level.
 let workspaceMentionScope: 'files' | 'folders' | null = null
+let syntheticMention: SyntheticContextQuery | null = null
 let externalImportRefreshBound = false
 // Agent / teammate panel data feed. Sticky accumulator — completed/failed/
 // killed/cancelled agents are never removed from the cache even when the
@@ -1580,7 +1582,9 @@ window.klausSideSurfaceClear = () => {
 }
 window.klausSideSurfaceSessionId = () => sideSurfaceSessionId
 async function resolveEditorMentionReference(entry: MentionEntry, sessionId: string | null): Promise<Omit<ComposerReferenceToken, 'range'> | null> {
+    if (entry.kind === 'agent') return { kind: 'agent', name: entry.name, value: `@agent-${entry.path}`, source: 'configured' }
     if (entry.kind === 'plugin') return resourceReference('plugin', entry.name, entry.path || entry.name)
+    if (entry.kind === 'mcp') return resourceReference('mcp', entry.name, entry.path || entry.name)
     if (entry.kind === 'browser-tab' && entry.browserTab) return browserTabReference(entry.browserTab)
     if (entry.kind === 'friend' && entry.friendId) return { kind: 'friend', name: entry.name, value: friendMentionValue(entry.friendId), id: entry.friendId }
     if (entry.kind === 'device' && entry.deviceId) return { kind: 'device', name: entry.name, value: `@device-${entry.deviceId}`, id: entry.deviceId }
@@ -1856,7 +1860,12 @@ function initSideComposer() {
       onMentionMenuEmpty: () => sideDiscovery?.empty(),
       onSelectCommand: command => sideDiscovery?.selectCommand(command),
       onSelectMention: (entry, intent) => { void sideDiscovery?.selectMention(entry, intent) },
-    }, () => sideSurfaceSessionId), { wrapper: clone, input: clone.querySelector<HTMLElement>('#side-input-area') || sideInput as unknown as HTMLElement })
+      onRequestClose: () => sideDiscovery?.hide(true),
+      contextActions: () => [{
+        name: tt('composer_add_photos_files'), path: 'context-action:attach-files', rel: '',
+        isDir: false, kind: 'action', icon: fileIconSvg(''), action: () => sideFileInput?.click(),
+      }],
+    }, () => sideSurfaceSessionId), { wrapper: clone, input: clone.querySelector<HTMLElement>('#side-input-area') || sideInput as unknown as HTMLElement, trigger: sidePlusBtn })
     if (api) sideDiscovery = createEditorDiscovery({ input: sideInput, control: sideComposerControl, menu: api,
       context: sideDiscoveryContext,
       load: async context => {
@@ -1876,7 +1885,7 @@ function initSideComposer() {
     }).observe(panel, { attributes: true, attributeFilter: ['class', 'data-mode'] })
     window.addEventListener('klaus:skills-changed', () => { sideDiscovery?.hide(); void sideDiscovery?.refresh() })
     document.addEventListener('pointerdown', event => {
-      if (!menu.contains(event.target as Node) && !sideInput.contains(event.target as Node)) sideDiscovery?.hide(true)
+      if (!menu.contains(event.target as Node) && !sideInput.contains(event.target as Node) && !sidePlusBtn?.contains(event.target as Node)) sideDiscovery?.hide(true)
     }, true)
   }
   if (sidePreviews) sidePreviews.innerHTML = ''
@@ -2061,7 +2070,11 @@ function initSideComposer() {
     if (pathsFromHost?.length) addSideFilePaths(pathsFromHost)
     else if (text) sideComposerControl?.replaceRange(start, end, text, 'insertFromPaste')
   }
-  sidePlusBtn?.addEventListener('click', (e: MouseEvent) => { e.preventDefault(); sideFileInput?.click() })
+  sidePlusBtn?.addEventListener('mousedown', event => event.preventDefault())
+  sidePlusBtn?.addEventListener('click', event => {
+    event.preventDefault()
+    sideDiscovery?.isSynthetic() ? sideDiscovery.hide() : sideDiscovery?.open()
+  })
   sideFileInput?.addEventListener('change', () => {
     if (sideFileInput.files?.length) addSideFiles([...sideFileInput.files])
     sideFileInput.value = ''
@@ -2714,8 +2727,6 @@ const sessionListEl = document.getElementById('session-list')
 const titlebarSessionTitleEl = document.getElementById('titlebar-session-title')
 const dropOverlay = document.getElementById('drop-overlay') as HTMLElement
 const slashMenu = document.getElementById('slash-menu') as HTMLElement
-const composerPlusMenu = document.getElementById('composer-plus-menu')
-const composerPlusSubmenu = document.getElementById('composer-plus-submenu')
 const slashInputLine = document.getElementById('slash-input-line')
 const slashToken = document.getElementById('slash-token')
 const slashTokenLabel = document.getElementById('slash-token-label')
@@ -10729,6 +10740,9 @@ async function loadInstalledSlashCommands(options: { strict?: boolean } = {}, re
 }
 
 async function handleSlashMenu(options: { refreshOnly?: boolean } = {}) {
+  const typed = syntheticMention ? currentComposerQuery() : null
+  if (syntheticMention && typed && typed.start >= syntheticMention.start) hideSlashMenu()
+  if (syntheticMention) return
   if (options.refreshOnly && (composerMenuMode !== 'slash' || slashMenu.classList.contains('hidden'))) return
   const text = inputEl.value
   const selectionStart = inputEl.selectionStart ?? text.length
@@ -10786,6 +10800,9 @@ function hideSlashMenu(dismissQuery = false) {
   composerMenuMode = null
   workspaceAtTrigger = null
   workspaceMentionScope = null
+  syntheticMention = null
+  btnComposerPlus?.classList.remove('open')
+  btnComposerPlus?.setAttribute('aria-expanded', 'false')
   activeSlashTriggerRange = null
   slashMenuApi?.hide()
 }
@@ -10810,7 +10827,7 @@ function selectSlashItem(command: SlashCommandInfo) {
 }
 
 // slash/mention 双模式菜单与附件预览区的 React 挂载（渲染面在组件，数据面在本文件）。
-function composerDiscoveryMenuActions(callbacks: Pick<SlashMenuActions, 'onMentionMenuEmpty' | 'onSelectCommand' | 'onSelectMention'>, sessionId: () => string | null = () => window.currentSessionId): SlashMenuActions {
+function composerDiscoveryMenuActions(callbacks: Pick<SlashMenuActions, 'onMentionMenuEmpty' | 'onSelectCommand' | 'onSelectMention'> & Pick<Partial<SlashMenuActions>, 'contextActions' | 'contextCommands' | 'contextCatalogScope' | 'onRequestClose'>, sessionId: () => string | null = () => window.currentSessionId): SlashMenuActions {
   return {
     manualCompactState: () => ({ sessionId: sessionId(), percent: contextUsageView(ctxPanel.sessions.get(sessionId() || ''))?.percent ?? null }),
     subscribeCommandState: listener => {
@@ -10830,6 +10847,8 @@ function composerDiscoveryMenuActions(callbacks: Pick<SlashMenuActions, 'onMenti
     categoryIconHtml: (category) => category === 'folders' ? folderIconSvg() : fileIconSvg(''),
     conversationIconHtml: () => klausIcon('chat-bubble'),
     openFileSearchSession: (sessionId, root) => openWorkspaceFileSearchSession(sessionId, root),
+    contextCommands: (id, root) => loadScopedSlashCommands(id, root, { strict: true }),
+    contextMcp: loadComposerContextMcp,
     ...callbacks,
   }
 }
@@ -10837,6 +10856,18 @@ const slashMenuApi = mountSlashMenu(slashMenu, composerDiscoveryMenuActions({
   onMentionMenuEmpty: () => { if (composerMenuMode === 'workspace') hideSlashMenu() },
   onSelectCommand: command => selectSlashItem(command),
   onSelectMention: (entry, intent) => selectWorkspaceMentionItem(entry, intent),
+  onRequestClose: () => hideSlashMenu(true),
+  contextCatalogScope: 'main',
+  contextCommands: async () => {
+    const [commands, skills] = await Promise.all([fetchSlashCommands({ strict: true }), getComposerSkills()])
+    const merged = new Map(commands.map(command => [command.name, command]))
+    for (const skill of skills) merged.set(skill.name, { ...skill, kind: 'skill', type: 'prompt' })
+    return Array.from(merged.values())
+  },
+  contextActions: () => [{
+    name: tt('composer_add_photos_files'), path: 'context-action:attach-files', rel: '',
+    isDir: false, kind: 'action', icon: fileIconSvg(''), action: () => fileInput?.click(),
+  }],
 }))
 
 const mainAttachmentHistory = new AttachmentHistory()
@@ -10890,7 +10921,7 @@ const COMPOSER_PLUS_ICONS = {
 window.COMPOSER_PLUS_ICONS = COMPOSER_PLUS_ICONS
 
 function isComposerPlusOpen() {
-  return !!composerPlusApi?.isOpen()
+  return !!syntheticMention && !!slashMenuApi?.isOpen()
 }
 
 // Collaboration mode is engine-owned and independent of permission policy.
@@ -11784,63 +11815,28 @@ function renderTaskPanelSpecBinding(section: HTMLElement) {
   }
 }
 
-// ==================== Composer plus 菜单（React 化，src/chat/composer/plus-menu.tsx） ====================
-// 卡面/子菜单/hover 时序/定位全在组件内；这里只注入数据加载器与动作。
+// Context catalogs keep selection and rendering in the shared editor picker.
 // mcp loader：数据源用 sessionStatus——它把 user/global + 当前工作目录下的
 // project/local + plugin 各 scope 的 MCP 合并成扁平列表（含项目/本地 MCP），
 // 比 mcp.list()（仅 user/全局）更全。连接器(日历等)是宿主托管、不写 .mcp.json，
 // 仍单独并入已开启的。会话模式（无项目）只留 user/plugin 级，剪掉 project/
 // local——防无 cwd 时后端回退 CANONICAL_CWD 带出其它项目的 MCP。
-const composerPlusApi = mountComposerPlusMenu({
-  menuEl: composerPlusMenu,
-  submenuEl: composerPlusSubmenu,
-  btnEl: btnComposerPlus,
-  loaders: {
-    skills: options => getComposerSkills(options),
-    plugins: () => (klausApi.plugins?.list ? klausApi.plugins.list() : Promise.resolve([])),
-    mcp: async () => {
-      const [status, connectors] = await Promise.all([
-        klausApi.mcp?.sessionStatus
-          ? klausApi.mcp.sessionStatus(window.currentSessionId || undefined, selectedProjectWorkdir() || undefined)
-          : Promise.resolve(null),
-        klausApi.connectors?.list ? klausApi.connectors.list() : Promise.resolve([]),
-      ])
-      if (status?.ok === false || status?.error) throw new Error(status?.error || tt('composer_load_failed'))
-      if (!Array.isArray(connectors)) throw new Error(connectors?.error || tt('composer_load_failed'))
-      const mcpWorkdir = selectedProjectWorkdir()
-      const projectStatus = normalizeProjectMcpData(status, mcpWorkdir || '')
-      if (!projectStatus) throw new Error(tt('composer_load_failed'))
-      return [
-        ...projectStatus.servers
-          .filter((s: { scope?: string }) => mcpWorkdir || (s.scope !== 'project' && s.scope !== 'local')),
-        ...(Array.isArray(connectors) ? connectors : [])
-          .filter((c) => c.enabled)
-          .map((c) => ({ name: c.name || c.id, transport: 'connector', status: 'connected' })),
-      ]
-    },
-    slashCommands: async options => (await fetchSlashCommands({ ...options, strict: true })).filter(isStandaloneSlashCommand),
-  },
-  actions: {
-    icons: COMPOSER_PLUS_ICONS,
-    selectReference: reference => {
-      hideComposerPlusMenu()
-      insertComposerReferenceToken(reference)
-      focusComposerInputAfterSlashInsert()
-    },
-    selectCommand: (command) => selectComposerCommand(command),
-    openSkillsView: () => document.getElementById('btn-skills')?.click(),
-    openPluginsView: () => document.getElementById('btn-plugins')?.click(),
-    openMcpView: () => document.getElementById('btn-mcp')?.click(),
-    pickFile: () => fileInput?.click(),
-    getSpecEnabled: () => composerSpecEnabled,
-    refreshSpecEnabled: () => refreshComposerSpecEnabled(),
-    toggleSpecEnabled: () => toggleComposerSpecEnabled(),
-    getGoalEnabled: () => composerGoalEnabled,
-    isGoalAvailable: composerGoalEligible,
-    toggleGoalEnabled: () => toggleComposerGoalEnabled(),
-    onOpen: () => { hideSlashMenu() },
-  },
-})
+async function loadComposerContextMcp(sessionId: string | null, root?: string) {
+  const resolved = sessionId && sessionId !== window.currentSessionId ? await klausApi.session.getResolvedWorkdir(sessionId) : null
+  const workdir = root || resolved?.workdir || (sessionId === window.currentSessionId ? selectedProjectWorkdir() : '')
+  const [status, connectors] = await Promise.all([
+    klausApi.mcp?.sessionStatus ? klausApi.mcp.sessionStatus(sessionId || undefined, workdir || undefined) : Promise.resolve(null),
+    klausApi.connectors?.list ? klausApi.connectors.list() : Promise.resolve([]),
+  ])
+  if (status?.ok === false || status?.error) throw new Error(status?.error || tt('composer_load_failed'))
+  if (!Array.isArray(connectors)) throw new Error(connectors?.error || tt('composer_load_failed'))
+  const projectStatus = normalizeProjectMcpData(status, workdir || '')
+  if (!projectStatus) throw new Error(tt('composer_load_failed'))
+  return [
+    ...projectStatus.servers.filter((server: { scope?: string }) => workdir || (server.scope !== 'project' && server.scope !== 'local')),
+    ...connectors.filter(connector => connector.enabled).map(connector => ({ name: connector.name || connector.id })),
+  ]
+}
 
 async function refreshSelectedSlashCommand() {
   const selected = selectedSlashCommand
@@ -11885,16 +11881,28 @@ klausApi.on.skillsChanged(() => {
   slashRequestSeq++
   invalidateSkillsDataCache()
   window.dispatchEvent(new Event('klaus:skills-changed'))
-  composerPlusApi?.refreshSkills()
+  void queryClient.invalidateQueries({ queryKey: ['composer-context-commands'] })
+  void queryClient.invalidateQueries({ queryKey: ['composer-context-mcp'] })
   void refreshSelectedSlashCommand()
   if (composerMenuMode === 'slash' && !slashMenu.classList.contains('hidden')) {
     void handleSlashMenu({ refreshOnly: true })
   }
 })
 
-function openComposerPlusMenu() { composerPlusApi?.open() }
+function composerContextOwner() {
+  return JSON.stringify([window.currentSessionId, draftProjectWorkdir()])
+}
 
-function hideComposerPlusMenu() { composerPlusApi?.close() }
+function openComposerPlusMenu() {
+  hideSlashMenu()
+  inputEl.focus()
+  syntheticMention = syntheticContextQuery(inputEl.value, inputEl.selectionStart, inputEl.selectionEnd, composerContextOwner())
+  btnComposerPlus?.classList.add('open')
+  btnComposerPlus?.setAttribute('aria-expanded', 'true')
+  handleWorkspaceMentionMenu()
+}
+
+function hideComposerPlusMenu() { if (composerMenuMode === 'workspace') hideSlashMenu() }
 
 async function getComposerSkills(options: { forceReload?: boolean } = {}) {
   const scope = slashCatalogScope()
@@ -11921,13 +11929,14 @@ async function getComposerSkills(options: { forceReload?: boolean } = {}) {
   })
 }
 
-function selectComposerCommand(command: SlashCommandInfo) {
-  hideComposerPlusMenu()
-  if (isManualCompactCommand(command)) { void activateMainManualCompact(currentSlashTrigger()); return }
-  if (isApprovalReviewShortcut(command)) { activateComposerApprovalReviewShortcut(null); return }
-  if (isGoalShortcut(command)) { void activateComposerGoalShortcut(null); return }
-  if (isPlanShortcut(command)) { void activateComposerPlanShortcut(null); return }
-  insertSlashCommandToken(command, null)
+function selectComposerCommand(command: SlashCommandInfo, triggerRange?: { start: number; end: number } | null) {
+  const range = triggerRange === undefined ? currentSlashTrigger() : triggerRange
+  hideSlashMenu()
+  if (isManualCompactCommand(command)) { void activateMainManualCompact(range); return }
+  if (isApprovalReviewShortcut(command)) { activateComposerApprovalReviewShortcut(range || null); return }
+  if (isGoalShortcut(command)) { void activateComposerGoalShortcut(range || null); return }
+  if (isPlanShortcut(command)) { void activateComposerPlanShortcut(range || null); return }
+  insertSlashCommandToken(command, range || null)
   focusComposerInputAfterSlashInsert()
 }
 
@@ -11993,6 +12002,10 @@ export function invalidateDeviceMentionCache() {
 }
 
 function getWorkspaceAtTrigger() {
+  if (syntheticMention) {
+    const query = resolveSyntheticContextQuery(syntheticMention, inputEl.value, inputEl.selectionStart, inputEl.selectionEnd, composerContextOwner())
+    return query ? { ...query, prefix: '@' as const } : null
+  }
   const query = currentComposerQuery()
   return query?.prefix === '@' ? query : null
 }
@@ -12014,7 +12027,6 @@ function handleWorkspaceMentionMenu() {
 }
 
 function showWorkspaceMentionMenu(trigger: { start: number; end: number; query?: string }) {
-  hideComposerPlusMenu()
   claimOverlay('slash-menu')
   composerMenuMode = 'workspace'
   workspaceAtTrigger = trigger
@@ -12023,6 +12035,7 @@ function showWorkspaceMentionMenu(trigger: { start: number; end: number; query?:
     scope: workspaceMentionScope,
     sessionId: window.currentSessionId,
     root: window.currentSessionId ? undefined : draftProjectWorkdir() ?? undefined,
+    activation: syntheticMention ? 'synthetic' : 'typed',
   })
 }
 
@@ -12061,6 +12074,28 @@ function selectWorkspaceMentionItem(entry: MentionEntry, intent: 'insert' | 'com
   const trigger = getWorkspaceAtTrigger()
   if (!trigger || workspaceAtTrigger && (trigger.start !== workspaceAtTrigger.start || trigger.end !== workspaceAtTrigger.end)) {
     hideSlashMenu()
+    return
+  }
+  if (entry.kind === 'action' && entry.action) {
+    hideSlashMenu()
+    mainComposerControl?.replaceRange(trigger.start, trigger.end, '', 'insertReplacementText')
+    entry.action()
+    return
+  }
+  if (entry.kind === 'command' && entry.command) {
+    selectComposerCommand(entry.command, trigger)
+    return
+  }
+  if (entry.kind === 'mcp') {
+    insertComposerReferenceToken(resourceReference('mcp', entry.name, entry.path), trigger)
+    hideSlashMenu()
+    inputEl.focus()
+    return
+  }
+  if (entry.kind === 'agent') {
+    insertComposerReferenceToken({ kind: 'agent', name: entry.name, value: `@agent-${entry.path}`, source: 'configured' }, trigger)
+    hideSlashMenu()
+    inputEl.focus()
     return
   }
   // A category row is navigation, not a mention: entering it clears the query
@@ -12173,7 +12208,7 @@ function selectWorkspaceMentionItem(entry: MentionEntry, intent: 'insert' | 'com
 
 document.addEventListener('click', (e) => {
   if (slashMenu.classList.contains('hidden')) return
-  if (slashMenu.contains(e.target as Node) || inputEl.contains(e.target as Node)) return
+  if (slashMenu.contains(e.target as Node) || inputEl.contains(e.target as Node) || btnComposerPlus?.contains(e.target as Node)) return
   hideSlashMenu(true)
 }, true)
 
@@ -12186,8 +12221,10 @@ document.addEventListener('click', (e) => {
   if (chip) openFileCitationFromElement(chip)
 })
 
-btnComposerPlus?.setAttribute('aria-haspopup', 'menu')
+btnComposerPlus?.setAttribute('aria-haspopup', 'listbox')
+btnComposerPlus?.setAttribute('aria-label', tt('composer_add_menu'))
 btnComposerPlus?.setAttribute('aria-expanded', 'false')
+btnComposerPlus?.addEventListener('mousedown', event => event.preventDefault())
 btnComposerPlus?.addEventListener('click', (e) => {
   e.stopPropagation()
   isComposerPlusOpen() ? hideComposerPlusMenu() : openComposerPlusMenu()
@@ -15104,13 +15141,15 @@ function updateSendBtn() {
 // ==================== Input events ====================
 
 function handleComposerPickerKeydown(event: KeyboardEvent) {
-  const query = currentComposerQuery()
+  const query = composerMenuMode === 'workspace' ? getWorkspaceAtTrigger() : currentComposerQuery()
   const published = composerMenuMode === 'workspace' ? workspaceAtTrigger : activeSlashTriggerRange
   const current = !!query && !!published && query.start === published.start && query.end === published.end
     && (published.query === undefined || query.query === published.query)
     && (composerMenuMode === 'workspace' ? query.prefix === '@' : query.prefix !== '@'
       && (activeSlashTriggerRange?.prefix === undefined || query.prefix === activeSlashTriggerRange.prefix))
-  routeComposerPickerKey(event, { composing: mainComposerControl?.composing || false, visible: !!slashMenuApi?.isOpen() && current,
+  const selectable = event.key === 'Escape' || (slashMenuApi?.activeIndex() ?? -1) >= 0
+  routeComposerPickerKey(event, { composing: mainComposerControl?.composing || false, visible: selectable && !!slashMenuApi?.isOpen() && current,
+    context: composerMenuMode === 'workspace',
     navigate: navigateSlashMenu, select: intent => { slashMenuApi?.clickActive(intent) },
     escape: () => {
       if (composerMenuMode === 'workspace' && workspaceMentionScope) setWorkspaceMentionScope(null)

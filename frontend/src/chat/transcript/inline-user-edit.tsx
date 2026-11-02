@@ -6,7 +6,7 @@ import { createEditorDiscovery } from '../composer/editor-discovery'
 import { InlineMessageEdits, inlineMessageEditCanSubmit, type InlineMessageEditRuntime, type MessageEditHandle } from '../composer/inline-message-edit'
 import { mountSlashMenu, type SlashMenuActions, type MentionEntry } from '../composer/slash-menu'
 import { normalizeComposerReferences, replaceComposerReferenceRange, syncComposerReferences, type ComposerReferenceToken } from '../composer/reference-token'
-import { referencesFromEditor, skillReference } from '../composer/resource-reference'
+import { isSkillCommand, referencesFromEditor, skillReference } from '../composer/resource-reference'
 import type { SlashCommandInfo } from '../engine-events'
 import type { InlineTokenSnapshot } from '../composer/inline-token'
 import { renderComposerReferencePillHtml } from '../composer/reference-pill'
@@ -60,10 +60,14 @@ export function InlineUserEditor({ editKey }: { editKey: string }) {
       input.focus(); input.setSelectionRange(inserted.caret, inserted.caret)
     }
     let discovery: ReturnType<typeof createEditorDiscovery> | null = null
-    const menu = mountSlashMenu(menuRoot.current, runtime.menuActions({
+    const menuActions = runtime.menuActions({
       onSelectCommand: command => discovery?.selectCommand(command), onSelectMention: (entry, intent) => { void discovery?.selectMention(entry, intent) },
       onMentionMenuEmpty: () => discovery?.empty(),
-    }), { wrapper: wrapper.current, input: root.current })
+    })
+    menuActions.contextCommands = async () => (await runtime.commands(state.sessionId)).filter(isSkillCommand)
+    menuActions.contextCatalogScope = 'inline-skills'
+    menuActions.onRequestClose = () => discovery?.hide(true)
+    const menu = mountSlashMenu(menuRoot.current, menuActions, { wrapper: wrapper.current, input: root.current })
     if (menu) discovery = createEditorDiscovery({ input, control: editor, menu, prefixes: ['@', '$'],
       context: () => root.current?.isConnected && inlineUserEdits.snapshot(editKey)?.status === 'editing'
         ? { owner: editKey, sessionId: state.sessionId } : null,

@@ -34,12 +34,11 @@ describe('slashCommandDisplayLabel', () => {
   })
 })
 
-test('the palette, the plus menu and chat.ts share one label source', () => {
+test('command and context results share the composer label source', () => {
   const menu = readFileSync(new URL('./slash-menu.tsx', import.meta.url), 'utf8')
   expect(menu).toContain('slashRowLabels(')
   expect(menu).toContain('slash-menu-item-slug')
-  const plus = readFileSync(new URL('./plus-menu.tsx', import.meta.url), 'utf8')
-  expect(plus).toContain('slashCommandDisplayLabel(command)')
+  expect(menu).toContain('name: actions.slashCommandDisplayName(command)')
   const chat = readFileSync(new URL('../chat.ts', import.meta.url), 'utf8')
   expect(chat).toContain('slashCommandDisplayName: (command) => slashCommandDisplayName(command),')
   expect(chat).toContain('return slashCommandDisplayLabel(command)')

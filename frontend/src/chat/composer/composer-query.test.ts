@@ -40,7 +40,7 @@ describe('composer picker queries', () => {
   test('directory completion can continue a path containing spaces without spanning an atom', () => {
     const doc = composerDocumentFromText('use @My Folder/src/')
     const state = EditorState.create({ doc, selection: TextSelection.atEnd(doc) })
-    expect(composerQueryInDocument(state)).toBeNull()
+    expect(composerQueryInDocument(state)).toEqual({ prefix: '@', start: 4, end: 19, query: 'My Folder/src/' })
     expect(composerQueryInDocument(state, { prefix: '@', position: 5 })).toEqual({ prefix: '@', start: 4, end: 19, query: 'My Folder/src/' })
   })
 })

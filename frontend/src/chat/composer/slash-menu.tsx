@@ -36,6 +36,8 @@ import { BrowserTabIcon } from './browser-tab-icon'
 import { isManualCompactCommand, manualCompactPresentation, type ManualCompactState } from './manual-compact-command'
 import { contextPieSvg } from '../../icons/dynamic'
 import { browserTabMentionSection } from './browser-tab-section'
+import { contextCommandQueryKey, contextMenuSections } from './context-menu-model'
+import { claimOverlay, overlayIdForElement, registerOverlay } from '../../app/overlay-registry'
 
 export interface MentionEntry {
   name: string
@@ -54,7 +56,10 @@ export interface MentionEntry {
   /** Category rows enter a search level instead of inserting a mention. */
   category?: 'files' | 'folders'
   /** Non-file mention entries insert plain text instead of attaching a path. */
-  kind?: 'plugin' | 'device' | 'conversation' | 'category' | 'browser-tab' | 'friend'
+  kind?: 'plugin' | 'device' | 'conversation' | 'category' | 'browser-tab' | 'friend' | 'mcp' | 'command' | 'action' | 'agent'
+  command?: any
+  action?: () => void
+  icon?: string
   /** Extra names the row answers to besides `name` (a plugin's raw slug and its product name in the other language). */
   aliases?: string[]
 }
@@ -66,6 +71,7 @@ export interface MentionRequest {
   sessionId: string | null
   /** Selected workspace for a draft that has no session yet. */
   root?: string
+  activation?: 'typed' | 'synthetic'
 }
 
 export interface SlashMenuActions {
@@ -89,6 +95,11 @@ export interface SlashMenuActions {
   conversationIconHtml(): string
   /** Open a workspace snapshot without promoting a draft into a chat. */
   openFileSearchSession(sessionId: string | null, root?: string): WorkspaceFileSearchSession | null
+  contextCommands?(sessionId: string | null, root?: string): Promise<any[]>
+  contextCatalogScope?: string
+  contextMcp?(sessionId: string | null, root?: string): Promise<Array<{ name?: string }>>
+  contextActions?(): MentionEntry[]
+  onRequestClose?(): void
   /** Called when the menu has settled with nothing to show, so chat.ts can close it. */
   onMentionMenuEmpty(): void
   onSelectCommand(command: any): void
@@ -167,7 +178,7 @@ function remoteSection<T>(
   labels: { loading: string; error: string; empty: string },
 ): MentionSection {
   const projected = result.data ? project(result.data) : []
-  const rows = filterMentionRows(projected, query)
+  const rows = filterMentionRows(projected, query, Number.MAX_SAFE_INTEGER)
   if (rows.length > 0) return { key, labelKey, rows }
   if (result.isError) return { key, labelKey, rows: [], state: { kind: 'error', labelKey: labels.error } }
   if (result.isFetching) return { key, labelKey, rows: [], state: { kind: 'loading', labelKey: labels.loading } }
@@ -236,16 +247,35 @@ function MentionMenu({ request, actions, store }: {
   // switch, and the re-render is already guaranteed by useT.
   const lang = (typeof window !== 'undefined' ? (window as any).currentLang : 'en') as string
 
-  // Local groups: synchronous, present on the first frame, language-reactive
-  // because this component re-renders via useT on a language change.
-  const categoryEntries = useMemo(() => {
-    if (!isCategoryLevel) return []
-    const categories: MentionEntry[] = [
-      { name: t('mention_group_files'), path: 'category:files', rel: t('mention_group_files_hint'), isDir: false, kind: 'category', category: 'files' },
-      { name: t('mention_group_folders'), path: 'category:folders', rel: t('mention_group_folders_hint'), isDir: true, kind: 'category', category: 'folders' },
-    ]
-    return filterMentionRows(categories, query)
-  }, [isCategoryLevel, query, t, lang])
+  const commands = useQuery({
+    queryKey: contextCommandQueryKey(actions.contextCatalogScope || 'scoped', sessionId, root),
+    queryFn: () => actions.contextCommands?.(sessionId, root) ?? Promise.resolve([]),
+    staleTime: PLUGINS_STALE_MS,
+    enabled: isCategoryLevel,
+  })
+  const agents = useQuery({
+    queryKey: ['composer-context-agents', sessionId],
+    queryFn: async () => {
+      const result = await window.klaus?.agents?.definitions?.list?.(sessionId || undefined)
+      return Array.isArray(result?.agents) ? result.agents as Array<{ agentType?: string; filename?: string; whenToUse?: string }> : []
+    },
+    staleTime: PLUGINS_STALE_MS,
+    enabled: isCategoryLevel,
+  })
+  const mcp = useQuery({
+    queryKey: ['composer-context-mcp', sessionId, root],
+    queryFn: () => actions.contextMcp?.(sessionId, root) ?? Promise.resolve([]),
+    staleTime: PLUGINS_STALE_MS,
+    enabled: isCategoryLevel,
+  })
+  useEffect(() => {
+    const refresh = () => {
+      void queryClient.invalidateQueries({ queryKey: ['composer-context-commands'] })
+      void queryClient.invalidateQueries({ queryKey: ['composer-context-mcp'] })
+    }
+    window.addEventListener('klaus:skills-changed', refresh)
+    return () => window.removeEventListener('klaus:skills-changed', refresh)
+  }, [])
 
   // Remote groups. Each is its own query with its own key and staleTime; the
   // list-group keys exclude the query text, so typing re-filters the cache
@@ -292,7 +322,7 @@ function MentionMenu({ request, actions, store }: {
       void queryClient.invalidateQueries({ queryKey: [MENTION_BROWSER_TABS_KEY, sessionId] })
     }, window)
   }, [isCategoryLevel, sessionId])
-  const files = useFileSearchSession(actions.openFileSearchSession, !isCategoryLevel, sessionId, root, query)
+  const files = useFileSearchSession(actions.openFileSearchSession, true, sessionId, root, query)
 
   const sections = useMemo<MentionSection[]>(() => {
     if (!isCategoryLevel) {
@@ -308,24 +338,46 @@ function MentionMenu({ request, actions, store }: {
       // empty-query rule still governs whether the menu stays open.
       return [{ key: 'files', labelKey: null, rows: [], state: { kind: 'empty', labelKey: 'mention_group_empty' } }]
     }
-    return [
-      browserTabMentionSection(browserTabs, t),
-      remoteSection('plugins', 'mention_group_plugins', plugins, rows => projectPluginRows(rows, pluginMentionNames), query, {
+    const commandRows = (commands.data || []).map(command => ({
+      name: actions.slashCommandDisplayName(command), path: `command:${command.name}`,
+      rel: actions.slashCommandDescription(command), isDir: false, kind: 'command' as const,
+      command, aliases: [String(command.name || '')], icon: actions.commandIconSvg(command),
+    }))
+    const sourceSections: MentionSection[] = [
+      { key: 'context-actions', labelKey: 'composer_add_menu', rows: actions.contextActions?.() || [] },
+      remoteSection('plugins', 'mention_group_plugins', plugins, rows => projectPluginRows(rows, pluginMentionNames), '', {
         loading: 'mention_group_plugins_loading', error: 'mention_group_plugins_error', empty: 'mention_group_empty',
       }),
-      remoteSection('devices', 'mention_group_devices', devices, (rows) => projectDeviceRows(rows, t), query, {
+      { key: 'mcp', labelKey: 'mcp', rows: (mcp.data || []).map(server => ({
+        name: server.name || '', path: server.name || '', rel: '', isDir: false, kind: 'mcp' as const,
+        icon: rawIconHtml('mcp-grid-fill'),
+      })).filter(row => !!row.name), ...(mcp.isError ? { state: { kind: 'error' as const, labelKey: 'composer_load_failed' } }
+        : !mcp.data && mcp.isFetching ? { state: { kind: 'loading' as const, labelKey: 'loading' } } : {}) },
+      { key: 'agents', labelKey: 'agents', rows: (agents.data || []).filter(agent => !!agent.agentType).map(agent => ({
+        name: agent.filename || agent.agentType!, path: agent.agentType!, rel: agent.whenToUse || '',
+        isDir: false, kind: 'agent' as const, aliases: [agent.agentType!], icon: rawIconHtml('sb-nav-agents'),
+      })), ...(agents.isError ? { state: { kind: 'error' as const, labelKey: 'composer_load_failed' } }
+        : !agents.data && agents.isFetching ? { state: { kind: 'loading' as const, labelKey: 'loading' } } : {}) },
+      browserTabMentionSection(browserTabs, t),
+      remoteSection('devices', 'mention_group_devices', devices, (rows) => projectDeviceRows(rows, t), '', {
         loading: 'mention_group_devices_loading', error: 'mention_group_devices_error', empty: 'mention_group_empty',
       }),
-      remoteSection('friends', 'mention_group_friends', friends, (rows) => projectFriendRows(rows, t), query, {
+      remoteSection('friends', 'mention_group_friends', friends, (rows) => projectFriendRows(rows, t), '', {
         loading: 'mention_group_friends_loading', error: 'mention_group_friends_error', empty: 'mention_group_empty',
       }),
-      remoteSection('conversations', 'mention_group_conversations', conversations, (rows) => projectConversationRows(rows, t), query, {
+      { key: 'commands', labelKey: 'composer_slash_commands', rows: commandRows.filter(row => actions.commandGroupKey(row.command) !== 'skills'),
+        ...(commands.isError ? { state: { kind: 'error' as const, labelKey: 'composer_load_failed' } }
+          : !commands.data && commands.isFetching ? { state: { kind: 'loading' as const, labelKey: 'loading' } } : {}) },
+      remoteSection('conversations', 'mention_group_conversations', conversations, rows => projectConversationRows(rows, t), '', {
         loading: 'mention_group_conversations_loading', error: 'mention_group_conversations_error', empty: 'mention_group_empty',
       }),
-      // The two path categories are local, always available, headingless.
-      { key: 'categories', labelKey: null, rows: categoryEntries },
+      { key: 'skills', labelKey: 'skills', rows: commandRows.filter(row => actions.commandGroupKey(row.command) === 'skills') },
+      remoteSection('files', 'mention_group_files', files, projectFileRows, '', {
+        loading: 'mention_group_files_loading', error: 'mention_group_files_error', empty: 'mention_group_empty',
+      }),
     ]
-  }, [isCategoryLevel, scope, sessionId, root, categoryEntries, query, plugins, devices, friends, conversations, browserTabs, files, t, lang])
+    return contextMenuSections(sourceSections, query)
+  }, [isCategoryLevel, scope, sessionId, root, query, plugins, devices, friends, conversations, browserTabs, files, commands, mcp, agents, actions, t, lang])
 
   const rows = useMemo<MentionRow[]>(() => mentionRows(sections), [sections])
   const selectable = useMemo(() => selectableEntries(rows), [rows])
@@ -333,7 +385,7 @@ function MentionMenu({ request, actions, store }: {
   // Publish the selectable rows so the imperative navigate/clickActive API can
   // address them. useLayoutEffect so it lands before the user can interact.
   const selectionKey = mentionSelectionKey(rows)
-  const selectionRequest = JSON.stringify([query, scope, sessionId])
+  const selectionRequest = JSON.stringify([query, scope, sessionId, root, request.activation])
   const previousSelectionRequest = useRef(selectionRequest)
   useLayoutEffect(() => {
     const previous = store.getState()
@@ -344,16 +396,8 @@ function MentionMenu({ request, actions, store }: {
     store.setState({ mentionSelectable: selectable, activeIdx: nextActiveIdx })
   }, [store, selectable, selectionKey, selectionRequest])
 
-  // Close the menu once everything has settled with nothing to choose. While any
-  // group is still loading we keep the menu (its placeholder is the feedback);
-  // local groups usually provide rows, so this fires only for a query that
-  // matches nothing at all.
   const hasPendingOrError = sections.some(section => section.state?.kind === 'loading' || section.state?.kind === 'error')
-  useLayoutEffect(() => {
-    if (selectable.length === 0 && !hasPendingOrError && store.getState().mode === 'workspace') {
-      actions.onMentionMenuEmpty()
-    }
-  }, [selectable.length, hasPendingOrError, actions, store])
+  const hover = (index: number) => store.setState({ activeIdx: index })
 
   return (
     <>
@@ -362,7 +406,7 @@ function MentionMenu({ request, actions, store }: {
           // data-mention-heading is a stable semantic hook; the visual class is
           // hashed by CSS Modules, so tests and the harness locate a heading by
           // attribute, never by the hashed class name.
-          return <div className={styles['slash-menu-group']} data-mention-heading={row.sectionKey} key={`h-${row.sectionKey}`}>{t(row.labelKey)}</div>
+          return <div className={styles['context-menu-heading']} data-mention-heading={row.sectionKey} key={`h-${row.sectionKey}`}>{t(row.labelKey)}</div>
         }
         if (row.kind === 'state') {
           // data-state is the semantic hook (harness/tests locate a group's
@@ -378,7 +422,7 @@ function MentionMenu({ request, actions, store }: {
             >
               {t(row.labelKey)}
               {row.detail && <span className={styles['mention-menu-error-detail']}>{row.detail}</span>}
-              {row.retry && <button type="button" className={styles['mention-menu-retry']} onClick={row.retry}>{t('mention_group_retry')}</button>}
+              {row.retry && <button type="button" className={styles['mention-menu-retry']} onMouseDown={event => event.preventDefault()} onClick={row.retry}>{t('mention_group_retry')}</button>}
             </div>
           )
         }
@@ -389,9 +433,11 @@ function MentionMenu({ request, actions, store }: {
         if (entry.kind === 'browser-tab' && entry.browserTab) {
           return <button
             type="button" key={`i-${row.sectionKey}-${entry.path}`} role="option"
+            data-context-key={entry.path}
             className={`${styles['slash-menu-item']} workspace-mention-menu-item kls-select-item ${styles['mention-browser-tab']}` + (selectableIndex === activeIdx ? ' active' : '')}
             aria-selected={selectableIndex === activeIdx ? 'true' : 'false'}
             onMouseDown={event => event.preventDefault()}
+            onMouseMove={() => hover(selectableIndex)}
             onClick={() => selectMention(entry)}
           >
             <span className={styles['mention-menu-icon']}><BrowserTabIcon faviconUrl={entry.browserTab.faviconUrl} /></span>
@@ -404,9 +450,11 @@ function MentionMenu({ request, actions, store }: {
         if (entry.kind === 'friend') {
           return <button
             type="button" key={`i-${row.sectionKey}-${entry.path}`} role="option"
+            data-context-key={entry.path}
             className={`${styles['slash-menu-item']} workspace-mention-menu-item kls-select-item ${styles['mention-browser-tab']}` + (selectableIndex === activeIdx ? ' active' : '')}
             aria-selected={selectableIndex === activeIdx ? 'true' : 'false'}
             onMouseDown={event => event.preventDefault()}
+            onMouseMove={() => hover(selectableIndex)}
             onClick={() => selectMention(entry)}
           >
             <span className={`${styles['mention-menu-icon']} ${styles['mention-friend-icon']}`}><FriendAvatar small name={entry.name} url={entry.avatarUrl ?? null} /></span>
@@ -416,7 +464,7 @@ function MentionMenu({ request, actions, store }: {
             </span>
           </button>
         }
-        const icon = entry.kind === 'plugin'
+        const icon = entry.icon || (entry.kind === 'plugin'
           ? actions.pluginIconSvg()
           : entry.kind === 'device'
             ? actions.deviceIconHtml()
@@ -424,21 +472,24 @@ function MentionMenu({ request, actions, store }: {
               ? actions.conversationIconHtml()
               : entry.kind === 'category'
                 ? actions.categoryIconHtml(entry.category || 'files')
-                : entry.isDir ? actions.folderIconSvg() : actions.fileIconSvg(entry.name)
+                : entry.isDir ? actions.folderIconSvg() : actions.fileIconSvg(entry.name))
         const pathHtml = entry.rel && entry.rel !== entry.name
           ? `<span class="${styles['mention-menu-path']}">${escapeHtml(entry.rel)}</span>`
           : ''
         return (
           <button
             type="button" key={`i-${row.sectionKey}-${entry.path}-${selectableIndex}`} aria-label={entry.rel ? `${entry.name} · ${entry.rel}` : entry.name} role="option"
+            data-context-key={entry.path}
             className={`${styles['slash-menu-item']} workspace-mention-menu-item kls-select-item` + (selectableIndex === activeIdx ? ' active' : '')}
             aria-selected={selectableIndex === activeIdx ? 'true' : 'false'}
             onMouseDown={event => event.preventDefault()}
+            onMouseMove={() => hover(selectableIndex)}
             onClick={() => selectMention(entry)}
             dangerouslySetInnerHTML={{ __html: `<span class="${styles['mention-menu-icon']}">${icon}</span><span class="${styles['mention-menu-main']}"><span class="${styles['mention-menu-name']}">${escapeHtml(entry.name || entry.rel)}</span>${pathHtml}</span>` }}
           />
         )
       })}
+      {selectable.length === 0 && !hasPendingOrError && <div className={styles['mention-menu-state']} data-context-empty>{t('mention_group_empty')}</div>}
     </>
   )
 }
@@ -446,6 +497,7 @@ function MentionMenu({ request, actions, store }: {
 export interface SlashMenuAnchor {
   wrapper: HTMLElement
   input: HTMLElement
+  trigger?: HTMLElement | null
 }
 
 function ManualCompactRing({ percent }: { percent: number | null }) {
@@ -489,16 +541,17 @@ function SlashMenuBody({ store, actions, container, anchorElements }: {
     if (!wrapper || !anchor) return
     const position = () => {
       const rect = anchor.getBoundingClientRect()
-      const edge = 8, gap = 6
+      const edge = 8, gap = mode === 'workspace' ? 12 : 6
       const above = Math.max(0, rect.top - gap - 48)
       const below = Math.max(0, window.innerHeight - rect.bottom - gap - edge)
       const openAbove = above >= Math.min(120, below)
-      const width = Math.min(window.innerWidth - edge * 2,
-        mode === 'workspace' ? Math.min(520, Math.max(320, rect.width)) : rect.width)
+      const width = Math.min(window.innerWidth - edge * 2, rect.width)
       container.style.width = `${width}px`
       container.style.left = `${Math.max(edge, Math.min(rect.left, window.innerWidth - width - edge))}px`
       container.style.right = 'auto'
-      container.style.maxHeight = `${Math.min(280, openAbove ? above : below)}px`
+      const available = openAbove ? above : below
+      container.style.setProperty('--composer-overlay-available-height', `${available}px`)
+      container.style.maxHeight = mode === 'workspace' ? 'min(var(--context-menu-max-height), var(--composer-overlay-available-height))' : `${Math.min(280, available)}px`
       container.style.top = openAbove ? 'auto' : `${rect.bottom + gap}px`
       container.style.bottom = openAbove ? `${window.innerHeight - rect.top + gap}px` : 'auto'
     }
@@ -611,12 +664,21 @@ export function mountSlashMenu(container: HTMLElement | null, actions: SlashMenu
     mentionSelectable: [],
     activeIdx: -1,
   })) as StoreApi<SlashMenuState>
+  const overlay = container.id === 'slash-menu' ? 'slash-menu' : overlayIdForElement(container, 'composer-context')
+  const closeState = () => {
+    if (store.getState().mode) store.setState({ mode: null, slashItems: [], mentionRequest: null, mentionSelectable: [], activeIdx: -1 })
+  }
+  const unregister = registerOverlay(overlay, () => { actions.onRequestClose?.(); closeState() })
 
   // 显隐与皮肤类同步到既有容器（CSS 沿用 .slash-menu/.workspace-mention-menu/.hidden）。
   const unsubscribe = store.subscribe((state) => {
     container.classList.toggle('hidden', !state.mode)
     container.classList.toggle('workspace-mention-menu', state.mode === 'workspace')
     container.classList.toggle('manual-compact-menu', state.mode === 'slash' && state.slashItems.length === 1 && isManualCompactCommand(state.slashItems[0]))
+    const trigger = anchorElements?.trigger || (!anchorElements ? container.ownerDocument.getElementById('composer-plus-btn') : null)
+    const buttonOpen = state.mode === 'workspace' && state.mentionRequest?.activation === 'synthetic'
+    trigger?.classList.toggle('open', buttonOpen)
+    trigger?.setAttribute('aria-expanded', buttonOpen ? 'true' : 'false')
   })
 
   const root = createRoot(container)
@@ -632,12 +694,14 @@ export function mountSlashMenu(container: HTMLElement | null, actions: SlashMenu
   }
 
   return {
-    destroy() { unsubscribe(); queueMicrotask(() => root.unmount()) },
-    showApprovalReview(sessionId, currentSessionId, close) { store.setState({ mode: 'approval-review', approvalReviewRequest: { sessionId, currentSessionId, close }, slashItems: [], activeIdx: 0 }) },
+    destroy() { unregister(); unsubscribe(); queueMicrotask(() => root.unmount()) },
+    showApprovalReview(sessionId, currentSessionId, close) { claimOverlay(overlay); store.setState({ mode: 'approval-review', approvalReviewRequest: { sessionId, currentSessionId, close }, slashItems: [], activeIdx: 0 }) },
     showSlash(items) {
+      claimOverlay(overlay)
       store.setState({ mode: 'slash', slashItems: items, mentionRequest: null, mentionSelectable: [], activeIdx: 0 })
     },
     showMention(request) {
+      claimOverlay(overlay)
       // Keep the current highlight when only the query changed (a refill of the
       // same menu); reset to the first row when the menu is newly opened or the
       // scope changed.
@@ -651,7 +715,7 @@ export function mountSlashMenu(container: HTMLElement | null, actions: SlashMenu
         mentionSelectable: sameQuery ? previous.mentionSelectable : [], activeIdx: sameQuery ? previous.activeIdx : -1 })
     },
     hide() {
-      if (store.getState().mode) store.setState({ mode: null, slashItems: [], mentionRequest: null, mentionSelectable: [], activeIdx: -1 })
+      closeState()
     },
     navigate(dir) {
       if (store.getState().mode === 'approval-review') {

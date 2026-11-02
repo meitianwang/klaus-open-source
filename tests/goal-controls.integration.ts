@@ -103,11 +103,11 @@ async function keyboardGoalEntry() {
 }
 async function menuGoalEntry() {
   await click('#composer-plus-btn');
-  const find = "Array.from(document.querySelectorAll('#composer-plus-menu button[role=menuitemcheckbox]')).find(e=>document.getElementById(e.getAttribute('aria-labelledby'))?.textContent==='Goal mode')";
-  await waitFor(() => evaluate(`Boolean(${find})`), 5_000, 'the plus menu exposes the Goal mode switch');
+  const find = "document.querySelector('#slash-menu:not(.hidden) [data-context-key=\"command:goal\"]')";
+  await waitFor(() => evaluate(`Boolean(${find})`), 5_000, 'the context menu exposes the Goal action');
   await evaluate(`(${find}).click()`);
   await waitFor(() => evaluate("Boolean(document.getElementById('goal-mode-badge'))"), 10_000, 'the menu arms Goal mode');
-  await click('#composer-plus-btn');
+  await waitFor(() => evaluate("document.getElementById('slash-menu').classList.contains('hidden')"), 5_000, 'selecting the Goal action closes the context list');
 }
 async function clickText(text: string, within = '#goal-work-panel') {
   const find = `Array.from(document.querySelector(${JSON.stringify(within)})?.querySelectorAll('button')??[]).find(e=>e.textContent.trim()===${JSON.stringify(text)})`;
