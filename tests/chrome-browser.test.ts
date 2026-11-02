@@ -22,7 +22,14 @@ const discoveryDirectory = mkdtempSync(join(process.platform === 'win32' ? proce
 const log = createWriteStream(join(profile, 'chrome.log'));
 const nativeExecutable = require('electron') as string;
 const setup = new ChromeSetup({ configRoot: join(profile, 'klaus'), extensionRoot, browserDataRoots: [profile], browserExecutable: executable, executable: nativeExecutable, enabled: () => true, discoveryDirectory });
-const service = new ChromeBrowserService({ enabled: () => true, discoveryDirectory, artifactDirectory: join(profile, 'artifacts'), assertNavigation: value => { const url = navigationUrl(value); if (url.endsWith('/forbidden')) throw new BrowserError('refused_by_policy', 'Fixture blocked this document.'); return url; } });
+let denyUpload = false;
+const uploadOrigins: string[] = [];
+const service = new ChromeBrowserService({ enabled: () => true, discoveryDirectory, artifactDirectory: join(profile, 'artifacts'), authorize: async (sessionId, url, resource) => {
+  if (sessionId === 'upload-origin' && resource === 'uploads') {
+    uploadOrigins.push(new URL(url).origin);
+    if (denyUpload) throw new BrowserError('refused_by_policy', 'Fixture upload denied.');
+  }
+}, assertNavigation: value => { const url = navigationUrl(value); if (url.endsWith('/forbidden')) throw new BrowserError('refused_by_policy', 'Fixture blocked this document.'); return url; } });
 const directRelays: ChromeRelay[] = [];
 let downloadSequence = 0; let forbiddenRequests = 0;
 let browser: ChildProcess | undefined; let browserId = ''; let tabA = 0; let tabB = 0; let base = '';
@@ -37,7 +44,7 @@ const server = createServer((request, response) => {
     const timer = setInterval(() => response.write('pending'), 100); response.once('close', () => clearInterval(timer)); return;
   }
   response.setHeader('Content-Type', 'text/html; charset=utf-8');
-  if (request.url === '/frame') { response.end('<title>Frame</title><p id="frame">owned iframe</p>'); return; }
+  if (request.url === '/frame') { response.end('<title>Frame</title><p id="frame">owned iframe</p><input id="upload-origin-input" type="file">'); return; }
   if (request.url === '/second') { response.end('<title>Second</title><h1>Second page</h1>'); return; }
   response.end(`<title>External fixture</title><input id="text" value="before"><button id="inc" onclick="this.textContent=String(Number(this.textContent)+1)">0</button><iframe src="${base.replace('127.0.0.1', 'localhost')}/frame"></iframe>`);
 });
@@ -228,6 +235,43 @@ h.test('download cancel and task release reject stale native download handles', 
     await new Promise(resolveWait => setTimeout(resolveWait, 50));
   }
   await assertRejects(() => relay.request('download', { session_id: 'closing-download', turn_id: 'stale', tabId: tab.tabId ?? null, url: `${base}/download` }), 'released tab cannot start another download');
+});
+
+h.test('upload permissions use the actual cross-origin input document before file delivery', async () => {
+  await call('upload-origin', 'new_tab', { url: base });
+  const path = join(profile, 'upload-origin.txt'); writeFileSync(path, 'synthetic upload');
+  const located = object(resultValue(await call('upload-origin', 'locator', { selector: '#upload-origin-input', timeoutMs: 3000 })));
+  const target = object((located.elements as BrowserObject[])[0]);
+  assert(typeof target.frameTargetId === 'string', 'the input belongs to an owned cross-process frame');
+  denyUpload = true;
+  try {
+    await assertRejects(() => call('upload-origin', 'file_upload', { ref: target.ref!, frameTargetId: target.frameTargetId!, path }), 'denied input document cannot receive files');
+    assertEqual(resultValue(await call('upload-origin', 'eval', { frameTargetId: target.frameTargetId!, expression: 'document.getElementById("upload-origin-input").files.length' })), 0, 'denial happens before file delivery');
+  } finally { denyUpload = false; }
+  await call('upload-origin', 'file_upload', { selector: '#upload-origin-input', path });
+  assertEqual(uploadOrigins.length, 2, 'each file delivery checks one initiating document');
+  assert(uploadOrigins.every(origin => origin === base.replace('127.0.0.1', 'localhost')), 'the child document origin is authorized instead of the top-level origin');
+  service.releaseSession('upload-origin');
+});
+
+h.test('operation cancellation stops its owned Chrome download without releasing the page', async () => {
+  const relay = directRelays[0]; assert(relay, 'direct native protocol client');
+  const before = object(await relay.request('listDownloads', { session_id: 'A', turn_id: 'before-abort', tabId: tabA }));
+  const known = new Set((Array.isArray(before.downloads) ? before.downloads : []).map(row => object(row).id));
+  const controller = new AbortController();
+  const pending = service.execute('A', browserId, 'download', { url: `${base}/slow`, timeoutMs: 10000 }, {}, controller.signal);
+  void pending.catch(() => {});
+  let id: string | undefined;
+  await waitFor(async () => {
+    const result = object(await relay.request('listDownloads', { session_id: 'A', turn_id: 'observe-abort', tabId: tabA }));
+    const entry = (Array.isArray(result.downloads) ? result.downloads : []).map(object).find(row => !known.has(row.id) && row.status === 'in_progress');
+    id = typeof entry?.id === 'string' ? entry.id : undefined;
+    return !!id;
+  }, 5000, 'the operation owns one active download');
+  controller.abort(new BrowserError('cancelled', 'Fixture operation canceled.'));
+  await assertRejects(() => pending, 'the canceled operation rejects');
+  await waitFor(async () => object(await relay.request('getDownload', { session_id: 'A', turn_id: 'after-abort', id: id! })).status === 'canceled', 5000, 'the owned download is canceled');
+  assertEqual(resultValue(await call('A', 'eval', { expression: 'document.title' })), 'Second', 'canceling a transfer retains the task page');
 });
 
 h.test('disconnecting a selected Chrome instance fails explicitly without opening an IAB tab', async () => {

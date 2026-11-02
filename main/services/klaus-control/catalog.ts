@@ -1187,6 +1187,34 @@ export const CONTROL_SURFACES: ControlSurface[] = [
         "currentSession": false
       },
       {
+        "action": "setPreferences",
+        "channel": "settings:browser-use:set-preferences",
+        "args": "{ showFullUrl?: boolean, annotationScreenshots?: 'always'|'necessary', webUrlTarget?: 'in-app'|'system-default'|'chrome', localUrlTarget?: 'in-app'|'system-default'|'chrome', promptForDownloads?: boolean, downloadDirectory?: string|null }",
+        "confirm": false,
+        "currentSession": false
+      },
+      {
+        "action": "setOriginPolicy",
+        "channel": "settings:browser-use:set-origin-policy",
+        "args": "{ pattern?: string, resource: 'browsing'|'downloads'|'uploads'|'siteTools'|'debug', setting: 'allow'|'ask'|'deny'|'inherit' } — omit pattern for the default; inherit is only valid for a website rule",
+        "confirm": false,
+        "currentSession": false
+      },
+      {
+        "action": "removeOriginPolicy",
+        "channel": "settings:browser-use:remove-origin-policy",
+        "args": "{ pattern: string }",
+        "confirm": false,
+        "currentSession": false
+      },
+      {
+        "action": "setSitePermission",
+        "channel": "settings:browser-use:set-site-permission",
+        "args": "{ origin: string, permission: 'geolocation'|'notifications'|'audioCapture'|'videoCapture'|'clipboard-read'|'fullscreen'|'screen-wake-lock', setting: 'granted'|'denied'|'prompt' }",
+        "confirm": false,
+        "currentSession": false
+      },
+      {
         "action": "setApprovalMode",
         "channel": "settings:browser-use:set-approval-mode",
         "args": "{ mode: 'alwaysAsk'|'neverAsk' } — any other value is stored as 'alwaysAsk'",

@@ -56,7 +56,7 @@ async function observeInput(command: UploadCommand, target: UploadTarget, expect
 }
 
 /** A successful browser command acknowledges file selection; the page owns any subsequent upload. */
-export async function uploadFiles(cdp: BrowserCdp, fields: BrowserObject, perform: (kind: string, fields: BrowserObject) => Promise<unknown>, signal?: AbortSignal): Promise<BrowserObject> {
+export async function uploadFiles(cdp: BrowserCdp, fields: BrowserObject, perform: (kind: string, fields: BrowserObject) => Promise<unknown>, signal?: AbortSignal, authorize?: (documentUrl: string, signal?: AbortSignal) => Promise<void>): Promise<BrowserObject> {
   assertActive(signal);
   const handles = new Set<string>();
   const command: UploadCommand = async (method, params = {}) => {
@@ -88,6 +88,18 @@ export async function uploadFiles(cdp: BrowserCdp, fields: BrowserObject, perfor
     const attach = async (target: UploadTarget, via: string): Promise<BrowserObject> => {
       if (!target.file) throw new BrowserError('invalid_request', 'The chosen upload target is not a file input.');
       if (files.length > 1 && !target.multiple) throw new BrowserError('invalid_request', 'This file input does not accept multiple files.');
+      const documentIdentity = async (): Promise<string> => {
+        const reply = await command('Runtime.callFunctionOn', { objectId: target.objectId, functionDeclaration: 'function(){const w=this.ownerDocument?.defaultView;return {connected:this.isConnected,url:w?.location.href,origin:w?.origin}}', returnByValue: true });
+        const identity = object(object(reply.result).value);
+        if (reply.exceptionDetails || identity.connected !== true || typeof identity.url !== 'string') throw new BrowserError('stale_target', 'The upload document changed before file selection.');
+        return typeof identity.origin === 'string' && identity.origin !== 'null' ? identity.origin : identity.url;
+      };
+      if (authorize) {
+        const documentUrl = await documentIdentity();
+        await authorize(documentUrl, signal);
+        assertActive(signal);
+        if (await documentIdentity() !== documentUrl) throw new BrowserError('stale_target', 'The upload document changed during authorization.');
+      }
       await command('DOM.setFileInputFiles', { backendNodeId: target.backendNodeId, files });
       // Change handlers may consume the files, clear the input, replace it, or navigate.
       // Retain that observation without replacing the CDP acknowledgement with a page-state guess.

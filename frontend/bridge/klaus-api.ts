@@ -953,6 +953,17 @@ expose('klaus', {
     },
     browserUse: {
       get: () => call('settings:browser-use:get'),
+      subscribe: (listener: (snapshot: any) => void): Unsubscribe => subscribe('settings:browser-use:changed', listener),
+      setPreferences: (patch: Record<string, unknown>) => call('settings:browser-use:set-preferences', patch),
+      setOriginPolicy: (policy: { pattern?: string; resource: string; setting: string }) => call('settings:browser-use:set-origin-policy', policy),
+      removeOriginPolicy: (pattern: string) => call('settings:browser-use:remove-origin-policy', { pattern }),
+      setSitePermission: (permission: { origin: string; permission: string; setting: string }) => call('settings:browser-use:set-site-permission', permission),
+      history: (options: Record<string, unknown> = {}) => call('settings:browser-use:history', options),
+      removeHistory: (ids: string[]) => call('settings:browser-use:remove-history', { ids }),
+      downloads: (options: Record<string, unknown> = {}) => call('settings:browser-use:downloads', options),
+      subscribeDownloads: (listener: (event: any) => void): Unsubscribe => subscribe('browser-use:downloads-changed', listener),
+      downloadAction: (action: string, id: string) => call('settings:browser-use:download-action', { action, id }),
+      chooseDownloadDirectory: () => call('settings:browser-use:choose-download-directory'),
       setEnabled: (enabled: boolean) =>
         call('settings:browser-use:set-enabled', { enabled }),
       setChromeEnabled: (enabled: boolean) =>
@@ -1123,6 +1134,11 @@ expose('klaus', {
       call('site-references:open', request),
   },
   browserUse: {
+    annotationCapture: (request: { sessionId: string; focusRevision: number }) => call('browser-use:annotation-capture', request),
+    annotationAnchor: (request: { snapshotId: string; point: { x: number; y: number } }) => call('browser-use:annotation-anchor', request),
+    annotationSave: (request: { snapshotId: string; sessionId: string; tabId: string; focusRevision: number; crop?: { x: number; y: number; width: number; height: number } | null }) => call('browser-use:annotation-save', request),
+    annotationCommit: (request: { snapshotId: string; sessionId: string; tabId: string; focusRevision: number }) => call('browser-use:annotation-commit', request),
+    annotationDiscard: (snapshotId: string) => call('browser-use:annotation-discard', { snapshotId }),
     mentionTabs: (options: { sessionId: string | null; query: string }): Promise<{ ok: true; tabs: BrowserTabMention[]; errors: Array<{ browserId: string; message: string; code?: string }> } | { ok: false; error: string }> =>
       call('browser-use:mention-tabs', options),
     state: () => call('browser-use:state'),
@@ -1150,6 +1166,7 @@ expose('klaus', {
     // parks the question and the window's own dialog answers it per requestId.
     onPermissionRequest: (cb: (request: { requestId: string; sessionId: string; permission: string; origin: string; pageUrl: string }) => void): Unsubscribe =>
       subscribe('browser-use:permission-request', (request: { requestId: string; sessionId: string; permission: string; origin: string; pageUrl: string }) => cb(request)),
+    onPermissionCancelled: (cb: (event: { requestId: string }) => void): Unsubscribe => subscribe('browser-use:permission-cancelled', cb),
     answerPermission: (requestId: string, allowed: boolean) =>
       call('browser-use:permission-answer', { requestId, allowed }),
   },

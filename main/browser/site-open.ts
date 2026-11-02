@@ -6,8 +6,9 @@ import type { SiteOpenTarget, SiteOpenTargetId, SiteOpenTargets } from '../../co
 import { kvGet, kvSet } from '../services/settings';
 import type { BrowserManager } from './manager';
 import { BrowserError, string, type BrowserObject } from './types';
+import { LOCAL_URL_TARGET_KEY, WEB_URL_TARGET_KEY, localBrowserUrl } from '../../contracts/browser-settings';
 
-export const SITE_OPEN_TARGET_SETTING = 'browser:site_open_target';
+export const SITE_OPEN_TARGET_SETTING = WEB_URL_TARGET_KEY;
 const targetIds: SiteOpenTargetId[] = ['in-app', 'chrome', 'system-default'];
 
 export function siteUrl(input: unknown): string {
@@ -196,15 +197,19 @@ export class SiteOpener {
     const systemIcon = await this.deps.systemDefaultIcon();
     targets.push({ id: 'system-default', kind: 'system-default', name: '', isDefault: true, ...(systemIcon ? { iconDataUrl: systemIcon } : {}) });
     const stored = kvGet(SITE_OPEN_TARGET_SETTING, this.configRoot);
-    const preferredTarget = targets.find(target => target.id === stored)?.id ?? 'in-app';
-    return { targets, preferredTarget };
+    const preferredTarget = targets.find(target => target.id === stored)?.id ?? 'system-default';
+    const local = kvGet(LOCAL_URL_TARGET_KEY, this.configRoot);
+    return { targets, preferredTarget, localPreferredTarget: targets.find(target => target.id === local)?.id ?? 'in-app' };
   }
 
   async open(fields: BrowserObject): Promise<{ ok: true; target: SiteOpenTargetId }> {
     const sessionId = string(fields.sessionId, 'sessionId');
     if (sessionId.length > 256) throw new BrowserError('invalid_request', 'sessionId is too long.');
     const url = siteUrl(fields.url);
-    const target = fields.target ?? (await this.targets()).preferredTarget;
+    const preferenceKey = localBrowserUrl(url) ? LOCAL_URL_TARGET_KEY : SITE_OPEN_TARGET_SETTING;
+    const stored = kvGet(preferenceKey, this.configRoot);
+    const preferred = targetIds.includes(stored as SiteOpenTargetId) && (stored !== 'chrome' || this.deps.findChrome()) ? stored : localBrowserUrl(url) ? 'in-app' : 'system-default';
+    const target = fields.target ?? preferred;
     if (typeof target !== 'string' || !targetIds.includes(target as SiteOpenTargetId)) throw new BrowserError('invalid_request', 'Unknown website open target.');
     if (target === 'in-app') {
       // A user's explicit click can open a saved conversation's own page set.
@@ -217,7 +222,7 @@ export class SiteOpener {
       if (!path) throw new BrowserError('not_found', 'Google Chrome is not installed on this machine.');
       await this.deps.openChrome(path, url);
     } else await this.deps.openExternal(url);
-    const saved = kvSet(SITE_OPEN_TARGET_SETTING, target, this.configRoot);
+    const saved = kvSet(preferenceKey, target, this.configRoot);
     if (saved !== true) throw new BrowserError(saved.code, saved.message);
     return { ok: true, target: target as SiteOpenTargetId };
   }

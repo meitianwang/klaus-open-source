@@ -138,6 +138,7 @@ export function loadSettingsTab(tab: string): void {
     case 'permissions': w().loadPermissionRulesTab(content); break
     case 'hooks': w().loadHooksSettingsTab(content); break
     case 'mobile': w().loadMobileBridgeSettingsTab(content); break
+    case 'browser': w().loadBrowserSettingsTab(content); break
     case 'computerUse': w().loadComputerUseSettingsTab(content); break
     case 'voiceInput': w().loadVoiceInputSettingsTab(content); break
     case 'storage': w().loadStorageSettingsTab(content); break

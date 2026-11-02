@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "reason": "Browser preferences govern URL destinations, origin permissions, address display, and per-chat access decisions.",
+  "defaultPolicy": {"browsing":"allow","downloads":"allow","uploads":"allow","siteTools":"allow","debug":"deny"},
+  "patterns": [
+    {"pattern":"example.com","url":"https://example.com/path","matches":true},
+    {"pattern":"example.com","url":"https://example.com.attacker.invalid/","matches":false},
+    {"pattern":"*.example.com","url":"https://a.example.com/","matches":true},
+    {"pattern":"*.example.com","url":"https://example.com/","matches":true},
+    {"pattern":"*.example.com","url":"https://otherexample.com/","matches":false},
+    {"pattern":"http://localhost:3000","url":"http://localhost:3000/path","matches":true},
+    {"pattern":"http://localhost:3000","url":"http://localhost:3001/path","matches":false},
+    {"pattern":"https://example.com","url":"http://example.com/","matches":false}
+  ],
+  "invalidPatterns": ["https://user:password@example.com", "javascript:alert(1)", "example.com/private", "example.com?private", "*example.com", "example.com example.org"],
+  "localUrls": ["http://localhost:3000/", "http://app.localhost/", "http://127.0.0.1/", "http://127.4.5.6:8080/", "http://0.0.0.0:3000/", "http://[::1]:3000/", "file:///tmp/example.html"],
+  "webUrls": ["https://example.com/", "https://localhost.example.com/", "https://127.0.0.1.example.com/"],
+  "address": {"url":"https://example.com:8443/path?query=1#fragment","compact":"example.com:8443"}
+}

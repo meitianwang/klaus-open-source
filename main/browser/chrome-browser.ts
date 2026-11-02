@@ -4,7 +4,7 @@ import { ChromeSetup, repairParkedWindowsLauncher, type ChromeSetupOptions } fro
 import { ChromeRelay, chromeBrowserName, discoverChrome, type ChromeInstance } from './chrome-relay';
 import { ChromePageDebugger } from './chrome-cdp';
 import { performPageOperation, type BrowserCdp } from './page-operations';
-import { DownloadStore, downloadFilename } from './downloads';
+import { DownloadStore, downloadFilename, aborted, withAbort } from './downloads';
 import { downloadPageMedia, namesMedia } from './page-download';
 import { navigationUrl } from './policy';
 import { BrowserError, object, type BrowserObject } from './types';
@@ -14,6 +14,7 @@ import { batchResponse, navigateForRead, readUrls, runBatch } from './task-opera
 import { normalizeOperation } from './wire';
 import { waitForPage } from './page-wait';
 import { captureResultText } from './page-capture';
+import type { BrowserResource } from '../../contracts/browser-settings';
 
 export interface ChromeBrowserOptions {
   enabled: () => boolean;
@@ -22,6 +23,7 @@ export interface ChromeBrowserOptions {
   reportDiagnostic?: (message: string) => void;
   onTabsChanged?: () => void;
   artifactDirectory?: string;
+  authorize?: (sessionId: string, url: string, resource: BrowserResource, signal?: AbortSignal) => Promise<void>;
   setup?: Omit<ChromeSetupOptions, 'enabled' | 'discoveryDirectory'>;
 }
 interface Connection { instance: ChromeInstance; relay: ChromeRelay; pages: Map<number, ChromePageDebugger>; active: Map<string, number>; sessions: Set<string>; dispositions: Map<number, string> }
@@ -35,6 +37,7 @@ export class ChromeBrowserService {
   private readonly releases = new Set<Promise<void>>();
   private readonly generations = new Map<string, number>();
   private readonly mediaOwners = new WeakMap<ChromePageDebugger,string>();
+  private readonly pageUrls = new WeakMap<ChromePageDebugger, string>();
   private readonly mediaDownloads: DownloadStore | undefined;
   private closed = false;
   constructor(readonly options: ChromeBrowserOptions) {
@@ -166,7 +169,7 @@ export class ChromeBrowserService {
     return rows.map(row => ({ ...row, tabId: row.id ?? null, active: row.id === connection.active.get(sessionId) }));
   }
 
-  private async page(connection: Connection, sessionId: string, turnId: string, handle?: number): Promise<ChromePageDebugger> {
+  private async page(connection: Connection, sessionId: string, turnId: string, handle?: number, checkAccess = true): Promise<ChromePageDebugger> {
     let rows = await this.tabs(connection, sessionId, turnId);
     let id = handle ?? connection.active.get(sessionId);
     if (id === undefined) {
@@ -176,15 +179,18 @@ export class ChromeBrowserService {
     const owned = rows.find(row => row.id === id);
     if (!owned) throw new BrowserError('stale_tab', `Chrome tab ${String(id)} does not belong to this task. Claim a user tab explicitly before controlling it.`);
     this.url(owned.url ?? 'about:blank');
+    if (checkAccess) await this.options.authorize?.(sessionId, String(owned.url ?? 'about:blank'), 'browsing');
     const previous = connection.pages.get(id);
     if (previous && previous.sessionId !== sessionId) { await previous.dispose(); connection.pages.delete(id); }
     let page = connection.pages.get(id);
     if (!page) {
       const generation = this.generations.get(sessionId) ?? 0;
-      page = new ChromePageDebugger(connection.relay, sessionId, id, () => this.isEnabled() && generation === (this.generations.get(sessionId) ?? 0), url => this.url(url));
+      page = new ChromePageDebugger(connection.relay, sessionId, id, () => this.isEnabled() && generation === (this.generations.get(sessionId) ?? 0),
+        url => this.url(url), url => this.options.authorize?.(sessionId, url, 'browsing') ?? Promise.resolve());
       connection.pages.set(id, page);
     }
     page.turnId = turnId; connection.active.set(sessionId, id);
+    this.pageUrls.set(page, String(owned.url ?? 'about:blank'));
     await page.initialize(); return page;
   }
 
@@ -261,7 +267,11 @@ export class ChromeBrowserService {
         await this.tabs(connection, sessionId, turnId);
         const value = await readUrls({
           create: async () => { const created = object(await this.request(connection, sessionId, turnId, 'createTab')); const page = await this.page(connection, sessionId, turnId, Number(created.id)); return { id: page.tabId, cdp: page }; },
-          navigate: async (page, url, fields, signal) => { const owned = connection.pages.get(page.id); if (!owned) throw new BrowserError('stale_tab', 'Temporary Chrome tab closed.'); await navigateForRead(owned, this.url(url), fields, signal); },
+          navigate: async (page, url, fields, signal) => {
+            const owned = connection.pages.get(page.id); if (!owned) throw new BrowserError('stale_tab', 'Temporary Chrome tab closed.');
+            await this.options.authorize?.(sessionId, url, 'browsing', signal);
+            await navigateForRead(owned, this.url(url), fields, signal);
+          },
           close: async page => { const rows = await this.tabs(connection, sessionId, turnId); await this.request(connection, sessionId, turnId, 'finalizeTabs', { keep: rows.filter(row => row.id !== page.id).map(row => ({ tabId: row.id!, status: 'handoff' })) }); },
           tabs: async () => (await this.tabs(connection, sessionId, turnId)).map(row => Number(row.id)),
           selected: () => connection.active.get(sessionId),
@@ -279,6 +289,7 @@ export class ChromeBrowserService {
           throw new BrowserError('stale_tab', 'The referenced Chrome tab changed since it was mentioned. Select it again.');
         }
         this.url(row.url);
+        await this.options.authorize?.(sessionId, String(row.url), 'browsing', signal);
         const value = await this.request(connection, sessionId, turnId, 'claimUserTab', { tabId: handle,
           ...(fields.expectedUrl !== undefined ? { expectedTitle: fields.expectedTitle!, expectedUrl: fields.expectedUrl } : {}) });
         return await answer({ value }, await this.page(connection, sessionId, turnId, handle));
@@ -290,6 +301,7 @@ export class ChromeBrowserService {
         if (action === 'user' || action === 'all') return await answer({ value: await this.request(connection, sessionId, turnId, 'getUserTabs') });
         if (action === 'new') {
           const url = this.url(fields.url ?? 'about:blank');
+          await this.options.authorize?.(sessionId, url, 'browsing', signal);
           const created = object(await this.request(connection, sessionId, turnId, 'createTab'));
           const page = await this.page(connection, sessionId, turnId, Number(created.id));
           if (url !== 'about:blank') await this.navigate(page, url);
@@ -332,12 +344,19 @@ export class ChromeBrowserService {
         if (!['get','set'].includes(String(action))) throw new BrowserError('invalid_request', 'visibility action must be get or set.');
         return await answer({ value: { visible: true, browserId, ...(action === 'set' ? { reason: 'The user\'s own Chrome is already on their screen; Klaus did not open or focus it.' } : {}) } });
       }
-      const page = await this.page(connection, sessionId, turnId, handle);
+      const page = await this.page(connection, sessionId, turnId, handle, kind !== 'navigate');
+      const currentUrl = this.pageUrls.get(page) ?? 'about:blank';
+      if (kind === 'navigate') await this.options.authorize?.(sessionId, String(fields.url), 'browsing', signal);
+      if (kind === 'download' && !['list', 'wait', 'cancel'].includes(String(fields.action)) && !fields.waitOnly)
+        await this.options.authorize?.(sessionId, currentUrl, 'downloads', signal);
+      if (kind === 'webmcp') await this.options.authorize?.(sessionId, currentUrl, 'siteTools', signal);
+      if (kind === 'cdp') await this.options.authorize?.(sessionId, currentUrl, 'debug', signal);
       await page.refreshFrames();
       const frame = typeof fields.frameTargetId === 'string' ? fields.frameTargetId : typeof target.frameTargetId === 'string' ? target.frameTargetId : undefined;
       if (frame && ['navigate','back','forward','reload','resize','permission'].includes(kind)) throw new BrowserError('invalid_request', 'This operation addresses the whole tab, not frameTargetId.');
       const perform = async (): Promise<BrowserObject> => {
-        const result = await performPageOperation({ cdp: page, frame, signal, navigate: (url, fields) => this.navigate(page, url, fields), history: action => this.history(page, action), download: (fields, timeout, transport) => this.download(page, fields, timeout, transport), artifactDirectory: this.options.artifactDirectory,
+        const result = await performPageOperation({ cdp: page, frame, signal, navigate: (url, fields) => this.navigate(page, url, fields), history: action => this.history(page, action), download: (fields, timeout, transport) => this.download(page, fields, timeout, transport, signal), artifactDirectory: this.options.artifactDirectory,
+          authorizeUpload: (url, signal) => this.options.authorize?.(sessionId, url, 'uploads', signal) ?? Promise.resolve(),
           permission: fields => this.permission(connection, sessionId, turnId, page, fields),
           nativeViewport: async () => { const tab = (await this.tabs(connection, sessionId, turnId)).find(row => row.id === page.tabId); if (!tab || typeof tab.width !== 'number' || typeof tab.height !== 'number' || typeof tab.zoomFactor !== 'number' || tab.zoomFactor <= 0) throw new BrowserError('unavailable', 'Chrome did not return the native viewport. Reload the bundled extension.'); return { width: Math.round(tab.width / tab.zoomFactor), height: Math.round(tab.height / tab.zoomFactor) }; },
         }, kind, fields);
@@ -390,7 +409,10 @@ export class ChromeBrowserService {
     }
     await this.loaded(page);
   }
-  private async download(page: ChromePageDebugger, fields: BrowserObject, timeout: number, cdp:BrowserCdp): Promise<BrowserObject> {
+  private async download(page: ChromePageDebugger, fields: BrowserObject, timeout: number, cdp:BrowserCdp, outerSignal?: AbortSignal): Promise<BrowserObject> {
+    const signal = outerSignal ?? new AbortController().signal;
+    aborted(signal);
+    const request = (action: string, params: BrowserObject = {}) => withAbort(page.extension(action, params), signal);
     const until=Date.now()+timeout;
     const action=fields.action??'download';
     if(!['download','wait','list','cancel'].includes(String(action)))throw new BrowserError('invalid_request','Download action must be download, wait, list or cancel.');
@@ -398,38 +420,41 @@ export class ChromeBrowserService {
     const existing=action==='list'||action==='cancel'||action==='wait'||fields.waitOnly===true||fields.downloadId!==undefined||!fields.url&&!namesMedia(fields);
     let id:string|undefined;
     if(existing){
-      const native=await page.extension('listDownloads');
+      const native=await request('listDownloads');
       const downloads=[...(Array.isArray(native.downloads)?native.downloads.map(object):[]),...(this.mediaDownloads?.list(owner)??[])];
       if(action==='list')return {downloads,scope:'page',note:'Only proven extension and page-media handles are listed; arbitrary Chrome human downloads cannot be attributed by URL.'};
       const matches=downloads.filter(item=>fields.downloadId!==undefined?item.id===String(fields.downloadId):fields.url?item.url===fields.url||item.originalUrl===fields.url:true);
       if(matches.length>1)throw new BrowserError('ambiguous_download','Several downloads match this page. Use action:list and an exact downloadId.');
       if(!matches[0])throw new BrowserError('stale_download','No proven download handle belongs to this page. Arbitrary human Chrome downloads cannot be attributed safely; start a URL or media download through this tool.');
       id=String(matches[0].id);
-      if(!/^\d+$/u.test(id)){if(!this.mediaDownloads)throw new BrowserError('stale_download','This page-media handle was released.');return this.mediaDownloads.wait(owner,{...fields,downloadId:id},timeout);}
+      if(!/^\d+$/u.test(id)){if(!this.mediaDownloads)throw new BrowserError('stale_download','This page-media handle was released.');return withAbort(this.mediaDownloads.wait(owner,{...fields,downloadId:id},timeout), signal);}
       if(action==='cancel')return page.extension('cancelDownload',{id});
     }else{
       if(fields.filename!==undefined||fields.saveAs!==undefined)downloadFilename(fields.filename??fields.saveAs);
       if(namesMedia(fields)){
         if(!this.mediaDownloads)throw new BrowserError('unavailable','The host has not provided a directory for page media.');
         return this.mediaDownloads.run(owner,String(fields.url??''),timeout,async(id,signal)=>{
-          await page.extension('registerMediaTransfer',{id});
+          await request('registerMediaTransfer',{id});
           try{return await downloadPageMedia(cdp,fields,this.mediaDownloads!.directory,id,signal,url=>this.url(url));}
           finally{await page.extension('releaseMediaTransfer',{id}).catch(()=>{});}
-        });
+        }, {}, signal);
       }
       let timer:ReturnType<typeof setTimeout>|undefined;
       const starting=page.extension('download',{url:this.url(fields.url),timeoutMs:timeout,...(fields.filename!==undefined||fields.saveAs!==undefined?{filename:downloadFilename(fields.filename??fields.saveAs)}:{})});
-      const created=await Promise.race([starting,new Promise<never>((_resolve,reject)=>{timer=setTimeout(()=>reject(new BrowserError('timeout','Chrome did not provide a download id before timeout; the extension will cancel any late id.')),timeout);})]).finally(()=>clearTimeout(timer));
+      // The extension may return an id after cancellation. Retire that owned
+      // handle even though the caller has already stopped waiting for it.
+      void starting.then(created => { if (signal.aborted && typeof created.id === 'string') return page.extension('cancelDownload', { id: created.id }); }).catch(() => {});
+      const created=await withAbort(Promise.race([starting,new Promise<never>((_resolve,reject)=>{timer=setTimeout(()=>reject(new BrowserError('timeout','Chrome did not provide a download id before timeout; the extension will cancel any late id.')),timeout);})]), signal).finally(()=>clearTimeout(timer));
       if(typeof created.id!=='string')throw new BrowserError('chrome_error','Chrome returned no task-owned download handle. Reload the Klaus extension.');
       id=created.id;
     }
     try {
       for (;;) {
-        const current = await page.extension('getDownload', { id });
+        const current = await request('getDownload', { id });
         if (current.status === 'completed' && typeof current.path === 'string') return current;
         if (['failed', 'canceled'].includes(String(current.status))) throw new BrowserError('download_error', `Chrome download ${String(current.status)}: ${String(current.error ?? '')}`);
         if (Date.now() >= until) throw new BrowserError('timeout', existing?'The download did not complete before the wait timeout.':'Chrome download timed out and was canceled.');
-        await new Promise(resolve => setTimeout(resolve, 100));
+        await withAbort(new Promise(resolve => setTimeout(resolve, 100)), signal);
       }
     } catch (error) {
       if(!existing)await page.extension('cancelDownload', { id }).catch(() => {});

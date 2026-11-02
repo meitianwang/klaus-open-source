@@ -7,6 +7,8 @@ import type { RunPreview } from '../../browser/run-preview';
 import { BrowserError, json, message, object, string, type BrowserObject } from '../../browser/types';
 import { BrowserTabMentionService } from '../../browser/tab-mentions';
 import type { SiteOpener } from '../../browser/site-open';
+import type { AnnotationSessionManager, AnnotationCaptureRequest, AnnotationSaveRequest, AnnotationCommitRequest } from '../../browser/annotation-session';
+import type { BrowserDownloadAction } from '../../../contracts/browser-history';
 
 export interface BrowserHandlerDependencies {
   manager: BrowserManager;
@@ -20,18 +22,20 @@ export interface BrowserHandlerDependencies {
   /** Must wait for the engine's plugin mutation result; never write its ledger. */
   setEnabled?: (enabled: boolean) => Promise<Json>;
   mutateSettings?: (action: string, payload: BrowserObject) => Promise<Json> | Json;
+  chooseDownloadDirectory?: () => Promise<Json>;
+  annotations?: AnnotationSessionManager;
 }
 
 export function registerBrowserHandlers(registry: ChannelRegistry, deps: BrowserHandlerDependencies): void {
   const manager = deps.manager;
   const mentions = new BrowserTabMentionService(manager, deps.chrome);
-  const register = (channel: string, work: (fields: BrowserObject) => unknown | Promise<unknown>, ui = true): void => {
+  const register = (channel: string, work: (fields: BrowserObject, context: HandlerContext) => unknown | Promise<unknown>, ui = true): void => {
     registry.register(channel, async (context: HandlerContext): Promise<Json> => {
       try {
         const passive = ui ? deps.selectWindow?.(context) : undefined;
         if (passive !== undefined) return passive;
         if (ui && context.senderId !== manager.windowId) throw new BrowserError('FORBIDDEN_CHANNEL', 'This browser surface belongs to another window.');
-        return json(await work(object(context.args[0])));
+        return json(await work(object(context.args[0]), context));
       } catch (error) { return { ok: false, code: error instanceof BrowserError ? error.code : 'host_error', error: message(error) }; }
     }, 'browser');
   };
@@ -64,6 +68,30 @@ export function registerBrowserHandlers(registry: ChannelRegistry, deps: Browser
     return deps.preview.open(fields);
   });
   register('browser-use:show', fields => manager.show(fields));
+  register('browser-use:annotation-capture', fields => {
+    if (!deps.annotations) throw new BrowserError('unavailable', 'Browser annotations are unavailable.');
+    return deps.annotations.capture(fields as unknown as AnnotationCaptureRequest);
+  });
+  register('browser-use:annotation-anchor', fields => {
+    if (!deps.annotations) throw new BrowserError('unavailable', 'Browser annotations are unavailable.');
+    const point = object(fields.point);
+    return deps.annotations.anchorAt(string(fields.snapshotId, 'snapshotId'), { x: Number(point.x), y: Number(point.y) });
+  });
+  register('browser-use:annotation-save', fields => {
+    if (!deps.annotations) throw new BrowserError('unavailable', 'Browser annotations are unavailable.');
+    return deps.annotations.save(fields as unknown as AnnotationSaveRequest);
+  });
+  register('browser-use:annotation-commit', async (fields, context) => {
+    if (!deps.annotations || !deps.annotations.ownsWindow(string(fields.snapshotId, 'snapshotId'), context.senderId)) throw new BrowserError('stale_scope', 'The annotation belongs to another window or has expired.');
+    await deps.annotations.commit(fields as unknown as AnnotationCommitRequest);
+    return { ok: true };
+  }, false);
+  register('browser-use:annotation-discard', async (fields, context) => {
+    const id = string(fields.snapshotId, 'snapshotId');
+    if (deps.annotations?.has(id) && !deps.annotations.ownsWindow(id, context.senderId)) throw new BrowserError('stale_scope', 'The annotation belongs to another window.');
+    await deps.annotations?.discard(id);
+    return { ok: true };
+  }, false);
   // The renderer's own dialog answers a parked permission question. `register`
   // already refuses any window but the one owning this browser surface, so a
   // page in another window cannot answer for it.
@@ -119,11 +147,23 @@ export function registerBrowserHandlers(registry: ChannelRegistry, deps: Browser
     if (object(result).ok !== false && fields.enabled === false) manager.hide();
     manager.publish(); return result;
   }, false);
-  for (const action of ['set-chrome-enabled', 'set-approval-mode', 'set-screenshot-mode', 'add-origin', 'remove-origin']) register(`settings:browser-use:${action}`, fields => {
+  for (const action of ['set-chrome-enabled', 'set-approval-mode', 'set-screenshot-mode', 'add-origin', 'remove-origin',
+    'set-preferences', 'set-origin-policy', 'remove-origin-policy', 'set-site-permission']) register(`settings:browser-use:${action}`, fields => {
     if (!deps.mutateSettings) throw new BrowserError('unavailable', 'Browser preferences are not connected to the settings store yet.');
     return deps.mutateSettings(action, fields);
   }, false);
   register('settings:browser-use:clear-data', fields => manager.clearData(typeof fields.kind === 'string' ? fields.kind : 'all'), false);
+  register('settings:browser-use:choose-download-directory', () => {
+    if (!deps.chooseDownloadDirectory) throw new BrowserError('unavailable', 'The download folder picker is unavailable.');
+    return deps.chooseDownloadDirectory();
+  }, false);
+  register('settings:browser-use:history', fields => manager.history(fields), false);
+  register('settings:browser-use:remove-history', fields => {
+    if (!Array.isArray(fields.ids) || fields.ids.some(id => typeof id !== 'string')) throw new BrowserError('invalid_request', 'History entry ids are required.');
+    return manager.historyRemove(fields.ids as string[]);
+  }, false);
+  register('settings:browser-use:downloads', fields => manager.downloadHistory(fields), false);
+  register('settings:browser-use:download-action', fields => manager.downloadAction(string(fields.action, 'action') as BrowserDownloadAction, string(fields.id, 'id')), false);
   for (const action of ['chrome-diagnostics', 'chrome-install-native-host', 'chrome-setup', 'chrome-open-window', 'chrome-open-webstore', 'chrome-open-extension-manager', 'chrome-deploy-extension', 'chrome-reveal-extension', 'chrome-policy-install', 'chrome-policy-uninstall']) register(`settings:browser-use:${action}`, async () => {
     if (!deps.chrome) throw new BrowserError('unavailable', 'External Chrome settings are not connected to the host.');
     // A policy install takes the user's Chrome over by definition, so both

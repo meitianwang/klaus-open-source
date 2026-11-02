@@ -15,6 +15,9 @@ export async function downloadPageMedia(cdp: BrowserCdp, input: BrowserObject, d
   const key = `__klausDownload_${id.replace(/-/gu,'')}`;
   const access = `globalThis[${JSON.stringify(key)}]`;
   const cleanup = (): Promise<unknown> => cdp.evaluate(`(()=>{const s=${access};if(s){s.controller.abort();s.reader?.cancel().catch(()=>{});clearTimeout(s.timer);delete ${access};}return true;})()`);
+  const abortExternal = (): void => { void cleanup().catch(() => {}); };
+  signal.addEventListener('abort', abortExternal, { once: true });
+  if (signal.aborted) abortExternal();
   try {
     const metadata = object(await withAbort(cdp.evaluate(`(()=>{${DOM_HELPERS}
       const controller=new AbortController(); const state={controller}; ${access}=state;
@@ -62,6 +65,7 @@ export async function downloadPageMedia(cdp: BrowserCdp, input: BrowserObject, d
   } finally {
     // The page has its own deadline too, so a destroyed transport cannot leave a
     // fetch running indefinitely after the host stops awaiting this operation.
+    signal.removeEventListener('abort', abortExternal);
     await Promise.race([cleanup().catch(()=>{}),new Promise(resolve=>setTimeout(resolve,250))]);
   }
 }

@@ -35,6 +35,7 @@ export interface PageOperationContext {
   history(action: 'back' | 'forward' | 'reload'): Promise<void>;
   download(fields: BrowserObject, timeout: number, cdp: BrowserCdp): Promise<BrowserObject>;
   artifactDirectory?: string;
+  authorizeUpload?(documentUrl: string, signal?: AbortSignal): Promise<void>;
   permission?(fields: BrowserObject): Promise<BrowserObject>;
   nativeViewport?(): Promise<BrowserObject>;
 }

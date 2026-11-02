@@ -33,7 +33,7 @@ export class PendingBrowserPermissions {
   private readonly pending = new Map<string, Parked>()
   private sequence = 0
 
-  constructor(private readonly timeoutMs: number = BROWSER_PERMISSION_TIMEOUT_MS) {}
+  constructor(private readonly timeoutMs: number = BROWSER_PERMISSION_TIMEOUT_MS, private readonly onSettled?: (requestId: string) => void) {}
 
   /**
    * Park one request. The returned promise settles exactly once, on the first
@@ -70,6 +70,7 @@ export class PendingBrowserPermissions {
     this.pending.delete(requestId)
     clearTimeout(parked.timer)
     parked.resolve(allowed)
+    this.onSettled?.(requestId)
     return true
   }
 }

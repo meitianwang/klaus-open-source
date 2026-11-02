@@ -119,7 +119,7 @@ export class BrowserOperations {
     const run = (this.queues.get(sessionId) ?? Promise.resolve()).then(async () => {
       if (this.disposed) throw new BrowserError('unavailable', 'The browser operation service has shut down.');
       if (generation !== (this.generations.get(sessionId) ?? 0)) throw new BrowserError('unavailable', 'The task browser capability was released.');
-      const finish = this.manager.beginOperation(sessionId, name);
+      const finish = this.manager.beginOperation(sessionId, name, signal);
       try { return await this.run(sessionId, name, args, signal); } finally { finish(); }
     });
     const queued = run.catch(() => {});
@@ -224,7 +224,11 @@ export class BrowserOperations {
       const selected = (): number | undefined => this.manager.listPages(sessionId).find(page => page.id === this.manager.state(sessionId).tabId)?.handle;
       const value = await readUrls({
         create: async () => { const page = await this.manager.createTab(sessionId, 'about:blank', false); return { id: page.handle, cdp: page.cdp }; },
-        navigate: async (page, url, fields, signal) => { this.manager.page(sessionId, page.id); await navigateForRead(page.cdp, this.manager.assertNavigation(url), fields, signal); },
+        navigate: async (page, url, fields, signal) => {
+          this.manager.page(sessionId, page.id);
+          await this.manager.authorize(sessionId, url, 'browsing', signal);
+          await navigateForRead(page.cdp, this.manager.assertNavigation(url), fields, signal);
+        },
         close: async page => { this.manager.closeTab(sessionId, page.id); },
         tabs: async () => this.manager.listPages(sessionId).map(page => page.handle), selected,
         // Background IAB pages never change selection. Preserve a concurrent
@@ -245,6 +249,11 @@ export class BrowserOperations {
 
     const page = handle === undefined ? await this.manager.ensurePage(sessionId) : this.manager.page(sessionId, handle);
     await page.ready;
+    await this.manager.authorize(sessionId, kind === 'navigate' ? String(fields.url) : page.view.webContents.getURL(), 'browsing', signal);
+    if (kind === 'download' && !['list', 'wait', 'cancel'].includes(String(fields.action)) && !fields.waitOnly)
+      await this.manager.authorize(sessionId, page.view.webContents.getURL(), 'downloads', signal);
+    if (kind === 'webmcp') await this.manager.authorize(sessionId, page.view.webContents.getURL(), 'siteTools', signal);
+    if (kind === 'cdp') await this.manager.authorize(sessionId, page.view.webContents.getURL(), 'debug', signal);
     const cdp = page.cdp;
     const activePageBefore = this.manager.state(sessionId).tabId;
     const frame = typeof fields.frameTargetId === 'string' ? fields.frameTargetId : typeof target.frameTargetId === 'string' ? target.frameTargetId : undefined;
@@ -252,6 +261,7 @@ export class BrowserOperations {
     const perform = async (): Promise<BrowserObject> => {
       const { value, screenshot, typed } = await performPageOperation({
         cdp, frame, signal,
+        authorizeUpload: (url, signal) => this.manager.authorize(sessionId, url, 'uploads', signal),
         navigate: (url, options) => this.manager.navigate(page, url, options),
         history: action => this.manager.historyAction(page, action),
         download: (fields, timeout, transport) => this.manager.download(page, fields, timeout, transport),
@@ -289,7 +299,10 @@ export class BrowserOperations {
     if (kind === 'close' && !['tab','session','all'].includes(closeTarget)) throw new BrowserError('invalid_request', 'close target must be tab, session or all.');
     const action = kind === 'new_tab' ? 'new' : kind === 'close' ? closeTarget === 'tab' ? 'close' : 'finalize' : fields.action ?? 'list';
     let page: BrowserPage | undefined;
-    if (action === 'new') page = await this.manager.createTab(sessionId, fields.url ?? 'about:blank');
+    if (action === 'new') {
+      await this.manager.authorize(sessionId, String(fields.url ?? 'about:blank'));
+      page = await this.manager.createTab(sessionId, fields.url ?? 'about:blank');
+    }
     else if (action === 'select') { if (handle === undefined) throw new BrowserError('invalid_request', 'Selecting a tab requires tabId.'); this.manager.selectTab(sessionId, handle); page = this.manager.page(sessionId, handle); }
     else if (action === 'close' || action === 'finalize') {
       const pages = this.manager.listPages(sessionId);

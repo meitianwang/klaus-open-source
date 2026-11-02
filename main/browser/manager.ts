@@ -1,19 +1,21 @@
-import { BaseWindow, Menu, WebContentsView, session as electronSession, type BrowserWindow, type Session, type WebContents } from 'electron';
-import { mkdirSync } from 'node:fs';
+import { BaseWindow, Menu, WebContentsView, session as electronSession, shell, type BrowserWindow, type Session, type WebContents } from 'electron';
+import { existsSync, mkdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { PageDebugger } from './cdp';
 import { BrowserDialogs } from './dialogs';
 import { NativeDownloads } from './native-downloads';
+import { BrowserDataStore } from './history-store';
 import type { BrowserCdp } from './page-operations';
 import { permissionCommand } from './page-advanced';
 import { BrowserPermissionDecisions } from './permission-requests';
 import { browserBounds, navigationUrl } from './policy';
-import { BrowserError, json, message, object, type BrowserBounds, type BrowserObject, type BrowserScope, type BrowserState } from './types';
+import { BrowserError, json, message, object, string, type BrowserBounds, type BrowserObject, type BrowserScope, type BrowserState } from './types';
 import type { Json } from '../ipc/contract';
 import { navigateForRead } from './task-operations';
 import { BROWSER_PANEL_OPEN_ACK_TIMEOUT_MS } from './panel-contract';
 import { boundedTabFavicon, cachedTabFaviconScript } from './tab-favicon';
+import type { BrowserDataKind, BrowserDownloadAction, BrowserDownloadQuery, BrowserHistorySource, BrowserVisitSource } from '../../contracts/browser-history';
 
 export interface BrowserPage {
   readonly handle: number;
@@ -46,13 +48,34 @@ interface PanelOpenWaiter {
   resolve(opened: boolean): void;
 }
 export interface BrowserPermissionRequest { sessionId: string; permission: string; origin: string; pageUrl: string }
+const AGENT_INPUT_OPERATIONS = new Set(['click', 'type', 'form_input', 'computer', 'locator', 'press', 'file_upload']);
+const AGENT_NAVIGATION_OPERATIONS = new Set(['navigate']);
+const AGENT_POPUP_OPERATIONS = new Set([...AGENT_INPUT_OPERATIONS, 'eval', 'navigate']);
+export type BrowserAuthorizationResource = 'browsing' | 'downloads' | 'uploads' | 'siteTools' | 'debug';
+export interface BrowserDownloadPathRequest { defaultPath: string; filename: string; url: string }
 export interface BrowserManagerOptions {
   window: BrowserWindow;
   configRoot: string;
   emit: (channel: string, payload: Json) => void;
   enabled?: () => boolean;
   navigationAllowed?: (url: string) => boolean;
+  /**
+   * Persistent origin policy. The manager consults this before task-scoped
+   * permission decisions; undefined means the page should ask.
+   */
+  sitePermission?: (origin: string, permission: string) => 'granted' | 'denied' | undefined;
+  /**
+   * Access check for agent operations and native downloads. Task-owned
+   * navigation itself stays on the normal host path; the operation layer calls
+   * authorize for each resource it actually consumes.
+   */
+  authorize?: (sessionId: string, url: string, resource: BrowserAuthorizationResource, signal?: AbortSignal) => Promise<void> | void;
   requestPermission?: (request: BrowserPermissionRequest) => Promise<boolean>;
+  downloadDirectory?: () => string;
+  promptForUserDownloads?: () => boolean;
+  chooseDownloadPath?: (request: BrowserDownloadPathRequest) => Promise<string | null | undefined>;
+  openDownloadPath?: (path: string) => Promise<string> | string;
+  revealDownloadPath?: (path: string) => void;
   dialogTimeoutMs?: number;
   /** Runtime owns registered main windows and their lifetime. */
   managedWindows?: boolean;
@@ -69,13 +92,24 @@ export class BrowserManager {
   private readonly conversations = new Map<string, Conversation>();
   private readonly decisions = new BrowserPermissionDecisions();
   private readonly activeOperations = new Map<string, { turnId: string; source: string; initiator: string }>();
+  private readonly operationSignals = new Map<string, AbortSignal | undefined>();
+  private readonly agentVisits = new Map<number, Set<string>>();
+  private readonly agentPageLeases = new Set<number>();
+  private readonly agentInputPages = new Set<number>();
+  private readonly approvedAgentNavigations = new Map<string, string[]>();
+  private readonly pendingMainFrameAuthorizations = new Map<number, AbortSignal | undefined>();
+  private readonly pendingNavigationCancels = new Set<() => void>();
+  private readonly pendingVisits = new Map<number, string>();
+  private readonly suppressedReloads = new Set<number>();
   private readonly panelOpenWaiters = new Set<PanelOpenWaiter>();
+  private readonly data: BrowserDataStore;
   private readonly downloads: NativeDownloads;
   private readonly windowListeners: Array<[string, () => void]> = [];
   private nextHandle = 1;
   private contentProbeTimer: ReturnType<typeof setTimeout> | undefined;
   private current = 'manual';
   private revision = 0;
+  private authorizationEpoch = 0;
   private presentationRevision = 0;
   private wantedVisible = false;
   private shown: BrowserPage | undefined;
@@ -89,13 +123,23 @@ export class BrowserManager {
     mkdirSync(this.profilePath, { recursive: true });
     mkdirSync(this.downloadDirectory, { recursive: true });
     this.browserSession = electronSession.fromPath(this.profilePath);
-    this.downloads = new NativeDownloads(this.browserSession, this.downloadDirectory, url => this.assertNavigation(url));
+    this.data = new BrowserDataStore(options.configRoot);
+    this.downloads = new NativeDownloads(this.browserSession, {
+      directory: () => this.downloadDirectory,
+      assertUrl: url => this.assertNavigation(url),
+      history: this.data,
+      ...(options.promptForUserDownloads ? { promptForUserDownloads: options.promptForUserDownloads } : {}),
+      ...(options.chooseDownloadPath ? { chooseDownloadPath: options.chooseDownloadPath } : {}),
+      ...(options.authorize ? { authorize: (sessionId, url, resource, signal) => options.authorize!(sessionId, url, resource, signal) } : {}),
+      changed: event => options.emit('browser-use:downloads-changed', json(event)),
+    });
     this.dialogPreloadId = this.browserSession.registerPreloadScript({ type: 'frame', filePath: join(__dirname, 'dialog-preload.js') });
     this.dialogs = new BrowserDialogs({ window: options.window, isEnabled: () => this.isEnabled(), isPresented: page => this.shown?.handle === page.handle && options.window.isVisible() && !options.window.isMinimized(), navigationAllowed: url => this.assertNavigation(url), timeoutMs: options.dialogTimeoutMs });
     // A native parent keeps background tabs capturable. BaseWindow adds no
     // renderer; the same WebContentsView moves to the visible panel on demand.
     this.parking = new BaseWindow({ width: 1280, height: 800, show: false, frame: false, focusable: false, skipTaskbar: true, hiddenInMissionControl: true });
     this.installPermissions();
+    this.installNavigationGate();
     this.browserSession.on('will-download', this.onDownload);
     this.bindWindow();
   }
@@ -156,8 +200,136 @@ export class BrowserManager {
   get windowId(): number { return this.options.window.webContents.id; }
   get conversationId(): string { return this.current; }
   get focusRevision(): number { return this.revision; }
-  get downloadDirectory(): string { return resolve(this.options.configRoot, 'browser-downloads'); }
+  get downloadDirectory(): string {
+    const configured = this.options.downloadDirectory?.();
+    return configured && configured.trim() ? resolve(configured) : resolve(this.options.configRoot, 'browser-downloads');
+  }
   isEnabled(): boolean { return !this.disposed && (this.options.enabled?.() ?? true); }
+
+  /** Persistent site policy; an undefined result means the page should ask. */
+  sitePermission(origin: string, permission: string): 'granted' | 'denied' | undefined {
+    try { return this.options.sitePermission?.(origin, permission); }
+    catch { return undefined; }
+  }
+
+  /**
+   * Ask the host's policy layer before an agent consumes a resource. Navigation
+   * itself is gated by the operation that initiated it; this method records the
+   * agent attribution used by browsing history and forwards the policy check.
+   */
+  async authorize(
+    sessionId: string,
+    input: unknown,
+    resource: BrowserAuthorizationResource = 'browsing',
+    signal?: AbortSignal,
+  ): Promise<void> {
+    this.requireEnabled();
+    const url = this.assertNavigation(input);
+    const epoch = this.authorizationEpoch;
+    signal?.throwIfAborted();
+    await this.options.authorize?.(sessionId, url, resource, signal);
+    if (epoch !== this.authorizationEpoch || signal?.aborted) {
+      throw new BrowserError('cancelled', 'Browser access approval was superseded.');
+    }
+    if (resource === 'browsing') {
+      const approved = this.approvedAgentNavigations.get(sessionId) ?? [];
+      approved.push(url);
+      this.approvedAgentNavigations.set(sessionId, approved.slice(-32));
+    }
+  }
+
+  /** Settings changes take effect for permission questions already remembered. */
+  refreshPermissions(): void {
+    this.authorizationEpoch++;
+    this.decisions.clear();
+    this.approvedAgentNavigations.clear();
+    this.agentVisits.clear();
+    this.agentPageLeases.clear();
+    this.pendingMainFrameAuthorizations.clear();
+    for (const cancel of [...this.pendingNavigationCancels]) cancel();
+    this.pendingNavigationCancels.clear();
+  }
+
+  private markAgentVisit(page: BrowserPage, url: string): void {
+    const visits = this.agentVisits.get(page.handle) ?? new Set<string>();
+    visits.add(url);
+    this.agentVisits.set(page.handle, visits);
+  }
+
+  private navigationSource(page: BrowserPage, url: string): BrowserVisitSource {
+    const visits = this.agentVisits.get(page.handle);
+    if (!visits?.delete(url)) return 'other';
+    if (!visits.size) this.agentVisits.delete(page.handle);
+    return 'agent';
+  }
+
+  private consumeApprovedNavigation(sessionId: string, url: string): boolean {
+    const approved = this.approvedAgentNavigations.get(sessionId);
+    if (!approved) return false;
+    const index = approved.indexOf(url);
+    if (index < 0) return false;
+    approved.splice(index, 1);
+    if (!approved.length) this.approvedAgentNavigations.delete(sessionId);
+    return true;
+  }
+
+  /**
+   * Main-frame requests are paused at the network layer while the host decides.
+   * The callback lets the original request continue untouched, so method, body,
+   * cookies and redirect semantics never pass through a replay.
+   */
+  private installNavigationGate(): void {
+    this.browserSession.webRequest.onBeforeRequest({ urls: ['<all_urls>'], types: ['mainFrame'] }, (details, callback) => {
+      const page = [...this.pages.values()].find(entry => entry.contentsId === details.webContentsId);
+      if (!page || !this.isEnabled()) { callback({ cancel: true }); return; }
+      try { this.assertNavigation(details.url); }
+      catch { callback({ cancel: true }); return; }
+      const hasPageLease = this.agentPageLeases.has(page.handle) || this.pendingMainFrameAuthorizations.has(page.handle);
+      const signal = this.pendingMainFrameAuthorizations.has(page.handle)
+        ? this.pendingMainFrameAuthorizations.get(page.handle)
+        : this.operationSignals.get(page.owner);
+      if (this.consumeApprovedNavigation(page.owner, details.url)) {
+        this.agentPageLeases.add(page.handle);
+        this.markAgentVisit(page, details.url);
+        callback({});
+        return;
+      }
+      const agentContext = this.agentInputPages.has(page.handle) || hasPageLease;
+      if (!agentContext) { callback({}); return; }
+      // Without a host policy callback the page is still an agent surface:
+      // attribute the visit and let the navigation proceed. A configured
+      // callback owns the decision below.
+      if (!this.options.authorize) {
+        this.markAgentVisit(page, details.url);
+        callback({});
+        return;
+      }
+      let settled = false;
+      const finish = (cancel: boolean): void => {
+        if (settled) return;
+        settled = true;
+        signal?.removeEventListener('abort', aborted);
+        this.pendingNavigationCancels.delete(cancelPending);
+        callback(cancel ? { cancel: true } : {});
+      };
+      const aborted = (): void => finish(true);
+      const cancelPending = (): void => finish(true);
+      if (signal?.aborted) { finish(true); return; }
+      signal?.addEventListener('abort', aborted, { once: true });
+      this.pendingNavigationCancels.add(cancelPending);
+      void Promise.resolve(this.options.authorize(page.owner, details.url, 'browsing', signal)).then(
+        () => {
+          if (this.disposed || !this.alive(page)) finish(true);
+          else {
+            this.agentPageLeases.add(page.handle);
+            this.markAgentVisit(page, details.url);
+            finish(false);
+          }
+        },
+        () => finish(true),
+      );
+    });
+  }
 
   private requireEnabled(): void {
     if (this.disposed) throw new BrowserError('unavailable', 'The browser manager has shut down.');
@@ -228,11 +400,22 @@ export class BrowserManager {
   publish(): void { if (!this.disposed) this.options.emit('browser-use:state', json(this.state())); }
   publishTabInventoryChange(): void { if (!this.disposed) this.options.emit('browser-use:state', json({ ...this.state(), tabInventoryChanged: true })); }
 
-  beginOperation(sessionId: string, name: string): () => void {
+  beginOperation(sessionId: string, name: string, signal?: AbortSignal): () => void {
     const route = { turnId: randomUUID(), source: 'agent', initiator: name };
-    this.activeOperations.set(sessionId, route); this.publish();
+    const activePage = this.conversation(sessionId).active;
+    const inputPage = activePage !== undefined && AGENT_INPUT_OPERATIONS.has(name) ? activePage : undefined;
+    const navigationPage = activePage !== undefined && AGENT_NAVIGATION_OPERATIONS.has(name) ? activePage : undefined;
+    if (inputPage !== undefined) this.agentInputPages.add(inputPage);
+    if (navigationPage !== undefined) this.agentPageLeases.add(navigationPage);
+    this.activeOperations.set(sessionId, route);
+    this.operationSignals.set(sessionId, signal);
+    this.publish();
     return () => {
       if (this.activeOperations.get(sessionId) === route) this.activeOperations.delete(sessionId);
+      if (this.operationSignals.get(sessionId) === signal) this.operationSignals.delete(sessionId);
+      if (inputPage !== undefined) this.agentInputPages.delete(inputPage);
+      if (navigationPage !== undefined) this.agentPageLeases.delete(navigationPage);
+      this.approvedAgentNavigations.delete(sessionId);
       this.publish();
     };
   }
@@ -351,21 +534,50 @@ export class BrowserManager {
       page.faviconSource = source;
       page.faviconUrl = boundedTabFavicon(source);
       this.publish();
+      if (page.faviconUrl?.startsWith('data:image/')) {
+        this.data.queueVisitUpdate(page.owner, contents.getURL(), { faviconDataUrl: page.faviconUrl });
+      }
       if (!source || page.faviconUrl) return;
       try { this.assertNavigation(source); } catch { return; }
       void contents.executeJavaScriptInIsolatedWorld(999, [{ code: cachedTabFaviconScript(source) }]).then(value => {
         if (!this.alive(page) || page.faviconSource !== source) return;
         page.faviconUrl = boundedTabFavicon(value); this.publish();
+        if (page.faviconUrl?.startsWith('data:image/')) {
+          this.data.queueVisitUpdate(page.owner, contents.getURL(), { faviconDataUrl: page.faviconUrl });
+        }
       }).catch(() => {});
     });
-    for (const event of ['did-start-loading', 'did-stop-loading', 'page-title-updated', 'did-navigate', 'did-navigate-in-page']) {
+    for (const event of ['did-start-loading', 'did-stop-loading', 'page-title-updated']) {
       contents.on(event as 'did-start-loading', () => this.publish());
     }
+    contents.on('page-title-updated', () => {
+      const url = contents.getURL();
+      if (!this.isHistoryUrl(url)) return;
+      this.data.queueVisitUpdate(page.owner, url, { title: contents.getTitle() || url });
+    });
+    contents.on('did-navigate', (_event, url) => {
+      this.pendingVisits.set(page.handle, url);
+      this.publish();
+    });
+    contents.on('did-navigate-in-page', (_event, url, isMainFrame) => {
+      this.publish();
+      if (isMainFrame) this.scheduleVisit(page, url);
+    });
     // A finished load is the first moment the layout metrics describe the new
     // document; the probe itself debounces so redirect chains measure once.
-    contents.on('did-stop-loading', () => this.scheduleContentProbe(page));
+    contents.on('did-stop-loading', () => {
+      const pending = this.pendingVisits.get(page.handle);
+      this.pendingVisits.delete(page.handle);
+      if (this.isHistoryUrl(contents.getURL())) {
+        this.agentPageLeases.delete(page.handle);
+        this.pendingMainFrameAuthorizations.delete(page.handle);
+      }
+      if (!this.suppressedReloads.delete(page.handle)) this.scheduleVisit(page, pending || contents.getURL());
+      this.scheduleContentProbe(page);
+    });
     const guard = (event: Electron.Event, url: string): void => {
-      try { this.assertNavigation(url); } catch (error) { event.preventDefault(); page.error = message(error); this.publish(); }
+      try { this.assertNavigation(url); }
+      catch (error) { event.preventDefault(); page.error = message(error); this.publish(); }
     };
     contents.on('will-navigate', guard);
     contents.on('will-redirect', guard);
@@ -373,6 +585,8 @@ export class BrowserManager {
     contents.on('destroyed', () => this.forget(page));
     contents.setWindowOpenHandler(details => {
       try { this.assertNavigation(details.url); this.requireEnabled(); } catch { return { action: 'deny' }; }
+      const agentPopup = this.activeOperations.has(page.owner)
+        && AGENT_POPUP_OPERATIONS.has(this.activeOperations.get(page.owner)?.initiator ?? '');
       return {
         action: 'allow',
         overrideBrowserWindowOptions: { webPreferences: { session: this.browserSession, sandbox: true, contextIsolation: true, nodeIntegration: false, nodeIntegrationInSubFrames: true, webviewTag: false } },
@@ -381,6 +595,10 @@ export class BrowserManager {
           // createWindow example; its constructor option type does not include it.
           const adopted = (options as Electron.BrowserWindowConstructorOptions & { webContents?: WebContents }).webContents;
           const child = this.addPage(page.owner, adopted, details.disposition !== 'background-tab');
+          if (agentPopup) {
+            this.pendingMainFrameAuthorizations.set(child.handle, this.operationSignals.get(page.owner));
+            this.agentPageLeases.add(child.handle);
+          }
           if (!adopted) void child.ready.then(() => this.navigate(child, details.url)).catch(error => { child.error = message(error); this.publish(); });
           if (page.owner === this.current && this.wantedVisible) this.present();
           return child.view.webContents;
@@ -394,6 +612,27 @@ export class BrowserManager {
       else if (params.selectionText) template.push({ role: 'copy' });
       if (template.length) Menu.buildFromTemplate(template).popup({ window: this.options.window });
     });
+  }
+
+  private isHistoryUrl(url: string): boolean {
+    try { return ['http:', 'https:'].includes(new URL(url).protocol); } catch { return false; }
+  }
+
+  private scheduleVisit(page: BrowserPage, url: string): void {
+    if (!this.isHistoryUrl(url)) return;
+    // A pushState page can update its title in the same task; recording on the
+    // next turn captures that title without delaying navigation.
+    setTimeout(() => {
+      if (this.disposed || !this.alive(page) || page.view.webContents.getURL() !== url) return;
+      const contents = page.view.webContents;
+      this.data.recordVisit({
+        sessionId: page.owner,
+        url,
+        title: contents.getTitle() || url,
+        source: this.navigationSource(page, url),
+        ...(page.faviconUrl?.startsWith('data:image/') ? { faviconDataUrl: page.faviconUrl } : {}),
+      });
+    }, 0);
   }
 
   selectTab(sessionId: string, handle: number | string): BrowserObject {
@@ -583,6 +822,8 @@ export class BrowserManager {
       return;
     }
     if (!this.alive(page)) return;
+    this.suppressedReloads.delete(page.handle);
+    this.pendingVisits.delete(page.handle);
     page.contentWidth = width;
     page.contentRevision = (page.contentRevision ?? 0) + 1;
     this.publish();
@@ -637,22 +878,35 @@ export class BrowserManager {
   }
 
   private installPermissions(): void {
+    const namesFor = (permission: string, media: string[]): string[] => {
+      if (permission !== 'media') return [permission];
+      return media.length ? media.map(type => type === 'video' ? 'videoCapture' : type === 'audio' ? 'audioCapture' : 'media') : ['media'];
+    };
     const keysFor = (contents: WebContents | null, permission: string, url: string, media: string[]): string[] => {
-      const names = permission === 'media' ? media.length ? media.map(type => type === 'video' ? 'videoCapture' : type === 'audio' ? 'audioCapture' : 'media') : ['media'] : [permission];
-      return names.map(name => this.permissionKey(contents, name, url)).filter((key): key is string => key !== undefined);
+      return namesFor(permission, media).map(name => this.permissionKey(contents, name, url)).filter((key): key is string => key !== undefined);
     };
     this.browserSession.setPermissionCheckHandler((contents, permission, requestingOrigin, details) => {
-      const keys = keysFor(contents, permission, requestingOrigin, details.mediaType ? [details.mediaType] : []);
+      const media = details.mediaType ? [details.mediaType] : [];
+      const names = namesFor(permission, media);
+      const policy = this.persistentPermission(requestingOrigin, names);
+      if (policy !== undefined) return policy;
+      const keys = keysFor(contents, permission, requestingOrigin, media);
       return this.decisions.granted(keys, permission);
     });
     this.browserSession.setPermissionRequestHandler((contents, permission, callback, details) => {
       const requestedUrl = details.requestingUrl || contents.getURL();
+      let origin = '';
+      try { origin = new URL(requestedUrl).origin; } catch { /* not a grantable page */ }
+      const media = object(details).mediaTypes;
+      const mediaTypes = Array.isArray(media) ? media.filter((value): value is string => typeof value === 'string') : [];
+      const names = namesFor(permission, mediaTypes);
+      const policy = origin ? this.persistentPermission(origin, names) : undefined;
+      if (policy !== undefined) { callback(policy); return; }
       const key = this.permissionKey(contents, permission, requestedUrl);
       const page = [...this.pages.values()].find(entry => entry.view.webContents === contents);
       if (!key || !page) { callback(false); return; }
-      const media = object(details).mediaTypes;
-      const keys = keysFor(contents, permission, requestedUrl, Array.isArray(media) ? media.filter((value): value is string => typeof value === 'string') : []);
-      const request = { sessionId: page.owner, permission, origin: new URL(requestedUrl).origin, pageUrl: contents.getURL() };
+      const keys = keysFor(contents, permission, requestedUrl, mediaTypes);
+      const request = { sessionId: page.owner, permission, origin, pageUrl: contents.getURL() };
       // Decided keys settle silently and an open question is shared, so a page
       // that re-asks on every visibility change cannot reopen the dialog.
       void this.decisions.resolve(keys,
@@ -662,6 +916,18 @@ export class BrowserManager {
       ).then(allowed => callback(allowed), () => callback(false));
     });
     this.browserSession.setDevicePermissionHandler(() => false);
+  }
+
+  private persistentPermission(origin: string, names: string[]): boolean | undefined {
+    try { origin = new URL(origin).origin; }
+    catch { return undefined; }
+    let granted = 0;
+    for (const name of names) {
+      const decision = this.sitePermission(origin, name);
+      if (decision === 'denied') return false;
+      if (decision === 'granted') granted += 1;
+    }
+    return granted === names.length && names.length > 0 ? true : undefined;
   }
 
   async setPermission(page: BrowserPage, fields: BrowserObject): Promise<BrowserObject> {
@@ -687,27 +953,135 @@ export class BrowserManager {
   private readonly onDownload = (event: Electron.Event, item: Electron.DownloadItem, contents: WebContents): void => {
     const page = [...this.pages.values()].find(entry => entry.view.webContents === contents);
     if (!page || !this.isEnabled()) { event.preventDefault(); return; }
-    try { for (const url of item.getURLChain()) if (!/^(?:blob|data):/u.test(url)) this.assertNavigation(url); this.downloads.accept(page.id,item); }
-    catch { event.preventDefault(); }
+    const chain = item.getURLChain().filter(url => !/^(?:blob|data):/u.test(url));
+    try { for (const url of chain) this.assertNavigation(url); }
+    catch { event.preventDefault(); return; }
+    const source = this.agentInputPages.has(page.handle) || this.agentPageLeases.has(page.handle) ? 'agent' : 'other';
+    const initiatorUrl = page.view.webContents.getURL();
+    const signal = this.operationSignals.get(page.owner);
+    try { item.pause(); } catch { /* The item may already be terminal. */ }
+    void this.downloads.accept(page.id, page.owner, item, source, initiatorUrl, signal).catch(() => {
+      try { item.cancel(); } catch { /* already canceled */ }
+    });
   };
 
-  download(page: BrowserPage, fields: BrowserObject, waitMs: number, cdp: BrowserCdp = page.cdp): Promise<BrowserObject> {
+  download(
+    page: BrowserPage,
+    fields: BrowserObject,
+    waitMs: number,
+    cdp: BrowserCdp = page.cdp,
+    signal?: AbortSignal,
+  ): Promise<BrowserObject> {
     this.requireEnabled(); this.page(page.owner,page.handle);
-    return this.downloads.download(page.id,cdp,fields,waitMs);
+    return this.downloads.download(
+      page.id, page.owner, cdp, fields, waitMs,
+      signal ?? this.operationSignals.get(page.owner),
+      page.view.webContents.getURL(),
+    );
   }
 
-  async clearData(kind = 'all'): Promise<BrowserObject> {
-    if (!['all', 'cache', 'cookies'].includes(kind)) throw new BrowserError('invalid_request', 'clear-data kind must be all, cache or cookies.');
-    if (kind === 'all' || kind === 'cache') await this.browserSession.clearCache();
-    if (kind === 'all') { await this.browserSession.clearStorageData(); this.decisions.clear(); }
-    if (kind === 'cookies') await this.browserSession.clearStorageData({ storages: ['cookies'] });
-    this.browserSession.flushStorageData();
+  history(fields: BrowserObject = {}): BrowserObject {
+    return json(this.data.history({
+      ...(typeof fields.query === 'string' ? { query: fields.query } : {}),
+      ...(typeof fields.source === 'string' ? { source: fields.source as BrowserHistorySource } : {}),
+      ...(typeof fields.cursor === 'string' ? { cursor: fields.cursor } : {}),
+      ...(typeof fields.limit === 'number' ? { limit: fields.limit } : {}),
+    })) as BrowserObject;
+  }
+
+  historyRemove(ids: unknown): BrowserObject {
+    this.data.removeVisits(ids);
     return { ok: true };
+  }
+
+  downloadHistory(fields: BrowserObject = {}): BrowserObject {
+    return this.downloads.history({
+      ...(typeof fields.query === 'string' ? { query: fields.query } : {}),
+      ...(typeof fields.cursor === 'string' ? { cursor: fields.cursor } : {}),
+      ...(typeof fields.limit === 'number' ? { limit: fields.limit } : {}),
+    });
+  }
+
+  async downloadAction(action: BrowserDownloadAction, id: string): Promise<BrowserObject> {
+    const entryId = string(id, 'id');
+    if (!['open', 'reveal', 'pause', 'resume', 'cancel', 'remove'].includes(action)) {
+      throw new BrowserError('invalid_request', 'Unknown download action.');
+    }
+    if (action === 'pause') this.downloads.pause(entryId);
+    else if (action === 'resume') this.downloads.resume(entryId);
+    else if (action === 'cancel') this.downloads.cancel(entryId);
+    else if (action === 'remove') this.downloads.remove(entryId);
+    else {
+      const entry = this.downloads.record(entryId);
+      if (!entry?.path) throw new BrowserError('not_found', 'The downloaded file is not available.');
+      if (entry.state !== 'completed') throw new BrowserError('unavailable', 'Only a completed download can be opened.');
+      if (!existsSync(entry.path)) throw new BrowserError('not_found', 'The downloaded file no longer exists.');
+      if (action === 'open') {
+        const failure = await (this.options.openDownloadPath?.(entry.path) ?? shell.openPath(entry.path));
+        if (failure) throw new BrowserError('host_error', failure);
+      } else if (this.options.revealDownloadPath) this.options.revealDownloadPath(entry.path);
+      else shell.showItemInFolder(entry.path);
+    }
+    return { ok: true };
+  }
+
+  async clearData(kind: string = 'all'): Promise<BrowserObject> {
+    if (!['all', 'cache', 'cookies', 'siteData', 'downloads', 'history'].includes(kind)) {
+      throw new BrowserError('invalid_request', 'clear-data kind must be all, cookies, siteData, cache, downloads or history.');
+    }
+    let visits = 0;
+    let downloads = 0;
+    if (kind === 'all' || kind === 'cache') await this.browserSession.clearCache();
+    if (kind === 'all') {
+      await this.browserSession.clearStorageData();
+      this.decisions.clear();
+      visits = this.data.clearVisits().removed;
+      downloads = this.downloads.clearTerminal().removed;
+    } else if (kind === 'cookies') {
+      await this.browserSession.clearStorageData({ storages: ['cookies'] });
+    } else if (kind === 'siteData') {
+      await this.browserSession.clearStorageData({
+        storages: ['filesystem', 'indexdb', 'localstorage', 'shadercache', 'serviceworkers', 'cachestorage'],
+      });
+    } else if (kind === 'history') {
+      visits = this.data.clearVisits().removed;
+    } else if (kind === 'downloads') {
+      downloads = this.downloads.clearTerminal().removed;
+    }
+    this.browserSession.flushStorageData();
+    let reloaded = 0;
+    if (kind === 'all') {
+      for (const page of this.pages.values()) this.suppressedReloads.add(page.handle);
+      for (const page of [...this.pages.values()]) {
+        if (!this.alive(page)) continue;
+        try { page.view.webContents.reload(); reloaded += 1; } catch { /* closed while clearing */ }
+      }
+      // A failed or canceled reload must not suppress the user's next visit.
+      setTimeout(() => {
+        for (const handle of [...this.suppressedReloads]) {
+          const page = this.pages.get(handle);
+          if (!page || !this.alive(page) || !page.view.webContents.isLoading()) this.suppressedReloads.delete(handle);
+        }
+      }, 5_000);
+    }
+    return { ok: true, visits, downloads, reloaded };
   }
 
   releaseConversation(sessionId: string): void {
     this.settlePanelOpenWaiters(false, waiter => waiter.sessionId === sessionId);
     this.decisions.forget(key => (JSON.parse(key) as string[])[0] === sessionId);
+    this.authorizationEpoch++;
+    for (const cancel of [...this.pendingNavigationCancels]) cancel();
+    this.pendingNavigationCancels.clear();
+    this.approvedAgentNavigations.delete(sessionId);
+    this.operationSignals.delete(sessionId);
+    for (const page of this.listPages(sessionId)) {
+      this.agentVisits.delete(page.handle);
+      this.agentPageLeases.delete(page.handle);
+      this.agentInputPages.delete(page.handle);
+      this.pendingMainFrameAuthorizations.delete(page.handle);
+    }
+    this.data.flushVisitUpdates();
     for (const page of this.listPages(sessionId)) this.closeTab(sessionId, page.handle);
     this.conversations.delete(sessionId);
     this.activeOperations.delete(sessionId);
@@ -723,8 +1097,12 @@ export class BrowserManager {
     this.detach();
     for (const [event, handler] of this.windowListeners) this.options.window.removeListener(event as 'resize', handler);
     this.browserSession.removeListener('will-download', this.onDownload);
+    this.browserSession.webRequest.onBeforeRequest(null);
     this.browserSession.setPermissionCheckHandler(() => false);
     this.browserSession.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
+    for (const cancel of [...this.pendingNavigationCancels]) cancel();
+    this.pendingNavigationCancels.clear();
+    this.data.flushVisitUpdates();
     this.downloads.dispose();
     for (const page of [...this.pages.values()]) {
       if (!this.parking.isDestroyed()) this.parking.contentView.removeChildView(page.view);

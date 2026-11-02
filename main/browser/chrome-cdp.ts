@@ -28,7 +28,9 @@ export class ChromePageDebugger implements BrowserCdp {
   private closed = false;
   turnId: string = randomUUID();
 
-  constructor(readonly relay: ChromeRelay, readonly sessionId: string, readonly tabId: number, private readonly allowed: () => boolean = () => true, private readonly navigationAllowed: (url: unknown) => string = navigationUrl) {
+  constructor(readonly relay: ChromeRelay, readonly sessionId: string, readonly tabId: number, private readonly allowed: () => boolean = () => true,
+    private readonly navigationAllowed: (url: unknown) => string = navigationUrl,
+    private readonly authorizeNavigation?: (url: string) => Promise<void>) {
 
   }
 
@@ -52,7 +54,13 @@ export class ChromePageDebugger implements BrowserCdp {
       let allowed = this.allowed();
       try { this.navigationAllowed(object(params.request).url); } catch { allowed = false; }
       const frame = typeof source.sessionId === 'string' ? [...this.frames].find(([, session]) => session === source.sessionId)?.[0] : undefined;
-      void this.send(allowed ? 'Fetch.continueRequest' : 'Fetch.failRequest', { requestId: params.requestId ?? '', ...(allowed ? {} : { errorReason: 'BlockedByClient' }) }, frame).catch(() => {});
+      void (async () => {
+        if (allowed) {
+          try { await this.authorizeNavigation?.(String(object(params.request).url)); } catch { allowed = false; }
+        }
+        allowed = allowed && this.allowed();
+        await this.send(allowed ? 'Fetch.continueRequest' : 'Fetch.failRequest', { requestId: params.requestId ?? '', ...(allowed ? {} : { errorReason: 'BlockedByClient' }) }, frame);
+      })().catch(() => {});
     } else if (event.method === 'Runtime.consoleAPICalled') {
       this.console.push({ source: 'console', level: consoleLevel(params.type), text: consoleArgumentsText(params.args), args: params.args ?? [], timestamp: eventTime(params.timestamp), targetId: source.targetId ?? this.targetId, frameTargetId: frame ?? null });
       if (this.console.length > 500) { this.console.shift(); this.evicted.console += 1; }

@@ -34,6 +34,7 @@ interface DialogOptions {
    * to `false` leaves the dialog open so the user can retry or cancel.
    */
   onConfirm?: (value: string, checked: boolean) => Promise<boolean>
+  signal?: AbortSignal
 }
 
 function ensureRoot() {
@@ -47,6 +48,7 @@ function ensureRoot() {
 }
 
 function openDialog(opts: DialogOptions): Promise<any> {
+  if (opts.signal?.aborted) return Promise.resolve(opts.type === 'prompt' ? null : false)
   const {
     type = 'confirm', // 'confirm' | 'alert' | 'prompt'
     title = '',
@@ -118,6 +120,7 @@ function openDialog(opts: DialogOptions): Promise<any> {
       closed = true
       overlay.classList.remove('active')
       document.removeEventListener('keydown', onKey, true)
+      opts.signal?.removeEventListener('abort', onAbort)
       setTimeout(() => overlay.remove(), 160)
       if (checkbox && type === 'confirm') {
         resolve({ confirmed, checked: !!(confirmed && cb?.checked) })
@@ -171,6 +174,9 @@ function openDialog(opts: DialogOptions): Promise<any> {
       }
     }
     document.addEventListener('keydown', onKey, true)
+    const onAbort = () => close(cancelValue)
+    opts.signal?.addEventListener('abort', onAbort, { once: true })
+    if (opts.signal?.aborted) onAbort()
 
     overlay.querySelector('.klaus-dialog-backdrop')!.addEventListener('click', () => close(cancelValue))
     overlay.querySelector('.klaus-dialog-confirm')!.addEventListener('click', () => { void submit() })

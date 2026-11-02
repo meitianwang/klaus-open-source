@@ -60,7 +60,7 @@ h.test('installed targets include application icons, OS default markers and a pe
   await f.sites.open({ sessionId: 'saved-session', url: 'https://example.com', target: 'chrome' });
   listed = await f.sites.targets(); assert.equal(listed.preferredTarget, 'chrome');
   const other = new SiteOpener(f.configRoot, f.browser, { findChrome: () => null });
-  assert.equal((await other.targets()).preferredTarget, 'in-app');
+  assert.equal((await other.targets()).preferredTarget, 'system-default');
   assert.equal(kvGet(SITE_OPEN_TARGET_SETTING, f.configRoot), 'chrome');
 });
 
@@ -84,12 +84,12 @@ h.test('failed panel presentation preserves the last successful preference', asy
   assert.equal(kvGet(SITE_OPEN_TARGET_SETTING, f.configRoot), 'system-default');
 });
 
-h.test('omitting a target uses the persisted choice and unavailable Chrome falls back to the built-in preference', async () => {
+h.test('omitting a target uses the persisted choice and unavailable Chrome falls back to the system browser', async () => {
   const f = fixture(); kvSet(SITE_OPEN_TARGET_SETTING, 'system-default', f.configRoot);
   assert.equal((await f.sites.open({ sessionId: 'saved-session', url: 'https://example.com' })).target, 'system-default');
   assert.deepEqual(f.calls, [['external', 'https://example.com/']]);
   kvSet(SITE_OPEN_TARGET_SETTING, 'chrome', f.configRoot); f.installed(false);
-  assert.equal((await f.sites.open({ sessionId: 'saved-session', url: 'https://example.com' })).target, 'in-app');
+  assert.equal((await f.sites.open({ sessionId: 'saved-session', url: 'https://example.com' })).target, 'system-default');
 });
 
 h.test('OS and named-browser failures never persist a failed choice', async () => {
@@ -154,7 +154,7 @@ h.test('website IPC enforces the window boundary and returns structured failures
     const handler = registry.lookup(channel); assert(handler);
     return handler({ role: 'main', senderId, channel, args: [payload] });
   };
-  assert.equal(object(await invoke('site-references:open-targets', {})).preferredTarget, 'in-app');
+  assert.equal(object(await invoke('site-references:open-targets', {})).preferredTarget, 'system-default');
   assert.equal(object(await invoke('site-references:open', { sessionId: 'saved-session', url: 'https://example.com', target: 'chrome' })).ok, true);
   assert.equal(object(await invoke('site-references:open', { sessionId: 'saved-session', url: 'https://user@example.com', target: 'chrome' })).code, 'invalid_request');
   assert.equal(object(await invoke('site-references:open-targets', {}, 10)).code, 'FORBIDDEN_CHANNEL');

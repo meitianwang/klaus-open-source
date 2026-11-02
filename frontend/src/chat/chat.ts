@@ -3891,6 +3891,20 @@ window.klausComposer = {
     inputEl.focus()
     return true
   },
+  appendBrowserAnnotation(payload: { text: string; attachment: PendingFileEntry }, sessionId: string): boolean {
+    if ((window.currentSessionId || 'manual') !== sessionId || !payload.text.trim() || !payload.attachment.uploadPath) return false
+    const existing = inputEl.value || ''
+    const addition = (existing ? '\n\n' : '') + payload.text
+    if (mainComposerControl) mainComposerControl.replaceRange(existing.length, existing.length, addition, 'insertText')
+    else setInputValue(existing + addition)
+    pendingFiles.push(payload.attachment)
+    renderPreviews()
+    autoResize()
+    updateSendBtn()
+    persistComposerDraft()
+    inputEl.focus()
+    return true
+  },
   setSlashCommandDraft(command, text = '') {
     setSlashCommandDraft(command, text)
     inputEl.dispatchEvent(new Event('input'))
