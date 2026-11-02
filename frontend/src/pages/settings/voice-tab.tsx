@@ -150,7 +150,7 @@ export function VoiceInputSettingsTab() {
         <PrefToggleRow id="voice-personalization-toggle" label={t('voice_personalization_title')} desc={t('voice_personalization_desc')}
           checked={personalized !== false} disabled={personalized === null || busy} onChange={checked => { void setPersonalization(checked) }} />
         <VoiceInputSourceRow source={voiceSource.source} availability={voiceSource.capabilities?.availability || {}}
-          disabled={voiceSource.disabled} onChange={next => { void voiceSource.save(next) }} />
+          ready={!!voiceSource.capabilities} disabled={voiceSource.disabled} onChange={next => { void voiceSource.save(next) }} />
         <FeatureModelRow row={VOICE_REFINEMENT_FEATURE_MODEL_ROW} model={voiceRefinementModel} />
       </div>
       {personalizationError ? <p role="alert" className="card-meta">{personalizationError} <button type="button" className="btn-sm" onClick={() => { void loadPersonalization() }}>{t('auth_status_retry')}</button></p> : null}

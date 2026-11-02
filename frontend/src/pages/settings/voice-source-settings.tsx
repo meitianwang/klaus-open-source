@@ -51,7 +51,7 @@ export function useVoiceInputSource(reloadSeq = 0) {
       window.removeEventListener('klaus:auth-mode-changed', load)
     }
   }, [beginCapabilityRead, reloadSeq, retry, t])
-  const source = snapshot.source || (snapshot.source !== null && capabilities.value ? capabilities.value.systemAsr ? 'system' : 'custom' : '')
+  const source = snapshot.source || (snapshot.source !== null && capabilities.value?.systemAsr ? 'system' : '')
   const save = async (next: string) => {
     if (!isVoiceInputSource(next) || !source || next === source || capabilities.value?.availability[next] === false) return
     const pending = {}
@@ -79,11 +79,11 @@ export function voiceSourceItems(source: string, availability: Record<string, bo
     label: isVoiceInputSource(value) ? label(`voice_source_${value}`) : value, disabled: availability[value] === false }))
 }
 
-export function VoiceInputSourceRow({ source, availability, disabled, onChange }: {
-  source: string; availability: Record<string, boolean>; disabled: boolean; onChange: (next: string) => void
+export function VoiceInputSourceRow({ source, availability, disabled, ready, onChange }: {
+  source: string; availability: Record<string, boolean>; disabled: boolean; ready?: boolean; onChange: (next: string) => void
 }) {
   const t = useT()
-  const items = source ? voiceSourceItems(source, availability, t) : [{ value: '', label: t('loading'), disabled: true }]
+  const items = source || ready ? voiceSourceItems(source, availability, t) : [{ value: '', label: t('loading'), disabled: true }]
   return <div className="pref-row" data-capability-voice-source>
     <div className={styles['pref-row-text']}>
       <div className={styles['pref-row-label']} id="voice-source-row-label">{t('model_tiers_source')}</div>

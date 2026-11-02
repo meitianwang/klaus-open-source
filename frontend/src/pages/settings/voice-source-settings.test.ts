@@ -37,6 +37,12 @@ describe('voice input source row', () => {
     expect(voiceSourceItems('retired', {}, key => key).at(-1)?.value).toBe('retired')
   })
 
+  test('the retired custom transcription route is no longer offered while a saved choice stays visible', () => {
+    expect(voiceSourceItems('system', {}, key => key).some(item => item.value === 'custom')).toBe(false)
+    expect(voiceSourceItems('codex', {}, key => key).some(item => item.value === 'custom')).toBe(false)
+    expect(voiceSourceItems('custom', {}, key => key).at(-1)).toEqual({ value: 'custom', label: 'voice_source_custom', disabled: false })
+  })
+
   test('source cards omit explanatory and passive availability paragraphs', () => {
     const target = globalThis as any, previous = target.window
     target.window = { currentLang: 'en' }

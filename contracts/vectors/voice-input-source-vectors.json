@@ -1,6 +1,6 @@
 {
-  "version": 21,
-  "reason": "Claude streaming captures the application's Chinese or English language hint at recording start and retains it during same-source recovery; an English-only default delays Chinese previews until stop. All supported subscription dictation sources use native continuous PCM transport and incremental transcript events through the shared streaming session, including Claude, Codex and WorkBuddy. Realtime admission rejects unavailable native routes instead of silently starting file segments. File transcription remains an explicit compatibility choice or an announced same-source recovery bound to the original login. TRAE CN adds an independent subscription-backed PCM transcription and streaming dictation source; native refinement and duplex voice remain separate. Recognition provider selection belongs in Voice Input settings for both dictation modes, alongside personalization and a correction dictionary. Refinement and language detection are automatic, with no separate refinement, recognition-language or memory-list controls. Both modes honor the saved provider, with explicit errors instead of automatic substitution. Real-time capture supports signed WebSocket recognition routes, revisable interim snapshots and same-source recovery bound to the original credential. Voice conversation retains its independent source preference. Live dictation accumulates completed utterances and revises only the active utterance so stopping preserves every sentence. End-of-audio acknowledgment is separate from the authoritative whole-recording result, which is inserted and persisted exactly once. Supported realtime sources configure session-native refinement before the first audio frame and publish its complete result without a second text-model request. A short latency budget never discards a pending refinement result; recording duration freezes at stop.",
+  "version": 22,
+  "reason": "Claude streaming captures the application's Chinese or English language hint at recording start and retains it during same-source recovery; an English-only default delays Chinese previews until stop. All supported subscription dictation sources use native continuous PCM transport and incremental transcript events through the shared streaming session, including Claude, Codex and WorkBuddy. Realtime admission rejects unavailable native routes instead of silently starting file segments. File transcription remains an explicit compatibility choice or an announced same-source recovery bound to the original login. TRAE CN adds an independent subscription-backed PCM transcription and streaming dictation source; native refinement and duplex voice remain separate. Recognition provider selection belongs in Voice Input settings for both dictation modes, alongside personalization and a correction dictionary. Refinement and language detection are automatic, with no separate refinement, recognition-language or memory-list controls. Both modes honor the saved provider, with explicit errors instead of automatic substitution. Real-time capture supports signed WebSocket recognition routes, revisable interim snapshots and same-source recovery bound to the original credential. Voice conversation retains its independent source preference. Live dictation accumulates completed utterances and revises only the active utterance so stopping preserves every sentence. End-of-audio acknowledgment is separate from the authoritative whole-recording result, which is inserted and persisted exactly once. Supported realtime sources configure session-native refinement before the first audio frame and publish its complete result without a second text-model request. A short latency budget never discards a pending refinement result; recording duration freezes at stop. The settings menu retires the custom transcription offer: system recognition and signed-in provider sources remain selectable, an absent preference on a device without system recognition stays unselected, and a saved custom selection keeps working as a compatibility file-transcription route until the user replaces it.",
   "settingsUi": {
     "control": "combobox",
     "name": "voice-source-select",
@@ -59,7 +59,6 @@
   },
   "sources": [
     "system",
-    "custom",
     "claude",
     "codex",
     "workbuddy",
@@ -71,8 +70,9 @@
   ],
   "absentPreference": {
     "systemAvailable": "system",
-    "systemUnavailable": "custom"
+    "systemUnavailable": "unselected"
   },
+  "retiredSourceOffer": "custom remains a valid saved value and a compatibility file-transcription route; the settings menu and the preference choice list no longer offer it, and a saved custom selection stays listed until replaced",
   "unknownSavedPreference": "unavailable",
   "selectedSourceFailure": "preserve selection and report error",
   "pcm16Mono16000Wav": [

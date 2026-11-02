@@ -1,6 +1,8 @@
 /** Voice input selection is independent of the conversation model source. */
 export const VOICE_INPUT_SOURCES = ['system', 'custom', 'claude', 'codex', 'workbuddy', 'antigravity', 'trae', 'qoder', 'qoderwork', 'qwenwork'] as const;
 export type VoiceInputSource = typeof VOICE_INPUT_SOURCES[number];
+/** The settings menu no longer offers the retired custom transcription route; a saved choice stays listed until replaced. */
+export const VOICE_SELECTABLE_SOURCES = VOICE_INPUT_SOURCES.filter(source => source !== 'custom');
 export type VoiceOAuthSource = Exclude<VoiceInputSource, 'system' | 'custom'>;
 export const VOICE_NATIVE_STREAMING_SOURCES = ['claude', 'codex', 'workbuddy', 'antigravity', 'trae', 'qoder', 'qoderwork', 'qwenwork'] as const;
 export const VOICE_INPUT_SOURCE_KEY = 'voice.input.source';
@@ -13,7 +15,9 @@ export function isVoiceInputSource(value: unknown): value is VoiceInputSource {
 export function voiceInputSource(value: string, systemAvailable: boolean): VoiceInputSource | undefined {
   // An absent preference retains the previous platform choice. Unknown saved
   // selections remain unavailable rather than spending another source's quota.
-  return value ? isVoiceInputSource(value) ? value : undefined : systemAvailable ? 'system' : 'custom';
+  // Without system recognition an absent preference stays unselected: the
+  // retired custom route is never guessed as a default.
+  return value ? isVoiceInputSource(value) ? value : undefined : systemAvailable ? 'system' : undefined;
 }
 /**
  * Upload container per source. Subscription wires that mandate raw PCM keep
@@ -32,7 +36,9 @@ export function voiceTranscriptionTimeoutMs(source?: VoiceOAuthSource): number {
   return source === 'qwenwork' || source === 'antigravity' || source === 'trae' ? VOICE_AUDIO_MAX_MS + 150_000 : 60_000;
 }
 export function visibleVoiceInputSources(availability: Readonly<Record<string, boolean>>, selected: string): string[] {
-  const sources: string[] = VOICE_INPUT_SOURCES.filter(source => availability[source] !== false || source === selected);
+  // The retired custom route is offered only as a preserved saved selection,
+  // appended below when it is the current value.
+  const sources: string[] = VOICE_SELECTABLE_SOURCES.filter(source => availability[source] !== false || source === selected);
   if (selected && !sources.includes(selected)) sources.push(selected);
   return sources;
 }
