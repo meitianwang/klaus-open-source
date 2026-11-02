@@ -29,7 +29,15 @@ describe('semantic activity contract', () => {
         const html = renderToStaticMarkup(<ActivityToolContent tool={tool} open onToggle={() => {}} locale={locale} />)
         expect(html).toContain(labels![index])
         expect(html).toContain('aria-expanded="true"')
-        expect(html).toContain('RESULT_DETAILS')
+        // A friend card is self-contained: recipient, sent text and one status
+        // line carry the outcome, so its raw result renders in neither state.
+        const friendCard = semanticActivity(tool.toolName, tool.args)?.category === 'friend'
+        if (friendCard) {
+          expect(html).toContain('data-friend-result')
+          // A failed call still prints its failure reason verbatim; every other
+          // state keeps the raw result out of the card.
+          if (state !== 'error' && state !== 'interrupted') expect(html).not.toContain('RESULT_DETAILS')
+        } else expect(html).toContain('RESULT_DETAILS')
         expect(activityToolIconName(tool.toolName, tool.args)).toBe(vector.icon)
         expect(activitySummaryLabel(t, { mode: 'active', activeAction: action, summary })).toBe(labels![index])
         expect(activitySummaryLabel(t, { mode: 'summary', summary })).toBe(labels![index])

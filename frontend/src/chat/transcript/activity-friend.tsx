@@ -27,11 +27,6 @@ export function friendActivityResult(output: string | undefined) {
     requestId: typeof receipt?.requestId === 'string' ? receipt.requestId : undefined }
 }
 
-const FRIEND_KIND_KEYS: Record<string, string> = {
-  request: 'chat_friend_kind_request', notice: 'chat_friend_kind_notice', reply: 'chat_friend_kind_reply',
-  progress: 'chat_friend_kind_progress', question: 'chat_friend_kind_question',
-}
-
 export function FriendActivityDetails({ tool, locale }: { tool: ActivityToolData; locale: string }) {
   const zh = locale.startsWith('zh')
   const t = (key: string) => I18N[zh ? 'zh' : 'en'][key] || key
@@ -54,17 +49,32 @@ export function FriendActivityDetails({ tool, locale }: { tool: ActivityToolData
   const message = sent.prompt ?? (typeof args.prompt === 'string' ? args.prompt : typeof args.question === 'string' ? args.question : '')
   const failed = tool.state === 'error' || tool.state === 'interrupted'
   const failure = failed ? activityErrorText(tool.output) : ''
+  // One plain status line under the message: what happened to it, plus the one
+  // consequence the owner needs (a reply closes the friend's request, a notice
+  // never starts their Klaus). The kind and the recipient already read from the
+  // row label and the recipient line, so repeating them here was noise.
+  const statusParts: string[] = []
+  let statusState = ''
+  if (sent.declined) { statusParts.push(t('chat_friend_not_sent_detail')); statusState = 'declined' }
+  else if (outgoing) { statusParts.push(t(friendOutgoingStatusKey(outgoing))); statusState = 'outgoing' }
+  else if (tool.state === 'done' && result.accepted) {
+    statusState = 'sent'
+    statusParts.push(t(result.delivered ? 'chat_friend_delivery_delivered' : 'chat_friend_delivery_sent'))
+    if (result.awaitingAuthorization) statusParts.push(t('chat_friend_delivery_awaiting_authorization'))
+    else if (kind === 'reply') statusParts.push(t('chat_friend_effect_reply'))
+    else if (kind === 'notice') statusParts.push(t('chat_friend_effect_notice'))
+    else if (kind === 'progress') statusParts.push(t('chat_friend_effect_progress'))
+    else if (kind === 'question') statusParts.push(t('chat_friend_effect_question'))
+  } else if (tool.state === 'running') { statusParts.push(t('chat_friend_sending')); statusState = 'sending' }
+  const statusLine = zh ? statusParts.join('，') : statusParts.join(', ')
   return <div className={styles.friendDetails} data-friend-result={sending ? 'send' : 'list'} data-friend-kind={sending ? kind : undefined}>
     {sending ? <>
       <div className={styles.friendRecipient}><Icon name="tool-friends" size={16} /><span>{recipient}</span></div>
-      <div className={styles.caption} data-friend-kind-caption>{t(FRIEND_KIND_KEYS[kind]!)}</div>
       {kind === 'request' && (args.onReply === 'display' || args.onReply === 'follow_up')
         ? <div className={styles.caption} data-friend-arrangement>{t(args.onReply === 'follow_up' ? 'chat_friend_followup_auto' : 'chat_friend_followup_display')}</div> : null}
       {message ? <div className={styles.friendMessage} data-friend-message>{message}</div> : null}
-      {sent.declined ? <div className={styles.caption} data-friend-delivery="declined"><span>{t('chat_friend_not_sent_detail')}</span></div>
-        : outgoing || tool.state === 'done' && result.accepted ? <div className={styles.caption} data-friend-delivery>
-        <span>{outgoing ? t(friendOutgoingStatusKey(outgoing)) : t(result.delivered ? 'chat_friend_delivery_to_device' : 'chat_friend_delivery_sent')}</span>
-        {!outgoing && result.awaitingAuthorization ? <span>{t('chat_friend_delivery_awaiting_authorization')}</span> : null}
+      {statusParts.length ? <div className={styles.caption} data-friend-status={statusState}>
+        <span>{statusLine}</span>
         {outgoing?.canCancel ? <button type="button" className={styles.friendAction} disabled={pending} onClick={() => void performFriendOutgoingAction('cancel', outgoing.requestId)}>{t('chat_friend_cancel_request')}</button> : null}
         {outgoing?.canRetry ? <button type="button" className={styles.friendAction} disabled={pending} onClick={() => void performFriendOutgoingAction('retry', outgoing.requestId)}>{t('chat_friend_retry_send')}</button> : null}
       </div> : null}

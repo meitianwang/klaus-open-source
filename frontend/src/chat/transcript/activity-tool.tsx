@@ -380,12 +380,9 @@ function ToolDetails({ tool, presentation, locale }: { tool: ActivityToolData; p
       <ScrollOutput text={tool.output ?? (tool.state === 'running' ? '' : copyText(locale, 'No output', '无输出'))} copyValue={tool.output ?? ''} label={copyText(locale, 'Tool output', '工具输出')} locale={locale} />
     </div>
   </div>
-  if (presentation.semantic?.category === 'friend') return <>
-    <FriendActivityDetails tool={tool} locale={locale} />
-    <details className={styles.rawImageDetails}>
-      <summary>{copyText(locale, 'Technical details', '技术详情')}</summary>{details}
-    </details>
-  </>
+  // The friend card is the whole story: recipient, sent text and one status
+  // line. A raw input/output dump under it added nothing the card hides.
+  if (presentation.semantic?.category === 'friend') return <FriendActivityDetails tool={tool} locale={locale} />
   return <>
     {presentation.kind === 'image' ? <ImageActivityDetails tool={tool} presentation={presentation} locale={locale} /> : null}
     {presentation.semantic?.category === 'web' ? <WebActivitySources tool={tool} locale={locale} /> : null}
