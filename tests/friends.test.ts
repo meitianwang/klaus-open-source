@@ -690,8 +690,8 @@ h.test('a scoped conversation retunes live on a preset change and keeps its own 
     // The engine re-reads the live policy, so neither conversation needs a rebuild.
     assert.equal(state.isStale(scopedId), false); assert.equal(state.isStale('ordinary'), false);
     const scopedPush = requests.find(row => row.params.sessionId === 'friend-engine');
-    assert.equal(scopedPush?.params.sandboxMode, 'workspace-write', 'the friendship sandbox cap survives any preset');
-    assert.equal(scopedPush?.params.approvalsReviewer, 'auto_review', 'the grant preset, not the global default, drives the scoped push');
+    assert.equal(scopedPush?.params.sandboxMode, 'workspace-write', 'the conversation keeps its saved workspace policy');
+    assert.equal(scopedPush?.params.approvalsReviewer, 'auto_review', 'the saved conversation preset drives the runtime update');
     assert.deepEqual(updates, [
       { sessionId: 'approved-session-1', update: { webSearchAccess: 'cached' } },
       { sessionId: 'ordinary', update: { webSearchAccess: 'cached' } },
