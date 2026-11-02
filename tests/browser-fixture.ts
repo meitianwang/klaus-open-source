@@ -823,9 +823,12 @@ async function main(): Promise<number> {
     const oldHandle = third.handle;
     const replacement = await manager.createTab('A', `${base}/fresh`);
     assert(replacement.handle > oldHandle, 'closed handles are never reused');
-    enabled = false; manager.hide();
-    assertEqual((await invoke('browser-use:show')).ok, false, 'disabled plugin cannot show a page');
-    enabled = true;
+    enabled = false; manager.refreshPermissions(); manager.hide();
+    try {
+      assertEqual((await invoke('browser-use:show')).ok, true, 'manual presentation remains available with agent control off');
+      const denied = await operations.execute('A', 'snapshot', { tabId: replacement.handle });
+      assertEqual(object(denied.error).code, 'unavailable', 'agent control remains disabled');
+    } finally { enabled = true; manager.refreshPermissions(); }
   });
 
   h.test('a page that destroys itself cannot poison later tab operations', async () => {
