@@ -82,6 +82,7 @@ interface Vector {
   generation: { method: string; input: string; charLimit: number; promptFirstLine: string; promptSuffix: string; params: Row; reply: Row; expectedTitle: string; updateMethod: string; updateParams: Row; updateReply: Row; expectedEvent: Row };
   rejectedGenerationReplies: Row[];
   refresh: { gate: string; interval: number; charLimit: number; cacheLimit: number; promptContains: string[] };
+  retry: { quietPeriodMs: number; failedAttemptKeepsStampUntilQuietPeriodPasses: boolean; attemptVoidedImmediatelyWhenLiveSessionChanged: boolean; completedTurnRetriesUntitledConversation: boolean; openRecoveryClaimedOnlyWithVisibleContent: boolean };
 }
 const generations = (f: Fixture): Array<{ method: string; params: Row }> => f.client.calls.filter(call => call.method === 'session/generateTitle').map(call => ({ method: call.method, params: object(call.params) ?? {} }));
 const cacheTitle = (f: Fixture, id: string): string | undefined => withSettingsDb(f.root, db => {
@@ -233,6 +234,83 @@ h.test('a failed attempt becomes eligible again after the quiet period', async (
     assertEqual(generations(f).length, 2, 'the retry sends one more request');
     assertEqual(readSessionTitle('thread', f.root)?.title, 'Recovered title', 'the retry applies its title');
     assertEqual(await f.titles.firstTurnReady('thread'), false, 'a titled conversation never retries');
+  } finally { await cleanup(f); }
+});
+
+h.test('an attempt killed by a conversation rebuild is void and retries at once', async () => {
+  const f = await fixture();
+  try {
+    const vector = JSON.parse(await readFile(vectorPath, 'utf8')) as Vector;
+    assertEqual(vector.retry.attemptVoidedImmediatelyWhenLiveSessionChanged, true, 'the vector pins immediate voiding');
+    assertEqual(vector.retry.quietPeriodMs, TITLE_RETRY_INTERVAL_MS, 'the vector pins the quiet period');
+    assertEqual(vector.retry.failedAttemptKeepsStampUntilQuietPeriodPasses, true, 'the vector pins the transient-failure stamp');
+    f.client.generate = async () => { f.state.liveId = 'live-rebuilt'; throw { code: -32000, message: 'conversation closed' }; };
+    await f.titles.seedFromSend('thread', 'First prompt');
+    assertEqual(await f.titles.firstTurnReady('thread'), false, 'the generation dies with its conversation');
+    const voided = readSessionTitle('thread', f.root);
+    assertEqual(voided?.title, null, 'the dead attempt leaves no title');
+    assertEqual(voided?.attemptedAt, null, 'the dead attempt no longer claims the conversation');
+    assert(f.logs.some(entry => entry.kind === 'session-title-attempt-voided'), 'the voiding is logged');
+    const failed = f.logs.find(entry => entry.kind === 'session-title-generation-failed');
+    assert(Boolean(failed && failed.detail.includes('-32000') && failed.detail.includes('conversation closed')), 'the structured rejection survives the log');
+    f.client.generate = async () => generatedReply('Rebuilt title');
+    assertEqual(await f.titles.firstTurnReady('thread'), true, 'the rebuilt conversation retries without waiting out the quiet period');
+    assertEqual(generations(f).length, 2, 'the voided attempt does not count against the retry gate');
+    assertEqual(readSessionTitle('thread', f.root)?.title, 'Rebuilt title', 'the retry applies its title');
+  } finally { await cleanup(f); }
+});
+
+h.test('a turn completing after a voided attempt titles a single-turn conversation', async () => {
+  const f = await fixture();
+  try {
+    const vector = JSON.parse(await readFile(vectorPath, 'utf8')) as Vector;
+    assertEqual(vector.retry.completedTurnRetriesUntitledConversation, true, 'the vector pins the turn-completion trigger');
+    f.client.generate = async () => { f.state.liveId = 'live-rebuilt'; throw { code: -32000 }; };
+    await f.titles.seedFromSend('thread', '早上好啊');
+    assertEqual(await f.titles.firstTurnReady('thread'), false, 'the attempt dies with the rebuilt conversation');
+    f.client.generate = async () => generatedReply('问候好友');
+    f.titles.turnCompleted('thread', 'turn-1', true);
+    await settle();
+    assertEqual(generations(f).length, 2, 'the completed turn retries the voided attempt at once');
+    assertEqual(readSessionTitle('thread', f.root)?.title, '问候好友', 'the single-turn conversation is titled inside the process');
+    f.titles.turnCompleted('thread', 'turn-1', true);
+    await settle();
+    assertEqual(generations(f).length, 2, 'the same completed turn is not processed twice');
+  } finally { await cleanup(f); }
+});
+
+h.test('a completed turn retries a titleless conversation only after the quiet period', async () => {
+  const f = await fixture();
+  try {
+    f.client.generate = async () => { throw new Error('Provider unavailable'); };
+    await f.titles.seedFromSend('thread', 'First prompt');
+    assertEqual(await f.titles.firstTurnReady('thread'), false, 'the only attempt fails');
+    f.titles.turnCompleted('thread', 'turn-1', true);
+    await settle();
+    assertEqual(generations(f).length, 1, 'a completed turn inside the quiet period sends nothing');
+    f.state.now = 100 + TITLE_RETRY_INTERVAL_MS;
+    f.client.generate = async () => generatedReply('Late title');
+    f.titles.turnCompleted('thread', 'turn-2', true);
+    await settle();
+    assertEqual(generations(f).length, 2, 'the completed turn carries the retry');
+    assertEqual(readSessionTitle('thread', f.root)?.title, 'Late title', 'the retry applies its title');
+    f.titles.turnCompleted('thread', 'turn-3', true);
+    await settle();
+    assertEqual(generations(f).length, 2, 'a titled conversation is not retitled by turn completion');
+  } finally { await cleanup(f); }
+});
+
+h.test('an open before content lands keeps the per-process recovery for later', async () => {
+  const f = await fixture();
+  try {
+    const vector = JSON.parse(await readFile(vectorPath, 'utf8')) as Vector;
+    assertEqual(vector.retry.openRecoveryClaimedOnlyWithVisibleContent, true, 'the vector pins the recovery claim');
+    assertEqual(await f.titles.recoverUntitled('thread'), false, 'an open with no content yet recovers nothing');
+    f.state.firstUserContent = '周末一起爬山吗';
+    f.client.generate = async () => generatedReply('约周末爬山');
+    assertEqual(await f.titles.recoverUntitled('thread'), true, 'the later open still carries the single recovery');
+    assertEqual(readSessionTitle('thread', f.root)?.title, '约周末爬山', 'the recovered title is durable');
+    assertEqual(await f.titles.recoverUntitled('thread'), false, 'recovery still runs once per process');
   } finally { await cleanup(f); }
 });
 

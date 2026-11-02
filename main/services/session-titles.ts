@@ -109,6 +109,18 @@ function writeRecord(db: DatabaseSync, id: string, title: string | null, source:
     .run(id, title, source, attemptedAt, revision);
 }
 
+/** Structured engine rejections are plain objects; `String` would log `[object Object]`. */
+function failureDetail(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (typeof error === 'string') return error;
+  try {
+    const encoded = JSON.stringify(error);
+    return encoded === undefined ? String(error) : encoded;
+  } catch {
+    return String(error);
+  }
+}
+
 /**
  * Titles are capped the same way on every write path: whitespace collapses first,
  * and an over-long title keeps one character fewer plus an ellipsis so the limit
@@ -284,7 +296,10 @@ interface TitleAttempt<C extends AcknowledgedClient> {
  * gated adaptive refresh of generated titles on every fifth completed turn. The
  * first user content is generation input only; it is never published as a title.
  * An attempt that produced no title becomes eligible again after
- * `TITLE_RETRY_INTERVAL_MS`, so a transient failure cannot lock the conversation.
+ * `TITLE_RETRY_INTERVAL_MS`, so a transient failure cannot lock the conversation;
+ * later turn starts, completed turns and reopened conversations carry that retry,
+ * and an attempt the host itself killed by closing or rebuilding its conversation
+ * is void at once instead of after the quiet period.
  */
 export class SessionTitles<C extends AcknowledgedClient = AcknowledgedClient> {
   private closed = false;
@@ -292,6 +307,7 @@ export class SessionTitles<C extends AcknowledgedClient = AcknowledgedClient> {
   private readonly inference = new Map<string, Promise<void>>();
   private readonly firstTurnInput = new Map<string, string>();
   private readonly refreshCounters = new Map<string, { count: number; turnId: string }>();
+  private readonly untitledTurns = new Map<string, string>();
   private readonly recoverySeen = new Set<string>();
   constructor(private readonly deps: SessionTitlesDeps<C>) {}
 
@@ -333,15 +349,18 @@ export class SessionTitles<C extends AcknowledgedClient = AcknowledgedClient> {
    * A live conversation whose accepted first content never reached a turn start still
    * owes its single initial title request: dispatched and channel conversations hold
    * their content without executing locally. Only the opened conversation recovers,
-   * once per process, through the same pipeline as a first turn.
+   * once per process, through the same pipeline as a first turn. An open that lands
+   * before the conversation holds content does not spend that single chance.
    */
   async recoverUntitled(sessionId: string): Promise<boolean> {
     if (!sessionId || this.closed || this.recoverySeen.has(sessionId)) return false;
     const record = readSessionTitle(sessionId, this.deps.configRoot);
     if (record?.title || (record?.attemptedAt != null && !this.retryDue(record.attemptedAt))) return false;
-    this.recoverySeen.add(sessionId);
     const input = await this.deps.firstUserContent(sessionId).catch(() => undefined);
+    // Claim the single per-process recovery only once there is something to title:
+    // an open that lands before the content must stay able to recover later.
     if (!input || !visibleSeedText(input).trim() || this.closed) return false;
+    this.recoverySeen.add(sessionId);
     // Attach outside the mutation queue: the pipeline below takes it again.
     if (this.deps.ensureLive) {
       try { await this.deps.ensureLive(sessionId); } catch (error) {
@@ -357,7 +376,10 @@ export class SessionTitles<C extends AcknowledgedClient = AcknowledgedClient> {
   turnCompleted(sessionId: string, turnId: string, completed: boolean): void {
     if (!sessionId || !completed || this.closed) return;
     const cached = withSettingsDb(this.deps.configRoot, db => { ensureCacheTable(db); return generatedTitleIn(db, sessionId); });
-    if (!cached) return;
+    if (!cached) {
+      this.untitledAfterTurn(sessionId, turnId);
+      return;
+    }
     const prior = this.refreshCounters.get(sessionId);
     if (prior?.turnId === turnId) return;
     const count = ((prior?.count ?? 0) + 1) % REFRESH_TURN_INTERVAL;
@@ -365,6 +387,27 @@ export class SessionTitles<C extends AcknowledgedClient = AcknowledgedClient> {
     if (count !== 0) return;
     this.deps.log?.('session-title-refresh-scheduled', sessionId);
     void this.refresh(sessionId, cached).catch(error => this.deps.log?.('session-title-refresh-failed', String(error)));
+  }
+
+  /**
+   * A completed turn is the last trigger a single-turn conversation is guaranteed to
+   * see: friend tasks and dispatched requests never start a second turn and can stay
+   * open for the life of the process, so without this hook a failed or voided initial
+   * attempt leaves them at the engine placeholder forever.
+   */
+  private untitledAfterTurn(sessionId: string, turnId: string): void {
+    if (!turnId || this.closed || this.attempts.has(sessionId)) return;
+    if (this.untitledTurns.get(sessionId) === turnId) return;
+    this.untitledTurns.set(sessionId, turnId);
+    void (async () => {
+      if (this.closed || this.attempts.has(sessionId)) return;
+      const record = readSessionTitle(sessionId, this.deps.configRoot);
+      if (record?.title || (record?.attemptedAt != null && !this.retryDue(record.attemptedAt))) return;
+      const input = this.firstTurnInput.get(sessionId)
+        ?? await this.deps.firstUserContent(sessionId).catch(() => undefined);
+      if (!input || !visibleSeedText(input).trim() || this.closed) return;
+      await this.runPipeline(sessionId, input);
+    })().catch(error => this.deps.log?.('session-title-pipeline-failed', String(error)));
   }
 
   private async runPipeline(sessionId: string, input: string): Promise<boolean> {
@@ -449,11 +492,27 @@ export class SessionTitles<C extends AcknowledgedClient = AcknowledgedClient> {
       if (revision === undefined) return false;
       return true;
     } catch (error) {
-      this.deps.log?.('session-title-generation-failed', String(error));
+      this.deps.log?.('session-title-generation-failed', failureDetail(error));
+      // A generation the host itself killed by closing or rebuilding the conversation
+      // never ran against the current session: void the claim so the next trigger
+      // retries at once instead of waiting out the quiet period for a failure that
+      // was structural rather than transient.
+      if (this.deps.liveSession(sessionId) !== attempt.liveId) this.voidAttempt(sessionId, attempt);
       return false;
     } finally {
       if (this.attempts.get(sessionId) === attempt) this.attempts.delete(sessionId);
     }
+  }
+
+  /** Drop the retry stamp of an attempt that died with its conversation, publishing nothing. */
+  private voidAttempt(sessionId: string, attempt: TitleAttempt<C>): void {
+    withSettingsTransaction(this.deps.configRoot, db => {
+      ensureTable(db);
+      const latest = recordIn(db, sessionId);
+      if (!latest || latest.title || latest.revision !== attempt.revision || latest.attemptedAt !== attempt.attemptedAt) return;
+      writeRecord(db, sessionId, null, latest.source, null, nextRevision(latest, this.now()));
+    });
+    this.deps.log?.('session-title-attempt-voided', sessionId);
   }
 
   /**
