@@ -1,5 +1,8 @@
-import { mountVoiceChat } from '../frontend/src/chat/voice-chat/view';
+import { Profiler } from 'react';
+import { createRoot } from 'react-dom/client';
+import { mountVoiceChat, VoiceChatView } from '../frontend/src/chat/voice-chat/view';
 import type { VoiceChatEvent, VoiceChatOffer, VoiceChatState } from '../contracts/voice-chat';
+import refreshVectors from '../contracts/vectors/composer-refresh-vectors.json';
 
 const host = document.getElementById('main')!, wrapper = document.getElementById('input-wrapper')!, input = document.getElementById('input')!;
 let selected = 'voice-thread', value: VoiceChatState = { available: true, transport: 'webrtc', protocol: 'public', transcriptSource: 'peer', phase: 'inactive', generation: 0, activity: 'inactive', microphoneMuted: false, speakerMuted: false, transcript: [] };
@@ -44,6 +47,33 @@ const ui = mountVoiceChat({
 });
 (window as any).__voiceChatFixture = {
   calls, snapshot: ui.controller.snapshot,
+  idleRefreshes: async () => {
+    const container = document.createElement('div');
+    container.innerHTML = '<div class="measurement-input" contenteditable="true"></div><button></button>';
+    document.body.append(container);
+    const button = container.querySelector('button')!, editor = container.querySelector<HTMLElement>('.measurement-input')!;
+    const mount = document.createElement('span'); container.append(mount);
+    const root = createRoot(mount); let commits = 0;
+    const frame = () => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+    root.render(<Profiler id="idle-voice" onRender={() => { commits++; }}><VoiceChatView controller={ui.controller} deps={{
+      wrapper: container, row: container, content: host, sendButton: button, input: editor,
+      transport: {} as any, currentSession: () => selected, ensureSession: async () => selected,
+      hasDraft: () => false, canStart: () => !button.disabled, inChat: () => true,
+      feedback() {}, systemSettings: async () => {},
+    }} /></Profiler>);
+    await frame();
+    const initialCommits = commits;
+    for (let index = 0; index < refreshVectors.unchangedVoiceTicks; index++) {
+      button.disabled = false;
+      window.dispatchEvent(new Event('klaus:voice-chat-refresh'));
+      await frame();
+    }
+    const unchangedCommits = commits - initialCommits;
+    button.disabled = true; await frame();
+    const changedCommits = commits - initialCommits - unchangedCommits;
+    root.unmount(); container.remove();
+    return { initialCommits, unchangedCommits, changedCommits, ticks: refreshVectors.unchangedVoiceTicks };
+  },
   select: (id: string) => { selected = id; window.dispatchEvent(new Event('klaus:session-change')); },
   emit: (event: unknown) => channel?.send(JSON.stringify(event)),
   input: (text: string) => { input.textContent = text; input.dispatchEvent(new InputEvent('input', { bubbles: true })); },

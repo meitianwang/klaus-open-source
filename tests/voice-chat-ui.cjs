@@ -1,11 +1,13 @@
 const { app, BrowserWindow, ipcMain } = require('electron');
-const { mkdtempSync, readFileSync, writeFileSync } = require('node:fs');
+const { readFileSync, writeFileSync } = require('node:fs');
 const { join } = require('node:path');
-const { tmpdir } = require('node:os');
 const assert = require('node:assert/strict');
 const logs = process.argv[2];
 const vectors = JSON.parse(readFileSync(join(__dirname, '../contracts/vectors/voice-chat-vectors.json'), 'utf8')).cases;
-app.setPath('userData', mkdtempSync(join(tmpdir(), 'klaus-voice-chat-ui-')));
+const refreshVectors = JSON.parse(readFileSync(join(__dirname, '../contracts/vectors/composer-refresh-vectors.json'), 'utf8'));
+const profile = process.env.KLAUS_VOICE_CHAT_TEST_PROFILE;
+assert(profile, 'The voice UI runner must supply an isolated profile');
+app.setPath('userData', profile);
 app.on('window-all-closed', () => {});
 const wait = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
 app.whenReady().then(async () => {
@@ -15,6 +17,16 @@ app.whenReady().then(async () => {
   try {
     await window.loadFile(join(logs, 'voice-chat.html'));
     await until('!!document.querySelector("[data-voice-chat-action=start]")', 'Voice launcher appears for an empty capable composer');
+    window.focus(); window.webContents.focus();
+    const idleRefreshes = await js('window.__voiceChatFixture.idleRefreshes()');
+    writeFileSync(join(logs, 'idle-refreshes.json'), JSON.stringify(idleRefreshes, null, 2));
+    console.log('Voice presentation refresh measurements: ' + JSON.stringify(idleRefreshes));
+    assert(idleRefreshes.initialCommits > 0, 'The React profiler must observe a mounted presentation');
+    assert.equal(idleRefreshes.unchangedCommits, refreshVectors.unchangedVoiceCommits, 'Unchanged background refreshes and reflected attributes do not redraw voice controls');
+    assert(idleRefreshes.changedCommits > 0, 'A real availability change redraws voice controls');
+    if (process.env.VOICE_REFRESH_ONLY === '1') {
+      await js('window.__voiceChatFixture.dispose()'); window.destroy(); app.quit(); return;
+    }
     const mainStyles = () => js(`(() => {
       const root = getComputedStyle(document.documentElement);
       return { background: root.getPropertyValue('--bg'), foreground: root.getPropertyValue('--fg'), selection: getComputedStyle(document.querySelector('#messages p')).userSelect };

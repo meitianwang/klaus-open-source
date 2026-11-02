@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useState, useSyncExternalStore } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import { useT } from '../../i18n';
@@ -6,6 +6,7 @@ import { VoiceChatController, type VoiceChatDependencies } from '../voice-chat-c
 import { VoiceChatControls, VoiceChatGlyph } from './controls';
 import { VoiceOrb } from './orb';
 import { voiceChatErrorKey } from './messages';
+import { voiceChatPresentation } from './presentation';
 import './voice-chat.css';
 import { bindCommandHandler } from '../../app/keybindings/use-command-handler';
 import { showToast } from '../../app/ui-shared';
@@ -32,16 +33,20 @@ export function VoiceChatView({ controller, deps, notifyErrors = true }: { contr
   const snapshot = useSyncExternalStore(controller.subscribe, controller.snapshot), text = useT();
   const [, render] = useState(0), [connected, setConnected] = useState(false);
   const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  const matching = snapshot.open && (snapshot.targetSessionId ?? null) === deps.currentSession() && deps.inChat();
-  const hasDraft = deps.hasDraft();
   const supported = typeof RTCPeerConnection !== 'undefined' && !!navigator.mediaDevices?.getUserMedia;
   // The send slot keeps whatever affordance has work in it (stop while a turn
   // runs, continue after an interruption); the voice entry never covers those.
-  const sendOccupied = deps.sendButton.classList.contains('busy') || deps.sendButton.classList.contains('continue');
-  const launch = !snapshot.open && supported && !hasDraft && !sendOccupied && deps.canStart();
-  const showingControls = matching && snapshot.phase !== 'error';
+  const presentation = voiceChatPresentation(snapshot, deps, supported);
+  const { matching, hasDraft, launch, showingControls } = presentation;
+  const presentationKey = useRef(presentation.key);
+  presentationKey.current = presentation.key;
   useEffect(() => {
-    const update = () => render(value => value + 1);
+    const update = () => {
+      const next = voiceChatPresentation(controller.snapshot(), deps, supported).key;
+      if (next === presentationKey.current) return;
+      presentationKey.current = next;
+      render(value => value + 1);
+    };
     const observer = new MutationObserver(update);
     observer.observe(deps.sendButton, { attributes: true, attributeFilter: ['disabled', 'class'] });
     observer.observe(deps.input, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['contenteditable', 'disabled'] });
@@ -62,7 +67,7 @@ export function VoiceChatView({ controller, deps, notifyErrors = true }: { contr
     window.addEventListener('klaus:session-change', update);
     window.addEventListener('klaus:voice-chat-refresh', update);
     return () => { observer.disconnect(); resize.disconnect(); for (const key of ['--voice-chat-composer-height', '--voice-chat-orb-x', '--voice-chat-orb-y', '--voice-chat-flight-x', '--voice-chat-flight-y']) deps.content.style.removeProperty(key); window.removeEventListener('resize', measure); window.removeEventListener('klaus:voice-chat-measure', measure); document.body.removeEventListener('input', update); window.removeEventListener('klaus:session-change', update); window.removeEventListener('klaus:voice-chat-refresh', update); };
-  }, [deps]);
+  }, [controller, deps, supported]);
   useLayoutEffect(() => { window.dispatchEvent(new Event('klaus:voice-chat-measure')); }, [snapshot.phase, snapshot.targetSessionId, matching]);
   useEffect(() => {
     deps.wrapper.dataset.voiceChat = showingControls ? hasDraft && snapshot.phase === 'active' ? 'active-draft' : 'active-empty' : launch ? 'launch' : 'idle';
@@ -91,7 +96,7 @@ export function VoiceChatView({ controller, deps, notifyErrors = true }: { contr
   const phase = snapshot.phase, state = snapshot.state;
   const microphoneDenied = voiceChatErrorKey(snapshot.error) === 'voice_chat_mic_denied';
   const status = text(state?.microphoneMuted ? 'voice_chat_muted' : state?.activity === 'thinking' ? 'voice_chat_thinking' : state?.activity === 'speaking' ? 'voice_chat_speaking' : 'voice_chat_listening');
-  const taskStatus = deps.taskStatus ? deps.taskStatus() : status;
+  const taskStatus = deps.taskStatus ? presentation.taskStatus : status;
   const starting = matching && (phase === 'connecting' || phase === 'active' && !connected);
   return <>
     {launch && <button className="voice-chat-control voice-chat-primary" type="button" data-voice-chat-action="start" aria-label={text('voice_chat_start')} onClick={() => void controller.start(deps.currentSession() ?? undefined)}><VoiceChatGlyph name="waveform" /></button>}

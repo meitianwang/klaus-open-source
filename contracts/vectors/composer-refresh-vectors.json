@@ -1,0 +1,8 @@
+{
+  "reason": "Background stream content must not invalidate idle input presentations. Only the selected prediction source and effective voice-control availability trigger refreshes.",
+  "backgroundUpdates": 1000,
+  "backgroundPredictionRefreshes": 0,
+  "unchangedVoiceTicks": 12,
+  "unchangedVoiceCommits": 0,
+  "terminalPredictionRefreshes": 1
+}

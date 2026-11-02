@@ -1,4 +1,5 @@
 import { friendDispatchAttempts } from './composer/friend-dispatch-attempt'
+import { subscribePredictionRefresh } from './composer/prediction-refresh'
 import { friendComposeMetadata, friendComposeTarget, friendIntentEditable, friendSendLabel, reconcileFriendComposeContext, hasFriendQuoteInstruction, type FriendComposeContext } from './composer/friend-compose'
 import { mountFriendIntentSelect, type FriendIntentSelectApi } from './composer/friend-intent-select'
 import { friendMessageUnreadTracker } from './friend-unread'
@@ -2560,7 +2561,10 @@ function initSideComposer() {
               : tt('submit_tooltip_send'))
   }
   ;(window as any).klausUpdateSideSendButton = updateSideSendButton
-  setInterval(updateSideSendButton, 300)
+  const sideSendTimer = window.setInterval(() => {
+    if (sideSurfaceSessionId && document.visibilityState !== 'hidden' && !settingsVisibleIfAny()) updateSideSendButton()
+  }, 300)
+  window.addEventListener('pagehide', () => window.clearInterval(sideSendTimer), { once: true })
 
   // The side composer's own queue island. A side chat is a separate session with its
   // own queue, and the host dispatches and pauses it exactly like the main one, so it
@@ -17480,14 +17484,14 @@ composerPredictions = mountComposerPredictions({
   set: (key, value) => klausApi.settings.kv.set(key, value),
   text: tt,
 })
-chatStreamStore.subscribe((state, previous) => {
-  for (const [id, stream] of Object.entries(state.sessions)) {
-    if (stream.running && !previous.sessions[id]?.running) composerPredictions?.invalidate(id)
-  }
-  // The live terminal listener supplies its trigger before this microtask runs.
-  queueMicrotask(() => { void composerPredictions?.refresh() })
+const stopPredictionRefresh = subscribePredictionRefresh(chatStreamStore, {
+  currentSessionId: () => window.currentSessionId,
+  session: currentPredictionSession,
+  invalidate: id => composerPredictions?.invalidate(id),
+  // The live terminal listener supplies its trigger before the queued refresh.
+  refresh: () => composerPredictions?.refresh(),
 })
-window.addEventListener('pagehide', () => composerPredictions?.dispose(), { once: true })
+window.addEventListener('pagehide', () => { stopPredictionRefresh(); composerPredictions?.dispose() }, { once: true })
 window.addEventListener('klaus:session-change', () => { void composerPredictions?.refresh() })
 const predictionBlockerObserver = new MutationObserver(() => composerPredictions?.paint())
 predictionBlockerObserver.observe(slashMenu, { attributes: true, attributeFilter: ['class'] })

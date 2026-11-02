@@ -470,8 +470,11 @@ function SlashMenuBody({ store, actions, container, anchorElements }: {
 }) {
   const t = useT()
   const [, updateCommandState] = useState(0)
-  useEffect(() => actions.subscribeCommandState?.(() => updateCommandState(value => value + 1)), [actions])
   const mode = useStore(store, s => s.mode)
+  useEffect(() => {
+    if (!mode) return
+    return actions.subscribeCommandState?.(() => updateCommandState(value => value + 1))
+  }, [actions, mode])
   const approvalReviewRequest = useStore(store, s => s.approvalReviewRequest)
   const slashItems = useStore(store, s => s.slashItems)
   const mentionRequest = useStore(store, s => s.mentionRequest)
