@@ -1227,6 +1227,7 @@ async function auditSessionRuntimeState() {
     for (const id of candidates) {
       if (isSessionStreamRetired(id)) continue
       const before = runtimeAtRequest[id], current = getSessionStream(id)
+      if (before?.provisional || current.provisional) continue
       // Token updates do not change this identity. A newer start or terminal
       // event owns the status even when an older IPC reply arrives afterwards.
       if ((before?.running ?? false) !== current.running

@@ -6,7 +6,7 @@ import vectors from '../../../contracts/vectors/session-runtime-state-vectors.js
 
 const source = readFileSync(new URL('./chat.ts', import.meta.url), 'utf8')
 const ast = createSourceFile('chat.ts', source, ScriptTarget.ESNext, true, ScriptKind.TS)
-const idle = () => ({ running: false, activeTurnId: null as string | null, liveTurnId: null as string | null, turnStartedAt: 0, lastTerminalStatus: null as string | null })
+const idle = () => ({ provisional: false, running: false, activeTurnId: null as string | null, liveTurnId: null as string | null, turnStartedAt: 0, lastTerminalStatus: null as string | null })
 const live = (id = 'turn-one') => ({ ...idle(), running: true, activeTurnId: id, liveTurnId: id, turnStartedAt: 1 })
 function deferred<T>() {
   let resolve!: (value: T) => void, reject!: (error: Error) => void
@@ -78,6 +78,16 @@ test('a missed terminal event settles only after two successful idle observation
   await f.actions.auditSessionRuntimeState()
   expect(f.context.runningSessions.has(id)).toBe(false)
   expect(f.context.streams[id]?.running).toBe(false)
+  expect(f.calls.catalog).toBe(0)
+})
+
+test('host snapshots cannot settle a provisional draft before session creation completes', async () => {
+  const f = fixture(), id = 'provisional-draft'
+  f.context.streams[id] = { ...live(), provisional: true }
+  await f.actions.auditSessionRuntimeState()
+  await f.actions.auditSessionRuntimeState()
+  expect(f.context.streams[id]?.running).toBe(true)
+  expect(f.context.sessionRuntimeIdleObservations.size).toBe(0)
   expect(f.calls.catalog).toBe(0)
 })
 
