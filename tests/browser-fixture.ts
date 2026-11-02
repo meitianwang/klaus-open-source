@@ -298,6 +298,33 @@ async function main(): Promise<number> {
     response(await operations.execute('A', 'type', { selector: '#input', text: 'replaced', clear: true }));
   });
 
+  h.test('stopping real browser typing releases the key and prevents later characters or Enter', async () => {
+    const controller = new AbortController();
+    const previousValue = await pageA.cdp.evaluate("document.querySelector('#input').value");
+    await pageA.cdp.evaluate(`(()=>{
+      const input=document.querySelector('#input');input.value='';
+      window.__inputCancellation={keys:[],listener:new AbortController()};
+      const options={signal:window.__inputCancellation.listener.signal};
+      input.addEventListener('keydown',event=>window.__inputCancellation.keys.push('down:'+event.key),options);
+      input.addEventListener('keyup',event=>window.__inputCancellation.keys.push('up:'+event.key),options);
+      input.addEventListener('input',()=>console.log('fixture-input-cancellation'),options);
+    })()`);
+    const stop = pageA.cdp.onEvent((method, params) => {
+      if (method === 'Runtime.consoleAPICalled' && object((params.args as Json[] | undefined)?.[0]).value === 'fixture-input-cancellation') controller.abort();
+    });
+    try {
+      const answer = await operations.execute('A', 'type', { selector: '#input', text: 'abc', delayMs: 200, pressEnter: true }, controller.signal);
+      assertEqual(object(answer.error).code, 'cancelled', 'the task reports cancellation');
+      await waitFor(async () => Boolean(await pageA.cdp.evaluate("window.__inputCancellation.keys.includes('up:a')")), 3000, 'the real page receives key release');
+      const observed = object(await pageA.cdp.evaluate("({value:document.querySelector('#input').value,keys:window.__inputCancellation.keys})"));
+      assertEqual(observed.value, 'a', 'typing stops after the first delivered character');
+      assertDeepEqual(observed.keys, ['down:a', 'up:a'], 'no later character or Enter reaches the actual page');
+    } finally {
+      stop();
+      await pageA.cdp.evaluate(`window.__inputCancellation.listener.abort();delete window.__inputCancellation;document.querySelector('#input').value=${JSON.stringify(previousValue)}`);
+    }
+  });
+
   h.test('browser computer scroll reaches an inner document without a coordinate', async () => {
     await pageA.cdp.evaluate("(()=>{const box=document.createElement('div');box.id='scroll-box';box.style.cssText='position:fixed;left:20%;top:10%;width:60%;height:300px;overflow:auto;z-index:10;background:white';box.innerHTML='<div style=\"height:1600px\">Scrollable document</div>';document.body.append(box);return true})()");
     try {

@@ -214,7 +214,7 @@ export class BrowserOperations {
     }
     if (EXTERNAL_ONLY_OPERATIONS.has(kind) || kind === 'tabs' && fields.action === 'user') throw new BrowserError('unavailable', `${kind === 'tabs' ? 'User tabs' : kind} requires a connected external browser. Call list_connected_browsers, then select_browser with its browserId before using this operation.`);
     if (!DESCRIPTIONS[kind]) throw new BrowserError('unavailable', `Browser operation '${kind}' is not implemented in the Electron host yet.`);
-    if(kind==='wait_for'&&fields.ms!==undefined)return this.answer(sessionId,{value:await waitForPage(undefined,fields)});
+    if(kind==='wait_for'&&fields.ms!==undefined)return this.answer(sessionId,{value:await waitForPage(undefined,fields,signal)});
     if(kind==='tabs'&&fields.action==='name_session')throw new BrowserError('unavailable','Naming a task tab group is available only for a connected external Chrome browser.');
 
     const handle = fields.tabId === undefined ? undefined : typeof fields.tabId === 'number' ? fields.tabId : Number(fields.tabId);

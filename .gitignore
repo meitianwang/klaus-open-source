@@ -10,6 +10,7 @@ Thumbs.db
 /resources/recording/
 /resources/pip/
 /resources/computer-use/
+/resources/browser-import/
 /release/
 __pycache__/
 *.pyc

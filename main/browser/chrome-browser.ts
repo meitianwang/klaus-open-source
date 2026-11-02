@@ -228,7 +228,7 @@ export class ChromeBrowserService {
     if (handle !== undefined && (!Number.isSafeInteger(handle) || handle < 0)) { this.turns.delete(turnId); throw new BrowserError('invalid_request', 'tabId must be a numeric Chrome tab handle.'); }
     const answer = (response: BrowserObject, page?: ChromePageDebugger, screenshot?: BrowserObject): Promise<BrowserObject> => this.answer(connection, sessionId, turnId, response, page, screenshot);
     try {
-      if(kind==='wait_for'&&fields.ms!==undefined)return await answer({value:await waitForPage(undefined,fields)});
+      if(kind==='wait_for'&&fields.ms!==undefined)return await answer({value:await waitForPage(undefined,fields,signal)});
       if (kind === 'batch') return await answer(batchResponse(await runBatch(fields, (operation, step) => {
         if (generation !== (this.generations.get(sessionId) ?? 0)) throw new BrowserError('unavailable', 'The Chrome task capability was released.');
         return this.execute(sessionId, browserId, operation, step, target, signal);
