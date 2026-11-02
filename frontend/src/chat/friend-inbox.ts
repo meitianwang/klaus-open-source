@@ -82,15 +82,33 @@ export function friendTaskById(taskId: string): FriendTaskSummary | null {
   return snapshot?.tasks.find(task => task.id === taskId) ?? null
 }
 
-/** The request still awaiting this conversation's owner, if any. */
-export function pendingFriendTaskForSession(sessionId: string): FriendTaskSummary | null {
-  if (!sessionId || !snapshot) return null
-  return snapshot.tasks.find(task => task.threadId === sessionId && task.status === 'pending') ?? null
+/** Approval is a one-time, conversation-level decision. The persisted inbox
+ *  grant is the durable evidence: a request that failed before approval has no
+ *  grant and must still show the first approval card. A later completed,
+ *  running, failed or cancelled task that carries an approved grant keeps the
+ *  conversation admitted. Owner-chat requests are never task approvals. */
+export function friendConversationAdmitted(sessionId: string): boolean {
+  if (!sessionId || !snapshot) return false
+  return snapshot.tasks.some(task => task.threadId === sessionId && !task.ownerChatThreadId && task.grant != null)
 }
 
+/** The earliest pending request still awaiting approval for this conversation.
+ *  Returns nothing once the conversation has been admitted, because subsequent
+ *  requests in the same conversation are handled directly. */
+export function pendingFriendTaskForSession(sessionId: string): FriendTaskSummary | null {
+  if (!sessionId || !snapshot) return null
+  if (friendConversationAdmitted(sessionId)) return null
+  const rows = snapshot.tasks.filter(task => task.threadId === sessionId && task.status === 'pending' && !task.ownerChatThreadId)
+  rows.sort((a, b) => a.createdAt - b.createdAt)
+  return rows[0] ?? null
+}
+
+/** The pending request identified by requestId, but only when it is the single
+ *  representative pending request for its conversation. This keeps every
+ *  request-specific approval card identical to the conversation-level one. */
 export function pendingFriendTaskByRequest(sessionId: string, requestId: string): FriendTaskSummary | null {
-  if (!sessionId || !requestId || !snapshot) return null
-  return snapshot.tasks.find(task => task.threadId === sessionId && task.requestId === requestId && task.status === 'pending') ?? null
+  const representative = pendingFriendTaskForSession(sessionId)
+  return representative?.requestId === requestId ? representative : null
 }
 
 /** A pending request that arrived in one of the owner's ordinary conversations. */

@@ -1,8 +1,9 @@
 // A friend request waits for its decision inside the conversation it arrived
-// in. The card offers the one-click approval (the friend's saved permission on
-// this computer, or the account default when the friend has none), a decline,
-// and a look at the scope the approval would run. A decided request leaves a
-// quiet status line in the same conversation.
+// in. The first request in a friend conversation asks once for the whole
+// conversation; later requests reuse that admission. The card offers the
+// one-click approval (the friend's saved permission on this computer, or the
+// account default when the friend has none), a decline, and a look at the
+// scope the approval would run. A decided request leaves a quiet status line.
 import { useState, useSyncExternalStore } from 'react'
 import { useT } from '../../i18n'
 import { Icon } from '../../components/Icon'
@@ -82,19 +83,15 @@ export function FriendTaskApproval({ sessionId, requestId, skipPending }: {
 
 /**
  * A request that arrived in one of the owner's ordinary conversations is not a
- * friend task: nothing runs it automatically, because that conversation holds
- * the owner's private history. The card has the same anatomy as the task
- * approval and offers the three ways to answer it: hand it to Klaus (which asks
- * before replying), write the result yourself, or decline. A decided request
- * leaves a quiet status line under the message.
+ * separate friend task. It runs under that conversation's existing permissions
+ * without an admission card. Normal message reply actions remain available;
+ * this row reports whether it is queued or already handed to Klaus.
  */
-export function FriendOwnerChatRequest({ requestId, friendId, friendName, messageId }: {
-  requestId: string; friendId: string; friendName: string; messageId: string
+export function FriendOwnerChatRequest({ requestId, friendName }: {
+  requestId: string; friendId?: string; friendName: string; messageId?: string
 }) {
   const t = useT()
   useSyncExternalStore(subscribeFriendInbox, friendInboxRevision, friendInboxRevision)
-  const [busy, setBusy] = useState<'handoff' | 'decline' | ''>('')
-  const [error, setError] = useState('')
   const task = ownerChatTask(requestId)
   if (!task) return null
   if (task.status !== 'pending') {
@@ -102,32 +99,8 @@ export function FriendOwnerChatRequest({ requestId, friendId, friendName, messag
       : task.status === 'rejected' ? 'friend_approval_rejected' : task.status === 'cancelled' ? 'friend_approval_cancelled' : 'friend_approval_ignored'
     return <div className={styles['friend-approval-settled']} data-friend-settled={task.id}><span>{t(key).replace('{name}', friendName)}</span></div>
   }
-  const act = async (kind: 'handoff' | 'decline') => {
-    if (busy) return
-    setBusy(kind); setError('')
-    try {
-      if (kind === 'handoff') await window.klaus.friends.requestReply({ taskId: task.id })
-      else await window.klaus.friends.reject({ taskId: task.id })
-      await refreshFriendInbox()
-    } catch (failure) {
-      setError(t(kind === 'handoff' ? 'chat_friend_owner_request_handoff_failed' : 'chat_friend_owner_request_failed') + t(failureText(failure)))
-    } finally { setBusy('') }
-  }
   const handedOff = typeof task.ownerHandoffAt === 'number'
-  return <div className={styles['friend-approval']} data-friend-owner-request={task.id}>
-    <div className={styles['friend-approval-title']}><Icon name="friend-request" size={15} />{t('chat_friend_owner_request').replace('{name}', friendName)}</div>
-    <p className={styles['friend-approval-location']}>{t('chat_friend_owner_request_location')}</p>
-    <p className={styles['friend-approval-hint']}>{t(handedOff ? 'chat_friend_owner_request_hint_handed_off' : 'chat_friend_owner_request_hint').replace(/\{name\}/g, friendName)}</p>
-    <div className={styles['friend-approval-btns']}>
-      <button type="button" className="kls-btn kls-btn-primary" data-friend-owner-action="handoff" disabled={busy !== ''}
-        onClick={() => void act('handoff')}>{t(busy === 'handoff' ? 'chat_friend_owner_request_handing_off' : handedOff ? 'chat_friend_owner_request_handoff_again' : 'chat_friend_owner_request_handoff')}</button>
-      {/* Writing the result yourself goes through the composer, with the request bound to it. */}
-      <button type="button" className="kls-btn kls-btn-secondary" data-friend-compose-action="answer" disabled={busy !== ''}
-        data-friend-id={friendId} data-friend-name={friendName} data-friend-message-id={messageId} data-friend-question-id=""
-        data-friend-request-id={requestId} data-friend-text="">{t('chat_friend_owner_request_answer')}</button>
-      <button type="button" className="kls-btn kls-btn-secondary" data-friend-owner-action="decline" disabled={busy !== ''}
-        onClick={() => void act('decline')}>{t('chat_friend_owner_request_decline')}</button>
-    </div>
-    {error && <p className={styles['friend-approval-error']} role="alert">{error}</p>}
+  return <div className={styles['friend-approval-settled']} data-friend-owner-request={task.id}>
+    <span>{t(handedOff ? 'chat_friend_owner_request_handed_off' : 'chat_friend_owner_request_waiting').replace(/\{name\}/g, friendName)}</span>
   </div>
 }

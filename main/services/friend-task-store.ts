@@ -2,6 +2,8 @@ import { randomUUID } from 'node:crypto';
 import type { FriendMessage, FriendTaskGrant, FriendTaskSummary, FriendGrantTemplate, FriendOutgoingSummary, FriendOutgoingStatus } from '../../shared/friends';
 import { withSettingsDb, withSettingsTransaction } from './settings';
 import { IpcHandlerError } from '../ipc/registry';
+import type { DatabaseSync } from 'node:sqlite';
+import { approveFriendConversationIn } from './friend-session-scope';
 
 export interface StoredFriendTask extends FriendTaskSummary {
   accountId: string; fingerprint: string; message: FriendMessage;
@@ -88,8 +90,8 @@ export class FriendTaskStore {
       const rows = db.prepare("SELECT record_json FROM friend_task_inbox WHERE status IN ('starting','running')").all();
       for (const row of rows) {
         const task = decode<StoredFriendTask>(row)!;
-        task.status = 'failed'; task.errorCode = 'FRIEND_TASK_RESTARTED'; task.error = 'The desktop restarted before this task finished. Start a new attempt from the friends page to continue.'; task.updatedAt = Date.now();
-        task.replyText = 'The receiving desktop restarted before this task finished. The receiving user can start a new attempt from the friends page.';
+        task.status = 'failed'; task.errorCode = 'FRIEND_TASK_RESTARTED'; task.error = 'The desktop restarted before this request finished. Continue in its conversation when ready.'; task.updatedAt = Date.now();
+        task.replyText = 'The receiving desktop restarted before this request finished. Its owner can continue in the conversation.';
         task.replyRequestId = randomUUID(); task.replyError = 'Resend this status after reconnecting.';
         db.prepare('UPDATE friend_task_inbox SET status=?,record_json=? WHERE id=?').run(task.status, JSON.stringify(task), task.id);
       }
@@ -124,15 +126,26 @@ export class FriendTaskStore {
     });
   }
   update(accountId: string, taskId: string, allowed: readonly FriendTaskSummary['status'][], change: Partial<StoredFriendTask>, outgoing?:Record<string,unknown>): StoredFriendTask {
+    return withSettingsTransaction(this.root, db => this.updateIn(db, accountId, taskId, allowed, change, outgoing));
+  }
+  /** The request transition and persistent admission either both commit or neither does. */
+  approveConversation(accountId: string, taskId: string, allowed: readonly FriendTaskSummary['status'][], change: Partial<StoredFriendTask> & { grant: FriendTaskGrant }): StoredFriendTask {
     return withSettingsTransaction(this.root, db => {
-      const task = decode<StoredFriendTask>(db.prepare('SELECT record_json FROM friend_task_inbox WHERE account_id=? AND id=?').get(accountId, taskId));
-      if (!task) throw new IpcHandlerError('FRIEND_TASK_UNAVAILABLE', 'This friend task is unavailable');
-      if (!allowed.includes(task.status)) throw new IpcHandlerError('FRIEND_TASK_CHANGED', 'This task has changed; refresh its current state');
-      const updated = { ...task, ...change, id: task.id, accountId: task.accountId, friendId: task.friendId, requestId: task.requestId, updatedAt: Date.now() };
-      db.prepare('UPDATE friend_task_inbox SET status=?,record_json=? WHERE account_id=? AND id=?').run(updated.status, JSON.stringify(updated), accountId, taskId);
-      if(outgoing)db.prepare('INSERT OR IGNORE INTO friend_send_outbox VALUES (?,?,?,?)').run(accountId,String(outgoing.requestId),'pending',JSON.stringify(outgoing));
+      const updated = this.updateIn(db, accountId, taskId, allowed, change);
+      if (updated.threadId) approveFriendConversationIn(db, updated.threadId, {
+        accountId, friendshipId: updated.friendId, friendUserId: updated.senderUserId, taskId, grant: change.grant,
+      });
       return updated;
     });
+  }
+  private updateIn(db: DatabaseSync, accountId: string, taskId: string, allowed: readonly FriendTaskSummary['status'][], change: Partial<StoredFriendTask>, outgoing?: Record<string, unknown>): StoredFriendTask {
+    const task = decode<StoredFriendTask>(db.prepare('SELECT record_json FROM friend_task_inbox WHERE account_id=? AND id=?').get(accountId, taskId));
+    if (!task) throw new IpcHandlerError('FRIEND_TASK_UNAVAILABLE', 'This friend task is unavailable');
+    if (!allowed.includes(task.status)) throw new IpcHandlerError('FRIEND_TASK_CHANGED', 'This task has changed; refresh its current state');
+    const updated = { ...task, ...change, id: task.id, accountId: task.accountId, friendId: task.friendId, requestId: task.requestId, updatedAt: Date.now() };
+    db.prepare('UPDATE friend_task_inbox SET status=?,record_json=? WHERE account_id=? AND id=?').run(updated.status, JSON.stringify(updated), accountId, taskId);
+    if(outgoing)db.prepare('INSERT OR IGNORE INTO friend_send_outbox VALUES (?,?,?,?)').run(accountId,String(outgoing.requestId),'pending',JSON.stringify(outgoing));
+    return updated;
   }
   enqueueSupplement(accountId:string,taskId:string,message:FriendMessage,fingerprint:string):StoredFriendTask{
     return withSettingsTransaction(this.root,db=>{
@@ -228,7 +241,7 @@ export class FriendTaskStore {
         .run(accountId,message.friendshipId,message.replyToRequestId!,message.senderUserId,message.senderDeviceId,message.sourceThreadId);
       let cancelled=task,changed=false;
       if(task&&['pending','starting','running','needs-input'].includes(task.status)){
-        cancelled={...task,status:'cancelled',updatedAt:Date.now(),replyText:'The requesting user cancelled this task and revoked its resource authorization.',replyRequestId:randomUUID(),replyError:'Pending durable delivery.'};
+        cancelled={...task,status:'cancelled',updatedAt:Date.now(),replyText:'The requesting user cancelled this request.',replyRequestId:randomUUID(),replyError:'Pending durable delivery.'};
         db.prepare('UPDATE friend_task_inbox SET status=?,record_json=? WHERE account_id=? AND id=?').run(cancelled.status,JSON.stringify(cancelled),accountId,task.id);
         changed=true;
       }

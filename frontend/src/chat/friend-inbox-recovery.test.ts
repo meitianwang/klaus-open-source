@@ -113,4 +113,32 @@ describe('friend requests stay reachable after an arrival notice is missed', () 
     expect(inbox.pendingFriendTaskForSession('parked-chat')?.status).toBe('pending')
     unsubscribe()
   })
+
+  test('a conversation asks once and an admitted conversation never asks again', async () => {
+    const grant = { deviceId: 'receiver', mode: 'manual' as const, computerUse: false, apps: [], directories: [], remember: false, network: false }
+    const tasks = [
+      { id: 'later', requestId: 'later', friendId: 'friend-a', senderUserId: 'peer', senderDisplayName: 'Friend A', threadId: 'pending-chat', status: 'pending', prompt: 'later', createdAt: 20, updatedAt: 20 },
+      { id: 'earlier', requestId: 'earlier', friendId: 'friend-a', senderUserId: 'peer', senderDisplayName: 'Friend A', threadId: 'pending-chat', status: 'pending', prompt: 'earlier', createdAt: 10, updatedAt: 10 },
+      { id: 'completed', requestId: 'completed', friendId: 'friend-a', senderUserId: 'peer', senderDisplayName: 'Friend A', threadId: 'admitted-chat', status: 'completed', replied: true, grant, prompt: 'done', createdAt: 5, updatedAt: 6 },
+      { id: 'new-pending', requestId: 'new-pending', friendId: 'friend-a', senderUserId: 'peer', senderDisplayName: 'Friend A', threadId: 'admitted-chat', status: 'pending', prompt: 'next', createdAt: 30, updatedAt: 30 },
+      { id: 'failed-without-grant', requestId: 'failed-without-grant', friendId: 'friend-a', senderUserId: 'peer', senderDisplayName: 'Friend A', threadId: 'unapproved-chat', status: 'failed', prompt: 'setup failed', createdAt: 1, updatedAt: 2 },
+      { id: 'pending-after-failure', requestId: 'pending-after-failure', friendId: 'friend-a', senderUserId: 'peer', senderDisplayName: 'Friend A', threadId: 'unapproved-chat', status: 'pending', prompt: 'first real request', createdAt: 3, updatedAt: 3 },
+      { id: 'failed-with-grant', requestId: 'failed-with-grant', friendId: 'friend-a', senderUserId: 'peer', senderDisplayName: 'Friend A', threadId: 'failed-admitted-chat', status: 'failed', grant, prompt: 'approved failure', createdAt: 4, updatedAt: 4 },
+      { id: 'cancelled-with-grant', requestId: 'cancelled-with-grant', friendId: 'friend-a', senderUserId: 'peer', senderDisplayName: 'Friend A', threadId: 'cancelled-admitted-chat', status: 'cancelled', grant, prompt: 'approved cancellation', createdAt: 5, updatedAt: 5 },
+    ]
+    const { inbox } = inboxFixture(async () => ({
+      signedIn: true, currentDeviceId: 'receiver', tasks, templates: [], outgoing: [], defaultGrant: null,
+    }) as unknown as FriendsRuntimeSnapshot)
+    inbox.wireFriendInbox()
+    await flush()
+    expect(inbox.pendingFriendTaskForSession('pending-chat')?.id).toBe('earlier')
+    expect(inbox.pendingFriendTaskByRequest('pending-chat', 'later')).toBeNull()
+    expect(inbox.pendingFriendTaskByRequest('pending-chat', 'earlier')?.id).toBe('earlier')
+    expect(inbox.friendConversationAdmitted('admitted-chat')).toBe(true)
+    expect(inbox.pendingFriendTaskForSession('admitted-chat')).toBeNull()
+    expect(inbox.friendConversationAdmitted('unapproved-chat')).toBe(false)
+    expect(inbox.pendingFriendTaskForSession('unapproved-chat')?.id).toBe('pending-after-failure')
+    expect(inbox.friendConversationAdmitted('failed-admitted-chat')).toBe(true)
+    expect(inbox.friendConversationAdmitted('cancelled-admitted-chat')).toBe(true)
+  })
 })

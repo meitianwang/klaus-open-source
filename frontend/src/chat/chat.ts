@@ -4243,7 +4243,8 @@ function friendRowsForSidebar() {
  *  parked request conversation counts once, through its request, so approving
  *  or rejecting clears the number without touching the unread ledger. */
 function friendGroupAttentionCount(friendshipId: string): number {
-  const pending = (friendInboxSnapshot()?.tasks || []).filter(task => task.friendId === friendshipId && task.status === 'pending')
+  const pending = (friendInboxSnapshot()?.tasks || []).filter(task => task.friendId === friendshipId && task.status === 'pending' && !task.ownerChatThreadId
+    && (!task.threadId || pendingFriendTaskForSession(task.threadId)?.id === task.id))
   const parked = new Set(pending.map(task => task.threadId).filter((thread): thread is string => !!thread))
   const unread = friendConversationSessions(friendshipId).filter(session => !parked.has(session.id) && sharedFriendUnread().countOf(session.id) > 0)
   return pending.length + unread.length

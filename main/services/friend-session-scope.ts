@@ -9,6 +9,10 @@ export interface FriendSessionScope {
   accountId: string; friendshipId: string; friendUserId: string;
   taskId?: string; grant?: FriendTaskGrant; active?: boolean;
 }
+const ADMISSION_DDL = `CREATE TABLE IF NOT EXISTS friend_conversation_admissions (
+ thread_id TEXT PRIMARY KEY, account_id TEXT NOT NULL, friendship_id TEXT NOT NULL,
+ friend_user_id TEXT NOT NULL, grant_json TEXT
+)`;
 const DDL = `CREATE TABLE IF NOT EXISTS friend_agent_sessions (
   thread_id TEXT PRIMARY KEY, account_id TEXT NOT NULL,
   friendship_id TEXT NOT NULL, friend_user_id TEXT NOT NULL,
@@ -19,6 +23,67 @@ const TASK_DDL = `CREATE TABLE IF NOT EXISTS friend_task_session_scopes (
  friend_user_id TEXT NOT NULL, task_id TEXT NOT NULL, grant_json TEXT NOT NULL,
  active INTEGER NOT NULL DEFAULT 0
 )`;
+
+/** Admission belongs to the conversation; active only identifies its current request. */
+function saveAdmission(db: DatabaseSync, threadId: string, scope: FriendSessionScope): void {
+  db.exec(ADMISSION_DDL);
+  const previous = db.prepare('SELECT account_id,friendship_id,friend_user_id FROM friend_conversation_admissions WHERE thread_id=?').get(threadId) as {
+    account_id: string; friendship_id: string; friend_user_id: string;
+  } | undefined;
+  if (previous && (previous.account_id !== scope.accountId || previous.friendship_id !== scope.friendshipId || previous.friend_user_id !== scope.friendUserId)) {
+    throw new Error('The conversation admission belongs to another friendship');
+  }
+  db.prepare('INSERT INTO friend_conversation_admissions VALUES (?,?,?,?,?) ON CONFLICT(thread_id) DO UPDATE SET grant_json=excluded.grant_json')
+    .run(threadId, scope.accountId, scope.friendshipId, scope.friendUserId, JSON.stringify(scope.grant));
+}
+
+/** An earlier approved request also admits existing conversations after an upgrade. */
+export function friendConversationGrant(root: string, threadId: string, identity: Pick<FriendSessionScope, 'accountId' | 'friendshipId' | 'friendUserId'>): FriendTaskGrant | undefined {
+  return withSettingsTransaction(root, db => {
+    db.exec(ADMISSION_DDL);
+    const saved = db.prepare('SELECT * FROM friend_conversation_admissions WHERE thread_id=?').get(threadId) as {
+      account_id: string; friendship_id: string; friend_user_id: string; grant_json: string | null;
+    } | undefined;
+    if (saved) return saved.account_id === identity.accountId && saved.friendship_id === identity.friendshipId && saved.friend_user_id === identity.friendUserId
+      && saved.grant_json ? JSON.parse(saved.grant_json) as FriendTaskGrant : undefined;
+    if (!db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='friend_task_inbox'").get()) return undefined;
+    const rows = db.prepare("SELECT record_json FROM friend_task_inbox WHERE account_id=? AND friendship_id=? AND json_extract(record_json,'$.threadId')=? AND json_extract(record_json,'$.ownerChatThreadId') IS NULL AND json_type(record_json,'$.grant')='object' ORDER BY json_extract(record_json,'$.createdAt') DESC")
+      .all(identity.accountId, identity.friendshipId, threadId) as Array<{ record_json: string }>;
+    const approved = rows.map(row => JSON.parse(row.record_json) as { senderUserId: string; grant: FriendTaskGrant })
+      .find(row => row.senderUserId === identity.friendUserId);
+    if (!approved) return undefined;
+    saveAdmission(db, threadId, { ...identity, grant: approved.grant });
+    return approved.grant;
+  });
+}
+
+/** A declined first admission stays declined without another decision card. */
+export function friendConversationDeclined(root: string, threadId: string, identity: Pick<FriendSessionScope, 'accountId' | 'friendshipId' | 'friendUserId'>): boolean {
+  return withSettingsDb(root, db => {
+    db.exec(ADMISSION_DDL);
+    return !!db.prepare('SELECT 1 FROM friend_conversation_admissions WHERE thread_id=? AND account_id=? AND friendship_id=? AND friend_user_id=? AND grant_json IS NULL')
+      .get(threadId, identity.accountId, identity.friendshipId, identity.friendUserId);
+  });
+}
+
+export function declineFriendConversation(root: string, threadId: string, identity: Pick<FriendSessionScope, 'accountId' | 'friendshipId' | 'friendUserId'>): void {
+  withSettingsTransaction(root, db => {
+    db.exec(ADMISSION_DDL);
+    db.prepare('INSERT OR IGNORE INTO friend_conversation_admissions VALUES (?,?,?,?,NULL)')
+      .run(threadId, identity.accountId, identity.friendshipId, identity.friendUserId);
+  });
+}
+
+/** Persist the owner's first approval before a queued request gets its turn. */
+export function approveFriendConversationIn(db: DatabaseSync, threadId: string, scope: FriendSessionScope): void {
+  const row = db.prepare('SELECT record_json FROM friend_task_inbox WHERE id=? AND account_id=?').get(scope.taskId!, scope.accountId) as { record_json: string } | undefined;
+  const approved = row ? JSON.parse(row.record_json) as { status: string; friendId: string; senderUserId: string; threadId: string; grant: FriendTaskGrant | null; ownerChatThreadId?: string } : undefined;
+  if (!approved || approved.ownerChatThreadId || !['starting', 'running'].includes(approved.status) || approved.threadId !== threadId || approved.friendId !== scope.friendshipId
+    || approved.senderUserId !== scope.friendUserId || !approved.grant || JSON.stringify(approved.grant) !== JSON.stringify(scope.grant)) {
+    throw new Error('The conversation admission requires an approved request');
+  }
+  saveAdmission(db, threadId, scope);
+}
 
 /** A host-owned scope survives session eviction, account changes and app restart. */
 export function bindFriendSession(root: string, threadId: string, scope: FriendSessionScope): void {
@@ -38,6 +103,7 @@ export function bindFriendSession(root: string, threadId: string, scope: FriendS
       // for that conversation is replaced by each new approved task rather than colliding.
       db.prepare('INSERT INTO friend_task_session_scopes VALUES (?,?,?,?,?,?,?) ON CONFLICT(thread_id) DO UPDATE SET account_id=excluded.account_id, friendship_id=excluded.friendship_id, friend_user_id=excluded.friend_user_id, task_id=excluded.task_id, grant_json=excluded.grant_json, active=excluded.active')
         .run(threadId, scope.accountId, scope.friendshipId, scope.friendUserId, scope.taskId, JSON.stringify(scope.grant), scope.active === true ? 1 : 0);
+      if (scope.active === true) saveAdmission(db, threadId, scope);
       return;
     }
     db.exec(DDL);
@@ -61,7 +127,7 @@ export function friendSessionScope(root: string, threadId: string): FriendSessio
     }
     const inbox = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='friend_task_inbox'").get();
     if (inbox) {
-      const row = db.prepare("SELECT record_json FROM friend_task_inbox WHERE json_extract(record_json,'$.threadId')=? LIMIT 1").get(threadId) as { record_json: string } | undefined;
+      const row = db.prepare("SELECT record_json FROM friend_task_inbox WHERE json_extract(record_json,'$.threadId')=? AND json_extract(record_json,'$.ownerChatThreadId') IS NULL LIMIT 1").get(threadId) as { record_json: string } | undefined;
       if (row) {
         const known = JSON.parse(row.record_json) as { accountId: string; friendId: string; senderUserId: string; id: string };
         return { accountId: known.accountId, friendshipId: known.friendId, friendUserId: known.senderUserId, taskId: known.id, active: false };
@@ -109,9 +175,10 @@ export function friendSessionScopes(db: DatabaseSync, threadIds: readonly string
 
 export function forgetFriendSession(root: string, threadId: string): void {
   withSettingsTransaction(root, db => {
-    db.exec(DDL); db.exec(TASK_DDL);
+    db.exec(DDL); db.exec(TASK_DDL); db.exec(ADMISSION_DDL);
     db.prepare('DELETE FROM friend_agent_sessions WHERE thread_id=?').run(threadId);
     db.prepare('DELETE FROM friend_task_session_scopes WHERE thread_id=?').run(threadId);
+    db.prepare('DELETE FROM friend_conversation_admissions WHERE thread_id=?').run(threadId);
     forgetFriendConversationGroupIn(db, threadId);
   });
 }

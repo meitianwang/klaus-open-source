@@ -85,7 +85,7 @@ import { ClientFollowUpQueue } from '../main/sessions/client-queue';
 import { SessionQueue } from '../main/sessions/queue';
 import { AgentTaskTracker } from '../main/sessions/agent-tasks';
 import { DesktopNotifications, type DesktopNotice } from '../main/services/notifications';
-import { friendSessionScope } from '../main/services/friend-session-scope';
+import { deactivateFriendSession, friendConversationGrant, friendSessionScope } from '../main/services/friend-session-scope';
 import { FriendMessageStore } from '../main/services/friend-message-store';
 import type { FriendExecutionPreset, FriendTaskGrant, FriendMessage } from '../shared/friends';
 
@@ -6334,6 +6334,41 @@ h.test('a claimed friend scope cannot start without a matching persisted active 
     f.store.update('wire-owner', f.taskId, ['starting'], { status: 'pending' });
     await assertRejects(() => service.newSession({ friendScope: f.friendScope }), 'The task field does not substitute for an owner approval');
     assertEqual(client.sent('session/start').length, 0, 'No engine start bypasses the inbox approval');
+  } finally { await service.shutdown(); }
+});
+
+h.test('owner sends and mid-turn follow-ups work before friend approval while hosted friend execution still waits', async () => {
+  const f = approvedFriendWireFixture(), client = new FakeClient().reply('session/start', { sessionId: 'parked-owner-live' })
+    .replySubmit('start-if-idle', 'owner-first').replySubmit('steer');
+  const { service, state } = serviceWith(client, f.root);
+  try {
+    f.store.update('wire-owner', f.taskId, ['starting'], { status: 'pending', grant: undefined });
+    const row = await service.newSession({ friendScope: { ...f.friendScope, active: false } }) as Record<string, Json>;
+    const id = String(row.id);
+    assertEqual(friendConversationGrant(f.root, id, f.friendScope), undefined, 'a parked scope is not approval');
+    await service.send(id, { text: 'My own question in this conversation' });
+    assertEqual(client.sent('turn/submit').length, 1, 'owner input starts normally before a friend is admitted');
+    const steered = await service.followUp(id, { text: 'My additional instruction' }) as Record<string, Json>;
+    assertEqual(steered.ok, true, 'owner follow-ups use ordinary turn permissions');
+    assertEqual(client.sent('turn/submit').length, 2, 'the owner follow-up reaches the engine');
+    assertEqual(friendConversationGrant(f.root, id, f.friendScope), undefined, 'owner input never approves inbound friend execution');
+    state.clearTurnRunning(id);
+    await assertRejects(() => service.sendAndWait(id, { text: 'An unapproved friend request', displayMetadata: { externalFriendMessage: true } }), 'hosted friend execution still needs the first approval');
+    assertEqual(client.sent('turn/submit').length, 2, 'no unapproved inbound request reaches inference');
+  } finally { await service.shutdown(); }
+});
+h.test('a completed friend request cannot prevent its owner from starting the next turn', async () => {
+  const f = approvedFriendWireFixture(), client = new FakeClient().reply('session/start', { sessionId: 'completed-owner-live' })
+    .replySubmit('start-if-idle', 'owner-next');
+  const { service } = serviceWith(client, f.root);
+  try {
+    const row = await service.newSession({ friendScope: f.friendScope }) as Record<string, Json>, id = String(row.id);
+    f.store.update('wire-owner', f.taskId, ['starting'], { status: 'completed', threadId: id });
+    deactivateFriendSession(f.root, id);
+    assertEqual(friendSessionScope(f.root, id)!.active, false, 'the previous request has ended');
+    assert(friendConversationGrant(f.root, id, f.friendScope), 'conversation approval remains durable');
+    await service.send(id, { text: 'Ask my friend what they did today' });
+    assertEqual(client.sent('turn/submit').length, 1, 'the owner can continue after request completion');
   } finally { await service.shutdown(); }
 });
 

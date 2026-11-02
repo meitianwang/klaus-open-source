@@ -27,7 +27,7 @@ import { recoveryWait } from './recovery-wait';
 import { queryPrediction } from './prediction-query';
 import { initialDelegationMetadata } from '../../contracts/thread-delegation';
 import type { PredictionContext } from '../services/composer-predictions';
-import { friendPolicySeed, bindFriendSession, deactivateFriendSession, friendSessionScope, friendSessionScopes, type FriendSessionScope } from '../services/friend-session-scope';
+import { friendPolicySeed, friendConversationGrant, bindFriendSession, deactivateFriendSession, friendSessionScope, friendSessionScopes, type FriendSessionScope } from '../services/friend-session-scope';
 import { bindFriendConversationGroup, friendConversationGroups, type FriendConversationGroup } from '../services/friend-conversation-groups';
 import type { FriendContinuationAssociation } from '../services/friend-message-store';
 import { friendFilesRoots } from '../services/friend-directory';
@@ -1849,7 +1849,6 @@ export class SessionService {
 
   private requireTurnAuthorization(rendererId: string): void {
     const scope = friendSessionScope(this.configRoot, rendererId);
-    if (scope && scope.active !== true) throw new IpcHandlerError('FRIEND_TASK_NOT_AUTHORIZED', 'Authorize or restart this task from the Friends page before continuing');
     if (scope && this.deps.friendAccountId && scope.accountId !== this.deps.friendAccountId()) throw new IpcHandlerError('ACCOUNT_CHANGED', 'The friend task belongs to another account');
     this.requireInferenceReady(rendererId);
   }
@@ -4057,7 +4056,7 @@ export class SessionService {
     // the friend verbatim.
     const friendAuthored = object(payload.displayMetadata)?.externalFriendMessage === true
       || typeof object(payload.displayMetadata)?.friendRequestHandoff === 'string';
-    if (!friendSessionScope(this.configRoot, rendererId) && !friendAuthored) {
+    if (!friendAuthored) {
       if (this.deps.extensions) text = await this.deps.extensions.expandSlashCommand(await this.directory(rendererId), text) ?? text;
       text = await this.expandDeviceAddresses(text);
       text = await this.expandConversationReferences(rendererId, text);
@@ -4354,6 +4353,12 @@ export class SessionService {
     await this.refreshEffectiveRuntimePolicy(rendererId, client, engineId);
     admit();
     this.requireTurnAuthorization(rendererId);
+    if (admission) {
+      const scope = friendSessionScope(this.configRoot, rendererId);
+      if (scope && (scope.active !== true || !friendConversationGrant(this.configRoot, rendererId, scope))) {
+        throw new IpcHandlerError('FRIEND_TASK_NOT_AUTHORIZED', 'Approve this conversation before handling a friend request');
+      }
+    }
     this.pendingTurns.start(rendererId);
     this.startingTurns.add(rendererId);
     this.notificationStartingTurns.set(rendererId, { ...(turnId ? { facadeId: turnId } : {}), aliases: new Set(turnId ? [turnId] : []) });
@@ -4726,7 +4731,7 @@ export class SessionService {
       if (typeof payload.queueOwnerId === 'string') input = await this.clientQueue.preparedInput(rendererId, payload.queueOwnerId);
       else {
         const context = this.deps.friendContext ? await this.deps.friendContext(text, object(payload.displayMetadata) ?? {}, rendererId) : '';
-        const expanded = friendSessionScope(this.configRoot, rendererId) ? text : await this.expandBrowserTabReferences(rendererId, text);
+        const expanded = await this.expandBrowserTabReferences(rendererId, text);
         input = await this.materializeMessageInput(rendererId, context ? expanded + '\n\n' + context : expanded, media);
       }
     }

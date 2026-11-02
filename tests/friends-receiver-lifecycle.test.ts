@@ -103,7 +103,7 @@ h.test('a busy paired conversation keeps its running grant and starts the next a
     // The first task is still running when the friend's next request from the same
     // conversation is approved: it parks in the paired conversation and waits.
     const second = await f.service.receive(f.incoming({ requestId: 'second' }), signal());
-    await f.service.approve({ taskId: second.taskId, grant: grantJson });
+    assert.equal(second.awaitingAuthorization, false, 'the conversation is already approved');
     await new Promise(resolve => setTimeout(resolve, 50));
     assert.deepEqual(f.created, ['receiver-1'], 'a busy paired conversation never forks the pair');
     assert.equal(f.turns.length, 1, 'no turn starts while the conversation is busy');
@@ -119,7 +119,7 @@ h.test('a busy paired conversation keeps its running grant and starts the next a
     assert.equal(f.turns[1]!.id, 'receiver-1');
     assert.equal(friendSessionScope(f.root, 'receiver-1')?.taskId, second.taskId);
     assert.equal(friendSessionScope(f.root, 'receiver-1')?.active, true);
-    assert(f.relocated.includes('receiver-1'), 'the approval location is bound before the turn');
+    assert.equal(f.relocated.length, 0, 'subsequent requests preserve the current conversation location');
   } finally { await f.close(); }
 });
 h.test('a paired conversation that is busy when an approval arrives is rebound only once it idles', async () => {
@@ -128,7 +128,7 @@ h.test('a paired conversation that is busy when an approval arrives is rebound o
     // The owner starts a turn in the paired conversation before the next approval.
     f.busy.add('receiver-1');
     const second = await f.service.receive(f.incoming({ requestId: 'second' }), signal());
-    await f.service.approve({ taskId: second.taskId, grant: grantJson });
+    assert.equal(second.awaitingAuthorization, false, 'an owner turn does not reset friend admission');
     await new Promise(resolve => setTimeout(resolve, 50));
     assert.equal(f.turns.length, 1, 'the approved task waits for the conversation');
     assert.equal(friendSessionScope(f.root, 'receiver-1')?.taskId, first.taskId, 'the earlier scope is untouched while waiting');
@@ -147,7 +147,7 @@ h.test('an approved task that loses the admission race waits again in the same c
     // Another turn wins the admission race after the idle check passed.
     f.rejectNextOpen.add('receiver-1');
     const second = await f.service.receive(f.incoming({ requestId: 'second' }), signal());
-    await f.service.approve({ taskId: second.taskId, grant: grantJson });
+    assert.equal(second.awaitingAuthorization, false);
     await waitFor(() => f.turns.length === 2, 3000, 'the task starts once the conversation is free again');
     assert.equal(f.turns[1]!.id, 'receiver-1', 'the pair never forks');
     assert.deepEqual(f.created, ['receiver-1']);
@@ -167,7 +167,7 @@ h.test('an earlier task finishing reply delivery cannot deactivate a newer task 
     await waitFor(()=>f.store.get(OWNER,first.taskId)?.replied===true,1000,'result handed over');
     f.turns[0]!.resolve({reply:'Owner note: first result sent.'});await f.reached(first.taskId,'completed');
     const second=await f.service.receive(f.incoming({requestId:'second'}),signal());
-    await f.service.approve({taskId:second.taskId,grant:grantJson});await f.reached(second.taskId,'running');
+    assert.equal(second.awaitingAuthorization,false);await f.reached(second.taskId,'running');
     await waitFor(()=>f.turns.length===2,3000,'reused turn');
     assert.equal(f.turns[1]!.id,'receiver-1');release();
     await waitFor(()=>(f.service as unknown as {running:Map<string,unknown>}).running.has(first.taskId)===false,1000,'first task cleanup');
