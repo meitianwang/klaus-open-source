@@ -189,7 +189,7 @@ Klaus Cli 在 Windows 上同样可用，装到 `%LOCALAPPDATA%\Klaus\bin`，见 
 - 直接进入：应用启动即进入工作台，不需要登录。所有模型来源（自带订阅、自定义 API Key）都不要求 Klaus 账号。
 - Klaus 账号：用于[好友协作](/docs/desktop/friends)、团队协作、跨设备会话、手机配对与反馈这些需要跨设备身份的功能。在左下角用户菜单里选择「登录」，走浏览器授权后回到应用；未登录时这些功能不可用，其余功能不受影响。
 - 个人资料页：点击侧栏头像打开，展示累计 Token 数、Token 使用峰值、最长任务用时、最长连续天数与当前连续天数五项真实统计，下方是「Token 活动」图，支持每天 / 每周 / 累计总量三种视图；「编辑个人资料」可以修改姓名、用户名并拖动裁剪头像。设置里的「个人资料」页打开的是同一个页面。
-- 第三方订阅登录：如果你已经有 Claude、ChatGPT/Codex、Qoder、千问办公、QoderWork、WorkBuddy、Kimi 的订阅，或百炼 Token Plan、MiniMax M Plan、智谱 Coding Plan、方舟 Coding Plan 的套餐，可以直接把它们接成模型来源，把已付过钱的额度用在 Klaus 里。本机已装过对应官方客户端时，Claude、Codex、Qoder、千问办公、QoderWork 和 WorkBuddy 还可以直接复用本机的登录态，不必重新走一遍登录；Kimi 和几种套餐填控制台的 Key 即可。各来源怎么接入见[模型](/docs/desktop/models)。这些来源的流量和额度仍属于对应服务商账号。
+- 第三方订阅登录：如果你已经有 Claude、ChatGPT/Codex、Cursor、Qoder、千问办公、QoderWork、WorkBuddy、Antigravity、TRAE 国内版、Kiro、Kimi 的订阅，或百炼 Token Plan、MiniMax M Plan、智谱 Coding Plan、方舟 Coding Plan 的套餐，可以直接把它们接成模型来源，把已付过钱的额度用在 Klaus 里。本机已装过对应官方客户端时，Claude、Codex、Cursor、Qoder、千问办公、QoderWork、WorkBuddy、Antigravity、TRAE 和 Kiro 还可以直接复用本机的登录态，不必重新走一遍登录；Kimi 和几种套餐填控制台的 Key 即可。各来源怎么接入见[模型](/docs/desktop/models)。这些来源的流量和额度仍属于对应服务商账号。
 - 这几套登录相互独立：退出 Klaus 账号不会退出 Claude，反之也一样。退出 Klaus 账号只影响上面那些需要账号的功能，不会删除第三方订阅凭据或自定义 API 配置。
 
 凭据只存在本机，也不会交给模型：在对话里问「我的 API Key 是什么」，它只会告诉你配了没配，不会把密钥念出来。
@@ -428,8 +428,12 @@ Klaus 不售卖模型，也不需要会员：所有来源都使用你自己的�
 | --- | --- |
 | Claude Code | 浏览器授权登录，或复用本机 Claude 登录态；可以保存多个账号，见下文 |
 | Codex | 浏览器授权（设备码），或复用本机 Codex 登录态 |
+| Cursor | 浏览器登录（需要本机装有 Cursor），或复用本机 Cursor 登录态；部分模型需要对应的 Max 档位 |
 | Qoder、千问办公、QoderWork | 浏览器授权，或复用本机已登录的官方客户端凭据 |
 | WorkBuddy | 先选「账号版本」（国内版 / 国际版），再浏览器授权登录，或复用本机对应版本已登录的凭证；两种登录都跟随所选版本 |
+| Antigravity | 用个人 Google 账号在浏览器登录，或复用本机 Antigravity 登录态 |
+| TRAE 国内版 | 浏览器登录，或复用本机 TRAE 登录态；只接受国内版账号，额度以可用积分显示 |
+| Kiro | 浏览器登录（Google 或 GitHub），其他登录方式请复用本机 Kiro 登录态 |
 | Kimi | 浏览器授权，或直接填控制台的 API Key |
 | 百炼 Token Plan | 填套餐 Key，选国内站或国际站；另外可以登录百炼控制台，用来显示 Token Plan 额度 |
 | MiniMax M Plan | 填套餐 Key，站点可选自动检测、国内或全球 |
