@@ -6,6 +6,8 @@ import { BrowserManager } from '../main/browser/manager';
 import { BrowserOperations } from '../main/browser/operations';
 import { object, type BrowserObject } from '../main/browser/types';
 import { Harness, assert, assertEqual, assertRejects, waitFor } from './harness';
+import { ChannelRegistry } from '../main/ipc/registry';
+import { registerBrowserHandlers } from '../main/ipc/handlers/browser';
 
 const profile = process.env.KLAUS_BROWSER_AVAILABILITY_PROFILE;
 if (!profile) throw new Error('This fixture requires an isolated KLAUS_BROWSER_AVAILABILITY_PROFILE.');
@@ -18,6 +20,7 @@ async function main(): Promise<number> {
   await app.whenReady();
   const h = new Harness();
   let submitted = false, queuedRequests = 0, resumedRequests = 0;
+  let slowRedirectStarted = 0, lateRedirectHits = 0, manualNavStarted = 0, manualNavCompleted = 0;
   const server = createServer(async (request, response) => {
     if (request.url === '/submit') {
       let body = '';
@@ -30,6 +33,19 @@ async function main(): Promise<number> {
     }
     if (request.url === '/queued') { queuedRequests += 1; response.writeHead(200, { 'Content-Type': 'text/html' }); response.end('queued'); return; }
     if (request.url === '/resumed') { resumedRequests += 1; response.writeHead(200, { 'Content-Type': 'text/html' }); response.end('resumed'); return; }
+    if (request.url === '/slow-redirect') {
+      slowRedirectStarted += 1;
+      await new Promise(resolve => setTimeout(resolve, 800));
+      if (!response.destroyed) { response.writeHead(302, { Location: `${base}/late-target` }); response.end(); }
+      return;
+    }
+    if (request.url === '/late-target') { lateRedirectHits += 1; response.writeHead(200, { 'Content-Type': 'text/html' }); response.end('late'); return; }
+    if (request.url === '/slow-manual-nav') {
+      manualNavStarted += 1;
+      await new Promise(resolve => setTimeout(resolve, 500));
+      if (!response.destroyed) { response.writeHead(200, { 'Content-Type': 'text/html' }); response.end('manual-navigation'); manualNavCompleted += 1; }
+      return;
+    }
     if (request.url === '/slow-manual' || request.url === '/slow-click') {
       const filename = request.url === '/slow-manual' ? 'slow-manual.txt' : 'slow-click.txt';
       response.writeHead(200, { 'Content-Type': 'application/octet-stream', 'Content-Disposition': `attachment; filename="${filename}"` });
@@ -61,6 +77,15 @@ async function main(): Promise<number> {
     emit: () => {},
   });
   const operations = new BrowserOperations(manager);
+  const registry = new ChannelRegistry();
+  registerBrowserHandlers(registry, {
+    manager,
+    setEnabled: async enabled => { agentEnabled = enabled; return { ok: true, settings: { enabled } }; },
+  });
+  const invokeSettings = async (channel: string, value: BrowserObject): Promise<BrowserObject> => {
+    const handler = registry.lookup(channel); assert(handler, `${channel} is registered`);
+    return object(await handler({ role: 'main', senderId: manager.windowId, channel, args: [value] } as never));
+  };
 
   const page = await manager.createTab('manual', `${base}/page`);
   await page.ready;
@@ -170,6 +195,60 @@ async function main(): Promise<number> {
     manager.refreshPermissions();
     await waitFor(() => downloadRow('slow-click.txt')?.state === 'completed', 5000, 'the finished click download was not tied to a later off');
     agentEnabled = true;
+  });
+
+  h.test('an agent slow redirect stops on off while manual navigation continues', async () => {
+    agentEnabled = true;
+    const agentPage = await manager.createTab('manual', `${base}/page`);
+    const manualPage = await manager.createTab('manual', `${base}/page`);
+    await Promise.all([agentPage.ready, manualPage.ready]);
+    const agentNavigation = operations.execute('manual', 'navigate', {
+      tabId: agentPage.handle,
+      url: `${base}/slow-redirect`,
+      timeoutMs: 5000,
+    });
+    await waitFor(() => slowRedirectStarted > 0, 5000, 'agent slow redirect started');
+    const manualNavigation = manager.navigate(manualPage, `${base}/slow-manual-nav`);
+    await waitFor(() => manualNavStarted > 0, 5000, 'manual navigation started');
+    agentEnabled = false;
+    manager.refreshPermissions();
+    const agentResult = await agentNavigation;
+    assertEqual(agentResult.isError, true, 'agent slow navigation stopped');
+    assertEqual(object(agentResult.error).code, 'cancelled', 'agent navigation reports cancellation');
+    await manualNavigation;
+    assertEqual(manualNavCompleted, 1, 'manual navigation was not stopped');
+    await new Promise(resolve => setTimeout(resolve, 400));
+    assertEqual(lateRedirectHits, 0, 'agent redirect did not reach its late target');
+    assert(!String(agentPage.view.webContents.getURL()).endsWith('/late-target'), 'agent page did not advance to the redirect target');
+    assertEqual(manualPage.view.webContents.getURL(), `${base}/slow-manual-nav`, 'manual page reached its destination');
+    agentEnabled = true;
+  });
+
+  h.test('settings set-enabled reconciles when the store has no changed callback', async () => {
+    agentEnabled = true;
+    manager.reconcileAgentEnabled();
+    const oldGeneration = manager.agentControlSignal();
+    await invokeSettings('settings:browser-use:set-enabled', { enabled: false });
+    assert(oldGeneration.aborted, 'the handler aborted the old generation');
+    const newGeneration = manager.agentControlSignal();
+    await invokeSettings('settings:browser-use:set-enabled', { enabled: false });
+    assert(!newGeneration.aborted, 'a repeated unchanged setting did not abort the new generation');
+    agentEnabled = true;
+    manager.reconcileAgentEnabled();
+  });
+
+  h.test('enablement reconcile aborts once and leaves the new generation usable', async () => {
+    agentEnabled = true;
+    manager.reconcileAgentEnabled();
+    const oldGeneration = manager.agentControlSignal();
+    agentEnabled = false;
+    manager.reconcileAgentEnabled();
+    assert(oldGeneration.aborted, 'the old generation was aborted');
+    const newGeneration = manager.agentControlSignal();
+    manager.reconcileAgentEnabled();
+    assert(!newGeneration.aborted, 'an unchanged enabled state does not abort the new generation');
+    agentEnabled = true;
+    manager.reconcileAgentEnabled();
   });
 
   h.test('runtime unavailable disables manual availability and creation', async () => {

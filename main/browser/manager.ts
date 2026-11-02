@@ -99,6 +99,8 @@ export class BrowserManager {
   private readonly activeOperations = new Map<string, { turnId: string; source: string; initiator: string }>();
   private readonly operationSignals = new Map<string, AbortSignal | undefined>();
   private readonly operationControllers = new Map<string, Set<AbortController>>();
+  private readonly navigationSerials = new Map<number, number>();
+  private lastAgentEnabled = true;
   /** Invalidated whenever agent settings change; queued calls retain the old generation. */
   private control = new AbortController();
   private readonly agentVisits = new Map<number, Set<string>>();
@@ -150,6 +152,7 @@ export class BrowserManager {
     this.installNavigationGate();
     this.browserSession.on('will-download', this.onDownload);
     this.bindWindow();
+    this.lastAgentEnabled = this.isEnabled();
   }
 
   private bindWindow(): void {
@@ -263,6 +266,7 @@ export class BrowserManager {
     this.pendingMainFrameAuthorizations.clear();
     for (const cancel of [...this.pendingNavigationCancels]) cancel();
     this.pendingNavigationCancels.clear();
+    this.lastAgentEnabled = this.isEnabled();
   }
 
   private markAgentVisit(page: BrowserPage, url: string): void {
@@ -365,6 +369,22 @@ export class BrowserManager {
   abortAgentOperations(sessionId?: string): void {
     const ids = sessionId === undefined ? [...this.operationControllers.keys()] : [sessionId];
     for (const id of ids) for (const controller of [...(this.operationControllers.get(id) ?? [])]) controller.abort();
+  }
+
+  /** Reconcile an enablement change when the store did not emit its changed callback. */
+  reconcileAgentEnabled(): void {
+    if (this.isEnabled() !== this.lastAgentEnabled) this.refreshPermissions();
+    else this.lastAgentEnabled = this.isEnabled();
+  }
+
+  private beginNavigation(page: BrowserPage): number {
+    const serial = (this.navigationSerials.get(page.handle) ?? 0) + 1;
+    this.navigationSerials.set(page.handle, serial);
+    return serial;
+  }
+
+  private isCurrentNavigation(page: BrowserPage, serial: number): boolean {
+    return this.navigationSerials.get(page.handle) === serial;
   }
 
   private conversation(id: string): Conversation {
@@ -551,7 +571,10 @@ export class BrowserManager {
     if (signal?.aborted) throw new BrowserError('cancelled', 'The browser operation was cancelled.');
     this.requireAvailable(); this.page(page.owner, page.handle);
     page.error = undefined;
-    await navigateForRead(page.cdp, url, fields, signal);
+    const serial = this.beginNavigation(page);
+    await navigateForRead(page.cdp, url, fields, signal, () => {
+      if (this.isCurrentNavigation(page, serial)) void page.cdp.command('Page.stopLoading').catch(() => {});
+    });
     this.publish();
   }
 
@@ -564,6 +587,7 @@ export class BrowserManager {
       if (!(action === 'back' ? history.canGoBack() : history.canGoForward())) throw new BrowserError('not_found', `There is no ${action} history entry.`);
       this.assertNavigation(history.getAllEntries()[history.getActiveIndex() + (action === 'back' ? -1 : 1)]?.url);
     } else this.assertNavigation(contents.getURL());
+    const serial = this.beginNavigation(page);
     await new Promise<void>((resolveDone, reject) => {
       const finish = (error?: Error): void => {
         clearTimeout(timer);
@@ -574,7 +598,10 @@ export class BrowserManager {
       };
       const loaded = (): void => finish();
       const closed = (): void => finish(new BrowserError('stale_tab', 'The page closed while navigating.'));
-      const aborted = (): void => finish(new BrowserError('cancelled', 'The browser operation was cancelled.'));
+      const aborted = (): void => {
+        if (this.isCurrentNavigation(page, serial)) { try { contents.stop(); } catch { /* already closed */ } }
+        finish(new BrowserError('cancelled', 'The browser operation was cancelled.'));
+      };
       const timer = setTimeout(() => finish(new BrowserError('timeout', 'Browser navigation timed out.')), 30_000);
       contents.once('did-stop-loading', loaded);
       contents.once('destroyed', closed);
@@ -730,6 +757,7 @@ export class BrowserManager {
     if (!this.pages.has(page.handle)) return;
     this.dialogs.release(page.contentsId);
     this.downloads.release(page.id);
+    this.navigationSerials.delete(page.handle);
     if (this.shown === page) this.detach();
     if (!this.parking.isDestroyed()) this.parking.contentView.removeChildView(page.view);
     this.pages.delete(page.handle);

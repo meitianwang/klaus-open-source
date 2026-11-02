@@ -144,6 +144,10 @@ export function registerBrowserHandlers(registry: ChannelRegistry, deps: Browser
     if (typeof fields.enabled !== 'boolean') throw new BrowserError('invalid_request', 'enabled must be a boolean.');
     if (!deps.setEnabled) throw new BrowserError('unavailable', 'Browser plugin settings are not connected to the engine yet.');
     const result = await deps.setEnabled(fields.enabled);
+    // Production preference change events refresh permissions; this also covers
+    // hosts whose setEnabled implementation has no changed callback. A repeated
+    // refresh is a no-op when the manager already observed the new generation.
+    manager.reconcileAgentEnabled();
     // Disabling agent control must not hide or destroy the user's manual page.
     manager.publish(); return result;
   }, false);

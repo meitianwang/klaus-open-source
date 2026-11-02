@@ -59,7 +59,13 @@ export async function readUrls(context: ReadUrlsContext, fields: BrowserObject, 
   return { pages, contentType: format, count: pages.length, requested: wanted.length, truncated: pages.length < wanted.length, selectedTab: selected ?? null, selectedTabUnchanged: selected === context.selected(), temporaryTabsClosed: temporary.every(page => !after.includes(page.id)), pendingAtClose: pending.length };
 }
 
-export async function navigateForRead(cdp: BrowserCdp, url: string, fields: BrowserObject, signal?: AbortSignal): Promise<void> {
+export async function navigateForRead(
+  cdp: BrowserCdp,
+  url: string,
+  fields: BrowserObject,
+  signal?: AbortSignal,
+  stopOnAbort?: () => void,
+): Promise<void> {
   assertActive(signal);
   const until = ({ dom_content_loaded: 'domcontentloaded', domContentLoaded: 'domcontentloaded', network_idle: 'networkidle', networkIdle: 'networkidle' } as Record<string,string>)[String(fields.waitUntil ?? 'load')] ?? String(fields.waitUntil ?? 'load');
   if (!['load','domcontentloaded','networkidle','commit'].includes(until)) throw new BrowserError('invalid_request', 'Unknown read_urls waitUntil: ' + until);
@@ -71,6 +77,12 @@ export async function navigateForRead(cdp: BrowserCdp, url: string, fields: Brow
   const remove = cdp.onEvent(method => {
     if (activity.has(method)) changed = Date.now();
   });
+  const stop = (): void => {
+    if (stopOnAbort) stopOnAbort();
+    else void cdp.command('Page.stopLoading').catch(() => {});
+  };
+  signal?.addEventListener('abort', stop, { once: true });
+  if (signal?.aborted) stop();
   try {
     const response = await abortable(cdp.command('Page.navigate', { url }), signal);
     if (response.errorText) throw new BrowserError('navigation_failed', String(response.errorText));
@@ -85,7 +97,10 @@ export async function navigateForRead(cdp: BrowserCdp, url: string, fields: Brow
       await new Promise(resolveWait => setTimeout(resolveWait, 25));
     }
     throw new BrowserError('timeout', 'The page did not reach ' + until + '.');
-  } finally { remove(); }
+  } finally {
+    signal?.removeEventListener('abort', stop);
+    remove();
+  }
 }
 
 export async function runBatch(fields: BrowserObject, run: (kind: string, fields: BrowserObject) => Promise<BrowserObject>): Promise<BrowserObject> {
