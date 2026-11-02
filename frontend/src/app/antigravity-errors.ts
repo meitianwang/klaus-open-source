@@ -1,5 +1,6 @@
 const ANTIGRAVITY_ERROR_KEYS = new Set([
   'antigravity_model_access_denied',
+  'antigravity_model_not_offered',
   'antigravity_quota_exhausted',
   'antigravity_request_rejected',
   'antigravity_auth_required',

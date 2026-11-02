@@ -1,8 +1,9 @@
 {
   "version": 1,
-  "reason": "Service rejections remain specific localized turn failures; model access denial must not be presented as expired sign-in or a picker restriction.",
+  "reason": "Service rejections remain specific localized turn failures; model access denial must not be presented as expired sign-in or a picker restriction; a NOT_FOUND verdict for a model the refreshed account catalog does not list reports the account offering.",
   "cases": [
     { "code": "antigravity_model_access_denied", "expectedKey": "antigravity_model_access_denied" },
+    { "code": "antigravity_model_not_offered", "expectedKey": "antigravity_model_not_offered" },
     { "code": "antigravity_quota_exhausted", "expectedKey": "antigravity_quota_exhausted" },
     { "code": "antigravity_request_rejected", "expectedKey": "antigravity_request_rejected" },
     { "code": "antigravity_auth_required", "expectedKey": "antigravity_auth_required" },
