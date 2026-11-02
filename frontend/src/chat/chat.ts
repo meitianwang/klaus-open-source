@@ -8740,8 +8740,13 @@ chatStreamStore.subscribe((state, previousState) => {
 })
 
 // A friend request arriving or being decided moves its conversation in and out
-// of the sidebar waiting state, same as a parked approval card.
-subscribeFriendInbox(() => { renderSessionList() })
+// of the sidebar waiting state. A newly parked conversation is absent from the
+// renderer's catalog until it is read again; repainting alone cannot reveal it.
+// The inbox also refreshes on boot and focus, recovering missed arrival events.
+subscribeFriendInbox(() => {
+  renderSessionList()
+  void updateSessionInList({ reorder: true })
+})
 
 // The main surface selects only its own stream. Cross-session lifecycle and
 // sidebar reconciliation stay in the global subscription above.

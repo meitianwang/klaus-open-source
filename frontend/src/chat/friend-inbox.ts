@@ -8,6 +8,7 @@ import type { FriendsRuntimeSnapshot, FriendTaskGrant, FriendTaskSummary } from 
 let snapshot: FriendsRuntimeSnapshot | null = null
 let revision = 0
 let inflight: Promise<void> | null = null
+let refreshRequested = false
 let wired = false
 const listeners = new Set<() => void>()
 
@@ -31,13 +32,23 @@ export function friendInboxSnapshot(): FriendsRuntimeSnapshot | null {
 }
 
 export function refreshFriendInbox(): Promise<void> {
+  refreshRequested = true
   if (inflight) return inflight
   inflight = (async () => {
+    // Install the shared promise before calling a bridge stub that may throw.
+    await Promise.resolve()
     try {
-      snapshot = await window.klaus.friends.runtime()
-      emit()
-    } catch {
-      // A failed read keeps the last good snapshot; the next change retries.
+      do {
+        refreshRequested = false
+        try {
+          snapshot = await window.klaus.friends.runtime()
+          emit()
+        } catch {
+          // Retain the last good snapshot, but still drain a queued change.
+        }
+        // Admission can publish again after creating the parked conversation.
+        // A change during the read must get a new read, not join the old one.
+      } while (refreshRequested)
     } finally {
       inflight = null
     }

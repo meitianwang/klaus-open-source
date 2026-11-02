@@ -27,6 +27,12 @@
   },
   "receivingPolicy": "configured-device-or-all-registered-current-protocol-devices",
   "pendingStartsModel": false,
+  "friendInboxDiscovery": {
+    "_why": "Notifications are transient. A parked request must remain discoverable in the friend's sidebar group without clicking one, including after a reload or a change received during an earlier snapshot read.",
+    "inboxRefresh": "reload-authoritative-conversation-list",
+    "missedArrival": "recover-on-boot-auth-and-focus",
+    "concurrentChange": "read-again-after-inflight-snapshot"
+  },
   "pendingTaskNotice": {
     "_why": "A task that waits for the owner's authorization must reach the owner even when Klaus is unfocused, and clicking that banner must land on the one approval it is about. The click target rides in the notification group because a delivered banner is restored from Notification Center with only its group preserved, so it has to distinguish a friend task from a conversation-shaped id.",
     "notifiesWhen": "policy-approve-pending-task-even-while-focused",
