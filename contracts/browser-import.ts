@@ -10,6 +10,20 @@
 export const BROWSER_IMPORT_CATEGORIES = ['cookies', 'passwords', 'history', 'extensions'] as const;
 export type BrowserImportCategory = typeof BROWSER_IMPORT_CATEGORIES[number];
 
+/** Shared literal union so frontend contracts do not depend on NodeJS types. */
+export type BrowserImportPlatform =
+  | 'aix'
+  | 'android'
+  | 'darwin'
+  | 'freebsd'
+  | 'haiku'
+  | 'linux'
+  | 'openbsd'
+  | 'sunos'
+  | 'win32'
+  | 'cygwin'
+  | 'netbsd';
+
 export interface BrowserImportSelection {
   cookies?: boolean;
   passwords?: boolean;
@@ -83,6 +97,8 @@ export interface BrowserImportLimits {
   maxExtensions?: number;
   maxExtensionFiles?: number;
   maxExtensionBytes?: number;
+  /** Upper bound for the database plus its WAL and shared-memory files. */
+  maxDatabaseBytes?: number;
 }
 
 export const BROWSER_IMPORT_DEFAULT_LIMITS: Readonly<Required<BrowserImportLimits>> = Object.freeze({
@@ -92,6 +108,7 @@ export const BROWSER_IMPORT_DEFAULT_LIMITS: Readonly<Required<BrowserImportLimit
   maxExtensions: 100,
   maxExtensionFiles: 4_000,
   maxExtensionBytes: 128 * 1024 * 1024,
+  maxDatabaseBytes: 512 * 1024 * 1024,
 });
 
 export type BrowserCookieSameSite = 'unspecified' | 'no_restriction' | 'lax' | 'strict';
@@ -106,6 +123,14 @@ export interface BrowserImportCookie {
   sameSite: BrowserCookieSameSite;
   /** Epoch milliseconds, omitted for a session cookie. */
   expiresAt?: number;
+  /**
+   * CHIPS top-frame site key from newer cookie schemas. When present, the
+   * target must keep the cookie partitioned instead of importing it as an
+   * unpartitioned cookie.
+   */
+  topFrameSiteKey?: string;
+  /** Chrome's cross-site ancestor flag, preserved when the column exists. */
+  hasCrossSiteAncestor?: boolean;
 }
 
 export interface BrowserImportPassword {
@@ -123,11 +148,21 @@ export interface BrowserImportHistoryEntry {
 }
 
 export interface BrowserImportExtension {
+  /** Chrome's folder id. When `idVerified` is false the target must confirm it. */
   id: string;
   version: string;
   name?: string;
   /** Absolute path to the app-owned copy. */
   path: string;
+  /** Base64 SPKI from manifest.key when the package provides one. */
+  publicKey?: string;
+  /** True when the id was derived from manifest.key and checked against the folder. */
+  idVerified: boolean;
+}
+
+export interface BrowserImportInstalledExtension {
+  /** Real id reported by the target after installation. */
+  id: string;
 }
 
 export interface BrowserImportCounts {
@@ -159,14 +194,27 @@ export interface BrowserImportResult {
   errors: BrowserImportIssue[];
 }
 
+export interface BrowserSecretDatabaseMeta {
+  /** Cookie schema version from the database's meta table. */
+  version?: number;
+  /** Whether the database lived under profile/Network or profile/. */
+  layout?: 'legacy' | 'network';
+}
+
 export interface BrowserSecretContext {
   kind: 'cookie' | 'password';
   host?: string;
   originUrl?: string;
   /** Platform of the source browser profile. */
-  platform?: NodeJS.Platform;
+  platform?: BrowserImportPlatform;
   /** Browser family of the source root. */
   family?: 'chrome' | 'chromium' | 'edge';
+  /**
+   * Cookie database metadata. For schema version 24 and newer, Chrome binds
+   * the encryption to a SHA-256 prefix of host_key; the host decryptor needs
+   * this value to choose the right key derivation.
+   */
+  database?: BrowserSecretDatabaseMeta;
 }
 
 /**
@@ -196,7 +244,11 @@ export interface BrowserImportTarget {
   applyCookies?(cookies: readonly BrowserImportCookie[]): Promise<void>;
   applyPasswords?(passwords: readonly BrowserImportPassword[]): Promise<void>;
   applyHistory?(entries: readonly BrowserImportHistoryEntry[]): Promise<void>;
-  installExtension?(extension: BrowserImportExtension): Promise<void>;
+  /**
+   * Install from the app-owned copy. Packages without a manifest.key cannot
+   * prove their folder id, so the target must return the real installed id.
+   */
+  installExtension?(extension: BrowserImportExtension): Promise<BrowserImportInstalledExtension | void>;
 }
 
 export interface BrowserImportDependencies {

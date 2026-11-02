@@ -5,6 +5,7 @@
  * browser profile, OS keychain, or user home directory.
  */
 
+import { createHash, generateKeyPairSync } from 'node:crypto';
 import { mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -66,16 +67,21 @@ export interface CookieFixture {
   secure?: boolean;
   httpOnly?: boolean;
   sameSite?: number;
+  topFrameSiteKey?: string;
+  hasCrossSiteAncestor?: boolean;
 }
 
 export function createCookies(
   profileDirectoryPath: string,
   rows: readonly CookieFixture[],
-  options: { keepOpen?: boolean } = {},
+  options: { keepOpen?: boolean; schemaVersion?: number; partitionedSchema?: boolean } = {},
 ): DatabaseSync | undefined {
   mkdirSync(profileDirectoryPath, { recursive: true });
   const database = new DatabaseSync(join(profileDirectoryPath, 'Cookies'));
   database.exec('PRAGMA journal_mode = WAL');
+  const partitionColumns = options.partitionedSchema
+    ? ', top_frame_site_key TEXT, has_cross_site_ancestor INTEGER'
+    : '';
   database.exec(`CREATE TABLE cookies (
     host_key TEXT NOT NULL,
     name TEXT NOT NULL,
@@ -87,12 +93,17 @@ export function createCookies(
     is_secure INTEGER NOT NULL DEFAULT 0,
     is_httponly INTEGER NOT NULL DEFAULT 0,
     samesite INTEGER NOT NULL DEFAULT -1
+    ${partitionColumns}
   )`);
-  const insert = database.prepare(`INSERT INTO cookies
-    (host_key, name, value, encrypted_value, path, expires_utc, has_expires, is_secure, is_httponly, samesite)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+  if (options.schemaVersion !== undefined) {
+    database.exec('CREATE TABLE meta (key TEXT NOT NULL, value TEXT NOT NULL)');
+    database.prepare('INSERT INTO meta (key, value) VALUES (?, ?)').run('version', String(options.schemaVersion));
+  }
+  const columns = ['host_key', 'name', 'value', 'encrypted_value', 'path', 'expires_utc', 'has_expires', 'is_secure', 'is_httponly', 'samesite'];
+  if (options.partitionedSchema) columns.push('top_frame_site_key', 'has_cross_site_ancestor');
+  const insert = database.prepare(`INSERT INTO cookies (${columns.join(', ')}) VALUES (${columns.map(() => '?').join(', ')})`);
   for (const row of rows) {
-    insert.run(
+    const values: Array<string | number | bigint | Uint8Array | null> = [
       row.host,
       row.name,
       row.value ?? '',
@@ -103,7 +114,11 @@ export function createCookies(
       row.secure ? 1 : 0,
       row.httpOnly ? 1 : 0,
       row.sameSite ?? -1,
-    );
+    ];
+    if (options.partitionedSchema) {
+      values.push(row.topFrameSiteKey ?? null, row.hasCrossSiteAncestor === undefined ? null : (row.hasCrossSiteAncestor ? 1 : 0));
+    }
+    insert.run(...values);
   }
   if (options.keepOpen) return database;
   database.close();
@@ -167,8 +182,24 @@ export interface ExtensionFixture {
   version: string;
   name?: string;
   files?: Record<string, string | Uint8Array>;
-  manifestId?: string;
+  key?: string;
   symlinkTo?: string;
+}
+
+export function extensionIdFromPublicKeyDer(der: Uint8Array): string {
+  const digest = createHash('sha256').update(der).digest();
+  let id = '';
+  for (let index = 0; index < 16; index += 1) {
+    const byte = digest[index]!;
+    id += String.fromCharCode(97 + (byte >> 4), 97 + (byte & 0x0f));
+  }
+  return id;
+}
+
+export function syntheticExtensionKey(): { key: string; id: string } {
+  const { publicKey } = generateKeyPairSync('ec', { namedCurve: 'prime256v1' });
+  const der = Buffer.from(publicKey.export({ type: 'spki', format: 'der' }));
+  return { key: der.toString('base64'), id: extensionIdFromPublicKeyDer(der) };
 }
 
 export function createExtension(profileDirectoryPath: string, fixture: ExtensionFixture): string {
@@ -176,7 +207,7 @@ export function createExtension(profileDirectoryPath: string, fixture: Extension
   mkdirSync(directory, { recursive: true });
   writeFileSync(join(directory, 'manifest.json'), `${JSON.stringify({
     manifest_version: 3,
-    ...(fixture.manifestId ? { id: fixture.manifestId } : {}),
+    ...(fixture.key ? { key: fixture.key } : {}),
     name: fixture.name ?? `Synthetic ${fixture.id.slice(0, 6)}`,
     version: fixture.version,
   }, null, 2)}\n`, 'utf8');
@@ -209,6 +240,8 @@ export class RecordingTarget implements BrowserImportTarget {
   history: BrowserImportHistoryEntry[] = [];
   extensions: BrowserImportExtension[] = [];
   failCookies = false;
+  /** How the synthetic target answers extension installs. */
+  installResult: 'return-id' | 'void' | 'wrong-id' = 'return-id';
 
   async applyCookies(cookies: readonly BrowserImportCookie[]): Promise<void> {
     if (this.failCookies) throw Object.assign(new Error('cookie target rejected'), { code: 'cookie_target_failed' });
@@ -223,7 +256,10 @@ export class RecordingTarget implements BrowserImportTarget {
     this.history = [...entries];
   }
 
-  async installExtension(extension: BrowserImportExtension): Promise<void> {
+  async installExtension(extension: BrowserImportExtension): Promise<{ id: string } | void> {
     this.extensions = [...this.extensions, extension];
+    if (this.installResult === 'void') return;
+    if (this.installResult === 'wrong-id') return { id: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' };
+    return { id: extension.id };
   }
 }

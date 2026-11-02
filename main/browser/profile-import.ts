@@ -47,15 +47,25 @@ import {
   type BrowserImportSelection,
   type BrowserProfileCandidate,
 } from '../../contracts/browser-import';
-import { discoverBrowserProfiles } from './profile-discovery';
+import { discoverBrowserProfiles, resolveCookieDatabase, type CookieDatabaseLocation } from './profile-discovery';
 import { BrowserError } from './types';
 
 const CHROME_EPOCH_OFFSET_MS = 11_644_473_600_000n;
 const MAX_ISSUES = 64;
 const MAX_SECRET_LENGTH = 16 * 1024;
+const MAX_EXTENSION_MANIFEST_BYTES = 1024 * 1024;
 const EXTENSION_ID = /^[a-p]{32}$/u;
 const EXTENSION_VERSION = /^[0-9]+(?:\.[0-9]+){0,7}$/u;
 const PATH_SEGMENT = /^[A-Za-z0-9][A-Za-z0-9 ._-]*$/u;
+const LIMIT_BOUNDS: Record<keyof BrowserImportLimits, number> = {
+  maxCookieRows: 1_000_000,
+  maxLoginRows: 1_000_000,
+  maxHistoryRows: 1_000_000,
+  maxExtensions: 10_000,
+  maxExtensionFiles: 100_000,
+  maxExtensionBytes: 4 * 1024 * 1024 * 1024,
+  maxDatabaseBytes: 4 * 1024 * 1024 * 1024,
+};
 
 class ImportAbortedError extends Error {
   constructor() {
@@ -111,6 +121,10 @@ function numberValue(value: unknown): number | undefined {
     const converted = Number(value);
     return Number.isSafeInteger(converted) ? converted : undefined;
   }
+  if (typeof value === 'string' && /^[0-9]+$/u.test(value)) {
+    const converted = Number(value);
+    return Number.isSafeInteger(converted) ? converted : undefined;
+  }
   return undefined;
 }
 
@@ -146,7 +160,7 @@ function sameSiteValue(value: unknown): BrowserCookieSameSite {
 
 function normalizedLimit(value: unknown, fallback: number, label: keyof BrowserImportLimits): number {
   if (value === undefined) return fallback;
-  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 1 || value > 1_000_000) {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 1 || value > LIMIT_BOUNDS[label]) {
     throw new BrowserError('invalid_request', `${label} must be a positive integer within the supported bound.`);
   }
   return value;
@@ -160,6 +174,7 @@ function resolvedLimits(limits: BrowserImportLimits | undefined): Required<Brows
     maxExtensions: normalizedLimit(limits?.maxExtensions, BROWSER_IMPORT_DEFAULT_LIMITS.maxExtensions, 'maxExtensions'),
     maxExtensionFiles: normalizedLimit(limits?.maxExtensionFiles, BROWSER_IMPORT_DEFAULT_LIMITS.maxExtensionFiles, 'maxExtensionFiles'),
     maxExtensionBytes: normalizedLimit(limits?.maxExtensionBytes, BROWSER_IMPORT_DEFAULT_LIMITS.maxExtensionBytes, 'maxExtensionBytes'),
+    maxDatabaseBytes: normalizedLimit(limits?.maxDatabaseBytes, BROWSER_IMPORT_DEFAULT_LIMITS.maxDatabaseBytes, 'maxDatabaseBytes'),
   };
 }
 
@@ -293,6 +308,19 @@ async function databaseSignature(path: string): Promise<string> {
   ].join('|');
 }
 
+async function databaseTotalBytes(path: string): Promise<number> {
+  let total = 0;
+  for (const candidate of [path, `${path}-wal`, `${path}-shm`]) {
+    try {
+      const info = await lstat(candidate);
+      if (info.isFile()) total += info.size;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    }
+  }
+  return total;
+}
+
 async function copyIfPresent(source: string, target: string): Promise<void> {
   try {
     const info = await lstat(source);
@@ -310,16 +338,28 @@ async function copyIfPresent(source: string, target: string): Promise<void> {
   }
 }
 
-async function copyStableDatabase(source: string, target: string, signal: AbortSignal | undefined): Promise<void> {
+async function copyStableDatabase(
+  source: string,
+  target: string,
+  signal: AbortSignal | undefined,
+  maxBytes: number,
+): Promise<void> {
   if (!(await isRegularFile(source))) {
     throw new BrowserError('database_unavailable', 'The requested browser database is not available.');
   }
   for (let attempt = 0; attempt < 3; attempt += 1) {
     throwIfAborted(signal);
+    const totalBytes = await databaseTotalBytes(source);
+    if (totalBytes > maxBytes) {
+      throw new BrowserError('database_too_large', 'The browser database exceeds the configured size limit.');
+    }
     const before = await databaseSignature(source);
     await copyFile(source, target);
     await copyIfPresent(`${source}-wal`, `${target}-wal`);
     await copyIfPresent(`${source}-shm`, `${target}-shm`);
+    if (await databaseTotalBytes(target) > maxBytes) {
+      throw new BrowserError('database_too_large', 'The browser database exceeds the configured size limit.');
+    }
     const after = await databaseSignature(source);
     if (before === after) return;
     await rm(target, { force: true });
@@ -333,6 +373,7 @@ async function withDatabaseSnapshot<T>(
   source: string,
   tempRoot: string,
   signal: AbortSignal | undefined,
+  maxBytes: number,
   work: (database: DatabaseSync) => T | Promise<T>,
 ): Promise<T> {
   throwIfAborted(signal);
@@ -344,7 +385,7 @@ async function withDatabaseSnapshot<T>(
     const target = join(directory, basename(source));
     let database: DatabaseSync | undefined;
     try {
-      await copyStableDatabase(source, target, signal);
+      await copyStableDatabase(source, target, signal, maxBytes);
       try {
         database = new DatabaseSync(target);
         database.exec('PRAGMA busy_timeout = 3000');
@@ -390,6 +431,15 @@ interface CookieRow {
   is_secure?: unknown;
   is_httponly?: unknown;
   samesite?: unknown;
+  top_frame_site_key?: unknown;
+  has_cross_site_ancestor?: unknown;
+}
+
+interface CookieSnapshot {
+  rows: CookieRow[];
+  metaVersion?: number;
+  hasTopFrameSiteKey: boolean;
+  hasCrossSiteAncestor: boolean;
 }
 
 interface LoginRow {
@@ -416,7 +466,13 @@ function decryptErrorCode(error: unknown): string | undefined {
 async function decryptSecret(
   dependencies: BrowserImportDependencies,
   bytes: Uint8Array,
-  context: { kind: 'cookie' | 'password'; host?: string; originUrl?: string; family?: 'chrome' | 'chromium' | 'edge' },
+  context: {
+    kind: 'cookie' | 'password';
+    host?: string;
+    originUrl?: string;
+    family?: 'chrome' | 'chromium' | 'edge';
+    database?: { version?: number; layout?: 'legacy' | 'network' };
+  },
 ): Promise<string> {
   try {
     const plain = await dependencies.decryptor.decrypt(bytes, { ...context, platform: process.platform });
@@ -439,19 +495,60 @@ async function readCookies(
   errors: ReturnType<typeof issueSink>,
   sourceFamily: 'chrome' | 'chromium' | 'edge' | undefined,
 ): Promise<BrowserImportCookie[]> {
-  const path = join(profileDirectory, 'Cookies');
-  if (!(await isRegularFile(path))) {
+  const resolution = await resolveCookieDatabase(profileDirectory);
+  if (resolution.error) {
+    errors.add('cookies', resolution.error.code, resolution.error.message);
+    return [];
+  }
+  const cookieDatabase: CookieDatabaseLocation | undefined = resolution.location;
+  if (!cookieDatabase) {
     errors.add('cookies', 'cookies_unavailable', 'The profile has no readable cookie database.');
     return [];
   }
-  let rows: CookieRow[];
+
+  let snapshot: CookieSnapshot;
   try {
-    rows = await withDatabaseSnapshot(path, dependencies.tempRoot ?? join(tmpdir(), 'klaus-browser-import'), dependencies.signal, database =>
-      queryRows<CookieRow>(database, `SELECT host_key, name, value, encrypted_value, path, expires_utc, has_expires,
-        is_secure, is_httponly, samesite FROM cookies LIMIT ?`, limits.maxCookieRows + 1));
+    snapshot = await withDatabaseSnapshot(
+      cookieDatabase.path,
+      dependencies.tempRoot ?? join(tmpdir(), 'klaus-browser-import'),
+      dependencies.signal,
+      limits.maxDatabaseBytes,
+      database => {
+        const columns = new Set(
+          queryRows<{ name?: unknown }>(database, 'PRAGMA table_info(cookies)')
+            .map(row => stringValue(row.name))
+            .filter((name): name is string => Boolean(name)),
+        );
+        const hasTopFrameSiteKey = columns.has('top_frame_site_key');
+        const hasCrossSiteAncestor = columns.has('has_cross_site_ancestor');
+        const extras = [
+          hasTopFrameSiteKey ? 'top_frame_site_key' : 'NULL AS top_frame_site_key',
+          hasCrossSiteAncestor ? 'has_cross_site_ancestor' : 'NULL AS has_cross_site_ancestor',
+        ].join(', ');
+        const rows = queryRows<CookieRow>(
+          database,
+          `SELECT host_key, name, value, encrypted_value, path, expires_utc, has_expires,
+            is_secure, is_httponly, samesite, ${extras} FROM cookies LIMIT ?`,
+          limits.maxCookieRows + 1,
+        );
+        let metaVersion: number | undefined;
+        const metaTables = queryRows<{ name?: unknown }>(
+          database,
+          "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'meta'",
+        );
+        if (metaTables.length > 0) {
+          const meta = queryRows<{ value?: unknown }>(
+            database,
+            "SELECT value FROM meta WHERE key = 'version' LIMIT 1",
+          );
+          metaVersion = numberValue(meta[0]?.value);
+        }
+        return { rows, metaVersion, hasTopFrameSiteKey, hasCrossSiteAncestor };
+      },
+    );
   } catch (error) {
     if (error instanceof ImportAbortedError) throw error;
-    if (error instanceof BrowserError && ['snapshot_unstable', 'snapshot_corrupted', 'database_unavailable'].includes(error.code)) {
+    if (error instanceof BrowserError && ['snapshot_unstable', 'snapshot_corrupted', 'database_unavailable', 'database_too_large'].includes(error.code)) {
       errors.add('cookies', error.code, error.message);
     } else {
       errors.add('cookies', 'cookies_unreadable', 'The cookie database could not be read.');
@@ -459,6 +556,7 @@ async function readCookies(
     return [];
   }
 
+  let rows = snapshot.rows;
   if (rows.length > limits.maxCookieRows) {
     const omitted = rows.length - limits.maxCookieRows;
     rows = rows.slice(0, limits.maxCookieRows);
@@ -483,6 +581,10 @@ async function readCookies(
           kind: 'cookie',
           host: domain,
           ...(sourceFamily ? { family: sourceFamily } : {}),
+          database: {
+            ...(snapshot.metaVersion === undefined ? {} : { version: snapshot.metaVersion }),
+            layout: cookieDatabase.layout,
+          },
         });
       } catch (error) {
         decryptionFailures += 1;
@@ -496,6 +598,12 @@ async function readCookies(
     const expiry = row.has_expires === undefined || booleanValue(row.has_expires)
       ? chromeTimeToUnixMillis(row.expires_utc)
       : undefined;
+    const topFrameSiteKey = snapshot.hasTopFrameSiteKey ? stringValue(row.top_frame_site_key) : undefined;
+    const hasCrossSiteAncestor = snapshot.hasCrossSiteAncestor
+      && row.has_cross_site_ancestor !== null
+      && row.has_cross_site_ancestor !== undefined
+      ? booleanValue(row.has_cross_site_ancestor)
+      : undefined;
     cookies.push({
       domain,
       path: pathValue,
@@ -505,6 +613,8 @@ async function readCookies(
       secure: booleanValue(row.is_secure),
       sameSite: sameSiteValue(row.samesite),
       ...(expiry === undefined ? {} : { expiresAt: expiry }),
+      ...(topFrameSiteKey ? { topFrameSiteKey } : {}),
+      ...(hasCrossSiteAncestor === undefined ? {} : { hasCrossSiteAncestor }),
     });
   }
   if (decryptionFailures > 0) {
@@ -527,12 +637,12 @@ async function readPasswords(
   }
   let rows: LoginRow[];
   try {
-    rows = await withDatabaseSnapshot(path, dependencies.tempRoot ?? join(tmpdir(), 'klaus-browser-import'), dependencies.signal, database =>
+    rows = await withDatabaseSnapshot(path, dependencies.tempRoot ?? join(tmpdir(), 'klaus-browser-import'), dependencies.signal, limits.maxDatabaseBytes, database =>
       queryRows<LoginRow>(database, `SELECT origin_url, username_value, password_value FROM logins
         WHERE blacklisted_by_user = 0 AND length(password_value) > 0 LIMIT ?`, limits.maxLoginRows + 1));
   } catch (error) {
     if (error instanceof ImportAbortedError) throw error;
-    if (error instanceof BrowserError && ['snapshot_unstable', 'snapshot_corrupted', 'database_unavailable'].includes(error.code)) {
+    if (error instanceof BrowserError && ['snapshot_unstable', 'snapshot_corrupted', 'database_unavailable', 'database_too_large'].includes(error.code)) {
       errors.add('passwords', error.code, error.message);
     } else {
       errors.add('passwords', 'passwords_unreadable', 'The login database could not be read.');
@@ -587,12 +697,12 @@ async function readHistory(
   }
   let rows: HistoryRow[];
   try {
-    rows = await withDatabaseSnapshot(path, dependencies.tempRoot ?? join(tmpdir(), 'klaus-browser-import'), dependencies.signal, database =>
+    rows = await withDatabaseSnapshot(path, dependencies.tempRoot ?? join(tmpdir(), 'klaus-browser-import'), dependencies.signal, limits.maxDatabaseBytes, database =>
       queryRows<HistoryRow>(database, `SELECT u.url AS url, u.title AS title, v.visit_time AS visit_time
         FROM visits v JOIN urls u ON u.id = v.url ORDER BY v.visit_time ASC LIMIT ?`, limits.maxHistoryRows + 1));
   } catch (error) {
     if (error instanceof ImportAbortedError) throw error;
-    if (error instanceof BrowserError && ['snapshot_unstable', 'snapshot_corrupted', 'database_unavailable'].includes(error.code)) {
+    if (error instanceof BrowserError && ['snapshot_unstable', 'snapshot_corrupted', 'database_unavailable', 'database_too_large'].includes(error.code)) {
       errors.add('history', error.code, error.message);
     } else {
       errors.add('history', 'history_unreadable', 'The history database could not be read.');
@@ -633,6 +743,25 @@ interface ExtensionManifest {
   id: string;
   version: string;
   name?: string;
+  publicKey?: string;
+  idVerified: boolean;
+}
+
+const MAX_EXTENSION_KEY_CHARS = 64 * 1024;
+
+function extensionIdFromKey(base64: string): string {
+  if (base64.length > MAX_EXTENSION_KEY_CHARS || !/^[A-Za-z0-9+/]+={0,2}$/u.test(base64)) {
+    throw new BrowserError('extension_key_invalid', 'The extension public key is not valid base64.');
+  }
+  const der = Buffer.from(base64, 'base64');
+  if (der.length === 0) throw new BrowserError('extension_key_invalid', 'The extension public key is empty.');
+  const digest = createHash('sha256').update(der).digest();
+  let id = '';
+  for (let index = 0; index < 16; index += 1) {
+    const byte = digest[index]!;
+    id += String.fromCharCode(97 + (byte >> 4), 97 + (byte & 0x0f));
+  }
+  return id;
 }
 
 function safeExtensionName(value: unknown): string | undefined {
@@ -645,6 +774,7 @@ async function readExtensionManifest(directory: string, expectedId: string): Pro
   const path = join(directory, 'manifest.json');
   const info = await lstat(path);
   if (!info.isFile() || info.isSymbolicLink()) throw new BrowserError('extension_manifest_invalid', 'The extension manifest is not a regular file.');
+  if (info.size > MAX_EXTENSION_MANIFEST_BYTES) throw new BrowserError('extension_manifest_too_large', 'The extension manifest exceeds the supported size.');
   const real = await realpath(path);
   if (!isWithinRoot(directory, real)) throw new BrowserError('extension_escape_rejected', 'The extension manifest resolves outside its package.');
 
@@ -654,16 +784,29 @@ async function readExtensionManifest(directory: string, expectedId: string): Pro
   } catch {
     throw new BrowserError('extension_manifest_invalid', 'The extension manifest is not valid JSON.');
   }
-  const manifestId = stringValue(parsed.id);
-  if (manifestId !== undefined && manifestId !== expectedId) {
-    throw new BrowserError('extension_id_mismatch', 'The extension manifest id does not match its directory.');
-  }
   const version = stringValue(parsed.version)?.trim() ?? '';
   if (!EXTENSION_VERSION.test(version) || version.length > 64) {
     throw new BrowserError('extension_version_invalid', 'The extension manifest has no supported version.');
   }
   const name = safeExtensionName(parsed.name);
-  return { id: expectedId, version, ...(name ? { name } : {}) };
+  const key = stringValue(parsed.key)?.trim();
+  let publicKey: string | undefined;
+  let idVerified = false;
+  if (key) {
+    const derived = extensionIdFromKey(key);
+    if (derived !== expectedId) {
+      throw new BrowserError('extension_id_mismatch', 'The extension public key does not match its folder id.');
+    }
+    publicKey = key;
+    idVerified = true;
+  }
+  return {
+    id: expectedId,
+    version,
+    ...(name ? { name } : {}),
+    ...(publicKey ? { publicKey } : {}),
+    idVerified,
+  };
 }
 
 interface CopyBudget {
@@ -770,9 +913,22 @@ async function importExtensions(
         id: manifest.id,
         version: manifest.version,
         ...(manifest.name ? { name: manifest.name } : {}),
+        ...(manifest.publicKey ? { publicKey: manifest.publicKey } : {}),
+        idVerified: manifest.idVerified,
         path: targetDirectory,
       };
-      await dependencies.target.installExtension(extension);
+      const installedExtension = await dependencies.target.installExtension(extension);
+      const installedId = installedExtension !== undefined && installedExtension !== null
+        && typeof installedExtension === 'object' && typeof installedExtension.id === 'string'
+        ? installedExtension.id
+        : undefined;
+      if (installedId !== undefined) {
+        if (!EXTENSION_ID.test(installedId) || installedId !== manifest.id) {
+          throw new BrowserError('extension_id_mismatch', 'The installed extension id does not match the profile folder id.');
+        }
+      } else if (!manifest.idVerified) {
+        throw new BrowserError('extension_id_unverified', 'The target did not return the installed extension id and the package has no verifiable key.');
+      }
       installed += 1;
     } catch (error) {
       if (targetDirectory) await rm(targetDirectory, { recursive: true, force: true });

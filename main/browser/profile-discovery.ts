@@ -12,6 +12,7 @@ import { isAbsolute, join, sep } from 'node:path';
 import type {
   BrowserDiscoveryIssue,
   BrowserDiscoveryResult,
+  BrowserImportPlatform,
   BrowserProfileArtifacts,
   BrowserProfileCandidate,
   BrowserSourceRoot,
@@ -20,6 +21,7 @@ import { BrowserError } from './types';
 
 const PROFILE_ID_MAX_LENGTH = 128;
 const DISPLAY_NAME_MAX_LENGTH = 128;
+const LOCAL_STATE_MAX_BYTES = 16 * 1024 * 1024;
 
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0;
@@ -92,20 +94,91 @@ async function readLocalState(userDataDir: string, rootReal: string): Promise<Re
   const path = join(rootReal, 'Local State');
   const info = await lstat(path);
   if (!info.isFile()) throw new BrowserError('local_state_missing', 'The browser profile index is not a regular file.');
+  if (info.size > LOCAL_STATE_MAX_BYTES) throw new BrowserError('local_state_too_large', 'The browser profile index exceeds the supported size.');
   const real = await realpath(path);
   if (!isWithinRoot(rootReal, real)) throw new BrowserError('local_state_escape', 'The browser profile index is outside the source root.');
   const raw = JSON.parse(await readFile(real, 'utf8')) as unknown;
   return objectRecord(raw).profile as Record<string, unknown> ?? {};
 }
 
+export interface CookieDatabaseLocation {
+  path: string;
+  layout: 'legacy' | 'network';
+}
+
+export interface CookieDatabaseResolution {
+  location?: CookieDatabaseLocation;
+  error?: { code: string; message: string };
+}
+
+/**
+ * Resolve the profile's cookie database without following links.
+ *
+ * Recent Chromium builds store cookies under profile/Network/Cookies; older
+ * profiles keep profile/Cookies. The Network directory and the database file
+ * must be regular filesystem entries inside the profile; a symlink or an
+ * escaping realpath is rejected instead of being followed.
+ */
+export async function resolveCookieDatabase(profileReal: string): Promise<CookieDatabaseResolution> {
+  const networkPath = join(profileReal, 'Network');
+  try {
+    const networkInfo = await lstat(networkPath);
+    if (networkInfo.isSymbolicLink()) {
+      return { error: { code: 'cookie_database_symlink_rejected', message: 'The Network cookie directory is a symbolic link.' } };
+    }
+    if (networkInfo.isDirectory()) {
+      const networkReal = await realpath(networkPath);
+      if (!isWithinRoot(profileReal, networkReal)) {
+        return { error: { code: 'cookie_database_escape_rejected', message: 'The Network cookie directory resolves outside the profile.' } };
+      }
+      const databasePath = join(networkReal, 'Cookies');
+      const databaseInfo = await lstat(databasePath);
+      if (databaseInfo.isSymbolicLink()) {
+        return { error: { code: 'cookie_database_symlink_rejected', message: 'The Network cookie database is a symbolic link.' } };
+      }
+      if (databaseInfo.isFile()) {
+        const databaseReal = await realpath(databasePath);
+        if (!isWithinRoot(networkReal, databaseReal)) {
+          return { error: { code: 'cookie_database_escape_rejected', message: 'The Network cookie database resolves outside the profile.' } };
+        }
+        return { location: { path: databaseReal, layout: 'network' } };
+      }
+    }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+      return { error: { code: 'cookie_database_unreadable', message: 'The Network cookie database could not be inspected.' } };
+    }
+  }
+
+  const legacyPath = join(profileReal, 'Cookies');
+  try {
+    const info = await lstat(legacyPath);
+    if (info.isSymbolicLink()) {
+      return { error: { code: 'cookie_database_symlink_rejected', message: 'The legacy cookie database is a symbolic link.' } };
+    }
+    if (info.isFile()) {
+      const real = await realpath(legacyPath);
+      if (!isWithinRoot(profileReal, real)) {
+        return { error: { code: 'cookie_database_escape_rejected', message: 'The legacy cookie database resolves outside the profile.' } };
+      }
+      return { location: { path: real, layout: 'legacy' } };
+    }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+      return { error: { code: 'cookie_database_unreadable', message: 'The legacy cookie database could not be inspected.' } };
+    }
+  }
+  return {};
+}
+
 async function detectArtifacts(profileDir: string): Promise<BrowserProfileArtifacts> {
-  const [cookies, passwords, history, extensions] = await Promise.all([
-    isRegularFile(join(profileDir, 'Cookies')),
+  const cookieResolution = await resolveCookieDatabase(profileDir);
+  const [passwords, history, extensions] = await Promise.all([
     isRegularFile(join(profileDir, 'Login Data')),
     isRegularFile(join(profileDir, 'History')),
     isSafeDirectory(join(profileDir, 'Extensions')),
   ]);
-  return { cookies, passwords, history, extensions };
+  return { cookies: Boolean(cookieResolution.location), passwords, history, extensions };
 }
 
 function addDiscoveryError(errors: BrowserDiscoveryIssue[], sourceId: string | null, code: string, message: string): void {
@@ -144,7 +217,8 @@ export async function discoverBrowserProfiles(
     try {
       profileState = await readLocalState(source.userDataDir, rootReal);
     } catch (error) {
-      addDiscoveryError(errors, source.id, 'local_state_unreadable', 'The browser profile index could not be read.');
+      const code = error instanceof BrowserError ? error.code : 'local_state_unreadable';
+      addDiscoveryError(errors, source.id, code, 'The browser profile index could not be read.');
       continue;
     }
 
@@ -199,7 +273,7 @@ export async function discoverBrowserProfiles(
 
 /** Default Chromium-family source roots for the current platform. */
 export function defaultBrowserSourceRoots(
-  platform: NodeJS.Platform = process.platform,
+  platform: BrowserImportPlatform = process.platform as BrowserImportPlatform,
   env: NodeJS.ProcessEnv = process.env,
   home = homedir(),
 ): BrowserSourceRoot[] {
