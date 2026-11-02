@@ -6,6 +6,7 @@ import { BrowserError, object, type BrowserObject } from './types';
 import type { BrowserCdp } from './page-operations';
 
 interface UploadTarget { objectId: string; backendNodeId: number; file: boolean; multiple: boolean }
+
 type UploadCommand = (method: string, params?: BrowserObject) => Promise<BrowserObject>;
 
 function assertActive(signal?: AbortSignal): void {
@@ -110,7 +111,9 @@ export async function uploadFiles(cdp: BrowserCdp, fields: BrowserObject, perfor
     const target = await describeTarget(command, objectId);
     assertActive(signal);
     if (target.file) return await attach(target, 'file-input');
-    if (cdp.captureScope) throw new BrowserError('unavailable', 'File choosers in out-of-process frames are not supported. Address the file input directly.');
+    // An out-of-process frame has its own Page agent. Enable that agent before
+    // intercepting its chooser; the root Page.enable does not instrument it.
+    if (cdp.captureScope) await cdp.command('Page.enable');
     const frameId = await ownerFrame(command, objectId);
     assertActive(signal);
     const waitTimeout = timeoutMs(fields.timeoutMs, 10000);
@@ -121,7 +124,7 @@ export async function uploadFiles(cdp: BrowserCdp, fields: BrowserObject, perfor
       removeAbort = () => signal?.removeEventListener('abort', aborted);
       remove = cdp.onEvent((method, params, source) => {
         if (signal?.aborted) { aborted(); return; }
-        if (method === 'Page.fileChooserOpened' && source === undefined && params.frameId === frameId) resolveChooser(params);
+        if (method === 'Page.fileChooserOpened' && (source === undefined || source === cdp.captureScope?.frame) && params.frameId === frameId) resolveChooser(params);
       });
       timer = setTimeout(() => reject(new BrowserError('timeout', 'No file chooser opened for this control.')), waitTimeout);
       if (signal?.aborted) aborted();
