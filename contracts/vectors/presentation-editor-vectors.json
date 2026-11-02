@@ -17,7 +17,7 @@
     "publishFiles": "chat workspace roots",
     "close": "flush editor, wait for saved state, release view and message ports, retain native document revisions"
   },
-  "hosting": {"documentStore": "Klaus host", "separateFileServiceProcess": false, "runtimeBridgeVersion": 2},
+  "hosting": {"documentStore": "Klaus host", "separateFileServiceProcess": false, "runtimeBridgeVersion": 2, "emptyRevision": "list the served index.html entry; load before first publish and accept live updates", "attribution": "none for local documents", "contentSandbox": {"allow-scripts": true, "allow-same-origin": true, "allow-popups": false}},
   "editing": ["text", "undo", "redo", "speaker notes", "automatic save", "live file updates", "reopen saved content"],
   "excluded": ["comments", "external connectors", "Google Drive"],
   "cancelledSave": {"ok": false, "cancelled": true}

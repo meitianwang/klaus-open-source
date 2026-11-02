@@ -43,6 +43,17 @@ void (async () => {
       const redirect = await page('/_t?v=v1'); assertEqual(redirect.status, 302);
       assert(redirect.headers.get('location')?.startsWith('/_f/v1/index.html'));
     });
+    await h.test('an empty revision lists its actual runtime entry without creating document files', async () => {
+      const response = await page('/_f/v1/_files.json');
+      assertEqual(response.status, 200);
+      const listed = await response.json() as any;
+      assertEqual(Object.keys(listed.files).join(','), 'index.html');
+      const entry = new Uint8Array(await (await page('/_f/v1/index.html')).arrayBuffer());
+      assertEqual(listed.files['index.html'].size, entry.length);
+      assertEqual(listed.files['index.html'].sha256, require('node:crypto').createHash('sha256').update(entry).digest('hex'));
+      assertEqual(store.files(owner, doc.id).length, 0);
+      assertEqual(store.get(owner, doc.id).version, 'v1');
+    });
     await h.test('browser saves and agent file reads share one native revision', async () => {
       const response = await call('POST', `/api/frame/self/${doc.id}`, { token: boot.capabilities.self.token, baseVersion: 'v1', mode: 'patch', manifest: { 'project/deck.json': { content: '{"v":4,"order":[]}', contentType: 'application/json' } } });
       assertEqual(response.status, 200);

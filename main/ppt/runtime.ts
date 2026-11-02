@@ -181,7 +181,14 @@ export class PptRuntime {
       if (path === '/' || path === '/index.html') return this.response(null, 302, 'text/plain', { Location: `/_f/${this.store.get(owner, id).version}/index.html` });
       const relative = versioned ? versioned[2]! : path.slice(1), version = versioned?.[1];
       if ((relative === 'index.html' || relative === '') && version) return this.response(this.content(), 200, 'text/html; charset=utf-8', { 'Content-Security-Policy': "default-src 'none'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data: blob: https:; connect-src 'self' https: wss:; frame-src 'self' data: blob:; object-src 'none'; base-uri 'none'; form-action 'none'" });
-      if (relative === '_files.json' && version) return this.json({ ver: version, files: Object.fromEntries(this.store.files(owner, id, version).map(file => [file.path, { sha256: file.sha256, size: file.size, contentType: file.contentType }])) });
+      if (relative === '_files.json' && version) {
+        const files = Object.fromEntries(this.store.files(owner, id, version).map(file => [file.path, { sha256: file.sha256, size: file.size, contentType: file.contentType }]));
+        // The runtime entry exists before any slide files are published. Listing it
+        // lets the editor open an empty document and receive the first live update.
+        const entry = Buffer.from(this.content());
+        files['index.html'] = { sha256: createHash('sha256').update(entry).digest('hex'), size: entry.length, contentType: 'text/html; charset=utf-8' };
+        return this.json({ ver: version, files });
+      }
       if (relative.startsWith('artifact-type/')) {
         if (relative === 'artifact-type/app.js' && this.locale() === 'zh-Hans') return this.response(this.localizedEditor(), 200, 'text/javascript; charset=utf-8');
         return this.static('dist/' + relative);

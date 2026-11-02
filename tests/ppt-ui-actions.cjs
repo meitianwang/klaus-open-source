@@ -71,6 +71,7 @@ async function editAndReopen(service, window, id, profile, log) {
   if (published.isError) throw Error(JSON.stringify(published));
   await waitFor(() => frame.executeJavaScript('document.body.innerText.includes("Agent update")'), 'live file update');
   log('hot-update', published);
+  await require('./ppt-service-assertions.cjs').assertLocalShell(editor, log, 'live update');
   const image = (await contents.capturePage({ x: 0, y: 0, width: 8, height: 8 })).toPNG().toString('base64');
   const asset = await frame.executeJavaScript(`(async()=>{const api=await claude.use('assets');const data=Uint8Array.from(atob(${JSON.stringify(image)}),c=>c.charCodeAt(0));const uploaded=await api.upload(new Blob([data],{type:'image/png'}),{type:'image/png'});const listed=await api.list();if(!listed.assets.some(entry=>entry.id===uploaded.id))throw Error('The uploaded image is missing from the resource list.');const response=await fetch(uploaded.url);if(!response.ok||(await response.arrayBuffer()).byteLength!==data.length)throw Error('The uploaded image bytes did not round-trip.');return uploaded})()`);
   const withImage = await read();
@@ -117,6 +118,7 @@ async function editAndReopen(service, window, id, profile, log) {
   await service.invoke({ channel: 'ppt:panel-show', args: [{ id, sessionId: 'fixture', bounds: { x: 0, y: 0, width: 1440, height: 960 } }], role: 'main', senderId: window.webContents.id });
   editor = [...service.editors.values()].find(entry => entry.id === id);
   await waitFor(async () => { const next = editor.view.webContents.mainFrame.frames.find(frame => frame.url.includes('.ppt-content/_f/')); return next ? next.executeJavaScript('document.body.innerText.includes("Agent update")') : false; }, 'reopened content');
+  await require('./ppt-service-assertions.cjs').assertLocalShell(editor, log, 'reopened');
   await service.prepareToClose();
   log('reopened', { id, saved: true, resourcesReleasedBeforeReopen: true });
 }
