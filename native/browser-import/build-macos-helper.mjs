@@ -22,7 +22,7 @@ const projectRoot = resolve(here, '../..');
 function usage(message) {
   if (message) process.stderr.write(`${message}\n`);
   process.stderr.write(
-    'usage: build-macos-helper.mjs --mode production|test --output <path> '
+    'usage: build-macos-helper.mjs --mode production|test --arch arm64|x64 --output <path> '
     + '[--identity <codesign identity>] [--entitlements <path>]\n',
   );
   process.exit(2);
@@ -33,12 +33,15 @@ function parseArgs(argv) {
   for (let index = 0; index < argv.length; index += 1) {
     const name = argv[index];
     if (name === '--mode') result.mode = argv[++index];
+    else if (name === '--arch') result.arch = argv[++index];
     else if (name === '--output') result.output = argv[++index];
     else if (name === '--identity') result.identity = argv[++index];
     else if (name === '--entitlements') result.entitlements = argv[++index];
     else usage(`unknown argument: ${name}`);
   }
   if (result.mode !== 'production' && result.mode !== 'test') usage('mode is required');
+  result.arch = result.arch ?? process.arch;
+  if (!['arm64', 'x64'].includes(result.arch)) usage('arch must be arm64 or x64');
   if (!result.output) usage('output is required');
   return result;
 }
@@ -55,8 +58,10 @@ const sources = [
   resolve(here, 'main.mm'),
   resolve(here, 'browser_import_crypto.mm'),
 ];
+const machine = options.arch === 'x64' ? 'x86_64' : 'arm64';
 const args = [
   '-std=c++17',
+  '-target', `${machine}-apple-macosx13.0`,
   '-fobjc-arc',
   '-O2',
   '-Wall',
