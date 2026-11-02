@@ -1,6 +1,7 @@
 import { userMessageStability } from './user-message-stability-dom'
 import { userMessageContinuity } from './user-message-continuity-dom'
 import { questionAnswerPlacement } from './question-answer-placement-dom'
+import { friendReplyAppearance } from './friend-reply-appearance-dom'
 import { setPendingSubmissionRecovery, clearPendingSubmissionRecovery } from '../frontend/src/chat/composer/pending-submission'
 import { createRoot } from 'react-dom/client'
 import { flushSync } from 'react-dom'
@@ -118,4 +119,5 @@ function snapshot() {
 w.processingFixture = { mountPending, failPending, recoverPending, locale, promotePending, mount, addWork, startFinal, complete, handoffHistory, toggle, mountStatic, snapshot,
   mountMixedHistory,
   userMessageStability: () => userMessageStability(container, root), userMessageContinuity: () => userMessageContinuity(container),
-  questionAnswerPlacement: () => questionAnswerPlacement(container) }
+  questionAnswerPlacement: () => questionAnswerPlacement(container),
+  friendReplyAppearance: () => friendReplyAppearance(container) }

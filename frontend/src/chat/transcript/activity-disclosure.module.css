@@ -30,6 +30,11 @@
 .motion { display: grid; grid-template-rows: 0fr; opacity: 0; pointer-events: none; transition: grid-template-rows 300ms cubic-bezier(.19,1,.22,1), opacity 300ms cubic-bezier(.19,1,.22,1); }
 .motion[data-visible='true'] { grid-template-rows: 1fr; opacity: 1; pointer-events: auto; }
 .clip { min-height: 0; overflow: hidden; }
+/* Expanded message rows retain sender columns in the horizontal gutter. */
+.sections > .motion[data-visible='true'] > .clip:has(> .body > [data-external-sender='true']) {
+  overflow-x: visible;
+  overflow-y: clip;
+}
 .body { display: flex; flex-direction: column; gap: 4px; padding-inline: 0; }
 .disclosure[data-variant='activity'] > .motion > .clip > .body {
   max-height: 224px;

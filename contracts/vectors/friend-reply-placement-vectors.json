@@ -5,6 +5,7 @@
     "placement": "requesting-turn-process-disclosure",
     "lateArrival": "after-existing-process-before-visible-final-answer",
     "storedIdentity": "unchanged",
+    "expandedAppearance": "same-sender-gutter-bubble-and-actions-as-standalone",
     "missingAnchor": "standalone-until-request-history-loads",
     "humanRequest": "standalone",
     "needsInput": "standalone",

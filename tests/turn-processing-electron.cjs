@@ -134,6 +134,12 @@ app.whenReady().then(async () => {
     fs.writeFileSync(path.join(root, 'sent-message-stability.png'), (await win.webContents.capturePage()).toPNG());
     return transitions;
   });
+  await check('friend replies retain their original sender gutter and bubble appearance inside completed process folds', async () => {
+    const transitions = await evaluate('processingFixture.friendReplyAppearance()');
+    assert.equal(transitions.length, 36);
+    for (const row of transitions) assert.equal(row.passed, true, JSON.stringify(row));
+    return transitions;
+  });
   await check('submitted messages retain their nodes through promotion, saved history and durable image loading', async () => {
     const transitions = await evaluate('processingFixture.userMessageContinuity()');
     assert.equal(transitions.length, 12);
