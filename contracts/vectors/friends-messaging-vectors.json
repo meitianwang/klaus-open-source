@@ -15,6 +15,16 @@
     "scoped-auto"
   ],
   "resourceModesWhy": "The approved directories and applications are the boundary and never widen with a preset. The preset only decides how much a scoped conversation asks inside that boundary, so all three presets must stay distinguishable: collapsing two of them made one of the owner's choices silently do nothing.",
+  "shellExecution": {
+    "_why": "Shell approval follows the conversation's current execution preset inside the immutable task resource scope. Injecting blanket command ask rules conflicts with the full-access preset and rejects even harmless commands before scoped automatic approval.",
+    "injectedCommandAskRules": [],
+    "sandboxMode": "workspace-write",
+    "presets": [
+      { "preset": "default", "grantMode": "manual", "approvalPolicy": "on-request", "approvalsReviewer": "user" },
+      { "preset": "auto", "grantMode": "auto-edit", "approvalPolicy": "on-request", "approvalsReviewer": "auto_review" },
+      { "preset": "bypassPermissions", "grantMode": "scoped-auto", "approvalPolicy": "never", "approvalsReviewer": "user" }
+    ]
+  },
   "receivingPolicy": "configured-device-or-all-registered-current-protocol-devices",
   "pendingStartsModel": false,
   "pendingTaskNotice": {
@@ -29,6 +39,13 @@
     "clickTarget": "the-conversation-the-request-is-parked-in",
     "groupEncoding": "friend-task:<taskId>",
     "autoOrRejectPolicyNotifies": false
+  },
+  "autoArrivalNotice": {
+    "_why": "An automatic admission asks the owner for nothing, so without an arrival notice the task would run invisibly until someone opened the sidebar. It rides the friend-message arrival tiers instead of the pending-task banner: silent while the task conversation is open, in-app toast while a window is focused, desktop banner while unfocused.",
+    "channel": "friends:message-arrived",
+    "payloadFlag": "task",
+    "firesWhen": "the-auto-admitted-task-conversation-exists",
+    "oncePerTask": true
   },
   "replyPolicy": "any-rung-device-of-original-request",
   "replyRequiresCloudOriginRoute": true,

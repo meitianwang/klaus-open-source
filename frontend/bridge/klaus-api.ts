@@ -1683,7 +1683,7 @@ expose('klaus', {
     notifySound: (cb: (kind: 'done' | 'input') => void): Unsubscribe =>
       subscribe('notify:sound', (kind: 'done' | 'input') => cb(kind)),
     friendMessageArrived: (cb: (payload: { sessionId: string; friendId: string; senderName: string; preview: string; wantReply: boolean; muted: boolean; ts: number }) => void): Unsubscribe =>
-      subscribe('friends:message-arrived', (payload: { sessionId: string; friendId: string; senderName: string; preview: string; wantReply: boolean; muted: boolean; ts: number }) => cb(payload)),
+      subscribe('friends:message-arrived', (payload: { sessionId: string; friendId: string; senderName: string; preview: string; wantReply: boolean; task?: boolean; muted: boolean; ts: number }) => cb(payload)),
     trayNewChat: (cb: () => void): Unsubscribe =>
       subscribe('tray:new-chat', () => cb()),
     desktopPetDraft: (cb: (payload: { text: string }) => void | Promise<void>): Unsubscribe =>

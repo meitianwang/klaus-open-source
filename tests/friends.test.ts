@@ -24,7 +24,7 @@ import { kvGet, kvSet, withSettingsDb } from '../main/services/settings';
 import { Harness, waitFor } from './harness';
 
 const h = new Harness(), deadline = setTimeout(() => { process.stderr.write('Friends unit tests timed out\n'); process.exit(1); }, 60_000);
-const vector = JSON.parse(readFileSync(join(__dirname, '../../contracts/vectors/friends-messaging-vectors.json'), 'utf8')) as { friendId: string; selfUserId: string; friendUserId: string; message: string; protocolVersion: number; engineScopeCapability: number; receivingPolicy: string; replyPolicy: string; deletePolicy: string; offlineQueue: string; pendingStartsModel: boolean; pendingTaskNotice: { notifiesWhen: string; noticeFields: string[]; clickAction: string; clickTarget: string; groupEncoding: string; autoOrRejectPolicyNotifies: boolean }; globalBypassExpandsScope: boolean; resourcePermissionDefault: boolean; resourceModes: string[]; taskPolicy: string[]; taskPolicyDefault: string; friendPermissionModel: string; sharedFriendSpace: string; executionTarget: string; targetlessSession: string; friendSidebarGrouping: string; chatContinuity: string; rememberedApprovalPolicy: string; invitationGrantStorage: string; ignoredExpiryMs: number; outgoingStatuses: string[]; outgoingLimit: number; friendLocalAssistDefault: boolean; friendLocalAssistSetting: string; friendLocalAssistSurface: string; friendStatusDelivery: string };
+const vector = JSON.parse(readFileSync(join(__dirname, '../../contracts/vectors/friends-messaging-vectors.json'), 'utf8')) as { friendId: string; selfUserId: string; friendUserId: string; message: string; protocolVersion: number; engineScopeCapability: number; receivingPolicy: string; replyPolicy: string; deletePolicy: string; offlineQueue: string; pendingStartsModel: boolean; pendingTaskNotice: { notifiesWhen: string; noticeFields: string[]; clickAction: string; clickTarget: string; groupEncoding: string; autoOrRejectPolicyNotifies: boolean }; globalBypassExpandsScope: boolean; resourcePermissionDefault: boolean; resourceModes: string[]; taskPolicy: string[]; taskPolicyDefault: string; friendPermissionModel: string; sharedFriendSpace: string; executionTarget: string; targetlessSession: string; friendSidebarGrouping: string; chatContinuity: string; rememberedApprovalPolicy: string; invitationGrantStorage: string; ignoredExpiryMs: number; outgoingStatuses: string[]; outgoingLimit: number; friendLocalAssistDefault: boolean; friendLocalAssistSetting: string; friendLocalAssistSurface: string; friendStatusDelivery: string; autoArrivalNotice: { channel: string; payloadFlag: string; firesWhen: string; oncePerTask: boolean } };
 const LOCAL = 'local-device', REMOTE = 'sender-device';
 const freshSignal = () => new AbortController().signal;
 /** The JSON a host tool returned to the model. */
@@ -46,12 +46,14 @@ function fixture(protocol?: string) {
   const store = new FriendTaskStore(root);
   const routes = new Map<string, JsonObject>();
   const pendingNotices: Array<{ sender: string; prompt: string; taskId: string }> = [];
+  const arrivals: Array<{ sessionId: string; friendId: string; senderName: string; preview: string; wantReply: boolean; task?: boolean }> = [];
   const engineAppends: Array<{ sessionId: string; messageId: string; text: string; metadata: unknown }> = [];
   let onCreate: (() => void) | undefined;
   const deps: FriendsDeps = {
     configRoot: root, protocol, serverURL: 'https://account.example.test', account: () => account, enabled: () => false,
     deviceId: async () => LOCAL, ensureTransport: async () => ({ deviceId: LOCAL, connected: true }),
     pendingTask: (sender, prompt, taskId) => pendingNotices.push({ sender, prompt, taskId }),
+    friendMessage: info => arrivals.push(info),
     appendDisplayMessage: async (sessionId, messageId, text, metadata) => { engineAppends.push({ sessionId, messageId, text, metadata }); },
     apps: async () => ({ available: true, apps: [{ id: 'fixture.editor', name: 'Installed Editor' }] }),
     executionTargets: () => targets ?? { projects: [], workspaces: [] },
@@ -109,7 +111,7 @@ function fixture(protocol?: string) {
     service.execute(name, args, { sessionId: id, unattended: false, signal: freshSignal(), assertCurrent: () => undefined }, callId);
   /** The model delivers `text` with reply_to_friend, then ends the turn with an owner-only note. */
   const answer = async (index: number, text: string) => { const turn = turns[index]!; await tool(turn.id, 'reply_to_friend', { prompt: text }); turn.resolve({ reply: 'Owner-only note: ' + text }); };
-  return { parent, root, resources, calls, created, delivered, turns, interrupted, retired, idleRetired, store, routes, deps, grant, incoming, status, pendingNotices, engineAppends, relocated, bindings, busy, tool, answer,
+  return { parent, root, resources, calls, created, delivered, turns, interrupted, retired, idleRetired, store, routes, deps, grant, incoming, status, pendingNotices, arrivals, engineAppends, relocated, bindings, busy, tool, answer,
     settle() { for (const listener of [...settledListeners]) listener(); },
     get service() { return service; }, account(value: MobileAccount | undefined) { account = value; }, friend(value: Partial<FriendSummary>) { friend = { ...friend, ...value }; }, addFriend(value: Partial<FriendSummary>) { extraFriends.push({ ...friend, ...value } as FriendSummary); }, selected(value: string | null) { selected = value; }, offline(value = true) { unavailable = value; }, failReply(value = true) { sendFailure = value; }, refuseReply(value = true) { replyRefusal = value; }, loseTaskAck(value = true) { lostTaskAck = value; }, onCreate(value?: () => void) { onCreate = value; },
     targets(value: FriendExecutionTargets | null) { targets = value; },
@@ -133,6 +135,8 @@ h.test('committed vectors pin v3 requests, scoped execution, designated receiver
   assert.deepEqual(vector.pendingTaskNotice.noticeFields, ['sender', 'prompt', 'friendTaskId']);
   assert.equal(vector.pendingTaskNotice.clickAction, 'deep-link:friend-task'); assert.equal(vector.pendingTaskNotice.groupEncoding, 'friend-task:<taskId>');
   assert.equal(vector.pendingTaskNotice.autoOrRejectPolicyNotifies, false);
+  assert.equal(vector.autoArrivalNotice.channel, 'friends:message-arrived'); assert.equal(vector.autoArrivalNotice.payloadFlag, 'task');
+  assert.equal(vector.autoArrivalNotice.oncePerTask, true, 'an automatic arrival notifies once per task');
   assert.equal(vector.rememberedApprovalPolicy, 'settings-owned-approve-never-writes');
   assert.equal(vector.invitationGrantStorage, 'settings-db-account-and-friend-user-id');
   assert.equal(vector.ignoredExpiryMs, 0);
@@ -261,7 +265,14 @@ h.test('the friend task policy decides review, automatic start and outright refu
       await f.service.saveTemplate({ friendId: vector.friendId, deviceId: LOCAL, grant: f.grant({ remember: true, policy }) as unknown as Json });
       const task = await f.service.receive(f.incoming(), freshSignal());
       if (policy === 'approve') { assert.equal(f.status(task.taskId).status, 'pending'); assert.equal(f.turns.length, 0); }
-      if (policy === 'auto') { await reached(f, task.taskId, 'running'); assert.equal(f.turns.length, 1); }
+      if (policy === 'auto') {
+        await reached(f, task.taskId, 'running'); assert.equal(f.turns.length, 1);
+        await waitFor(() => f.arrivals.length === 1, 1500, 'the automatic start surfaces its arrival');
+        assert.equal(f.arrivals[0]!.task, true, 'the arrival rides the friend-message tiers as a task');
+        assert.equal(f.arrivals[0]!.sessionId, 'approved-session-1', 'the arrival names the task conversation');
+        assert.equal(f.arrivals[0]!.wantReply, false, 'nothing waits for the owner in an automatic arrival');
+      }
+      if (policy !== 'auto') assert.equal(f.arrivals.length, 0, 'reviewed and refused requests keep their own notices');
       if (policy === 'reject') {
         await reached(f, task.taskId, 'rejected'); assert.equal(f.turns.length, 0); assert.equal(f.created.length, 0);
         await waitFor(() => f.calls.some(row => row.body.kind === 'reply'), 1500, 'the sender learns the refusal');

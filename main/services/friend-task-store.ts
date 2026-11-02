@@ -13,6 +13,10 @@ export interface StoredFriendTask extends FriendTaskSummary {
   replyCallId?: string;
   /** The host already asked the model once to reply before closing the task. */
   replyReminded?: boolean;
+  /** Admitted under an automatic policy with no owner-chat arrival notice. */
+  autoAdmitted?: boolean;
+  /** The arrival notice for an auto-admitted task already went out once. */
+  autoArrivalNotified?: boolean;
 }
 export interface FriendOutboxRequest {
   accountId: string; friendId: string; friendUserId: string; requestId: string;

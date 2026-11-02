@@ -50,8 +50,9 @@ export interface FriendsDeps {
   ensureTransport?(): Promise<{ deviceId: string; connected: boolean }>;
   apps?(): Promise<FriendAppsSnapshot>;
   pendingTask?(sender: string, prompt: string, taskId: string): void;
-  /** Renderer toast, unread ledger and desktop banner for an inbound friend message. */
-  friendMessage?(info: { sessionId: string; friendId: string; senderName: string; preview: string; wantReply: boolean }): void;
+  /** Renderer toast, unread ledger and desktop banner for an inbound friend
+   *  message; `task` marks an automatically started friend task arrival. */
+  friendMessage?(info: { sessionId: string; friendId: string; senderName: string; preview: string; wantReply: boolean; task?: boolean }): void;
   /** The owner's interface language, for the text of a turn the owner starts from a card. */
   language?(): string;
   /** Backoff ladder for terminal reply redelivery; defaults to the production ladder. */
@@ -101,7 +102,7 @@ function permanentContinuationFailure(error: unknown): boolean {
 /** How a friend task talks to its requester. The final answer belongs to this
  *  computer's owner; everything the friend receives is an explicit tool call. */
 const FRIEND_TASK_CHANNELS = [
-  'Work only in this task conversation. Your final answer is shown only to this computer\'s owner and is never sent to the friend: report there what you did, which resources you used and what you told the friend.',
+  'Work only in this task conversation. Your final answer is shown only to this computer\'s owner and is never sent to the friend: report there what you did, which resources you used and what you told the friend. Write that report in the plain words the interface itself uses, such as saying that you replied to the friend or asked them for information; never quote tool names or internal identifiers in it.',
   'Everything the friend receives goes through a tool: reply_to_friend delivers the result and completes the request (call it once, with the complete answer written for the friend, also when you cannot do it); ask_friend_for_information sends one concrete question when necessary information is missing. Do not send interim progress updates.',
   'None of these tools waits for the friend. After a question, complete any independent work, then give your final answer and end this turn; the friend\'s answer starts a later turn here, and that turn delivers the result with reply_to_friend. Do not use ask_user to wait for the remote person.',
 ].join(' ');
@@ -111,10 +112,10 @@ const UNREPLIED_STATUS = 'The receiving Klaus finished this request without atta
 /** Host tool budget for calls that wait on the owner (a directory request). */
 export const FRIEND_OWNER_WAIT_MS = 35 * 60_000;
 /** One host reminder before a task closes without a result. */
-const FRIEND_REPLY_REMINDER = 'This friend task ended without a reply to the requester. Your final answer is shown only to this computer\'s owner and is never sent to the friend. If the request is answered, call reply_to_friend now with the complete result written for the friend. If necessary information is missing, call ask_friend_for_information. Then end this turn with a short note for the owner.';
+const FRIEND_REPLY_REMINDER = 'This friend task ended without a reply to the requester. Your final answer is shown only to this computer\'s owner and is never sent to the friend. If the request is answered, call reply_to_friend now with the complete result written for the friend. If necessary information is missing, call ask_friend_for_information. Then end this turn with a short note for the owner, in plain words without tool names.';
 const FRIEND_REPLY_REMINDER_DISPLAY = 'Remind Klaus to reply to the friend';
 /** The owner asked Klaus to reply after a task closed without one. */
-const FRIEND_REPLY_REQUEST = 'The owner of this computer asks you to reply to the friend who sent this request. Call reply_to_friend with the complete result written for the friend, based on the work already done in this conversation. Then end this turn with a short note for the owner.';
+const FRIEND_REPLY_REQUEST = 'The owner of this computer asks you to reply to the friend who sent this request. Call reply_to_friend with the complete result written for the friend, based on the work already done in this conversation. Then end this turn with a short note for the owner, in plain words without tool names.';
 const FRIEND_REPLY_REQUEST_DISPLAY = 'Ask Klaus to reply to the friend';
 function failureCode(error: unknown): string {
   if (error !== null && typeof error === 'object' && 'code' in error && typeof error.code === 'string') return error.code;
@@ -797,6 +798,15 @@ export class FriendsService {
         this.tasks.saveChatSession(context.account.userId, task.friendId, sourceThreadId, threadId);
         this.tasks.update(context.account.userId, task.id, ['starting', 'running'], { threadId, grant, status: 'running' });
         this.deps.changed?.();
+      }
+      // An automatic admission asked the owner for nothing, so the first moment
+      // its conversation exists is the first moment the arrival can surface
+      // through the ordinary friend-arrival tiers. Once per task: a supplement
+      // drain reschedules the same conversation without a second arrival.
+      const arrival = this.tasks.get(context.account.userId, task.id);
+      if (arrival?.autoAdmitted && !arrival.autoArrivalNotified && threadId) {
+        this.tasks.update(context.account.userId, task.id, ['running'], { autoArrivalNotified: true });
+        this.deps.friendMessage?.({ sessionId: threadId, friendId: task.friendId, senderName: task.senderDisplayName, preview: task.message.prompt ?? '', wantReply: false, task: true });
       }
       this.queueRequestState(task, 'processing');
       const settle = async (payload: Record<string, Json>): Promise<void> => {
@@ -1640,7 +1650,7 @@ export class FriendsService {
       } else if (policy === 'auto') {
         try {
           const grant = await this.grant(standing, deviceId, true); context.check();
-          const task = this.tasks.update(context.account.userId, admitted.task.id, ['pending'], { status: 'starting', grant });
+          const task = this.tasks.update(context.account.userId, admitted.task.id, ['pending'], { status: 'starting', grant, autoAdmitted: true });
           this.schedule(task, context.account); this.deps.changed?.();
         } catch (error) {
           this.deps.log?.('friend-auto-start-failed', JSON.stringify({ taskId: admitted.task.id, error: failureText(error) }));

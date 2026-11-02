@@ -14210,22 +14210,29 @@ klausApi.on.notifySound?.((kind: string) => playNotifySound(kind))
 // is worth surfacing. A session already open in a focused window needs nothing
 // (the transcript renders the card live); everything else joins the unread
 // ledger, and a focused window additionally gets one aggregated toast.
-interface FriendArrivalPayload { sessionId: string; friendId: string; senderName: string; preview: string; wantReply: boolean; muted: boolean; ts: number }
+interface FriendArrivalPayload { sessionId: string; friendId: string; senderName: string; preview: string; wantReply: boolean; task?: boolean; muted: boolean; ts: number }
 const friendToastBursts = new Map<string, { count: number; ts: number; dismiss?: () => void }>()
 function showFriendArrivalToast(payload: FriendArrivalPayload) {
   const now = Date.now()
-  const previous = friendToastBursts.get(payload.friendId)
+  // Task arrivals keep their own burst bucket: their toast line is not a
+  // message preview, so counting them together would print the wrong text.
+  const burstKey = payload.task === true ? payload.friendId + ':task' : payload.friendId
+  const previous = friendToastBursts.get(burstKey)
   const count = previous && now - previous.ts < 5000 ? previous.count + 1 : 1
   previous?.dismiss?.()
-  const body = count > 1
-    ? (tt('friend_notify_burst') || '{name}: {count} new messages').replace('{name}', payload.senderName).replace('{count}', String(count))
-    : payload.preview
+  const body = payload.task === true
+    ? (count > 1
+      ? (tt('friend_notify_task_burst') || '{name}: {count} new friend tasks').replace('{name}', payload.senderName).replace('{count}', String(count))
+      : (tt('friend_notify_task_auto') || 'Friend task started automatically: {preview}').replace('{preview}', payload.preview))
+    : count > 1
+      ? (tt('friend_notify_burst') || '{name}: {count} new messages').replace('{name}', payload.senderName).replace('{count}', String(count))
+      : payload.preview
   const dismiss = showToast(body, {
     duration: 6000,
     head: { avatar: (payload.senderName || '?').trim().slice(0, 1).toUpperCase(), title: payload.senderName },
     onClick: () => { void switchSession(payload.sessionId) },
   })
-  friendToastBursts.set(payload.friendId, { count, ts: now, dismiss })
+  friendToastBursts.set(burstKey, { count, ts: now, dismiss })
 }
 klausApi.on.friendMessageArrived?.((payload: FriendArrivalPayload) => {
   if (!payload || typeof payload.sessionId !== 'string' || !payload.sessionId) return

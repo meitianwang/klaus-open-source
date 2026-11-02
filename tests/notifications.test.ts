@@ -535,6 +535,26 @@ h.test('friend message arrival broadcasts to renderers and banners only while un
   zh.service.friendMessage({ sessionId: 'thread', friendId: 'friend-a', senderName: 'Nick', preview: 'hello', wantReply: false });
   assertEqual(zh.notices[0]!.title, 'Nick（好友）', 'chinese banner title');
 });
+h.test('an automatically started friend task arrival rides the message tiers with its own banner', () => {
+  const focused = fixture(); focused.focus(true);
+  focused.service.friendMessage({ sessionId: 'thread', friendId: 'friend-a', senderName: 'Nick', preview: 'build the report', wantReply: false, task: true });
+  assertEqual(focused.broadcasts.length, 1, 'a focused window still learns about the task arrival');
+  assert(object(focused.broadcasts[0]!.payload).task === true, 'the payload marks the arrival as a task');
+  assertEqual(focused.notices.length, 0, 'a focused window owns the reminder itself');
+  const away = fixture();
+  away.service.friendMessage({ sessionId: 'thread', friendId: 'friend-a', senderName: 'Nick', preview: 'build the report', wantReply: false, task: true });
+  assertEqual(away.notices.length, 1, 'an unfocused window raises the task banner');
+  assertEqual(away.notices[0]!.title, 'Friend task from Nick started automatically', 'english task banner names the sender');
+  assertEqual(away.notices[0]!.body, 'build the report', 'the task banner body is the request preview');
+  assertEqual(away.notices[0]!.sessionId, 'thread', 'clicking routes into the task conversation');
+  const zh = fixture(); zh.settings.set('language', 'zh');
+  zh.service.friendMessage({ sessionId: 'thread', friendId: 'friend-a', senderName: 'Nick', preview: 'hello', wantReply: false, task: true });
+  assertEqual(zh.notices[0]!.title, 'Nick 的好友任务已自动开始执行', 'chinese task banner title');
+  const muted = fixture(); muted.settings.set('notification.mutedFriends', '["friend-a"]');
+  muted.service.friendMessage({ sessionId: 'thread', friendId: 'friend-a', senderName: 'Nick', preview: 'muted task', wantReply: false, task: true });
+  assertEqual(muted.notices.length, 0, 'a muted friend raises no task banner');
+  assert(object(muted.broadcasts[0]!.payload).task === true, 'the muted broadcast still carries the task flag');
+});
 h.test('muted friends keep the unread broadcast but skip the banner', () => {
   const f = fixture(); f.settings.set('notification.mutedFriends', '["friend-a"]');
   f.service.friendMessage({ sessionId: 'thread', friendId: 'friend-a', senderName: 'Nick', preview: 'muted hello', wantReply: false });

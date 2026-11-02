@@ -217,17 +217,22 @@ export class DesktopNotifications {
    * unread ledger decide there); the desktop banner follows the ordinary policy
    * and stays silent while a window is focused or the sender is muted.
    */
-  friendMessage(input: { sessionId: string; friendId: string; senderName: string; preview: string; wantReply: boolean }): void {
+  friendMessage(input: { sessionId: string; friendId: string; senderName: string; preview: string; wantReply: boolean; task?: boolean }): void {
     if (this.closed) return;
     const muted = this.mutedFriends().includes(input.friendId);
     const preview = notificationSummary(input.preview, 120);
     try {
       this.deps.broadcast?.('friends:message-arrived', { sessionId: input.sessionId, friendId: input.friendId,
-        senderName: input.senderName, preview, wantReply: input.wantReply, muted, ts: Date.now() });
+        senderName: input.senderName, preview, wantReply: input.wantReply, task: input.task === true, muted, ts: Date.now() });
     } catch (error) { this.deps.log(`Friend message broadcast failed: ${String(error)}`); }
     if (muted) return;
-    this.deliver({ title: this.chinese() ? `${notificationSummary(input.senderName, 60)}（好友）` : `${notificationSummary(input.senderName, 60)} (friend)`,
-      body: notificationSummary(input.preview, 80), sessionId: input.sessionId }, 'input');
+    // An automatically started friend task rides the same arrival tiers as a
+    // message, but its banner says what actually happened: nothing waited for
+    // the owner, the task is already running in its own conversation.
+    const title = input.task
+      ? (this.chinese() ? `${notificationSummary(input.senderName, 60)} 的好友任务已自动开始执行` : `Friend task from ${notificationSummary(input.senderName, 60)} started automatically`)
+      : (this.chinese() ? `${notificationSummary(input.senderName, 60)}（好友）` : `${notificationSummary(input.senderName, 60)} (friend)`);
+    this.deliver({ title, body: notificationSummary(input.preview, 80), sessionId: input.sessionId }, 'input');
   }
   private mutedFriends(): string[] {
     try {
