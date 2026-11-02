@@ -26,6 +26,23 @@ async function run() {
   const opened = await service.call('fixture', 'ppt_open', { title: 'Klaus PPT validation' }); log('opened', opened);
   if (opened.isError) throw Error(JSON.stringify(opened));
   const id = opened.structuredContent.id;
+  await service.invoke({ channel: 'ppt:panel-show', args: [{ id, sessionId: 'fixture', bounds: { x: 0, y: 0, width: 1440, height: 1000 } }], role: 'main', senderId: window.webContents.id });
+  const emptyEditor = [...service.editors.values()][0];
+  const emptyDeadline = Date.now() + 15000;
+  let emptyLoaded = false;
+  while (Date.now() < emptyDeadline) {
+    const frame = emptyEditor.view.webContents.mainFrame.frames.find(frame => frame.url.includes('.ppt-content/_f/') && !frame.url.includes('__frame_renew=1'));
+    if (frame) {
+      const emptyState = await frame.executeJavaScript('({text:document.body.innerText, root:document.getElementById("root")?.childElementCount ?? 0, loading:!!document.querySelector(".mc-loadgate")})');
+      log('empty-state', emptyState);
+      emptyLoaded = emptyState.root > 0 && emptyState.text.includes('This presentation has no slides yet.') && !emptyState.loading;
+      if (emptyLoaded) break;
+    }
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+  log('empty-document', { loaded: emptyLoaded, version: service.store.get('fixture', id).version, files: service.store.files('fixture', id).length });
+  if (!emptyLoaded) throw Error('The empty presentation failed before its first publish.');
+  await require('./ppt-service-assertions.cjs').assertLocalShell(emptyEditor, log, 'empty');
   const deck = join(profile, 'deck.json'), first = join(profile, 'slide-a.html'), second = join(profile, 'slide-b.html');
   writeFileSync(deck, JSON.stringify({ v: 4, title: 'Presentation fixture', order: ['slide-a', 'slide-b'], sections: {}, faces: {}, designSystems: [], attachments: {} }));
   writeFileSync(first, '<section id="slide-a" style="width:1280px;height:720px;background:#f4efe5"><h1 style="position:absolute;left:80px;top:120px;width:1100px;font-size:64px;color:#192b28">Presentation fixture</h1><p style="position:absolute;left:80px;top:260px;width:1000px;font-size:30px;color:#192b28">Editable text and original export rendering.</p><aside>Speaker notes fixture.</aside></section>');
@@ -50,9 +67,10 @@ async function run() {
   }
   if (!state.inner?.text.includes('Presentation fixture')) throw Error('The presentation content did not render.');
   if (/can.t be edited|saved content has a problem|outside any/.test(state.inner.text)) throw Error('The presentation contains a document parsing error.');
-  window.showInactive();
+  app.focus({ steal: true }); window.show(); window.focus();
   const interactiveDeadline = Date.now() + 15000;
   while (Date.now() < interactiveDeadline && await editor.view.webContents.executeJavaScript('document.getElementById("frame-content")?.inert !== false')) await new Promise(resolveWait => setTimeout(resolveWait, 100));
+  await require('./ppt-service-assertions.cjs').assertLocalShell(editor, log, 'initial');
   log('report', await editor.view.webContents.executeJavaScript('window.__klausPresentationReport ?? null'));
   const headerMenu = await editor.view.webContents.executeJavaScript('(async()=>{const button=document.querySelector("[data-title-menu]");button?.click();await new Promise(resolve=>requestAnimationFrame(resolve));const text=document.body.innerText;const disabled=document.querySelector("[data-delete-item]")?.getAttribute("aria-disabled");button?.click();return {text,deleteDisabled:disabled,favorite:/Favorite|Favourite/.test(text)}})()');
   log('header-menu', headerMenu);

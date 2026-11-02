@@ -38,6 +38,19 @@ async function assertServiceBoundaries(service, window, id, log) {
   log('service-boundaries', { roleIsolation: true, documentOwnership: true, publishRoots: true, staleVersionRejected: true, cancellationPreserved: true, acknowledgementWindow: true });
 }
 
+async function assertLocalShell(editor, log, phase) {
+  const state = await editor.view.webContents.executeJavaScript(`(()=>{
+    const frame=document.getElementById('frame-content');
+    return {sandbox:frame?.getAttribute('sandbox')??'', bylines:[...document.querySelectorAll('.byline')].map(node=>node.textContent), text:document.body.innerText, saveFailed:!!document.querySelector('[data-page-save-failed]'), userAgent:navigator.userAgent};
+  })()`);
+  log('local-shell', {phase, ...state});
+  const tokens = new Set(state.sandbox.split(/\s+/));
+  for (const [token, enabled] of Object.entries(vectors.hosting.contentSandbox)) assert.equal(tokens.has(token), enabled, token);
+  assert.equal(state.bylines.length, 0, 'Local documents do not need a public attribution line.');
+  assert.doesNotMatch(state.text, /user-generated|unverified|内容由用户生成|未经核实/i);
+  assert.equal(state.saveFailed, false, 'The loaded editor must not report a save failure.');
+}
+
 async function assertConcurrentExport(service, id, log) {
   const first = service.call('fixture', 'ppt_export', { id, format: 'pptx', variant: 'basic' });
   const second = service.call('fixture', 'ppt_export', { id, format: 'pdf' });
@@ -46,4 +59,4 @@ async function assertConcurrentExport(service, id, log) {
   assert.match(results.find(result => result.isError)?.content[0].text, /already exporting/);
   log('concurrent-export', { successful: 1, rejected: 1 });
 }
-module.exports = { assertServiceBoundaries, assertConcurrentExport, vectors };
+module.exports = { assertServiceBoundaries, assertConcurrentExport, assertLocalShell, vectors };
