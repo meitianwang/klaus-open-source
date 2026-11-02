@@ -9,6 +9,7 @@ export type ApprovalReviewAction =
   | { type: 'applyPatch'; cwd: string; files: string[] }
   | { type: 'networkAccess'; target: string; host: string; protocol: string; port: number }
   | { type: 'mcpToolCall'; server: string; toolName: string; connectorId?: string; connectorName?: string; toolTitle?: string }
+  | { type: 'browserToolCall'; toolName: string }
   | { type: 'requestPermissions'; reason?: string; permissions: Record<string, unknown> };
 export interface ApprovalReview {
   reviewId: string;
@@ -44,7 +45,7 @@ export function approvalReview(value: unknown): ApprovalReview | undefined {
   if (!['inProgress', 'approved', 'denied', 'timedOut', 'aborted'].includes(String(normalizedStatus))) return;
   const reviewId = row.reviewId ?? row.id;
   if (!text(reviewId) || !reviewId || !text(row.turnId) || typeof row.startedAtMs !== 'number' || !Number.isFinite(row.startedAtMs)) return;
-  const type = ({ write_stdin: 'writeStdin', apply_patch: 'applyPatch', network_access: 'networkAccess', mcp_tool_call: 'mcpToolCall', request_permissions: 'requestPermissions' } as Record<string, string>)[String(action.type)] ?? action.type;
+  const type = ({ write_stdin: 'writeStdin', apply_patch: 'applyPatch', network_access: 'networkAccess', mcp_tool_call: 'mcpToolCall', browser_tool_call: 'browserToolCall', request_permissions: 'requestPermissions' } as Record<string, string>)[String(action.type)] ?? action.type;
   const source = action.source === 'unified_exec' ? 'unifiedExec' : action.source;
   let normalizedAction: ApprovalReviewAction;
   if (type === 'command' && ['shell', 'unifiedExec'].includes(String(source)) && text(action.command) && text(action.cwd)) normalizedAction = { type, source: source as CommandSource, command: action.command, cwd: action.cwd };
@@ -53,6 +54,7 @@ export function approvalReview(value: unknown): ApprovalReview | undefined {
   else if (type === 'applyPatch' && text(action.cwd) && strings(action.files)) normalizedAction = { type, cwd: action.cwd, files: action.files };
   else if (type === 'networkAccess' && text(action.target) && text(action.host) && text(action.protocol) && typeof action.port === 'number') normalizedAction = { type, target: action.target, host: action.host, protocol: action.protocol, port: action.port };
   else if (type === 'mcpToolCall' && text(action.server) && text(action.toolName)) normalizedAction = { type, server: action.server, toolName: action.toolName, ...optionalText(action, ['connectorId', 'connectorName', 'toolTitle']) };
+  else if (type === 'browserToolCall' && text(action.toolName)) normalizedAction = { type, toolName: action.toolName };
   else if (type === 'requestPermissions' && action.permissions && typeof action.permissions === 'object' && !Array.isArray(action.permissions)) normalizedAction = { type, permissions: record(action.permissions), ...optionalText(action, ['reason']) };
   else return;
   const detail = row.status !== undefined ? row : review;
@@ -75,6 +77,7 @@ export function approvalReviewActionSummary(action: ApprovalReviewAction): strin
     case 'applyPatch': return action.files.length === 1 ? `Editing ${action.files[0]}` : `Editing ${action.files.length} files`;
     case 'networkAccess': return `Network access to ${action.target}`;
     case 'mcpToolCall': return `MCP ${action.toolName} on ${action.connectorName ?? action.server}`;
+    case 'browserToolCall': return `Browser action ${action.toolName}`;
     case 'requestPermissions': return action.reason == null ? 'Permission request' : `Permission request: ${action.reason}`;
   }
 }
@@ -82,7 +85,7 @@ export function approvalReviewActionSummary(action: ApprovalReviewAction): strin
 /** Retain the raw facade shape for an explicit authorization submission. */
 export function approvalReviewEvent(review: ApprovalReview): Record<string, unknown> {
   const action = { ...review.action } as Record<string, unknown>;
-  action.type = ({ writeStdin: 'write_stdin', applyPatch: 'apply_patch', networkAccess: 'network_access', mcpToolCall: 'mcp_tool_call', requestPermissions: 'request_permissions' } as Record<string, string>)[String(action.type)] ?? action.type;
+  action.type = ({ writeStdin: 'write_stdin', applyPatch: 'apply_patch', networkAccess: 'network_access', mcpToolCall: 'mcp_tool_call', browserToolCall: 'browser_tool_call', requestPermissions: 'request_permissions' } as Record<string, string>)[String(action.type)] ?? action.type;
   if (action.source === 'unifiedExec') action.source = 'unified_exec';
   if (action.protocol === 'socks5Tcp') action.protocol = 'socks5_tcp';
   if (action.protocol === 'socks5Udp') action.protocol = 'socks5_udp';

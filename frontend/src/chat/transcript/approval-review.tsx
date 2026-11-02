@@ -14,6 +14,7 @@ function actionSummary(action: ApprovalReviewAction, t: (key: string) => string)
     case 'applyPatch': return action.files.length === 1 ? format('approval_review_action_file', { file: action.files[0] }) : format('approval_review_action_files', { count: action.files.length })
     case 'networkAccess': return format('approval_review_action_network', { target: action.target })
     case 'mcpToolCall': return format('approval_review_action_mcp', { toolName: action.toolName, connector: action.connectorName ?? action.server })
+    case 'browserToolCall': return format('approval_review_action_browser', { toolName: action.toolName })
     case 'requestPermissions': return action.reason == null ? t('approval_review_action_permissions') : format('approval_review_action_permissions_reason', { reason: action.reason })
     default: return approvalReviewActionSummary(action)
   }

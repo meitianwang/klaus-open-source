@@ -22,6 +22,7 @@ export const approvalReviewEn = {
   approval_review_action_files: 'Editing {count} files',
   approval_review_action_network: 'Network access to {target}',
   approval_review_action_mcp: 'MCP {toolName} on {connector}',
+  approval_review_action_browser: 'Browser action {toolName}',
   approval_review_action_permissions: 'Permission request',
   approval_review_action_permissions_reason: 'Permission request: {reason}',
 
@@ -63,6 +64,7 @@ export const approvalReviewZh = {
   approval_review_action_files: '编辑 {count} 个文件',
   approval_review_action_network: '访问网络 {target}',
   approval_review_action_mcp: '在 {connector} 上调用 MCP {toolName}',
+  approval_review_action_browser: '浏览器操作 {toolName}',
   approval_review_action_permissions: '权限请求',
   approval_review_action_permissions_reason: '权限请求：{reason}',
 

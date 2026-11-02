@@ -28,6 +28,28 @@ test('all supported review actions retain their concrete payload and UI summary'
     expect(review.targetItemId).toBe('tool-shell')
   }
 })
+test('browser tool actions retain registered identity through raw and product codecs', () => {
+  const rawAction = { type: 'browser_tool_call', toolName: 'browser_claim_tab' }
+  const rawReview = approvalReview({ ...vector.denied, action: rawAction })!
+  expect(rawReview.action).toEqual({ type: 'browserToolCall', toolName: 'browser_claim_tab' })
+  expect(approvalReviewEvent(rawReview).action).toEqual(rawAction)
+  const productAction = { type: 'browserToolCall', toolName: 'browser_select_browser' }
+  const productReview = approvalReview({ ...vector.denied, action: productAction })!
+  expect(productReview.action).toEqual(productAction)
+  expect(approvalReviewEvent(productReview).action).toEqual({ type: 'browser_tool_call', toolName: 'browser_select_browser' })
+  expect(approvalReview({ ...vector.denied, action: { type: 'browser_tool_call' } })).toBeUndefined()
+})
+test('browser tool review summary is localized', () => {
+  const action = vector.actions.find(candidate => candidate.type === 'browser_tool_call')!
+  const review = approvalReview({ ...vector.denied, action })!
+  const previous = (window as any).currentLang
+  try {
+    ;(window as any).currentLang = 'zh'
+    expect(renderToStaticMarkup(<ApprovalReviewCard review={review} />)).toContain('浏览器操作 browser_claim_tab')
+  } finally {
+    ;(window as any).currentLang = previous
+  }
+})
 test('all lifecycle statuses remain distinct without offering human fallback buttons', () => {
   for (const status of vector.statuses) {
     const review = approvalReview({ ...vector.denied, status })!

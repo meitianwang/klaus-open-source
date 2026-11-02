@@ -952,6 +952,18 @@ h.test('automatic review product and raw events preserve lifecycle attribution a
   assertEqual(row.turnId, raw.turnId, 'saved owning turn');
 });
 
+h.test('browser tool review actions preserve registered identity in raw and product projections', () => {
+  const vector = loadVector('approval-review.json'), raw = vector.denied as Record<string, Json>;
+  const browserAction = (vector.actions as Record<string, Json>[]).find(action => action.type === 'browser_tool_call')!;
+  const normalized: Record<string, Json> = { ...raw, reviewId: raw.id!, action: { type: 'browserToolCall', toolName: browserAction.toolName! } };
+  delete normalized.id;
+  const rawReview = { ...raw, action: browserAction };
+  const rawFrames = mapChatEvents({ type: 'rawSessionEvent', params: { sessionId: 'review-browser', event: { event: { type: 'approval_review', review: rawReview } } } });
+  assertDeepEqual(rawFrames, [{ type: 'approval_review', sessionId: 'review-browser', review: normalized, rawReview }], 'raw browser review');
+  const product = { sessionId: 'review-browser', turnId: raw.turnId!, reviewId: raw.id!, targetItemId: raw.targetItemId!, startedAtMs: raw.startedAtMs!, completedAtMs: raw.completedAtMs!, decisionSource: 'agent', action: { type: 'browserToolCall', toolName: browserAction.toolName! }, review: { status: raw.status!, riskLevel: raw.riskLevel!, userAuthorization: raw.userAuthorization!, rationale: raw.rationale! } };
+  assertDeepEqual(mapChatEvents({ type: 'productEvent', method: 'item/autoApprovalReview/completed', params: product }), [{ type: 'approval_review', sessionId: 'review-browser', review: normalized }], 'product browser review');
+});
+
 h.test('received agent communication remains visible in saved history without exposing housekeeping', () => {
   const vector = loadVector('subagent-communication-vectors.json');
   for (const value of vector.cases as Json[]) {

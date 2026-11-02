@@ -1,5 +1,5 @@
 {
-  "reason": "Automatic review lifecycle preserves exact action identity, terminal decisions and attribution in live events, replay and explicit denial authorization.",
+  "reason": "Automatic review lifecycle preserves exact action identity, terminal decisions and attribution in live events, replay and explicit denial authorization. Browser tool actions retain the registered browser tool name through raw and product codecs.",
   "denied": {
     "id": "review-shell",
     "targetItemId": "tool-shell",
@@ -71,6 +71,10 @@
       "connectorId": "connector",
       "connectorName": "Documents",
       "toolTitle": "Write document"
+    },
+    {
+      "type": "browser_tool_call",
+      "toolName": "browser_claim_tab"
     },
     {
       "type": "request_permissions",

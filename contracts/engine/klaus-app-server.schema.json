@@ -3740,6 +3740,24 @@
               {
                 "type": "object",
                 "required": [
+                  "toolName",
+                  "type"
+                ],
+                "properties": {
+                  "toolName": {
+                    "type": "string"
+                  },
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "browser_tool_call"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
                   "permissions",
                   "type"
                 ],
@@ -4209,6 +4227,24 @@
                     "type": "string",
                     "enum": [
                       "mcp_tool_call"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "toolName",
+                  "type"
+                ],
+                "properties": {
+                  "toolName": {
+                    "type": "string"
+                  },
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "browser_tool_call"
                     ]
                   }
                 }
@@ -5300,7 +5336,7 @@
       "params": {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "title": "EngineReadThreadHistoryParams",
-        "description": "Read complete durable messages without activating their provider or a writer.\n\nPaging mirrors the reference app-server's turn paging: pages are slices of the oldest-first turn sequence, `cursor` names the turn the NEXT page starts at, and an unknown cursor is refused rather than silently re-reading from the head. `itemsView` bounds what each message carries: `full` (the default) keeps every block, `summary` keeps the turn's first user and last assistant message, and `notLoaded` keeps turn membership only. Summary selection clones the chosen messages whole, so a first user message still carries its own image blocks. Replies may also carry `presentationRecords`: the returned users' matching `user_display` records, separate from raw history membership and page limits.",
+        "description": "Read complete durable messages without activating their provider or a writer.\n\nTurn paging: pages are slices of the oldest-first turn sequence, `cursor` names the turn the NEXT page starts at, and an unknown cursor is refused rather than silently re-reading from the head. `itemsView` bounds what each message carries: `full` (the default) keeps every block, `summary` keeps the turn's first user and last assistant message, and `notLoaded` keeps turn membership only. Summary selection clones the chosen messages whole, so a first user message still carries its own image blocks. Replies may also carry `presentationRecords`: the returned users' matching `user_display` records, separate from raw history membership and page limits.",
         "type": "object",
         "required": [
           "threadId"
@@ -21397,6 +21433,55 @@
         }
       }
     },
+    "session/appendDisplayMessage": {
+      "params": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "title": "SessionAppendDisplayMessageParams",
+        "description": "`session/appendDisplayMessage` request params: one host-rendered message persisted as a completed turn without starting a model turn.",
+        "type": "object",
+        "required": [
+          "messageId",
+          "metadata",
+          "sessionId",
+          "text"
+        ],
+        "properties": {
+          "messageId": {
+            "description": "Host-owned stable identity, used to deduplicate a retried append.",
+            "type": "string"
+          },
+          "metadata": {
+            "description": "Renderer metadata persisted beside the message; the engine never interprets its shape."
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "submissionId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "text": {
+            "type": "string"
+          }
+        }
+      },
+      "result": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "title": "SubmissionAck",
+        "description": "Ack carrying the submission id assigned to a forwarded op.",
+        "type": "object",
+        "required": [
+          "submissionId"
+        ],
+        "properties": {
+          "submissionId": {
+            "type": "string"
+          }
+        }
+      }
+    },
     "session/setSkills": {
       "params": {
         "$schema": "http://json-schema.org/draft-07/schema#",
@@ -21961,6 +22046,31 @@
                   "detailed",
                   "none"
                 ]
+              },
+              "subagentModelCatalog": {
+                "type": "boolean"
+              },
+              "subagentModelOptions": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "label",
+                    "value"
+                  ],
+                  "properties": {
+                    "label": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "value": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "additionalProperties": false
+                },
+                "maxItems": 4096
               },
               "ultraMode": {
                 "type": "boolean"
@@ -24319,6 +24429,24 @@
               {
                 "type": "object",
                 "required": [
+                  "toolName",
+                  "type"
+                ],
+                "properties": {
+                  "toolName": {
+                    "type": "string"
+                  },
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "browserToolCall"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
                   "permissions",
                   "type"
                 ],
@@ -24757,6 +24885,24 @@
                     "type": "string",
                     "enum": [
                       "mcpToolCall"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "toolName",
+                  "type"
+                ],
+                "properties": {
+                  "toolName": {
+                    "type": "string"
+                  },
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "browserToolCall"
                     ]
                   }
                 }
