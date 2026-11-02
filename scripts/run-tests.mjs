@@ -9,7 +9,7 @@ const executable = require('electron');
 const root = fileURLToPath(new URL('..', import.meta.url));
 const suites = [
   'source-isolation', 'source-selection-memory', 'antigravity', 'trae', 'kiro', 'media-inputs', 'composer-predictions', 'prediction-query', 'owned-edit-menu', 'menu-diagnostics', 'native-content-find',
-  'browser-file-upload', 'browser-file-upload-extension', 'browser-settings', 'browser-history', 'browser-input-cancellation', 'browser-profile-import', 'browser-profile-import-service',
+  'browser-file-upload', 'browser-file-upload-extension', 'browser-debugger-session', 'browser-settings', 'browser-history', 'browser-input-cancellation', 'browser-profile-import', 'browser-profile-import-service',
   'power-save', 'desktop-log', 'session-view-interests',
   'voice-chat',
   'workspace-dependencies', 'workspace-dependency-tools', 'workspace-dependency-settings', 'workspace-skills',
@@ -42,7 +42,7 @@ if (!selected.length || selected.some(name => ['skill-reload-live', 'engine-live
 // Exercise the host's shipped Node runtime, including its SQLite implementation.
 // This does not replace integration tests inside a normal Electron application.
 for (const suite of selected.length ? selected : suites) {
-  const nodeTest = suite === 'menu-diagnostics' || suite === 'native-content-find' || suite === 'browser-file-upload' || suite === 'browser-file-upload-extension' || ['workspace-dependencies', 'workspace-dependency-tools', 'workspace-dependency-settings', 'workspace-skills', 'worktree-storage'].includes(suite) || suite === 'mobile-push' || suite === 'team-collaboration' || suite === 'run-preview' || suite === 'widgets' || suite === 'inline-visualization-dom' || suite === 'inline-visualization-wheel' || suite === 'visual-artifact-card-dom' || suite === 'ui-screenshot-delivery' || suite === 'chrome-tab-mentions';
+  const nodeTest = suite === 'menu-diagnostics' || suite === 'native-content-find' || suite === 'browser-file-upload' || suite === 'browser-file-upload-extension' || suite === 'browser-debugger-session' || ['workspace-dependencies', 'workspace-dependency-tools', 'workspace-dependency-settings', 'workspace-skills', 'worktree-storage'].includes(suite) || suite === 'mobile-push' || suite === 'team-collaboration' || suite === 'run-preview' || suite === 'widgets' || suite === 'inline-visualization-dom' || suite === 'inline-visualization-wheel' || suite === 'visual-artifact-card-dom' || suite === 'ui-screenshot-delivery' || suite === 'chrome-tab-mentions';
   const result = await new Promise((resolveResult, reject) => {
     // node:test owns its worker exit status; the legacy guard would force every
     // passing worker to exit 1. Both runners still require a complete report below.

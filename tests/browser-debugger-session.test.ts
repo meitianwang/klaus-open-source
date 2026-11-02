@@ -7,7 +7,7 @@ import { ChromePageDebugger } from '../main/browser/chrome-cdp';
 import type { ChromeRelay } from '../main/browser/chrome-relay';
 import type { BrowserObject } from '../main/browser/types';
 
-function fakeContents(): { contents: WebContents; calls: Array<{ method: string; sessionId?: string }>; emit: (method: string, params: BrowserObject, sessionId?: string) => void } {
+function fakeContents(send?: (method: string, sessionId?: string) => Promise<BrowserObject>): { contents: WebContents; calls: Array<{ method: string; sessionId?: string }>; emit: (method: string, params: BrowserObject, sessionId?: string) => void } {
   const emitter = new EventEmitter();
   const calls: Array<{ method: string; sessionId?: string }> = [];
   const contents = {
@@ -17,7 +17,7 @@ function fakeContents(): { contents: WebContents; calls: Array<{ method: string;
       isAttached: () => true,
       attach: () => {},
       detach: () => {},
-      sendCommand: async (method: string, _params: unknown, sessionId?: string) => { calls.push({ method, sessionId }); return {}; },
+      sendCommand: async (method: string, _params: unknown, sessionId?: string) => { calls.push({ method, sessionId }); return send ? send(method, sessionId) : {}; },
     },
     isDestroyed: () => false,
   } as unknown as WebContents;
@@ -71,3 +71,50 @@ test('ChromePageDebugger drops late events from an unknown child session', async
   assert.deepEqual(page.console.map(entry => entry.text), ['known-child', 'root']);
   await page.dispose();
 });
+
+function sessionHarness(backend: 'native' | 'chrome', send: (method: string, sessionId?: string) => Promise<BrowserObject>) {
+  if (backend === 'native') {
+    const fake = fakeContents(send);
+    return { page: new PageDebugger(fake.contents), notify: fake.emit };
+  }
+  const relay = { request: async (method: string, params: BrowserObject) => send(String(params.method ?? method), typeof params.sessionId === 'string' ? params.sessionId : undefined) } as unknown as ChromeRelay;
+  const page = new ChromePageDebugger(relay, 'session', 7);
+  const notify = (method: string, params: BrowserObject, sessionId?: string): void => {
+    page.acceptNotification({ method: 'onCDPEvent', params: { source: { tabId: 7, ...(sessionId ? { sessionId } : {}) }, method, params } });
+  };
+  return { page, notify };
+}
+
+for (const backend of ['native', 'chrome'] as const) {
+  test(`${backend} child initialization failure cannot remove a replacement session`, async () => {
+    let rejectOld!: (error: Error) => void;
+    const old = new Promise<BrowserObject>((_resolve, reject) => { rejectOld = reject; });
+    const { page, notify } = sessionHarness(backend, async (method, sessionId) => method === 'Target.setAutoAttach' && sessionId === 'old-session' ? old : {});
+    notify('Target.attachedToTarget', { targetInfo: { targetId: 'child', type: 'iframe' }, sessionId: 'old-session' });
+    await tick();
+    notify('Target.detachedFromTarget', { sessionId: 'old-session' });
+    notify('Target.attachedToTarget', { targetInfo: { targetId: 'child', type: 'iframe' }, sessionId: 'new-session' });
+    await tick();
+    rejectOld(new Error('synthetic delayed initialization failure'));
+    await tick();
+    assert.deepEqual(page.frameTargets(), ['child']);
+    notify('Runtime.consoleAPICalled', { type: 'log', args: [{ type: 'string', value: 'replacement-child' }] }, 'new-session');
+    assert.deepEqual(page.console.map(entry => entry.text), ['replacement-child']);
+    await page.dispose();
+  });
+
+  test(`${backend} nested detach cleans its child after the parent session was removed`, async () => {
+    const { page, notify } = sessionHarness(backend, async () => ({}));
+    notify('Target.attachedToTarget', { targetInfo: { targetId: 'parent', type: 'iframe' }, sessionId: 'parent-session' });
+    await tick();
+    notify('Target.attachedToTarget', { targetInfo: { targetId: 'nested', type: 'iframe' }, sessionId: 'nested-session' }, 'parent-session');
+    await tick();
+    notify('Target.detachedFromTarget', { sessionId: 'parent-session' });
+    notify('Target.detachedFromTarget', { sessionId: 'nested-session' }, 'parent-session');
+    assert.deepEqual(page.frameTargets(), []);
+    notify('Runtime.consoleAPICalled', { type: 'log', args: [{ type: 'string', value: 'late-nested' }] }, 'nested-session');
+    assert.deepEqual(page.console, []);
+    await page.dispose();
+  });
+}
+

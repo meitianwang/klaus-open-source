@@ -41,14 +41,16 @@ export class ChromePageDebugger implements BrowserCdp {
     if (!session) return;
     try {
       await this.send('Target.setAutoAttach', { autoAttach: true, waitForDebuggerOnStart: false, flatten: true }, targetId);
+      if (this.closed || this.frames.get(targetId) !== session) return;
       await Promise.all([
         this.send('Page.enable', {}, targetId),
         this.send('Runtime.enable', {}, targetId),
         this.send('Log.enable', {}, targetId),
         this.send('Network.enable', { maxTotalBufferSize: 8 * 1024 * 1024, maxResourceBufferSize: 256 * 1024, maxPostDataSize: 16 * 1024 }, targetId),
       ]);
-      await this.send('Fetch.enable', { patterns: [{ resourceType: 'Document', requestStage: 'Request' }] }, targetId);
+      if (!this.closed && this.frames.get(targetId) === session) await this.send('Fetch.enable', { patterns: [{ resourceType: 'Document', requestStage: 'Request' }] }, targetId);
     } catch {
+      if (this.frames.get(targetId) !== session) return;
       this.frames.delete(targetId);
       if (!this.closed) await this.send('Target.detachFromTarget', { sessionId: session }).catch(() => {});
     }
@@ -62,7 +64,12 @@ export class ChromePageDebugger implements BrowserCdp {
     const params = object(event.params);
     const frame = typeof source.sessionId === 'string' ? [...this.frames].find(([, id]) => id === source.sessionId)?.[0] : undefined;
     // Late events from a detached child must not be attributed to the root page.
-    if (typeof source.sessionId === 'string' && !frame) return;
+    if (typeof source.sessionId === 'string' && !frame) {
+      if (event.method === 'Target.detachedFromTarget') {
+        for (const [target, session] of this.frames) if (session === params.sessionId) this.frames.delete(target);
+      }
+      return;
+    }
     this.events.push({ sequence: ++this.eventSequence, method: String(event.method), params, timestamp: Date.now(), frameTargetId: frame ?? null });
     if (this.events.length > 1000) { this.events.shift(); this.evicted.events += 1; }
     if (event.method === 'Target.attachedToTarget' && object(params.targetInfo).type === 'iframe' && typeof params.sessionId === 'string') {

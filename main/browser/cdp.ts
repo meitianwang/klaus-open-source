@@ -43,6 +43,7 @@ export class PageDebugger {
   private async enableChild(targetId: string, sessionId: string): Promise<void> {
     try {
       await this.send('Target.setAutoAttach', { autoAttach: true, waitForDebuggerOnStart: false, flatten: true }, sessionId);
+      if (this.disposed || this.frames.get(targetId) !== sessionId) return;
       await Promise.all([
         this.send('Page.enable', {}, sessionId),
         this.send('Runtime.enable', {}, sessionId),
@@ -50,6 +51,7 @@ export class PageDebugger {
         this.send('Network.enable', { maxTotalBufferSize: 8 * 1024 * 1024, maxResourceBufferSize: 256 * 1024, maxPostDataSize: 16 * 1024 }, sessionId),
       ]);
     } catch {
+      if (this.frames.get(targetId) !== sessionId) return;
       this.frames.delete(targetId);
       if (!this.disposed) await this.send('Target.detachFromTarget', { sessionId }, undefined).catch(() => {});
     }
@@ -60,7 +62,12 @@ export class PageDebugger {
     const frame = sessionId ? [...this.frames].find(([, id]) => id === sessionId)?.[0] : undefined;
     // A detached child can still emit late events. They must not be recorded as
     // root events merely because the child session is no longer in the map.
-    if (sessionId && !frame) return;
+    if (sessionId && !frame) {
+      if (method === 'Target.detachedFromTarget') {
+        for (const [target, id] of this.frames) if (id === data.sessionId) this.frames.delete(target);
+      }
+      return;
+    }
     this.events.push({ sequence: ++this.eventSequence, method, params: data, timestamp: Date.now(), frameTargetId: frame ?? null });
     if (this.events.length > 1000) { this.events.shift(); this.evicted.events += 1; }
     if (method === 'Target.attachedToTarget' && object(data.targetInfo).type === 'iframe') {
