@@ -6554,14 +6554,42 @@ function seedFriendConsumer(client:FakeClient,originTurnId:string) {
   return saved;
 }
 
+h.test('friend continuations bind saved history to the engine turn while steering with the submission identity', async () => {
+  const identity = (JSON.parse(readFileSync(vectorPath('friends-messaging-vectors.json'), 'utf8')) as {
+    asyncInteraction: { continuationIdentity: { engineTurnId: string; submissionId: string } };
+  }).asyncInteraction.continuationIdentity;
+  const client = new FakeClient().reply('engine/readSessionSummary', {session:{id:'thread'}})
+    .reply('session/history',{history:[]}).reply('session/queueSnapshot',{queueSnapshot:{items:[]}}).replySubmit('steer');
+  seedFriendConsumer(client,identity.engineTurnId);
+  const {service,state}=serviceWith(client,byoRoot());
+  await service.client();
+  state.rememberSession('thread','live',{}, {source:'custom',selection:'custom:fixture'});
+  state.markTurnRunning('thread',identity.submissionId);
+  const pump = new SessionEventPump({state,currentGeneration:()=>1,emit:()=>{},log:()=>{},
+    forwarder:new ChatEventForwarder(()=>{})});
+  try {
+    assert(identity.engineTurnId !== identity.submissionId,'the fixture uses distinct history and submission identities');
+    pump.receive({type:'productEvent',method:'turn/started',params:{sessionId:'live',
+      submissionId:identity.submissionId,detail:{type:'turn.started',turnId:identity.engineTurnId}}},1);
+    const association=await service.captureFriendContinuation('thread','aliased-reply','consumer');
+    assertEqual(association.taskId,identity.engineTurnId,'the persisted origin matches saved history');
+    const result=await service.deliverFriendFollowUp('thread',{id:'aliased-reply',originTurnId:association.taskId,text:'Result A',association});
+    assertEqual(result.admitted,true,'the original engine turn accepts the result');
+    const steered=rowAt(client.sentSubmit('steer'),0,'friend reply steer');
+    assertEqual(steered.expectedTurnId,identity.submissionId,'wire admission retains its submission fence');
+    assertEqual(client.sentSubmit('steer').length,1,'the result is admitted once');
+    assertEqual(client.sentSubmit('start-if-idle').length,0,'a running turn does not start a duplicate turn');
+  } finally { await service.shutdown(); }
+});
+
 h.test('friend follow-ups distinguish the original running turn from unrelated work', async () => {
   for (const same of [true, false]) {
     const client = new FakeClient().reply('engine/readSessionSummary', {session:{id:'thread'}}).reply('session/history',{history:[]}).reply('session/queueSnapshot',{queueSnapshot:{items:[]}}).replySubmit('steer');
     seedFriendConsumer(client,'original');
     const {service,state}=serviceWith(client,byoRoot());await service.client();
-    state.rememberSession('thread','live',{}, {source:'custom',selection:'custom:fixture'});state.markTurnRunning('thread','original');
+    state.rememberSession('thread','live',{}, {source:'custom',selection:'custom:fixture'});state.markTurnRunning('thread','original','original-submission');
     const association=await service.captureFriendContinuation('thread','reply-event','consumer');
-    state.markTurnRunning('thread',same?'original':'other');
+    state.markTurnRunning('thread',same?'original':'other',same?'original-submission':'other-submission');
     const result=await service.deliverFriendFollowUp('thread',{id:'reply-event',originTurnId:'original',text:'Result A',association});
     assertEqual(result.admitted,same,'only the original task accepts mid-turn input');
     assertEqual(client.sentSubmit('steer').length,same?1:0,'unrelated turn receives no external result');
@@ -6586,7 +6614,7 @@ h.test('friend idle follow-up has a stable turn identity and checks cancellation
     const client=new FakeClient().reply('engine/readSessionSummary',{session:{id:'thread'}}).reply('session/history',{history:[]}).reply('session/queueSnapshot',{queueSnapshot:{items:[]}}).replySubmit('start-if-idle');
     seedFriendConsumer(client,'old-turn');
     const {service,state}=serviceWith(client,byoRoot(),undefined,{messageInput:async text=>{if(cancelled)current=false;return [{type:'text',text}];}});
-    await service.client();state.rememberSession('thread','live',{}, {source:'custom',selection:'custom:fixture'});state.markTurnRunning('thread','old-turn');
+    await service.client();state.rememberSession('thread','live',{}, {source:'custom',selection:'custom:fixture'});state.markTurnRunning('thread','old-turn','old-submission');
     const association=await service.captureFriendContinuation('thread','idle-event','consumer');state.clearTurnRunning('thread');
     const run=()=>service.deliverFriendFollowUp('thread',{id:'idle-event',originTurnId:'old-turn',text:'A',association,assertCurrent(){if(!current)throw Error('cancelled before admission');}});
     if(cancelled)await assertRejects(run,'cancelled authorization prevents issue');else assertEqual((await run()).admitted,true,'idle related turn admitted');
@@ -6599,7 +6627,7 @@ h.test('owner corrections delay friend admission until the consuming step is rec
   for(const completed of [false,true]){
     const client=new FakeClient().reply('engine/readSessionSummary',{session:{id:'thread'}}).reply('session/history',{history:[]}).reply('session/queueSnapshot',{queueSnapshot:{items:[]}}).replySubmit('steer').replySubmit('start-if-idle');
     const saved=seedFriendConsumer(client,'original');
-    const {service,state}=serviceWith(client,byoRoot());await service.client();state.rememberSession('thread','live',{}, {source:'custom',selection:'custom:fixture'});state.markTurnRunning('thread','original');
+    const {service,state}=serviceWith(client,byoRoot());await service.client();state.rememberSession('thread','live',{}, {source:'custom',selection:'custom:fixture'});state.markTurnRunning('thread','original','original-submission');
     try{
       await assertRejects(()=>service.captureFriendContinuation('thread','step'),'a missing consuming task cannot be inferred');
       const association=await service.captureFriendContinuation('thread','step','consumer');
@@ -6631,7 +6659,7 @@ h.test('friend continuation rechecks the exact consuming task and original saved
       .reply('session/history',{history:[]}).reply('session/queueSnapshot',{queueSnapshot:{items:[]}}).replySubmit('start-if-idle');
     client.capabilities={taskIdentity:true};
     const {service,state}=serviceWith(client,byoRoot());await service.client();
-    state.rememberSession('thread','live',{}, {source:'custom',selection:'custom:fixture'});state.markTurnRunning('thread','original-turn');
+    state.rememberSession('thread','live',{}, {source:'custom',selection:'custom:fixture'});state.markTurnRunning('thread','original-turn','original-submission');
     try{
       const association=await service.captureFriendContinuation('thread','external-step','consumer');
       assertEqual(association.stepId,'external-step','the host owns the request step identity');
