@@ -32,7 +32,15 @@ const service = new ChromeBrowserService({ enabled: () => true, discoveryDirecto
 }, assertNavigation: value => { const url = navigationUrl(value); if (url.endsWith('/forbidden')) throw new BrowserError('refused_by_policy', 'Fixture blocked this document.'); return url; } });
 const directRelays: ChromeRelay[] = [];
 let downloadSequence = 0; let forbiddenRequests = 0;
+let slowDocumentRequests = 0; let slowDocumentOpen = false;
+let flakySlowRequests = 0; let flakySlowOpen = false;
 let browser: ChildProcess | undefined; let browserId = ''; let tabA = 0; let tabB = 0; let base = '';
+const stallDocument = (response: import('node:http').ServerResponse): void => {
+  response.setHeader('Content-Type', 'text/html; charset=utf-8');
+  response.write('<!doctype html><title>Stalled document</title><p>partial');
+  const timer = setInterval(() => response.write('pending'), 100);
+  response.once('close', () => { clearInterval(timer); });
+};
 const server = createServer((request, response) => {
   if (serveAdvancedFixture(request, response, base)) return;
   if (request.url === '/forbidden') { forbiddenRequests += 1; response.end('forbidden'); return; }
@@ -42,6 +50,22 @@ const server = createServer((request, response) => {
     if (request.url === '/download') { response.end(`fixture-download-${++downloadSequence}`); return; }
     response.write('partial');
     const timer = setInterval(() => response.write('pending'), 100); response.once('close', () => clearInterval(timer)); return;
+  }
+  if (request.url === '/slow-document') {
+    slowDocumentRequests += 1; slowDocumentOpen = true;
+    response.setHeader('Cache-Control', 'no-store');
+    response.once('close', () => { slowDocumentOpen = false; });
+    stallDocument(response); return;
+  }
+  if (request.url === '/flaky-slow') {
+    flakySlowRequests += 1;
+    response.setHeader('Cache-Control', 'no-store');
+    // The first request completes so the URL enters session history; later
+    // requests (a reload or a back/forward revisit) stall until canceled.
+    if (flakySlowRequests === 1) { response.setHeader('Content-Type', 'text/html; charset=utf-8'); response.end('<title>Flaky slow</title><h1>Flaky slow</h1><script>addEventListener("beforeunload",()=>{})</script>'); return; }
+    flakySlowOpen = true;
+    response.once('close', () => { flakySlowOpen = false; });
+    stallDocument(response); return;
   }
   response.setHeader('Content-Type', 'text/html; charset=utf-8');
   if (request.url === '/frame') { response.end('<title>Frame</title><p id="frame">owned iframe</p><input id="upload-origin-input" type="file">'); return; }
@@ -136,6 +160,33 @@ h.test('Chrome navigation and history preserve page identity', async () => {
   assertEqual(resultValue(await call('A', 'eval', { expression: 'document.title' })), 'External fixture', 'back reached prior page');
   await call('A', 'forward'); await call('A', 'reload');
   assertEqual(resultValue(await call('A', 'eval', { expression: 'document.title' })), 'Second', 'forward and reload complete');
+});
+
+h.test('canceling a slow navigation stops its own load and a later navigation recovers', async () => {
+  const controller = new AbortController();
+  const pending = service.execute('A', browserId, 'navigate', { url: `${base}/slow-document`, timeoutMs: 30000 }, {}, controller.signal);
+  void pending.catch(() => {});
+  await waitFor(() => slowDocumentRequests > 0 && slowDocumentOpen, 5000, 'the slow document request is open');
+  controller.abort(new BrowserError('cancelled', 'Fixture navigation canceled.'));
+  const error = object(await assertRejects(() => pending, 'the canceled navigation rejects'));
+  assertEqual(error.code, 'cancelled', 'cancellation is reported as a canceled operation');
+  await call('A', 'navigate', { url: `${base}/second` });
+  assertEqual(resultValue(await call('A', 'eval', { expression: 'document.title' })), 'Second', 'a later navigation completes on the same page');
+});
+
+h.test('canceling a history reload stops its own load and the page recovers', async () => {
+  await call('A', 'navigate', { url: `${base}/flaky-slow` });
+  const controller = new AbortController();
+  const pending = service.execute('A', browserId, 'reload', {}, {}, controller.signal);
+  void pending.catch(() => {});
+  await waitFor(() => flakySlowRequests >= 2 && flakySlowOpen, 5000, 'the reload request is open');
+  controller.abort(new BrowserError('cancelled', 'Fixture history navigation canceled.'));
+  const error = object(await assertRejects(() => pending, 'the canceled history navigation rejects'));
+  assertEqual(error.code, 'cancelled', 'history cancellation is reported as a canceled operation');
+  await call('A', 'navigate', { url: `${base}/second` });
+  assertEqual(resultValue(await call('A', 'eval', { expression: 'document.title' })), 'Second', 'a later navigation still completes');
+  // Restore the page that downstream cases expect task A to hold.
+  await call('A', 'navigate', { url: `${base}/second` });
 });
 
 h.test('an explicitly claimed user Chrome tab is released without closing it', async () => {
