@@ -1,6 +1,6 @@
 {
-  "version": 1,
-  "reason": "Service rejections remain specific localized turn failures; model access denial must not be presented as expired sign-in or a picker restriction; a NOT_FOUND verdict for a model the refreshed account catalog no longer lists reports the account offering; an identity the live catalog never carried reports a stale selection to re-resolve, not an account limitation.",
+  "version": 2,
+  "reason": "Service rejections remain specific localized turn failures; model access denial must not be presented as expired sign-in or a picker restriction; a NOT_FOUND verdict for a model the refreshed account catalog no longer lists reports the account offering; an identity the live catalog never carried reports a stale selection to re-resolve, not an account limitation. Every turn-error tag the engine can emit keeps a localized sentence, and a tag this build does not know yet falls back to a generic localized Antigravity failure instead of leaking the machine code into the conversation.",
   "cases": [
     { "code": "antigravity_model_access_denied", "expectedKey": "antigravity_model_access_denied" },
     { "code": "antigravity_model_not_offered", "expectedKey": "antigravity_model_not_offered" },
@@ -9,6 +9,30 @@
     { "code": "antigravity_request_rejected", "expectedKey": "antigravity_request_rejected" },
     { "code": "antigravity_auth_required", "expectedKey": "antigravity_auth_required" },
     { "code": "antigravity_rate_limited", "expectedKey": "antigravity_rate_limited" },
-    { "code": "antigravity_service_unavailable", "expectedKey": "antigravity_service_unavailable" }
+    { "code": "antigravity_service_unavailable", "expectedKey": "antigravity_service_unavailable" },
+    { "code": "model_context_window_exceeded", "expectedKey": "model_context_window_exceeded" },
+    { "code": "antigravity_transport_unavailable", "expectedKey": "antigravity_transport_unavailable" },
+    { "code": "antigravity_request_cancelled", "expectedKey": "antigravity_request_cancelled" },
+    { "code": "antigravity_credential_changed", "expectedKey": "antigravity_credential_changed" },
+    { "code": "antigravity_not_signed_in", "expectedKey": "antigravity_not_signed_in" },
+    { "code": "antigravity_response_too_large", "expectedKey": "antigravity_response_too_large" },
+    { "code": "antigravity_response_interrupted", "expectedKey": "antigravity_response_interrupted" },
+    { "code": "antigravity_response_invalid", "expectedKey": "antigravity_response_invalid" },
+    { "code": "antigravity_request_invalid", "expectedKey": "antigravity_request_invalid" },
+    { "code": "antigravity_model_invalid", "expectedKey": "antigravity_model_invalid" },
+    { "code": "antigravity_endpoint_invalid", "expectedKey": "antigravity_endpoint_invalid" },
+    { "code": "antigravity_catalog_timeout", "expectedKey": "antigravity_catalog_timeout" },
+    { "code": "antigravity_catalog_invalid", "expectedKey": "antigravity_catalog_invalid" },
+    { "code": "antigravity_stream_invalid", "expectedKey": "antigravity_stream_invalid" },
+    { "code": "antigravity_stream_incomplete", "expectedKey": "antigravity_stream_incomplete" },
+    { "code": "antigravity_tool_choice_unsupported", "expectedKey": "antigravity_tool_choice_unsupported" },
+    { "code": "antigravity_thinking_level_unsupported", "expectedKey": "antigravity_thinking_level_unsupported" },
+    { "code": "antigravity_model_unavailable", "expectedKey": "antigravity_model_unavailable" },
+    { "code": "antigravity_model_purpose_unsupported", "expectedKey": "antigravity_model_purpose_unsupported" },
+    { "code": "antigravity_capability_unavailable", "expectedKey": "antigravity_capability_unavailable" },
+    { "code": "antigravity_refresh_invalid", "expectedKey": "antigravity_refresh_invalid" },
+    { "code": "antigravity_store_unavailable", "expectedKey": "antigravity_store_unavailable" },
+    { "code": "antigravity_store_invalid", "expectedKey": "antigravity_store_invalid" },
+    { "code": "antigravity_unmapped_future_tag", "expectedKey": "antigravity_error_generic" }
   ]
 }

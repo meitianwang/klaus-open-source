@@ -97,9 +97,14 @@ describe('Antigravity service refusal wording', () => {
       }
     })
   }
-  test('unrecognized service errors retain the existing failure wording', () => {
+  test('unrecognized service errors retain the existing failure wording, unknown source tags localize', () => {
     expect(providerErrorText('unrecognized refusal', 'invalid_request', t)).toBe(`${t('provider_invalid')} (unrecognized refusal)`)
-    expect(providerErrorText('antigravity_new_error', 'unknown', t)).toBe('antigravity_new_error')
+    for (const language of ['en', 'zh'] as const) {
+      const translate = (key: string) => I18N[language][key]
+      const text = providerErrorText('antigravity_new_error', 'unknown', translate)
+      expect(text).toBe(translate('antigravity_error_generic'))
+      expect(text).not.toContain('antigravity_new_error')
+    }
   })
 })
 
