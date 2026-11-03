@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import vectors from '../../../../contracts/vectors/composer-context-menu-vectors.json'
-import { contextCommandQueryKey, contextMenuSections, resolveSyntheticContextQuery, syntheticContextQuery, CONTEXT_RESULT_LIMIT } from './context-menu-model'
+import { contextCommandQueryKey, contextMenuSections, resolveSyntheticContextQuery, syntheticContextQuery, shouldCloseEmptyContextMenu, CONTEXT_RESULT_LIMIT } from './context-menu-model'
 import { QueryClient } from '@tanstack/react-query'
 import type { MentionEntry } from './slash-menu'
 import type { MentionSection } from './mention-sections'
@@ -23,6 +23,22 @@ describe('context menu activation contract', () => {
     expect(resolveSyntheticContextQuery(activation, 'before textafter', 8, 8, 'editor-a')).toBeNull()
     expect(resolveSyntheticContextQuery(activation, 'other textafter', 10, 10, 'editor-a')).toBeNull()
     expect(resolveSyntheticContextQuery(activation, 'before line\nafter', 12, 12, 'editor-a')).toBeNull()
+  })
+})
+
+describe('empty context results', () => {
+  test('an unmatched single search term remains discoverable', () => {
+    expect(shouldCloseEmptyContextMenu('unknown', false, 0)).toBe(vectors.emptyResults.closeSingleTerm)
+    expect(shouldCloseEmptyContextMenu('未知技能', false, 0)).toBe(false)
+    expect(shouldCloseEmptyContextMenu('', false, 0)).toBe(false)
+    expect(shouldCloseEmptyContextMenu(' ', false, 0)).toBe(false)
+  })
+  test('unmatched prose dismisses only after sources finish and never hides a match', () => {
+    for (const query of ['Please review', '请检查 无匹配', 'unknown ', 'unknown\tterm']) {
+      expect(shouldCloseEmptyContextMenu(query, true, 0)).toBe(vectors.emptyResults.closeWhileLoading)
+      expect(shouldCloseEmptyContextMenu(query, false, 1)).toBe(false)
+      expect(shouldCloseEmptyContextMenu(query, false, 0)).toBe(vectors.emptyResults.closeWithWhitespace)
+    }
   })
 })
 
@@ -51,9 +67,9 @@ describe('context source grouping and search contract', () => {
     expect(result[0].rows.map(row => row.name)).toEqual(['Diagrams', 'Diagram review', 'diagram.ts'])
     expect(contextMenuSections(sources, '图表')[0].rows[0].name).toBe('Diagrams')
   })
-  test('an item outside the empty-query first screen remains searchable', () => {
+  test('skills appear through search instead of a truncated initial group', () => {
     const source = section('skills', Array.from({ length: 40 }, (_, index) => entry(`Skill ${index}`)))
-    expect(contextMenuSections([source], '')[0].rows).toHaveLength(2)
+    expect(contextMenuSections([source], '')[0].rows).toHaveLength(0)
     expect(contextMenuSections([source], 'Skill 39')[0].rows[0].name).toBe('Skill 39')
     expect(CONTEXT_RESULT_LIMIT).toBe(vectors.queryLimit)
     expect(contextMenuSections([source], 'Skill')[0].rows).toHaveLength(vectors.queryLimit)

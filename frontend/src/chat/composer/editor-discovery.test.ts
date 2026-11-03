@@ -46,6 +46,28 @@ test('button discovery owns a query without inserting a trigger into the draft',
   expect(f.calls.inserted).toEqual([])
 })
 
+test('empty prose dismissal suppresses the current typed trigger until a new query is authored', async () => {
+  const f = fixture()
+  f.query({ prefix: '@', start: 0, end: 15, query: 'unmatched prose' })
+  await f.discovery.refresh()
+  const shown = f.calls.shown.length
+  f.discovery.empty()
+  expect(f.calls.dismissed).toBe(1)
+  await f.discovery.refresh()
+  expect(f.calls.shown).toHaveLength(shown)
+  f.query({ prefix: '@', start: 20, end: 21, query: '' })
+  await f.discovery.refresh()
+  expect(f.calls.shown).toHaveLength(shown + 1)
+})
+
+test('an explicit skill query includes the complete catalog rather than an initial summary', async () => {
+  const f = fixture()
+  f.load(async () => Array.from({ length: 40 }, (_, index) => ({ name: `skill-${index}`, kind: 'skill' })))
+  f.query({ prefix: '$', start: 0, end: 1, query: '' })
+  await f.discovery.refresh()
+  expect(f.calls.shown.at(-1)).toHaveLength(40)
+})
+
 test('context actions consume only their owned query and never dispatch after a binding change', async () => {
   const f = fixture()
   f.query({ prefix: '@', start: 3, end: 7, query: 'add' }); await f.discovery.refresh()

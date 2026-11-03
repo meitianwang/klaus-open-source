@@ -36,7 +36,7 @@ import { BrowserTabIcon } from './browser-tab-icon'
 import { isManualCompactCommand, manualCompactPresentation, type ManualCompactState } from './manual-compact-command'
 import { contextPieSvg } from '../../icons/dynamic'
 import { browserTabMentionSection } from './browser-tab-section'
-import { contextCommandQueryKey, contextMenuSections } from './context-menu-model'
+import { contextCommandQueryKey, contextMenuSections, shouldCloseEmptyContextMenu } from './context-menu-model'
 import { claimOverlay, overlayIdForElement, registerOverlay } from '../../app/overlay-registry'
 
 export interface MentionEntry {
@@ -100,7 +100,7 @@ export interface SlashMenuActions {
   contextMcp?(sessionId: string | null, root?: string): Promise<Array<{ name?: string }>>
   contextActions?(): MentionEntry[]
   onRequestClose?(): void
-  /** Called when the menu has settled with nothing to show, so chat.ts can close it. */
+  /** Dismiss a settled empty query that has continued into prose. */
   onMentionMenuEmpty(): void
   onSelectCommand(command: any): void
   onSelectMention(entry: MentionEntry, intent?: 'insert' | 'complete'): void
@@ -412,7 +412,12 @@ function MentionMenu({ request, actions, store }: {
     store.setState({ mentionSelectable: selectable, activeIdx: nextActiveIdx })
   }, [store, selectable, selectionKey, selectionRequest])
 
-  const hasPendingOrError = sections.some(section => section.state?.kind === 'loading' || section.state?.kind === 'error')
+  const isLoading = sections.some(section => section.state?.kind === 'loading')
+  const hasPendingOrError = isLoading || sections.some(section => section.state?.kind === 'error')
+  const closeEmpty = !hasPendingOrError && shouldCloseEmptyContextMenu(query, isLoading, selectable.length)
+  useEffect(() => {
+    if (closeEmpty && store.getState().mentionRequest === request) actions.onMentionMenuEmpty()
+  }, [closeEmpty, request, actions, store])
   const hover = (index: number) => {
     if (store.getState().activeIdx !== index) store.setState({ activeIdx: index })
   }

@@ -16,6 +16,7 @@ globals.PLUGIN_NAME_TOKEN_ZH = {}
 globals.SKILL_TEXT_I18N = {}
 const fixtureFriendId = '11111111-1111-4111-8111-111111111111'
 let conversations = [{ id: 'chat-fixture', title: 'Review menus' }]
+let commandDelay = 0, failMcp = false
 const catalogStats = { fullListReads: 0, searches: [] as Array<{ query: string; limit: number }>, returned: 0, fileOpens: 0, fileSearches: 0 }
 globals.klaus = {
   plugins: { list: async () => [{ id: 'review-tools', name: 'Review tools', installed: true, enabled: true }] },
@@ -65,7 +66,11 @@ function mount(owner: string) {
       catalogStats.fileOpens++
       return { search: async () => { catalogStats.fileSearches++; return files }, close: async () => {} } as any
     },
-    contextCommands: async () => commands, contextMcp: async () => [{ name: 'Fixture tools' }],
+    contextCommands: async () => {
+      if (commandDelay) await new Promise(resolve => setTimeout(resolve, commandDelay))
+      return commands
+    },
+    contextMcp: async () => { if (failMcp) throw new Error('Unavailable fixture source'); return [{ name: 'Fixture tools' }] },
     contextActions: () => [{ name: 'Add photos and files', path: 'context-action:attach-files', rel: '', kind: 'action', isDir: false, action: () => { attachments++ } }],
     onMentionMenuEmpty: () => discovery?.empty(), onRequestClose: () => discovery?.hide(true),
     onSelectCommand: command => discovery?.selectCommand(command), onSelectMention: (entry, intent) => { void discovery?.selectMention(entry, intent) },
@@ -109,6 +114,8 @@ function mount(owner: string) {
 }
 globals.contextFixture = { main: mount('main'), side: mount('side'), ready: true,
   clearQueries() { queryClient.clear() },
+  setCatalogState(delay: number, failed = false) { commandDelay = delay; failMcp = failed },
+
   catalogStats,
   setConversationCount(count: number) {
     conversations = Array.from({ length: count }, (_, index) => ({ id: `perf-chat-${index}`, title: `Catalog conversation ${String(index).padStart(5, '0')}` }))

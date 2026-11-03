@@ -115,7 +115,7 @@ export function createEditorDiscovery(options: {
     isContextOpen() { return mode === 'workspace' && menu.isOpen() },
     refresh,
     hide,
-    empty() { if (mode === 'workspace') hide() },
+    empty() { if (mode === 'workspace') hide(true) },
     selectCommand(command: SlashCommandInfo) {
       const value = published
       if (!value || !current(value) || value.query.prefix === '@') { hide(); return }

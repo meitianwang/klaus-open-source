@@ -39,8 +39,8 @@ function sourcePriority(section: string, entry: MentionEntry, query: string): nu
 export function contextMenuSections(sections: MentionSection[], query: string): MentionSection[] {
   const needle = query.trim().toLocaleLowerCase()
   if (!needle) return sections.map(section => {
-    const limit = section.key === 'conversations' || section.key === 'files' ? 0
-      : section.key === 'skills' ? 2 : section.key === 'apps' ? 3 : section.key === 'agents' ? 5 : section.key === 'sites' ? 2 : undefined
+    const limit = ['conversations', 'files', 'skills'].includes(section.key) ? 0
+      : section.key === 'apps' ? 3 : section.key === 'agents' ? 5 : section.key === 'sites' ? 2 : undefined
     return { ...section, rows: limit === undefined ? section.rows : section.rows.slice(0, limit) }
   })
   const candidates: Array<{ entry: MentionEntry; score: number; priority: number }> = []
@@ -62,6 +62,11 @@ export function contextMenuSections(sections: MentionSection[], query: string): 
   return [{ key: 'search-results', labelKey: null, rows,
     ...(!rows.length && (pending || failed) ? { state: (pending || failed)!.state } : {}),
   }]
+}
+
+/** A settled query that has become prose no longer needs an empty suggestion list. */
+export function shouldCloseEmptyContextMenu(query: string, isLoading: boolean, resultCount: number): boolean {
+  return query.trim().length > 0 && /\s/u.test(query) && !isLoading && resultCount === 0
 }
 
 export interface SyntheticContextQuery {

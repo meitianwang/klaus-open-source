@@ -10853,7 +10853,7 @@ function composerDiscoveryMenuActions(callbacks: Pick<SlashMenuActions, 'onMenti
   }
 }
 const slashMenuApi = mountSlashMenu(slashMenu, composerDiscoveryMenuActions({
-  onMentionMenuEmpty: () => { if (composerMenuMode === 'workspace') hideSlashMenu() },
+  onMentionMenuEmpty: () => { if (composerMenuMode === 'workspace') hideSlashMenu(true) },
   onSelectCommand: command => selectSlashItem(command),
   onSelectMention: (entry, intent) => selectWorkspaceMentionItem(entry, intent),
   onRequestClose: () => hideSlashMenu(true),
@@ -12014,8 +12014,8 @@ function getWorkspaceAtTrigger() {
  * Detect the `@` trigger and hand the menu its intent. This is synchronous and
  * does no fetching: the component owns the queries and renders local groups on
  * the first frame while remote groups fill in, so there is no await here and no
- * request-sequence race to guard. The menu closing on "nothing to show" is the
- * component's `onMentionMenuEmpty` callback, fired once every group has settled.
+ * request-sequence race to guard. After a spaced query settles without results,
+ * the component dismisses that trigger through `onMentionMenuEmpty`.
  */
 function handleWorkspaceMentionMenu() {
   const trigger = getWorkspaceAtTrigger()
