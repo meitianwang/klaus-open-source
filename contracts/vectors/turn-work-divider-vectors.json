@@ -1,6 +1,6 @@
 {
   "note": "A turn uses one work-time header above its process content. Before process content arrives a synthetic row shows the same label. Saved and streamed projections of the same turn share that header position; any process disclosure replaces their placeholders. The disclosure is available while running and defaults open; terminal completion defaults it closed unless the user chose otherwise or a child still needs attention. Final assistant text stays outside the process and freezes its elapsed time without ending the turn.",
-  "changeNote": "2026-10-26: Keep stopped turns terminal during continuation startup and give the active turn its own work header before content arrives; retain shared saved/live header ownership.",
+  "changeNote": "2026-11-03: Only a leading live user opens a turn segment. Follow-ups after continuation work retain their arrival position even when steering metadata is absent; preserve real opener and work-header ownership.",
   "rules": {
     "tickMs": 1000,
     "timeThresholdMs": 1000,
@@ -12,6 +12,7 @@
     "missingStartLabel": "activity_loading_status",
     "rowShape": "label row followed by a full-width hairline rule",
     "livePlacement": "above the first work item, after leading user, external and worktree rows",
+    "liveOpener": "only a user leading the live segment; follow-ups after existing work retain their arrival position even without steering metadata",
     "completionTransition": "the same disclosure header remains in place while its process content collapses",
     "allowCollapseBeforeFinal": true,
     "preventAutoCollapseWhileRunning": true,

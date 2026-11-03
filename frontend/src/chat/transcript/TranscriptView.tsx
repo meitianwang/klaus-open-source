@@ -5271,10 +5271,11 @@ const TranscriptTurnFrame = memo(function TranscriptTurnFrame({ renderKey, ident
     add(`history-gap:${saved.turnId}`, true, <TurnHistoryGap sessionId={owner} turnId={saved.turnId}
       pagination={pagination} open observe={element} />)
   }
-  let liveUsers = 0
   const addLive = (node: LiveActivityNode, persistent = true) => {
     if (node.kind === 'unit' && node.unit.type === 'live-user') {
-      const opener = liveUsers++ === 0
+      // Only a leading user opens this segment. The first user in a continuation
+      // can arrive after work and must retain that position even without metadata.
+      const opener = node === live?.nodes[0]
       for (const [index, unit] of liveUserRenderUnits(node.unit).entries()) {
         if (unit.type === 'user') addUser(unit, `${node.unit.key}:${index}`, opener, persistent)
         else add(`live:${node.unit.key}:${index}`, true, <UnitView unit={unit} {...unitProps} />)

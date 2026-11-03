@@ -49,6 +49,40 @@ function expectOneHeader(html: string, disclosure: boolean) {
 }
 
 describe('one work header across saved and streamed turn content', () => {
+  for (const steered of [undefined, true]) test(`the first live user after continuation work retains its arrival position (steered=${steered})`, () => {
+    const followUp = { role: 'user', uuid: 'follow-up', text: 'Report the current progress', timestamp: 3000,
+      ...(steered ? { steered } : {}) }
+    const html = renderTurn({
+      history: [{ role: 'assistant', uuid: 'failed-work', turnId: 'previous', text: 'Previous attempt', phase: 'commentary' }],
+      turnStatuses: { previous: 'failed' }, turnErrors: { previous: 'Model response timed out' },
+      turnStartedAtMs: { previous: 500, turn: 1000 },
+      liveUnits: [liveWork, { type: 'live-user', key: 'follow-up', turnId: 'turn', msg: followUp }],
+    })
+    const dom = parse(html)
+    const text = dom.textContent
+    expect(dom.querySelectorAll('[data-uuid="follow-up"]')).toHaveLength(1)
+    expect(text.indexOf('Model response timed out')).toBeLessThan(text.indexOf('Live process.'))
+    expect(text.indexOf('Live process.')).toBeLessThan(text.indexOf('Report the current progress'))
+    expect(html.indexOf('data-work-label=')).toBeLessThan(html.indexOf('Report the current progress'))
+  })
+
+  test('a continuation follow-up stays between earlier work and later output through history handoff', () => {
+    const followUp = { role: 'user', uuid: 'follow-up', turnId: 'turn', text: 'Report the current progress', timestamp: 3000 }
+    const later = { role: 'assistant', uuid: 'later-work', turnId: 'turn', text: 'Continuing the work.', phase: 'commentary', timestamp: 4000 }
+    const partial = [{ ...savedWork, text: 'Earlier saved process.' }]
+    const liveUnits: LiveUnit[] = [liveWork, { type: 'live-user', key: 'follow-up', turnId: 'turn', msg: followUp },
+      { type: 'live-text', key: 'later-work', turnId: 'turn', text: later.text, phase: 'commentary', streaming: false }]
+    for (const patch of [
+      { history: partial, liveUnits },
+      { history: [...partial, { ...savedWork, uuid: 'work', text: liveWork.text }, followUp, later], liveUnits: [] },
+    ]) {
+      const text = parse(renderTurn(patch)).textContent
+      expect(text.indexOf('Earlier saved process.')).toBeLessThan(text.indexOf('Live process.'))
+      expect(text.indexOf('Live process.')).toBeLessThan(text.indexOf(followUp.text))
+      expect(text.indexOf(followUp.text)).toBeLessThan(text.indexOf(later.text))
+    }
+  })
+
   for (const late of [false, true]) test(`a ${late ? 'late' : 'middle'} answer keeps its arrival position when saved history already has the final`, () => {
     const answer = { role: 'user', uuid: 'answer', text: 'Three bullets', timestamp: late ? 5000 : 2000,
       steered: true, questionAnswer: { requestId: 'request', turnId: 'turn', toolCallId: 'question', clientResponseId: 'response',
