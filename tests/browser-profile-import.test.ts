@@ -840,6 +840,93 @@ h.test('row limits bound reads and report a structured error', async () => {
   assert(result.errors.some(issue => issue.code === 'history_row_limit'), 'limit error is structured');
 });
 
+h.test('partial target receipts preserve exact applied counts for every data category', async () => {
+  const { source, profileDir, tempRoot } = fixture();
+  createCookies(profileDir, [
+    { host: 'example.test', name: 'one', value: 'receipt-cookie-secret' },
+    { host: 'example.test', name: 'two', value: 'second' },
+  ]);
+  createLogins(profileDir, [
+    { origin: 'https://example.test/one', username: 'one', encrypted: Buffer.from('v10-receipt-password-secret') },
+    { origin: 'https://example.test/two', username: 'two', encrypted: Buffer.from('v10-second') },
+  ]);
+  createHistory(profileDir, [
+    { url: 'https://example.test/one', visitedAt: 1_700_000_000_000 },
+    { url: 'https://example.test/two', visitedAt: 1_700_000_001_000 },
+  ]);
+  const applied = new RecordingTarget();
+  const target: BrowserImportTarget = {
+    async applyCookies(rows) { applied.cookies.push(rows[0]!); return { applied: 1 }; },
+    async applyPasswords(rows) { applied.passwords.push(rows[0]!); return { applied: 1 }; },
+    async applyHistory(rows) { applied.history.push(rows[0]!); return { applied: 1 }; },
+  };
+  const result = await importBrowserProfile(
+    { sourceId: 'chrome', profileId: 'Default', categories: { cookies: true, passwords: true, history: true, extensions: false } },
+    { roots: [source], decryptor: new RecordingDecryptor(), target, tempRoot },
+  );
+  assertDeepEqual(result.counts, { cookies: 1, passwords: 1, history: 1, extensions: 0 }, 'only confirmed writes are counted');
+  assertEqual(applied.cookies.length + applied.passwords.length + applied.history.length, 3, 'the synthetic sink actually applied three rows');
+  assertEqual(result.ok, false, 'a partial sink receipt is not whole-batch success');
+  for (const category of ['cookies', 'passwords', 'history']) {
+    assert(result.errors.some(issue => issue.category === category && issue.code === `apply_${category}_partial`), 'partial category is explicit');
+  }
+  assert(!JSON.stringify(result).includes('receipt-cookie-secret'), 'cookie values stay out of results');
+  assert(!JSON.stringify(result).includes('receipt-password-secret'), 'decrypted passwords stay out of results');
+});
+
+h.test('invalid target receipts cannot invent successful row counts', async () => {
+  for (const receipt of [null, {}, { applied: -1 }, { applied: 0.5 }, { applied: NaN }, { applied: Infinity }, { applied: 3 }]) {
+    const { source, profileDir, tempRoot } = fixture();
+    createCookies(profileDir, [
+      { host: 'example.test', name: 'one', value: 'one' },
+      { host: 'example.test', name: 'two', value: 'two' },
+    ]);
+    const target: BrowserImportTarget = { async applyCookies() { return receipt as { applied: number }; } };
+    const result = await importBrowserProfile(
+      { sourceId: 'chrome', profileId: 'Default', categories: { cookies: true, passwords: false, history: false, extensions: false } },
+      { roots: [source], decryptor: new RecordingDecryptor(), target, tempRoot },
+    );
+    assertEqual(result.counts.cookies, 0, 'an invalid receipt is never used as a count');
+    assertEqual(result.ok, false, 'an invalid receipt fails the category');
+    assert(result.errors.some(issue => issue.code === 'apply_cookies_failed' && issue.message.includes('invalid_target_result')), 'the target contract failure is explicit');
+  }
+});
+
+h.test('cancellation after a partial target receipt keeps applied counts and skips later categories', async () => {
+  const { source, profileDir, tempRoot } = fixture();
+  createCookies(profileDir, [
+    { host: 'example.test', name: 'one', value: 'one' },
+    { host: 'example.test', name: 'two', value: 'two' },
+  ]);
+  createHistory(profileDir, [{ url: 'https://example.test/later', visitedAt: 1_700_000_000_000 }]);
+  const controller = new AbortController();
+  let laterWrites = 0;
+  const target: BrowserImportTarget = {
+    async applyCookies() { controller.abort(); return { applied: 1 }; },
+    async applyHistory() { laterWrites++; return { applied: 1 }; },
+  };
+  const result = await importBrowserProfile(
+    { sourceId: 'chrome', profileId: 'Default', categories: { cookies: true, passwords: false, history: true, extensions: false } },
+    { roots: [source], decryptor: new RecordingDecryptor(), target, tempRoot, signal: controller.signal },
+  );
+  assertEqual(result.counts.cookies, 1, 'a confirmed partial write survives cancellation');
+  assertEqual(result.cancelled, true, 'cancellation remains explicit');
+  assertEqual(result.ok, false, 'a cancelled partial import is not successful');
+  assertEqual(laterWrites, 0, 'no later category runs');
+});
+
+h.test('a complete target receipt confirms the whole data batch', async () => {
+  const { source, profileDir, tempRoot } = fixture();
+  createHistory(profileDir, [{ url: 'https://example.test/complete', visitedAt: 1_700_000_000_000 }]);
+  const target: BrowserImportTarget = { async applyHistory(rows) { return { applied: rows.length }; } };
+  const result = await importBrowserProfile(
+    { sourceId: 'chrome', profileId: 'Default', categories: { cookies: false, passwords: false, history: true, extensions: false } },
+    { roots: [source], decryptor: new RecordingDecryptor(), target, tempRoot },
+  );
+  assertEqual(result.ok, true, 'all confirmed rows produce success');
+  assertEqual(result.counts.history, 1, 'the exact history receipt is counted');
+});
+
 void h.finish(join(__dirname, 'browser-profile-import-result.json'), 'browser-profile-import').then(code => {
   rmSync(root, { recursive: true, force: true });
   process.exitCode = code;

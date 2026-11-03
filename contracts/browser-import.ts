@@ -240,10 +240,21 @@ export interface BrowserPasswordDecryptor {
   decrypt(input: Uint8Array, context: BrowserSecretContext): Promise<string>;
 }
 
+export interface BrowserImportBatchResult {
+  /** Confirmed writes, bounded by the number of rows in the submitted batch. */
+  applied: number;
+}
+
 export interface BrowserImportTarget {
-  applyCookies?(cookies: readonly BrowserImportCookie[]): Promise<void>;
-  applyPasswords?(passwords: readonly BrowserImportPassword[]): Promise<void>;
-  applyHistory?(entries: readonly BrowserImportHistoryEntry[]): Promise<void>;
+  /**
+   * Return an exact count after row-level writes, including partial failure or
+   * cancellation. Throw only when no rows were applied. Legacy void replies
+   * acknowledge the whole batch and require all-or-nothing target semantics.
+   * Receipts must never contain row values or decrypted secrets.
+   */
+  applyCookies?(cookies: readonly BrowserImportCookie[]): Promise<BrowserImportBatchResult | void>;
+  applyPasswords?(passwords: readonly BrowserImportPassword[]): Promise<BrowserImportBatchResult | void>;
+  applyHistory?(entries: readonly BrowserImportHistoryEntry[]): Promise<BrowserImportBatchResult | void>;
   /**
    * Install from the app-owned copy. Packages without a manifest.key cannot
    * prove their folder id, so the target must return the real installed id.

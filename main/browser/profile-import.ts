@@ -196,6 +196,16 @@ function issueSink(): { errors: BrowserImportIssue[]; add: (category: BrowserImp
   };
 }
 
+function appliedBatchCount(receipt: unknown, submitted: number): number {
+  if (receipt === undefined) return submitted;
+  const applied = receipt !== null && typeof receipt === 'object' && 'applied' in receipt
+    ? (receipt as { applied: unknown }).applied : undefined;
+  if (typeof applied !== 'number' || !Number.isSafeInteger(applied) || applied < 0 || applied > submitted) {
+    throw new BrowserError('invalid_target_result', 'The browser target returned an invalid applied count.');
+  }
+  return applied;
+}
+
 function safeTargetError(error: unknown): string {
   if (error !== null && typeof error === 'object' && 'code' in error) {
     const code = (error as { code?: unknown }).code;
@@ -993,8 +1003,11 @@ export async function importBrowserProfile(
         } else {
           throwIfAborted(dependencies.signal);
           try {
-            await dependencies.target.applyCookies(cookies);
-            result.counts.cookies = cookies.length;
+            const receipt = await dependencies.target.applyCookies(cookies);
+            result.counts.cookies = appliedBatchCount(receipt, cookies.length);
+            if (result.counts.cookies < cookies.length) {
+              sink.add('cookies', 'apply_cookies_partial', 'The browser target could not apply every cookie.', cookies.length - result.counts.cookies);
+            }
             throwIfAborted(dependencies.signal);
           } catch (error) {
             if (dependencies.signal?.aborted) throw new ImportAbortedError();
@@ -1012,8 +1025,11 @@ export async function importBrowserProfile(
         } else {
           throwIfAborted(dependencies.signal);
           try {
-            await dependencies.target.applyPasswords(passwords);
-            result.counts.passwords = passwords.length;
+            const receipt = await dependencies.target.applyPasswords(passwords);
+            result.counts.passwords = appliedBatchCount(receipt, passwords.length);
+            if (result.counts.passwords < passwords.length) {
+              sink.add('passwords', 'apply_passwords_partial', 'The browser target could not apply every saved password.', passwords.length - result.counts.passwords);
+            }
             throwIfAborted(dependencies.signal);
           } catch (error) {
             if (dependencies.signal?.aborted) throw new ImportAbortedError();
@@ -1031,8 +1047,11 @@ export async function importBrowserProfile(
         } else {
           throwIfAborted(dependencies.signal);
           try {
-            await dependencies.target.applyHistory(entries);
-            result.counts.history = entries.length;
+            const receipt = await dependencies.target.applyHistory(entries);
+            result.counts.history = appliedBatchCount(receipt, entries.length);
+            if (result.counts.history < entries.length) {
+              sink.add('history', 'apply_history_partial', 'The browser target could not apply every history entry.', entries.length - result.counts.history);
+            }
             throwIfAborted(dependencies.signal);
           } catch (error) {
             if (dependencies.signal?.aborted) throw new ImportAbortedError();
