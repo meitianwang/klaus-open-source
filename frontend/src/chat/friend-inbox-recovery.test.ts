@@ -52,6 +52,30 @@ describe('friend requests stay reachable after an arrival notice is missed', () 
     })
   })
 
+  test('an old runtime read cannot put a locally approved task back into pending', async () => {
+    const first = deferred<FriendsRuntimeSnapshot>()
+    const approved = snapshot('approved-chat')
+    approved.tasks[0] = { ...approved.tasks[0], status: 'starting', updatedAt: 20 }
+    let reads = 0
+    const { inbox } = inboxFixture(() => ++reads === 1 ? first.promise : Promise.resolve(approved))
+    inbox.wireFriendInbox()
+    await flush()
+    inbox.applyFriendInboxReceipt(approved)
+    first.resolve(snapshot('approved-chat'))
+    await flush()
+    expect(reads).toBe(2)
+    expect(inbox.friendTaskById('request-task')?.status).toBe('starting')
+  })
+
+  test('a late approval receipt cannot replace a newer failure snapshot', () => {
+    const { inbox } = inboxFixture(async () => snapshot('approved-chat'))
+    const failed = snapshot('approved-chat')
+    failed.tasks[0] = { ...failed.tasks[0], status: 'failed', updatedAt: 30 }
+    inbox.applyFriendInboxReceipt(failed)
+    inbox.applyFriendInboxReceipt(snapshot('approved-chat'))
+    expect(inbox.friendTaskById('request-task')?.status).toBe('failed')
+  })
+
   test('a change during the first read retains the final parked conversation', async () => {
     const first = deferred<FriendsRuntimeSnapshot>()
     let reads = 0

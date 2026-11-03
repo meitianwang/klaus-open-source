@@ -12,6 +12,7 @@ import { GrantSummary } from '../../pages/friends/FriendsPage'
 import { failureText } from '../../pages/friends/data'
 import { friendApprovalGrant, friendInboxRevision, ownerChatTask, pendingFriendTaskByRequest, pendingFriendTaskForSession, refreshFriendInbox, settledFriendTaskByRequest, settledFriendTaskForSession, subscribeFriendInbox } from '../friend-inbox'
 import type { FriendTaskSummary } from '../../../../shared/friends'
+import { approveFriendTask } from '../friend-task-start'
 import styles from '../chat.module.css'
 
 function SettledLine({ task }: { task: FriendTaskSummary }) {
@@ -46,7 +47,7 @@ export function FriendTaskApproval({ sessionId, requestId, skipPending }: {
     try {
       if (kind === 'allow') {
         if (!grant) throw new Error(t('friends_runtime_loading'))
-        await window.klaus.friends.approve({ taskId: pending.id, grant })
+        await approveFriendTask(pending, grant)
       } else {
         await window.klaus.friends.reject({ taskId: pending.id })
       }

@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test'
+import { beforeEach, describe, expect, test } from 'bun:test'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { I18N } from '../../i18n/messages'
 
@@ -44,6 +44,7 @@ const snapshot = {
 
 const { friendApprovalGrant, friendConversationAdmitted, pendingFriendTaskByRequest, pendingFriendTaskForSession, refreshFriendInbox, settledFriendTaskForSession } = await import('../friend-inbox')
 const { FriendOwnerChatRequest, FriendTaskApproval } = await import('./friend-task-approval')
+beforeEach(() => { window.currentLang = 'zh' })
 
 describe('the friend approval card lives inside the conversation', () => {
   test('a pending request renders the three decisions', async () => {

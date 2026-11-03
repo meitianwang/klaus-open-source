@@ -9,6 +9,13 @@ const { TurnWorkDivider, TurnWorkLabel, WORK_DIVIDER_TICK_MS, WORK_DIVIDER_TIME_
 const dividerAt = (startedAtMs: number | null) => renderToStaticMarkup(<TurnWorkDivider startedAtMs={startedAtMs} />)
 
 describe('turn work divider contract', () => {
+  test('an approved existing message has a work row before the engine assigns a turn id', () => {
+    const nodes = groupLiveActivityUnits([], {}, true, false, false, new Set(), null, {}, 1234, {}, false, null, new Map(), true)
+    expect(nodes).toHaveLength(1)
+    expect(nodes[0]).toMatchObject({ kind: 'work-divider', startedAtMs: 1234 })
+    expect(groupLiveActivityUnits([], {}, false, false)).toHaveLength(0)
+  })
+
   test('tick interval and time threshold match the captured divider rules', () => {
     expect(WORK_DIVIDER_TICK_MS).toBe(vectors.rules.tickMs)
     expect(WORK_DIVIDER_TIME_THRESHOLD_MS).toBe(vectors.rules.timeThresholdMs)

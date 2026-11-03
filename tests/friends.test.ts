@@ -226,6 +226,61 @@ h.test('an awaiting-authorization request notifies the owner with the task id so
     assert.equal(f.pendingNotices.length, 1, 'a duplicate admission does not announce again');
   } finally { await f.close(); }
 });
+h.test('approval acknowledges locally while execution validates a delayed friendship before model admission', async () => {
+  const f = fixture(), validation = deferred<void>();
+  try {
+    const request = await f.service.receive(f.incoming(), freshSignal());
+    const fetch = f.deps.fetch!, calls: string[] = [];
+    f.deps.fetch = async (url, init) => {
+      const kind = JSON.parse(String(init?.body)).type;
+      calls.push(kind);
+      if (kind === 'list') await validation.promise;
+      return fetch(url, init);
+    };
+    const receipt = await f.service.approve({ taskId: request.taskId, grant: f.grant() as unknown as Json });
+    assert.equal(receipt.tasks.find(row => row.id === request.taskId)?.status, 'starting');
+    await waitFor(() => calls.includes('list'), 1000, 'execution reaches the required friendship check');
+    assert.deepEqual(calls, ['list'], 'approval never waits for cloud receiver discovery or validates the friendship twice');
+    assert.equal(f.turns.length, 0, 'a local acknowledgement cannot bypass execution authorization');
+    validation.resolve();
+    await reached(f, request.taskId, 'running');
+    assert.equal(f.turns.length, 1);
+    assert.deepEqual(calls, ['list']);
+  } finally { validation.resolve(); await f.close(); }
+});
+h.test('stop during preparation cancels the approved task before delayed authorization can submit it', async () => {
+  const f = fixture(), validation = deferred<void>();
+  try {
+    const request = await f.service.receive(f.incoming(), freshSignal());
+    const fetch = f.deps.fetch!;
+    let validating = false;
+    f.deps.fetch = async (url, init) => {
+      if (JSON.parse(String(init?.body)).type === 'list') { validating = true; await validation.promise; }
+      return fetch(url, init);
+    };
+    await f.service.approve({ taskId: request.taskId, grant: f.grant() as unknown as Json });
+    await waitFor(() => validating, 1000, 'execution is preparing');
+    await f.service.cancel({ taskId: request.taskId });
+    validation.resolve();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(f.status(request.taskId).status, 'cancelled');
+    assert.equal(f.turns.length, 0, 'releasing preparation after stop cannot start a turn');
+  } finally { validation.resolve(); await f.close(); }
+});
+h.test('cancellation while approval validates its local grant cannot resurrect the request', async () => {
+  const f = fixture(), device = deferred<string>();
+  try {
+    const request = await f.service.receive(f.incoming(), freshSignal());
+    let reads = 0;
+    f.deps.deviceId = () => ++reads === 1 ? device.promise : Promise.resolve(LOCAL);
+    const approval = f.service.approve({ taskId: request.taskId, grant: f.grant() as unknown as Json });
+    await f.service.cancel({ taskId: request.taskId });
+    device.resolve(LOCAL);
+    await assert.rejects(approval, /changed/u);
+    assert.equal(f.status(request.taskId).status, 'cancelled');
+    assert.equal(f.turns.length, 0);
+  } finally { device.resolve(LOCAL); await f.close(); }
+});
 h.test('one owner approval admits the conversation across requests while another source needs its own decision', async () => {
   const f = fixture(); try {
     kvSet('composer.permission_mode', 'bypassPermissions', f.root);
@@ -814,12 +869,14 @@ h.test('a scoped conversation retunes live on a preset change and keeps its own 
   } finally { await f.close(); }
 });
 
-h.test('offline runtime retains the durable inbox and allows local cancellation while fresh approval remains denied', async () => {
+h.test('offline runtime retains local decisions while execution still refuses model admission', async () => {
   const f = fixture(); try {
     const task = await f.service.receive(f.incoming(), freshSignal()); await f.service.runtime(); f.offline();
     const offline = await f.service.runtime(); assert.equal(offline.tasks[0]!.id, task.taskId); assert(offline.error); assert(offline.receiver?.devices.every(row => row.online === false));
     await f.service.cancel({ taskId: task.taskId }); assert.equal(f.status(task.taskId).status, 'cancelled');
-    await assert.rejects(f.service.approve({ taskId: task.taskId, grant: f.grant() as unknown as Json })); assert.equal(f.created.length, 1, 'the parked conversation exists while offline approval stays denied'); assert.equal(f.turns.length, 0);
+    await f.service.approve({ taskId: task.taskId, grant: f.grant() as unknown as Json });
+    await reached(f, task.taskId, 'failed');
+    assert.equal(f.created.length, 1, 'the parked conversation survives an offline execution failure'); assert.equal(f.turns.length, 0);
   } finally { await f.close(); }
 });
 h.test('execution failure and cancellation send stable status replies without starting additional models', async () => {

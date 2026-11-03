@@ -41,8 +41,10 @@ export function refreshFriendInbox(): Promise<void> {
       do {
         refreshRequested = false
         try {
-          snapshot = await window.klaus.friends.runtime()
-          emit()
+          const atRead = revision
+          const next = await window.klaus.friends.runtime()
+          if (revision === atRead) { snapshot = next; emit() }
+          else refreshRequested = true
         } catch {
           // Retain the last good snapshot, but still drain a queued change.
         }
@@ -54,6 +56,16 @@ export function refreshFriendInbox(): Promise<void> {
     }
   })()
   return inflight
+}
+
+/** Apply a local decision receipt without waiting for a cloud receiver refresh. */
+export function applyFriendInboxReceipt(next: FriendsRuntimeSnapshot): void {
+  const current = snapshot
+  snapshot = { ...next, tasks: next.tasks.map(task => {
+    const newer = current?.tasks.find(row => row.id === task.id && row.updatedAt > task.updatedAt)
+    return newer ?? task
+  }) }
+  emit()
 }
 
 export function wireFriendInbox(): void {

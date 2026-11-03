@@ -575,19 +575,19 @@ export class FriendsService {
       if (!task) failure('FRIEND_TASK_UNAVAILABLE', 'This task is unavailable');
       if (task!.ownerChatThreadId) failure('FRIEND_TASK_OWNER_CHAT', 'This request is answered in the conversation it arrived in');
       if (this.running.has(task!.id)) failure('FRIEND_TASK_RUNNING', 'Wait until the previous task has finished releasing its resources');
-      await this.ready(context);
       const deviceId = await this.currentDevice(context.account);
       if (task!.receiverDeviceId !== deviceId) failure('FRIEND_WRONG_DEVICE', 'Authorize the task on its receiving computer');
-      await this.accepted(context, task!.friendId);
       const grant = await this.grant(value.grant, deviceId); context.check();
-      await this.ready(context);
+      // Persist and dispatch the owner's decision locally. The execution entry
+      // validates transport and friendship before it can submit a model turn.
       if (this.running.has(task!.id)) failure('FRIEND_TASK_RUNNING', 'This task is already running');
-      const next = this.tasks.approveConversation(context.account.userId, task!.id, ['pending', 'failed', 'rejected', 'cancelled', 'completed', 'ignored'],
+      if (!['pending', 'failed', 'rejected', 'cancelled', 'completed', 'ignored'].includes(task!.status)) failure('FRIEND_TASK_RUNNING', 'This task is already running');
+      const next = this.tasks.approveConversation(context.account.userId, task!.id, [task!.status],
         { status: 'starting', grant, error: undefined, errorCode: undefined, ignoredAt: undefined, replyError: undefined, replyText: undefined, replyRequestId: undefined,replyStateRevision:undefined });
       this.schedule(next, context.account);
       void this.drainApprovedRequests();
     });
-    this.deps.changed?.(); return this.runtime();
+    this.deps.changed?.(); return this.localRuntime();
   }
   async reject(value: JsonObject): Promise<FriendsRuntimeSnapshot> {
     await this.run(new AbortController().signal, async context => {
@@ -765,7 +765,6 @@ export class FriendsService {
     try {
       context.check(); await this.ready(context); await this.accepted(context, task.friendId);
       const grant = await this.grant(task.grant, task.receiverDeviceId, true); context.check();
-      await this.ready(context);
       // The friendship's shared directory is the conversation's home: every task
       // this friend sends runs inside the folder named after the friendship, and
       // the sidebar files those conversations under the friend. An approved

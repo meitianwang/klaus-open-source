@@ -48,7 +48,7 @@ import { parseCreatedThreadDirective } from '../../../../contracts/created-threa
 import { InlineVisualizationHtml, stripInlineVisLines } from './inline-visualization'
 import type { InlineVisFragment } from '../../../../contracts/inline-visualization'
 import { parseDelegationEnvelope, findEmbeddedDelegationEnvelopes, encodeDelegationEnvelope, initialDelegationMetadata, type DelegationEnvelope } from '../../../../contracts/thread-delegation'
-import { useChatStream, forgetRewoundTurn, loadSessionHistory, loadOlderHistoryPage, loadTurnHistoryItems, retryHistoryLoad, retainSessionStream, selectSessionStream, selectSubagentParentId, chatStreamStore, setTurnCollapsed, type LiveUnit as StoreLiveUnit, type ToolCardState } from '../stream-store'
+import { hasPendingTurnStart, useChatStream, forgetRewoundTurn, loadSessionHistory, loadOlderHistoryPage, loadTurnHistoryItems, retryHistoryLoad, retainSessionStream, selectSessionStream, selectSubagentParentId, chatStreamStore, setTurnCollapsed, type LiveUnit as StoreLiveUnit, type ToolCardState } from '../stream-store'
 import { createTranscriptPageUp, type TranscriptPageUp } from './transcript-page-up'
 import { captureViewportAnchor, registerTranscriptViewport, restoredViewportRange, scrollTopForViewportAnchor, transcriptViewportState, viewportRangeAtOffsets, type TranscriptViewportAnchor } from './viewport-state'
 import { savedTurn, type TurnItemsPagination, type TurnBoundaryRequest } from '../saved-transcript'
@@ -4946,6 +4946,7 @@ export function groupLiveActivityUnits(
   terminal = false,
   activeTurnId?: string | null,
   goalCompletionByTurn: ReadonlyMap<string, GoalCompletionSummary> = transcriptGoalCompletions([], units, tools),
+  pendingStart = false,
 ): LiveActivityNode[] {
   const recordedWorkflowIds = new Set(historyWorkflowIds)
   const completedGoals = new Set(historyWorkflowIds)
@@ -4990,8 +4991,8 @@ export function groupLiveActivityUnits(
       && !units.some(unit => unit.type !== 'live-agent-event' && unit.turnId === turn.id)))
   // An empty continuation already owns a turn before its first content arrives.
   // Retained stopped content must never borrow that turn's running state or clock.
-  if (running && activeTurnId && !visibleTurns.some(turn => turn.id === activeTurnId)) {
-    visibleTurns.push({ id: activeTurnId, units: [] })
+  if (running && (activeTurnId ? !visibleTurns.some(turn => turn.id === activeTurnId) : pendingStart)) {
+    visibleTurns.push({ id: activeTurnId || undefined, units: [] })
   }
   const completionOwners = new Map<string, typeof turns[number]>()
   for (const turn of visibleTurns) {
@@ -5390,7 +5391,7 @@ export function LiveTail({ sessionId, unitProps, scroll = 'none', container, tim
     worktreeRowStatus && (worktreeRowStatus !== 'completed' || !historyHasUser) ? worktreeRowStatus : null
   const activityNodes = groupLiveActivityUnits(liveUnits, tools, running, thinkingActive, turnInterrupted, historyWorkflowIds,
     liveUnits.length > 0 ? liveWorktreeStatus : null, turnStartedAtMs, liveTailStartedAt > 0 ? liveTailStartedAt : null, turnWorkCompletedAtMs,
-    !running && (terminalStatus === 'completed' || terminalStatus === 'failed'), activeTurnId, goalCompletionByTurn)
+    !running && (terminalStatus === 'completed' || terminalStatus === 'failed'), activeTurnId, goalCompletionByTurn, hasPendingTurnStart(sessionId))
   const activityTurns: LiveTurnSegment[] = []
   const userKeysByTurn = new Map<string, string>()
   for (const unit of liveUnits) if (unit.type === 'live-user' && !userKeysByTurn.has(unit.turnId || turnKey)) {

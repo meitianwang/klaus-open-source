@@ -1771,7 +1771,7 @@ function localUserUnit(payload: LocalUserTurnPayload): Extract<LiveUnit, { type:
 }
 
 /** Publish a submitted snapshot before any asynchronous host preparation begins. */
-export function beginPendingUserTurn(sessionId: string, payload: LocalUserTurnPayload, options: { provisional?: boolean } = {}): void {
+export function beginPendingUserTurn(sessionId: string, payload: LocalUserTurnPayload, options: { provisional?: boolean; messageAlreadyVisible?: boolean } = {}): void {
   const uuid = payload.uuid
   if (!sessionId || !uuid || isSessionStreamRetired(sessionId) || pendingUserTurn(sessionId, uuid)) return
   const before = getSessionStream(sessionId)
@@ -1787,9 +1787,14 @@ export function beginPendingUserTurn(sessionId: string, payload: LocalUserTurnPa
     ...(options.provisional ? { provisional: true, history: [], historyStale: false, historyLoading: false, historyLoadFailed: false } : {}),
     ...(record.ownsRuntime ? { running: true, streamMode: 'requesting' as const, activityVisible: true, liveTurnId: null,
       currentInference: null, turnStartedAt: timestamp, interruptedLiveTurn: null, lastTerminalStatus: null, stopRequestedAt: null } : {}),
-    liveUnits: existing ? prev.liveUnits.map(row => row.key === unit.key ? unit : row)
+    liveUnits: options.messageAlreadyVisible ? prev.liveUnits : existing ? prev.liveUnits.map(row => row.key === unit.key ? unit : row)
       : prev.history?.some(row => row.role === 'user' && row.uuid === uuid) ? prev.liveUnits : [...sealTail(prev.liveUnits), unit],
   }))
+}
+
+/** A local submission owns startup until an engine turn adopts it. */
+export function hasPendingTurnStart(sessionId: string): boolean {
+  return !!unadmittedUserTurn(sessionId)
 }
 
 /** Retain one optimistic row's identity while preserving any real events already received. */

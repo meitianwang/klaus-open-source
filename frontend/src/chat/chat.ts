@@ -83,6 +83,7 @@ import { openModelSettings, toggleSettings, openSettings } from '../pages/settin
 import { openTeamIssueDeepLink, restoreCollaborationRoute } from '../pages/team-collaboration/project-navigation'
 import { queueFriendInvite } from '../pages/friends/invite'
 import { friendInboxSnapshot, friendTaskById, pendingFriendTaskForSession, refreshFriendInbox, subscribeFriendInbox, wireFriendInbox } from './friend-inbox'
+import { stopPendingFriendTask } from './friend-task-start'
 import { FRIEND_COMPOSE_EVENT, takeQueuedFriendCompose, type FriendComposeRequest } from '../pages/friends/compose'
 import { mountPreviews } from './composer/previews'
 import { serializeSpecAnnotation } from './spec-annotation'
@@ -15317,7 +15318,7 @@ function foreignTerminalTurn(event: { sessionId?: string; turnId?: string }): bo
 }
 
 function requestTurnStop(sessionId: string) {
-  if (stopPendingComposerSubmission(sessionId)) return
+  if (stopPendingComposerSubmission(sessionId) || stopPendingFriendTask(sessionId)) return
   if (!sessionId || stoppingSessions.has(sessionId)) return
   goalInteractions.stop(sessionId)
   clearStopEscArm()
