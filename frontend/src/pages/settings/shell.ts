@@ -31,6 +31,23 @@ if (hostWindow) hostWindow.klausOpenExternalUrl = hostWindow.klausOpenExternalUr
 if (hostWindow) hostWindow.settingsVisible = false
 if (hostWindow) hostWindow.currentSettingsTab = 'profile'
 let settingsPreviousFocus: HTMLElement | null = null
+let resumeNativeEditors: (() => void) | null = null
+
+function suspendNativeEditors(): void {
+  if (resumeNativeEditors) return
+  const resumes: Array<() => Promise<void>> = []
+  for (const name of ['Canvas', 'Prototype', 'VideoEditing', 'Ppt']) {
+    const suspend = w()[`klausSuspend${name}ForOverlay`]
+    const resume = w()[`klausResume${name}AfterOverlay`]
+    if (typeof suspend !== 'function' || typeof resume !== 'function') continue
+    void suspend().catch(() => {})
+    resumes.push(resume)
+  }
+  // Keep one suspension per settings visit; changing tabs must not nest it.
+  resumeNativeEditors = () => {
+    for (const resume of resumes) void resume().catch(() => {})
+  }
+}
 
 export function isSettingsViewActive(): boolean {
   const view = document.getElementById('settings-view')
@@ -39,6 +56,7 @@ export function isSettingsViewActive(): boolean {
 
 export function openSettings(tab?: string): void {
   if (!isSettingsViewActive()) settingsPreviousFocus = document.activeElement as HTMLElement | null
+  suspendNativeEditors()
   w().settingsVisible = true
   document.body.classList.add('settings-open')
   w().klaus?.browserUse?.hide?.().catch(() => {})
@@ -63,6 +81,9 @@ export function closeSettings(): void {
   document.body.classList.remove('settings-open')
   document.getElementById('settings-view')?.classList.remove('active')
   window.dispatchEvent(new CustomEvent('klaus:settings-visibility-change', { detail: { open: false } }))
+  const resume = resumeNativeEditors
+  resumeNativeEditors = null
+  resume?.()
   if (typeof w().isBrowserPanelVisible === 'function' && w().isBrowserPanelVisible()) {
     w().showBrowserPanel?.()
   } else {
