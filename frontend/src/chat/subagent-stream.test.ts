@@ -8,6 +8,35 @@ const stream = await import('./stream-store')
 const flush = () => new Promise(resolve => setTimeout(resolve, 0))
 
 describe('child conversation streaming', () => {
+  test('a running snapshot repairs a snapshot interruption at the same lifecycle version', () => {
+    const sessionId = 'child-snapshot-interrupt-repair'
+    const running = { agentId: 'snapshot-repaired-child', status: 'running', lifecycleUpdatedAtMs: 100 }
+    stream.ingestChatEvent({ sessionId, type: 'tasks_changed', tasks: { task: running } })
+    const childId = subagentStreamId(sessionId, running.agentId)
+    stream.ingestChatEvent({ sessionId, type: 'tasks_changed', tasks: { task: { ...running, status: 'stopped' } } })
+    expect(stream.getSessionStream(childId)).toMatchObject({ running: false, lastTerminalStatus: 'interrupted' })
+
+    stream.ingestChatEvent({ sessionId, type: 'tasks_changed', tasks: { task: running } })
+    expect(stream.getSessionStream(sessionId).agentTasks.task.status).toBe('running')
+    expect(stream.getSessionStream(childId)).toMatchObject({
+      running: true, activityVisible: true, interruptedLiveTurn: null, lastTerminalStatus: null,
+    })
+  })
+
+  test('a real child cancellation clears the snapshot repair marker', () => {
+    const sessionId = 'child-real-cancel-after-snapshot-stop'
+    const running = { agentId: 'really-cancelled-child', status: 'running', lifecycleUpdatedAtMs: 100 }
+    stream.ingestChatEvent({ sessionId, type: 'tasks_changed', tasks: { task: running } })
+    stream.ingestChatEvent({ sessionId, type: 'tasks_changed', tasks: { task: { ...running, status: 'stopped' } } })
+    stream.ingestChatEvent({ sessionId, type: 'agent_progress', agentId: running.agentId,
+      event: { type: 'interrupted', turnId: 'actually-cancelled-child-run' } })
+    stream.ingestChatEvent({ sessionId, type: 'tasks_changed', tasks: { task: running } })
+
+    expect(stream.getSessionStream(subagentStreamId(sessionId, running.agentId))).toMatchObject({
+      running: false, lastTerminalStatus: 'interrupted',
+    })
+  })
+
   test('newer lifecycle snapshots repair a missed child start without reviving a live cancellation', () => {
     const sessionId = 'child-snapshot-resume'
     const task = { agentId: 'snapshot-child', status: 'stopped', lifecycleUpdatedAtMs: 100 }

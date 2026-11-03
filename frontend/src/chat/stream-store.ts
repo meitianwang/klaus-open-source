@@ -700,7 +700,7 @@ function appendAgentActivity(sessionId: string, activity: Omit<AgentTimelineReco
   })
 }
 
-const subagentHistorySources = new Map<string, { parentSessionId: string; agentId: string; taskId: string; teammate: boolean; lifecycleVersion?: number }>()
+const subagentHistorySources = new Map<string, { parentSessionId: string; agentId: string; taskId: string; teammate: boolean; lifecycleVersion?: number; snapshotInterruptedVersion?: number }>()
 
 /** Register endpoint identity before mounting or refreshing its transcript. */
 export function prepareEphemeralSessionStream(sessionId: string): void {
@@ -803,13 +803,17 @@ export function prepareSubagentStream(parentSessionId: string, taskId: string, t
   const version = typeof task.lifecycleUpdatedAtMs === 'number' && Number.isFinite(task.lifecycleUpdatedAtMs)
     ? task.lifecycleUpdatedAtMs : undefined
   const newerLifecycle = version !== undefined && (source?.lifecycleVersion === undefined || version > source.lifecycleVersion)
+  const repairSnapshotInterrupt = version !== undefined && source?.snapshotInterruptedVersion === version
+    && task.status === 'running' && !task.isIdle
   subagentHistorySources.set(streamId, { parentSessionId, agentId, taskId, teammate: task.type === 'in_process_teammate',
-    lifecycleVersion: newerLifecycle ? version : source?.lifecycleVersion })
+    lifecycleVersion: newerLifecycle ? version : source?.lifecycleVersion,
+    snapshotInterruptedVersion: newerLifecycle || repairSnapshotInterrupt ? undefined : source?.snapshotInterruptedVersion })
   if (!source || !chatStreamStore.getState().sessions[streamId]) {
     patchSession(streamId, () => ({ running: !agentTerminalStatus(task.status) && !task.isIdle, ...(task.messages?.length ? { history: task.messages } : {}) }))
-  } else if (newerLifecycle && task.status === 'running' && !task.isIdle) {
+  } else if ((newerLifecycle || repairSnapshotInterrupt) && task.status === 'running' && !task.isIdle) {
     // Reconnects can miss the child's requesting frame. A newer lifecycle can
-    // restore liveness, while a repeated snapshot cannot undo a live stop.
+    // restore liveness; an equal version may repair only the stop synthesized
+    // from a task snapshot, never a cancellation delivered by the child stream.
     patchSession(streamId, prev => prev.running ? {} : ({
       running: true, streamMode: 'requesting', activityVisible: true,
       interruptedLiveTurn: null, lastTerminalStatus: null, stopRequestedAt: null,
@@ -841,6 +845,12 @@ function ingestSubagentEvent(event: any): void {
   const childState = getSessionStream(streamId)
   const terminal = child.type === 'done' ? 'completed' : child.type === 'interrupted' ? 'cancelled'
     : child.type === 'api_error' && child.terminal ? 'failed' : null
+  if (terminal) {
+    const source = subagentHistorySources.get(streamId)
+    if (source?.snapshotInterruptedVersion !== undefined) {
+      subagentHistorySources.set(streamId, { ...source, snapshotInterruptedVersion: undefined })
+    }
+  }
   // An explicit old turn's terminal event cannot settle the resumed child or
   // create a completion notice in the new parent turn.
   if (terminal && childState.activeTurnId && typeof child.turnId === 'string'
@@ -1017,6 +1027,10 @@ export function ingestChatEvent(event: any, context: { userInterrupted?: boolean
       if (status && status !== agentTerminalStatus(before[taskId]?.status)) {
         appendAgentActivity(ownerId, { taskId, agentId: task.agentId, name: agentTaskName(task, ''), status })
         const streamId = prepareSubagentStream(sessionId, taskId, task)
+        if (status === 'cancelled' && typeof task.lifecycleUpdatedAtMs === 'number' && Number.isFinite(task.lifecycleUpdatedAtMs)) {
+          const source = subagentHistorySources.get(streamId)
+          if (source) subagentHistorySources.set(streamId, { ...source, snapshotInterruptedVersion: task.lifecycleUpdatedAtMs })
+        }
         const childState = getSessionStream(streamId)
         if (childState.running || (status === 'failed' && !childState.lastTerminalStatus)) {
           ingestChatEvent({ sessionId: streamId, type: status === 'cancelled' ? 'interrupted' : status === 'failed' ? 'api_error' : 'done', terminal: true, error: task.error || (status === 'failed' ? t('subagent_activity_failed') : '') })
