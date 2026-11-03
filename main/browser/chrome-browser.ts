@@ -38,8 +38,8 @@ export class ChromeBrowserService {
   private readonly generations = new Map<string, number>();
   private readonly mediaOwners = new WeakMap<ChromePageDebugger,string>();
   private readonly pageUrls = new WeakMap<ChromePageDebugger, string>();
-  // Each agent navigation owns one mark so an abort stops only its own load.
-  // A human action or a later agent navigation replaces the mark first.
+  // Root frame loader events revoke an operation's lease when another
+  // navigation takes over, including navigation started outside this service.
   private readonly navigationMarks = new WeakMap<ChromePageDebugger, symbol>();
   private readonly mediaDownloads: DownloadStore | undefined;
   private closed = false;
@@ -172,17 +172,42 @@ export class ChromeBrowserService {
     return rows.map(row => ({ ...row, tabId: row.id ?? null, active: row.id === connection.active.get(sessionId) }));
   }
 
-  private async page(connection: Connection, sessionId: string, turnId: string, handle?: number, checkAccess = true): Promise<ChromePageDebugger> {
-    let rows = await this.tabs(connection, sessionId, turnId);
-    let id = handle ?? connection.active.get(sessionId);
-    if (id === undefined) {
-      const created = object(await this.request(connection, sessionId, turnId, 'createTab'));
-      id = Number(created.id); rows = await this.tabs(connection, sessionId, turnId);
+  private async discardCreatedPage(connection: Connection, sessionId: string, turnId: string, id: number): Promise<void> {
+    await this.request(connection, sessionId, turnId, 'discardCreatedTab', { tabId: id });
+    const page = connection.pages.get(id);
+    if (page?.sessionId === sessionId) { connection.pages.delete(id); await this.disposePage(page); }
+    connection.dispositions.delete(id);
+    if (connection.active.get(sessionId) === id) connection.active.delete(sessionId);
+  }
+
+  private async createPage(connection: Connection, sessionId: string, turnId: string, signal?: AbortSignal) {
+    signal?.throwIfAborted();
+    // Retain this turn until create acknowledges, even when canceled meanwhile:
+    // the returned handle is the only safe target for late cleanup.
+    const created = object(await this.request(connection, sessionId, turnId, 'createTab'));
+    const id = Number(created.id);
+    if (!Number.isSafeInteger(id) || id < 0) throw new BrowserError('chrome_error', 'Chrome returned an invalid created tab handle.');
+    try {
+      signal?.throwIfAborted();
+      const page = await this.page(connection, sessionId, turnId, id, true, signal);
+      signal?.throwIfAborted();
+      return { created, page };
+    } catch (error) {
+      await this.discardCreatedPage(connection, sessionId, turnId, id);
+      throw error;
     }
+  }
+
+  private async page(connection: Connection, sessionId: string, turnId: string, handle?: number, checkAccess = true, signal?: AbortSignal): Promise<ChromePageDebugger> {
+    signal?.throwIfAborted();
+    const rows = await this.tabs(connection, sessionId, turnId);
+    const id = handle ?? connection.active.get(sessionId);
+    if (id === undefined) return (await this.createPage(connection, sessionId, turnId, signal)).page;
     const owned = rows.find(row => row.id === id);
     if (!owned) throw new BrowserError('stale_tab', `Chrome tab ${String(id)} does not belong to this task. Claim a user tab explicitly before controlling it.`);
     this.url(owned.url ?? 'about:blank');
-    if (checkAccess) await this.options.authorize?.(sessionId, String(owned.url ?? 'about:blank'), 'browsing');
+    if (checkAccess) await this.options.authorize?.(sessionId, String(owned.url ?? 'about:blank'), 'browsing', signal);
+    signal?.throwIfAborted();
     const previous = connection.pages.get(id);
     if (previous && previous.sessionId !== sessionId) { await previous.dispose(); connection.pages.delete(id); }
     let page = connection.pages.get(id);
@@ -194,7 +219,7 @@ export class ChromeBrowserService {
     }
     page.turnId = turnId; connection.active.set(sessionId, id);
     this.pageUrls.set(page, String(owned.url ?? 'about:blank'));
-    await page.initialize(); return page;
+    await page.initialize(); signal?.throwIfAborted(); return page;
   }
 
   private async answer(connection: Connection, sessionId: string, turnId: string, response: BrowserObject, page?: ChromePageDebugger, screenshot?: BrowserObject): Promise<BrowserObject> {
@@ -269,13 +294,13 @@ export class ChromeBrowserService {
       if (kind === 'read_urls') {
         await this.tabs(connection, sessionId, turnId);
         const value = await readUrls({
-          create: async () => { const created = object(await this.request(connection, sessionId, turnId, 'createTab')); const page = await this.page(connection, sessionId, turnId, Number(created.id)); return { id: page.tabId, cdp: page }; },
+          create: async () => { const { page } = await this.createPage(connection, sessionId, turnId, signal); return { id: page.tabId, cdp: page }; },
           navigate: async (page, url, fields, signal) => {
             const owned = connection.pages.get(page.id); if (!owned) throw new BrowserError('stale_tab', 'Temporary Chrome tab closed.');
             await this.options.authorize?.(sessionId, url, 'browsing', signal);
-            await navigateForRead(owned, this.url(url), fields, signal);
+            await this.navigate(owned, url, fields, signal);
           },
-          close: async page => { const rows = await this.tabs(connection, sessionId, turnId); await this.request(connection, sessionId, turnId, 'finalizeTabs', { keep: rows.filter(row => row.id !== page.id).map(row => ({ tabId: row.id!, status: 'handoff' })) }); },
+          close: async page => this.discardCreatedPage(connection, sessionId, turnId, page.id),
           tabs: async () => (await this.tabs(connection, sessionId, turnId)).map(row => Number(row.id)),
           selected: () => connection.active.get(sessionId),
           restore: id => { if (id === undefined) connection.active.delete(sessionId); else connection.active.set(sessionId, id); },
@@ -305,10 +330,15 @@ export class ChromeBrowserService {
         if (action === 'new') {
           const url = this.url(fields.url ?? 'about:blank');
           await this.options.authorize?.(sessionId, url, 'browsing', signal);
-          const created = object(await this.request(connection, sessionId, turnId, 'createTab'));
-          const page = await this.page(connection, sessionId, turnId, Number(created.id));
-          if (url !== 'about:blank') await this.navigate(page, url, undefined, signal);
-          return await answer({ value: { ...created, tabId: page.tabId, url } }, page);
+          const { created, page } = await this.createPage(connection, sessionId, turnId, signal);
+          try {
+            if (url !== 'about:blank') await this.navigate(page, url, undefined, signal);
+            signal?.throwIfAborted();
+            return await answer({ value: { ...created, tabId: page.tabId, url } }, page);
+          } catch (error) {
+            await this.discardCreatedPage(connection, sessionId, turnId, page.tabId);
+            throw error;
+          }
         }
         if (action === 'close' || action === 'finalize') {
           const rows = await this.tabs(connection, sessionId, turnId);
@@ -347,7 +377,7 @@ export class ChromeBrowserService {
         if (!['get','set'].includes(String(action))) throw new BrowserError('invalid_request', 'visibility action must be get or set.');
         return await answer({ value: { visible: true, browserId, ...(action === 'set' ? { reason: 'The user\'s own Chrome is already on their screen; Klaus did not open or focus it.' } : {}) } });
       }
-      const page = await this.page(connection, sessionId, turnId, handle, kind !== 'navigate');
+      const page = await this.page(connection, sessionId, turnId, handle, kind !== 'navigate', signal);
       const currentUrl = this.pageUrls.get(page) ?? 'about:blank';
       if (kind === 'navigate') await this.options.authorize?.(sessionId, String(fields.url), 'browsing', signal);
       if (kind === 'download' && !['list', 'wait', 'cancel'].includes(String(fields.action)) && !fields.waitOnly)
@@ -387,62 +417,99 @@ export class ChromeBrowserService {
     return { ...object(applied), scope: 'chrome-profile', ...command.params, observed: observed as Json, note: 'Profile content settings and the current page permission are reported separately. Operating-system permissions and browser policies may still require action.' };
   }
 
-  private async navigate(page: ChromePageDebugger, input: unknown, fields: BrowserObject = {}, signal?: AbortSignal): Promise<void> {
-    const mark = Symbol('navigation');
+  private async navigationLease(page: ChromePageDebugger, outerSignal?: AbortSignal) {
+    outerSignal?.throwIfAborted();
+    const tree = object((await page.command('Page.getFrameTree')).frameTree);
+    const frameId = object(tree.frame).id;
+    if (typeof frameId !== 'string') throw new BrowserError('chrome_error', 'Chrome did not return the main frame.');
+    outerSignal?.throwIfAborted();
+    const mark = Symbol('navigation'), controller = new AbortController();
+    const signal = outerSignal ? AbortSignal.any([outerSignal, controller.signal]) : controller.signal;
     this.navigationMarks.set(page, mark);
-    try {
-      await navigateForRead(page, this.url(input), fields, signal, () => {
-        if (this.navigationMarks.get(page) === mark) void page.command('Page.stopLoading').catch(() => {});
-      });
-      signal?.throwIfAborted();
-    } finally {
+    let loaderId: string | undefined;
+    let committed = false;
+    let resolveCommit!: () => void;
+    const commit = new Promise<void>(resolve => { resolveCommit = resolve; });
+    const supersede = (): void => {
       if (this.navigationMarks.get(page) === mark) this.navigationMarks.delete(page);
-    }
+      controller.abort(new BrowserError('navigation_interrupted', 'Another main-frame navigation replaced this operation.'));
+    };
+    const observeLoader = (value: unknown): void => {
+      if (typeof value !== 'string' || !value) return;
+      if (loaderId === undefined) loaderId = value;
+      else if (loaderId !== value) supersede();
+    };
+    const remove = page.onEvent((method, params, child) => {
+      if (child || signal.aborted) return;
+      if (method === 'Page.frameStartedNavigating' && params.frameId === frameId) observeLoader(params.loaderId);
+      else if (method === 'Network.requestWillBeSent' && params.frameId === frameId && params.type === 'Document') observeLoader(params.loaderId);
+      else if (method === 'Page.frameNavigated' && object(params.frame).id === frameId) {
+        // A history restore commits a previously used loader, rather than the
+        // provisional loader reported by frameStartedNavigating.
+        if (!committed && typeof object(params.frame).loaderId === 'string') loaderId = String(object(params.frame).loaderId);
+        else observeLoader(object(params.frame).loaderId);
+        if (!signal.aborted) { committed = true; resolveCommit(); }
+      } else if (method === 'Page.navigatedWithinDocument' && params.frameId === frameId) {
+        if (committed) supersede();
+        else { committed = true; resolveCommit(); }
+      }
+    });
+    let stopped = false;
+    const stop = (): void => {
+      if (!stopped && this.navigationMarks.get(page) === mark) {
+        stopped = true; void page.command('Page.stopLoading').catch(() => {});
+      }
+    };
+    signal.addEventListener('abort', stop, { once: true });
+    if (signal.aborted) stop();
+    return { signal, commit, stop, close: () => {
+      signal.removeEventListener('abort', stop); remove();
+      if (this.navigationMarks.get(page) === mark) this.navigationMarks.delete(page);
+    } };
   }
-  private async loaded(page: ChromePageDebugger, signal?: AbortSignal): Promise<void> {
-    const until = Date.now() + 30_000;
-    const pause = (): Promise<void> => new Promise(resolve => setTimeout(resolve, 50));
+
+  private async navigate(page: ChromePageDebugger, input: unknown, fields: BrowserObject = {}, signal?: AbortSignal): Promise<void> {
+    const lease = await this.navigationLease(page, signal);
+    try {
+      await navigateForRead(page, this.url(input), fields, lease.signal, lease.stop);
+      lease.signal.throwIfAborted();
+    } finally { lease.close(); }
+  }
+  private async loaded(page: ChromePageDebugger, signal: AbortSignal): Promise<void> {
     for (;;) {
-      signal?.throwIfAborted();
+      signal.throwIfAborted();
       try {
-        const state = object(await page.evaluate('({url:location.href,ready:document.readyState})'));
+        const state = object(await withAbort(page.evaluate('({url:location.href,ready:document.readyState})'), signal));
         this.url(state.url);
-        if (state.ready === 'complete') { signal?.throwIfAborted(); return; }
-      } catch (error) { if (error instanceof BrowserError && error.code === 'refused_by_policy') { await page.command('Page.stopLoading'); throw error; } }
-      if (Date.now() >= until) throw new BrowserError('timeout', 'Chrome navigation did not complete.');
-      if (signal) await withAbort(pause(), signal); else await pause();
+        if (state.ready === 'complete') { signal.throwIfAborted(); return; }
+      } catch (error) {
+        signal.throwIfAborted();
+        if (error instanceof BrowserError && ['refused_by_policy', 'stale_tab', 'unavailable'].includes(error.code)) throw error;
+      }
+      await withAbort(new Promise<void>(resolve => setTimeout(resolve, 50)), signal);
     }
   }
   private async history(page: ChromePageDebugger, action: 'back' | 'forward' | 'reload', signal?: AbortSignal): Promise<void> {
-    signal?.throwIfAborted();
-    const mark = Symbol('navigation');
-    this.navigationMarks.set(page, mark);
-    const stop = (): void => {
-      if (this.navigationMarks.get(page) === mark) void page.command('Page.stopLoading').catch(() => {});
-    };
-    signal?.addEventListener('abort', stop, { once: true });
-    let removeNavigated: (() => void) | undefined;
-    const navigated = new Promise<void>(resolve => {
-      removeNavigated = page.onEvent((method, params) => {
-        if (method === 'Page.frameNavigated' && !object(params.frame).parentId) { removeNavigated?.(); resolve(); }
-      });
-    });
+    const lease = await this.navigationLease(page, signal);
+    const deadline = new AbortController();
+    const timeout = setTimeout(() => deadline.abort(new BrowserError('timeout', 'Chrome navigation did not complete.')), 30_000);
+    const active = AbortSignal.any([lease.signal, deadline.signal]);
+    deadline.signal.addEventListener('abort', lease.stop, { once: true });
     try {
-      if (action === 'reload') await page.command('Page.reload');
+      active.throwIfAborted();
+      if (action === 'reload') await withAbort(page.command('Page.reload'), active);
       else {
-        const history = await page.command('Page.getNavigationHistory'); const entries = Array.isArray(history.entries) ? history.entries : [];
+        const history = await withAbort(page.command('Page.getNavigationHistory'), active); const entries = Array.isArray(history.entries) ? history.entries : [];
         const entry = object(entries[Number(history.currentIndex) + (action === 'back' ? -1 : 1)]);
         if (entry.id === undefined) throw new BrowserError('not_found', `There is no ${action} history entry.`);
-        this.url(entry.url); await page.command('Page.navigateToHistoryEntry', { entryId: entry.id });
+        this.url(entry.url); await withAbort(page.command('Page.navigateToHistoryEntry', { entryId: entry.id }), active);
       }
-      // Page.reload can return before the new document commits, so wait for the
-      // main frame navigation event before polling readyState.
-      await Promise.race([navigated, new Promise<void>(resolve => setTimeout(resolve, 500))]);
-      await this.loaded(page, signal);
+      // Reload may acknowledge while the previous document is still complete.
+      // Only a root commit or same-document history event starts readiness checks.
+      await withAbort(lease.commit, active);
+      await this.loaded(page, active);
     } finally {
-      signal?.removeEventListener('abort', stop);
-      removeNavigated?.();
-      if (this.navigationMarks.get(page) === mark) this.navigationMarks.delete(page);
+      clearTimeout(timeout); deadline.signal.removeEventListener('abort', lease.stop); lease.close();
     }
   }
   private async download(page: ChromePageDebugger, fields: BrowserObject, timeout: number, cdp:BrowserCdp, outerSignal?: AbortSignal): Promise<BrowserObject> {

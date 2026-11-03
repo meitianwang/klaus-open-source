@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from 'node:child_process';
+import WebSocket from 'ws';
 import { createServer } from 'node:http';
 import { existsSync, mkdtempSync, readFileSync, renameSync, rmSync, createWriteStream, mkdirSync, writeFileSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
@@ -34,6 +35,9 @@ const directRelays: ChromeRelay[] = [];
 let downloadSequence = 0; let forbiddenRequests = 0;
 let slowDocumentRequests = 0; let slowDocumentOpen = false;
 let flakySlowRequests = 0; let flakySlowOpen = false;
+let delayedHeadersRequests = 0;
+let manualSlowOpen = false;
+let finishManualDocument: (() => void) | undefined;
 let browser: ChildProcess | undefined; let browserId = ''; let tabA = 0; let tabB = 0; let base = '';
 const stallDocument = (response: import('node:http').ServerResponse): void => {
   response.setHeader('Content-Type', 'text/html; charset=utf-8');
@@ -56,6 +60,21 @@ const server = createServer((request, response) => {
     response.setHeader('Cache-Control', 'no-store');
     response.once('close', () => { slowDocumentOpen = false; });
     stallDocument(response); return;
+  }
+  if (request.url === '/delayed-headers') {
+    const visit = ++delayedHeadersRequests;
+    response.setHeader('Cache-Control', 'no-store');
+    const finish = (): void => { response.setHeader('Content-Type', 'text/html; charset=utf-8'); response.end(`<title>Delayed ${visit}</title>`); };
+    if (visit === 1) finish();
+    else { const timer = setTimeout(finish, 1100); response.once('close', () => clearTimeout(timer)); }
+    return;
+  }
+  if (request.url === '/manual-slow') {
+    manualSlowOpen = true;
+    response.setHeader('Content-Type', 'text/html; charset=utf-8');
+    response.write('<!doctype html><title>Manual replacement</title><p>partial');
+    finishManualDocument = () => response.end('<p id="manual-complete">finished</p>');
+    response.once('close', () => { manualSlowOpen = false; }); return;
   }
   if (request.url === '/flaky-slow') {
     flakySlowRequests += 1;
@@ -189,6 +208,108 @@ h.test('canceling a history reload stops its own load and the page recovers', as
   await call('A', 'navigate', { url: `${base}/second` });
 });
 
+h.test('history waits for delayed main-frame response headers and handles same-document entries', async () => {
+  await call('delayed-history', 'new_tab', { url: `${base}/delayed-headers` });
+  const started = Date.now();
+  const result = await call('delayed-history', 'reload');
+  assert(Date.now() - started >= 1000, 'reload did not mistake the previous complete document for the delayed response');
+  assertEqual(object(result.structuredContent).title, 'Delayed 2', 'the new document committed and completed');
+  await call('delayed-history', 'eval', { expression: 'location.hash="first"' });
+  await call('delayed-history', 'eval', { expression: 'location.hash="second"' });
+  await call('delayed-history', 'back');
+  assert(String(object((await call('delayed-history', 'eval', { expression: 'location.href' })).structuredContent).value).endsWith('#first'), 'same-document back waits for its actual history event');
+  await call('delayed-history', 'forward');
+  assert(String(resultValue(await call('delayed-history', 'eval', { expression: 'location.href' }))).endsWith('#second'), 'same-document forward completes');
+  service.releaseSession('delayed-history');
+});
+
+h.test('canceling an old operation preserves a later navigation started outside the service', async () => {
+  const opened = await call('navigation-takeover', 'new_tab', { url: base });
+  const targetId = object(object(opened._meta)['klaus/toolSurface']).targetId;
+  const port = readFileSync(join(profile, 'DevToolsActivePort'), 'utf8').split('\n')[0];
+  const targets = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json() as BrowserObject[];
+  const target = targets.find(row => row.id === targetId); assert(target, 'the same Chrome page has an independent fixture transport');
+  const socket = new WebSocket(String(target.webSocketDebuggerUrl));
+  await new Promise<void>((resolve, reject) => { socket.once('open', resolve); socket.once('error', reject); });
+  let sequence = 0;
+  const outside = (method: string, params: BrowserObject = {}): Promise<BrowserObject> => new Promise((resolve, reject) => {
+    const id = ++sequence;
+    const timer = setTimeout(() => { socket.off('message', receive); reject(new Error('Fixture CDP timed out')); }, 5000);
+    const receive = (bytes: WebSocket.RawData): void => {
+      const response = object(JSON.parse(String(bytes)));
+      if (response.id !== id) return;
+      clearTimeout(timer); socket.off('message', receive);
+      if (response.error) reject(new Error(JSON.stringify(response.error))); else resolve(object(response.result));
+    };
+    socket.on('message', receive); socket.send(JSON.stringify({ id, method, params }));
+  });
+  const controller = new AbortController();
+  const requests = slowDocumentRequests;
+  const pending = service.execute('navigation-takeover', browserId, 'navigate', { url: `${base}/slow-document` }, {}, controller.signal);
+  void pending.catch(() => {});
+  try {
+    await waitFor(() => slowDocumentRequests > requests, 5000, 'the agent document started');
+    // This transport starts navigation independently of the extension's task
+    // turns, as an address-bar navigation would, while the same target is open.
+    await outside('Page.navigate', { url: `${base}/manual-slow` });
+    await waitFor(() => manualSlowOpen, 5000, 'the replacement document is still loading');
+    controller.abort(new BrowserError('cancelled', 'Cancel only the earlier agent operation.'));
+    await assertRejects(() => pending, 'the replaced operation does not report success');
+    assert(manualSlowOpen, 'the earlier abort did not stop the replacement load');
+    finishManualDocument?.();
+    const loaded = await outside('Runtime.evaluate', { expression: 'new Promise(resolve=>{const done=()=>resolve(document.querySelector("#manual-complete")?.textContent);if(document.readyState==="complete")done();else addEventListener("load",done,{once:true})})', awaitPromise: true, returnByValue: true });
+    assertEqual(object(loaded.result).value, 'finished', 'the replacement navigation completed normally');
+  } finally {
+    controller.abort(); finishManualDocument?.(); socket.close(); await pending.catch(() => {});
+    service.releaseSession('navigation-takeover');
+  }
+});
+
+h.test('canceling a newly created slow page removes it without closing an existing sibling', async () => {
+  const sibling = object(resultValue(await call('slow-create', 'new_tab', { url: base })));
+  const controller = new AbortController(); const requests = slowDocumentRequests;
+  const pending = service.execute('slow-create', browserId, 'new_tab', { url: `${base}/slow-document` }, {}, controller.signal);
+  void pending.catch(() => {});
+  try {
+    await waitFor(() => slowDocumentRequests > requests, 5000, 'the new page started loading');
+    controller.abort(new BrowserError('cancelled', 'Fixture new-page loading canceled.'));
+    await assertRejects(() => pending, 'new-page cancellation completed after cleanup');
+    const remaining = resultValue(await call('slow-create', 'tabs'));
+    assert(Array.isArray(remaining) && remaining.length === 1, 'exactly the previously owned page remains');
+    assertEqual(object(remaining[0]).id, sibling.tabId, 'the existing page retains its handle');
+  } finally { controller.abort(); await pending.catch(() => {}); service.releaseSession('slow-create'); }
+});
+
+h.test('a canceled late create acknowledgement closes only its newly created Chrome tab', async () => {
+  const existing = object(resultValue(await call('late-create', 'new_tab', { url: base })));
+  const original = ChromeRelay.prototype.request;
+  let acknowledge!: () => void;
+  let createdId: number | undefined;
+  const gate = new Promise<void>(resolve => { acknowledge = resolve; });
+  ChromeRelay.prototype.request = async function(method, params, timeout) {
+    const value = await original.call(this, method, params, timeout);
+    if (method === 'createTab' && params?.session_id === 'late-create') { createdId = Number(object(value).id); await gate; }
+    return value;
+  };
+  const controller = new AbortController();
+  let pending: Promise<BrowserObject> | undefined;
+  try {
+    pending = service.execute('late-create', browserId, 'new_tab', { url: `${base}/second` }, {}, controller.signal);
+    void pending.catch(() => {});
+    await waitFor(() => createdId !== undefined, 5000, 'Chrome created the page before its acknowledgement arrived');
+    controller.abort(new BrowserError('cancelled', 'Fixture late creation canceled.'));
+    acknowledge();
+    await assertRejects(() => pending!, 'late creation cancellation is reported after scoped cleanup');
+  } finally { acknowledge(); ChromeRelay.prototype.request = original; if (pending) await pending.catch(() => {}); }
+  const remaining = resultValue(await call('late-create', 'tabs'));
+  assert(Array.isArray(remaining), 'task inventory returned');
+  assert(remaining.map(object).some(row => row.id === existing.tabId), 'an existing sibling remains owned and open');
+  assert(!remaining.map(object).some(row => row.id === createdId), 'only the newly created page was discarded');
+  const all = resultValue(await call('user-list', 'tabs', { action: 'user' }));
+  assert(Array.isArray(all) && !all.map(object).some(row => row.id === createdId), 'the canceled page is closed in the browser');
+  service.releaseSession('late-create');
+});
+
 h.test('an explicitly claimed user Chrome tab is released without closing it', async () => {
   const before = resultValue(await call('user-list', 'tabs', { action: 'user' }));
   assert(Array.isArray(before), 'existing user tabs'); const ids = new Set(before.map(row => object(row).id));
@@ -207,6 +328,8 @@ h.test('an explicitly claimed user Chrome tab is released without closing it', a
   assert(inventory.some(tab => tab.id === userTab.id), 'mention inventory discovers the real user tab without claiming it');
   await assertRejects(() => call('stale-mention', 'claim_tab', { tabId: userTab.id ?? null, expectedTitle: 'Stale title', expectedUrl: userTab.url ?? '' }), 'renamed/reused mention is refused before claiming');
   await call('claimed', 'claim_tab', { tabId: userTab.id ?? null, expectedTitle: userTab.title ?? '', expectedUrl: userTab.url ?? '' });
+  const relay = directRelays[0]; assert(relay, 'live native protocol client');
+  await assertRejects(() => relay.request('discardCreatedTab', { session_id: 'claimed', turn_id: 'reject-human-discard', tabId: userTab.id! }), 'created-page cancellation cannot close a claimed user page');
   const during = await service.mentionTabs(browserId, '', 100, String(userTab.id));
   for (const field of ['windowId', 'index', 'groupId']) assertEqual(during[0]?.[field], userTab[field], `claim preserves the user's ${field}`);
   await assertRejects(() => call('foreign-claim', 'claim_tab', { tabId: userTab.id ?? null }), 'another task cannot borrow a leased human tab');
@@ -349,16 +472,24 @@ registerAdvancedBrowserTests(h, { call: (kind, fields) => advancedOperations.exe
 h.test('releasing a claimed Chrome page cancels media readers while leaving the real user page open',async()=>{
   await waitFor(()=>slowDownloadCount()===0,2000,'prior timed out HTTP streams closed');
   const port=readFileSync(join(profile,'DevToolsActivePort'),'utf8').split('\n')[0];
-  const opened=object(await (await fetch(`http://127.0.0.1:${port}/json/new?${encodeURIComponent(`${base}/advanced-download-page`)}`,{method:'PUT'})).json());
-  const users=resultValue(await call('user-list','tabs',{action:'user'}));const user=Array.isArray(users)?users.map(object).find(row=>row.url===`${base}/advanced-download-page`):undefined;assert(user,'independent user page exists');
-  await call('media-claimed','claim_tab',{tabId:user.id!});
+  const userUrl = `${base}/advanced-download-page#claimed-media-fixture`;
+  const opened=object(await (await fetch(`http://127.0.0.1:${port}/json/new?${encodeURIComponent(userUrl)}`,{method:'PUT'})).json());
+  let user: BrowserObject | undefined;
+  await waitFor(async () => {
+    const users = resultValue(await call('user-list', 'tabs', { action: 'user' }));
+    user = Array.isArray(users) ? users.map(object).find(row => row.url === userUrl) : undefined;
+    return !!user;
+  }, 5000, 'the independent user page completed its own navigation');
+  assert(user, 'independent user page exists');
+  const userId = user.id!;
+  await call('media-claimed','claim_tab',{tabId:userId});
   const pending=call('media-claimed','download',{selector:'#slow',timeoutMs:10000});void pending.catch(()=>{});
   await waitFor(()=>slowDownloadCount()>0,3000,'claimed page HTTP reader started');
   service.releaseSession('media-claimed');await assertRejects(()=>pending,'released media operation fails');
   await waitFor(()=>slowDownloadCount()===0,3000,'claimed page HTTP reader aborted');
   const tabs=await (await fetch(`http://127.0.0.1:${port}/json/list`)).json() as BrowserObject[];assert(tabs.some(tab=>tab.id===opened.id),'user-owned page remains open');
-  await waitFor(async()=>{const rows=resultValue(await call('user-list','tabs',{action:'user'}));return Array.isArray(rows)&&rows.map(object).some(row=>row.id===user.id);},3000,'claimed page returned to user');
-  await call('media-reclaimed','claim_tab',{tabId:user.id!});
+  await waitFor(async()=>{const rows=resultValue(await call('user-list','tabs',{action:'user'}));return Array.isArray(rows)&&rows.map(object).some(row=>row.id===userId);},3000,'claimed page returned to user');
+  await call('media-reclaimed','claim_tab',{tabId:userId});
   assertEqual(resultValue(await call('media-reclaimed','eval',{expression:'Object.keys(window).filter(key=>key.startsWith("__klausDownload_")).length'})),0,'old transfer objects removed before a new task claims the page');
   service.releaseSession('media-reclaimed');
 });
