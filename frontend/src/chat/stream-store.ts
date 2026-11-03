@@ -690,12 +690,17 @@ function appendAgentActivity(sessionId: string, activity: Omit<AgentTimelineReco
     if (currentOwner && (prev.activeTurnId || liveUnits.length || !prev.history?.some(message => message.turnId === turnId))) {
       liveUnits.push({ type: 'live-agent-event', ...record })
     } else if (ownerIndex >= 0) liveUnits.splice(liveUnits.length - ownerIndex, 0, { type: 'live-agent-event', ...record })
-    else return { agentTimeline: [...prev.agentTimeline, record], history: mergeAgentTimeline(prev.history || [], [record]) }
+    else return {
+      agentTimeline: [...prev.agentTimeline, record],
+      // Lifecycle events can arrive before this conversation is opened. Keep
+      // null until history is read so these events cannot block its first load.
+      ...(prev.history !== null ? { history: mergeAgentTimeline(prev.history, [record]) } : {}),
+    }
     return { agentTimeline: [...prev.agentTimeline, record], liveUnits }
   })
 }
 
-const subagentHistorySources = new Map<string, { parentSessionId: string; agentId: string; taskId: string; teammate: boolean }>()
+const subagentHistorySources = new Map<string, { parentSessionId: string; agentId: string; taskId: string; teammate: boolean; lifecycleVersion?: number }>()
 
 /** Register endpoint identity before mounting or refreshing its transcript. */
 export function prepareEphemeralSessionStream(sessionId: string): void {
@@ -794,10 +799,22 @@ export function prepareSubagentStream(parentSessionId: string, taskId: string, t
   const agentId = task.agentId || taskId
   const streamId = subagentStreamId(parentSessionId, agentId)
   if (isSessionStreamRetired(parentSessionId)) return streamId
-  const registered = subagentHistorySources.has(streamId)
-  subagentHistorySources.set(streamId, { parentSessionId, agentId, taskId, teammate: task.type === 'in_process_teammate' })
-  if (!registered || !chatStreamStore.getState().sessions[streamId]) {
+  const source = subagentHistorySources.get(streamId)
+  const version = typeof task.lifecycleUpdatedAtMs === 'number' && Number.isFinite(task.lifecycleUpdatedAtMs)
+    ? task.lifecycleUpdatedAtMs : undefined
+  const newerLifecycle = version !== undefined && (source?.lifecycleVersion === undefined || version > source.lifecycleVersion)
+  subagentHistorySources.set(streamId, { parentSessionId, agentId, taskId, teammate: task.type === 'in_process_teammate',
+    lifecycleVersion: newerLifecycle ? version : source?.lifecycleVersion })
+  if (!source || !chatStreamStore.getState().sessions[streamId]) {
     patchSession(streamId, () => ({ running: !agentTerminalStatus(task.status) && !task.isIdle, ...(task.messages?.length ? { history: task.messages } : {}) }))
+  } else if (newerLifecycle && task.status === 'running' && !task.isIdle) {
+    // Reconnects can miss the child's requesting frame. A newer lifecycle can
+    // restore liveness, while a repeated snapshot cannot undo a live stop.
+    patchSession(streamId, prev => prev.running ? {} : ({
+      running: true, streamMode: 'requesting', activityVisible: true,
+      interruptedLiveTurn: null, lastTerminalStatus: null, stopRequestedAt: null,
+      historyStale: true,
+    }))
   }
   return streamId
 }
@@ -846,11 +863,8 @@ function ingestSubagentEvent(event: any): void {
       name: agentTaskName(task, event.label || ''), status: 'started',
       turnId })
   }
-  // Track off-screen children from their first delta. The complete persisted
-  // transcript replaces this layer at turn completion, exactly as for the parent.
-  if (getSessionStream(streamId).history === null && !getSessionStream(streamId).historyLoading) {
-    patchSession(streamId, () => ({ history: [] }))
-  }
+  // Live units track off-screen progress without claiming that saved history
+  // was read. Opening the child can still load the earlier conversation.
   ingestChatEvent({ ...child, sessionId: streamId })
   // A persistent teammate can finish this run and remain available for another
   // prompt. Its run completion belongs in the parent process independently of
@@ -980,6 +994,7 @@ export function ingestChatEvent(event: any, context: { userInterrupted?: boolean
       const previous = previousTask(taskId, task)
       const ownerId = subagentOwnerStreamId(sessionId, task)
       const ownerTurnId = getSessionStream(ownerId).activeTurnId
+      if (isWorking(task)) prepareSubagentStream(sessionId, taskId, task)
       if (isWorking(task) && !isWorking(previous)) {
         appendAgentActivity(ownerId, { taskId, agentId: task.agentId, name: agentTaskName(task, ''),
           status: 'started', turnId: ownerTurnId || task.spawnTurnId })
@@ -2771,7 +2786,7 @@ export function loadSessionHistory(sessionId: string, options: {
         if (subagentHistorySources.has(sessionId)
           && (Array.isArray(history) ? history.length : 0) === 0
           && prev.liveUnits.length > 0 && !liveLayerOwnsTurn(prev)) {
-          return { historyLoading: false, historyStale: false }
+          return { history: prev.history ?? [], historyLoading: false, historyStale: false }
         }
         const tailTurnId = Array.isArray(history) ? history.at(-1)?.turnId : null
         const hasFinal = tailTurnId && history.some((message: any) => message.turnId === tailTurnId

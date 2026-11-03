@@ -63,6 +63,55 @@ test('later task-call registration coalesces lifecycle identity without changing
   expect(store.getSessionStream(streamId).liveUnits.some(unit => unit.type === 'live-text' && unit.text === 'Checking')).toBe(true)
 })
 
+describe('unread parent history', () => {
+  test('older child activity cannot replace unread history while a later parent turn runs', async () => {
+    const sessionId = 'unread-history-child-events'
+    const earlier = [
+      { ...userRow('original-request'), turnId: 'earlier-parent' },
+      { ...assistantRow('earlier-work'), turnId: 'earlier-parent' },
+    ]
+    const task = { agentId: 'restored-child', description: 'Review files', status: 'running', spawnTurnId: 'earlier-parent' }
+    store.seedSubagentTasks(sessionId, { task })
+    store.ingestChatEvent({ type: 'session_runtime_status', sessionId, status: 'active', turnId: 'current-parent' })
+    store.ingestChatEvent({ type: 'stream_mode', sessionId, mode: 'requesting', turnId: 'current-parent' })
+    store.ingestChatEvent({ type: 'text_delta', sessionId, text: 'Current work', messageId: 'current-text', turnId: 'current-parent' })
+    store.ingestChatEvent({ type: 'agent_progress', sessionId, agentId: task.agentId,
+      event: { type: 'stream_mode', mode: 'requesting', turnId: 'child-run' } })
+    store.ingestChatEvent({ type: 'agent_notification', sessionId, agentId: task.agentId,
+      notificationId: 'restored-child-completed', source: 'background-task', status: 'completed', turnId: 'earlier-parent' })
+    const unread = store.getSessionStream(sessionId)
+    expect(unread.history).toBeNull()
+    expect(unread.savedTranscript).toBeNull()
+    expect(unread.agentTimeline.map(event => event.status)).toEqual(['started', 'completed'])
+
+    respond = async () => ({ messages: [...earlier, { ...userRow('current-request'), turnId: 'current-parent' }] })
+    historyCalls.length = 0
+    await store.loadSessionHistory(sessionId)
+    const loaded = store.getSessionStream(sessionId)
+    expect(historyCalls).toEqual([sessionId])
+    expect(loaded.history).toEqual(earlier)
+    expect(loaded.running).toBe(true)
+    expect(loaded.activeTurnId).toBe('current-parent')
+    expect(loaded.liveUnits.some(unit => unit.type === 'live-text' && unit.text === 'Current work')).toBe(true)
+    expect(loaded.agentTimeline).toEqual(unread.agentTimeline)
+  })
+
+  test('child activity still appends to history after its initial read', async () => {
+    const sessionId = 'loaded-history-child-events'
+    const saved = [{ ...userRow('saved-request'), turnId: 'earlier-parent' }]
+    respond = async () => ({ messages: saved })
+    await store.loadSessionHistory(sessionId)
+    store.seedSubagentTasks(sessionId, { task: { agentId: 'loaded-child', spawnTurnId: 'earlier-parent', status: 'running' } })
+    store.ingestChatEvent({ type: 'stream_mode', sessionId, mode: 'requesting', turnId: 'current-parent' })
+    store.ingestChatEvent({ type: 'agent_notification', sessionId, agentId: 'loaded-child',
+      notificationId: 'loaded-child-completed', source: 'background-task', status: 'completed', turnId: 'earlier-parent' })
+    const state = store.getSessionStream(sessionId)
+    expect(state.history?.[0]).toEqual(saved[0])
+    expect(state.history?.filter(message => message.kind === 'agent-event')).toHaveLength(1)
+    expect(state.agentTimeline.map(event => event.status)).toEqual(['completed'])
+  })
+})
+
 describe('current plan mutation display', () => {
   test('plan mutations keep the turn active without raw cards or empty tool groups', () => {
     const sessionId = 'current-plan-mutations'

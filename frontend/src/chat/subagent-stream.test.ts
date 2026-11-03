@@ -8,6 +8,64 @@ const stream = await import('./stream-store')
 const flush = () => new Promise(resolve => setTimeout(resolve, 0))
 
 describe('child conversation streaming', () => {
+  test('newer lifecycle snapshots repair a missed child start without reviving a live cancellation', () => {
+    const sessionId = 'child-snapshot-resume'
+    const task = { agentId: 'snapshot-child', status: 'stopped', lifecycleUpdatedAtMs: 100 }
+    stream.seedSubagentTasks(sessionId, { task })
+    const childId = stream.prepareSubagentStream(sessionId, 'task', task)
+    const resumed = { ...task, status: 'running', lifecycleUpdatedAtMs: 200 }
+    stream.ingestChatEvent({ sessionId, type: 'tasks_changed', tasks: { task: resumed } })
+    expect(stream.getSessionStream(childId)).toMatchObject({ running: true, activityVisible: true, activeTurnId: null })
+    stream.ingestChatEvent({ sessionId, type: 'agent_progress', agentId: task.agentId,
+      event: { type: 'interrupted', turnId: 'cancelled-child-run' } })
+    const stopped = stream.getSessionStream(childId)
+    expect(stopped.running).toBe(false)
+    stream.prepareSubagentStream(sessionId, 'task', resumed)
+    stream.prepareSubagentStream(sessionId, 'task', { ...resumed, lifecycleUpdatedAtMs: 100 })
+    stream.prepareSubagentStream(sessionId, 'task', { ...resumed, lifecycleUpdatedAtMs: undefined })
+    expect(stream.getSessionStream(childId).running).toBe(false)
+
+    stream.prepareSubagentStream(sessionId, 'task', { ...resumed, lifecycleUpdatedAtMs: 300 })
+    const repaired = stream.getSessionStream(childId)
+    expect(repaired).toMatchObject({ running: true, activityVisible: true, interruptedLiveTurn: null, lastTerminalStatus: null })
+    expect(repaired.liveUnits).toEqual(stopped.liveUnits)
+    const revision = repaired.liveRevision
+    stream.prepareSubagentStream(sessionId, 'task', { ...resumed, lifecycleUpdatedAtMs: 300 })
+    expect(stream.getSessionStream(childId).liveRevision).toBe(revision)
+    stream.ingestChatEvent({ sessionId, type: 'tasks_changed', tasks: { task: { ...resumed, status: 'stopped', lifecycleUpdatedAtMs: 400 } } })
+    expect(stream.getSessionStream(childId).running).toBe(false)
+  })
+
+  test('opening a child can load older stopped turns after its first live events', async () => {
+    const sessionId = 'child-unread-saved-history'
+    const task = { agentId: 'unread-child', status: 'running', lifecycleUpdatedAtMs: 100 }
+    stream.ingestChatEvent({ sessionId, type: 'tasks_changed', tasks: { task } })
+    const send = (event: any) => stream.ingestChatEvent({ sessionId, type: 'agent_progress', agentId: task.agentId, event })
+    send({ type: 'stream_mode', mode: 'requesting', turnId: 'current-child-run' })
+    send({ type: 'text_delta', text: 'Current child work', messageId: 'current-child-text' })
+    const childId = subagentStreamId(sessionId, task.agentId)
+    expect(stream.getSessionStream(childId).history).toBeNull()
+    const calls: string[] = []
+    const earlier = [{ role: 'user', uuid: 'original-child-user', turnId: 'old-child-run', text: 'Original child request' }]
+    const previousApi = (window as any).klaus
+    ;(window as any).klaus = { agents: { history: async () => {
+      calls.push(childId)
+      return { messages: [...earlier, { role: 'user', uuid: 'current-child-user', turnId: 'current-child-run', text: 'Continue' }],
+        turnStatuses: { 'old-child-run': 'interrupted', 'current-child-run': 'interrupted' } }
+    } } }
+    try {
+      await stream.loadSessionHistory(childId)
+      const loaded = stream.getSessionStream(childId)
+      expect(calls).toEqual([childId])
+      expect(loaded.history).toEqual(earlier)
+      expect(loaded.running).toBe(true)
+      expect(loaded.activeTurnId).toBe('current-child-run')
+      expect(loaded.turnStatuses['old-child-run']).toBe('interrupted')
+      expect(loaded.turnStatuses['current-child-run']).toBeUndefined()
+      expect(loaded.liveUnits.some(unit => unit.type === 'live-text' && unit.text === 'Current child work')).toBe(true)
+    } finally { (window as any).klaus = previousApi }
+  })
+
   test('pre-start child terminal vectors retain failure and cancellation without settling the parent', () => {
     const cases = streamVectors.cases.filter(row => row.event.type === 'turn.failed')
     expect(cases.length).toBe(2)

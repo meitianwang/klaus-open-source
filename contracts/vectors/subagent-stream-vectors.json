@@ -1,5 +1,5 @@
 {
-  "description": "Child conversations preserve the same live chat event semantics as a main conversation, without settling the parent. Admission refusal and cancellation may arrive before a child turn starts; both retain their terminal outcome and readable reason without creating a start event.",
+  "description": "Child conversations preserve the same live chat event semantics as a main conversation, without settling the parent. Admission refusal and cancellation may arrive before a child turn starts; both retain their terminal outcome and readable reason without creating a start event. Activity from an older child run retains unread parent history as null until the history endpoint supplies its rows; lifecycle records alone cannot mark a conversation as loaded. A newer authoritative running lifecycle repairs a missed child start, while repeated or older snapshots cannot undo a live cancellation.",
   "cases": [
     {
       "name": "prompt",
