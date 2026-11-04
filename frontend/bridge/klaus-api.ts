@@ -290,10 +290,11 @@ expose('klaus', {
         ...(opts?.sortDirection ? { sortDirection: opts.sortDirection } : {}),
       }),
     /** One page of ONE turn's messages, by message cursor. */
-    historyItems: (sessionId: string, opts: { turnId: string; cursor?: string | null; limit?: number; sortDirection?: string }) =>
+    historyItems: (sessionId: string, opts: { turnId: string; cursor?: string | null; beforeItemId?: string | null; limit?: number; sortDirection?: string }) =>
       call('session:history-items', {
         sessionId,
         turnId: opts.turnId,
+        ...(opts.beforeItemId ? { beforeItemId: opts.beforeItemId } : {}),
         ...(opts.cursor ? { cursor: opts.cursor } : {}),
         ...(opts.limit !== undefined ? { limit: opts.limit } : {}),
         ...(opts.sortDirection ? { sortDirection: opts.sortDirection } : {}),

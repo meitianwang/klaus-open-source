@@ -5381,17 +5381,43 @@
       },
       "result": true
     },
+    "engine/readThreadFileChanges": {
+      "params": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "title": "EngineReadThreadFileChangesParams",
+        "description": "Read all saved file-change metadata without loading transcript items.",
+        "type": "object",
+        "required": [
+          "threadId"
+        ],
+        "properties": {
+          "threadId": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "result": true
+    },
     "engine/readThreadItems": {
       "params": {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "title": "EngineReadThreadItemsParams",
-        "description": "Page the messages of ONE turn without carrying any other turn's rows.\n\n`cursor` names the message uuid the page starts at (exclusive) in the requested direction; an unknown cursor is refused rather than silently re-reading from the turn head. `limit` counts messages, not turns.",
+        "description": "Page the messages of ONE turn without carrying any other turn's rows.\n\n`cursor` is storage-owned. A separate `beforeItemId` selects older items by stable identity, independently of the storage cursor revision. Missing boundaries are refused; `limit` counts messages, not turns.",
         "type": "object",
         "required": [
           "threadId",
           "turnId"
         ],
         "properties": {
+          "beforeItemId": {
+            "description": "A stable message anchor; returns older items without interpreting it as a cursor.",
+            "default": null,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "cursor": {
             "default": null,
             "type": [

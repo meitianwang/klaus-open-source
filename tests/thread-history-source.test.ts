@@ -203,35 +203,44 @@ for (const method of ((vectors.source as Record<string, Json>).planningArtifactC
   });
 }
 
-h.test('saved change records walk metadata pages without reading message bodies', async () => {
-  const older = { turnId: 'older', files: [{ path: '/p/old.ts', added: 2, removed: 0, kind: 'modify', turnDiff: 'saved diff' }] };
-  const newer = { turnId: 'newer', files: [{ path: '/p/new.ts', added: null, removed: null, kind: 'create', turnDiff: null }] };
-  const client = new FakeClient().replySequence('engine/readThreadHistory', [
-    { fileChanges: [newer], page: { hasMore: true, nextCursor: 'older-page' } },
-    { fileChanges: [older], page: { hasMore: false, nextCursor: null } },
-  ]);
-  const { service } = serviceWith(client, freshRoot());
+h.test('saved item anchors remain distinct from opaque cursors and advertise support', async () => {
+  const client = new FakeClient()
+    .reply('engine/readThreadItems', { ...storedReply([assistantRow('a1', 'older saved answer')], 'cold') as Record<string, Json>, supportsItemAnchors: true, page: { hasMore: true, nextCursor: 'opaque-next' } })
+    .reply('engine/readThreadHistory', { ...storedReply([], 'cold') as Record<string, Json>, supportsItemAnchors: true, turns: [], page: { hasMore: false } });
+  const { service, state } = serviceWith(client, freshRoot());
   try {
-    assertDeepEqual(await service.fileChanges('cold'), { fileChanges: [older, newer] }, 'saved counts, unknown values, diffs and turn order survive');
-    assertDeepEqual(client.calls, [
-      { method: 'engine/readThreadHistory', params: { threadId: 'cold', itemsView: 'notLoaded', sortDirection: 'desc', limit: 100 } },
-      { method: 'engine/readThreadHistory', params: { threadId: 'cold', itemsView: 'notLoaded', sortDirection: 'desc', limit: 100, cursor: 'older-page' } },
-    ], 'only bounded metadata reads are issued');
+    const page = await service.historyPage('cold', { limit: 5 }) as Record<string, Json>;
+    const items = await service.historyItems('cold', { turnId: 'saved-turn', beforeItemId: 'anchor-message', limit: 3, sortDirection: 'desc' }) as Record<string, Json>;
+    assertEqual(page.supportsItemAnchors, true, 'the page advertises actual anchor support');
+    assertEqual(items.supportsItemAnchors, true, 'the item page retains the same capability');
+    assertDeepEqual(client.sent('engine/readThreadItems'), [{ threadId: 'cold', turnId: 'saved-turn', beforeItemId: 'anchor-message', limit: 3, sortDirection: 'desc' }], 'the stable anchor is never substituted into cursor');
+    for (const opts of [{ cursor: 'opaque', beforeItemId: 'anchor' }, { beforeItemId: '' }, { beforeItemId: 'anchor', sortDirection: 'asc' }]) {
+      await assertRejects(() => service.historyItems('cold', { turnId: 'saved-turn', ...opts }), 'ambiguous or invalid anchors are refused before reading');
+    }
+    assertEqual(client.sent('engine/readThreadItems').length, 1, 'refused anchors never reach the engine');
+    assertEqual(state.liveSession('cold'), undefined, 'anchor inspection does not activate the conversation');
+    assertEqual((vectors.source as Record<string, Json>).itemAnchorField, 'beforeItemId', 'the retained item boundary is a separate contract field');
   } finally { await service.shutdown(); }
 });
 
-h.test('saved change records refuse repeated cursors and unsupported metadata', async () => {
-  for (const replies of [
-    [{ fileChanges: [], page: { hasMore: true, nextCursor: 'same' } }, { fileChanges: [], page: { hasMore: true, nextCursor: 'same' } }],
-    [{ history: [], page: { hasMore: false } }],
-  ]) {
-    const client = new FakeClient().replySequence('engine/readThreadHistory', replies);
-    const { service } = serviceWith(client, freshRoot());
-    try {
-      await assertRejects(() => service.fileChanges('cold'), 'an incomplete saved record is not passed off as authoritative emptiness');
-      assert(client.calls.every(call => call.method === 'engine/readThreadHistory'), 'failure never activates a model or falls back to a whole read');
-    } finally { await service.shutdown(); }
-  }
+h.test('saved change records read one complete metadata projection without transcript pages', async () => {
+  const older = { turnId: 'older', files: [{ path: '/p/old.ts', added: 2, removed: 0, kind: 'modify', turnDiff: 'saved diff' }] };
+  const newer = { turnId: 'newer', files: [{ path: '/p/new.ts', added: null, removed: null, kind: 'create', turnDiff: null }] };
+  const client = new FakeClient().reply('engine/readThreadFileChanges', { fileChanges: [older, newer] });
+  const { service } = serviceWith(client, freshRoot());
+  try {
+    assertDeepEqual(await service.fileChanges('cold'), { fileChanges: [older, newer] }, 'saved counts, unknown values, diffs and turn order survive');
+    assertDeepEqual(client.calls, [{ method: 'engine/readThreadFileChanges', params: { threadId: 'cold' } }], 'one metadata read retains every turn without loading transcript rows');
+  } finally { await service.shutdown(); }
+});
+
+h.test('saved change records refuse unsupported metadata', async () => {
+  const client = new FakeClient().reply('engine/readThreadFileChanges', { history: [] });
+  const { service } = serviceWith(client, freshRoot());
+  try {
+    await assertRejects(() => service.fileChanges('cold'), 'an incomplete saved record is not authoritative emptiness');
+    assertDeepEqual(client.calls, [{ method: 'engine/readThreadFileChanges', params: { threadId: 'cold' } }], 'failure never activates a model or falls back to transcript scans');
+  } finally { await service.shutdown(); }
 });
 
 h.test('live change records retain their existing mapped runtime source', async () => {

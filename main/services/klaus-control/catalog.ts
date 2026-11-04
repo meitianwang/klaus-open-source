@@ -234,7 +234,7 @@ export const CONTROL_SURFACES: ControlSurface[] = [
       {
         "action": "historyItems",
         "channel": "session:history-items",
-        "args": "{ sessionId: string, turnId: string, cursor?: string, limit?: integer 1..100, sortDirection?: 'asc'|'desc' } — one page of one turn's messages",
+        "args": "{ sessionId: string, turnId: string, cursor?: string, beforeItemId?: string, limit?: integer 1..100, sortDirection?: 'asc'|'desc' } — one page of one turn's messages",
         "confirm": false,
         "currentSession": false
       },

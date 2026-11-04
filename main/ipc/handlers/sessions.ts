@@ -87,6 +87,7 @@ export function registerSessionHandlers(registry: ChannelRegistry, deps: {
       const value = payload(context);
       return sessions.historyItems(requiredString(value, 'sessionId'), {
         turnId: requiredString(value, 'turnId'),
+        ...(typeof value.beforeItemId === 'string' ? { beforeItemId: value.beforeItemId } : {}),
         ...(typeof value.cursor === 'string' ? { cursor: value.cursor } : {}),
         ...(typeof value.limit === 'number' ? { limit: value.limit } : {}),
         ...(typeof value.sortDirection === 'string' ? { sortDirection: value.sortDirection } : {}),

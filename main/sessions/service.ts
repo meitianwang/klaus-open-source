@@ -3829,6 +3829,7 @@ export class SessionService {
     return {
       ...object(this.deps.projectHistory?.(projected ?? {}, rendererId, {kind:'page',cursor:options.cursor,turns:Array.isArray(reply.turns)?reply.turns:[],hasMore:object(reply.page)?.hasMore===true,nextCursor:typeof object(reply.page)?.nextCursor==='string'?String(object(reply.page)?.nextCursor):undefined}) ?? projected),
       page: reply.page ?? null,
+      supportsItemAnchors: reply.supportsItemAnchors === true,
       turns: Array.isArray(reply.turns) ? reply.turns : [],
     };
   }
@@ -3840,14 +3841,17 @@ export class SessionService {
    * cursor and limit, so a page stays bounded by the turn the client asked for.
    */
   async historyItems(rendererId: string, options: {
-    turnId: string; cursor?: string; limit?: number; sortDirection?: string;
+    turnId: string; cursor?: string; beforeItemId?: string; limit?: number; sortDirection?: string;
   }): Promise<Json> {
+    if (options.cursor !== undefined && options.beforeItemId !== undefined) throw new IpcHandlerError('BAD_REQUEST', 'cursor and beforeItemId cannot be combined');
+    if (options.beforeItemId !== undefined && (!options.beforeItemId.trim() || options.sortDirection && options.sortDirection !== 'desc')) throw new IpcHandlerError('BAD_REQUEST', 'beforeItemId requires a nonempty anchor and descending order');
     this.assertWorkflowThread(rendererId);
     const client = await this.client();
     const current = () => { this.ensureCurrentClient(client); this.assertWorkflowThread(rendererId); };
     const params = {
       threadId: rendererId,
       turnId: options.turnId,
+      ...(options.beforeItemId ? { beforeItemId: options.beforeItemId } : {}),
       ...(options.cursor ? { cursor: options.cursor } : {}),
       ...(options.limit !== undefined ? { limit: options.limit } : {}),
       ...(options.sortDirection ? { sortDirection: options.sortDirection } : {}),
@@ -3867,6 +3871,7 @@ export class SessionService {
     return {
       ...object(this.deps.projectHistory?.(projected ?? {}, rendererId, {kind:'items',cursor:options.cursor}) ?? projected),
       page: reply.page ?? null,
+      supportsItemAnchors: reply.supportsItemAnchors === true,
     };
   }
 
@@ -3874,24 +3879,10 @@ export class SessionService {
   async fileChanges(rendererId: string): Promise<JsonObject> {
     this.assertWorkflowThread(rendererId);
     if (this.deps.state.liveSession(rendererId)) return this.requestExistingSession(rendererId, 'session/fileChanges');
-    const pages: Json[][] = [], cursors = new Set<string>();
-    let cursor: string | undefined;
-    do {
-      const reply = object(await this.request('engine/readThreadHistory', {
-        threadId: rendererId, itemsView: 'notLoaded', sortDirection: 'desc', limit: 100,
-        ...(cursor ? { cursor } : {}),
-      }));
-      this.assertWorkflowThread(rendererId);
-      if (!reply || !Array.isArray(reply.fileChanges)) throw new IpcHandlerError('INVALID_ENGINE_RESPONSE', 'The engine returned no saved change records.');
-      pages.unshift(reply.fileChanges);
-      const page = object(reply.page);
-      const next = typeof page?.nextCursor === 'string' && page.nextCursor ? page.nextCursor : undefined;
-      if (page?.hasMore !== true) break;
-      if (!next || cursors.has(next)) throw new IpcHandlerError('INVALID_ENGINE_RESPONSE', 'The saved change-record cursor did not advance.');
-      cursors.add(next);
-      cursor = next;
-    } while (cursor);
-    return { fileChanges: pages.flat() };
+    const reply = object(await this.request('engine/readThreadFileChanges', { threadId: rendererId }));
+    this.assertWorkflowThread(rendererId);
+    if (!reply || !Array.isArray(reply.fileChanges)) throw new IpcHandlerError('INVALID_ENGINE_RESPONSE', 'The engine returned no saved change records.');
+    return { fileChanges: reply.fileChanges };
   }
 
   /**

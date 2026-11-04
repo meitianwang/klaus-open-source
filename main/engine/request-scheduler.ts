@@ -234,7 +234,7 @@ export class RpcRequestScheduler {
 // read-only just because its name happens to begin with "read" or "get".
 const coalescibleReads = new Set([
   'engine/listSessions', 'engine/readSessionSummary', 'session/history',
-  'engine/readThreadHistory', 'engine/readSubagentHistory',
+  'engine/readThreadHistory', 'engine/readThreadFileChanges', 'engine/readSubagentHistory',
   'session/readHistory', 'session/contextSnapshot', 'session/modelRuntime',
   'session/queueSnapshot', 'thread/queue/list', 'session/setupLifecycle', 'session/subagentLifecycle',
   'session/backgroundProcesses', 'session/taskList', 'session/taskIdentity', 'config/read',

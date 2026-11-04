@@ -5,6 +5,9 @@
     "ephemeralTranscriptSource": "session/history",
     "_whyEphemeralTranscriptSource": "Temporary side tasks have no saved rollout. Register their identity before transcript requests, replay their visible live snapshot, and retain that source across tab navigation. A promoted conversation has a separate identity and uses saved pagination.",
     "renderFirstPaintSource": "engine/readThreadHistory paged, itemsView summary, five newest turns immediately visible",
+    "itemAnchorField": "beforeItemId",
+    "itemAnchorCapability": "supportsItemAnchors",
+    "itemAnchorContract": "An explicit stable item identity selects older rows, excludes the anchor, refuses missing or foreign anchors, and cannot be combined with an opaque cursor.",
     "renderItemsSource": "engine/readThreadItems, independent per-turn cursors, 98-item summary preview plus two opening items, then 100-item pages without a total cap",
     "renderItemsOrdering": "oldest-first within each turn and across turns; prepend older item pages while traversing descending cursors",
     "_whyRenderItemsOrdering": "Each descending item page is already chronological. Appending successively older pages places a prompt below its reply and sends earlier process into the post-final area outside the completed turn fold. Chronological accumulation must preserve both reply order and process folding across pages.",
@@ -15,7 +18,7 @@
       "revisionFence": "before-and-after",
       "preserveAcceptedPageMetadata": true
     },
-    "unloadedChangeRecordsSource": "engine/readThreadHistory notLoaded pages, fileChanges metadata only",
+    "unloadedChangeRecordsSource": "engine/readThreadFileChanges, one complete metadata projection without transcript pages",
     "runtimeInspectionActivation": "none; unavailable live snapshots retain existing presentation",
     "renderChangeRecordDependency": "independent; cached records seed synchronously and pending records never block transcript publication",
     "renderOlderPagesSource": "engine/readThreadHistory paged by turn cursor, on demand at the top of the transcript",
