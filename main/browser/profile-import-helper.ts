@@ -12,7 +12,6 @@ import { lstatSync, readFileSync, realpathSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import {
   BrowserImportDecryptError,
-  type BrowserImportPlatform,
 } from '../../contracts/browser-import';
 
 export const BROWSER_IMPORT_HELPER_ENV = 'KLAUS_BROWSER_IMPORT_HELPER';
@@ -27,8 +26,8 @@ const SUPPORTED_ARCHES = new Set(['arm64', 'x64']);
 
 export interface BrowserImportHelperLocatorOptions {
   packaged: boolean;
-  resourceDirs: string;
-  platform?: BrowserImportPlatform;
+  resourceDirs: readonly string[];
+  platform?: NodeJS.Platform;
   arch?: string;
   env?: NodeJS.ProcessEnv;
 }
@@ -118,11 +117,13 @@ export function resolveBrowserImportHelper(options: BrowserImportHelperLocatorOp
   const {
     packaged,
     resourceDirs,
-    platform = process.platform as BrowserImportPlatform,
+    platform = process.platform,
     arch = process.arch,
     env = process.env,
   } = options;
-  if (!isAbsolute(resourceDirs)) failure('helper_unavailable', 'The application resource directory must be absolute.');
+  if (!Array.isArray(resourceDirs) || resourceDirs.length === 0 || resourceDirs.some(directory => typeof directory !== 'string' || !isAbsolute(directory))) {
+    failure('helper_unavailable', 'The application resource directories must be non-empty absolute paths.');
+  }
   if (platform !== 'darwin') {
     failure('helper_unavailable', `Browser profile import is unavailable on ${platform}.`);
   }
@@ -130,26 +131,41 @@ export function resolveBrowserImportHelper(options: BrowserImportHelperLocatorOp
     failure('helper_unavailable', `Browser profile import is unavailable for ${platform}-${arch}.`);
   }
 
-  let helperPath: string;
-  let manifestPath: string;
+  let helperPath: string | undefined;
+  let manifestPath: string | undefined;
+  let expectedRealDirectory: string | undefined;
   if (packaged) {
-    const resourceRoot = realPath(resolve(resourceDirs), 'helper_unavailable', 'The packaged application resource directory is missing.');
-    const container = join(resourceRoot, BROWSER_IMPORT_HELPER_DIRECTORY);
-    const containerInfo = lstatSync(container, { throwIfNoEntry: false });
-    if (!containerInfo?.isDirectory() || containerInfo.isSymbolicLink()) {
-      failure('helper_unavailable', 'The packaged browser-import helper directory is missing.');
+    for (const resourceDir of resourceDirs) {
+      let resourceRoot: string;
+      try {
+        resourceRoot = realpathSync(resolve(resourceDir));
+      } catch {
+        continue;
+      }
+      const container = join(resourceRoot, BROWSER_IMPORT_HELPER_DIRECTORY);
+      const containerInfo = lstatSync(container, { throwIfNoEntry: false });
+      if (!containerInfo) continue;
+      if (!containerInfo.isDirectory() || containerInfo.isSymbolicLink()) {
+        failure('invalid_helper_path', 'The packaged browser-import helper directory is not a regular directory.');
+      }
+      const expectedDirectory = join(container, `${platform}-${arch}`);
+      const directoryInfo = lstatSync(expectedDirectory, { throwIfNoEntry: false });
+      if (!directoryInfo) continue;
+      if (!directoryInfo.isDirectory() || directoryInfo.isSymbolicLink()) {
+        failure('invalid_helper_path', 'The packaged browser-import helper target is not a regular directory.');
+      }
+      const candidateRealDirectory = realPath(expectedDirectory, 'helper_unavailable', 'The packaged browser-import helper target is missing.');
+      if (!isInside(resourceRoot, candidateRealDirectory) || !isInside(container, candidateRealDirectory)) {
+        failure('invalid_helper_path', 'The packaged browser-import helper directory escapes the application resources.');
+      }
+      helperPath = join(expectedDirectory, BROWSER_IMPORT_HELPER_NAME);
+      manifestPath = join(expectedDirectory, BROWSER_IMPORT_HELPER_MANIFEST);
+      expectedRealDirectory = candidateRealDirectory;
+      break;
     }
-    const expectedDirectory = join(container, `${platform}-${arch}`);
-    const directoryInfo = lstatSync(expectedDirectory, { throwIfNoEntry: false });
-    if (!directoryInfo?.isDirectory() || directoryInfo.isSymbolicLink()) {
-      failure('helper_unavailable', 'The packaged browser-import helper target is missing.');
+    if (!helperPath || !manifestPath || !expectedRealDirectory) {
+      failure('helper_unavailable', 'The packaged browser-import helper was not found in the supplied resource directories.');
     }
-    const expectedRealDirectory = realPath(expectedDirectory, 'helper_unavailable', 'The packaged browser-import helper target is missing.');
-    if (!isInside(resourceRoot, expectedRealDirectory) || !isInside(container, expectedRealDirectory)) {
-      failure('invalid_helper_path', 'The packaged browser-import helper directory escapes the application resources.');
-    }
-    helperPath = join(expectedDirectory, BROWSER_IMPORT_HELPER_NAME);
-    manifestPath = join(expectedDirectory, BROWSER_IMPORT_HELPER_MANIFEST);
   } else {
     const injected = env[BROWSER_IMPORT_HELPER_ENV];
     if (typeof injected !== 'string' || !injected.trim()) {
@@ -161,6 +177,7 @@ export function resolveBrowserImportHelper(options: BrowserImportHelperLocatorOp
     helperPath = resolve(injected);
     manifestPath = `${helperPath}.json`;
   }
+  if (!helperPath || !manifestPath) failure('helper_unavailable', 'The browser-import helper was not found.');
 
   if (helperPath.split(/[\\/]/u).at(-1) !== BROWSER_IMPORT_HELPER_NAME) {
     failure('invalid_helper_path', `The browser-import helper must be named ${BROWSER_IMPORT_HELPER_NAME}.`);
@@ -176,8 +193,7 @@ export function resolveBrowserImportHelper(options: BrowserImportHelperLocatorOp
   const manifestInfo = statFile(manifestPath, 'helper_unavailable', 'The browser-import helper manifest is missing.');
   const realHelper = realPath(helperPath, 'helper_unavailable', 'The browser-import helper is missing.');
   const realManifest = realPath(manifestPath, 'helper_unavailable', 'The browser-import helper manifest is missing.');
-  if (packaged) {
-    const expectedRealDirectory = realPath(join(resourceDirs, BROWSER_IMPORT_HELPER_DIRECTORY, `${platform}-${arch}`), 'helper_unavailable', 'The packaged browser-import helper target is missing.');
+  if (packaged && expectedRealDirectory) {
     if (!isInside(expectedRealDirectory, realHelper) || !isInside(expectedRealDirectory, realManifest)) {
       failure('invalid_helper_path', 'The packaged browser-import helper escapes its target directory.');
     }

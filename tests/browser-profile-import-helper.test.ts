@@ -76,24 +76,24 @@ void (async () => {
     try {
       const resolved = resolveBrowserImportHelper({
         packaged: false,
-        resourceDirs: resources,
+        resourceDirs: [resources],
         platform: 'darwin',
         arch: 'arm64',
         env: { [BROWSER_IMPORT_HELPER_ENV]: source.binary },
       });
       assertEqual(resolved, realpathSync(source.binary), 'development helper path');
       expectError(
-        () => resolveBrowserImportHelper({ packaged: false, resourceDirs: resources, platform: 'darwin', arch: 'arm64', env: {} }),
+        () => resolveBrowserImportHelper({ packaged: false, resourceDirs: [resources], platform: 'darwin', arch: 'arm64', env: {} }),
         'helper_unavailable',
         'missing development helper',
       );
       expectError(
-        () => resolveBrowserImportHelper({ packaged: false, resourceDirs: resources, platform: 'darwin', arch: 'arm64', env: { [BROWSER_IMPORT_HELPER_ENV]: 'relative/helper' } }),
+        () => resolveBrowserImportHelper({ packaged: false, resourceDirs: [resources], platform: 'darwin', arch: 'arm64', env: { [BROWSER_IMPORT_HELPER_ENV]: 'relative/helper' } }),
         'invalid_helper_path',
         'relative development helper',
       );
       expectError(
-        () => resolveBrowserImportHelper({ packaged: false, resourceDirs: resources, platform: 'darwin', arch: 'arm64', env: { [BROWSER_IMPORT_HELPER_ENV]: join(root, 'missing', BROWSER_IMPORT_HELPER_NAME) } }),
+        () => resolveBrowserImportHelper({ packaged: false, resourceDirs: [resources], platform: 'darwin', arch: 'arm64', env: { [BROWSER_IMPORT_HELPER_ENV]: join(root, 'missing', BROWSER_IMPORT_HELPER_NAME) } }),
         'helper_unavailable',
         'missing development helper file',
       );
@@ -107,7 +107,7 @@ void (async () => {
       const packaged = packagedArtifact();
       const resolved = resolveBrowserImportHelper({
         packaged: true,
-        resourceDirs: resources,
+        resourceDirs: [resources],
         platform: 'darwin',
         arch: 'arm64',
         env: { [BROWSER_IMPORT_HELPER_ENV]: '/untrusted/dev-helper' },
@@ -122,7 +122,7 @@ void (async () => {
     try {
       const testMode = packagedArtifact(artifact({ mode: 'test' }));
       expectError(
-        () => resolveBrowserImportHelper({ packaged: true, resourceDirs: resources, platform: 'darwin', arch: 'arm64', env: {} }),
+        () => resolveBrowserImportHelper({ packaged: true, resourceDirs: [resources], platform: 'darwin', arch: 'arm64', env: {} }),
         'invalid_helper_manifest',
         'test-mode artifact',
       );
@@ -132,7 +132,7 @@ void (async () => {
       writeFileSync(testMode.helper, bytes);
       chmodSync(testMode.helper, 0o755);
       expectError(
-        () => resolveBrowserImportHelper({ packaged: true, resourceDirs: resources, platform: 'darwin', arch: 'arm64', env: {} }),
+        () => resolveBrowserImportHelper({ packaged: true, resourceDirs: [resources], platform: 'darwin', arch: 'arm64', env: {} }),
         'helper_integrity_failed',
         'corrupt helper',
       );
@@ -146,21 +146,21 @@ void (async () => {
       const packaged = packagedArtifact();
       writeFileSync(join(packaged.directory, BROWSER_IMPORT_HELPER_MANIFEST), `${JSON.stringify({ ...packaged.manifest, arch: 'x64', target: 'darwin-x64' })}\n`);
       expectError(
-        () => resolveBrowserImportHelper({ packaged: true, resourceDirs: resources, platform: 'darwin', arch: 'arm64', env: {} }),
+        () => resolveBrowserImportHelper({ packaged: true, resourceDirs: [resources], platform: 'darwin', arch: 'arm64', env: {} }),
         'invalid_helper_manifest',
         'wrong target',
       );
       writeFileSync(join(packaged.directory, BROWSER_IMPORT_HELPER_MANIFEST), `${JSON.stringify(packaged.manifest)}\n`);
       chmodSync(packaged.helper, 0o644);
       expectError(
-        () => resolveBrowserImportHelper({ packaged: true, resourceDirs: resources, platform: 'darwin', arch: 'arm64', env: {} }),
+        () => resolveBrowserImportHelper({ packaged: true, resourceDirs: [resources], platform: 'darwin', arch: 'arm64', env: {} }),
         'helper_not_executable',
         'non-executable helper',
       );
       chmodSync(packaged.helper, 0o755);
       rmSync(join(packaged.directory, BROWSER_IMPORT_HELPER_MANIFEST));
       expectError(
-        () => resolveBrowserImportHelper({ packaged: true, resourceDirs: resources, platform: 'darwin', arch: 'arm64', env: {} }),
+        () => resolveBrowserImportHelper({ packaged: true, resourceDirs: [resources], platform: 'darwin', arch: 'arm64', env: {} }),
         'helper_unavailable',
         'missing manifest',
       );
@@ -174,8 +174,8 @@ void (async () => {
       const outside = mkdtempSync(join(root, 'outside-'));
       symlinkSync(outside, join(resources, 'browser-import'));
       expectError(
-        () => resolveBrowserImportHelper({ packaged: true, resourceDirs: resources, platform: 'darwin', arch: 'arm64', env: {} }),
-        'helper_unavailable',
+        () => resolveBrowserImportHelper({ packaged: true, resourceDirs: [resources], platform: 'darwin', arch: 'arm64', env: {} }),
+        'invalid_helper_path',
         'symlinked resource directory',
       );
       rmSync(join(resources, 'browser-import'), { recursive: true, force: true });
@@ -185,7 +185,7 @@ void (async () => {
       rmSync(packaged.helper);
       symlinkSync(externalHelper, packaged.helper);
       expectError(
-        () => resolveBrowserImportHelper({ packaged: true, resourceDirs: resources, platform: 'darwin', arch: 'arm64', env: {} }),
+        () => resolveBrowserImportHelper({ packaged: true, resourceDirs: [resources], platform: 'darwin', arch: 'arm64', env: {} }),
         'invalid_helper_path',
         'symlinked helper',
       );
@@ -197,15 +197,31 @@ void (async () => {
 
   await h.test('unsupported platforms and relative resource roots fail structurally', () => {
     expectError(
-      () => resolveBrowserImportHelper({ packaged: false, resourceDirs: resources, platform: 'win32', arch: 'x64', env: {} }),
+      () => resolveBrowserImportHelper({ packaged: false, resourceDirs: [resources], platform: 'win32', arch: 'x64', env: {} }),
       'helper_unavailable',
       'unsupported platform',
     );
     expectError(
-      () => resolveBrowserImportHelper({ packaged: true, resourceDirs: 'relative/resources', platform: 'darwin', arch: 'arm64', env: {} }),
-      'helper_unavailable',
-      'relative resource root',
-    );
+        () => resolveBrowserImportHelper({ packaged: true, resourceDirs: ['relative/resources'], platform: 'darwin', arch: 'arm64', env: {} }),
+        'helper_unavailable',
+        'relative resource root',
+      );
+    });
+
+  await h.test('packaged lookup accepts multiple resource roots in order', () => {
+    try {
+      const packaged = packagedArtifact();
+      const resolved = resolveBrowserImportHelper({
+        packaged: true,
+        resourceDirs: [join(root, 'empty-root'), resources],
+        platform: 'darwin',
+        arch: 'arm64',
+        env: {},
+      });
+      assertEqual(resolved, realpathSync(packaged.helper), 'helper from the second resource root');
+    } finally {
+      rmSync(join(resources, 'browser-import'), { recursive: true, force: true });
+    }
   });
 
   process.exitCode = await h.finish(join(resultDirectory, 'browser-profile-import-helper.result.json'), 'browser-profile-import-helper');
