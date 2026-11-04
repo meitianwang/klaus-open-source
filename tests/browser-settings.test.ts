@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { BROWSER_DEFAULT_POLICY, browserAddress, browserEffectiveAccess, browserOriginPattern, browserPatternMatches, localBrowserUrl, type BrowserSettingsSnapshot } from '../contracts/browser-settings';
 import { BrowserAccessController } from '../main/browser/access';
 import { BrowserPreferences } from '../main/services/browser-preferences';
-import { kvSet } from '../main/services/settings';
+import { kvGet, kvSet } from '../main/services/settings';
 import { vectorPath } from '../main/paths';
 import { Harness } from './harness';
 
@@ -43,13 +43,14 @@ h.test('preferences survive reopening and independent destinations remain separa
   const directory = join(root, 'roundtrip'), service = preferences(directory);
   service.mutate('set-preferences', { showFullUrl: true, promptForDownloads: true, webUrlTarget: 'system-default', localUrlTarget: 'in-app' });
   service.mutate('set-origin-policy', { pattern: '*.example.com', resource: 'uploads', setting: 'deny' });
-  service.mutate('set-site-permission', { origin: 'https://example.com/path', permission: 'videoCapture', setting: 'denied' });
+  assert.throws(
+    () => service.mutate('set-site-permission', { origin: 'https://example.com/path', permission: 'videoCapture', setting: 'denied' }),
+    /retired/
+  );
   const reopened = preferences(directory), snapshot = reopened.get();
   assert.equal(snapshot.showFullUrl, true); assert.equal(snapshot.webUrlTarget, 'system-default'); assert.equal(snapshot.localUrlTarget, 'in-app');
   assert.equal(reopened.access('https://app.example.com', 'uploads'), 'deny');
-  assert.equal(reopened.sitePermission('https://example.com', 'videoCapture'), 'denied');
-  reopened.mutate('set-site-permission', { origin: 'https://example.com', permission: 'videoCapture', setting: 'prompt' });
-  assert.equal(reopened.sitePermission('https://example.com', 'videoCapture'), undefined);
+  assert.deepEqual(snapshot.sitePermissions, []);
 });
 h.test('an invalid preference batch cannot partially update destinations or flags', () => {
   const service = preferences(join(root, 'atomic'));
@@ -57,6 +58,42 @@ h.test('an invalid preference batch cannot partially update destinations or flag
   assert.equal(service.get().showFullUrl, false); assert.equal(service.get().webUrlTarget, 'system-default');
   assert.throws(() => service.mutate('set-origin-policy', { pattern: 'javascript:invalid', resource: 'uploads', setting: 'allow' }));
 });
+h.test('legacy site permissions migrate only through native confirmation and never echo as current', () => {
+  const directory = join(root, 'site-migration');
+  kvSet('permission_profile.v2', JSON.stringify({ version: 2, retainedTopLevel: 'keep', browser: {
+    approvalMode: 'neverAsk', showFullUrl: true,
+    sitePermissions: [
+      { origin: 'https://one.example.com/path', permission: 'geolocation', setting: 'granted' },
+      { origin: 'https://two.example.com', permission: 'notifications', setting: 'denied' },
+      { origin: 'https://three.example.com', permission: 'camera', setting: 'granted' },
+    ],
+  } }), directory);
+  const service = preferences(directory);
+  assert.deepEqual(service.get().sitePermissions, []);
+  const seen: Array<{ origin: string; permission: string; setting: string }> = [];
+  const result = service.migrateSitePermissions(row => {
+    seen.push(row);
+    if (row.permission === 'notifications') return false;
+    if (row.permission === 'camera') throw new Error('native rejected this row');
+    return true;
+  });
+  assert.deepEqual(result, { applied: 1, remaining: 2 });
+  assert.deepEqual(seen.map(row => `${row.origin}:${row.permission}:${row.setting}`), [
+    'https://one.example.com:geolocation:granted',
+    'https://two.example.com:notifications:denied',
+    'https://three.example.com:camera:granted',
+  ]);
+  const raw = JSON.parse(String(kvGet('permission_profile.v2', directory)));
+  assert.equal(raw.retainedTopLevel, 'keep');
+  assert.equal(raw.browser.approvalMode, 'neverAsk');
+  assert.equal(raw.browser.showFullUrl, true);
+  assert.deepEqual(raw.browser.sitePermissions, [
+    { origin: 'https://two.example.com', permission: 'notifications', setting: 'denied' },
+    { origin: 'https://three.example.com', permission: 'camera', setting: 'granted' },
+  ]);
+  assert.deepEqual(service.get().sitePermissions, []);
+});
+
 h.test('legacy origin denials and configured approval modes retain their meaning', () => {
   const directory = join(root, 'legacy');
   kvSet('permission_profile.v2', JSON.stringify({ version: 2, browser: { approvalMode: 'alwaysAsk', deniedOrigins: ['https://blocked.example.com'] } }), directory);
