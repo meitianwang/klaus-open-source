@@ -1641,6 +1641,8 @@ body.artifacts-open .welcome-composer-slot {
 
 /* ===== Messages ===== */
 #messages {
+  --thread-scroll-padding-bottom: 16px;
+  scroll-padding-bottom: var(--thread-scroll-padding-bottom);
   flex: 1;
   min-height: 0;
   overflow-y: auto;

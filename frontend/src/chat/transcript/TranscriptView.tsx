@@ -35,7 +35,6 @@ import { mediaGenerationKind, mediaGenerationLabel, mediaGenerationSummaryState 
 import { ActivityDisclosure } from './activity-disclosure'
 import { isAgentActionToolName, isHiddenAgentMessageTool } from './activity-agent-action-model'
 import { createContext, Fragment, memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode, type RefObject } from 'react'
-import { flushSync } from 'react-dom'
 import { intlLocale, useT } from '../../i18n'
 import { Icon, rawIconHtml } from '../../components/Icon'
 import { RawHtml } from '../../components/RawHtml'
@@ -49,8 +48,9 @@ import { InlineVisualizationHtml, stripInlineVisLines } from './inline-visualiza
 import type { InlineVisFragment } from '../../../../contracts/inline-visualization'
 import { parseDelegationEnvelope, findEmbeddedDelegationEnvelopes, encodeDelegationEnvelope, initialDelegationMetadata, type DelegationEnvelope } from '../../../../contracts/thread-delegation'
 import { hasPendingTurnStart, useChatStream, forgetRewoundTurn, loadSessionHistory, loadOlderHistoryPage, loadTurnHistoryItems, retryHistoryLoad, retainSessionStream, selectSessionStream, selectSubagentParentId, chatStreamStore, setTurnCollapsed, type LiveUnit as StoreLiveUnit, type ToolCardState } from '../stream-store'
-import { createTranscriptPageUp, type TranscriptPageUp } from './transcript-page-up'
-import { captureViewportAnchor, registerTranscriptViewport, restoredViewportRange, scrollTopForViewportAnchor, transcriptViewportState, viewportRangeAtOffsets, type TranscriptViewportAnchor } from './viewport-state'
+import { transcriptScrollControllerFor, type TranscriptScrollController } from '../transcript-scroll-controller'
+import { VirtualTranscript, latestTurnPhase } from './virtual-transcript'
+import type { VirtualTurnListApi } from './virtual-turn-list'
 import { savedTurn, type TurnItemsPagination, type TurnBoundaryRequest } from '../saved-transcript'
 // 回合改动区块与 composer 胶囊读同一份按回合的产物记录，两处不各存一份副本。
 import { artifactTurn, artifactsVersion, subscribeArtifacts } from '../overview'
@@ -142,15 +142,6 @@ const mediaUrl = (path: string, sessionId?: string): string => w().klaus?.media?
 function tGlobalText(key: string): string {
   return w().tt?.(key) || ''
 }
-
-// Long transcripts keep every loaded message in memory but mount only the turn
-// groups around the viewport: a virtualized window with measured group heights
-// (estimates until a group has been mounted once) and spacers for the rest.
-// Paging the loaded window upward is driven by the auto page-up state machine
-// (transcript-page-up) on reaching the top of the scroll container — there is
-// no manual "show earlier" pill anymore.
-const VIRTUAL_OVERSCAN_PX = 900
-const VIRTUAL_ESTIMATE_PX = 240
 
 // ==================== 组件层事件委托 ====================
 // 工厂 HTML 里的交互点统一在容器上委托：与旧版 per-node onclick 行为一致，
@@ -1944,18 +1935,29 @@ export interface TurnArtifactAnchor {
 }
 
 /** Resolve footer ownership before pagination or compaction hides its message. */
+const artifactMessageUnits = new WeakMap<object, { text: unknown; blocks: unknown; final: unknown; units: Unit[] }>()
+
+/** Immutable saved rows share their artifact projection across history page updates. */
+function artifactUnitsForMessage(message: any): Unit[] {
+  const cached = artifactMessageUnits.get(message)
+  if (cached && cached.text === message.text && cached.blocks === message.contentBlocks && cached.final === message.isFinalReply) return cached.units
+  const units = unitsFromMessages([message])
+  artifactMessageUnits.set(message, { text: message.text, blocks: message.contentBlocks, final: message.isFinalReply, units })
+  return units
+}
+
 export function turnArtifactAnchors(history: any[]): Map<string, TurnArtifactAnchor> {
   const anchors = new Map<string, TurnArtifactAnchor>()
   const keyed = history.map((msg, index) => msg.uuid ? msg : { ...msg, uuid: `i-${index}` })
   for (const msg of keyed) {
     if (!msg.turnId) continue
     const anchor = anchors.get(msg.turnId) ?? {}
-    const references = unitsFromMessages([msg]).filter(unit => unit.type === 'text').flatMap(unit => websiteReferencesFromText(unit.segment?.text ?? '', msg.turnId))
+    const references = artifactUnitsForMessage(msg).filter(unit => unit.type === 'text').flatMap(unit => websiteReferencesFromText(unit.segment?.text ?? '', msg.turnId))
     if (references.length) anchor.websiteReferences = [...new Map([...(anchor.websiteReferences ?? []), ...references].map(reference => [reference.id, reference])).values()]
     const hasFinal = msg.isFinalReply || msg.phase === 'final_answer'
       || msg.contentBlocks?.some((block: any) => block.phase === 'final_answer')
     if (hasFinal) {
-      const final = unitsFromMessages([msg]).reverse().find(unit => unit.type === 'text' && unit.isFinalReply && unit.segment?.text?.trim())
+      const final = [...artifactUnitsForMessage(msg)].reverse().find(unit => unit.type === 'text' && unit.isFinalReply && unit.segment?.text?.trim())
       if (final) anchor.ownerKey = final.key
     }
     anchors.set(msg.turnId, anchor)
@@ -1963,7 +1965,7 @@ export function turnArtifactAnchors(history: any[]): Map<string, TurnArtifactAnc
   for (let index = keyed.length - 1; index >= 0; index--) {
     const msg = keyed[index]
     const anchor = anchors.get(msg.turnId)
-    if (anchor && !anchor.ownerKey) anchor.ownerKey = unitsFromMessages([msg]).at(-1)?.key
+    if (anchor && !anchor.ownerKey) anchor.ownerKey = artifactUnitsForMessage(msg).at(-1)?.key
   }
   return anchors
 }
@@ -3350,7 +3352,7 @@ function TurnHistoryGap({ sessionId, turnId, pagination, open, observe }: {
 }) {
   const load = useCallback(() => { void loadTurnHistoryItems(sessionId, turnId).catch(() => {}) }, [sessionId, turnId])
   return <HistoryGap enabled={open} observe={observe} loading={pagination.isLoadingOlder} failed={!!pagination.error}
-    progressKey={JSON.stringify([pagination.summaryItemIds, pagination.olderCursor])} load={load} />
+    progressKey={JSON.stringify([pagination.summaryItemIds, pagination.olderCursor, pagination.olderItemId, pagination.evicted])} load={load} />
 }
 
 /**
@@ -3809,9 +3811,7 @@ function CompactSummaryCard({ text, sessionId }: { text: string; sessionId?: str
 
 // ==================== TranscriptView 容器 ====================
 
-// 滚动行为：main = 主转录粘底（复用 chat.js scrollToBottom 的 stick 判定）；
-// simple = 内容变化直接滚底（side slot，对齐旧 surfaceScrollToBottom 分支）；
-// none = 对照/probe 挂载不滚。
+// The host owns scroll intent; the main transcript owns measured virtual rows.
 export type TranscriptScrollMode = 'main' | 'simple' | 'none'
 
 export function TranscriptView({ sessionId, container, scroll = 'none', readOnly = false, contextSessionId }: { sessionId: string; container: HTMLElement; scroll?: TranscriptScrollMode; readOnly?: boolean; contextSessionId?: string }) {
@@ -3880,31 +3880,7 @@ export function TranscriptView({ sessionId, container, scroll = 'none', readOnly
   // 每个思考块独立折叠（不再全局联动）：默认全折叠——刚收口的思考自动合上，
   // 点哪个只展开哪个。进行中的思考盒（LiveTail）不受此集合控制，天然展开。
   const [expandedThinkingKeys, setExpandedThinkingKeys] = useState<Set<string>>(() => new Set())
-  const [restoredViewport] = useState(() => scroll === 'main' ? transcriptViewportState(sessionId) : undefined)
-  const [virtualRange, setVirtualRange] = useState<{ start: number; end: number } | null>(null)
-  const [heightsVersion, setHeightsVersion] = useState(0)
-  const groupHeights = useRef<Map<string, number>>(new Map(
-    restoredViewport && Math.abs(restoredViewport.widthPx - container.clientWidth) < 1
-      ? Object.entries(restoredViewport.turnHeightsByKey) : []))
-  const pendingScrollFix = useRef<{ prevHeight: number; prevTop: number } | null>(null)
-  const turnSizeObserver = useRef<ResizeObserver | null>(null)
-
-  useLayoutEffect(() => {
-    if (scroll !== 'main' || typeof ResizeObserver !== 'function') return
-    const observer = new ResizeObserver(entries => {
-      const changed = entries.some(({ target }) => {
-        const element = target as HTMLElement
-        const key = element.getAttribute('data-klaus-transcript-turn-key')
-        const height = element.getBoundingClientRect().height
-        return key && container.contains(element) && height > 0
-          && groupHeights.current.get(key) !== height
-      })
-      if (changed) flushSync(() => setHeightsVersion(version => version + 1))
-    })
-    turnSizeObserver.current = observer
-    return () => { observer.disconnect(); turnSizeObserver.current = null }
-  }, [container, scroll])
-
+  const controller = transcriptScrollControllerFor(container)
   useEffect(() => retainSessionStream(sessionId), [sessionId])
   useEffect(() => retainSessionView(sessionId), [sessionId])
 
@@ -3948,8 +3924,8 @@ export function TranscriptView({ sessionId, container, scroll = 'none', readOnly
       if (stream.history === null && !stream.liveUnits.length) return
       if (stream.history !== previousHistory) {
         previousHistory = stream.history
-        historyReferences = unitsFromMessages(stream.history ?? []).filter(unit => unit.type === 'text')
-          .flatMap(unit => websiteReferencesFromText(unit.segment?.text ?? '', unit.turnId ?? unit.key))
+        historyReferences = (stream.history ?? []).flatMap((message, index) => artifactUnitsForMessage(message)
+          .filter(unit => unit.type === 'text').flatMap(unit => websiteReferencesForItem(message, unit.segment?.text ?? '', unit.turnId ?? message.uuid ?? `history:${index}`)))
       }
       if (stream.liveUnits !== previousLive) {
         previousLive = stream.liveUnits
@@ -3994,7 +3970,7 @@ export function TranscriptView({ sessionId, container, scroll = 'none', readOnly
     [historyUnits, running, activeTurnId, turnStatuses, turnCollapseOverrides, turnErrors, turnDurations, turnCancelledTools, livePlanReviewIds, turnErrorKinds, worktreeRowStatus, artifactAnchors, turnErrorDetails, turnStartedAtMs, subagentsRevision, shellTurnIds, turnWorkCompletedAtMs, goalCompletionByTurn, friendReplyBoundaries])
   const turnGroups = useMemo(() => {
     const groups = [...foldedTurnGroups]
-    for (const island of savedTranscript?.islands.slice(1) ?? []) {
+    for (const island of savedTranscript?.islands ?? []) {
       const boundary = island.olderBoundary
       if (boundary.status !== 'available' || !boundary.boundaryId) continue
       const firstTurn = savedTranscript?.entitiesByKey[island.entries[0]?.value]?.id
@@ -4007,274 +3983,39 @@ export function TranscriptView({ sessionId, container, scroll = 'none', readOnly
     }
     return groups
   }, [foldedTurnGroups, savedTranscript])
-  // The live layer is consulted too, and first: a stopped turn keeps its bubble there and
-  // never reloads history, so the history layer alone would name the PREVIOUS message as
-  // the newest. See `editTargetFor`.
-  // Virtual window: prefix offsets from measured group heights (estimates until
-  // a group has mounted once), a range covering the viewport plus overscan, and
-  // a measure pass after every commit that replaces estimates with real heights.
-  const groupOffsets = useMemo(() => {
-    const offsets = [0]
-    for (const group of turnGroups) offsets.push(offsets[offsets.length - 1] + (groupHeights.current.get(group.key) ?? VIRTUAL_ESTIMATE_PX))
-    return offsets
-  }, [turnGroups, heightsVersion])
-  const rangeRef = useRef<{ start: number; end: number; structure: string } | null>(null)
-  const virtualRaf = useRef(0)
-  const initialHistoryPositioned = useRef(false)
-  const measuredLayout = useRef<{ keys: string[]; offsets: number[] } | null>(null)
-  const pendingViewportAnchor = useRef<{ anchor: TranscriptViewportAnchor | null } | null>(null)
-  const viewportStructure = useMemo(() => {
-    const keys = turnGroups.map(group => group.key)
-    return { keys, signature: keys.join('\u0000') }
-  }, [turnGroups])
-  const viewportKeys = useRef<string[]>([])
-  viewportKeys.current = viewportStructure.keys
-  const initialRange = restoredViewportRange(viewportKeys.current, groupOffsets, restoredViewport,
-    container.clientHeight || 800, VIRTUAL_OVERSCAN_PX)
-  const displayedRange = initialHistoryPositioned.current ? virtualRange : initialRange
-  const scheduleRef = useRef<() => void>(() => {})
-  const updateVirtualRange = (offsets = groupOffsets) => {
-    if (!container || container.clientHeight === 0 || turnGroups.length === 0) {
-      if (rangeRef.current !== null) { rangeRef.current = null; setVirtualRange(null) }
-      return
-    }
-    const top = container.scrollTop - VIRTUAL_OVERSCAN_PX
-    const bottom = container.scrollTop + container.clientHeight + VIRTUAL_OVERSCAN_PX
-    const range = viewportRangeAtOffsets(offsets, top, bottom)!
-    const next = { ...range, structure: viewportStructure.signature }
-    const prev = rangeRef.current
-    if (prev && prev.start === next.start && prev.end === next.end && prev.structure === next.structure) return
-    // The browser may clamp scrollTop as soon as the old spacer disappears.
-    // Capture content identity now; reading the clamped position during the
-    // layout pass would anchor compensation to the wrong turn.
-    pendingViewportAnchor.current = { anchor: captureViewportAnchor(viewportStructure.keys, offsets, container.scrollTop, container.clientHeight,
-      container.scrollHeight - container.clientHeight - container.scrollTop, new Set(groupHeights.current.keys())) }
-    rangeRef.current = next
-    setVirtualRange(next)
-  }
-  const scheduleVirtualRange = () => {
-    cancelAnimationFrame(virtualRaf.current)
-    virtualRaf.current = requestAnimationFrame(() => {
-      virtualRaf.current = 0
-      updateVirtualRange()
-    })
-  }
-  scheduleRef.current = scheduleVirtualRange
-  useLayoutEffect(() => {
-    if (scroll !== 'main') return
-    return registerTranscriptViewport(container, sessionId, () => {
-      if (!initialHistoryPositioned.current || !viewportKeys.current.length) return null
-      const keys = viewportKeys.current
-      const range = rangeRef.current
-      return {
-        distanceFromBottomPx: Math.max(0, container.scrollHeight - container.clientHeight - container.scrollTop),
-        turnHeightsByKey: Object.fromEntries(keys.flatMap(key => {
-          const height = groupHeights.current.get(key)
-          return height === undefined ? [] : [[key, height]]
-        })),
-        renderedWindow: range && keys[range.start] ? { anchorKey: keys[range.start], count: range.end - range.start } : null,
-        widthPx: container.clientWidth,
-      }
-    })
-  }, [container, sessionId, scroll])
-  useEffect(() => () => cancelAnimationFrame(virtualRaf.current), [])
-  useLayoutEffect(() => {
-    if (!container) return
-    cancelAnimationFrame(virtualRaf.current)
-    turnSizeObserver.current?.disconnect()
-    let changed = false
-    for (const element of Array.from(container.querySelectorAll<HTMLElement>('[data-klaus-transcript-turn-key]'))) {
-      const key = element.getAttribute('data-klaus-transcript-turn-key')
-      if (!key) continue
-      const height = element.getBoundingClientRect().height
-      if (height > 0 && groupHeights.current.get(key) !== height) {
-        groupHeights.current.set(key, height)
-        changed = true
-      }
-      turnSizeObserver.current?.observe(element)
-    }
-    if (changed) setHeightsVersion(version => version + 1)
-    const measuredOffsets = [0]
-    for (const group of turnGroups) measuredOffsets.push(measuredOffsets[measuredOffsets.length - 1]
-      + (groupHeights.current.get(group.key) ?? VIRTUAL_ESTIMATE_PX))
-    const previousLayout = measuredLayout.current
-    measuredLayout.current = { keys: viewportKeys.current, offsets: measuredOffsets }
-    if (scroll === 'main' && !initialHistoryPositioned.current && turnGroups.length > 0 && container.clientHeight > 0) {
-      initialHistoryPositioned.current = true
-      // Restore the session's reading position against the measured window,
-      // while the host lets newer user scrolling or navigation take priority.
-      if (w().restoreTranscriptViewport) w().restoreTranscriptViewport(restoredViewport?.distanceFromBottomPx ?? 0)
-      else w().scrollToBottom?.({ immediate: true })
-      updateVirtualRange(measuredOffsets)
-      return
-    }
-    const pendingAnchor = pendingViewportAnchor.current
-    pendingViewportAnchor.current = null
-    if (scroll === 'main' && pendingAnchor) {
-      const restoredTop = pendingAnchor.anchor
-        ? scrollTopForViewportAnchor(pendingAnchor.anchor, viewportKeys.current, measuredOffsets, container.scrollHeight, container.clientHeight)
-        : null
-      if (restoredTop !== null) container.scrollTop = restoredTop
-      // A range change must never fall back to deriving an anchor from the
-      // clamped scrollTop. With no measured visible anchor, keep the new range
-      // and let the next user scroll establish a fresh reading position.
-      updateVirtualRange(measuredOffsets)
-      return
-    }
-    if (scroll === 'main' && changed && !pendingScrollFix.current && previousLayout
-      && previousLayout.keys.length === turnGroups.length
-      && previousLayout.keys.every((key, index) => key === turnGroups[index].key)) {
-      if (w().isTranscriptFollowing?.()) w().scrollToBottom?.({ immediate: true })
-      else {
-        // Compensate height changes above the first visible turn. A settled
-        // row changing size must not move the turn the user is reading.
-        let anchor = 0
-        while (anchor < turnGroups.length - 1 && previousLayout.offsets[anchor + 1] <= container.scrollTop) anchor++
-        container.scrollTop += measuredOffsets[anchor] - previousLayout.offsets[anchor]
-      }
-      updateVirtualRange(measuredOffsets)
-      return
-    }
-    scheduleVirtualRange()
-  })
-  // A jump target that the virtual window has not mounted yet: scroll to the
-  // group's estimated offset, let the measure pass mount it, then center it.
-  useEffect(() => {
-    if (!container || scroll !== 'main') return
-    const onJump = (event: Event) => {
-      const uuid = (event as CustomEvent<{ uuid?: string }>).detail?.uuid
-      if (!uuid) return
-      const index = turnGroups.findIndex(group => group.nodes.some(node => node.kind === 'unit' && (node.unit as any).msg?.uuid === uuid))
-      if (index < 0) return
-      container.scrollTop = Math.max(0, groupOffsets[index] - 40)
-      requestAnimationFrame(() => requestAnimationFrame(() => {
-        container.querySelector<HTMLElement>(`[data-uuid="${uuid}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-      }))
-    }
-    container.addEventListener('klaus-transcript-jump', onJump)
-    return () => container.removeEventListener('klaus-transcript-jump', onJump)
-  }, [container, scroll, turnGroups, groupOffsets])
   const editTarget = useMemo(() => editTargetFor(historyUnits, liveEditUser ? [liveEditUser] : []), [historyUnits, liveEditUser])
-  const showHistorySkeleton = history === null && historyLoading && liveUnitCount === 0
+  const [loadingVisible, setLoadingVisible] = useState(false)
+  const nothingToRender = history === null && historyLoading && liveUnitCount === 0
+  useEffect(() => {
+    if (!nothingToRender) { setLoadingVisible(false); return }
+    const timer = setTimeout(() => setLoadingVisible(true), 400)
+    return () => clearTimeout(timer)
+  }, [nothingToRender])
+  const showHistorySkeleton = nothingToRender && loadingVisible
 
   // history 未加载不挡 live 层：新会话首条消息就是这个状态（会话刚 promote 出来，
   // 历史层还没有值），本回合的乐观气泡与流式回复必须照样上屏。把整棵树 return
   // null 掉，首发就只能靠「抢先拉一次 history」把画面撑起来，而那份 history 已经
   // 含本回合，正是同一条消息画两遍的来源。
 
-  // Auto page-up: no manual pill. Reaching the top of the scroll
-  // container pages the loaded transcript upward in a loop (transcript-page-up
-  // owns the trigger predicates and loop). The virtual window cursor and the
-  // loaded-row total are read through refs because the loop outlives any
-  // single render.
-  const pageWindowRef = useRef({ start: 0, total: visible.length })
-  pageWindowRef.current = { start: virtualRange?.start ?? 0, total: visible.length }
-  const pageUpRef = useRef<TranscriptPageUp | null>(null)
-  if (pageUpRef.current === null) {
-    pageUpRef.current = createTranscriptPageUp({
-      getMetrics: () => ({
-        scrollTop: container.scrollTop,
-        scrollHeight: container.scrollHeight,
-        clientHeight: container.clientHeight,
-      }),
-      loadOlderPage: async () => {
-        // The virtual window mounts older groups as the reader scrolls; only a
-        // reader already at the oldest mounted group pages the saved
-        // transcript itself, one older turn window at a time.
-        if (pageWindowRef.current.start > 0) return 'stop'
-        const currentSessionId = sessionIdRef.current
-        const pagination = chatStreamStore.getState().sessions[currentSessionId]?.turnsPagination
-        if (!pagination || pagination.hasLoadedOldest || pagination.isLoadingOlder) return 'stop'
-        pendingScrollFix.current = { prevHeight: container.scrollHeight, prevTop: container.scrollTop }
-        const totalBefore = pageWindowRef.current.total
-        const outcome = await loadOlderHistoryPage(currentSessionId)
-        if (outcome === 'stop') return 'stop'
-        for (let frame = 0; frame < 12 && pageWindowRef.current.total === totalBefore; frame++) {
-          await new Promise(resolve => requestAnimationFrame(resolve))
-        }
-        if (pageWindowRef.current.total === totalBefore) return 'stop'
-        return 'continue'
-      },
-    })
-  }
-
-  useEffect(() => {
-    const pageUp = pageUpRef.current
-    if (!pageUp) return
-    let lastTop = container.scrollTop
-    const onScroll = () => {
-      const top = container.scrollTop
-      const up = top < lastTop - 1
-      lastTop = top
-      if (up) pageUp.trigger('scroll')
-      scheduleRef.current()
-    }
-    const onWheel = (event: WheelEvent) => {
-      if (event.deltaY < 0) pageUp.trigger('wheel')
-    }
-    const onKey = (event: KeyboardEvent) => {
-      if (['ArrowUp', 'Home', 'PageUp'].includes(event.key)) pageUp.trigger('key')
-    }
-    let dragY: number | null = null
-    const dragStart = (event: PointerEvent | TouchEvent) => {
-      dragY = 'touches' in event ? event.touches[0]?.clientY ?? null : event.clientY
-    }
-    const dragMove = (event: PointerEvent | TouchEvent) => {
-      const y = 'touches' in event ? event.touches[0]?.clientY ?? null : event.clientY
-      if (dragY == null || y == null) return
-      // Pointer moving down = content pulled down = scrolling toward top.
-      if (y - dragY > 8) { pageUp.trigger('drag'); dragY = y }
-    }
-    const dragEnd = () => { dragY = null }
-    container.addEventListener('scroll', onScroll, { passive: true })
-    container.addEventListener('wheel', onWheel, { passive: true })
-    container.addEventListener('keydown', onKey)
-    container.addEventListener('pointerdown', dragStart, { passive: true })
-    container.addEventListener('pointermove', dragMove, { passive: true })
-    container.addEventListener('pointerup', dragEnd, { passive: true })
-    container.addEventListener('touchstart', dragStart, { passive: true })
-    container.addEventListener('touchmove', dragMove, { passive: true })
-    container.addEventListener('touchend', dragEnd, { passive: true })
-    const observer = typeof ResizeObserver === 'function'
-      ? new ResizeObserver(() => { pageUp.observe(); scheduleRef.current() })
-      : null
-    observer?.observe(container)
-    if (container.firstElementChild) observer?.observe(container.firstElementChild)
-    return () => {
-      container.removeEventListener('scroll', onScroll)
-      container.removeEventListener('wheel', onWheel)
-      container.removeEventListener('keydown', onKey)
-      container.removeEventListener('pointerdown', dragStart)
-      container.removeEventListener('pointermove', dragMove)
-      container.removeEventListener('pointerup', dragEnd)
-      container.removeEventListener('touchstart', dragStart)
-      container.removeEventListener('touchmove', dragMove)
-      container.removeEventListener('touchend', dragEnd)
-      observer?.disconnect()
-      pageUp.destroy()
-      pageUpRef.current = null
-    }
-  }, [container])
-
-  // The failure callout replaces the loop, exactly like the
-  // historyLoadFailed gate: no auto paging while the last read failed.
-  useEffect(() => {
-    pageUpRef.current?.setEnabled(!historyLoadFailed)
-  }, [historyLoadFailed])
-
-  // 「展开更早」后视口保持：新内容全在上方，把 scrollTop 顶回原可视位置。
+  // Paging is owned by the surface controller; prepends retain the bottom distance.
+  const pageState = useRef({ historyLoadFailed, count: visible.length })
+  pageState.current = { historyLoadFailed, count: visible.length }
   useLayoutEffect(() => {
-    const fix = pendingScrollFix.current
-    if (fix) {
-      container.scrollTop = fix.prevTop + (container.scrollHeight - fix.prevHeight)
-      pendingScrollFix.current = null
-      return
-    }
-    // 内容更新后的滚动跟随。main / simple 两个模式各走自己的 sticker（同一份实现）；
-    // 以前 simple 直接写 container.scrollTop，而 container 是不滚的 slot，等于没写。
-    if (scroll === 'main') w().scrollToBottom?.()
-    else if (scroll === 'simple') w().sideScrollToBottom?.()
-  })
+    if (!controller || scroll === 'none') return
+    return controller.setOlderHistoryLoader(container, async () => {
+      if (pageState.current.historyLoadFailed) return 'stop'
+      const currentSessionId = sessionIdRef.current
+      const pagination = chatStreamStore.getState().sessions[currentSessionId]?.turnsPagination
+      if (!pagination || pagination.hasLoadedOldest || pagination.isLoadingOlder) return 'stop'
+      const before = pageState.current.count
+      const outcome = await loadOlderHistoryPage(currentSessionId)
+      if (outcome === 'stop') return 'stop'
+      // The next loop reads committed geometry, after React has inserted the page.
+      await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
+      return pageState.current.count === before ? 'stop' : 'continue'
+    }, !historyLoadFailed)
+  }, [controller, container, sessionId, scroll, historyLoadFailed])
 
   const toggleThinking = (key: string) => {
     setExpandedThinkingKeys(prev => {
@@ -4355,8 +4096,7 @@ export function TranscriptView({ sessionId, container, scroll = 'none', readOnly
         </div>
       ) : null}
       <LiveTail sessionId={sessionId} unitProps={unitProps} scroll={scroll} container={container}
-        timeline={{ groups: showHistorySkeleton ? [] : turnGroups, range: scroll === 'main' ? displayedRange : null,
-          offsets: groupOffsets, renderNode }} />
+        timeline={{ groups: turnGroups, controller: scroll !== 'none' ? controller : null, renderNode }} />
       {!readOnly && <FriendTaskApproval sessionId={sessionId} skipPending={inlineApprovalRequests} />}
       {!readOnly && <AsyncQuestionComposer sessionId={sessionId} composer={unitProps.questionComposer} source={container} />}
       {compactionPendingTrigger && !hasLiveCompaction ? <CompactionEvent loading trigger={compactionPendingTrigger} /> : null}
@@ -5232,23 +4972,23 @@ const TranscriptTurnFrame = memo(function TranscriptTurnFrame({ renderKey, ident
     fallback={t('activity_previous_messages').replace('{count}', String(fold.messageCount))} /> : null
   const sections = new Map<string, { key: string; persistent: boolean; content: ReactNode }>()
   let openerKey: string | undefined
-  const add = (key: string, persistent: boolean, content: ReactNode) => {
-    if (!sections.has(key)) sections.set(key, { key, persistent, content })
+  const add = (key: string, persistent: boolean, content: ReactNode, follows = true) => {
+    if (!sections.has(key)) sections.set(key, { key, persistent, content: follows ? <div data-latest-turn-follow-content="">{content}</div> : content })
   }
   // Both projections contribute to one turn. Keep its time header at the first
   // observed position, with any process disclosure replacing the placeholder.
   const addWorkHeader = () => add('turn-work-header', true, !fold && divider
-    ? <TurnWorkDivider startedAtMs={divider.startedAtMs} completedAtMs={divider.completedAtMs} /> : null)
+    ? <TurnWorkDivider startedAtMs={divider.startedAtMs} completedAtMs={divider.completedAtMs} /> : null, false)
   const savedTerminal = saved?.nodes.find(node => node.kind === 'unit' && node.unit.type === 'turn-status')
   const liveTerminal = live?.nodes.find(node => node.kind === 'unit' && node.unit.type === 'live-turn-status')
   const terminalDuration = savedTerminal?.kind === 'unit' ? savedTerminal.unit.msg?.durationMs : undefined
   const terminalUnit = liveTerminal?.kind === 'unit' && liveTerminal.unit.type === 'live-turn-status' ? liveTerminal.unit : undefined
   const addTerminalStatus = () => add('turn-terminal-status', true,
-    <TurnTerminalStatus durationMs={terminalDuration} startedAt={terminalUnit?.startedAt} finishedAt={terminalUnit?.finishedAt} />)
+    <TurnTerminalStatus durationMs={terminalDuration} startedAt={terminalUnit?.startedAt} finishedAt={terminalUnit?.finishedAt} />, false)
   const addUser = (unit: Unit, sourceKey: string, opener: boolean, persistent: boolean) => {
     const key = identity.message(renderKey, unit.msg, sourceKey, opener)
     if (opener && !unit.msg?.steered && !unit.msg?.questionAnswer) openerKey = key
-    add(key, persistent, <UnitView unit={unit} {...unitProps} />)
+    add(key, persistent, <UnitView unit={unit} {...unitProps} />, false)
   }
   let savedUsers = 0
   const addSaved = (node: RenderNode, persistent = true) => {
@@ -5260,13 +5000,13 @@ const TranscriptTurnFrame = memo(function TranscriptTurnFrame({ renderKey, ident
   for (const node of saved?.nodes || []) {
     if (node.kind === 'turn-fold') {
       addWorkHeader()
-      if (pagination && !pagination.hasLoadedOldest && saved?.turnId) {
+      if (pagination && !pagination.hasLoadedOldest && !pagination.evicted && !pagination.olderItemId && saved?.turnId) {
         add(`history-gap:${saved.turnId}`, false, <TurnHistoryGap sessionId={owner} turnId={saved.turnId} pagination={pagination} open={open} />)
       }
       for (const item of node.items) addSaved(item, isPersistentTurnNode(item))
     } else addSaved(node)
   }
-  if (!savedFold && pagination && !pagination.hasLoadedOldest && saved?.turnId) {
+  if ((!savedFold || pagination?.evicted || pagination?.olderItemId) && pagination && !pagination.hasLoadedOldest && saved?.turnId) {
     // Summary-only turns hydrate near the viewport without inventing an empty
     // activity disclosure. Once real process rows arrive, its fold owns the gap.
     add(`history-gap:${saved.turnId}`, true, <TurnHistoryGap sessionId={owner} turnId={saved.turnId}
@@ -5309,8 +5049,7 @@ const TranscriptTurnFrame = memo(function TranscriptTurnFrame({ renderKey, ident
 type HistoryTurnGroup = ReturnType<typeof foldTurnGroups>[number]
 type TranscriptTimeline = {
   groups: HistoryTurnGroup[]
-  range: { start: number; end: number } | null
-  offsets: number[]
+  controller: TranscriptScrollController | null
   renderNode: (node: RenderNode) => ReactNode
 }
 type LiveTurnSegment = { owner: string; key: string; nodes: LiveActivityNode[] }
@@ -5325,9 +5064,21 @@ export function LiveTail({ sessionId, unitProps, scroll = 'none', container, tim
   const t = useT()
   const identity = useRef(new TranscriptRenderIdentity())
   const historyFrameIndex = useRef(new TranscriptFrameIndex<HistoryTurnGroup>())
-  const previousLiveKeys = useRef(new Set<string>())
-  const previousWindow = useRef({ structure: '', keys: new Set<string>() })
-  const pendingWindow = useRef<{ range: TranscriptTimeline['range']; keys: Set<string> }>({ range: null, keys: new Set() })
+  const listApi = useRef<VirtualTurnListApi | null>(null)
+  const onListApiChange = useCallback((api: VirtualTurnListApi | null) => { listApi.current = api }, [])
+  const jumpTargets = useRef(new Map<string, string>())
+  useEffect(() => {
+    if (!container) return
+    const jump = (event: Event) => {
+      const uuid = (event as CustomEvent<{ uuid?: string }>).detail?.uuid
+      const key = uuid ? jumpTargets.current.get(uuid) : undefined
+      if (!key || !uuid) return
+      timeline?.controller?.holdViewport()
+      void listApi.current?.scrollToKey(key, row => Array.from(row.querySelectorAll<HTMLElement>('[data-uuid]')).find(element => element.dataset.uuid === uuid) ?? null)
+    }
+    container.addEventListener('klaus-transcript-jump', jump)
+    return () => container.removeEventListener('klaus-transcript-jump', jump)
+  }, [container, timeline?.controller])
   const liveUnits = useChatStream(state => state.sessions[sessionId]?.liveUnits ?? EMPTY_LIVE)
   const tools = useChatStream(state => state.sessions[sessionId]?.tools ?? EMPTY_TOOLS)
   const agentTasks = useChatStream(state => state.sessions[sessionId]?.agentTasks ?? EMPTY_AGENT_TASKS)
@@ -5456,15 +5207,6 @@ export function LiveTail({ sessionId, unitProps, scroll = 'none', container, tim
       figurePaths: new Set<string>([...embedded, ...turnMedia]),
       turnInterrupted: units.some(unit => unit.type === 'live-turn-status') || owner === turnKey && turnInterrupted }
   }
-  // live 层任何变化后跟随到底。依赖里必须列齐整个 live 层：以前只盯 thinkingText，
-  // 于是“思考文字在变”成了回合中唯一在驱动吸底的东西，思考一停，后面追加的正文 /
-  // 工具卡 / 追问卡就没人管了（追问卡因为高，刚好把这个缺陷显形）。两个模式各自的
-  // sticker 那边还有内容观察器兼着（能接住渲染后异步撑高），scrollToBottom 自带同帧
-  // 去重，两路不冲突。
-  useEffect(() => {
-    if (scroll === 'main') w().scrollToBottom?.()
-    else if (scroll === 'simple') w().sideScrollToBottom?.()
-  }, [liveUnits, tools, thinkingActive, activityVisible, scroll, container])
   const currentUnits = liveUnits.filter(unit => !unit.turnId || unit.turnId === turnKey)
   const historyUnits = useMemo(() => {
     if (!history?.length) return []
@@ -5489,6 +5231,12 @@ export function LiveTail({ sessionId, unitProps, scroll = 'none', container, tim
   const waiting = shouldShowLiveWaiting(currentUnits, tools,
     { running, thinkingActive, activityVisible, compacting }, historyTools, agentTasks)
   const waitingAgents = waitingSubagentNames(liveWaitingTools(waitingUnitsForTurn(currentUnits), tools, historyTools), agentTasks)
+  const latestFooter = <>
+    {visualArtifacts.length ? <VisualArtifactsBlock sessionId={unitProps.sessionId || sessionId} artifacts={visualArtifacts} /> : null}
+    {waiting ? <ActivityWaitingIndicator label={waitingAgents.length
+      ? t('activity_waiting_for_agents').replace('{agents}', new Intl.ListFormat(intlLocale()).format(waitingAgents))
+      : goalContinuationLoading ? t('goal_continuation_loading') : undefined} /> : null}
+  </>
   let timelineContent: ReactNode = null
   if (timeline) {
     const keys = identity.current
@@ -5512,37 +5260,7 @@ export function LiveTail({ sessionId, unitProps, scroll = 'none', container, tim
       liveFrames.set(key, { key, live: segment,
         liveProps: { ...activityRenderProps, ...context, turnMedia: ownsMedia ? context.turnMedia || [] : [] } })
     }
-    let first = timeline.range?.start ?? 0
-    let last = timeline.range?.end ?? timeline.groups.length
-    const structure = savedIndex.structure
-    const structureChanged = previousWindow.current.structure !== structure
-    // Keep the outgoing window for the commit that changes either structure or
-    // range. Dropping it here collapses scrollHeight before the layout pass can
-    // restore the captured reading anchor.
-    if (structureChanged || pendingWindow.current.range !== timeline.range) {
-      pendingWindow.current = { range: timeline.range, keys: previousWindow.current.keys }
-    } else pendingWindow.current.keys = new Set()
-    // Preserve mounted anchors until the new structure has an updated viewport measurement.
-    for (const key of new Set([...previousLiveKeys.current, ...pendingWindow.current.keys])) {
-      const frame = savedIndex.byKey.get(key)
-      if (frame) { first = Math.min(first, frame.index); last = Math.max(last, frame.index + 1) }
-    }
-    previousLiveKeys.current = new Set(liveKeys.values())
-    const historicalFrames: TurnFrame[] = savedIndex.frames.slice(first, last).map(frame => ({ ...frame, ...liveFrames.get(frame.key) }))
-    // Build one ordered Turn sequence from saved frames and live segments.
-    // Saved frames keep their order; a live segment that a saved frame already
-    // holds folds into it; live-only runs are placed by the session's observed
-    // Turn order, with a start-time fallback for a run the observed order cannot
-    // anchor.
-    let addedHistoryOutsideRange = false
-    for (const [key, frame] of liveFrames) {
-      const saved = savedIndex.byKey.get(key)
-      if (saved && (saved.index < first || saved.index >= last)) {
-        historicalFrames.push({ ...saved, ...frame })
-        addedHistoryOutsideRange = true
-      }
-    }
-    if (addedHistoryOutsideRange) historicalFrames.sort((a, b) => a.index! - b.index!)
+    const historicalFrames: TurnFrame[] = savedIndex.frames.map(frame => ({ ...frame, ...liveFrames.get(frame.key) }))
     const frameStartMs = (frame: TurnFrame): number => {
       const owner = frame.live?.owner ?? frame.saved?.turnId
       const recorded = owner && owner !== 'live' ? turnStartedAtMs[owner] : undefined
@@ -5579,15 +5297,37 @@ export function LiveTail({ sessionId, unitProps, scroll = 'none', container, tim
     const visibleFrames = mergeTurnSequence(savedRefs, liveRefs, turnSequence)
       .map(ref => framesByKey.get(ref.key))
       .filter((frame): frame is TurnFrame => frame != null)
-    previousWindow.current = { structure, keys: new Set(visibleFrames.map(frame => frame.key)) }
-    timelineContent = <>
-      {first > 0 ? <div key="virtual-top" data-virtual-spacer="top" style={{ height: timeline.offsets[first] }} /> : null}
-      {visibleFrames.map(frame =>
-        <TranscriptTurnFrame key={frame.key} renderKey={frame.key} identity={keys} saved={frame.saved} live={frame.live}
-          liveProps={frame.liveProps} renderHistoryNode={timeline.renderNode} unitProps={unitProps} />)}
-      {last < timeline.groups.length ? <div key="virtual-bottom" data-virtual-spacer="bottom"
-        style={{ height: timeline.offsets[timeline.groups.length] - timeline.offsets[last] }} /> : null}
-    </>
+    const frameByKey = new Map(visibleFrames.map(frame => [frame.key, frame]))
+    const targets = new Map<string, string>()
+    for (const frame of visibleFrames) {
+      for (const node of frame.saved?.nodes ?? []) {
+        for (const item of node.kind === 'turn-fold' ? node.items : [node]) {
+          if (item.kind === 'unit' && item.unit.msg?.uuid) targets.set(item.unit.msg.uuid, frame.key)
+        }
+      }
+    }
+    jumpTargets.current = targets
+    const renderFrame = (key: string) => {
+      const frame = frameByKey.get(key)
+      return frame ? <Fragment key={key}><TranscriptTurnFrame renderKey={key} identity={keys} saved={frame.saved} live={frame.live}
+        liveProps={frame.liveProps} renderHistoryNode={timeline.renderNode} unitProps={unitProps} />
+        {frame.key === latest?.key ? latestFooter : null}</Fragment> : null
+    }
+    const latest = visibleFrames.at(-1)
+    const latestUser = [...liveUnits].reverse().find(unit => unit.type === 'live-user')
+    const phase = latestTurnPhase({ running, hasWork: thinkingActive || activityVisible || Object.keys(tools).length > 0,
+      texts: textUnits })
+    timelineContent = timeline.controller && container && visibleFrames.length > 0
+      ? <VirtualTranscript sessionId={sessionId} container={container} controller={timeline.controller}
+          entries={visibleFrames.map(frame => ({ key: frame.key, turnId: frame.saved?.turnId ?? frame.live?.owner,
+            historyGap: frame.saved?.nodes.some(node => node.kind === 'history-gap'),
+            firstProtectedItemId: running && (frame.saved?.turnId ?? frame.live?.owner) === turnKey
+              ? (history ?? []).filter(row => row.turnId === turnKey).at(-500)?.uuid ?? null : null,
+            estimatedHeightPx: frame.saved?.nodes.some(node => node.kind === 'history-gap') ? 144 : 280 }))}
+          renderRow={renderFrame} latestKey={latest?.key ?? null} placementKey={latest ? `${latest.key}:${latestUser?.key ?? ''}` : null}
+          phase={phase} running={running} onApiChange={onListApiChange} />
+      : visibleFrames.map(frame => renderFrame(frame.key))
+
   }
   return (
     <>
@@ -5610,10 +5350,7 @@ export function LiveTail({ sessionId, unitProps, scroll = 'none', container, tim
           ? <div key={key} data-klaus-transcript-turn="" data-klaus-transcript-turn-id={owner}>{content}</div>
           : <Fragment key={key}>{content}</Fragment>
       })}
-      {visualArtifacts.length ? <VisualArtifactsBlock sessionId={unitProps.sessionId || sessionId} artifacts={visualArtifacts} /> : null}
-      {waiting ? <ActivityWaitingIndicator label={waitingAgents.length
-        ? t('activity_waiting_for_agents').replace('{agents}', new Intl.ListFormat(intlLocale()).format(waitingAgents))
-        : goalContinuationLoading ? t('goal_continuation_loading') : undefined} /> : null}
+      {!timeline ? latestFooter : null}
     </>
   )
 }
@@ -5688,21 +5425,21 @@ export function StaticTranscriptView({ msgs, container, running, sessionId }: {
     [foldKey]: open,
   }))
   const units = unitsFromMessages(msgs || [])
-  const nodes = foldUnits(
+  const groups = foldTurnGroups(
     units,
     running ? 'tail' : null,
     {},
     turnCollapseOverrides,
   )
+  const controller = transcriptScrollControllerFor(container)
+  const nodes = groups.flatMap(group => group.nodes)
   const currentTurnId = units.at(-1)?.turnId
   const currentUnits = currentTurnId ? units.filter(unit => unit.turnId === currentTurnId) : units.slice(units.map(unit => unit.type).lastIndexOf('user') + 1)
   const waitingAgents = waitingSubagentNames(currentUnits.flatMap(unit => unit.segment?.tools || []))
   const pendingTools = pendingWaitingTools(currentUnits.flatMap(unit => unit.segment?.tools || []))
   const waiting = running && !currentUnits.some(unit => unit.isFinalReply && unit.segment?.text?.trim() || unit.type === 'ask-user')
     && (!pendingTools.length || waitingAgents.length > 0)
-  return (
-    <AgentEntranceProvider units={units} readOnly>
-      {nodes.map(node => node.kind === 'history-gap' ? null : node.kind === 'activity-fold'
+  const renderNode = (node: RenderNode) =>  node.kind === 'history-gap' ? null : node.kind === 'activity-fold'
         ? <ActivityFold node={node} key={node.key} {...unitProps} sessionId={sessionId || ''} onToggle={() => toggleFold(node.foldKey, node.open)} />
         : node.kind === 'turn-fold'
           ? <TurnFold node={node} key={node.key} unitProps={unitProps} sessionId={sessionId || ''} onToggleFold={toggleFold} />
@@ -5720,9 +5457,22 @@ export function StaticTranscriptView({ msgs, container, running, sessionId }: {
                   ? null
                   : node.kind === 'work-divider'
                     ? <TurnWorkDivider startedAtMs={node.startedAtMs} completedAtMs={node.completedAtMs} key={node.key} />
-                    : <UnitView unit={node.unit} key={node.unit.key} {...unitProps} />)}
+                    : <UnitView unit={node.unit} key={node.unit.key} {...unitProps} />
+  const renderGroup = (key: string) => {
+    const group = groups.find(group => group.key === key)
+    return group ? <div data-klaus-transcript-turn="" data-klaus-transcript-turn-id={group.turnId} data-klaus-transcript-turn-key={group.key}>
+      {group.nodes.map(renderNode)}
+    </div> : null
+  }
+  return (
+    <AgentEntranceProvider units={units} readOnly>
+      {controller && sessionId && groups.length > 0 ? <VirtualTranscript sessionId={sessionId} container={container} controller={controller}
+        entries={groups.map(group => ({ key: group.key, turnId: group.turnId }))} renderRow={renderGroup} latestKey={groups.at(-1)?.key ?? null} placementKey={null}
+        phase={running ? 'prework' : 'idle'} running={running} onApiChange={ignoreVirtualListApi} /> : nodes.map(renderNode)}
       {waiting ? <ActivityWaitingIndicator label={waitingAgents.length
         ? t('activity_waiting_for_agents').replace('{agents}', new Intl.ListFormat(intlLocale()).format(waitingAgents)) : undefined} /> : null}
     </AgentEntranceProvider>
   )
 }
+
+function ignoreVirtualListApi(_api: VirtualTurnListApi | null): void {}

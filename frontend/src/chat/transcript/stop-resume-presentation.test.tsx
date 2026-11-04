@@ -72,7 +72,7 @@ function render(patch: Partial<SessionStreamState>, withSavedTimeline = false): 
       // Render the production turn frames without unrelated artifact subscriptions.
       return renderToStaticMarkup(<LiveTail sessionId={sessionId} unitProps={{ archived: false, running: !!patch.running,
         composerAuthored: true, readOnly: true, editTarget: null, isThinkingExpanded: () => false, onToggleThinking() {} }}
-        timeline={{ groups, range: null, offsets: groups.map(() => 0), renderNode: node => node.kind === 'unit' && node.unit.type === 'turn-status'
+        timeline={{ groups, controller: null, renderNode: node => node.kind === 'unit' && node.unit.type === 'turn-status'
           ? <TurnTerminalStatus durationMs={node.unit.msg?.durationMs} /> : null }} />)
     }
     return renderToStaticMarkup(<TranscriptView sessionId={sessionId} container={{} as HTMLElement} scroll="none" />)

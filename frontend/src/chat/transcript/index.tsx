@@ -1,8 +1,5 @@
-// React transcript 产品挂载口：switchSession 把 #messages 交给 React root
-// （同容器换 sessionId props 复用 root），side-chat 面板的 slot 同经此挂载。
-// scroll 模式：main = 复用 chat.js 的粘底判定（scrollToBottom），simple =
-// 内容变化直接滚底（side slot 行为，对齐旧 surfaceScrollToBottom 分支）。
-// window.__klausMountReactTranscript 同时保留给 harness/probe 做对照渲染。
+// Transcript roots keep conversation identity across optimistic promotion.
+// The host owns user scroll intent; each transcript owns its measured rows.
 import { createRoot, type Root } from 'react-dom/client'
 import { StaticTranscriptView, TranscriptView, type TranscriptScrollMode } from './TranscriptView'
 import { getSessionStream } from '../stream-store'

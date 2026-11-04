@@ -36,7 +36,7 @@ export function sideComposerInputRoutes(ts, ast) {
       isLargePastedText, resolveDeferredSend, encodeSelectedTextEnvelope, parseSelectedTextEnvelope, resourceReferenceContext,
       composerHistoryScope, recalledHistoryIndex, appendComposerHistory, createGoalSubmissionGate,
       composerReferenceClass, composerReferenceIconSvg, escapeHtml, friendMentionValue, AttachmentHistory, installAttachmentHistory } = helpers;
-    let sideSurfaceSessionId = null, sideSticker = null, sideModelApi = null, sidePermissionApi = null,
+    let sideSurfaceSessionId = null, sideScrollController = null, sideModelApi = null, sidePermissionApi = null,
       sideFollowUpQueueApi = null, sideComposerModelScope = null, composerPreferencesSnapshot = null, inlineQuoteSeq = 0;
     const mainModelCatalogCache = new Map(), editedQueueReinsertBySession = new Map(), sessionHistories = new Map(),
       stoppingSessions = new Set(), continuingSessions = new Set(), preparingSubmissions = createGoalSubmissionGate();
@@ -49,7 +49,7 @@ export function sideComposerInputRoutes(ts, ast) {
       slashCommandPlaceholder = item => '/' + item.name, commandIconSvg = () => '', escapeAttr = escapeHtml,
       friendReferenceIdentity = reference => reference;
     const focusComposerInput = (input, position) => { input.focus(); input.setSelectionRange(position, position) };
-    const createBottomSticker = () => null, sideMessagesContainer = () => null, mountOuterScrollbar = () => {},
+    const sideMessagesContainer = () => null, mountOuterScrollbar = () => {},
       refreshSideComposerModel = () => {}, refreshClientQueue = async () => {}, sessionContinueMode = () => false,
       requestTurnContinue = () => {}, requestTurnStop = () => {}, approvalReviewShortcutRange = () => null,
       applyComposerPreferences = () => {}, openImagePreview = () => {}, openFileAttachmentPreview = () => {};

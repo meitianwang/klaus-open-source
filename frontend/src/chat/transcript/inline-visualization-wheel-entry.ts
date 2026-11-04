@@ -1,11 +1,11 @@
-import { createBottomSticker } from '../bottom-sticker'
+import { TranscriptScrollController } from '../transcript-scroll-controller'
 import { mountInlineVisualizations } from './inline-visualization'
 
 const viewport = document.createElement('div')
 viewport.id = 'wheel-viewport'
 viewport.style.cssText = 'position:absolute;inset:20px auto auto 20px;width:760px;height:520px;overflow:auto;scroll-behavior:auto;'
 document.body.appendChild(viewport)
-const sticker = createBottomSticker({ scrollEl: viewport })
+const sticker = new TranscriptScrollController({ scrollEl: viewport })
 let guest = { root: 0, nested: 0, nestedLeft: 0, wheels: 0 }
 let generation = 0
 window.addEventListener('message', event => {
@@ -47,7 +47,7 @@ const api = {
     }
     if (expanded) (host.querySelector('[data-klaus-inline-vis-expand]') as HTMLButtonElement).click()
     await new Promise(resolve => setTimeout(resolve, 250))
-    sticker.scrollToBottom({ force: true, immediate: true })
+    sticker.scrollToDistanceFromBottomPx(0, 'instant')
     await pause()
     return api.read()
   },
@@ -59,16 +59,16 @@ const api = {
   read() {
     const rect = viewport.querySelector('iframe')!.getBoundingClientRect()
     const point = { x: Math.round(rect.left + 150), y: Math.round(Math.min(rect.bottom - 150, 300)) }
-    return { top: viewport.scrollTop, following: sticker.isFollowing(), guest: { ...guest }, point,
+    return { top: viewport.scrollTop, following: sticker.shouldFollowContentGrowth(), guest: { ...guest }, point,
       hit: document.elementFromPoint(point.x, point.y)?.outerHTML.slice(0, 120), rect: { top: rect.top, bottom: rect.bottom } }
   },
   async collapse() {
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
     await new Promise(resolve => setTimeout(resolve, 250))
-    sticker.scrollToBottom({ force: true, immediate: true })
+    sticker.scrollToDistanceFromBottomPx(0, 'instant')
     await pause()
     return api.read()
   },
-  follow() { sticker.scrollToBottom({ immediate: true }); return api.read() },
+  follow() { sticker.scrollToDistanceFromBottomPx(0, 'instant'); return api.read() },
 }
 ;(window as any).inlineVisWheelFixture = api

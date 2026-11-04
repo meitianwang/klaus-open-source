@@ -1,7 +1,7 @@
 import * as stream from './stream-store'
 import * as markdown from './markdown'
 import { mountReactTranscript, unmountReactTranscript } from './transcript'
-import { createBottomSticker } from './bottom-sticker'
+import { TranscriptScrollController, registerTranscriptScrollController } from './transcript-scroll-controller'
 import { verifyMarkdownAsyncTransitions, verifySettledHighlightInteraction } from './markdown-async-dom-fixture'
 
 const host = window as any
@@ -14,8 +14,9 @@ Date.now = () => 1_800_000_000_000
 host.currentLang = 'en'
 host.currentSessionId = null
 // The main transcript delegates tail following to its host scroll controller.
-const bottomSticker = createBottomSticker({ scrollEl: viewport })
-host.scrollToBottom = (options = {}) => bottomSticker.scrollToBottom(options)
+const scrollController = new TranscriptScrollController({ scrollEl: viewport })
+registerTranscriptScrollController(scrollController)
+host.scrollToBottom = () => scrollController.scrollToDistanceFromBottomPx(0, 'instant')
 const historyReplies = new Map<string, any[]>()
 host.klaus = { session: { history: async (id: string) => ({ messages: historyReplies.get(id) ?? retainedHistory(id) }) } }
 function configureWorker(): void {
@@ -112,7 +113,7 @@ async function prepare(kind: string, historyCount: number): Promise<any> {
   await frames(3)
   const retainedHistoryRows = stream.getSessionStream(sessionId).history?.length ?? 0
   const mountedTurns = viewport.querySelectorAll('[data-klaus-transcript-turn]').length
-  const virtualSpacers = viewport.querySelectorAll('[data-virtual-spacer]').length
+  const virtualSpacers = viewport.querySelectorAll('[data-virtual-turn-list]').length
   if (retainedHistoryRows !== historyCount) throw new Error('Preparation lost loaded history')
   if (virtualSpacers < 1 || mountedTurns < 1 || mountedTurns >= historyCount / 2) throw new Error('Main transcript virtualization was not exercised')
   return { historyRows: retainedHistoryRows, scrollMode: 'main', mountedTurns, virtualSpacers, domElements: viewport.querySelectorAll('*').length }
