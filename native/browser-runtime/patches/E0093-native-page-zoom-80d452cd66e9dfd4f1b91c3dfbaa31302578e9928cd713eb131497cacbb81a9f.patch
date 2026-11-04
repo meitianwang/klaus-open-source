@@ -1,0 +1,40 @@
+diff --git a/shell/browser/api/electron_api_native_browser.cc b/shell/browser/api/electron_api_native_browser.cc
+index 25095749c7817988eb0121705817b4f973f0d278..f0d3b696069e8c29a8dc7f3e9239a066066fca87 100644
+--- a/shell/browser/api/electron_api_native_browser.cc
++++ b/shell/browser/api/electron_api_native_browser.cc
+@@ -42,6 +42,7 @@
+ #include "chrome/browser/ui/browser_tabstrip.h"
+ #include "chrome/browser/ui/views/frame/browser_view.h"
+ #include "content/public/browser/navigation_controller.h"
++#include "content/public/browser/host_zoom_map.h"
+ #include "content/public/browser/navigation_handle.h"
+ #include "content/public/browser/web_contents.h"
+ #include "content/public/browser/web_contents_observer.h"
+@@ -64,6 +65,7 @@
+ #include "shell/common/gin_helper/promise.h"
+ #include "shell/common/gin_helper/trackable_object.h"
+ #include "shell/common/node_includes.h"
++#include "third_party/blink/public/common/page/page_zoom.h"
+ #include "ui/views/view.h"
+ #include "ui/views/widget/widget.h"
+ #include "url/gurl.h"
+@@ -464,6 +466,7 @@ class NativeBrowser final : public gin_helper::TrackableObject<NativeBrowser>,
+         .SetMethod("close", &NativeBrowser::Close)
+         .SetMethod("getURL", &NativeBrowser::GetURL)
+         .SetMethod("getTitle", &NativeBrowser::GetTitle)
++        .SetMethod("getZoomFactor", &NativeBrowser::GetZoomFactor)
+         .SetMethod("getState", &NativeBrowser::GetState)
+         .SetMethod("startRequest", &NativeBrowser::StartRequest)
+         .SetMethod("readRequest", &NativeBrowser::ReadRequest)
+@@ -496,6 +499,11 @@ class NativeBrowser final : public gin_helper::TrackableObject<NativeBrowser>,
+   std::string GetTitle() const {
+     return web_contents() ? base::UTF16ToUTF8(web_contents()->GetTitle()) : "";
+   }
++  double GetZoomFactor() const {
++    return web_contents() ? blink::ZoomLevelToZoomFactor(
++                                content::HostZoomMap::GetZoomLevel(web_contents()))
++                          : 1.0;
++  }
+   base::DictValue GetState() const {
+     base::DictValue state;
+     state.Set("url", GetURL());

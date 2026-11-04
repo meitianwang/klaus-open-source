@@ -1,0 +1,150 @@
+diff --git a/BUILD.gn b/BUILD.gn
+index 7447e6c97c7a2d20a30f547fdf1bba1a020046fa..918e765ff781be02223ba3583e88b429d83bfd8e 100644
+--- a/BUILD.gn
++++ b/BUILD.gn
+@@ -523,7 +523,9 @@ source_set("electron_lib") {
+     # Use the authoritative native browser implementation closure. Linking its
+     # classes does not create a second BrowserProcess or install another MainParts.
+     "//chrome/browser:browser",
++    "//chrome/browser:global_features",
+     "//chrome/browser/prefs",
++    "//components/application_locale_storage",
+     "//chrome/browser/autofill:autofill",
+     "//chrome/browser/password_manager/factories:factories",
+     "//chrome/browser/policy:impl",
+diff --git a/shell/browser/browser_process_impl.cc b/shell/browser/browser_process_impl.cc
+index 19b38e9309739bf3fe263fb9c6109e3191423dba..bdeb858973b414c6de9aa7f1da1f9ab0ab1145eb 100644
+--- a/shell/browser/browser_process_impl.cc
++++ b/shell/browser/browser_process_impl.cc
+@@ -19,6 +19,8 @@
+ #include "base/json/json_writer.h"
+ #include "base/values.h"
+ #include "chrome/browser/browser_process.h"
++#include "chrome/browser/global_features.h"
++#include "components/application_locale_storage/application_locale_storage.h"
+ #include "chrome/browser/autofill/personal_data_manager_factory.h"
+ #include "chrome/browser/hid/hid_system_tray_icon.h"
+ #include "chrome/browser/net/profile_network_context_service_factory.h"
+@@ -112,8 +114,10 @@ bool IsNativeProfileProbeEnabled() {
+ 
+ }  // namespace
+ 
+-ElectronBrowserProcessImpl::ElectronBrowserProcessImpl() {
++ElectronBrowserProcessImpl::ElectronBrowserProcessImpl()
++    : features_(GlobalFeatures::CreateGlobalFeatures()) {
+   g_browser_process = this;
++  features_->Init();
+ }
+ 
+ ElectronBrowserProcessImpl::~ElectronBrowserProcessImpl() {
+@@ -201,21 +205,16 @@ BuildState* ElectronBrowserProcessImpl::GetBuildState() {
+ }
+ 
+ GlobalFeatures* ElectronBrowserProcessImpl::GetFeatures() {
+-  NOTIMPLEMENTED();
+-  return nullptr;
++  return features_.get();
+ }
+ 
+ ui::UnownedUserDataHost& ElectronBrowserProcessImpl::GetUnownedUserDataHost() {
+-  NOTIMPLEMENTED();
+-  static base::NoDestructor<ui::UnownedUserDataHost> instance;
+-  return *instance;
++  return unowned_user_data_host_;
+ }
+ 
+ const ui::UnownedUserDataHost& ElectronBrowserProcessImpl::GetUnownedUserDataHost()
+     const {
+-  NOTIMPLEMENTED();
+-  static base::NoDestructor<ui::UnownedUserDataHost> instance;
+-  return *instance;
++  return unowned_user_data_host_;
+ }
+ 
+ void ElectronBrowserProcessImpl::PostEarlyInitialization() {
+@@ -288,6 +287,7 @@ void ElectronBrowserProcessImpl::PreCreateThreads() {
+   // https://source.chromium.org/chromium/chromium/src/+/main:chrome/browser/chrome_browser_main.cc;l=1385-1389;drc=c3bda003554dad21313fb24b7a4f3e1aae6102d9.
+   CreateMetricsServiceClient();
+ 
++  InitializeNativeProfileServices();
+ }
+ 
+ void ElectronBrowserProcessImpl::PreMainMessageLoopRun() {
+@@ -302,7 +302,11 @@ void ElectronBrowserProcessImpl::PreMainMessageLoopRun() {
+   }
+ 
+   InitializeNetworkTimeTracker();
++  if (features_initialized_)
++    features_->PreMainMessageLoopRun();
++}
+ 
++void ElectronBrowserProcessImpl::InitializeNativeProfileServices() {
+   if (IsNativeProfileProbeEnabled()) {
+     // Register only the factories the probe actually resolves. Each
+     // GetInstance() records the factory and installs its DependsOn closure in
+@@ -326,10 +330,17 @@ void ElectronBrowserProcessImpl::PreMainMessageLoopRun() {
+     data_dir = data_dir.Append(FILE_PATH_LITERAL("NativeProfileProbe"));
+     CHECK(base::CreateDirectory(data_dir));
+     profile_manager_ = std::make_unique<ProfileManager>(data_dir);
++    features_->PostBrowserProcessInit();
++    features_initialized_ = true;
++    features_->application_locale_storage()->Set(locale_);
+   }
+ }
+ 
+ void ElectronBrowserProcessImpl::PostMainMessageLoopRun() {
++  shutting_down_ = true;
++  if (features_initialized_)
++    features_->PostMainMessageLoopRun();
++
+   // Profiles and keyed services must be gone before the Profile manager.
+   profile_manager_.reset();
+ 
+@@ -352,8 +363,14 @@ void ElectronBrowserProcessImpl::PostMainMessageLoopRun() {
+     local_state_->CommitPendingWrite();
+ }
+ 
++void ElectronBrowserProcessImpl::PostDestroyThreads() {
++  if (features_initialized_)
++    features_->PostDestroyThreads();
++  features_.reset();
++}
++
+ bool ElectronBrowserProcessImpl::IsShuttingDown() {
+-  return false;
++  return shutting_down_;
+ }
+ 
+ metrics_services_manager::MetricsServicesManager*
+diff --git a/shell/browser/browser_process_impl.h b/shell/browser/browser_process_impl.h
+index 430fa1a0e000c8d7d48f995f620e59563dd01519..b4c8edad0cf46afc1bf549ce9be686931e72dc48 100644
+--- a/shell/browser/browser_process_impl.h
++++ b/shell/browser/browser_process_impl.h
+@@ -66,7 +66,7 @@ class ElectronBrowserProcessImpl : public BrowserProcess {
+   void PostEarlyInitialization();
+   void PreCreateThreads();
+   void PreMainMessageLoopRun();
+-  void PostDestroyThreads() {}
++  void PostDestroyThreads();
+   void PostMainMessageLoopRun();
+   void RunNativeProfileProbeIfRequested();
+   void SetSystemLocale(const std::string& locale);
+@@ -158,6 +158,7 @@ class ElectronBrowserProcessImpl : public BrowserProcess {
+   }
+ 
+  private:
++  void InitializeNativeProfileServices();
+   void CreateNetworkQualityObserver();
+   void CreateNetworkTimeTracker();
+   void InitializeNetworkTimeTracker();
+@@ -169,6 +170,10 @@ class ElectronBrowserProcessImpl : public BrowserProcess {
+   std::unique_ptr<printing::PrintJobManager> print_job_manager_;
+ #endif
+   std::unique_ptr<PrefService> local_state_;
++  ui::UnownedUserDataHost unowned_user_data_host_;
++  std::unique_ptr<GlobalFeatures> features_;
++  bool features_initialized_ = false;
++  bool shutting_down_ = false;
+   std::string locale_;
+   std::string system_locale_;
+ #if BUILDFLAG(IS_LINUX)

@@ -1,0 +1,78 @@
+diff --git a/chrome/BUILD.gn b/chrome/BUILD.gn
+index 24de84769b9f07f719389f95f3e9a07685f50fc1..70367eeb7195564c6e4575083e7b0bb2e3b26af1 100644
+--- a/chrome/BUILD.gn
++++ b/chrome/BUILD.gn
+@@ -1168,9 +1168,6 @@ if (is_win) {
+     ]
+ 
+     sources = [
+-      "app/chrome_crash_reporter_client.cc",
+-      "app/chrome_crash_reporter_client.h",
+-      "app/chrome_crash_reporter_client_mac.mm",
+       "app/chrome_dll_resource.h",
+       "app/chrome_main.cc",
+       "app/chrome_main.h",
+@@ -1185,6 +1182,7 @@ if (is_win) {
+       ":dependencies",
+       "//build:chromeos_buildflags",
+       "//chrome/app:command_ids",
++      "//chrome/app:crash_reporter_client_impl",
+       "//chrome/browser:chrome_browser_application_mac",
+       "//chrome/browser:chrome_content_browser_client",
+       "//chrome/browser:chrome_process_singleton",
+diff --git a/chrome/app/BUILD.gn b/chrome/app/BUILD.gn
+index c87ac7038e1fb42731344a5c143fbe7f62f4f746..d4a0d85c183dd6320845b53485b3256c3c09c71c 100644
+--- a/chrome/app/BUILD.gn
++++ b/chrome/app/BUILD.gn
+@@ -32,6 +32,31 @@ if (is_posix && !is_mac) {
+   }
+ }
+ 
++if (is_mac) {
++  # Shared by the browser framework and application shim.
++  source_set("crash_reporter_client_impl") {
++    sources = [
++      "chrome_crash_reporter_client.cc",
++      "chrome_crash_reporter_client.h",
++      "chrome_crash_reporter_client_mac.mm",
++    ]
++    public_deps = [
++      "//base",
++      "//components/crash/core/app",
++    ]
++    deps = [
++      "//build:branding_buildflags",
++      "//chrome/common",
++      "//chrome/installer/util:with_no_strings",
++      "//components/crash/core/common",
++      "//components/policy:generated",
++      "//components/upload_list",
++      "//components/version_info",
++      "//content/public/common",
++    ]
++  }
++}
++
+ # This target is for dependency tracking for the command ID header.
+ source_set("command_ids") {
+   sources = [ "chrome_command_ids.h" ]
+diff --git a/chrome/app_shim/BUILD.gn b/chrome/app_shim/BUILD.gn
+index 15bc81a419d305b33dde4d0d2eb533a67bd5660f..c06538911f27cea70690af70098453839866b328 100644
+--- a/chrome/app_shim/BUILD.gn
++++ b/chrome/app_shim/BUILD.gn
+@@ -11,7 +11,6 @@ import("//build/util/branding.gni")
+ # Framework bundle.
+ source_set("app_shim") {
+   sources = [
+-    "../app/chrome_crash_reporter_client.h",
+     "app_shim_application.h",
+     "app_shim_application.mm",
+     "app_shim_controller.h",
+@@ -30,6 +29,7 @@ source_set("app_shim") {
+     "//build:chromeos_buildflags",
+     "//chrome:strings",
+     "//chrome/app:command_ids",
++    "//chrome/app:crash_reporter_client_impl",
+     "//chrome/browser/renderer_host:history_swiper",
+     "//chrome/browser/ui",
+     "//chrome/browser/ui/cocoa",

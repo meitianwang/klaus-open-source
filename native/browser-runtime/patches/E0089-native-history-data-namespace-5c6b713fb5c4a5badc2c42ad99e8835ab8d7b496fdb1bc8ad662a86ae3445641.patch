@@ -1,0 +1,13 @@
+diff --git a/shell/browser/api/electron_api_native_browser.cc b/shell/browser/api/electron_api_native_browser.cc
+index 0af4dd93ce7833cdc98a8b9da1b5ac2ff1c25a58..6f0dc1033217abdc19fdcaf873166b90c67bb58c 100644
+--- a/shell/browser/api/electron_api_native_browser.cc
++++ b/shell/browser/api/electron_api_native_browser.cc
+@@ -406,7 +406,7 @@ class NativeBrowser final : public gin_helper::TrackableObject<NativeBrowser>,
+     if (kind == "all" || kind == "siteData")
+       mask |= Remover::DATA_TYPE_DOM_STORAGE | Remover::DATA_TYPE_PRIVACY_SANDBOX;
+     if (kind == "all" || kind == "history")
+-      mask |= browsing_data::DATA_TYPE_HISTORY;
++      mask |= chrome_browsing_data_remover::DATA_TYPE_HISTORY;
+     if (kind == "all" || kind == "downloads")
+       mask |= Remover::DATA_TYPE_DOWNLOADS;
+     if (!mask) {

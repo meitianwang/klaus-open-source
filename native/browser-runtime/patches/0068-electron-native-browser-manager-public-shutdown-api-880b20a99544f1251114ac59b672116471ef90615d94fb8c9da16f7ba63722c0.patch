@@ -1,0 +1,15 @@
+diff --git a/shell/browser/browser_process_impl.cc b/shell/browser/browser_process_impl.cc
+index 009cc863944fc84d8ff9f54b06827be4088efb5b..8ca69245fb6d0c99e145188e0278f2dcceb0ae71 100644
+--- a/shell/browser/browser_process_impl.cc
++++ b/shell/browser/browser_process_impl.cc
+@@ -474,9 +474,7 @@ void ElectronBrowserProcessImpl::PostMainMessageLoopRun() {
+   // Native windows must release tab helpers before Profile keyed services.
+   if (profile_manager_) {
+     const auto close_browsers = [](Profile* profile) {
+-      auto* manager = static_cast<BrowserManagerService*>(
+-          BrowserManagerServiceFactory::GetInstance()
+-              ->GetServiceForBrowserContext(profile, /*create=*/false));
++      auto* manager = BrowserManagerServiceFactory::GetForProfile(profile);
+       if (manager)
+         manager->Shutdown();
+     };

@@ -1,0 +1,73 @@
+diff --git a/shell/browser/browser_process_impl.cc b/shell/browser/browser_process_impl.cc
+index 81545ef596b29950e21c85b821ea398a2b8a2623..19b38e9309739bf3fe263fb9c6109e3191423dba 100644
+--- a/shell/browser/browser_process_impl.cc
++++ b/shell/browser/browser_process_impl.cc
+@@ -24,6 +24,7 @@
+ #include "chrome/browser/net/profile_network_context_service_factory.h"
+ #include "chrome/browser/password_manager/factories/profile_password_store_factory.h"
+ #include "chrome/browser/policy/chrome_browser_policy_connector.h"
++#include "chrome/browser/prefs/browser_prefs.h"
+ #include "chrome/browser/profiles/profile.h"
+ #include "chrome/browser/profiles/profile_attributes_entry.h"
+ #include "chrome/browser/profiles/profile_attributes_storage.h"
+@@ -75,6 +76,7 @@
+ 
+ #if BUILDFLAG(IS_LINUX)
+ #include "chrome/browser/browser_features.h"
++#include "dbus/buildflags.h"
+ #include "components/os_crypt/async/browser/freedesktop_secret_key_provider.h"
+ #include "components/os_crypt/async/browser/secret_portal_key_provider.h"
+ #include "components/password_manager/core/browser/password_manager_switches.h"  // nogncheck
+@@ -219,33 +221,17 @@ const ui::UnownedUserDataHost& ElectronBrowserProcessImpl::GetUnownedUserDataHos
+ void ElectronBrowserProcessImpl::PostEarlyInitialization() {
+   PrefServiceFactory prefs_factory;
+   auto pref_registry = base::MakeRefCounted<PrefRegistrySimple>();
+-  policy::BrowserPolicyConnector::RegisterPrefs(pref_registry.get());
+-  PrefProxyConfigTrackerImpl::RegisterPrefs(pref_registry.get());
+-  electron::ElectronMetricsServiceClient::RegisterMetricsPrefs(
+-      pref_registry.get());
+-  // ProfileManager creates ProfileAttributesStorage during the probe. These
+-  // are the exact Local State registrations that storage reads and writes;
+-  // calling chrome::RegisterLocalState would duplicate existing Electron
+-  // registrations such as proxy and policy preferences.
+-  ProfileAttributesEntry::RegisterLocalStatePrefs(pref_registry.get());
+-  ProfileAttributesStorage::RegisterPrefs(pref_registry.get());
+-  profiles::RegisterPrefs(pref_registry.get());
+-
+-  // Register the Local State preferences required by the real Chrome
+-  // SystemNetworkContextManager and its helpers. These keys are distinct from
+-  // the Electron proxy/policy registrations above; each line registers exactly
+-  // one pref family with no fallback "already registered" skips.
+-  SystemNetworkContextManager::RegisterPrefs(pref_registry.get());
+-  SSLConfigServiceManager::RegisterPrefs(pref_registry.get());
+-  network_time::NetworkTimeTracker::RegisterPrefs(pref_registry.get());
+-
+-#if BUILDFLAG(IS_WIN)
+-  OSCrypt::RegisterLocalPrefs(pref_registry.get());
+-#endif
++  // Native profiles and shared process services use the authoritative browser
++  // Local State schema. It also owns the policy, proxy and metrics registrations
++  // used by embedder sessions; those families must not be registered twice.
++  RegisterLocalState(pref_registry.get());
+ 
+ #if BUILDFLAG(IS_LINUX)
++#if !BUILDFLAG(USE_DBUS)
++  // The browser registers this family only in builds with DBus.
+   os_crypt_async::SecretPortalKeyProvider::RegisterLocalPrefs(
+       pref_registry.get());
++#endif
+ #endif
+ 
+   pref_registry->RegisterDictionaryPref(electron::kWindowStates);
+diff --git a/BUILD.gn b/BUILD.gn
+index 641893e56fd28ab88229fbb57ce03b03780c41ea..7447e6c97c7a2d20a30f547fdf1bba1a020046fa 100644
+--- a/BUILD.gn
++++ b/BUILD.gn
+@@ -523,6 +523,7 @@ source_set("electron_lib") {
+     # Use the authoritative native browser implementation closure. Linking its
+     # classes does not create a second BrowserProcess or install another MainParts.
+     "//chrome/browser:browser",
++    "//chrome/browser/prefs",
+     "//chrome/browser/autofill:autofill",
+     "//chrome/browser/password_manager/factories:factories",
+     "//chrome/browser/policy:impl",

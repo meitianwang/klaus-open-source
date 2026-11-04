@@ -1,0 +1,173 @@
+diff --git a/shell/browser/api/electron_api_native_browser.cc b/shell/browser/api/electron_api_native_browser.cc
+index d481e4f7df8affda12fd18d1bddc9e396d0d43fe..25095749c7817988eb0121705817b4f973f0d278 100644
+--- a/shell/browser/api/electron_api_native_browser.cc
++++ b/shell/browser/api/electron_api_native_browser.cc
+@@ -248,6 +248,158 @@ class NativeProfileRequest final : public network::SimpleURLLoaderStreamConsumer
+   bool done_ = false;
+ };
+ 
++// Profile services are available even when no browser tab is open. The host
++// owns this handle without manufacturing a hidden browser window.
++class NativeProfile final : public gin_helper::TrackableObject<NativeProfile>,
++                            private content::BrowsingDataRemover::Observer {
++ public:
++  NativeProfile(v8::Isolate* isolate, Profile* profile) : profile_(profile) { Init(isolate); }
++  ~NativeProfile() override {
++    if (data_remover_) data_remover_->RemoveObserver(this);
++    clear_promise_.reset();
++    requests_.clear();
++  }
++  static void BuildPrototype(v8::Isolate* isolate, v8::Local<v8::FunctionTemplate> prototype) {
++    prototype->SetClassName(gin::StringToV8(isolate, "NativeProfile"));
++    gin_helper::ObjectTemplateBuilder(isolate, prototype->PrototypeTemplate())
++        .SetMethod("startRequest", &NativeProfile::StartRequest)
++        .SetMethod("readRequest", &NativeProfile::ReadRequest)
++        .SetMethod("cancelRequest", &NativeProfile::CancelRequest)
++        .SetMethod("clearData", &NativeProfile::ClearData)
++        .SetMethod("dispose", &NativeProfile::Dispose);
++  }
++  void Dispose() {
++    if (closed_) return;
++    closed_ = true;
++    if (data_remover_) data_remover_->RemoveObserver(this);
++    data_remover_ = nullptr;
++    if (clear_promise_) clear_promise_->RejectWithErrorMessage("The native Profile service has been closed");
++    clear_promise_.reset();
++    for (auto& [id, request] : requests_) request->Cancel();
++    requests_.clear();
++  }
++  v8::Local<v8::Promise> StartRequest(v8::Isolate* isolate,
++                                     const std::string& id, const GURL& url) {
++    gin_helper::Promise<base::DictValue> promise(isolate);
++    auto handle = promise.GetHandle();
++    if (closed_ || id.empty() || id.size() > 256 || !url.SchemeIsHTTPOrHTTPS()) {
++      promise.RejectWithErrorMessage(
++          "A live native Profile, request id and HTTP URL are required");
++      return handle;
++    }
++    if (requests_.contains(id) || requests_.size() >= 16) {
++      promise.RejectWithErrorMessage("Native request capacity or duplicate id");
++      return handle;
++    }
++    auto request = std::make_unique<NativeProfileRequest>(
++        profile_, url, std::move(promise));
++    auto* pending = request.get();
++    requests_.emplace(id, std::move(request));
++    pending->Start();
++    return handle;
++  }
++  v8::Local<v8::Promise> ReadRequest(v8::Isolate* isolate,
++                                    const std::string& id) {
++    auto found = requests_.find(id);
++    if (found != requests_.end())
++      return found->second->Read(isolate);
++    gin_helper::Promise<base::DictValue> promise(isolate);
++    auto handle = promise.GetHandle();
++    promise.RejectWithErrorMessage("The native request has been released");
++    return handle;
++  }
++  void CancelRequest(const std::string& id) {
++    auto found = requests_.find(id);
++    if (found == requests_.end())
++      return;
++    found->second->Cancel();
++    requests_.erase(found);
++  }
++  v8::Local<v8::Promise> ClearData(v8::Isolate* isolate,
++                                  const std::string& kind) {
++    gin_helper::Promise<base::DictValue> promise(isolate);
++    auto handle = promise.GetHandle();
++    if (closed_ || clear_promise_) {
++      promise.RejectWithErrorMessage(
++          "The native Profile is closed or a data removal is already pending");
++      return handle;
++    }
++    using Remover = content::BrowsingDataRemover;
++    uint64_t mask = 0;
++    if (kind == "all" || kind == "cache")
++      mask |= Remover::DATA_TYPE_CACHE;
++    if (kind == "all" || kind == "cookies")
++      mask |= Remover::DATA_TYPE_COOKIES;
++    if (kind == "all" || kind == "siteData")
++      mask |= Remover::DATA_TYPE_DOM_STORAGE | Remover::DATA_TYPE_PRIVACY_SANDBOX;
++    if (kind == "all" || kind == "history")
++      mask |= chrome_browsing_data_remover::DATA_TYPE_HISTORY;
++    if (kind == "all" || kind == "downloads")
++      mask |= Remover::DATA_TYPE_DOWNLOADS;
++    if (!mask) {
++      promise.RejectWithErrorMessage("The native browsing data kind is invalid");
++      return handle;
++    }
++    data_remover_ = profile_->GetBrowsingDataRemover();
++    clear_promise_ = std::make_unique<gin_helper::Promise<base::DictValue>>(
++        std::move(promise));
++    data_remover_->AddObserver(this);
++    // Browser data does not include saved passwords, autofill entries or
++    // extension state. History removal also retains downloaded files.
++    data_remover_->RemoveAndReply(base::Time(), base::Time::Max(), mask,
++        Remover::ORIGIN_TYPE_UNPROTECTED_WEB, this);
++    return handle;
++  }
++
++ private:
++  void OnBrowsingDataRemoverDone(uint64_t failed_data_types) override {
++    if (data_remover_)
++      data_remover_->RemoveObserver(this);
++    data_remover_ = nullptr;
++    auto promise = std::move(clear_promise_);
++    if (!promise)
++      return;
++    if (failed_data_types) {
++      promise->RejectWithErrorMessage("Native browsing data removal failed: " +
++                                     std::to_string(failed_data_types));
++      return;
++    }
++    base::DictValue result;
++    result.Set("ok", true);
++    promise->Resolve(result);
++  }
++
++  raw_ptr<Profile> profile_;
++  bool closed_ = false;
++  std::map<std::string, std::unique_ptr<NativeProfileRequest>> requests_;
++  raw_ptr<content::BrowsingDataRemover> data_remover_ = nullptr;
++  std::unique_ptr<gin_helper::Promise<base::DictValue>> clear_promise_;
++};
++
++v8::Local<v8::Promise> CreateNativeProfile(v8::Isolate* isolate) {
++  gin_helper::Promise<NativeProfile*> promise(isolate);
++  auto handle = promise.GetHandle();
++  auto* manager = g_browser_process->profile_manager();
++  if (!electron::Browser::Get()->is_ready() || !manager) {
++    promise.RejectWithErrorMessage("Native Profile services require the enabled, ready browser runtime");
++    return handle;
++  }
++  manager->UnblockAsyncLoading();
++  manager->CreateProfileAsync(
++      manager->user_data_dir().Append(FILE_PATH_LITERAL("Default")),
++      base::BindOnce([](gin_helper::Promise<NativeProfile*> promise, Profile* profile) {
++        if (!profile) {
++          promise.RejectWithErrorMessage("Native Profile loading failed");
++          return;
++        }
++        v8::Isolate* isolate = promise.isolate();
++        v8::HandleScope scope(isolate);
++        v8::Context::Scope context_scope(promise.GetContext());
++        promise.Resolve(new NativeProfile(isolate, profile));
++      }, std::move(promise)));
++  return handle;
++}
++
+ // The native browser owns its BrowserView, tab helpers and Profile services.
+ // This wrapper only exposes host operations; it never creates an Electron
+ // WebContents or Session for the native Profile.
+@@ -788,6 +940,9 @@ void Initialize(v8::Local<v8::Object> exports,
+   v8::Isolate* const isolate = electron::JavascriptEnvironment::GetIsolate();
+   gin_helper::Dictionary dict(isolate, exports);
+   dict.SetMethod("create", &electron::api::CreateNativeBrowser);
++  dict.SetMethod("createProfile", &electron::api::CreateNativeProfile);
++  dict.Set("NativeProfile", electron::api::NativeProfile::GetConstructor(isolate)
++                                ->GetFunction(context).ToLocalChecked());
+   dict.Set("NativeBrowser", electron::api::NativeBrowser::GetConstructor(
+                                 isolate)
+                                 ->GetFunction(context)

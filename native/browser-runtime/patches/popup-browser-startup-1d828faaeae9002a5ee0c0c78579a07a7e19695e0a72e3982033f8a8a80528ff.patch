@@ -1,0 +1,51 @@
+diff --git a/shell/browser/api/electron_api_native_browser.cc b/shell/browser/api/electron_api_native_browser.cc
+index 4966f2dfbfcb52e13ec2fc9a4929bb69531a59a5..0eb31f99cd2bff28909d7bb6a4dda994198ebe13 100644
+--- a/shell/browser/api/electron_api_native_browser.cc
++++ b/shell/browser/api/electron_api_native_browser.cc
+@@ -1076,6 +1076,7 @@ class NativeBrowser final : public gin_helper::TrackableObject<NativeBrowser>,
+         .SetMethod("close", &NativeBrowser::Close)
+         .SetMethod("resumePopup", &NativeBrowser::ResumePopup)
+         .SetMethod("cancelPopup", &NativeBrowser::CancelPopup)
++        .SetMethod("getMainFrameId", &NativeBrowser::GetMainFrameId)
+         .SetMethod("getURL", &NativeBrowser::GetURL)
+         .SetMethod("getTitle", &NativeBrowser::GetTitle)
+         .SetMethod("getZoomFactor", &NativeBrowser::GetZoomFactor)
+@@ -1125,6 +1126,11 @@ class NativeBrowser final : public gin_helper::TrackableObject<NativeBrowser>,
+             browser->GetWindow()->Close();
+         }, std::move(browser)));
+   }
++  std::string GetMainFrameId() const {
++    if (IsClosed())
++      return "";
++    return web_contents()->GetPrimaryMainFrame()->GetDevToolsFrameToken().ToString();
++  }
+   std::string GetURL() const {
+     return web_contents() ? web_contents()->GetVisibleURL().spec() : "";
+   }
+@@ -1711,14 +1717,24 @@ class NativeBrowser final : public gin_helper::TrackableObject<NativeBrowser>,
+       gate->Cancel();
+       return;
+     }
++    const bool close_empty_browser = old_browser != browser_ && old_tabs->count() == 1;
++    auto old_browser_weak = old_browser->GetBrowserForMigrationOnly()->AsWeakPtr();
+     std::unique_ptr<tabs::TabModel> adopted =
+         old_tabs->DetachTabAtForInsertion(index);
+     if (!adopted) {
+       gate->Cancel();
+       return;
+     }
+-    if (old_browser != browser_ && old_tabs->count() == 0)
+-      old_browser->GetWindow()->Close();
++    if (close_empty_browser) {
++      // Detaching the last tab may already have retired the source Browser.
++      // Never read its tab strip or close it from the detach notification stack.
++      base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
++          FROM_HERE, base::BindOnce([](base::WeakPtr<::Browser> browser) {
++            if (browser && !browser->IsDeleteScheduled() &&
++                browser->tab_strip_model()->empty())
++              browser->GetWindow()->Close();
++          }, std::move(old_browser_weak)));
++    }
+     if (!parent_ || parent_->IsClosed()) {
+       gate->Cancel();
+       return;

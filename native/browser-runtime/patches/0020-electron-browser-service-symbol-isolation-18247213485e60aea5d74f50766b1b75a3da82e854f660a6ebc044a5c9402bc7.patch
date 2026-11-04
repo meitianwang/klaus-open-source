@@ -1,0 +1,475 @@
+diff --git a/shell/browser/badging/badge_manager.cc b/shell/browser/badging/badge_manager.cc
+index c7811e56ef46ca4c3d75feeecbc1e89da4c8821a..80d104206a8fd73f47936c097d690f3846c1a896 100755
+--- a/shell/browser/badging/badge_manager.cc
++++ b/shell/browser/badging/badge_manager.cc
+@@ -18,7 +18,7 @@
+ #include "ui/base/l10n/l10n_util.h"
+ #include "ui/strings/grit/ui_strings.h"
+ 
+-namespace badging {
++namespace electron::badging {
+ 
+ BadgeManager::BadgeManager() = default;
+ BadgeManager::~BadgeManager() = default;
+@@ -97,4 +97,4 @@ void BadgeManager::ClearBadge() {
+   electron::Browser::Get()->SetBadgeCount(0);
+ }
+ 
+-}  // namespace badging
++}  // namespace electron::badging
+diff --git a/shell/browser/badging/badge_manager.h b/shell/browser/badging/badge_manager.h
+index 7f898360a5de72b92bde0f6a746f1f3f0cec5a8c..17b59da685fe6fef3f62a12debb795e7e60d0e77 100644
+--- a/shell/browser/badging/badge_manager.h
++++ b/shell/browser/badging/badge_manager.h
+@@ -20,7 +20,7 @@ class RenderFrameHost;
+ class RenderProcessHost;
+ }  // namespace content
+ 
+-namespace badging {
++namespace electron::badging {
+ 
+ // The maximum value of badge contents before saturation occurs.
+ constexpr int kMaxBadgeContent = 99;
+@@ -105,6 +105,6 @@ class BadgeManager : public KeyedService, public blink::mojom::BadgeService {
+   // std::unique_ptr<BadgeManagerDelegate> delegate_;
+ };
+ 
+-}  // namespace badging
++}  // namespace electron::badging
+ 
+ #endif  // ELECTRON_SHELL_BROWSER_BADGING_BADGE_MANAGER_H_
+diff --git a/shell/browser/badging/badge_manager_factory.cc b/shell/browser/badging/badge_manager_factory.cc
+index 4df911b8416bfd490f7fcbfad46c846c6dd4c7fc..9c81f0b9dcf399bc2574c805ab03d25658dfc15c 100644
+--- a/shell/browser/badging/badge_manager_factory.cc
++++ b/shell/browser/badging/badge_manager_factory.cc
+@@ -9,7 +9,7 @@
+ #include "content/public/browser/browser_context.h"
+ #include "shell/browser/badging/badge_manager.h"
+ 
+-namespace badging {
++namespace electron::badging {
+ 
+ // static
+ BadgeManager* BadgeManagerFactory::GetForBrowserContext(
+@@ -26,7 +26,7 @@ BadgeManagerFactory* BadgeManagerFactory::GetInstance() {
+ 
+ BadgeManagerFactory::BadgeManagerFactory()
+     : BrowserContextKeyedServiceFactory(
+-          "BadgeManager",
++          "EmbedderBadgeManager",
+           BrowserContextDependencyManager::GetInstance()) {}
+ 
+ BadgeManagerFactory::~BadgeManagerFactory() = default;
+@@ -44,4 +44,4 @@ content::BrowserContext* BadgeManagerFactory::GetBrowserContextToUse(
+   return context;
+ }
+ 
+-}  // namespace badging
++}  // namespace electron::badging
+diff --git a/shell/browser/badging/badge_manager_factory.h b/shell/browser/badging/badge_manager_factory.h
+index 1929b945d62b7c39653c3c95a5f70e13c7a2846e..97f8199e5ce845fe08506e85a65425fe3681cfcf 100644
+--- a/shell/browser/badging/badge_manager_factory.h
++++ b/shell/browser/badging/badge_manager_factory.h
+@@ -12,7 +12,7 @@ template <typename T>
+ class NoDestructor;
+ }
+ 
+-namespace badging {
++namespace electron::badging {
+ 
+ class BadgeManager;
+ 
+@@ -42,6 +42,6 @@ class BadgeManagerFactory : public BrowserContextKeyedServiceFactory {
+       content::BrowserContext* context) const override;
+ };
+ 
+-}  // namespace badging
++}  // namespace electron::badging
+ 
+ #endif  // ELECTRON_SHELL_BROWSER_BADGING_BADGE_MANAGER_FACTORY_H_
+diff --git a/shell/browser/browser_mac.mm b/shell/browser/browser_mac.mm
+index 5cbb8f9e232688c85b5c7c65c232cb6e533886f2..cdb4521d43bc922956434a3013908c66f02d0fd1 100644
+--- a/shell/browser/browser_mac.mm
++++ b/shell/browser/browser_mac.mm
+@@ -265,7 +265,7 @@
+ 
+ bool Browser::SetBadgeCount(std::optional<int> count) {
+   DockSetBadgeText(!count.has_value() || count.value() != 0
+-                       ? badging::BadgeManager::GetBadgeString(count)
++                       ? electron::badging::BadgeManager::GetBadgeString(count)
+                        : "");
+   if (count.has_value()) {
+     badge_count_ = count.value();
+diff --git a/shell/browser/browser_win.cc b/shell/browser/browser_win.cc
+index 77012db00163faf59c9736e9ac70087be4c94d62..fc465bb1cc9bef16a3c5e4caac73ae8879ee06f0 100644
+--- a/shell/browser/browser_win.cc
++++ b/shell/browser/browser_win.cc
+@@ -589,7 +589,7 @@ bool Browser::SetBadgeCount(std::optional<int> count) {
+   if (count.has_value() && count.value() == 0) {
+     badge_content = std::nullopt;
+   } else {
+-    badge_content = badging::BadgeManager::GetBadgeString(count);
++    badge_content = electron::badging::BadgeManager::GetBadgeString(count);
+   }
+ 
+   // There are 3 different cases when the badge has a value:
+diff --git a/shell/browser/electron_browser_client.cc b/shell/browser/electron_browser_client.cc
+index 32ac3a1fc01e9141d5c88852a7de8b65f3d34c5f..27c4a3b047f020c72126824c1d7adf2e51908c24 100644
+--- a/shell/browser/electron_browser_client.cc
++++ b/shell/browser/electron_browser_client.cc
+@@ -921,7 +921,7 @@ void ElectronBrowserClient::GetMediaDeviceIDSalt(
+ 
+ base::FilePath ElectronBrowserClient::GetLoggingFileName(
+     const base::CommandLine& cmd_line) {
+-  return logging::GetLogFileName(cmd_line);
++  return logging::GetElectronLogFileName(cmd_line);
+ }
+ 
+ std::unique_ptr<net::ClientCertStore>
+@@ -1910,7 +1910,7 @@ void ElectronBrowserClient::RegisterBrowserInterfaceBindersForFrame(
+   map->Add<network_hints::mojom::NetworkHintsHandler>(
+       base::BindRepeating(&BindNetworkHintsHandler));
+   map->Add<blink::mojom::BadgeService>(
+-      base::BindRepeating(&badging::BadgeManager::BindFrameReceiver));
++      base::BindRepeating(&electron::badging::BadgeManager::BindFrameReceiver));
+   map->Add<blink::mojom::KeyboardLockService>(base::BindRepeating(
+       &content::KeyboardLockServiceImpl::CreateMojoService));
+   map->Add<media::mojom::OnDeviceSpeechRecognition>(
+@@ -2060,7 +2060,7 @@ void BindBadgeServiceForServiceWorker(
+   if (!render_process_host)
+     return;
+ 
+-  badging::BadgeManager::BindServiceWorkerReceiver(
++  electron::badging::BadgeManager::BindServiceWorkerReceiver(
+       render_process_host, info.scope, std::move(receiver));
+ }
+ 
+diff --git a/shell/browser/extensions/api/extension_action/extension_action_api.cc b/shell/browser/extensions/api/extension_action/extension_action_api.cc
+index d0d494b094c572f4988ff448aa9f0462fa37d9ce..a336b73f729367fb351bb5b152d6da439c67a5f3 100644
+--- a/shell/browser/extensions/api/extension_action/extension_action_api.cc
++++ b/shell/browser/extensions/api/extension_action/extension_action_api.cc
+@@ -17,7 +17,7 @@
+ 
+ using content::WebContents;
+ 
+-namespace extensions {
++namespace extensions::electron_api {
+ 
+ //
+ // ExtensionActionAPI::Observer
+@@ -187,4 +187,4 @@ ActionOpenPopupFunction::RunExtensionAction() {
+   return RespondNow(NoArguments());
+ }
+ 
+-}  // namespace extensions
++}  // namespace extensions::electron_api
+diff --git a/shell/browser/extensions/api/extension_action/extension_action_api.h b/shell/browser/extensions/api/extension_action/extension_action_api.h
+index cb06ef37417f6a203f51e87a0e96d4267543439f..f52f7e76088c2543ba743f15bb09279cc156e7c5 100644
+--- a/shell/browser/extensions/api/extension_action/extension_action_api.h
++++ b/shell/browser/extensions/api/extension_action/extension_action_api.h
+@@ -15,7 +15,7 @@ class BrowserContext;
+ class WebContents;
+ }  // namespace content
+ 
+-namespace extensions {
++namespace extensions::electron_api {
+ 
+ class ExtensionActionAPI : public BrowserContextKeyedAPI {
+  public:
+@@ -68,7 +68,7 @@ class ExtensionActionAPI : public BrowserContextKeyedAPI {
+ 
+   // BrowserContextKeyedAPI implementation.
+   void Shutdown() override;
+-  static const char* service_name() { return "ExtensionActionAPI"; }
++  static const char* service_name() { return "EmbedderExtensionActionAPI"; }
+   static const bool kServiceRedirectedInIncognito = true;
+ };
+ 
+@@ -438,13 +438,11 @@ class BrowserActionOpenPopupFunction : public ExtensionActionOpenPopupFunction {
+   ~BrowserActionOpenPopupFunction() override = default;
+ };
+ 
+-}  // namespace extensions
+-
+ //
+ // pageAction.* aliases for supported pageAction APIs.
+ //
+ 
+-class PageActionShowFunction : public extensions::ExtensionActionShowFunction {
++class PageActionShowFunction : public extensions::electron_api::ExtensionActionShowFunction {
+  public:
+   DECLARE_EXTENSION_FUNCTION("pageAction.show", PAGEACTION_SHOW)
+ 
+@@ -452,7 +450,7 @@ class PageActionShowFunction : public extensions::ExtensionActionShowFunction {
+   ~PageActionShowFunction() override = default;
+ };
+ 
+-class PageActionHideFunction : public extensions::ExtensionActionHideFunction {
++class PageActionHideFunction : public extensions::electron_api::ExtensionActionHideFunction {
+  public:
+   DECLARE_EXTENSION_FUNCTION("pageAction.hide", PAGEACTION_HIDE)
+ 
+@@ -461,7 +459,7 @@ class PageActionHideFunction : public extensions::ExtensionActionHideFunction {
+ };
+ 
+ class PageActionSetIconFunction
+-    : public extensions::ExtensionActionSetIconFunction {
++    : public extensions::electron_api::ExtensionActionSetIconFunction {
+  public:
+   DECLARE_EXTENSION_FUNCTION("pageAction.setIcon", PAGEACTION_SETICON)
+ 
+@@ -470,7 +468,7 @@ class PageActionSetIconFunction
+ };
+ 
+ class PageActionSetTitleFunction
+-    : public extensions::ExtensionActionSetTitleFunction {
++    : public extensions::electron_api::ExtensionActionSetTitleFunction {
+  public:
+   DECLARE_EXTENSION_FUNCTION("pageAction.setTitle", PAGEACTION_SETTITLE)
+ 
+@@ -479,7 +477,7 @@ class PageActionSetTitleFunction
+ };
+ 
+ class PageActionSetPopupFunction
+-    : public extensions::ExtensionActionSetPopupFunction {
++    : public extensions::electron_api::ExtensionActionSetPopupFunction {
+  public:
+   DECLARE_EXTENSION_FUNCTION("pageAction.setPopup", PAGEACTION_SETPOPUP)
+ 
+@@ -488,7 +486,7 @@ class PageActionSetPopupFunction
+ };
+ 
+ class PageActionGetTitleFunction
+-    : public extensions::ExtensionActionGetTitleFunction {
++    : public extensions::electron_api::ExtensionActionGetTitleFunction {
+  public:
+   DECLARE_EXTENSION_FUNCTION("pageAction.getTitle", PAGEACTION_GETTITLE)
+ 
+@@ -497,7 +495,7 @@ class PageActionGetTitleFunction
+ };
+ 
+ class PageActionGetPopupFunction
+-    : public extensions::ExtensionActionGetPopupFunction {
++    : public extensions::electron_api::ExtensionActionGetPopupFunction {
+  public:
+   DECLARE_EXTENSION_FUNCTION("pageAction.getPopup", PAGEACTION_GETPOPUP)
+ 
+@@ -505,4 +503,6 @@ class PageActionGetPopupFunction
+   ~PageActionGetPopupFunction() override = default;
+ };
+ 
++}  // namespace extensions::electron_api
++
+ #endif  // SHELL_BROWSER_EXTENSIONS_API_EXTENSION_ACTION_EXTENSION_ACTION_API_H_
+diff --git a/shell/browser/extensions/api/pdf_viewer_private/pdf_viewer_private_api.cc b/shell/browser/extensions/api/pdf_viewer_private/pdf_viewer_private_api.cc
+index 6965d4004b3943c9a3a3f6ce95bcbd0f6feb4a85..c4b9aed11354eeb26baac6f8b7cecc506f0d6823 100644
+--- a/shell/browser/extensions/api/pdf_viewer_private/pdf_viewer_private_api.cc
++++ b/shell/browser/extensions/api/pdf_viewer_private/pdf_viewer_private_api.cc
+@@ -30,7 +30,7 @@
+ #include "chrome/browser/save_to_drive/save_to_drive_flow.h"
+ #endif  // BUILDFLAG(ENABLE_PDF_SAVE_TO_DRIVE)
+ 
+-namespace extensions {
++namespace extensions::electron_api {
+ 
+ namespace {
+ 
+@@ -269,4 +269,4 @@ PdfViewerPrivateSetPdfPluginAttributesFunction::Run() {
+   return RespondNow(NoArguments());
+ }
+ 
+-}  // namespace extensions
++}  // namespace extensions::electron_api
+diff --git a/shell/browser/extensions/api/pdf_viewer_private/pdf_viewer_private_api.h b/shell/browser/extensions/api/pdf_viewer_private/pdf_viewer_private_api.h
+index b42cfd3a0a1f92c40e16aaf76ea605831e0d3c93..0be9b388780e2e3b276f4a305f7dc6c8772ee8c5 100644
+--- a/shell/browser/extensions/api/pdf_viewer_private/pdf_viewer_private_api.h
++++ b/shell/browser/extensions/api/pdf_viewer_private/pdf_viewer_private_api.h
+@@ -9,7 +9,7 @@
+ #include "extensions/browser/extension_function.h"
+ #include "pdf/buildflags.h"
+ 
+-namespace extensions {
++namespace extensions::electron_api {
+ 
+ class PdfViewerPrivateGetStreamInfoFunction : public ExtensionFunction {
+  public:
+@@ -111,6 +111,6 @@ class PdfViewerPrivateSetPdfPluginAttributesFunction
+   ResponseAction Run() override;
+ };
+ 
+-}  // namespace extensions
++}  // namespace extensions::electron_api
+ 
+ #endif  // ELECTRON_SHELL_BROWSER_EXTENSIONS_API_PDF_VIEWER_PRIVATE_PDF_VIEWER_PRIVATE_API_H_
+diff --git a/shell/browser/extensions/api/resources_private/resources_private_api.cc b/shell/browser/extensions/api/resources_private/resources_private_api.cc
+index 55a677bf89a5783c76bea0c4c019ea2374434b09..9e1ac28a73c3ba66c872e4c524f52f5d83cdf7a8 100644
+--- a/shell/browser/extensions/api/resources_private/resources_private_api.cc
++++ b/shell/browser/extensions/api/resources_private/resources_private_api.cc
+@@ -28,7 +28,7 @@
+ // 2. Create an AddStringsForMyComponent(base::DictValue* dict) method.
+ // 3. Tie in that method to the switch statement in Run()
+ 
+-namespace extensions {
++namespace extensions::electron_api {
+ 
+ namespace get_strings = api::resources_private::GetStrings;
+ 
+@@ -62,4 +62,4 @@ ExtensionFunction::ResponseAction ResourcesPrivateGetStringsFunction::Run() {
+   return RespondNow(WithArguments(std::move(dict)));
+ }
+ 
+-}  // namespace extensions
++}  // namespace extensions::electron_api
+diff --git a/shell/browser/extensions/api/resources_private/resources_private_api.h b/shell/browser/extensions/api/resources_private/resources_private_api.h
+index 99a167c89567d510dc1838bdc6a0077b6be9bf3d..51ed0bab990f39595c1f915e1037763bf157a320 100644
+--- a/shell/browser/extensions/api/resources_private/resources_private_api.h
++++ b/shell/browser/extensions/api/resources_private/resources_private_api.h
+@@ -7,7 +7,7 @@
+ 
+ #include "extensions/browser/extension_function.h"
+ 
+-namespace extensions {
++namespace extensions::electron_api {
+ 
+ class ResourcesPrivateGetStringsFunction : public ExtensionFunction {
+  public:
+@@ -28,6 +28,6 @@ class ResourcesPrivateGetStringsFunction : public ExtensionFunction {
+   ExtensionFunction::ResponseAction Run() override;
+ };
+ 
+-}  // namespace extensions
++}  // namespace extensions::electron_api
+ 
+ #endif  // ELECTRON_SHELL_BROWSER_EXTENSIONS_API_RESOURCES_PRIVATE_RESOURCES_PRIVATE_API_H_
+diff --git a/shell/browser/file_select_helper.cc b/shell/browser/file_select_helper.cc
+index 3f93f9afcf9cbba6e2f0013d6b9a301e6cdc8cdf..004c3b0cd3353e4295fb5ac131ea43961139fbb6 100644
+--- a/shell/browser/file_select_helper.cc
++++ b/shell/browser/file_select_helper.cc
+@@ -44,6 +44,8 @@ using blink::mojom::FileChooserParamsPtr;
+ using content::BrowserThread;
+ using content::WebContents;
+ 
++namespace electron {
++
+ namespace {
+ 
+ void DeleteFiles(std::vector<base::FilePath> paths) {
+@@ -535,3 +537,5 @@ base::FilePath FileSelectHelper::GetSanitizedFileName(
+       GURL(), std::string(), std::string(), suggested_filename.AsUTF8Unsafe(),
+       std::string(), l10n_util::GetStringUTF8(IDS_DEFAULT_DOWNLOAD_FILENAME));
+ }
++
++}  // namespace electron
+diff --git a/shell/browser/file_select_helper.h b/shell/browser/file_select_helper.h
+index 7bd21ab5096bc40d284a0cbd3a3b2f0f7d386b74..6df44af0a7cf694178753534f582864f945a2c33 100644
+--- a/shell/browser/file_select_helper.h
++++ b/shell/browser/file_select_helper.h
+@@ -26,6 +26,8 @@ namespace ui {
+ struct SelectedFileInfo;
+ }
+ 
++namespace electron {
++
+ // This class handles file-selection requests coming from renderer processes.
+ // It implements both the initialisation and listener functions for
+ // file-selection dialogs.
+@@ -208,4 +210,6 @@ class FileSelectHelper : public base::RefCountedThreadSafe<
+   std::vector<base::FilePath> temporary_files_;
+ };
+ 
++}  // namespace electron
++
+ #endif  // ELECTRON_SHELL_BROWSER_FILE_SELECT_HELPER_H_
+diff --git a/shell/browser/file_select_helper_mac.mm b/shell/browser/file_select_helper_mac.mm
+index 2fd2d99b9f2cb99fc856a3e7bab728657f44c9e9..9ce3e6d5317995b0935e6e7574d712cc027a5adc 100644
+--- a/shell/browser/file_select_helper_mac.mm
++++ b/shell/browser/file_select_helper_mac.mm
+@@ -19,6 +19,8 @@
+ #include "third_party/zlib/google/zip.h"
+ #include "ui/shell_dialogs/selected_file_info.h"
+ 
++namespace electron {
++
+ namespace {
+ 
+ // Given the |path| of a package, returns the destination that the package
+@@ -144,3 +146,5 @@
+ 
+   ConvertToFileChooserFileInfoList(files);
+ }
++
++}  // namespace electron
+diff --git a/shell/browser/plugins/plugin_utils.cc b/shell/browser/plugins/plugin_utils.cc
+index a30b7c9bd6af9cadfb861200d01567e16ee40c36..7dba1c9dd5682e6da580ad6c36dd1a2f0e3e9dfd 100644
+--- a/shell/browser/plugins/plugin_utils.cc
++++ b/shell/browser/plugins/plugin_utils.cc
+@@ -19,6 +19,8 @@
+ #include "extensions/common/manifest_handlers/mime_types_handler.h"
+ #endif
+ 
++namespace electron {
++
+ // static
+ std::string PluginUtils::GetExtensionIdForMimeType(
+     content::BrowserContext* browser_context,
+@@ -62,3 +64,5 @@ PluginUtils::GetMimeTypeToExtensionIdMap(
+ 
+   return mime_type_to_extension_id_map;
+ }
++
++}  // namespace electron
+diff --git a/shell/browser/plugins/plugin_utils.h b/shell/browser/plugins/plugin_utils.h
+index e47f0f4bf6e4d9622d6d7758837626b3a6d3dbc2..f0860d706e898b2a23a5846ae8a338984bc6b9d3 100644
+--- a/shell/browser/plugins/plugin_utils.h
++++ b/shell/browser/plugins/plugin_utils.h
+@@ -13,6 +13,8 @@ namespace content {
+ class BrowserContext;
+ }
+ 
++namespace electron {
++
+ class PluginUtils {
+  public:
+   // disable copy
+@@ -34,4 +36,6 @@ class PluginUtils {
+       content::BrowserContext* browser_context);
+ };
+ 
++}  // namespace electron
++
+ #endif  // ELECTRON_SHELL_BROWSER_PLUGINS_PLUGIN_UTILS_H_
+diff --git a/shell/common/logging.cc b/shell/common/logging.cc
+index a598bf911ac2bba3b160108296e05d5ebe6ae58e..de84163afc89037812c21ed041d08ee7dc928eff 100644
+--- a/shell/common/logging.cc
++++ b/shell/common/logging.cc
+@@ -53,7 +53,7 @@ base::win::ScopedHandle GetLogInheritedHandle(
+ }
+ #endif
+ 
+-base::FilePath GetLogFileName(const base::CommandLine& command_line) {
++base::FilePath GetElectronLogFileName(const base::CommandLine& command_line) {
+   std::string filename = command_line.GetSwitchValueASCII(switches::kLogFile);
+   if (filename.empty())
+     filename = base::Environment::Create()->GetVar(kLogFileName).value_or("");
+@@ -174,7 +174,7 @@ void InitElectronLogging(const base::CommandLine& command_line,
+       }
+ #endif
+     } else {
+-      log_path = GetLogFileName(command_line);
++      log_path = GetElectronLogFileName(command_line);
+     }
+   } else {
+     log_locking_state = DONT_LOCK_LOG_FILE;
+diff --git a/shell/common/logging.h b/shell/common/logging.h
+index c6b35b08fee3d6ec5dc87a5c881b40b9116c81cb..09c3069cef277ebabc16a67c41f785cfeed81ca2 100644
+--- a/shell/common/logging.h
++++ b/shell/common/logging.h
+@@ -15,7 +15,7 @@ namespace logging {
+ void InitElectronLogging(const base::CommandLine& command_line,
+                          bool is_preinit);
+ 
+-base::FilePath GetLogFileName(const base::CommandLine& command_line);
++base::FilePath GetElectronLogFileName(const base::CommandLine& command_line);
+ 
+ }  // namespace logging
+ 

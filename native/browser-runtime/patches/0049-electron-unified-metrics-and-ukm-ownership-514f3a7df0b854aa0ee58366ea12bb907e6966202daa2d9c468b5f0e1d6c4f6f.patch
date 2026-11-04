@@ -1,0 +1,352 @@
+diff --git a/BUILD.gn b/BUILD.gn
+index 01cf8cd5a6b6a4bc94e94361a7fa07a9d6ce8ed6..6ce5ef9af1415f1f3af5c6f0269a6a03a4b99544 100644
+--- a/BUILD.gn
++++ b/BUILD.gn
+@@ -553,6 +553,11 @@ source_set("electron_lib") {
+     "//chrome/browser/media",
+     "//chrome/browser/permissions",
+     "//components/sessions",
++    "//components/metrics_services_manager",
++    "//components/ukm",
++    "//components/variations",
++    "//chrome/browser/segmentation_platform",
++    "//components/segmentation_platform/public",
+     "//chrome/browser/net:net",
+     "//chrome/browser/net:impl",
+     "//chrome/browser/ssl:impl",
+diff --git a/shell/browser/browser_process_impl.cc b/shell/browser/browser_process_impl.cc
+index 68b37bccef34b11dfd219d89bdcb73e4a97cfa2d..f783ea26703c78804b847cced696a37252a0614c 100644
+--- a/shell/browser/browser_process_impl.cc
++++ b/shell/browser/browser_process_impl.cc
+@@ -50,6 +50,9 @@
+ #include "chrome/browser/profiles/profile_manager.h"
+ #include "chrome/browser/profiles/profiles_state.h"
+ #include "chrome/browser/ssl/ssl_config_service_manager.h"
++#include "chrome/browser/segmentation_platform/ukm_database_client.h"
++#include "components/segmentation_platform/public/local_state_helper.h"
++#include "components/metrics_services_manager/metrics_services_manager.h"
+ #include "components/policy/core/browser/browser_policy_connector.h"
+ #include "content/public/browser/web_contents.h"
+ #include "shell/browser/browser.h"
+@@ -311,7 +314,7 @@ void ElectronBrowserProcessImpl::PreCreateThreads() {
+ 
+   // Needs to be called here as per
+   // https://source.chromium.org/chromium/chromium/src/+/main:chrome/browser/chrome_browser_main.cc;l=1385-1389;drc=c3bda003554dad21313fb24b7a4f3e1aae6102d9.
+-  CreateMetricsServiceClient();
++  CreateMetricsServicesManager();
+ 
+   InitializeNativeProfileServices();
+ }
+@@ -336,11 +339,18 @@ void ElectronBrowserProcessImpl::PreMainMessageLoopRun() {
+   if (profile_manager_)
+     safe_browsing_service();
+ #endif
++  if (profile_manager_) {
++    segmentation_platform::UkmDatabaseClientHolder::GetClientInstance(nullptr)
++        .PreProfileInit(/*in_memory_database=*/false);
++    native_segmentation_initialized_ = true;
++  }
+ }
+ 
+ void ElectronBrowserProcessImpl::InitializeNativeProfileServices() {
+   if (IsNativeProfileProbeEnabled()) {
+     platform_part_ = std::make_unique<BrowserProcessPlatformPart>();
++    segmentation_platform::LocalStateHelper::GetInstance().Initialize(
++        local_state_.get());
+     update_client::UpdateQueryParams::SetDelegate(
+         ChromeUpdateQueryParamsDelegate::GetInstance());
+     ChromePermissionsClient::GetInstance();
+@@ -394,6 +404,11 @@ void ElectronBrowserProcessImpl::PostMainMessageLoopRun() {
+   shutting_down_ = true;
+   if (features_initialized_)
+     features_->PostMainMessageLoopRun();
++  if (native_segmentation_initialized_) {
++    segmentation_platform::UkmDatabaseClientHolder::GetClientInstance(nullptr)
++        .PostMessageLoopRun();
++  }
++  metrics_services_manager_.reset();
+ 
+ #if BUILDFLAG(SAFE_BROWSING_AVAILABLE)
+   if (safe_browsing_service_)
+@@ -444,12 +459,13 @@ bool ElectronBrowserProcessImpl::IsShuttingDown() {
+ 
+ metrics_services_manager::MetricsServicesManager*
+ ElectronBrowserProcessImpl::GetMetricsServicesManager() {
+-  return nullptr;
++  return metrics_services_manager_.get();
+ }
+ 
+ metrics::MetricsService* ElectronBrowserProcessImpl::metrics_service() {
+-  return metrics_service_client_ ? metrics_service_client_->GetMetricsService()
+-                                 : nullptr;
++  return metrics_services_manager_
++             ? metrics_services_manager_->GetMetricsService()
++             : nullptr;
+ }
+ 
+ ProfileManager* ElectronBrowserProcessImpl::profile_manager() {
+@@ -808,9 +824,14 @@ void ElectronBrowserProcessImpl::CreateOSCryptAsync() {
+       std::make_unique<os_crypt_async::OSCryptAsync>(std::move(providers));
+ }
+ 
+-void ElectronBrowserProcessImpl::CreateMetricsServiceClient() {
+-  metrics_service_client_ =
+-      std::make_unique<electron::ElectronMetricsServiceClient>();
++void ElectronBrowserProcessImpl::CreateMetricsServicesManager() {
++  metrics_services_manager_ =
++      std::make_unique<metrics_services_manager::MetricsServicesManager>(
++          std::make_unique<electron::ElectronMetricsServicesManagerClient>(
++              local_state_.get()));
++  // Preserve the existing non-consenting policy and initialize one shared
++  // metrics client, state manager, synthetic registry and UKM service.
++  metrics_services_manager_->UpdateUploadPermissions(false);
+ }
+ 
+ 
+diff --git a/shell/browser/browser_process_impl.h b/shell/browser/browser_process_impl.h
+index 2378a357b605a00726339dca7f206977386b0e74..9eec0bec0814ed5d47646c68ac21639627ffa855 100644
+--- a/shell/browser/browser_process_impl.h
++++ b/shell/browser/browser_process_impl.h
+@@ -179,7 +179,7 @@ class ElectronBrowserProcessImpl : public BrowserProcess {
+   void CreateNetworkTimeTracker();
+   void InitializeNetworkTimeTracker();
+   void CreateOSCryptAsync();
+-  void CreateMetricsServiceClient();
++  void CreateMetricsServicesManager();
+   network::NetworkQualityTracker* GetNetworkQualityTracker();
+ 
+ #if BUILDFLAG(ENABLE_PRINTING)
+@@ -205,7 +205,9 @@ class ElectronBrowserProcessImpl : public BrowserProcess {
+       network_quality_observer_;
+   std::unique_ptr<supervised_user::DeviceParentalControls>
+       device_parental_controls_;
+-  std::unique_ptr<metrics::MetricsServiceClient> metrics_service_client_;
++  std::unique_ptr<metrics_services_manager::MetricsServicesManager>
++      metrics_services_manager_;
++  bool native_segmentation_initialized_ = false;
+ 
+   std::unique_ptr<os_crypt_async::OSCryptAsync> os_crypt_async_;
+   std::unique_ptr<network_time::NetworkTimeTracker> network_time_tracker_;
+diff --git a/shell/browser/metrics/electron_metrics_service_client.cc b/shell/browser/metrics/electron_metrics_service_client.cc
+index 70106c046848561848ad695f8fc00c6cf57d4b74..9d971ee0b4b459b502070e1b2a48496746558a1c 100644
+--- a/shell/browser/metrics/electron_metrics_service_client.cc
++++ b/shell/browser/metrics/electron_metrics_service_client.cc
+@@ -10,6 +10,12 @@
+ #include "base/files/file_path.h"
+ #include "base/version_info/channel.h"
+ #include "chrome/browser/browser_process.h"
++#include "chrome/browser/profiles/profile.h"
++#include "chrome/browser/profiles/profile_manager.h"
++#include "components/ukm/ukm_service.h"
++#include "components/variations/service/variations_service.h"
++#include "services/network/public/cpp/shared_url_loader_factory.h"
++#include "shell/browser/electron_browser_context.h"
+ #include "components/metrics/metrics_service.h"
+ #include "components/metrics/metrics_state_manager.h"
+ #include "components/metrics/version_utils.h"
+@@ -20,19 +26,16 @@
+ 
+ namespace electron {
+ 
+-ElectronMetricsServiceClient::ElectronMetricsServiceClient()
+-    : synthetic_trial_registry_(
+-          std::make_unique<variations::SyntheticTrialRegistry>()),
+-      metrics_state_manager_(metrics::MetricsStateManager::Create(
+-          g_browser_process->local_state(),
+-          this,
+-          std::wstring(),
+-          base::FilePath(),
+-          metrics::StartupVisibility::kUnknown)),
++ElectronMetricsServiceClient::ElectronMetricsServiceClient(
++    metrics::MetricsStateManager* state_manager,
++    variations::SyntheticTrialRegistry* synthetic_trial_registry)
++    : synthetic_trial_registry_(synthetic_trial_registry),
+       metrics_service_(std::make_unique<metrics::MetricsService>(
+-          metrics_state_manager_.get(),
+-          this,
+-          g_browser_process->local_state())) {
++          state_manager, this, g_browser_process->local_state())),
++      ukm_service_(std::make_unique<ukm::UkmService>(
++          g_browser_process->local_state(), this, nullptr)) {
++  CHECK(state_manager);
++  CHECK(synthetic_trial_registry_);
+   RegisterMetricsServiceProviders();
+ }
+ 
+@@ -42,17 +45,22 @@ ElectronMetricsServiceClient::~ElectronMetricsServiceClient() = default;
+ void ElectronMetricsServiceClient::RegisterMetricsPrefs(
+     PrefRegistrySimple* registry) {
+   metrics::MetricsService::RegisterPrefs(registry);
++  ukm::UkmService::RegisterPrefs(registry);
+ }
+ 
+ variations::SyntheticTrialRegistry*
+ ElectronMetricsServiceClient::GetSyntheticTrialRegistry() {
+-  return synthetic_trial_registry_.get();
++  return synthetic_trial_registry_;
+ }
+ 
+ metrics::MetricsService* ElectronMetricsServiceClient::GetMetricsService() {
+   return metrics_service_.get();
+ }
+ 
++ukm::UkmService* ElectronMetricsServiceClient::GetUkmService() {
++  return ukm_service_.get();
++}
++
+ void ElectronMetricsServiceClient::SetMetricsClientId(
+     const std::string& client_id) {}
+ 
+@@ -108,7 +116,65 @@ base::TimeDelta ElectronMetricsServiceClient::GetStandardUploadInterval() {
+   return base::TimeDelta::FiniteMax();
+ }
+ 
+-bool ElectronMetricsServiceClient::IsConsentGiven() const {
++ElectronMetricsServicesManagerClient::ElectronMetricsServicesManagerClient(
++    PrefService* local_state)
++    : local_state_(local_state) {
++  CHECK(local_state_);
++}
++
++ElectronMetricsServicesManagerClient::~ElectronMetricsServicesManagerClient() =
++    default;
++
++std::unique_ptr<variations::VariationsService>
++ElectronMetricsServicesManagerClient::CreateVariationsService() {
++  // This embedder retains its local feature configuration.
++  return nullptr;
++}
++
++std::unique_ptr<metrics::MetricsServiceClient>
++ElectronMetricsServicesManagerClient::CreateMetricsServiceClient(
++    variations::SyntheticTrialRegistry* synthetic_trial_registry) {
++  return std::make_unique<ElectronMetricsServiceClient>(
++      GetMetricsStateManager(), synthetic_trial_registry);
++}
++
++metrics::MetricsStateManager*
++ElectronMetricsServicesManagerClient::GetMetricsStateManager() {
++  if (!metrics_state_manager_) {
++    metrics_state_manager_ = metrics::MetricsStateManager::Create(
++        local_state_, this, std::wstring(), base::FilePath(),
++        metrics::StartupVisibility::kUnknown);
++    CHECK(metrics_state_manager_);
++  }
++  return metrics_state_manager_.get();
++}
++
++scoped_refptr<network::SharedURLLoaderFactory>
++ElectronMetricsServicesManagerClient::GetURLLoaderFactory() {
++  return g_browser_process->shared_url_loader_factory();
++}
++
++const metrics::EnabledStateProvider&
++ElectronMetricsServicesManagerClient::GetEnabledStateProvider() {
++  return *this;
++}
++
++bool ElectronMetricsServicesManagerClient::IsOffTheRecordSessionActive() {
++  for (auto* context : ElectronBrowserContext::BrowserContexts()) {
++    if (context->IsOffTheRecord())
++      return true;
++  }
++  if (auto* manager = g_browser_process->profile_manager()) {
++    for (auto* profile : manager->GetLoadedProfiles()) {
++      if (profile->IsOffTheRecord() || profile->HasAnyOffTheRecordProfile())
++        return true;
++    }
++  }
++  return false;
++}
++
++bool ElectronMetricsServicesManagerClient::IsConsentGiven() const {
++  // Preserve the existing embedder consent policy for both UMA and UKM.
+   return false;
+ }
+ 
+diff --git a/shell/browser/metrics/electron_metrics_service_client.h b/shell/browser/metrics/electron_metrics_service_client.h
+index ea7dfc79bc4eb3467cfdb27340fae3f2acbc8f46..a1f4f0edb4823c46104a49b8ad4846fc1f76a9df 100644
+--- a/shell/browser/metrics/electron_metrics_service_client.h
++++ b/shell/browser/metrics/electron_metrics_service_client.h
+@@ -7,9 +7,17 @@
+ 
+ #include <memory>
+ 
++#include "base/memory/raw_ptr.h"
+ #include "components/metrics/enabled_state_provider.h"
++#include "components/metrics_services_manager/metrics_services_manager_client.h"
+ #include "components/metrics/metrics_service_client.h"
+ 
++class PrefService;
++
++namespace ukm {
++class UkmService;
++}
++
+ namespace metrics {
+ class MetricsService;
+ class MetricsStateManager;
+@@ -21,10 +29,11 @@ class SyntheticTrialRegistry;
+ 
+ namespace electron {
+ 
+-class ElectronMetricsServiceClient : public metrics::MetricsServiceClient,
+-                                     public metrics::EnabledStateProvider {
++class ElectronMetricsServiceClient : public metrics::MetricsServiceClient {
+  public:
+-  ElectronMetricsServiceClient();
++  ElectronMetricsServiceClient(
++      metrics::MetricsStateManager* state_manager,
++      variations::SyntheticTrialRegistry* synthetic_trial_registry);
+   ~ElectronMetricsServiceClient() override;
+ 
+   // disable copy
+@@ -37,6 +46,7 @@ class ElectronMetricsServiceClient : public metrics::MetricsServiceClient,
+   // metrics::MetricsServiceClient:
+   variations::SyntheticTrialRegistry* GetSyntheticTrialRegistry() override;
+   metrics::MetricsService* GetMetricsService() override;
++  ukm::UkmService* GetUkmService() override;
+   void SetMetricsClientId(const std::string& client_id) override;
+   int32_t GetProduct() override;
+   std::string GetApplicationLocale() override;
+@@ -55,15 +65,35 @@ class ElectronMetricsServiceClient : public metrics::MetricsServiceClient,
+       override;
+   base::TimeDelta GetStandardUploadInterval() override;
+ 
+-  // metrics::EnabledStateProvider:
+-  bool IsConsentGiven() const override;
+-
+  private:
+   void RegisterMetricsServiceProviders();
+ 
+-  std::unique_ptr<variations::SyntheticTrialRegistry> synthetic_trial_registry_;
+-  std::unique_ptr<metrics::MetricsStateManager> metrics_state_manager_;
++  const raw_ptr<variations::SyntheticTrialRegistry> synthetic_trial_registry_;
+   std::unique_ptr<metrics::MetricsService> metrics_service_;
++  std::unique_ptr<ukm::UkmService> ukm_service_;
++};
++
++// The manager destroys the service client before this state owner.
++class ElectronMetricsServicesManagerClient
++    : public metrics_services_manager::MetricsServicesManagerClient,
++      public metrics::EnabledStateProvider {
++ public:
++  explicit ElectronMetricsServicesManagerClient(PrefService* local_state);
++  ~ElectronMetricsServicesManagerClient() override;
++
++  std::unique_ptr<variations::VariationsService>
++  CreateVariationsService() override;
++  std::unique_ptr<metrics::MetricsServiceClient> CreateMetricsServiceClient(
++      variations::SyntheticTrialRegistry* synthetic_trial_registry) override;
++  metrics::MetricsStateManager* GetMetricsStateManager() override;
++  scoped_refptr<network::SharedURLLoaderFactory> GetURLLoaderFactory() override;
++  const metrics::EnabledStateProvider& GetEnabledStateProvider() override;
++  bool IsOffTheRecordSessionActive() override;
++  bool IsConsentGiven() const override;
++
++ private:
++  const raw_ptr<PrefService> local_state_;
++  std::unique_ptr<metrics::MetricsStateManager> metrics_state_manager_;
+ };
+ 
+ }  // namespace electron

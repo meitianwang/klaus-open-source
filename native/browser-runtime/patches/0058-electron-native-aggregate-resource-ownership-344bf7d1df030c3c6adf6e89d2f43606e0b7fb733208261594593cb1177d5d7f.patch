@@ -1,0 +1,42 @@
+diff --git a/build/electron_paks.gni b/build/electron_paks.gni
+index f40f0f3880633c83e473a3bbc0c740ddb63a25d6..fead9de65222c0f38a5d1185ab44370bc200e131 100644
+--- a/build/electron_paks.gni
++++ b/build/electron_paks.gni
+@@ -31,15 +31,11 @@ template("electron_extra_paks") {
+                            ])
+     output_dir = invoker.output_dir
+     sources = [
+-      "$root_gen_dir/chrome/accessibility_resources.pak",
+       "$root_gen_dir/chrome/browser_resources.pak",
+       "$root_gen_dir/chrome/common_resources.pak",
+       "$root_gen_dir/components/components_resources.pak",
+-      "$root_gen_dir/content/browser/resources/media/media_internals_resources.pak",
+       "$root_gen_dir/content/browser/tracing/tracing_resources.pak",
+-      "$root_gen_dir/content/browser/webrtc/resources/webrtc_internals_resources.pak",
+       "$root_gen_dir/content/content_resources.pak",
+-      "$root_gen_dir/content/gpu_resources.pak",
+       "$root_gen_dir/mojo/public/js/mojo_bindings_resources.pak",
+       "$root_gen_dir/net/net_resources.pak",
+       "$root_gen_dir/services/device/public/cpp/usb/usb_ids_resources.pak",
+@@ -87,21 +83,14 @@ template("electron_extra_paks") {
+       "$root_gen_dir/components/gcm_internals_resources.pak",
+       "$root_gen_dir/components/internal_debug_pages_disabled_resources.pak",
+       "$root_gen_dir/components/net_export_resources.pak",
+-      "$root_gen_dir/components/ntp_tiles_internals_resources.pak",
+       "$root_gen_dir/components/regional_capabilities_internals_resources.pak",
+       "$root_gen_dir/components/safe_browsing_resources.pak",
+-      "$root_gen_dir/components/signin_internals_resources.pak",
+       "$root_gen_dir/components/translate_internals_resources.pak",
+-      "$root_gen_dir/components/ukm_resources.pak",
+       "$root_gen_dir/components/user_actions_ui_resources.pak",
+       "$root_gen_dir/components/version_ui_resources.pak",
+-      "$root_gen_dir/content/browser/devtools/devtools_resources.pak",
+       "$root_gen_dir/content/histograms_resources.pak",
+       "$root_gen_dir/content/indexed_db_resources.pak",
+-      "$root_gen_dir/content/network_errors_resources.pak",
+-      "$root_gen_dir/content/process_resources.pak",
+       "$root_gen_dir/content/quota_internals_resources.pak",
+-      "$root_gen_dir/content/service_worker_resources.pak",
+       "$root_gen_dir/content/traces_internals_resources.pak",
+       "$root_gen_dir/ui/resources/ui_lottie_resources.pak",
+       "$root_gen_dir/ui/webui/resources/webui_resources.pak",

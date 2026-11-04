@@ -1,0 +1,94 @@
+diff --git a/BUILD.gn b/BUILD.gn
+index 03da5b7ba8ecb4f45a0cdd6c5443847055f4cdd4..cb4740d879ab3b3c200dc1600e53c45afd3d8c43 100644
+--- a/BUILD.gn
++++ b/BUILD.gn
+@@ -582,6 +582,7 @@ source_set("electron_lib") {
+     "//chrome/renderer:renderer",
+     "//components/autofill/core/common:features",
+     "//components/find_in_page",
++    "//components/permissions",
+     "//components/certificate_transparency",
+     "//components/compose:buildflags",
+     "//components/embedder_support:user_agent",
+diff --git a/shell/browser/api/electron_api_native_browser.cc b/shell/browser/api/electron_api_native_browser.cc
+index cc85fe4926e418c92a28f8109bf445d194caec6e..92ac59a5f5651bb3394252366f6bce2bdab05772 100644
+--- a/shell/browser/api/electron_api_native_browser.cc
++++ b/shell/browser/api/electron_api_native_browser.cc
+@@ -33,6 +33,9 @@
+ #include "chrome/browser/extensions/extension_management.h"
+ #include "chrome/browser/profiles/profile.h"
+ #include "chrome/browser/profiles/profile_manager.h"
++#include "chrome/browser/permissions/permission_manager_factory.h"
++#include "components/permissions/host_permission_scope.h"
++#include "components/permissions/permission_manager.h"
+ #include "chrome/browser/supervised_user/supervised_user_browser_utils.h"
+ #include "chrome/common/pref_names.h"
+ #include "components/prefs/pref_service.h"
+@@ -481,6 +484,8 @@ class NativeBrowser final : public gin_helper::TrackableObject<NativeBrowser>,
+         .SetMethod("getZoomFactor", &NativeBrowser::GetZoomFactor)
+         .SetMethod("find", &NativeBrowser::Find)
+         .SetMethod("stopFind", &NativeBrowser::StopFind)
++        .SetMethod("setPermission", &NativeBrowser::SetPermission)
++        .SetMethod("resetPermissions", &NativeBrowser::ResetPermissions)
+         .SetMethod("getState", &NativeBrowser::GetState)
+         .SetMethod("startRequest", &NativeBrowser::StartRequest)
+         .SetMethod("readRequest", &NativeBrowser::ReadRequest)
+@@ -551,6 +556,58 @@ class NativeBrowser final : public gin_helper::TrackableObject<NativeBrowser>,
+           ? find_in_page::SelectionAction::kClear
+           : find_in_page::SelectionAction::kKeep);
+   }
++  void SetPermission(const GURL& origin_url, const std::string& name,
++                     const std::string& setting, gin::Arguments* args) {
++    if (IsClosed() || !origin_url.SchemeIsHTTPOrHTTPS()) {
++      args->ThrowTypeError("A live native page and HTTP origin are required");
++      return;
++    }
++    std::optional<ContentSettingsType> type;
++    if (name == "geolocation")
++      type = ContentSettingsType::GEOLOCATION;
++    else if (name == "notifications")
++      type = ContentSettingsType::NOTIFICATIONS;
++    else if (name == "camera" || name == "videoCapture")
++      type = ContentSettingsType::MEDIASTREAM_CAMERA;
++    else if (name == "microphone" || name == "audioCapture")
++      type = ContentSettingsType::MEDIASTREAM_MIC;
++    if (!type || (setting != "granted" && setting != "denied" &&
++                  setting != "prompt")) {
++      args->ThrowTypeError("The native task permission or setting is unsupported");
++      return;
++    }
++    Profile* profile = browser_->GetProfile();
++    auto* scope = permissions::HostPermissionScope::GetOrCreateForWebContents(
++        web_contents(), base::BindRepeating(
++            [](Profile* profile, const url::Origin& requesting,
++               const url::Origin& embedding, ContentSettingsType type) {
++              auto* manager = PermissionManagerFactory::GetForProfile(profile);
++              if (!manager)
++                return;
++              manager->NotifyHostPermissionScopeChanged(requesting, embedding,
++                                                       type);
++              if (type == ContentSettingsType::GEOLOCATION)
++                manager->NotifyHostPermissionScopeChanged(
++                    requesting, embedding,
++                    ContentSettingsType::GEOLOCATION_WITH_OPTIONS);
++            }, profile));
++    const auto origin = url::Origin::Create(origin_url);
++    if (setting == "prompt") {
++      scope->Reset(origin, origin, *type);
++    } else if (!scope->Set(origin, origin, *type,
++                 setting == "granted"
++                     ? permissions::HostPermissionScope::Setting::kAllow
++                     : permissions::HostPermissionScope::Setting::kDeny)) {
++      args->ThrowTypeError("The native task permission is unsupported");
++    }
++  }
++  void ResetPermissions() {
++    if (!web_contents())
++      return;
++    if (auto* scope = permissions::HostPermissionScope::FromWebContents(
++            web_contents()))
++      scope->Reset(std::nullopt, std::nullopt, std::nullopt);
++  }
+   base::DictValue GetState() const {
+     base::DictValue state;
+     state.Set("url", GetURL());

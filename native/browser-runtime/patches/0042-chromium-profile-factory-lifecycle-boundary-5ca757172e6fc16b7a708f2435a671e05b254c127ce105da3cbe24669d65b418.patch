@@ -1,0 +1,175 @@
+diff --git a/chrome/browser/profiles/profile_keyed_service_factory.cc b/chrome/browser/profiles/profile_keyed_service_factory.cc
+index 538d21ca24e0f989bbc490851b1f89cdb8056520..ceb370a6acc8eedefe519f244d8b818d5378a972 100644
+--- a/chrome/browser/profiles/profile_keyed_service_factory.cc
++++ b/chrome/browser/profiles/profile_keyed_service_factory.cc
+@@ -20,6 +20,11 @@ ProfileKeyedServiceFactory::ProfileKeyedServiceFactory(
+ 
+ ProfileKeyedServiceFactory::~ProfileKeyedServiceFactory() = default;
+ 
++bool ProfileKeyedServiceFactory::SupportsBrowserContextLifecycle(
++    content::BrowserContext* context) const {
++  return context && context->IsBrowserProfile();
++}
++
+ content::BrowserContext* ProfileKeyedServiceFactory::GetBrowserContextToUse(
+     content::BrowserContext* context) const {
+   // Never downcast an unknown BrowserContext. Only a real browser Profile may
+diff --git a/chrome/browser/profiles/profile_keyed_service_factory.h b/chrome/browser/profiles/profile_keyed_service_factory.h
+index 3ac7d5e195761351c3334f2f1b6c4f672db51632..4694a551ea2d89ced4451cb26ac0c6f6fc8b4c65 100644
+--- a/chrome/browser/profiles/profile_keyed_service_factory.h
++++ b/chrome/browser/profiles/profile_keyed_service_factory.h
+@@ -76,6 +76,8 @@ class ProfileKeyedServiceFactory : public BrowserContextKeyedServiceFactory {
+   // mapping in `ProfileSelections`.
+   content::BrowserContext* GetBrowserContextToUse(
+       content::BrowserContext* context) const final;
++  bool SupportsBrowserContextLifecycle(
++      content::BrowserContext* context) const final;
+ 
+  private:
+   friend class profiles::testing::ScopedProfileSelectionsForFactoryTesting;
+diff --git a/chrome/browser/profiles/refcounted_profile_keyed_service_factory.cc b/chrome/browser/profiles/refcounted_profile_keyed_service_factory.cc
+index 9a0f983274f7d2d6268cf9cf25bc8b0a59ba6c08..dceba46edb3bd4a41dd672ab887b25f574c0f795 100644
+--- a/chrome/browser/profiles/refcounted_profile_keyed_service_factory.cc
++++ b/chrome/browser/profiles/refcounted_profile_keyed_service_factory.cc
+@@ -24,6 +24,11 @@ RefcountedProfileKeyedServiceFactory::RefcountedProfileKeyedServiceFactory(
+ RefcountedProfileKeyedServiceFactory::~RefcountedProfileKeyedServiceFactory() =
+     default;
+ 
++bool RefcountedProfileKeyedServiceFactory::SupportsBrowserContextLifecycle(
++    content::BrowserContext* context) const {
++  return context && context->IsBrowserProfile();
++}
++
+ content::BrowserContext*
+ RefcountedProfileKeyedServiceFactory::GetBrowserContextToUse(
+     content::BrowserContext* context) const {
+diff --git a/chrome/browser/profiles/refcounted_profile_keyed_service_factory.h b/chrome/browser/profiles/refcounted_profile_keyed_service_factory.h
+index 8b41eec8b65c9376215de461dc443848e5570de1..b6900822e98b5e0540338027bd243388133b8d20 100644
+--- a/chrome/browser/profiles/refcounted_profile_keyed_service_factory.h
++++ b/chrome/browser/profiles/refcounted_profile_keyed_service_factory.h
+@@ -42,6 +42,8 @@ class RefcountedProfileKeyedServiceFactory
+   // mapping in `ProfileSelections`.
+   content::BrowserContext* GetBrowserContextToUse(
+       content::BrowserContext* context) const final;
++  bool SupportsBrowserContextLifecycle(
++      content::BrowserContext* context) const final;
+ 
+  private:
+   const ProfileSelections profile_selections_;
+diff --git a/components/keyed_service/content/browser_context_keyed_service_factory.cc b/components/keyed_service/content/browser_context_keyed_service_factory.cc
+index 0b3136f292536ffcc7e3a9e3516952836f106554..4c8de74c05c571074b2c5da2b92c955cc75e0a2f 100644
+--- a/components/keyed_service/content/browser_context_keyed_service_factory.cc
++++ b/components/keyed_service/content/browser_context_keyed_service_factory.cc
+@@ -81,6 +81,11 @@ bool BrowserContextKeyedServiceFactory::ServiceIsNULLWhileTesting() const {
+   return KeyedServiceBaseFactory::ServiceIsNULLWhileTesting();
+ }
+ 
++bool BrowserContextKeyedServiceFactory::SupportsBrowserContextLifecycle(
++    content::BrowserContext* context) const {
++  return true;
++}
++
+ void BrowserContextKeyedServiceFactory::BrowserContextShutdown(
+     content::BrowserContext* context) {
+   KeyedServiceFactory::ContextShutdown(context);
+@@ -109,11 +114,21 @@ bool BrowserContextKeyedServiceFactory::ServiceIsCreatedWithContext() const {
+ }
+ 
+ void BrowserContextKeyedServiceFactory::ContextShutdown(void* context) {
+-  BrowserContextShutdown(static_cast<content::BrowserContext*>(context));
++  auto* browser_context = static_cast<content::BrowserContext*>(context);
++  if (!SupportsBrowserContextLifecycle(browser_context)) {
++    KeyedServiceFactory::ContextShutdown(context);
++    return;
++  }
++  BrowserContextShutdown(browser_context);
+ }
+ 
+ void BrowserContextKeyedServiceFactory::ContextDestroyed(void* context) {
+-  BrowserContextDestroyed(static_cast<content::BrowserContext*>(context));
++  auto* browser_context = static_cast<content::BrowserContext*>(context);
++  if (!SupportsBrowserContextLifecycle(browser_context)) {
++    KeyedServiceFactory::ContextDestroyed(context);
++    return;
++  }
++  BrowserContextDestroyed(browser_context);
+ }
+ 
+ void BrowserContextKeyedServiceFactory::RegisterPrefs(
+diff --git a/components/keyed_service/content/browser_context_keyed_service_factory.h b/components/keyed_service/content/browser_context_keyed_service_factory.h
+index ea1accad0e594eb0f3be840f67467692e6bc5a70..33a60a5924546abcbc99f157fbe58bc6a85e903a 100644
+--- a/components/keyed_service/content/browser_context_keyed_service_factory.h
++++ b/components/keyed_service/content/browser_context_keyed_service_factory.h
+@@ -129,6 +129,11 @@ class KEYED_SERVICE_EXPORT BrowserContextKeyedServiceFactory
+ 
+   // Interface for people building a concrete FooServiceFactory: --------------
+ 
++  // Whether context-specific lifecycle hooks support this context type. This
++  // is independent of service redirection, including off-the-record selection.
++  virtual bool SupportsBrowserContextLifecycle(
++      content::BrowserContext* context) const;
++
+   // Finds which browser context (if any) to use.
+   //
+   // Should return nullptr when the service should not be created for the given
+diff --git a/components/keyed_service/content/refcounted_browser_context_keyed_service_factory.cc b/components/keyed_service/content/refcounted_browser_context_keyed_service_factory.cc
+index 20aff6e501c7fed8a5048ca755224331eb117ee9..56231f37ae7568eee29e40959d6371295d5e5607 100644
+--- a/components/keyed_service/content/refcounted_browser_context_keyed_service_factory.cc
++++ b/components/keyed_service/content/refcounted_browser_context_keyed_service_factory.cc
+@@ -82,6 +82,11 @@ bool RefcountedBrowserContextKeyedServiceFactory::ServiceIsNULLWhileTesting()
+   return KeyedServiceBaseFactory::ServiceIsNULLWhileTesting();
+ }
+ 
++bool RefcountedBrowserContextKeyedServiceFactory::SupportsBrowserContextLifecycle(
++    content::BrowserContext* context) const {
++  return true;
++}
++
+ void RefcountedBrowserContextKeyedServiceFactory::BrowserContextShutdown(
+     content::BrowserContext* context) {
+   RefcountedKeyedServiceFactory::ContextShutdown(context);
+@@ -111,14 +116,22 @@ bool RefcountedBrowserContextKeyedServiceFactory::ServiceIsCreatedWithContext()
+   return ServiceIsCreatedWithBrowserContext();
+ }
+ 
+-void RefcountedBrowserContextKeyedServiceFactory::ContextShutdown(
+-    void* context) {
+-  BrowserContextShutdown(static_cast<content::BrowserContext*>(context));
++void RefcountedBrowserContextKeyedServiceFactory::ContextShutdown(void* context) {
++  auto* browser_context = static_cast<content::BrowserContext*>(context);
++  if (!SupportsBrowserContextLifecycle(browser_context)) {
++    RefcountedKeyedServiceFactory::ContextShutdown(context);
++    return;
++  }
++  BrowserContextShutdown(browser_context);
+ }
+ 
+-void RefcountedBrowserContextKeyedServiceFactory::ContextDestroyed(
+-    void* context) {
+-  BrowserContextDestroyed(static_cast<content::BrowserContext*>(context));
++void RefcountedBrowserContextKeyedServiceFactory::ContextDestroyed(void* context) {
++  auto* browser_context = static_cast<content::BrowserContext*>(context);
++  if (!SupportsBrowserContextLifecycle(browser_context)) {
++    RefcountedKeyedServiceFactory::ContextDestroyed(context);
++    return;
++  }
++  BrowserContextDestroyed(browser_context);
+ }
+ 
+ void RefcountedBrowserContextKeyedServiceFactory::RegisterPrefs(
+diff --git a/components/keyed_service/content/refcounted_browser_context_keyed_service_factory.h b/components/keyed_service/content/refcounted_browser_context_keyed_service_factory.h
+index e4c0af35a73c03830131dbb5c3679ad0333cc1b8..6e7b23ada2990ee682164f739ddc01cdfee67be3 100644
+--- a/components/keyed_service/content/refcounted_browser_context_keyed_service_factory.h
++++ b/components/keyed_service/content/refcounted_browser_context_keyed_service_factory.h
+@@ -84,6 +84,11 @@ class KEYED_SERVICE_EXPORT RefcountedBrowserContextKeyedServiceFactory
+ 
+   // Interface for people building a concrete FooServiceFactory: --------------
+ 
++  // Whether context-specific lifecycle hooks support this context type. This
++  // is independent of service redirection, including off-the-record selection.
++  virtual bool SupportsBrowserContextLifecycle(
++      content::BrowserContext* context) const;
++
+   // Finds which browser context (if any) to use.
+   //
+   // Should return nullptr when the service should not be created for the given

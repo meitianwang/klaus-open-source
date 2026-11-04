@@ -1,0 +1,24 @@
+diff --git a/chrome/browser/web_applications/web_app_utils.cc b/chrome/browser/web_applications/web_app_utils.cc
+index 79dcfb6940160b5d32729d67e093eb51b368ddc0..94bcc9b3a12b164c791038eb121adce7bf76c5a6 100644
+--- a/chrome/browser/web_applications/web_app_utils.cc
++++ b/chrome/browser/web_applications/web_app_utils.cc
+@@ -269,6 +269,9 @@ bool AreWebAppsForceInstallable(Profile* profile) {
+ 
+ content::BrowserContext* GetBrowserContextForWebApps(
+     content::BrowserContext* context) {
++  if (!context || !context->IsBrowserProfile()) {
++    return nullptr;
++  }
+   // Use original profile to create only one KeyedService instance.
+   Profile* profile = Profile::FromBrowserContext(context);
+   if (!profile) {
+@@ -297,6 +300,9 @@ content::BrowserContext* GetBrowserContextForWebApps(
+ 
+ content::BrowserContext* GetBrowserContextForWebAppMetrics(
+     content::BrowserContext* context) {
++  if (!context || !context->IsBrowserProfile()) {
++    return nullptr;
++  }
+   Profile* profile = Profile::FromBrowserContext(context);
+   if (!profile) {
+     return nullptr;

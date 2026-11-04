@@ -1,0 +1,15 @@
+diff --git a/BUILD.gn b/BUILD.gn
+index cb74859fc..641893e56 100644
+--- a/BUILD.gn
++++ b/BUILD.gn
+@@ -520,7 +520,9 @@ source_set("electron_lib") {
+     "//chrome:strings",
+     "//chrome/app:command_ids",
+     "//chrome/app/resources:platform_locale_settings",
+-    # Native browser profile services used by the Phase 1 probe.
++    # Use the authoritative native browser implementation closure. Linking its
++    # classes does not create a second BrowserProcess or install another MainParts.
++    "//chrome/browser:browser",
+     "//chrome/browser/autofill:autofill",
+     "//chrome/browser/password_manager/factories:factories",
+     "//chrome/browser/policy:impl",

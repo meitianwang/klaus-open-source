@@ -1,0 +1,93 @@
+diff --git a/shell/browser/api/electron_api_native_browser.cc b/shell/browser/api/electron_api_native_browser.cc
+index da70a12e59a1cde79a0af4fcb399755e7d1719f3..cc85fe4926e418c92a28f8109bf445d194caec6e 100644
+--- a/shell/browser/api/electron_api_native_browser.cc
++++ b/shell/browser/api/electron_api_native_browser.cc
+@@ -418,7 +418,8 @@ class NativeBrowser final : public gin_helper::TrackableObject<NativeBrowser>,
+                 Profile* profile,
+                 NativeWindow* parent,
+                 const gfx::Rect& bounds,
+-                const GURL& url)
++                const GURL& url,
++                bool visible)
+       : parent_(parent), bounds_(bounds) {
+     ::Browser::CreateParams params(profile, true);
+     params.embedding_parent = parent->GetNativeView();
+@@ -441,7 +442,7 @@ class NativeBrowser final : public gin_helper::TrackableObject<NativeBrowser>,
+     auto* process =
+         static_cast<ElectronBrowserProcessImpl*>(g_browser_process);
+     process->NotifyNativeBrowserStarted();
+-    SetVisible(true);
++    SetVisible(visible);
+   }
+ 
+   ~NativeBrowser() override {
+@@ -967,6 +968,7 @@ v8::Local<v8::Promise> CreateNativeBrowser(gin::Arguments* args) {
+   gin_helper::Handle<BaseWindow> parent;
+   gfx::Rect bounds;
+   GURL url("about:blank");
++  bool visible = true;
+   if (!args->GetNext(&options) || !options.Get("parent", &parent) ||
+       parent.IsEmpty() || parent->window()->IsClosed() ||
+       !options.Get("bounds", &bounds) || bounds.width() <= 0 ||
+@@ -980,6 +982,10 @@ v8::Local<v8::Promise> CreateNativeBrowser(gin::Arguments* args) {
+     promise.RejectWithErrorMessage("url must be valid");
+     return handle;
+   }
++  if (options.Has("visible") && !options.Get("visible", &visible)) {
++    promise.RejectWithErrorMessage("visible must be a boolean");
++    return handle;
++  }
+ 
+   // Profile disk access belongs to the native asynchronous loader. Creating
+   // pages after app readiness must never permit synchronous UI-thread IO.
+@@ -989,6 +995,7 @@ v8::Local<v8::Promise> CreateNativeBrowser(gin::Arguments* args) {
+       base::BindOnce(
+           [](gin_helper::Promise<NativeBrowser*> promise,
+              base::WeakPtr<NativeWindow> parent, gfx::Rect bounds, GURL url,
++             bool visible,
+              Profile* profile) {
+             if (!parent || parent->IsClosed()) {
+               promise.RejectWithErrorMessage(
+@@ -1005,10 +1012,12 @@ v8::Local<v8::Promise> CreateNativeBrowser(gin::Arguments* args) {
+             v8::HandleScope scope(isolate);
+             v8::Context::Scope context_scope(promise.GetContext());
+             auto* browser =
+-                new NativeBrowser(isolate, profile, parent.get(), bounds, url);
++                new NativeBrowser(isolate, profile, parent.get(), bounds, url,
++                                  visible);
+             promise.Resolve(browser);
+           },
+-          std::move(promise), parent->window()->GetWeakPtr(), bounds, url));
++          std::move(promise), parent->window()->GetWeakPtr(), bounds, url,
++          visible));
+   return handle;
+ }
+ 
+diff --git a/shell/browser/ui/devtools_manager_delegate.cc b/shell/browser/ui/devtools_manager_delegate.cc
+index bec928e3d5a53ab09c1319376213bf66456195a0..ff739be721f946839fafbb3af01163573306bd3a 100644
+--- a/shell/browser/ui/devtools_manager_delegate.cc
++++ b/shell/browser/ui/devtools_manager_delegate.cc
+@@ -128,11 +128,6 @@ void DevToolsManagerDelegate::HandleCommand(
+         FROM_HERE, base::BindOnce([]() { Browser::Get()->Quit(); }));
+     return;
+   }
+-  auto native_session = native_sessions_.find(channel);
+-  if (native_session != native_sessions_.end()) {
+-    native_session->second->HandleCommand(message, std::move(callback));
+-    return;
+-  }
+   if (crdtp::SpanEquals(crdtp::SpanFrom(kSetDeviceMetricsOverrideMethod),
+                        dispatchable.Method())) {
+     channels_with_device_overrides_.insert(channel);
+@@ -141,6 +136,11 @@ void DevToolsManagerDelegate::HandleCommand(
+                  dispatchable.Method())) {
+     channels_with_device_overrides_.erase(channel);
+   }
++  auto native_session = native_sessions_.find(channel);
++  if (native_session != native_sessions_.end()) {
++    native_session->second->HandleCommand(message, std::move(callback));
++    return;
++  }
+   std::move(callback).Run(message);
+ }
+ 

@@ -1,0 +1,214 @@
+diff --git a/chrome/browser/download/chrome_download_manager_delegate.cc b/chrome/browser/download/chrome_download_manager_delegate.cc
+index 27be7a3c72f69fe3167799ce0bbc3394989a1cec..ce60d90079dc4f450042ae591008fb7af0789ea5 100644
+--- a/chrome/browser/download/chrome_download_manager_delegate.cc
++++ b/chrome/browser/download/chrome_download_manager_delegate.cc
+@@ -19,6 +19,7 @@
+ #include "base/memory/ptr_util.h"
+ #include "base/memory/raw_ptr.h"
+ #include "base/memory/weak_ptr.h"
++#include "base/no_destructor.h"
+ #include "base/metrics/field_trial_params.h"
+ #include "base/metrics/histogram_functions.h"
+ #include "base/path_service.h"
+@@ -196,6 +197,13 @@ using extensions::CrxInstallError;
+ #endif
+ 
+ namespace {
++using TargetAuthorizerMap =
++    std::map<Profile*, ChromeDownloadManagerDelegate::TargetAuthorizer*>;
++TargetAuthorizerMap& GetTargetAuthorizers() {
++  static base::NoDestructor<TargetAuthorizerMap> authorizers;
++  return *authorizers;
++}
++
+ 
+ // How long an ephemeral warning lasts before being automatically canceled (if
+ // there is no user interaction).
+@@ -778,6 +786,38 @@ void ChromeDownloadManagerDelegate::ReturnNextId(
+   }
+ }
+ 
++// static
++bool ChromeDownloadManagerDelegate::SetTargetAuthorizer(
++    Profile* profile,
++    TargetAuthorizer* authorizer) {
++  DCHECK_CURRENTLY_ON(BrowserThread::UI);
++  if (!profile || !authorizer)
++    return false;
++  auto [found, inserted] = GetTargetAuthorizers().try_emplace(profile, authorizer);
++  if (!inserted && found->second != authorizer)
++    return false;
++  found->second = authorizer;
++  return true;
++}
++
++// static
++void ChromeDownloadManagerDelegate::ClearTargetAuthorizer(
++    Profile* profile,
++    TargetAuthorizer* authorizer) {
++  DCHECK_CURRENTLY_ON(BrowserThread::UI);
++  auto found = GetTargetAuthorizers().find(profile);
++  if (found != GetTargetAuthorizers().end() && found->second == authorizer)
++    GetTargetAuthorizers().erase(found);
++}
++
++// static
++ChromeDownloadManagerDelegate::TargetAuthorizer*
++ChromeDownloadManagerDelegate::GetTargetAuthorizer(Profile* profile) {
++  DCHECK_CURRENTLY_ON(BrowserThread::UI);
++  auto found = GetTargetAuthorizers().find(profile);
++  return found == GetTargetAuthorizers().end() ? nullptr : found->second;
++}
++
+ bool ChromeDownloadManagerDelegate::DetermineDownloadTarget(
+     DownloadItem* download,
+     download::DownloadTargetCallback* callback) {
+@@ -828,12 +868,56 @@ bool ChromeDownloadManagerDelegate::DetermineDownloadTarget(
+     action = DownloadPathReservationTracker::UNIQUIFY;
+   }
+ #endif
++  if (auto* authorizer = GetTargetAuthorizer(profile_)) {
++    const base::FilePath suggested_path =
++        download_path.empty()
++            ? base::FilePath::FromUTF8Unsafe(download->GetSuggestedFilename())
++            : download_path;
++    authorizer->AuthorizeDownloadTarget(
++        download, suggested_path,
++        base::BindOnce(
++            &ChromeDownloadManagerDelegate::ContinueDownloadTargetDetermination,
++            weak_ptr_factory_.GetWeakPtr(), download->GetId(), download_path,
++            action, std::move(target_determined_callback)));
++    return true;
++  }
++
+   DownloadTargetDeterminer::Start(download, download_path, action,
+                                   download_prefs_.get(), this,
+                                   std::move(target_determined_callback));
+   return true;
+ }
+ 
++void ChromeDownloadManagerDelegate::ContinueDownloadTargetDetermination(
++    uint32_t download_id,
++    const base::FilePath& fallback_path,
++    DownloadPathReservationTracker::FilenameConflictAction action,
++    base::OnceCallback<void(download::DownloadTargetInfo target_info,
++                            safe_browsing::DownloadFileType::DangerLevel
++                                danger_level)> callback,
++    TargetAuthorizer::Decision decision) {
++  DCHECK_CURRENTLY_ON(BrowserThread::UI);
++  DownloadItem* download =
++      download_manager_ ? download_manager_->GetDownload(download_id) : nullptr;
++
++  // A host-approved download must carry an absolute, non-empty target. Do not
++  // silently fall back to a default path: that would let bytes land somewhere
++  // the host did not authorize.
++  if (!download || !decision.allow || decision.path.empty() ||
++      !decision.path.IsAbsolute()) {
++    auto info = download::DownloadTargetInfo();
++    info.interrupt_reason = download::DOWNLOAD_INTERRUPT_REASON_USER_CANCELED;
++    std::move(callback).Run(std::move(info),
++                            safe_browsing::DownloadFileType::NOT_DANGEROUS);
++    return;
++  }
++
++  const base::FilePath path = decision.path;
++  host_target_paths_[download_id] = path;
++  DownloadTargetDeterminer::Start(download, path, action, download_prefs_.get(),
++                                  this, std::move(callback));
++}
++
+ bool ChromeDownloadManagerDelegate::ShouldAutomaticallyOpenFile(
+     const GURL& url,
+     const base::FilePath& path) {
+@@ -1511,6 +1595,14 @@ void ChromeDownloadManagerDelegate::RequestConfirmation(
+   DCHECK_CURRENTLY_ON(BrowserThread::UI);
+   DCHECK(!download->IsTransient());
+ 
++  auto host_target = host_target_paths_.find(download->GetId());
++  if (host_target != host_target_paths_.end()) {
++    std::move(callback).Run(
++        DownloadConfirmationResult::CONTINUE_WITHOUT_CONFIRMATION,
++        ui::SelectedFileInfo(host_target->second));
++    return;
++  }
++
+ // TODO(xingliu): We should abstract a DownloadFilePicker interface and make all
+ // platform use it.
+ #if BUILDFLAG(IS_ANDROID)
+@@ -2103,6 +2195,7 @@ void ChromeDownloadManagerDelegate::OnDownloadTargetDetermined(
+     download::DownloadTargetInfo target_info,
+     safe_browsing::DownloadFileType::DangerLevel danger_level) {
+   DCHECK_CURRENTLY_ON(BrowserThread::UI);
++  host_target_paths_.erase(download_id);
+   DownloadItem* item = download_manager_->GetDownload(download_id);
+   if (item) {
+     DownloadItemModel model(item);
+diff --git a/chrome/browser/download/chrome_download_manager_delegate.h b/chrome/browser/download/chrome_download_manager_delegate.h
+index dea3016425321ce6dbe77b7af17939995e43f926..d9800dd3a1bef043f575f4991b5a7b54df213650 100644
+--- a/chrome/browser/download/chrome_download_manager_delegate.h
++++ b/chrome/browser/download/chrome_download_manager_delegate.h
+@@ -15,6 +15,8 @@
+ 
+ #include "base/containers/flat_map.h"
+ #include "base/gtest_prod_util.h"
++#include "base/files/file_path.h"
++#include "base/functional/callback.h"
+ #include "base/memory/raw_ptr.h"
+ #include "base/memory/weak_ptr.h"
+ #include "base/task/sequenced_task_runner.h"
+@@ -81,6 +83,30 @@ class ChromeDownloadManagerDelegate
+       public DownloadTargetDeterminerDelegate,
+       public content::DownloadManager::Observer {
+  public:
++  // Host hook for pausing target determination until a native profile decides.
++  // The callback must run on the UI thread exactly once. A null authorizer
++  // restores the normal target path.
++  class TargetAuthorizer {
++   public:
++    struct Decision {
++      bool allow = false;
++      base::FilePath path;
++    };
++    using DecisionCallback = base::OnceCallback<void(Decision)>;
++
++    virtual ~TargetAuthorizer() = default;
++    virtual void AuthorizeDownloadTarget(
++        download::DownloadItem* item,
++        const base::FilePath& suggested_path,
++        DecisionCallback callback) = 0;
++  };
++
++  static bool SetTargetAuthorizer(Profile* profile,
++                                  TargetAuthorizer* authorizer);
++  static void ClearTargetAuthorizer(Profile* profile,
++                                    TargetAuthorizer* authorizer);
++  static TargetAuthorizer* GetTargetAuthorizer(Profile* profile);
++
+   explicit ChromeDownloadManagerDelegate(Profile* profile);
+ 
+   ChromeDownloadManagerDelegate(const ChromeDownloadManagerDelegate&) = delete;
+@@ -343,6 +369,15 @@ class ChromeDownloadManagerDelegate
+   // Runs the |callback| with next id. Results in the download being started.
+   void ReturnNextId(content::DownloadIdCallback callback);
+ 
++  void ContinueDownloadTargetDetermination(
++      uint32_t download_id,
++      const base::FilePath& fallback_path,
++      DownloadPathReservationTracker::FilenameConflictAction action,
++      base::OnceCallback<void(download::DownloadTargetInfo target_info,
++                              safe_browsing::DownloadFileType::DangerLevel
++                                  danger_level)> callback,
++      TargetAuthorizer::Decision decision);
++
+   void OnDownloadTargetDetermined(
+       uint32_t download_id,
+       download::DownloadTargetCallback callback,
+@@ -422,6 +457,8 @@ class ChromeDownloadManagerDelegate
+   // database.
+   IdCallbackVector id_callbacks_;
+   std::unique_ptr<DownloadPrefs> download_prefs_;
++  // Host-selected targets suppress a second Chrome save prompt.
++  std::map<uint32_t, base::FilePath> host_target_paths_;
+ 
+ #if BUILDFLAG(ENABLE_EXTENSIONS_CORE)
+   // CRX installs that are currently in progress.

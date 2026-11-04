@@ -1,0 +1,14 @@
+diff --git a/chrome/browser/media/chrome_media_session_client.cc b/chrome/browser/media/chrome_media_session_client.cc
+index 7cb027e1f2d27a37a675f8dba3aa13eabee1d97d..24e6170d5bf167b4d5520da2ec21aea2c43b7c39 100644
+--- a/chrome/browser/media/chrome_media_session_client.cc
++++ b/chrome/browser/media/chrome_media_session_client.cc
+@@ -19,7 +19,8 @@ ChromeMediaSessionClient* ChromeMediaSessionClient::GetInstance() {
+ 
+ bool ChromeMediaSessionClient::ShouldHideMetadata(
+     content::BrowserContext* browser_context) const {
+-  return Profile::FromBrowserContext(browser_context)->IsIncognitoProfile();
++  return browser_context && browser_context->IsBrowserProfile() &&
++         Profile::FromBrowserContext(browser_context)->IsIncognitoProfile();
+ }
+ 
+ std::u16string ChromeMediaSessionClient::GetTitlePlaceholder() const {

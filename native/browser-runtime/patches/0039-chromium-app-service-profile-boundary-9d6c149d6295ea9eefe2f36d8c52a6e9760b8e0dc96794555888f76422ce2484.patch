@@ -1,0 +1,13 @@
+diff --git a/chrome/browser/apps/app_service/app_service_proxy_factory.cc b/chrome/browser/apps/app_service/app_service_proxy_factory.cc
+index ef0184b194f72c8a385904cc693e35e326756078..979167ed8af766aa3b7250a10b9bfc0858d9317b 100644
+--- a/chrome/browser/apps/app_service/app_service_proxy_factory.cc
++++ b/chrome/browser/apps/app_service/app_service_proxy_factory.cc
+@@ -132,6 +132,8 @@ AppServiceProxyFactory::BuildServiceInstanceForBrowserContext(
+ 
+ content::BrowserContext* AppServiceProxyFactory::GetBrowserContextToUse(
+     content::BrowserContext* context) const {
++  if (!context || !context->IsBrowserProfile())
++    return nullptr;
+   Profile* const profile = Profile::FromBrowserContext(context);
+   if (!profile || profile->IsSystemProfile()) {
+     return nullptr;

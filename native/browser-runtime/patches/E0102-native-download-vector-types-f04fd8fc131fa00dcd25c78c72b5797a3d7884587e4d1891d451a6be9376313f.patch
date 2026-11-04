@@ -1,0 +1,49 @@
+diff --git a/shell/browser/api/electron_api_native_browser.cc b/shell/browser/api/electron_api_native_browser.cc
+index 7a1bfb16036082258e6004d6922e062845c5f199..4cae633d92d8689f799e697200df3faeb89d2003 100644
+--- a/shell/browser/api/electron_api_native_browser.cc
++++ b/shell/browser/api/electron_api_native_browser.cc
+@@ -426,7 +426,7 @@ class NativeProfile final
+       thrower.ThrowError("Unknown native download");
+       return;
+     }
+-    auto* item = found->second;
++    auto* item = found->second.get();
+     if (action == "resume") {
+       for (const auto& [request_id, pending] : pending_targets_) {
+         if (pending.guid == id) {
+@@ -490,9 +490,9 @@ class NativeProfile final
+     }
+     download_manager_->AddObserver(this);
+     observing_ = true;
+-    std::vector<download::DownloadItem*> items;
++    content::DownloadManager::DownloadVector items;
+     download_manager_->GetAllDownloads(&items);
+-    for (auto* item : items)
++    for (const auto& item : items)
+       AdoptDownload(item, /*emit=*/false);
+     return GetDownloads(isolate);
+   }
+@@ -584,9 +584,9 @@ class NativeProfile final
+   base::Value DownloadSnapshotList() {
+     base::ListValue list;
+     if (download_manager_) {
+-      std::vector<download::DownloadItem*> items;
++      content::DownloadManager::DownloadVector items;
+       download_manager_->GetAllDownloads(&items);
+-      for (auto* item : items) {
++      for (const auto& item : items) {
+         if (!item)
+           continue;
+         CaptureMetadata(item);
+@@ -691,9 +691,9 @@ class NativeProfile final
+   void OnManagerInitialized() override {
+     if (closed_ || !download_manager_ || !observing_)
+       return;
+-    std::vector<download::DownloadItem*> items;
++    content::DownloadManager::DownloadVector items;
+     download_manager_->GetAllDownloads(&items);
+-    for (auto* item : items)
++    for (const auto& item : items)
+       AdoptDownload(item, /*emit=*/true);
+   }
+ 

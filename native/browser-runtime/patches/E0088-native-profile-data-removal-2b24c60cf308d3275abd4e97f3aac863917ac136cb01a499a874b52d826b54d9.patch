@@ -1,0 +1,138 @@
+diff --git a/BUILD.gn b/BUILD.gn
+index 479bb7c231a2bc5ac67fe815314ce0f7e7d781ed..3c1af96a58794ad91c8c3efc2817ee793c7294e3 100644
+--- a/BUILD.gn
++++ b/BUILD.gn
+@@ -542,6 +542,7 @@ source_set("electron_lib") {
+     "//chrome/browser/profiles:profiles_extra_parts",
+     "//chrome/browser/profiles:profiles_extra_parts_impl",
+     "//chrome/browser/ui:ui",
++    "//chrome/browser/browsing_data:constants",
+     "//chrome/browser/ui/webui:configs",
+     "//chrome/browser/safe_browsing",
+     "//chrome/browser/profiles:misc",
+diff --git a/shell/browser/api/electron_api_native_browser.cc b/shell/browser/api/electron_api_native_browser.cc
+index b4ef85db275748e6260e63b8500240e0c58f60f0..0af4dd93ce7833cdc98a8b9da1b5ac2ff1c25a58 100644
+--- a/shell/browser/api/electron_api_native_browser.cc
++++ b/shell/browser/api/electron_api_native_browser.cc
+@@ -11,6 +11,8 @@
+ #include "base/callback_list.h"
+ #include "base/time/time.h"
+ #include "content/public/browser/storage_partition.h"
++#include "content/public/browser/browsing_data_remover.h"
++#include "chrome/browser/browsing_data/chrome_browsing_data_remover_constants.h"
+ #include "net/base/isolation_info.h"
+ #include "net/cookies/site_for_cookies.h"
+ #include "net/http/http_response_headers.h"
+@@ -236,7 +238,8 @@ class NativeProfileRequest final : public network::SimpleURLLoaderStreamConsumer
+ // WebContents or Session for the native Profile.
+ class NativeBrowser final : public gin_helper::TrackableObject<NativeBrowser>,
+                             private content::WebContentsObserver,
+-                            private NativeWindowObserver {
++                            private NativeWindowObserver,
++                            private content::BrowsingDataRemover::Observer {
+  public:
+   NativeBrowser(v8::Isolate* isolate,
+                 Profile* profile,
+@@ -270,6 +273,10 @@ class NativeBrowser final : public gin_helper::TrackableObject<NativeBrowser>,
+     // closing the browser so teardown never re-enters JavaScript from GC.
+     browser_closed_subscription_ = {};
+     activity_capture_.RunAndReset();
++    if (data_remover_)
++      data_remover_->RemoveObserver(this);
++    data_remover_ = nullptr;
++    clear_promise_.reset();
+     Observe(nullptr);
+     if (parent_)
+       parent_->RemoveObserver(this);
+@@ -294,6 +301,7 @@ class NativeBrowser final : public gin_helper::TrackableObject<NativeBrowser>,
+         .SetMethod("startRequest", &NativeBrowser::StartRequest)
+         .SetMethod("readRequest", &NativeBrowser::ReadRequest)
+         .SetMethod("cancelRequest", &NativeBrowser::CancelRequest)
++        .SetMethod("clearData", &NativeBrowser::ClearData)
+         .SetMethod("beginActivity", &NativeBrowser::BeginActivity)
+         .SetMethod("endActivity", &NativeBrowser::EndActivity)
+         .SetMethod("loadURL", &NativeBrowser::LoadURL)
+@@ -380,6 +388,41 @@ class NativeBrowser final : public gin_helper::TrackableObject<NativeBrowser>,
+     found->second->Cancel();
+     requests_.erase(found);
+   }
++  v8::Local<v8::Promise> ClearData(v8::Isolate* isolate,
++                                  const std::string& kind) {
++    gin_helper::Promise<base::DictValue> promise(isolate);
++    auto handle = promise.GetHandle();
++    if (IsClosed() || clear_promise_) {
++      promise.RejectWithErrorMessage(
++          "The native page is closed or a data removal is already pending");
++      return handle;
++    }
++    using Remover = content::BrowsingDataRemover;
++    uint64_t mask = 0;
++    if (kind == "all" || kind == "cache")
++      mask |= Remover::DATA_TYPE_CACHE;
++    if (kind == "all" || kind == "cookies")
++      mask |= Remover::DATA_TYPE_COOKIES;
++    if (kind == "all" || kind == "siteData")
++      mask |= Remover::DATA_TYPE_DOM_STORAGE | Remover::DATA_TYPE_PRIVACY_SANDBOX;
++    if (kind == "all" || kind == "history")
++      mask |= browsing_data::DATA_TYPE_HISTORY;
++    if (kind == "all" || kind == "downloads")
++      mask |= Remover::DATA_TYPE_DOWNLOADS;
++    if (!mask) {
++      promise.RejectWithErrorMessage("The native browsing data kind is invalid");
++      return handle;
++    }
++    data_remover_ = browser_->GetProfile()->GetBrowsingDataRemover();
++    clear_promise_ = std::make_unique<gin_helper::Promise<base::DictValue>>(
++        std::move(promise));
++    data_remover_->AddObserver(this);
++    // Browser data does not include saved passwords, autofill entries or
++    // extension state. History removal also retains downloaded files.
++    data_remover_->RemoveAndReply(base::Time(), base::Time::Max(), mask,
++        Remover::ORIGIN_TYPE_UNPROTECTED_WEB, this);
++    return handle;
++  }
+   void BeginActivity(gin::Arguments* args) {
+     if (IsClosed()) {
+       gin_helper::ErrorThrower(args->isolate()).ThrowError(
+@@ -561,10 +604,32 @@ class NativeBrowser final : public gin_helper::TrackableObject<NativeBrowser>,
+   }
+ 
+  private:
++  void OnBrowsingDataRemoverDone(uint64_t failed_data_types) override {
++    if (data_remover_)
++      data_remover_->RemoveObserver(this);
++    data_remover_ = nullptr;
++    auto promise = std::move(clear_promise_);
++    if (!promise)
++      return;
++    if (failed_data_types) {
++      promise->RejectWithErrorMessage("Native browsing data removal failed: " +
++                                     std::to_string(failed_data_types));
++      return;
++    }
++    base::DictValue result;
++    result.Set("ok", true);
++    promise->Resolve(result);
++  }
+   void NotifyClosed() {
+     if (closed_)
+       return;
+     closed_ = true;
++    if (data_remover_)
++      data_remover_->RemoveObserver(this);
++    data_remover_ = nullptr;
++    if (clear_promise_)
++      clear_promise_->RejectWithErrorMessage("The native browser has been closed");
++    clear_promise_.reset();
+     for (auto& [id, request] : requests_)
+       request->Cancel();
+     requests_.clear();
+@@ -629,6 +694,8 @@ class NativeBrowser final : public gin_helper::TrackableObject<NativeBrowser>,
+   unsigned int activity_users_ = 0;
+   base::ScopedClosureRunner activity_capture_;
+   std::map<std::string, std::unique_ptr<NativeProfileRequest>> requests_;
++  raw_ptr<content::BrowsingDataRemover> data_remover_ = nullptr;
++  std::unique_ptr<gin_helper::Promise<base::DictValue>> clear_promise_;
+   base::CallbackListSubscription browser_closed_subscription_;
+   v8::Global<v8::Value> debugger_;
+ };

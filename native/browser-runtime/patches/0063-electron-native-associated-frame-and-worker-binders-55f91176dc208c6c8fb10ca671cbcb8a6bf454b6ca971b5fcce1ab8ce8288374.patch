@@ -1,0 +1,34 @@
+diff --git a/shell/browser/electron_browser_client.cc b/shell/browser/electron_browser_client.cc
+index 9f46bc2ebf67e2a70b78082f803ac599f979dfa7..96bcf3d0c4f99ec55a118247784360f7983e31a9 100644
+--- a/shell/browser/electron_browser_client.cc
++++ b/shell/browser/electron_browser_client.cc
+@@ -1779,6 +1779,16 @@ void ElectronBrowserClient::OverrideURLLoaderFactoryParams(
+ void ElectronBrowserClient::RegisterAssociatedInterfaceBindersForServiceWorker(
+     const content::ServiceWorkerVersionBaseInfo& service_worker_version_info,
+     blink::AssociatedInterfaceRegistry& associated_registry) {
++  auto* process = content::RenderProcessHost::FromID(
++      service_worker_version_info.process_id);
++  if (process) {
++    if (auto* profile_client =
++            GetProfileBrowserClient(process->GetBrowserContext())) {
++      profile_client->RegisterAssociatedInterfaceBindersForServiceWorker(
++          service_worker_version_info, associated_registry);
++      return;
++    }
++  }
+   CHECK(service_worker_version_info.process_id);
+   associated_registry.AddInterface<mojom::ElectronApiIPC>(
+       base::BindRepeating(&ElectronApiSWIPCHandlerImpl::BindReceiver,
+@@ -1801,6 +1811,12 @@ void ElectronBrowserClient::
+             render_frame_host,  // NOLINT(runtime/references)
+         blink::AssociatedInterfaceRegistry&
+             associated_registry) {  // NOLINT(runtime/references)
++  if (auto* profile_client =
++          GetProfileBrowserClient(render_frame_host.GetBrowserContext())) {
++    profile_client->RegisterAssociatedInterfaceBindersForRenderFrameHost(
++        render_frame_host, associated_registry);
++    return;
++  }
+   auto* contents =
+       content::WebContents::FromRenderFrameHost(&render_frame_host);
+   if (contents) {

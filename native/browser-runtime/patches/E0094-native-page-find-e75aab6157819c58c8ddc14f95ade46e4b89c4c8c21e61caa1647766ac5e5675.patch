@@ -1,0 +1,163 @@
+diff --git a/BUILD.gn b/BUILD.gn
+index f0d6a53c13ff6fc2616bdb44dbd37bf945fec1cb..03da5b7ba8ecb4f45a0cdd6c5443847055f4cdd4 100644
+--- a/BUILD.gn
++++ b/BUILD.gn
+@@ -581,6 +581,7 @@ source_set("electron_lib") {
+     "//chrome/common/extensions",
+     "//chrome/renderer:renderer",
+     "//components/autofill/core/common:features",
++    "//components/find_in_page",
+     "//components/certificate_transparency",
+     "//components/compose:buildflags",
+     "//components/embedder_support:user_agent",
+diff --git a/shell/browser/api/electron_api_native_browser.cc b/shell/browser/api/electron_api_native_browser.cc
+index f0d3b696069e8c29a8dc7f3e9239a066066fca87..da70a12e59a1cde79a0af4fcb399755e7d1719f3 100644
+--- a/shell/browser/api/electron_api_native_browser.cc
++++ b/shell/browser/api/electron_api_native_browser.cc
+@@ -36,6 +36,9 @@
+ #include "chrome/browser/supervised_user/supervised_user_browser_utils.h"
+ #include "chrome/common/pref_names.h"
+ #include "components/prefs/pref_service.h"
++#include "components/find_in_page/find_tab_helper.h"
++#include "components/find_in_page/find_result_observer.h"
++#include "components/find_in_page/find_types.h"
+ #include "chrome/browser/ui/browser.h"
+ #include "chrome/browser/ui/browser_window.h"
+ #include "chrome/browser/ui/tabs/tab_strip_model.h"
+@@ -408,7 +411,8 @@ v8::Local<v8::Promise> CreateNativeProfile(v8::Isolate* isolate) {
+ class NativeBrowser final : public gin_helper::TrackableObject<NativeBrowser>,
+                             private content::WebContentsObserver,
+                             private NativeWindowObserver,
+-                            private content::BrowsingDataRemover::Observer {
++                            private content::BrowsingDataRemover::Observer,
++                            private find_in_page::FindResultObserver {
+  public:
+   NativeBrowser(v8::Isolate* isolate,
+                 Profile* profile,
+@@ -424,6 +428,9 @@ class NativeBrowser final : public gin_helper::TrackableObject<NativeBrowser>,
+     browser_ = ::Browser::Create(params);
+     chrome::AddTabAt(browser_, url, -1, true);
+     Observe(browser_->tab_strip_model()->GetActiveWebContents());
++    find_helper_ = find_in_page::FindTabHelper::FromWebContents(web_contents());
++    if (find_helper_)
++      find_helper_->AddObserver(this);
+     browser_closed_subscription_ = browser_->RegisterBrowserDidClose(
+         base::BindRepeating(&NativeBrowser::OnBrowserClosed,
+                             base::Unretained(this)));
+@@ -441,6 +448,10 @@ class NativeBrowser final : public gin_helper::TrackableObject<NativeBrowser>,
+     // Cleanup may run during wrapper finalization. Detach callbacks before
+     // closing the browser so teardown never re-enters JavaScript from GC.
+     browser_closed_subscription_ = {};
++    if (find_helper_)
++      find_helper_->RemoveObserver(this);
++    find_helper_ = nullptr;
++    find_promise_.reset();
+     activity_capture_.RunAndReset();
+     if (data_remover_)
+       data_remover_->RemoveObserver(this);
+@@ -467,6 +478,8 @@ class NativeBrowser final : public gin_helper::TrackableObject<NativeBrowser>,
+         .SetMethod("getURL", &NativeBrowser::GetURL)
+         .SetMethod("getTitle", &NativeBrowser::GetTitle)
+         .SetMethod("getZoomFactor", &NativeBrowser::GetZoomFactor)
++        .SetMethod("find", &NativeBrowser::Find)
++        .SetMethod("stopFind", &NativeBrowser::StopFind)
+         .SetMethod("getState", &NativeBrowser::GetState)
+         .SetMethod("startRequest", &NativeBrowser::StartRequest)
+         .SetMethod("readRequest", &NativeBrowser::ReadRequest)
+@@ -504,6 +517,39 @@ class NativeBrowser final : public gin_helper::TrackableObject<NativeBrowser>,
+                                 content::HostZoomMap::GetZoomLevel(web_contents()))
+                           : 1.0;
+   }
++  v8::Local<v8::Promise> Find(v8::Isolate* isolate,
++                             const std::u16string& text,
++                             const gin_helper::Dictionary& options) {
++    gin_helper::Promise<base::DictValue> promise(isolate);
++    auto handle = promise.GetHandle();
++    if (IsClosed() || !find_helper_ || text.empty() || text.size() > 16384) {
++      promise.RejectWithErrorMessage(
++          "A live native page and bounded non-empty search text are required");
++      return handle;
++    }
++    if (find_promise_)
++      find_promise_->RejectWithErrorMessage("The native find was superseded");
++    find_promise_.reset();
++    bool forward = true, match_case = false, find_next = false;
++    options.Get("forward", &forward);
++    options.Get("matchCase", &match_case);
++    options.Get("findNext", &find_next);
++    if (!find_next)
++      find_helper_->StopFinding(find_in_page::SelectionAction::kClear);
++    find_promise_ = std::make_unique<gin_helper::Promise<base::DictValue>>(
++        std::move(promise));
++    find_helper_->StartFinding(text, forward, match_case, true);
++    return handle;
++  }
++  void StopFind(bool clear_selection) {
++    if (find_promise_)
++      find_promise_->RejectWithErrorMessage("The native find was stopped");
++    find_promise_.reset();
++    if (find_helper_)
++      find_helper_->StopFinding(clear_selection
++          ? find_in_page::SelectionAction::kClear
++          : find_in_page::SelectionAction::kKeep);
++  }
+   base::DictValue GetState() const {
+     base::DictValue state;
+     state.Set("url", GetURL());
+@@ -779,6 +825,25 @@ class NativeBrowser final : public gin_helper::TrackableObject<NativeBrowser>,
+   }
+ 
+  private:
++  void OnFindResultAvailable(content::WebContents* source) override {
++    if (!find_promise_ || !find_helper_ || source != web_contents())
++      return;
++    const auto& details = find_helper_->find_result();
++    if (!details.final_update())
++      return;
++    auto promise = std::move(find_promise_);
++    base::DictValue result;
++    result.Set("matches", std::max(0, details.number_of_matches()));
++    result.Set("active", std::max(0, details.active_match_ordinal()));
++    promise->Resolve(result);
++  }
++  void OnFindTabHelperDestroyed(find_in_page::FindTabHelper* helper) override {
++    helper->RemoveObserver(this);
++    find_helper_ = nullptr;
++    if (find_promise_)
++      find_promise_->RejectWithErrorMessage("The native find page was closed");
++    find_promise_.reset();
++  }
+   void OnBrowsingDataRemoverDone(uint64_t failed_data_types) override {
+     if (data_remover_)
+       data_remover_->RemoveObserver(this);
+@@ -799,6 +864,10 @@ class NativeBrowser final : public gin_helper::TrackableObject<NativeBrowser>,
+     if (closed_)
+       return;
+     closed_ = true;
++    StopFind(true);
++    if (find_helper_)
++      find_helper_->RemoveObserver(this);
++    find_helper_ = nullptr;
+     if (data_remover_)
+       data_remover_->RemoveObserver(this);
+     data_remover_ = nullptr;
+@@ -837,6 +906,10 @@ class NativeBrowser final : public gin_helper::TrackableObject<NativeBrowser>,
+     NotifyClosed();
+   }
+   void DidStartLoading() override { Emit("did-start-loading"); }
++  void DidStartNavigation(content::NavigationHandle* handle) override {
++    if (handle->IsInPrimaryMainFrame() && !handle->IsSameDocument())
++      StopFind(true);
++  }
+   void DidStopLoading() override { Emit("did-stop-loading"); }
+   void TitleWasSet(content::NavigationEntry* entry) override {
+     Emit("page-title-updated", GetTitle());
+@@ -873,6 +946,8 @@ class NativeBrowser final : public gin_helper::TrackableObject<NativeBrowser>,
+   std::unique_ptr<gin_helper::Promise<base::DictValue>> clear_promise_;
+   base::CallbackListSubscription browser_closed_subscription_;
+   v8::Global<v8::Value> debugger_;
++  raw_ptr<find_in_page::FindTabHelper> find_helper_ = nullptr;
++  std::unique_ptr<gin_helper::Promise<base::DictValue>> find_promise_;
+ };
+ 
+ v8::Local<v8::Promise> CreateNativeBrowser(gin::Arguments* args) {

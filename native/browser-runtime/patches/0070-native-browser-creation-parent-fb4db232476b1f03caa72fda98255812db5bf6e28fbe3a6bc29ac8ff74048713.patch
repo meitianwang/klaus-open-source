@@ -1,0 +1,56 @@
+diff --git a/chrome/browser/ui/browser.h b/chrome/browser/ui/browser.h
+index c05e59bd8dfc6ee5d90bebef2fff4dae4e3a6852..81cc512375afa460d30de23a91bdc4b2098b23d6 100644
+--- a/chrome/browser/ui/browser.h
++++ b/chrome/browser/ui/browser.h
+@@ -183,6 +183,10 @@ class Browser : public TabStripModelObserver,
+     // the session.
+     bool should_trigger_session_restore = true;
+ 
++    // An optional host for a browser surface embedded at creation time. The
++    // BrowserView and its native widget retain the normal browser lifecycle.
++    gfx::NativeView embedding_parent;
++
+     // The bounds of the window to open.
+     gfx::Rect initial_bounds;
+     // Whether `initial_bounds.origin()` was explicitly specified, if known.
+diff --git a/chrome/browser/ui/views/frame/browser_native_widget_mac.mm b/chrome/browser/ui/views/frame/browser_native_widget_mac.mm
+index 93eeda2daf44d3da4591852d1a82a0aeb9a969b4..986a1ceddedcafd72046617928373dfafbd5683d 100644
+--- a/chrome/browser/ui/views/frame/browser_native_widget_mac.mm
++++ b/chrome/browser/ui/views/frame/browser_native_widget_mac.mm
+@@ -605,7 +605,12 @@ - (NSTouchBar*)makeTouchBar {
+   } else {
+     params->window_class = remote_cocoa::mojom::WindowClass::kDefault;
+   }
+-  params->animation_enabled = true;
++  if (widget_params.child && widget_params.remove_standard_frame) {
++    params->window_class = remote_cocoa::mojom::WindowClass::kFrameless;
++    params->style_mask = NSWindowStyleMaskBorderless;
++    params->window_title_hidden = true;
++  }
++  params->animation_enabled = !widget_params.child;
+ }
+ 
+ NativeWidgetMacNSWindow* BrowserNativeWidgetMac::CreateNSWindow(
+diff --git a/chrome/browser/ui/views/frame/browser_widget.cc b/chrome/browser/ui/views/frame/browser_widget.cc
+index 22318133c1b29915317701775e207f1e672b0052..466e24fe3885c9a6313f7b2f7deaff93ce790bc5 100644
+--- a/chrome/browser/ui/views/frame/browser_widget.cc
++++ b/chrome/browser/ui/views/frame/browser_widget.cc
+@@ -175,7 +175,17 @@ void BrowserWidget::InitBrowserWidget() {
+   params.session_data = browser->platform_session_data();
+ #endif
+ 
+-  if (browser_native_widget_->ShouldRestorePreviousBrowserWidgetState()) {
++  const auto& create_params = BrowserInitState::From(browser)->create_params();
++  if (create_params.embedding_parent) {
++    params.parent = create_params.embedding_parent;
++    params.child = true;
++    params.remove_standard_frame = true;
++    params.bounds = create_params.initial_bounds;
++    params.shadow_type = views::Widget::InitParams::ShadowType::kNone;
++  }
++
++  if (!create_params.embedding_parent &&
++      browser_native_widget_->ShouldRestorePreviousBrowserWidgetState()) {
+     if (browser->is_type_normal() || browser->is_type_devtools() ||
+         browser->is_type_app()) {
+       // Typed panel/popup can only return a size once the widget has been

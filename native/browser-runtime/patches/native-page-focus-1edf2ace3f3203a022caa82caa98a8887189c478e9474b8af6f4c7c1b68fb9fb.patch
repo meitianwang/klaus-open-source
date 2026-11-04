@@ -1,0 +1,33 @@
+diff --git a/shell/browser/api/electron_api_native_browser.cc b/shell/browser/api/electron_api_native_browser.cc
+index 0eb31f99cd2bff28909d7bb6a4dda994198ebe13..ed53c5e5be45f378eb20e8f947be666d4369f829 100644
+--- a/shell/browser/api/electron_api_native_browser.cc
++++ b/shell/browser/api/electron_api_native_browser.cc
+@@ -68,6 +68,7 @@
+ #include "content/public/browser/navigation_handle.h"
+ #include "content/public/common/referrer.h"
+ #include "content/public/browser/render_frame_host.h"
++#include "content/public/browser/render_widget_host_view.h"
+ #include "content/public/browser/web_contents.h"
+ #include "content/public/browser/web_contents_observer.h"
+ #include "extensions/browser/unpacked_installer.h"
+@@ -1103,6 +1104,7 @@ class NativeBrowser final : public gin_helper::TrackableObject<NativeBrowser>,
+         .SetMethod("setVisible", &NativeBrowser::SetVisible)
+         .SetMethod("setTheme", &NativeBrowser::SetTheme)
+         .SetMethod("focus", &NativeBrowser::Focus)
++        .SetMethod("isFocused", &NativeBrowser::IsFocused)
+         .SetProperty("debugger", &NativeBrowser::GetDebugger);
+   }
+ 
+@@ -1552,6 +1554,12 @@ class NativeBrowser final : public gin_helper::TrackableObject<NativeBrowser>,
+     if (web_contents())
+       web_contents()->Focus();
+   }
++  bool IsFocused() const {
++    if (IsClosed())
++      return false;
++    auto* view = web_contents()->GetRenderWidgetHostView();
++    return view && view->HasFocus();
++  }
+   v8::Local<v8::Value> GetDebugger(v8::Isolate* isolate) {
+     if (debugger_.IsEmpty())
+       return v8::Null(isolate);

@@ -1,0 +1,45 @@
+diff --git a/shell/browser/extensions/electron_extensions_api_client.cc b/shell/browser/extensions/electron_extensions_api_client.cc
+index 041bd268c1763b0ebb5c6a99947c6156f1b15d84..207e2403211dbe97ea65f8bfd16677ee176032ed 100644
+--- a/shell/browser/extensions/electron_extensions_api_client.cc
++++ b/shell/browser/extensions/electron_extensions_api_client.cc
+@@ -13,6 +13,7 @@
+ #include "chrome/browser/guest_view/chrome_guest_view_manager_delegate.h"
+ #include "chrome/browser/guest_view/mime_handler_view/chrome_mime_handler_view_guest_delegate.h"
+ #include "extensions/browser/guest_view/mime_handler_view/mime_handler_view_guest.h"
++#include "extensions/browser/api/declarative_content/content_rules_registry.h"
+ #include "chrome/browser/supervised_user/supervised_user_extensions_delegate_impl.h"
+ #include "content/public/browser/browser_context.h"
+ 
+@@ -105,6 +106,18 @@ void ElectronExtensionsAPIClient::AddAdditionalValueStoreCaches(
+       context, factory, std::move(observer), caches);
+ }
+ 
++scoped_refptr<ContentRulesRegistry>
++ElectronExtensionsAPIClient::CreateContentRulesRegistry(
++    content::BrowserContext* browser_context,
++    RulesCacheDelegate* cache_delegate) const {
++  if (browser_context && browser_context->IsBrowserProfile()) {
++    return ChromeExtensionsAPIClient::CreateProfileContentRulesRegistry(
++        browser_context, cache_delegate);
++  }
++  return ExtensionsAPIClient::CreateContentRulesRegistry(browser_context,
++                                                        cache_delegate);
++}
++
+ MessagingDelegate* ElectronExtensionsAPIClient::GetMessagingDelegate() {
+   if (!messaging_delegate_)
+     messaging_delegate_ = std::make_unique<ElectronMessagingDelegate>();
+diff --git a/shell/browser/extensions/electron_extensions_api_client.h b/shell/browser/extensions/electron_extensions_api_client.h
+index 01c937f1aff486d2c06e9ee040f9437a9e427613..a7e4977d0e5be001fa1315713fc8804f82b2c32b 100644
+--- a/shell/browser/extensions/electron_extensions_api_client.h
++++ b/shell/browser/extensions/electron_extensions_api_client.h
+@@ -25,6 +25,9 @@ class ElectronExtensionsAPIClient : public ExtensionsAPIClient {
+       SettingsChangedCallback observer,
+       std::map<settings_namespace::Namespace,
+                raw_ptr<ValueStoreCache, CtnExperimental>>* caches) override;
++  scoped_refptr<ContentRulesRegistry> CreateContentRulesRegistry(
++      content::BrowserContext* browser_context,
++      RulesCacheDelegate* cache_delegate) const override;
+   MessagingDelegate* GetMessagingDelegate() override;
+   void AttachWebContentsHelpers(
+       content::WebContents* web_contents) const override;

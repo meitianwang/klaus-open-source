@@ -1,0 +1,266 @@
+diff --git a/shell/browser/api/electron_api_native_browser.cc b/shell/browser/api/electron_api_native_browser.cc
+index c3c66bc98da79182b469518c069ecb84ced6fa22..f741c068af7db4398e8957e48fe0d65df1624578 100644
+--- a/shell/browser/api/electron_api_native_browser.cc
++++ b/shell/browser/api/electron_api_native_browser.cc
+@@ -2,7 +2,25 @@
+ // Use of this source code is governed by the MIT license that can be
+ // found in the LICENSE file.
+ 
++#include <map>
++#include <memory>
++#include <optional>
++#include <string_view>
++
++#include "base/base64.h"
+ #include "base/callback_list.h"
++#include "base/time/time.h"
++#include "content/public/browser/storage_partition.h"
++#include "net/base/isolation_info.h"
++#include "net/cookies/site_for_cookies.h"
++#include "net/http/http_response_headers.h"
++#include "net/traffic_annotation/network_traffic_annotation.h"
++#include "services/network/public/cpp/resource_request.h"
++#include "services/network/public/cpp/shared_url_loader_factory.h"
++#include "services/network/public/cpp/simple_url_loader.h"
++#include "services/network/public/cpp/simple_url_loader_stream_consumer.h"
++#include "services/network/public/mojom/url_response_head.mojom.h"
++#include "url/origin.h"
+ #include "base/functional/callback_helpers.h"
+ #include "base/values.h"
+ #include "base/functional/bind.h"
+@@ -56,6 +74,163 @@ gfx::Rect HostBoundsToScreen(NativeWindow* parent, const gfx::Rect& bounds) {
+   return gfx::Rect(origin, bounds.size());
+ }
+ 
++// A native Profile request retains only one unread chunk. The host must read
++// or cancel it; redirect responses are returned before following another URL so
++// the host can authorize each destination using the original Profile cookies.
++class NativeProfileRequest final : public network::SimpleURLLoaderStreamConsumer {
++ public:
++  NativeProfileRequest(Profile* profile, const GURL& url,
++                       gin_helper::Promise<base::DictValue> headers)
++      : headers_(std::make_unique<gin_helper::Promise<base::DictValue>>(
++            std::move(headers))) {
++    auto request = std::make_unique<network::ResourceRequest>();
++    request->url = url;
++    request->method = "GET";
++    request->credentials_mode = network::mojom::CredentialsMode::kInclude;
++    request->site_for_cookies = net::SiteForCookies::FromUrl(url);
++    request->trusted_params = network::ResourceRequest::TrustedParams();
++    request->trusted_params->isolation_info =
++        net::IsolationInfo::CreateForInternalRequest(url::Origin::Create(url));
++    static constexpr auto annotation = net::DefineNetworkTrafficAnnotation(
++        "embedded_browser_profile_download", R"(
++        semantics {
++          sender: "Embedded browser download"
++          description: "Downloads an explicitly selected resource using the browser profile."
++          trigger: "A user or authorized browser operation requests a download."
++          data: "The resource URL and cookies belonging to the browser profile."
++          destination: WEBSITE
++        }
++        policy {
++          cookies_allowed: YES
++          cookies_store: "The native browser profile cookie store."
++          setting: "Browser access and download permissions control requests."
++          policy_exception_justification: "The host authorizes every destination."
++        })");
++    loader_ = network::SimpleURLLoader::Create(std::move(request), annotation);
++    loader_->SetAllowHttpErrorResults(true);
++    loader_->SetTimeoutDuration(base::Minutes(5));
++    loader_->SetOnResponseStartedCallback(base::BindOnce(
++        &NativeProfileRequest::OnHeaders, base::Unretained(this)));
++    loader_->SetOnRedirectCallback(base::BindRepeating(
++        &NativeProfileRequest::OnRedirect, base::Unretained(this)));
++    factory_ = profile->GetDefaultStoragePartition()
++                   ->GetURLLoaderFactoryForBrowserProcess();
++  }
++  ~NativeProfileRequest() override = default;
++
++  void Start() { loader_->DownloadAsStream(factory_.get(), this); }
++  v8::Local<v8::Promise> Read(v8::Isolate* isolate) {
++    gin_helper::Promise<base::DictValue> promise(isolate);
++    auto handle = promise.GetHandle();
++    if (reader_) {
++      promise.RejectWithErrorMessage("A native response read is already pending");
++      return handle;
++    }
++    reader_ = std::make_unique<gin_helper::Promise<base::DictValue>>(
++        std::move(promise));
++    FlushRead();
++    return handle;
++  }
++  void Cancel() {
++    loader_.reset();
++    resume_.Reset();
++    chunk_.clear();
++    done_ = true;
++    error_ = "Native profile request was cancelled";
++    if (headers_) {
++      headers_->RejectWithErrorMessage(error_);
++      headers_.reset();
++    }
++    FlushRead();
++  }
++
++ private:
++  void ResolveHeaders(const GURL& url,
++                      const network::mojom::URLResponseHead& response) {
++    if (!headers_)
++      return;
++    base::DictValue result;
++    result.Set("url", url.spec());
++    result.Set("status", response.headers ? response.headers->response_code() : 0);
++    base::ListValue headers;
++    if (response.headers) {
++      size_t iterator = 0;
++      std::string name, value;
++      while (response.headers->EnumerateHeaderLines(&iterator, &name, &value)) {
++        base::ListValue pair;
++        pair.Append(name);
++        pair.Append(value);
++        headers.Append(std::move(pair));
++      }
++    }
++    result.Set("headers", std::move(headers));
++    headers_->Resolve(result);
++    headers_.reset();
++  }
++  void OnHeaders(const GURL& url,
++                 const network::mojom::URLResponseHead& response) {
++    ResolveHeaders(url, response);
++  }
++  void OnRedirect(const GURL& previous, const net::RedirectInfo& redirect,
++                  const network::mojom::URLResponseHead& response,
++                  std::vector<std::string>* removed_headers) {
++    // SimpleURLLoader explicitly permits destruction in this callback. Stop
++    // before the redirect is followed, retaining the normal response cookies.
++    loader_.reset();
++    done_ = true;
++    ResolveHeaders(previous, response);
++    FlushRead();
++  }
++  void OnDataReceived(std::string_view data, base::OnceClosure resume) override {
++    chunk_.assign(data);
++    resume_ = std::move(resume);
++    FlushRead();
++  }
++  void OnComplete(bool success) override {
++    done_ = true;
++    if (!success)
++      error_ = "Native profile request failed: " +
++               std::to_string(loader_ ? loader_->NetError() : -1);
++    if (headers_) {
++      headers_->RejectWithErrorMessage(error_.empty()
++          ? "The native request returned no response headers" : error_);
++      headers_.reset();
++    }
++    FlushRead();
++  }
++  void OnRetry(base::OnceClosure start_retry) override {
++    std::move(start_retry).Run();
++  }
++  void FlushRead() {
++    if (!reader_ || (chunk_.empty() && !done_))
++      return;
++    auto reader = std::move(reader_);
++    if (!error_.empty()) {
++      reader->RejectWithErrorMessage(error_);
++      return;
++    }
++    base::DictValue result;
++    result.Set("done", chunk_.empty() && done_);
++    if (!chunk_.empty()) {
++      result.Set("data", base::Base64Encode(chunk_));
++      chunk_.clear();
++    }
++    auto resume = std::move(resume_);
++    reader->Resolve(result);
++    if (resume)
++      std::move(resume).Run();
++  }
++
++  std::unique_ptr<gin_helper::Promise<base::DictValue>> headers_;
++  std::unique_ptr<gin_helper::Promise<base::DictValue>> reader_;
++  scoped_refptr<network::SharedURLLoaderFactory> factory_;
++  std::unique_ptr<network::SimpleURLLoader> loader_;
++  std::string chunk_;
++  std::string error_;
++  base::OnceClosure resume_;
++  bool done_ = false;
++};
++
+ // The native browser owns its BrowserView, tab helpers and Profile services.
+ // This wrapper only exposes host operations; it never creates an Electron
+ // WebContents or Session for the native Profile.
+@@ -116,6 +291,9 @@ class NativeBrowser final : public gin_helper::TrackableObject<NativeBrowser>,
+         .SetMethod("getURL", &NativeBrowser::GetURL)
+         .SetMethod("getTitle", &NativeBrowser::GetTitle)
+         .SetMethod("getState", &NativeBrowser::GetState)
++        .SetMethod("startRequest", &NativeBrowser::StartRequest)
++        .SetMethod("readRequest", &NativeBrowser::ReadRequest)
++        .SetMethod("cancelRequest", &NativeBrowser::CancelRequest)
+         .SetMethod("beginActivity", &NativeBrowser::BeginActivity)
+         .SetMethod("endActivity", &NativeBrowser::EndActivity)
+         .SetMethod("loadURL", &NativeBrowser::LoadURL)
+@@ -154,6 +332,43 @@ class NativeBrowser final : public gin_helper::TrackableObject<NativeBrowser>,
+                                   web_contents()->GetController().CanGoForward());
+     return state;
+   }
++  v8::Local<v8::Promise> StartRequest(v8::Isolate* isolate,
++                                     const std::string& id, const GURL& url) {
++    gin_helper::Promise<base::DictValue> promise(isolate);
++    auto handle = promise.GetHandle();
++    if (IsClosed() || id.empty() || id.size() > 256 || !url.SchemeIsHTTPOrHTTPS()) {
++      promise.RejectWithErrorMessage(
++          "A live native page, request id and HTTP URL are required");
++      return handle;
++    }
++    if (requests_.contains(id) || requests_.size() >= 16) {
++      promise.RejectWithErrorMessage("Native request capacity or duplicate id");
++      return handle;
++    }
++    auto request = std::make_unique<NativeProfileRequest>(
++        browser_->GetProfile(), url, std::move(promise));
++    auto* pending = request.get();
++    requests_.emplace(id, std::move(request));
++    pending->Start();
++    return handle;
++  }
++  v8::Local<v8::Promise> ReadRequest(v8::Isolate* isolate,
++                                    const std::string& id) {
++    auto found = requests_.find(id);
++    if (found != requests_.end())
++      return found->second->Read(isolate);
++    gin_helper::Promise<base::DictValue> promise(isolate);
++    auto handle = promise.GetHandle();
++    promise.RejectWithErrorMessage("The native request has been released");
++    return handle;
++  }
++  void CancelRequest(const std::string& id) {
++    auto found = requests_.find(id);
++    if (found == requests_.end())
++      return;
++    found->second->Cancel();
++    requests_.erase(found);
++  }
+   void BeginActivity(gin::Arguments* args) {
+     if (IsClosed()) {
+       gin_helper::ErrorThrower(args->isolate()).ThrowError(
+@@ -339,6 +554,9 @@ class NativeBrowser final : public gin_helper::TrackableObject<NativeBrowser>,
+     if (closed_)
+       return;
+     closed_ = true;
++    for (auto& [id, request] : requests_)
++      request->Cancel();
++    requests_.clear();
+     activity_users_ = 0;
+     activity_capture_.RunAndReset();
+     browser_ = nullptr;
+@@ -399,6 +617,7 @@ class NativeBrowser final : public gin_helper::TrackableObject<NativeBrowser>,
+   bool closed_ = false;
+   unsigned int activity_users_ = 0;
+   base::ScopedClosureRunner activity_capture_;
++  std::map<std::string, std::unique_ptr<NativeProfileRequest>> requests_;
+   base::CallbackListSubscription browser_closed_subscription_;
+   v8::Global<v8::Value> debugger_;
+ };

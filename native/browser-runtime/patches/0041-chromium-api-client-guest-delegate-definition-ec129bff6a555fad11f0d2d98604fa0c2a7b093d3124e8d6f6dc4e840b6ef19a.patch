@@ -1,0 +1,30 @@
+diff --git a/extensions/browser/api/BUILD.gn b/extensions/browser/api/BUILD.gn
+index 3d1eaf3dca8ed54bca5482c4395fb13a9a82a6dc..016bcb5a3b0a02f32b4cdad78c260137ec422b39 100644
+--- a/extensions/browser/api/BUILD.gn
++++ b/extensions/browser/api/BUILD.gn
+@@ -200,6 +200,10 @@ source_set("extensions_api_client") {
+     "//extensions/browser/api/system_display:display_info_provider",
+   ]
+ 
++  if (enable_guest_view) {
++    deps += [ "//components/guest_view/browser" ]
++  }
++
+   if (is_chromeos) {
+     public_deps += [ "//extensions/browser/api/clipboard:clipboard_types" ]
+     deps += [ "//extensions/browser/api/virtual_keyboard_private:virtual_keyboard_delegate" ]
+diff --git a/extensions/browser/api/extensions_api_client.cc b/extensions/browser/api/extensions_api_client.cc
+index f65877846ba608210f4d70344d47e37add1a5fbb..13e8083ce1814a07cb7ca96b27179db62e324d7a 100644
+--- a/extensions/browser/api/extensions_api_client.cc
++++ b/extensions/browser/api/extensions_api_client.cc
+@@ -10,6 +10,10 @@
+ #include "extensions/browser/api/messaging/native_message_port_dispatcher.h"
+ #include "extensions/browser/api/system_display/display_info_provider.h"
+ 
++#if BUILDFLAG(ENABLE_GUEST_VIEW)
++#include "components/guest_view/browser/guest_view_manager_delegate.h"
++#endif
++
+ namespace extensions {
+ 
+ namespace {

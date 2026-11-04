@@ -1,0 +1,65 @@
+diff --git a/shell/browser/api/native_browser_import.cc b/shell/browser/api/native_browser_import.cc
+index 771f3a37d47a2754946e0671283f235ce608b34a..66f5819b061d7136bfcb6f8d95c7e08ba2f2babc 100644
+--- a/shell/browser/api/native_browser_import.cc
++++ b/shell/browser/api/native_browser_import.cc
+@@ -35,6 +35,7 @@
+ #include "components/keyed_service/core/service_access_type.h"
+ #include "components/password_manager/core/browser/password_form.h"
+ #include "components/password_manager/core/browser/password_store/password_store_interface.h"
++#include "components/password_manager/core/browser/password_store/password_form_converters.h"
+ #include "components/password_manager/core/browser/password_store/password_store_consumer.h"
+ #include "components/password_manager/core/browser/password_store/stored_credential.h"
+ #include "content/public/browser/storage_partition.h"
+@@ -48,6 +49,7 @@
+ #include "net/cookies/cookie_partition_key.h"
+ #include "services/network/public/mojom/cookie_manager.mojom.h"
+ #include "shell/common/gin_helper/promise.h"
++#include "shell/common/gin_converters/value_converter.h"
+ #include "url/gurl.h"
+ 
+ namespace electron::api {
+@@ -315,6 +317,9 @@ class NativeImportRequest final
+   std::unique_ptr<base::CancelableTaskTracker> history_tracker;
+   std::unique_ptr<NativePasswordReader> password_reader;
+   std::optional<password_manager::StoredCredential> writing_password;
++ private:
++  friend class base::RefCountedThreadSafe<NativeImportRequest>;
++  ~NativeImportRequest() = default;
+ };
+ 
+ class HistoryImportTask final : public history::HistoryDBTask {
+@@ -389,7 +394,6 @@ class HistoryImportTask final : public history::HistoryDBTask {
+ class NativeBrowserImport::Impl : public base::RefCounted<NativeBrowserImport::Impl> {
+  public:
+   explicit Impl(Profile* profile) : profile_(profile) {}
+-  ~Impl() { Dispose(); }
+ 
+   v8::Local<v8::Promise> ImportCookies(v8::Isolate* isolate,
+                                        const std::string& request_id,
+@@ -699,13 +703,14 @@ class NativeBrowserImport::Impl : public base::RefCounted<NativeBrowserImport::I
+              form.username_value == incoming.username_value && !form.blocked_by_user;
+     });
+     const bool update = existing != forms->end();
+-    request->writing_password = update ? std::move(*existing) : incoming;
++    request->writing_password = update ? std::move(*existing)
++        : password_manager::CloneStoredCredential(incoming);
+     request->writing_password->password_value = incoming.password_value;
+     auto complete = base::BindOnce(&Impl::ReadPassword, base::RetainedRef(this), request, true);
+     if (update)
+-      request->password_store->UpdateLogin(*request->writing_password, std::move(complete));
++      request->password_store->UpdateLogin(password_manager::CloneStoredCredential(*request->writing_password), std::move(complete));
+     else
+-      request->password_store->AddLogin(*request->writing_password, std::move(complete));
++      request->password_store->AddLogin(password_manager::CloneStoredCredential(*request->writing_password), std::move(complete));
+   }
+ 
+   void OnHistoryDone(const scoped_refptr<NativeImportRequest>& request,
+@@ -718,6 +723,8 @@ class NativeBrowserImport::Impl : public base::RefCounted<NativeBrowserImport::I
+     Finish(request, cancelled, std::move(error));
+   }
+ 
++  friend class base::RefCounted<Impl>;
++  ~Impl() { Dispose(); }
+   raw_ptr<Profile> profile_;
+   bool closed_ = false;
+   std::map<std::string, scoped_refptr<NativeImportRequest>> pending_;

@@ -1,0 +1,33 @@
+diff --git a/chrome/browser/performance_manager/metrics/metrics_provider_desktop.cc b/chrome/browser/performance_manager/metrics/metrics_provider_desktop.cc
+index ba84f38b14e2e1d4e931ad67514f8a27a03354e2..ebc5060a904c297ad42792b3afd73083b7dfe83e 100644
+--- a/chrome/browser/performance_manager/metrics/metrics_provider_desktop.cc
++++ b/chrome/browser/performance_manager/metrics/metrics_provider_desktop.cc
+@@ -341,6 +341,13 @@ MetricsProviderDesktop* MetricsProviderDesktop::GetInstance() {
+   return g_metrics_provider;
+ }
+ 
++// static
++std::unique_ptr<MetricsProviderDesktop>
++MetricsProviderDesktop::CreateForEmbedding(PrefService* local_state) {
++  return std::unique_ptr<MetricsProviderDesktop>(
++      new MetricsProviderDesktop(local_state));
++}
++
+ MetricsProviderDesktop::~MetricsProviderDesktop() {
+   DCHECK_EQ(this, g_metrics_provider);
+   g_metrics_provider = nullptr;
+diff --git a/chrome/browser/performance_manager/metrics/metrics_provider_desktop.h b/chrome/browser/performance_manager/metrics/metrics_provider_desktop.h
+index 506542c709df4f0ec34be2825ef219aaf4633673..8e8e1aeff9e657ecf02c840bbd848bde9baaf463 100644
+--- a/chrome/browser/performance_manager/metrics/metrics_provider_desktop.h
++++ b/chrome/browser/performance_manager/metrics/metrics_provider_desktop.h
+@@ -49,6 +49,10 @@ class MetricsProviderDesktop : public ::metrics::MetricsProvider,
+ 
+   static MetricsProviderDesktop* GetInstance();
+ 
++  // Uses the same provider with an embedding process's metrics service owner.
++  static std::unique_ptr<MetricsProviderDesktop> CreateForEmbedding(
++      PrefService* local_state);
++
+   ~MetricsProviderDesktop() override;
+ 
+   void Initialize();

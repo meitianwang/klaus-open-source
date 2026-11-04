@@ -1,0 +1,43 @@
+diff --git a/chrome/browser/profiles/profile.h b/chrome/browser/profiles/profile.h
+index 955b07a..4d3f68b 100644
+--- a/chrome/browser/profiles/profile.h
++++ b/chrome/browser/profiles/profile.h
+@@ -214,6 +214,7 @@ class Profile : public content::BrowserContext {
+   // Note that for Chrome this covers BOTH Incognito mode and Guest sessions.
+   bool IsOffTheRecord() final;
+   bool IsOffTheRecord() const { return otr_profile_id_.has_value(); }
++  bool IsBrowserProfile() const override { return true; }
+   const OTRProfileID& GetOTRProfileID() const;
+ 
+   variations::VariationsClient* GetVariationsClient() override;
+diff --git a/chrome/browser/profiles/profile_keyed_service_factory.cc b/chrome/browser/profiles/profile_keyed_service_factory.cc
+index 30a7e6a..538d21c 100644
+--- a/chrome/browser/profiles/profile_keyed_service_factory.cc
++++ b/chrome/browser/profiles/profile_keyed_service_factory.cc
+@@ -22,6 +22,11 @@ ProfileKeyedServiceFactory::~ProfileKeyedServiceFactory() = default;
+ 
+ content::BrowserContext* ProfileKeyedServiceFactory::GetBrowserContextToUse(
+     content::BrowserContext* context) const {
++  // Never downcast an unknown BrowserContext. Only a real browser Profile may
++  // enter ProfileSelections; embedder contexts return false by default.
++  if (context == nullptr || !context->IsBrowserProfile()) {
++    return nullptr;
++  }
+   Profile* profile = Profile::FromBrowserContext(context);
+   return profile_selections_.ApplyProfileSelection(profile);
+ }
+diff --git a/content/public/browser/browser_context.h b/content/public/browser/browser_context.h
+index 60b8c2a..e007697 100644
+--- a/content/public/browser/browser_context.h
++++ b/content/public/browser/browser_context.h
+@@ -397,6 +397,10 @@ class CONTENT_EXPORT BrowserContext : public base::SupportsUserData {
+   // also off the record.
+   virtual bool IsOffTheRecord() = 0;
+ 
++  // Returns true only for a Chrome browser Profile. Embedders that provide
++  // their own BrowserContext implementation return false.
++  virtual bool IsBrowserProfile() const { return false; }
++
+   // Returns the DownloadManagerDelegate for this context. This will be called
+   // once per context. The embedder owns the delegate and is responsible for
+   // ensuring that it outlives DownloadManager. Note in particular that it is

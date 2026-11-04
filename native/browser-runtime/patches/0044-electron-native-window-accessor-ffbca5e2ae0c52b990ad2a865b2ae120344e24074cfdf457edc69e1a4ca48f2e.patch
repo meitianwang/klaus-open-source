@@ -1,0 +1,13 @@
+diff --git a/shell/browser/browser_process_impl.cc b/shell/browser/browser_process_impl.cc
+index 9f2c2b7e51665a9cea078227454c48b7e5bad4c2..0be1e10257fa513a823bb538d4bee96bcccd1c1c 100644
+--- a/shell/browser/browser_process_impl.cc
++++ b/shell/browser/browser_process_impl.cc
+@@ -885,7 +885,7 @@ void ElectronBrowserProcessImpl::RunNativeProfileProbeIfRequested() {
+     CHECK(url.is_valid());
+     ::Browser* browser = ::Browser::Create(::Browser::CreateParams(profile, true));
+     chrome::AddTabAt(browser, url, -1, true);
+-    browser->window()->Show();
++    browser->GetWindow()->Show();
+     result.Set("native_browser_window", true);
+   }
+   result.Set("ok", true);

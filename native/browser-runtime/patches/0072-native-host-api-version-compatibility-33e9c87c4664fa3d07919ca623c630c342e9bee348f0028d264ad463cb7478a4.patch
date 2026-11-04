@@ -1,0 +1,59 @@
+diff --git a/shell/browser/api/electron_api_native_browser.cc b/shell/browser/api/electron_api_native_browser.cc
+index 0d15aa17fbd1592d74a5b3ceea953db43862ebf7..81fbc3df390588a698096a5224ffa038214d39fa 100644
+--- a/shell/browser/api/electron_api_native_browser.cc
++++ b/shell/browser/api/electron_api_native_browser.cc
+@@ -23,6 +23,7 @@
+ #include "shell/common/gin_converters/gfx_converter.h"
+ #include "shell/common/gin_converters/gurl_converter.h"
+ #include "shell/common/gin_helper/dictionary.h"
++#include "shell/common/gin_helper/error_thrower.h"
+ #include "shell/common/gin_helper/object_template_builder.h"
+ #include "shell/common/gin_helper/trackable_object.h"
+ #include "shell/common/node_includes.h"
+@@ -99,7 +100,7 @@ class NativeBrowser final : public gin_helper::TrackableObject<NativeBrowser>,
+   }
+   void LoadURL(const GURL& url, gin::Arguments* args) {
+     if (IsClosed()) {
+-      args->ThrowError("Native browser has been closed");
++      gin_helper::ErrorThrower(args->isolate()).ThrowError("Native browser has been closed");
+       return;
+     }
+     if (!url.is_valid()) {
+@@ -169,12 +170,12 @@ class NativeBrowser final : public gin_helper::TrackableObject<NativeBrowser>,
+ 
+ NativeBrowser* CreateNativeBrowser(gin::Arguments* args) {
+   if (!electron::Browser::Get()->is_ready()) {
+-    args->ThrowError("Native browsers can only be created after app readiness");
++    gin_helper::ErrorThrower(args->isolate()).ThrowError("Native browsers can only be created after app readiness");
+     return nullptr;
+   }
+   auto* manager = g_browser_process->profile_manager();
+   if (!manager) {
+-    args->ThrowError("Native browser runtime is not enabled");
++    gin_helper::ErrorThrower(args->isolate()).ThrowError("Native browser runtime is not enabled");
+     return nullptr;
+   }
+   gin_helper::Dictionary options;
+@@ -196,7 +197,7 @@ NativeBrowser* CreateNativeBrowser(gin::Arguments* args) {
+   Profile* profile = manager->GetProfile(
+       manager->user_data_dir().Append(FILE_PATH_LITERAL("Default")));
+   if (!profile) {
+-    args->ThrowError("Native browser Profile could not be initialized");
++    gin_helper::ErrorThrower(args->isolate()).ThrowError("Native browser Profile could not be initialized");
+     return nullptr;
+   }
+   return new NativeBrowser(args->isolate(), profile, parent->window(), bounds,
+@@ -211,10 +212,11 @@ void Initialize(v8::Local<v8::Object> exports,
+                 v8::Local<v8::Value> unused,
+                 v8::Local<v8::Context> context,
+                 void* priv) {
+-  gin_helper::Dictionary dict(context->GetIsolate(), exports);
++  v8::Isolate* const isolate = electron::JavascriptEnvironment::GetIsolate();
++  gin_helper::Dictionary dict(isolate, exports);
+   dict.SetMethod("create", &electron::api::CreateNativeBrowser);
+   dict.Set("NativeBrowser", electron::api::NativeBrowser::GetConstructor(
+-                                context->GetIsolate())
++                                isolate)
+                                 ->GetFunction(context)
+                                 .ToLocalChecked());
+ }

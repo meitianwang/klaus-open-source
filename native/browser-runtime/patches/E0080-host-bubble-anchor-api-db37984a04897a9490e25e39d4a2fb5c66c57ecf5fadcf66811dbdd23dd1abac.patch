@@ -1,0 +1,54 @@
+diff --git a/shell/browser/api/electron_api_native_browser.cc b/shell/browser/api/electron_api_native_browser.cc
+index 52838730ba279bd1ccd8e3bc4ccab170673ae0af..dd4d91f64dd6d11993666b9be263a7fd6d9aee2e 100644
+--- a/shell/browser/api/electron_api_native_browser.cc
++++ b/shell/browser/api/electron_api_native_browser.cc
+@@ -18,6 +18,7 @@
+ #include "chrome/browser/ui/browser_window.h"
+ #include "chrome/browser/ui/tabs/tab_strip_model.h"
+ #include "chrome/browser/ui/browser_tabstrip.h"
++#include "chrome/browser/ui/views/frame/browser_view.h"
+ #include "content/public/browser/navigation_controller.h"
+ #include "content/public/browser/navigation_handle.h"
+ #include "content/public/browser/web_contents.h"
+@@ -116,6 +117,8 @@ class NativeBrowser final : public gin_helper::TrackableObject<NativeBrowser>,
+         .SetMethod("loadExtension", &NativeBrowser::LoadExtension)
+         .SetMethod("setBounds", &NativeBrowser::SetBounds)
+         .SetMethod("getBounds", &NativeBrowser::GetBounds)
++        .SetMethod("setBubbleAnchor", &NativeBrowser::SetBubbleAnchor)
++        .SetMethod("getBubbleAnchor", &NativeBrowser::GetBubbleAnchor)
+         .SetMethod("setVisible", &NativeBrowser::SetVisible)
+         .SetMethod("focus", &NativeBrowser::Focus)
+         .SetProperty("debugger", &NativeBrowser::GetDebugger);
+@@ -221,6 +224,32 @@ class NativeBrowser final : public gin_helper::TrackableObject<NativeBrowser>,
+     }
+     return bounds;
+   }
++  void SetBubbleAnchor(const gfx::Rect& bounds, gin::Arguments* args) {
++    if (IsClosed()) {
++      gin_helper::ErrorThrower(args->isolate()).ThrowError(
++          "Native browser has been closed");
++      return;
++    }
++    if (bounds.IsEmpty()) {
++      args->ThrowTypeError("anchor must have a positive size");
++      return;
++    }
++    auto* view = BrowserView::GetBrowserViewForBrowser(browser_);
++    gfx::Rect anchor = HostBoundsToScreen(parent_, bounds);
++    views::View::ConvertRectFromScreen(view, &anchor);
++    view->SetHostContentAnchorRect(anchor);
++  }
++  gfx::Rect GetBubbleAnchor() const {
++    if (IsClosed())
++      return gfx::Rect();
++    auto* view = BrowserView::GetBrowserViewForBrowser(browser_);
++    auto* anchor_view = view->host_content_anchor_view();
++    if (!anchor_view)
++      return gfx::Rect();
++    gfx::Rect anchor = anchor_view->GetAnchorBoundsInScreen();
++    views::View::ConvertRectFromScreen(parent_->GetContentsView(), &anchor);
++    return anchor;
++  }
+   void SetVisible(bool visible) {
+     visible_ = visible;
+     if (!browser_)

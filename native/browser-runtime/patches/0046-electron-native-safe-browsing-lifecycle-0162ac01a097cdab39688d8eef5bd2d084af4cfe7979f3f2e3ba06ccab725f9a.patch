@@ -1,0 +1,98 @@
+diff --git a/BUILD.gn b/BUILD.gn
+index 6b0ca945636225b255dc04b395e2e88622d34337..a4cdcd90cbb619b4c25e146c5e95f0fbe47168c5 100644
+--- a/BUILD.gn
++++ b/BUILD.gn
+@@ -535,6 +535,7 @@ source_set("electron_lib") {
+     "//chrome/browser/profiles:profiles_extra_parts",
+     "//chrome/browser/profiles:profiles_extra_parts_impl",
+     "//chrome/browser/ui:ui",
++    "//chrome/browser/safe_browsing",
+     "//chrome/browser/profiles:misc",
+     "//chrome/browser:chrome_content_browser_client",
+     "//chrome/browser:core",
+diff --git a/shell/browser/browser_process_impl.cc b/shell/browser/browser_process_impl.cc
+index 0be1e10257fa513a823bb538d4bee96bcccd1c1c..91eb64e9ff14639565a17b254a84a037068a3fed 100644
+--- a/shell/browser/browser_process_impl.cc
++++ b/shell/browser/browser_process_impl.cc
+@@ -93,6 +93,10 @@
+ #include "chrome/browser/plugins/plugin_prefs_factory.h"
+ #endif
+ 
++#if BUILDFLAG(SAFE_BROWSING_AVAILABLE)
++#include "chrome/browser/safe_browsing/safe_browsing_service.h"
++#endif
++
+ #if BUILDFLAG(ENABLE_PRINTING)
+ #include "chrome/browser/printing/print_job_manager.h"
+ #endif
+@@ -325,6 +329,10 @@ void ElectronBrowserProcessImpl::PreMainMessageLoopRun() {
+   InitializeNetworkTimeTracker();
+   if (features_initialized_)
+     features_->PreMainMessageLoopRun();
++#if BUILDFLAG(SAFE_BROWSING_AVAILABLE)
++  if (profile_manager_)
++    safe_browsing_service();
++#endif
+ }
+ 
+ void ElectronBrowserProcessImpl::InitializeNativeProfileServices() {
+@@ -383,8 +391,15 @@ void ElectronBrowserProcessImpl::PostMainMessageLoopRun() {
+   if (features_initialized_)
+     features_->PostMainMessageLoopRun();
+ 
++#if BUILDFLAG(SAFE_BROWSING_AVAILABLE)
++  if (safe_browsing_service_)
++    safe_browsing_service_->ShutDown();
++#endif
+   // Profiles and keyed services must be gone before the Profile manager.
+   profile_manager_.reset();
++#if BUILDFLAG(SAFE_BROWSING_AVAILABLE)
++  safe_browsing_service_.reset();
++#endif
+   publisher_host_factory_resetter_.reset();
+   download_status_updater_.reset();
+   if (features_initialized_)
+@@ -542,7 +557,21 @@ StatusTray* ElectronBrowserProcessImpl::status_tray() {
+ 
+ safe_browsing::SafeBrowsingService*
+ ElectronBrowserProcessImpl::safe_browsing_service() {
++#if BUILDFLAG(SAFE_BROWSING_AVAILABLE)
++  if (profile_manager_ && !shutting_down_ && !safe_browsing_service_) {
++    if (!safe_browsing::SafeBrowsingServiceInterface::HasFactory()) {
++      safe_browsing::SafeBrowsingServiceInterface::RegisterFactory(
++          safe_browsing::GetSafeBrowsingServiceFactory());
++    }
++    safe_browsing_service_ = static_cast<safe_browsing::SafeBrowsingService*>(
++        safe_browsing::SafeBrowsingServiceInterface::CreateSafeBrowsingService());
++    if (safe_browsing_service_)
++      safe_browsing_service_->Initialize();
++  }
++  return safe_browsing_service_.get();
++#else
+   return nullptr;
++#endif
+ }
+ 
+ subresource_filter::RulesetService*
+diff --git a/shell/browser/browser_process_impl.h b/shell/browser/browser_process_impl.h
+index cdefdba4507aafef20320249fe26461d2fff26d8..16b2240f287b72290b971b711350cf2e72f53a72 100644
+--- a/shell/browser/browser_process_impl.h
++++ b/shell/browser/browser_process_impl.h
+@@ -19,6 +19,7 @@
+ #include "chrome/browser/browser_process.h"
+ #include "components/embedder_support/origin_trials/origin_trials_settings_storage.h"
+ #include "components/prefs/value_map_pref_store.h"
++#include "components/safe_browsing/buildflags.h"
+ #include "printing/buildflags/buildflags.h"
+ #include "services/network/public/cpp/network_quality_tracker.h"
+ #include "services/network/public/cpp/shared_url_loader_factory.h"
+@@ -220,6 +221,9 @@ class ElectronBrowserProcessImpl : public BrowserProcess {
+   // final destruction follows the clearing of g_browser_process in this owner.
+   std::unique_ptr<extensions::ChromeExtensionsBrowserClient>
+       native_extensions_browser_client_;
++#if BUILDFLAG(SAFE_BROWSING_AVAILABLE)
++  scoped_refptr<safe_browsing::SafeBrowsingService> safe_browsing_service_;
++#endif
+   std::unique_ptr<ProfileManager> profile_manager_;
+ };
+ 

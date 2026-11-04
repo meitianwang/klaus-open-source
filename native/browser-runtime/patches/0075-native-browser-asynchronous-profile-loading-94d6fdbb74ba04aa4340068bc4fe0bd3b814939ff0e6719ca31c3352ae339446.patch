@@ -1,0 +1,100 @@
+diff --git a/shell/browser/api/electron_api_native_browser.cc b/shell/browser/api/electron_api_native_browser.cc
+index 9fa883676aa1ea01272f8e15cd744f80269cb708..7ffa3c1d8ebca85d9298752e4a5965d442249511 100644
+--- a/shell/browser/api/electron_api_native_browser.cc
++++ b/shell/browser/api/electron_api_native_browser.cc
+@@ -28,6 +28,7 @@
+ #include "shell/common/gin_helper/dictionary.h"
+ #include "shell/common/gin_helper/error_thrower.h"
+ #include "shell/common/gin_helper/object_template_builder.h"
++#include "shell/common/gin_helper/promise.h"
+ #include "shell/common/gin_helper/trackable_object.h"
+ #include "shell/common/node_includes.h"
+ #include "ui/views/widget/widget.h"
+@@ -217,15 +218,18 @@ class NativeBrowser final : public gin_helper::TrackableObject<NativeBrowser>,
+   v8::Global<v8::Value> debugger_;
+ };
+ 
+-NativeBrowser* CreateNativeBrowser(gin::Arguments* args) {
++v8::Local<v8::Promise> CreateNativeBrowser(gin::Arguments* args) {
++  gin_helper::Promise<NativeBrowser*> promise(args->isolate());
++  auto handle = promise.GetHandle();
+   if (!electron::Browser::Get()->is_ready()) {
+-    gin_helper::ErrorThrower(args->isolate()).ThrowError("Native browsers can only be created after app readiness");
+-    return nullptr;
++    promise.RejectWithErrorMessage(
++        "Native browsers can only be created after app readiness");
++    return handle;
+   }
+   auto* manager = g_browser_process->profile_manager();
+   if (!manager) {
+-    gin_helper::ErrorThrower(args->isolate()).ThrowError("Native browser runtime is not enabled");
+-    return nullptr;
++    promise.RejectWithErrorMessage("Native browser runtime is not enabled");
++    return handle;
+   }
+   gin_helper::Dictionary options;
+   gin_helper::Handle<BaseWindow> parent;
+@@ -235,28 +239,45 @@ NativeBrowser* CreateNativeBrowser(gin::Arguments* args) {
+       parent.IsEmpty() || parent->window()->IsClosed() ||
+       !options.Get("bounds", &bounds) || bounds.width() <= 0 ||
+       bounds.height() <= 0) {
+-    args->ThrowTypeError("A live parent window and positive bounds are required");
+-    return nullptr;
++    promise.RejectWithErrorMessage(
++        "A live parent window and positive bounds are required");
++    return handle;
+   }
+   if (options.Has("url") &&
+       (!options.Get("url", &url) || !url.is_valid())) {
+-    args->ThrowTypeError("url must be valid");
+-    return nullptr;
++    promise.RejectWithErrorMessage("url must be valid");
++    return handle;
+   }
+-  Profile* profile = manager->GetProfile(
+-      manager->user_data_dir().Append(FILE_PATH_LITERAL("Default")));
+-  if (!profile) {
+-    gin_helper::ErrorThrower(args->isolate()).ThrowError("Native browser Profile could not be initialized");
+-    return nullptr;
+-  }
+-  if (::Browser::GetCreationStatusForProfile(profile) !=
+-      ::Browser::CreationStatus::kOk) {
+-    gin_helper::ErrorThrower(args->isolate())
+-        .ThrowError("Native browser creation is unavailable for this Profile");
+-    return nullptr;
+-  }
+-  return new NativeBrowser(args->isolate(), profile, parent->window(), bounds,
+-                           url);
++
++  // Profile disk access belongs to the native asynchronous loader. Creating
++  // pages after app readiness must never permit synchronous UI-thread IO.
++  manager->UnblockAsyncLoading();
++  manager->CreateProfileAsync(
++      manager->user_data_dir().Append(FILE_PATH_LITERAL("Default")),
++      base::BindOnce(
++          [](gin_helper::Promise<NativeBrowser*> promise,
++             base::WeakPtr<NativeWindow> parent, gfx::Rect bounds, GURL url,
++             Profile* profile) {
++            if (!parent || parent->IsClosed()) {
++              promise.RejectWithErrorMessage(
++                  "The parent window closed while loading the Profile");
++              return;
++            }
++            if (!profile || ::Browser::GetCreationStatusForProfile(profile) !=
++                                ::Browser::CreationStatus::kOk) {
++              promise.RejectWithErrorMessage(
++                  "Native browser creation is unavailable for this Profile");
++              return;
++            }
++            v8::Isolate* isolate = promise.isolate();
++            v8::HandleScope scope(isolate);
++            v8::Context::Scope context_scope(promise.GetContext());
++            auto* browser =
++                new NativeBrowser(isolate, profile, parent.get(), bounds, url);
++            promise.Resolve(browser);
++          },
++          std::move(promise), parent->window()->GetWeakPtr(), bounds, url));
++  return handle;
+ }
+ 
+ }  // namespace

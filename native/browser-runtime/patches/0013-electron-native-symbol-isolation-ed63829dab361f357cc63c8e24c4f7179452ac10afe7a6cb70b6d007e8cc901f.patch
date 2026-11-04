@@ -1,0 +1,166 @@
+diff --git a/chromium_src/BUILD.gn b/chromium_src/BUILD.gn
+index c3f3a297b..e5381a5fe 100644
+--- a/chromium_src/BUILD.gn
++++ b/chromium_src/BUILD.gn
+@@ -441,86 +441,21 @@ static_library("chrome") {
+   }
+ }
+ 
+-# This source set is just so we don't have to depend on all of //chrome/browser
+-# You may have to add new files here during the upgrade if
+-# //chrome/browser/spellchecker gets more files
+-source_set("chrome_spellchecker") {
+-  sources = []
+-  deps = []
+-  libs = []
+-  public_deps = []
+-
+-  if (enable_builtin_spellchecker) {
+-    sources += [
+-      "//chrome/browser/profiles/profile_keyed_service_factory.cc",
+-      "//chrome/browser/profiles/profile_keyed_service_factory.h",
+-      "//chrome/browser/profiles/profile_selections.cc",
+-      "//chrome/browser/profiles/profile_selections.h",
+-      "//chrome/browser/spellchecker/spell_check_host_chrome_impl.cc",
+-      "//chrome/browser/spellchecker/spell_check_host_chrome_impl.h",
+-      "//chrome/browser/spellchecker/spell_check_initialization_host_impl.cc",
+-      "//chrome/browser/spellchecker/spell_check_initialization_host_impl.h",
+-      "//chrome/browser/spellchecker/spellcheck_custom_dictionary.cc",
+-      "//chrome/browser/spellchecker/spellcheck_custom_dictionary.h",
+-      "//chrome/browser/spellchecker/spellcheck_factory.cc",
+-      "//chrome/browser/spellchecker/spellcheck_factory.h",
+-      "//chrome/browser/spellchecker/spellcheck_hunspell_dictionary.cc",
+-      "//chrome/browser/spellchecker/spellcheck_hunspell_dictionary.h",
+-      "//chrome/browser/spellchecker/spellcheck_service.cc",
+-      "//chrome/browser/spellchecker/spellcheck_service.h",
+-    ]
+-
+-    if (!is_mac) {
+-      sources += [
+-        "//chrome/browser/spellchecker/spellcheck_language_blocklist_policy_handler.cc",
+-        "//chrome/browser/spellchecker/spellcheck_language_blocklist_policy_handler.h",
+-        "//chrome/browser/spellchecker/spellcheck_language_policy_handler.cc",
+-        "//chrome/browser/spellchecker/spellcheck_language_policy_handler.h",
+-      ]
+-    }
+-
+-    if (has_spellcheck_panel) {
+-      sources += [
+-        "//chrome/browser/spellchecker/spell_check_panel_host_impl.cc",
+-        "//chrome/browser/spellchecker/spell_check_panel_host_impl.h",
+-      ]
+-    }
+-
+-    if (use_browser_spellchecker) {
+-      sources += [
+-        "//chrome/browser/spellchecker/spelling_request.cc",
+-        "//chrome/browser/spellchecker/spelling_request.h",
+-      ]
+-    }
+-
+-    deps += [
+-      "//base:base_static",
+-      "//components/language/core/browser",
+-      "//components/spellcheck:buildflags",
+-      "//components/sync",
+-    ]
+-
+-    public_deps += [ "//chrome/common:constants" ]
+-  }
+-
+-  public_deps += [
++# Reuse the authoritative implementation across both browser context families.
++group("chrome_spellchecker") {
++  public_deps = [
+     "//components/spellcheck/browser",
+     "//components/spellcheck/common",
+     "//components/spellcheck/renderer",
+   ]
++  if (enable_builtin_spellchecker) {
++    public_deps += [ "//chrome/browser/spellchecker:impl" ]
++  }
+ }
+ 
+ if (is_mac) {
+-  # These sources create an object file conflict with one in |:chrome|, so they
+-  # must live in a separate target.
+-  # Conflicting sources:
+-  #   //chrome/browser/media/webrtc/system_media_capture_permissions_stats_mac.mm
+-  #   //chrome/browser/permissions/system/system_media_capture_permissions_mac.mm
+-  source_set("system_media_capture_permissions_mac_conflict") {
+-    sources = [
+-      "//chrome/browser/permissions/system/system_media_capture_permissions_mac.h",
+-      "//chrome/browser/permissions/system/system_media_capture_permissions_mac.mm",
+-    ]
+-    deps = [ "//chrome/common" ]
++  # Both context families use the same system permission implementation.
++  group("system_media_capture_permissions_mac_conflict") {
++    public_deps = [ "//chrome/browser/permissions/system" ]
+   }
+ }
+diff --git a/shell/browser/extensions/api/BUILD.gn b/shell/browser/extensions/api/BUILD.gn
+index 8e5b4051f..39772da3e 100644
+--- a/shell/browser/extensions/api/BUILD.gn
++++ b/shell/browser/extensions/api/BUILD.gn
+@@ -25,7 +25,7 @@ function_registration("api_registration") {
+   impl_dir = "//electron/shell/browser/extensions/api"
+   configs = [ "//build/config:precompiled_headers" ]
+   bundle_name = "Electron"
+-  root_namespace = "extensions::api::%(namespace)s"
++  root_namespace = "extensions::electron_api::%(namespace)s"
+   schema_include_rules = "extensions/common/api:extensions::api::%(namespace)s"
+ 
+   # Schemas with a custom "implemented_in" path are excluded from the
+diff --git a/shell/browser/extensions/api/tabs/tabs_api.cc b/shell/browser/extensions/api/tabs/tabs_api.cc
+index 2063a0af1..cce3f5c99 100644
+--- a/shell/browser/extensions/api/tabs/tabs_api.cc
++++ b/shell/browser/extensions/api/tabs/tabs_api.cc
+@@ -38,7 +38,7 @@
+ 
+ using electron::WebContentsZoomController;
+ 
+-namespace extensions {
++namespace extensions::electron_api {
+ 
+ namespace tabs = api::tabs;
+ 
+@@ -708,4 +708,4 @@ ExtensionFunction::ResponseValue TabsUpdateFunction::GetResult() {
+   return ArgumentList(tabs::Get::Results::Create(std::move(tab)));
+ }
+ 
+-}  // namespace extensions
++}  // namespace extensions::electron_api
+diff --git a/shell/browser/extensions/api/tabs/tabs_api.h b/shell/browser/extensions/api/tabs/tabs_api.h
+index 812f740ba..7a7a330f8 100644
+--- a/shell/browser/extensions/api/tabs/tabs_api.h
++++ b/shell/browser/extensions/api/tabs/tabs_api.h
+@@ -14,7 +14,7 @@
+ 
+ class GURL;
+ 
+-namespace extensions {
++namespace extensions::electron_api {
+ 
+ // Implement API call tabs.executeScript and tabs.insertCSS.
+ class ExecuteCodeInTabFunction : public ExecuteCodeFunction {
+@@ -124,6 +124,6 @@ class TabsUpdateFunction : public ExtensionFunction {
+ 
+   DECLARE_EXTENSION_FUNCTION("tabs.update", TABS_UPDATE)
+ };
+-}  // namespace extensions
++}  // namespace extensions::electron_api
+ 
+ #endif  // ELECTRON_SHELL_BROWSER_EXTENSIONS_API_TABS_TABS_API_H_
+diff --git a/shell/browser/extensions/electron_extensions_browser_api_provider.cc b/shell/browser/extensions/electron_extensions_browser_api_provider.cc
+index eecf26472..4f0151a35 100644
+--- a/shell/browser/extensions/electron_extensions_browser_api_provider.cc
++++ b/shell/browser/extensions/electron_extensions_browser_api_provider.cc
+@@ -20,7 +20,7 @@ ElectronExtensionsBrowserAPIProvider::~ElectronExtensionsBrowserAPIProvider() =
+ void ElectronExtensionsBrowserAPIProvider::RegisterExtensionFunctions(
+     ExtensionFunctionRegistry* registry) {
+   // Generated APIs from Electron.
+-  api::ElectronGeneratedFunctionRegistry::RegisterAll(registry);
++  electron_api::ElectronGeneratedFunctionRegistry::RegisterAll(registry);
+ }
+ 
+ }  // namespace extensions

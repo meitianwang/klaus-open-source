@@ -1,0 +1,13 @@
+diff --git a/chrome/browser/download/chrome_download_manager_delegate.h b/chrome/browser/download/chrome_download_manager_delegate.h
+index d9800dd3a1bef043f575f4991b5a7b54df213650..a25c2e0d304a7b3f4c7e88293b7e5f6db24de06b 100644
+--- a/chrome/browser/download/chrome_download_manager_delegate.h
++++ b/chrome/browser/download/chrome_download_manager_delegate.h
+@@ -372,7 +372,7 @@ class ChromeDownloadManagerDelegate
+   void ContinueDownloadTargetDetermination(
+       uint32_t download_id,
+       const base::FilePath& fallback_path,
+-      DownloadPathReservationTracker::FilenameConflictAction action,
++      download::DownloadPathReservationTracker::FilenameConflictAction action,
+       base::OnceCallback<void(download::DownloadTargetInfo target_info,
+                               safe_browsing::DownloadFileType::DangerLevel
+                                   danger_level)> callback,

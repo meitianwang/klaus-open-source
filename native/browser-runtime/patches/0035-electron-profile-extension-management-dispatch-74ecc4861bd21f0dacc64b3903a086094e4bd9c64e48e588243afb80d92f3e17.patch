@@ -1,0 +1,40 @@
+diff --git a/shell/browser/extensions/electron_extensions_browser_client.cc b/shell/browser/extensions/electron_extensions_browser_client.cc
+index 9e36fdaea20a32f29fe2e1851f7b1be4e6ba7169..d3979379014a6a8ffcd602cec24d7857ae6bbab2 100644
+--- a/shell/browser/extensions/electron_extensions_browser_client.cc
++++ b/shell/browser/extensions/electron_extensions_browser_client.cc
+@@ -11,6 +11,7 @@
+ #include "base/memory/ptr_util.h"
+ #include "base/path_service.h"
+ #include "chrome/browser/extensions/chrome_url_request_util.h"
++#include "chrome/browser/extensions/extension_management.h"
+ #include "chrome/common/chrome_paths.h"
+ #include "components/version_info/version_info.h"
+ #include "content/public/browser/browser_context.h"
+@@ -326,6 +327,14 @@ ElectronExtensionsBrowserClient::GetExtensionSystemFactory() {
+   return extensions::ElectronExtensionSystemFactory::GetInstance();
+ }
+ 
++extensions::ExtensionManagementClient*
++ElectronExtensionsBrowserClient::GetExtensionManagementClient(
++    BrowserContext* context) {
++  if (context && context->IsBrowserProfile())
++    return extensions::ExtensionManagementFactory::GetForBrowserContext(context);
++  return ExtensionsBrowserClient::GetExtensionManagementClient(context);
++}
++
+ std::unique_ptr<extensions::RuntimeAPIDelegate>
+ ElectronExtensionsBrowserClient::CreateRuntimeAPIDelegate(
+     content::BrowserContext* context) const {
+diff --git a/shell/browser/extensions/electron_extensions_browser_client.h b/shell/browser/extensions/electron_extensions_browser_client.h
+index 485104012686d3c79dac394ad37520298cef5119..8bacb8095bcb9e174204fa709d45e8d123b38c8a 100644
+--- a/shell/browser/extensions/electron_extensions_browser_client.h
++++ b/shell/browser/extensions/electron_extensions_browser_client.h
+@@ -127,6 +127,8 @@ class ElectronExtensionsBrowserClient
+       const extensions::ExtensionId& extension_id) override;
+   bool IsLoggedInAsPublicAccount() override;
+   extensions::ExtensionSystemProvider* GetExtensionSystemFactory() override;
++  extensions::ExtensionManagementClient* GetExtensionManagementClient(
++      content::BrowserContext* context) override;
+   std::unique_ptr<extensions::RuntimeAPIDelegate> CreateRuntimeAPIDelegate(
+       content::BrowserContext* context) const override;
+   const extensions::ComponentExtensionResourceManager*

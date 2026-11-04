@@ -1,0 +1,599 @@
+diff --git a/filenames.gni b/filenames.gni
+index a9b41802c19caa40aab29da51b3a835293b0603e..127a4348dc871980567fdab5b929a91b59fe8ab6 100644
+--- a/filenames.gni
++++ b/filenames.gni
+@@ -303,6 +303,8 @@ filenames = {
+     "shell/browser/api/electron_api_notification.cc",
+     "shell/browser/api/electron_api_notification.h",
+     "shell/browser/api/electron_api_native_browser.cc",
++    "shell/browser/api/native_popup_gate.cc",
++    "shell/browser/api/native_popup_gate.h",
+     "shell/browser/api/native_browser_import.cc",
+     "shell/browser/api/native_browser_import.h",
+     "shell/browser/api/native_browser_site_settings.cc",
+diff --git a/shell/browser/api/electron_api_native_browser.cc b/shell/browser/api/electron_api_native_browser.cc
+index 29b6bc3c2fb9075c02e0e3547cfedbe675c76b91..ef88bd7f11e52a4f8957912b7b6a5c209e27ecb7 100644
+--- a/shell/browser/api/electron_api_native_browser.cc
++++ b/shell/browser/api/electron_api_native_browser.cc
+@@ -3,6 +3,7 @@
+ // found in the LICENSE file.
+ 
+ #include <algorithm>
++#include <vector>
+ #include <map>
+ #include <memory>
+ #include <optional>
+@@ -37,6 +38,7 @@
+ #include "shell/browser/api/native_browser_download_metadata.h"
+ #include "base/functional/bind.h"
+ #include "base/memory/raw_ptr.h"
++#include "base/memory/weak_ptr.h"
+ #include "base/task/single_thread_task_runner.h"
+ #include "base/strings/utf_string_conversions.h"
+ #include "chrome/browser/extensions/extension_management.h"
+@@ -54,20 +56,27 @@
+ #include "components/find_in_page/find_types.h"
+ #include "chrome/browser/ui/browser.h"
+ #include "chrome/browser/ui/browser_window.h"
++#include "chrome/browser/ui/browser_window/public/global_browser_collection.h"
+ #include "chrome/browser/ui/tabs/tab_strip_model.h"
+ #include "chrome/browser/ui/browser_tabstrip.h"
++#include "chrome/browser/ui/navigator/native_popup_source.h"
++#include "chrome/browser/ui/tabs/tab_enums.h"
+ #include "chrome/browser/ui/views/frame/browser_view.h"
+ #include "content/public/browser/navigation_controller.h"
+ #include "content/public/browser/host_zoom_map.h"
+ #include "content/public/browser/navigation_handle.h"
++#include "content/public/browser/referrer.h"
++#include "content/public/browser/render_frame_host.h"
+ #include "content/public/browser/web_contents.h"
+ #include "content/public/browser/web_contents_observer.h"
+ #include "extensions/browser/unpacked_installer.h"
+ #include "extensions/common/extension.h"
+ #include "shell/browser/api/electron_api_base_window.h"
+ #include "shell/browser/api/electron_api_debugger.h"
++#include "shell/browser/api/native_popup_gate.h"
+ #include "shell/browser/api/native_browser_import.h"
+ #include "shell/browser/api/native_browser_site_settings.h"
++#include "ui/base/page_transition_types.h"
+ #include "shell/browser/browser.h"
+ #include "shell/browser/browser_process_impl.h"
+ #include "shell/browser/javascript_environment.h"
+@@ -939,6 +948,10 @@ class NativeBrowser final : public gin_helper::TrackableObject<NativeBrowser>,
+     browser_ = ::Browser::Create(params);
+     chrome::AddTabAt(browser_, url, -1, true);
+     Observe(browser_->tab_strip_model()->GetActiveWebContents());
++    chrome::NativePopupSource::Set(
++        web_contents(),
++        base::BindRepeating(&NativeBrowser::OnPopupRequested,
++                            weak_factory_.GetWeakPtr()));
+     find_helper_ = find_in_page::FindTabHelper::FromWebContents(web_contents());
+     if (find_helper_)
+       find_helper_->AddObserver(this);
+@@ -955,6 +968,62 @@ class NativeBrowser final : public gin_helper::TrackableObject<NativeBrowser>,
+     SetVisible(visible);
+   }
+ 
++  NativeBrowser(v8::Isolate* isolate,
++                Profile* profile,
++                NativeWindow* parent,
++                const gfx::Rect& bounds,
++                std::unique_ptr<content::WebContents> contents,
++                base::WeakPtr<NativePopupGate> gate)
++      : parent_(parent), bounds_(bounds), popup_gate_(std::move(gate)) {
++    ::Browser::CreateParams params(profile, true);
++    params.embedding_parent = parent->GetNativeView();
++    params.initial_bounds = HostBoundsToScreen(parent, bounds);
++    params.omit_from_session_restore = true;
++    params.should_trigger_session_restore = false;
++    browser_ = ::Browser::Create(params);
++    browser_->tab_strip_model()->AddWebContents(
++        std::move(contents), -1, ui::PAGE_TRANSITION_LINK,
++        AddTabTypes::ADD_ACTIVE);
++    Observe(browser_->tab_strip_model()->GetActiveWebContents());
++    chrome::NativePopupSource::Set(
++        web_contents(),
++        base::BindRepeating(&NativeBrowser::OnPopupRequested,
++                            weak_factory_.GetWeakPtr()));
++    find_helper_ = find_in_page::FindTabHelper::FromWebContents(web_contents());
++    if (find_helper_)
++      find_helper_->AddObserver(this);
++    browser_closed_subscription_ = browser_->RegisterBrowserDidClose(
++        base::BindRepeating(&NativeBrowser::OnBrowserClosed,
++                            base::Unretained(this)));
++    parent_->AddObserver(this);
++    Init(isolate);
++    auto* debugger = Debugger::Create(isolate, web_contents());
++    debugger_.Reset(isolate, debugger->GetWrapper(isolate).ToLocalChecked());
++    static_cast<ElectronBrowserProcessImpl*>(g_browser_process)
++        ->NotifyNativeBrowserStarted();
++    SetVisible(false);
++    if (popup_gate_) {
++      popup_gate_->SetCancelledCallback(
++          base::BindOnce(&NativeBrowser::OnPopupCancelled,
++                         weak_factory_.GetWeakPtr()));
++    }
++  }
++
++  void ResumePopup() {
++    if (popup_gate_)
++      popup_gate_->Resume();
++  }
++  void CancelPopup() {
++    if (popup_gate_)
++      popup_gate_->Cancel();
++    else
++      Close();
++  }
++  void OnPopupCancelled() {
++    if (!closed_)
++      Close();
++  }
++
+   ~NativeBrowser() override {
+     // Cleanup may run during wrapper finalization. Detach callbacks before
+     // closing the browser so teardown never re-enters JavaScript from GC.
+@@ -968,6 +1037,25 @@ class NativeBrowser final : public gin_helper::TrackableObject<NativeBrowser>,
+     data_remover_ = nullptr;
+     DeferNativeRejections(std::move(find_promise_), std::move(clear_promise_),
+                           std::move(requests_));
++    auto pending_gates = std::move(popup_gates_);
++    auto pending_children = std::move(popup_children_);
++    popup_gates_.clear();
++    popup_children_.clear();
++    if (!pending_gates.empty() || !pending_children.empty()) {
++      base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
++          FROM_HERE,
++          base::BindOnce(
++              [](std::vector<base::WeakPtr<NativePopupGate>> gates,
++                 std::vector<base::WeakPtr<NativeBrowser>> children) {
++                for (auto& gate : gates)
++                  if (gate)
++                    gate->Cancel();
++                for (auto& child : children)
++                  if (child)
++                    child->CancelPopup();
++              },
++              std::move(pending_gates), std::move(pending_children)));
++    }
+     Observe(nullptr);
+     if (parent_)
+       parent_->RemoveObserver(this);
+@@ -986,6 +1074,8 @@ class NativeBrowser final : public gin_helper::TrackableObject<NativeBrowser>,
+     gin_helper::ObjectTemplateBuilder(isolate, prototype->PrototypeTemplate())
+         .SetMethod("isDestroyed", &NativeBrowser::IsClosed)
+         .SetMethod("close", &NativeBrowser::Close)
++        .SetMethod("resumePopup", &NativeBrowser::ResumePopup)
++        .SetMethod("cancelPopup", &NativeBrowser::CancelPopup)
+         .SetMethod("getURL", &NativeBrowser::GetURL)
+         .SetMethod("getTitle", &NativeBrowser::GetTitle)
+         .SetMethod("getZoomFactor", &NativeBrowser::GetZoomFactor)
+@@ -1517,6 +1607,7 @@ class NativeBrowser final : public gin_helper::TrackableObject<NativeBrowser>,
+     requests_.clear();
+     activity_users_ = 0;
+     activity_capture_.RunAndReset();
++    CancelPendingPopups();
+     browser_ = nullptr;
+     debugger_.Reset();
+     if (parent_) {
+@@ -1543,6 +1634,135 @@ class NativeBrowser final : public gin_helper::TrackableObject<NativeBrowser>,
+     }
+     NotifyClosed();
+   }
++  void DidOpenRequestedURL(
++      content::WebContents* new_contents,
++      content::RenderFrameHost* source_render_frame_host,
++      const GURL& url,
++      const content::Referrer& referrer,
++      WindowOpenDisposition disposition,
++      ui::PageTransition transition,
++      bool started_from_context_menu,
++      bool renderer_initiated) override {
++    if (!new_contents || new_contents == web_contents() ||
++        NativePopupGate::FromWebContents(new_contents))
++      return;
++    NativePopupInfo info;
++    info.url = url;
++    info.disposition = disposition;
++    if (auto* metadata = GetNativePageDownloadMetadata(web_contents())) {
++      info.session_id = metadata->session_id;
++      info.page_id = metadata->page_id;
++      info.is_actor_visit = metadata->is_actor_visit;
++      info.requires_authorization = metadata->requires_authorization;
++      SetNativePageDownloadMetadata(new_contents, *metadata);
++    }
++    auto* gate =
++        NativePopupGate::CreateForWebContents(new_contents, std::move(info));
++    if (!gate)
++      return;
++    popup_gates_.push_back(gate->GetWeakPtr());
++    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
++        FROM_HERE, base::BindOnce(&NativeBrowser::OnPopupCreated,
++                                  weak_factory_.GetWeakPtr(),
++                                  gate->GetWeakPtr()));
++  }
++
++  void OnPopupRequested(content::WebContents* child,
++                        const GURL& url,
++                        WindowOpenDisposition disposition) {
++    if (!child || child == web_contents() ||
++        NativePopupGate::FromWebContents(child))
++      return;
++    NativePopupInfo info;
++    info.url = url;
++    info.disposition = disposition;
++    if (auto* metadata = GetNativePageDownloadMetadata(web_contents())) {
++      info.session_id = metadata->session_id;
++      info.page_id = metadata->page_id;
++      info.is_actor_visit = metadata->is_actor_visit;
++      info.requires_authorization = metadata->requires_authorization;
++      SetNativePageDownloadMetadata(child, *metadata);
++    }
++    auto* gate =
++        NativePopupGate::CreateForWebContents(child, std::move(info));
++    if (!gate)
++      return;
++    popup_gates_.push_back(gate->GetWeakPtr());
++    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
++        FROM_HERE, base::BindOnce(&NativeBrowser::OnPopupCreated,
++                                  weak_factory_.GetWeakPtr(),
++                                  gate->GetWeakPtr()));
++  }
++
++  void OnPopupCreated(base::WeakPtr<NativePopupGate> gate) {
++    if (!gate || gate->cancelled() || !gate->contents() || !gate->Claim())
++      return;
++    content::WebContents* child_contents = gate->contents();
++    auto* old_browser =
++        GlobalBrowserCollection::GetInstance()->FindBrowserWithTab(
++            child_contents);
++    if (!old_browser) {
++      gate->Cancel();
++      return;
++    }
++    auto* old_tabs = old_browser->GetTabStripModel();
++    const int index = old_tabs->GetIndexOfWebContents(child_contents);
++    if (index == TabStripModel::kNoTab) {
++      gate->Cancel();
++      return;
++    }
++    std::unique_ptr<content::WebContents> adopted =
++        old_tabs->DetachWebContentsAtForInsertion(index);
++    if (!adopted) {
++      gate->Cancel();
++      return;
++    }
++    if (old_browser != browser_ && old_tabs->count() == 0)
++      old_browser->GetWindow()->Close();
++    if (!parent_ || parent_->IsClosed()) {
++      gate->Cancel();
++      return;
++    }
++    auto* profile = Profile::FromBrowserContext(adopted->GetBrowserContext());
++    if (!profile) {
++      gate->Cancel();
++      return;
++    }
++    v8::Isolate* isolate = this->isolate();
++    v8::HandleScope handle_scope(isolate);
++    v8::Local<v8::Object> owner_wrapper = GetWrapper();
++    if (owner_wrapper.IsEmpty()) {
++      gate->Cancel();
++      return;
++    }
++    v8::Context::Scope context_scope(
++        owner_wrapper->GetCreationContextChecked());
++    auto* child = new NativeBrowser(isolate, profile, parent_, bounds_,
++                                    std::move(adopted), gate);
++    popup_children_.push_back(child->weak_factory_.GetWeakPtr());
++    base::DictValue info;
++    info.Set("url", gate->info().url.spec());
++    info.Set("disposition", static_cast<int>(gate->info().disposition));
++    info.Set("sessionId", gate->info().session_id);
++    info.Set("pageId", gate->info().page_id);
++    info.Set("isActorVisit", gate->info().is_actor_visit);
++    info.Set("requiresAuthorization", gate->info().requires_authorization);
++    Emit("popup-created", child->GetWrapper(), std::move(info));
++  }
++
++  void CancelPendingPopups() {
++    for (auto& weak_child : popup_children_) {
++      if (auto child = weak_child)
++        child->CancelPopup();
++    }
++    popup_children_.clear();
++    for (auto& weak_gate : popup_gates_) {
++      if (auto gate = weak_gate)
++        gate->Cancel();
++    }
++    popup_gates_.clear();
++  }
++
+   void DidGetUserInteraction(const blink::WebInputEvent& event) override {
+     if (event.GetModifiers() & blink::WebInputEvent::kFromDebugger)
+       return;
+@@ -1597,6 +1817,10 @@ class NativeBrowser final : public gin_helper::TrackableObject<NativeBrowser>,
+   v8::Global<v8::Value> debugger_;
+   raw_ptr<find_in_page::FindTabHelper> find_helper_ = nullptr;
+   std::unique_ptr<gin_helper::Promise<base::DictValue>> find_promise_;
++  std::vector<base::WeakPtr<NativePopupGate>> popup_gates_;
++  std::vector<base::WeakPtr<NativeBrowser>> popup_children_;
++  base::WeakPtr<NativePopupGate> popup_gate_;
++  base::WeakPtrFactory<NativeBrowser> weak_factory_{this};
+ };
+ 
+ std::string NativeManagementUrl(const std::string& surface,
+diff --git a/shell/browser/api/native_popup_gate.cc b/shell/browser/api/native_popup_gate.cc
+new file mode 100644
+index 0000000000000000000000000000000000000000..495ee2134172c09064d27523632d8d11d36e7c0e
+--- /dev/null
++++ b/shell/browser/api/native_popup_gate.cc
+@@ -0,0 +1,145 @@
++#include "shell/browser/api/native_popup_gate.h"
++
++#include <utility>
++
++#include "base/memory/ptr_util.h"
++#include "base/task/single_thread_task_runner.h"
++#include "content/public/browser/navigation_handle.h"
++#include "content/public/browser/navigation_throttle_registry.h"
++#include "content/public/browser/web_contents.h"
++
++namespace electron::api {
++namespace {
++constexpr auto kPopupGateTimeout = base::Seconds(15);
++}
++
++NativePopupNavigationThrottle::NativePopupNavigationThrottle(
++    content::NavigationThrottleRegistry& registry,
++    base::WeakPtr<NativePopupGate> gate)
++    : content::NavigationThrottle(registry), gate_(std::move(gate)) {}
++
++NativePopupNavigationThrottle::~NativePopupNavigationThrottle() = default;
++
++content::NavigationThrottle::ThrottleCheckResult
++NativePopupNavigationThrottle::WillStartRequest() {
++  auto gate = gate_;
++  if (!gate || gate->cancelled())
++    return CANCEL;
++  if (!gate->pending())
++    return PROCEED;
++  deferred_ = true;
++  gate->SetThrottle(weak_factory_.GetWeakPtr());
++  return DEFER;
++}
++
++const char* NativePopupNavigationThrottle::GetNameForLogging() {
++  return "NativePopupNavigationThrottle";
++}
++
++void NativePopupNavigationThrottle::ResumeNavigation() {
++  if (!deferred_)
++    return;
++  deferred_ = false;
++  Resume();
++}
++
++void NativePopupNavigationThrottle::CancelNavigation() {
++  if (!deferred_)
++    return;
++  deferred_ = false;
++  CancelDeferredNavigation(CANCEL);
++}
++
++NativePopupGate::NativePopupGate(content::WebContents& contents,
++                                 NativePopupInfo info)
++    : content::WebContentsUserData<NativePopupGate>(contents),
++      contents_(&contents),
++      info_(std::move(info)) {
++  StartDeadline();
++}
++
++NativePopupGate::~NativePopupGate() {
++  deadline_.Stop();
++}
++
++NativePopupGate* NativePopupGate::CreateForWebContents(
++    content::WebContents* contents,
++    NativePopupInfo info) {
++  if (!contents)
++    return nullptr;
++  if (auto* existing = FromWebContents(contents))
++    return existing;
++  contents->SetUserData(
++      UserDataKey(),
++      base::WrapUnique(new NativePopupGate(*contents, std::move(info))));
++  return FromWebContents(contents);
++}
++
++NativePopupGate* NativePopupGate::FromWebContents(
++    content::WebContents* contents) {
++  return contents ? content::WebContentsUserData<NativePopupGate>::FromWebContents(contents)
++                  : nullptr;
++}
++
++void NativePopupGate::AddThrottleIfPending(
++    content::NavigationThrottleRegistry& registry) {
++  auto* contents = registry.GetNavigationHandle().GetWebContents();
++  auto* gate = FromWebContents(contents);
++  if (!gate || !gate->pending())
++    return;
++  registry.AddThrottle(std::make_unique<NativePopupNavigationThrottle>(
++      registry, gate->GetWeakPtr()));
++}
++
++void NativePopupGate::SetThrottle(
++    base::WeakPtr<NativePopupNavigationThrottle> throttle) {
++  throttle_ = std::move(throttle);
++}
++
++void NativePopupGate::SetCancelledCallback(base::OnceClosure callback) {
++  cancelled_callback_ = std::move(callback);
++}
++
++bool NativePopupGate::Claim() {
++  if (claimed_)
++    return false;
++  claimed_ = true;
++  return true;
++}
++
++void NativePopupGate::Resume() {
++  if (state_ != State::kPending)
++    return;
++  state_ = State::kAllowed;
++  deadline_.Stop();
++  auto throttle = std::move(throttle_);
++  if (throttle)
++    throttle->ResumeNavigation();
++}
++
++void NativePopupGate::Cancel() {
++  if (state_ != State::kPending)
++    return;
++  state_ = State::kCancelled;
++  deadline_.Stop();
++  auto throttle = std::move(throttle_);
++  auto callback = std::move(cancelled_callback_);
++  auto* contents = contents_;
++  if (callback) {
++    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
++        FROM_HERE, std::move(callback));
++  }
++  if (throttle)
++    throttle->CancelNavigation();
++  else if (contents && !contents->IsBeingDestroyed())
++    contents->Stop();
++}
++
++void NativePopupGate::StartDeadline() {
++  deadline_.Start(FROM_HERE, kPopupGateTimeout,
++                  base::BindOnce(&NativePopupGate::Cancel, GetWeakPtr()));
++}
++
++WEB_CONTENTS_USER_DATA_KEY_IMPL(NativePopupGate)
++
++}  // namespace electron::api
+diff --git a/shell/browser/api/native_popup_gate.h b/shell/browser/api/native_popup_gate.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..8b148a9eb3caee439584868878a79b9b7e95fe58
+--- /dev/null
++++ b/shell/browser/api/native_popup_gate.h
+@@ -0,0 +1,97 @@
++#ifndef SHELL_BROWSER_API_NATIVE_POPUP_GATE_H_
++#define SHELL_BROWSER_API_NATIVE_POPUP_GATE_H_
++
++#include <string>
++
++#include "base/functional/callback.h"
++#include "base/memory/raw_ptr.h"
++#include "base/memory/weak_ptr.h"
++#include "base/timer/timer.h"
++#include "content/public/browser/navigation_throttle.h"
++#include "content/public/browser/web_contents_user_data.h"
++#include "ui/base/window_open_disposition.h"
++#include "url/gurl.h"
++
++namespace content {
++class NavigationThrottleRegistry;
++class WebContents;
++}
++
++namespace electron::api {
++
++struct NativePopupInfo {
++  GURL url;
++  WindowOpenDisposition disposition = WindowOpenDisposition::UNKNOWN;
++  std::string session_id;
++  std::string page_id;
++  bool is_actor_visit = false;
++  bool requires_authorization = false;
++};
++
++class NativePopupGate;
++
++class NativePopupNavigationThrottle final
++    : public content::NavigationThrottle {
++ public:
++  NativePopupNavigationThrottle(content::NavigationThrottleRegistry& registry,
++                                base::WeakPtr<NativePopupGate> gate);
++  ~NativePopupNavigationThrottle() override;
++
++  ThrottleCheckResult WillStartRequest() override;
++  const char* GetNameForLogging() override;
++
++  void ResumeNavigation();
++  void CancelNavigation();
++
++ private:
++  base::WeakPtr<NativePopupGate> gate_;
++  bool deferred_ = false;
++  base::WeakPtrFactory<NativePopupNavigationThrottle> weak_factory_{this};
++};
++
++class NativePopupGate final
++    : public content::WebContentsUserData<NativePopupGate> {
++ public:
++  static NativePopupGate* CreateForWebContents(content::WebContents* contents,
++                                               NativePopupInfo info);
++  static NativePopupGate* FromWebContents(content::WebContents* contents);
++  static void AddThrottleIfPending(
++      content::NavigationThrottleRegistry& registry);
++
++  void SetThrottle(base::WeakPtr<NativePopupNavigationThrottle> throttle);
++  void SetCancelledCallback(base::OnceClosure callback);
++  bool Claim();
++
++  void Resume();
++  void Cancel();
++
++  bool pending() const { return state_ == State::kPending; }
++  bool cancelled() const { return state_ == State::kCancelled; }
++  const NativePopupInfo& info() const { return info_; }
++  content::WebContents* contents() const { return contents_; }
++  base::WeakPtr<NativePopupGate> GetWeakPtr() {
++    return weak_factory_.GetWeakPtr();
++  }
++
++ private:
++  enum class State { kPending, kAllowed, kCancelled };
++  NativePopupGate(content::WebContents& contents, NativePopupInfo info);
++  ~NativePopupGate() override;
++
++  void StartDeadline();
++
++  raw_ptr<content::WebContents> contents_;
++  NativePopupInfo info_;
++  State state_ = State::kPending;
++  bool claimed_ = false;
++  base::WeakPtr<NativePopupNavigationThrottle> throttle_;
++  base::OnceClosure cancelled_callback_;
++  base::OneShotTimer deadline_;
++  base::WeakPtrFactory<NativePopupGate> weak_factory_{this};
++
++  WEB_CONTENTS_USER_DATA_KEY_DECL();
++};
++
++}  // namespace electron::api
++
++#endif  // SHELL_BROWSER_API_NATIVE_POPUP_GATE_H_
+diff --git a/shell/browser/electron_browser_client.cc b/shell/browser/electron_browser_client.cc
+index 96bcf3d0c4f99ec55a118247784360f7983e31a9..6d4ae150b29459bf19217c563bf2d4d55baa494d 100644
+--- a/shell/browser/electron_browser_client.cc
++++ b/shell/browser/electron_browser_client.cc
+@@ -3,6 +3,7 @@
+ // found in the LICENSE file.
+ 
+ #include "shell/browser/electron_browser_client.h"
++#include "shell/browser/api/native_popup_gate.h"
+ 
+ #if BUILDFLAG(IS_WIN)
+ #include <shlobj.h>
+@@ -1214,6 +1215,7 @@ bool ElectronBrowserClient::HandleExternalProtocol(
+ 
+ void ElectronBrowserClient::CreateThrottlesForNavigation(
+     content::NavigationThrottleRegistry& registry) {
++  electron::api::NativePopupGate::AddThrottleIfPending(registry);
+   registry.AddThrottle(std::make_unique<ElectronNavigationThrottle>(registry));
+ 
+ #if BUILDFLAG(ENABLE_ELECTRON_EXTENSIONS)

@@ -1,0 +1,36 @@
+diff --git a/chrome/browser/extensions/api/tabs/tabs_event_router.cc b/chrome/browser/extensions/api/tabs/tabs_event_router.cc
+index e8819181b19e0dc3718e2886aa80f2ba0fef4596..48a1ca89c2233c3ae21f90e49e980a4437cfa559 100644
+--- a/chrome/browser/extensions/api/tabs/tabs_event_router.cc
++++ b/chrome/browser/extensions/api/tabs/tabs_event_router.cc
+@@ -306,6 +306,9 @@ void TabsEventRouter::DispatchTabUpdatedEvent(
+     std::set<std::string> changed_property_names) {
+   DCHECK(!changed_property_names.empty());
+   DCHECK(contents);
++  if (!contents || !contents->GetBrowserContext()->IsBrowserProfile()) {
++    return;
++  }
+ 
+   Profile* profile = Profile::FromBrowserContext(contents->GetBrowserContext());
+ 
+diff --git a/chrome/browser/extensions/extension_tab_util.cc b/chrome/browser/extensions/extension_tab_util.cc
+index 6583d7f514e6c976190d7d770c0b3cfa27ff9387..b32f8cda23e9636ca83a92bc3965cde2edbf8a3d 100644
+--- a/chrome/browser/extensions/extension_tab_util.cc
++++ b/chrome/browser/extensions/extension_tab_util.cc
+@@ -978,11 +978,17 @@ bool ExtensionTabUtil::IsWebContentsInContext(
+     content::WebContents* web_contents,
+     content::BrowserContext* browser_context,
+     bool include_incognito) {
++  if (!web_contents || !browser_context)
++    return false;
+   // Look at the WebContents BrowserContext and see if it is the same.
+   content::BrowserContext* web_contents_browser_context =
+       web_contents->GetBrowserContext();
+   if (web_contents_browser_context == browser_context)
+     return true;
++  if (!browser_context->IsBrowserProfile() ||
++      !web_contents_browser_context->IsBrowserProfile()) {
++    return false;
++  }
+ 
+   // If not it might be to include the incognito mode, so we if the profiles
+   // are the same or the parent.

@@ -1,0 +1,113 @@
+diff --git a/chrome/browser/download/chrome_download_manager_delegate.cc b/chrome/browser/download/chrome_download_manager_delegate.cc
+index ce60d90079dc4f450042ae591008fb7af0789ea5..7f044e5b19a8ca58bba4ee23ec44be89d1424623 100644
+--- a/chrome/browser/download/chrome_download_manager_delegate.cc
++++ b/chrome/browser/download/chrome_download_manager_delegate.cc
+@@ -915,7 +915,7 @@ void ChromeDownloadManagerDelegate::ContinueDownloadTargetDetermination(
+   const base::FilePath path = decision.path;
+   host_target_paths_[download_id] = path;
+   DownloadTargetDeterminer::Start(download, path, action, download_prefs_.get(),
+-                                  this, std::move(callback));
++                                  this, std::move(callback), true);
+ }
+ 
+ bool ChromeDownloadManagerDelegate::ShouldAutomaticallyOpenFile(
+@@ -1597,6 +1597,13 @@ void ChromeDownloadManagerDelegate::RequestConfirmation(
+ 
+   auto host_target = host_target_paths_.find(download->GetId());
+   if (host_target != host_target_paths_.end()) {
++    if (reason != DownloadConfirmationReason::PREFERENCE &&
++        reason != DownloadConfirmationReason::SAVE_AS &&
++        reason != DownloadConfirmationReason::NONE) {
++      std::move(callback).Run(DownloadConfirmationResult::CANCELED,
++                              ui::SelectedFileInfo());
++      return;
++    }
+     std::move(callback).Run(
+         DownloadConfirmationResult::CONTINUE_WITHOUT_CONFIRMATION,
+         ui::SelectedFileInfo(host_target->second));
+diff --git a/chrome/browser/download/download_target_determiner.cc b/chrome/browser/download/download_target_determiner.cc
+index 99b1b597116b176d8103363b48f8a0a28fe15ad1..5267a23cc1380cb16309b43dd9cb85cfb118ad73 100644
+--- a/chrome/browser/download/download_target_determiner.cc
++++ b/chrome/browser/download/download_target_determiner.cc
+@@ -177,11 +177,13 @@ DownloadTargetDeterminer::DownloadTargetDeterminer(
+     DownloadPathReservationTracker::FilenameConflictAction conflict_action,
+     DownloadPrefs* download_prefs,
+     DownloadTargetDeterminerDelegate* delegate,
+-    CompletionCallback callback)
++    CompletionCallback callback,
++    bool host_selected_path)
+     : next_state_(STATE_GENERATE_TARGET_PATH),
+       confirmation_reason_(DownloadConfirmationReason::NONE),
+       should_notify_extensions_(false),
+       create_target_directory_(false),
++      host_selected_path_(host_selected_path),
+       conflict_action_(conflict_action),
+       danger_type_(download->GetDangerType()),
+       danger_level_(DownloadFileType::NOT_DANGEROUS),
+@@ -301,6 +303,17 @@ DownloadTargetDeterminer::Result
+     return CONTINUE;
+   }
+ 
++  // An absolute host-approved path is already a target selection. Keep the
++  // normal reservation, filesystem, policy and danger checks on that path.
++  if (host_selected_path_) {
++    if (virtual_path_.empty() || !virtual_path_.IsAbsolute()) {
++      ScheduleCallbackAndDeleteSelf(download::DOWNLOAD_INTERRUPT_REASON_USER_CANCELED);
++      return QUIT_DOLOOP;
++    }
++    containment_directory_ = virtual_path_.DirName();
++    confirmation_reason_ = NeedsConfirmation(virtual_path_);
++    return CONTINUE;
++  }
+   bool no_prompt_needed = HasPromptedForPath();
+ #if BUILDFLAG(IS_ANDROID)
+   // If |virtual_path_| is content URI, there is no need to prompt the user.
+@@ -1338,12 +1351,14 @@ void DownloadTargetDeterminer::Start(
+     DownloadPathReservationTracker::FilenameConflictAction conflict_action,
+     DownloadPrefs* download_prefs,
+     DownloadTargetDeterminerDelegate* delegate,
+-    CompletionCallback callback) {
++    CompletionCallback callback,
++    bool host_selected_path) {
+   // DownloadTargetDeterminer owns itself and will self destruct when the job is
+   // complete or the download item is destroyed. The callback is always invoked
+   // asynchronously.
+   new DownloadTargetDeterminer(download, initial_virtual_path, conflict_action,
+-                               download_prefs, delegate, std::move(callback));
++                               download_prefs, delegate, std::move(callback),
++                               host_selected_path);
+ }
+ 
+ // static
+diff --git a/chrome/browser/download/download_target_determiner.h b/chrome/browser/download/download_target_determiner.h
+index 4193d5b488cd68bc6fa8ab5368afc7659f2232ff..b767a060bc10d1e345bf41e1a92cea38ba479cf9 100644
+--- a/chrome/browser/download/download_target_determiner.h
++++ b/chrome/browser/download/download_target_determiner.h
+@@ -114,7 +114,8 @@ class DownloadTargetDeterminer : public download::DownloadItem::Observer {
+           conflict_action,
+       DownloadPrefs* download_prefs,
+       DownloadTargetDeterminerDelegate* delegate,
+-      CompletionCallback callback);
++      CompletionCallback callback,
++      bool host_selected_path = false);
+ 
+   // Returns a .crdownload intermediate path for the |suggested_path|.
+   static base::FilePath GetCrDownloadPath(const base::FilePath& suggested_path);
+@@ -181,7 +182,8 @@ class DownloadTargetDeterminer : public download::DownloadItem::Observer {
+           conflict_action,
+       DownloadPrefs* download_prefs,
+       DownloadTargetDeterminerDelegate* delegate,
+-      CompletionCallback callback);
++      CompletionCallback callback,
++      bool host_selected_path = false);
+ 
+   ~DownloadTargetDeterminer() override;
+ 
+@@ -375,6 +377,7 @@ class DownloadTargetDeterminer : public download::DownloadItem::Observer {
+   DownloadConfirmationReason confirmation_reason_;
+   bool should_notify_extensions_;
+   bool create_target_directory_;
++  bool host_selected_path_;
+   download::DownloadPathReservationTracker::FilenameConflictAction
+       conflict_action_;
+   download::DownloadDangerType danger_type_;

@@ -1,0 +1,15 @@
+diff --git a/chrome/browser/profiles/renderer_updater.cc b/chrome/browser/profiles/renderer_updater.cc
+index 78a14905c7b75dae4ee0e2f30aef264e0d44e5c9..b9a788ade81d5b1e716909535fd26d193c3c64bc 100644
+--- a/chrome/browser/profiles/renderer_updater.cc
++++ b/chrome/browser/profiles/renderer_updater.cc
+@@ -157,9 +157,7 @@ RendererUpdater::GetRendererConfigurations() {
+            content::RenderProcessHost::AllHostsIterator());
+        !it.IsAtEnd(); it.Advance()) {
+     content::RenderProcessHost* render_process_host = it.GetCurrentValue();
+-    Profile* renderer_profile =
+-        Profile::FromBrowserContext(render_process_host->GetBrowserContext());
+-    if (renderer_profile == profile_) {
++    if (render_process_host->GetBrowserContext() == profile_) {
+       auto renderer_configuration =
+           GetRendererConfiguration(render_process_host);
+       if (renderer_configuration)

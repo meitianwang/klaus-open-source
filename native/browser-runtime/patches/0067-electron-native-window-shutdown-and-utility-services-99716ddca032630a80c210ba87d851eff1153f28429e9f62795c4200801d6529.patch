@@ -1,0 +1,77 @@
+diff --git a/BUILD.gn b/BUILD.gn
+index b3bbc873984da62911c41227e14b3dc101160c8f..479bb7c231a2bc5ac67fe815314ce0f7e7d781ed 100644
+--- a/BUILD.gn
++++ b/BUILD.gn
+@@ -527,6 +527,7 @@ source_set("electron_lib") {
+     "//chrome/browser:browser_process_platform_part",
+     "//chrome/browser:global_features",
+     "//chrome/browser/gpu",
++    "//chrome/utility",
+     "//chrome/browser/google",
+     "//chrome/browser/accessibility",
+     "//chrome/browser/component_updater",
+diff --git a/shell/browser/browser_process_impl.cc b/shell/browser/browser_process_impl.cc
+index 2f282d7bd373c3b4e8c2f6e308e2fa10646fa152..009cc863944fc84d8ff9f54b06827be4088efb5b 100644
+--- a/shell/browser/browser_process_impl.cc
++++ b/shell/browser/browser_process_impl.cc
+@@ -45,6 +45,7 @@
+ #include "chrome/browser/performance_manager/public/chrome_browser_main_extra_parts_performance_manager.h"
+ #include "chrome/browser/ui/browser.h"
+ #include "chrome/browser/ui/browser_manager_service_factory.h"
++#include "chrome/browser/ui/browser_manager_service.h"
+ #include "chrome/browser/ui/browser_tabstrip.h"
+ #include "chrome/browser/ui/browser_window.h"
+ #include "chrome/browser/ui/webui/chrome_web_ui_configs.h"
+@@ -470,6 +471,21 @@ void ElectronBrowserProcessImpl::ShutdownPrinting() {
+ 
+ void ElectronBrowserProcessImpl::PostMainMessageLoopRun() {
+   shutting_down_ = true;
++  // Native windows must release tab helpers before Profile keyed services.
++  if (profile_manager_) {
++    const auto close_browsers = [](Profile* profile) {
++      auto* manager = static_cast<BrowserManagerService*>(
++          BrowserManagerServiceFactory::GetInstance()
++              ->GetServiceForBrowserContext(profile, /*create=*/false));
++      if (manager)
++        manager->Shutdown();
++    };
++    for (Profile* profile : profile_manager_->GetLoadedProfiles()) {
++      for (Profile* off_the_record : profile->GetAllOffTheRecordProfiles())
++        close_browsers(off_the_record);
++      close_browsers(profile);
++    }
++  }
+   if (features_initialized_)
+     features_->PostMainMessageLoopRun();
+   if (native_segmentation_initialized_) {
+diff --git a/shell/utility/electron_content_utility_client.cc b/shell/utility/electron_content_utility_client.cc
+index 45baca4f0b080c5fb344c2912b2335ac161517d0..339c858ce7f80b94ca6f51d0af2811296cfedede 100644
+--- a/shell/utility/electron_content_utility_client.cc
++++ b/shell/utility/electron_content_utility_client.cc
+@@ -7,6 +7,7 @@
+ #include <utility>
+ 
+ #include "base/command_line.h"
++#include "chrome/utility/services.h"
+ #include "content/public/utility/utility_thread.h"
+ #include "mojo/public/cpp/bindings/binder_map.h"
+ #include "mojo/public/cpp/bindings/service_factory.h"
+@@ -133,6 +134,10 @@ void ElectronContentUtilityClient::ExposeInterfacesToBrowser(
+ 
+ void ElectronContentUtilityClient::RegisterMainThreadServices(
+     mojo::ServiceFactory& services) {
++  if (utility_process_running_elevated_)
++    ::RegisterElevatedMainThreadServices(services);
++  else
++    ::RegisterMainThreadServices(services);
+ #if BUILDFLAG(IS_WIN)
+   services.Add(RunWindowsIconReader);
+   services.Add(RunWindowsUtility);
+@@ -157,6 +162,7 @@ void ElectronContentUtilityClient::RegisterMainThreadServices(
+ 
+ void ElectronContentUtilityClient::RegisterIOThreadServices(
+     mojo::ServiceFactory& services) {
++  ::RegisterIOThreadServices(services);
+   services.Add(RunProxyResolver);
+ }
+ 

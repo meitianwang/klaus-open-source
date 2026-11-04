@@ -1,0 +1,12 @@
+diff --git a/BUILD.gn b/BUILD.gn
+index b26559e49b431fa9d158ed1e1c533d8d1d5c1011..81f8f64c4cffc9602baf61e59dee1cb1e26802c8 100644
+--- a/BUILD.gn
++++ b/BUILD.gn
+@@ -523,6 +523,7 @@ source_set("electron_lib") {
+     # Use the authoritative native browser implementation closure. Linking its
+     # classes does not create a second BrowserProcess or install another MainParts.
+     "//chrome/browser:browser",
++    "//chrome/browser/ui/navigator:impl",
+     "//chrome/browser:browser_process_impl",
+     "//chrome/browser:browser_process_platform_part",
+     "//chrome/browser:global_features",

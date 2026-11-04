@@ -1,0 +1,34 @@
+diff --git a/chrome/browser/extensions/api/chrome_extensions_api_client.cc b/chrome/browser/extensions/api/chrome_extensions_api_client.cc
+index fe46f3fa43742662c371b17404ad9af5653e89df..adfbdb9568e04ba5762f3e45a64cae4d433684a3 100644
+--- a/chrome/browser/extensions/api/chrome_extensions_api_client.cc
++++ b/chrome/browser/extensions/api/chrome_extensions_api_client.cc
+@@ -415,6 +415,15 @@ scoped_refptr<ContentRulesRegistry>
+ ChromeExtensionsAPIClient::CreateContentRulesRegistry(
+     content::BrowserContext* browser_context,
+     RulesCacheDelegate* cache_delegate) const {
++  return CreateProfileContentRulesRegistry(browser_context, cache_delegate);
++}
++
++// static
++scoped_refptr<ContentRulesRegistry>
++ChromeExtensionsAPIClient::CreateProfileContentRulesRegistry(
++    content::BrowserContext* browser_context,
++    RulesCacheDelegate* cache_delegate) {
++  CHECK(browser_context && browser_context->IsBrowserProfile());
+   return base::MakeRefCounted<ChromeContentRulesRegistry>(
+       browser_context, cache_delegate,
+       base::BindOnce(&CreateDefaultContentPredicateEvaluators,
+diff --git a/chrome/browser/extensions/api/chrome_extensions_api_client.h b/chrome/browser/extensions/api/chrome_extensions_api_client.h
+index 5a200e62ead08ad98adc9a98514b7b5d2c6b8342..985c24c2bf7fd6fa0427e9028da3ac7b17ec17b2 100644
+--- a/chrome/browser/extensions/api/chrome_extensions_api_client.h
++++ b/chrome/browser/extensions/api/chrome_extensions_api_client.h
+@@ -47,6 +47,9 @@ class ChromeExtensionsAPIClient : public ExtensionsAPIClient {
+ 
+   static void AttachProfileWebContentsHelpers(
+       content::WebContents* web_contents);
++  static scoped_refptr<ContentRulesRegistry> CreateProfileContentRulesRegistry(
++      content::BrowserContext* browser_context,
++      RulesCacheDelegate* cache_delegate);
+ 
+   // ExtensionsApiClient implementation.
+   void AddAdditionalValueStoreCaches(

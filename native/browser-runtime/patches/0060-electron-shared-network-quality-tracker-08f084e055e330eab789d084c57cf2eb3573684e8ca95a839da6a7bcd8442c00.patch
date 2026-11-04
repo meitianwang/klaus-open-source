@@ -1,0 +1,13 @@
+diff --git a/shell/browser/browser_process_impl.cc b/shell/browser/browser_process_impl.cc
+index 0dcea5efe1673a1e810aa2add0bad0ff009959a4..3d1a7359b44779f304d47d01894f83fbb4fd2ec2 100644
+--- a/shell/browser/browser_process_impl.cc
++++ b/shell/browser/browser_process_impl.cc
+@@ -576,7 +576,7 @@ ElectronBrowserProcessImpl::system_network_context_manager() {
+ }
+ 
+ network::NetworkQualityTracker* ElectronBrowserProcessImpl::network_quality_tracker() {
+-  return nullptr;
++  return GetNetworkQualityTracker();
+ }
+ 
+ embedder_support::OriginTrialsSettingsStorage*

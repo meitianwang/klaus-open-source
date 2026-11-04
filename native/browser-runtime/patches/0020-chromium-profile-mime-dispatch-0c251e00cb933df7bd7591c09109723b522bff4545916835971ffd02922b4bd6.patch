@@ -1,0 +1,29 @@
+diff --git a/chrome/browser/plugins/plugin_response_interceptor_url_loader_throttle.cc b/chrome/browser/plugins/plugin_response_interceptor_url_loader_throttle.cc
+index b4e0dce625e8a3e13a1262b132efc240a6fccb78..6815c5f4133a7836cd207fe5953cc1dea7f5f315 100644
+--- a/chrome/browser/plugins/plugin_response_interceptor_url_loader_throttle.cc
++++ b/chrome/browser/plugins/plugin_response_interceptor_url_loader_throttle.cc
+@@ -14,6 +14,7 @@
+ #include "base/unguessable_token.h"
+ #include "base/uuid.h"
+ #include "electron/shell/browser/extensions/api/streams_private/streams_private_api.h"
++#include "chrome/browser/plugins/plugin_utils.h"
+ #include "electron/shell/browser/plugins/plugin_utils.h"
+ #include "content/public/browser/browser_task_traits.h"
+ #include "content/public/browser/browser_thread.h"
+@@ -211,8 +212,14 @@ void PluginResponseInterceptorURLLoaderThrottle::WillProcessResponse(
+   }
+ 
+   if (extension_id.empty()) {
+-    extension_id = PluginUtils::GetExtensionIdForMimeType(
+-        web_contents->GetBrowserContext(), response_head->mime_type, embedded);
++    auto* browser_context = web_contents->GetBrowserContext();
++    if (browser_context->IsBrowserProfile()) {
++      extension_id = PluginUtils::GetExtensionIdForMimeType(
++          browser_context, response_head->mime_type, embedded);
++    } else {
++      extension_id = electron::PluginUtils::GetExtensionIdForMimeType(
++          browser_context, response_head->mime_type, embedded);
++    }
+   }
+ 
+   if (extension_id.empty()) {

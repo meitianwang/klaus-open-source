@@ -1,0 +1,399 @@
+diff --git a/components/permissions/BUILD.gn b/components/permissions/BUILD.gn
+index fb83d69d14b375c625d66e73ada5d3a42a4bf225..300d2e57a8cb9b3d281b1042a56005e34d302db5 100644
+--- a/components/permissions/BUILD.gn
++++ b/components/permissions/BUILD.gn
+@@ -77,6 +77,8 @@ source_set("permissions") {
+     "contexts/window_management_permission_context.h",
+     "embedded_permission_prompt_flow_model.cc",
+     "embedded_permission_prompt_flow_model.h",
++    "host_permission_scope.cc",
++    "host_permission_scope.h",
+     "notifications_engagement_service.cc",
+     "notifications_engagement_service.h",
+     "object_permission_context_base.cc",
+diff --git a/components/permissions/host_permission_scope.cc b/components/permissions/host_permission_scope.cc
+new file mode 100644
+index 0000000000000000000000000000000000000000..f4cdd1435b56436daf2d89cd5466baf87dcbd290
+--- /dev/null
++++ b/components/permissions/host_permission_scope.cc
+@@ -0,0 +1,150 @@
++// Copyright 2026 The Chromium Authors
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#include "components/permissions/host_permission_scope.h"
++
++#include <utility>
++#include <vector>
++
++#include "content/public/browser/web_contents.h"
++
++namespace permissions {
++
++namespace {
++
++ContentSettingsType NormalizeType(ContentSettingsType type) {
++  // The geolocation context can use either entry point, but both must share
++  // the same host-scoped decision.
++  return type == ContentSettingsType::GEOLOCATION_WITH_OPTIONS
++             ? ContentSettingsType::GEOLOCATION
++             : type;
++}
++
++}  // namespace
++
++// static
++bool HostPermissionScope::IsSupported(ContentSettingsType type) {
++  switch (NormalizeType(type)) {
++    case ContentSettingsType::GEOLOCATION:
++    case ContentSettingsType::NOTIFICATIONS:
++    case ContentSettingsType::MEDIASTREAM_CAMERA:
++    case ContentSettingsType::MEDIASTREAM_MIC:
++      return true;
++    default:
++      return false;
++  }
++}
++
++// static
++HostPermissionScope* HostPermissionScope::FromWebContents(
++    content::WebContents* contents) {
++  if (!contents)
++    return nullptr;
++  return content::WebContentsUserData<HostPermissionScope>::FromWebContents(
++      contents);
++}
++
++// static
++HostPermissionScope* HostPermissionScope::GetOrCreateForWebContents(
++    content::WebContents* contents,
++    ChangeCallback on_changed) {
++  CHECK(contents);
++  HostPermissionScope* scope = FromWebContents(contents);
++  if (!scope) {
++    content::WebContentsUserData<HostPermissionScope>::CreateForWebContents(
++        contents);
++    scope = FromWebContents(contents);
++  }
++  scope->on_changed_ = std::move(on_changed);
++  return scope;
++}
++
++HostPermissionScope::HostPermissionScope(content::WebContents* contents)
++    : content::WebContentsUserData<HostPermissionScope>(*contents) {}
++
++HostPermissionScope::~HostPermissionScope() = default;
++
++bool HostPermissionScope::Key::operator<(const Key& other) const {
++  if (requesting_origin != other.requesting_origin)
++    return requesting_origin < other.requesting_origin;
++  if (embedding_origin != other.embedding_origin)
++    return embedding_origin < other.embedding_origin;
++  return type < other.type;
++}
++
++bool HostPermissionScope::Set(const url::Origin& requesting_origin,
++                              const url::Origin& embedding_origin,
++                              ContentSettingsType type,
++                              Setting setting) {
++  if (!IsSupported(type))
++    return false;
++
++  const ContentSettingsType normalized_type = NormalizeType(type);
++  const Key key{requesting_origin, embedding_origin, normalized_type};
++  const auto existing = settings_.find(key);
++  if (existing != settings_.end() && existing->second == setting)
++    return true;
++
++  settings_[key] = setting;
++  if (!on_changed_.is_null()) {
++    on_changed_.Run(requesting_origin, embedding_origin, normalized_type);
++  }
++  return true;
++}
++
++size_t HostPermissionScope::Reset(
++    std::optional<url::Origin> requesting_origin,
++    std::optional<url::Origin> embedding_origin,
++    std::optional<ContentSettingsType> type) {
++  if (type.has_value() && !IsSupported(*type))
++    return 0;
++
++  const std::optional<ContentSettingsType> normalized_type =
++      type.has_value() ? std::optional<ContentSettingsType>(NormalizeType(*type))
++                       : std::nullopt;
++
++  std::vector<std::pair<url::Origin, url::Origin>> changed_origins;
++  std::vector<ContentSettingsType> changed_types;
++  for (auto it = settings_.begin(); it != settings_.end();) {
++    if ((!requesting_origin ||
++         it->first.requesting_origin == *requesting_origin) &&
++        (!embedding_origin ||
++         it->first.embedding_origin == *embedding_origin) &&
++        (!normalized_type || it->first.type == *normalized_type)) {
++      changed_origins.emplace_back(it->first.requesting_origin,
++                                   it->first.embedding_origin);
++      changed_types.push_back(it->first.type);
++      it = settings_.erase(it);
++    } else {
++      ++it;
++    }
++  }
++
++  if (!on_changed_.is_null()) {
++    for (size_t i = 0; i < changed_types.size(); ++i) {
++      on_changed_.Run(changed_origins[i].first, changed_origins[i].second,
++                      changed_types[i]);
++    }
++  }
++  return changed_types.size();
++}
++
++std::optional<HostPermissionScope::Setting> HostPermissionScope::Get(
++    const url::Origin& requesting_origin,
++    const url::Origin& embedding_origin,
++    ContentSettingsType type) const {
++  if (!IsSupported(type))
++    return std::nullopt;
++
++  const auto it =
++      settings_.find(Key{requesting_origin, embedding_origin,
++                         NormalizeType(type)});
++  if (it == settings_.end())
++    return std::nullopt;
++  return it->second;
++}
++
++WEB_CONTENTS_USER_DATA_KEY_IMPL(HostPermissionScope);
++
++}  // namespace permissions
+diff --git a/components/permissions/host_permission_scope.h b/components/permissions/host_permission_scope.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..968b892a5e8972310ce69dfb1d0c9160931402b1
+--- /dev/null
++++ b/components/permissions/host_permission_scope.h
+@@ -0,0 +1,85 @@
++// Copyright 2026 The Chromium Authors
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#ifndef COMPONENTS_PERMISSIONS_HOST_PERMISSION_SCOPE_H_
++#define COMPONENTS_PERMISSIONS_HOST_PERMISSION_SCOPE_H_
++
++#include <optional>
++
++#include "base/containers/flat_map.h"
++#include "base/functional/callback.h"
++#include "components/content_settings/core/common/content_settings_types.h"
++#include "content/public/browser/web_contents_user_data.h"
++#include "url/origin.h"
++
++namespace content {
++class WebContents;
++}  // namespace content
++
++namespace permissions {
++
++// A native-host-owned, page-scoped permission override. It is installed only
++// for WebContents explicitly registered by the native host; its absence has no
++// effect on Chromium's normal permission path.
++class HostPermissionScope
++    : public content::WebContentsUserData<HostPermissionScope> {
++ public:
++  enum class Setting { kAllow, kDeny };
++
++  using ChangeCallback = base::RepeatingCallback<void(
++      const url::Origin& requesting_origin,
++      const url::Origin& embedding_origin,
++      ContentSettingsType type)>;
++
++  HostPermissionScope(const HostPermissionScope&) = delete;
++  HostPermissionScope& operator=(const HostPermissionScope&) = delete;
++
++  ~HostPermissionScope() override;
++
++  static HostPermissionScope* FromWebContents(content::WebContents* contents);
++
++  static HostPermissionScope* GetOrCreateForWebContents(
++      content::WebContents* contents,
++      ChangeCallback on_changed);
++
++  // Returns false for permissions outside the supported native host set.
++  bool Set(const url::Origin& requesting_origin,
++           const url::Origin& embedding_origin,
++           ContentSettingsType type,
++           Setting setting);
++
++  // Removes matching entries. Null origin/type means "match all" for that
++  // field. Returns the number of removed entries.
++  size_t Reset(std::optional<url::Origin> requesting_origin,
++               std::optional<url::Origin> embedding_origin,
++               std::optional<ContentSettingsType> type);
++
++  std::optional<Setting> Get(const url::Origin& requesting_origin,
++                             const url::Origin& embedding_origin,
++                             ContentSettingsType type) const;
++
++  static bool IsSupported(ContentSettingsType type);
++
++ private:
++  friend class content::WebContentsUserData<HostPermissionScope>;
++
++  explicit HostPermissionScope(content::WebContents* contents);
++
++  struct Key {
++    url::Origin requesting_origin;
++    url::Origin embedding_origin;
++    ContentSettingsType type;
++
++    bool operator<(const Key& other) const;
++  };
++
++  base::flat_map<Key, Setting> settings_;
++  ChangeCallback on_changed_;
++
++  WEB_CONTENTS_USER_DATA_KEY_DECL();
++};
++
++}  // namespace permissions
++
++#endif  // COMPONENTS_PERMISSIONS_HOST_PERMISSION_SCOPE_H_
+diff --git a/components/permissions/permission_context_base.cc b/components/permissions/permission_context_base.cc
+index e74cc6937bf957b690ae224a78aa60135c44ddce..0f8a7b4152701a4f3c224535d0e6f254c01f64fd 100644
+--- a/components/permissions/permission_context_base.cc
++++ b/components/permissions/permission_context_base.cc
+@@ -38,6 +38,7 @@
+ #include "components/content_settings/core/common/features.h"
+ #include "components/guest_view/buildflags/buildflags.h"
+ #include "components/permissions/features.h"
++#include "components/permissions/host_permission_scope.h"
+ #include "components/permissions/permission_actions_history.h"
+ #include "components/permissions/permission_context_base.h"
+ #include "components/permissions/permission_decision.h"
+@@ -66,6 +67,7 @@
+ #include "third_party/blink/public/common/features.h"
+ #include "third_party/blink/public/mojom/permissions/permission.mojom.h"
+ #include "url/gurl.h"
++#include "url/origin.h"
+ 
+ #if BUILDFLAG(ENABLE_GUEST_VIEW)
+ #include "components/guest_view/browser/guest_view_base.h"
+@@ -470,7 +472,54 @@ content::PermissionResult PermissionContextBase::GetPermissionStatus(
+   auto permission_status =
+       resolver.DeterminePermissionStatus(retrieved_permission_data);
+ 
++  // Native host pages may carry a task-scoped decision for this exact
++  // WebContents, requesting origin, embedding origin and permission. The scope
++  // is consulted only after the native origin, permissions-policy and
++  // persistent-setting checks above. A host ALLOW may only elevate ASK; a host
++  // DENY may tighten ASK or GRANTED. Native DENIED results stay DENIED.
++  std::optional<HostPermissionScope::Setting> host_setting;
++  if (render_frame_host) {
++    content::WebContents* web_contents =
++        content::WebContents::FromRenderFrameHost(render_frame_host);
++    if (web_contents) {
++      if (auto* scope = HostPermissionScope::FromWebContents(web_contents)) {
++        host_setting =
++            scope->Get(url::Origin::Create(requesting_origin),
++                       url::Origin::Create(embedding_origin),
++                       content_settings_type_);
++      }
++    }
++  }
++
++  const content_settings::PermissionSettingsInfo* permission_settings_info =
++      content_settings::PermissionSettingsRegistry::GetInstance()->Get(
++          content_settings_type_);
++
++  // Temporary host decisions must carry a PermissionSetting that agrees with
++  // the returned status. The registry delegate preserves permission-specific
++  // metadata (notably GeolocationSetting options) instead of reusing the ASK
++  // state that produced the original result.
++  auto host_permission_result =
++      [&](PermissionStatus status,
++          ContentSetting content_setting) -> std::optional<content::PermissionResult> {
++    if (!permission_settings_info)
++      return std::nullopt;
++    PermissionSetting setting =
++        permission_settings_info->delegate().ToPermissionSetting(
++            content_setting);
++    if (resolver.DeterminePermissionStatus(setting) != status)
++      return std::nullopt;
++    return content::PermissionResult(
++        status, content::PermissionStatusSource::UNSPECIFIED, setting);
++  };
++
+   if (permission_status != PermissionStatus::ASK) {
++    if (host_setting == HostPermissionScope::Setting::kDeny) {
++      if (auto result = host_permission_result(PermissionStatus::DENIED,
++                                               CONTENT_SETTING_BLOCK)) {
++        return *result;
++      }
++    }
+     return content::PermissionResult(
+         permission_status, content::PermissionStatusSource::UNSPECIFIED,
+         retrieved_permission_data);
+@@ -486,6 +535,19 @@ content::PermissionResult PermissionContextBase::GetPermissionStatus(
+       return std::move(result).value();
+     }
+   }
++
++  if (host_setting == HostPermissionScope::Setting::kDeny) {
++    if (auto result = host_permission_result(PermissionStatus::DENIED,
++                                             CONTENT_SETTING_BLOCK)) {
++      return *result;
++    }
++  } else if (host_setting == HostPermissionScope::Setting::kAllow) {
++    if (auto result = host_permission_result(PermissionStatus::GRANTED,
++                                             CONTENT_SETTING_ALLOW)) {
++      return *result;
++    }
++  }
++
+   return content::PermissionResult(PermissionStatus::ASK,
+                                    content::PermissionStatusSource::UNSPECIFIED,
+                                    retrieved_permission_data);
+diff --git a/components/permissions/permission_manager.cc b/components/permissions/permission_manager.cc
+index 2801c944b30b9f757acf1a6be9b821656594e959..1e0f940115eb3620c5826365828edca75caff1f3 100644
+--- a/components/permissions/permission_manager.cc
++++ b/components/permissions/permission_manager.cc
+@@ -791,4 +791,19 @@ content::PermissionResult PermissionManager::GetPermissionStatusInternal(
+   return result;
+ }
+ 
++void PermissionManager::NotifyHostPermissionScopeChanged(
++    const url::Origin& requesting_origin,
++    const url::Origin& embedding_origin,
++    ContentSettingsType type) {
++  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
++  // Scope the notification to the exact origin pair. OnPermissionChanged()
++  // recomputes each matching subscription but only invokes its callback when
++  // the resulting status or retrieved setting actually changed, so a sibling
++  // WebContents on the same origin with an unchanged result is not notified.
++  OnPermissionChanged(
++      ContentSettingsPattern::FromURLNoWildcard(requesting_origin.GetURL()),
++      ContentSettingsPattern::FromURLNoWildcard(embedding_origin.GetURL()),
++      ContentSettingsTypeSet(type));
++}
++
+ }  // namespace permissions
+diff --git a/components/permissions/permission_manager.h b/components/permissions/permission_manager.h
+index 70cf8d5cae5bd27090d99062a7ddcb32b12c03ab..da1bb62eb690c2d342fe50b7296f8800b38a4122 100644
+--- a/components/permissions/permission_manager.h
++++ b/components/permissions/permission_manager.h
+@@ -72,6 +72,15 @@ class PermissionManager : public KeyedService,
+   PermissionContextBase* GetPermissionContextForTesting(
+       ContentSettingsType type);
+ 
++  // Notifies permission subscriptions for the exact requesting/embedding
++  // origin pair after a task-scoped native host permission changed for |type|.
++  // This does not write a content setting. OnPermissionChanged compares each
++  // subscription's previous result before invoking its callback, so a sibling
++  // page whose result did not change receives no callback.
++  void NotifyHostPermissionScopeChanged(const url::Origin& requesting_origin,
++                                        const url::Origin& embedding_origin,
++                                        ContentSettingsType type);
++
+   PermissionContextMap& PermissionContextsForTesting() {
+     return permission_contexts_;
+   }

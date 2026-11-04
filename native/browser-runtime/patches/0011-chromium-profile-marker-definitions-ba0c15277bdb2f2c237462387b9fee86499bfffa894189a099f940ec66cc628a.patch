@@ -1,0 +1,52 @@
+diff --git a/content/public/browser/browser_context.h b/content/public/browser/browser_context.h
+--- a/content/public/browser/browser_context.h
++++ b/content/public/browser/browser_context.h
+@@ -399,7 +399,7 @@
+ 
+   // Returns true only for a Chrome browser Profile. Embedders that provide
+   // their own BrowserContext implementation return false.
+-  virtual bool IsBrowserProfile() const { return false; }
++  virtual bool IsBrowserProfile() const;
+ 
+   // Returns the DownloadManagerDelegate for this context. This will be called
+   // once per context. The embedder owns the delegate and is responsible for
+diff --git a/content/browser/browser_context.cc b/content/browser/browser_context.cc
+--- a/content/browser/browser_context.cc
++++ b/content/browser/browser_context.cc
+@@ -98,6 +98,10 @@
+                     ChromeTrackEvent::kChromeBrowserContext, *this);
+ }
+ 
++bool BrowserContext::IsBrowserProfile() const {
++  return false;
++}
++
+ BrowserContext::~BrowserContext() {
+   TRACE_EVENT("shutdown", "BrowserContext::~BrowserContext",
+               ChromeTrackEvent::kChromeBrowserContext, *this);
+diff --git a/chrome/browser/profiles/profile.h b/chrome/browser/profiles/profile.h
+--- a/chrome/browser/profiles/profile.h
++++ b/chrome/browser/profiles/profile.h
+@@ -214,7 +214,7 @@
+   // Note that for Chrome this covers BOTH Incognito mode and Guest sessions.
+   bool IsOffTheRecord() final;
+   bool IsOffTheRecord() const { return otr_profile_id_.has_value(); }
+-  bool IsBrowserProfile() const override { return true; }
++  bool IsBrowserProfile() const override;
+   const OTRProfileID& GetOTRProfileID() const;
+ 
+   variations::VariationsClient* GetVariationsClient() override;
+diff --git a/chrome/browser/profiles/profile.cc b/chrome/browser/profiles/profile.cc
+--- a/chrome/browser/profiles/profile.cc
++++ b/chrome/browser/profiles/profile.cc
+@@ -264,6 +264,10 @@
+ #endif
+ }
+ 
++bool Profile::IsBrowserProfile() const {
++  return true;
++}
++
+ Profile::~Profile() {
+ #if BUILDFLAG(IS_ANDROID)
+   DestroyJavaObject();

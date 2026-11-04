@@ -1,0 +1,84 @@
+diff --git a/BUILD.gn b/BUILD.gn
+index a02b8d7413e11af2623c3803a89504ef9978a654..6b690918ce182c507ae893b5a5d4367817e3bba6 100644
+--- a/BUILD.gn
++++ b/BUILD.gn
+@@ -568,6 +568,8 @@ source_set("electron_lib") {
+     "//components/policy/core/browser",
+     "//chrome/common/notifications",
+     "//chrome/common",
++    "//chrome/common:channel_info",
++    "//chrome/common/profiler",
+     "//chrome/common/extensions",
+     "//chrome/renderer:renderer",
+     "//components/autofill/core/common:features",
+diff --git a/shell/app/electron_main_delegate.cc b/shell/app/electron_main_delegate.cc
+index ca5cab03e48a55ed77355546fa0bf91228162744..adf5135322b4cce7ae879c34759e4a36125009d3 100644
+--- a/shell/app/electron_main_delegate.cc
++++ b/shell/app/electron_main_delegate.cc
+@@ -24,6 +24,7 @@
+ #include "base/strings/string_number_conversions.cc"
+ #include "base/strings/string_util_internal.h"
+ #include "chrome/common/chrome_content_client.h"
++#include "chrome/common/channel_info.h"
+ #include "chrome/common/chrome_paths.h"
+ #include "chrome/common/chrome_switches.h"
+ #include "chrome/common/profiler/process_type.h"
+@@ -410,13 +411,20 @@ void ElectronMainDelegate::InitializeMemorySystem() {
+       command_line->GetSwitchValueASCII(::switches::kProcessType);
+ 
+   // PoissonAllocationSampler is necessary for heap profiling.
+-  memory_system::Initializer()
+-      .SetDispatcherParameters(memory_system::DispatcherParameters::
+-                                   PoissonAllocationSamplerInclusion::kEnforce,
+-                               memory_system::DispatcherParameters::
+-                                   AllocationTraceRecorderInclusion::kIgnore,
+-                               process_type)
+-      .Initialize(memory_system_);
++  memory_system::Initializer initializer;
++  initializer.SetDispatcherParameters(
++      memory_system::DispatcherParameters::PoissonAllocationSamplerInclusion::
++          kEnforce,
++      memory_system::DispatcherParameters::AllocationTraceRecorderInclusion::
++          kIgnore,
++      process_type);
++  // Native renderers require the controller owned by this same MemorySystem.
++  // Sampling still follows the normal channel and process configuration.
++  if (IsNativeProfileRenderer()) {
++    initializer.SetProfilingClientParameters(
++        chrome::GetChannel(), GetProfilerProcessType(*command_line));
++  }
++  initializer.Initialize(memory_system_);
+ }
+ 
+ std::string_view ElectronMainDelegate::GetBrowserV8SnapshotFilename() {
+diff --git a/shell/browser/electron_browser_client.cc b/shell/browser/electron_browser_client.cc
+index 9326af03e57b4c445d4de45a27f6cab5b5f79cff..9f46bc2ebf67e2a70b78082f803ac599f979dfa7 100644
+--- a/shell/browser/electron_browser_client.cc
++++ b/shell/browser/electron_browser_client.cc
+@@ -419,6 +419,14 @@ ElectronBrowserClient::~ElectronBrowserClient() {
+   g_browser_client = nullptr;
+ }
+ 
++void ElectronBrowserClient::OnWebContentsCreated(
++    content::WebContents* web_contents) {
++  if (auto* client =
++          GetProfileBrowserClient(web_contents->GetBrowserContext())) {
++    client->OnWebContentsCreated(web_contents);
++  }
++}
++
+ void ElectronBrowserClient::InitializeProfileBrowserClient() {
+   DCHECK_CURRENTLY_ON(BrowserThread::UI);
+   if (chrome_profile_client_)
+diff --git a/shell/browser/electron_browser_client.h b/shell/browser/electron_browser_client.h
+index 651116109350900181ce10f9d2c17a5b9ad90386..d29b1d626c2f8db72214889bc8a1e6ccb6221721 100644
+--- a/shell/browser/electron_browser_client.h
++++ b/shell/browser/electron_browser_client.h
+@@ -87,6 +87,7 @@ class ElectronBrowserClient : public content::ContentBrowserClient,
+       content::NavigationThrottleRegistry& registry) override;
+ 
+   // content::ContentBrowserClient:
++  void OnWebContentsCreated(content::WebContents* web_contents) override;
+   std::string GetApplicationLocale() override;
+   bool* spare_renderer_compatible() { return &spare_renderer_compatible_; }
+ 

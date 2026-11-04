@@ -1,0 +1,54 @@
+diff --git a/shell/browser/extensions/electron_extensions_browser_client.cc b/shell/browser/extensions/electron_extensions_browser_client.cc
+index 6a6ed7e83f50c0ebd43b01f3551de347b53658d2..638ed9cf67a0515ce8637c7a14fc98dc423e5788 100644
+--- a/shell/browser/extensions/electron_extensions_browser_client.cc
++++ b/shell/browser/extensions/electron_extensions_browser_client.cc
+@@ -29,6 +29,7 @@
+ #include "extensions/browser/component_extension_resource_manager.h"
+ #include "extensions/browser/event_router.h"
+ #include "extensions/browser/extension_protocols.h"
++#include "extensions/browser/extension_function_registry.h"
+ #include "extensions/browser/extensions_browser_interface_binders.h"
+ #include "extensions/browser/null_app_sorting.h"
+ #include "extensions/browser/safe_browsing_delegate.h"
+@@ -91,7 +92,20 @@ void ElectronExtensionsBrowserClient::SetNativeProfileClient(
+     extensions::ChromeExtensionsBrowserClient* native_client) {
+   CHECK_EQ(extensions::ExtensionsAPIClient::Get(), api_client_.get());
+   CHECK(!native_client_);
++  CHECK(native_client);
+   native_client_ = native_client;
++  native_function_registry_ =
++      std::make_unique<ExtensionFunctionRegistry>(native_client_);
++}
++
++ExtensionFunctionRegistry*
++ElectronExtensionsBrowserClient::GetExtensionFunctionRegistryForContext(
++    BrowserContext* context) {
++  if (context && context->IsBrowserProfile()) {
++    CHECK(native_function_registry_);
++    return native_function_registry_.get();
++  }
++  return &ExtensionFunctionRegistry::GetInstance();
+ }
+ 
+ void ElectronExtensionsBrowserClient::StartTearDown() {
+diff --git a/shell/browser/extensions/electron_extensions_browser_client.h b/shell/browser/extensions/electron_extensions_browser_client.h
+index 897cb80e6fb06567027640098a716ec2169e4310..42e9fa029ca1e6e1bbf24b2d10ca5c5400ee6a9a 100644
+--- a/shell/browser/extensions/electron_extensions_browser_client.h
++++ b/shell/browser/extensions/electron_extensions_browser_client.h
+@@ -57,6 +57,8 @@ class ElectronExtensionsBrowserClient
+   void StartTearDown() override;
+   void SetNativeProfileClient(
+       extensions::ChromeExtensionsBrowserClient* native_client);
++  ExtensionFunctionRegistry* GetExtensionFunctionRegistryForContext(
++      content::BrowserContext* context) override;
+   scoped_refptr<update_client::UpdateClient> CreateUpdateClientForContext(
+       content::BrowserContext* context,
+       scoped_refptr<update_client::Configurator> configurator) override;
+@@ -185,6 +187,7 @@ class ElectronExtensionsBrowserClient
+   // The browser process owns this delegate through Profile shutdown. It is
+   // never registered as a second global extensions client.
+   raw_ptr<extensions::ChromeExtensionsBrowserClient> native_client_ = nullptr;
++  std::unique_ptr<ExtensionFunctionRegistry> native_function_registry_;
+ 
+   // Support for extension APIs.
+   std::unique_ptr<extensions::ExtensionsAPIClient> api_client_;

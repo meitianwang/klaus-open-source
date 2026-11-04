@@ -1,0 +1,1021 @@
+{
+  "schema": 2,
+  "name": "native-browser-runtime-phase1",
+  "electron_version": "44.2.0",
+  "chromium_version": "152.0.7977.76",
+  "node_version": "24.20.0",
+  "repositories": {
+    "chromium": {
+      "root": "src",
+      "revision": "0d89dfa2dd7c1ec4b8a14b9f303f887bb63b6174"
+    },
+    "electron": {
+      "root": "src/electron",
+      "revision": "aa650d74597c652878629df0038a50485e156a09",
+      "node_revision": "71b8b174857e25106d39b61a9e6f30d927da8b01"
+    }
+  },
+  "patch_order": [
+    {
+      "repo": "chromium",
+      "file": "patches/0000-chromium-restore-profile-selection-9ce50d49ec5539a393e9b7e530a4e91af21a0878824f58ec0bce4e9cb2b7c31e.patch",
+      "sha256": "9ce50d49ec5539a393e9b7e530a4e91af21a0878824f58ec0bce4e9cb2b7c31e",
+      "purpose": "Restore typed Profile selection after the official Electron source patches. The following type-seam patches reject non-Profile contexts before downcasts, while real Profiles retain their native selection semantics."
+    },
+    {
+      "repo": "chromium",
+      "file": "patches/0001-chromium-browser-profile-type-seam-8d1c10161da849186df38076a5e538534c6985c5405f795e53ea09164b7f65ea.patch",
+      "sha256": "8d1c10161da849186df38076a5e538534c6985c5405f795e53ea09164b7f65ea",
+      "purpose": "Add a default-false BrowserContext::IsBrowserProfile() marker, override it in Chrome Profile, and make the central ProfileKeyedServiceFactory return nullptr before any Profile downcast."
+    },
+    {
+      "repo": "chromium",
+      "file": "patches/0006-chromium-refcounted-profile-type-seam-11d25863d109cd191b1b03487f0f2620ec88c8d45b88c5c6a8df1d2f5c9ce95d.patch",
+      "sha256": "11d25863d109cd191b1b03487f0f2620ec88c8d45b88c5c6a8df1d2f5c9ce95d",
+      "purpose": "Apply the same context type boundary to refcounted Profile factories, including the password store. Their final context selector must reject Electron contexts before a Profile cast."
+    },
+    {
+      "repo": "electron",
+      "file": "patches/0002-electron-rename-browser-process-impl-6bd14f78495f3ca67ccf05e8ed80fd102c960d8cbddcd127ea0d5a132d8866fd.patch",
+      "sha256": "6bd14f78495f3ca67ccf05e8ed80fd102c960d8cbddcd127ea0d5a132d8866fd",
+      "purpose": "Rename Electron's global BrowserProcessImpl to ElectronBrowserProcessImpl so a Chrome browser-process target in the link closure cannot collide by symbol name."
+    },
+    {
+      "repo": "electron",
+      "file": "patches/0003-electron-browser-process-native-profile-f6d6a5e936c460c7a1517984a907d3e098d552b9240be21fff9f15b1cce86989.patch",
+      "sha256": "f6d6a5e936c460c7a1517984a907d3e098d552b9240be21fff9f15b1cce86989",
+      "purpose": "Add a probe-only Chrome ProfileManager, policy connector and Chrome keyed-service registration, create a real Profile, and exercise an in-memory ElectronBrowserContext alongside it."
+    },
+    {
+      "repo": "electron",
+      "file": "patches/0004-electron-phase1-gn-wiring-70c11a1487c36bb1de582efcc31d457e487f529d025dcea595848850a2a80107.patch",
+      "sha256": "70c11a1487c36bb1de582efcc31d457e487f529d025dcea595848850a2a80107",
+      "purpose": "Wire the seven Phase 1 Chrome service targets into electron_lib. This is build wiring only; it is not compiled or linker-verified."
+    },
+    {
+      "repo": "electron",
+      "file": "patches/0007-electron-g0-native-profile-startup-2ae2e010bd1db0ff684dc4aec245b952be8e67b90a3a8594a863462b9016ff7d.patch",
+      "sha256": "2ae2e010bd1db0ff684dc4aec245b952be8e67b90a3a8594a863462b9016ff7d",
+      "purpose": "Reject real Chrome Profiles in Electron-only keyed-service factories, register the Local State preferences that Profile creation needs, and replace the probe's full Chrome factory registration with the explicit PersonalDataManager and password-store dependency closure."
+    },
+    {
+      "repo": "electron",
+      "file": "patches/0008-electron-unify-system-network-context-2a0db1d67a6e2c7357219a02d24721d9b7d57eb59147a4948ff51ece16331a50.patch",
+      "sha256": "2a0db1d67a6e2c7357219a02d24721d9b7d57eb59147a4948ff51ece16331a50",
+      "purpose": "Unify the system network context on the real Chrome SystemNetworkContextManager. Remove Electron's own manager, wire chrome/browser/net:impl and chrome/browser/ssl:impl, register the Local State prefs, policy connector, OSCrypt and network time tracker the real manager needs, and dispatch Profile network params to ProfileNetworkContextService. Electron sessions keep their own NetworkContextService."
+    },
+    {
+      "repo": "chromium",
+      "file": "patches/0011-chromium-profile-marker-definitions-ba0c15277bdb2f2c237462387b9fee86499bfffa894189a099f940ec66cc628a.patch",
+      "sha256": "ba0c15277bdb2f2c237462387b9fee86499bfffa894189a099f940ec66cc628a",
+      "purpose": "Define the BrowserContext and Profile type markers out of line, preserving the virtual type boundary while satisfying the Chromium compiler's inline virtual method checks."
+    },
+    {
+      "repo": "electron",
+      "file": "patches/0011-electron-profile-probe-context-namespace-961e3d6828f6a91240dbbec26f69c4b6dba0c2d87e80be1b1427d59091ca1580.patch",
+      "sha256": "961e3d6828f6a91240dbbec26f69c4b6dba0c2d87e80be1b1427d59091ca1580",
+      "purpose": "Qualify the ElectronBrowserContext used by the global browser process probe so the actual native translation unit resolves the intended context type."
+    },
+    {
+      "repo": "chromium",
+      "file": "patches/0012-chromium-profile-proxy-monitor-bf795272d880eaeb591145b953142bccf8f4fbe0c01c430bf6b655fc67158a05.patch",
+      "sha256": "bf795272d880eaeb591145b953142bccf8f4fbe0c01c430bf6b655fc67158a05",
+      "purpose": "Restore the Profile-specific proxy monitor constructor and its own preference/policy tracker. Keep the PrefService constructor for Electron and system contexts, and dispatch proxy extension errors only for a real associated Profile."
+    },
+    {
+      "repo": "electron",
+      "file": "patches/0008-electron-probe-early-validation-44c6bc5482cfa508adddc99e30c504f8ddb4781aa762e19b7d9e9d493035334c.patch",
+      "sha256": "44c6bc5482cfa508adddc99e30c504f8ddb4781aa762e19b7d9e9d493035334c",
+      "purpose": "Reject native Profile probes without mock Keychain or absolute application, profile and output paths during BasicStartupComplete, before Local State or encryption initialization."
+    },
+    {
+      "repo": "chromium",
+      "file": "patches/0013-chromium-profile-routing-and-spellcheck-34385c8ff4c8a3e5084df45e0c27e38e8d57e04dbe2f033588b22d39e78144ab.patch",
+      "sha256": "34385c8ff4c8a3e5084df45e0c27e38e8d57e04dbe2f033588b22d39e78144ab",
+      "purpose": "Restore the pinned native ProfileSelections implementation. Keep spellchecking available to embedder contexts through its own BrowserContext factory, preserving typed native Profile selection without weakening either central Profile factory guard."
+    },
+    {
+      "repo": "electron",
+      "file": "patches/0013-electron-native-symbol-isolation-ed63829dab361f357cc63c8e24c4f7179452ac10afe7a6cb70b6d007e8cc901f.patch",
+      "sha256": "ed63829dab361f357cc63c8e24c4f7179452ac10afe7a6cb70b6d007e8cc901f",
+      "purpose": "Use the authoritative spellcheck and macOS system-permission targets instead of duplicate source copies. Put the embedded tabs API and its generated registration wrapper in their own C++ namespace while retaining the same extension protocol names."
+    },
+    {
+      "repo": "electron",
+      "file": "patches/0014-electron-browser-implementation-closure-84c75b3e903497abd7bbb70f13c3edd175c6312ccca502686427adfa9c0a69a7.patch",
+      "sha256": "84c75b3e903497abd7bbb70f13c3edd175c6312ccca502686427adfa9c0a69a7",
+      "purpose": "Link the authoritative native browser implementation aggregation instead of an incomplete list of service fragments. It provides code and resources without constructing another BrowserProcess or installing another MainParts. Runtime lifecycle integration remains separately required."
+    },
+    {
+      "repo": "chromium",
+      "file": "patches/0015-chromium-native-print-manager-contract-1fc6e462e462828f428adf5fd74e604f8e68c2f8e78b2d4931ff95282fcdf2b0.patch",
+      "sha256": "1fc6e462e462828f428adf5fd74e604f8e68c2f8e78b2d4931ff95282fcdf2b0",
+      "purpose": "Keep native and headless print managers concrete while explicitly rejecting the embedder-only settings message outside its owning subclass. Restore the real content-analysis state setter used by native preview managers without enabling embedder content-analysis paths."
+    },
+    {
+      "repo": "chromium",
+      "file": "patches/0010-chromium-content-browser-client-embedding-6f2e80159d567bbb60ef7642f71c84224d617c673020e79cd008f92c09ae1845.patch",
+      "sha256": "6f2e80159d567bbb60ef7642f71c84224d617c673020e79cd008f92c09ae1845",
+      "purpose": "Reconcile the native window-creation callback with the embedder's raw-features and request-body parameters. Expose explicit UI-thread initialization and early WebUI scheme registration for the later context-aware delegate, without installing another MainParts."
+    },
+    {
+      "repo": "chromium",
+      "file": "patches/0016-chromium-native-window-frame-name-2fcdefd5d4c95f0c1e80a712cf05a13a94c04c74649f541377bd3bcaa06eb2ea.patch",
+      "sha256": "2fcdefd5d4c95f0c1e80a712cf05a13a94c04c74649f541377bd3bcaa06eb2ea",
+      "purpose": "Use the actual frame_name field from the shared window-creation protocol when selecting native background contents, preserving the existing routing decision."
+    },
+    {
+      "repo": "chromium",
+      "file": "patches/0017-chromium-native-document-pip-fc56bb3d4f5e2b3305136ff29cd7bc1231995a4c037453a14b071d7bbc5ff739.patch",
+      "sha256": "fc56bb3d4f5e2b3305136ff29cd7bc1231995a4c037453a14b071d7bbc5ff739",
+      "purpose": "Restore the pinned native document picture-in-picture implementation and its existing opener, window and permission-view lifecycle for native navigation."
+    },
+    {
+      "repo": "chromium",
+      "file": "patches/0018-chromium-native-file-access-permissions-ff04576807ebb0ff54977c14ef62c6550c8e58649a4f4811db97aece7469e0ca.patch",
+      "sha256": "ff04576807ebb0ff54977c14ef62c6550c8e58649a4f4811db97aece7469e0ca",
+      "purpose": "Restore native web-app-aware file permission and restore-prompt branches. Qualify shared blocklist helpers exported for embedder consumers while keeping a single definition of their shared value types."
+    },
+    {
+      "repo": "chromium",
+      "file": "patches/0019-chromium-native-singleton-notifications-df9b5647bb3aed3f6fac79f7fa05d1aa59d2b6d4e06b5e2d50d0b1aba63c7097.patch",
+      "sha256": "df9b5647bb3aed3f6fac79f7fa05d1aa59d2b6d4e06b5e2d50d0b1aba63c7097",
+      "purpose": "Carry opaque notification payloads through startup queueing, deduplication, replay and asynchronous forwarding. Adapt native singleton construction to the shared transport; native command-line launch handling remains the terminal consumer without an opaque-payload action."
+    },
+    {
+      "repo": "electron",
+      "file": "patches/0020-electron-browser-service-symbol-isolation-18247213485e60aea5d74f50766b1b75a3da82e854f660a6ebc044a5c9402bc7.patch",
+      "sha256": "18247213485e60aea5d74f50766b1b75a3da82e854f660a6ebc044a5c9402bc7",
+      "purpose": "Keep embedder file selection, extension actions, badge services, MIME helpers and log path functions in distinct namespaces while retaining their existing implementations and protocol names."
+    },
+    {
+      "repo": "chromium",
+      "file": "patches/0020-chromium-profile-mime-dispatch-0c251e00cb933df7bd7591c09109723b522bff4545916835971ffd02922b4bd6.patch",
+      "sha256": "0c251e00cb933df7bd7591c09109723b522bff4545916835971ffd02922b4bd6",
+      "purpose": "Dispatch MIME extension lookup by BrowserContext family. Native Profiles retain native policy and incognito selection; embedder contexts use the embedder helper without an unsafe Profile cast."
+    },
+    {
+      "repo": "chromium",
+      "file": "patches/0021-chromium-shared-crash-client-target-fbc6cd3f5e547114a5014aab0659e15a919e9b07091850bb9759d538f66848b1.patch",
+      "sha256": "fbc6cd3f5e547114a5014aab0659e15a919e9b07091850bb9759d538f66848b1",
+      "purpose": "Share the genuine macOS crash reporter implementation between the application shim and browser framework through a single source target. Linking it does not initialize a second crash reporter or main loop."
+    },
+    {
+      "repo": "chromium",
+      "file": "patches/0022-chromium-mime-context-definition-d7dc663321e8bbd02a342e95eb18b1e0b4f408b5cb8f0be957ca5640e298fb91.patch",
+      "sha256": "d7dc663321e8bbd02a342e95eb18b1e0b4f408b5cb8f0be957ca5640e298fb91",
+      "purpose": "Include the complete BrowserContext definition before calling its context type marker in MIME routing."
+    },
+    {
+      "repo": "electron",
+      "file": "patches/0023-electron-authoritative-local-state-da9756e3b79f8076252921fb9ef0a396eaa2bc297ce45848e6677c7c0512fa44.patch",
+      "sha256": "da9756e3b79f8076252921fb9ef0a396eaa2bc297ce45848e6677c7c0512fa44",
+      "purpose": "Use the complete browser Local State registration once for native and embedder process services, replacing overlapping policy, proxy, metrics, profile, SSL and network registrations. Preserve embedder-only preferences and non-DBus Linux encryption registrations."
+    },
+    {
+      "repo": "electron",
+      "file": "patches/0024-electron-global-browser-features-lifecycle-39d03d04d5242b04173de55b3b97f197cf30858704e2872936194514039117c4.patch",
+      "sha256": "39d03d04d5242b04173de55b3b97f197cf30858704e2872936194514039117c4",
+      "purpose": "Own real GlobalFeatures and browser-process user data. Initialize the global collection before ProfileManager, complete native feature setup before threads, forward main-loop/shutdown stages, and destroy features after Profile shutdown. Native Profile service setup remains probe-only."
+    },
+    {
+      "repo": "electron",
+      "file": "patches/0025-electron-extension-client-startup-order-20da7384e3cebebb6cb74c48c477f9abd5670996b9bb228582dae68e6bd485d1.patch",
+      "sha256": "20da7384e3cebebb6cb74c48c477f9abd5670996b9bb228582dae68e6bd485d1",
+      "purpose": "Initialize shared extension clients before native factory registration. Preserve later factory aggregation and keep the native application locale synchronized when it changes."
+    },
+    {
+      "repo": "chromium",
+      "file": "patches/0025-chromium-extension-system-context-boundary-7d1380c7f58f95fa4f7e9b3e455c41e286f2a23ea439102b001c1b232846962f.patch",
+      "sha256": "7d1380c7f58f95fa4f7e9b3e455c41e286f2a23ea439102b001c1b232846962f",
+      "purpose": "Reject embedder BrowserContexts in the native extension-system factory before any Profile downcast. Native Profile selection remains unchanged."
+    },
+    {
+      "repo": "electron",
+      "file": "patches/0026-electron-profile-root-directory-fbe3df5f05108cf84bb59c057878fbb53e9e5660f1ad426c421f77a68f42234c.patch",
+      "sha256": "fbe3df5f05108cf84bb59c057878fbb53e9e5660f1ad426c421f77a68f42234c",
+      "purpose": "Use the parent data directory as the ProfileManager root; probe profiles remain immediate children as required by the native path contract."
+    },
+    {
+      "repo": "chromium",
+      "file": "patches/0026-chromium-web-app-context-boundary-2e491c281d36f1141638236cc761304d07fd15b969b4a40e2bfd04c1cb6678f0.patch",
+      "sha256": "2e491c281d36f1141638236cc761304d07fd15b969b4a40e2bfd04c1cb6678f0",
+      "purpose": "Reject null and embedder contexts before Profile downcasts in native web-app and web-app metrics selectors. Preserve all native Profile eligibility and selection logic."
+    },
+    {
+      "repo": "electron",
+      "file": "patches/0027-electron-extension-system-provider-dispatch-55c29de2342cbbf1e936e95916e672937b69d60c090bd96fcd9c72a26e8a5e18.patch",
+      "sha256": "55c29de2342cbbf1e936e95916e672937b69d60c090bd96fcd9c72a26e8a5e18",
+      "purpose": "Route native Profile lookups through the existing provider virtual method to the real Chrome extension-system factory. Keep embedder service ownership unchanged and declare the native provider dependency for API creation and shutdown ordering."
+    },
+    {
+      "repo": "chromium",
+      "file": "patches/0028-chromium-shared-web-app-runtime-bootstrap-92db15b3bae74f5f63e1950f77e2e70e4fa9abe8f99b74b7365ca14521397829.patch",
+      "sha256": "92db15b3bae74f5f63e1950f77e2e70e4fa9abe8f99b74b7365ca14521397829",
+      "purpose": "Expose the genuine desktop web-app client and isolated-web-app runtime initialization as a shared static entry point. Native browser startup uses the same implementation; no additional browser-process instance or main loop is created."
+    },
+    {
+      "repo": "electron",
+      "file": "patches/0028-electron-native-web-app-runtime-bootstrap-1b68f0b368f881cc11857fc46719825e548bb96c3e2942fb4981372fc1c74ab0.patch",
+      "sha256": "1b68f0b368f881cc11857fc46719825e548bb96c3e2942fb4981372fc1c74ab0",
+      "purpose": "Initialize the shared genuine desktop web-app runtime before native profiles and their file-access/web-app services are created. Declare the direct browser-process interface dependency."
+    },
+    {
+      "repo": "electron",
+      "file": "patches/0009-electron-profile-renderer-family-ea390a15366698538f96793833c99e8ac86cafa85dd4bc8a9504852b13745340.patch",
+      "sha256": "ea390a15366698538f96793833c99e8ac86cafa85dd4bc8a9504852b13745340",
+      "purpose": "Select native content and renderer clients before creating Electron renderer or Node bindings for native Profile processes; require sandboxed native renderer processes."
+    },
+    {
+      "repo": "electron",
+      "file": "patches/0010-electron-browser-client-profile-dispatch-433f9d0d0bd47034d210fdb2dbf75fffd9d454460326f106d7d6d55fa7a571f4.patch",
+      "sha256": "433f9d0d0bd47034d210fdb2dbf75fffd9d454460326f106d7d6d55fa7a571f4",
+      "purpose": "Route Profile browser callbacks, including storage-partition service-worker loaders, through the initialized native browser client. Preserve existing Electron callbacks for other contexts and register native schemes before loading pages."
+    },
+    {
+      "repo": "electron",
+      "file": "patches/0029-electron-navigation-context-resolution-7a81890b567921969024d3abfc7c38950d58c1ed67cd495eb600f6ebe1c552b4.patch",
+      "sha256": "7a81890b567921969024d3abfc7c38950d58c1ed67cd495eb600f6ebe1c552b4",
+      "purpose": "Resolve navigation context through the current WebContents frame-tree API before selecting native or embedder URL loader factories. Preserve the existing frame identifier and routing semantics."
+    },
+    {
+      "repo": "chromium",
+      "file": "patches/0030-chromium-native-renderer-context-protocol-d8c5e7f731ee5c91d74b80ab71559646ba5f993f71f61e6a0080aa6d6c93a499.patch",
+      "sha256": "d8c5e7f731ee5c91d74b80ab71559646ba5f993f71f61e6a0080aa6d6c93a499",
+      "purpose": "Match the shared renderer protocol for ServiceWorker evaluation and script-context release. Forward the supplied isolate to the real extension dispatcher while retaining native cleanup and binding behavior."
+    },
+    {
+      "repo": "electron",
+      "file": "patches/0031-electron-synthetic-trial-registry-ownership-776e8ec8018941eea7e4ef4b6afdbe7d75179a8561bd9927e9b213782a671d74.patch",
+      "sha256": "776e8ec8018941eea7e4ef4b6afdbe7d75179a8561bd9927e9b213782a671d74",
+      "purpose": "Own a real SyntheticTrialRegistry before constructing MetricsService, allowing native keyed services to register field trials. Preserve existing consent and upload behavior; destroy the registry after its metrics consumers."
+    },
+    {
+      "repo": "electron",
+      "file": "patches/0032-electron-profile-finalization-factory-registration-0023573a20847e05e39c85226005ed7e8ab3cfd3d556bd1581b8056d5b04cc55.patch",
+      "sha256": "0023573a20847e05e39c85226005ed7e8ab3cfd3d556bd1581b8056d5b04cc55",
+      "purpose": "Register PluginPrefsFactory before native Profile preferences are constructed, matching final initialization requirements and preserving the canonical syncable PDF policy preference. Follow the plugin build flag and retain the explicit service dependency closure."
+    },
+    {
+      "repo": "electron",
+      "file": "patches/0033-electron-native-download-status-lifecycle-876774cebe0d37c854fa8d97a1b1180eedc427ba1e0f55b5ef96ce5957761aec.patch",
+      "sha256": "876774cebe0d37c854fa8d97a1b1180eedc427ba1e0f55b5ef96ce5957761aec",
+      "purpose": "Own a genuine DownloadStatusUpdater before native Profile initialization, expose it to the native download core, and destroy it after all Profile download managers. Keep the policy connector alive through Profile teardown and preserve the ordinary embedder path."
+    },
+    {
+      "repo": "chromium",
+      "file": "patches/0034-chromium-shared-profile-extension-storage-eec321b52f00fbc2ea7ad93e8083d650b4ee1f023232048d9d4abedc0a41f553.patch",
+      "sha256": "eec321b52f00fbc2ea7ad93e8083d650b4ee1f023232048d9d4abedc0a41f553",
+      "purpose": "Share genuine synchronization and managed extension-storage cache creation through a typed native Profile helper; retain the native API client implementation and its actual cache classes."
+    },
+    {
+      "repo": "electron",
+      "file": "patches/0034-electron-profile-extension-storage-dispatch-356335f621a95a223bd5b9e8d50de23cbc59c32506f5b8d7bfe004fe2050344d.patch",
+      "sha256": "356335f621a95a223bd5b9e8d50de23cbc59c32506f5b8d7bfe004fe2050344d",
+      "purpose": "Route native Profile extension storage to the genuine synchronization and managed caches. Preserve the base embedder cache behavior for other contexts without constructing another global API client."
+    },
+    {
+      "repo": "electron",
+      "file": "patches/0035-electron-profile-extension-management-dispatch-74ecc4861bd21f0dacc64b3903a086094e4bd9c64e48e588243afb80d92f3e17.patch",
+      "sha256": "74ecc4861bd21f0dacc64b3903a086094e4bd9c64e48e588243afb80d92f3e17",
+      "purpose": "Return the genuine extension-management policy client for native Profiles during install verification, preserving policy decisions and update-source checks. Retain the base embedder behavior for other contexts."
+    },
+    {
+      "repo": "electron",
+      "file": "patches/0036-electron-profile-supervised-extension-delegate-c2aff2249d4b75434e2003dce1f5dc9ce913477cc420ce3b7e80291f4f53522b.patch",
+      "sha256": "c2aff2249d4b75434e2003dce1f5dc9ce913477cc420ce3b7e80291f4f53522b",
+      "purpose": "Create the genuine supervised-user extension delegate for native Profiles during management-policy registration. Keep the base embedder behavior for non-Profile contexts."
+    },
+    {
+      "repo": "chromium",
+      "file": "patches/0037-chromium-profile-initialization-factory-closure-04e69881eeac77e139ec3e36a1372aa5abf9cb15262fa0ef6f3093282f8cceb7.patch",
+      "sha256": "04e69881eeac77e139ec3e36a1372aa5abf9cb15262fa0ef6f3093282f8cceb7",
+      "purpose": "Expose the direct ProfileManager initialization factory closure so embedded native Profiles register service preferences and dependencies before their preference registry is created."
+    },
+    {
+      "repo": "electron",
+      "file": "patches/0037-electron-profile-initialization-factory-closure-b344827e5ee1fbaf00f7ddbcb90185c81dc3e47162324e05046a0e2f2f9f889c.patch",
+      "sha256": "b344827e5ee1fbaf00f7ddbcb90185c81dc3e47162324e05046a0e2f2f9f889c",
+      "purpose": "Register the native ProfileManager initialization service closure before creating any Profile. Preserve factory-owned preference registration and dependency ordering."
+    },
+    {
+      "repo": "chromium",
+      "file": "patches/0038-chromium-media-session-context-boundary-a1f25eda05b571746615d137d8218ce47d7b1e9a43d2de3a80b1d2d192791a6f.patch",
+      "sha256": "a1f25eda05b571746615d137d8218ce47d7b1e9a43d2de3a80b1d2d192791a6f",
+      "purpose": "Check the browser context type before reading native Profile privacy metadata, retaining the ordinary embedder default for non-Profile contexts."
+    },
+    {
+      "repo": "electron",
+      "file": "patches/0038-electron-native-component-clients-383650398849c67c3106fb66bb46ae87fff350f1eb25fb6678779694c19bfe5c.patch",
+      "sha256": "383650398849c67c3106fb66bb46ae87fff350f1eb25fb6678779694c19bfe5c",
+      "purpose": "Initialize genuine permission and media-session clients plus persistent session IDs before native Profiles. Shut the session ID generator down before Local State and distinguish initialized extension services from incomplete client dispatch in the probe."
+    },
+    {
+      "repo": "chromium",
+      "file": "patches/0039-chromium-app-service-profile-boundary-9d6c149d6295ea9eefe2f36d8c52a6e9760b8e0dc96794555888f76422ce2484.patch",
+      "sha256": "9d6c149d6295ea9eefe2f36d8c52a6e9760b8e0dc96794555888f76422ce2484",
+      "purpose": "Reject non-Profile browser contexts before app-service Profile selection, preserving native original and off-the-record rules."
+    },
+    {
+      "repo": "electron",
+      "file": "patches/0039-electron-native-app-publisher-lifecycle-54b5da1739fff1d5f51d1f3cd04e43d00f9b93e1106e8f239785c049df862940.patch",
+      "sha256": "54b5da1739fff1d5f51d1f3cd04e43d00f9b93e1106e8f239785c049df862940",
+      "purpose": "Install the genuine application publisher factory before native Profile services are created and retain its reset guard until every Profile has been destroyed."
+    },
+    {
+      "repo": "chromium",
+      "file": "patches/0040-chromium-context-aware-extension-delegates-0c0f10f8961ae807442018ca0b1aeaf02a8305d19b88ae0c7c84c2947039b4e5.patch",
+      "sha256": "0c0f10f8961ae807442018ca0b1aeaf02a8305d19b88ae0c7c84c2947039b4e5",
+      "purpose": "Add context-aware factory entry points with existing-client defaults, retain one global API client in embedded client ownership mode, and share genuine native WebContents helpers."
+    },
+    {
+      "repo": "electron",
+      "file": "patches/0040-electron-native-extension-client-routing-b5274b62024f0a2d97335be6638c052f53acb7998e9dd0d6d2c2d6d229b8f863.patch",
+      "sha256": "b5274b62024f0a2d97335be6638c052f53acb7998e9dd0d6d2c2d6d229b8f863",
+      "purpose": "Own the native extension implementation in the browser process, route Profile callbacks and updater/configuration/keep-alive paths to it, preserve embedder callbacks, and select native management, guest and WebContents helpers without installing Electron wrappers."
+    },
+    {
+      "repo": "chromium",
+      "file": "patches/0041-chromium-api-client-guest-delegate-definition-ec129bff6a555fad11f0d2d98604fa0c2a7b093d3124e8d6f6dc4e840b6ef19a.patch",
+      "sha256": "ec129bff6a555fad11f0d2d98604fa0c2a7b093d3124e8d6f6dc4e840b6ef19a",
+      "purpose": "Include the complete guest-manager delegate type and its conditional build dependency when forwarding owned delegates through the context-aware factory."
+    },
+    {
+      "repo": "chromium",
+      "file": "patches/0042-chromium-profile-factory-lifecycle-boundary-5ca757172e6fc16b7a708f2435a671e05b254c127ce105da3cbe24669d65b418.patch",
+      "sha256": "5ca757172e6fc16b7a708f2435a671e05b254c127ce105da3cbe24669d65b418",
+      "purpose": "Apply the native Profile type boundary to shutdown and destruction hooks in both factory families, while preserving generic mapping cleanup for unsupported contexts and native off-the-record lifecycle behavior."
+    },
+    {
+      "repo": "electron",
+      "file": "patches/0043-electron-native-browser-window-bootstrap-2495e1946a8716cbc6dca530f434221961de6a654b6506dcbd6dd38f987abb7d.patch",
+      "sha256": "2495e1946a8716cbc6dca530f434221961de6a654b6506dcbd6dd38f987abb7d",
+      "purpose": "Register the authoritative native browser factory graph before Profile creation, initialize shared native Views infrastructure, and expose an isolated production Browser/tab window probe for actual renderer and shutdown acceptance."
+    },
+    {
+      "repo": "electron",
+      "file": "patches/0044-electron-native-window-accessor-ffbca5e2ae0c52b990ad2a865b2ae120344e24074cfdf457edc69e1a4ca48f2e.patch",
+      "sha256": "ffbca5e2ae0c52b990ad2a865b2ae120344e24074cfdf457edc69e1a4ca48f2e",
+      "purpose": "Use the production BrowserWindowInterface accessor from the pinned native browser version."
+    },
+    {
+      "repo": "chromium",
+      "file": "patches/0045-chromium-native-direct-factory-boundaries-6ff60a1ab49b35df792e1bd0dad19989f45b979cb75f99110b73ffd6459fde72.patch",
+      "sha256": "6ff60a1ab49b35df792e1bd0dad19989f45b979cb75f99110b73ffd6459fde72",
+      "purpose": "Restrict native-only direct browser-context factories to real Profiles before eligibility checks, retaining every native service decision and the existing separate Electron context implementation."
+    },
+    {
+      "repo": "electron",
+      "file": "patches/0046-electron-native-safe-browsing-lifecycle-0162ac01a097cdab39688d8eef5bd2d084af4cfe7979f3f2e3ba06ccab725f9a.patch",
+      "sha256": "0162ac01a097cdab39688d8eef5bd2d084af4cfe7979f3f2e3ba06ccab725f9a",
+      "purpose": "Create and initialize the genuine Safe Browsing service before native Profiles and stop its observers and network work before profile teardown, preserving the separate default Electron path."
+    },
+    {
+      "repo": "electron",
+      "file": "patches/0047-electron-native-platform-service-lifecycle-42d86eb677b2bbf028ab5813c51051b8892c970dc59ef855f9a4535e48d65039.patch",
+      "sha256": "42d86eb677b2bbf028ab5813c51051b8892c970dc59ef855f9a4535e48d65039",
+      "purpose": "Own the genuine platform browser services in the existing process, initialize their window and application integration before Profiles, and retain them through profile teardown and thread destruction."
+    },
+    {
+      "repo": "chromium",
+      "file": "patches/0048-chromium-native-extension-api-factory-scope-1b325bc60e42eec0738716c6e6d6da7c361a619b7b642cf5e094d97e6971e509.patch",
+      "sha256": "1b325bc60e42eec0738716c6e6d6da7c361a619b7b642cf5e094d97e6971e509",
+      "purpose": "Declare native-only API factory context scope in the authoritative registration list, enforce it before selection, construction and lifecycle hooks, and preserve default routing for shared extension APIs."
+    },
+    {
+      "repo": "electron",
+      "file": "patches/0049-electron-unified-metrics-and-ukm-ownership-514f3a7df0b854aa0ee58366ea12bb907e6966202daa2d9c468b5f0e1d6c4f6f.patch",
+      "sha256": "514f3a7df0b854aa0ee58366ea12bb907e6966202daa2d9c468b5f0e1d6c4f6f",
+      "purpose": "Use one genuine MetricsServicesManager to own the existing embedder metrics state and synthetic registry, provide a real UKM service with unchanged non-consenting policy, and run segmentation initialization and teardown through production hooks."
+    },
+    {
+      "repo": "chromium",
+      "file": "patches/0050-chromium-feature-provider-compatible-merge-7b072f4cb27e1fcdb09fc50bfe9143b8d3edc3ab7ded126bd1733542ceb04c17.patch",
+      "sha256": "7b072f4cb27e1fcdb09fc50bfe9143b8d3edc3ab7ded126bd1733542ceb04c17",
+      "purpose": "Support consuming nonconflicting compatibility feature entries while preserving authoritative feature constraints and delegated availability handlers."
+    },
+    {
+      "repo": "electron",
+      "file": "patches/0051-electron-native-common-extension-client-2349801ccd03f0152a89c75649523c9ff07cae96e4db954fcdca118b33551645.patch",
+      "sha256": "2349801ccd03f0152a89c75649523c9ff07cae96e4db954fcdca118b33551645",
+      "purpose": "Use one native-derived common extension client with full schema, permission messages, manifest handlers and host policies; preserve embedder-only feature/schema fallbacks and verify duplicate permission identities and flags."
+    },
+    {
+      "repo": "electron",
+      "file": "patches/0052-electron-platform-management-startup-cache-cd50fd7158f8f6c09bde7615b2286050f13a7b8195a521a145b1a2a0e3e98c23.patch",
+      "sha256": "cd50fd7158f8f6c09bde7615b2286050f13a7b8195a521a145b1a2a0e3e98c23",
+      "purpose": "Populate the real memoized platform management state during native startup before UI-thread blocking is disallowed, preserving the actual security and policy decisions."
+    },
+    {
+      "repo": "electron",
+      "file": "patches/0053-electron-policy-controller-shutdown-order-a79f5ca14fb8fdffcf79e774eb6ec43fdb1cb6ba5b992efb29e612577b841606.patch",
+      "sha256": "a79f5ca14fb8fdffcf79e774eb6ec43fdb1cb6ba5b992efb29e612577b841606",
+      "purpose": "Notify the genuine browser policy controller of shutdown before destroying Profiles and the policy connector, allowing registered native observers to detach in their production lifecycle."
+    },
+    {
+      "repo": "electron",
+      "file": "patches/0054-electron-native-printing-service-ownership-b0e8b36b95b2c330d1406bdd315efeaab4e467530bb40dcb687969cd8e1c9fe4.patch",
+      "sha256": "b0e8b36b95b2c330d1406bdd315efeaab4e467530bb40dcb687969cd8e1c9fe4",
+      "purpose": "Own native preview and background printing services across Profile lifetime; drain real print jobs before quit teardown."
+    },
+    {
+      "repo": "electron",
+      "file": "patches/0055-electron-native-resource-coordinator-lifetime-b90c49acc1f3b9e363d7d91b52ee8ab977c94eb48e52dcf9797332add91e654f.patch",
+      "sha256": "b90c49acc1f3b9e363d7d91b52ee8ab977c94eb48e52dcf9797332add91e654f",
+      "purpose": "Own and start native tab resource coordination; release collection observers before global feature teardown."
+    },
+    {
+      "repo": "chromium",
+      "file": "patches/0056-chromium-embedded-performance-metrics-owner-3099c66fcdb1db630fc95301928fec99c7dd8cafb0f2cef4ef37e41cc61c3fc7.patch",
+      "sha256": "3099c66fcdb1db630fc95301928fec99c7dd8cafb0f2cef4ef37e41cc61c3fc7",
+      "purpose": "Expose creation of the real desktop performance metrics provider for an embedding metrics service owner."
+    },
+    {
+      "repo": "electron",
+      "file": "patches/0056-electron-native-performance-manager-lifecycle-716690ccf129b2fb612b080933bef8548f59080f1266459772ed5168b9221810.patch",
+      "sha256": "716690ccf129b2fb612b080933bef8548f59080f1266459772ed5168b9221810",
+      "purpose": "Run native performance graph, Profile observers and tuning managers within the single process lifecycle; retain existing consent."
+    },
+    {
+      "repo": "chromium",
+      "file": "patches/0057-chromium-native-resource-pack-union-45e181284ffde9d2f6fd09ddd500d188cf3ef15c7490b90226105515d8731f70.patch",
+      "sha256": "45e181284ffde9d2f6fd09ddd500d188cf3ef15c7490b90226105515d8731f70",
+      "purpose": "Merge embedder resource additions after all native platform packs and exclude duplicate pack inputs."
+    },
+    {
+      "repo": "electron",
+      "file": "patches/0057-electron-complete-native-browser-resources-c570dbe89900693c4a81fa94d7ed1ffee51afbd845d7e37e00fb77c0ab6582e3.patch",
+      "sha256": "c570dbe89900693c4a81fa94d7ed1ffee51afbd845d7e37e00fb77c0ab6582e3",
+      "purpose": "Use authoritative native scaled resources and locale families while retaining additional embedder resources."
+    },
+    {
+      "repo": "electron",
+      "file": "patches/0058-electron-native-aggregate-resource-ownership-344bf7d1df030c3c6adf6e89d2f43606e0b7fb733208261594593cb1177d5d7f.patch",
+      "sha256": "344bf7d1df030c3c6adf6e89d2f43606e0b7fb733208261594593cb1177d5d7f",
+      "purpose": "Use native aggregate debug-page resources without repacking their identical standalone inputs a second time."
+    },
+    {
+      "repo": "chromium",
+      "file": "patches/0059-chromium-webui-profile-context-registration-0f40fad646f66e762e2be638d3ad0d700b14745b945256b3bbb7d9b0d77f2fdc.patch",
+      "sha256": "0f40fad646f66e762e2be638d3ad0d700b14745b945256b3bbb7d9b0d77f2fdc",
+      "purpose": "Restrict native WebUI config and legacy controller dispatch to browser Profiles before evaluating config code."
+    },
+    {
+      "repo": "electron",
+      "file": "patches/0059-electron-native-webui-registry-startup-b7d1d55dd95e2ffe26a8db7459ba1f2b0298d2286febb07fb3eb9052f66297e3.patch",
+      "sha256": "b7d1d55dd95e2ffe26a8db7459ba1f2b0298d2286febb07fb3eb9052f66297e3",
+      "purpose": "Register authoritative trusted and untrusted native WebUI before the first Profile page and verify the context boundary."
+    },
+    {
+      "repo": "electron",
+      "file": "patches/0060-electron-shared-network-quality-tracker-08f084e055e330eab789d084c57cf2eb3573684e8ca95a839da6a7bcd8442c00.patch",
+      "sha256": "08f084e055e330eab789d084c57cf2eb3573684e8ca95a839da6a7bcd8442c00",
+      "purpose": "Expose the existing process-owned network quality tracker through BrowserProcess for native navigation clients."
+    },
+    {
+      "repo": "electron",
+      "file": "patches/0061-electron-native-page-observers-and-renderer-memory-d777dd62945620903bb61990d99c946f425022c81a1d8e664104e347ef169d89.patch",
+      "sha256": "d777dd62945620903bb61990d99c946f425022c81a1d8e664104e347ef169d89",
+      "purpose": "Forward native WebContents creation to universal observers and initialize the native renderer controller through the existing MemorySystem."
+    },
+    {
+      "repo": "chromium",
+      "file": "patches/0062-chromium-profile-content-rules-registry-d290d09b5f45976475792cf6b99a0232dc23cd7512d5f063be20c1c6efafb5df.patch",
+      "sha256": "d290d09b5f45976475792cf6b99a0232dc23cd7512d5f063be20c1c6efafb5df",
+      "purpose": "Share genuine native content rule registry construction with context-aware embedding clients."
+    },
+    {
+      "repo": "electron",
+      "file": "patches/0062-electron-profile-content-rules-dispatch-6d7d477d6c2f2d535578b3b1151cd199e8a539294a4d73677ffd540b19967bac.patch",
+      "sha256": "6d7d477d6c2f2d535578b3b1151cd199e8a539294a4d73677ffd540b19967bac",
+      "purpose": "Route native Profile declarative content rules to the real registry and retain existing Electron behavior."
+    },
+    {
+      "repo": "chromium",
+      "file": "patches/0063-chromium-feedback-profile-factory-boundary-dafe78c4d6cb6e2120d4738e29a0c18e81155d78ca064586375a4f2eff119112.patch",
+      "sha256": "dafe78c4d6cb6e2120d4738e29a0c18e81155d78ca064586375a4f2eff119112",
+      "purpose": "Keep the native feedback uploader factory out of other BrowserContext families while retaining native Profile selection."
+    },
+    {
+      "repo": "chromium",
+      "file": "patches/0064-chromium-reporting-profile-factory-boundaries-2a431ddb5a4fc330306f5d209e8b5fac8df58fcaac0271d3615505fa0189baed.patch",
+      "sha256": "2a431ddb5a4fc330306f5d209e8b5fac8df58fcaac0271d3615505fa0189baed",
+      "purpose": "Restrict native reporting router factories before their extension-policy and reporting-client Profile lookups."
+    },
+    {
+      "repo": "chromium",
+      "file": "patches/0065-chromium-declared-profile-api-and-factory-boundaries-ce59bf99e477e24de4f7ab28799141314bbbb674bcb84af47bc85999a0fe2665.patch",
+      "sha256": "ce59bf99e477e24de4f7ab28799141314bbbb674bcb84af47bc85999a0fe2665",
+      "purpose": "Declare native API context ownership before dependency registration and guard confirmed Profile-only media, web data and isolated-app factory entry points."
+    },
+    {
+      "repo": "chromium",
+      "file": "patches/0066-chromium-content-rule-observer-context-boundary-1a158f8059177c83ed61dd89f05e19f9e24321733634274e8013db3ad8b105a4.patch",
+      "sha256": "1a158f8059177c83ed61dd89f05e19f9e24321733634274e8013db3ad8b105a4",
+      "purpose": "Limit native declarative rule observers to browser Profile contexts before comparing Profile identity."
+    },
+    {
+      "repo": "chromium",
+      "file": "patches/0067-native-renderer-update-context-identity-f5c4068ffb6e94e6d2dd2f419075eb1d93fe1365172b2ef898f1a50893a4b723.patch",
+      "sha256": "f5c4068ffb6e94e6d2dd2f419075eb1d93fe1365172b2ef898f1a50893a4b723",
+      "purpose": "Match renderer BrowserContext identity directly when broadcasting Profile preference changes, preserving native renderer updates without downcasting unrelated embedder contexts."
+    },
+    {
+      "repo": "electron",
+      "file": "patches/0063-electron-native-associated-frame-and-worker-binders-55f91176dc208c6c8fb10ca671cbcb8a6bf454b6ca971b5fcce1ab8ce8288374.patch",
+      "sha256": "55f91176dc208c6c8fb10ca671cbcb8a6bf454b6ca971b5fcce1ab8ce8288374",
+      "purpose": "Route native frame and worker associated interface registration to the genuine browser client, including password, autofill, printing and extension interfaces, while retaining embedder interfaces for other contexts."
+    },
+    {
+      "repo": "chromium",
+      "file": "patches/0068-chromium-context-extension-function-registry-90481984978a03447f6da607834afec4e884d609abfec15e62a2df2acf757e61.patch",
+      "sha256": "90481984978a03447f6da607834afec4e884d609abfec15e62a2df2acf757e61",
+      "purpose": "Select an independently initialized extension function registry by BrowserContext while preserving the global registry and its test overrides; exclude embedder processes from native activity-log broadcasts."
+    },
+    {
+      "repo": "electron",
+      "file": "patches/0064-electron-owned-native-extension-function-registry-680191ee24ddf0fb9e18802a1b19f63518c93034af62292cade5620a45dfe981.patch",
+      "sha256": "680191ee24ddf0fb9e18802a1b19f63518c93034af62292cade5620a45dfe981",
+      "purpose": "Own a Core and Chrome extension function registry initialized from the non-global native client and select it only for native Profiles, retaining the existing embedder registry."
+    },
+    {
+      "repo": "electron",
+      "file": "patches/0065-electron-native-gpu-mode-service-477d8a324f94c7ea2f493124cd5214c92eed511826674cd7f5ff45351d36329d.patch",
+      "sha256": "477d8a324f94c7ea2f493124cd5214c92eed511826674cd7f5ff45351d36329d",
+      "purpose": "Own and initialize the genuine GPU mode preference manager before native Profile startup and expose it to native settings, retaining its restart-only preference semantics."
+    },
+    {
+      "repo": "electron",
+      "file": "patches/0066-electron-native-caption-component-service-ownership-6a116743ca6fe58a6bce917989540871182ca41001e764e5263f78bd91dd5f3b.patch",
+      "sha256": "6a116743ca6fe58a6bce917989540871182ca41001e764e5263f78bd91dd5f3b",
+      "purpose": "Own the genuine on-device speech installer through native Profile lifetime and provide the real component update service with canonical configuration, scheduler and shutdown ordering."
+    },
+    {
+      "repo": "chromium",
+      "file": "patches/0069-chromium-native-extension-process-observation-e347c50972bdaecdf7684472def5ea637e51a16bff3a6b543491494ef0158ebb.patch",
+      "sha256": "e347c50972bdaecdf7684472def5ea637e51a16bff3a6b543491494ef0158ebb",
+      "purpose": "Observe only browser Profile render processes in the native extension service, retaining existing Profile-family cleanup while avoiding unrelated embedder renderer destruction callbacks."
+    },
+    {
+      "repo": "electron",
+      "file": "patches/0067-electron-native-window-shutdown-and-utility-services-99716ddca032630a80c210ba87d851eff1153f28429e9f62795c4200801d6529.patch",
+      "sha256": "99716ddca032630a80c210ba87d851eff1153f28429e9f62795c4200801d6529",
+      "purpose": "Release native browser windows before Profile service teardown and register the complete production utility-service catalog before existing embedder service implementations."
+    },
+    {
+      "repo": "electron",
+      "file": "patches/0068-electron-native-browser-manager-public-shutdown-api-880b20a99544f1251114ac59b672116471ef90615d94fb8c9da16f7ba63722c0.patch",
+      "sha256": "880b20a99544f1251114ac59b672116471ef90615d94fb8c9da16f7ba63722c0",
+      "purpose": "Use the public native BrowserManagerService factory API for pre-Profile window draining without accessing protected keyed-service internals."
+    },
+    {
+      "repo": "electron",
+      "file": "patches/0069-electron-optional-profile-client-startup-e5637907c35856453b16a454d976bfd4f39d0df9b5f331808acc089cc996c8a7.patch",
+      "sha256": "e5637907c35856453b16a454d976bfd4f39d0df9b5f331808acc089cc996c8a7",
+      "purpose": "Bind the native extension client only when native Profile services are initialized; ordinary embedder startup retains its existing global registry while native dispatch keeps strict initialization checks."
+    },
+    {
+      "repo": "chromium",
+      "file": "patches/0070-native-browser-creation-parent-fb4db232476b1f03caa72fda98255812db5bf6e28fbe3a6bc29ac8ff74048713.patch",
+      "sha256": "fb4db232476b1f03caa72fda98255812db5bf6e28fbe3a6bc29ac8ff74048713",
+      "purpose": "Create embedded browser widgets with an explicit native parent while retaining normal BrowserView ownership and native frame behavior."
+    },
+    {
+      "repo": "electron",
+      "file": "patches/0070-native-browser-runtime-startup-ca2a578cfcbe242d373fa4a786186c18d99cf2f9a6e065259eba2dfbcc5af512.patch",
+      "sha256": "ca2a578cfcbe242d373fa4a786186c18d99cf2f9a6e065259eba2dfbcc5af512",
+      "purpose": "Initialize native browser Profile services through an explicit production startup option and register the host browser binding."
+    },
+    {
+      "repo": "electron",
+      "file": "patches/0071-native-browser-host-api-c46a0a3796bc7de039c1c1009d0a43f059bbd1feb9b3a8109b10e23db331d480.patch",
+      "sha256": "c46a0a3796bc7de039c1c1009d0a43f059bbd1feb9b3a8109b10e23db331d480",
+      "purpose": "Expose a Profile-owned native browser with creation-time parent, page events, debugger and explicit host lifecycle operations."
+    },
+    {
+      "repo": "electron",
+      "file": "patches/0072-native-host-api-version-compatibility-33e9c87c4664fa3d07919ca623c630c342e9bee348f0028d264ad463cb7478a4.patch",
+      "sha256": "33e9c87c4664fa3d07919ca623c630c342e9bee348f0028d264ad463cb7478a4",
+      "purpose": "Use the pinned Gin error helper and application isolate API for native browser host operations."
+    },
+    {
+      "repo": "electron",
+      "file": "patches/0073-native-browser-host-lifecycle-31c4c5c31a4cd482df0b5157d507decb3d20a4df769b1e34331df2389f1f6614.patch",
+      "sha256": "31c4c5c31a4cd482df0b5157d507decb3d20a4df769b1e34331df2389f1f6614",
+      "purpose": "Detach wrapper callbacks before deferred browser closure, observe Browser completion, report actual child bounds and unregister collected debugger clients."
+    },
+    {
+      "repo": "electron",
+      "file": "patches/0074-native-browser-shared-startup-condition-bcb6d4ff9898aaed8a50c28341303a6a9fe71a75b613ed688c769b16aa4bfea9.patch",
+      "sha256": "bcb6d4ff9898aaed8a50c28341303a6a9fe71a75b613ed688c769b16aa4bfea9",
+      "purpose": "Use one explicit native-browser startup condition for Profile services, desktop performance metrics and platform view initialization."
+    },
+    {
+      "repo": "electron",
+      "file": "patches/0075-native-browser-asynchronous-profile-loading-94d6fdbb74ba04aa4340068bc4fe0bd3b814939ff0e6719ca31c3352ae339446.patch",
+      "sha256": "94d6fdbb74ba04aa4340068bc4fe0bd3b814939ff0e6719ca31c3352ae339446",
+      "purpose": "Load native browser Profiles asynchronously after app readiness and cancel creation when the host window closes."
+    },
+    {
+      "repo": "electron",
+      "file": "patches/0076-native-profile-first-run-startup-cache-5619f9e56b0e3d8b3788019d24d5176180427967264daf3cad946256ca43a908.patch",
+      "sha256": "5619f9e56b0e3d8b3788019d24d5176180427967264daf3cad946256ca43a908",
+      "purpose": "Initialize the genuine memoized first-run decision before UI-thread blocking is disallowed, matching asynchronous Profile startup requirements."
+    },
+    {
+      "repo": "chromium",
+      "file": "patches/0071-native-extension-tab-lookup-context-boundary-f7e822fa4271ffb2de1f9eaf5be9117ddfe7130fd16898989cc2fff6afdf7491.patch",
+      "sha256": "f7e822fa4271ffb2de1f9eaf5be9117ddfe7130fd16898989cc2fff6afdf7491",
+      "purpose": "Exclude non-Profile contexts from native extension tab lookup and process-wide prerender discovery before any Profile cast."
+    },
+    {
+      "repo": "chromium",
+      "file": "patches/0072-native-extension-frame-and-tab-event-contexts-39e709f573e633533b309da2d2d2cc6eaf342c3f0db303c3ca6e8b9f717cb1aa.patch",
+      "sha256": "39e709f573e633533b309da2d2d2cc6eaf342c3f0db303c3ca6e8b9f717cb1aa",
+      "purpose": "Validate context types before native frame lookup and process-wide tab state event dispatch."
+    },
+    {
+      "repo": "chromium",
+      "file": "patches/0073-native-browser-owned-focus-and-frame-13e4a249d3a4b68f1a8bb6d5b5bcd22f26ed963caa8b2772a66c7a16caf83c4c.patch",
+      "sha256": "13e4a249d3a4b68f1a8bb6d5b5bcd22f26ed963caa8b2772a66c7a16caf83c4c",
+      "purpose": "Retain complete browser focus and input-method ownership under a native parent and suppress standalone placement persistence for embedded surfaces."
+    },
+    {
+      "repo": "electron",
+      "file": "patches/0077-native-host-content-coordinate-conversion-8a822437959ed1282c15df915e32602a2cb9f50e17da20e86d3f288bc8dee4c1.patch",
+      "sha256": "8a822437959ed1282c15df915e32602a2cb9f50e17da20e86d3f288bc8dee4c1",
+      "purpose": "Translate embedded browser bounds through the host content view and stop operations after host closure."
+    },
+    {
+      "repo": "electron",
+      "file": "patches/0078-native-profile-extension-import-host-api-9c39ee11c8b64fe400d5143566e5e554ff6562237c34faf26866b2c2c1ad4d7a.patch",
+      "sha256": "9c39ee11c8b64fe400d5143566e5e554ff6562237c34faf26866b2c2c1ad4d7a",
+      "purpose": "Load user-selected unpacked extensions through native policy, developer-mode and installer checks with asynchronous completion metadata."
+    },
+    {
+      "repo": "electron",
+      "file": "patches/0079-native-extension-import-result-converter-7f471aabbb3045bec063298ce11bf440ec23a5294768b554a28f8320df67e10f.patch",
+      "sha256": "7f471aabbb3045bec063298ce11bf440ec23a5294768b554a28f8320df67e10f",
+      "purpose": "Use the existing native value converter for asynchronous extension import metadata."
+    },
+    {
+      "repo": "chromium",
+      "file": "patches/C0074-host-owned-controls-and-bubble-anchor-24d2d357eebed2750c22639c32d6dac8b68349e67425bf8c341664571205c116.patch",
+      "sha256": "24d2d357eebed2750c22639c32d6dac8b68349e67425bf8c341664571205c116",
+      "purpose": "Embedded windows retain native services while the host owns controls and supplies a live bubble anchor."
+    },
+    {
+      "repo": "electron",
+      "file": "patches/E0080-host-bubble-anchor-api-db37984a04897a9490e25e39d4a2fb5c66c57ecf5fadcf66811dbdd23dd1abac.patch",
+      "sha256": "db37984a04897a9490e25e39d4a2fb5c66c57ecf5fadcf66811dbdd23dd1abac",
+      "purpose": "Expose host-content coordinates for native bubble anchors without a renderer bridge."
+    },
+    {
+      "repo": "electron",
+      "file": "patches/E0081-native-profile-messaging-delegate-ab66dbbed73a0cbd6ccb4d140e632d20c49de09f8793fec7ad312f9996f95469.patch",
+      "sha256": "ab66dbbed73a0cbd6ccb4d140e632d20c49de09f8793fec7ad312f9996f95469",
+      "purpose": "Route native Profile extension messages and native host policy through the native delegate while retaining Electron session behavior."
+    },
+    {
+      "repo": "electron",
+      "file": "patches/E0082-native-page-state-and-operation-capture-e725c40bb0b2424feda3d3b37d47f2e009327f0ce77e2577e08a916681575b95.patch",
+      "sha256": "e725c40bb0b2424feda3d3b37d47f2e009327f0ce77e2577e08a916681575b95",
+      "purpose": "Expose native page state, lifecycle events and bounded background compositor activity leases for the host transport."
+    },
+    {
+      "repo": "chromium",
+      "file": "patches/C0075-native-parent-handle-compatibility-493e8b9b81d38d665ce1d6bebff8a3855179996a1ef3059ab7e2a8172852e20a.patch",
+      "sha256": "493e8b9b81d38d665ce1d6bebff8a3855179996a1ef3059ab7e2a8172852e20a",
+      "purpose": "Use the native view handle boolean contract when selecting embedded controls."
+    },
+    {
+      "repo": "electron",
+      "file": "patches/E0083-native-parent-window-transfer-0f2d8b77b055795a29c8e968a809817b97d82dc657a0d24d8fb887713b60099c.patch",
+      "sha256": "0f2d8b77b055795a29c8e968a809817b97d82dc657a0d24d8fb887713b60099c",
+      "purpose": "Move the existing native widget between live host windows while preserving page and focus ownership."
+    },
+    {
+      "repo": "electron",
+      "file": "patches/E0084-native-anchor-rectangle-conversion-e8549d13656eb0532a84449ee11c6d38ff97e6bbbbd49e32c30675c22ba183f7.patch",
+      "sha256": "e8549d13656eb0532a84449ee11c6d38ff97e6bbbbd49e32c30675c22ba183f7",
+      "purpose": "Use the Views rectangle-returning coordinate conversion API for host bubble anchors."
+    },
+    {
+      "repo": "chromium",
+      "file": "patches/C0076-native-embedded-content-layout-b5fc116cd847cb90fe66666775ca6fb853c58e5ba32a52a97d33cf6bd7b382cf.patch",
+      "sha256": "b5fc116cd847cb90fe66666775ca6fb853c58e5ba32a52a97d33cf6bd7b382cf",
+      "purpose": "Select the native content-only layout for host-owned controls while retaining normal Browser services."
+    },
+    {
+      "repo": "chromium",
+      "file": "patches/C0077-native-embedded-frame-insets-b67eeb847fd292c9f44127df40eef6532bf0637b9f53e903a0b8957a8f01c11f.patch",
+      "sha256": "b67eeb847fd292c9f44127df40eef6532bf0637b9f53e903a0b8957a8f01c11f",
+      "purpose": "Embedded windows reserve no native caption or titlebar height because the host provides these controls."
+    },
+    {
+      "repo": "electron",
+      "file": "patches/E0085-native-profile-streaming-network-a16136772772d958936071e35b2bfae928ba4047a2dab9f292edcd8d894e3a55.patch",
+      "sha256": "a16136772772d958936071e35b2bfae928ba4047a2dab9f292edcd8d894e3a55",
+      "purpose": "Use the native Profile network context for bounded streaming GET requests with manual redirect boundaries and cancellation."
+    },
+    {
+      "repo": "electron",
+      "file": "patches/E0086-native-layout-state-02c330e760cbf862be57d0e9abed051fae4eb3547350af1a84ecef7369aafda8.patch",
+      "sha256": "02c330e760cbf862be57d0e9abed051fae4eb3547350af1a84ecef7369aafda8",
+      "purpose": "Report native viewport and layout state to the trusted host for bounds verification."
+    },
+    {
+      "repo": "electron",
+      "file": "patches/E0087-native-viewport-state-4fa682fac46f9243a2d60daab818b88500eb30e438c24c18af5b23107638f0e2.patch",
+      "sha256": "4fa682fac46f9243a2d60daab818b88500eb30e438c24c18af5b23107638f0e2",
+      "purpose": "Keep host state limited to useful viewport bounds and remove temporary layout diagnostics."
+    },
+    {
+      "repo": "electron",
+      "file": "patches/E0088-native-profile-data-removal-2b24c60cf308d3275abd4e97f3aac863917ac136cb01a499a874b52d826b54d9.patch",
+      "sha256": "2b24c60cf308d3275abd4e97f3aac863917ac136cb01a499a874b52d826b54d9",
+      "purpose": "Clear native Profile browsing data through its genuine remover and completion callback, preserving passwords, autofill and downloaded files."
+    },
+    {
+      "repo": "chromium",
+      "file": "patches/C0078-native-content-window-geometry-7cecaae8ef7d9abd349f3b766300eba2232223d7e6d5ccb4a487a7e53027dd49.patch",
+      "sha256": "7cecaae8ef7d9abd349f3b766300eba2232223d7e6d5ccb4a487a7e53027dd49",
+      "purpose": "Keep frameless content and frame rectangles equal and suppress inactive vertical controls in content-only layouts."
+    },
+    {
+      "repo": "electron",
+      "file": "patches/E0089-native-history-data-namespace-5c6b713fb5c4a5badc2c42ad99e8835ab8d7b496fdb1bc8ad662a86ae3445641.patch",
+      "sha256": "5c6b713fb5c4a5badc2c42ad99e8835ab8d7b496fdb1bc8ad662a86ae3445641",
+      "purpose": "Use the native browsing-data history mask namespace."
+    },
+    {
+      "repo": "electron",
+      "file": "patches/E0090-native-host-stream-read-cap-c001ffe5b0cf27948c6b176d398a78fd8657c5036d873f2aac077fe0eeaacd85.patch",
+      "sha256": "c001ffe5b0cf27948c6b176d398a78fd8657c5036d873f2aac077fe0eeaacd85",
+      "purpose": "Cap host response reads at 64 KiB while retaining producer backpressure until every input slice is consumed."
+    },
+    {
+      "repo": "electron",
+      "file": "patches/E0091-native-profile-devtools-session-175678bca018a868e1041cb9bea4aa875d920cf716b5aac27e8e1ad0b25dedeb.patch",
+      "sha256": "175678bca018a868e1041cb9bea4aa875d920cf716b5aac27e8e1ad0b25dedeb",
+      "purpose": "Dispatch native Profile debugging commands through context-owned browser protocol handlers while preserving host session lifecycle."
+    },
+    {
+      "repo": "electron",
+      "file": "patches/E0092-native-profile-services-317071dc5d49a5ccc2fda043dcb0283f6d37b21ef2287fc36bbb8fb355c03181.patch",
+      "sha256": "317071dc5d49a5ccc2fda043dcb0283f6d37b21ef2287fc36bbb8fb355c03181",
+      "purpose": "Expose genuine Profile network and browsing-data services without requiring a browser page."
+    },
+    {
+      "repo": "electron",
+      "file": "patches/E0093-native-page-zoom-80d452cd66e9dfd4f1b91c3dfbaa31302578e9928cd713eb131497cacbb81a9f.patch",
+      "sha256": "80d452cd66e9dfd4f1b91c3dfbaa31302578e9928cd713eb131497cacbb81a9f",
+      "purpose": "Report the actual native page zoom factor for viewport restoration and layout measurement."
+    },
+    {
+      "repo": "electron",
+      "file": "patches/E0094-native-page-find-e75aab6157819c58c8ddc14f95ade46e4b89c4c8c21e61caa1647766ac5e5675.patch",
+      "sha256": "e75aab6157819c58c8ddc14f95ade46e4b89c4c8c21e61caa1647766ac5e5675",
+      "purpose": "Expose native find-session results and cancellation through the existing tab helper."
+    },
+    {
+      "repo": "electron",
+      "file": "patches/E0095-native-managed-view-lifecycle-32648b65e301774833c32922eaeddc1af4c54852e14de81f0c5281e744bec06a.patch",
+      "sha256": "32648b65e301774833c32922eaeddc1af4c54852e14de81f0c5281e744bec06a",
+      "purpose": "Create embedded settings views hidden until ownership is confirmed and restore device emulation for native debugger detach."
+    },
+    {
+      "repo": "chromium",
+      "file": "patches/C0079-native-task-permission-scope-8857dffa04aee13966cdb9e653c7a25d9c66586188f3e760c1bacc5295b4198f.patch",
+      "sha256": "8857dffa04aee13966cdb9e653c7a25d9c66586188f3e760c1bacc5295b4198f",
+      "purpose": "Apply task permission decisions to registered native pages using exact origin pairs and permission-specific settings without changing Profile permissions."
+    },
+    {
+      "repo": "electron",
+      "file": "patches/E0096-native-task-permission-api-3c812dac8aba862f232581d55e0f3c9bb37e7ada09306440f51ee4d5e5965dac.patch",
+      "sha256": "3c812dac8aba862f232581d55e0f3c9bb37e7ada09306440f51ee4d5e5965dac",
+      "purpose": "Expose native per-page task permission decisions and notify origin-scoped subscriptions while preserving native security and device checks."
+    },
+    {
+      "repo": "chromium",
+      "file": "patches/C0080-scoped-prompt-settlement-and-empty-favicon-0c8f3db87cce14cb7854f4c04e77c3abc3fb207c369b1a020e77825da463fd07.patch",
+      "sha256": "0c8f3db87cce14cb7854f4c04e77c3abc3fb207c369b1a020e77825da463fd07",
+      "purpose": "Resolve matching task permission requests without persisting site settings; retain empty favicons on navigation error pages."
+    },
+    {
+      "repo": "electron",
+      "file": "patches/E0097-native-prompt-scope-application-574aaa426cf813aab142f4432172c50c5bbfbc00e73755ab73a4e12ac9d97a31.patch",
+      "sha256": "574aaa426cf813aab142f4432172c50c5bbfbc00e73755ab73a4e12ac9d97a31",
+      "purpose": "Apply a task permission change to already pending requests on the owned native page."
+    },
+    {
+      "repo": "chromium",
+      "file": "patches/C0081-scoped-prompt-explicit-bind-argument-b1b78f68ffea555099c5e9b168123024c8e028248d7fd4d75394115f0f79c505.patch",
+      "sha256": "b1b78f68ffea555099c5e9b168123024c8e028248d7fd4d75394115f0f79c505",
+      "purpose": "Bind the task decision as an explicit callback argument for native request duplicates."
+    },
+    {
+      "repo": "electron",
+      "file": "patches/E0098-native-widget-theme-c7dea49a2c1d0a1bfb9d991aa28cb2fd7f4ad411ea547abb0e53a595494d9730.patch",
+      "sha256": "c7dea49a2c1d0a1bfb9d991aa28cb2fd7f4ad411ea547abb0e53a595494d9730",
+      "purpose": "Apply the host theme to the native browser widget and its Profile WebUI color provider."
+    },
+    {
+      "repo": "electron",
+      "file": "patches/E0099-deferred-native-window-close-fe047808bc52304428ae28c3b3bf8efb0ff9625c177d33022df64c245ae0294b.patch",
+      "sha256": "fe047808bc52304428ae28c3b3bf8efb0ff9625c177d33022df64c245ae0294b",
+      "purpose": "Retire native page handles immediately but defer Browser destruction beyond observer callbacks; settle finalizer-owned promises on a normal UI task."
+    },
+    {
+      "repo": "electron",
+      "file": "patches/E0100-native-management-route-selection-bc13ac24b196c8f643981492b89333af7f7ded93c287161475abc9655b0caf15.patch",
+      "sha256": "bc13ac24b196c8f643981492b89333af7f7ded93c287161475abc9655b0caf15",
+      "purpose": "Resolve native management URLs from the same feature flag used by the browser settings router."
+    },
+    {
+      "repo": "chromium",
+      "file": "patches/C0082-native-download-target-authorization-36d97513171208daad08f4c75234d54f0f048e96461664f8eae1881ea075c07f.patch",
+      "sha256": "36d97513171208daad08f4c75234d54f0f048e96461664f8eae1881ea075c07f",
+      "purpose": "Await host target authorization on the original Profile DownloadItem and retain native path and danger checks."
+    },
+    {
+      "repo": "electron",
+      "file": "patches/E0101-native-profile-download-events-ff523c99e8c79142adbb3e1caa9c4a79c502a2b29cff59d3d9ae149ed94c276a.patch",
+      "sha256": "ff523c99e8c79142adbb3e1caa9c4a79c502a2b29cff59d3d9ae149ed94c276a",
+      "purpose": "Observe genuine Profile downloads with stable identifiers and captured page ownership; expose target decisions and native actions after host subscription."
+    },
+    {
+      "repo": "chromium",
+      "file": "patches/C0083-download-reservation-type-7116453fefeec90a96723eec3361b84fa3d6503278d0e63ef584eaa2c0c6f461.patch",
+      "sha256": "7116453fefeec90a96723eec3361b84fa3d6503278d0e63ef584eaa2c0c6f461",
+      "purpose": "Qualify the native download reservation action type in its public declaration."
+    },
+    {
+      "repo": "electron",
+      "file": "patches/E0102-native-download-vector-types-f04fd8fc131fa00dcd25c78c72b5797a3d7884587e4d1891d451a6be9376313f.patch",
+      "sha256": "f04fd8fc131fa00dcd25c78c72b5797a3d7884587e4d1891d451a6be9376313f",
+      "purpose": "Use the native download manager vector and explicit raw pointer access."
+    },
+    {
+      "repo": "electron",
+      "file": "patches/0103-native-user-takeover-4258b5ff080c9678271defd36237ec77a483506e89500154fb9eb4d7df5a1c8a.patch",
+      "sha256": "4258b5ff080c9678271defd36237ec77a483506e89500154fb9eb4d7df5a1c8a",
+      "purpose": "Distinguish physical user input from debugger input when retiring task download ownership"
+    },
+    {
+      "repo": "electron",
+      "file": "patches/0104-native-profile-import-fdec62473584150026927041002f30f610c723fe4cd0d22e490645fe2dae99fb.patch",
+      "sha256": "fdec62473584150026927041002f30f610c723fe4cd0d22e490645fe2dae99fb",
+      "purpose": "Apply bounded browser imports to Profile cookie password history and extension services with confirmed receipts"
+    },
+    {
+      "repo": "electron",
+      "file": "patches/0105-native-import-compilation-6142943e59a23a94dd9bc01b645929b7a7d2f191d54f64eac572399b5acb8480.patch",
+      "sha256": "6142943e59a23a94dd9bc01b645929b7a7d2f191d54f64eac572399b5acb8480",
+      "purpose": "Use explicit credential clones and scoped native import lifetimes"
+    },
+    {
+      "repo": "chromium",
+      "file": "patches/0084-page-storage-context-e90fafcca5f74f63257eefb16a932c34810c5fc848fa98c42fc2fa41163ab79e.patch",
+      "sha256": "e90fafcca5f74f63257eefb16a932c34810c5fc848fa98c42fc2fa41163ab79e",
+      "purpose": "Keep page-scoped storage commands in the target storage partition"
+    },
+    {
+      "repo": "electron",
+      "file": "patches/0106-native-download-request-limiter-cc04856115afb6345de4346854a68b5d50e1254181766b0d81c23ae4e9e0d398.patch",
+      "sha256": "cc04856115afb6345de4346854a68b5d50e1254181766b0d81c23ae4e9e0d398",
+      "purpose": "Own the native download request limiter and drain it after Profile tabs close"
+    },
+    {
+      "repo": "electron",
+      "file": "patches/0107-profile-site-settings-8b762a855f17fad160838fa7db177190edcb05fc3fdd6bcea0adecb800d10baf.patch",
+      "sha256": "8b762a855f17fad160838fa7db177190edcb05fc3fdd6bcea0adecb800d10baf",
+      "purpose": "Persist supported site permissions in the native Profile and retain managed policy precedence"
+    },
+    {
+      "repo": "chromium",
+      "file": "patches/0085-host-download-selected-path-986a8e3d94c318db300c66f1ac876882b02abb6d9db35dce4f1d289aef138960.patch",
+      "sha256": "986a8e3d94c318db300c66f1ac876882b02abb6d9db35dce4f1d289aef138960",
+      "purpose": "Preserve authorized download destinations through target generation and retain validation failures"
+    },
+    {
+      "repo": "electron",
+      "file": "patches/0108-site-settings-profile-type-962e1b702ddfb5aefa8532e304dbdbc0e12ee95a41f15ead4ed0f56331c38e46.patch",
+      "sha256": "962e1b702ddfb5aefa8532e304dbdbc0e12ee95a41f15ead4ed0f56331c38e46",
+      "purpose": "Resolve the concrete Profile type at the native content settings boundary"
+    },
+    {
+      "repo": "chromium",
+      "file": "patches/0086-hosted-popup-source-9823c1f3906e1f2728628fa926e4656c4fe72d82c8a7e9f6eb3b667f5fb87341.patch",
+      "sha256": "9823c1f3906e1f2728628fa926e4656c4fe72d82c8a7e9f6eb3b667f5fb87341",
+      "purpose": "Notify hosted source pages before newly created tabs begin their original navigation"
+    },
+    {
+      "repo": "electron",
+      "file": "patches/0109-native-popup-adoption-0a26906c1c88905228bb111274e51c0fb945e922fb969c0991ac2f69981a94b5.patch",
+      "sha256": "0a26906c1c88905228bb111274e51c0fb945e922fb969c0991ac2f69981a94b5",
+      "purpose": "Adopt original popup contents into owned native pages before releasing their original request"
+    },
+    {
+      "repo": "chromium",
+      "file": "patches/popup-source-lifetime-360a16dc968b9d01b40791c720ae59aa776c3fb822d9b38f446790c2fa0ed756.patch",
+      "sha256": "360a16dc968b9d01b40791c720ae59aa776c3fb822d9b38f446790c2fa0ed756",
+      "purpose": "Make hosted popup ownership explicit and keep source callbacks type-safe"
+    },
+    {
+      "repo": "electron",
+      "file": "patches/popup-gate-lifetime-905469af459ecefa4373a51e63125bfdd12512029ce3fcf6f290a7ffaec49b7b.patch",
+      "sha256": "905469af459ecefa4373a51e63125bfdd12512029ce3fcf6f290a7ffaec49b7b",
+      "purpose": "Complete pending popup throttle ownership and cleanup"
+    },
+    {
+      "repo": "electron",
+      "file": "patches/popup-tab-model-c1595d34eb94415fb7c4f3ac8764478f02a6f14a5dc36f161103ce74f1928686.patch",
+      "sha256": "c1595d34eb94415fb7c4f3ac8764478f02a6f14a5dc36f161103ce74f1928686",
+      "purpose": "Preserve tab feature ownership while adopting hosted popups"
+    },
+    {
+      "repo": "electron",
+      "file": "patches/popup-browser-startup-1d828faaeae9002a5ee0c0c78579a07a7e19695e0a72e3982033f8a8a80528ff.patch",
+      "sha256": "1d828faaeae9002a5ee0c0c78579a07a7e19695e0a72e3982033f8a8a80528ff",
+      "purpose": "Expose browser-owned frame identity and defer empty source window teardown"
+    },
+    {
+      "repo": "electron",
+      "file": "patches/popup-navigator-header-dependency-d5f4757e8a540e80430883cd87832fc6af72bcebbf03972cc43a89f0d897ab8e.patch",
+      "sha256": "d5f4757e8a540e80430883cd87832fc6af72bcebbf03972cc43a89f0d897ab8e",
+      "purpose": "Declare the direct hosted popup source header dependency"
+    },
+    {
+      "repo": "electron",
+      "file": "patches/native-page-focus-1edf2ace3f3203a022caa82caa98a8887189c478e9474b8af6f4c7c1b68fb9fb.patch",
+      "sha256": "1edf2ace3f3203a022caa82caa98a8887189c478e9474b8af6f4c7c1b68fb9fb",
+      "purpose": "Expose native renderer focus for host overlay handoff"
+    }
+  ],
+  "link_boundary": {
+    "electron_stub_class": "ElectronBrowserProcessImpl",
+    "chrome_real_class": "BrowserProcessImpl",
+    "do_not_instantiate": [
+      "BrowserProcessImpl",
+      "ChromeBrowserMainParts"
+    ],
+    "note": "The native browser aggregation links Chrome implementation classes, including BrowserProcessImpl. ElectronBrowserProcessImpl remains the only instantiated global browser process, and ElectronBrowserMainParts remains the only installed main-loop owner. Shared global clients and services require explicit lifecycle integration; linking them does not initialize them."
+  },
+  "probe": {
+    "switches": {
+      "native-profile-probe": "Enable isolated Profile creation and the structural probe. Shared network infrastructure is initialized for all application sessions.",
+      "native-profile-probe-data-dir": "Isolated directory for the probe profile. Required by the runner; never point at a real profile.",
+      "native-profile-probe-output": "JSON result path.",
+      "use-mock-keychain": "Required; the probe refuses to run without it so no real Keychain item is touched."
+    },
+    "checks": [
+      "ProfileManager is non-null",
+      "ProfileImpl is created at the isolated data directory",
+      "Profile::GetPrefs() is non-null",
+      "PersonalDataManagerFactory returns a non-null PersonalDataManager",
+      "ProfilePasswordStoreFactory returns a non-null password store",
+      "A native content::WebContents can be created with the Profile",
+      "An isolated in-memory ElectronBrowserContext can create a WebContents at the same time",
+      "No api::WebContents wrapper is created for either probe WebContents",
+      "Extension services are explicitly deferred and are not reported as success",
+      "Profile StoragePartition yields a non-null NetworkContext",
+      "ElectronBrowserContext StoragePartition yields a non-null NetworkContext"
+    ]
+  },
+  "gn_targets": [
+    "//chrome/browser:browser",
+    "//chrome/browser/profiles:profile_manager_impl",
+    "//chrome/browser/profiles:profile_util_impl",
+    "//chrome/browser/profiles:misc",
+    "//chrome/browser/policy:impl",
+    "//chrome/browser/autofill:autofill",
+    "//chrome/browser/password_manager/factories:factories",
+    "//components/autofill/core/browser:browser",
+    "//components/policy/core/browser",
+    "//chrome/browser/net:net",
+    "//chrome/browser/net:impl",
+    "//chrome/browser/ssl:impl"
+  ],
+  "os_crypt": {
+    "provider": "Electron OSCryptAsync macOS KeychainKeyProvider",
+    "identity": "KeychainPassword::GetServiceName() = <app name> Safe Storage; GetAccountName() = <app name>",
+    "probe_mode": "--use-mock-keychain; no real Keychain item and no platform private key may enter a renderer or log"
+  },
+  "integration_contract": {
+    "profile_island_scope": "All Browser Use task pages (http, https, localhost) and all native browser settings pages use the same Chrome Profile.",
+    "non_browser_renderers": "Chat, settings, editor and every other application renderer stay on ElectronBrowserContext.",
+    "network_and_downloads": "Existing TypeScript session/cookie/cache/download seams must later reach the active browser Profile; they may not silently keep a second cookie store.",
+    "settings_views": "Trusted native settings use a fixed enum (passwords, contactInfo, extensions, siteSettings, import) and fixed URLs. They have no Electron preload, Node integration, or host IPC. They are not task tabs, are omitted from agent tab inventory, cannot be claimed, and are not reachable through arbitrary model navigation or raw CDP.",
+    "type_safety": "Classify contexts with the virtual IsBrowserProfile marker before any cast; never downcast an unknown BrowserContext.",
+    "lifecycle": "Create services after Local State/OSCrypt and tear down ProfileManager before the policy connector and Local State shutdown.",
+    "phase1_limit": "This phase proves Profile creation and keyed services only. Task-page routing, the renderer bridge, ContentBrowserClient dispatch, WebUI mounting and GUI bridge are not claimed."
+  },
+  "gn_wiring": {
+    "target": "//electron:electron_lib",
+    "patched_file": "BUILD.gn",
+    "visibility": "The registered dependencies pass GN generation and the electron_lib header dependency check without visibility changes.",
+    "patch_sequence": "Patch 4 adds the Phase 1 targets. Patch 7 replaces profiles_extra_parts_impl with the narrower profile_util_impl and misc targets used by the Local State registrations.",
+    "status": "The original G0 translation units compiled and the complete framework link exposed missing implementations and duplicate symbols. The corrected aggregation passes GN generation; its header check, C++ build, complete link and runtime acceptance remain required."
+  }
+}

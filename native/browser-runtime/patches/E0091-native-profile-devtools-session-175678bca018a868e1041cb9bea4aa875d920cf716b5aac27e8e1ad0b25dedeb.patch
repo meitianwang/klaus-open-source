@@ -1,0 +1,112 @@
+diff --git a/BUILD.gn b/BUILD.gn
+index 3c1af96a58794ad91c8c3efc2817ee793c7294e3..f0d6a53c13ff6fc2616bdb44dbd37bf945fec1cb 100644
+--- a/BUILD.gn
++++ b/BUILD.gn
+@@ -543,6 +543,7 @@ source_set("electron_lib") {
+     "//chrome/browser/profiles:profiles_extra_parts_impl",
+     "//chrome/browser/ui:ui",
+     "//chrome/browser/browsing_data:constants",
++    "//chrome/browser/devtools",
+     "//chrome/browser/ui/webui:configs",
+     "//chrome/browser/safe_browsing",
+     "//chrome/browser/profiles:misc",
+diff --git a/shell/browser/ui/devtools_manager_delegate.cc b/shell/browser/ui/devtools_manager_delegate.cc
+index 0f6b4091e1f4e544032e188a855a350c7ba61f1e..bec928e3d5a53ab09c1319376213bf66456195a0 100644
+--- a/shell/browser/ui/devtools_manager_delegate.cc
++++ b/shell/browser/ui/devtools_manager_delegate.cc
+@@ -12,7 +12,9 @@
+ #include "base/functional/bind.h"
+ #include "base/path_service.h"
+ #include "base/strings/string_number_conversions.h"
++#include "chrome/browser/devtools/chrome_devtools_session.h"
+ #include "content/browser/web_contents/web_contents_impl.h"  // nogncheck
++#include "content/public/browser/browser_context.h"
+ #include "content/public/browser/browser_thread.h"
+ #include "content/public/browser/devtools_agent_host.h"
+ #include "content/public/browser/devtools_agent_host_client_channel.h"
+@@ -114,14 +116,6 @@ void DevToolsManagerDelegate::HandleCommand(
+   crdtp::Dispatchable dispatchable(crdtp::SpanFrom(message), std::string_view(),
+                                    crdtp::FallthroughCallback());
+   DCHECK(dispatchable.ok());
+-  if (crdtp::SpanEquals(crdtp::SpanFrom(kSetDeviceMetricsOverrideMethod),
+-                        dispatchable.Method())) {
+-    channels_with_device_overrides_.insert(channel);
+-  } else if (crdtp::SpanEquals(
+-                 crdtp::SpanFrom(kClearDeviceMetricsOverrideMethod),
+-                 dispatchable.Method())) {
+-    channels_with_device_overrides_.erase(channel);
+-  }
+   if (crdtp::SpanEquals(crdtp::SpanFrom(kBrowserCloseMethod),
+                         dispatchable.Method())) {
+     // In theory, we should respond over the protocol saying that the
+@@ -134,6 +128,19 @@ void DevToolsManagerDelegate::HandleCommand(
+         FROM_HERE, base::BindOnce([]() { Browser::Get()->Quit(); }));
+     return;
+   }
++  auto native_session = native_sessions_.find(channel);
++  if (native_session != native_sessions_.end()) {
++    native_session->second->HandleCommand(message, std::move(callback));
++    return;
++  }
++  if (crdtp::SpanEquals(crdtp::SpanFrom(kSetDeviceMetricsOverrideMethod),
++                       dispatchable.Method())) {
++    channels_with_device_overrides_.insert(channel);
++  } else if (crdtp::SpanEquals(
++                 crdtp::SpanFrom(kClearDeviceMetricsOverrideMethod),
++                 dispatchable.Method())) {
++    channels_with_device_overrides_.erase(channel);
++  }
+   std::move(callback).Run(message);
+ }
+ 
+@@ -141,10 +148,18 @@ void DevToolsManagerDelegate::ClientAttached(
+     content::DevToolsAgentHostClientChannel* channel) {
+   // Drop stale bookkeeping in case the channel's address was reused.
+   channels_with_device_overrides_.erase(channel);
++  native_sessions_.erase(channel);
++  content::WebContents* web_contents =
++      channel->GetAgentHost()->GetWebContents();
++  if (web_contents && web_contents->GetBrowserContext()->IsBrowserProfile()) {
++    native_sessions_.emplace(
++        channel, std::make_unique<ChromeDevToolsSession>(channel));
++  }
+ }
+ 
+ void DevToolsManagerDelegate::ClientDetached(
+     content::DevToolsAgentHostClientChannel* channel) {
++  native_sessions_.erase(channel);
+   if (channels_with_device_overrides_.erase(channel) == 0)
+     return;
+ 
+diff --git a/shell/browser/ui/devtools_manager_delegate.h b/shell/browser/ui/devtools_manager_delegate.h
+index 6d469b12818260f2c31c0da6167bd1cf75f47bad..202cf52f410adc1094b5b04060c774d9e50d71ad 100644
+--- a/shell/browser/ui/devtools_manager_delegate.h
++++ b/shell/browser/ui/devtools_manager_delegate.h
+@@ -5,11 +5,15 @@
+ #ifndef ELECTRON_SHELL_BROWSER_UI_DEVTOOLS_MANAGER_DELEGATE_H_
+ #define ELECTRON_SHELL_BROWSER_UI_DEVTOOLS_MANAGER_DELEGATE_H_
+ 
++#include <map>
++#include <memory>
+ #include <string>
+ 
+ #include "base/containers/flat_set.h"
+ #include "content/public/browser/devtools_manager_delegate.h"
+ 
++class ChromeDevToolsSession;
++
+ namespace content {
+ class BrowserContext;
+ }
+@@ -46,6 +50,11 @@ class DevToolsManagerDelegate : public content::DevToolsManagerDelegate {
+   content::BrowserContext* GetDefaultBrowserContext() override;
+ 
+  private:
++  // Native Profile targets use the browser's complete protocol handlers.
++  std::map<content::DevToolsAgentHostClientChannel*,
++           std::unique_ptr<ChromeDevToolsSession>>
++      native_sessions_;
++
+   // Channels with an uncleared Emulation.setDeviceMetricsOverride.
+   base::flat_set<content::DevToolsAgentHostClientChannel*>
+       channels_with_device_overrides_;

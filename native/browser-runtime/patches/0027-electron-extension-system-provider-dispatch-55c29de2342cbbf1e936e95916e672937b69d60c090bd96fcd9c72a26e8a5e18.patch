@@ -1,0 +1,33 @@
+diff --git a/shell/browser/extensions/electron_extension_system_factory.cc b/shell/browser/extensions/electron_extension_system_factory.cc
+index 36863d7be3ba37418aab0f2372ff07707af270cf..9348001e15551f6422345383459f2afec494ac23 100644
+--- a/shell/browser/extensions/electron_extension_system_factory.cc
++++ b/shell/browser/extensions/electron_extension_system_factory.cc
+@@ -5,6 +5,7 @@
+ #include "shell/browser/extensions/electron_extension_system_factory.h"
+ 
+ #include "base/no_destructor.h"
++#include "chrome/browser/extensions/chrome_extension_system_factory.h"
+ #include "components/keyed_service/content/browser_context_dependency_manager.h"
+ #include "content/public/browser/browser_context.h"
+ #include "extensions/browser/extension_prefs_factory.h"
+@@ -18,6 +19,10 @@ namespace extensions {
+ 
+ ExtensionSystem* ElectronExtensionSystemFactory::GetForBrowserContext(
+     BrowserContext* context) {
++  if (context && context->IsBrowserProfile()) {
++    return ChromeExtensionSystemFactory::GetInstance()->GetForBrowserContext(
++        context);
++  }
+   return static_cast<ElectronExtensionSystem*>(
+       GetInstance()->GetServiceForBrowserContext(context, true));
+ }
+@@ -31,6 +36,9 @@ ElectronExtensionSystemFactory* ElectronExtensionSystemFactory::GetInstance() {
+ ElectronExtensionSystemFactory::ElectronExtensionSystemFactory()
+     : ExtensionSystemProvider("ElectronExtensionSystem",
+                               BrowserContextDependencyManager::GetInstance()) {
++  // API factories depend on this provider. Include the native provider so both
++  // real implementations are ready before their context-specific consumers.
++  DependsOn(ChromeExtensionSystemFactory::GetInstance());
+   DependsOn(ExtensionPrefsFactory::GetInstance());
+   DependsOn(ExtensionRegistryFactory::GetInstance());
+ }

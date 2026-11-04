@@ -1,0 +1,116 @@
+diff --git a/filenames.gni b/filenames.gni
+index 12d12fb74533fa440570cc3c88020689fe11d432..0222152057ed5960fba62a990f92b275f1febb8d 100644
+--- a/filenames.gni
++++ b/filenames.gni
+@@ -302,6 +302,7 @@ filenames = {
+     "shell/browser/api/electron_api_net_log.h",
+     "shell/browser/api/electron_api_notification.cc",
+     "shell/browser/api/electron_api_notification.h",
++    "shell/browser/api/electron_api_native_browser.cc",
+     "shell/browser/api/electron_api_power_monitor.cc",
+     "shell/browser/api/electron_api_power_monitor.h",
+     "shell/browser/api/electron_api_power_save_blocker.cc",
+diff --git a/shell/browser/browser_process_impl.cc b/shell/browser/browser_process_impl.cc
+index 8ca69245fb6d0c99e145188e0278f2dcceb0ae71..94ddf48a32454ed8b689eecc3abdfa9485d6ec29 100644
+--- a/shell/browser/browser_process_impl.cc
++++ b/shell/browser/browser_process_impl.cc
+@@ -161,9 +161,10 @@ constexpr char kNativeProfileProbeDataDirSwitch[] =
+ constexpr char kNativeProfileProbeOutputSwitch[] =
+     "native-profile-probe-output";
+ 
+-bool IsNativeProfileProbeEnabled() {
+-  return base::CommandLine::ForCurrentProcess()->HasSwitch(
+-      kNativeProfileProbeSwitch);
++bool IsNativeProfileServicesEnabled() {
++  const auto* command_line = base::CommandLine::ForCurrentProcess();
++  return command_line->HasSwitch(kNativeProfileProbeSwitch) ||
++         command_line->HasSwitch("native-browser-enabled");
+ }
+ 
+ }  // namespace
+@@ -341,7 +342,7 @@ void ElectronBrowserProcessImpl::PreCreateThreads() {
+   // https://source.chromium.org/chromium/chromium/src/+/main:chrome/browser/chrome_browser_main.cc;l=1385-1389;drc=c3bda003554dad21313fb24b7a4f3e1aae6102d9.
+   CreateMetricsServicesManager();
+ 
+-  if (IsNativeProfileProbeEnabled())
++  if (IsNativeProfileServicesEnabled())
+     gpu_mode_manager();
+   InitializeNativeProfileServices();
+ }
+@@ -398,7 +399,7 @@ void ElectronBrowserProcessImpl::PreMainMessageLoopRun() {
+ }
+ 
+ void ElectronBrowserProcessImpl::InitializeNativeProfileServices() {
+-  if (IsNativeProfileProbeEnabled()) {
++  if (IsNativeProfileServicesEnabled()) {
+ #if BUILDFLAG(IS_MAC)
+     // Populate the real memoized policy state before UI-thread blocking is
+     // disallowed. Later security checks read these same cached results.
+@@ -438,7 +439,10 @@ void ElectronBrowserProcessImpl::InitializeNativeProfileServices() {
+ 
+     base::FilePath data_dir;
+     auto* command_line = base::CommandLine::ForCurrentProcess();
+-    if (command_line->HasSwitch(kNativeProfileProbeDataDirSwitch)) {
++    if (command_line->HasSwitch("native-browser-data-dir")) {
++      data_dir = command_line->GetSwitchValuePath("native-browser-data-dir");
++      CHECK(data_dir.IsAbsolute());
++    } else if (command_line->HasSwitch(kNativeProfileProbeDataDirSwitch)) {
+       data_dir =
+           command_line->GetSwitchValuePath(kNativeProfileProbeDataDirSwitch);
+     } else {
+@@ -961,6 +965,13 @@ void ElectronBrowserProcessImpl::CreateMetricsServicesManager() {
+ }
+ 
+ 
++void ElectronBrowserProcessImpl::NotifyNativeBrowserStarted() {
++  if (!native_browser_started_ && native_performance_parts_) {
++    native_browser_started_ = true;
++    native_performance_parts_->PostBrowserStart();
++  }
++}
++
+ void ElectronBrowserProcessImpl::RunNativeProfileProbeIfRequested() {
+   auto* command_line = base::CommandLine::ForCurrentProcess();
+   if (!command_line->HasSwitch(kNativeProfileProbeSwitch))
+@@ -1077,8 +1088,7 @@ void ElectronBrowserProcessImpl::RunNativeProfileProbeIfRequested() {
+     ::Browser* browser = ::Browser::Create(::Browser::CreateParams(profile, true));
+     chrome::AddTabAt(browser, url, -1, true);
+     browser->GetWindow()->Show();
+-    if (native_performance_parts_)
+-      native_performance_parts_->PostBrowserStart();
++    NotifyNativeBrowserStarted();
+     result.Set("native_browser_window", true);
+   }
+   result.Set("ok", true);
+diff --git a/shell/browser/browser_process_impl.h b/shell/browser/browser_process_impl.h
+index 3ffb2d3dd5d65bab4049f10ee6b2ca5c82290e69..e64679cbf8d7e28795aedf0ea4b1e02d75943ffb 100644
+--- a/shell/browser/browser_process_impl.h
++++ b/shell/browser/browser_process_impl.h
+@@ -88,6 +88,7 @@ class ElectronBrowserProcessImpl : public BrowserProcess {
+   void PostMainMessageLoopRun();
+   void ShutdownPrinting();
+   void RunNativeProfileProbeIfRequested();
++  void NotifyNativeBrowserStarted();
+   void SetSystemLocale(const std::string& locale);
+   const std::string& GetSystemLocale() const;
+   electron::ResolveProxyHelper* GetResolveProxyHelper();
+@@ -237,6 +238,7 @@ class ElectronBrowserProcessImpl : public BrowserProcess {
+   std::unique_ptr<DownloadStatusUpdater> download_status_updater_;
+   std::unique_ptr<BrowserProcessPlatformPart> platform_part_;
+   std::unique_ptr<ChromeBrowserMainExtraParts> native_performance_parts_;
++  bool native_browser_started_ = false;
+   std::unique_ptr<resource_coordinator::ResourceCoordinatorParts>
+       resource_coordinator_parts_;
+   std::optional<base::AutoReset<std::unique_ptr<apps::PublisherHostFactory>>>
+diff --git a/shell/common/node_bindings.cc b/shell/common/node_bindings.cc
+index a2c5094841ba591c44e9d141f6470c4bf0e42f5e..fbf736bd5dfc7235dee6e6e4564ac6f9b09443d2 100644
+--- a/shell/common/node_bindings.cc
++++ b/shell/common/node_bindings.cc
+@@ -74,6 +74,7 @@
+   V(electron_browser_menu)                \
+   V(electron_browser_message_port)        \
+   V(electron_browser_msix_updater)        \
++  V(electron_browser_native_browser)      \
+   V(electron_browser_native_theme)        \
+   V(electron_browser_notification)        \
+   V(electron_browser_power_monitor)       \

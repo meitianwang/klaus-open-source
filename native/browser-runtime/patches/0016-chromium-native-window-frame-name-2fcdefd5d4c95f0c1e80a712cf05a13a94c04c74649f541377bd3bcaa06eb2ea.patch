@@ -1,0 +1,13 @@
+diff --git a/chrome/browser/ui/browser.cc b/chrome/browser/ui/browser.cc
+index e4db79e32cd0b44a8c4cddec79c088ef5a0be7dd..db90d3547ac46e6013de96b9adc19ef764b6c71a 100644
+--- a/chrome/browser/ui/browser.cc
++++ b/chrome/browser/ui/browser.cc
+@@ -1653,7 +1653,7 @@ bool Browser::IsWebContentsCreationOverridden(
+   return (window_container_type ==
+               content::mojom::WindowContainerType::BACKGROUND &&
+           ShouldCreateBackgroundContents(source_site_instance, opener_url,
+-                                         params.frame));
++                                         params.frame_name));
+ }
+ 
+ WebContents* Browser::CreateCustomWebContents(

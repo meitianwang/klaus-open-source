@@ -1,0 +1,263 @@
+diff --git a/BUILD.gn b/BUILD.gn
+index f220a92..f5b5566 100644
+--- a/BUILD.gn
++++ b/BUILD.gn
+@@ -525,7 +525,8 @@ source_set("electron_lib") {
+     "//chrome/browser/password_manager/factories:factories",
+     "//chrome/browser/policy:impl",
+     "//chrome/browser/profiles:profile_manager_impl",
+-    "//chrome/browser/profiles:profiles_extra_parts_impl",
++    "//chrome/browser/profiles:profile_util_impl",
++    "//chrome/browser/profiles:misc",
+     "//components/autofill/core/browser:browser",
+     "//components/policy/core/browser",
+     "//chrome/common/notifications",
+diff --git a/shell/browser/badging/badge_manager_factory.cc b/shell/browser/badging/badge_manager_factory.cc
+index 5bd5b66..4df911b 100644
+--- a/shell/browser/badging/badge_manager_factory.cc
++++ b/shell/browser/badging/badge_manager_factory.cc
+@@ -6,6 +6,7 @@
+ 
+ #include "base/memory/ptr_util.h"
+ #include "components/keyed_service/content/browser_context_dependency_manager.h"
++#include "content/public/browser/browser_context.h"
+ #include "shell/browser/badging/badge_manager.h"
+ 
+ namespace badging {
+@@ -36,4 +37,11 @@ BadgeManagerFactory::BuildServiceInstanceForBrowserContext(
+   return std::make_unique<BadgeManager>();
+ }
+ 
++content::BrowserContext* BadgeManagerFactory::GetBrowserContextToUse(
++    content::BrowserContext* context) const {
++  if (context && context->IsBrowserProfile())
++    return nullptr;
++  return context;
++}
++
+ }  // namespace badging
+diff --git a/shell/browser/badging/badge_manager_factory.h b/shell/browser/badging/badge_manager_factory.h
+index 3ce918a..1929b94 100644
+--- a/shell/browser/badging/badge_manager_factory.h
++++ b/shell/browser/badging/badge_manager_factory.h
+@@ -38,6 +38,8 @@ class BadgeManagerFactory : public BrowserContextKeyedServiceFactory {
+   // BrowserContextKeyedServiceFactory
+   std::unique_ptr<KeyedService> BuildServiceInstanceForBrowserContext(
+       content::BrowserContext* context) const override;
++  content::BrowserContext* GetBrowserContextToUse(
++      content::BrowserContext* context) const override;
+ };
+ 
+ }  // namespace badging
+diff --git a/shell/browser/browser_process_impl.cc b/shell/browser/browser_process_impl.cc
+index 1653fed..559156e 100644
+--- a/shell/browser/browser_process_impl.cc
++++ b/shell/browser/browser_process_impl.cc
+@@ -21,10 +21,12 @@
+ #include "chrome/browser/hid/hid_system_tray_icon.h"
+ #include "chrome/browser/password_manager/factories/profile_password_store_factory.h"
+ #include "chrome/browser/policy/chrome_browser_policy_connector.h"
+-#include "components/policy/core/browser/browser_policy_connector.h"
+-#include "chrome/browser/profiles/chrome_browser_main_extra_parts_profiles.h"
+ #include "chrome/browser/profiles/profile.h"
++#include "chrome/browser/profiles/profile_attributes_entry.h"
++#include "chrome/browser/profiles/profile_attributes_storage.h"
+ #include "chrome/browser/profiles/profile_manager.h"
++#include "chrome/browser/profiles/profiles_state.h"
++#include "components/policy/core/browser/browser_policy_connector.h"
+ #include "content/public/browser/web_contents.h"
+ #include "shell/browser/browser.h"
+ #include "shell/browser/electron_browser_context.h"
+@@ -173,6 +175,13 @@ void ElectronBrowserProcessImpl::PostEarlyInitialization() {
+   PrefProxyConfigTrackerImpl::RegisterPrefs(pref_registry.get());
+   electron::ElectronMetricsServiceClient::RegisterMetricsPrefs(
+       pref_registry.get());
++  // ProfileManager creates ProfileAttributesStorage during the probe. These
++  // are the exact Local State registrations that storage reads and writes;
++  // calling chrome::RegisterLocalState would duplicate existing Electron
++  // registrations such as proxy and policy preferences.
++  ProfileAttributesEntry::RegisterLocalStatePrefs(pref_registry.get());
++  ProfileAttributesStorage::RegisterPrefs(pref_registry.get());
++  profiles::RegisterPrefs(pref_registry.get());
+ 
+ #if BUILDFLAG(IS_WIN)
+   OSCrypt::RegisterLocalPrefs(pref_registry.get());
+@@ -227,8 +236,13 @@ void ElectronBrowserProcessImpl::PreMainMessageLoopRun() {
+   CreateOSCryptAsync();
+ 
+   if (IsNativeProfileProbeEnabled()) {
+-    ChromeBrowserMainExtraPartsProfiles::
+-        EnsureBrowserContextKeyedServiceFactoriesBuilt();
++    // Register only the factories the probe actually resolves. Each
++    // GetInstance() records the factory and installs its DependsOn closure in
++    // the dependency manager, without constructing any keyed service here.
++    // This keeps the probe's registration set explicit and auditable instead
++    // of pulling in the full Chrome factory list.
++    autofill::PersonalDataManagerFactory::GetInstance();
++    ProfilePasswordStoreFactory::GetInstance();
+     browser_policy_connector_ =
+         std::make_unique<policy::ChromeBrowserPolicyConnector>();
+     browser_policy_connector_->Init(local_state_.get(),
+diff --git a/shell/browser/extensions/electron_extension_system_factory.cc b/shell/browser/extensions/electron_extension_system_factory.cc
+index c855298..36863d7 100644
+--- a/shell/browser/extensions/electron_extension_system_factory.cc
++++ b/shell/browser/extensions/electron_extension_system_factory.cc
+@@ -6,6 +6,7 @@
+ 
+ #include "base/no_destructor.h"
+ #include "components/keyed_service/content/browser_context_dependency_manager.h"
++#include "content/public/browser/browser_context.h"
+ #include "extensions/browser/extension_prefs_factory.h"
+ #include "extensions/browser/extension_registry_factory.h"
+ #include "extensions/browser/extensions_browser_client.h"
+@@ -44,6 +45,10 @@ ElectronExtensionSystemFactory::BuildServiceInstanceForBrowserContext(
+ 
+ BrowserContext* ElectronExtensionSystemFactory::GetBrowserContextToUse(
+     BrowserContext* context) const {
++  // Electron's extension implementation is written for ElectronBrowserContext.
++  // Never let a real Chrome Profile reach the Electron extension system.
++  if (context && context->IsBrowserProfile())
++    return nullptr;
+   return ExtensionsBrowserClient::Get()->GetContextRedirectedToOriginal(
+       context);
+ }
+diff --git a/shell/browser/file_system_access/file_system_access_permission_context_factory.cc b/shell/browser/file_system_access/file_system_access_permission_context_factory.cc
+index 5294af1..e05a384 100644
+--- a/shell/browser/file_system_access/file_system_access_permission_context_factory.cc
++++ b/shell/browser/file_system_access/file_system_access_permission_context_factory.cc
+@@ -7,6 +7,7 @@
+ #include "base/memory/ptr_util.h"
+ #include "base/no_destructor.h"
+ #include "components/keyed_service/content/browser_context_dependency_manager.h"
++#include "content/public/browser/browser_context.h"
+ #include "shell/browser/file_system_access/file_system_access_permission_context.h"
+ 
+ namespace electron {
+@@ -41,4 +42,12 @@ FileSystemAccessPermissionContextFactory::BuildServiceInstanceForBrowserContext(
+   return std::make_unique<FileSystemAccessPermissionContext>(context);
+ }
+ 
++content::BrowserContext*
++FileSystemAccessPermissionContextFactory::GetBrowserContextToUse(
++    content::BrowserContext* context) const {
++  if (context && context->IsBrowserProfile())
++    return nullptr;
++  return context;
++}
++
+ }  // namespace electron
+diff --git a/shell/browser/file_system_access/file_system_access_permission_context_factory.h b/shell/browser/file_system_access/file_system_access_permission_context_factory.h
+index 62256aa..50ecf59 100644
+--- a/shell/browser/file_system_access/file_system_access_permission_context_factory.h
++++ b/shell/browser/file_system_access/file_system_access_permission_context_factory.h
+@@ -34,6 +34,8 @@ class FileSystemAccessPermissionContextFactory
+   // BrowserContextKeyedServiceFactory:
+   std::unique_ptr<KeyedService> BuildServiceInstanceForBrowserContext(
+       content::BrowserContext* context) const override;
++  content::BrowserContext* GetBrowserContextToUse(
++      content::BrowserContext* context) const override;
+ };
+ 
+ }  // namespace electron
+diff --git a/shell/browser/hid/hid_chooser_context_factory.cc b/shell/browser/hid/hid_chooser_context_factory.cc
+index ab55621..d7ea3f4 100644
+--- a/shell/browser/hid/hid_chooser_context_factory.cc
++++ b/shell/browser/hid/hid_chooser_context_factory.cc
+@@ -5,6 +5,7 @@
+ #include "shell/browser/hid/hid_chooser_context_factory.h"
+ 
+ #include "components/keyed_service/content/browser_context_dependency_manager.h"
++#include "content/public/browser/browser_context.h"
+ #include "shell/browser/electron_browser_context.h"
+ #include "shell/browser/hid/hid_chooser_context.h"
+ 
+@@ -46,6 +47,8 @@ HidChooserContextFactory::BuildServiceInstanceForBrowserContext(
+ 
+ content::BrowserContext* HidChooserContextFactory::GetBrowserContextToUse(
+     content::BrowserContext* context) const {
++  if (context && context->IsBrowserProfile())
++    return nullptr;
+   return context;
+ }
+ 
+diff --git a/shell/browser/net/network_context_service_factory.cc b/shell/browser/net/network_context_service_factory.cc
+index ecfd842..fd7ac89 100644
+--- a/shell/browser/net/network_context_service_factory.cc
++++ b/shell/browser/net/network_context_service_factory.cc
+@@ -6,6 +6,7 @@
+ 
+ #include "base/no_destructor.h"
+ #include "components/keyed_service/content/browser_context_dependency_manager.h"
++#include "content/public/browser/browser_context.h"
+ #include "shell/browser/electron_browser_context.h"
+ #include "shell/browser/net/network_context_service.h"
+ 
+@@ -38,6 +39,10 @@ NetworkContextServiceFactory::BuildServiceInstanceForBrowserContext(
+ 
+ content::BrowserContext* NetworkContextServiceFactory::GetBrowserContextToUse(
+     content::BrowserContext* context) const {
++  // The Electron network-context service is not a Chrome Profile service.
++  // Real Profiles use ProfileNetworkContextServiceFactory instead.
++  if (context && context->IsBrowserProfile())
++    return nullptr;
+   // Create separate service for temporary sessions.
+   return context;
+ }
+diff --git a/shell/browser/serial/serial_chooser_context_factory.cc b/shell/browser/serial/serial_chooser_context_factory.cc
+index 25e0128..fcf6215 100644
+--- a/shell/browser/serial/serial_chooser_context_factory.cc
++++ b/shell/browser/serial/serial_chooser_context_factory.cc
+@@ -6,6 +6,7 @@
+ 
+ #include "base/no_destructor.h"
+ #include "components/keyed_service/content/browser_context_dependency_manager.h"
++#include "content/public/browser/browser_context.h"
+ #include "shell/browser/electron_browser_context.h"
+ #include "shell/browser/serial/serial_chooser_context.h"
+ 
+@@ -40,6 +41,8 @@ SerialChooserContext* SerialChooserContextFactory::GetForBrowserContext(
+ 
+ content::BrowserContext* SerialChooserContextFactory::GetBrowserContextToUse(
+     content::BrowserContext* context) const {
++  if (context && context->IsBrowserProfile())
++    return nullptr;
+   return context;
+ }
+ 
+diff --git a/shell/browser/usb/usb_chooser_context_factory.cc b/shell/browser/usb/usb_chooser_context_factory.cc
+index 5b8ae2d..a542d5d 100644
+--- a/shell/browser/usb/usb_chooser_context_factory.cc
++++ b/shell/browser/usb/usb_chooser_context_factory.cc
+@@ -6,6 +6,7 @@
+ 
+ #include "base/no_destructor.h"
+ #include "components/keyed_service/content/browser_context_dependency_manager.h"
++#include "content/public/browser/browser_context.h"
+ #include "shell/browser/electron_browser_context.h"
+ #include "shell/browser/usb/usb_chooser_context.h"
+ 
+@@ -44,4 +45,11 @@ UsbChooserContext* UsbChooserContextFactory::GetForBrowserContextIfExists(
+       GetInstance()->GetServiceForBrowserContext(context, /*create=*/false));
+ }
+ 
++content::BrowserContext* UsbChooserContextFactory::GetBrowserContextToUse(
++    content::BrowserContext* context) const {
++  if (context && context->IsBrowserProfile())
++    return nullptr;
++  return context;
++}
++
+ }  // namespace electron
+diff --git a/shell/browser/usb/usb_chooser_context_factory.h b/shell/browser/usb/usb_chooser_context_factory.h
+index 99c0964..bc65239 100644
+--- a/shell/browser/usb/usb_chooser_context_factory.h
++++ b/shell/browser/usb/usb_chooser_context_factory.h
+@@ -38,6 +38,8 @@ class UsbChooserContextFactory : public BrowserContextKeyedServiceFactory {
+   // BrowserContextKeyedServiceFactory methods:
+   std::unique_ptr<KeyedService> BuildServiceInstanceForBrowserContext(
+       content::BrowserContext* profile) const override;
++  content::BrowserContext* GetBrowserContextToUse(
++      content::BrowserContext* context) const override;
+ };
+ 
+ }  // namespace electron

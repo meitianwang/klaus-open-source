@@ -332,11 +332,11 @@ async function main(): Promise<number> {
     assertEqual(still.tabId, pageA.id, 'the capture names the page on screen');
     const size = nativeImage.createFromDataURL(String(still.dataUrl)).getSize();
     assert(size.width > 0 && size.height > 0, 'the still decodes to a real image');
-    app.focus({ steal: true }); window.focus(); pageA.view.webContents.focus();
-    await waitFor(() => pageA.view.webContents.isFocused(), 3000, 'the page holds keyboard focus');
+    app.focus({ steal: true }); window.focus(); pageA.native.focus();
+    await waitFor(() => pageA.native.isFocused(), 3000, 'the page holds keyboard focus');
     await invoke('browser-use:hide');
     await waitFor(() => window.webContents.isFocused(), 3000, 'the window page takes focus back for its dialog');
-    assert(!pageA.view.webContents.isFocused(), 'the detached page no longer receives keys');
+    assert(!pageA.native.isFocused(), 'the detached page no longer receives keys');
     const hidden = await invoke('browser-use:screenshot', { presented: true });
     assertEqual(hidden.ok, false, 'nothing on screen means nothing to capture');
     assertEqual(hidden.code, 'not_found', 'a precise refusal');
@@ -347,7 +347,8 @@ async function main(): Promise<number> {
     manager.setConversation('A');
     assertDeepEqual(manager.listPages('A').map(page => page.id), before, 'the task keeps exactly its pages');
     await invoke('browser-use:show', { sessionId: 'A', focusRevision: manager.focusRevision, bounds: { x: 120, y: 110, width: 650, height: 480 } });
-    assert(window.contentView.children.includes(pageA.view), 'the page returns after the overlay');
+    assertEqual(manager.state().visible, true, 'the page returns after the overlay');
+    assert(manager.page('A').native === pageA.native, 'the same native page returns');
   });
 
   h.test('task switches reject old scopes and foreign handles while background work keeps its own page', async () => {

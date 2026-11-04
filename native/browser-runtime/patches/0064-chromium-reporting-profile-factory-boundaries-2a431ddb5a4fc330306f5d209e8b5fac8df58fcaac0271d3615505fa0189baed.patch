@@ -1,0 +1,50 @@
+diff --git a/chrome/browser/enterprise/connectors/reporting/extension_install_event_router.cc b/chrome/browser/enterprise/connectors/reporting/extension_install_event_router.cc
+index 9b83d14fd195d402de763dff9a33cf2bc48516f6..698fffecc9aad76f9edeac4061b5aca5dbae3cb6 100644
+--- a/chrome/browser/enterprise/connectors/reporting/extension_install_event_router.cc
++++ b/chrome/browser/enterprise/connectors/reporting/extension_install_event_router.cc
+@@ -17,6 +17,7 @@
+ #include "components/enterprise/connectors/core/reporting_service_settings.h"
+ #include "components/keyed_service/content/browser_context_dependency_manager.h"
+ #include "components/policy/core/common/cloud/realtime_reporting_job_configuration.h"
++#include "content/public/browser/browser_context.h"
+ #include "extensions/browser/extension_registry.h"
+ #include "extensions/browser/extension_registry_factory.h"
+ #include "extensions/common/manifest_handlers/description_info.h"
+@@ -213,12 +214,16 @@ bool ExtensionInstallEventRouterFactory::ServiceIsCreatedWithBrowserContext()
+ std::unique_ptr<KeyedService>
+ ExtensionInstallEventRouterFactory::BuildServiceInstanceForBrowserContext(
+     content::BrowserContext* context) const {
++  if (!context || !context->IsBrowserProfile())
++    return nullptr;
+   return std::make_unique<ExtensionInstallEventRouter>(context);
+ }
+ 
+ content::BrowserContext*
+ ExtensionInstallEventRouterFactory::GetBrowserContextToUse(
+     content::BrowserContext* context) const {
++  if (!context || !context->IsBrowserProfile())
++    return nullptr;
+   // Do not construct the router if extensions are disabled for the given
+   // context.
+   if (extensions::ChromeContentBrowserClientExtensionsPart::
+diff --git a/chrome/browser/enterprise/connectors/reporting/reporting_event_router_factory.cc b/chrome/browser/enterprise/connectors/reporting/reporting_event_router_factory.cc
+index 94bd43984c6eba1ce0c82e4b64f01e8603dfe56c..b8d968ade8cf299bd3ebed45a49d48281f3c39d8 100644
+--- a/chrome/browser/enterprise/connectors/reporting/reporting_event_router_factory.cc
++++ b/chrome/browser/enterprise/connectors/reporting/reporting_event_router_factory.cc
+@@ -36,12 +36,16 @@ ReportingEventRouterFactory::~ReportingEventRouterFactory() = default;
+ std::unique_ptr<KeyedService>
+ ReportingEventRouterFactory::BuildServiceInstanceForBrowserContext(
+     content::BrowserContext* context) const {
++  if (!context || !context->IsBrowserProfile())
++    return nullptr;
+   return std::make_unique<ReportingEventRouter>(
+       RealtimeReportingClientFactory::GetForProfile(context));
+ }
+ 
+ content::BrowserContext* ReportingEventRouterFactory::GetBrowserContextToUse(
+     content::BrowserContext* context) const {
++  if (!context || !context->IsBrowserProfile())
++    return nullptr;
+   return context;
+ }
+ 

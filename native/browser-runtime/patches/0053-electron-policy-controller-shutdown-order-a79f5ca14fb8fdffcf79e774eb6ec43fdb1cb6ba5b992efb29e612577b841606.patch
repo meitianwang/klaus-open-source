@@ -1,0 +1,39 @@
+diff --git a/BUILD.gn b/BUILD.gn
+index 46695c777931d47f8aa515addb31c5d6b6b9a88a..66f32b9f1133b62e34e7cb11b272f5f816596ba2 100644
+--- a/BUILD.gn
++++ b/BUILD.gn
+@@ -554,6 +554,7 @@ source_set("electron_lib") {
+     "//chrome/browser/permissions",
+     "//components/sessions",
+     "//components/metrics_services_manager",
++    "//components/enterprise",
+     "//components/ukm",
+     "//components/variations",
+     "//chrome/browser/segmentation_platform",
+diff --git a/shell/browser/browser_process_impl.cc b/shell/browser/browser_process_impl.cc
+index c9ad1e531144a580e2ddf300332b18dad0770a0c..94dd5222915c78faee1feaccabf231c9a7e2cb4a 100644
+--- a/shell/browser/browser_process_impl.cc
++++ b/shell/browser/browser_process_impl.cc
+@@ -54,6 +54,7 @@
+ #include "chrome/browser/segmentation_platform/ukm_database_client.h"
+ #include "components/segmentation_platform/public/local_state_helper.h"
+ #include "components/metrics_services_manager/metrics_services_manager.h"
++#include "components/enterprise/browser/controller/chrome_browser_cloud_management_controller.h"
+ #include "components/policy/core/browser/browser_policy_connector.h"
+ #include "content/public/browser/web_contents.h"
+ #include "shell/browser/browser.h"
+@@ -420,6 +421,14 @@ void ElectronBrowserProcessImpl::PostMainMessageLoopRun() {
+ #if BUILDFLAG(SAFE_BROWSING_AVAILABLE)
+   if (safe_browsing_service_)
+     safe_browsing_service_->ShutDown();
++#endif
++#if !BUILDFLAG(IS_CHROMEOS)
++  if (browser_policy_connector_) {
++    auto* controller = browser_policy_connector_
++                           ->chrome_browser_cloud_management_controller();
++    if (controller)
++      controller->ShutDown();
++  }
+ #endif
+   // Profiles and keyed services must be gone before the Profile manager.
+   profile_manager_.reset();

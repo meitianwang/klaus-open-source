@@ -1,0 +1,27 @@
+diff --git a/chrome/chrome_paks.gni b/chrome/chrome_paks.gni
+index e18c99499d08fd9984e1885aa7c2cbb39b583dc4..392117bc466b74bfaf7ee434b38698d32289b2db 100644
+--- a/chrome/chrome_paks.gni
++++ b/chrome/chrome_paks.gni
+@@ -191,9 +191,6 @@ template("chrome_extra_paks") {
+     if (defined(invoker.deps)) {
+       deps += invoker.deps
+     }
+-    if (defined(invoker.additional_paks)) {
+-      sources += invoker.additional_paks
+-    }
+ 
+     if (enable_extensions_core) {
+       sources += [
+@@ -643,6 +640,12 @@ template("chrome_extra_paks") {
+       sources += [ "$root_gen_dir/chrome/reset_password_resources.pak" ]
+       deps += [ "//chrome/browser/resources/reset_password:resources" ]
+     }
++
++    if (defined(invoker.additional_paks)) {
++      # Embedders may also require an existing native resource family. Include
++      # each pack once after all platform and feature-specific packs are known.
++      sources += filter_exclude(invoker.additional_paks, sources)
++    }
+   }
+ }
+ 

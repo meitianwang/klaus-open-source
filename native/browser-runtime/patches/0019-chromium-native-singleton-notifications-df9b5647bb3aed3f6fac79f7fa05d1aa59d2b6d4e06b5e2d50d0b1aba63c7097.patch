@@ -1,0 +1,196 @@
+diff --git a/chrome/browser/chrome_browser_main.cc b/chrome/browser/chrome_browser_main.cc
+index 21d499a926280890ed38f7a169afa69d7a3263be..62b24eaef50238d29ae0c87696e1e2d99b830334 100644
+--- a/chrome/browser/chrome_browser_main.cc
++++ b/chrome/browser/chrome_browser_main.cc
+@@ -4,10 +4,12 @@
+ 
+ #include "chrome/browser/chrome_browser_main.h"
+ 
++#include <cstdint>
+ #include <memory>
+ #include <string>
+ #include <tuple>
+ #include <utility>
++#include <vector>
+ 
+ #include "base/at_exit.h"
+ #include "base/base_switches.h"
+@@ -522,7 +524,9 @@ OSStatus KeychainCallback(SecKeychainEvent keychain_event,
+ #if BUILDFLAG(ENABLE_PROCESS_SINGLETON)
+ void ProcessSingletonNotificationCallbackImpl(
+     base::CommandLine command_line,
+-    const base::FilePath& current_directory) {
++    const base::FilePath& current_directory,
++    std::vector<uint8_t> /*additional_data*/) {
++  // Native launch handling has no consumer for opaque embedder payloads.
+   // Drop the request if the browser process is already shutting down.
+   if (!g_browser_process || g_browser_process->IsShuttingDown() ||
+       browser_shutdown::HasShutdownStarted()) {
+@@ -560,7 +564,8 @@ void ProcessSingletonNotificationCallbackImpl(
+ // (i.e., because the current process is shutting down).
+ bool ProcessSingletonNotificationCallback(
+     base::CommandLine command_line,
+-    const base::FilePath& current_directory) {
++    const base::FilePath& current_directory,
++    std::vector<uint8_t> additional_data) {
+   // Drop the request if the browser process is already shutting down.
+   // Note that we're going to post an async task below. Even if the browser
+   // process isn't shutting down right now, it could be by the time the task
+@@ -612,7 +617,8 @@ bool ProcessSingletonNotificationCallback(
+   // So, we post a task to asynchronously finish the command line processing.
+   return base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+       FROM_HERE, base::BindOnce(&ProcessSingletonNotificationCallbackImpl,
+-                                std::move(command_line), current_directory));
++                                std::move(command_line), current_directory,
++                                std::move(additional_data)));
+ }
+ #endif  // BUILDFLAG(ENABLE_PROCESS_SINGLETON)
+ 
+@@ -2346,7 +2352,7 @@ std::unique_ptr<base::RunLoop> ChromeBrowserMainParts::TakeRunLoopForTest() {
+ // static
+ bool ChromeBrowserMainParts::ProcessSingletonNotificationForTesting(
+     base::CommandLine command_line) {
+-  return ProcessSingletonNotificationCallback(command_line,
+-                                              /*current_directory=*/{});
++  return ProcessSingletonNotificationCallback(
++      std::move(command_line), /*current_directory=*/{}, /*additional_data=*/{});
+ }
+ #endif  // BUILDFLAG(ENABLE_PROCESS_SINGLETON)
+diff --git a/chrome/browser/chrome_process_singleton.cc b/chrome/browser/chrome_process_singleton.cc
+index 4e1b0de17710092074a7eb68bc6260eb5edfb66d..fa54d4ffcb448855f7989e745ad21d49447d8244 100644
+--- a/chrome/browser/chrome_process_singleton.cc
++++ b/chrome/browser/chrome_process_singleton.cc
+@@ -28,8 +28,20 @@ ChromeProcessSingleton::ChromeProcessSingleton(
+     : startup_lock_(
+           base::BindRepeating(&ChromeProcessSingleton::NotificationCallback,
+                               base::Unretained(this))),
+-      process_singleton_(user_data_dir,
++#if BUILDFLAG(IS_WIN)
++      process_singleton_(
++          base::CommandLine::ForCurrentProcess()
++              ->GetProgram()
++              .BaseName()
++              .AsUTF8Unsafe(),
++          user_data_dir, /*additional_data=*/{},
++          base::CommandLine::ForCurrentProcess()->HasSwitch("enable-sandbox") ||
++              !base::CommandLine::ForCurrentProcess()->HasSwitch("no-sandbox"),
++          startup_lock_.AsNotificationCallback()) {}
++#else
++      process_singleton_(user_data_dir, /*additional_data=*/{},
+                          startup_lock_.AsNotificationCallback()) {}
++#endif
+ 
+ ChromeProcessSingleton::~ChromeProcessSingleton() = default;
+ 
+@@ -137,7 +149,9 @@ bool ChromeProcessSingleton::IsSingletonInstance() {
+ 
+ bool ChromeProcessSingleton::NotificationCallback(
+     base::CommandLine command_line,
+-    const base::FilePath& current_directory) {
++    const base::FilePath& current_directory,
++    std::vector<uint8_t> additional_data) {
+   DCHECK(notification_callback_);
+-  return notification_callback_.Run(std::move(command_line), current_directory);
++  return notification_callback_.Run(std::move(command_line), current_directory,
++                                    std::move(additional_data));
+ }
+diff --git a/chrome/browser/chrome_process_singleton.h b/chrome/browser/chrome_process_singleton.h
+index dc79446b281fc2d08b6cc13ff266bc77d63c3afe..a7f610a817d9d06c2481ef29fa49600d1486ba33 100644
+--- a/chrome/browser/chrome_process_singleton.h
++++ b/chrome/browser/chrome_process_singleton.h
+@@ -5,6 +5,9 @@
+ #ifndef CHROME_BROWSER_CHROME_PROCESS_SINGLETON_H_
+ #define CHROME_BROWSER_CHROME_PROCESS_SINGLETON_H_
+ 
++#include <cstdint>
++#include <vector>
++
+ #include "base/files/file_path.h"
+ #include "base/functional/callback.h"
+ #include "chrome/browser/process_singleton.h"
+@@ -68,7 +71,8 @@ class ChromeProcessSingleton {
+ 
+  private:
+   bool NotificationCallback(base::CommandLine command_line,
+-                            const base::FilePath& current_directory);
++                            const base::FilePath& current_directory,
++                            std::vector<uint8_t> additional_data);
+ 
+   // Whether or not this instance is the running single instance.
+   bool is_singleton_instance_ = false;
+diff --git a/chrome/browser/process_singleton_startup_lock.cc b/chrome/browser/process_singleton_startup_lock.cc
+index 6b64b9f72aa93e9f9bf22e1601a0f79d7aff8144..0e0b97f6a3db10635c64a59c31cd5001287831f0 100644
+--- a/chrome/browser/process_singleton_startup_lock.cc
++++ b/chrome/browser/process_singleton_startup_lock.cc
+@@ -4,6 +4,8 @@
+ 
+ #include "chrome/browser/process_singleton_startup_lock.h"
+ 
++#include <utility>
++
+ #include "base/check_op.h"
+ #include "base/functional/bind.h"
+ 
+@@ -35,7 +37,8 @@ void ProcessSingletonStartupLock::Unlock() {
+        it != saved_startup_messages_.end(); ++it) {
+     if (replayed_messages.find(*it) != replayed_messages.end())
+       continue;
+-    original_callback_.Run(base::CommandLine(it->first), it->second);
++    original_callback_.Run(base::CommandLine(std::get<0>(*it)),
++                           std::get<1>(*it), std::get<2>(*it));
+     replayed_messages.insert(*it);
+   }
+   saved_startup_messages_.clear();
+@@ -43,14 +46,16 @@ void ProcessSingletonStartupLock::Unlock() {
+ 
+ bool ProcessSingletonStartupLock::NotificationCallbackImpl(
+     base::CommandLine command_line,
+-    const base::FilePath& current_directory) {
++    const base::FilePath& current_directory,
++    std::vector<uint8_t> additional_data) {
+   if (locked_) {
+     // If locked, it means we are not ready to process this message because
+     // we are probably in a first run critical phase.
+-    saved_startup_messages_.push_back(
+-        std::make_pair(command_line.argv(), current_directory));
++    saved_startup_messages_.emplace_back(command_line.argv(), current_directory,
++                                         std::move(additional_data));
+     return true;
+   } else {
+-    return original_callback_.Run(std::move(command_line), current_directory);
++    return original_callback_.Run(std::move(command_line), current_directory,
++                                  std::move(additional_data));
+   }
+ }
+diff --git a/chrome/browser/process_singleton_startup_lock.h b/chrome/browser/process_singleton_startup_lock.h
+index 7a28b2e4189a20f41bb99433ee6614b98630bee6..32c57604f39ae52a85f0673275cfc82a7b0d2d16 100644
+--- a/chrome/browser/process_singleton_startup_lock.h
++++ b/chrome/browser/process_singleton_startup_lock.h
+@@ -5,8 +5,9 @@
+ #ifndef CHROME_BROWSER_PROCESS_SINGLETON_STARTUP_LOCK_H_
+ #define CHROME_BROWSER_PROCESS_SINGLETON_STARTUP_LOCK_H_
+ 
++#include <cstdint>
+ #include <set>
+-#include <utility>
++#include <tuple>
+ #include <vector>
+ 
+ #include "base/command_line.h"
+@@ -45,11 +46,13 @@ class ProcessSingletonStartupLock {
+   bool locked() { return locked_; }
+ 
+  private:
+-  typedef std::pair<base::CommandLine::StringVector, base::FilePath>
+-      DelayedStartupMessage;
++  using DelayedStartupMessage =
++      std::tuple<base::CommandLine::StringVector, base::FilePath,
++                 std::vector<uint8_t>>;
+ 
+   bool NotificationCallbackImpl(base::CommandLine command_line,
+-                                const base::FilePath& current_directory);
++                                const base::FilePath& current_directory,
++                                std::vector<uint8_t> additional_data);
+ 
+   bool locked_;
+   std::vector<DelayedStartupMessage> saved_startup_messages_;

@@ -1,0 +1,12 @@
+diff --git a/shell/browser/api/electron_api_native_browser.cc b/shell/browser/api/electron_api_native_browser.cc
+index d7f730d42ee23272f26e981b9ffac78bff3a7f06..52838730ba279bd1ccd8e3bc4ccab170673ae0af 100644
+--- a/shell/browser/api/electron_api_native_browser.cc
++++ b/shell/browser/api/electron_api_native_browser.cc
+@@ -34,6 +34,7 @@
+ #include "shell/common/gin_converters/file_path_converter.h"
+ #include "shell/common/gin_converters/gfx_converter.h"
+ #include "shell/common/gin_converters/gurl_converter.h"
++#include "shell/common/gin_converters/value_converter.h"
+ #include "shell/common/gin_helper/dictionary.h"
+ #include "shell/common/gin_helper/error_thrower.h"
+ #include "shell/common/gin_helper/object_template_builder.h"

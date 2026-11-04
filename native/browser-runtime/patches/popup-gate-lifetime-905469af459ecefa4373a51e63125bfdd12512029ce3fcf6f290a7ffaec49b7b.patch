@@ -1,0 +1,66 @@
+diff --git a/shell/browser/api/electron_api_native_browser.cc b/shell/browser/api/electron_api_native_browser.cc
+index ef88bd7f11e52a4f8957912b7b6a5c209e27ecb7..0fb53a89edd4737b6f54b03fc7a1103f87374eb1 100644
+--- a/shell/browser/api/electron_api_native_browser.cc
++++ b/shell/browser/api/electron_api_native_browser.cc
+@@ -65,7 +65,7 @@
+ #include "content/public/browser/navigation_controller.h"
+ #include "content/public/browser/host_zoom_map.h"
+ #include "content/public/browser/navigation_handle.h"
+-#include "content/public/browser/referrer.h"
++#include "content/public/common/referrer.h"
+ #include "content/public/browser/render_frame_host.h"
+ #include "content/public/browser/web_contents.h"
+ #include "content/public/browser/web_contents_observer.h"
+diff --git a/shell/browser/api/native_popup_gate.cc b/shell/browser/api/native_popup_gate.cc
+index 495ee2134172c09064d27523632d8d11d36e7c0e..4068413f0cb7f2d5cc8042c5a0ecbfbd996fbf7b 100644
+--- a/shell/browser/api/native_popup_gate.cc
++++ b/shell/browser/api/native_popup_gate.cc
+@@ -112,6 +112,7 @@ void NativePopupGate::Resume() {
+     return;
+   state_ = State::kAllowed;
+   deadline_.Stop();
++  cancelled_callback_.Reset();
+   auto throttle = std::move(throttle_);
+   if (throttle)
+     throttle->ResumeNavigation();
+@@ -124,7 +125,7 @@ void NativePopupGate::Cancel() {
+   deadline_.Stop();
+   auto throttle = std::move(throttle_);
+   auto callback = std::move(cancelled_callback_);
+-  auto* contents = contents_;
++  auto* contents = contents_.get();
+   if (callback) {
+     base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+         FROM_HERE, std::move(callback));
+@@ -140,6 +141,6 @@ void NativePopupGate::StartDeadline() {
+                   base::BindOnce(&NativePopupGate::Cancel, GetWeakPtr()));
+ }
+ 
+-WEB_CONTENTS_USER_DATA_KEY_IMPL(NativePopupGate)
++WEB_CONTENTS_USER_DATA_KEY_IMPL(NativePopupGate);
+ 
+ }  // namespace electron::api
+diff --git a/shell/browser/api/native_popup_gate.h b/shell/browser/api/native_popup_gate.h
+index 8b148a9eb3caee439584868878a79b9b7e95fe58..3b1df526f7302a9957357a392dfd08ff3cd608d4 100644
+--- a/shell/browser/api/native_popup_gate.h
++++ b/shell/browser/api/native_popup_gate.h
+@@ -52,6 +52,8 @@ class NativePopupNavigationThrottle final
+ class NativePopupGate final
+     : public content::WebContentsUserData<NativePopupGate> {
+  public:
++  ~NativePopupGate() override;
++
+   static NativePopupGate* CreateForWebContents(content::WebContents* contents,
+                                                NativePopupInfo info);
+   static NativePopupGate* FromWebContents(content::WebContents* contents);
+@@ -74,9 +76,9 @@ class NativePopupGate final
+   }
+ 
+  private:
++  friend class content::WebContentsUserData<NativePopupGate>;
+   enum class State { kPending, kAllowed, kCancelled };
+   NativePopupGate(content::WebContents& contents, NativePopupInfo info);
+-  ~NativePopupGate() override;
+ 
+   void StartDeadline();
+ 
