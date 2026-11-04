@@ -68,13 +68,21 @@ export function stripMarkdownImagesForPaths(text: string, paths: ReadonlySet<str
 
 // 收正文里 markdown 图的本地路径集合。用途是工具卡让位判定：最终回复已嵌
 // 同路径的图时工具卡不再出产物图（工具卡会进回合折叠，最终回复才是恒可见面）。
+const imagePathCache = new ByteBudgetLru<string, readonly string[]>(2 * 1024 * 1024, 512)
+
 export function collectMarkdownImagePaths(text: string): Set<string> {
+  // Every Markdown image includes an exclamation mark, including reference images.
+  if (!text.includes('!')) return new Set()
+  const cached = imagePathCache.get(text)
+  if (cached) return new Set(cached)
   const paths = new Set<string>()
-  if (!text) return paths
   for (const { token } of imageSpans(text)) {
     const path = normalizeImageHrefToPath(token.href)
     if (path) paths.add(path)
   }
+  const values = [...paths]
+  imagePathCache.set(text, values, text.length * 2 + values.reduce((bytes, path) => bytes + path.length * 2 + 8, 24))
+  imagePathCache.trim()
   return paths
 }
 

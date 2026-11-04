@@ -2,23 +2,52 @@ import { Fragment, useId, useLayoutEffect, useRef, useState, type ReactNode } fr
 import { RawHtml } from '../../components/RawHtml'
 import { rawIconHtml } from '../../components/Icon'
 import styles from './activity-disclosure.module.css'
+import { distanceFromBottom, transcriptScrollControllerFor } from '../transcript-scroll-controller'
 
 function preserveAnchor(element: HTMLElement): void {
   let scroll = element.parentElement
   while (scroll && !/(auto|scroll)/.test(getComputedStyle(scroll).overflowY)) scroll = scroll.parentElement
   if (!scroll) return
   const container = scroll
+  const controller = transcriptScrollControllerFor(container)
+  controller?.holdViewport()
   const top = element.getBoundingClientRect().top
   const deadline = performance.now() + 250
   const follow = () => {
     if (!element.isConnected) return
-    container.scrollTop += element.getBoundingClientRect().top - top
+    const delta = element.getBoundingClientRect().top - top
+    if (controller) controller.compensateScrollToDistanceFromBottomPx(distanceFromBottom(container) - delta)
+    else container.scrollTop += delta
     if (performance.now() < deadline) requestAnimationFrame(follow)
   }
   requestAnimationFrame(follow)
 }
 
 export type ActivityDisclosureSection = { key: string; persistent: boolean; content: ReactNode }
+
+function useDisclosureMotion(open: boolean, durationMs: number) {
+  const [mounted, setMounted] = useState(open)
+  const [visible, setVisible] = useState(open)
+  useLayoutEffect(() => {
+    if (open) {
+      setMounted(true)
+      const frame = requestAnimationFrame(() => setVisible(true))
+      return () => cancelAnimationFrame(frame)
+    }
+    setVisible(false)
+    const timer = setTimeout(() => setMounted(false), durationMs)
+    return () => clearTimeout(timer)
+  }, [open, durationMs])
+  return { mounted, visible }
+}
+
+/** Newly hydrated sections start in their own disclosure state before first paint. */
+function CollapsibleSection({ open, children }: { open: boolean; children: ReactNode }) {
+  const { mounted, visible } = useDisclosureMotion(open, 150)
+  return <div className={styles.motion} data-visible={visible} aria-hidden={!open} inert={!open}>
+    <div className={styles.clip}><div className={styles.body}>{mounted ? children : null}</div></div>
+  </div>
+}
 
 export function ActivityDisclosure({ open, onToggle, label, children, sections, headerBefore, enabled = true, variant = 'activity' }: {
   open: boolean
@@ -32,18 +61,7 @@ export function ActivityDisclosure({ open, onToggle, label, children, sections, 
 }) {
   const id = useId()
   const body = useRef<HTMLDivElement>(null)
-  const [mounted, setMounted] = useState(open)
-  const [visible, setVisible] = useState(open)
-  useLayoutEffect(() => {
-    if (open) {
-      setMounted(true)
-      const frame = requestAnimationFrame(() => setVisible(true))
-      return () => cancelAnimationFrame(frame)
-    }
-    setVisible(false)
-    const timer = setTimeout(() => setMounted(false), variant === 'turn' ? 150 : 300)
-    return () => clearTimeout(timer)
-  }, [open, variant])
+  const { mounted, visible } = useDisclosureMotion(open, variant === 'turn' ? 150 : 300)
   const [edges, setEdges] = useState({ top: false, bottom: false })
   useLayoutEffect(() => {
     const element = body.current
@@ -71,9 +89,7 @@ export function ActivityDisclosure({ open, onToggle, label, children, sections, 
         {headerBefore === section.key ? <div className={styles.sectionHeader}>{header}</div> : null}
         {section.persistent
         ? <div key="content" className={styles.persistent}>{section.content}</div>
-        : <div key="content" className={styles.motion} data-visible={visible} aria-hidden={!open} inert={!open}>
-          <div className={styles.clip}><div className={styles.body}>{mounted ? section.content : null}</div></div>
-        </div>}
+        : <CollapsibleSection key="content" open={open}>{section.content}</CollapsibleSection>}
       </Fragment>)}
     </div> : <div className={styles.motion} data-visible={visible} aria-hidden={!open} inert={!open}>
       <div className={styles.clip}>

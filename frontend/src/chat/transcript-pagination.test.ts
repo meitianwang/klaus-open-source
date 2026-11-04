@@ -8,7 +8,10 @@ function fixture(count = 203, failures: string[] = []) {
   const calls: any[] = []
   const messages = Array.from({ length: count }, (_, index) => row(index))
   const api = { session: {
-    historyPage: async (_id: string, opts: any) => { calls.push({ method: 'turns', ...opts }); return summary },
+    historyPage: async (_id: string, opts: any) => {
+      calls.push({ method: 'turns', ...opts })
+      return opts.itemsView === 'full' ? { ...summary, messages, turns: summary.turns.map(turn => ({ ...turn, itemsView: 'full' })) } : summary
+    },
     historyItems: async (_id: string, opts: any) => {
       calls.push({ method: 'items', ...opts })
       const error = failures.shift()
@@ -25,23 +28,48 @@ function fixture(count = 203, failures: string[] = []) {
 }
 const initial: TurnItemsPagination = { olderCursor: null, isLoadingOlder: false, hasLoadedOldest: false, summaryItemIds: ['m0', 'm202'] }
 
-describe('summary windows', () => {
-  test('publishes five turn summaries without waiting for item reads', async () => {
-    const { api, calls } = fixture(203, ['unavailable'])
+describe('local turn windows', () => {
+  test('publishes five full turns in one request without item reads', async () => {
+    const { api, calls, messages } = fixture(203, ['unavailable'])
     const first = await loadFirstPaint(api, 'session')
-    expect(calls).toEqual([{ method: 'turns', limit: FIRST_PAGE_TURN_LIMIT, itemsView: 'summary', sortDirection: 'desc' }])
-    expect(first.rows).toEqual(summary.messages)
+    expect(calls).toEqual([{ method: 'turns', limit: FIRST_PAGE_TURN_LIMIT, itemsView: 'full', sortDirection: 'desc' }])
+    expect(first.rows).toEqual(messages)
     expect(first.pagination.olderCursor).toBe('older-turns')
-    expect(first.shells[0].itemsView).toBe('summary')
+    expect(first.shells[0].itemsView).toBe('full')
   })
-  test('older windows also publish summaries independently', async () => {
-    const { api, calls } = fixture()
+  test('older windows publish full items without a hydration waterfall', async () => {
+    const { api, calls, messages } = fixture()
     const current: TranscriptPaginationState = { olderCursor: 'before', oldestLoadedTurnId: 'turn-2', isLoadingOlder: false, hasLoadedOldest: false }
     const page = await loadOlderTurnsPage(api, 'session', current)
-    expect(calls).toEqual([{ method: 'turns', cursor: 'before', limit: 5, itemsView: 'summary', sortDirection: 'desc' }])
-    expect(page?.rows).toEqual(summary.messages)
+    expect(calls).toEqual([{ method: 'turns', cursor: 'before', limit: 5, itemsView: 'full', sortDirection: 'desc' }])
+    expect(page?.rows).toEqual(messages)
     expect(await loadOlderTurnsPage(api, 'session', { ...current, hasLoadedOldest: true })).toBe(null)
     expect(await loadOlderTurnsPage(api, 'session', { ...current, isLoadingOlder: true })).toBe(null)
+  })
+  test('reduces an oversized turn window before retaining one summary fallback', async () => {
+    const { api, calls } = fixture()
+    api.session.historyPage = async (_id: string, opts: any) => {
+      calls.push({ method: 'turns', ...opts })
+      if (opts.itemsView === 'full') throw new Error('decoded message length too large')
+      return summary
+    }
+    const current: TranscriptPaginationState = { olderCursor: 'before', oldestLoadedTurnId: 'turn-2', isLoadingOlder: false, hasLoadedOldest: false }
+    const page = await loadOlderTurnsPage(api, 'session', current)
+    expect(calls.map(call => [call.cursor, call.limit, call.itemsView, call.sortDirection])).toEqual([
+      ['before', 5, 'full', 'desc'], ['before', 2, 'full', 'desc'],
+      ['before', 1, 'full', 'desc'], ['before', 1, 'summary', 'desc'],
+    ])
+    expect(page?.rows).toEqual(summary.messages)
+    expect(page?.shells[0].itemsView).toBe('summary')
+    expect(page?.pagination.olderCursor).toBe('older-turns')
+  })
+  test('an ordinary read failure remains visible without retrying another view', async () => {
+    const { api, calls } = fixture()
+    api.session.historyPage = async (_id: string, opts: any) => { calls.push(opts); throw new Error('disconnected') }
+    let failure = ''
+    try { await loadFirstPaint(api, 'session') } catch (error) { failure = (error as Error).message }
+    expect(failure).toBe('disconnected')
+    expect(calls).toHaveLength(1)
   })
 })
 describe('turn item pages', () => {

@@ -76,6 +76,13 @@ function deferred<T>() {
 
 // Item pages are chronological; cursors walk from the newest page toward older pages.
 describe('summary publication and detailed items', () => {
+  test('a full window closes an existing same-revision item gap', () => {
+    const first = commitSavedSnapshot(null, reply([shell()], [row('prompt'), row('final')]), 1)
+    expect(pager(first).summaryItemIds).toEqual(['prompt', 'final'])
+    const full = commitSavedSnapshot(first, reply([shell('t1', 1, 'full')], [row('prompt'), row('detail'), row('final')]), 2)
+    expect(ids(full)).toEqual(['prompt', 'detail', 'final'])
+    expect(pager(full)).toEqual({ olderCursor: null, isLoadingOlder: false, hasLoadedOldest: true })
+  })
   test('publishes the summary before any detail read can resolve', async () => {
     const summary = deferred<TranscriptPageReply>()
     const blockedDetail = deferred<TranscriptPageReply>()

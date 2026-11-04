@@ -1,4 +1,5 @@
 import { marked } from 'marked'
+import { ByteBudgetLru, retainedBytes } from './byte-budget'
 import { t } from '../i18n'
 import type { SiteOpenTargetId, SiteOpenTargets } from '../../../contracts/browser-sites'
 export type { SiteOpenTarget } from '../../../contracts/browser-sites'
@@ -18,11 +19,16 @@ export function websiteReferencesForItem(item: object, text: string, turnId: str
   return references
 }
 
+type ParsedSiteReference = Pick<SiteReference, 'url' | 'title'>
+const textProjections = new ByteBudgetLru<string, ParsedSiteReference[]>(2 * 1024 * 1024, 1024)
+
 /** Web links in assistant prose are resources. Code and image tokens are not. */
 export function websiteReferencesFromText(text: string, turnId: string): SiteReference[] {
   // Escapes and entities can encode URL punctuation. Keep them on the full parser path.
   if (!/[:&\\]|www\./i.test(text)) return []
-  const references = new Map<string, SiteReference>()
+  const cached = textProjections.get(text)
+  if (cached) return cached.map(reference => ({ ...reference, id: `${turnId}:${reference.url}`, turnId }))
+  const references = new Map<string, ParsedSiteReference>()
   const complete = text.replace(/\[[^\]\n]*\]\([^\)\n]*$/g, '')
   marked.walkTokens(marked.lexer(complete), token => {
     if (token.type !== 'link') return
@@ -30,12 +36,15 @@ export function websiteReferencesFromText(text: string, turnId: string): SiteRef
       const url = new URL(token.href)
       if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) return
       if (!references.has(url.href)) references.set(url.href, {
-        id: `${turnId}:${url.href}`, turnId, url: url.href,
+        url: url.href,
         title: token.text.replace(/<[^>]*>/g, '').trim() || url.hostname,
       })
     } catch { /* Relative and malformed links are not websites. */ }
   })
-  return [...references.values()]
+  const parsed = [...references.values()]
+  textProjections.set(text, parsed, text.length * 2 + retainedBytes(parsed))
+  textProjections.trim()
+  return parsed.map(reference => ({ ...reference, id: `${turnId}:${reference.url}`, turnId }))
 }
 
 export function replaceSiteReferences(sessionId: string, references: readonly SiteReference[]): void {

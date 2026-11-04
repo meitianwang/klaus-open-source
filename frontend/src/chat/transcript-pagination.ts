@@ -1,5 +1,5 @@
-// Summary windows publish independently of item hydration. Each turn keeps
-// its own item cursor; a failed page never discards an already accepted page.
+// Local turn windows include their items in one read. Oversized windows keep
+// a bounded summary fallback, with each turn retaining its own detail cursor.
 import type { TurnItemsPage, TurnItemsPagination } from './saved-transcript'
 
 export const FIRST_PAGE_TURN_LIMIT = 5
@@ -151,15 +151,28 @@ export interface FirstPaintResult {
   pagination: TranscriptPaginationState
 }
 
-/**
- * Publish the newest summary window without waiting for detailed item reads.
- */
+/** Read a small complete turn window, reducing only a rejected oversized payload. */
+async function readTurnWindow(api: PaginationApi, sessionId: string, cursor: string | null, requestedLimit: number): Promise<TranscriptPageReply> {
+  let limit = requestedLimit
+  for (;;) {
+    try {
+      return await api.session.historyPage(sessionId, {
+        ...(cursor ? { cursor } : {}), limit, itemsView: 'full', sortDirection: 'desc',
+      })
+    } catch (error) {
+      if (!String((error as { message?: unknown })?.message ?? '').includes(OVERSIZED_ITEM_ERROR)) throw error
+      if (limit > 1) { limit = Math.max(1, Math.floor(limit / 2)); continue }
+      // A single large turn is still readable through bounded item pages.
+      return api.session.historyPage(sessionId, {
+        ...(cursor ? { cursor } : {}), limit: 1, itemsView: 'summary', sortDirection: 'desc',
+      })
+    }
+  }
+}
+
+/** Publish the newest local turn window without a separate item-read waterfall. */
 export async function loadFirstPaint(api: PaginationApi, sessionId: string): Promise<FirstPaintResult> {
-  const reply = await api.session.historyPage(sessionId, {
-    limit: FIRST_PAGE_TURN_LIMIT,
-    itemsView: 'summary',
-    sortDirection: 'desc',
-  })
+  const reply = await readTurnWindow(api, sessionId, null, FIRST_PAGE_TURN_LIMIT)
   const turnShells = shells(reply)
   return {
     rows: rows(reply),
@@ -178,7 +191,7 @@ export interface OlderPageResult {
 }
 
 /**
- * The next older summary window. Resolves null when the loaded
+ * The next older local turn window. Resolves null when the loaded
  * window already reaches the oldest turn, or while an older load is in flight.
  */
 export async function loadOlderTurnsPage(
@@ -187,12 +200,7 @@ export async function loadOlderTurnsPage(
   current: TranscriptPaginationState,
 ): Promise<OlderPageResult | null> {
   if (current.hasLoadedOldest || current.isLoadingOlder || current.olderCursor === null) return null
-  const reply = await api.session.historyPage(sessionId, {
-    cursor: current.olderCursor,
-    limit: OLDER_PAGE_TURN_LIMIT,
-    itemsView: 'summary',
-    sortDirection: 'desc',
-  })
+  const reply = await readTurnWindow(api, sessionId, current.olderCursor, OLDER_PAGE_TURN_LIMIT)
   const turnShells = shells(reply)
   return {
     rows: rows(reply),

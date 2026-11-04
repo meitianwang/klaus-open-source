@@ -106,7 +106,8 @@ function summaryTurn(shell: TranscriptTurnShell, rows: any[], previous: SavedTur
   const sameRevision = previous && shell.updatedAtOrdinal !== undefined
     && previous.shell.updatedAtOrdinal === shell.updatedAtOrdinal
   if (previous && sameRevision) return { ...previous, position, shell, items: uniqueRows(previous.items, summary, 'append'),
-    itemsPagination: { ...previous.itemsPagination, isLoadingOlder: false } }
+    itemsPagination: full ? { olderCursor: null, isLoadingOlder: false, hasLoadedOldest: true }
+      : { ...previous.itemsPagination, isLoadingOlder: false } }
   const items = previous ? uniqueRows(previous.items, summary, 'append') : summary
   const previousPager = previous?.itemsPagination
   const lastId = previousPager?.reconnect?.stopItemId ?? previousPager?.newestSnapshotItemId ?? newestSourceItem(previous?.items ?? [])

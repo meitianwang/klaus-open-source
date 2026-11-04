@@ -1,11 +1,19 @@
 import { describe, expect, test } from 'bun:test'
-import { collectImageSourceAliases, resolveRelativeImagePaths } from './markdown'
+import { collectImageSourceAliases, collectMarkdownImagePaths, resolveRelativeImagePaths } from './markdown'
 
 const pooled = '/profile/media/0123456789abcdef.png'
 const source = '/workspace/project/dist/checks/electron-static-orb.png'
 const aliases = collectImageSourceAliases([{ path: pooled, sourcePath: source }])
 
 describe('reply image recovery', () => {
+  test('image extraction preserves reference syntax and isolates returned sets', () => {
+    const text = '![Preview][result]\n\n[result]: /workspace/result.png\n\n`![Example](/workspace/hidden.png)`'
+    const first = collectMarkdownImagePaths(text)
+    expect([...first]).toEqual(['/workspace/result.png'])
+    first.clear()
+    expect([...collectMarkdownImagePaths(text)]).toEqual(['/workspace/result.png'])
+    expect([...collectMarkdownImagePaths('[A regular link](/workspace/result.png)')]).toEqual([])
+  })
   test('an absolute reply path with the wrong parent uses the unique confirmed image copy', () => {
     const wrong = '/workspace/dist/checks/electron-static-orb.png'
     expect(resolveRelativeImagePaths(`![Static avatars](${wrong})`, new Set([pooled]), aliases))

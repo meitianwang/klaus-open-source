@@ -37,6 +37,16 @@ describe('assistant website resource projection', () => {
     expect(websiteReferencesForItem({}, item.text, 'turn-b')).not.toBe(updated)
   })
 
+  test('text projection isolates mutable results while rebinding their turn identity', () => {
+    const text = '[Independent](https://example.test/cache-check)'
+    const first = websiteReferencesFromText(text, 'first')
+    first[0].title = 'Changed by consumer'
+    first[0].url = 'https://invalid.test/'
+    const next = websiteReferencesFromText(text, 'second')
+    expect(next).toEqual([{ id: 'second:https://example.test/cache-check', turnId: 'second',
+      title: 'Independent', url: 'https://example.test/cache-check' }])
+  })
+
   test('candidate filtering preserves escaped URLs, entities and automatic links', () => {
     for (const text of ['[Preview](https\\://example.test)', '[Preview](https://example.test?a=1&amp;b=2)', 'www.example.test']) {
       expect(websiteReferencesFromText(text, 'turn-a')).toHaveLength(1)
