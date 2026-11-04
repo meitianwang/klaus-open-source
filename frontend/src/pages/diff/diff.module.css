@@ -228,6 +228,13 @@
   padding: 18px 8px;
 }
 
+.diff-detail-error {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+}
+
 .diff-detail {
   width: 100%;
   min-width: 0;

@@ -150,8 +150,8 @@ export function ReviewFile({ file, paneWidth, theme, comments, onComments, onAct
   let body
   if (!visible) body = <div className={styles['review-file-placeholder']} />
   else if (file.patchUnavailable || detail?.patchUnavailable) body = <div className={styles['diff-detail-empty']}>{t('diff_turn_patch_unavailable')}</div>
-  else if (state.hunkErrors.has(key)) body = <div className={styles['diff-detail-empty']} role="alert">{hunkErrorMessage(state.hunkErrors.get(key))}
-    <button type="button" onClick={() => void loadFileHunks(file, true)}>{t('diff_retry')}</button></div>
+  else if (state.hunkErrors.has(key)) body = <div className={`${styles['diff-detail-empty']} ${styles['diff-detail-error']}`} role="alert">
+    <span>{hunkErrorMessage(state.hunkErrors.get(key))}</span><button type="button" className="btn-sm" onClick={() => void loadFileHunks(file, true)}>{t('diff_retry')}</button></div>
   else if (file.isBinary && !richContent) body = <div className={styles['diff-detail-empty']}>{t('diff_binary_detail')}</div>
   else if (!hunks) body = <div className={styles['diff-detail-empty']}>{t('diff_loading_hunks')}</div>
   else if (mediaPreview) body = <div className={styles['review-media']}>

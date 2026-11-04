@@ -230,8 +230,8 @@ function ReviewBody({ scope }: { scope: string }) {
     {mutationError ? <div className={styles['review-notice']} role="alert">{mutationError}</div> : null}
     <div className={styles['review-layout']}>
       <main ref={scroll} className={styles['review-scroll']} data-review-scroll tabIndex={0} aria-label={t('diff_view_title')}>
-        {emptyReason ? <div className={styles['diff-detail-empty']} role={state.error ? 'alert' : undefined}>{emptyReason}
-          {state.error ? <button type="button" onClick={() => void reload(true)}>{t('diff_retry')}</button> : null}</div>
+        {emptyReason ? <div className={`${styles['diff-detail-empty']}${state.error ? ` ${styles['diff-detail-error']}` : ''}`} role={state.error ? 'alert' : undefined}>
+          <span>{emptyReason}</span>{state.error ? <button type="button" className="btn-sm" onClick={() => void reload(true)}>{t('diff_retry')}</button> : null}</div>
           : list.length ? list.map(file => <ReviewFile key={fileKey(file)} file={file} paneWidth={Math.max(0, paneWidth - (reviewPreferences.fileTree ? treeWidth : 0))}
             theme={theme} comments={comments} onComments={updateComments} onAction={onAction} mutating={mutating}
             sectionRef={node => { if (node) sections.current.set(fileKey(file), node); else sections.current.delete(fileKey(file)) }} />)
