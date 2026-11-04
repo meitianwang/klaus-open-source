@@ -6,7 +6,15 @@ import type { BrowserCdp } from './page-operations';
 export function namesMedia(fields: BrowserObject): boolean { return namesElement(fields) || fields.text !== undefined || fields.x !== undefined || fields.y !== undefined || typeof fields.url === 'string' && /^(?:blob|data):/u.test(fields.url); }
 
 /** Read original page-owned bytes in bounded CDP messages, without navigating. */
-export async function downloadPageMedia(cdp: BrowserCdp, input: BrowserObject, directory: string, id: string, signal: AbortSignal, assertUrl: (url: unknown) => string): Promise<BrowserObject> {
+export async function downloadPageMedia(
+  cdp: BrowserCdp,
+  input: BrowserObject,
+  directory: string,
+  id: string,
+  signal: AbortSignal,
+  assertUrl: (url: unknown) => string,
+  authorize?: (url: string, signal: AbortSignal) => Promise<void> | void,
+): Promise<BrowserObject> {
   let fields = input;
   if (namesElement(fields) || fields.text !== undefined) { const found = await withAbort(resolveElement(cdp, fields), signal); cdp = found.cdp; fields = found.fields; }
   const explicitUrl = !namesElement(fields) && fields.text === undefined && fields.x === undefined && fields.y === undefined;
@@ -34,7 +42,11 @@ export async function downloadPageMedia(cdp: BrowserCdp, input: BrowserObject, d
       if(!found)throw new Error('The element has no downloadable image, media, canvas, SVG or link.');
       state.source=found;return {url:found.url,tag:found.tag,filename:found.node?.getAttribute('download')||null};
     })()`),signal));
-    if (typeof metadata.url === 'string' && !/^(?:blob|data):/u.test(metadata.url)) assertUrl(metadata.url);
+    if (typeof metadata.url === 'string' && !/^(?:blob|data):/u.test(metadata.url)) {
+      assertUrl(metadata.url);
+      if (authorize) await authorize(metadata.url, signal);
+      aborted(signal);
+    }
     const started = object(await withAbort(cdp.evaluate(`(async()=>{
       const s=${access};if(!s)throw new Error('The media document was replaced');const source=s.source;
       let blob,response;
@@ -45,6 +57,12 @@ export async function downloadPageMedia(cdp: BrowserCdp, input: BrowserObject, d
       s.reader=(blob?blob.stream():response.body)?.getReader();if(!s.reader)throw new Error('The media has no readable body');s.pending=null;s.offset=0;
       return {mimeType:blob?.type||response.headers.get('content-type')||'application/octet-stream',url:response?.url||source.url,contentDisposition:response?.headers.get('content-disposition')||null};
     })()`),signal));
+    const resolvedUrl = typeof started.url === 'string' ? started.url : '';
+    if (resolvedUrl && resolvedUrl !== metadata.url && !/^(?:blob|data):/u.test(resolvedUrl)) {
+      assertUrl(resolvedUrl);
+      if (authorize) await authorize(resolvedUrl, signal);
+      aborted(signal);
+    }
     const mime = String(started.mimeType).split(';')[0];
     const fallback = metadata.tag === 'canvas' ? 'canvas.png' : metadata.tag === 'svg' ? 'image.svg' : typeof metadata.filename === 'string' && metadata.filename ? metadata.filename : typeof metadata.url === 'string' && /^https?:/u.test(metadata.url) ? suggestedFilename(metadata.url, typeof started.contentDisposition === 'string' ? started.contentDisposition : undefined) : `download${({ 'image/png':'.png','image/jpeg':'.jpg','image/svg+xml':'.svg','video/mp4':'.mp4','audio/mpeg':'.mp3','text/plain':'.txt' } as Record<string,string>)[mime ?? ''] ?? ''}`;
     const filename = downloadFilename(input.filename ?? input.saveAs, suggestedFilename(`https://download.invalid/${encodeURIComponent(fallback)}`));

@@ -1,4 +1,4 @@
-import type { DownloadItem, Session } from 'electron';
+import type { DownloadItem } from 'electron';
 import { existsSync, mkdirSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
 import { dirname, extname, join } from 'node:path';
@@ -15,6 +15,15 @@ export type NativeDownloadAuthorize = (
   resource: 'downloads' | 'uploads',
   signal?: AbortSignal,
 ) => Promise<void> | void;
+
+/**
+ * The network surface NativeDownloads needs. Electron's Session.fetch is
+ * source-compatible, and a native profile adapter can implement the same
+ * narrow contract without pretending to be an Electron Session.
+ */
+export interface BrowserDownloadNetwork {
+  fetch(input: string, init?: RequestInit): Promise<Response>;
+}
 
 export interface NativeDownloadOptions {
   /** Resolved when a download starts so a changed preference applies immediately. */
@@ -64,7 +73,7 @@ export class NativeDownloads {
   private readonly changes: DownloadChangeCoalescer;
   private closed = false;
 
-  constructor(private readonly session: Session, private readonly options: NativeDownloadOptions) {
+  constructor(private readonly network: BrowserDownloadNetwork, private readonly options: NativeDownloadOptions) {
     this.changes = new DownloadChangeCoalescer(event => this.options.changed?.(event));
     this.store = new DownloadStore(() => options.directory(), {
       created: (id, owner, url, value, meta) => {
@@ -225,11 +234,15 @@ export class NativeDownloads {
       if (/^https?:/u.test(url)) await this.options.authorize?.(sessionId, url, 'downloads', pageSignal);
       pageSignal.throwIfAborted();
     };
+    const authorizeTarget = async (target: string, pageSignal: AbortSignal): Promise<void> => {
+      if (/^https?:/u.test(target)) await this.options.authorize?.(sessionId, target, 'downloads', pageSignal);
+      pageSignal.throwIfAborted();
+    };
     if (namesMedia(fields)) {
       const fallback = suggestedFilename(String(fields.url ?? ''), '');
       return this.store.run(owner, String(fields.url ?? ''), timeout, async (id, pageSignal) => {
         await authorizeInitiator(pageSignal);
-        return downloadPageMedia(cdp, fields, this.store.directory, id, pageSignal, this.options.assertUrl);
+        return downloadPageMedia(cdp, fields, this.store.directory, id, pageSignal, this.options.assertUrl, authorizeTarget);
       }, meta, signal)
         .then(result => {
           if (typeof result.path === 'string') this.store.update(String(result.id), { path: result.path, filename: typeof result.filename === 'string' ? result.filename : fallback });
@@ -243,7 +256,9 @@ export class NativeDownloads {
       await authorizeInitiator(pageSignal);
       for (let redirect = 0; redirect <= 10; redirect += 1) {
         aborted(pageSignal);
-        const response = await this.session.fetch(current, { credentials: 'include', redirect: 'manual', signal: pageSignal });
+        await authorizeTarget(current, pageSignal);
+        aborted(pageSignal);
+        const response = await this.network.fetch(current, { credentials: 'include', redirect: 'manual', signal: pageSignal });
         if ([301, 302, 303, 307, 308].includes(response.status)) {
           const location = response.headers.get('location');
           await response.body?.cancel();
