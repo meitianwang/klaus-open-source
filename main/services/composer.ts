@@ -99,11 +99,36 @@ export class ComposerService {
     if (!model) throw new IpcHandlerError('MODEL_SELECTION_UNAVAILABLE', 'The selected model is unavailable');
     return pickCursorModelMetadata(model);
   }
-  private async antigravityModel(selection: string, read: 'warm' | 'cached' = 'warm'): Promise<{ selection: string; metadata: AntigravityModelMetadata }> {
+  // One raw catalog read keeps `catalogBaseline` visible before the rows are
+  // projected. A baseline answer carries model identities, not this account's
+  // catalog, so it cannot decide that a remembered member was retired.
+  private async antigravityCatalog(): Promise<{ reply: JsonObject; rows: Json[] }> {
+    const reply = object(await this.deps.request('antigravity/models', { read: 'warm' })) ?? {};
+    return { reply, rows: await this.options('antigravity', true, 'warm', reply) };
+  }
+  // Reuse the source-switch catalog when reading the restored member's metadata.
+  private async antigravityModel(selection: string, read: 'warm' | 'cached' = 'warm', rows?: Json[]): Promise<{ selection: string; metadata: AntigravityModelMetadata }> {
     const resolved = selection === 'auto' ? await this.resolvePreference({ source: 'antigravity', mode: selection }) : selection;
-    const row = modelOptionForValue(await this.options('antigravity', true, read), resolved);
+    const row = modelOptionForValue(rows ?? await this.options('antigravity', true, read), resolved);
     if (!row) throw new IpcHandlerError('MODEL_SELECTION_UNAVAILABLE', 'The selected model is unavailable');
     return { selection: resolved, metadata: pickAntigravityModelMetadata(row) };
+  }
+  private async antigravitySourceSelection(remembered: string | undefined, rows: Json[], baseline: boolean): Promise<string> {
+    if (remembered && modelOptionForValue(rows, remembered)) return remembered;
+    // A bundled baseline is not this account's catalog: its silence about a
+    // remembered member says nothing about the account. Fail before any
+    // preference is written instead of replacing a possibly valid selection.
+    if (remembered && baseline) {
+      throw new IpcHandlerError('MODEL_CATALOG_NOT_READY', 'The Antigravity model catalog is still refreshing; the previous selection was kept');
+    }
+    let preferred = '';
+    try { preferred = await this.resolvePreference({ source: 'antigravity', mode: 'auto' }); }
+    catch { /* A readable catalog can still supply a model when its routing default cannot be resolved. */ }
+    // Source memory can outlive a provider catalog. Persist a concrete replacement
+    // so the store cannot restore the removed member again when saving `auto`.
+    const row = modelOptionForValue(rows, preferred) ?? rows[0];
+    if (!row) throw new IpcHandlerError('MODEL_SELECTION_UNAVAILABLE', 'The selected model is unavailable');
+    return string(object(row).value);
   }
   private assertPreference(sessionId: string, captured: SessionModelPreference): void {
     const latest = readSessionModel(sessionId, this.configRoot);
@@ -190,9 +215,16 @@ export class ComposerService {
       // the saved reasoning configuration.
       const currentSaved = readSessionModel(sessionId, this.configRoot);
       const source = payload.source ?? modelSource(mode) ?? currentSaved.source;
+      let antigravityRows: Json[] | undefined;
       if (mode === 'auto' && typeof payload.source === 'string' && payload.source !== currentSaved.source) {
         const remembered = withSettingsDb(this.configRoot, db => readLastSourceModel(db, payload.source as string));
-        if (remembered && remembered !== 'auto') selection = remembered;
+        if (source === 'antigravity') {
+          const catalog = await this.antigravityCatalog();
+          antigravityRows = catalog.rows;
+          assertCurrent?.();
+          selection = await this.antigravitySourceSelection(remembered, catalog.rows, catalog.reply.catalogBaseline === true);
+          assertCurrent?.();
+        } else if (remembered && remembered !== 'auto') selection = remembered;
       }
       // Legacy callers may still express the orchestration mode as a ladder
       // rung on the model channel; route it to its own switch.
@@ -209,7 +241,7 @@ export class ComposerService {
         selection = target.value;
       }
       if (source === 'antigravity') {
-        const model = await this.antigravityModel(selection);
+        const model = await this.antigravityModel(selection, 'warm', antigravityRows);
         assertCurrent?.();
         if (model.metadata.antigravityFamilyId) {
           thinkingSelection ??= antigravityThinkingLevel(model.metadata, model.selection);
@@ -533,7 +565,7 @@ export class ComposerService {
     const result = value === defaultValue ? kvDel(key, this.configRoot) : kvSet(key, value, this.configRoot);
     if (isFailure(result)) throw new IpcHandlerError(result.code, result.message);
   }
-  async options(source = storedAuthMode(this.configRoot), legacyTierLabels = true, catalogRead: 'warm' | 'cached' = 'warm'): Promise<Json[]> {
+  async options(source = storedAuthMode(this.configRoot), legacyTierLabels = true, catalogRead: 'warm' | 'cached' = 'warm', providedReply?: Json): Promise<Json[]> {
     if (!MODEL_SOURCES.includes(source)) throw new IpcHandlerError('INVALID_MODEL_SOURCE', 'Unknown model source');
     if (source === 'custom') {
       const providers = await this.engine.providers();
@@ -568,7 +600,7 @@ export class ComposerService {
     // The tier settings page passes 'cached': a stale-while-revalidate read so
     // the pane paints from whatever catalog is at hand instead of waiting on a
     // live fetch. Pickers keep the default warm read.
-    const reply = object(await this.deps.request(method, { read: catalogRead }));
+    const reply = object(providedReply ?? await this.deps.request(method, { read: catalogRead }));
     const entries = Array.isArray(reply.models) ? reply.models.map(object) : [];
     if (source === 'subscription') {
       const tiers = legacyTierLabels ? sourceTierSelections(source, this.configRoot) : {};

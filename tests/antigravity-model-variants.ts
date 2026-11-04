@@ -13,6 +13,7 @@ import { antigravityThinkingLevels, antigravityVariantForThinking, pickAntigravi
 import { modelOptionForValue, modelOptionHasValue } from '../shared/cursor-model-catalog';
 import { object, type EngineRequest, type JsonObject } from '../main/services/service-types';
 import type { EngineSettings } from '../main/services/engine-settings';
+import { kvGet } from '../main/services/settings';
 
 export function registerAntigravityModelVariantTests(h: Harness): void {
   const model = (level: string) => `antigravity:gemini-3.8-flash-${level}`;
@@ -21,14 +22,17 @@ export function registerAntigravityModelVariantTests(h: Harness): void {
     const root = await mkdtemp(join(tmpdir(), 'klaus-model-variants-'));
     const vector = JSON.parse(await readFile(join(__dirname, '../../contracts/vectors/antigravity-model-variants.json'), 'utf8'));
     const entries: JsonObject[] = vector.entries;
+    // A real reply can carry catalog provenance beside its rows; tests toggle
+    // this flag to stand in for the bundled baseline.
+    const reply: JsonObject = { models: entries };
     const request: EngineRequest = async (method, raw) => {
       const params = object(raw);
-      if (method === 'antigravity/models') { await beforeCatalog?.(); return { models: entries }; }
+      if (method === 'antigravity/models') { await beforeCatalog?.(); return reply; }
       if (method === 'model/selection/resolve') return { source: 'antigravity', selection: params.selection === 'auto' ? model('high') : params.selection ?? '' };
       throw new Error('Unexpected fixture request: ' + method);
     };
     const service = new ComposerService({ configRoot: root, engineSettings: engine, request, push: () => {}, onSessionConfigChanged: change => changed(root, change) });
-    return { root, entries, request, service, close: () => rm(root, { recursive: true, force: true }) };
+    return { root, entries, reply, request, service, close: () => rm(root, { recursive: true, force: true }) };
   }
 
   h.test('declared model variants form one menu row and keep every saved concrete selection', async () => {
@@ -122,6 +126,109 @@ export function registerAntigravityModelVariantTests(h: Harness): void {
       await f.service.setModel({ sessionId: 'main', source: 'antigravity', mode: model('high') });
       assert.equal(readSessionThinkingLevel('main', f.root), 'high');
     } finally { await f.close(); }
+  });
+
+  h.test('a baseline catalog cannot retire a remembered member and writes no preference', async () => {
+    const f = await fixture();
+    try {
+      const contract = JSON.parse(await readFile(join(__dirname, '../../contracts/vectors/antigravity-catalog-read-vectors.json'), 'utf8'));
+      f.reply[contract.baseline.field] = true;
+      setSessionModel('', 'antigravity:live-only-model', 'antigravity', f.root);
+      setSessionModel('main', 'codex:current', 'codex', f.root);
+      const before = {
+        session: readSessionModel('main', f.root),
+        defaults: readSessionModel('', f.root),
+        last: kvGet('composer.last_model:antigravity', f.root),
+        main: kvGet('composer.main_model', f.root),
+      };
+      const calls: string[] = [];
+      const service = new ComposerService({ configRoot: f.root, engineSettings: engine, push: () => {}, onSessionConfigChanged: () => {},
+        request: async (method, params) => { calls.push(method); return f.request(method, params); } });
+      await assert.rejects(service.setModel({ sessionId: 'main', source: 'antigravity', mode: 'auto' }),
+        { code: contract.baseline.missingRemembered });
+      assert.equal(contract.baseline.keepsPreferences, true);
+      assert.deepEqual(readSessionModel('main', f.root), before.session);
+      assert.deepEqual(readSessionModel('', f.root), before.defaults);
+      assert.equal(kvGet('composer.last_model:antigravity', f.root), before.last);
+      assert.equal(kvGet('composer.main_model', f.root), before.main);
+      assert.equal(calls.filter(method => method === 'antigravity/models').length, 1);
+      assert.equal(calls.filter(method => method === 'model/selection/resolve').length, 0,
+        'baseline absence is decided from the catalog read alone');
+    } finally { await f.close(); }
+  });
+
+  h.test('a baseline catalog still restores a member it lists', async () => {
+    const f = await fixture();
+    try {
+      f.reply.catalogBaseline = true;
+      setSessionModel('', model('high'), 'antigravity', f.root);
+      setSessionModel('main', 'codex:current', 'codex', f.root);
+      await f.service.setModel({ sessionId: 'main', source: 'antigravity', mode: 'auto' });
+      assert.equal(readSessionModel('main', f.root).mode, model('high'));
+      assert.equal(readSessionThinkingLevel('main', f.root), 'high');
+      assert.equal(kvGet('composer.last_model:antigravity', f.root), model('high'));
+    } finally { await f.close(); }
+  });
+
+  h.test('an account-authoritative catalog replaces a member it no longer lists', async () => {
+    const f = await fixture();
+    try {
+      setSessionModel('', 'antigravity:live-only-model', 'antigravity', f.root);
+      setSessionModel('main', 'codex:current', 'codex', f.root);
+      await f.service.setModel({ sessionId: 'main', source: 'antigravity', mode: 'auto' });
+      assert.equal(readSessionModel('main', f.root).mode, model('high'));
+      assert.equal(kvGet('composer.last_model:antigravity', f.root), model('high'));
+    } finally { await f.close(); }
+  });
+
+  h.test('a source switch reads the native catalog once and other sources never read it', async () => {
+    const f = await fixture();
+    try {
+      // The contract declares where a catalog read may come from and what a
+      // source switch costs; the assertions below read those counts from it
+      // instead of repeating the numbers here.
+      const contract = JSON.parse(await readFile(join(__dirname, '../../contracts/vectors/antigravity-catalog-read-vectors.json'), 'utf8'));
+      assert.deepEqual(contract.readOrder, ['memory', 'account-disk', 'bundled']);
+      assert.equal(contract.warm.networkBlocking, false);
+      assert.equal(contract.cached.networkBlocking, false);
+      assert.deepEqual(contract.refresh, { singleflight: true, cooldown: true, generationFence: true });
+      const calls: string[] = [];
+      const service = new ComposerService({ configRoot: f.root, engineSettings: engine, push: () => {}, onSessionConfigChanged: () => {},
+        request: async (method, params) => { calls.push(method); return f.request(method, params); } });
+      setSessionModel('', model('high'), 'antigravity', f.root);
+      setSessionModel('main', 'codex:current', 'codex', f.root);
+      await service.setModel({ sessionId: 'main', source: 'antigravity', mode: 'auto' });
+      assert.equal(readSessionModel('main', f.root).mode, model('high'));
+      assert.equal(readSessionThinkingLevel('main', f.root), 'high');
+      assert.equal(calls.filter(method => method === 'antigravity/models').length, contract.sourceSwitch.catalogReads,
+        'restoring the remembered member and reading its variants share one catalog read');
+      // A source that does not own this catalog must not pay for it.
+      calls.length = 0;
+      await service.setModel({ sessionId: 'main', source: 'codex', mode: 'auto' });
+      assert.equal(readSessionModel('main', f.root).source, 'codex');
+      assert.equal(calls.filter(method => method === 'antigravity/models').length, contract.otherSource.catalogReads);
+    } finally { await f.close(); }
+  });
+
+  h.test('a source switch checks currency after each catalog read before writing', async () => {
+    let started = false, release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    const f = await fixture(() => {}, async () => { started = true; await gate; });
+    try {
+      setSessionModel('main', 'codex:current', 'codex', f.root);
+      let checks = 0;
+      const pending = f.service.setModel({ sessionId: 'main', source: 'antigravity', mode: 'auto' }, () => {
+        checks++;
+        // The entry fence passes; only the fence after the catalog read sees the
+        // newer selection, which proves the read itself cannot write past it.
+        if (started) throw new Error('A newer model selection replaced this preparation');
+      });
+      await waitFor(() => started, 1000, 'native catalog read starts');
+      release();
+      await assert.rejects(pending, /newer model selection/);
+      assert.equal(checks, 2, 'the fence runs right after the catalog read, before any selection is stored');
+      assert.equal(readSessionModel('main', f.root).source, 'codex');
+    } finally { release(); await f.close(); }
   });
 
   h.test('restored and inherited native selections use their declared thinking during inference preparation', async () => {

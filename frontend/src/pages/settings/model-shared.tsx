@@ -53,7 +53,16 @@ export async function activateModelSource(
   sessionId: string | null | undefined = w().currentSessionId,
 ): Promise<void> {
   const normalized = normalizeAuthMode(source)
-  await w().klaus.session.setMainModel('auto', normalizedSessionId(sessionId), normalized)
+  try {
+    await w().klaus.session.setMainModel('auto', normalizedSessionId(sessionId), normalized)
+  } catch (error) {
+    // A bundled catalog cannot prove that a remembered member was retired, so
+    // the host refuses the switch before writing anything. Report that state in
+    // words; every other refusal keeps its original error.
+    const code = (error as { data?: { error?: { code?: string } } } | null)?.data?.error?.code
+    if (code === 'MODEL_CATALOG_NOT_READY') throw new Error(tGlobal('model_catalog_refresh_pending'))
+    throw error
+  }
   window.dispatchEvent(new Event('klaus:auth-mode-changed'))
 }
 

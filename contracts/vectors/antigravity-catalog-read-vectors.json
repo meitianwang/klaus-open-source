@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "reason": "Antigravity catalog reads answer from state already at hand and refresh behind the caller. A source switch restores one concrete member and reads that member's variants from the same catalog rows, so it costs one read; switching to another source never reads this catalog.",
+  "readOrder": [
+    "memory",
+    "account-disk",
+    "bundled"
+  ],
+  "warm": {
+    "networkBlocking": false
+  },
+  "cached": {
+    "networkBlocking": false
+  },
+  "sourceSwitch": {
+    "catalogReads": 1
+  },
+  "otherSource": {
+    "catalogReads": 0
+  },
+  "refresh": {
+    "singleflight": true,
+    "cooldown": true,
+    "generationFence": true
+  },
+  "baseline": {
+    "field": "catalogBaseline",
+    "missingRemembered": "MODEL_CATALOG_NOT_READY",
+    "keepsPreferences": true
+  }
+}
