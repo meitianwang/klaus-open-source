@@ -8,7 +8,9 @@ import assert from 'node:assert/strict';
 import {
   createNativeRuntimeReceipt,
   describeElectronRuntime,
+  productionElectronRuntimeMode,
   resolveElectronRuntime,
+  resolveProductionElectronRuntime,
   resolveStockRuntime,
   RUNTIME_ENV,
   selectElectronRuntimeMode,
@@ -112,6 +114,20 @@ test('explicit stock mode overrides injected native paths', () => {
 
 test('select mode defaults to stock without injected paths', () => {
   assert.equal(selectElectronRuntimeMode({ env: {} }), 'stock');
+});
+
+test('production runtime defaults to native and fails closed without artifacts', async () => {
+  assert.equal(productionElectronRuntimeMode({ env: {} }), 'native');
+  await assert.rejects(
+    resolveProductionElectronRuntime({ appDirectory: root, env: {}, platform, arch }),
+    /provide the native Browser runtime bundle, receipt and build manifest/,
+  );
+});
+
+test('production runtime treats stock as a deliberate opt-in', async () => {
+  const runtime = await resolveProductionElectronRuntime({ appDirectory: root, mode: 'stock', env: {}, platform, arch });
+  assert.equal(runtime.mode, 'stock');
+  assert.equal(runtime.electronVersion, '44.2.0');
 });
 
 test('stock runtime resolves the installed Electron executable', async () => {

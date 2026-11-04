@@ -11,7 +11,7 @@ import { copyPolicyNotices } from '../engine/scripts/policy-notices.mjs';
 import { verifyPackage } from '../packaging/verify.mjs';
 import { DEFAULT_DESKTOP_EDITION, desktopEdition, packagedDesktopEditionDocument, useDesktopEditionsFile } from '../packaging/desktop-edition.mjs';
 import { DEFAULT_PLUGIN_SEED, collectBundledOfficialPlugins, copyBundledOfficialPlugins, officialPluginRecords, validatePluginSeed } from '../packaging/official-plugins.mjs';
-import { describeElectronRuntime, resolveElectronRuntime } from './electron-runtime-resolver.mjs';
+import { describeElectronRuntime, resolveProductionElectronRuntime } from './electron-runtime-resolver.mjs';
 
 const appDirectory = fileURLToPath(new URL('..', import.meta.url));
 const repo = appDirectory;
@@ -49,7 +49,7 @@ if (values.help) {
   console.log('Official plugins: --official-plugins-dir <marketplace dir> --bundle-official-plugin <name> (repeatable); none are bundled by default.');
   console.log('Plugin seed: --plugin-seed-dir <dir with known_marketplaces.json> (default: an empty seed).');
   console.log('npm run package -- --engine-dir <staged bin/platform-arch> --native-dir <production artifacts> [--speech-dir <macOS speech artifacts>] [--recording-dir <macOS recording artifacts>] [--pip-dir <macOS PiP artifacts>] [--computer-use-dir <target Computer Use artifacts>] [--engine-commit <40-char commit>] [--platform darwin|win32] [--arch arm64|x64] [--electron-zip <official release archive>] [--runtime-mode native|stock] [--out <directory>]');
-  console.log('A native Electron runtime is selected with --runtime-mode native or KLAUS_ELECTRON_RUNTIME_MODE=native plus KLAUS_ELECTRON_RUNTIME_DIR, KLAUS_ELECTRON_RUNTIME_RECEIPT and KLAUS_ELECTRON_RUNTIME_MANIFEST.');
+  console.log('Packaging defaults to the native Electron runtime. Inject KLAUS_ELECTRON_RUNTIME_DIR, KLAUS_ELECTRON_RUNTIME_RECEIPT and KLAUS_ELECTRON_RUNTIME_MANIFEST, or deliberately set --runtime-mode stock / KLAUS_ELECTRON_RUNTIME_MODE=stock.');
   process.exit(0);
 }
 const platform = values.platform, arch = values.arch;
@@ -81,7 +81,7 @@ const pkg = readJson(join(appDirectory, 'package.json'));
 if (!/^\d+\.\d+\.\d+(?:-[\w.-]+)?$/.test(pkg.version)) throw new Error('The desktop package version is invalid');
 if (platform === 'darwin' && !/^\d+\.\d+\.\d+$/.test(pkg.version)) throw new Error('macOS bundle versions require three numeric components. Select the preview channel when signing a prerelease candidate.');
 if (!/^\d+\.\d+\.\d+$/.test(pkg.devDependencies.electron)) throw new Error('The Electron runtime version must be pinned exactly');
-const runtime = await resolveElectronRuntime({
+const runtime = await resolveProductionElectronRuntime({
   appDirectory,
   mode: values['runtime-mode'],
   env: process.env,

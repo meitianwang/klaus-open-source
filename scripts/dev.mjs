@@ -1,6 +1,6 @@
 import { spawnElectronGui } from './electron-test-preflight.cjs';
 import { devLaunchEnvironment, describeEarlyExit, ensureProfileDirectory, resolveDevProfile } from './dev-profile.mjs';
-import { describeElectronRuntime, resolveElectronRuntime, selectElectronRuntimeMode } from './electron-runtime-resolver.mjs';
+import { describeElectronRuntime, productionElectronRuntimeMode, resolveProductionElectronRuntime } from './electron-runtime-resolver.mjs';
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
@@ -38,9 +38,10 @@ alongside the installed Klaus application.
 
 KLAUS_DESKTOP_EDITION selects the edition (default domestic). Editions beyond the
 public ones are read from the absolute path in KLAUS_DESKTOP_EDITIONS_FILE.
-KLAUS_ELECTRON_RUNTIME_MODE=native selects an injected Electron runtime through
-KLAUS_ELECTRON_RUNTIME_DIR, KLAUS_ELECTRON_RUNTIME_RECEIPT and
-KLAUS_ELECTRON_RUNTIME_MANIFEST. Native selection never falls back to stock.
+Development defaults to the native runtime. Inject KLAUS_ELECTRON_RUNTIME_DIR,
+KLAUS_ELECTRON_RUNTIME_RECEIPT and KLAUS_ELECTRON_RUNTIME_MANIFEST, or explicitly
+set KLAUS_ELECTRON_RUNTIME_MODE=stock to use the pinned stock Electron package.
+Native selection never falls back to stock.
 
 Ctrl+C requests normal app shutdown, including engine and native cleanup.`);
   process.exit(0);
@@ -56,7 +57,7 @@ function run(args, cwd = appDirectory) {
 }
 
 const require = createRequire(import.meta.url);
-const runtimeMode = selectElectronRuntimeMode({ mode: process.env.KLAUS_ELECTRON_RUNTIME_MODE, env: process.env });
+const runtimeMode = productionElectronRuntimeMode({ env: process.env });
 const needsStockElectron = runtimeMode === 'stock';
 if (!existsSync(join(appDirectory, 'node_modules/vite/package.json')) || (needsStockElectron && !existsSync(join(appDirectory, 'node_modules/electron/package.json')))) {
   if (options.has('--no-install')) throw new Error('Install desktop dependencies with npm ci in the desktop directory.');
@@ -72,9 +73,8 @@ if (needsStockElectron) {
     run([require.resolve('electron/install.js')]);
   }
 }
-const runtime = await resolveElectronRuntime({
+const runtime = await resolveProductionElectronRuntime({
   appDirectory,
-  mode: runtimeMode,
   env: process.env,
   platform: process.platform,
   arch: process.arch,

@@ -10,11 +10,17 @@ best-effort hint.
 | Mode | Selection |
 | --- | --- |
 | `native` | Requires the three native inputs below. Any missing, malformed or changed input is a hard failure. The stock package is never used as a fallback. |
-| `stock` | Resolves the pinned `node_modules/electron` package. This is the explicit choice for ordinary Node-only tests and for development without a custom runtime. |
+| `stock` | Resolves the pinned `node_modules/electron` package. This is a deliberate opt-in for ordinary Node-only tests and tools that do not need the native Browser binding. |
 
-The mode is read from `KLAUS_ELECTRON_RUNTIME_MODE` or from the `runtime-mode`
-package option. If the mode is omitted, any injected native input selects
-`native`; otherwise `stock` is selected and the source is printed.
+`scripts/dev.mjs` and `scripts/package.mjs` default to `native`. A production
+run without the three native inputs therefore fails with a missing-artifact
+message instead of silently using stock. Set `KLAUS_ELECTRON_RUNTIME_MODE=stock`
+or pass `--runtime-mode stock` to `scripts/package.mjs` when stock is intentional.
+
+The general resolver used by other tools keeps mode inference: if the mode is
+omitted, any injected native input selects `native`; otherwise `stock` is
+selected and the source is printed. The common Node-only test launcher passes
+`stock` explicitly.
 
 ## Native inputs
 
@@ -30,7 +36,7 @@ KLAUS_ELECTRON_RUNTIME_MANIFEST=/path/to/manifest.json
 ZIP. The receipt must live inside that directory. The manifest is read only and
 may live elsewhere.
 
-Example development selection:
+Example development selection (native is the default):
 
 ```sh
 KLAUS_ELECTRON_RUNTIME_MODE=native \
@@ -51,7 +57,8 @@ node scripts/package.mjs --runtime-mode native
 ```
 
 For ordinary Node-only test workers, the common launcher selects stock
-explicitly unless `KLAUS_ELECTRON_RUNTIME_MODE=native` is set.
+explicitly unless `KLAUS_ELECTRON_RUNTIME_MODE=native` is set. Stock is not a
+fallback for a production dev or package run.
 
 ## Receipt
 

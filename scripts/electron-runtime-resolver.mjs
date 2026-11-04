@@ -199,6 +199,10 @@ export function selectElectronRuntimeMode({ mode, env = process.env } = {}) {
   return injected ? 'native' : 'stock';
 }
 
+export function productionElectronRuntimeMode({ env = process.env } = {}) {
+  return String(env[RUNTIME_ENV.mode] ?? '').trim().toLowerCase() || 'native';
+}
+
 export async function resolveStockRuntime({ appDirectory }) {
   const root = absolutePath(appDirectory, 'The desktop application directory');
   const packageFile = join(root, 'node_modules/electron/package.json');
@@ -318,8 +322,17 @@ export async function resolveElectronRuntime({ appDirectory, mode, env = process
   const receiptFile = env[RUNTIME_ENV.receipt];
   const manifestFile = env[RUNTIME_ENV.manifest];
   const missing = [RUNTIME_ENV.directory, RUNTIME_ENV.receipt, RUNTIME_ENV.manifest].filter((_, index) => !String([runtimeDirectory, receiptFile, manifestFile][index] ?? '').trim());
-  if (missing.length) throw new Error(`Native Electron runtime selection requires ${missing.join(', ')}; stock fallback is disabled`);
+  if (missing.length) throw new Error(`Native Electron runtime selection requires ${missing.join(', ')}; provide the native Browser runtime bundle, receipt and build manifest, or deliberately opt into stock with ${RUNTIME_ENV.mode}=stock`);
   return validateNativeRuntime({ runtimeDirectory, receiptFile, manifestFile, platform, arch, requirePackagerZip });
+}
+
+export async function resolveProductionElectronRuntime(options = {}) {
+  const env = options.env ?? process.env;
+  return resolveElectronRuntime({
+    ...options,
+    mode: options.mode ?? productionElectronRuntimeMode({ env }),
+    env,
+  });
 }
 
 export function describeElectronRuntime(runtime) {
