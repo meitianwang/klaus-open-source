@@ -20,6 +20,9 @@ type ActiveRun = {
   startedAt: number
   selection: ImportSelection
   previous: ImportSummary | null
+  terminal: boolean
+  cancelRequested: boolean
+  cancelSent: boolean
 }
 
 const profileKey = (profile: BrowserProfileCandidate) => JSON.stringify([profile.sourceId, profile.profileId])
@@ -43,6 +46,8 @@ export function BrowserImportDialog({ api, onClose }: { api: BrowserImportUiApi;
   const [selection, setSelection] = useState<ImportSelection>({ ...IMPORT_UI_DEFAULTS })
   const [confirmExtensions, setConfirmExtensions] = useState(false)
   const [pending, setPending] = useState(false)
+  const [cancelling, setCancelling] = useState(false)
+  const [cancelFailed, setCancelFailed] = useState(false)
   const [snapshot, setSnapshot] = useState<BrowserImportJobSnapshot | null>(null)
   const [summary, setSummary] = useState<ImportSummary | null>(null)
   const [revealed, setRevealed] = useState(0)
@@ -76,8 +81,13 @@ export function BrowserImportDialog({ api, onClose }: { api: BrowserImportUiApi;
     const run = active.current
     if (!run || run.jobId !== value.jobId || value.revision <= run.revision) return
     run.revision = value.revision
+    run.terminal = importIsTerminal(value)
     setSnapshot(value)
-    if (importIsTerminal(value)) setSummary(mergeImportSummary(run.previous, run.selection, value))
+    if (run.terminal) {
+      setCancelling(false)
+      setCancelFailed(false)
+      setSummary(mergeImportSummary(run.previous, run.selection, value))
+    }
   }
   const acceptRef = useRef(accept)
   acceptRef.current = accept
@@ -98,8 +108,8 @@ export function BrowserImportDialog({ api, onClose }: { api: BrowserImportUiApi;
       mounted.current = false
       generation.current++
       unsubscribe()
-      const jobId = active.current?.jobId
-      if (jobId) void api.cancel(jobId).catch(() => {})
+      const run = active.current
+      if (run?.jobId && !run.terminal && !run.cancelSent) void api.cancel(run.jobId).catch(() => {})
       earlyEvents.current.clear()
     }
   }, [api])
@@ -153,27 +163,60 @@ export function BrowserImportDialog({ api, onClose }: { api: BrowserImportUiApi;
     setPending(true)
     setConfirmExtensions(false)
     setSubmitFailed(false)
+    setCancelFailed(false)
+    setCancelling(false)
     setSnapshot(null)
     setRevealed(0)
-    const run: ActiveRun = { token: ++generation.current, jobId: null, revision: -1, startedAt: performance.now(), selection: { ...attempt }, previous }
+    const run: ActiveRun = { token: ++generation.current, jobId: null, revision: -1, startedAt: performance.now(), selection: { ...attempt }, previous, terminal: false, cancelRequested: false, cancelSent: false }
     active.current = run
     earlyEvents.current.clear()
     try {
       const handle = await api.start({ sourceId: profile.sourceId, profileId: profile.profileId, categories: { ...attempt }, ...(attempt.extensions && extensionsConfirmed ? { allowUnverifiedExtensions: true } : {}) })
       if (!mounted.current || run.token !== generation.current || active.current !== run) {
-        void api.cancel(handle.jobId).catch(() => {})
+        if (!run.cancelSent) void api.cancel(handle.jobId).catch(() => {})
         return
       }
       run.jobId = handle.jobId
       const early = earlyEvents.current.get(handle.jobId)
+      const initial = early && early.revision > handle.snapshot.revision ? early : handle.snapshot
       earlyEvents.current.clear()
-      acceptRef.current(early && early.revision > handle.snapshot.revision ? early : handle.snapshot)
+      if (run.cancelRequested && !run.cancelSent) {
+        run.cancelSent = true
+        void api.cancel(handle.jobId).catch(() => {
+          if (!mounted.current || active.current !== run || run.terminal) return
+          run.cancelRequested = false
+          run.cancelSent = false
+          setCancelling(false)
+          setCancelFailed(true)
+        })
+      }
+      acceptRef.current(initial)
     } catch {
       if (!mounted.current || active.current !== run) return
       active.current = null
       busyRef.current = false
       setPending(false)
+      setCancelling(false)
       setSubmitFailed(true)
+    }
+  }
+
+  const requestCancel = async () => {
+    const run = active.current
+    if (!run || run.terminal || run.cancelRequested) return
+    run.cancelRequested = true
+    setCancelFailed(false)
+    setCancelling(true)
+    if (!run.jobId || run.cancelSent) return
+    run.cancelSent = true
+    try {
+      await api.cancel(run.jobId)
+    } catch {
+      if (!mounted.current || active.current !== run || run.terminal) return
+      run.cancelRequested = false
+      run.cancelSent = false
+      setCancelling(false)
+      setCancelFailed(true)
     }
   }
 
@@ -187,17 +230,19 @@ export function BrowserImportDialog({ api, onClose }: { api: BrowserImportUiApi;
   const failedRows = summary ? selectedCategories(importRetrySelection(summary)) : []
   const allFailed = summary && failedRows.length === rows.length && rows.every(category => summary.counts[category] === 0)
   const categoryLabel = (category: BrowserImportCategory) => t(`browser_import_${category}`)
+  const terminal = snapshot ? importIsTerminal(snapshot) : false
+  const cancelled = snapshot?.stage === 'cancelled'
   const formVisible = !pending && !summary
   const title = confirmExtensions ? t('browser_import_extensions_confirm_title')
     : pending ? t('browser_import_progress_title')
-      : summary ? t(allFailed ? 'browser_import_failed_title' : 'browser_import_complete_title') : t('browser_import_title')
+      : summary ? cancelled ? t('browser_import_cancelled_title') : t(allFailed ? 'browser_import_failed_title' : 'browser_import_complete_title') : t('browser_import_title')
 
   return <ModalPortal>
     <div className="kls-modal-overlay" onClick={event => { if (event.target === event.currentTarget && !busyRef.current) onCloseRef.current() }}>
       <div className={`kls-modal ${styles['import-modal']}`} ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1} aria-busy={pending}>
         {formVisible && !confirmExtensions && <button className={styles['import-close']} aria-label={t('cancel')} onClick={onClose}>×</button>}
         <h2 id={titleId}>{title}</h2>
-        <p className={styles['import-description']}>{confirmExtensions ? t('browser_import_extensions_confirm_desc') : pending ? t('browser_import_progress_desc') : summary ? t(allFailed ? 'browser_import_failed_desc' : failedRows.length ? 'browser_import_partial_desc' : 'browser_import_complete_desc') : t('browser_import_desc')}</p>
+        <p className={styles['import-description']}>{confirmExtensions ? t('browser_import_extensions_confirm_desc') : pending ? t('browser_import_progress_desc') : cancelled ? t('browser_import_cancelled_desc') : summary ? t(allFailed ? 'browser_import_failed_desc' : failedRows.length ? 'browser_import_partial_desc' : 'browser_import_complete_desc') : t('browser_import_desc')}</p>
         {confirmExtensions ? <div className={styles['import-actions']}>
           <button onClick={() => setConfirmExtensions(false)}>{t('cancel')}</button>
           <button className={styles['import-primary']} onClick={() => { void start(effectiveSelection, null, true) }}>{t('browser_import_extensions_confirm_action')}</button>
@@ -236,8 +281,10 @@ export function BrowserImportDialog({ api, onClose }: { api: BrowserImportUiApi;
             })}
           </ul>
           {submitFailed && <p role="alert" className={styles['import-error']}>{t('browser_import_start_failed')}</p>}
+          {cancelFailed && <p role="alert" className={styles['import-error']}>{t('browser_import_cancel_failed')}</p>}
           <div className={styles['import-actions']}>
-            {!pending && failedRows.length > 0 && <button onClick={() => { if (summary) void start(importRetrySelection(summary), summary, true) }}>{t('browser_import_retry')}</button>}
+            {pending && <button type="button" disabled={cancelling || terminal} onClick={() => { void requestCancel() }}>{cancelling ? t('browser_import_cancelling') : t('cancel')}</button>}
+            {!pending && !cancelled && failedRows.length > 0 && <button onClick={() => { if (summary) void start(importRetrySelection(summary), summary, true) }}>{t('browser_import_retry')}</button>}
             {!pending && <button className={styles['import-primary']} onClick={onClose}>{t('browser_import_done')}</button>}
           </div>
         </>}

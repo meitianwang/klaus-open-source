@@ -94,19 +94,33 @@ afterAll(() => {
 beforeAll(() => { requests = []; cancelled = []; closed = 0 })
 
 describe('browser import dialog lifecycle', () => {
-  test('the single profile has no picker and defaults include history', async () => {
+  test('the single profile has no picker and defaults match the import contract', async () => {
     requests = []; cancelled = []; closed = 0
-    await mount(makeApi())
+    const root = await mount(makeApi())
     expect(happyWindow.document.querySelector('select')).toBeNull()
-    expect(Array.from(happyWindow.document.querySelectorAll('input')).map((input: any) => input.checked)).toEqual([true, true, true, false])
+    expect(Array.from(happyWindow.document.querySelectorAll('input')).map((input: any) => input.checked)).toEqual([true, true, false, false])
     await click(button('Import'))
-    expect(requests[0].categories).toEqual({ cookies: true, passwords: true, history: true, extensions: false })
+    expect(requests[0].categories).toEqual({ cookies: true, passwords: true, history: false, extensions: false })
     expect(happyWindow.document.querySelector('[aria-busy="true"]')).not.toBeNull()
-    expect(button('Cancel')).toBeUndefined()
+    const cancel = button('Cancel')
+    expect(cancel).toBeDefined()
     await act(async () => { happyWindow.document.dispatchEvent(new happyWindow.KeyboardEvent('keydown', { key: 'Escape', bubbles: true })) })
     expect(closed).toBe(0)
     await click(happyWindow.document.querySelector('.kls-modal-overlay'))
     expect(closed).toBe(0)
+
+    await click(cancel)
+    await click(cancel)
+    expect(cancelled).toEqual(['job'])
+    expect(button('Done')).toBeUndefined()
+    await push(snapshot('job', { stage: 'importing', revision: 2 }))
+    expect(button('Done')).toBeUndefined()
+    await push(snapshot('job', { stage: 'cancelled', revision: 3 }))
+    await waitForReveal()
+    expect(button('Done')).toBeDefined()
+    expect(happyWindow.document.body.textContent).toContain('Import cancelled')
+    await unmount(root)
+    expect(cancelled).toEqual(['job'])
   })
 
   test('extensions require a separate confirmation and cancellation returns to the form', async () => {
@@ -133,7 +147,7 @@ describe('browser import dialog lifecycle', () => {
     await click(button('Import'))
     await waitForReveal()
     expect(button('Done')).toBeDefined()
-    expect(happyWindow.document.querySelectorAll('[data-state="complete"]').length).toBe(3)
+    expect(happyWindow.document.querySelectorAll('[data-state="complete"]').length).toBe(2)
     await push(snapshot('fast', { stage: 'importing', revision: 1 }))
     expect(button('Done')).toBeDefined()
   })
@@ -168,4 +182,27 @@ describe('browser import dialog lifecycle', () => {
     expect(cancelled).toEqual(['late'])
     expect(subscriptions.size).toBe(0)
   })
+
+  test('cancelling before start returns cancels the late job immediately', async () => {
+    requests = []; cancelled = []; closed = 0
+    let resolveStart: any
+    const root = await mount(makeApi({ start: (request: any) => {
+      requests.push(request)
+      return new Promise(done => { resolveStart = done })
+    } }))
+    await click(button('Import'))
+    await click(button('Cancel'))
+    expect(cancelled).toEqual([])
+    expect(button('Done')).toBeUndefined()
+    await act(async () => { resolveStart({ jobId: 'late', snapshot: snapshot('late', { stage: 'importing', revision: 1 }) }) })
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)) })
+    expect(cancelled).toEqual(['late'])
+    expect(button('Done')).toBeUndefined()
+    await push(snapshot('late', { stage: 'cancelled', revision: 2 }))
+    await waitForReveal()
+    expect(button('Done')).toBeDefined()
+    await unmount(root)
+    expect(cancelled).toEqual(['late'])
+  })
+
 })
