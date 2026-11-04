@@ -10,7 +10,25 @@
     "renderedWindowIdentity": "turn-key",
     "initialPositionRespectsUserScrollAndNavigation": true,
     "restorePanelWidthBeforeTranscriptMount": true,
-    "changeRecordLoad": "parallel-with-history"
+    "changeRecordLoad": "parallel-with-history",
+    "scrollPositionBasis": "distance-from-bottom",
+    "scrollIntentWindowMs": 1000,
+    "bottomFollowTolerancePx": 24,
+    "historyBoundaryTolerancePx": 64,
+    "virtualTurnOverscan": 2,
+    "defaultTurnEstimatePx": 280,
+    "historyGapEstimatePx": 144,
+    "virtualListHeight": "explicit-total-height",
+    "newMessagePlacementMaxDistancePx": 300,
+    "responseSpacerFraction": 0.6666666666666666,
+    "responseSpacerMinimumClearancePx": 240,
+    "loadingIndicatorDelayMs": 400,
+    "savedViewportFields": [
+      "distanceFromBottomPx",
+      "turnHeightsByKey",
+      "renderedWindow",
+      "latestTurn"
+    ]
   },
   "cases": [
     {
@@ -48,5 +66,198 @@
       "input": { "sessionId": "live-session", "draftOnly": false, "running": false, "liveUnitCount": 1, "history": null },
       "expected": "transcript"
     }
-  ]
+  ],
+  "scrollBehavior": {
+    "_why": "Only directional user input changes following. Stable turn identities and bottom-relative geometry preserve the reading position across window changes, prepends and measurements; a sent message reserves consumable space for the response.",
+    "placementCases": [
+      {
+        "name": "at latest content",
+        "distancePx": 0,
+        "spacerPx": 0,
+        "expected": true
+      },
+      {
+        "name": "placement boundary",
+        "distancePx": 300,
+        "spacerPx": 0,
+        "expected": true
+      },
+      {
+        "name": "reading older content",
+        "distancePx": 301,
+        "spacerPx": 0,
+        "expected": false
+      },
+      {
+        "name": "existing reserved response space",
+        "distancePx": 700,
+        "spacerPx": 400,
+        "expected": true
+      },
+      {
+        "name": "outside reserved response space",
+        "distancePx": 701,
+        "spacerPx": 400,
+        "expected": false
+      }
+    ],
+    "spacerCases": [
+      {
+        "name": "normal viewport",
+        "heightPx": 900,
+        "paddingPx": 0,
+        "expectedPx": 600
+      },
+      {
+        "name": "footer reduces available space",
+        "heightPx": 900,
+        "paddingPx": 90,
+        "expectedPx": 540
+      },
+      {
+        "name": "clearance limits shorter viewport",
+        "heightPx": 600,
+        "paddingPx": 0,
+        "expectedPx": 360
+      },
+      {
+        "name": "tiny viewport reserves no space",
+        "heightPx": 220,
+        "paddingPx": 0,
+        "expectedPx": 0
+      }
+    ],
+    "restoreDistanceCases": [
+      {
+        "name": "visible response space restores latest",
+        "distancePx": 1,
+        "spacerPx": 400,
+        "paddingPx": 32,
+        "expectedPx": 0
+      },
+      {
+        "name": "reading position excludes response space",
+        "distancePx": 900,
+        "spacerPx": 400,
+        "paddingPx": 32,
+        "expectedPx": 500
+      },
+      {
+        "name": "ordinary reading position",
+        "distancePx": 250,
+        "spacerPx": 0,
+        "paddingPx": 32,
+        "expectedPx": 250
+      }
+    ],
+    "followCases": [
+      {
+        "name": "placed message holds viewport",
+        "initial": "user_follow",
+        "events": [
+          {
+            "type": "latest_turn_placed"
+          }
+        ],
+        "expected": "static"
+      },
+      {
+        "name": "work waits until viewport overflow",
+        "initial": "static",
+        "events": [
+          {
+            "type": "latest_turn_phase_changed",
+            "previousLatestTurnPhase": "idle",
+            "latestTurnPhase": "prework"
+          },
+          {
+            "type": "latest_turn_follow_content_changed",
+            "followContentOverflowPx": 0,
+            "latestTurnPhase": "prework"
+          }
+        ],
+        "expected": "prework_watch"
+      },
+      {
+        "name": "overflowing work begins following",
+        "initial": "prework_watch",
+        "events": [
+          {
+            "type": "latest_turn_follow_content_changed",
+            "followContentOverflowPx": 1,
+            "latestTurnPhase": "prework"
+          }
+        ],
+        "expected": "prework_follow"
+      },
+      {
+        "name": "following work continues into final answer",
+        "initial": "prework_follow",
+        "events": [
+          {
+            "type": "latest_turn_phase_changed",
+            "previousLatestTurnPhase": "prework",
+            "latestTurnPhase": "final_answer"
+          }
+        ],
+        "expected": "user_follow"
+      },
+      {
+        "name": "unfollowed work keeps final answer in place",
+        "initial": "prework_watch",
+        "events": [
+          {
+            "type": "latest_turn_phase_changed",
+            "previousLatestTurnPhase": "prework",
+            "latestTurnPhase": "final_answer"
+          }
+        ],
+        "expected": "static"
+      },
+      {
+        "name": "reading older final output stops following",
+        "initial": "user_follow",
+        "events": [
+          {
+            "type": "scroll_distance_changed",
+            "distanceFromBottomPx": 25,
+            "latestTurnPhase": "final_answer"
+          }
+        ],
+        "expected": "static"
+      },
+      {
+        "name": "reading older work watches for overflow",
+        "initial": "prework_follow",
+        "events": [
+          {
+            "type": "scroll_distance_changed",
+            "distanceFromBottomPx": 25,
+            "latestTurnPhase": "prework"
+          }
+        ],
+        "expected": "prework_watch"
+      },
+      {
+        "name": "latest control explicitly follows",
+        "initial": "static",
+        "events": [
+          {
+            "type": "scroll_to_bottom"
+          }
+        ],
+        "expected": "user_follow"
+      },
+      {
+        "name": "navigation preserves viewport",
+        "initial": "prework_follow",
+        "events": [
+          {
+            "type": "hold_viewport"
+          }
+        ],
+        "expected": "static"
+      }
+    ]
+  }
 }
