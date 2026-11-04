@@ -292,7 +292,7 @@ describe('browser settings React lifecycle', () => {
       downloadAction: async (action: string) => { actions.push(action); throw new Error('action failed') },
     })
     const { root } = await mount()
-    const manage = Array.from(happyWindow.document.querySelectorAll('button')).filter((node: any) => node.textContent?.trim() === 'Manage')[1] as any
+    const manage = happyWindow.document.querySelector('#browser-download-history-manage') as any
     await click(manage)
     expect(happyWindow.document.body.textContent).toContain('Downloading')
     await act(async () => { push({ id: 'active', state: 'completed', receivedBytes: 10, totalBytes: 10 }) })
@@ -325,10 +325,29 @@ describe('browser settings React lifecycle', () => {
       downloadAction: async () => ({ ok: true }),
     })
     const { root } = await mount()
-    const manage = Array.from(happyWindow.document.querySelectorAll('button')).filter((node: any) => node.textContent?.trim() === 'Manage')[1] as any
+    const manage = happyWindow.document.querySelector('#browser-download-history-manage') as any
     await click(manage)
     const removeButtons = Array.from(happyWindow.document.querySelectorAll('button')).filter((node: any) => node.textContent?.trim() === 'Remove from history')
     expect(removeButtons.length).toBe(1)
+    await act(async () => { root.unmount() })
+  })
+
+  test('native management entries are exposed only when the capability is present', async () => {
+    const surfaces: string[] = []
+    const native = { ...base, nativeManagementAvailable: true }
+    installApi({
+      get: async () => native,
+      subscribe: () => () => {},
+      openManager: async (surface: string) => { surfaces.push(surface); return { ok: true, settings: native } },
+    })
+    const { root } = await mount()
+    expect(happyWindow.document.body.textContent).toContain('Browser management')
+    const entries = ['passwords', 'autofill', 'extensions', 'siteSettings', 'import'].map(surface =>
+      happyWindow.document.querySelector(`[data-surface="${surface}"]`) as any)
+    expect(entries.every(Boolean)).toBe(true)
+    expect(entries.every(node => node.tagName === 'BUTTON')).toBe(true)
+    for (const entry of entries) await click(entry)
+    expect(surfaces).toEqual(['passwords', 'autofill', 'extensions', 'siteSettings', 'import'])
     await act(async () => { root.unmount() })
   })
 })

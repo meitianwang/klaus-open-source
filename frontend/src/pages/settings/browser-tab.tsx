@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useT } from '../../i18n'
 import { ModalPortal } from '../../components/ModalPortal'
 import { BrowserCapabilityModal } from '../mcp/browser-connect'
-import { BROWSER_DEFAULT_POLICY, BROWSER_RESOURCES, browserOriginPattern, type BrowserAccess, type BrowserResource, type BrowserSettingsSnapshot } from '../../../../contracts/browser-settings'
+import { BROWSER_DEFAULT_POLICY, BROWSER_RESOURCES, browserOriginPattern, type BrowserAccess, type BrowserManagerSurface, type BrowserResource, type BrowserSettingsSnapshot } from '../../../../contracts/browser-settings'
 import type { SiteOpenTargetId } from '../../../../contracts/browser-sites'
 import { CapabilityRow, CapabilitySwitch } from './capability-tabs'
 import { PrefToggleRow, SettingsPage } from './kv'
@@ -38,6 +38,7 @@ type BrowserUseApi = {
   subscribeDownloads?(callback: (event: DownloadEvent) => void): () => void
   downloadAction(action: string, id: string): Promise<any>
   chooseDownloadDirectory(): Promise<{ ok?: boolean; settings?: BrowserSettingsSnapshot; path?: string | null; error?: string }>
+  openManager(surface: BrowserManagerSurface): Promise<any>
   clearData(kind: string): Promise<any>
   subscribe?(callback: (snapshot: BrowserSettingsSnapshot) => void): () => void
 }
@@ -168,9 +169,18 @@ function siteOrigin(input: string): string {
   } catch { return '' }
 }
 
-// Native password, contact and extension surfaces are host capabilities. Do not
-// fake them with embedded browser pages; render them only when the host exposes
-// a supported surface.
+// Native management entries open the browser's own WebUI pages. They are
+// rendered only when the host reports nativeManagementAvailable === true, so a
+// stock runtime never shows entries that have no real management page behind
+// them.
+const MANAGEMENT_ROWS: Array<{ surface: BrowserManagerSurface; label: string; desc: string; action: string }> = [
+  { surface: 'passwords', label: 'browser_settings_passwords', desc: 'browser_settings_passwords_desc', action: 'browser_settings_manage' },
+  { surface: 'autofill', label: 'browser_settings_autofill', desc: 'browser_settings_autofill_desc', action: 'browser_settings_manage' },
+  { surface: 'extensions', label: 'browser_settings_extensions', desc: 'browser_settings_extensions_desc', action: 'browser_settings_manage' },
+  { surface: 'siteSettings', label: 'browser_settings_site_settings', desc: 'browser_settings_site_settings_desc', action: 'browser_settings_manage' },
+  { surface: 'import', label: 'browser_settings_import', desc: 'browser_settings_import_desc', action: 'browser_settings_import_action' },
+]
+
 export interface BrowserSettingsViewProps {
   snapshot: BrowserSettingsSnapshot
   busy: string
@@ -180,6 +190,7 @@ export interface BrowserSettingsViewProps {
   onOpenHistory: () => void
   onOpenDownloads: () => void
   onChooseDownloadDirectory: () => void
+  onOpenManager: (surface: BrowserManagerSurface) => void
   onSetChromeEnabled: (enabled: boolean) => void
   onAddOrigin: (pattern: string) => Promise<boolean>
   onSetDefaultPolicy: (resource: BrowserResource, setting: BrowserAccess) => void
@@ -192,7 +203,7 @@ export interface BrowserSettingsViewProps {
 /** Pure presentation of the main settings page; the data owner passes a snapshot. */
 export function BrowserSettingsView({
   snapshot, busy, onToggleEnabled, onPatch, onClearData, onOpenHistory, onOpenDownloads,
-  onChooseDownloadDirectory, onSetChromeEnabled, onAddOrigin, onSetDefaultPolicy,
+  onChooseDownloadDirectory, onOpenManager, onSetChromeEnabled, onAddOrigin, onSetDefaultPolicy,
   onSetOriginPolicy, onRemoveOrigin, onSetSitePermission, onOpenChromeSetup,
 }: BrowserSettingsViewProps) {
   const t = useT()
@@ -283,6 +294,36 @@ export function BrowserSettingsView({
         </div>
       </div>
 
+      {snapshot.nativeManagementAvailable === true && (
+      <div className="settings-section">
+        <div className="settings-section-title">{t('browser_settings_management')}</div>
+        <div className={styles['browser-card']}>
+          <div className={styles['browser-section-copy']}>{t('browser_settings_management_desc')}</div>
+          {MANAGEMENT_ROWS.map(row => (
+            <div className="pref-row" key={row.surface}>
+              <div className={styles['browser-copy']}>
+                <div className={settingsStyles['pref-row-label']} id={`browser-manager-${row.surface}-label`}>{t(row.label)}</div>
+                <div className={settingsStyles['pref-row-desc']} id={`browser-manager-${row.surface}-desc`}>{t(row.desc)}</div>
+              </div>
+              <button
+                type="button"
+                id={`browser-open-${row.surface}`}
+                className={styles['browser-action-btn']}
+                data-surface={row.surface}
+                aria-labelledby={`browser-manager-${row.surface}-label`}
+                aria-describedby={`browser-manager-${row.surface}-desc`}
+                disabled={disabled || busy === `manager:${row.surface}`}
+                aria-busy={busy === `manager:${row.surface}` || undefined}
+                onClick={() => onOpenManager(row.surface)}
+              >
+                {t(row.action)}
+              </button>
+            </div>
+          ))}
+        </div>
+      </div>
+      )}
+
       <div className="settings-section">
         <div className="settings-section-title">{t('browser_settings_downloads')}</div>
         <div className={styles['browser-card']}>
@@ -303,7 +344,7 @@ export function BrowserSettingsView({
               <div className={settingsStyles['pref-row-label']}>{t('browser_settings_download_history')}</div>
               <div className={settingsStyles['pref-row-desc']}>{t('browser_settings_download_history_desc')}</div>
             </div>
-            <button type="button" className={styles['browser-action-btn']} disabled={disabled} onClick={onOpenDownloads}>{t('browser_settings_manage')}</button>
+            <button type="button" id="browser-download-history-manage" className={styles['browser-action-btn']} disabled={disabled} onClick={onOpenDownloads}>{t('browser_settings_manage')}</button>
           </div>
         </div>
       </div>
@@ -783,6 +824,10 @@ export function BrowserSettingsTab() {
     void mutate('choose-download-dir', null, () => api()?.chooseDownloadDirectory?.())
   }, [mutate])
 
+  const openManager = useCallback((surface: BrowserManagerSurface) => {
+    void mutate(`manager:${surface}`, null, () => api()?.openManager?.(surface))
+  }, [mutate])
+
   const clearData = useCallback(async (kinds: string[]) => {
     if (clearingRef.current) return
     clearingRef.current = true
@@ -863,6 +908,7 @@ export function BrowserSettingsTab() {
         onOpenHistory={() => setView('history')}
         onOpenDownloads={() => setView('downloads')}
         onChooseDownloadDirectory={chooseDownloadDirectory}
+        onOpenManager={openManager}
         onSetChromeEnabled={setChromeEnabled}
         onAddOrigin={addOrigin}
         onSetDefaultPolicy={setDefaultPolicy}

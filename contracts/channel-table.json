@@ -6,7 +6,7 @@
     "bridgeDir": "frontend/bridge"
   },
   "summary": {
-    "registeredInvoke": 723,
+    "registeredInvoke": 724,
     "registeredPush": 76,
     "roles": 11
   },
@@ -644,6 +644,7 @@
         "settings:browser-use:downloads",
         "settings:browser-use:get",
         "settings:browser-use:history",
+        "settings:browser-use:open-manager",
         "settings:browser-use:remove-history",
         "settings:browser-use:remove-origin",
         "settings:browser-use:remove-origin-policy",

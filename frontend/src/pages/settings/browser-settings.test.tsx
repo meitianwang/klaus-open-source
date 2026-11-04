@@ -44,6 +44,7 @@ function render(overrides: Partial<BrowserSettingsSnapshot> = {}) {
       onOpenHistory={() => {}}
       onOpenDownloads={() => {}}
       onChooseDownloadDirectory={() => {}}
+      onOpenManager={() => {}}
       onSetChromeEnabled={() => {}}
       onAddOrigin={async () => true}
       onSetDefaultPolicy={() => {}}
@@ -82,10 +83,25 @@ describe('browser settings', () => {
     expect(render({ webUrlTarget: 'chrome' })).toContain('value="chrome"')
   })
 
-  test('does not fake native password or contact surfaces', () => {
-    const markup = render()
-    expect(markup).not.toContain('Password manager')
-    expect(markup).not.toContain('Contact info')
-    expect(markup).not.toContain('chrome://')
+  test('shows native management entries only when the host reports the capability', () => {
+    const hidden = render()
+    expect(hidden).not.toContain('Browser management')
+    expect(hidden).not.toContain('Passwords')
+    expect(hidden).not.toContain('Import browser data')
+    expect(hidden).not.toContain('Contact info')
+    expect(hidden).not.toContain('data-surface=')
+    expect(hidden).not.toContain('chrome://')
+
+    const shown = render({ nativeManagementAvailable: true })
+    for (const text of ['Browser management', 'Passwords', 'Contact info and autofill', 'Extensions', 'Site settings', 'Import browser data', 'Import…']) {
+      expect(shown).toContain(text)
+    }
+    for (const surface of ['passwords', 'autofill', 'extensions', 'siteSettings', 'import']) {
+      expect(shown).toContain(`data-surface="${surface}"`)
+      expect(shown).toContain(`id="browser-open-${surface}"`)
+      expect(shown).toContain(`aria-labelledby="browser-manager-${surface}-label"`)
+      expect(shown).toContain(`aria-describedby="browser-manager-${surface}-desc"`)
+    }
+    expect(shown).not.toContain('chrome://')
   })
 })
