@@ -57,6 +57,7 @@ export interface PaginationApi {
     historyItems: (sessionId: string, opts: {
       turnId: string
       cursor?: string | null
+      beforeItemId?: string
       limit?: number
       sortDirection?: string
     }) => Promise<TranscriptPageReply>
@@ -217,12 +218,12 @@ export async function fetchTurnItemsPage(
   turnId: string,
   pagination: TurnItemsPagination,
 ): Promise<TurnItemsPage> {
-  const read = async (cursor: string | null, requested: number, direction: 'asc' | 'desc') => {
+  const read = async (cursor: string | null, requested: number, direction: 'asc' | 'desc', beforeItemId?: string) => {
     let limit = requested
     for (;;) {
       try {
         return await api.session.historyItems(sessionId, {
-          turnId, ...(cursor ? { cursor } : {}), limit, sortDirection: direction,
+          turnId, ...(cursor ? { cursor } : beforeItemId ? { beforeItemId } : {}), limit, sortDirection: direction,
         })
       } catch (error) {
         if (limit <= 1 || !String((error as { message?: unknown })?.message ?? '').includes(OVERSIZED_ITEM_ERROR)) throw error
@@ -230,7 +231,7 @@ export async function fetchTurnItemsPage(
       }
     }
   }
-  const reply = await read(pagination.olderCursor, pagination.summaryItemIds ? ITEM_PAGE_LIMIT - 2 : ITEM_PAGE_LIMIT, 'desc')
+  const reply = await read(pagination.olderCursor, pagination.summaryItemIds ? ITEM_PAGE_LIMIT - 2 : ITEM_PAGE_LIMIT, 'desc', pagination.olderItemId)
   const page = envelope(reply)
   const next = page.hasMore === true && typeof page.nextCursor === 'string' && page.nextCursor ? page.nextCursor : null
   if (next && next === pagination.olderCursor) throw new Error('thread items page returned an unchanged cursor')

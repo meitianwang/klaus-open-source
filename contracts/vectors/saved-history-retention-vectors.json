@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "highWaterItems": 1000,
+  "retainedItems": 500,
+  "conditions": {
+    "requiresItemAnchorCapability": true,
+    "requiresAllMountedReadersAtBottom": true,
+    "requiresOneHistoryIsland": true,
+    "requiresSettledItemPages": true,
+    "preservesTurnShells": true,
+    "preservesProtectedControlRows": true,
+    "restoresBeforeFirstRetainedItem": true
+  },
+  "windows": [
+    { "name": "oldest safe prefix is released at the end", "itemsPerTurn": 120, "turns": 10, "oldestVisibleTurn": 9, "expectedItems": 500 },
+    { "name": "a second reader protects its earliest visible turn", "itemsPerTurn": 120, "turns": 10, "oldestVisibleTurn": 2, "expectedItems": 960 },
+    { "name": "the high-water boundary does not release items", "itemsPerTurn": 100, "turns": 10, "oldestVisibleTurn": 9, "expectedItems": 1000 }
+  ]
+}

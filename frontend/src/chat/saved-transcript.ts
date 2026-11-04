@@ -7,6 +7,8 @@ import type { TranscriptPageReply, TranscriptPaginationState, TranscriptTurnShel
 export interface TurnPageHandle { cursor: string; oldestLoadedTurnId: string | null; source: 'saved' }
 export interface TurnItemsPagination {
   olderCursor: string | null
+  olderItemId?: string
+  evicted?: boolean
   isLoadingOlder: boolean
   hasLoadedOldest: boolean
   summaryItemIds?: string[]

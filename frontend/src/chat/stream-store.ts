@@ -23,8 +23,9 @@ import { coalesceSubagentTaskAliases } from './subagent-navigation'
 import { ensureArtifactsForSession, retireArtifactsForSession } from './overview/artifacts'
 import { retireTranscriptViewport } from './transcript/viewport-state'
 import { retireSiteReferences } from './site-references'
+import { retainSavedHistoryItems, type SavedHistoryViewport } from './saved-history-retention'
 import { fetchTurnItemsPage, loadFirstPaint, loadOlderTurnsPage, type FirstPaintResult, type TranscriptPaginationState, type TranscriptTurnShell } from './transcript-pagination'
-import { commitOlderTurns, commitSavedSnapshot, commitTurnItems, ownsSavedBoundary, patchSavedTurn, savedBoundary, savedPagination, savedRows, savedShells, savedTurn, savedTurns, type SavedTranscript, type TurnBoundaryRequest, type TurnItemsPagination } from './saved-transcript'
+import { commitOlderTurns, commitSavedSnapshot, commitTurnItems, ownsSavedBoundary, patchSavedTurn, savedBoundary, savedPagination, savedRowId, savedRows, savedShells, savedTurn, savedTurns, type SavedTranscript, type TurnBoundaryRequest, type TurnItemsPagination } from './saved-transcript'
 import { peekRewindCut, rememberRewindCut, replyWithoutRewoundTail, rewindCutFor, savedTranscriptWithoutTurns, sessionWithoutRewoundTail, settleRewindCut, unitsBeforeRewind } from './rewind-tail'
 // Chat 流式状态 store（Batch 4 架构核心）：引擎事件 → store → 组件订阅，
 // 替换 chat.js 的手动 DOM diff。chat.js 的 chatEvent handler 头部把每个事件
@@ -158,6 +159,7 @@ export interface SessionStreamState {
   historyRetry: 'snapshot' | 'turns' | null
   historyGeneration: number
   savedTranscript: SavedTranscript | null
+  supportsSavedItemAnchors: boolean
   // Renderer-driven saved-transcript pagination: the loaded turn window, the
   // cursor of the next older page, and the shells of turns whose messages have
   // not been fetched yet. Null until the first page lands.
@@ -261,6 +263,7 @@ const EMPTY_SESSION: SessionStreamState = {
   historyRetry: null,
   historyGeneration: 0,
   savedTranscript: null,
+  supportsSavedItemAnchors: false,
   turnsPagination: null,
   turnShells: {},
   loadedRows: null,
@@ -411,6 +414,66 @@ const mountedStreams = new Map<string, number>()
 const retiredStreams = new Map<string, number>()
 const historyReadTokens = new Map<string, object>()
 const retentionParticipants = new Set<{ protected(sessionId: string): boolean; retire(sessionId: string): void }>()
+const savedHistoryViewports = new Map<string, Map<symbol, SavedHistoryViewport | null>>()
+const queuedHistoryRetention = new Set<string>()
+
+function pendingHistoryRetentionRequest(stream: SessionStreamState): boolean {
+  return stream.liveUnits.some(unit => unit.type === 'live-planning-question' && unit.request.status === 'pending'
+    || 'req' in unit && unit.resolved == null)
+    || Object.values(stream.asyncQuestions.requests).some(request => request.state === 'pending' || request.state === 'submitting')
+}
+
+function scheduleHistoryRetention(sessionId: string): void {
+  if (!savedHistoryViewports.has(sessionId) || queuedHistoryRetention.has(sessionId)) return
+  queuedHistoryRetention.add(sessionId)
+  queueMicrotask(() => {
+    if (!queuedHistoryRetention.delete(sessionId)) return
+    const stream = getSessionStream(sessionId), history = stream.savedTranscript
+    const readers = savedHistoryViewports.get(sessionId)
+    if (!history || !readers?.size || !stream.supportsSavedItemAnchors || stream.historySource !== 'saved'
+      || stream.provisional || stream.historyLoading || stream.turnsPagination?.isLoadingOlder
+      || unadmittedUserTurn(sessionId) || pendingEditedTurns.has(sessionId) || pendingHistoryRetentionRequest(stream)
+      || historyInFlight.has(sessionId) || olderTurnsLoads.has(sessionId)
+      || [...turnItemsLoads.values()].some(load => load.sessionId === sessionId && !load.cancelled)) return
+    const retained = retainSavedHistoryItems(history, [...readers.values()])
+    if (retained === history) return
+    const kept = new Set(savedRows(retained).map(savedRowId))
+    const removed = new Set(savedRows(history).map(savedRowId).filter(id => id && !kept.has(id)))
+    patchSession(sessionId, previous => previous.savedTranscript !== history ? {} : {
+      savedTranscript: retained,
+      history: previous.history?.filter(row => !removed.has(savedRowId(row))) ?? previous.history,
+      loadedRows: previous.loadedRows?.filter(row => !removed.has(savedRowId(row))) ?? previous.loadedRows,
+      turnShells: savedShells(retained), turnsPagination: savedPagination(retained),
+    })
+  })
+}
+
+/** Every mounted surface reports its own measured end-of-history boundary. */
+export function registerSavedHistoryViewport(sessionId: string): {
+  setHistoryViewport(viewport: SavedHistoryViewport | null): void
+  dispose(): void
+} {
+  const token = Symbol()
+  const readers = savedHistoryViewports.get(sessionId) ?? new Map<symbol, SavedHistoryViewport | null>()
+  readers.set(token, null)
+  savedHistoryViewports.set(sessionId, readers)
+  return {
+    setHistoryViewport(viewport) {
+      if (savedHistoryViewports.get(sessionId) !== readers || !readers.has(token)) return
+      const previous = readers.get(token)
+      if (previous?.oldestRenderedTurnId === viewport?.oldestRenderedTurnId
+        && previous?.firstProtectedItemId === viewport?.firstProtectedItemId) return
+      readers.set(token, viewport)
+      scheduleHistoryRetention(sessionId)
+    },
+    dispose() {
+      if (savedHistoryViewports.get(sessionId) !== readers) return
+      readers.delete(token)
+      if (!readers.size) savedHistoryViewports.delete(sessionId)
+      else scheduleHistoryRetention(sessionId)
+    },
+  }
+}
 
 export function registerSessionRetentionParticipant(participant: { protected(sessionId: string): boolean; retire(sessionId: string): void }): () => void {
   retentionParticipants.add(participant)
@@ -470,6 +533,8 @@ function removeStreamFamily(sessionId: string, retired: boolean): void {
     historyReadTokens.delete(id)
     historyInFlight.delete(id)
     cancelSavedHistoryLoads(id)
+    savedHistoryViewports.delete(id)
+    queuedHistoryRetention.delete(id)
     historyToolResults.delete(id)
     pendingEditedTurns.delete(id)
     pendingUserTurns.delete(id)
@@ -554,11 +619,16 @@ chatStreamStore.subscribe((next, previous) => {
 ;(window as any).__klausLoadSessionHistory = (sessionId: string) => loadSessionHistory(sessionId)
 
 function patchSession(sessionId: string, patch: (prev: SessionStreamState) => Partial<SessionStreamState>): void {
+  let retentionChanged = false
   flushChatFrames()
   if (isSessionStreamRetired(sessionId)) return
   chatStreamStore.setState(state => {
     const prev = state.sessions[sessionId] || EMPTY_SESSION
     const next = { ...prev, ...patch(prev) }
+    retentionChanged = next.savedTranscript !== prev.savedTranscript || next.historyLoading !== prev.historyLoading
+      || next.turnsPagination !== prev.turnsPagination || next.running !== prev.running
+      || next.supportsSavedItemAnchors !== prev.supportsSavedItemAnchors
+      || pendingHistoryRetentionRequest(next) !== pendingHistoryRetentionRequest(prev)
     const pendingEdit = pendingEditedTurns.get(sessionId)
     const observedTurnId = next.activeTurnId || next.liveTurnId
     if (pendingEdit && !pendingEdit.snapshot.replacementTurnId
@@ -596,6 +666,7 @@ function patchSession(sessionId: string, patch: (prev: SessionStreamState) => Pa
     return { sessions: { ...state.sessions, [sessionId]: next } }
   })
   rememberStream(sessionId)
+  if (retentionChanged) scheduleHistoryRetention(sessionId)
 }
 
 let liveKeySeq = 0
@@ -2721,6 +2792,8 @@ export function loadSessionHistory(sessionId: string, options: {
           return { historyLoading: false, historyStale: true }
         }
         const rows = Array.isArray(history) ? history : []
+        const supportsSavedItemAnchors = result?.supportsItemAnchors === true
+          || options.savedPage !== undefined && prev.supportsSavedItemAnchors
         const pageMeta = nextSaved
           ? { pagination: savedPagination(nextSaved), shells: Object.values(savedShells(nextSaved)) }
           : firstPaint
@@ -2769,13 +2842,14 @@ export function loadSessionHistory(sessionId: string, options: {
               rows,
               ownedRowCount: options.reconcile ? null : Array.isArray(prev.history) ? prev.history.length : null,
             })
-          if (!slice.apply) return { historyLoading: false, ...(frozenSaved ? {
+          if (!slice.apply) return { historyLoading: false, supportsSavedItemAnchors, ...(frozenSaved ? {
             savedTranscript: frozenSaved, loadedRows: savedRows(frozenSaved),
             turnsPagination: savedPagination(frozenSaved), turnShells: savedShells(frozenSaved),
           } : {}) }
           const earlier = [...slice.rows]
           return {
             history: mergeHistoryToolResults(sessionId, earlier, true) || [],
+            supportsSavedItemAnchors,
             ...(options.reconcile ? { historyStale: false } : {}),
             historyLoading: false,
             loadedRows: frozenSaved ? savedRows(frozenSaved) : earlier,
@@ -2844,6 +2918,7 @@ export function loadSessionHistory(sessionId: string, options: {
         if (!prev.running) historyToolResults.delete(sessionId)
         return {
           agentTimeline,
+          supportsSavedItemAnchors,
           history: mergeAgentTimeline(settledHistory, agentTimeline),
           historyStale: false,
           historyLoading: false,
@@ -2892,6 +2967,7 @@ export function loadSessionHistory(sessionId: string, options: {
       historyReadTokens.delete(sessionId)
       if (historyInFlight.get(sessionId) === promise) historyInFlight.delete(sessionId)
     }
+    scheduleHistoryRetention(sessionId)
     if (valid && refreshAfterSettled && !liveLayerOwnsTurn(getSessionStream(sessionId))) {
       queueMicrotask(() => { if (!isSessionStreamRetired(sessionId)) void loadSessionHistory(sessionId) })
     }
@@ -3072,6 +3148,7 @@ export async function loadTurnHistoryItems(sessionId: string, turnId: string, co
       throw error
     } finally {
       if (turnItemsLoads.get(key) === load) turnItemsLoads.delete(key)
+      scheduleHistoryRetention(sessionId)
     }
   })()
   return load.promise
