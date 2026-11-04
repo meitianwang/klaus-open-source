@@ -25,6 +25,51 @@ export interface BrowserDownloadNetwork {
   fetch(input: string, init?: RequestInit): Promise<Response>;
 }
 
+export type NativeDownloadState = 'in_progress' | 'paused' | 'completed' | 'failed' | 'canceled';
+
+/** Native Profile download snapshot; ids are stable GUIDs owned by the profile. */
+export interface NativeDownloadSnapshot {
+  id: string;
+  url: string;
+  urlChain: string[];
+  filename: string;
+  path?: string;
+  state: NativeDownloadState;
+  receivedBytes: number;
+  totalBytes: number;
+  startedAt: number;
+  canPause: boolean;
+  canResume: boolean;
+  canCancel: boolean;
+  sessionId?: string;
+  pageId?: string;
+  isActorVisit?: boolean;
+  /** Agent/resource gate intent, independent from history attribution. */
+  requiresAuthorization?: boolean;
+}
+
+/** A native target is paused by the profile until the host authorizes a path. */
+export interface NativeDownloadTarget {
+  requestId: string;
+  id: string;
+  url: string;
+  urlChain: string[];
+  filename: string;
+  suggestedPath: string;
+  sessionId?: string;
+  pageId?: string;
+  isActorVisit?: boolean;
+  /** Agent/resource gate intent, independent from history attribution. */
+  requiresAuthorization?: boolean;
+}
+
+export type NativeDownloadAction = 'pause' | 'resume' | 'cancel' | 'remove';
+
+export interface NativeProfileDownloadController {
+  downloadAction(id: string, action: NativeDownloadAction): void;
+  resolveDownloadTarget(requestId: string, decision: { allow: boolean; path?: string }): void;
+}
+
 export interface NativeDownloadOptions {
   /** Resolved when a download starts so a changed preference applies immediately. */
   directory(): string;
@@ -34,6 +79,10 @@ export interface NativeDownloadOptions {
   chooseDownloadPath?(request: { defaultPath: string; filename: string; url: string }): Promise<string | null | undefined>;
   authorize?: NativeDownloadAuthorize;
   changed?(event: BrowserDownloadChangedEvent): void;
+  /** Profile bridge used by nativeCreated/nativeUpdated/resolveNativeTarget. */
+  nativeController?: NativeProfileDownloadController;
+  /** Opt in only when the host knows interrupted Electron downloads cannot resume. */
+  recoverInterruptedDownloads?: boolean;
 }
 
 interface NativeItemMeta {
@@ -71,23 +120,42 @@ export class NativeDownloads {
   private readonly items = new Map<string, DownloadItem>();
   private readonly itemMeta = new Map<string, NativeItemMeta>();
   private readonly changes: DownloadChangeCoalescer;
+  private readonly nativeRecords = new Map<string, { owner: string; sessionId: string; source: BrowserVisitSource; requiresAuthorization?: boolean }>();
+  private readonly nativeSnapshots = new Map<string, NativeDownloadSnapshot>();
+  private readonly pendingTargets = new Map<string, { id: string; owner: string; controller: AbortController; settle(allow: boolean, path?: string): void }>();
+  private readonly removedNative = new Set<string>();
+  private nativeController: NativeProfileDownloadController | undefined;
   private closed = false;
 
   constructor(private readonly network: BrowserDownloadNetwork, private readonly options: NativeDownloadOptions) {
+    this.nativeController = options.nativeController;
     this.changes = new DownloadChangeCoalescer(event => this.options.changed?.(event));
     this.store = new DownloadStore(() => options.directory(), {
       created: (id, owner, url, value, meta) => {
         const source = meta.source === 'agent' ? 'agent' : 'other';
         const sessionId = typeof meta.sessionId === 'string' && meta.sessionId ? meta.sessionId : owner;
         try {
-          this.options.history.createDownload({
-            id, sessionId, url, source,
-            filename: typeof value.filename === 'string' && value.filename ? value.filename : suggestedFilename(url),
-            ...(typeof value.path === 'string' && value.path ? { path: value.path } : {}),
-            bytes: typeof value.bytes === 'number' ? value.bytes : 0,
-            startedAt: typeof value.startedAt === 'number' ? value.startedAt : Date.now(),
-            status: 'in_progress',
-          });
+          const filename = typeof value.filename === 'string' && value.filename ? value.filename : suggestedFilename(url);
+          const path = typeof value.path === 'string' && value.path ? value.path : undefined;
+          const bytes = typeof value.bytes === 'number' ? value.bytes : 0;
+          const totalBytes = typeof value.totalBytes === 'number' ? value.totalBytes : 0;
+          const startedAt = typeof value.startedAt === 'number' ? value.startedAt : Date.now();
+          const existing = this.options.history.download(id);
+          if (existing) {
+            this.options.history.updateDownload(id, {
+              filename,
+              ...(path ? { path } : {}),
+              bytes,
+              totalBytes,
+              status: 'in_progress',
+            });
+          } else {
+            this.options.history.createDownload({
+              id, sessionId, url, source, filename,
+              ...(path ? { path } : {}),
+              bytes, totalBytes, startedAt, status: 'in_progress',
+            });
+          }
         } finally {
           this.publishChange(url, value, meta);
         }
@@ -109,9 +177,9 @@ export class NativeDownloads {
         }
       },
     });
-    // A process restart cannot resume Chromium downloads from a previous
-    // process, so those rows remain inspectable but no longer look live.
-    this.options.history.recoverInterruptedDownloads();
+    // Native Chrome may recover its own DownloadManager items after restart.
+    // Only an explicit host opt-in may rewrite interrupted rows as failed.
+    if (options.recoverInterruptedDownloads === true) this.options.history.recoverInterruptedDownloads();
   }
 
   private publishChange(url: string, value: BrowserObject, meta: BrowserObject): void {
@@ -127,6 +195,184 @@ export class NativeDownloads {
       totalBytes: typeof value.totalBytes === 'number' ? value.totalBytes : 0,
       ...(path ? { exists: existsSync(path) } : {}),
     });
+  }
+
+  setNativeController(controller: NativeProfileDownloadController | undefined): void {
+    this.nativeController = controller;
+  }
+
+  private normalizeSnapshot(snapshot: NativeDownloadSnapshot): NativeDownloadSnapshot | null {
+    if (this.closed || !snapshot || typeof snapshot.id !== 'string' || !snapshot.id.trim()) return null;
+    if (typeof snapshot.url !== 'string' || !snapshot.url) return null;
+    if (typeof snapshot.filename !== 'string' || !snapshot.filename) return null;
+    if (!['in_progress', 'paused', 'completed', 'failed', 'canceled'].includes(snapshot.state)) return null;
+    let filename: string;
+    try { filename = downloadFilename(snapshot.filename); } catch { filename = suggestedFilename(snapshot.url); }
+    const number = (value: unknown): number => typeof value === 'number' && Number.isFinite(value) && value >= 0 ? Math.trunc(value) : 0;
+    const chain = Array.isArray(snapshot.urlChain) ? snapshot.urlChain.filter((url): url is string => typeof url === 'string' && url.length > 0) : [];
+    return {
+      id: snapshot.id,
+      url: snapshot.url,
+      urlChain: [...new Set([...chain, snapshot.url])],
+      filename,
+      ...(typeof snapshot.path === 'string' && snapshot.path ? { path: snapshot.path } : {}),
+      state: snapshot.state,
+      receivedBytes: number(snapshot.receivedBytes),
+      totalBytes: number(snapshot.totalBytes),
+      startedAt: typeof snapshot.startedAt === 'number' && Number.isFinite(snapshot.startedAt) && snapshot.startedAt >= 0 ? Math.trunc(snapshot.startedAt) : Date.now(),
+      canPause: snapshot.canPause === true,
+      canResume: snapshot.canResume === true,
+      canCancel: snapshot.canCancel === true,
+      ...(typeof snapshot.sessionId === 'string' && snapshot.sessionId ? { sessionId: snapshot.sessionId } : {}),
+      ...(typeof snapshot.pageId === 'string' && snapshot.pageId ? { pageId: snapshot.pageId } : {}),
+      ...(typeof snapshot.isActorVisit === 'boolean' ? { isActorVisit: snapshot.isActorVisit } : {}),
+      ...(typeof snapshot.requiresAuthorization === 'boolean' ? { requiresAuthorization: snapshot.requiresAuthorization } : {}),
+    };
+  }
+
+  /** Accept a native Profile-created download snapshot. */
+  nativeCreated(snapshot: NativeDownloadSnapshot): void {
+    const normalized = this.normalizeSnapshot(snapshot);
+    if (!normalized || this.removedNative.has(normalized.id)) return;
+    const existingRecord = this.nativeRecords.get(normalized.id);
+    const storeOwner = this.store.ownerOf(normalized.id);
+    const owner = existingRecord?.owner ?? storeOwner ?? normalized.pageId ?? normalized.sessionId ?? `native:${normalized.id}`;
+    const sessionId = existingRecord?.sessionId ?? normalized.sessionId ?? owner;
+    const source = existingRecord?.source ?? (normalized.isActorVisit === true ? 'agent' : 'other');
+    const requiresAuthorization = normalized.requiresAuthorization ?? existingRecord?.requiresAuthorization ?? normalized.isActorVisit;
+    this.nativeRecords.set(normalized.id, { owner, sessionId, source, ...(requiresAuthorization === undefined ? {} : { requiresAuthorization }) });
+    this.nativeSnapshots.set(normalized.id, normalized);
+    if (!this.store.has(normalized.id)) {
+      this.store.create(owner, normalized.url, {
+        url: normalized.url,
+        urlChain: normalized.urlChain,
+        filename: normalized.filename,
+        ...(normalized.path ? { path: normalized.path } : {}),
+        status: 'in_progress',
+        state: 'in_progress',
+        startedAt: normalized.startedAt,
+        bytes: normalized.receivedBytes,
+        totalBytes: normalized.totalBytes,
+        canPause: normalized.canPause,
+        canResume: normalized.canResume,
+        canCancel: normalized.canCancel,
+      }, { sessionId, source, pageId: normalized.pageId ?? owner }, normalized.id);
+    }
+    this.nativeUpdated(normalized);
+  }
+
+  /** Accept a native Profile snapshot update without duplicating created writes. */
+  nativeUpdated(snapshot: NativeDownloadSnapshot): void {
+    const normalized = this.normalizeSnapshot(snapshot);
+    if (!normalized || this.removedNative.has(normalized.id)) return;
+    if (!this.nativeRecords.has(normalized.id) || !this.store.has(normalized.id)) {
+      this.nativeCreated(normalized);
+      return;
+    }
+    this.nativeSnapshots.set(normalized.id, normalized);
+    const record = this.nativeRecords.get(normalized.id);
+    if (record) {
+      const requiresAuthorization = normalized.requiresAuthorization ?? record.requiresAuthorization ?? normalized.isActorVisit;
+      record.requiresAuthorization = requiresAuthorization;
+    }
+    this.store.applyNative(normalized.id, {
+      url: normalized.url,
+      urlChain: normalized.urlChain,
+      filename: normalized.filename,
+      ...(normalized.path ? { path: normalized.path } : {}),
+      status: normalized.state,
+      state: normalized.state,
+      bytes: normalized.receivedBytes,
+      totalBytes: normalized.totalBytes,
+      startedAt: normalized.startedAt,
+      canPause: normalized.canPause,
+      canResume: normalized.canResume,
+      canCancel: normalized.canCancel,
+    });
+  }
+
+  /**
+   * Authorize and choose a path for a native Profile target. The native side
+   * owns the original request and bytes; this method only resolves the paused
+   * target with allow/path or allow:false.
+   */
+  async resolveNativeTarget(target: NativeDownloadTarget): Promise<void> {
+    const requestId = target && typeof target.requestId === 'string' ? target.requestId : '';
+    const id = target && typeof target.id === 'string' ? target.id : '';
+    const controller = this.nativeController;
+    if (!requestId) return;
+    if (!controller) throw new BrowserError('unavailable', 'The native profile download controller is not attached.');
+    if (this.closed) { controller.resolveDownloadTarget(requestId, { allow: false }); return; }
+    if (!id || typeof target.url !== 'string' || !target.url) { controller.resolveDownloadTarget(requestId, { allow: false }); return; }
+    if (this.pendingTargets.has(requestId)) return;
+    const existing = this.nativeRecords.get(id);
+    const owner = existing?.owner ?? target.pageId ?? target.sessionId ?? `native:${id}`;
+    const sessionId = existing?.sessionId ?? target.sessionId ?? owner;
+    const source = existing?.source ?? (target.isActorVisit === true ? 'agent' : 'other');
+    const requiresAuthorization = target.requiresAuthorization ?? existing?.requiresAuthorization ?? target.isActorVisit;
+    this.nativeRecords.set(id, { owner, sessionId, source, ...(requiresAuthorization === undefined ? {} : { requiresAuthorization }) });
+    const abort = new AbortController();
+    let settled = false;
+    const settle = (allow: boolean, path?: string): void => {
+      if (settled) return;
+      settled = true;
+      this.pendingTargets.delete(requestId);
+      try { controller.resolveDownloadTarget(requestId, { allow, ...(path ? { path } : {}) }); } catch { /* profile closed */ }
+    };
+    this.pendingTargets.set(requestId, { id, owner, controller: abort, settle });
+    try {
+      const actor = requiresAuthorization === true;
+      if (actor) {
+        const chain = [...new Set([target.urlChain?.[0] ?? target.url, ...(Array.isArray(target.urlChain) ? target.urlChain : []), target.url].filter((url): url is string => typeof url === 'string' && /^https?:/u.test(url)))];
+        for (const url of chain) {
+          await this.options.authorize?.(sessionId, url, 'downloads', abort.signal);
+          abort.signal.throwIfAborted();
+        }
+      } else {
+        this.options.assertUrl(target.url);
+        for (const url of Array.isArray(target.urlChain) ? target.urlChain : []) this.options.assertUrl(url);
+        abort.signal.throwIfAborted();
+      }
+      const directory = this.options.directory();
+      mkdirSync(directory, { recursive: true, mode: 0o700 });
+      const filename = downloadFilename(target.filename, suggestedFilename(target.url));
+      const suggested = typeof target.suggestedPath === 'string' && target.suggestedPath ? target.suggestedPath : undefined;
+      const manual = requiresAuthorization !== true && target.isActorVisit !== true;
+      const prompt = manual && this.options.promptForUserDownloads?.() === true && !!this.options.chooseDownloadPath;
+      let path: string;
+      if (prompt) {
+        const chosen = await withAbort(Promise.resolve(this.options.chooseDownloadPath!({ defaultPath: suggested ?? join(directory, filename), filename, url: target.url })), abort.signal);
+        if (!chosen) { settle(false); return; }
+        path = chosen;
+      } else {
+        path = suggested ?? uniqueDownloadPath(directory, filename);
+      }
+      mkdirSync(dirname(path), { recursive: true });
+      abort.signal.throwIfAborted();
+      settle(true, path);
+    } catch {
+      settle(false);
+    } finally {
+      if (!settled) settle(false);
+    }
+  }
+
+  private nativeAction(id: string, action: NativeDownloadAction): void {
+    if (!this.nativeController) throw new BrowserError('unavailable', 'The native profile download controller is not attached.');
+    const snapshot = this.nativeSnapshots.get(id);
+    if (action === 'pause' && snapshot && !snapshot.canPause) throw new BrowserError('unavailable', 'This native download cannot be paused.');
+    if (action === 'resume' && snapshot && !snapshot.canResume) throw new BrowserError('unavailable', 'This native download cannot be resumed.');
+    if (action === 'cancel' && snapshot && !snapshot.canCancel) throw new BrowserError('unavailable', 'This native download cannot be canceled.');
+    this.nativeController.downloadAction(id, action);
+  }
+
+  private cancelNativeTargets(filter: { owner?: string; id?: string } = {}): void {
+    for (const pending of [...this.pendingTargets.values()]) {
+      if (filter.owner && pending.owner !== filter.owner) continue;
+      if (filter.id && pending.id !== filter.id) continue;
+      pending.controller.abort(new BrowserError('download_canceled', 'The native download target was canceled.'));
+      pending.settle(false);
+    }
   }
 
   /**
@@ -146,8 +392,17 @@ export class NativeDownloads {
     try { item.pause(); } catch { /* A zero-byte download may already be past pausing. */ }
     signal?.throwIfAborted();
     try {
-      await this.options.authorize?.(sessionId, initiatorUrl, 'downloads', signal);
-      signal?.throwIfAborted();
+      if (source === 'agent') {
+        const chain = [...new Set([initiatorUrl, ...item.getURLChain(), item.getURL()].filter((url): url is string => typeof url === 'string' && /^https?:/u.test(url)))];
+        for (const url of chain) {
+          await this.options.authorize?.(sessionId, url, 'downloads', signal);
+          signal?.throwIfAborted();
+        }
+      } else {
+        this.options.assertUrl(item.getURL());
+        if (initiatorUrl) this.options.assertUrl(initiatorUrl);
+        signal?.throwIfAborted();
+      }
     } catch {
       try { item.cancel(); } catch { /* already terminal */ }
       return;
@@ -300,9 +555,7 @@ export class NativeDownloads {
             receivedBytes: typeof live.bytes === 'number' ? live.bytes : entry.receivedBytes,
             ...(typeof live.totalBytes === 'number' && live.totalBytes > 0 ? { totalBytes: live.totalBytes } : {}),
           } : {}),
-          canPause: entry.state === 'in_progress' && this.items.has(entry.id),
-          canResume: entry.state === 'paused' && this.items.has(entry.id) && this.items.get(entry.id)?.canResume() === true,
-          canCancel: (entry.state === 'in_progress' || entry.state === 'paused') && (this.items.has(entry.id) || live !== undefined),
+          ...this.capabilities(entry.id, entry.state),
         };
       }),
       nextCursor: page.nextCursor,
@@ -310,9 +563,14 @@ export class NativeDownloads {
   }
 
   pause(id: string): BrowserObject {
-    const item = this.items.get(id);
     const entry = this.options.history.download(id);
     if (!entry) throw new BrowserError('not_found', 'The download does not exist.');
+    if (this.nativeRecords.has(id)) {
+      if (entry.state !== 'in_progress') throw new BrowserError('unavailable', 'Only an active download can be paused.');
+      this.nativeAction(id, 'pause');
+      return this.entry(id);
+    }
+    const item = this.items.get(id);
     if (!item || entry.state !== 'in_progress') throw new BrowserError('unavailable', 'Only an active download can be paused.');
     if (!item.isPaused()) item.pause();
     this.store.update(id, { status: 'paused' });
@@ -320,9 +578,14 @@ export class NativeDownloads {
   }
 
   resume(id: string): BrowserObject {
-    const item = this.items.get(id);
     const entry = this.options.history.download(id);
     if (!entry) throw new BrowserError('not_found', 'The download does not exist.');
+    if (this.nativeRecords.has(id)) {
+      if (entry.state !== 'paused') throw new BrowserError('unavailable', 'This download cannot be resumed.');
+      this.nativeAction(id, 'resume');
+      return this.entry(id);
+    }
+    const item = this.items.get(id);
     if (!item || !item.canResume()) throw new BrowserError('unavailable', 'This download cannot be resumed.');
     item.resume();
     this.store.update(id, { status: 'in_progress' });
@@ -330,10 +593,15 @@ export class NativeDownloads {
   }
 
   cancel(id: string): BrowserObject {
-    const item = this.items.get(id);
     const entry = this.options.history.download(id);
     if (!entry) throw new BrowserError('not_found', 'The download does not exist.');
     if (entry.state !== 'in_progress' && entry.state !== 'paused') throw new BrowserError('unavailable', 'Only an active download can be canceled.');
+    if (this.nativeRecords.has(id)) {
+      this.cancelNativeTargets({ id });
+      this.nativeAction(id, 'cancel');
+      return this.entry(id);
+    }
+    const item = this.items.get(id);
     try { item?.cancel(); } catch { /* The item may have reached a terminal state. */ }
     this.store.cancel(id);
     return { ...entry, state: 'canceled' };
@@ -343,47 +611,80 @@ export class NativeDownloads {
     const entry = this.options.history.download(id);
     if (!entry) throw new BrowserError('not_found', 'The download does not exist.');
     if (entry.state === 'in_progress' || entry.state === 'paused') throw new BrowserError('invalid_request', 'An active download cannot be removed from history.');
+    if (this.nativeRecords.has(id)) {
+      this.nativeAction(id, 'remove');
+      this.options.history.removeDownload(id);
+      this.store.remove(id);
+      this.nativeRecords.delete(id);
+      this.nativeSnapshots.delete(id);
+      this.removedNative.add(id);
+      return { removed: true };
+    }
     this.options.history.removeDownload(id);
     this.store.remove(id);
     return { removed: true };
   }
 
   clearTerminal(): { removed: number; memoryRemoved: number } {
+    const terminal = [...this.nativeSnapshots].filter(([, snapshot]) =>
+      snapshot.state === 'completed' || snapshot.state === 'failed' || snapshot.state === 'canceled').map(([id]) => id);
     const removed = this.options.history.clearTerminalDownloads().removed;
-    return { removed, memoryRemoved: this.store.clearSettled() };
+    const memoryRemoved = this.store.clearSettled();
+    for (const id of terminal) {
+      this.nativeRecords.delete(id);
+      this.nativeSnapshots.delete(id);
+      this.removedNative.add(id);
+    }
+    return { removed, memoryRemoved };
   }
 
   record(id: string): BrowserDownloadEntry | undefined {
     return this.options.history.download(id);
   }
 
-  private entry(id: string): BrowserObject {
-    const record = this.options.history.download(id);
-    if (!record) return {};
+  private capabilities(id: string, state: BrowserDownloadEntry['state']): { canPause: boolean; canResume: boolean; canCancel: boolean } {
+    const native = this.nativeSnapshots.get(id);
+    if (native) {
+      return {
+        canPause: state === 'in_progress' && native.canPause,
+        canResume: state === 'paused' && native.canResume,
+        canCancel: (state === 'in_progress' || state === 'paused') && native.canCancel,
+      };
+    }
+    const item = this.items.get(id);
+    const live = this.store.get(id);
     return {
-      ...record,
-      canPause: record.state === 'in_progress' && this.items.has(record.id),
-      canResume: record.state === 'paused' && this.items.get(record.id)?.canResume() === true,
-      canCancel: (record.state === 'in_progress' || record.state === 'paused')
-        && (this.items.has(record.id) || this.store.get(record.id) !== undefined),
+      canPause: state === 'in_progress' && !!item,
+      canResume: state === 'paused' && item?.canResume() === true,
+      canCancel: (state === 'in_progress' || state === 'paused') && (!!item || live !== undefined),
     };
   }
 
+  private entry(id: string): BrowserObject {
+    const record = this.options.history.download(id);
+    if (!record) return {};
+    return { ...record, ...this.capabilities(record.id, record.state) };
+  }
+
   release(owner: string): void {
+    const keep = new Set([...this.nativeRecords].filter(([, record]) => record.owner === owner).map(([id]) => id));
+    this.cancelNativeTargets({ owner });
     for (const [id, item] of this.items) {
       if (this.itemMeta.get(id)?.owner !== owner) continue;
       try { if (item.getState() === 'progressing') item.cancel(); } catch { /* already terminal */ }
       this.items.delete(id); this.itemMeta.delete(id);
     }
-    this.store.release(owner);
+    this.store.release(owner, keep);
   }
 
   dispose(): void {
     this.closed = true;
+    this.cancelNativeTargets();
     for (const item of this.items.values()) {
       try { if (item.getState() === 'progressing') item.cancel(); } catch { /* already terminal */ }
     }
     this.items.clear(); this.itemMeta.clear();
+    this.nativeRecords.clear(); this.nativeSnapshots.clear(); this.pendingTargets.clear(); this.removedNative.clear();
     this.changes.dispose();
     this.store.dispose();
   }
