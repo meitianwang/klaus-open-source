@@ -37,6 +37,31 @@ test('native binding loader prepares the EventEmitter prototype and fails closed
     error instanceof BrowserError && error.code === 'unavailable');
 });
 
+test('native browser events receive the prepended Electron event object', () => {
+  class FakeNativeBrowser {}
+  const binding = {
+    NativeBrowser: FakeNativeBrowser as unknown as NativeBrowserBinding['NativeBrowser'],
+    create: async () => ({} as NativeBrowserHandle),
+  };
+  loadNativeBrowserBinding(() => binding);
+  const instance = new FakeNativeBrowser() as unknown as EventEmitter;
+  const handle = instance as unknown as NativeBrowserHandle;
+  const navigation: Array<{ event: unknown; url: string }> = [];
+  handle.on('did-navigate', (event, url) => { navigation.push({ event, url }); });
+  instance.emit('did-navigate', { sender: 'native' }, 'https://example.test/');
+  assert.deepEqual(navigation, [{ event: { sender: 'native' }, url: 'https://example.test/' }]);
+
+  const titles: Array<{ event: unknown; title: string }> = [];
+  handle.on('page-title-updated', (event, title) => { titles.push({ event, title }); });
+  instance.emit('page-title-updated', { sender: 'native' }, 'Document');
+  assert.deepEqual(titles, [{ event: { sender: 'native' }, title: 'Document' }]);
+
+  let loading = 0;
+  handle.on('did-start-loading', event => { assert.ok(event); loading += 1; });
+  instance.emit('did-start-loading', { sender: 'native' });
+  assert.equal(loading, 1);
+});
+
 test('NativePageTransport exposes native activity and debugger only', () => {
   let begins = 0;
   let ends = 0;

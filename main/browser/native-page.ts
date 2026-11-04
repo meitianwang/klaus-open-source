@@ -24,6 +24,13 @@ export interface NativeProfileRead {
   data?: string;
 }
 
+export interface NativeExtensionInfo {
+  id: string;
+  name: string;
+  version: string;
+  path: string;
+}
+
 export interface NativePageHandle {
   readonly debugger: PageDebuggerChannel;
   isDestroyed(): boolean;
@@ -48,17 +55,17 @@ export interface NativeBrowserHandle extends NativePageHandle, NativeProfileRequ
   setParent(parent: BaseWindow): void;
   setVisible(visible: boolean): void;
   focus(): void;
-  setBubbleAnchor(anchor: unknown): void;
-  getBubbleAnchor(): unknown;
-  loadExtension(path: string): Promise<void> | void;
-  on(event: 'did-navigate' | 'did-navigate-in-page', listener: (url: string) => void): this;
-  on(event: 'page-title-updated', listener: (title: string) => void): this;
-  on(event: 'render-process-gone', listener: (status: number) => void): this;
-  on(event: 'did-start-loading' | 'did-stop-loading' | 'destroyed', listener: () => void): this;
-  removeListener(event: 'did-navigate' | 'did-navigate-in-page', listener: (url: string) => void): this;
-  removeListener(event: 'page-title-updated', listener: (title: string) => void): this;
-  removeListener(event: 'render-process-gone', listener: (status: number) => void): this;
-  removeListener(event: 'did-start-loading' | 'did-stop-loading' | 'destroyed', listener: () => void): this;
+  setBubbleAnchor(anchor: BrowserBounds): void;
+  getBubbleAnchor(): BrowserBounds;
+  loadExtension(path: string): Promise<NativeExtensionInfo>;
+  on(event: 'did-navigate' | 'did-navigate-in-page', listener: (event: unknown, url: string) => void): this;
+  on(event: 'page-title-updated', listener: (event: unknown, title: string) => void): this;
+  on(event: 'render-process-gone', listener: (event: unknown, status: number) => void): this;
+  on(event: 'did-start-loading' | 'did-stop-loading' | 'destroyed', listener: (event: unknown) => void): this;
+  removeListener(event: 'did-navigate' | 'did-navigate-in-page', listener: (event: unknown, url: string) => void): this;
+  removeListener(event: 'page-title-updated', listener: (event: unknown, title: string) => void): this;
+  removeListener(event: 'render-process-gone', listener: (event: unknown, status: number) => void): this;
+  removeListener(event: 'did-start-loading' | 'did-stop-loading' | 'destroyed', listener: (event: unknown) => void): this;
 }
 
 export interface NativeBrowserCreateOptions {

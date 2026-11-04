@@ -9,6 +9,11 @@ const eventTime = (value: unknown): number => {
   return Number.isFinite(time) ? time < 100_000_000_000 ? time * 1000 : time : Date.now();
 };
 
+/** Release a lease without letting a synchronous throw escape teardown. */
+function releaseLease(lease: PageActivityLease): Promise<void> {
+  return Promise.resolve().then(() => lease.release()).catch(() => {});
+}
+
 /** One debugger belongs to one page. Sibling tabs always get another instance. */
 export class PageDebugger {
   private readonly transport: PageTransport;
@@ -190,7 +195,7 @@ export class PageDebugger {
     await this.initialize();
     const lease = await this.transport.acquireActivity();
     if (this.disposed || generation !== this.activityGeneration) {
-      Promise.resolve(lease.release()).catch(() => {});
+      await releaseLease(lease);
       return;
     }
     this.activityLease = lease;
@@ -213,7 +218,7 @@ export class PageDebugger {
     } catch {
       // Navigation/DevTools may detach the debugger while the call unwinds.
     } finally {
-      if (lease) await lease.release();
+      if (lease) await releaseLease(lease);
       if (this.activityGeneration === generation) this.activityReady = undefined;
     }
   }
@@ -244,7 +249,7 @@ export class PageDebugger {
     this.disposed = true;
     const lease = this.activityLease;
     this.activityLease = undefined;
-    if (lease) Promise.resolve(lease.release()).catch(() => {});
+    if (lease) void releaseLease(lease);
     this.activityReady = undefined;
     // A destroyed page throws on every property getter, so the listener
     // teardown must be skipped wholesale.

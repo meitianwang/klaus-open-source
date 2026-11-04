@@ -191,3 +191,53 @@ test('ElectronPageTransport makes acquisition failures visible and keeps account
   lease.release();
   assert.equal(throttling, true);
 });
+
+test('PageDebugger contains synchronous lease release failures during dispose and late acquire', async () => {
+  let releases = 0;
+  let finishWork!: () => void;
+  const work = new Promise<void>(resolve => { finishWork = resolve; });
+  const activeDebug = fakeDebugger(async (method) => method === 'Target.getTargetInfo'
+    ? { targetInfo: { targetId: 'sync-release-active' } } as BrowserObject
+    : {} as BrowserObject);
+  const activeTransport: PageTransport = {
+    debugger: activeDebug.channel,
+    isDestroyed: () => false,
+    acquireActivity: () => ({
+      release: () => {
+        releases += 1;
+        throw new Error('synchronous release failure');
+      },
+    }),
+  };
+  const activePage = new PageDebugger(activeTransport);
+  const activeActivity = activePage.activity(async () => { await work; });
+  await flush();
+  assert.doesNotThrow(() => activePage.dispose(), 'dispose must contain a synchronous release failure');
+  finishWork();
+  await activeActivity;
+  assert.equal(releases, 1, 'dispose attempts the active lease once');
+
+  let resolveAcquire!: (lease: { release(): void }) => void;
+  const acquire = new Promise<{ release(): void }>(resolve => { resolveAcquire = resolve; });
+  let lateReleases = 0;
+  const lateDebug = fakeDebugger(async (method) => method === 'Target.getTargetInfo'
+    ? { targetInfo: { targetId: 'sync-release-late' } } as BrowserObject
+    : {} as BrowserObject);
+  const lateTransport: PageTransport = {
+    debugger: lateDebug.channel,
+    isDestroyed: () => false,
+    acquireActivity: () => acquire,
+  };
+  const latePage = new PageDebugger(lateTransport);
+  const lateActivity = latePage.activity(async () => {});
+  await flush();
+  latePage.dispose();
+  resolveAcquire({
+    release: () => {
+      lateReleases += 1;
+      throw new Error('late synchronous release failure');
+    },
+  });
+  await lateActivity;
+  assert.equal(lateReleases, 1, 'a late lease release is attempted once and contained');
+});
