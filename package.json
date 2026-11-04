@@ -51,6 +51,7 @@
     "test:composer-context": "node scripts/run-electron-test.mjs tests/composer-context-electron.cjs",
     "test:composer-context-performance": "node scripts/run-electron-test.mjs tests/composer-context-performance.cjs",
     "test:turn-navigation": "node scripts/run-turn-navigation-test.mjs",
+    "test:transcript-scroll": "node scripts/run-transcript-scroll-test.mjs",
     "test:subagent-lifecycle": "node scripts/run-subagent-lifecycle-test.mjs",
     "audit:command-map": "node scripts/audit-runtime-channels.mjs",
     "audit:ui": "node scripts/ui-token-audit.mjs",
