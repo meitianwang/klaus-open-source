@@ -1,6 +1,7 @@
 import { spawnElectronGui } from './electron-test-preflight.cjs';
 import { devLaunchEnvironment, describeEarlyExit, ensureProfileDirectory, resolveDevProfile } from './dev-profile.mjs';
 import { describeElectronRuntime, productionElectronRuntimeMode, resolveProductionElectronRuntime } from './electron-runtime-resolver.mjs';
+import { BROWSER_IMPORT_HELPER_ENV, ensureBrowserImportHelper } from '../packaging/browser-import.mjs';
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
@@ -42,6 +43,8 @@ Development defaults to the native runtime. Inject KLAUS_ELECTRON_RUNTIME_DIR,
 KLAUS_ELECTRON_RUNTIME_RECEIPT and KLAUS_ELECTRON_RUNTIME_MANIFEST, or explicitly
 set KLAUS_ELECTRON_RUNTIME_MODE=stock to use the pinned stock Electron package.
 Native selection never falls back to stock.
+On macOS, development prepares or verifies the browser-import helper and passes
+its absolute executable path to the app as KLAUS_BROWSER_IMPORT_HELPER.
 
 Ctrl+C requests normal app shutdown, including engine and native cleanup.`);
   process.exit(0);
@@ -80,6 +83,12 @@ const runtime = await resolveProductionElectronRuntime({
   arch: process.arch,
 });
 console.log(`[dev] Electron runtime: ${describeElectronRuntime(runtime)}`);
+const browserImport = ensureBrowserImportHelper({ repo, platform: process.platform, arch: process.arch });
+if (browserImport.supported) {
+  console.log(`[dev] browser-import helper: ${browserImport.prepared ? 'prepared' : 'verified'} ${browserImport.helperPath}`);
+} else {
+  console.log(`[dev] browser-import helper: ${browserImport.reason}`);
+}
 
 run([join(repo, 'engine/scripts/prepare-rust-release.mjs'), '--dev', ...(options.has('--reuse-engine') ? ['--verify-only'] : [])]);
 const { requireTarget, validateNative, validateSpeech, validateRecording, validatePip, validateComputerUse } = await import('../packaging/resources.mjs');
@@ -126,6 +135,8 @@ if (plan.isolated) {
   else console.log('[dev] this profile has no account yet: sign in once here and it is remembered.');
 }
 const env = devLaunchEnvironment({ base: process.env, plan });
+if (browserImport.supported) env[BROWSER_IMPORT_HELPER_ENV] = browserImport.helperPath;
+else delete env[BROWSER_IMPORT_HELPER_ENV];
 const child = spawnElectronGui(runtime.executable, ['.'], { cwd: appDirectory, env, stdio: ['inherit', 'inherit', 'inherit', 'ipc'] });
 let stopping = false, ready = false, windowNeverOpened = false, watcher, watcherDone = Promise.resolve(), watchFailed = false;
 const requestQuit = () => {

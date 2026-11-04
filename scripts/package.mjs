@@ -11,6 +11,7 @@ import { copyPolicyNotices } from '../engine/scripts/policy-notices.mjs';
 import { verifyPackage } from '../packaging/verify.mjs';
 import { DEFAULT_DESKTOP_EDITION, desktopEdition, packagedDesktopEditionDocument, useDesktopEditionsFile } from '../packaging/desktop-edition.mjs';
 import { DEFAULT_PLUGIN_SEED, collectBundledOfficialPlugins, copyBundledOfficialPlugins, officialPluginRecords, validatePluginSeed } from '../packaging/official-plugins.mjs';
+import { browserImportUnsupported, HELPER_MANIFEST, HELPER_NAME, validateBrowserImportResource } from '../packaging/browser-import.mjs';
 import { describeElectronRuntime, resolveProductionElectronRuntime } from './electron-runtime-resolver.mjs';
 
 const appDirectory = fileURLToPath(new URL('..', import.meta.url));
@@ -41,14 +42,14 @@ const { values } = parseArgs({ options: {
   platform: { type: 'string', default: process.platform }, arch: { type: 'string', default: process.arch },
   'engine-dir': { type: 'string' }, 'engine-commit': { type: 'string' }, 'native-dir': { type: 'string' },
   'speech-dir': { type: 'string' }, 'recording-dir': { type: 'string' }, 'pip-dir': { type: 'string' }, 'computer-use-dir': { type: 'string' },
-  'frontend-dir': { type: 'string' }, 'electron-zip': { type: 'string' }, 'runtime-mode': { type: 'string' }, out: { type: 'string' }, help: { type: 'boolean' },
+  'browser-import-dir': { type: 'string' }, 'frontend-dir': { type: 'string' }, 'electron-zip': { type: 'string' }, 'runtime-mode': { type: 'string' }, out: { type: 'string' }, help: { type: 'boolean' },
   'official-plugins-dir': { type: 'string' }, 'bundle-official-plugin': { type: 'string', multiple: true }, 'plugin-seed-dir': { type: 'string' },
 } });
 if (values.help) {
   console.log(`Desktop edition: --edition <id> (default ${DEFAULT_DESKTOP_EDITION}; additional editions come from --editions-file / KLAUS_DESKTOP_EDITIONS_FILE).`);
   console.log('Official plugins: --official-plugins-dir <marketplace dir> --bundle-official-plugin <name> (repeatable); none are bundled by default.');
   console.log('Plugin seed: --plugin-seed-dir <dir with known_marketplaces.json> (default: an empty seed).');
-  console.log('npm run package -- --engine-dir <staged bin/platform-arch> --native-dir <production artifacts> [--speech-dir <macOS speech artifacts>] [--recording-dir <macOS recording artifacts>] [--pip-dir <macOS PiP artifacts>] [--computer-use-dir <target Computer Use artifacts>] [--engine-commit <40-char commit>] [--platform darwin|win32] [--arch arm64|x64] [--electron-zip <official release archive>] [--runtime-mode native|stock] [--out <directory>]');
+  console.log('npm run package -- --engine-dir <staged bin/platform-arch> --native-dir <production artifacts> [--speech-dir <macOS speech artifacts>] [--recording-dir <macOS recording artifacts>] [--pip-dir <macOS PiP artifacts>] [--browser-import-dir <macOS browser import helper>] [--computer-use-dir <target Computer Use artifacts>] [--engine-commit <40-char commit>] [--platform darwin|win32] [--arch arm64|x64] [--electron-zip <official release archive>] [--runtime-mode native|stock] [--out <directory>]');
   console.log('Packaging defaults to the native Electron runtime. Inject KLAUS_ELECTRON_RUNTIME_DIR, KLAUS_ELECTRON_RUNTIME_RECEIPT and KLAUS_ELECTRON_RUNTIME_MANIFEST, or deliberately set --runtime-mode stock / KLAUS_ELECTRON_RUNTIME_MODE=stock.');
   process.exit(0);
 }
@@ -57,7 +58,7 @@ useDesktopEditionsFile(values['editions-file']);
 const edition = desktopEdition(values.edition);
 const target = requireTarget(platform, arch);
 if (process.platform !== platform) throw new Error(`Build ${platform} packages on ${platform}; cross-platform output is not a platform verification.`);
-for (const option of ['speech-dir', 'recording-dir', 'pip-dir']) {
+for (const option of ['speech-dir', 'recording-dir', 'pip-dir', 'browser-import-dir']) {
   if (platform !== 'darwin' && values[option] !== undefined) throw new Error(`--${option} is only valid for a macOS package`);
 }
 const identity = sourceIdentity(repo);
@@ -75,6 +76,12 @@ const recordingDirectory = platform === 'darwin' ? resolve(values['recording-dir
 const recording = recordingDirectory ? validateRecording(recordingDirectory, { platform, arch, sourceRoot: join(appDirectory, 'native/recording') }) : undefined;
 const pipDirectory = platform === 'darwin' ? resolve(values['pip-dir'] ?? join(repo, 'resources/pip', target)) : undefined;
 const pip = pipDirectory ? validatePip(pipDirectory, { platform, arch, sourceRoot: join(appDirectory, 'native/pip') }) : undefined;
+const browserImportDirectory = platform === 'darwin' ? resolve(values['browser-import-dir'] ?? join(repo, 'resources/browser-import', target)) : undefined;
+const browserImport = browserImportDirectory ? validateBrowserImportResource(browserImportDirectory, { repo, platform, arch }) : undefined;
+const browserImportRecord = browserImport?.record ?? browserImportUnsupported(platform);
+console.log(browserImportRecord.supported
+  ? `Browser import helper: ${browserImportRecord.helperPath} (${browserImportRecord.sourceCommit.slice(0, 12)})`
+  : `Browser import helper: ${browserImportRecord.reason}`);
 const computerUseDirectory = resolve(values['computer-use-dir'] ?? join(repo, 'resources/computer-use', target));
 const computerUse = validateComputerUse(computerUseDirectory, { platform, arch, sourceRoot: join(appDirectory, 'native/computer-use') });
 const pkg = readJson(join(appDirectory, 'package.json'));
@@ -153,6 +160,7 @@ try {
   if (speechDirectory) for (const file of ['klaus-speech-helper', 'klaus-speech-helper.json']) copyTree(join(speechDirectory, file), join(resources, 'speech', target, file));
   if (recordingDirectory) for (const file of ['klaus-recording-helper', 'klaus-recording-helper.json']) copyTree(join(recordingDirectory, file), join(resources, 'recording', target, file));
   if (pipDirectory) for (const file of ['klaus-pip-producer', 'klaus-pip-producer.json']) copyTree(join(pipDirectory, file), join(resources, 'pip', target, file));
+  if (browserImportDirectory) for (const file of [HELPER_NAME, HELPER_MANIFEST]) copyTree(join(browserImportDirectory, file), join(resources, 'browser-import', target, file));
   const computerUseFilename = computerUseArtifactName(platform);
   for (const file of [computerUseFilename, computerUseFilename + '.json']) copyTree(join(computerUseDirectory, file), join(resources, 'computer-use', target, file));
   if (platform === 'darwin') copyTree(join(appDirectory, 'packaging/assets/icon.icns'), join(resources, 'app-icon.icns'));
@@ -162,7 +170,7 @@ try {
     electronVersion: runtime.electronVersion, buildKind: 'local-unsigned', createdAt: new Date().toISOString(),
     electronArchiveSha256,
     electronRuntime: runtime.summary,
-    ...identity, officialPlugins: officialPluginRecords(bundledOfficialPlugins), engine, native: native.manifest, ...(speech ? { speech } : {}), ...(recording ? { recording } : {}), ...(pip ? { pip } : {}), ...(computerUse ? { computerUse } : {}),
+    ...identity, officialPlugins: officialPluginRecords(bundledOfficialPlugins), engine, native: native.manifest, browserImport: browserImportRecord, ...(speech ? { speech } : {}), ...(recording ? { recording } : {}), ...(pip ? { pip } : {}), ...(computerUse ? { computerUse } : {}),
     appFiles: inventory(appStage), resourceFiles: inventory(resources),
   };
   writeFileSync(join(resources, 'desktop-resources.json'), `${JSON.stringify(resourcesManifest, null, 2)}\n`);
