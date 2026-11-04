@@ -10,7 +10,7 @@ import { ModalPortal } from '../../components/ModalPortal'
 import { rawIconHtml } from '../../components/Icon'
 import {
   CRON_PAGE_RELOAD_EVENT, CRON_PAGE_VISIBLE_EVENT, channelLabelOf, cronExecutionTarget, cronPermissionPreset,
-  effectiveCronRunStatus, humanizeSchedule, navigateToCronRunSession, pad2, relFromNow, runMatchesSearch,
+  cronRunErrorText, effectiveCronRunStatus, humanizeSchedule, navigateToCronRunSession, pad2, relFromNow, runMatchesSearch,
   sortTasksFlat, startOfDay, taskMatchesSearch,
 } from './data'
 import type { CronRun, CronStatus, CronTask } from './data'
@@ -515,7 +515,7 @@ export function CronPage() {
           <span>{triggerLabel}</span>
           {statusLabel}
         </div>
-        {effStatus === 'failed' && r.error ? <span className={styles['cron-run-error']}>{r.error}</span> : null}
+        {effStatus === 'failed' && r.error ? <span className={styles['cron-run-error']} title={r.error}>{cronRunErrorText(r.error, t)}</span> : null}
       </>
     )
     return (

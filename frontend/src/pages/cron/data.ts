@@ -88,6 +88,14 @@ export interface CronStatus {
   running: string[]
 }
 
+/** Keep transport diagnostics available without making them the primary run-history copy. */
+export function cronRunErrorText(error: string, translate: (key: string) => string = t): string {
+  if (/\bstream total timeout:\s*model response exceeded\s+\d+\s*ms\b/i.test(error)) {
+    return translate('cron_run_model_timeout')
+  }
+  return error
+}
+
 export function cronDeleteSucceeded(result: unknown): boolean {
   if (result === true) return true
   if (!result || typeof result !== 'object') return false

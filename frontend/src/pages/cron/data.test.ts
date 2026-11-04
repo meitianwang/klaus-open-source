@@ -1,13 +1,24 @@
 import { describe, expect, test } from 'bun:test'
 import {
-  compileSchedule, cronDeleteSucceeded, cronExecutionTarget, cronExecutionValue, cronPermissionPreset,
+  compileSchedule, cronDeleteSucceeded, cronExecutionTarget, cronExecutionValue, cronPermissionPreset, cronRunErrorText,
   effectiveCronRunStatus, navigateToCronRunSession, parseCronExecutionValue, parseSchedule,
   resolvedCronTaskTimezone, retainedCronTaskFields,
 } from './data'
 import type { CronTask } from './data'
+import { I18N } from '../../i18n/messages'
 import statusVectors from '../../../../contracts/vectors/cron-run-status-vectors.json'
 
 describe('scheduled-task page host contracts', () => {
+  test('presents a model total timeout as localized guidance and preserves other errors', () => {
+    const raw = 'stream total timeout: model response exceeded 1200000ms'
+    for (const language of ['en', 'zh'] as const) {
+      const translate = (key: string) => I18N[language][key]
+      expect(cronRunErrorText(raw, translate)).toBe(translate('cron_run_model_timeout'))
+      expect(cronRunErrorText(raw.toUpperCase(), translate)).toBe(translate('cron_run_model_timeout'))
+      expect(cronRunErrorText('provider rejected the request', translate)).toBe('provider rejected the request')
+    }
+  })
+
   test('accepts the Electron and compatibility delete result shapes', () => {
     expect(cronDeleteSucceeded({ deleted: true, sessionCount: 2 })).toBe(true)
     expect(cronDeleteSucceeded({ ok: true })).toBe(true)
