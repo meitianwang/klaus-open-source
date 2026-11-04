@@ -2,6 +2,7 @@ import { captureScreenshot } from './page-capture';
 import type { WebContents } from 'electron';
 import { BrowserError, message, object, type BrowserObject } from './types';
 import { consoleArgumentsText, consoleLevel } from './event-shapes';
+import { ElectronPageTransport, isPageTransport, type PageActivityLease, type PageTransport } from './page-transport';
 
 const eventTime = (value: unknown): number => {
   const time = Number(value);
@@ -10,11 +11,12 @@ const eventTime = (value: unknown): number => {
 
 /** One debugger belongs to one page. Sibling tabs always get another instance. */
 export class PageDebugger {
+  private readonly transport: PageTransport;
   private ready: Promise<void> | undefined;
   private disposed = false;
   private activityUsers = 0;
   private activityReady: Promise<void> | undefined;
-  private previousThrottling = true;
+  private activityLease: PageActivityLease | undefined;
   private readonly frames = new Map<string, string>();
   private readonly listeners = new Set<(method: string, params: BrowserObject, frame?: string) => void>();
   readonly console: BrowserObject[] = [];
@@ -24,9 +26,15 @@ export class PageDebugger {
   private eventSequence = 0;
   targetId = '';
 
-  constructor(readonly contents: WebContents) {
-    contents.debugger.on('message', this.onMessage);
-    contents.debugger.on('detach', this.onDetach);
+  /**
+   * Existing Electron callers may pass WebContents directly; native callers
+   * pass a PageTransport. The union keeps old construction explicit while
+   * ensuring a native handle is never treated as a WebContents.
+   */
+  constructor(page: WebContents | PageTransport) {
+    this.transport = isPageTransport(page) ? page : new ElectronPageTransport(page as WebContents);
+    this.transport.debugger.on('message', this.onMessage);
+    this.transport.debugger.on('detach', this.onDetach);
   }
 
   private readonly onDetach = (): void => {
@@ -57,7 +65,7 @@ export class PageDebugger {
     }
   }
 
-  private readonly onMessage = (_event: Electron.Event, method: string, params: unknown, sessionId?: string): void => {
+  private readonly onMessage = (_event: unknown, method: string, params: unknown, sessionId?: string): void => {
     const data = object(params);
     const frame = sessionId ? [...this.frames].find(([, id]) => id === sessionId)?.[0] : undefined;
     // A detached child can still emit late events. They must not be recorded as
@@ -105,10 +113,11 @@ export class PageDebugger {
   onEvent(listener: (method: string, params: BrowserObject, frame?: string) => void): () => void { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; }
 
   async initialize(): Promise<void> {
-    if (this.disposed || this.contents.isDestroyed()) throw new BrowserError('stale_tab', 'The browser page is closed.');
+    if (this.disposed || this.transport.isDestroyed()) throw new BrowserError('stale_tab', 'The browser page is closed.');
     if (this.ready) return this.ready;
     const starting = (async () => {
-      if (!this.contents.debugger.isAttached()) this.contents.debugger.attach('1.3');
+      const channel = this.transport.debugger;
+      if (!channel.isAttached()) channel.attach('1.3');
       const info = object(await this.send('Target.getTargetInfo'));
       this.targetId = String(object(info.targetInfo).targetId ?? '');
       if (!this.targetId) throw new BrowserError('host_error', 'The page did not return its CDP target id.');
@@ -126,7 +135,7 @@ export class PageDebugger {
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       return object(await Promise.race([
-        this.contents.debugger.sendCommand(method, params, sessionId),
+        this.transport.debugger.sendCommand(method, params, sessionId),
         new Promise<never>((_resolve, reject) => {
           timer = setTimeout(() => reject(new BrowserError('timeout', `${method} timed out.`)), 30_000);
         }),
@@ -163,60 +172,76 @@ export class PageDebugger {
   /** Keep a background page renderable only while an agent operation is running. */
   async activity<T>(work: () => Promise<T>): Promise<T> {
     if (this.activityUsers === 0) {
-      this.activityReady = (async () => {
-        await this.initialize();
-        this.previousThrottling = this.contents.getBackgroundThrottling();
-        this.contents.setBackgroundThrottling(false);
-        await this.command('Emulation.setFocusEmulationEnabled', { enabled: true });
-        // A detached view needs a compositor turn before hit-testing a first click.
-        await this.evaluate('Promise.race([new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r))),new Promise(r=>setTimeout(r,250))])');
-      })();
+      this.activityReady = this.startActivity();
     }
     this.activityUsers += 1;
-    try { await this.activityReady; return await work(); }
-    finally {
-      this.activityUsers -= 1;
-      if (this.activityUsers === 0 && !this.disposed && !this.contents.isDestroyed()) {
-        try {
-          if (this.contents.debugger.isAttached()) await this.send('Emulation.setFocusEmulationEnabled', { enabled: false });
-        } catch {
-          // Navigation/DevTools may detach the debugger while the call unwinds.
-        } finally { if (!this.disposed && !this.contents.isDestroyed()) this.contents.setBackgroundThrottling(this.previousThrottling); }
-        this.activityReady = undefined;
+    try {
+      await this.activityReady;
+      return await work();
+    } finally {
+      this.activityUsers = Math.max(0, this.activityUsers - 1);
+      if (this.activityUsers === 0) await this.stopActivity();
+    }
+  }
+
+  private async startActivity(): Promise<void> {
+    await this.initialize();
+    this.activityLease = await this.transport.acquireActivity();
+    await this.command('Emulation.setFocusEmulationEnabled', { enabled: true });
+    // A detached view needs a compositor turn before hit-testing a first click.
+    await this.evaluate('Promise.race([new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r))),new Promise(r=>setTimeout(r,250))])');
+  }
+
+  private async stopActivity(): Promise<void> {
+    const lease = this.activityLease;
+    this.activityLease = undefined;
+    try {
+      if (!this.disposed && !this.transport.isDestroyed() && this.transport.debugger.isAttached()) {
+        await this.send('Emulation.setFocusEmulationEnabled', { enabled: false });
       }
+    } catch {
+      // Navigation/DevTools may detach the debugger while the call unwinds.
+    } finally {
+      if (lease) await lease.release();
+      this.activityReady = undefined;
     }
   }
 
   async screenshot(options: BrowserObject = {}): Promise<BrowserObject> {
-    return captureScreenshot(this, options, async (format, quality) => {
-      let timer: ReturnType<typeof setTimeout> | undefined;
-      const image = await Promise.race([
-        this.contents.capturePage(undefined, { stayHidden: true }),
-        new Promise<never>((_resolve, reject) => { timer = setTimeout(() => reject(new BrowserError('timeout', 'Browser capture timed out.')), 15_000); }),
-      ]).finally(() => clearTimeout(timer));
-      if (image.isEmpty()) throw new BrowserError('host_error', 'The browser returned an empty screenshot.');
-      return (format === 'jpeg' ? image.toJPEG(quality) : image.toPNG()).toString('base64');
-    });
+    return captureScreenshot(this, options, this.transport.captureViewport
+      ? (format, quality) => this.transport.captureViewport!(format, quality)
+      : undefined);
   }
 
   frameTargets(): string[] { return [...this.frames.keys()]; }
 
   async printToPDF(): Promise<BrowserObject> {
-    if (this.disposed || this.contents.isDestroyed()) throw new BrowserError('stale_tab', 'The browser page is closed.');
-    const pdf = await this.contents.printToPDF({ printBackground: true });
-    if (!pdf.length) throw new BrowserError('host_error', 'Electron returned an empty PDF.');
-    return { data: pdf.toString('base64') };
+    if (this.disposed || this.transport.isDestroyed()) throw new BrowserError('stale_tab', 'The browser page is closed.');
+    if (this.transport.printToPDF) {
+      const pdf = await this.transport.printToPDF();
+      if (!pdf.length) throw new BrowserError('host_error', 'The browser returned an empty PDF.');
+      return { data: Buffer.from(pdf).toString('base64') };
+    }
+    const result = await this.command('Page.printToPDF', { printBackground: true });
+    const data = String(result.data ?? '');
+    if (!data) throw new BrowserError('host_error', 'The browser returned an empty PDF.');
+    return { data };
   }
 
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
-    // A destroyed WebContents throws on every property getter, `.debugger`
-    // included, so the listener teardown must be skipped wholesale.
-    if (!this.contents.isDestroyed()) {
-      this.contents.debugger.removeListener('message', this.onMessage);
-      this.contents.debugger.removeListener('detach', this.onDetach);
-      if (this.contents.debugger.isAttached()) this.contents.debugger.detach();
+    const lease = this.activityLease;
+    this.activityLease = undefined;
+    if (lease) void lease.release();
+    this.activityReady = undefined;
+    // A destroyed page throws on every property getter, so the listener
+    // teardown must be skipped wholesale.
+    if (!this.transport.isDestroyed()) {
+      const channel = this.transport.debugger;
+      channel.removeListener('message', this.onMessage);
+      channel.removeListener('detach', this.onDetach);
+      if (channel.isAttached()) channel.detach();
     }
     this.frames.clear();
     this.listeners.clear();
