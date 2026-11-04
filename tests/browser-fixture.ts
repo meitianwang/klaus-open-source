@@ -258,6 +258,31 @@ async function main(): Promise<number> {
     assertEqual(pageA.view.getBounds().x, 120, 'new layout applied');
   });
 
+  h.test('a modal overlay gets a still of the shown page, creates no page and takes keyboard focus back', async () => {
+    const before = manager.listPages('A').map(page => page.id);
+    const still = await invoke('browser-use:screenshot', { presented: true, quality: 70 });
+    assertEqual(still.ok, true, `presented capture: ${JSON.stringify(still).slice(0, 200)}`);
+    assertEqual(still.tabId, pageA.id, 'the capture names the page on screen');
+    const size = nativeImage.createFromDataURL(String(still.dataUrl)).getSize();
+    assert(size.width > 0 && size.height > 0, 'the still decodes to a real image');
+    app.focus({ steal: true }); window.focus(); pageA.view.webContents.focus();
+    await waitFor(() => pageA.view.webContents.isFocused(), 3000, 'the page holds keyboard focus');
+    await invoke('browser-use:hide');
+    await waitFor(() => window.webContents.isFocused(), 3000, 'the window page takes focus back for its dialog');
+    assert(!pageA.view.webContents.isFocused(), 'the detached page no longer receives keys');
+    const hidden = await invoke('browser-use:screenshot', { presented: true });
+    assertEqual(hidden.ok, false, 'nothing on screen means nothing to capture');
+    assertEqual(hidden.code, 'not_found', 'a precise refusal');
+    manager.setConversation('empty-task');
+    const empty = await invoke('browser-use:screenshot', { presented: true });
+    assertEqual(empty.ok, false, 'an empty task is refused too');
+    assertDeepEqual(manager.listPages('empty-task'), [], 'the capture never creates a blank page');
+    manager.setConversation('A');
+    assertDeepEqual(manager.listPages('A').map(page => page.id), before, 'the task keeps exactly its pages');
+    await invoke('browser-use:show', { sessionId: 'A', focusRevision: manager.focusRevision, bounds: { x: 120, y: 110, width: 650, height: 480 } });
+    assert(window.contentView.children.includes(pageA.view), 'the page returns after the overlay');
+  });
+
   h.test('task switches reject old scopes and foreign handles while background work keeps its own page', async () => {
     const revision = manager.focusRevision;
     manager.setConversation('B');

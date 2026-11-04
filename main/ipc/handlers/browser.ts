@@ -95,6 +95,9 @@ export function registerBrowserHandlers(registry: ChannelRegistry, deps: Browser
   });
   register('browser-use:screenshot', async fields => {
     const owner = manager.conversationId;
+    // The work panel's still of the page on screen, laid under HTML overlays.
+    // It must not reach ensurePage: an empty panel would gain a blank tab.
+    if (fields.presented === true) return { ...manager.ok(owner), ...(await manager.capturePresented(fields)) };
     const page = await manager.ensurePage(owner);
     const image = await page.cdp.activity(() => page.cdp.screenshot(fields));
     return { ...manager.ok(owner), dataUrl: image.dataUrl };

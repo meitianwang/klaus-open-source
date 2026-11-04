@@ -484,12 +484,41 @@ export class BrowserManager {
     if (!this.shown) return;
     const page = this.shown;
     this.shown = undefined;
-    if (!this.options.window.isDestroyed()) this.options.window.contentView.removeChildView(page.view);
+    const window = this.options.window;
+    // Keyboard focus stays with a WebContents after its view leaves the window.
+    // Hand it back to the window's own page, or a dialog that took the browser's
+    // place on screen never receives Enter or Escape.
+    const focused = this.alive(page) && page.view.webContents.isFocused();
+    if (!window.isDestroyed()) window.contentView.removeChildView(page.view);
     if (!this.disposed && !this.parking.isDestroyed() && this.alive(page)) {
       this.parking.contentView.addChildView(page.view);
       const bounds = page.view.getBounds();
       page.view.setBounds({ ...bounds, x: 0, y: 0 });
     }
+    if (focused && !window.isDestroyed() && window.isFocused()) window.webContents.focus();
+  }
+
+  /**
+   * A still image of the page that is on screen right now. The renderer lays it
+   * under the native view before an HTML overlay asks the view to step aside, so
+   * the panel dims with the rest of the window instead of turning blank. It reads
+   * the view's own compositor output and never creates, selects or wakes a page.
+   */
+  async capturePresented(fields: BrowserObject = {}): Promise<BrowserObject> {
+    const page = this.shown;
+    const window = this.options.window;
+    if (!page || !this.alive(page) || window.isDestroyed() || !window.isVisible() || window.isMinimized()) {
+      throw new BrowserError('not_found', 'No browser page is on screen.');
+    }
+    const quality = typeof fields.quality === 'number' && Number.isInteger(fields.quality) && fields.quality >= 0 && fields.quality <= 100 ? fields.quality : 80;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const image = await Promise.race([
+      page.view.webContents.capturePage(),
+      new Promise<never>((_resolve, reject) => { timer = setTimeout(() => reject(new BrowserError('timeout', 'Browser capture timed out.')), 1500); }),
+    ]).finally(() => clearTimeout(timer));
+    if (this.shown !== page || !this.alive(page)) throw new BrowserError('stale_tab', 'The page left the screen while it was captured.');
+    if (image.isEmpty()) throw new BrowserError('host_error', 'The browser returned an empty capture.');
+    return { tabId: page.id, dataUrl: `data:image/jpeg;base64,${image.toJPEG(quality).toString('base64')}` };
   }
 
   private present(): void {

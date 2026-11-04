@@ -6,3 +6,7 @@ declare module '*?suite=overlay' {
   const surface: any
   export = surface
 }
+declare module '*?suite=overlay-still' {
+  const surface: any
+  export = surface
+}

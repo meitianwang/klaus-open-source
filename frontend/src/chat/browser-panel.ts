@@ -31,7 +31,7 @@ interface BrowserUseState {
   contentWidth?: number
   contentRevision?: number
 }
-interface BrowserOpResult { ok?: boolean; error?: string; state?: BrowserUseState }
+interface BrowserOpResult { ok?: boolean; error?: string; state?: BrowserUseState; dataUrl?: string }
 interface KlausBrowserApi {
   browserUse?: {
     state?: () => Promise<BrowserUseState>
@@ -42,7 +42,7 @@ interface KlausBrowserApi {
     back?: () => Promise<BrowserOpResult>
     forward?: () => Promise<BrowserOpResult>
     reload?: () => Promise<BrowserOpResult>
-    screenshot?: () => Promise<BrowserOpResult>
+    screenshot?: (options?: { presented?: boolean; quality?: number }) => Promise<BrowserOpResult>
     tabs?: (req: { action: 'select' | 'new' | 'close'; tabId?: string; url?: string }) => Promise<BrowserOpResult>
   }
   settings?: {
@@ -93,6 +93,25 @@ let browserSessionGeneration = 0
 let browserRuntimeShowCount = 0
 let browserStatePushRevision = 0
 let browserTabOpenRevision = 0
+// Overlay suspension is counted: nested overlays share one hide, and the
+// native view returns only after the last of them is gone.
+let browserRuntimeSuspendedForOverlay = 0
+// Bumped by every suspend and resume edge so an asynchronous step that lost
+// the race (a capture still in flight when the dialog already closed) stops.
+let browserOverlayEpoch = 0
+// Whether the page has to come back when the last overlay leaves: it was on
+// screen when the overlay arrived, or a show was requested underneath it.
+let browserOverlayRestore = false
+let browserOverlaySnapshot: HTMLImageElement | null = null
+interface BrowserShowRequest { scope: BrowserUseOpenRequest; isCurrent(): boolean; revision: number }
+let browserShowRevision = 0
+let browserOpeningRequest: BrowserShowRequest | null = null
+let browserDeferredShow: BrowserShowRequest | null = null
+
+function deferBrowserShow(request: BrowserShowRequest): void {
+  browserOverlayRestore = true
+  if (!browserDeferredShow || browserDeferredShow.revision <= request.revision) browserDeferredShow = request
+}
 
 function browserOpenSurface() {
   return {
@@ -102,6 +121,55 @@ function browserOpenSurface() {
       && !document.body.classList.contains('settings-open')
       && !document.querySelector('#diff-view.active, #workspace-main-view.active'),
   }
+}
+
+function nextFrame(): Promise<void> {
+  return new Promise(resolve => requestAnimationFrame(() => resolve()))
+}
+
+function withinMs<T>(work: Promise<T> | undefined, ms: number): Promise<T | undefined> {
+  if (!work) return Promise.resolve(undefined)
+  return new Promise(resolve => {
+    const timer = setTimeout(() => resolve(undefined), ms)
+    work.then(value => { clearTimeout(timer); resolve(value) }, () => { clearTimeout(timer); resolve(undefined) })
+  })
+}
+
+function clearBrowserOverlaySnapshot(): void {
+  browserOverlaySnapshot?.remove()
+  browserOverlaySnapshot = null
+}
+
+/**
+ * Lay a still image of the on-screen page into the panel before the native view
+ * steps aside, so an overlay's backdrop dims and blurs the page like the rest of
+ * the window instead of exposing an empty panel. Bounded: when the capture is
+ * slow or fails, the view leaves anyway, because a page painted over a dialog
+ * is the worse outcome.
+ */
+async function placeBrowserOverlaySnapshot(epoch: number): Promise<void> {
+  const capture = klausApi()?.browserUse?.screenshot
+  if (!browserPanelHost || !capture) return
+  const generation = browserSessionGeneration
+  const sessionId = browserOpenSurface().sessionId
+  const tabId = browserState?.tabId
+  const current = () => epoch === browserOverlayEpoch && generation === browserSessionGeneration
+    && sessionId === browserOpenSurface().sessionId && tabId === browserState?.tabId && isBrowserPanelVisible()
+  const res = await withinMs(capture({ presented: true, quality: 82 }), 300)
+  if (!current() || !res?.ok || typeof res.dataUrl !== 'string' || !res.dataUrl) return
+  const image = document.createElement('img')
+  image.className = 'browser-overlay-snapshot'
+  image.alt = ''
+  image.setAttribute('aria-hidden', 'true')
+  image.draggable = false
+  image.src = res.dataUrl
+  await withinMs(image.decode?.(), 200)
+  if (!current()) return
+  clearBrowserOverlaySnapshot()
+  browserPanelHost.appendChild(image)
+  browserOverlaySnapshot = image
+  // One painted frame with the image in place before the native view leaves.
+  await nextFrame()
 }
 
 function sameBounds(a: BrowserBounds | null, b: BrowserBounds | null): boolean {
@@ -118,6 +186,9 @@ export function isBrowserPanelVisible(): boolean {
 
 export function updateBrowserPanelState(state: BrowserUseState | null = browserState): boolean {
   if (state && !acceptBrowserViewState(state)) return false
+  if (state && (state.tabId !== browserState?.tabId || state.conversationId !== browserState?.conversationId)) {
+    clearBrowserOverlaySnapshot()
+  }
   browserState = state || browserState
   const current = browserState || {}
   browserPanelHost?.classList.toggle('browser-mounted', !!current.visible)
@@ -186,6 +257,7 @@ export function scheduleBrowserBoundsSync(): void {
   browserBoundsRaf = requestAnimationFrame(async () => {
     browserBoundsRaf = 0
     if (!isBrowserPanelVisible()) {
+      clearBrowserOverlaySnapshot()
       await hideBrowserRuntime()
       return
     }
@@ -205,18 +277,32 @@ export function scheduleBrowserBoundsSync(): void {
 }
 
 async function showBrowserRuntime(scope?: BrowserUseOpenRequest, isCurrent: () => boolean = () => true): Promise<boolean> {
+  const generation = browserSessionGeneration
+  const sessionId = browserOpenSurface().sessionId || 'manual'
+  const request: BrowserShowRequest = {
+    scope: { sessionId, ...(browserState?.conversationId === sessionId ? { focusRevision: browserState.focusRevision } : {}), ...scope },
+    isCurrent: () => isCurrent() && generation === browserSessionGeneration
+      && sessionId === (browserOpenSurface().sessionId || 'manual') && isBrowserPanelVisible(),
+    revision: ++browserShowRevision,
+  }
+  if (!request.isCurrent()) return false
+  // Keep the exact target and ownership guard when an overlay defers an open.
+  if (browserRuntimeSuspendedForOverlay > 0) { deferBrowserShow(request); return false }
   // Creating a page publishes hidden tab state before show completes. Keep
   // automatic recovery from superseding that explicit, still-pending request.
   browserRuntimeShowCount++
+  browserOpeningRequest = request
   try {
-    return await performBrowserRuntimeShow(scope, isCurrent)
+    return await performBrowserRuntimeShow(request)
   } finally {
     browserRuntimeShowCount--
+    if (browserOpeningRequest === request) browserOpeningRequest = null
   }
 }
 
-async function performBrowserRuntimeShow(scope: BrowserUseOpenRequest | undefined, isCurrent: () => boolean): Promise<boolean> {
-  if (!isCurrent()) return false
+async function performBrowserRuntimeShow(request: BrowserShowRequest): Promise<boolean> {
+  const { scope, isCurrent } = request
+  const epoch = browserOverlayEpoch
   let settings: any
   try {
     settings = await klausApi()?.settings?.browserUse?.get?.()
@@ -229,17 +315,29 @@ async function performBrowserRuntimeShow(scope: BrowserUseOpenRequest | undefine
     showToast(tt('browser_disabled'))
     return false
   }
+  // The settings read above yields, and an overlay may have arrived meanwhile.
+  if (browserRuntimeSuspendedForOverlay > 0) { deferBrowserShow(request); return false }
   const bounds = browserHostBounds()
   if (!bounds) return false
-  const sessionId = browserOpenSurface().sessionId || 'manual'
-  const effectiveScope = scope || {
-    sessionId,
-    ...(browserState?.conversationId === sessionId ? { focusRevision: browserState.focusRevision } : {}),
-  }
-  const res = await klausApi()?.browserUse?.show?.(bounds, effectiveScope).catch((err: unknown): BrowserOpResult => ({ ok: false, error: (err as Error | null)?.message || String(err) }))
+  const res = await klausApi()?.browserUse?.show?.(bounds, scope).catch((err: unknown): BrowserOpResult => ({ ok: false, error: (err as Error | null)?.message || String(err) }))
   if (!isCurrent()) return false
   if (!res?.ok) {
+    // An overlay that arrived while this show was in flight hid the view, which
+    // supersedes the request on the host. That is not a failure to report: the
+    // page comes back when the overlay leaves.
+    if (epoch !== browserOverlayEpoch || browserRuntimeSuspendedForOverlay > 0) {
+      if (browserRuntimeSuspendedForOverlay > 0) deferBrowserShow(request)
+      return false
+    }
     showToast(res?.error || tt('browser_open_failed'))
+    return false
+  }
+  // The host completed the show just before an overlay's hide reached it. The
+  // overlay wins; the page returns with the overlay's resume.
+  if (browserRuntimeSuspendedForOverlay > 0) {
+    deferBrowserShow(request)
+    updateBrowserPanelState(res.state || null)
+    await hideBrowserRuntime({ ensureDetached: true })
     return false
   }
   // Avoid a redundant native layout pass after the view has been attached.
@@ -249,8 +347,16 @@ async function performBrowserRuntimeShow(scope: BrowserUseOpenRequest | undefine
 }
 
 export async function showBrowserPanel(scope?: BrowserUseOpenRequest): Promise<void> {
-  const isCurrent = browserOpenGuard(scope, browserOpenSurface)
-  if (!isCurrent()) return
+  const opening = browserOpenSurface()
+  const validScope = browserOpenGuard(scope, browserOpenSurface)
+  if (!validScope()) return
+  // Manual opens are owned by the task that initiated them too, including the
+  // two layout frames before showBrowserRuntime begins.
+  const isCurrent = () => {
+    const current = browserOpenSurface()
+    return validScope() && opening.sessionId === current.sessionId
+      && opening.generation === current.generation && current.visible
+  }
   deps.closeSettingsIfActive()
   deps.hideNonChatViews()
   // Not hideDiffView: switching to a browser page leaves the changes tab open.
@@ -268,6 +374,10 @@ export async function showBrowserPanel(scope?: BrowserUseOpenRequest): Promise<v
 }
 
 export async function hideBrowserPanel(): Promise<void> {
+  clearBrowserOverlaySnapshot()
+  browserOverlayEpoch++
+  browserOverlayRestore = false
+  browserDeferredShow = null
   if (isBrowserPanelMode()) deps.closeArtifactsPanel()
   await hideBrowserRuntime({ ensureDetached: true })
 }
@@ -296,22 +406,61 @@ export function initBrowserPanel(injected: BrowserPanelDeps): void {
   // Overlays nest (a menu opened from inside the image preview closes while the
   // preview is still up), so suspension is counted: the native view returns only
   // when the last overlay that asked for it is gone.
-  let browserRuntimeSuspendedForOverlay = 0
   w.klausSuspendBrowserForOverlay = async () => {
     browserRuntimeSuspendedForOverlay++
-    if (browserRuntimeSuspendedForOverlay > 1 || !browserRuntimeVisible()) return
-    await hideBrowserRuntime()
+    if (browserRuntimeSuspendedForOverlay > 1) return
+    const epoch = ++browserOverlayEpoch
+    // A show still in flight would attach the view after this point, so it
+    // counts as on screen: hiding now supersedes it on the host.
+    const pendingShow = browserRuntimeShowCount > 0
+    if (browserOpeningRequest) deferBrowserShow(browserOpeningRequest)
+    const onScreen = browserRuntimeVisible()
+    // A restore still owed by the previous overlay (it closed, and this one
+    // opened before the page came back) carries over to this overlay.
+    if (!onScreen && !pendingShow && !browserOverlayRestore) return
+    browserOverlayRestore = true
+    if (onScreen && !pendingShow) await placeBrowserOverlaySnapshot(epoch)
+    if (epoch !== browserOverlayEpoch) return
+    // Always reach the host: a state echo that landed during the capture can
+    // clear the local mounted flag while the native view is still attached.
+    // This is a single edge, so it cannot feed the frame loop the guard stops.
+    await hideBrowserRuntime({ ensureDetached: true })
   }
   w.klausResumeBrowserAfterOverlay = async () => {
     if (browserRuntimeSuspendedForOverlay <= 0) return
     browserRuntimeSuspendedForOverlay--
     if (browserRuntimeSuspendedForOverlay > 0) return
+    const epoch = ++browserOverlayEpoch
     // Menus close BEFORE the item they were clicked for runs, so wait one frame:
     // if that action moved the panel elsewhere (a new terminal, a closed panel),
     // re-showing the page here would only flash it back for a frame.
-    await new Promise(resolve => requestAnimationFrame(resolve))
-    if (!isBrowserPanelVisible()) return
-    await showBrowserRuntime()
+    await nextFrame()
+    // Another overlay arrived in that frame; it now owns the pending restore.
+    if (epoch !== browserOverlayEpoch) return
+    const restore = browserOverlayRestore
+    const deferred = browserDeferredShow
+    browserOverlayRestore = false
+    browserDeferredShow = null
+    const generation = browserSessionGeneration
+    const tabRevision = browserTabOpenRevision
+    const sessionId = browserOpenSurface().sessionId || 'manual'
+    const selectedTab = () => browserState?.tabId || browserState?.tabs?.find(tab => tab.active)?.id || browserState?.tabs?.[0]?.id
+    const targetId = selectedTab()
+    // A deferred explicit open retains its original target. Restoring a page
+    // instead always names an existing tab, so closing the last one while the
+    // settings read is in flight cannot create a replacement about:blank page.
+    if (isBrowserPanelVisible() && deferred?.isCurrent()) {
+      await showBrowserRuntime(deferred.scope, deferred.isCurrent)
+    } else if (restore && targetId && isBrowserPanelVisible()) {
+      await showBrowserRuntime({ sessionId, targetId, focusRevision: browserState?.focusRevision }, () =>
+        epoch === browserOverlayEpoch && generation === browserSessionGeneration
+        && tabRevision === browserTabOpenRevision && targetId === selectedTab()
+        && !!browserState?.tabs?.some(tab => tab.id === targetId))
+    } else if (browserState) {
+      reconcileBrowserState(browserState)
+    }
+    // The still image stays under the view until the view is attached again.
+    if (epoch === browserOverlayEpoch) clearBrowserOverlaySnapshot()
     scheduleBrowserBoundsSync()
   }
 
@@ -423,6 +572,11 @@ export function initBrowserPanel(injected: BrowserPanelDeps): void {
   window.addEventListener('klaus:session-change', () => {
     const generation = ++browserSessionGeneration
     invalidateBrowserFrames()
+    // The still image belongs to the previous task's page.
+    clearBrowserOverlaySnapshot()
+    browserOverlayEpoch++
+    browserOverlayRestore = false
+    browserDeferredShow = null
     // setConversation may emit before this event. Re-read its authoritative
     // revision without allowing an older task's response to restore its frame.
     void klausApi()?.browserUse?.state?.().then(state => {

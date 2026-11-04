@@ -9389,6 +9389,20 @@ body.non-chat-view .side-rail {
 .browser-panel-host.browser-mounted .browser-panel-empty {
   display: none;
 }
+/* A still image of the page, laid under the native view while a modal overlay
+   has asked the view to step aside, so the page dims with the rest of the window. */
+.browser-overlay-snapshot {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: fill;
+  background: var(--bg);
+  pointer-events: none;
+  user-select: none;
+}
 /* The built-in browser's Chromium renders in its own process, so the panel paints
    its frames here instead of hosting an OS view. It fills the same rectangle the
    native child view occupied, and takes pointer/key events so the page stays
