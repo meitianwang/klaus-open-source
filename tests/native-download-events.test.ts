@@ -374,3 +374,105 @@ test('release keeps native downloads alive for the profile and accepts later eve
     assert.equal(f.downloads.store.has('guid-later'), true, 'a later native event can still use the released owner');
   } finally { f.cleanup(); }
 });
+
+
+test('nativeRemoved reconciles Profile removal without a remove echo', () => {
+  const f = setup();
+  try {
+    f.downloads.nativeCreated(snapshot({ id: 'guid-removed' }));
+    f.downloads.nativeRemoved('guid-removed');
+    assert.equal(f.history.rows.has('guid-removed'), false);
+    assert.equal(f.downloads.store.has('guid-removed'), false);
+    assert.deepEqual(f.controller.actions, [], 'nativeRemoved must not call downloadAction(remove)');
+
+    f.downloads.nativeCreated(snapshot({ id: 'guid-removed' }));
+    f.downloads.nativeUpdated(snapshot({ id: 'guid-removed', state: 'completed' }));
+    assert.equal(f.history.rows.has('guid-removed'), false, 'late events after removal stay ignored');
+    assert.equal(f.history.creates, 1);
+  } finally { f.cleanup(); }
+});
+
+test('relative native suggestedPath never becomes the destination', async () => {
+  const f = setup();
+  try {
+    await f.downloads.resolveNativeTarget(target(f.directory, {
+      id: 'guid-relative', requestId: 'req-relative', suggestedPath: 'file.bin',
+    }));
+    assert.deepEqual(f.controller.decisions, [{
+      requestId: 'req-relative',
+      decision: { allow: true, path: join(f.directory, 'file.bin') },
+    }]);
+  } finally { f.cleanup(); }
+});
+
+test('failed native download with canResume reopens one explicit generation', async () => {
+  const f = setup();
+  try {
+    f.downloads.nativeCreated(snapshot({ id: 'guid-resume', canResume: true }));
+    f.downloads.nativeUpdated(snapshot({
+      id: 'guid-resume', state: 'failed', canResume: true, canCancel: true,
+    }));
+    const failed = historyItems(f.downloads).find(item => item.id === 'guid-resume')!;
+    assert.equal(failed.state, 'failed');
+    assert.equal(failed.canResume, true);
+    assert.equal(failed.canCancel, true);
+
+    const resumed = f.downloads.resume('guid-resume');
+    assert.equal(resumed.state, 'in_progress');
+    assert.deepEqual(f.controller.actions, [{ id: 'guid-resume', action: 'resume' }]);
+    assert.equal(f.history.creates, 1, 'resume does not duplicate the history row');
+
+    const wait = f.downloads.store.wait('page-1', { downloadId: 'guid-resume' }, 100);
+    f.downloads.nativeUpdated(snapshot({
+      id: 'guid-resume', state: 'completed', receivedBytes: 100,
+      canPause: false, canResume: false, canCancel: false,
+    }));
+    const completed = await wait;
+    assert.equal(completed.status, 'completed');
+    assert.equal(f.history.rows.get('guid-resume')?.state, 'completed');
+  } finally { f.cleanup(); }
+});
+
+test('failed native download can be canceled only when nativeCanCancel', () => {
+  const f = setup();
+  try {
+    f.downloads.nativeCreated(snapshot({ id: 'guid-fail-cancel' }));
+    f.downloads.nativeUpdated(snapshot({
+      id: 'guid-fail-cancel', state: 'failed', canResume: true, canCancel: true,
+    }));
+    const canceled = f.downloads.cancel('guid-fail-cancel');
+    assert.equal(canceled.state, 'canceled');
+    assert.equal(f.history.rows.get('guid-fail-cancel')?.state, 'canceled');
+    assert.deepEqual(f.controller.actions, [{ id: 'guid-fail-cancel', action: 'cancel' }]);
+  } finally { f.cleanup(); }
+});
+
+test('invalid terminal native actions throw without controller calls', () => {
+  const f = setup();
+  try {
+    f.downloads.nativeCreated(snapshot({ id: 'guid-invalid' }));
+    f.downloads.nativeUpdated(snapshot({
+      id: 'guid-invalid', state: 'failed', canResume: false, canCancel: false,
+    }));
+    assert.throws(() => f.downloads.resume('guid-invalid'), /cannot be resumed/u);
+    assert.throws(() => f.downloads.cancel('guid-invalid'), /cannot be canceled/u);
+    assert.deepEqual(f.controller.actions, []);
+  } finally { f.cleanup(); }
+});
+
+test('late native snapshots cannot reopen completed or canceled entries', () => {
+  const f = setup();
+  try {
+    f.downloads.nativeCreated(snapshot({ id: 'guid-late' }));
+    f.downloads.nativeUpdated(snapshot({ id: 'guid-late', state: 'completed', canResume: false }));
+    f.downloads.nativeUpdated(snapshot({ id: 'guid-late', state: 'in_progress', canResume: true }));
+    assert.equal(f.downloads.store.get('guid-late')?.state, 'completed');
+    assert.equal(f.history.rows.get('guid-late')?.state, 'completed');
+
+    f.downloads.nativeCreated(snapshot({ id: 'guid-late-canceled' }));
+    f.downloads.nativeUpdated(snapshot({ id: 'guid-late-canceled', state: 'canceled', canCancel: false }));
+    f.downloads.nativeUpdated(snapshot({ id: 'guid-late-canceled', state: 'paused', canResume: true }));
+    assert.equal(f.downloads.store.get('guid-late-canceled')?.state, 'canceled');
+    assert.equal(f.history.rows.get('guid-late-canceled')?.state, 'canceled');
+  } finally { f.cleanup(); }
+});

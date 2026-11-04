@@ -1,7 +1,7 @@
 import type { DownloadItem } from 'electron';
 import { existsSync, mkdirSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
-import { dirname, extname, join } from 'node:path';
+import { dirname, extname, isAbsolute, join } from 'node:path';
 import { DownloadChangeCoalescer, DownloadStore, aborted, downloadFilename, saveDownload, suggestedFilename, withAbort } from './downloads';
 import { downloadPageMedia, namesMedia } from './page-download';
 import { BrowserError, type BrowserObject } from './types';
@@ -291,6 +291,21 @@ export class NativeDownloads {
     });
   }
 
+  /** Reconcile a Profile removal without echoing a native remove action. */
+  nativeRemoved(id: string): void {
+    const normalized = typeof id === 'string' ? id.trim() : '';
+    if (!normalized || this.removedNative.has(normalized)) return;
+    this.removedNative.add(normalized);
+    this.cancelNativeTargets({ id: normalized });
+    if (this.store.has(normalized)) {
+      if (!this.store.settled(normalized)) this.store.cancel(normalized);
+      this.store.remove(normalized);
+    }
+    this.options.history.removeDownload(normalized);
+    this.nativeRecords.delete(normalized);
+    this.nativeSnapshots.delete(normalized);
+  }
+
   /**
    * Authorize and choose a path for a native Profile target. The native side
    * owns the original request and bytes; this method only resolves the paused
@@ -336,13 +351,15 @@ export class NativeDownloads {
       const directory = this.options.directory();
       mkdirSync(directory, { recursive: true, mode: 0o700 });
       const filename = downloadFilename(target.filename, suggestedFilename(target.url));
-      const suggested = typeof target.suggestedPath === 'string' && target.suggestedPath ? target.suggestedPath : undefined;
+      const suggested = typeof target.suggestedPath === 'string' && isAbsolute(target.suggestedPath)
+        ? target.suggestedPath
+        : undefined;
       const manual = requiresAuthorization !== true && target.isActorVisit !== true;
       const prompt = manual && this.options.promptForUserDownloads?.() === true && !!this.options.chooseDownloadPath;
       let path: string;
       if (prompt) {
         const chosen = await withAbort(Promise.resolve(this.options.chooseDownloadPath!({ defaultPath: suggested ?? join(directory, filename), filename, url: target.url })), abort.signal);
-        if (!chosen) { settle(false); return; }
+        if (!chosen || !isAbsolute(chosen)) { settle(false); return; }
         path = chosen;
       } else {
         path = suggested ?? uniqueDownloadPath(directory, filename);
@@ -581,8 +598,29 @@ export class NativeDownloads {
     const entry = this.options.history.download(id);
     if (!entry) throw new BrowserError('not_found', 'The download does not exist.');
     if (this.nativeRecords.has(id)) {
-      if (entry.state !== 'paused') throw new BrowserError('unavailable', 'This download cannot be resumed.');
-      this.nativeAction(id, 'resume');
+      const snapshot = this.nativeSnapshots.get(id);
+      const resumable = entry.state === 'paused' || (entry.state === 'failed' && snapshot?.canResume === true);
+      if (!resumable) throw new BrowserError('unavailable', 'This download cannot be resumed.');
+      if (entry.state === 'failed') {
+        const reopened = this.store.reopenNative(id, {
+          status: 'in_progress',
+          state: 'in_progress',
+          canPause: snapshot?.canPause === true,
+          canResume: true,
+          canCancel: snapshot?.canCancel === true,
+        });
+        if (!reopened) throw new BrowserError('unavailable', 'This download cannot be resumed.');
+        this.options.history.updateDownload(id, { status: 'in_progress', error: '' });
+      }
+      try { this.nativeAction(id, 'resume'); }
+      catch (error) {
+        this.store.applyNative(id, { status: 'failed', state: 'failed', error: error instanceof Error ? error.message : String(error), canResume: true });
+        throw error;
+      }
+      if (entry.state === 'paused') {
+        this.store.update(id, { status: 'in_progress', state: 'in_progress' });
+        this.options.history.updateDownload(id, { status: 'in_progress', error: '' });
+      }
       return this.entry(id);
     }
     const item = this.items.get(id);
@@ -595,12 +633,23 @@ export class NativeDownloads {
   cancel(id: string): BrowserObject {
     const entry = this.options.history.download(id);
     if (!entry) throw new BrowserError('not_found', 'The download does not exist.');
-    if (entry.state !== 'in_progress' && entry.state !== 'paused') throw new BrowserError('unavailable', 'Only an active download can be canceled.');
     if (this.nativeRecords.has(id)) {
+      const snapshot = this.nativeSnapshots.get(id);
+      const canCancel = entry.state === 'in_progress'
+        || entry.state === 'paused'
+        || (entry.state === 'failed' && snapshot?.canCancel === true);
+      if (!canCancel) throw new BrowserError('unavailable', 'This download cannot be canceled.');
       this.cancelNativeTargets({ id });
       this.nativeAction(id, 'cancel');
+      if (entry.state === 'failed') {
+        this.store.update(id, { status: 'canceled', state: 'canceled', canPause: false, canResume: false, canCancel: false });
+        this.options.history.updateDownload(id, { status: 'canceled', error: '', finishedAt: Date.now() });
+      } else {
+        this.store.cancel(id);
+      }
       return this.entry(id);
     }
+    if (entry.state !== 'in_progress' && entry.state !== 'paused') throw new BrowserError('unavailable', 'Only an active download can be canceled.');
     const item = this.items.get(id);
     try { item?.cancel(); } catch { /* The item may have reached a terminal state. */ }
     this.store.cancel(id);
@@ -647,8 +696,8 @@ export class NativeDownloads {
     if (native) {
       return {
         canPause: state === 'in_progress' && native.canPause,
-        canResume: state === 'paused' && native.canResume,
-        canCancel: (state === 'in_progress' || state === 'paused') && native.canCancel,
+        canResume: (state === 'paused' || state === 'failed') && native.canResume,
+        canCancel: (state === 'in_progress' || state === 'paused' || state === 'failed') && native.canCancel,
       };
     }
     const item = this.items.get(id);
