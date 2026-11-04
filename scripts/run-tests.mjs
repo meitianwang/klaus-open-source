@@ -1,12 +1,17 @@
 import { spawn } from 'node:child_process';
-import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
+import { resolveElectronRuntime } from './electron-runtime-resolver.mjs';
 import { prepareTestEngine } from './prepare-test-engine.mjs';
 
-const require = createRequire(import.meta.url);
-const executable = require('electron');
 const root = fileURLToPath(new URL('..', import.meta.url));
+// Node-only suites intentionally use the stock runtime unless a native runtime is
+// selected explicitly. ELECTRON_RUN_AS_NODE still owns the worker process.
+const executable = (await resolveElectronRuntime({
+  appDirectory: root,
+  mode: process.env.KLAUS_ELECTRON_RUNTIME_MODE ?? 'stock',
+  env: process.env,
+})).executable;
 const suites = [
   'source-isolation', 'source-selection-memory', 'antigravity', 'trae', 'kiro', 'media-inputs', 'composer-predictions', 'prediction-query', 'owned-edit-menu', 'menu-diagnostics', 'native-content-find',
   'browser-file-upload', 'browser-file-upload-extension', 'browser-debugger-session', 'browser-settings', 'browser-history', 'browser-input-cancellation', 'browser-profile-import', 'browser-profile-import-service',
