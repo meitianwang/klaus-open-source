@@ -1,7 +1,7 @@
 {
   "summary": {
-    "invokeDeclared": 724,
-    "pushDeclared": 76
+    "invokeDeclared": 727,
+    "pushDeclared": 78
   },
   "rows": [
     {
@@ -2089,6 +2089,18 @@
       "kind": "invoke"
     },
     {
+      "channel": "settings:browser-profile-import:cancel",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:browser-profile-import:discover",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:browser-profile-import:start",
+      "kind": "invoke"
+    },
+    {
       "channel": "settings:browser-use:add-origin",
       "kind": "invoke"
     },
@@ -3145,7 +3157,15 @@
       "kind": "push"
     },
     {
+      "channel": "settings:browser-profile-import:changed",
+      "kind": "push"
+    },
+    {
       "channel": "settings:browser-use:changed",
+      "kind": "push"
+    },
+    {
+      "channel": "settings:browser-use:manager-state",
       "kind": "push"
     },
     {

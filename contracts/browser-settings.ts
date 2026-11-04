@@ -12,11 +12,29 @@ export const WEB_URL_TARGET_KEY = 'browser:site_open_target';
 export const LOCAL_URL_TARGET_KEY = 'browser:local_site_open_target';
 
 /** Native management surfaces hosted by the browser's own WebUI. */
-export const BROWSER_MANAGER_SURFACES = ['passwords', 'autofill', 'extensions', 'siteSettings', 'import'] as const;
+export const NATIVE_MANAGER_SURFACES = ['passwords', 'autofill', 'extensions', 'siteSettings'] as const;
+export type NativeManagerSurface = typeof NATIVE_MANAGER_SURFACES[number];
+export const BROWSER_MANAGER_SURFACES = [...NATIVE_MANAGER_SURFACES, 'import'] as const;
 export type BrowserManagerSurface = typeof BROWSER_MANAGER_SURFACES[number];
-export type BrowserManagerAction = 'open' | 'bounds' | 'close';
+export type BrowserManagerTheme = 'light' | 'dark';
+export type BrowserManagerAction = 'open' | 'bounds' | 'close' | 'navigate' | 'back' | 'forward' | 'theme';
 export interface BrowserManagerBounds { x: number; y: number; width: number; height: number }
-export interface BrowserManagerOptions { action?: BrowserManagerAction; bounds?: BrowserManagerBounds; viewId?: string }
+export interface BrowserManagerOptions {
+  action?: BrowserManagerAction;
+  bounds?: BrowserManagerBounds;
+  viewId?: string;
+  url?: string;
+  theme?: BrowserManagerTheme;
+}
+/** A state push from the host after load, navigation or title resolution. */
+export interface BrowserManagerState {
+  surface: BrowserManagerSurface;
+  viewId: string;
+  url: string;
+  title: string | null;
+  canGoBack: boolean;
+  canGoForward: boolean;
+}
 
 export interface BrowserSettingsSnapshot {
   /** Agent/plugin authorization. */

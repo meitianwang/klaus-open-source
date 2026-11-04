@@ -303,12 +303,73 @@
   justify-content: space-between;
   gap: 12px;
 }
-.browser-native-pane {
+.browser-native-shell {
+  display: flex;
+  flex-direction: column;
   width: 100%;
   min-height: 360px;
   height: calc(100vh - var(--titlebar-height) - 240px);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+  overflow: hidden;
+}
+.browser-native-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 40px;
+  padding: 0 8px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-elevated);
+}
+.browser-native-nav {
+  display: flex;
+  flex: none;
+  gap: 2px;
+}
+.browser-native-nav button {
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  cursor: pointer;
+}
+.browser-native-nav button:hover { background: color-mix(in srgb, var(--fg) 5%, transparent); }
+.browser-native-nav button:disabled { color: var(--fg-tertiary); cursor: default; background: transparent; }
+.browser-native-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--fg-secondary);
+  font-size: var(--text-small);
+}
+.browser-native-crumb {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.browser-native-crumb:disabled { color: var(--fg); cursor: default; }
+.browser-native-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg);
+}
+.browser-native-pane {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
   background: var(--bg-elevated);
   overflow: hidden;
 }

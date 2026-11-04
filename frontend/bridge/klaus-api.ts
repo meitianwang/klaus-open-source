@@ -26,7 +26,9 @@ import type { FriendsSnapshot, FriendProfile, FriendsRuntimeSnapshot, FriendApps
 import type { BrowserTabMention } from '../../shared/browser-tab-mention'
 import type { SessionMentionPage, SessionMentionRequest } from '../../shared/session-mentions'
 import type { SiteOpenRequest, SiteOpenResult, SiteOpenTargets } from '../../contracts/browser-sites'
-import type { BrowserManagerOptions, BrowserManagerSurface } from '../../contracts/browser-settings'
+import type { BrowserManagerOptions, BrowserManagerState, BrowserManagerSurface } from '../../contracts/browser-settings'
+import type { BrowserDiscoveryResult, BrowserImportRequest } from '../../contracts/browser-import'
+import type { BrowserImportJobHandle, BrowserImportJobSnapshot } from '../../contracts/browser-import-jobs'
 import type { DesktopDistribution } from '../../shared/desktop-edition'
 import { desktopDistribution } from '../src/app/distribution'
 import type { DiffOptions } from '../../contracts/git-changes'
@@ -952,6 +954,12 @@ expose('klaus', {
       get: (source: string) => call('settings:music-gen:get', { source }),
       set: (config: { source: string; model?: string }) => call('settings:music-gen:set', config),
     },
+    browserProfileImport: {
+      discover: (): Promise<BrowserDiscoveryResult> => call('settings:browser-profile-import:discover'),
+      start: (request: BrowserImportRequest): Promise<BrowserImportJobHandle> => call('settings:browser-profile-import:start', request),
+      cancel: (jobId: string) => call('settings:browser-profile-import:cancel', { jobId }),
+      subscribe: (listener: (snapshot: BrowserImportJobSnapshot) => void): Unsubscribe => subscribe('settings:browser-profile-import:changed', listener),
+    },
     browserUse: {
       get: () => call('settings:browser-use:get'),
       subscribe: (listener: (snapshot: any) => void): Unsubscribe => subscribe('settings:browser-use:changed', listener),
@@ -966,6 +974,7 @@ expose('klaus', {
       downloadAction: (action: string, id: string) => call('settings:browser-use:download-action', { action, id }),
       chooseDownloadDirectory: () => call('settings:browser-use:choose-download-directory'),
       openManager: (surface: BrowserManagerSurface, options: BrowserManagerOptions = {}) => call('settings:browser-use:open-manager', { surface, ...options }),
+      onManagerState: (listener: (state: BrowserManagerState) => void): Unsubscribe => subscribe('settings:browser-use:manager-state', listener),
       setEnabled: (enabled: boolean) =>
         call('settings:browser-use:set-enabled', { enabled }),
       setChromeEnabled: (enabled: boolean) =>

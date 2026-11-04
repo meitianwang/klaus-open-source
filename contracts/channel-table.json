@@ -6,8 +6,8 @@
     "bridgeDir": "frontend/bridge"
   },
   "summary": {
-    "registeredInvoke": 724,
-    "registeredPush": 76,
+    "registeredInvoke": 727,
+    "registeredPush": 78,
     "roles": 11
   },
   "pushChannels": [
@@ -72,7 +72,9 @@
     "question:resolved",
     "quick-input:submit",
     "run-preview:changed",
+    "settings:browser-profile-import:changed",
     "settings:browser-use:changed",
+    "settings:browser-use:manager-state",
     "settings:runtime:windows-sandbox-setup-completed",
     "skills:changed",
     "ssh:askpass",
@@ -627,6 +629,9 @@
         "settings:audio-gen:set",
         "settings:audio-selection:get",
         "settings:audio-selection:set",
+        "settings:browser-profile-import:cancel",
+        "settings:browser-profile-import:discover",
+        "settings:browser-profile-import:start",
         "settings:browser-use:add-origin",
         "settings:browser-use:choose-download-directory",
         "settings:browser-use:chrome-deploy-extension",
@@ -888,7 +893,9 @@
         "question:resolved",
         "quick-input:submit",
         "run-preview:changed",
+        "settings:browser-profile-import:changed",
         "settings:browser-use:changed",
+        "settings:browser-use:manager-state",
         "settings:runtime:windows-sandbox-setup-completed",
         "skills:changed",
         "ssh:askpass",
