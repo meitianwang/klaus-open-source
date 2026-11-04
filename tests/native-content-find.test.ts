@@ -216,5 +216,6 @@ test('a native page receives only the newest live request', async t => {
   const second = find.find(6, 'second');
   await firstRejection;
   assert.deepEqual(await second, { matches: 6, active: 3 });
-  assert.deepEqual(target.requests.map(request => request.query), ['first', 'second']);
+  assert.deepEqual(target.requests.map(request => request.query), ['second']);
+  assert.deepEqual(target.stops, [], 'an already canceled request never starts native work');
 });

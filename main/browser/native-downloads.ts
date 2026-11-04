@@ -193,6 +193,9 @@ export class NativeDownloads {
       state: statusOf(value) as BrowserDownloadEntry['state'],
       receivedBytes: typeof value.bytes === 'number' ? value.bytes : 0,
       totalBytes: typeof value.totalBytes === 'number' ? value.totalBytes : 0,
+      ...(typeof value.canPause === 'boolean' ? { canPause: value.canPause } : {}),
+      ...(typeof value.canResume === 'boolean' ? { canResume: value.canResume } : {}),
+      ...(typeof value.canCancel === 'boolean' ? { canCancel: value.canCancel } : {}),
       ...(path ? { exists: existsSync(path) } : {}),
     });
   }

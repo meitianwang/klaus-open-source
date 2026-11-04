@@ -16,14 +16,13 @@ import settingsStyles from './settings.module.css'
 const w = () => window as any
 
 type BrowserSource = 'all' | 'agent' | 'other'
-type SitePermissionSetting = 'granted' | 'denied' | 'prompt'
 type HistoryRow = { id: string; url: string; title: string; visitTime: number; isActorVisit: boolean }
 type DownloadRow = {
   id: string; url: string; filename: string; path: string; state: string
   receivedBytes: number; totalBytes: number; startedAt: number
   canPause: boolean; canResume: boolean; canCancel: boolean; exists: boolean
 }
-type DownloadEvent = { id: string; state?: string; receivedBytes?: number; totalBytes?: number; exists?: boolean; filename?: string; path?: string; url?: string }
+type DownloadEvent = { id: string; state?: string; receivedBytes?: number; totalBytes?: number; exists?: boolean; filename?: string; path?: string; url?: string; canPause?: boolean; canResume?: boolean; canCancel?: boolean }
 type Page<T> = { ok?: boolean; items: T[]; nextCursor?: string | null; error?: string }
 type BrowserUseApi = {
   get(): Promise<BrowserSettingsSnapshot | { ok?: boolean; settings?: BrowserSettingsSnapshot; error?: string }>
@@ -32,7 +31,6 @@ type BrowserUseApi = {
   setPreferences(patch: Record<string, unknown>): Promise<any>
   setOriginPolicy(input: { pattern?: string; resource: BrowserResource; setting: BrowserAccess | 'inherit' }): Promise<any>
   removeOriginPolicy(pattern: string): Promise<any>
-  setSitePermission(input: { origin: string; permission: string; setting: SitePermissionSetting }): Promise<any>
   history(input?: { query?: string; source?: BrowserSource; cursor?: string | null; limit?: number }): Promise<Page<HistoryRow>>
   removeHistory(ids: string[]): Promise<any>
   downloads(input?: { query?: string; cursor?: string | null; limit?: number }): Promise<Page<DownloadRow>>
@@ -142,6 +140,9 @@ function applyDownloadEvent(row: DownloadRow, event: DownloadEvent): DownloadRow
     ...(typeof event.path === 'string' ? { path: event.path } : {}),
     ...(typeof event.url === 'string' ? { url: event.url } : {}),
     ...downloadFlags(state, row),
+    ...(typeof event.canPause === 'boolean' ? { canPause: event.canPause } : {}),
+    ...(typeof event.canResume === 'boolean' ? { canResume: event.canResume } : {}),
+    ...(typeof event.canCancel === 'boolean' ? { canCancel: event.canCancel } : {}),
   }
 }
 
@@ -160,17 +161,6 @@ function useDebounced<T>(value: T, delay: number): T {
 }
 
 const CLEAR_KINDS = ['history', 'downloads', 'cookies', 'cache', 'siteData'] as const
-const SITE_PERMISSIONS = ['notifications', 'geolocation', 'camera', 'microphone', 'clipboard-read', 'clipboard-write', 'fullscreen', 'midi', 'pointerLock', 'screen-wake-lock'] as const
-
-function siteOrigin(input: string): string {
-  const value = input.trim()
-  if (!value) return ''
-  try {
-    const parsed = new URL(/^[a-z][a-z\d+.-]*:/i.test(value) ? value : `https://${value}`)
-    return ['http:', 'https:'].includes(parsed.protocol) ? parsed.origin : ''
-  } catch { return '' }
-}
-
 const MANAGER_META: Record<NativeManagerSurface, { label: string; desc: string }> = {
   passwords: { label: 'browser_settings_passwords', desc: 'browser_settings_passwords_desc' },
   autofill: { label: 'browser_settings_autofill', desc: 'browser_settings_autofill_desc' },
@@ -180,7 +170,7 @@ const MANAGER_META: Record<NativeManagerSurface, { label: string; desc: string }
 
 const MANAGER_ROUTES: Record<NativeManagerSurface, { initialUrl: string; roots: string[] }> = {
   passwords: { initialUrl: 'chrome://password-manager/passwords', roots: ['chrome://password-manager', 'chrome://settings/passwords'] },
-  autofill: { initialUrl: 'chrome://settings/addresses', roots: ['chrome://settings/addresses', 'chrome://settings/autofill'] },
+  autofill: { initialUrl: 'chrome://settings/contactInfo', roots: ['chrome://settings/addresses', 'chrome://settings/autofill', 'chrome://settings/contactInfo'] },
   extensions: { initialUrl: 'chrome://extensions', roots: ['chrome://extensions'] },
   siteSettings: { initialUrl: 'chrome://settings/content', roots: ['chrome://settings/content', 'chrome://settings/cookies', 'chrome://settings/handlers'] },
 }
@@ -389,7 +379,8 @@ export function NativeManagementPane({ surface, generation, onBack, openManager,
     else onBack()
   }
   const resetSection = (): void => {
-    if (navigation?.url && navigation.url !== route.initialUrl && managerAllowedUrl(surface, route.initialUrl)) void sendAction('navigate', { url: route.initialUrl })
+    const initialUrl = navigation?.initialUrl ?? route.initialUrl
+    if (navigation?.url && navigation.url !== initialUrl && managerAllowedUrl(surface, initialUrl)) void sendAction('navigate', { url: initialUrl })
   }
 
   const sectionLabel = t(meta.label)
@@ -443,7 +434,6 @@ export interface BrowserSettingsViewProps {
   onSetDefaultPolicy: (resource: BrowserResource, setting: BrowserAccess) => void
   onSetOriginPolicy: (pattern: string, resource: BrowserResource, setting: BrowserAccess | 'inherit') => void
   onRemoveOrigin: (pattern: string) => void
-  onSetSitePermission: (origin: string, permission: string, setting: SitePermissionSetting) => void
   onOpenChromeSetup: () => void
 }
 
@@ -451,7 +441,7 @@ export interface BrowserSettingsViewProps {
 export function BrowserSettingsView({
   snapshot, busy, onToggleEnabled, onPatch, onClearData, onOpenHistory, onOpenDownloads,
   onChooseDownloadDirectory, onOpenManager, onOpenImport, onSetChromeEnabled, onAddOrigin, onSetDefaultPolicy,
-  onSetOriginPolicy, onRemoveOrigin, onSetSitePermission, onOpenChromeSetup,
+  onSetOriginPolicy, onRemoveOrigin, onOpenChromeSetup,
 }: BrowserSettingsViewProps) {
   const t = useT()
   const disabled = snapshot.browserAvailable === false
@@ -459,9 +449,6 @@ export function BrowserSettingsView({
   const clearing = busy.startsWith('clear:')
   const [originDraft, setOriginDraft] = useState('')
   const [originError, setOriginError] = useState('')
-  const [siteOriginDraft, setSiteOriginDraft] = useState('')
-  const [sitePermissionDraft, setSitePermissionDraft] = useState<string>('notifications')
-  const [sitePermissionError, setSitePermissionError] = useState('')
   const webTargets = browserTargetOptions(t, snapshot.webUrlTarget)
   const localTargets = browserTargetOptions(t, snapshot.localUrlTarget)
   const annotationOptions = [
@@ -481,15 +468,6 @@ export function BrowserSettingsView({
     if (!pattern) { setOriginError(t('browser_settings_invalid_domain')); return }
     setOriginError('')
     if (await onAddOrigin(pattern)) setOriginDraft('')
-  }
-
-  const submitSitePermission = (event: React.FormEvent) => {
-    event.preventDefault()
-    const origin = siteOrigin(siteOriginDraft)
-    if (!origin) { setSitePermissionError(t('browser_settings_site_permission_invalid')); return }
-    setSitePermissionError('')
-    onSetSitePermission(origin, sitePermissionDraft, 'granted')
-    setSiteOriginDraft('')
   }
 
   return (
@@ -652,36 +630,7 @@ export function BrowserSettingsView({
                 ))}
               </div>
             )}
-          <div className={styles['browser-subsection-title']}>{t('browser_settings_site_permissions')}</div>
-          <div className={styles['browser-section-copy']}>{t('browser_settings_site_permissions_desc')}</div>
-          <form className={styles['browser-add-form']} onSubmit={submitSitePermission}>
-            <input className={styles['browser-input']} value={siteOriginDraft} placeholder={t('browser_settings_site_permission_origin_placeholder')} aria-label={t('browser_settings_site_permission_origin')} disabled={disabled} onChange={event => setSiteOriginDraft(event.target.value)} />
-            <select className={styles['browser-select']} value={sitePermissionDraft} aria-label={t('browser_settings_site_permission_permission')} disabled={disabled} onChange={event => setSitePermissionDraft(event.target.value)}>
-              {SITE_PERMISSIONS.map(permission => <option key={permission} value={permission}>{permission}</option>)}
-            </select>
-            <button type="submit" className={`${styles['browser-action-btn']} ${styles['is-primary']}`} disabled={disabled}>{t('browser_settings_site_permission_add')}</button>
-          </form>
-          {sitePermissionError && <div className={styles['browser-error']} role="alert">{sitePermissionError}</div>}
-          {snapshot.sitePermissions.length === 0
-            ? <div className={styles['browser-empty']}>{t('browser_settings_no_site_permissions')}</div>
-            : (
-              <div className={styles['browser-table']}>
-                <div className={`${styles['browser-table-row']} ${styles['browser-table-row-compact']} ${styles['browser-table-head']}`}>
-                  <span>{t('browser_settings_origin')}</span><span>{t('browser_settings_permission')}</span><span>{t('browser_settings_setting')}</span>
-                </div>
-                {snapshot.sitePermissions.map(row => (
-                  <div className={`${styles['browser-table-row']} ${styles['browser-table-row-compact']}`} key={`${row.origin}:${row.permission}`}>
-                    <span className={styles['browser-pattern']}>{row.origin}</span>
-                    <span>{row.permission}</span>
-                    <select className={styles['browser-select']} aria-label={`${row.origin} ${row.permission}`} value={row.setting} disabled={disabled} onChange={event => onSetSitePermission(row.origin, row.permission, event.target.value as SitePermissionSetting)}>
-                      <option value="granted">{t('browser_settings_granted')}</option>
-                      <option value="denied">{t('browser_settings_denied')}</option>
-                      <option value="prompt">{t('browser_settings_prompt')}</option>
-                    </select>
-                  </div>
-                ))}
-              </div>
-            )}
+
         </div>
       </div>
 
@@ -1184,10 +1133,6 @@ export function BrowserSettingsTab() {
     void mutate('origin', null, () => api()?.removeOriginPolicy?.(pattern))
   }, [mutate])
 
-  const setSitePermission = useCallback((origin: string, permission: string, setting: SitePermissionSetting) => {
-    void mutate('origin', null, () => api()?.setSitePermission?.({ origin, permission, setting }))
-  }, [mutate])
-
   if (loading) {
     return (
       <SettingsPage title={t('browser_use_title')} subtitle={t('browser_use_desc')}>
@@ -1236,7 +1181,6 @@ export function BrowserSettingsTab() {
         onSetDefaultPolicy={setDefaultPolicy}
         onSetOriginPolicy={setOriginPolicy}
         onRemoveOrigin={removeOrigin}
-        onSetSitePermission={setSitePermission}
         onOpenChromeSetup={() => setChromeSetupOpen(true)}
       />
       {chromeSetupOpen && (

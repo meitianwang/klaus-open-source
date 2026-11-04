@@ -212,6 +212,8 @@ export class BrowserProfileImportService {
   private readonly terminalLimit: number;
   private readonly jobs = new Map<string, JobRecord>();
   private activeJobId: string | undefined;
+  private disposed = false;
+  private disposal: Promise<void> | undefined;
   private readonly terminalByOwner = new Map<string, string[]>();
   private readonly destroyedOwners = new Set<string>();
   private readonly disposePromises = new Map<string, Promise<void>>();
@@ -319,7 +321,17 @@ export class BrowserProfileImportService {
     await promise;
   }
 
+  /** Drain decryptors and native writes before the shared Profile is closed. */
+  disposeAll(): Promise<void> {
+    if (this.disposal) return this.disposal;
+    this.disposed = true;
+    const owners = new Set([...this.jobs.values()].map(job => job.ownerId));
+    this.disposal = Promise.all([...owners].map(owner => this.disposeOwner(owner))).then(() => undefined);
+    return this.disposal;
+  }
+
   private assertOwner(ownerId: string): void {
+    if (this.disposed) throw new BrowserImportJobError('owner_destroyed', 'The browser import service has closed.');
     if (typeof ownerId !== 'string' || !ownerId.trim()) {
       throw new BrowserImportJobError('invalid_owner', 'An owner identifier is required.');
     }

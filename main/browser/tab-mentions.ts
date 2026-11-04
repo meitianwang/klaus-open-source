@@ -18,11 +18,11 @@ export class BrowserTabMentionService {
   private iabTabs(sessionId: string | null): BrowserTabMention[] {
     if (!sessionId) return [];
     return this.manager.listPages(sessionId).flatMap(page => {
-      const url = page.view.webContents.getURL() || 'about:blank';
+      const url = page.native.getURL() || 'about:blank';
       if (url === 'about:blank') return [];
       try { this.manager.assertNavigation(url); } catch { return []; }
       const row = { source: 'iab' as const, browserId: sessionId, tabId: String(page.handle),
-        title: page.view.webContents.getTitle() || url, url, browserName: 'Klaus', lastOpened: page.lastOpened ?? 0,
+        title: page.native.getTitle() || url, url, browserName: 'Klaus', lastOpened: page.lastOpened ?? 0,
         ...(page.faviconUrl ? { faviconUrl: page.faviconUrl } : {}) };
       return candidate(row);
     });

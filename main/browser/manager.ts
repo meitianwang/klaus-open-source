@@ -1,14 +1,18 @@
-import { BaseWindow, Menu, WebContentsView, session as electronSession, shell, type BrowserWindow, type Session, type WebContents } from 'electron';
+import { BaseWindow, BrowserWindow, shell } from 'electron';
 import { existsSync, mkdirSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { PageDebugger } from './cdp';
-import { BrowserDialogs } from './dialogs';
+import { NativeDialogs } from './native-dialogs';
 import { NativeDownloads } from './native-downloads';
 import { BrowserDataStore } from './history-store';
 import type { BrowserCdp } from './page-operations';
 import { permissionCommand } from './page-advanced';
-import { BrowserPermissionDecisions } from './permission-requests';
+import { NativeTaskPermissions, type NativePermissionSetting } from './native-permissions';
+import { NATIVE_SETTINGS_ROUTES, NativeSettingsHistory, nativeSettingsUrl, nativeSettingsTitleScript, nativeSettingsBackScript } from './native-settings';
+import { waitForNativeSettings } from './native-settings-readiness';
+import { nativeImportTarget } from './native-import';
+import type { BrowserImportTarget } from '../../contracts/browser-import';
 import { browserBounds, navigationUrl } from './policy';
 import { BrowserError, json, message, object, string, type BrowserBounds, type BrowserObject, type BrowserScope, type BrowserState } from './types';
 import type { Json } from '../ipc/contract';
@@ -16,19 +20,16 @@ import { navigateForRead } from './task-operations';
 import { BROWSER_PANEL_OPEN_ACK_TIMEOUT_MS } from './panel-contract';
 import { boundedTabFavicon, cachedTabFaviconScript } from './tab-favicon';
 import type { BrowserDataKind, BrowserDownloadAction, BrowserDownloadQuery, BrowserHistorySource, BrowserVisitSource } from '../../contracts/browser-history';
+import { loadNativeBrowserBinding, NativePageTransport, NativeProfileDownloadNetwork, type NativeBrowserBinding, type NativeBrowserHandle, type NativePopupInfo, type NativeProfileHandle } from './native-page';
+import { NativeNavigationGate, NativeNavigationLeases, type NativeNavigationLease } from './native-navigation';
 
 export interface BrowserPage {
   readonly handle: number;
   readonly id: string;
   readonly owner: string;
-  readonly view: WebContentsView;
-  /**
-   * The WebContents id captured at creation. Once the contents is destroyed,
-   * Electron's `WebContentsView.webContents` getter answers undefined, so the id
-   * needed to release dialogs must not be re-read from the view.
-   */
-  readonly contentsId: number;
+  readonly native: NativeBrowserHandle;
   readonly cdp: PageDebugger;
+  readonly navigation: NativeNavigationGate;
   ready: Promise<void>;
   lastOpened?: number;
   faviconUrl?: string;
@@ -40,6 +41,19 @@ export interface BrowserPage {
   contentRevision?: number;
 }
 interface Conversation { tabs: number[]; active?: number }
+interface ManagementView {
+  window: BrowserWindow;
+  surface: string;
+  viewId: string;
+  initialUrl: string;
+  bounds: BrowserBounds;
+  native?: NativeBrowserHandle;
+  cdp?: PageDebugger;
+  history: NativeSettingsHistory;
+  stateRevision: number;
+  ready?: Promise<BrowserObject>;
+  dispose(): void;
+}
 interface PanelOpenWaiter {
   sessionId: string;
   focusRevision: number;
@@ -48,25 +62,20 @@ interface PanelOpenWaiter {
   resolve(opened: boolean): void;
 }
 export interface BrowserPermissionRequest { sessionId: string; permission: string; origin: string; pageUrl: string }
-const AGENT_INPUT_OPERATIONS = new Set(['click', 'type', 'form_input', 'computer', 'locator', 'press', 'file_upload']);
-const AGENT_NAVIGATION_OPERATIONS = new Set(['navigate']);
-const AGENT_POPUP_OPERATIONS = new Set([...AGENT_INPUT_OPERATIONS, 'eval', 'navigate']);
+const AGENT_INPUT_OPERATIONS = new Set(['click', 'type', 'form_input', 'computer', 'locator', 'press', 'file_upload', 'set_checked', 'select_option']);
+const AGENT_NAVIGATION_OPERATIONS = new Set(['navigate', 'back', 'forward', 'reload']);
 export type BrowserAuthorizationResource = 'browsing' | 'downloads' | 'uploads' | 'siteTools' | 'debug';
 export interface BrowserDownloadPathRequest { defaultPath: string; filename: string; url: string }
 export interface BrowserManagerOptions {
   window: BrowserWindow;
   configRoot: string;
   emit: (channel: string, payload: Json) => void;
+  emitToWindow?: (window: BrowserWindow, channel: string, payload: Json) => void;
   /** Agent/plugin authorization. Manual browser surfaces do not depend on it. */
   enabled?: () => boolean;
   /** Manual built-in browser availability. Runtime shutdown clears this. */
   available?: () => boolean;
   navigationAllowed?: (url: string) => boolean;
-  /**
-   * Persistent origin policy. The manager consults this before task-scoped
-   * permission decisions; undefined means the page should ask.
-   */
-  sitePermission?: (origin: string, permission: string) => 'granted' | 'denied' | undefined;
   /**
    * Access check for agent operations and native downloads. Task-owned
    * navigation itself stays on the normal host path; the operation layer calls
@@ -82,20 +91,27 @@ export interface BrowserManagerOptions {
   dialogTimeoutMs?: number;
   /** Runtime owns registered main windows and their lifetime. */
   managedWindows?: boolean;
+  initializeProfile?(profile: NativeProfileHandle): void;
 }
 
 export type BrowserOperationLease = (() => void) & { readonly signal: AbortSignal };
 
 /** Owns every IAB page; the renderer and MCP server only refer to these pages. */
 export class BrowserManager {
-  readonly browserSession: Session;
   readonly profilePath: string;
-  readonly dialogs: BrowserDialogs;
+  readonly dialogs: NativeDialogs;
   private readonly parking: BaseWindow;
-  private readonly dialogPreloadId: string;
+  private readonly binding: NativeBrowserBinding | undefined;
+  private profileReady: Promise<NativeProfileHandle> | undefined;
+  private readonly leases = new NativeNavigationLeases();
+  private readonly operationPageLeases = new Map<AbortController, Map<number, NativeNavigationLease>>();
+  private readonly operationMetadataPages = new Map<AbortController, Map<number, boolean>>();
+  private readonly controlledDownloads = new Set<number>();
+  private readonly popupActors = new Set<number>();
+  private readonly managementViews = new Map<number, ManagementView>();
   private readonly pages = new Map<number, BrowserPage>();
   private readonly conversations = new Map<string, Conversation>();
-  private readonly decisions = new BrowserPermissionDecisions();
+  private readonly permissions = new NativeTaskPermissions(() => this.pages.values());
   private readonly activeOperations = new Map<string, { turnId: string; source: string; initiator: string }>();
   private readonly operationSignals = new Map<string, AbortSignal | undefined>();
   private readonly operationControllers = new Map<string, Set<AbortController>>();
@@ -128,29 +144,30 @@ export class BrowserManager {
   private readonly presentations = new Map<number, { window: BrowserWindow; current: string; bounds: BrowserBounds; wantedVisible: boolean }>();
 
   constructor(private readonly options: BrowserManagerOptions) {
-    // Do not open an old standalone Chromium profile concurrently or reinterpret it.
-    this.profilePath = resolve(options.configRoot, 'electron', 'browser-profile');
-    mkdirSync(this.profilePath, { recursive: true });
+    this.profilePath = resolve(options.configRoot, 'electron', 'native-browser', 'Default');
     mkdirSync(this.downloadDirectory, { recursive: true });
-    this.browserSession = electronSession.fromPath(this.profilePath);
+    try { this.binding = loadNativeBrowserBinding(); }
+    catch { this.binding = undefined; }
     this.data = new BrowserDataStore(options.configRoot);
-    this.downloads = new NativeDownloads(this.browserSession, {
+    this.downloads = new NativeDownloads({
+      fetch: async (url, init) => new NativeProfileDownloadNetwork(await this.profile()).fetch(url, init),
+    }, {
       directory: () => this.downloadDirectory,
       assertUrl: url => this.assertNavigation(url),
       history: this.data,
       ...(options.promptForUserDownloads ? { promptForUserDownloads: options.promptForUserDownloads } : {}),
       ...(options.chooseDownloadPath ? { chooseDownloadPath: options.chooseDownloadPath } : {}),
-      ...(options.authorize ? { authorize: (sessionId, url, resource, signal) => options.authorize!(sessionId, url, resource, signal) } : {}),
+      authorize: (sessionId, url, resource, signal) => {
+        const operation = this.operationSignals.get(sessionId);
+        const pending = signal && operation ? AbortSignal.any([signal, operation]) : signal ?? operation;
+        return this.authorize(sessionId, url, resource, this.agentControlSignal(pending));
+      },
       changed: event => options.emit('browser-use:downloads-changed', json(event)),
     });
-    this.dialogPreloadId = this.browserSession.registerPreloadScript({ type: 'frame', filePath: join(__dirname, 'dialog-preload.js') });
-    this.dialogs = new BrowserDialogs({ window: options.window, isEnabled: () => this.isAvailable(), isPresented: page => this.shown?.handle === page.handle && options.window.isVisible() && !options.window.isMinimized(), navigationAllowed: url => this.assertNavigation(url), timeoutMs: options.dialogTimeoutMs });
-    // A native parent keeps background tabs capturable. BaseWindow adds no
-    // renderer; the same WebContentsView moves to the visible panel on demand.
+    this.dialogs = new NativeDialogs();
+    // The same native Browser moves between host windows. The parking parent
+    // has no renderer and keeps background tabs independent of the visible panel.
     this.parking = new BaseWindow({ width: 1280, height: 800, show: false, frame: false, focusable: false, skipTaskbar: true, hiddenInMissionControl: true });
-    this.installPermissions();
-    this.installNavigationGate();
-    this.browserSession.on('will-download', this.onDownload);
     this.bindWindow();
     this.lastAgentEnabled = this.isEnabled();
   }
@@ -175,7 +192,7 @@ export class BrowserManager {
     if (!previous.isDestroyed()) {
       this.presentations.set(previous.webContents.id, { window: previous, current: this.current, bounds: this.bounds, wantedVisible: this.wantedVisible });
     }
-    this.detach(); this.dialogs.present();
+    this.detach();
     if (!previous.isDestroyed()) this.options.emit('browser-use:state', json({ ...this.state(), presentationTransferred: true }));
     for (const [event, handler] of this.windowListeners) previous.removeListener(event as 'resize', handler);
     this.windowListeners.length = 0;
@@ -184,7 +201,7 @@ export class BrowserManager {
     this.options.window = window; this.current = saved?.current ?? 'manual';
     this.bounds = saved?.bounds ?? { x: 0, y: 54, width: 800, height: 600 };
     this.wantedVisible = saved?.wantedVisible ?? false;
-    this.bindWindow(); this.dialogs.setWindow(window); this.present(); this.publish();
+    this.bindWindow(); this.present(); this.publish();
   }
 
   /** Passive updates from an unfocused renderer must not steal the native child view. */
@@ -219,12 +236,212 @@ export class BrowserManager {
   isEnabled(): boolean { return !this.disposed && (this.options.enabled?.() ?? true); }
 
   /** Manual built-in browser availability. Plugin off keeps this true. */
-  isAvailable(): boolean { return !this.disposed && (this.options.available?.() ?? true); }
+  isAvailable(): boolean { return !this.disposed && !!this.binding && (this.options.available?.() ?? true); }
 
-  /** Persistent site policy; an undefined result means the page should ask. */
-  sitePermission(origin: string, permission: string): 'granted' | 'denied' | undefined {
-    try { return this.options.sitePermission?.(origin, permission); }
-    catch { return undefined; }
+  private profile(): Promise<NativeProfileHandle> {
+    this.requireAvailable();
+    if (!this.profileReady) {
+      const pending = this.binding!.createProfile().then(profile => {
+        if (this.disposed) { profile.dispose(); throw new BrowserError('unavailable', 'The browser manager has shut down.'); }
+        try {
+          this.options.initializeProfile?.(profile);
+          this.downloads.setNativeController(profile);
+          profile.on('download-created', (_event, snapshot) => this.downloads.nativeCreated(snapshot));
+          profile.on('download-updated', (_event, snapshot) => this.downloads.nativeUpdated(snapshot));
+          profile.on('download-removed', (_event, id) => this.downloads.nativeRemoved(id));
+          profile.on('download-target', (_event, target) => { void this.downloads.resolveNativeTarget(target).catch(() => {}); });
+          for (const snapshot of profile.startObserving()) this.downloads.nativeCreated(snapshot);
+          return profile;
+        } catch (error) {
+          profile.removeAllListeners();
+          this.downloads.setNativeController(undefined);
+          profile.dispose();
+          throw error;
+        }
+      });
+      this.profileReady = pending;
+      void pending.catch(() => { if (this.profileReady === pending) this.profileReady = undefined; });
+    }
+    return this.profileReady;
+  }
+
+  /** Trusted settings actions embed the Profile's real management surfaces. */
+  async openManager(surface: string, fields: BrowserObject = {}, window = this.options.window): Promise<BrowserObject> {
+    if (!Object.hasOwn(NATIVE_SETTINGS_ROUTES, surface)) throw new BrowserError('invalid_request', 'Unknown browser management surface.');
+    const kind = surface as keyof typeof NATIVE_SETTINGS_ROUTES;
+    const url = this.binding?.managementUrl(kind) ?? NATIVE_SETTINGS_ROUTES[kind];
+    if (!nativeSettingsUrl(kind, url)) throw new BrowserError('unavailable', 'The native browser returned an invalid management URL.');
+    const action = String(fields.action ?? 'open');
+    if (!['open', 'bounds', 'close', 'navigate', 'back', 'forward', 'theme'].includes(action)) throw new BrowserError('invalid_request', 'Unknown browser management action.');
+    const viewId = string(fields.viewId, 'viewId');
+    if (viewId.length > 128) throw new BrowserError('invalid_request', 'The browser management view id is too long.');
+    if (window.isDestroyed()) return { ok: true, closed: true };
+    const owner = window.webContents.id;
+    const current = this.managementViews.get(owner);
+    const matches = current?.surface === surface && current.viewId === viewId;
+    if (action === 'close') {
+      if (matches) current.dispose();
+      return { ok: true, surface };
+    }
+    this.requireAvailable();
+    if (action !== 'open' && !matches) return { ok: true, surface, stale: true };
+    if (matches) {
+      if (action === 'bounds' || action === 'open') {
+        current.bounds = browserBounds(fields.bounds);
+        if (current.native && !current.native.isDestroyed()) this.positionManagementView(current.native, window, current.bounds);
+        return action === 'bounds' ? { ok: true, surface } : current.ready!;
+      }
+      await current.ready;
+      if (this.managementViews.get(owner) !== current) return { ok: true, surface, stale: true };
+      if (action === 'theme') await this.setManagementTheme(current, fields.theme);
+      else {
+        const native = current.native!, cdp = current.cdp!;
+        let target: string | undefined;
+        if (action === 'navigate') target = string(fields.url, 'url');
+        else if (kind === 'siteSettings') target = current.history.step(action === 'back' ? -1 : 1);
+        else {
+          const state = await cdp.command('Page.getNavigationHistory');
+          const entries = Array.isArray(state.entries) ? state.entries : [];
+          const index = Number(state.currentIndex) + (action === 'back' ? -1 : 1);
+          const entry = object(entries[index]);
+          if (typeof entry.id === 'number' && typeof entry.url === 'string' && nativeSettingsUrl(kind, entry.url)) {
+            await cdp.command('Page.navigateToHistoryEntry', { entryId: entry.id });
+            this.publishManagementState(current);
+            return { ok: true, surface };
+          }
+        }
+        if (target !== undefined) {
+          if (!nativeSettingsUrl(kind, target)) throw new BrowserError('refused_by_policy', 'This URL is outside the selected browser settings surface.');
+          const useRouter = kind === 'siteSettings' && target === url && native.getURL().startsWith(url + '/');
+          if (!useRouter || await cdp.evaluate(nativeSettingsBackScript) !== true) native.loadURL(target);
+        }
+      }
+      this.publishManagementState(current);
+      return { ok: true, surface };
+    }
+    const bounds = browserBounds(fields.bounds);
+    current?.dispose();
+    if (window === this.options.window) this.hide();
+    let closed = false;
+    const entry: ManagementView = { window, surface, viewId, initialUrl: url, bounds, history: new NativeSettingsHistory(url), stateRevision: 0, dispose: () => {
+      if (closed) return;
+      closed = true;
+      if (this.managementViews.get(owner) === entry) this.managementViews.delete(owner);
+      window.removeListener('resize', resized);
+      window.removeListener('closed', entry.dispose);
+      entry.cdp?.dispose();
+      if (entry.native && !entry.native.isDestroyed()) entry.native.close();
+    } };
+    const resized = (): void => { if (entry.native && !entry.native.isDestroyed()) this.positionManagementView(entry.native, window, entry.bounds); };
+    window.on('resize', resized);
+    window.once('closed', entry.dispose);
+    this.managementViews.set(owner, entry);
+    entry.ready = (async () => {
+      try {
+        await this.profile();
+        const native = await this.binding!.create({ parent: window, bounds, url, visible: false });
+        if (closed || this.disposed || window.isDestroyed() || this.managementViews.get(owner) !== entry) {
+          native.close(); throw new BrowserError('cancelled', 'The browser management request was superseded.');
+        }
+        entry.native = native;
+        native.on('destroyed', entry.dispose);
+        native.on('popup-created', (_event, child, info) => {
+          const sessionId = window === this.options.window ? this.current : this.presentations.get(owner)?.current ?? 'manual';
+          void this.adoptPopup(sessionId, native, child, info).then(() => {
+            const page = this.listPages(sessionId).find(candidate => candidate.native === child);
+            if (!page || info.disposition === 4 || closed || window.isDestroyed()) return;
+            const value = json({ sessionId, targetId: page.id, ...(window === this.options.window ? { focusRevision: this.revision } : {}) });
+            if (this.options.emitToWindow) this.options.emitToWindow(window, 'browser-use:open-panel', value);
+            else if (window === this.options.window) this.options.emit('browser-use:open-panel', value);
+          });
+        });
+        const changed = (): void => this.publishManagementState(entry);
+        native.on('did-navigate', changed);
+        native.on('did-navigate-in-page', changed);
+        native.on('page-title-updated', changed);
+        native.on('did-stop-loading', () => this.publishManagementState(entry, true));
+        entry.cdp = new PageDebugger(new NativePageTransport(native));
+        await entry.cdp.initialize();
+        if (closed) throw new BrowserError('cancelled', 'The browser management request was superseded.');
+        if (fields.theme !== undefined) await this.setManagementTheme(entry, fields.theme);
+        this.positionManagementView(native, window, entry.bounds);
+        native.setVisible(true);
+        if (native.getState().loading) await new Promise<void>((resolveLoaded, reject) => {
+          const finish = (error?: Error): void => {
+            clearTimeout(timer);
+            native.removeListener('did-stop-loading', loaded);
+            native.removeListener('destroyed', gone);
+            native.removeListener('render-process-gone', gone);
+            if (error) reject(error); else resolveLoaded();
+          };
+          const loaded = (): void => finish();
+          const gone = (): void => finish(new BrowserError('unavailable', 'The browser management page closed while loading.'));
+          const timer = setTimeout(() => finish(new BrowserError('timeout', 'The browser management page did not finish loading.')), 30_000);
+          native.on('did-stop-loading', loaded);
+          native.on('destroyed', gone);
+          native.on('render-process-gone', gone);
+          if (!native.getState().loading) loaded();
+        });
+        if (closed || this.managementViews.get(owner) !== entry) throw new BrowserError('cancelled', 'The browser management request was superseded.');
+        await waitForNativeSettings(entry.cdp, kind, () => !closed && this.managementViews.get(owner) === entry && !native.isDestroyed());
+        this.publishManagementState(entry, true);
+        return { ok: true, surface };
+      } catch (error) { entry.dispose(); throw error; }
+    })();
+    return entry.ready;
+  }
+
+  private async setManagementTheme(entry: ManagementView, theme: Json | undefined): Promise<void> {
+    if (theme !== 'light' && theme !== 'dark') throw new BrowserError('invalid_request', 'The browser management theme must be light or dark.');
+    entry.native!.setTheme(theme);
+    await entry.cdp!.command('Emulation.setEmulatedMedia', { media: '', features: [{ name: 'prefers-color-scheme', value: theme }] });
+  }
+
+  private publishManagementState(entry: ManagementView, readTitle = false): void {
+    if (this.disposed || entry.window.isDestroyed() || this.managementViews.get(entry.window.webContents.id) !== entry || !entry.native || entry.native.isDestroyed()) return;
+    const state = entry.native.getState();
+    if (!nativeSettingsUrl(entry.surface as keyof typeof NATIVE_SETTINGS_ROUTES, state.url)) return;
+    entry.history.visit(state.url);
+    const revision = ++entry.stateRevision;
+    const send = (title: string | null): void => {
+      const value = json({ surface: entry.surface, viewId: entry.viewId, initialUrl: entry.initialUrl, url: state.url, title,
+        canGoBack: entry.surface === 'siteSettings' ? entry.history.canGoBack : state.canGoBack,
+        canGoForward: entry.surface === 'siteSettings' ? entry.history.canGoForward : state.canGoForward });
+      if (this.options.emitToWindow) this.options.emitToWindow(entry.window, 'settings:browser-use:manager-state', value);
+      else this.options.emit('settings:browser-use:manager-state', value);
+    };
+    send(state.title || null);
+    if (readTitle && entry.cdp) void entry.cdp.evaluate(nativeSettingsTitleScript).then(title => {
+      if (typeof title === 'string' && title && entry.stateRevision === revision && this.managementViews.get(entry.window.webContents.id) === entry && !entry.window.isDestroyed()) send(title);
+    }, () => {});
+  }
+
+  private positionManagementView(native: NativeBrowserHandle, window: BrowserWindow, bounds: BrowserBounds): void {
+    const zoom = window.webContents.getZoomFactor();
+    const size = window.getContentBounds();
+    const x = Math.min(Math.round(bounds.x * zoom), Math.max(0, size.width - 1));
+    const y = Math.min(Math.round(bounds.y * zoom), Math.max(0, size.height - 1));
+    native.setBounds({ x, y, width: Math.max(1, Math.min(Math.round(bounds.width * zoom), size.width - x)), height: Math.max(1, Math.min(Math.round(bounds.height * zoom), size.height - y)) });
+    native.setBubbleAnchor({ x: x + 8, y: Math.max(0, y - 28), width: 24, height: 24 });
+  }
+
+  async setSitePermission(fields: BrowserObject): Promise<BrowserObject> {
+    const origin = string(fields.origin, 'origin');
+    const permission = string(fields.permission, 'permission');
+    const setting = fields.setting;
+    if (!['granted', 'denied', 'prompt'].includes(String(setting)) || permission.length > 64) throw new BrowserError('invalid_request', 'Invalid persistent site permission.');
+    return (await this.profile()).setSitePermission(origin, permission, setting as 'granted' | 'denied' | 'prompt');
+  }
+
+  async importTarget(signal: AbortSignal): Promise<BrowserImportTarget> {
+    this.requireAvailable();
+    signal.throwIfAborted();
+    const profile = await this.profile();
+    signal.throwIfAborted();
+    return nativeImportTarget(profile, signal, rows => {
+      for (const row of rows) this.data.recordVisit({ sessionId: 'browser-import',
+        url: row.url, title: row.title, visitedAt: row.visitedAt, source: 'other' });
+    });
   }
 
   /**
@@ -259,7 +476,7 @@ export class BrowserManager {
     this.abortAgentOperations();
     this.control = new AbortController();
     this.authorizationEpoch++;
-    this.decisions.clear();
+    this.permissions.reset();
     this.approvedAgentNavigations.clear();
     this.agentVisits.clear();
     this.agentPageLeases.clear();
@@ -290,69 +507,6 @@ export class BrowserManager {
     approved.splice(index, 1);
     if (!approved.length) this.approvedAgentNavigations.delete(sessionId);
     return true;
-  }
-
-  /**
-   * Main-frame requests are paused at the network layer while the host decides.
-   * The callback lets the original request continue untouched, so method, body,
-   * cookies and redirect semantics never pass through a replay.
-   */
-  private installNavigationGate(): void {
-    this.browserSession.webRequest.onBeforeRequest({ urls: ['<all_urls>'], types: ['mainFrame'] }, (details, callback) => {
-      const page = [...this.pages.values()].find(entry => entry.contentsId === details.webContentsId);
-      if (!page || !this.isAvailable()) { callback({ cancel: true }); return; }
-      try { this.assertNavigation(details.url); }
-      catch { callback({ cancel: true }); return; }
-      const hasPageLease = this.agentPageLeases.has(page.handle) || this.pendingMainFrameAuthorizations.has(page.handle);
-      const signal = this.pendingMainFrameAuthorizations.has(page.handle)
-        ? this.pendingMainFrameAuthorizations.get(page.handle)
-        : this.operationSignals.get(page.owner);
-      if (this.consumeApprovedNavigation(page.owner, details.url)) {
-        if (!this.isEnabled() || signal?.aborted) { callback({ cancel: true }); return; }
-        this.agentPageLeases.add(page.handle);
-        this.markAgentVisit(page, details.url);
-        callback({});
-        return;
-      }
-      const agentContext = this.agentInputPages.has(page.handle) || hasPageLease;
-      // No lease/input means a human navigation. It remains available when the
-      // agent is off. An owned agent surface, however, must obey the gate.
-      if (!agentContext) { callback({}); return; }
-      if (!this.isEnabled()) { callback({ cancel: true }); return; }
-      if (signal?.aborted) { callback({ cancel: true }); return; }
-      // Without a host policy callback the page is still an agent surface:
-      // attribute the visit and let the navigation proceed. A configured
-      // callback owns the decision below.
-      if (!this.options.authorize) {
-        this.markAgentVisit(page, details.url);
-        callback({});
-        return;
-      }
-      let settled = false;
-      const finish = (cancel: boolean): void => {
-        if (settled) return;
-        settled = true;
-        signal?.removeEventListener('abort', aborted);
-        this.pendingNavigationCancels.delete(cancelPending);
-        callback(cancel ? { cancel: true } : {});
-      };
-      const aborted = (): void => finish(true);
-      const cancelPending = (): void => finish(true);
-      if (signal?.aborted) { finish(true); return; }
-      signal?.addEventListener('abort', aborted, { once: true });
-      this.pendingNavigationCancels.add(cancelPending);
-      void Promise.resolve(this.options.authorize(page.owner, details.url, 'browsing', signal)).then(
-        () => {
-          if (this.disposed || !this.alive(page)) finish(true);
-          else {
-            this.agentPageLeases.add(page.handle);
-            this.markAgentVisit(page, details.url);
-            finish(false);
-          }
-        },
-        () => finish(true),
-      );
-    });
   }
 
   private requireEnabled(): void {
@@ -417,33 +571,26 @@ export class BrowserManager {
     return this.ok();
   }
 
-  /**
-   * Whether the page's WebContents still exists. A destroyed contents makes
-   * Electron's `WebContentsView.webContents` getter answer undefined, so every
-   * reader must go through this guard instead of touching the getter directly.
-   */
-  private alive(page: BrowserPage): boolean {
-    const contents = page.view.webContents;
-    return !!contents && !contents.isDestroyed();
-  }
+  private alive(page: BrowserPage): boolean { return !page.native.isDestroyed(); }
 
   state(sessionId = this.current): BrowserState {
     const conversation = this.conversation(sessionId);
     const active = conversation.active === undefined ? undefined : this.pages.get(conversation.active);
-    const live = active && this.alive(active) ? active.view.webContents : undefined;
+    const live = active && this.alive(active) ? active.native : undefined;
+    const nativeState = live?.getState();
     return {
       enabled: this.isAvailable(), visible: sessionId === this.current && !!this.shown && this.isAvailable(),
       conversationId: sessionId, focusRevision: this.revision,
       ...(active ? { tabId: active.id } : {}), url: live?.getURL() || 'about:blank', title: live?.getTitle() || '',
-      loading: live?.isLoading() ?? false,
-      canGoBack: live?.navigationHistory.canGoBack() ?? false,
-      canGoForward: live?.navigationHistory.canGoForward() ?? false,
+      loading: nativeState?.loading ?? false,
+      canGoBack: nativeState?.canGoBack ?? false,
+      canGoForward: nativeState?.canGoForward ?? false,
       contentWidth: active?.contentWidth ?? 0,
       contentRevision: active?.contentRevision ?? 0,
       browserUseActive: this.activeOperations.has(sessionId),
       ...this.activeOperations.get(sessionId),
       tabs: this.listPages(sessionId).map(page => ({ id: page.id, active: page.handle === conversation.active,
-        url: page.view.webContents.getURL() || 'about:blank', title: page.view.webContents.getTitle(), loading: page.view.webContents.isLoading() })),
+        url: page.native.getURL() || 'about:blank', title: page.native.getTitle(), loading: page.native.getState().loading })),
     };
   }
 
@@ -467,6 +614,14 @@ export class BrowserManager {
     if (inputPage !== undefined) this.agentInputPages.add(inputPage);
     if (navigationPage !== undefined) this.agentPageLeases.add(navigationPage);
     const controller = new AbortController();
+    this.operationPageLeases.set(controller, new Map());
+    this.operationMetadataPages.set(controller, new Map());
+    controller.signal.addEventListener('abort', () => {
+      for (const handle of this.operationMetadataPages.get(controller)?.keys() ?? []) {
+        const page = this.pages.get(handle);
+        if (page) this.refreshDownloadSource(page);
+      }
+    }, { once: true });
     const abort = (): void => controller.abort();
     if (signal?.aborted) controller.abort();
     else signal?.addEventListener('abort', abort, { once: true });
@@ -476,8 +631,20 @@ export class BrowserManager {
     const previousSignal = this.operationSignals.get(sessionId);
     if (!previousRoute) this.activeOperations.set(sessionId, route);
     this.operationSignals.set(sessionId, controller.signal);
+    if (activePage !== undefined) {
+      const page = this.pages.get(activePage);
+      if (page) this.bindOperationPage(page, name);
+    }
     this.publish();
     const finish = (() => {
+      for (const lease of this.operationPageLeases.get(controller)?.values() ?? []) lease.release();
+      this.operationPageLeases.delete(controller);
+      const metadataPages = this.operationMetadataPages.get(controller);
+      this.operationMetadataPages.delete(controller);
+      for (const handle of metadataPages?.keys() ?? []) {
+        const page = this.pages.get(handle);
+        if (page) this.refreshDownloadSource(page);
+      }
       signal?.removeEventListener('abort', abort);
       controllers.delete(controller);
       if (!controllers.size) this.operationControllers.delete(sessionId);
@@ -488,6 +655,10 @@ export class BrowserManager {
       }
       if (inputPage !== undefined) this.agentInputPages.delete(inputPage);
       if (navigationPage !== undefined) this.agentPageLeases.delete(navigationPage);
+      if (!controllers.size) for (const page of this.listPages(sessionId)) {
+        this.agentInputPages.delete(page.handle);
+        this.agentPageLeases.delete(page.handle);
+      }
       this.approvedAgentNavigations.delete(sessionId);
       this.publish();
     }) as BrowserOperationLease;
@@ -496,6 +667,31 @@ export class BrowserManager {
 
   listPages(sessionId: string): BrowserPage[] {
     return this.conversation(sessionId).tabs.map(id => this.pages.get(id)).filter((page): page is BrowserPage => !!page && this.alive(page));
+  }
+
+  private refreshDownloadSource(page: BrowserPage): void {
+    if (!this.alive(page)) return;
+    const actor = this.popupActors.has(page.handle) || [...this.operationMetadataPages].some(([controller, pages]) => !controller.signal.aborted && pages.get(page.handle) === true);
+    page.native.setDownloadSourceMetadata({ sessionId: page.owner, pageId: page.id,
+      isActorVisit: actor, requiresAuthorization: this.controlledDownloads.has(page.handle) });
+  }
+
+  /** Bind the active operation to its resolved target, including inactive tabs. */
+  bindOperationPage(page: BrowserPage, name: string): void {
+    if (!this.activeOperations.has(page.owner)) return;
+    const controller = [...(this.operationControllers.get(page.owner) ?? [])]
+      .find(controller => controller.signal === this.operationSignals.get(page.owner));
+    if (!controller || controller.signal.aborted) return;
+    const actor = AGENT_INPUT_OPERATIONS.has(name) || AGENT_NAVIGATION_OPERATIONS.has(name);
+    const metadata = this.operationMetadataPages.get(controller);
+    metadata?.set(page.handle, actor || metadata.get(page.handle) === true);
+    this.controlledDownloads.add(page.handle);
+    this.refreshDownloadSource(page);
+    if (AGENT_INPUT_OPERATIONS.has(name)) this.agentInputPages.add(page.handle);
+    if (AGENT_NAVIGATION_OPERATIONS.has(name)) this.agentPageLeases.add(page.handle);
+    if (!actor) return;
+    const leases = this.operationPageLeases.get(controller);
+    if (leases && !leases.has(page.handle)) leases.set(page.handle, this.leases.begin(page.owner, page.handle, 'agent', controller.signal));
   }
 
   private find(sessionId: string, handle?: number | string): BrowserPage | undefined {
@@ -519,45 +715,111 @@ export class BrowserManager {
     return this.createTab(sessionId, 'about:blank', true, signal);
   }
 
-  private addPage(sessionId: string, contents?: WebContents, activate = true, keepInactive = false): BrowserPage {
+  private async addPage(sessionId: string, activate = true, keepInactive = false): Promise<BrowserPage> {
     this.requireAvailable();
-    const preferences: Electron.WebPreferences = {
-      session: this.browserSession, sandbox: true, contextIsolation: true, nodeIntegration: false,
-      // With sandbox explicitly true this enables only the restricted preload
-      // in child frames; it does not expose Node to any page/frame.
-      nodeIntegrationInSubFrames: true, webviewTag: false, webSecurity: true, spellcheck: true,
-    };
-    const view = new WebContentsView(contents ? { webContents: contents } : { webPreferences: preferences });
-    this.parking.contentView.addChildView(view);
-    // Background pages retain a viewport without displaying a window.
-    view.setBounds({ x: 0, y: 0, width: 1280, height: 800 });
+    await this.profile();
+    const native = await this.binding!.create({ parent: this.parking, bounds: { x: 0, y: 0, width: 1280, height: 800 }, url: 'about:blank', visible: false });
+    return this.registerPage(sessionId, native, activate, keepInactive);
+  }
+
+  private registerPage(sessionId: string, native: NativeBrowserHandle, activate = true, keepInactive = false, bindOperation = true, deferRuntime = false): BrowserPage {
+    if (this.disposed) { native.close(); throw new BrowserError('unavailable', 'The browser manager has shut down.'); }
+    try { this.permissions.attach(sessionId, native); }
+    catch (error) { native.close(); throw error; }
+    native.setVisible(false);
+    native.setParent(this.parking);
     const handle = this.nextHandle++;
-    const page: BrowserPage = { handle, id: `iab-${handle}`, owner: sessionId, view, contentsId: view.webContents.id, cdp: new PageDebugger(view.webContents), ready: Promise.resolve(), lastOpened: Date.now() };
+    const cdp = new PageDebugger(new NativePageTransport(native));
+    const navigation = new NativeNavigationGate({
+      sessionId, pageHandle: handle, cdp: deferRuntime ? {
+        command: (method, params, frame) => cdp.navigationCommand(method, params, frame),
+        onEvent: listener => cdp.onEvent(listener), ownedFrameTargets: () => cdp.ownedFrameTargets(),
+      } : cdp, leases: this.leases,
+      assertNavigation: url => this.assertNavigation(url),
+      mainFrameId: () => native.getMainFrameId(),
+      authorize: (owner, url, resource, signal) => this.authorize(owner, url, resource, signal),
+    });
+    const page: BrowserPage = { handle, id: `iab-${handle}`, owner: sessionId, native, cdp, navigation, ready: Promise.resolve(), lastOpened: Date.now() };
     this.pages.set(handle, page);
+    this.refreshDownloadSource(page);
+    if (bindOperation) this.bindOperationPage(page, this.activeOperations.get(sessionId)?.initiator ?? '');
     const conversation = this.conversation(sessionId);
     conversation.tabs.push(handle);
     if (activate || (!keepInactive && conversation.active === undefined)) conversation.active = handle;
     this.bindPage(page);
-    // A fresh WebContents has no live document yet. Attaching then awaiting
-    // Page.enable before loadURL deadlocks initialization on Electron 44.
-    page.ready = (contents ? Promise.resolve() : view.webContents.loadURL('about:blank')).then(() => page.cdp.initialize());
-    // A popup has no awaiting API caller. Keep its failed initialization observable.
+    page.ready = (deferRuntime ? cdp.prepareNavigation() : cdp.initialize()).then(() => navigation.start());
     void page.ready.catch(error => { page.error = message(error); this.publish(); });
-    this.present();
-    this.publish();
+    this.present(); this.publish();
     return page;
+  }
+
+  /** Adopt the browser-owned popup and continue its original navigation. */
+  private async adoptPopup(sessionId: string, source: NativeBrowserHandle, native: NativeBrowserHandle, info: NativePopupInfo): Promise<void> {
+    let page: BrowserPage | undefined;
+    let lease: NativeNavigationLease | undefined;
+    let signal: AbortSignal | undefined;
+    let resumed = false;
+    const cleanup = (): void => {
+      signal?.removeEventListener('abort', cancelled);
+      native.removeListener('did-stop-loading', loaded);
+      native.removeListener('destroyed', cleanup);
+      lease?.release();
+      lease = undefined;
+      if (page) { this.popupActors.delete(page.handle); this.refreshDownloadSource(page); }
+    };
+    const cancelled = (): void => {
+      cleanup();
+      if (native.isDestroyed()) return;
+      native.cancelPopup();
+      if (page) this.closeTab(sessionId, page.handle); else native.close();
+    };
+    const loaded = (): void => {
+      if (resumed && !native.isDestroyed() && native.getURL() !== 'about:blank' && !native.getState().loading) cleanup();
+    };
+    try {
+      this.requireAvailable();
+      if (source.isDestroyed() || native.isDestroyed()) throw new BrowserError('cancelled', 'The popup source has closed.');
+      this.assertNavigation(info.url || 'about:blank');
+      if (info.requiresAuthorization) {
+        this.requireEnabled();
+        signal = this.agentControlSignal(this.operationSignals.get(sessionId));
+        signal.throwIfAborted();
+      }
+      const activate = info.disposition !== 4;
+      page = this.registerPage(sessionId, native, activate, true, false, true);
+      if (info.requiresAuthorization) this.controlledDownloads.add(page.handle);
+      if (info.isActorVisit) this.popupActors.add(page.handle);
+      this.refreshDownloadSource(page);
+      lease = this.leases.begin(sessionId, page.handle, info.isActorVisit ? 'agent' : 'other', signal, info.requiresAuthorization);
+      native.on('did-stop-loading', loaded);
+      native.on('destroyed', cleanup);
+      signal?.addEventListener('abort', cancelled, { once: true });
+      const adopted = page;
+      page.ready = page.ready.then(async () => {
+        signal?.throwIfAborted();
+        this.page(sessionId, adopted.handle);
+        resumed = true;
+        native.resumePopup();
+        await adopted.cdp.initialize();
+      });
+      await page.ready;
+      this.present(); this.publish();
+    } catch {
+      cancelled();
+    }
   }
 
   async createTab(sessionId: string, input: unknown = 'about:blank', activate = true, signal?: AbortSignal): Promise<BrowserPage> {
     if (signal?.aborted) throw new BrowserError('cancelled', 'The browser operation was cancelled.');
     const url = this.assertNavigation(input);
-    const page = this.addPage(sessionId, undefined, activate);
+    const page = await this.addPage(sessionId, activate);
+    if (url !== 'about:blank') this.bindOperationPage(page, 'navigate');
     try { await page.ready; if (signal?.aborted) throw new BrowserError('cancelled', 'The browser operation was cancelled.'); await this.navigate(page, url, {}, signal); return page; }
     catch (error) { this.closeTab(sessionId, page.handle); throw error; }
   }
 
   async createPreviewTab(sessionId: string): Promise<BrowserPage> {
-    const page = this.addPage(sessionId, undefined, false, true);
+    const page = await this.addPage(sessionId, false, true);
     try { await page.ready; return page; }
     catch (error) { this.closeTab(sessionId, page.handle); throw error; }
   }
@@ -572,135 +834,81 @@ export class BrowserManager {
     this.requireAvailable(); this.page(page.owner, page.handle);
     page.error = undefined;
     const serial = this.beginNavigation(page);
-    await navigateForRead(page.cdp, url, fields, signal, () => {
+    await page.cdp.activity(() => navigateForRead(page.cdp, url, fields, signal, () => {
       if (this.isCurrentNavigation(page, serial)) void page.cdp.command('Page.stopLoading').catch(() => {});
-    });
+    }));
     this.publish();
+  }
+
+  async stop(page: BrowserPage): Promise<void> {
+    await page.navigation.abortPending();
+    await page.cdp.command('Page.stopLoading');
   }
 
   async historyAction(page: BrowserPage, action: 'back' | 'forward' | 'reload', signal?: AbortSignal): Promise<void> {
-    if (signal?.aborted) throw new BrowserError('cancelled', 'The browser operation was cancelled.');
-    this.requireAvailable();
-    const contents = page.view.webContents;
-    const history = contents.navigationHistory;
-    if (action !== 'reload') {
-      if (!(action === 'back' ? history.canGoBack() : history.canGoForward())) throw new BrowserError('not_found', `There is no ${action} history entry.`);
-      this.assertNavigation(history.getAllEntries()[history.getActiveIndex() + (action === 'back' ? -1 : 1)]?.url);
-    } else this.assertNavigation(contents.getURL());
-    const serial = this.beginNavigation(page);
-    await new Promise<void>((resolveDone, reject) => {
-      const finish = (error?: Error): void => {
-        clearTimeout(timer);
-        contents.removeListener('did-stop-loading', loaded);
-        contents.removeListener('destroyed', closed);
-        signal?.removeEventListener('abort', aborted);
-        if (error) reject(error); else resolveDone();
-      };
-      const loaded = (): void => finish();
-      const closed = (): void => finish(new BrowserError('stale_tab', 'The page closed while navigating.'));
-      const aborted = (): void => {
-        if (this.isCurrentNavigation(page, serial)) { try { contents.stop(); } catch { /* already closed */ } }
-        finish(new BrowserError('cancelled', 'The browser operation was cancelled.'));
-      };
-      const timer = setTimeout(() => finish(new BrowserError('timeout', 'Browser navigation timed out.')), 30_000);
-      contents.once('did-stop-loading', loaded);
-      contents.once('destroyed', closed);
-      signal?.addEventListener('abort', aborted, { once: true });
-      try {
-        if (action === 'reload') contents.reload();
-        else if (action === 'back') history.goBack();
-        else history.goForward();
-      } catch (error) { finish(new BrowserError('host_error', message(error))); }
-    });
+    signal?.throwIfAborted();
+    this.requireAvailable(); this.page(page.owner, page.handle);
+    await page.ready;
+    if (action === 'reload') {
+      this.assertNavigation(page.native.getURL());
+      await page.cdp.command('Page.reload');
+    } else {
+      const history = await page.cdp.command('Page.getNavigationHistory');
+      const entries = Array.isArray(history.entries) ? history.entries : [];
+      const index = Number(history.currentIndex) + (action === 'back' ? -1 : 1);
+      const entry = object(entries[index]);
+      if (typeof entry.id !== 'number') throw new BrowserError('not_found', `There is no ${action} history entry.`);
+      this.assertNavigation(entry.url);
+      await page.cdp.command('Page.navigateToHistoryEntry', { entryId: entry.id });
+    }
+    signal?.throwIfAborted();
     this.publish();
   }
 
-  private bindPage(page: BrowserPage): void {
-    const contents = page.view.webContents;
-    this.dialogs.bind(page);
-    contents.on('page-favicon-updated', (_event, urls) => {
-      const source = urls[0];
-      page.faviconSource = source;
-      page.faviconUrl = boundedTabFavicon(source);
-      this.publish();
-      if (page.faviconUrl?.startsWith('data:image/')) {
-        this.data.queueVisitUpdate(page.owner, contents.getURL(), { faviconDataUrl: page.faviconUrl });
-      }
-      if (!source || page.faviconUrl) return;
-      try { this.assertNavigation(source); } catch { return; }
-      void contents.executeJavaScriptInIsolatedWorld(999, [{ code: cachedTabFaviconScript(source) }]).then(value => {
-        if (!this.alive(page) || page.faviconSource !== source) return;
-        page.faviconUrl = boundedTabFavicon(value); this.publish();
-        if (page.faviconUrl?.startsWith('data:image/')) {
-          this.data.queueVisitUpdate(page.owner, contents.getURL(), { faviconDataUrl: page.faviconUrl });
-        }
-      }).catch(() => {});
-    });
-    for (const event of ['did-start-loading', 'did-stop-loading', 'page-title-updated']) {
-      contents.on(event as 'did-start-loading', () => this.publish());
+  async beginUpload(page: BrowserPage, signal?: AbortSignal): Promise<void> {
+    this.page(page.owner, page.handle);
+    await page.navigation.setUploadLease(this.agentControlSignal(signal));
+  }
+
+  /** Retire agent ownership when the user takes over this page. */
+  takeManualControl(page: BrowserPage): void {
+    this.page(page.owner, page.handle);
+    this.controlledDownloads.delete(page.handle);
+    this.popupActors.delete(page.handle);
+    void page.navigation.setUploadLease().catch(() => {});
+    for (const [controller, pages] of this.operationMetadataPages) {
+      if (!pages.has(page.handle)) continue;
+      pages.set(page.handle, false);
+      this.operationPageLeases.get(controller)?.get(page.handle)?.release();
+      this.operationPageLeases.get(controller)?.delete(page.handle);
+      controller.abort();
     }
-    contents.on('page-title-updated', () => {
-      const url = contents.getURL();
-      if (!this.isHistoryUrl(url)) return;
-      this.data.queueVisitUpdate(page.owner, url, { title: contents.getTitle() || url });
-    });
-    contents.on('did-navigate', (_event, url) => {
-      this.pendingVisits.set(page.handle, url);
+    this.downloads.release(page.id);
+    this.refreshDownloadSource(page);
+  }
+
+  private bindPage(page: BrowserPage): void {
+    const native = page.native;
+    this.dialogs.bind(page);
+    native.on('manual-input', () => this.takeManualControl(page));
+    native.on('popup-created', (_event, child, info) => { void this.adoptPopup(page.owner, native, child, info); });
+    for (const event of ['did-start-loading', 'did-stop-loading'] as const) native.on(event, () => this.publish());
+    native.on('page-title-updated', () => {
       this.publish();
+      const url = native.getURL();
+      if (this.isHistoryUrl(url)) this.data.queueVisitUpdate(page.owner, url, { title: native.getTitle() || url });
     });
-    contents.on('did-navigate-in-page', (_event, url, isMainFrame) => {
-      this.publish();
-      if (isMainFrame) this.scheduleVisit(page, url);
-    });
-    // A finished load is the first moment the layout metrics describe the new
-    // document; the probe itself debounces so redirect chains measure once.
-    contents.on('did-stop-loading', () => {
+    native.on('did-navigate', (_event, url) => { this.pendingVisits.set(page.handle, url); this.publish(); });
+    native.on('did-navigate-in-page', (_event, url) => { this.scheduleVisit(page, url); this.publish(); });
+    native.on('did-stop-loading', () => {
+      if (native.getURL() !== 'about:blank') void page.navigation.setUploadLease().catch(() => {});
       const pending = this.pendingVisits.get(page.handle);
       this.pendingVisits.delete(page.handle);
-      if (this.isHistoryUrl(contents.getURL())) {
-        this.agentPageLeases.delete(page.handle);
-        this.pendingMainFrameAuthorizations.delete(page.handle);
-      }
-      if (!this.suppressedReloads.delete(page.handle)) this.scheduleVisit(page, pending || contents.getURL());
+      if (!this.suppressedReloads.delete(page.handle)) this.scheduleVisit(page, pending || native.getURL());
       this.scheduleContentProbe(page);
     });
-    const guard = (event: Electron.Event, url: string): void => {
-      try { this.assertNavigation(url); }
-      catch (error) { event.preventDefault(); page.error = message(error); this.publish(); }
-    };
-    contents.on('will-navigate', guard);
-    contents.on('will-redirect', guard);
-    contents.on('render-process-gone', (_event, details) => { page.error = `Browser page stopped: ${details.reason}`; this.publish(); });
-    contents.on('destroyed', () => this.forget(page));
-    contents.setWindowOpenHandler(details => {
-      try { this.assertNavigation(details.url); this.requireAvailable(); } catch { return { action: 'deny' }; }
-      const agentPopup = this.activeOperations.has(page.owner)
-        && AGENT_POPUP_OPERATIONS.has(this.activeOperations.get(page.owner)?.initiator ?? '');
-      return {
-        action: 'allow',
-        overrideBrowserWindowOptions: { webPreferences: { session: this.browserSession, sandbox: true, contextIsolation: true, nodeIntegration: false, nodeIntegrationInSubFrames: true, webviewTag: false } },
-        createWindow: options => {
-          // Electron documents this adoption field in setWindowOpenHandler's
-          // createWindow example; its constructor option type does not include it.
-          const adopted = (options as Electron.BrowserWindowConstructorOptions & { webContents?: WebContents }).webContents;
-          const child = this.addPage(page.owner, adopted, details.disposition !== 'background-tab');
-          if (agentPopup) {
-            this.pendingMainFrameAuthorizations.set(child.handle, this.operationSignals.get(page.owner));
-            this.agentPageLeases.add(child.handle);
-          }
-          if (!adopted) void child.ready.then(() => this.navigate(child, details.url)).catch(error => { child.error = message(error); this.publish(); });
-          if (page.owner === this.current && this.wantedVisible) this.present();
-          return child.view.webContents;
-        },
-      };
-    });
-    contents.on('context-menu', (_event, params) => {
-      if (this.shown !== page) return;
-      const template: Electron.MenuItemConstructorOptions[] = [];
-      if (params.isEditable) template.push({ role: 'cut' }, { role: 'copy' }, { role: 'paste' }, { role: 'selectAll' });
-      else if (params.selectionText) template.push({ role: 'copy' });
-      if (template.length) Menu.buildFromTemplate(template).popup({ window: this.options.window });
-    });
+    native.on('render-process-gone', (_event, status) => { page.error = `Browser page stopped: ${status}`; this.publish(); });
+    native.on('destroyed', () => this.forget(page));
   }
 
   private isHistoryUrl(url: string): boolean {
@@ -712,13 +920,13 @@ export class BrowserManager {
     // A pushState page can update its title in the same task; recording on the
     // next turn captures that title without delaying navigation.
     setTimeout(() => {
-      if (this.disposed || !this.alive(page) || page.view.webContents.getURL() !== url) return;
-      const contents = page.view.webContents;
+      if (this.disposed || !this.alive(page) || page.native.getURL() !== url) return;
+      const contents = page.native;
       this.data.recordVisit({
         sessionId: page.owner,
         url,
         title: contents.getTitle() || url,
-        source: this.navigationSource(page, url),
+        source: page.navigation.takeVisitSource(url) ?? 'other',
         ...(page.faviconUrl?.startsWith('data:image/') ? { faviconDataUrl: page.faviconUrl } : {}),
       });
     }, 0);
@@ -747,19 +955,20 @@ export class BrowserManager {
     if (!tracked && handle !== undefined) return this.ok(sessionId);
     const page = this.page(sessionId, handle);
     this.forget(page);
-    page.cdp.dispose();
-    const contents = page.view.webContents;
-    if (contents && !contents.isDestroyed()) contents.close({ waitForBeforeUnload: false });
+    if (this.alive(page)) page.native.close();
     return this.ok(sessionId);
   }
 
   private forget(page: BrowserPage): void {
     if (!this.pages.has(page.handle)) return;
-    this.dialogs.release(page.contentsId);
+    this.dialogs.release(page.handle);
+    this.controlledDownloads.delete(page.handle);
+    this.popupActors.delete(page.handle);
+    for (const pages of this.operationMetadataPages.values()) pages.delete(page.handle);
+    void page.navigation.stop().finally(() => page.cdp.dispose());
     this.downloads.release(page.id);
     this.navigationSerials.delete(page.handle);
     if (this.shown === page) this.detach();
-    if (!this.parking.isDestroyed()) this.parking.contentView.removeChildView(page.view);
     this.pages.delete(page.handle);
     this.settlePanelOpenWaiters(false, waiter => waiter.sessionId === page.owner && waiter.targetId === page.id);
     const conversation = this.conversation(page.owner);
@@ -794,7 +1003,7 @@ export class BrowserManager {
   hide(): BrowserObject {
     this.presentationRevision += 1;
     this.wantedVisible = false;
-    this.detach(); this.dialogs.present(); this.publish();
+    this.detach(); this.publish();
     return this.ok();
   }
 
@@ -814,15 +1023,13 @@ export class BrowserManager {
     const page = this.shown;
     this.shown = undefined;
     const window = this.options.window;
-    // Keyboard focus stays with a WebContents after its view leaves the window.
-    // Hand it back to the window's own page, or a dialog that took the browser's
-    // place on screen never receives Enter or Escape.
-    const focused = this.alive(page) && page.view.webContents.isFocused();
-    if (!window.isDestroyed()) window.contentView.removeChildView(page.view);
+    // Return keyboard focus before a renderer overlay replaces the native page.
+    const focused = this.alive(page) && page.native.isFocused();
+    if (this.alive(page)) page.native.setVisible(false);
     if (!this.disposed && !this.parking.isDestroyed() && this.alive(page)) {
-      this.parking.contentView.addChildView(page.view);
-      const bounds = page.view.getBounds();
-      page.view.setBounds({ ...bounds, x: 0, y: 0 });
+      page.native.setParent(this.parking);
+      const bounds = page.native.getBounds();
+      page.native.setBounds({ ...bounds, x: 0, y: 0 });
     }
     if (focused && !window.isDestroyed() && window.isFocused()) window.webContents.focus();
   }
@@ -842,12 +1049,12 @@ export class BrowserManager {
     const quality = typeof fields.quality === 'number' && Number.isInteger(fields.quality) && fields.quality >= 0 && fields.quality <= 100 ? fields.quality : 80;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const image = await Promise.race([
-      page.view.webContents.capturePage(),
+      page.cdp.command('Page.captureScreenshot', { format: 'jpeg', quality, captureBeyondViewport: false, fromSurface: true }),
       new Promise<never>((_resolve, reject) => { timer = setTimeout(() => reject(new BrowserError('timeout', 'Browser capture timed out.')), 1500); }),
     ]).finally(() => clearTimeout(timer));
     if (this.shown !== page || !this.alive(page)) throw new BrowserError('stale_tab', 'The page left the screen while it was captured.');
-    if (image.isEmpty()) throw new BrowserError('host_error', 'The browser returned an empty capture.');
-    return { tabId: page.id, dataUrl: `data:image/jpeg;base64,${image.toJPEG(quality).toString('base64')}` };
+    if (typeof image.data !== 'string' || !image.data) throw new BrowserError('host_error', 'The browser returned an empty capture.');
+    return { tabId: page.id, dataUrl: `data:image/jpeg;base64,${image.data}` };
   }
 
   private present(): void {
@@ -855,20 +1062,20 @@ export class BrowserManager {
     const active = this.conversation(this.current).active;
     const page = active === undefined ? undefined : this.pages.get(active);
     if (this.disposed || !this.wantedVisible || !this.isAvailable() || window.isDestroyed() || !window.isVisible() || window.isMinimized() || !page || !this.alive(page)) {
-      this.detach(); this.dialogs.present(); return;
+      this.detach(); return;
     }
     if (this.shown !== page) {
       this.detach();
-      this.parking.contentView.removeChildView(page.view);
-      window.contentView.addChildView(page.view); this.shown = page;
+      page.native.setParent(window); this.shown = page;
     }
     const zoom = window.webContents.getZoomFactor();
     const size = window.getContentBounds();
     const x = Math.min(Math.round(this.bounds.x * zoom), Math.max(0, size.width - 1));
     const y = Math.min(Math.round(this.bounds.y * zoom), Math.max(0, size.height - 1));
-    page.view.setBounds({ x, y, width: Math.max(1, Math.min(Math.round(this.bounds.width * zoom), size.width - x)), height: Math.max(1, Math.min(Math.round(this.bounds.height * zoom), size.height - y)) });
+    page.native.setBounds({ x, y, width: Math.max(1, Math.min(Math.round(this.bounds.width * zoom), size.width - x)), height: Math.max(1, Math.min(Math.round(this.bounds.height * zoom), size.height - y)) });
+    page.native.setBubbleAnchor({ x: x + 8, y: Math.max(0, y - 28), width: 24, height: 24 });
+    page.native.setVisible(true);
     this.scheduleContentProbe(page);
-    this.dialogs.present();
   }
 
   /**
@@ -894,8 +1101,7 @@ export class BrowserManager {
 
   private async probeContentWidth(page: BrowserPage): Promise<void> {
     if (this.disposed || !this.alive(page) || this.shown !== page) return;
-    const contents = page.view.webContents;
-    if (contents.isLoading()) return;
+    if (page.native.getState().loading) return;
     let width = 0;
     try {
       const metrics = object(await page.cdp.command('Page.getLayoutMetrics'));
@@ -904,7 +1110,7 @@ export class BrowserManager {
       const zoom = this.options.window.webContents.getZoomFactor() || 1;
       // The view bounds are physical pixels (they carry the window zoom); the
       // layout metrics are CSS pixels, so compare in CSS pixels.
-      const viewport = page.view.getBounds().width / zoom;
+      const viewport = page.native.getBounds().width / zoom;
       // A sub-pixel difference is rounding, not overflow: keep it at 0 so the
       // renderer never chases a fraction of a pixel.
       width = Number.isFinite(content) && content > viewport + 1 ? Math.ceil(content) : 0;
@@ -957,103 +1163,19 @@ export class BrowserManager {
     return surface;
   }
 
-  private permissionKey(contents: WebContents | null, permission: string, url: string): string | undefined {
-    const page = [...this.pages.values()].find(entry => entry.view.webContents === contents);
-    if (!page || !this.isAvailable()) return undefined;
-    try {
-      const origin = new URL(this.assertNavigation(url)).origin;
-      if (origin === 'null') return undefined;
-      return JSON.stringify([page.owner, origin, permission]);
-    } catch { return undefined; }
-  }
-
-  private installPermissions(): void {
-    const namesFor = (permission: string, media: string[]): string[] => {
-      if (permission !== 'media') return [permission];
-      return media.length ? media.map(type => type === 'video' ? 'videoCapture' : type === 'audio' ? 'audioCapture' : 'media') : ['media'];
-    };
-    const keysFor = (contents: WebContents | null, permission: string, url: string, media: string[]): string[] => {
-      return namesFor(permission, media).map(name => this.permissionKey(contents, name, url)).filter((key): key is string => key !== undefined);
-    };
-    this.browserSession.setPermissionCheckHandler((contents, permission, requestingOrigin, details) => {
-      const media = details.mediaType ? [details.mediaType] : [];
-      const names = namesFor(permission, media);
-      const policy = this.persistentPermission(requestingOrigin, names);
-      if (policy !== undefined) return policy;
-      const keys = keysFor(contents, permission, requestingOrigin, media);
-      return this.decisions.granted(keys, permission);
-    });
-    this.browserSession.setPermissionRequestHandler((contents, permission, callback, details) => {
-      const requestedUrl = details.requestingUrl || contents.getURL();
-      let origin = '';
-      try { origin = new URL(requestedUrl).origin; } catch { /* not a grantable page */ }
-      const media = object(details).mediaTypes;
-      const mediaTypes = Array.isArray(media) ? media.filter((value): value is string => typeof value === 'string') : [];
-      const names = namesFor(permission, mediaTypes);
-      const policy = origin ? this.persistentPermission(origin, names) : undefined;
-      if (policy !== undefined) { callback(policy); return; }
-      const key = this.permissionKey(contents, permission, requestedUrl);
-      const page = [...this.pages.values()].find(entry => entry.view.webContents === contents);
-      if (!key || !page) { callback(false); return; }
-      const keys = keysFor(contents, permission, requestedUrl, mediaTypes);
-      const request = { sessionId: page.owner, permission, origin, pageUrl: contents.getURL() };
-      // Decided keys settle silently and an open question is shared, so a page
-      // that re-asks on every visibility change cannot reopen the dialog.
-      void this.decisions.resolve(keys,
-        () => this.options.requestPermission?.(request) ?? Promise.resolve(false),
-        () => !this.disposed && !contents.isDestroyed() && contents.getURL() === request.pageUrl && this.permissionKey(contents, permission, requestedUrl) === key && !this.decisions.denied(keys),
-        permission,
-      ).then(allowed => callback(allowed), () => callback(false));
-    });
-    this.browserSession.setDevicePermissionHandler(() => false);
-  }
-
-  private persistentPermission(origin: string, names: string[]): boolean | undefined {
-    try { origin = new URL(origin).origin; }
-    catch { return undefined; }
-    let granted = 0;
-    for (const name of names) {
-      const decision = this.sitePermission(origin, name);
-      if (decision === 'denied') return false;
-      if (decision === 'granted') granted += 1;
-    }
-    return granted === names.length && names.length > 0 ? true : undefined;
-  }
-
   async setPermission(page: BrowserPage, fields: BrowserObject): Promise<BrowserObject> {
     this.requireEnabled(); this.page(page.owner, page.handle);
     const command = permissionCommand(fields);
     if (command.method === 'Browser.resetPermissions') {
-      this.decisions.forget(key => (JSON.parse(key) as string[])[0] === page.owner);
+      this.permissions.reset(page.owner);
       return { reset: true, scope: 'task' };
     }
     const origin = new URL(this.assertNavigation(command.params.origin)).origin;
     const asked = command.method === 'Browser.grantPermissions' ? command.params.permissions as Json[] : [object(command.params.permission).name!];
-    const aliases: Record<string, string> = { clipboardReadWrite: 'clipboard-read', clipboardSanitizedWrite: 'clipboard-sanitized-write', durableStorage: 'persistent-storage', midiSysex: 'midiSysex', pointerLock: 'pointerLock', audioCapture: 'audioCapture', videoCapture: 'videoCapture', camera: 'videoCapture', microphone: 'audioCapture' };
-    const accepted = new Set(['geolocation','notifications','clipboard-read','clipboard-sanitized-write','persistent-storage','midi','midiSysex','pointerLock','fullscreen','audioCapture','videoCapture','sensors','idle-detection','local-fonts','screen-wake-lock']);
-    const names = asked.map(name => aliases[String(name)] ?? String(name));
-    if (names.some(name => !accepted.has(name))) throw new BrowserError('unavailable', `IAB does not implement these permission names: ${names.filter(name => !accepted.has(name)).join(', ')}.`);
-    const setting = command.method === 'Browser.grantPermissions' ? 'granted' : String(command.params.setting);
-    for (const name of names) {
-      this.decisions.set([JSON.stringify([page.owner, origin, name])], setting);
-    }
-    return { origin, permissions: names, setting, scope: 'task', note: 'Chromium permission checks without an identifiable page remain denied. Device selection and operating-system permissions still apply.' };
+    const setting: NativePermissionSetting = command.method === 'Browser.grantPermissions' ? 'granted' : command.params.setting as NativePermissionSetting;
+    const names = this.permissions.set(page.owner, origin, asked.map(String), setting);
+    return { origin, permissions: names, setting, scope: 'task', note: 'Native site policy, device selection and operating-system permissions still apply.' };
   }
-
-  private readonly onDownload = (event: Electron.Event, item: Electron.DownloadItem, contents: WebContents): void => {
-    const page = [...this.pages.values()].find(entry => entry.view.webContents === contents);
-    if (!page || !this.isAvailable()) { event.preventDefault(); return; }
-    const chain = item.getURLChain().filter(url => !/^(?:blob|data):/u.test(url));
-    try { for (const url of chain) this.assertNavigation(url); }
-    catch { event.preventDefault(); return; }
-    const source = this.agentInputPages.has(page.handle) || this.agentPageLeases.has(page.handle) ? 'agent' : 'other';
-    const initiatorUrl = page.view.webContents.getURL();
-    const signal = source === 'agent' ? this.operationSignals.get(page.owner) : undefined;
-    try { item.pause(); } catch { /* The item may already be terminal. */ }
-    void this.downloads.accept(page.id, page.owner, item, source, initiatorUrl, signal).catch(() => {
-      try { item.cancel(); } catch { /* already canceled */ }
-    });
-  };
 
   download(
     page: BrowserPage,
@@ -1063,10 +1185,11 @@ export class BrowserManager {
     signal?: AbortSignal,
   ): Promise<BrowserObject> {
     this.requireAvailable(); this.page(page.owner,page.handle);
+    signal ??= this.operationSignals.get(page.owner);
     return this.downloads.download(
       page.id, page.owner, cdp, fields, waitMs,
       signal,
-      page.view.webContents.getURL(),
+      page.native.getURL(),
     );
   }
 
@@ -1121,36 +1244,22 @@ export class BrowserManager {
     }
     let visits = 0;
     let downloads = 0;
-    if (kind === 'all' || kind === 'cache') await this.browserSession.clearCache();
-    if (kind === 'all') {
-      await this.browserSession.clearStorageData();
-      this.decisions.clear();
-      visits = this.data.clearVisits().removed;
-      downloads = this.downloads.clearTerminal().removed;
-    } else if (kind === 'cookies') {
-      await this.browserSession.clearStorageData({ storages: ['cookies'] });
-    } else if (kind === 'siteData') {
-      await this.browserSession.clearStorageData({
-        storages: ['filesystem', 'indexdb', 'localstorage', 'shadercache', 'serviceworkers', 'cachestorage'],
-      });
-    } else if (kind === 'history') {
-      visits = this.data.clearVisits().removed;
-    } else if (kind === 'downloads') {
-      downloads = this.downloads.clearTerminal().removed;
-    }
-    this.browserSession.flushStorageData();
+    await (await this.profile()).clearData(kind as BrowserDataKind);
+    if (kind === 'all') this.permissions.reset();
+    if (kind === 'all' || kind === 'history') visits = this.data.clearVisits().removed;
+    if (kind === 'all' || kind === 'downloads') downloads = this.downloads.clearTerminal().removed;
     let reloaded = 0;
     if (kind === 'all') {
       for (const page of this.pages.values()) this.suppressedReloads.add(page.handle);
       for (const page of [...this.pages.values()]) {
         if (!this.alive(page)) continue;
-        try { page.view.webContents.reload(); reloaded += 1; } catch { /* closed while clearing */ }
+        try { await page.cdp.command('Page.reload'); reloaded += 1; } catch { /* closed while clearing */ }
       }
       // A failed or canceled reload must not suppress the user's next visit.
       setTimeout(() => {
         for (const handle of [...this.suppressedReloads]) {
           const page = this.pages.get(handle);
-          if (!page || !this.alive(page) || !page.view.webContents.isLoading()) this.suppressedReloads.delete(handle);
+          if (!page || !this.alive(page) || !page.native.getState().loading) this.suppressedReloads.delete(handle);
         }
       }, 5_000);
     }
@@ -1161,7 +1270,7 @@ export class BrowserManager {
     this.abortAgentOperations(sessionId);
     this.operationControllers.delete(sessionId);
     this.settlePanelOpenWaiters(false, waiter => waiter.sessionId === sessionId);
-    this.decisions.forget(key => (JSON.parse(key) as string[])[0] === sessionId);
+    this.permissions.reset(sessionId);
     this.authorizationEpoch++;
     for (const cancel of [...this.pendingNavigationCancels]) cancel();
     this.pendingNavigationCancels.clear();
@@ -1188,26 +1297,22 @@ export class BrowserManager {
     this.operationSignals.clear();
     this.settlePanelOpenWaiters(false);
     this.presentationRevision += 1;
+    for (const view of [...this.managementViews.values()]) view.dispose();
+    this.managementViews.clear();
     this.dialogs.dispose();
-    this.browserSession.unregisterPreloadScript(this.dialogPreloadId);
     this.detach();
     for (const [event, handler] of this.windowListeners) this.options.window.removeListener(event as 'resize', handler);
-    this.browserSession.removeListener('will-download', this.onDownload);
-    this.browserSession.webRequest.onBeforeRequest(null);
-    this.browserSession.setPermissionCheckHandler(() => false);
-    this.browserSession.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
     for (const cancel of [...this.pendingNavigationCancels]) cancel();
     this.pendingNavigationCancels.clear();
     this.data.flushVisitUpdates();
     this.downloads.dispose();
     for (const page of [...this.pages.values()]) {
-      if (!this.parking.isDestroyed()) this.parking.contentView.removeChildView(page.view);
-      page.cdp.dispose();
-      const contents = page.view.webContents;
-      if (contents && !contents.isDestroyed()) contents.close({ waitForBeforeUnload: false });
+      void page.navigation.stop().finally(() => page.cdp.dispose());
+      if (this.alive(page)) page.native.close();
     }
     if (!this.parking.isDestroyed()) this.parking.close();
-    this.pages.clear(); this.conversations.clear(); this.decisions.clear(); this.activeOperations.clear();
-    this.browserSession.flushStorageData();
+    this.permissions.reset(); this.pages.clear(); this.conversations.clear(); this.activeOperations.clear();
+    this.controlledDownloads.clear(); this.operationMetadataPages.clear();
+    void this.profileReady?.then(profile => { profile.removeAllListeners(); profile.dispose(); }, () => {});
   }
 }

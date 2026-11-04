@@ -19,6 +19,8 @@ claimDesktopProfileEdition(configRootFrom(), edition);
 app.setName(edition.productName);
 app.setAppUserModelId(edition.application);
 app.setPath('userData', join(configRootFrom(), 'electron'));
+app.commandLine.appendSwitch('native-browser-enabled');
+app.commandLine.appendSwitch('native-browser-data-dir', join(app.getPath('userData'), 'native-browser'));
 registerAppScheme();
 
 let runtime: DesktopRuntime | undefined;

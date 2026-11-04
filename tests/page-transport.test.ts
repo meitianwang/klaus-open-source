@@ -73,6 +73,24 @@ test('ElectronPageTransport keeps the existing throttling and capture behavior',
   assert.equal(fake.state.pdfs, 1);
 });
 
+test('navigation interception can be installed before the popup renderer becomes ready', async () => {
+  let rendererReady = false;
+  const fake = nativeTransport(async (method): Promise<BrowserObject> => {
+    if (method === 'Target.getTargetInfo') return { targetInfo: { targetId: 'popup-target' } };
+    if (!rendererReady && ['Runtime.enable', 'Network.enable', 'Page.getFrameTree'].includes(method)) throw new Error('Renderer is waiting for the original navigation');
+    return {};
+  });
+  const page = new PageDebugger(fake.transport);
+  await page.prepareNavigation();
+  await page.navigationCommand('Fetch.enable', { patterns: [{ resourceType: 'Document', requestStage: 'Request' }] });
+  assert.deepEqual(fake.calls.map(call => call.method), ['Target.getTargetInfo', 'Page.enable', 'Fetch.enable']);
+  rendererReady = true;
+  await page.initialize();
+  assert.equal(fake.calls.filter(call => call.method === 'Target.getTargetInfo').length, 1);
+  assert.ok(fake.calls.some(call => call.method === 'Runtime.enable'));
+  page.dispose();
+});
+
 test('PageDebugger uses CDP capture and PDF when the transport has no native providers', async () => {
   const fake = nativeTransport(async (method): Promise<BrowserObject> => {
     if (method === 'Target.getTargetInfo') return { targetInfo: { targetId: 'native-target' } } as BrowserObject;

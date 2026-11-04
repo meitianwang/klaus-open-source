@@ -1210,7 +1210,7 @@ export const CONTROL_SURFACES: ControlSurface[] = [
       {
         "action": "setSitePermission",
         "channel": "settings:browser-use:set-site-permission",
-        "args": "{ origin: string, permission: 'geolocation'|'notifications'|'audioCapture'|'videoCapture'|'clipboard-read'|'fullscreen'|'screen-wake-lock', setting: 'granted'|'denied'|'prompt' }",
+        "args": "{ origin: string, permission: 'geolocation'|'notifications'|'camera'|'microphone'|'audioCapture'|'videoCapture'|'clipboard-read'|'pointerLock', setting: 'granted'|'denied'|'prompt' }",
         "confirm": false,
         "currentSession": false
       },

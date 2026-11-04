@@ -30,6 +30,7 @@ export interface BrowserManagerOptions {
 export interface BrowserManagerState {
   surface: BrowserManagerSurface;
   viewId: string;
+  initialUrl?: string;
   url: string;
   title: string | null;
   canGoBack: boolean;
@@ -58,6 +59,7 @@ export interface BrowserSettingsSnapshot {
   promptForDownloads: boolean;
   defaultPolicy: BrowserOriginPolicy;
   originRules: BrowserOriginRule[];
+  /** Deprecated compatibility field; current site permissions live in native settings. */
   sitePermissions: Array<{ origin: string; permission: string; setting: 'granted' | 'denied' }>;
   approvalMode: string;
   screenshotMode: string;

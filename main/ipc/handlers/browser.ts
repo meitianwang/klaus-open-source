@@ -9,6 +9,9 @@ import { BrowserTabMentionService } from '../../browser/tab-mentions';
 import type { SiteOpener } from '../../browser/site-open';
 import type { AnnotationSessionManager, AnnotationCaptureRequest, AnnotationSaveRequest, AnnotationCommitRequest } from '../../browser/annotation-session';
 import type { BrowserDownloadAction } from '../../../contracts/browser-history';
+import type { BrowserWindow } from 'electron';
+import type { BrowserProfileImportService } from '../../browser/profile-import-service';
+import type { BrowserImportRequest } from '../../../contracts/browser-import';
 
 export interface BrowserHandlerDependencies {
   manager: BrowserManager;
@@ -23,7 +26,10 @@ export interface BrowserHandlerDependencies {
   setEnabled?: (enabled: boolean) => Promise<Json>;
   mutateSettings?: (action: string, payload: BrowserObject) => Promise<Json> | Json;
   chooseDownloadDirectory?: () => Promise<Json>;
+  managementWindow?(context: HandlerContext): BrowserWindow | undefined;
   annotations?: AnnotationSessionManager;
+  imports?: BrowserProfileImportService;
+  importOwner?(context: HandlerContext): string;
 }
 
 export function registerBrowserHandlers(registry: ChannelRegistry, deps: BrowserHandlerDependencies): void {
@@ -110,14 +116,15 @@ export function registerBrowserHandlers(registry: ChannelRegistry, deps: Browser
   register('browser-use:navigate', async fields => {
     const owner = manager.conversationId;
     const page = await manager.ensurePage(owner);
+    manager.takeManualControl(page);
     await manager.navigate(page, fields.url);
     return manager.ok(owner);
   });
   for (const action of ['back', 'forward', 'reload', 'stop']) register(`browser-use:${action}`, async () => {
     const owner = manager.conversationId;
     const page = await manager.ensurePage(owner);
-    const contents = page.view.webContents;
-    if (action === 'stop') contents.stop();
+    manager.takeManualControl(page);
+    if (action === 'stop') await manager.stop(page);
     else await manager.historyAction(page, action as 'back' | 'forward' | 'reload');
     return manager.ok(owner);
   });
@@ -133,12 +140,29 @@ export function registerBrowserHandlers(registry: ChannelRegistry, deps: Browser
   register('browser-use:tabs', async fields => {
     const owner = manager.conversationId;
     const action = fields.action ?? 'list';
-    if (action === 'new') await manager.createTab(owner, fields.url ?? 'about:blank');
+    if (action === 'new') {
+      const page = await manager.createTab(owner, 'about:blank');
+      manager.takeManualControl(page);
+      if (fields.url !== undefined && fields.url !== 'about:blank') await manager.navigate(page, fields.url);
+    }
     else if (action === 'select') manager.selectTab(owner, string(fields.tabId, 'tabId'));
     else if (action === 'close') manager.closeTab(owner, fields.tabId === undefined ? undefined : string(fields.tabId, 'tabId'));
     else if (action !== 'list') throw new BrowserError('invalid_request', `Unknown browser tabs action: ${String(action)}`);
     return { ...manager.ok(owner), tabs: manager.state(owner).tabs };
   });
+  const importOwner = (context: HandlerContext): string => {
+    if (!deps.imports || !deps.importOwner) throw new BrowserError('unavailable', 'Browser profile import is unavailable.');
+    return deps.importOwner(context);
+  };
+  register('settings:browser-profile-import:discover', (_fields, context) => deps.imports!.discover(importOwner(context)), false);
+  register('settings:browser-profile-import:start', (fields, context) => {
+    const owner = importOwner(context);
+    return deps.imports!.start(owner, fields as unknown as BrowserImportRequest);
+  }, false);
+  register('settings:browser-profile-import:cancel', (fields, context) => {
+    const owner = importOwner(context);
+    return deps.imports!.cancel(owner, string(fields.jobId, 'jobId'));
+  }, false);
   register('settings:browser-use:get', () => deps.getSettings?.() ?? { enabled: manager.isEnabled(), browserAvailable: manager.isAvailable(), chromeEnabled: false }, false);
   register('settings:browser-use:set-enabled', async fields => {
     if (typeof fields.enabled !== 'boolean') throw new BrowserError('invalid_request', 'enabled must be a boolean.');
@@ -157,6 +181,11 @@ export function registerBrowserHandlers(registry: ChannelRegistry, deps: Browser
     return deps.mutateSettings(action, fields);
   }, false);
   register('settings:browser-use:clear-data', fields => manager.clearData(typeof fields.kind === 'string' ? fields.kind : 'all'), false);
+  register('settings:browser-use:open-manager', (fields, context) => {
+    const window = deps.managementWindow?.(context);
+    if (deps.managementWindow && !window) throw new BrowserError('stale_scope', 'The settings window is no longer available.');
+    return manager.openManager(string(fields.surface, 'surface'), fields.options === undefined ? fields : object(fields.options), window);
+  }, false);
   register('settings:browser-use:choose-download-directory', () => {
     if (!deps.chooseDownloadDirectory) throw new BrowserError('unavailable', 'The download folder picker is unavailable.');
     return deps.chooseDownloadDirectory();

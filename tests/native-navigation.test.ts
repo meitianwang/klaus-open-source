@@ -66,6 +66,23 @@ function pausedRequest(
   };
 }
 
+test('browser-owned main frame identity gates the initial popup without a renderer frame-tree request', async () => {
+  const cdp = new FakeCdp();
+  const leases = new NativeNavigationLeases();
+  const lease = leases.begin('popup-owner', 1, 'other', undefined, true);
+  const authorized: string[] = [];
+  const gate = new NativeNavigationGate({ sessionId: 'popup-owner', pageHandle: 1, cdp, leases,
+    mainFrameId: () => 'main', assertNavigation: value => String(value),
+    authorize: (_session, url) => { authorized.push(url); } });
+  await gate.start();
+  assert.equal(cdp.calls('Page.getFrameTree').length, 0);
+  cdp.emit('Fetch.requestPaused', pausedRequest('popup-first', 'https://example.com/popup'));
+  await until(() => cdp.calls('Fetch.continueRequest').length === 1);
+  assert.deepEqual(authorized, ['https://example.com/popup']);
+  assert.equal(gate.takeVisitSource('https://example.com/popup'), 'other');
+  lease.release(); await gate.stop();
+});
+
 test('main-frame requests authorize every hop and preserve the original method and body', async () => {
   const cdp = new FakeCdp();
   const leases = new NativeNavigationLeases();

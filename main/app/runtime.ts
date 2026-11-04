@@ -118,6 +118,7 @@ import { applicationMenuTemplate } from './application-menu';
 import { INITIAL_NATIVE_MENU_STATE, parseNativeMenuState, type NativeMenuState } from '../../contracts/native-menu-state';
 import { DesktopMenuDiagnostics } from './menu-diagnostics';
 import { NativeContentFind } from './native-content-find';
+import { nativeFindPage } from '../browser/native-find';
 import { registerComposerHandlers } from '../ipc/handlers/composer';
 import { storedPermissionMode, finishPermissionDefaultMigration } from '../services/runtime-policy';
 import { WindowsRuntimePolicyProjection, isNativeLocalWindows } from '../services/windows-runtime-policy';
@@ -178,6 +179,11 @@ import { PIP_PREFERENCES_KEY } from '../services/pip';
 import type { VoiceOptions } from '../services/voice/service';
 import { NativeSubscriptionCredentials } from '../native/credentials';
 import { BrowserManager } from '../browser/manager';
+import { BrowserProfileImportService } from '../browser/profile-import-service';
+import { MacBrowserProfileDecryptor } from '../browser/profile-decryptor';
+import { defaultBrowserSourceRoots } from '../browser/profile-discovery';
+import { resolveBrowserImportHelper } from '../browser/profile-import-helper';
+import { BrowserImportDecryptError } from '../../contracts/browser-import';
 import { PendingBrowserPermissions } from '../browser/permission-requests';
 import { BrowserAccessController } from '../browser/access';
 import { AnnotationSessionManager } from '../browser/annotation-session';
@@ -1408,13 +1414,17 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
       browser.publish();
     },
   });
-  const browserSnapshot = (): Json => ({ ...browserPreferences.get(), browserAvailable: browserRuntimeAvailable });
+  let nativeBrowserAvailable = false;
+  const browserSnapshot = (): Json => ({ ...browserPreferences.get(),
+    browserAvailable: browserRuntimeAvailable && nativeBrowserAvailable,
+    nativeManagementAvailable: browserRuntimeAvailable && nativeBrowserAvailable });
   const withBrowserAvailability = (result: Json): Json => {
     const value = object(result);
     if (!value) return result;
     const settings = object(value.settings) ?? {};
     return Object.keys(settings).length
-      ? { ...value, settings: { ...settings, browserAvailable: browserRuntimeAvailable } }
+      ? { ...value, settings: { ...settings, browserAvailable: browserRuntimeAvailable && nativeBrowserAvailable,
+          nativeManagementAvailable: browserRuntimeAvailable && nativeBrowserAvailable } }
       : value;
   };
   // Browser pages ask for permissions through the product window's own dialog
@@ -1436,11 +1446,18 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
   const browser: BrowserManager = new BrowserManager({
     window, configRoot, managedWindows: true,
     emit: (channel, value) => sendToMainWindow(mainWindows.get(browser.windowId) ?? window, channel, value),
+    emitToWindow: (owner, channel, value) => sendToMainWindow(owner, channel, value),
     enabled: () => browserPreferences.enabled(),
     available: () => browserRuntimeAvailable,
     navigationAllowed: url => browserPreferences.allowsNavigation(url),
     authorize: (sessionId, url, resource, signal) => browserAccess.authorize(sessionId, url, resource, signal),
-    sitePermission: (origin, permission) => browserPreferences.sitePermission(origin, permission),
+    initializeProfile: profile => {
+      const migration = browserPreferences.migrateSitePermissions(row => {
+        try { profile.setSitePermission(row.origin, row.permission, row.setting); return true; }
+        catch { return false; }
+      });
+      if (migration.applied || migration.remaining) log.write('browser-site-permissions-migration', JSON.stringify(migration));
+    },
     downloadDirectory: () => String(browserPreferences.get().downloadDirectory ?? app.getPath('downloads')),
     promptForUserDownloads: () => browserPreferences.get().promptForDownloads === true,
     chooseDownloadPath: async request => {
@@ -1454,6 +1471,32 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
     },
   });
   early.add(() => { browserRuntimeAvailable = false; browser.dispose(); });
+  nativeBrowserAvailable = browser.isAvailable();
+  const browserImportOwners = new Map<number, string>();
+  const browserImports = new BrowserProfileImportService({
+    configRoot, roots: () => defaultBrowserSourceRoots(),
+    target: (_request, signal) => browser.importTarget(signal),
+    createDecryptor: (source, signal) => {
+      if (!source.family || process.platform !== 'darwin') {
+        throw new BrowserImportDecryptError('decryption_unavailable', 'Encrypted browser data cannot be imported on this platform.');
+      }
+      return new MacBrowserProfileDecryptor({
+        helperPath: resolveBrowserImportHelper({ resourceDirs, packaged: app.isPackaged }),
+        family: source.family, signal,
+      });
+    },
+    emit: (owner, snapshot) => {
+      const id = [...browserImportOwners].find(([, key]) => key === owner)?.[0];
+      const target = id === undefined ? undefined : mainWindows.get(id);
+      if (target && !target.isDestroyed()) sendToMainWindow(target, 'settings:browser-profile-import:changed', snapshot as unknown as Json);
+    },
+  });
+  early.add(() => browserImports.disposeAll());
+  const releaseBrowserImports = (id: number): void => {
+    const key = browserImportOwners.get(id);
+    browserImportOwners.delete(id);
+    if (key) void browserImports.disposeOwner(key).catch(error => log.write('browser-import-close', String(error)));
+  };
   const annotationStaging = new Map<string, string>();
   const browserAnnotations = new AnnotationSessionManager({ browser, persistence: {
     save: async input => {
@@ -1479,7 +1522,10 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
     onClose: ownerId => { const owner = mainWindows.get(ownerId); if (owner) sendToMainWindow(owner, 'keymap:run-command', { commandId: 'closeContentFind' }); },
     target: ownerId => {
     if (!mainWindows.has(ownerId) || browser.windowId !== ownerId) return null;
-    try { return browser.page(browser.conversationId).view.webContents; }
+    try {
+      const page = browser.page(browser.conversationId);
+      return nativeFindPage(page.native, { evaluate: expression => page.cdp.evaluate(expression) });
+    }
     catch { return null; }
   } });
   early.add(() => nativeContentFind.close());
@@ -1511,8 +1557,23 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
       browser.adoptWindow(owner); return undefined;
     },
     manager: browser, annotations: browserAnnotations, preview: runPreview, sites: new SiteOpener(configRoot, browser), chrome: browserMcp.chrome, permissions: browserPermissions, getSettings: () => browserSnapshot(),
+    managementWindow: context => mainWindows.get(context.senderId),
+    imports: browserImports,
+    importOwner: context => {
+      const owner = mainWindows.get(context.senderId);
+      if (context.role !== 'main' || !owner || owner.isDestroyed()) throw new IpcHandlerError('FORBIDDEN_CHANNEL', 'This window cannot import browser data');
+      let key = browserImportOwners.get(context.senderId);
+      if (!key) { key = randomUUID(); browserImportOwners.set(context.senderId, key); }
+      return key;
+    },
     setEnabled: async enabled => withBrowserAvailability(await browserPreferences.setEnabled(enabled)),
-    mutateSettings: async (action, value) => withBrowserAvailability(await browserPreferences.mutate(action, value)),
+    mutateSettings: async (action, value) => {
+      if (action === 'set-site-permission') {
+        await browser.setSitePermission(value);
+        return { ok: true, settings: browserSnapshot() };
+      }
+      return withBrowserAvailability(await browserPreferences.mutate(action, value));
+    },
     chooseDownloadDirectory: async () => {
       const result = await dialog.showOpenDialog(focusedMainWindow(), { properties: ['openDirectory', 'createDirectory'],
         defaultPath: String(browserPreferences.get().downloadDirectory ?? app.getPath('downloads')) });
@@ -2944,6 +3005,7 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
     owner.on('closed', () => {
       closeTextContextMenu(); textContextMenusByWindow.delete(id);
       detachQuestions(); subscriptions.clearOwner(id); delivery.closeOwner(id); windows.unregister(id); broadcaster.removeTarget(id);
+      releaseBrowserImports(id);
       mainWindows.delete(id); nativeMenuStates.delete(id); browser.forgetWindow(id);
       composerCommandsByWindow.get(id)?.close(); composerCommandsByWindow.delete(id);
       imageZoomByWindow.get(id)?.close(); imageZoomByWindow.delete(id);
@@ -2953,10 +3015,11 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
       if (!closing) { lastMainWindow = window; browser.adoptWindow(focusedMainWindow()); refreshMenus(); }
     });
     owner.webContents.on('did-start-navigation', details => {
-      if (details.isMainFrame && !details.isSameDocument) { detachQuestions(); subscriptions.clearOwner(id); delivery.closeOwner(id, 'Renderer navigated'); }
+      if (details.isMainFrame && !details.isSameDocument) { releaseBrowserImports(id); detachQuestions(); subscriptions.clearOwner(id); delivery.closeOwner(id, 'Renderer navigated'); }
     });
     owner.webContents.on('preload-error', (_event, _path, error) => log.write('preload-error', error.message));
     owner.webContents.on('render-process-gone', (_event, details) => {
+      releaseBrowserImports(id);
       detachQuestions(); subscriptions.clearOwner(id); delivery.closeOwner(id, 'Renderer process exited');
       log.write('renderer-gone', JSON.stringify({ ...details, senderId: id }));
     });
@@ -3267,7 +3330,7 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
         () => prototype.dispose(), () => videoEditing.dispose(), () => ppt.dispose(),
         () => menuDiagnostics.close(),
         () => nativeContentFind.close(),
-        () => Promise.all([...canvasByWindow.values()].map(service => service.dispose())), () => browser.dispose(), () => chat.close(), () => tray?.destroy(), closePreviews,
+        () => Promise.all([...canvasByWindow.values()].map(service => service.dispose())), () => browserImports.disposeAll(), () => browser.dispose(), () => chat.close(), () => tray?.destroy(), closePreviews,
         () => media.close(), () => protocol.unhandle(MEDIA_SCHEME), () => protocol.unhandle('klaus-pet'),
         () => { for (const owner of mainWindows.values()) if (!owner.isDestroyed()) owner.destroy(); },
         () => served.close(), () => cursorLog.close(), () => log.close(), () => invokeLease.dispose(),

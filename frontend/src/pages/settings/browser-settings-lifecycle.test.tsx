@@ -319,7 +319,10 @@ describe('browser settings React lifecycle', () => {
     const manage = happyWindow.document.querySelector('#browser-download-history-manage') as any
     await click(manage)
     expect(happyWindow.document.body.textContent).toContain('Downloading')
-    await act(async () => { push({ id: 'active', state: 'completed', receivedBytes: 10, totalBytes: 10 }) })
+    await act(async () => { push({ id: 'active', state: 'failed', canPause: false, canResume: true, canCancel: true }) })
+    expect(buttonByText('Resume')).toBeTruthy()
+    expect(Array.from(happyWindow.document.querySelectorAll('button')).some((node: any) => node.textContent?.trim() === 'Pause')).toBe(false)
+    await act(async () => { push({ id: 'active', state: 'completed', receivedBytes: 10, totalBytes: 10, canPause: false, canResume: false, canCancel: false }) })
     expect(happyWindow.document.body.textContent).toContain('Completed')
     expect(happyWindow.document.body.textContent).not.toContain('File deleted')
     expect(Array.from(happyWindow.document.querySelectorAll('button')).filter((node: any) => node.textContent?.trim() === 'Remove from history').length).toBe(1)

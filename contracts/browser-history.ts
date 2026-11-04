@@ -75,6 +75,9 @@ export interface BrowserDownloadChangedEvent {
   receivedBytes: number;
   totalBytes: number;
   exists?: boolean;
+  canPause?: boolean;
+  canResume?: boolean;
+  canCancel?: boolean;
 }
 
 export type BrowserDataKind =
