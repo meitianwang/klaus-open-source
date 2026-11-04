@@ -62,7 +62,10 @@ app.whenReady().then(async () => {
     assert(value.loadedTurns >= 5);
     assert(value.distance <= 1, `Initial distance: ${value.distance}`);
     assert(value.following);
-    return { ...value, elapsedMs: Date.now() - start };
+    const calls = await evaluate('scrollFixture.calls.filter(call=>call.sessionId==="history")');
+    assert.equal(calls.filter(call => call.method === 'historyItems').length, 0, 'A full first page must not fan out into item requests');
+    assert(calls.some(call => call.method === 'historyPage' && call.options.itemsView === 'full'));
+    return { ...value, elapsedMs: Date.now() - start, calls };
   });
   await check('upward paging keeps content visible and never reverses the reader', async () => {
     const before = await geometry();
@@ -97,14 +100,49 @@ app.whenReady().then(async () => {
   });
   await check('a viewport width change preserves the reading anchor', async () => {
     const before = await geometry();
-    win.setContentSize(880, 800);
+    win.setContentSize(560, 800);
     await evaluate('scrollFixture.frames(12)');
     const after = await geometry();
     assert(anchorDrift(before, after) <= 2);
     assert(!after.following);
-    win.setContentSize(1100, 800);
+    assert.equal(after.width, 560);
+    win.setContentSize(1200, 800);
     await evaluate('scrollFixture.frames(12)');
     return { before, after, restoredWidth: await geometry() };
+  });
+  await check('reopening at a narrower width retains the saved reading anchor', async () => {
+    const before = await geometry();
+    await evaluate('scrollFixture.open("other")');
+    win.setContentSize(560, 800);
+    await evaluate('scrollFixture.frames(12)');
+    await evaluate('scrollFixture.phase("narrow-history-restore")');
+    const after = await evaluate('scrollFixture.open("history")');
+    const first = await evaluate('scrollFixture.samples.find(frame=>frame.phase==="narrow-history-restore"&&frame.sessionId==="history"&&frame.covered)');
+    assert.equal(after.width, 560);
+    assert(first);
+    assert(anchorDrift(before, first) <= 2);
+    assert(anchorDrift(before, after) <= 2);
+    win.setContentSize(1200, 800);
+    await evaluate('scrollFixture.frames(12)');
+    return { before, first, after };
+  });
+  await check('summary pages hydrate without blank frames or expanding closed sections', async () => {
+    const before = await evaluate('scrollFixture.open("summary-history")');
+    await wheel(-140, 65);
+    await wait(450);
+    const after = await geometry();
+    const trace = await evaluate('scrollFixture.samples.filter(frame=>frame.phase==="summary pages hydrate without blank frames or expanding closed sections"&&frame.sessionId==="summary-history")');
+    const blanks = trace.filter(frame => frame.loadedTurns > 0 && !frame.covered);
+    const reversals = trace.filter(frame => frame.trackedDelta != null && frame.trackedDelta < -3);
+    const visibleSections = trace.filter(frame => frame.closedSectionsVisible > 0);
+    const calls = await evaluate('scrollFixture.calls.filter(call=>call.sessionId==="summary-history")');
+    assert(after.loadedTurns > before.loadedTurns);
+    assert(calls.some(call => call.method === 'historyItems'), 'The fallback scenario must exercise detail hydration');
+    assert.equal(blanks.length, 0);
+    assert.equal(reversals.length, 0, `Reverse displacement frames: ${JSON.stringify(reversals.slice(0, 3))}`);
+    assert.equal(visibleSections.length, 0, 'Closed sections must remain collapsed during detail arrival');
+    await evaluate('scrollFixture.open("history")');
+    return { before, after, sampledFrames: trace.length, blankFrames: blanks.length, reverseFrames: reversals.length, visibleClosedSections: visibleSections.length, calls };
   });
   await check('layout compensation cannot resume following', async () => {
     await evaluate('scrollFixture.bottom()');
@@ -130,14 +168,17 @@ app.whenReady().then(async () => {
     const expected = Math.max(0, Math.min(available * 2 / 3, available - 240));
     assert(placed.userTop != null, 'The structured user message must be rendered');
     assert(Math.abs(placed.spacer - expected) <= 2, `Response room ${placed.spacer}, expected ${expected}`);
-    assert(placed.distance > 24, 'Placement must reserve room below the viewport');
+    assert(placed.userTop >= 0 && placed.userTop <= placed.viewport / 3, 'The submitted message belongs near the top of the viewport');
+    assert(!placed.following, 'The initial response grows into the reserved space before bottom following resumes');
     const small = await evaluate('scrollFixture.appendReply(2)');
     assert(small.spacer < placed.spacer && small.spacer > 0);
     assert(Math.abs(small.userTop - placed.userTop) <= 2, 'A short reply grows into the reserved space');
     const large = await evaluate('scrollFixture.appendReply(45)');
     assert(large.spacer <= 1);
     assert(large.distance <= 24, `Overflow reply distance: ${large.distance}`);
-    return { placed, small, large, expectedSpacerPx: expected };
+    const final = await evaluate('scrollFixture.appendReply(3,"final_answer")');
+    assert(final.distance <= 24, 'A final answer inherits following after prework overflow');
+    return { placed, small, large, final, expectedSpacerPx: expected };
   });
   const errors = await evaluate('scrollFixture.errors');
   assert.deepEqual(errors, []);

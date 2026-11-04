@@ -18,7 +18,7 @@ const dependencies = [
   'frontend/src/chat/transcript/virtual-turn-list.tsx',
   'frontend/src/chat/transcript/virtual-turn-layout.ts', 'frontend/src/chat/transcript/response-spacer.ts',
   'frontend/src/chat/transcript/latest-turn-follow.ts', 'frontend/src/chat/transcript/viewport-state.ts',
-  'frontend/src/chat/stream-store.ts', 'frontend/css/styles.css',
+  'frontend/src/chat/stream-store.ts', 'frontend/src/chat/saved-history-retention.ts', 'frontend/css/styles.css',
 ];
 writeFileSync(join(output, 'sources.json'), JSON.stringify(Object.fromEntries(dependencies.map(path => [path,
   createHash('sha256').update(readFileSync(join(desktop, path))).digest('hex')])), null, 2));

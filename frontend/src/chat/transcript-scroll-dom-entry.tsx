@@ -59,7 +59,8 @@ host.klaus = { session: {
     await wait(100)
     const end = sessionId.startsWith('empty') ? 0 : options.cursor ? Number(options.cursor) : turnIds.length
     const start = Math.max(0, end - (options.limit ?? 5)), selected = turnIds.slice(start, end)
-    const itemsView = options.itemsView ?? 'full'
+    // A legacy host may explicitly return summary shells for a requested full page.
+    const itemsView = sessionId.startsWith('summary-') ? 'summary' : options.itemsView ?? 'full'
     const messages = selected.flatMap(id => {
       const all = rows.get(id)!
       return itemsView === 'full' ? all : itemsView === 'summary' ? [all[0], all.at(-1)!] : []
@@ -95,7 +96,7 @@ function visibleAnchor(): { key: string; top: number } | null {
 function geometry() {
   const state = getSessionStream(currentSessionId), bounds = viewport.getBoundingClientRect(), anchor = visibleAnchor()
   const user = viewport.querySelector<HTMLElement>(`[data-uuid="scroll-submission-${submission}"]`)
-  return { sessionId: currentSessionId, top: viewport.scrollTop, height: viewport.scrollHeight, viewport: viewport.clientHeight,
+  return { sessionId: currentSessionId, top: viewport.scrollTop, height: viewport.scrollHeight, viewport: viewport.clientHeight, width: viewport.clientWidth,
     distance: Math.max(0, viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop), following: controller.shouldFollowContentGrowth(),
     spacer: controller.getResponseSpacer()?.getHeightPx() ?? 0, anchor,
     userTop: user ? user.getBoundingClientRect().top - bounds.top : null,
@@ -116,7 +117,9 @@ function sample() {
   const covered = [...viewport.querySelectorAll<HTMLElement>('[data-klaus-transcript-turn]')].some(row => {
     const rect = row.getBoundingClientRect(); return rect.height > 0 && rect.top < bounds.bottom && rect.bottom > bounds.top
   })
-  samples.push({ time: performance.now(), phase, ...metrics, trackedDelta, covered })
+  const closedSectionsVisible = [...viewport.querySelectorAll<HTMLElement>('div[data-visible][aria-hidden="true"]')]
+    .filter(element => element.getBoundingClientRect().height > 1).length
+  samples.push({ time: performance.now(), phase, ...metrics, trackedDelta, covered, closedSectionsVisible })
   previousAnchor = metrics.anchor
   requestAnimationFrame(sample)
 }
@@ -149,12 +152,13 @@ host.scrollFixture = {
     const document = composerDocumentFromText(text)
     beginPendingUserTurn(currentSessionId, { text, uuid, displayText: text, composerDocument: snapshotComposerDocument(document), timestamp: Date.now() })
     liveTurnId = `scroll-live-${submission}`
-    await frames(45)
+    await wait(600)
+    await frames(4)
     return geometry()
   },
-  async appendReply(paragraphs: number) {
+  async appendReply(paragraphs: number, phase: 'commentary' | 'final_answer' = 'commentary') {
     ingestChatEvent({ type: 'stream_mode', sessionId: currentSessionId, mode: 'responding', turnId: liveTurnId })
-    ingestChatEvent({ type: 'text_delta', sessionId: currentSessionId, turnId: liveTurnId, messageId: `${liveTurnId}-answer`, phase: 'final_answer', text: Array.from({ length: paragraphs }, (_, i) => words(i, 35)).join('\n\n') })
+    ingestChatEvent({ type: 'text_delta', sessionId: currentSessionId, turnId: liveTurnId, messageId: `${liveTurnId}-${phase}`, phase, text: Array.from({ length: paragraphs }, (_, i) => words(i, 35)).join('\n\n') })
     flushChatFrames(); await frames(10); return geometry()
   },
   async grow(which: 'above' | 'latest', height = 160) { const result = grow(which, height); await frames(10); return { result, geometry: geometry() } },
@@ -164,7 +168,7 @@ host.scrollFixture = {
     const spacer = controller.getResponseSpacer()
     if (spacer) spacer.scrollToBottom()
     else controller.scrollToBottom()
-    await frames(30); return geometry()
+    await wait(320); await frames(4); return geometry()
   },
 }
 host.fixtureReady = true
