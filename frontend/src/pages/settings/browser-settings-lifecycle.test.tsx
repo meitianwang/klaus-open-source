@@ -18,6 +18,15 @@ class FakeIntersectionObserver {
   unobserve() {}
 }
 
+class FakeResizeObserver {
+  static instances: FakeResizeObserver[] = []
+  callback: any
+  disconnected = false
+  constructor(callback: any) { this.callback = callback; FakeResizeObserver.instances.push(this) }
+  observe() {}
+  disconnect() { this.disconnected = true }
+}
+
 function deferred<T>() {
   let resolve!: (value: T) => void
   const promise = new Promise<T>(done => { resolve = done })
@@ -59,6 +68,19 @@ async function click(node: any) {
   await act(async () => { node.dispatchEvent(new happyWindow.MouseEvent('click', { bubbles: true })) })
 }
 
+async function settle() {
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 30)) })
+}
+
+function stubRect(read: () => { x: number; y: number; width: number; height: number }) {
+  const original = happyWindow.HTMLElement.prototype.getBoundingClientRect
+  happyWindow.HTMLElement.prototype.getBoundingClientRect = function () {
+    const value = read()
+    return { ...value, top: value.y, left: value.x, right: value.x + value.width, bottom: value.y + value.height, toJSON() { return value } } as any
+  }
+  return () => { happyWindow.HTMLElement.prototype.getBoundingClientRect = original }
+}
+
 beforeAll(async () => {
   happyWindow = new Window({ url: 'http://localhost/' })
   happyWindow.currentLang = 'en'
@@ -77,6 +99,8 @@ beforeAll(async () => {
   host.cancelAnimationFrame = (id: any) => clearTimeout(id)
   host.IntersectionObserver = FakeIntersectionObserver
   happyWindow.IntersectionObserver = FakeIntersectionObserver
+  host.ResizeObserver = FakeResizeObserver
+  happyWindow.ResizeObserver = FakeResizeObserver
   host.IS_REACT_ACT_ENVIRONMENT = true
   React = await import('react')
   act = React.act
@@ -84,7 +108,7 @@ beforeAll(async () => {
   BrowserSettingsTab = (await import('./browser-tab')).BrowserSettingsTab
 })
 
-afterEach(() => { happyWindow.document.body.innerHTML = ''; FakeIntersectionObserver.instances = [] })
+afterEach(() => { happyWindow.document.body.innerHTML = ''; FakeIntersectionObserver.instances = []; FakeResizeObserver.instances = [] })
 afterAll(() => { happyWindow.close?.() })
 
 describe('browser settings React lifecycle', () => {
@@ -332,22 +356,128 @@ describe('browser settings React lifecycle', () => {
     await act(async () => { root.unmount() })
   })
 
-  test('native management entries are exposed only when the capability is present', async () => {
-    const surfaces: string[] = []
-    const native = { ...base, nativeManagementAvailable: true }
+  test('native management opens an embedded pane with measured bounds and closes on back', async () => {
+    const calls: any[] = []
     installApi({
-      get: async () => native,
+      get: async () => ({ ...base, nativeManagementAvailable: true }),
       subscribe: () => () => {},
-      openManager: async (surface: string) => { surfaces.push(surface); return { ok: true, settings: native } },
+      openManager: async (surface: string, options: any = {}) => { calls.push({ surface, ...options }); return { ok: true, surface } },
     })
-    const { root } = await mount()
-    expect(happyWindow.document.body.textContent).toContain('Browser management')
-    const entries = ['passwords', 'autofill', 'extensions', 'siteSettings', 'import'].map(surface =>
-      happyWindow.document.querySelector(`[data-surface="${surface}"]`) as any)
-    expect(entries.every(Boolean)).toBe(true)
-    expect(entries.every(node => node.tagName === 'BUTTON')).toBe(true)
-    for (const entry of entries) await click(entry)
-    expect(surfaces).toEqual(['passwords', 'autofill', 'extensions', 'siteSettings', 'import'])
-    await act(async () => { root.unmount() })
+    let rect = { x: 24, y: 96, width: 640, height: 480 }
+    const restore = stubRect(() => rect)
+    try {
+      const { root } = await mount()
+      for (const entry of happyWindow.document.querySelectorAll('[data-surface]')) expect(entry.getAttribute('title')).toBeNull()
+      await click(happyWindow.document.querySelector('#browser-open-passwords'))
+      await settle()
+      expect(happyWindow.document.querySelector('[data-native-management-pane="passwords"]')).toBeTruthy()
+      expect(happyWindow.document.querySelector('#browser-native-back')).toBeTruthy()
+      expect(calls).toEqual([{ surface: 'passwords', action: 'open', bounds: { x: 24, y: 96, width: 640, height: 480 } }])
+
+      calls.length = 0
+      rect = { x: 32, y: 96, width: 700, height: 480 }
+      await act(async () => { happyWindow.dispatchEvent(new happyWindow.Event('resize')) })
+      await settle()
+      expect(calls).toEqual([{ surface: 'passwords', action: 'bounds', bounds: { x: 32, y: 96, width: 700, height: 480 } }])
+
+      calls.length = 0
+      await click(happyWindow.document.querySelector('#browser-native-back'))
+      await settle()
+      expect(calls).toEqual([{ surface: 'passwords', action: 'close' }])
+      expect(happyWindow.document.querySelector('[data-native-management-pane]')).toBeNull()
+
+      calls.length = 0
+      await click(happyWindow.document.querySelector('#browser-open-import'))
+      await settle()
+      expect(calls).toEqual([{ surface: 'import', action: 'open', bounds: { x: 32, y: 96, width: 700, height: 480 } }])
+      await act(async () => { root.unmount() })
+    } finally {
+      restore()
+    }
+  })
+
+  test('native pane waits for a non-zero rectangle before opening', async () => {
+    const calls: any[] = []
+    installApi({
+      get: async () => ({ ...base, nativeManagementAvailable: true }),
+      subscribe: () => () => {},
+      openManager: async (surface: string, options: any = {}) => { calls.push({ surface, ...options }); return { ok: true, surface } },
+    })
+    let rect = { x: 0, y: 0, width: 0, height: 0 }
+    const restore = stubRect(() => rect)
+    try {
+      const { root } = await mount()
+      for (const entry of happyWindow.document.querySelectorAll('[data-surface]')) expect(entry.getAttribute('title')).toBeNull()
+      await click(happyWindow.document.querySelector('#browser-open-passwords'))
+      await settle()
+      expect(calls).toEqual([])
+      expect(happyWindow.document.querySelector('[data-native-management-pane="passwords"]')).toBeTruthy()
+
+      rect = { x: 24, y: 96, width: 640, height: 480 }
+      await act(async () => { FakeResizeObserver.instances.at(-1)!.callback([]) })
+      await settle()
+      expect(calls).toEqual([{ surface: 'passwords', action: 'open', bounds: { x: 24, y: 96, width: 640, height: 480 } }])
+      await act(async () => { root.unmount() })
+    } finally {
+      restore()
+    }
+  })
+
+  test('native pane reports an error and retries the open request', async () => {
+    let attempts = 0
+    installApi({
+      get: async () => ({ ...base, nativeManagementAvailable: true }),
+      subscribe: () => () => {},
+      openManager: async (surface: string, options: any = {}) => {
+        if (options.action === 'open') { attempts += 1; return { ok: false, error: 'manager unavailable' } }
+        return { ok: true, surface }
+      },
+    })
+    const restore = stubRect(() => ({ x: 24, y: 96, width: 640, height: 480 }))
+    try {
+      const { root } = await mount()
+      for (const entry of happyWindow.document.querySelectorAll('[data-surface]')) expect(entry.getAttribute('title')).toBeNull()
+      await click(happyWindow.document.querySelector('#browser-open-passwords'))
+      await settle()
+      expect(happyWindow.document.querySelector('[role="alert"]')?.textContent).toContain('manager unavailable')
+      await click(buttonByText('Try again'))
+      await settle()
+      expect(attempts).toBe(2)
+      await act(async () => { root.unmount() })
+    } finally {
+      restore()
+    }
+  })
+
+  test('a stale pane callback cannot affect a newly opened surface', async () => {
+    const calls: any[] = []
+    installApi({
+      get: async () => ({ ...base, nativeManagementAvailable: true }),
+      subscribe: () => () => {},
+      openManager: async (surface: string, options: any = {}) => { calls.push({ surface, ...options }); return { ok: true, surface } },
+    })
+    const restore = stubRect(() => ({ x: 24, y: 96, width: 640, height: 480 }))
+    try {
+      const { root } = await mount()
+      for (const entry of happyWindow.document.querySelectorAll('[data-surface]')) expect(entry.getAttribute('title')).toBeNull()
+      await click(happyWindow.document.querySelector('#browser-open-passwords'))
+      await settle()
+      const stale = FakeResizeObserver.instances.at(-1)!
+      await click(happyWindow.document.querySelector('#browser-native-back'))
+      await settle()
+      await click(happyWindow.document.querySelector('#browser-open-autofill'))
+      await settle()
+
+      calls.length = 0
+      await act(async () => {
+        stale.callback([])
+        happyWindow.dispatchEvent(new happyWindow.Event('resize'))
+      })
+      await settle()
+      expect(calls).toEqual([])
+      await act(async () => { root.unmount() })
+    } finally {
+      restore()
+    }
   })
 })
