@@ -84,7 +84,7 @@ async function main(): Promise<number> {
     for (const title of ['Alpha', 'Bravo', 'Charlie', 'Delta', 'Echo']) {
       process.stdout.write(`creating actual IAB page ${title}\n`);
       const page = await manager.createTab('mention-A', `${base}/${title}`); pages.push(page);
-      await waitFor(() => page.view.webContents.getTitle() === `Notes ${title}`, 5000, `real page title ${title}`);
+      await waitFor(() => page.native.getTitle() === `Notes ${title}`, 5000, `real page title ${title}`);
     }
     await manager.createTab('mention-B', `${base}/Foreign`);
     const alpha = pages[0]!, delta = pages[3]!;
@@ -157,15 +157,15 @@ async function main(): Promise<number> {
       assertDeepEqual(object(object(resolved.structuredContent).value), { browserId: 'iab', tabId: delta.handle, title: reference.title, url: reference.url }, 'executable target');
       assertEqual(await manager.page('mention-A', delta.handle).cdp.evaluate('document.querySelector("main").textContent'), 'Owned page Delta', 'target is the actual live WebContentsView');
       assertEqual(await delta.cdp.evaluate('typeof window.klaus'), 'undefined', 'remote browser page receives no host bridge');
-      const before = manager.listPages('mention-A').map(page => ({ id: page.handle, url: page.view.webContents.getURL() }));
+      const before = manager.listPages('mention-A').map(page => ({ id: page.handle, url: page.native.getURL() }));
       assertEqual((await resolveMention(foreignEndpoint)).isError, true, 'foreign task cannot resolve');
       await delta.cdp.evaluate('document.title = "Changed title"');
-      await waitFor(() => delta.view.webContents.getTitle() === 'Changed title', 3000, 'actual title changed');
+      await waitFor(() => delta.native.getTitle() === 'Changed title', 3000, 'actual title changed');
       assertEqual((await resolveMention(ownerEndpoint)).isError, true, 'stale snapshot cannot resolve');
-      assertDeepEqual(manager.listPages('mention-A').map(page => ({ id: page.handle, url: page.view.webContents.getURL() })), before, 'refusal does not navigate or create a replacement');
+      assertDeepEqual(manager.listPages('mention-A').map(page => ({ id: page.handle, url: page.native.getURL() })), before, 'refusal does not navigate or create a replacement');
       await manager.navigate(delta, `${base}/Moved`);
       assertEqual((await resolveMention(ownerEndpoint)).isError, true, 'changed URL cannot resolve');
-      assertEqual(delta.view.webContents.getURL(), `${base}/Moved`, 'URL refusal does not navigate back to snapshot');
+      assertEqual(delta.native.getURL(), `${base}/Moved`, 'URL refusal does not navigate back to snapshot');
       manager.closeTab('mention-A', delta.handle);
       assertEqual((await resolveMention(ownerEndpoint)).isError, true, 'closed tab cannot resolve');
       assertEqual(manager.listPages('mention-A').length, before.length - 1, 'closed reference does not create replacement');

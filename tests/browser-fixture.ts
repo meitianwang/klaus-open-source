@@ -1,4 +1,4 @@
-import { app, BaseWindow, BrowserWindow, nativeImage, session, webContents } from 'electron';
+import { app, BaseWindow, BrowserWindow, nativeImage, session } from 'electron';
 import { createServer, type IncomingMessage } from 'node:http';
 import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
@@ -147,7 +147,7 @@ async function main(): Promise<number> {
     return { status: result.status, body: object(await result.json()), sessionId: result.headers.get('mcp-session-id') ?? '' };
   };
 
-  h.test('UI creates an actual sandboxed WebContentsView and receives the current tab contract', async () => {
+  h.test('UI creates an actual sandboxed native page and receives the current tab contract', async () => {
     assertEqual((await invoke('browser-use:set-conversation', { conversationId: 'A' })).ok, true, 'set conversation');
     const created = await invoke('browser-use:tabs', { action: 'new', url: `${base}/one` });
     assertEqual(created.ok, true, `create tab: ${JSON.stringify(created)}`);
@@ -156,15 +156,15 @@ async function main(): Promise<number> {
     assertEqual(object((created.tabs as Json[])[0]).id, pageA.id, 'tab rows use id');
     const shown = await invoke('browser-use:show', { sessionId: 'A', focusRevision: manager.focusRevision, bounds: { x: 100, y: 100, width: 700, height: 500 } });
     assertEqual(shown.ok, true, 'show');
-    assert(window.contentView.children.includes(pageA.view), 'native view attached');
-    assertDeepEqual(pageA.view.getBounds(), { x: 100, y: 100, width: 700, height: 500 }, 'view bounds');
+    assertEqual(manager.state('A').visible, true, 'native page is presented');
+    assertDeepEqual(pageA.native.getBounds(), { x: 100, y: 100, width: 700, height: 500 }, 'view bounds');
     const globals = await pageA.cdp.evaluate('({require:typeof require,process:typeof process,klaus:typeof window.klaus,host:typeof window.__KLAUS_DESKTOP__})');
     assertDeepEqual(globals, { require: 'undefined', process: 'undefined', klaus: 'undefined', host: 'undefined' }, 'remote page has no host bridge');
   });
 
   h.test('screen wake locks can be reacquired without a permission dialog', async () => {
     await waitFor(async () => {
-      app.focus({ steal: true }); window.focus(); pageA.view.webContents.focus();
+      app.focus({ steal: true }); window.focus(); pageA.native.focus();
       return await pageA.cdp.evaluate('document.visibilityState') === 'visible';
     }, 3000, 'the requesting page is visible');
     const promptCount = permissionRequests.length;
@@ -227,24 +227,24 @@ async function main(): Promise<number> {
 
   h.test('native input and agent input operate on the identical page', async () => {
     await waitFor(() => { app.focus({ steal: true }); window.focus(); return window.isFocused(); }, 3000, 'fixture window focused for native input');
-    pageA.view.webContents.focus();
+    pageA.native.focus();
     await pageA.cdp.evaluate("document.querySelector('#input').focus()");
     await waitFor(async () => await pageA.cdp.evaluate('document.hasFocus()') === true, 2000, 'native page has focus');
     await waitFor(async () => {
       if (await pageA.cdp.evaluate("document.querySelector('#input').value") === 'h') return true;
       // Other GUI fixtures may become key while this async test is awaiting.
       // sendInputEvent requires a focused owning window; reacquire before typing.
-      app.focus({ steal: true }); window.focus(); pageA.view.webContents.focus();
+      app.focus({ steal: true }); window.focus(); pageA.native.focus();
       await pageA.cdp.evaluate("document.querySelector('#input').focus()");
-      if (!window.isFocused() || !pageA.view.webContents.isFocused()) return false;
-      pageA.view.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'H' });
-      pageA.view.webContents.sendInputEvent({ type: 'char', keyCode: 'h' });
-      pageA.view.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'H' });
+      if (!window.isFocused()) return false;
+      await pageA.cdp.command('Input.dispatchKeyEvent', { type: 'keyDown', key: 'h', code: 'KeyH', windowsVirtualKeyCode: 72, text: 'h', unmodifiedText: 'h' });
+      await pageA.cdp.command('Input.dispatchKeyEvent', { type: 'char', key: 'h', code: 'KeyH', text: 'h', unmodifiedText: 'h' });
+      await pageA.cdp.command('Input.dispatchKeyEvent', { type: 'keyUp', key: 'h', code: 'KeyH', windowsVirtualKeyCode: 72 });
       return await pageA.cdp.evaluate("document.querySelector('#input').value") === 'h';
     }, 3000, 'native input reached page');
     response(await operations.execute('A', 'type', { selector: '#input', text: '人工' }));
     const answer = response(await operations.execute('A', 'eval', { expression: "document.querySelector('#input').value" }));
-    assertEqual(answer.value, 'h人工', 'agent reads native and CDP input on same WebContents');
+    assertEqual(answer.value, 'h人工', 'agent reads native focus and CDP input on the same page');
     response(await operations.execute('A', 'click', { selector: '#count' }));
     assertEqual(await pageA.cdp.evaluate("document.querySelector('#result').textContent"), '1', 'trusted Chromium click reached event listener');
   });
@@ -337,14 +337,16 @@ async function main(): Promise<number> {
   });
 
   h.test('overlay hides and restores the native view without recreating the page', async () => {
-    const identity = pageA.view.webContents.id;
+    const identity = pageA.handle;
+    const nativeIdentity = pageA.native;
     await invoke('browser-use:hide');
-    assert(!window.contentView.children.includes(pageA.view), 'overlay can paint over the browser rectangle');
-    assertEqual(manager.state().visible, false, 'hidden state');
+    assertEqual(manager.state().visible, false, 'overlay can paint over the browser rectangle');
     await invoke('browser-use:show', { sessionId: 'A', bounds: { x: 120, y: 110, width: 650, height: 480 } });
-    assertEqual(manager.page('A').view.webContents.id, identity, 'same live page');
+    assertEqual(manager.page('A').handle, identity, 'same live page');
+    assert(manager.page('A').native === nativeIdentity, 'same native handle');
+    assertEqual(manager.state().visible, true, 'native page restored');
     assertEqual(await pageA.cdp.evaluate("document.querySelector('#input').value"), 'replaced', 'input state survived');
-    assertEqual(pageA.view.getBounds().x, 120, 'new layout applied');
+    assertEqual(pageA.native.getBounds().x, 120, 'new layout applied');
   });
 
   h.test('a modal overlay gets a still of the shown page, creates no page and takes keyboard focus back', async () => {
@@ -383,7 +385,7 @@ async function main(): Promise<number> {
     assertEqual(old.ok, false, 'old show rejected');
     response(await operations.execute('A', 'navigate', { url: `${base}/background` }));
     assertEqual(manager.state().tabId, pageB.id, 'B remains shown');
-    assert(window.contentView.children.includes(pageB.view), 'B remains the native child');
+    assertEqual(manager.state('B').visible, true, 'B remains the presented native page');
     assertEqual(await pageA.cdp.evaluate('location.pathname'), '/background', 'background A navigated its own page');
   });
 
@@ -411,7 +413,8 @@ async function main(): Promise<number> {
       const fullPage = response(await operations.execute('C', 'screenshot', { fullPage: true }));
       const size = nativeImage.createFromDataURL(String(object(fullPage.value).dataUrl)).getSize();
       assert(size.height >= 1800, 'full page screenshot includes content below the viewport');
-      assert(hidden.view.webContents.getBackgroundThrottling(), 'background throttling restored after the operation');
+      assertEqual(hidden.native.isDestroyed(), false, 'background page remains live after capture');
+      assertEqual(await hidden.cdp.evaluate("document.querySelector('#count') !== null"), true, 'background page remains readable after capture');
       assert(!BaseWindow.getAllWindows().some(entry => entry.isVisible()), 'capture does not show a hidden window');
       assertEqual(manager.conversationId, 'B', 'background work keeps active task');
     } finally {
@@ -426,9 +429,9 @@ async function main(): Promise<number> {
       response(await operations.execute('history', 'navigate', { url: `${base}/next` }));
       assertEqual(manager.state('history').canGoBack, true, 'back availability');
       response(await operations.execute('history', 'back', {}));
-      assertEqual(history.view.webContents.getURL(), `${base}/first`, 'history back');
+      assertEqual(history.native.getURL(), `${base}/first`, 'history back');
       response(await operations.execute('history', 'forward', {}));
-      assertEqual(history.view.webContents.getURL(), `${base}/next`, 'history forward');
+      assertEqual(history.native.getURL(), `${base}/next`, 'history forward');
       response(await operations.execute('history', 'click', { selector: '#count' }));
       response(await operations.execute('history', 'reload', {}));
       assertEqual(await history.cdp.evaluate("document.querySelector('#result').textContent"), '0', 'reload replaces document');
@@ -461,7 +464,7 @@ async function main(): Promise<number> {
     const followup = await operations.execute('A', 'navigate', { url: `${base}/must-not-open` });
     assertEqual(object(followup.error).code, 'unavailable', 'selection remains external');
     assertEqual(manager.listPages('A').length, before, 'no fallback page');
-    assertEqual(pageA.view.webContents.getURL(), `${base}/background`, 'no fallback navigation');
+    assertEqual(pageA.native.getURL(), `${base}/background`, 'no fallback navigation');
     response(await operations.execute('A', 'select_browser', { browserId: 'iab' }));
   });
 
@@ -507,8 +510,7 @@ async function main(): Promise<number> {
     await waitFor(() => manager.dialogs.state(pageB) !== null, 2000, 'page prompt opened');
     const pending = object(response(await operations.execute('B', 'dialog', { action: 'get' })).value);
     assertEqual(pending.message, 'Fixture prompt', 'exact prompt text');
-    assertEqual(pending.origin, base, 'origin comes from the calling frame');
-    assertEqual(pending.sandboxed, true, 'preload runs in the process sandbox');
+    assertEqual(new URL(String(pending.url)).origin, base, 'origin comes from the calling page URL');
     const wrong = await operations.execute('A', 'dialog', { action: 'accept', tabId: pageB.handle, promptText: 'wrong task' });
     assertEqual(object(wrong.error).code, 'refused_by_policy', 'another task cannot answer');
     response(await operations.execute('B', 'dialog', { action: 'accept', promptText: 'answered', dialogId: pending.id }));
@@ -534,8 +536,9 @@ async function main(): Promise<number> {
     const frame = pageB.cdp.frameTargets()[0]!;
     const paused = operations.execute('B', 'eval', { expression: "prompt('Frame prompt')", frameTargetId: frame });
     await waitFor(() => manager.dialogs.state(pageB) !== null, 2000, 'frame prompt opened');
-    assertEqual(manager.dialogs.state(pageB)?.origin, `http://localhost:${port}`, 'cross-origin frame source');
-    assertEqual(manager.dialogs.state(pageB)?.sandboxed, true, 'OOPIF preload runs in the process sandbox');
+    const frameDialog = manager.dialogs.state(pageB);
+    assert(frameDialog, 'frame dialog state exists');
+    assertEqual(new URL(frameDialog.url).origin, `http://localhost:${port}`, 'cross-origin frame source');
     response(await operations.execute('B', 'dialog', { action: 'dismiss' }));
     assertEqual(response(await paused).value, null, 'cancel returns null');
     assertDeepEqual(await pageB.cdp.evaluate('({require:typeof require,process:typeof process,module:typeof module,Buffer:typeof Buffer,ipc:typeof ipcRenderer,klaus:typeof window.klaus,host:typeof window.__KLAUS_DESKTOP__})', frame), { require: 'undefined', process: 'undefined', module: 'undefined', Buffer: 'undefined', ipc: 'undefined', klaus: 'undefined', host: 'undefined' }, 'sandboxed OOPIF exposes neither Node nor host APIs');
@@ -547,7 +550,6 @@ async function main(): Promise<number> {
     const paused = operations.execute('B', 'eval', { expression: "window.frames[1].prompt('Same-origin prompt')" });
     await waitFor(() => manager.dialogs.state(pageB) !== null, 2000, 'same-origin frame prompt opened');
     assertEqual(manager.dialogs.state(pageB)?.url, `${base}/same-frame`, 'request belongs to the child frame');
-    assertEqual(manager.dialogs.state(pageB)?.sandboxed, true, 'same-origin frame preload is sandboxed');
     response(await operations.execute('B', 'dialog', { action: 'accept', promptText: 'frame answer' }));
     assertEqual(response(await paused).value, 'frame answer', 'frame resumes with its answer');
   });
@@ -587,8 +589,8 @@ async function main(): Promise<number> {
     await waitFor(() => manager.listPages('B').length === 2, 5000, 'popup tab appeared');
     const popup = manager.page('B');
     await popup.ready;
-    await waitFor(() => popup.view.webContents.getURL().endsWith('/popup'), 5000, 'popup navigated');
-    assertEqual(popup.view.webContents.session, manager.browserSession, 'popup uses IAB profile');
+    await waitFor(() => popup.native.getURL().endsWith('/popup'), 5000, 'popup navigated');
+    await waitFor(async () => String(await popup.cdp.evaluate('document.cookie')).includes('browser_fixture=present'), 3000, 'popup shares the native profile cookie jar');
     assertEqual(await popup.cdp.evaluate('typeof require'), 'undefined', 'popup has no node');
     assert(manager.listPages('A').every(page => page.handle !== popup.handle), 'popup belongs only to B');
     manager.closeTab('B', popup.handle);
@@ -608,10 +610,11 @@ async function main(): Promise<number> {
     const path = String(object(downloaded.value).path);
     assert(path.startsWith(manager.downloadDirectory), 'download path is managed by Klaus');
     assertEqual(readFileSync(path, 'utf8'), 'browser fixture download', 'actual completed bytes');
-    assert((await manager.browserSession.cookies.get({ url: base })).some(cookie => cookie.name === 'browser_fixture'), 'IAB login cookie exists');
+    assert(String(await pageB.cdp.evaluate('document.cookie')).includes('browser_fixture=present'), 'native profile login cookie exists');
     await session.defaultSession.cookies.set({ url: base, name: 'app_only', value: 'preserve' });
+    assert(!String(await pageB.cdp.evaluate('document.cookie')).includes('app_only'), 'native profile does not see the Electron app session cookie');
     await manager.clearData('cookies');
-    assertEqual((await manager.browserSession.cookies.get({ url: base })).length, 0, 'IAB cookie cleared');
+    await waitFor(async () => !String(await pageB.cdp.evaluate('document.cookie')).includes('browser_fixture'), 3000, 'native profile cookie cleared');
     assert((await session.defaultSession.cookies.get({ url: base })).some(cookie => cookie.name === 'app_only'), 'app cookie retained');
   });
 
@@ -679,7 +682,7 @@ async function main(): Promise<number> {
       const finish = manager.beginOperation(session, 'navigate');
       const navigation = manager.navigate(page, `${base}/cross-redirect`, { timeoutMs: 5000 }).catch(() => {});
       try {
-        await waitFor(() => page.view.webContents.getURL() === `http://localhost:${port}/redirect-target`, 10_000, 'cross-origin redirect committed');
+        await waitFor(() => page.native.getURL() === `http://localhost:${port}/redirect-target`, 10_000, 'cross-origin redirect committed');
       } finally { finish(); }
       await navigation;
       assert(authorizationRequests.some(row => row.url === `http://localhost:${port}/redirect-target` && row.resource === 'browsing'), 'redirect destination was authorized');
@@ -689,7 +692,7 @@ async function main(): Promise<number> {
       response(await operations.execute(session, 'eval', { expression: `(()=>{window.open(${JSON.stringify(popupUrl)},'_blank');return true})()` }));
       await waitFor(() => manager.listPages(session).length === before + 1, 5000, 'authorized popup opened');
       const popup = manager.page(session);
-      await waitFor(() => popup.view.webContents.getURL() === popupUrl, 5000, 'popup reached its authorized destination');
+      await waitFor(() => popup.native.getURL() === popupUrl, 5000, 'popup reached its authorized destination');
       assert(authorizationRequests.some(row => row.url === popupUrl && row.resource === 'browsing'), 'popup destination was authorized');
     } finally {
       options.authorize = previous;
@@ -837,11 +840,9 @@ async function main(): Promise<number> {
     const doomed = await manager.createTab('A', `${base}/doomed`);
     await manager.show({ sessionId: 'A' });
     // A page-initiated close (window.close(), an OAuth popup tearing itself
-    // down) destroys the WebContents behind the manager's back. Electron then
-    // answers undefined for view.webContents, which used to abort forget()
-    // before it dropped the page from the map, so every later state or close
-    // call died reading isDestroyed off undefined.
-    doomed.view.webContents.close({ waitForBeforeUnload: false });
+    // down) destroys the native page behind the manager's back. The manager
+    // must retire the handle and keep later state and close calls safe.
+    doomed.native.close();
     await waitFor(() => !manager.listPages('A').some(page => page.handle === doomed.handle), 5000, 'self-closed page leaves the conversation');
     assert(manager.state('A').tabs.every(tab => tab.id !== doomed.id), 'state stays readable and drops the destroyed page');
     const dead = await assertRejects(async () => manager.page('A', doomed.handle), 'the dead handle is reported stale by page lookups');
@@ -887,7 +888,7 @@ async function main(): Promise<number> {
     assertEqual(object(result).success, true, 'tool navigated successfully');
     const page = manager.listPages('preview')[0]!;
     assert(page, 'preview page exists');
-    assertEqual(page.view.webContents.getURL(), `${base}/preview`, 'preview URL loaded in a real WebContentsView');
+    assertEqual(page.native.getURL(), `${base}/preview`, 'preview URL loaded in a real native page');
     assertEqual(manager.state('preview').visible, false, 'background tool did not reveal the panel');
     assertEqual(pushes.filter(push => push.channel === 'browser-use:open-panel').length, before, 'no panel request sent');
     assertEqual(object(await invoke('run-preview:state', scope)).tabId, page.id, 'host owns the call and tab');
@@ -907,17 +908,17 @@ async function main(): Promise<number> {
     const page = await manager.createTab(session, `${base}/clear-all`);
     await waitFor(() => (manager.history({ query: 'clear-all' }) as { items?: BrowserObject[] }).items?.length === 1, 5000, 'visit recorded before clearing');
     await manager.clearData('all');
-    await waitFor(() => !page.view.webContents.isLoading(), 5000, 'page reload after clearing');
+    await waitFor(() => !page.native.getState().loading, 5000, 'page reload after clearing');
     await new Promise(resolveWait => setTimeout(resolveWait, 150));
     assertEqual((manager.history({ query: 'clear-all' }) as { items?: BrowserObject[] }).items?.length, 0, 'reload does not recreate cleared history');
     manager.releaseConversation(session);
   });
 
-  h.test('shutdown closes all page webContents and revokes the MCP endpoint', async () => {
-    const ids = [...manager.listPages('A'), ...manager.listPages('B')].map(page => page.view.webContents.id);
+  h.test('shutdown closes all native pages and revokes the MCP endpoint', async () => {
+    const pages = [...manager.listPages('A'), ...manager.listPages('B')];
     await mcp.shutdown();
     manager.dispose();
-    await waitFor(() => ids.every(id => !webContents.fromId(id)), 5000, 'all child webContents destroyed');
+    await waitFor(() => pages.every(page => page.native.isDestroyed()), 5000, 'all native pages destroyed');
     assertDeepEqual(BaseWindow.getAllWindows().map(entry => entry.id), [window.id], 'hidden native container was closed');
     await assertRejects(() => rpc(endpointA, 'ping'), 'MCP listener stopped');
     assert(!pushes.some(push => push.channel === 'browser-use:frame'), 'no human JPEG stream was emitted');

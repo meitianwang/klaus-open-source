@@ -52,7 +52,7 @@ export async function assertBrowserSettingsRuntime(runtime: DesktopRuntime, prof
     // Native child views are presented only while their owning window is visible.
     window.show(); window.focus();
     await evaluate('window.showBrowserPanel()');
-    await waitFor(async () => !page.view.webContents.isLoading(), 5000, 'the reloaded page finishes navigation before annotation');
+    await waitFor(async () => !page.native.getState().loading, 5000, 'the reloaded page finishes navigation before annotation');
     await page.cdp.evaluate('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
     await waitFor(() => evaluate('Boolean(document.querySelector("#browser-annotate:not(:disabled)"))'), 5000, 'the native browser annotation entry is enabled');
     await evaluate(`window.__annotationClicks = 0; window.__annotationToasts = []; document.getElementById('browser-annotate').addEventListener('click', () => window.__annotationClicks++); new MutationObserver(() => { const text = document.getElementById('settings-toast-viewport')?.textContent; if (text) window.__annotationToasts.push(text); }).observe(document.body, {childList:true,subtree:true});`);

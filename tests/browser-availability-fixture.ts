@@ -96,7 +96,7 @@ async function main(): Promise<number> {
     assertEqual(manager.state('manual').enabled, true, 'BrowserState.enabled reports manual availability');
     assert(manager.listPages('manual').length === 1, 'page remains alive');
     await manager.navigate(page, `${base}/page2`);
-    assertEqual(page.view.webContents.getURL(), `${base}/page2`, 'manual navigation works');
+    assertEqual(page.native.getURL(), `${base}/page2`, 'manual navigation works');
     await page.cdp.evaluate("document.querySelector('#download').click(); true");
     await waitFor(() => (manager.downloadHistory({ query: 'availability.txt' }) as { items?: BrowserObject[] }).items?.some(row => row.state === 'completed') === true, 5000, 'manual download completes');
     await page.cdp.evaluate("document.querySelector('#input').value='manual'; document.querySelector('#form').requestSubmit(); true");
@@ -219,8 +219,8 @@ async function main(): Promise<number> {
     assertEqual(manualNavCompleted, 1, 'manual navigation was not stopped');
     await new Promise(resolve => setTimeout(resolve, 400));
     assertEqual(lateRedirectHits, 0, 'agent redirect did not reach its late target');
-    assert(!String(agentPage.view.webContents.getURL()).endsWith('/late-target'), 'agent page did not advance to the redirect target');
-    assertEqual(manualPage.view.webContents.getURL(), `${base}/slow-manual-nav`, 'manual page reached its destination');
+    assert(!String(agentPage.native.getURL()).endsWith('/late-target'), 'agent page did not advance to the redirect target');
+    assertEqual(manualPage.native.getURL(), `${base}/slow-manual-nav`, 'manual page reached its destination');
     agentEnabled = true;
   });
 
