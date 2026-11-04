@@ -258,6 +258,7 @@ export function commitTurnItems(history: SavedTranscript, turnId: string, expect
   }
   return patchSavedTurn(withAuxiliary, turnId, current => ({ ...current, items, itemsPagination: {
     olderCursor: cursor, isLoadingOlder: false, hasLoadedOldest: cursor === null,
+    ...(expected.evicted && cursor !== null ? { evicted: true } : {}),
     newestSnapshotItemId: expected.newestSnapshotItemId ?? newestSourceItem(bodyRows),
     oldestFetchedItemId: expected.reconnect ? expected.oldestFetchedItemId : savedRowId(page.rows[0]) || expected.oldestFetchedItemId,
     ...(cursor !== null && expected.reconnect && !reachedStop ? { reconnect: {
