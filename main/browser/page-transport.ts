@@ -58,7 +58,6 @@ export function isPageTransport(value: WebContents | PageTransport): value is Pa
  */
 export class ElectronPageTransport implements PageTransport {
   private activityUsers = 0;
-  private activityReady: Promise<void> | undefined;
   private previousThrottling = true;
 
   readonly debugger: PageDebuggerChannel;
@@ -75,28 +74,31 @@ export class ElectronPageTransport implements PageTransport {
    * Keep the WebContents compositing while an agent operation runs. The first
    * lease disables background throttling; the last lease restores the previous
    * value. Leases are idempotent and safe to release more than once.
+   *
+   * Acquisition is synchronous so setup failures are visible to the caller
+   * immediately and the user count stays correct.
    */
   acquireActivity(): PageActivityLease {
+    if (this.contents.isDestroyed()) throw new BrowserError('stale_tab', 'The browser page is closed.');
     this.activityUsers += 1;
     if (this.activityUsers === 1) {
-      this.activityReady = (async () => {
-        if (!this.contents.isDestroyed()) {
-          this.previousThrottling = this.contents.getBackgroundThrottling();
-          this.contents.setBackgroundThrottling(false);
-        }
-      })();
+      try {
+        this.previousThrottling = this.contents.getBackgroundThrottling();
+        this.contents.setBackgroundThrottling(false);
+      } catch (error) {
+        this.activityUsers = 0;
+        throw error;
+      }
     }
     let released = false;
     return {
-      release: async (): Promise<void> => {
+      release: (): void => {
         if (released) return;
         released = true;
-        try { await this.activityReady; } catch { /* setup failures still need accounting */ }
         this.activityUsers = Math.max(0, this.activityUsers - 1);
         if (this.activityUsers === 0 && !this.contents.isDestroyed()) {
-          this.contents.setBackgroundThrottling(this.previousThrottling);
+          try { this.contents.setBackgroundThrottling(this.previousThrottling); } catch { /* best effort */ }
         }
-        if (this.activityUsers === 0) this.activityReady = undefined;
       },
     };
   }

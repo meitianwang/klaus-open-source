@@ -15,6 +15,7 @@ export class PageDebugger {
   private ready: Promise<void> | undefined;
   private disposed = false;
   private activityUsers = 0;
+  private activityGeneration = 0;
   private activityReady: Promise<void> | undefined;
   private activityLease: PageActivityLease | undefined;
   private readonly frames = new Map<string, string>();
@@ -172,7 +173,8 @@ export class PageDebugger {
   /** Keep a background page renderable only while an agent operation is running. */
   async activity<T>(work: () => Promise<T>): Promise<T> {
     if (this.activityUsers === 0) {
-      this.activityReady = this.startActivity();
+      this.activityGeneration += 1;
+      this.activityReady = this.startActivity(this.activityGeneration);
     }
     this.activityUsers += 1;
     try {
@@ -180,30 +182,39 @@ export class PageDebugger {
       return await work();
     } finally {
       this.activityUsers = Math.max(0, this.activityUsers - 1);
-      if (this.activityUsers === 0) await this.stopActivity();
+      if (this.activityUsers === 0) await this.stopActivity(this.activityGeneration);
     }
   }
 
-  private async startActivity(): Promise<void> {
+  private async startActivity(generation: number): Promise<void> {
     await this.initialize();
-    this.activityLease = await this.transport.acquireActivity();
+    const lease = await this.transport.acquireActivity();
+    if (this.disposed || generation !== this.activityGeneration) {
+      Promise.resolve(lease.release()).catch(() => {});
+      return;
+    }
+    this.activityLease = lease;
     await this.command('Emulation.setFocusEmulationEnabled', { enabled: true });
+    if (this.disposed || generation !== this.activityGeneration) return;
     // A detached view needs a compositor turn before hit-testing a first click.
     await this.evaluate('Promise.race([new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r))),new Promise(r=>setTimeout(r,250))])');
   }
 
-  private async stopActivity(): Promise<void> {
+  private async stopActivity(generation: number): Promise<void> {
     const lease = this.activityLease;
-    this.activityLease = undefined;
+    if (this.activityGeneration === generation) this.activityLease = undefined;
+    // Yield so a new activity that starts during teardown can register itself
+    // before we decide whether to turn focus emulation off.
+    await Promise.resolve();
     try {
-      if (!this.disposed && !this.transport.isDestroyed() && this.transport.debugger.isAttached()) {
+      if (this.activityGeneration === generation && !this.disposed && !this.transport.isDestroyed() && this.transport.debugger.isAttached()) {
         await this.send('Emulation.setFocusEmulationEnabled', { enabled: false });
       }
     } catch {
       // Navigation/DevTools may detach the debugger while the call unwinds.
     } finally {
       if (lease) await lease.release();
-      this.activityReady = undefined;
+      if (this.activityGeneration === generation) this.activityReady = undefined;
     }
   }
 
@@ -233,7 +244,7 @@ export class PageDebugger {
     this.disposed = true;
     const lease = this.activityLease;
     this.activityLease = undefined;
-    if (lease) void lease.release();
+    if (lease) Promise.resolve(lease.release()).catch(() => {});
     this.activityReady = undefined;
     // A destroyed page throws on every property getter, so the listener
     // teardown must be skipped wholesale.

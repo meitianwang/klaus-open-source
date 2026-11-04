@@ -100,3 +100,94 @@ test('PageDebugger acquires and releases the transport activity lease', async ()
   assert.equal(fake.activity.released, 1);
   page.dispose();
 });
+
+async function flush(): Promise<void> {
+  await new Promise(resolve => setTimeout(resolve, 0));
+}
+
+test('PageDebugger does not disable focus emulation when a new activity starts during teardown', async () => {
+  const focus: Array<{ enabled: boolean; resolve: () => void }> = [];
+  const fake = nativeTransport(async (method, params): Promise<BrowserObject> => {
+    if (method === 'Target.getTargetInfo') return { targetInfo: { targetId: 'race-target' } } as BrowserObject;
+    if (method === 'Emulation.setFocusEmulationEnabled') {
+      let resolve!: () => void;
+      const ready = new Promise<void>(done => { resolve = done; });
+      focus.push({ enabled: params?.enabled === true, resolve });
+      return ready.then(() => ({} as BrowserObject));
+    }
+    if (method === 'Runtime.evaluate') return { result: { value: null } } as BrowserObject;
+    return {} as BrowserObject;
+  });
+  const page = new PageDebugger(fake.transport);
+  let second: Promise<void> | undefined;
+  const startSecond = (): void => { second = page.activity(async () => {}); };
+  const first = page.activity(async () => {
+    // Reach the teardown yield only after the first activity's work resolves.
+    queueMicrotask(() => queueMicrotask(startSecond));
+  });
+
+  await flush();
+  assert.equal(focus.length, 1);
+  assert.equal(focus[0]!.enabled, true);
+  focus[0]!.resolve();
+  await flush();
+
+  assert.equal(focus.length, 2, 'the new activity must start while the old teardown is yielding');
+  assert.equal(focus[1]!.enabled, true);
+  assert.equal(focus.filter(entry => !entry.enabled).length, 0, 'old teardown must not send a disable after the new activity starts');
+  focus[1]!.resolve();
+  await flush();
+
+  assert.equal(focus.length, 3);
+  assert.equal(focus[2]!.enabled, false);
+  focus[2]!.resolve();
+  await flush();
+  assert.ok(second);
+  await Promise.all([first, second]);
+  page.dispose();
+});
+
+test('PageDebugger releases a lease that resolves after dispose', async () => {
+  let resolveAcquire!: (lease: { release(): void }) => void;
+  const acquire = new Promise<{ release(): void }>(resolve => { resolveAcquire = resolve; });
+  const debug = fakeDebugger(async (method) => method === 'Target.getTargetInfo'
+    ? { targetInfo: { targetId: 'disposed-target' } } as BrowserObject
+    : {} as BrowserObject);
+  const transport: PageTransport = {
+    debugger: debug.channel,
+    isDestroyed: () => false,
+    acquireActivity: () => acquire,
+  };
+  const page = new PageDebugger(transport);
+  let releases = 0;
+  const activity = page.activity(async () => {});
+  await flush();
+  page.dispose();
+  resolveAcquire({ release: () => { releases += 1; } });
+  await activity;
+  assert.equal(releases, 1, 'a lease acquired after dispose must be released immediately');
+});
+
+test('ElectronPageTransport makes acquisition failures visible and keeps accounting correct', () => {
+  let failing = true;
+  let throttling = true;
+  const debug = fakeDebugger(async () => ({} as BrowserObject));
+  const contents = {
+    debugger: debug.channel,
+    isDestroyed: () => false,
+    getBackgroundThrottling: () => {
+      if (failing) throw new Error('synthetic throttling read failure');
+      return throttling;
+    },
+    setBackgroundThrottling: (value: boolean) => { throttling = value; },
+    capturePage: async () => ({ isEmpty: () => false, toJPEG: () => Buffer.from(''), toPNG: () => Buffer.from('') }),
+    printToPDF: async () => Buffer.from(''),
+  } as unknown as WebContents;
+  const transport = new ElectronPageTransport(contents);
+  assert.throws(() => transport.acquireActivity(), /synthetic throttling read failure/u);
+  failing = false;
+  const lease = transport.acquireActivity();
+  assert.equal(throttling, false);
+  lease.release();
+  assert.equal(throttling, true);
+});
