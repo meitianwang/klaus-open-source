@@ -102,12 +102,15 @@ describe('outer proxy scrollbar', () => {
     expect(scrolling).toContain('background: var(--border);')
   })
 
-  test('mounts for both columns and feeds user intent to the sticker', () => {
+  test('mounts for both columns and feeds directional input to their controllers', () => {
     expect(CHAT_TS).toContain("region: document.getElementById('main')")
     expect(CHAT_TS).toContain("region: document.getElementById('side-chat-panel')")
-    // The proxy reports drag direction so an upward thumb drag breaks
-    // bottom-following even while live output keeps yanking the column down.
-    expect(CHAT_TS).toContain("if (direction === 'up') mainSticker.noteUpwardScrollGesture()")
+    // An actual proxy movement records its direction before writing the column.
+    expect(CHAT_TS).toContain("mainScrollController.noteUserScrollIntent(direction === 'up' ? 'away' : 'toward')")
+    expect(CHAT_TS).toContain("sideScrollController?.noteUserScrollIntent(direction === 'up' ? 'away' : 'toward')")
+    expect(CHAT_TS).toContain('registerTranscriptScrollController(mainScrollController)')
+    expect(CHAT_TS).toContain('registerTranscriptScrollController(sideScrollController)')
+    expect(CHAT_TS).toContain('registerTranscriptScrollController(teammateScrollController)')
     expect(OUTER_TS).toContain('onUserScrollIntent?.(direction)')
     expect(OUTER_TS).toContain('scrollEl.scrollHeight > scrollEl.clientHeight + 1')
     // Two-way sync keeps a loop guard on both directions.

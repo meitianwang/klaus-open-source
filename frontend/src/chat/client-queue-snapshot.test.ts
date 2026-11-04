@@ -20,7 +20,7 @@ const vectors = JSON.parse(readFileSync(new URL('../../../contracts/vectors/clie
 
 const source = ts.createSourceFile('chat.ts', readFileSync(new URL('./chat.ts', import.meta.url), 'utf8'), ts.ScriptTarget.Latest, true)
 
-const PRODUCTION = ['asQueuedItem', 'clientQueueFor', 'clientQueueSnapshotFor', 'clientQueueMutationKey', 'applyClientQueueSnapshot', 'applyQueuedFollowUpDispatched', 'sentUserDisplayMetadata', 'steerFollowUp', 'takeEditedQueueReinsert', 'noteLocallySentSteer', 'forgetEditedQueueReinsert', 'persistEditedQueueReinsert']
+const PRODUCTION = ['asQueuedItem', 'clientQueueFor', 'clientQueueSnapshotFor', 'clientQueueMutationKey', 'applyClientQueueSnapshot', 'applyQueuedFollowUpDispatched', 'sentUserDisplayMetadata', 'steerFollowUp', 'renderLocalUserPayload', 'takeEditedQueueReinsert', 'noteLocallySentSteer', 'forgetEditedQueueReinsert', 'persistEditedQueueReinsert']
 const code = ts.transpileModule(
   PRODUCTION.map(name => {
     const node = source.statements.find((statement): statement is ts.FunctionDeclaration =>
@@ -48,8 +48,8 @@ function renderer(currentSessionId = 'conversation', options: { sideSessionId?: 
   let steerReply: { ok?: boolean; messageId?: string; error?: string; unconfirmed?: boolean; removed?: boolean } = { ok: true, messageId: 'steered-1' }
   let renders = 0
   let sideRenders = 0
-  let sideScrolls = 0
-  let mainScrolls = 0
+  let sidePlacements = 0
+  let mainPlacements = 0
   let sideSessionId = options.sideSessionId ?? null
   const sideSurfaces = new Set<string>(sideSessionId ? [sideSessionId] : [])
   // The ingress functions are added by runInNewContext, so the sandbox starts as a
@@ -73,11 +73,12 @@ function renderer(currentSessionId = 'conversation', options: { sideSessionId?: 
       if (sessionId && sessionId === sideSessionId) sideRenders++
     },
     isSideChatSession: (sessionId: string | null | undefined) => !!sessionId && sideSurfaces.has(sessionId),
-    renderLocalUserPayload: (_sessionId: string, payload: { finalText?: string; displayText?: string }) => {
-      bubbles.push({ sessionId: _sessionId, text: String(payload?.displayText || payload?.finalText || '') })
+    mainScrollController: { prepareLatestTurnPlacement: () => { mainPlacements++ } },
+    sideScrollController: { prepareLatestTurnPlacement: () => { sidePlacements++ } },
+    showTranscriptSurface() {}, noteCommandReference() {}, syncComposerContextRowVisibility() {},
+    ingestLocalUserTurn: (_sessionId: string, payload: { text?: string; displayText?: string }) => {
+      bubbles.push({ sessionId: _sessionId, text: String(payload?.displayText || payload?.text || '') })
     },
-    scrollToBottom: () => { mainScrolls++ },
-    sideSticker: { scrollToBottom: () => { sideScrolls++ }, resumeFollowing: () => {} },
     get sideSurfaceSessionId() { return sideSessionId },
     setSideSession: (id: string | null) => {
       sideSessionId = id
@@ -110,8 +111,8 @@ function renderer(currentSessionId = 'conversation', options: { sideSessionId?: 
     steerRequests,
     renders: () => renders,
     sideRenders: () => sideRenders,
-    sideScrolls: () => sideScrolls,
-    mainScrolls: () => mainScrolls,
+    sidePlacements: () => sidePlacements,
+    mainPlacements: () => mainPlacements,
     /** Close or open the side tab, as the surface activate/remove hooks do. */
     setSideSession: (id: string | null) => (sandbox as { setSideSession(v: string | null): void }).setSideSession(id),
     apply: (sessionId: string, snapshot: unknown, replace = false) => ingress.applyClientQueueSnapshot(sessionId, snapshot, { replace }),
@@ -204,8 +205,8 @@ describe('host-owned client queue ingress', () => {
     const r = renderer('conversation')
     r.dispatch({ ...vectors.dispatched.event, sessionId: 'background' })
     expect(r.bubbles.map(bubble => bubble.sessionId)).toEqual(['background'])
-    expect(r.mainScrolls()).toBe(0)
-    expect(r.sideScrolls()).toBe(0)
+    expect(r.mainPlacements()).toBe(0)
+    expect(r.sidePlacements()).toBe(0)
   })
 
   test('a side chat’s queue repaints its own island and never the main one', () => {
@@ -228,12 +229,12 @@ describe('host-owned client queue ingress', () => {
     expect(r.sideRenders()).toBe(0)
   })
 
-  test('a dispatch into the open side chat scrolls the side panel, not the main transcript', () => {
+  test('a dispatch into the open side chat prepares its placement only', () => {
     const r = renderer('conversation', { sideSessionId: 'side-1' })
     r.dispatch({ ...vectors.dispatched.event, sessionId: 'side-1' })
     expect(r.bubbles.map(bubble => bubble.sessionId)).toEqual(['side-1'])
-    expect(r.sideScrolls()).toBe(1)
-    expect(r.mainScrolls()).toBe(0)
+    expect(r.sidePlacements()).toBe(1)
+    expect(r.mainPlacements()).toBe(0)
   })
 
   test('a dispatch into a hidden side chat draws the bubble without moving any panel', () => {
@@ -242,12 +243,12 @@ describe('host-owned client queue ingress', () => {
     r.setSideSession(null)
     r.dispatch({ ...vectors.dispatched.event, sessionId: 'side-1' })
     expect(r.bubbles.map(bubble => bubble.sessionId)).toEqual(['side-1'])
-    expect(r.sideScrolls()).toBe(0)
-    expect(r.mainScrolls()).toBe(0)
+    expect(r.sidePlacements()).toBe(0)
+    expect(r.mainPlacements()).toBe(0)
   })
 })
 
-describe('steering scrolls the surface that owns the conversation', () => {
+describe('steering prepares placement on the surface that owns the conversation', () => {
   test('a browser tab steer passes its display snapshot to the host', async () => {
     const r = renderer('conversation')
     const row = { source: 'extension', browserId: 'chrome:profile-a', tabId: '42', title: 'Project notes',
@@ -259,33 +260,30 @@ describe('steering scrolls the surface that owns the conversation', () => {
     expect((r.steerRequests[0][3] as any).composerReferences).toEqual(composerReferences)
     expect(r.bubbles[0].text).toBe(reference.value)
   })
-  // REGRESSION: the side composer had no follow-up path at all until the queue bar
-  // was extended to it, and `steerFollowUp` unconditionally scrolled the MAIN
-  // sticker. Opening that path without routing the scroll would yank the main
-  // transcript to its bottom on every side-chat steer, while the side panel — where
-  // the message actually appeared — stayed scrolled away from it.
-  test('a steer in the main conversation scrolls the main transcript', async () => {
+  // Placement belongs to the surface showing the admitted message. The real
+  // optimistic rendering helper routes it before inserting the row.
+  test('a steer in the main conversation prepares its placement', async () => {
     const r = renderer('conversation', { sideSessionId: 'side-1' })
     expect(await r.steer('conversation', { finalText: 'also check tests', media: [] })).toBe(true)
     expect(r.bubbles.map(bubble => bubble.sessionId)).toEqual(['conversation'])
-    expect(r.mainScrolls()).toBe(1)
-    expect(r.sideScrolls()).toBe(0)
+    expect(r.mainPlacements()).toBe(1)
+    expect(r.sidePlacements()).toBe(0)
   })
 
-  test('a steer in the open side chat scrolls the side panel only', async () => {
+  test('a steer in the open side chat prepares its placement only', async () => {
     const r = renderer('conversation', { sideSessionId: 'side-1' })
     expect(await r.steer('side-1', { finalText: 'also check tests', media: [] })).toBe(true)
     expect(r.bubbles.map(bubble => bubble.sessionId)).toEqual(['side-1'])
-    expect(r.sideScrolls()).toBe(1)
-    expect(r.mainScrolls()).toBe(0)
+    expect(r.sidePlacements()).toBe(1)
+    expect(r.mainPlacements()).toBe(0)
   })
 
   test('a steer into a hidden side chat moves no panel', async () => {
     const r = renderer('conversation', { sideSessionId: 'side-1' })
     r.setSideSession(null)
     expect(await r.steer('side-1', { finalText: 'also check tests', media: [] })).toBe(true)
-    expect(r.sideScrolls()).toBe(0)
-    expect(r.mainScrolls()).toBe(0)
+    expect(r.sidePlacements()).toBe(0)
+    expect(r.mainPlacements()).toBe(0)
   })
 
   test('uncertain admission consumes the submitted draft while delivery remains observable', async () => {

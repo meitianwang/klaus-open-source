@@ -5,8 +5,7 @@
 // they would have shown, as a 6px scroller pinned to the column's right edge
 // inside its layout region (#main / .side-chat-panel). The region reaches the
 // window edge, so the thumb reads as window-level even though it only spans
-// the scroll element's own height — exactly the geometry Qoder measures with
-// getBoundingClientRect against `[data-layout-region="b"]`.
+// the scroll element's own height.
 //
 // It is a real scrollable element (a 1px-wide spacer sized to scrollHeight),
 // not a painted div: dragging the thumb is native behaviour, keyboard and
@@ -26,11 +25,8 @@ export function mountOuterScrollbar(options: {
   scrollEl: HTMLElement | null
   /** The positioned ancestor the proxy is pinned to (must be position:relative). */
   region: HTMLElement | null
-  /** Real user intent on the proxy (drag / wheel): feeds the stick-to-bottom
-   *  controller. `direction` is the proxy's own scroll movement for scroll
-   *  events ('up' / 'down') and undefined for raw input events, so the sticker
-   *  can break bottom-following on an upward drag even while live output keeps
-   *  yanking the transcript back down. */
+  /** Reader input on the proxy. Scroll and wheel events carry their direction;
+   *  pointer and touch starts carry no direction until the viewport moves. */
   onUserScrollIntent?: (direction?: 'up' | 'down') => void
 }): OuterScrollbarHandle | null {
   const { scrollEl, region, onUserScrollIntent } = options
@@ -111,8 +107,7 @@ export function mountOuterScrollbar(options: {
   for (const type of ['touchstart', 'pointerdown'] as const) {
     proxy.addEventListener(type, () => onUserScrollIntent?.(), { passive: true })
   }
-  // Wheel on the proxy reports direction, so an upward flick over the thumb
-  // breaks bottom-following immediately (see bottom-sticker's gesture path).
+  // Wheel input records direction before the proxy scroll event arrives.
   proxy.addEventListener('wheel', (event: WheelEvent) => {
     onUserScrollIntent?.(event.deltaY < 0 ? 'up' : 'down')
   }, { passive: true })

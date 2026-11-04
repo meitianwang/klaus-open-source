@@ -44,7 +44,7 @@ import type { EditedUserTurnSnapshot } from './stream-store'
 import type { ChatEvent, FollowUpStatusEvent, SessionInfo, FollowUpQueueItem, ClientQueueRow, ClientQueueSnapshot, ClientQueueWireRow, QueuedFollowUpDispatchedEvent, AgentTask, SlashCommandInfo, PendingFileEntry, CronTask, ModelOption, OutgoingPayload, FeedbackAttachment, FeedbackEmailStatus, FeedbackSubmitResult } from './engine-events'
 import { prepareEphemeralSessionStream } from './stream-store'
 import { mountReactTranscript, unmountReactTranscript } from './transcript'
-import { captureTranscriptViewport, transcriptViewportState } from './transcript/viewport-state'
+import { activateTranscriptViewport, captureTranscriptViewport, transcriptViewportState } from './transcript/viewport-state'
 import { openFileCitationFromElement } from './file-citation-open'
 import { DraftSessionPromotion } from './draft-session-promotion'
 import { canRestorePendingDraft, goalSubmissionUserUuid, setPendingSubmissionRecovery, clearPendingSubmissionRecovery, pendingSubmissionRecovery, type PendingComposerSubmission } from './composer/pending-submission'
@@ -55,7 +55,7 @@ import { beginPendingUserTurn, movePendingUserTurn, bindPendingUserTurn, finishP
 // back onto composer chips. Reading them from there keeps one definition of each.
 import { composerDraftFromDisplayMetadata } from './transcript/TranscriptView'
 import { transcriptChromeState, transcriptContentPresence } from './transcript/chrome-state'
-import { createBottomSticker, type BottomSticker } from './bottom-sticker'
+import { TranscriptScrollController, registerTranscriptScrollController } from './transcript-scroll-controller'
 import { mountOuterScrollbar } from './outer-scrollbar'
 import { catalogNeedsLoading, isThinkingLevelValue, isThinkingLevelForModel, mainModelMenuValue, mountModelSelect, type MainModelItem, type ModelSelectApi } from './composer/model-select'
 import { checkComposerModelConfiguration, createModelCatalogCache, createModelReadinessCache, isLikelyNetworkError, openComposerModelSettings } from './composer/model-readiness'
@@ -1443,14 +1443,6 @@ function createChatSurface({ messagesEl, getSessionId }: { messagesEl: HTMLEleme
   surface.turnActivityUI = createTurnActivityUI(surface)
   return surface as Required<ChatSurface>
 }
-// Scroll a surface's transcript to the bottom. 两个 surface 各走自己的 sticker：
-// side 的滚动容器是 #side-messages，不是 surface.messagesEl（那是容器里的一个
-// .side-messages-slot，根本不滚）——以前这里写 el.scrollTop = el.scrollHeight，
-// 写在 slot 上，所以 side 面板的吸底从来没生效过。
-function surfaceScrollToBottom(surface = activeRenderSurface, options: { force?: boolean } = {}) {
-  if (surface === mainSurface) { scrollToBottom(options); return }
-  sideSticker?.scrollToBottom(options)
-}
 const mainSurface = createChatSurface({ messagesEl, getSessionId: () => window.currentSessionId })
 // Legacy aliases: the vast majority of the codebase calls thinkingUI.* and
 // turnActivityUI.* and messagesEl directly for the main transcript. They are
@@ -1509,8 +1501,16 @@ function getOrCreateSideSurface(sideId: string) {
 window.klausSideSurfaceActivate = async (sideId) => {
   if (!sideId) return
   prepareEphemeralSessionStream(sideId)
+  const retainedSurface = sideSurfaces.has(sideId)
+  const switching = sideSurfaceSessionId !== sideId
   const surface = getOrCreateSideSurface(sideId)
   if (!surface) return
+  const savedDistance = transcriptViewportState(sideId)?.distanceFromBottomPx ?? 0
+  if (switching) {
+    const previous = sideSurfaceSessionId ? sideSurfaces.get(sideSurfaceSessionId) : null
+    if (previous) captureTranscriptViewport(previous.messagesEl)
+    sideScrollController?.resetForConversation(savedDistance)
+  }
   sideSurfaceSessionId = sideId
   sideVoiceChatUi?.refresh()
   sideWindowsSandboxBanner?.refresh()
@@ -1536,6 +1536,10 @@ window.klausSideSurfaceActivate = async (sideId) => {
     }
   }
 
+  activateTranscriptViewport(surface.messagesEl)
+  if (switching && retainedSurface && sideScrollController && sideScrollController.scrollEl.clientHeight > 0) {
+    sideScrollController.compensateScrollToDistanceFromBottomPx(savedDistance)
+  }
   // React root 接管 slot（首次挂载即自拉历史；重复调用同容器换 props 幂等）。
   mountReactTranscript(sideId, surface.messagesEl, { scroll: 'simple' })
   // This side tab is the one on screen now, and every side tab shares one cloned
@@ -1543,7 +1547,6 @@ window.klausSideSurfaceActivate = async (sideId) => {
   // rule as the main transcript: a surface starting to show a session, never a
   // store change, is what puts a deferred question back.
   reopenAsyncQuestionsForSession(sideId)
-  surfaceScrollToBottom(surface)
 }
 // Remove a specific side task's slot + registration — called when its tab is
 // closed. Frees the DOM and stops future event dispatch for that id.
@@ -1552,6 +1555,7 @@ window.klausSideSurfaceRemove = (sideId) => {
   if (!sideId) return
   const surface = sideSurfaces.get(sideId)
   if (surface) {
+    if (sideSurfaceSessionId === sideId) captureTranscriptViewport(surface.messagesEl)
     unmountReactTranscript(surface.messagesEl)
     resetStreamState(surface)
     surface.messagesEl.remove()
@@ -1572,6 +1576,8 @@ window.klausSideSurfaceRemove = (sideId) => {
 // with existing side tasks finds their slots intact (with all their in-flight
 // stream state). Only klausSideSurfaceRemove destroys a slot.
 window.klausSideSurfaceClear = () => {
+  const previous = sideSurfaceSessionId ? sideSurfaces.get(sideSurfaceSessionId) : null
+  if (previous) captureTranscriptViewport(previous.messagesEl)
   for (const surface of sideSurfaces.values()) surface.messagesEl.hidden = true
   sideSurfaceSessionId = null
   sideVoiceChatUi?.refresh()
@@ -1654,20 +1660,20 @@ function initSideComposer() {
   host.dataset.ready = '1'
   sideWindowsSandboxBanner = mountWindowsSandboxBanner(clone, () => windowsSandboxContext(sideSurfaceSessionId ? sessionWorkdir(sideSurfaceSessionId) : null, sideSurfaceSessionId))
 
-  // side 面板的粘底跟随：与主会话同一份实现（方向判定 + 内容观察器 + 浮标）。
-  // 滚动容器是 #side-messages；浮标 #side-scroll-to-bottom 就是刚才克隆主 composer
-  // 时连带重命名出来的那个——它一直有 DOM、有样式，但从来没有任何代码点亮过它。
-  sideSticker = createBottomSticker({
-    scrollEl: sideMessagesContainer(),
-    floatBtn: clone.querySelector<HTMLElement>('#side-scroll-to-bottom'),
-  })
+  const sideScrollEl = sideMessagesContainer()
+  if (sideScrollEl) {
+    sideScrollController = new TranscriptScrollController({
+      scrollEl: sideScrollEl,
+      floatButton: clone.querySelector<HTMLElement>('#side-scroll-to-bottom'),
+    })
+    registerTranscriptScrollController(sideScrollController)
+  }
   // Same proxy scrollbar as the main column, pinned to the side panel's edge.
   mountOuterScrollbar({
     scrollEl: sideMessagesContainer(),
     region: document.getElementById('side-chat-panel'),
     onUserScrollIntent: (direction) => {
-      if (direction === 'up') sideSticker?.noteUpwardScrollGesture()
-      else sideSticker?.noteUserScrollIntent()
+      if (direction) sideScrollController?.noteUserScrollIntent(direction === 'up' ? 'away' : 'toward')
     },
   })
 
@@ -2787,43 +2793,38 @@ if (welcomeEl) {
   syncComposerDock()
 }
 
-// 粘底跟随：主转录与 side 面板各持一个 bottom-sticker 实例（阈值、方向判定、内容
-// 观察器、浮标显隐全在那一份实现里，两边不会再漂移）。下面这些名字只是代理，
-// 保留是因为全文多处调用。
-const mainSticker = createBottomSticker({
+// Each scroll surface owns one controller shared by its transcript roots.
+const mainScrollController = new TranscriptScrollController({
   scrollEl: messagesEl,
-  floatBtn: scrollToBottomBtn,
+  floatButton: scrollToBottomBtn,
   isVisible: () => messagesEl.style.display !== 'none',
+  responseSpacer: true,
 })
+registerTranscriptScrollController(mainScrollController)
 // Outer proxy scrollbar for the main transcript: the column's native scrollbar
 // is hidden, so this 6px scroller at #main's right edge is the only thumb the
-// conversation shows. Dragging it is real user scroll intent for the sticker.
+// conversation shows. Dragging it records the reader's scroll direction.
 mountOuterScrollbar({
   scrollEl: messagesEl,
   region: document.getElementById('main'),
   onUserScrollIntent: (direction) => {
-    if (direction === 'up') mainSticker.noteUpwardScrollGesture()
-    else mainSticker.noteUserScrollIntent()
+    if (direction) mainScrollController.noteUserScrollIntent(direction === 'up' ? 'away' : 'toward')
   },
 })
-// side 面板的 sticker 得等 composer 克隆完才能建：#side-scroll-to-bottom 是
-// initSideComposer 里克隆主 composer 时连带重命名出来的，在那之前并不存在。
-let sideSticker: BottomSticker | null = null
+// The side controller is created after its composer and floating button exist.
+let sideScrollController: TranscriptScrollController | null = null
 
-function isMessagesNearBottom() { return mainSticker.isNearBottom() }
-function noteMessagesUserScrollIntent() { mainSticker.noteUserScrollIntent() }
-function lockMessagesBottomForNavigation() { mainSticker.lockForNavigation() }
-function resumeMessagesBottomFollowing() { mainSticker.resumeFollowing() }
-function updateScrollToBottomBtn() { mainSticker.syncFloatBtn() }
+function updateScrollToBottomBtn() { mainScrollController.syncFloatButton() }
 
-function navigateToTurn(target: HTMLElement, options: { behavior?: ScrollBehavior } = {}) {
+function navigateToTurn(target: HTMLElement) {
   if (!target?.isConnected || !messagesEl.contains(target) || target.dataset.navTurn !== 'true') return false
   revealUserMessageContent(target)
-  lockMessagesBottomForNavigation()
+  mainScrollController.holdViewport()
   const messagesRect = messagesEl.getBoundingClientRect()
   const targetRect = target.getBoundingClientRect()
   const top = Math.max(0, messagesEl.scrollTop + targetRect.top - messagesRect.top - 12)
-  messagesEl.scrollTo({ top, behavior: options.behavior || 'smooth' })
+  const distance = Math.max(0, messagesEl.scrollHeight - messagesEl.clientHeight - top)
+  mainScrollController.compensateScrollToDistanceFromBottomPx(distance)
   return true
 }
 
@@ -7276,7 +7277,7 @@ async function switchSession(id: string) {
   // Set the target viewport width before its transcript can paint. Surface
   // content still restores after the browser has adopted this conversation.
   prepareArtifactsPanelLayoutForSessionSwitch(id)
-  mainSticker.resetForSession(transcriptViewportState(id)?.distanceFromBottomPx ?? 0)
+  mainScrollController.resetForConversation(transcriptViewportState(id)?.distanceFromBottomPx ?? 0)
   void klausApi.desktopPet?.acknowledgeTask(id).catch(() => {})
   void refreshWorktreeAvailability(id)
   // A friend conversation can hold a request whose arrival event this window
@@ -7414,7 +7415,6 @@ async function switchSession(id: string) {
   if (hasContent) refreshContextStatsThrottled(id, 0)
   // 切会话立即从缓存重绘顶栏用量 chip（命中则秒出，未命中先隐藏等 fetch）。
   renderContextChip()
-  scrollToBottom()
   loadArtifacts(id)
   } finally {
     if (turnNavigationLease) turnNavigationController?.resume(turnNavigationLease, window.currentSessionId)
@@ -7427,6 +7427,7 @@ async function switchSession(id: string) {
 // `if (!currentSessionId) await newChat()` 触发 switchSession → 清空 inputEl
 // → finalText 为空气泡的 race。
 function enterNewChatState(options: { workdir?: string | null; workspaceId?: string | null; discardLeavingDraft?: boolean; retainSettings?: boolean } = {}) {
+  captureTranscriptViewport(messagesEl)
   visiblePendingSubmissionId = null
   goalInteractions.navigate()
   const turnNavigationLease = turnNavigationController?.suspend('new-chat')
@@ -8606,11 +8607,8 @@ function clearComposerAfterSubmit(targetSessionId: string) {
 /**
  * Whether a conversation is a side chat's rather than the main column's.
  *
- * Needed because the side effects of "a user message appeared" are per-surface:
- * resuming bottom-following on the main sticker when a SIDE conversation produced
- * the message would yank the main transcript to its bottom for no reason the user
- * can see. The host dispatches a side chat's queued messages with that side's
- * session id, so this is reachable from outside the side composer.
+ * Message placement belongs to the visible surface of its conversation. A queued
+ * side-chat dispatch also reaches this path, but never moves the main transcript.
  */
 function isSideChatSession(sessionId: string | null | undefined): boolean {
   return !!sessionId && sideSurfaces.has(sessionId)
@@ -8618,17 +8616,11 @@ function isSideChatSession(sessionId: string | null | undefined): boolean {
 
 function renderLocalUserPayload(targetSessionId: string, payload: OutgoingPayload | FollowUpQueueItem, options: { uuid?: string; edit?: EditedUserTurnSnapshot; steered?: boolean } = {}) {
   if (isSideChatSession(targetSessionId)) {
-    // Side surfaces share one scroll container (#side-messages) and therefore one
-    // sticker, so there is no per-surface choice to make here. The side transcript
-    // has no welcome screen to hide either, which is why showTranscriptSurface is
-    // main-only.
-    sideSticker?.resumeFollowing()
+    if (sideSurfaceSessionId === targetSessionId) sideScrollController?.prepareLatestTurnPlacement(targetSessionId)
   } else if (targetSessionId === window.currentSessionId) {
-    // Only the conversation on screen may flip the main column out of the
-    // welcome layout. A background session's queued dispatch or steer lands
-    // here too; flipping for it would hide the new-chat welcome screen the
-    // user is looking at and dock the composer back to the bottom.
-    resumeMessagesBottomFollowing()
+    // Capture before the optimistic row changes the content geometry. Background
+    // delivery must not move the conversation currently visible in this column.
+    mainScrollController.prepareLatestTurnPlacement(targetSessionId)
     showTranscriptSurface()
   }
   // A slash command the user attached is a reference this turn stands on; the
@@ -8819,10 +8811,6 @@ async function submitTurnPayload(targetSessionId: string, payload: OutgoingPaylo
   // A worktree-mode first send painted its bubble ahead of the host-side
   // creation wait; painting it again here would duplicate the row.
   if (!options.skipOptimistic) renderLocalUserPayload(targetSessionId, payload)
-  // 用户主动发送 = 明确想看最新内容：无论之前是否滚走看过历史，都把视口
-  // 吸回底部并恢复粘底跟随。不恢复的话，上翻过历史的会话里发送后流式输出
-  // 会在视口下方持续增长，最新内容被底部输入框区域遮住。
-  scrollToBottom({ force: true })
   try {
     await klausApi.chat.send(
       targetSessionId,
@@ -9494,18 +9482,6 @@ async function steerFollowUp(targetSessionId: string, payload: OutgoingPayload |
   // Issued input is consumed even when its ACK is uncertain; its keyed notice owns delivery status.
   renderLocalUserPayload(targetSessionId, payload, { uuid: result.messageId, steered: true })
   noteLocallySentSteer(targetSessionId, result.messageId)
-  // steer 也是用户主动发送：把视口吸回底部并恢复粘底跟随。但要吸的是**这条消息所属
-  // 会话**的面——侧聊的引导必须滚侧边面板；无条件滚主转录会把用户正在看的主会话
-  // 拽到底部，同时侧边那条新消息留在视口外。
-  if (isSideChatSession(targetSessionId)) {
-    if (sideSurfaceSessionId === targetSessionId) sideSticker?.scrollToBottom({ force: true })
-    return true
-  }
-  // Guarded by identity rather than scrolling unconditionally: a steer whose side
-  // tab was closed mid-flight resolves here (its surface is gone, so it is no longer
-  // a side chat), and yanking the main transcript for a message that belongs to a
-  // closed conversation would be worse than not scrolling at all.
-  if (targetSessionId === window.currentSessionId) scrollToBottom({ force: true })
   return true
 }
 
@@ -9561,13 +9537,6 @@ function applyQueuedFollowUpDispatched(event: QueuedFollowUpDispatchedEvent) {
   if (!sessionId || !item) return
   renderLocalUserPayload(sessionId, item, { uuid: event.messageId })
   noteLocallySentSteer(sessionId, event.messageId)
-  // Scroll the surface that owns this conversation: a side chat's dispatched row
-  // must pull the SIDE panel down, and must never yank the main transcript.
-  if (isSideChatSession(sessionId)) {
-    if (sideSurfaceSessionId === sessionId) sideSticker?.scrollToBottom({ force: true })
-    return
-  }
-  if (sessionId === window.currentSessionId) scrollToBottom({ force: true })
 }
 
 /**
@@ -10003,7 +9972,11 @@ function beginPendingComposerSubmission(draft: ComposerDraft, files: PendingFile
   if (!sourceSessionId) visiblePendingSubmissionId = id
   syncComposerContextRowVisibility()
   clearComposerAfterSubmit(sourceSessionId || '')
-  if (!sourceSessionId) setWelcomeDraft('')
+  if (!sourceSessionId) {
+    setWelcomeDraft('')
+    mainScrollController.resetForConversation(0)
+  }
+  mainScrollController.prepareLatestTurnPlacement(pending.viewId)
   beginPendingUserTurn(pending.viewId, {
     text: payload.finalText, uuid, timestamp: startedAtMs, attachments: payload.liveAttachments,
     slashCommand: payload.sentSlashCommand, displayText: payload.displayText,
@@ -10012,7 +9985,6 @@ function beginPendingComposerSubmission(draft: ComposerDraft, files: PendingFile
   }, { provisional: !sourceSessionId })
   busy = true
   btnSend.classList.add('busy')
-  resumeMessagesBottomFollowing()
   mountReactTranscript(pending.viewId, messagesEl, { scroll: 'main', readOnly: !sourceSessionId })
   welcomeEl.style.display = 'none'
   messagesEl.style.display = 'block'
@@ -10020,13 +9992,13 @@ function beginPendingComposerSubmission(draft: ComposerDraft, files: PendingFile
   updateScrollToBottomBtn()
   renderSessionList()
   updateSendBtn()
-  scrollToBottom({ force: true })
   return pending
 }
 
 function promotePendingComposerSubmission(pending: PendingComposerSubmission, sessionId: string): void {
   if (pending.sessionId === sessionId) return
   const visible = currentPendingComposerSubmission() === pending
+  if (visible) mainScrollController.movePendingLatestTurnPlacement(pending.viewId, sessionId)
   flushSync(() => {
     movePendingUserTurn(pending.viewId, sessionId, pending.uuid)
     pending.sessionId = sessionId
@@ -10096,6 +10068,7 @@ function settlePendingComposerSubmission(pending: PendingComposerSubmission): vo
   if (retainFailure) {
     if (pending.phase !== 'unconfirmed') pending.phase = 'failed'
   } else {
+    mainScrollController.clearPendingLatestTurnPlacement(pending.viewId)
     clearPendingSubmissionRecovery(pending.uuid)
     pendingComposerSubmissions.delete(pending.id)
     if (visiblePendingSubmissionId === pending.id) {
@@ -10477,10 +10450,7 @@ async function sendMessage(options: ComposerSendOptions = {}) {
           forgetRunModeForDraft(sessionId)
           onGoalUpdated({ sessionId, goal: goal as Parameters<typeof normalizeGoal>[0] | null, goalRevision })
           if (window.currentSessionId === sessionId) setComposerGoalEnabled(false)
-          if (window.currentSessionId === sessionId) {
-            showTranscriptSurface()
-            scrollToBottom({ force: true })
-          }
+          if (window.currentSessionId === sessionId) showTranscriptSurface()
         },
         consumeUnchangedDraft: () => {
           if (window.currentSessionId === sessionId) {
@@ -14872,17 +14842,6 @@ async function updateSessionInList({ reorder = false }: { reorder?: boolean } = 
 
 // ==================== Utils ====================
 
-// 粘底写入口（代理到 mainSticker）。force = 用户明确要看最新：发送消息、点浮标。
-function scrollToBottom(options: { force?: boolean; immediate?: boolean } = {}) {
-  mainSticker.scrollToBottom(options)
-}
-// React transcript 的粘底入口：main = 主转录，simple = side 面板，两边各走自己的
-// sticker（同一份实现，含方向判定与浮标）。stick 判定留在本模块。
-;(window as { scrollToBottom?: typeof scrollToBottom }).scrollToBottom = scrollToBottom
-;(window as any).restoreTranscriptViewport = (distanceFromBottomPx: number) => mainSticker.restoreViewport(distanceFromBottomPx)
-;(window as any).isTranscriptFollowing = () => mainSticker.isFollowing()
-;(window as { sideScrollToBottom?: (options?: { force?: boolean }) => void }).sideScrollToBottom =
-  (options = {}) => { sideSticker?.scrollToBottom(options) }
 // escapeHtml 收编至 app/ui-shared（workspace-panel 等模块共享）。
 function autoResize() {
   refreshSlashCommandPlaceholderWidth()
@@ -16440,7 +16399,7 @@ function updateTeammateBanner() {
 
 // Every subagent uses the main transcript store and renderer. History is only
 // the initial/replay layer; normalized child events keep the mounted tree live.
-let teammateSticker: BottomSticker | null = null
+let teammateScrollController: TranscriptScrollController | null = null
 
 async function enterTeammateView(taskId: string) {
   const sessionId = window.currentSessionId || ''
@@ -16454,15 +16413,16 @@ async function enterTeammateView(taskId: string) {
   if (!subEl) return
   subEl.setAttribute('data-klaus-tooltips', 'off')
   const streamId = prepareSubagentStream(sessionId, taskId, task)
+  captureTranscriptViewport(subEl)
   unmountReactTranscript(subEl)
   subEl.innerHTML = ''
-  teammateSticker ||= createBottomSticker({ scrollEl: subEl })
-  teammateSticker.resumeFollowing()
+  if (!teammateScrollController) {
+    teammateScrollController = new TranscriptScrollController({ scrollEl: subEl })
+    registerTranscriptScrollController(teammateScrollController)
+  }
+  teammateScrollController.resetForConversation(transcriptViewportState(streamId)?.distanceFromBottomPx ?? 0)
   mountReactTranscript(streamId, subEl, { readOnly: true, contextSessionId: sessionId })
   await loadSessionHistory(streamId)
-  if (viewingAgentTaskId === taskId && viewingAgentSessionId === sessionId) {
-    teammateSticker.scrollToBottom({ force: true })
-  }
 }
 
 // Task snapshots update the banner and attach a newly discovered child id.

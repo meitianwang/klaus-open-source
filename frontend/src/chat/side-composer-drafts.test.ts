@@ -76,7 +76,7 @@ export function createSideComposerFixture() {
   const input = element(), button = element()
   const calls = { models: [] as string[], queues: [] as string[], histories: [] as string[], submissions: [] as string[],
     revoked: [] as string[], removed: [] as string[], toasts: [] as string[], nativePaths: [] as string[], remembered: [] as string[], touches: [] as string[], previews: 0, historyResets: 0, permission: '',
-    reopens: [] as string[], consumedQueueEdits: [] as string[] }
+    reopens: [] as string[], consumedQueueEdits: [] as string[], viewport: [] as string[] }
   const model = { disabled: false, items: [] as any[], value: '', thinkingLevel: '', ultraMode: false, runtime: null as unknown,
     setDisabled(disabled: boolean) { this.disabled = disabled }, setRuntime(value: unknown) { this.runtime = value },
     setItems(items: any[], options: any) { this.items = items; this.value = options.value || ''; this.thinkingLevel = options.thinkingLevel || ''; this.ultraMode = options.ultraMode ?? this.ultraMode },
@@ -84,6 +84,8 @@ export function createSideComposerFixture() {
   let quoteId = 0
   const running: Record<string, boolean> = {}
   const surfaces = new Map<string, { messagesEl: ReturnType<typeof element> }>()
+  const viewportSnapshots = new Map<string, { distanceFromBottomPx: number }>()
+  const surfaceId = (container: unknown) => [...surfaces].find(([, surface]) => surface.messagesEl === container)?.[0] || ''
   const catalog = [{ value: 'custom:fixture', label: 'Fixture model' }]
   const context = {
     parseCompactSlashInput: parseManualCompactInput,
@@ -148,7 +150,15 @@ export function createSideComposerFixture() {
     getOrCreateSideSurface: (id: string) => { if (!surfaces.has(id)) surfaces.set(id, { messagesEl: element() }); return surfaces.get(id)! },
     sideMessagesContainer: () => null, syncComposerInferenceStatus() {},
     buildMainModelItems: async (source: string): Promise<Array<{ value: string; label: string }>> => context.mainModelCatalogCache.get(source) || [],
-    refreshClientQueue: async (id: string) => { calls.queues.push(id) }, renderSideFollowUpQueue() {}, surfaceScrollToBottom() {},
+    refreshClientQueue: async (id: string) => { calls.queues.push(id) }, renderSideFollowUpQueue() {},
+    sideScrollController: {
+      scrollEl: { clientHeight: 400 },
+      resetForConversation: (distance: number) => calls.viewport.push(`reset:${distance}`),
+      compensateScrollToDistanceFromBottomPx: (distance: number) => calls.viewport.push(`restore:${distance}`),
+    },
+    captureTranscriptViewport: (container: unknown) => calls.viewport.push(`capture:${surfaceId(container)}`),
+    activateTranscriptViewport: (container: unknown) => calls.viewport.push(`activate:${surfaceId(container)}`),
+    transcriptViewportState: (id: string) => viewportSnapshots.get(id),
     mountReactTranscript: (id: string) => { calls.histories.push(id) }, unmountReactTranscript() {}, resetStreamState() {},
     reopenAsyncQuestionsForSession: (id: string) => { calls.reopens.push(id) },
     ensureComposerModelConfigured: async (_id: string) => true,
@@ -159,11 +169,31 @@ export function createSideComposerFixture() {
   context.window = { currentSessionId: 'main', isSessionRunning: (id: string) => !!running[id] }
   const api = runInNewContext(script, context) as { sideSubmit(options?: { followUp?: boolean }): Promise<void>; sideUpload(entry: Entry): Promise<void>; addSideFiles(files: any[]): void; attachSidePastedText(text: string): Promise<void>; handleSideComposerPaste(event: any): Promise<void>; updateSideSendButton(): void; sideComposedInputText(): string }
   context.window.klausUpdateSideSendButton = api.updateSideSendButton
-  return { context, window: context.window, input, button, model, calls, api, running,
+  return { context, window: context.window, input, button, model, calls, api, running, viewportSnapshots,
     setText(value: string) { input.value = value; input.setSelectionRange(value.length, value.length); context.sideLastComposerInputValue = value },
     quotes: () => context.sidePendingFiles.filter(entry => entry.kind === 'selected-text').map(entry => entry.text),
   }
 }
+
+test('side tabs capture the outgoing viewport and restore only a retained target', async () => {
+  const f = createSideComposerFixture()
+  f.viewportSnapshots.set('side-a', { distanceFromBottomPx: 420 })
+  f.viewportSnapshots.set('side-b', { distanceFromBottomPx: 160 })
+  await f.window.klausSideSurfaceActivate('side-a')
+  expect(f.calls.viewport).toEqual(['reset:420', 'activate:side-a'])
+  f.calls.viewport.length = 0
+  await f.window.klausSideSurfaceActivate('side-b')
+  expect(f.calls.viewport).toEqual(['capture:side-a', 'reset:160', 'activate:side-b'])
+  f.calls.viewport.length = 0
+  await f.window.klausSideSurfaceActivate('side-a')
+  expect(f.calls.viewport).toEqual(['capture:side-b', 'reset:420', 'activate:side-a', 'restore:420'])
+  f.calls.viewport.length = 0
+  await f.window.klausSideSurfaceActivate('side-a')
+  expect(f.calls.viewport).toEqual(['activate:side-a'])
+  f.calls.viewport.length = 0
+  f.window.klausSideSurfaceClear()
+  expect(f.calls.viewport).toEqual(['capture:side-a'])
+})
 
 test('pending composer accepts text and quotes while Send and model/reasoning remain disabled without a real session', async () => {
   const f = createSideComposerFixture()

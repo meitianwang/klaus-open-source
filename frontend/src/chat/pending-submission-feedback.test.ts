@@ -34,6 +34,8 @@ function fixture({ existing = false, goal = false, worktree = false } = {}) {
   const file = { uploadPath: '/owned/preview.png', file: new File(['image'], 'preview.png', { type: 'image/png' }), uploading: false }
   const mounts: string[] = [], calls: string[] = [], sends: any[] = [], goals: any[] = [], restored: any[] = [], closed: string[] = []
   const unsent = new Map<string, any>()
+  const placements: Array<{ sessionId: string; usersBefore: number }> = []
+  const placementMoves: Array<{ from: string; to: string }> = []
   const c: Record<string, any> = {
     crypto, TextEncoder, Date, console, CustomEvent: class { constructor(public type: string, public detail: any) {} },
     flushSync: (callback: () => void) => callback(),
@@ -63,7 +65,12 @@ function fixture({ existing = false, goal = false, worktree = false } = {}) {
     buildOutgoingPayload: (text: string, files: any[]) => ({ text, finalText: text, displayText: text, media: [], liveAttachments: files.map(file => ({ path: file.uploadPath })),
       pastedCards: [], selectedTextAttachments: [], sentSlashCommand: null, composerReferences: [], createdAt: Date.now() }),
     mountReactTranscript: (target: string) => { mounts.push(target); calls.push('mount') }, unmountReactTranscript() {},
-    syncTopModeButtons() {}, updateScrollToBottomBtn() {}, renderSessionList() {}, updateSendBtn() {}, scrollToBottom() {}, resumeMessagesBottomFollowing() {},
+    syncTopModeButtons() {}, updateScrollToBottomBtn() {}, renderSessionList() {}, updateSendBtn() {},
+    mainScrollController: {
+      prepareLatestTurnPlacement: (sessionId: string) => placements.push({ sessionId, usersBefore: store.getSessionStream(sessionId).liveUnits.filter(row => row.type === 'live-user').length }),
+      movePendingLatestTurnPlacement: (from: string, to: string) => placementMoves.push({ from, to }),
+      clearPendingLatestTurnPlacement() {}, resetForConversation() {},
+    },
     renderPreviews() {}, renderSelectedSlashCommand() {}, autoResize() {}, hideSlashMenu() {}, hideComposerPlusMenu() {},
     syncBusyForCurrentSession: () => { c.busy = !!api.currentPendingComposerSubmission() || !!store.getSessionStream(c.window.currentSessionId || '').running },
     syncMainTranscriptChrome() {}, showToast() {}, tt: (key: string) => key,
@@ -95,7 +102,7 @@ function fixture({ existing = false, goal = false, worktree = false } = {}) {
   }
   const api = runInNewContext(code, c) as { sendMessage(): Promise<void>; switchSession(id: string): Promise<void>; reconcilePendingComposerSubmissions(): void; currentPendingComposerSubmission(): any; stopPendingComposerSubmission(): boolean; syncMainTranscriptChrome(): void; ensureSession(): Promise<string | null> }
   c.api = api
-  return { c, api, model, creation, goalAck, workspace, file, mounts, calls, sends, goals, closed, hostId,
+  return { c, api, model, creation, goalAck, workspace, file, mounts, calls, sends, goals, closed, hostId, placements, placementMoves,
     unsent: () => [...unsent.values()],
     draft: () => draft, setDraft: (text: string) => c.setComposerText(text),
     resolveCreation: () => creation.resolve({ id: hostId, title: 'New Chat', createdAt: Date.now(), updatedAt: Date.now(), workdir: '/project' }) }
@@ -105,6 +112,8 @@ for (const goal of [false, true]) test(`${goal ? 'goal' : 'ordinary'} submission
   const f = fixture({ goal }), task = f.api.sendMessage()
   const pending = f.api.currentPendingComposerSubmission()
   expect(f.calls.slice(0, 2)).toEqual(['mount', 'model'])
+  expect(f.placements).toEqual([{ sessionId: pending.viewId, usersBefore: 0 }])
+  const provisionalViewId = pending.viewId
   expect(f.c.window.currentSessionId).toBeNull()
   expect(f.c.welcomeEl.style.display).toBe('none')
   expect(f.c.composerContextRowEl.hidden).toBe(true)
@@ -126,6 +135,8 @@ for (const goal of [false, true]) test(`${goal ? 'goal' : 'ordinary'} submission
     f.goalAck.resolve({ ok: true, goal: { goalId: 'goal', status: 'active', objective: 'Build the authored task' }, goalRevision: 1, admission: 'scheduled' })
   }
   await task
+  expect(f.placements).toHaveLength(1)
+  expect(f.placementMoves).toEqual([{ from: provisionalViewId, to: f.hostId }])
   expect(f.draft().text).toBe('The next message')
   expect(store.getSessionStream(f.hostId).liveUnits.filter(row => row.type === 'live-user')).toHaveLength(1)
   expect(store.getSessionStream(f.hostId).turnStartedAt).toBe(pending.startedAtMs)
