@@ -1,5 +1,5 @@
 {
-  "version": 3,
+  "version": 4,
   "reason": "A direct cloud account source preserves model identity, explicit entitlements, per-model allowance windows and independent image/search/dictation selection.",
   "source": "antigravity",
   "selection": "antigravity:gemini-3.8-flash",
@@ -153,7 +153,156 @@
           ]
         }
       }
+    },
+    {
+      "name": "latest primary families and Gemini Flash collapse variants and omit auxiliary buckets",
+      "input": {
+        "signedIn": true,
+        "plan": "Google AI Ultra",
+        "windows": [
+          {
+            "id": "quota:chat_20706",
+            "label": "chat_20706",
+            "modelId": "chat_20706",
+            "source": "quota",
+            "usedPercent": 0
+          },
+          {
+            "id": "quota:claude-opus-4-6-thinking",
+            "label": "claude-opus-4-6-thinking",
+            "modelId": "claude-opus-4-6-thinking",
+            "source": "quota",
+            "usedPercent": 50,
+            "resetsAt": 1793788850000
+          },
+          {
+            "id": "quota:claude-opus-5-5-low",
+            "label": "claude-opus-5-5-low",
+            "modelId": "claude-opus-5-5-low",
+            "source": "quota",
+            "usedPercent": 70,
+            "resetsAt": 1793788850000
+          },
+          {
+            "id": "quota:claude-opus-5-5-high",
+            "label": "claude-opus-5-5-high",
+            "modelId": "claude-opus-5-5-high",
+            "source": "quota",
+            "usedPercent": 70,
+            "resetsAt": 1793788850000
+          },
+          {
+            "id": "quota:claude-sonnet-4-6",
+            "label": "claude-sonnet-4-6",
+            "modelId": "claude-sonnet-4-6",
+            "source": "quota",
+            "usedPercent": 40,
+            "resetsAt": 1793788850000
+          },
+          {
+            "id": "quota:claude-sonnet-5-5-medium",
+            "label": "claude-sonnet-5-5-medium",
+            "modelId": "claude-sonnet-5-5-medium",
+            "source": "quota",
+            "usedPercent": 70,
+            "resetsAt": 1793788850000
+          },
+          {
+            "id": "quota:gemini-2.5-pro",
+            "label": "gemini-2.5-pro",
+            "modelId": "gemini-2.5-pro",
+            "source": "quota",
+            "usedPercent": 3,
+            "resetsAt": 1793789273000
+          },
+          {
+            "id": "quota:gemini-3.8-flash-high",
+            "label": "gemini-3.8-flash-high",
+            "modelId": "gemini-3.8-flash-high",
+            "source": "quota",
+            "usedPercent": 3,
+            "resetsAt": 1793789273000
+          },
+          {
+            "id": "quota:gemini-4-argon-low",
+            "label": "gemini-4-argon-low",
+            "modelId": "gemini-4-argon-low",
+            "source": "quota",
+            "usedPercent": 3,
+            "resetsAt": 1793789273000
+          },
+          {
+            "id": "quota:gemini-4-argon-high",
+            "label": "gemini-4-argon-high",
+            "modelId": "gemini-4-argon-high",
+            "source": "quota",
+            "usedPercent": 3,
+            "resetsAt": 1793789273000
+          },
+          {
+            "id": "quota:gpt-oss-120b-medium",
+            "label": "gpt-oss-120b-medium",
+            "modelId": "gpt-oss-120b-medium",
+            "source": "quota",
+            "usedPercent": 70,
+            "resetsAt": 1793788850000
+          },
+          {
+            "id": "quota:tab_flash_lite_preview",
+            "label": "tab_flash_lite_preview",
+            "modelId": "tab_flash_lite_preview",
+            "source": "quota",
+            "usedPercent": 0
+          },
+          {
+            "id": "summary:gemini-5h",
+            "label": "Five Hour Limit Remaining",
+            "groupLabel": "Gemini Models",
+            "source": "summary",
+            "usedPercent": 3,
+            "resetsAt": 1793789273000
+          },
+          {
+            "id": "summary:3p-weekly",
+            "label": "Weekly Limit Remaining",
+            "groupLabel": "Claude and GPT models",
+            "source": "summary",
+            "usedPercent": 78,
+            "resetsAt": 1794211134000
+          }
+        ]
+      },
+      "expected": {
+        "state": "ok",
+        "plan": "Google AI Ultra",
+        "windows": [
+          {
+            "id": "claude-opus-5-5",
+            "label": "Claude Opus 5.5",
+            "usedPercent": 70,
+            "resetsAt": 1793788850000
+          },
+          {
+            "id": "claude-sonnet-5-5",
+            "label": "Claude Sonnet 5.5",
+            "usedPercent": 70,
+            "resetsAt": 1793788850000
+          },
+          {
+            "id": "gemini-4-argon",
+            "label": "Gemini 4 Argon",
+            "usedPercent": 3,
+            "resetsAt": 1793789273000
+          },
+          {
+            "id": "gemini-3.8-flash",
+            "label": "Gemini 3.8 Flash",
+            "usedPercent": 3,
+            "resetsAt": 1793789273000
+          }
+        ]
+      }
     }
   ],
-  "presentationReason": "Allowance titles identify the service groups; descriptive footnotes are omitted without merging balances or reset times. Amount-only service windows retain their reported remainingAmount balance."
+  "presentationReason": "Menus and allowances show the latest Opus, Sonnet, Gemini flagship and Gemini Flash releases; reasoning variants share a model name and auxiliary models are omitted."
 }

@@ -162,6 +162,67 @@ h.test('quota groups with the same short title keep distinct stable names', () =
   assert.deepEqual(names([...windows].reverse()), names(windows));
 });
 
+h.test('quota windows surface only the latest Opus, Sonnet and Gemini families', () => {
+  const opusReset = Date.parse('2026-11-04T10:40:50Z');
+  const geminiReset = Date.parse('2026-11-04T10:47:53Z');
+  const projected = antigravityUsage({
+    signedIn: true,
+    plan: 'Google AI Ultra',
+    windows: [
+      { id: 'q1', modelId: 'chat_20706', label: 'chat_20706', source: 'quota', usedPercent: 0 },
+      { id: 'q2', modelId: 'tab_flash_lite_preview', label: 'tab_flash_lite_preview', source: 'quota', usedPercent: 0 },
+      { id: 'q3', modelId: 'tab_jump_flash_lite_preview', label: 'tab_jump_flash_lite_preview', source: 'quota', usedPercent: 0 },
+      { id: 'q4', modelId: 'gpt-oss-120b-medium', label: 'gpt-oss-120b-medium', source: 'quota', usedPercent: 70, resetsAt: opusReset },
+      { id: 'q5', modelId: 'gemini-3.1-flash-image', label: 'gemini-3.1-flash-image', source: 'quota', usedPercent: 3, resetsAt: geminiReset },
+      { id: 'q6', modelId: 'gemini-2.5-flash', label: 'gemini-2.5-flash', source: 'quota', usedPercent: 3, resetsAt: geminiReset },
+      { id: 'q7', modelId: 'gemini-3.8-flash-low', label: 'gemini-3.8-flash-low', source: 'quota', usedPercent: 3, resetsAt: geminiReset },
+      { id: 'q8', modelId: 'gemini-3.8-flash-high', label: 'gemini-3.8-flash-high', source: 'quota', usedPercent: 3, resetsAt: geminiReset },
+      { id: 'q9', modelId: 'gemini-4-argon-low', label: 'gemini-4-argon-low', source: 'quota', usedPercent: 3, resetsAt: geminiReset },
+      { id: 'q10', modelId: 'gemini-4-argon-medium', label: 'gemini-4-argon-medium', source: 'quota', usedPercent: 3, resetsAt: geminiReset },
+      { id: 'q11', modelId: 'gemini-4-argon-high', label: 'gemini-4-argon-high', source: 'quota', usedPercent: 3, resetsAt: geminiReset },
+      { id: 'q12', modelId: 'claude-opus-5-5-low', label: 'claude-opus-5-5-low', source: 'quota', usedPercent: 70, resetsAt: opusReset },
+      { id: 'q13', modelId: 'claude-opus-5-5-medium', label: 'claude-opus-5-5-medium', source: 'quota', usedPercent: 70, resetsAt: opusReset },
+      { id: 'q14', modelId: 'claude-opus-5-5-high', label: 'claude-opus-5-5-high', source: 'quota', usedPercent: 70, resetsAt: opusReset },
+      { id: 'q15', modelId: 'claude-sonnet-5-5-low', label: 'claude-sonnet-5-5-low', source: 'quota', usedPercent: 70, resetsAt: opusReset },
+      { id: 'q16', modelId: 'claude-sonnet-5-5-medium', label: 'claude-sonnet-5-5-medium', source: 'quota', usedPercent: 70, resetsAt: opusReset },
+      { id: 'q17', modelId: 'claude-sonnet-5-5-high', label: 'claude-sonnet-5-5-high', source: 'quota', usedPercent: 70, resetsAt: opusReset },
+      { id: 's1', label: 'Five Hour Limit Remaining', groupLabel: 'Claude and GPT models', source: 'summary', usedPercent: 70, resetsAt: opusReset },
+      { id: 's2', label: 'Weekly Limit Remaining', groupLabel: 'Claude and GPT models', source: 'summary', usedPercent: 78, resetsAt: opusReset + 86400_000 },
+      { id: 's3', label: 'Five Hour Limit Remaining', groupLabel: 'Gemini Models', source: 'summary', usedPercent: 3, resetsAt: geminiReset },
+      { id: 's4', label: 'Weekly Limit Remaining', groupLabel: 'Gemini Models', source: 'summary', usedPercent: 2, resetsAt: geminiReset + 86400_000 },
+    ],
+  });
+  assert.deepEqual(projected, {
+    state: 'ok',
+    plan: 'Google AI Ultra',
+    windows: [
+      { id: 'claude-opus-5-5', label: 'Claude Opus 5.5', usedPercent: 70, resetsAt: opusReset },
+      { id: 'claude-sonnet-5-5', label: 'Claude Sonnet 5.5', usedPercent: 70, resetsAt: opusReset },
+      { id: 'gemini-4-argon', label: 'Gemini 4 Argon', usedPercent: 3, resetsAt: geminiReset },
+      { id: 'gemini-3.8-flash', label: 'Gemini 3.8 Flash', usedPercent: 3, resetsAt: geminiReset },
+    ],
+  });
+  // Accounts without Argon still surface the latest available Gemini family.
+  const withoutArgon = antigravityUsage({
+    signedIn: true,
+    windows: [
+      { id: 'q1', modelId: 'claude-opus-4-6-thinking', source: 'quota', usedPercent: 20 },
+      { id: 'q2', modelId: 'claude-sonnet-4-6', source: 'quota', usedPercent: 20 },
+      { id: 'q3', modelId: 'gemini-2.5-pro', source: 'quota', usedPercent: 10 },
+      { id: 'q4', modelId: 'gemini-3.8-flash-medium', source: 'quota', usedPercent: 5 },
+      { id: 'q5', modelId: 'gemini-3.8-flash-high', source: 'quota', usedPercent: 5 },
+    ],
+  });
+  assert.deepEqual(withoutArgon, {
+    state: 'ok',
+    windows: [
+      { id: 'claude-opus-4-6', label: 'Claude Opus 4.6', usedPercent: 20 },
+      { id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6', usedPercent: 20 },
+      { id: 'gemini-3.8-flash', label: 'Gemini 3.8 Flash', usedPercent: 5 },
+    ],
+  });
+});
+
 h.test('cloud model rows preserve reported entitlements while known tier selections remain assignable', async () => {
   const f = await fixture(), calls: string[] = [];
   const engine = { providers: async () => ({}) } as unknown as EngineSettings;

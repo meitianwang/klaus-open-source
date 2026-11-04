@@ -6,9 +6,9 @@ interface Member { family: string; label: string; level: string; budget?: number
 /** Protocol identities declare these variants; suffixes do not define effort. */
 function member(key: string, entry: JsonObject, row: JsonObject): Member | undefined {
   const fixed: Record<string, Member> = {
-    'gemini-3.8-flash-low': { family: 'gemini-3.8-flash', label: 'Gemini 3.8 Flash', level: 'low', budget: 1000 },
-    'gemini-3.8-flash-medium': { family: 'gemini-3.8-flash', label: 'Gemini 3.8 Flash', level: 'medium', budget: 4000 },
-    'gemini-3.8-flash-high': { family: 'gemini-3.8-flash', label: 'Gemini 3.8 Flash', level: 'high', budget: -1 },
+    'gemini-3.8-flash-low': { family: 'gemini-3.8-flash', label: 'Gemini 3.8 Flash', level: 'low', budget: 1000, nativeLevel: 1 },
+    'gemini-3.8-flash-medium': { family: 'gemini-3.8-flash', label: 'Gemini 3.8 Flash', level: 'medium', budget: 4000, nativeLevel: 2 },
+    'gemini-3.8-flash-high': { family: 'gemini-3.8-flash', label: 'Gemini 3.8 Flash', level: 'high', budget: -1, nativeLevel: 3 },
     'gemini-3.5-flash-extra-low': { family: 'gemini-3.5-flash', label: 'Gemini 3.5 Flash', level: 'low', budget: 1000 },
     'gemini-3.5-flash-low': { family: 'gemini-3.5-flash', label: 'Gemini 3.5 Flash', level: 'medium', budget: 4000 },
     'gemini-3-flash-agent': { family: 'gemini-3.5-flash', label: 'Gemini 3.5 Flash', level: 'high', budget: -1 },
@@ -44,7 +44,9 @@ function matches(entry: JsonObject, definition: Member): boolean {
   const provider = string(details.modelProvider);
   if (provider && (definition.family.startsWith('claude-') ? provider !== 'MODEL_PROVIDER_ANTHROPIC'
     : definition.family.startsWith('gpt-') ? provider !== 'MODEL_PROVIDER_OPENAI' : provider !== 'MODEL_PROVIDER_GOOGLE')) return false;
-  return definition.budget !== undefined ? details.thinkingBudget === definition.budget : details.thinkingLevel === definition.nativeLevel;
+  // A declared native level takes precedence over the legacy budget form.
+  if (details.thinkingLevel !== undefined) return definition.nativeLevel !== undefined && details.thinkingLevel === definition.nativeLevel;
+  return definition.budget !== undefined && details.thinkingBudget === definition.budget;
 }
 
 /** A validated concrete model supplies its effective native thinking selection. */

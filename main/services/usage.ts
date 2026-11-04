@@ -1,3 +1,4 @@
+import { antigravityPresentationFamily, latestAntigravityFamilyIds, type AntigravityPresentationFamily } from '../../shared/antigravity-presentation';
 import type { Json } from '../ipc/contract';
 import { object, string, type JsonObject } from './service-types';
 import { responseText } from './mobile/transport';
@@ -198,7 +199,77 @@ function subscriptionAllowanceUsage(value: unknown, labelForGroup: (value: unkno
   return result;
 }
 
+function parseAntigravityPresentationFamily(raw: JsonObject): AntigravityPresentationFamily | undefined {
+  if (string(raw.source) === 'summary' || string(raw.groupLabel).trim()) return undefined;
+  const identity = string(raw.modelId) || string(raw.model) || string(raw.label) || string(raw.id);
+  return antigravityPresentationFamily(identity);
+}
+
+function isIgnoredAntigravityQuotaModel(raw: JsonObject): boolean {
+  return raw.source === 'quota' || !!string(raw.modelId);
+}
+
+function selectLatestAntigravityModelWindows(rawWindows: unknown[]): JsonObject[] | undefined {
+  const families = new Map<string, {
+    family: AntigravityPresentationFamily;
+    usedPercent?: number;
+    remaining?: number;
+    resetsAt?: number;
+    allDisabled: boolean;
+    anyDisabled: boolean;
+  }>();
+  for (const value of rawWindows) {
+    const raw = object(value);
+    const family = parseAntigravityPresentationFamily(raw);
+    if (!family) continue;
+    const used = clampPercent(raw.usedPercent);
+    const remaining = finite(raw.remainingAmount) ?? finite(raw.remaining);
+    const reset = epochMs(raw.resetsAt);
+    const hasDisabled = typeof raw.disabled === 'boolean';
+    if (used === undefined && remaining === undefined && reset === undefined && !hasDisabled) continue;
+    let entry = families.get(family.id);
+    if (!entry) {
+      entry = { family, allDisabled: true, anyDisabled: false };
+      families.set(family.id, entry);
+    }
+    if (used !== undefined) entry.usedPercent = entry.usedPercent === undefined ? used : Math.max(entry.usedPercent, used);
+    if (remaining !== undefined && remaining >= 0) entry.remaining = entry.remaining === undefined ? remaining : Math.min(entry.remaining, remaining);
+    if (reset !== undefined) entry.resetsAt = entry.resetsAt === undefined ? reset : Math.min(entry.resetsAt, reset);
+    if (raw.disabled === true) entry.anyDisabled = true;
+    else entry.allDisabled = false;
+  }
+  if (!families.size) return undefined;
+  const selected: JsonObject[] = [];
+  const latest = latestAntigravityFamilyIds([...families.values()].map(entry => entry.family));
+  for (const category of ['opus', 'sonnet', 'gemini', 'flash'] as const) {
+    const best = [...families.values()].find(entry => entry.family.category === category && latest.has(entry.family.id));
+    if (!best) continue;
+    const row: JsonObject = { id: best.family.id };
+    if (best.usedPercent !== undefined) row.usedPercent = best.usedPercent;
+    if (best.remaining !== undefined) row.remaining = best.remaining;
+    if (best.resetsAt !== undefined) row.resetsAt = best.resetsAt;
+    row.label = best.family.label;
+    if (best.anyDisabled && best.allDisabled) row.disabled = true;
+    selected.push(row);
+  }
+  return selected.length ? selected : undefined;
+}
+
 export function antigravityUsage(value: unknown): JsonObject {
+  const answer = object(value);
+  if (answer.signedIn === true && Array.isArray(answer.windows)) {
+    const latest = selectLatestAntigravityModelWindows(answer.windows);
+    if (latest) {
+      const projected = subscriptionAllowanceUsage({ ...answer, windows: [] }, antigravityQuotaGroupLabel);
+      delete projected.quotaAvailable;
+      projected.windows = latest;
+      return projected;
+    }
+    const filtered = answer.windows.filter(raw => !isIgnoredAntigravityQuotaModel(object(raw)));
+    if (filtered.length !== answer.windows.length) {
+      return subscriptionAllowanceUsage({ ...answer, windows: filtered }, antigravityQuotaGroupLabel);
+    }
+  }
   return subscriptionAllowanceUsage(value, antigravityQuotaGroupLabel);
 }
 

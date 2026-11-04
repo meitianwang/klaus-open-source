@@ -1,3 +1,4 @@
+import { visibleAntigravityModelOptions } from '../../../../shared/antigravity-presentation'
 import { type FastModeMetadata, type FastModeState } from '../../../../shared/model-fast-mode'
 import { modelOptionIsAntigravity, modelOptionIsSelectable, cursorFastMode, cursorThinkingLevel, cursorThinkingLevels, modelOptionHasValue, modelOptionForValue, modelOptionsForValue, type CursorModelMetadata } from '../../../../shared/cursor-model-catalog'
 import { antigravityThinkingLevel, antigravityThinkingLevels, type AntigravityModelMetadata } from '../../../../shared/antigravity-model-catalog'
@@ -421,7 +422,7 @@ function ModelSelectMenu({ store, onEmptyClick, saveModel, saveThinkingLevel, sa
   ;(store as any).__forceRender = () => force(v => v + 1)
 
   const selectedItem = modelOptionForValue(items, value) || null
-  const visibleItems = modelOptionsForValue(items, value)
+  const visibleItems = visibleAntigravityModelOptions(modelOptionsForValue(items, value))
   const cursorFast = cursorFastMode(selectedItem, value)
   const shownFastMode = value.startsWith('cursor:') && !fastModePending ? cursorFast.enabled : fastMode
   const supportsFastMode = value.startsWith('cursor:') ? cursorFast.supported : fastModeSupported && selectedItem?.supportsFastMode === true
