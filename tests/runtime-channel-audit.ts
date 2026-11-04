@@ -18,6 +18,8 @@ process.env.CANONICAL_CWD = root;
 process.env.KLAUS_TEST = '1';
 claimDesktopProfileEdition(root, currentDesktopEdition());
 app.setPath('userData', join(root, 'electron'));
+app.commandLine.appendSwitch('native-browser-enabled');
+app.commandLine.appendSwitch('native-browser-data-dir', join(root, 'electron', 'native-browser'));
 registerAppScheme();
 app.on('window-all-closed', () => {});
 

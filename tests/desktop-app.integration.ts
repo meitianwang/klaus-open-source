@@ -49,6 +49,8 @@ if (process.platform === 'win32') {
   if (!existsSync(process.env.KLAUS_SHELL)) throw new Error('The Windows fixture requires the system PowerShell executable');
 } else process.env.SHELL = '/bin/sh';
 app.setPath('userData', join(root, 'electron'));
+app.commandLine.appendSwitch('native-browser-enabled');
+app.commandLine.appendSwitch('native-browser-data-dir', join(root, 'electron', 'native-browser'));
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 registerAppScheme();
 app.on('window-all-closed', () => {});

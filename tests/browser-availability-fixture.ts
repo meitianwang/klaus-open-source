@@ -13,6 +13,8 @@ const profile = process.env.KLAUS_BROWSER_AVAILABILITY_PROFILE;
 if (!profile) throw new Error('This fixture requires an isolated KLAUS_BROWSER_AVAILABILITY_PROFILE.');
 mkdirSync(profile, { recursive: true });
 app.setPath('userData', profile);
+app.commandLine.appendSwitch('native-browser-enabled');
+app.commandLine.appendSwitch('native-browser-data-dir', join(profile, 'electron', 'native-browser'));
 app.commandLine.appendSwitch('site-per-process');
 app.on('window-all-closed', () => {});
 

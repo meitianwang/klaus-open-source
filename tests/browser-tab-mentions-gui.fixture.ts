@@ -17,6 +17,8 @@ const outputRoot = root;
 const isolatedProfile = profile;
 mkdirSync(isolatedProfile, { recursive: true });
 app.setPath('userData', isolatedProfile);
+app.commandLine.appendSwitch('native-browser-enabled');
+app.commandLine.appendSwitch('native-browser-data-dir', join(isolatedProfile, 'electron', 'native-browser'));
 app.on('window-all-closed', () => {});
 
 async function main(): Promise<number> {
