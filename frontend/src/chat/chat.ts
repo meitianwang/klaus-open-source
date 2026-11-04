@@ -12906,14 +12906,9 @@ function refreshBudgetBanner() {
   const text = zh
     ? `本会话累计花费 ${formatUsd(cost)} 已达上限 ${formatUsd(budgetCapUsd)}，新消息不会得到回复。请在设置里调高「会话花费上限」或新建会话。`
     : `This session's spend ${formatUsd(cost)} reached the cap ${formatUsd(budgetCapUsd)}; new messages won't get a reply. Raise the "Session spend cap" in settings, or start a new chat.`
-  const notice = el.querySelector<HTMLDetailsElement>('.error-notice')
-  const summary = notice?.querySelector('.error-notice-summary')
-  const detail = notice?.querySelector('.error-notice-detail')
-  if (summary && detail) {
-    if (detail.textContent !== text) {
-      summary.textContent = text
-      detail.textContent = text
-    }
+  const noticeText = el.querySelector('.error-notice-text')
+  if (noticeText) {
+    noticeText.textContent = text
   } else {
     el.innerHTML = renderErrorNoticeHtml(text)
   }

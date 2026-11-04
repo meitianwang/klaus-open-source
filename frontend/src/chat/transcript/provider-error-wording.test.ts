@@ -13,16 +13,18 @@ const { providerErrorText } = await import('./TranscriptView')
 const { t } = await import('../../i18n')
 
 for (const language of ['en', 'zh'] as const) {
-  test(`tool stream failures use readable source wording and retain diagnostics in ${language}`, () => {
+  test(`tool stream failures use readable source wording without exposing diagnostics in ${language}`, () => {
     const translate = (key: string) => I18N[language][key]
     for (const code of ['trae_stream_tool_arguments_changed', 'trae_stream_tool_call_invalid', 'trae_stream_tool_index_invalid', 'trae_stream_tool_identity_changed']) {
       const diagnostics: ProviderErrorDetails = { message: code, kind: 'unknown', providerError: { message: code, code, type: 'trae_error' } }
       const before = JSON.stringify(diagnostics)
       const text = providerErrorText(code, 'unknown', translate, diagnostics)
       expect(text).toBe(translate('trae_tool_response_invalid'))
-      const notice = renderErrorNoticeHtml(text, diagnostics)
-      expect(notice.match(/<summary[^>]*>(.*?)<\/summary>/)?.[1]).not.toContain(code)
-      expect(notice).toContain(code)
+      const notice = renderErrorNoticeHtml(text)
+      expect(notice).toContain(translate('trae_tool_response_invalid'))
+      expect(notice).not.toContain(code)
+      expect(notice).not.toContain('<details')
+      expect(notice).not.toContain('<summary')
       expect(JSON.stringify(diagnostics)).toBe(before)
     }
     expect(providerErrorText('cursor_stream_tool_arguments_changed', 'unknown', translate)).toBe('cursor_stream_tool_arguments_changed')
@@ -53,16 +55,16 @@ describe('provider error wording', () => {
     expect(providerErrorText('Usage limit exceeded', 'rate_limit', t)).toBe('Usage limit exceeded')
   })
 
-  test('fast mode credit refusals keep upstream diagnostics in the disclosure', () => {
+  test('fast mode credit refusals do not expose upstream diagnostics', () => {
     const details: ProviderErrorDetails = {
       message: 'Usage credits are required for fast mode.', kind: 'rate_limit', status: 429, requestId: 'req_fast_mode',
       providerError: { message: 'Usage credits are required for fast mode.', status: 429, requestId: 'req_fast_mode' },
     }
     const text = providerErrorText(details.message, details.kind, t, details)
-    const notice = renderErrorNoticeHtml(text, details)
-    expect(notice.match(/<summary[^>]*>(.*?)<\/summary>/)?.[1]).not.toContain('Usage credits are required for fast mode')
-    expect(notice).toContain('req_fast_mode')
-    expect(notice).toContain('Usage credits are required for fast mode')
+    const notice = renderErrorNoticeHtml(text)
+    expect(notice).not.toContain('req_fast_mode')
+    expect(notice).not.toContain('Usage credits are required for fast mode')
+    expect(notice).not.toContain('<details')
   })
 
   test('invalid_request keeps the provider rejection reason behind the localized lead-in', () => {

@@ -139,11 +139,13 @@ for (const row of vectors.projectionCases.filter(row => row.name.startsWith('can
     expect(restored.turnErrorDetails[turnId]).toEqual(row.expectedDetails)
     expect(JSON.stringify(row.error)).toBe(original)
     if (row.name.includes('statusless')) expect(restored.turnErrorDetails[turnId]).not.toHaveProperty('status')
-    const html = renderErrorNoticeHtml(row.expectedText, restored.turnErrorDetails[turnId])
-    expect(html).toContain(row.error.providerError!.message)
-    expect(html).toContain(row.error.providerError!.requestId)
-    expect(html).toContain(row.error.recoveryReason!)
-    expect(html.match(/\(request-id:/g)?.length).toBe(2)
+    const html = renderErrorNoticeHtml(row.expectedText)
+    expect(html).toContain(row.expectedText)
+    expect(html).not.toContain(JSON.stringify(restored.turnErrorDetails[turnId], null, 2))
+    expect(html).not.toContain(row.error.recoveryReason!)
+    expect(html).not.toContain('<details')
+    expect(html).not.toContain('<summary')
+    expect(html).not.toContain('error-notice-detail')
   })
 }
 
@@ -153,11 +155,11 @@ describe('diagnostic input validation', () => {
     for (const value of [null, [], 'failure', 413]) expect(providerErrorDetails(value)).toBeUndefined()
   })
 
-  test('legacy non-rich disclosures retain their exact markup and rich raw fields are escaped', () => {
-    expect(renderErrorNoticeHtml('Original refusal', { message: 'Original refusal', kind: 'rate_limit' })).toBe(renderErrorNoticeHtml('Original refusal'))
-    const html = renderErrorNoticeHtml('Original refusal', { message: 'Original refusal', providerError: { message: '<img src=x onerror=alert(1)>', requestId: 'req_safe' } })
+  test('static notices escape their message and never expose diagnostic details', () => {
+    const html = renderErrorNoticeHtml('<img src=x onerror=alert(1)>')
     expect(html).toContain('&lt;img')
     expect(html).not.toContain('<img')
+    expect(html).toBe('<div class="error-notice"><div class="error-notice-text">&lt;img src=x onerror=alert(1)&gt;</div></div>')
   })
 
   test('an explicit empty request identity retains legacy formatting', () => {

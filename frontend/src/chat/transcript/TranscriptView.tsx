@@ -2931,9 +2931,9 @@ export function FriendFollowUp({ children }: { text: string; children: ReactNode
   return <>{children}</>
 }
 
-function TranscriptErrorNotice({ text, diagnostics, children }: { text: string; diagnostics?: ProviderErrorDetails; children?: ReactNode }) {
+function TranscriptErrorNotice({ text, children }: { text: string; children?: ReactNode }) {
   return <div className={`msg-group system ${styles['error-notice-row']}`}>
-    <RawHtml className="error-notice-host" html={renderErrorNoticeHtml(text, diagnostics)} />
+    <RawHtml className="error-notice-host" html={renderErrorNoticeHtml(text)} />
     {children}
   </div>
 }
@@ -2971,7 +2971,7 @@ function UnitView({ unit, isThinkingExpanded, onToggleThinking, archived, runnin
     return <TurnTerminalStatus durationMs={msg?.durationMs} />
   }
   if (unit.type === 'fail-hint') {
-    return <TranscriptErrorNotice text={providerErrorText(msg?.text || '', typeof msg?.kind === 'string' ? msg.kind : undefined, t, msg?.errorDetails) || t('chat_error_generic')} diagnostics={msg?.errorDetails} />
+    return <TranscriptErrorNotice text={providerErrorText(msg?.text || '', typeof msg?.kind === 'string' ? msg.kind : undefined, t, msg?.errorDetails) || t('chat_error_generic')} />
   }
   if (unit.type === 'fork') {
     const actions = renderMsgActionsHtml({ ts: msg.timestamp, copyText: msg.text || '', uuid: msg.uuid, kind: 'user', archived, running, readOnly })
@@ -4721,7 +4721,7 @@ function LiveUnitView({ unit, tools, sessionId, unitProps, mediaPaths, mediaAlia
     const recovery = unit.submissionUuid ? pendingSubmissionRecovery(unit.submissionUuid) : undefined
     const overload = (unit.kind === 'rate_limit' || unit.kind === 'overloaded') && typeof unit.retryAfterMs === 'number'
     return (
-      <TranscriptErrorNotice text={providerErrorText(unit.text, unit.kind, t, unit.errorDetails) || t('chat_error_generic')} diagnostics={unit.errorDetails}>
+      <TranscriptErrorNotice text={providerErrorText(unit.text, unit.kind, t, unit.errorDetails) || t('chat_error_generic')}>
         {overload ? <OverloadRetryRow sessionId={sessionId} retryAfterMs={unit.retryAfterMs as number} /> : null}
         {recovery ? <div className={styles['overload-retry-row']}><button type="button" className={styles['overload-retry-btn']}
           data-submission-recovery={recovery.action} onClick={recovery.run}>{t(recovery.action === 'back' ? 'submission_go_back' : recovery.action === 'retry' ? 'submission_retry' : 'submission_dismiss')}</button></div> : null}
