@@ -208,7 +208,16 @@ function BrowserManagerRow({ surface, disabled, busy, onOpenManager }: {
   )
 }
 
-type ManagerRequest = (surface: BrowserManagerSurface, options: BrowserManagerOptions, generation: number) => Promise<any>
+type ManagerRequest = (surface: BrowserManagerSurface, options: BrowserManagerOptions & { viewId: string }, generation: number) => Promise<any>
+
+let managerViewSequence = 0
+
+/** A view token is unique across pane remounts and retries. */
+function newManagerViewId(): string {
+  if (typeof globalThis.crypto?.randomUUID === 'function') return globalThis.crypto.randomUUID()
+  managerViewSequence += 1
+  return `manager-${Date.now().toString(36)}-${managerViewSequence.toString(36)}-${Math.random().toString(36).slice(2)}`
+}
 
 function managerBounds(node: HTMLElement): BrowserManagerBounds | null {
   const rect = node.getBoundingClientRect()
@@ -227,7 +236,7 @@ export function NativeManagementPane({ surface, generation, onBack, openManager,
   generation: number
   onBack: () => void
   openManager: ManagerRequest
-  onClose: (surface: BrowserManagerSurface, generation: number) => void
+  onClose: (surface: BrowserManagerSurface, generation: number, viewId: string) => void
 }) {
   const t = useT()
   const hostRef = useRef<HTMLDivElement>(null)
@@ -245,6 +254,7 @@ export function NativeManagementPane({ surface, generation, onBack, openManager,
     let requested = false
     let failed = false
     let lastBounds = ''
+    const viewId = newManagerViewId()
 
     const run = async (): Promise<void> => {
       if (disposed || failed) return
@@ -262,7 +272,7 @@ export function NativeManagementPane({ surface, generation, onBack, openManager,
         setError('')
       }
       try {
-        const result = await openManager(surface, { action, bounds }, generation)
+        const result = await openManager(surface, { action, bounds, viewId }, generation)
         if (disposed) return
         if (!result || result.ok === false || result.error) {
           failed = true
@@ -304,7 +314,7 @@ export function NativeManagementPane({ surface, generation, onBack, openManager,
       observer?.disconnect()
       window.removeEventListener('resize', update)
       document.removeEventListener('scroll', update, true)
-      if (requested) onClose(surface, generation)
+      if (requested) onClose(surface, generation, viewId)
     }
   }, [surface, generation, attempt, openManager, onClose, t])
 
@@ -990,16 +1000,16 @@ export function BrowserSettingsTab() {
     setView('native')
   }, [])
 
-  const managerRequest = useCallback(async (surface: BrowserManagerSurface, options: BrowserManagerOptions, generation: number) => {
+  const managerRequest = useCallback(async (surface: BrowserManagerSurface, options: BrowserManagerOptions & { viewId: string }, generation: number) => {
     if (nativeGeneration.current !== generation) return { ok: false, error: 'stale' }
     const service = api()?.openManager
     if (!service) throw new Error('settings_failed')
     return service(surface, options)
   }, [])
 
-  const closeManager = useCallback((surface: BrowserManagerSurface, generation: number) => {
+  const closeManager = useCallback((surface: BrowserManagerSurface, generation: number, viewId: string) => {
     if (nativeGeneration.current !== generation) return
-    void managerRequest(surface, { action: 'close' }, generation).catch(() => {})
+    void managerRequest(surface, { action: 'close', viewId }, generation).catch(() => {})
   }, [managerRequest])
 
   const clearData = useCallback(async (kinds: string[]) => {

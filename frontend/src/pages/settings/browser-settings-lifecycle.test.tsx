@@ -372,24 +372,33 @@ describe('browser settings React lifecycle', () => {
       await settle()
       expect(happyWindow.document.querySelector('[data-native-management-pane="passwords"]')).toBeTruthy()
       expect(happyWindow.document.querySelector('#browser-native-back')).toBeTruthy()
-      expect(calls).toEqual([{ surface: 'passwords', action: 'open', bounds: { x: 24, y: 96, width: 640, height: 480 } }])
+      expect(calls).toHaveLength(1)
+      const opened = calls[0]
+      expect(opened).toMatchObject({ surface: 'passwords', action: 'open', bounds: { x: 24, y: 96, width: 640, height: 480 } })
+      expect(typeof opened.viewId).toBe('string')
 
       calls.length = 0
       rect = { x: 32, y: 96, width: 700, height: 480 }
       await act(async () => { happyWindow.dispatchEvent(new happyWindow.Event('resize')) })
       await settle()
-      expect(calls).toEqual([{ surface: 'passwords', action: 'bounds', bounds: { x: 32, y: 96, width: 700, height: 480 } }])
+      expect(calls).toHaveLength(1)
+      expect(calls[0]).toMatchObject({ surface: 'passwords', action: 'bounds', bounds: { x: 32, y: 96, width: 700, height: 480 } })
+      expect(calls[0].viewId).toBe(opened.viewId)
 
       calls.length = 0
       await click(happyWindow.document.querySelector('#browser-native-back'))
       await settle()
-      expect(calls).toEqual([{ surface: 'passwords', action: 'close' }])
+      expect(calls).toHaveLength(1)
+      expect(calls[0]).toMatchObject({ surface: 'passwords', action: 'close' })
+      expect(calls[0].viewId).toBe(opened.viewId)
       expect(happyWindow.document.querySelector('[data-native-management-pane]')).toBeNull()
 
       calls.length = 0
       await click(happyWindow.document.querySelector('#browser-open-import'))
       await settle()
-      expect(calls).toEqual([{ surface: 'import', action: 'open', bounds: { x: 32, y: 96, width: 700, height: 480 } }])
+      expect(calls).toHaveLength(1)
+      expect(calls[0]).toMatchObject({ surface: 'import', action: 'open', bounds: { x: 32, y: 96, width: 700, height: 480 } })
+      expect(calls[0].viewId).not.toBe(opened.viewId)
       await act(async () => { root.unmount() })
     } finally {
       restore()
@@ -416,20 +425,24 @@ describe('browser settings React lifecycle', () => {
       rect = { x: 24, y: 96, width: 640, height: 480 }
       await act(async () => { FakeResizeObserver.instances.at(-1)!.callback([]) })
       await settle()
-      expect(calls).toEqual([{ surface: 'passwords', action: 'open', bounds: { x: 24, y: 96, width: 640, height: 480 } }])
+      expect(calls).toHaveLength(1)
+      expect(calls[0]).toMatchObject({ surface: 'passwords', action: 'open', bounds: { x: 24, y: 96, width: 640, height: 480 } })
+      expect(typeof calls[0].viewId).toBe('string')
       await act(async () => { root.unmount() })
     } finally {
       restore()
     }
   })
 
-  test('native pane reports an error and retries the open request', async () => {
-    let attempts = 0
+  test('native pane reports an error and retries the open request with a new view token', async () => {
+    const calls: any[] = []
+    const opens: string[] = []
     installApi({
       get: async () => ({ ...base, nativeManagementAvailable: true }),
       subscribe: () => () => {},
       openManager: async (surface: string, options: any = {}) => {
-        if (options.action === 'open') { attempts += 1; return { ok: false, error: 'manager unavailable' } }
+        calls.push({ surface, ...options })
+        if (options.action === 'open') { opens.push(options.viewId); return { ok: false, error: 'manager unavailable' } }
         return { ok: true, surface }
       },
     })
@@ -442,14 +455,17 @@ describe('browser settings React lifecycle', () => {
       expect(happyWindow.document.querySelector('[role="alert"]')?.textContent).toContain('manager unavailable')
       await click(buttonByText('Try again'))
       await settle()
-      expect(attempts).toBe(2)
+      expect(opens).toHaveLength(2)
+      expect(opens[1]).not.toBe(opens[0])
+      const firstClose = calls.find(call => call.action === 'close')
+      expect(firstClose).toMatchObject({ surface: 'passwords', action: 'close', viewId: opens[0] })
       await act(async () => { root.unmount() })
     } finally {
       restore()
     }
   })
 
-  test('a stale pane callback cannot affect a newly opened surface', async () => {
+  test('same-surface re-entry uses a new view token and stale callbacks stay inert', async () => {
     const calls: any[] = []
     installApi({
       get: async () => ({ ...base, nativeManagementAvailable: true }),
@@ -459,14 +475,24 @@ describe('browser settings React lifecycle', () => {
     const restore = stubRect(() => ({ x: 24, y: 96, width: 640, height: 480 }))
     try {
       const { root } = await mount()
-      for (const entry of happyWindow.document.querySelectorAll('[data-surface]')) expect(entry.getAttribute('title')).toBeNull()
       await click(happyWindow.document.querySelector('#browser-open-passwords'))
       await settle()
+      const firstOpen = calls[0]
+      expect(typeof firstOpen.viewId).toBe('string')
       const stale = FakeResizeObserver.instances.at(-1)!
+
       await click(happyWindow.document.querySelector('#browser-native-back'))
       await settle()
-      await click(happyWindow.document.querySelector('#browser-open-autofill'))
+      const firstClose = calls.find(call => call.action === 'close')
+      expect(firstClose).toMatchObject({ surface: 'passwords', action: 'close' })
+      expect(firstClose.viewId).toBe(firstOpen.viewId)
+
+      calls.length = 0
+      await click(happyWindow.document.querySelector('#browser-open-passwords'))
       await settle()
+      const secondOpen = calls[0]
+      expect(secondOpen).toMatchObject({ surface: 'passwords', action: 'open' })
+      expect(secondOpen.viewId).not.toBe(firstOpen.viewId)
 
       calls.length = 0
       await act(async () => {
@@ -475,6 +501,12 @@ describe('browser settings React lifecycle', () => {
       })
       await settle()
       expect(calls).toEqual([])
+
+      await click(happyWindow.document.querySelector('#browser-native-back'))
+      await settle()
+      expect(calls).toHaveLength(1)
+      expect(calls[0]).toMatchObject({ surface: 'passwords', action: 'close' })
+      expect(calls[0].viewId).toBe(secondOpen.viewId)
       await act(async () => { root.unmount() })
     } finally {
       restore()
