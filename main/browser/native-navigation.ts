@@ -11,13 +11,14 @@ export interface NativeNavigationCdp {
 
 export interface NativeNavigationLease {
   readonly sessionId: string;
+  readonly pageHandle: number;
   readonly source: NativeNavigationOrigin;
   readonly signal: AbortSignal;
   release(): void;
 }
 
 export interface NativeNavigationLeaseSource {
-  current(sessionId: string): NativeNavigationLease | undefined;
+  current(sessionId: string, pageHandle: number): NativeNavigationLease | undefined;
 }
 
 interface LeaseRecord {
@@ -26,16 +27,30 @@ interface LeaseRecord {
   onParentAbort?: () => void;
 }
 
+function validPageHandle(pageHandle: number): boolean {
+  return Number.isSafeInteger(pageHandle) && pageHandle > 0;
+}
+
+function leaseKey(sessionId: string, pageHandle: number): string {
+  return `${sessionId}\u0000${pageHandle}`;
+}
+
 /**
- * Stacked operation leases for one conversation. The newest lease is the
- * operation source; releasing it reveals the previous lease. There is no
- * time-based attribution window.
+ * Stacked operation leases scoped to one session and one page handle. The
+ * newest lease is the operation source; releasing it reveals the previous
+ * lease. A lease for a sibling tab in the same conversation never applies.
  */
 export class NativeNavigationLeases implements NativeNavigationLeaseSource {
   private readonly stacks = new Map<string, LeaseRecord[]>();
 
-  begin(sessionId: string, source: NativeNavigationOrigin, signal?: AbortSignal): NativeNavigationLease {
+  begin(
+    sessionId: string,
+    pageHandle: number,
+    source: NativeNavigationOrigin,
+    signal?: AbortSignal,
+  ): NativeNavigationLease {
     if (!sessionId) throw new BrowserError('invalid_request', 'A browser session id is required.');
+    if (!validPageHandle(pageHandle)) throw new BrowserError('invalid_request', 'pageHandle must be a positive integer.');
     if (signal?.aborted) throw new BrowserError('cancelled', 'The navigation lease was cancelled.');
     const controller = new AbortController();
     let record: LeaseRecord | undefined;
@@ -44,14 +59,15 @@ export class NativeNavigationLeases implements NativeNavigationLeaseSource {
       if (released) return;
       released = true;
       if (record?.onParentAbort) signal?.removeEventListener('abort', record.onParentAbort);
-      const stack = this.stacks.get(sessionId);
+      const stack = this.stacks.get(leaseKey(sessionId, pageHandle));
       if (!stack || !record) return;
       const index = stack.indexOf(record);
       if (index >= 0) stack.splice(index, 1);
-      if (!stack.length) this.stacks.delete(sessionId);
+      if (!stack.length) this.stacks.delete(leaseKey(sessionId, pageHandle));
     };
     const lease: NativeNavigationLease = {
       sessionId,
+      pageHandle,
       source,
       signal: controller.signal,
       release: (): void => {
@@ -66,20 +82,23 @@ export class NativeNavigationLeases implements NativeNavigationLeaseSource {
       remove();
     };
     signal?.addEventListener('abort', record.onParentAbort, { once: true });
-    const stack = this.stacks.get(sessionId) ?? [];
+    const key = leaseKey(sessionId, pageHandle);
+    const stack = this.stacks.get(key) ?? [];
     stack.push(record);
-    this.stacks.set(sessionId, stack);
+    this.stacks.set(key, stack);
     return lease;
   }
 
-  current(sessionId: string): NativeNavigationLease | undefined {
-    const stack = this.stacks.get(sessionId);
+  current(sessionId: string, pageHandle: number): NativeNavigationLease | undefined {
+    if (!sessionId || !validPageHandle(pageHandle)) return undefined;
+    const stack = this.stacks.get(leaseKey(sessionId, pageHandle));
     return stack?.[stack.length - 1]?.lease;
   }
 }
 
 export interface NativeNavigationGateOptions {
   sessionId: string;
+  pageHandle: number;
   cdp: NativeNavigationCdp;
   leases: NativeNavigationLeaseSource;
   assertNavigation(url: unknown): string;
@@ -106,65 +125,42 @@ const MAX_VISIT_SOURCES = 128;
 
 /**
  * Pauses main-frame Document requests at the CDP Fetch request stage. Each hop
- * is authorized against the current operation lease. The original request is
- * continued without URL, method, postData or header overrides, so POST bodies
- * and redirect method semantics stay browser-owned.
+ * is authorized against the current page-scoped operation lease. The original
+ * request is continued without URL, method, postData or header overrides, so
+ * POST bodies and redirect method semantics stay browser-owned.
+ *
+ * Lifecycle work is serialized: a stop queued during startup runs after the
+ * startup finishes and disables Fetch, so a late Fetch.enable cannot survive.
+ * If startup fails, tracked paused requests are failed and Fetch is disabled.
  */
 export class NativeNavigationGate {
   private enabled = false;
-  private starting: Promise<void> | undefined;
+  private lifecycle: Promise<void> = Promise.resolve();
+  private generation = 0;
   private unsubscribe: (() => void) | undefined;
   private mainFrameId = '';
   private readonly pending = new Map<string, PausedNavigation>();
   private readonly visitSources = new Map<string, NativeNavigationOrigin>();
 
-  constructor(private readonly options: NativeNavigationGateOptions) {}
-
-  start(): Promise<void> {
-    if (this.enabled) return Promise.resolve();
-    if (this.starting) return this.starting;
-    const promise = this.startInternal();
-    this.starting = promise;
-    const clear = (): void => { if (this.starting === promise) this.starting = undefined; };
-    promise.then(clear, clear);
-    return promise;
+  constructor(private readonly options: NativeNavigationGateOptions) {
+    if (!options.sessionId) throw new BrowserError('invalid_request', 'A browser session id is required.');
+    if (!validPageHandle(options.pageHandle)) throw new BrowserError('invalid_request', 'pageHandle must be a positive integer.');
   }
 
-  private async startInternal(): Promise<void> {
-    this.unsubscribe = this.options.cdp.onEvent((method, params, frame) => {
-      if (method === 'Fetch.requestPaused') void this.onPaused(params, frame).catch(() => {});
-    });
-    try {
-      const tree = object((await this.options.cdp.command('Page.getFrameTree')).frameTree);
-      this.mainFrameId = String(object(tree.frame).id ?? '');
-      if (!this.mainFrameId) throw new BrowserError('host_error', 'The native page returned no main frame id.');
-      await this.options.cdp.command('Fetch.enable', {
-        patterns: [{ resourceType: 'Document', requestStage: 'Request' }],
-      });
-      this.enabled = true;
-    } catch (error) {
-      this.unsubscribe?.();
-      this.unsubscribe = undefined;
-      this.mainFrameId = '';
-      throw error;
-    }
+  start(): Promise<void> {
+    return this.queue(() => this.startInternal());
+  }
+
+  /** Queue a serialized teardown; a start already in flight finishes first. */
+  stop(): Promise<void> {
+    this.enabled = false;
+    return this.queue(() => this.stopInternal());
   }
 
   /** Release paused requests without disabling the gate (navigation stop). */
   async abortPending(): Promise<void> {
     const records = [...this.pending.values()];
     await Promise.all(records.map(record => record.fail('Aborted')));
-  }
-
-  /** Release paused requests and disable Fetch (page close/dispose). */
-  async stop(): Promise<void> {
-    this.enabled = false;
-    this.unsubscribe?.();
-    this.unsubscribe = undefined;
-    await this.abortPending();
-    this.visitSources.clear();
-    this.mainFrameId = '';
-    try { await this.options.cdp.command('Fetch.disable'); } catch { /* the page may already be closing */ }
   }
 
   /**
@@ -179,6 +175,56 @@ export class NativeNavigationGate {
     if (source === undefined) return undefined;
     this.visitSources.delete(key);
     return source;
+  }
+
+  private queue(work: () => Promise<void>): Promise<void> {
+    const run = this.lifecycle.then(work);
+    this.lifecycle = run.then(() => {}, () => {});
+    return run;
+  }
+
+  private async startInternal(): Promise<void> {
+    if (this.enabled && this.unsubscribe) return;
+    this.unsubscribe?.();
+    this.unsubscribe = undefined;
+    const generation = ++this.generation;
+    const unsubscribe = this.options.cdp.onEvent((method, params, frame) => {
+      if (generation !== this.generation || this.unsubscribe !== unsubscribe) return;
+      if (method === 'Fetch.requestPaused') void this.onPaused(params, frame).catch(() => {});
+    });
+    this.unsubscribe = unsubscribe;
+    try {
+      const tree = object((await this.options.cdp.command('Page.getFrameTree')).frameTree);
+      const mainFrameId = String(object(tree.frame).id ?? '');
+      if (!mainFrameId) throw new BrowserError('host_error', 'The native page returned no main frame id.');
+      this.mainFrameId = mainFrameId;
+      await this.options.cdp.command('Fetch.enable', {
+        patterns: [{ resourceType: 'Document', requestStage: 'Request' }],
+      });
+      if (generation !== this.generation || this.unsubscribe !== unsubscribe) return;
+      this.enabled = true;
+    } catch (error) {
+      this.enabled = false;
+      this.unsubscribe?.();
+      if (this.unsubscribe === unsubscribe) this.unsubscribe = undefined;
+      this.generation += 1;
+      this.mainFrameId = '';
+      await this.abortPending();
+      this.visitSources.clear();
+      try { await this.options.cdp.command('Fetch.disable'); } catch { /* the page may be closing */ }
+      throw error;
+    }
+  }
+
+  private async stopInternal(): Promise<void> {
+    this.enabled = false;
+    this.unsubscribe?.();
+    this.unsubscribe = undefined;
+    this.generation += 1;
+    await this.abortPending();
+    this.visitSources.clear();
+    this.mainFrameId = '';
+    try { await this.options.cdp.command('Fetch.disable'); } catch { /* the page may already be closing */ }
   }
 
   private async onPaused(params: BrowserObject, frame?: string): Promise<void> {
@@ -207,7 +253,7 @@ export class NativeNavigationGate {
       return;
     }
 
-    const lease = this.options.leases.current(this.options.sessionId);
+    const lease = this.options.leases.current(this.options.sessionId, this.options.pageHandle);
     const source = lease?.source ?? 'other';
     const controller = new AbortController();
     const parent = lease?.signal;
@@ -232,6 +278,8 @@ export class NativeNavigationGate {
     parent?.addEventListener('abort', onLeaseAbort, { once: true });
     const signal = parent ? AbortSignal.any([parent, controller.signal]) : controller.signal;
     try {
+      if (record.settled) return;
+      signal.throwIfAborted();
       if (source === 'agent' && this.options.authorize) {
         await this.options.authorize(this.options.sessionId, url, 'browsing', signal);
       }

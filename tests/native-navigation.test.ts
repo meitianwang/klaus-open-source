@@ -31,10 +31,20 @@ class FakeCdp implements NativeNavigationCdp {
   calls(method: string): Array<{ method: string; params?: BrowserObject; frame?: string }> {
     return this.commands.filter(call => call.method === method);
   }
+
+  get listenerCount(): number { return this.listeners.size; }
 }
 
 async function flush(): Promise<void> {
   await new Promise(resolve => setTimeout(resolve, 0));
+}
+
+async function until(predicate: () => boolean): Promise<void> {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    if (predicate()) return;
+    await flush();
+  }
+  throw new Error('condition was not reached');
 }
 
 function pausedRequest(
@@ -62,6 +72,7 @@ test('main-frame requests authorize every hop and preserve the original method a
   const authorized: string[] = [];
   const gate = new NativeNavigationGate({
     sessionId: 'session-1',
+    pageHandle: 1,
     cdp,
     leases,
     assertNavigation: url => new URL(String(url)).href,
@@ -71,7 +82,7 @@ test('main-frame requests authorize every hop and preserve the original method a
   assert.deepEqual(cdp.calls('Fetch.enable')[0]?.params, {
     patterns: [{ resourceType: 'Document', requestStage: 'Request' }],
   });
-  const lease = leases.begin('session-1', 'agent');
+  const lease = leases.begin('session-1', 1, 'agent');
   cdp.emit('Fetch.requestPaused', pausedRequest('r1', 'https://example.test/start'));
   await flush();
   cdp.emit('Fetch.requestPaused', pausedRequest('r2', 'https://example.test/next', { redirectedRequestId: 'r1' }));
@@ -93,6 +104,7 @@ test('a denied redirect target is failed and never continued', async () => {
   const leases = new NativeNavigationLeases();
   const gate = new NativeNavigationGate({
     sessionId: 'session-1',
+    pageHandle: 1,
     cdp,
     leases,
     assertNavigation: url => new URL(String(url)).href,
@@ -101,7 +113,7 @@ test('a denied redirect target is failed and never continued', async () => {
     },
   });
   await gate.start();
-  const lease = leases.begin('session-1', 'agent');
+  const lease = leases.begin('session-1', 1, 'agent');
   cdp.emit('Fetch.requestPaused', pausedRequest('r1', 'https://example.test/start'));
   await flush();
   cdp.emit('Fetch.requestPaused', pausedRequest('r2', 'https://example.test/blocked', { redirectedRequestId: 'r1' }));
@@ -122,13 +134,14 @@ test('visit source follows the active lease without a time window', async () => 
   const authorized: string[] = [];
   const gate = new NativeNavigationGate({
     sessionId: 'session-1',
+    pageHandle: 1,
     cdp,
     leases,
     assertNavigation: url => new URL(String(url)).href,
     authorize: async (_sessionId, url) => { authorized.push(url); },
   });
   await gate.start();
-  const lease = leases.begin('session-1', 'agent');
+  const lease = leases.begin('session-1', 1, 'agent');
   cdp.emit('Fetch.requestPaused', pausedRequest('r1', 'https://example.test/agent'));
   await flush();
   lease.release();
@@ -138,7 +151,7 @@ test('visit source follows the active lease without a time window', async () => 
   assert.deepEqual(authorized, ['https://example.test/agent']);
   assert.equal(gate.takeVisitSource('https://example.test/agent'), 'agent');
   assert.equal(gate.takeVisitSource('https://example.test/human'), 'other');
-  assert.equal(leases.current('session-1'), undefined);
+  assert.equal(leases.current('session-1', 1), undefined);
   await gate.stop();
 });
 
@@ -151,13 +164,14 @@ test('abortPending releases paused requests and ignores late authorization', asy
   const authorization = new Promise<void>(resolve => { finishAuthorization = resolve; });
   const gate = new NativeNavigationGate({
     sessionId: 'session-1',
+    pageHandle: 1,
     cdp,
     leases,
     assertNavigation: url => new URL(String(url)).href,
     authorize: async () => { started(); await authorization; },
   });
   await gate.start();
-  const lease = leases.begin('session-1', 'agent');
+  const lease = leases.begin('session-1', 1, 'agent');
   cdp.emit('Fetch.requestPaused', pausedRequest('r1', 'https://example.test/start'));
   await authorizationStarted;
   await gate.abortPending();
@@ -185,13 +199,14 @@ test('stop releases paused requests and disables Fetch', async () => {
   const authorization = new Promise<void>(resolve => { finishAuthorization = resolve; });
   const gate = new NativeNavigationGate({
     sessionId: 'session-1',
+    pageHandle: 1,
     cdp,
     leases,
     assertNavigation: url => new URL(String(url)).href,
     authorize: async () => { started(); await authorization; },
   });
   await gate.start();
-  const lease = leases.begin('session-1', 'agent');
+  const lease = leases.begin('session-1', 1, 'agent');
   cdp.emit('Fetch.requestPaused', pausedRequest('r1', 'https://example.test/start'));
   await authorizationStarted;
   await gate.stop();
@@ -217,6 +232,7 @@ test('aborting the operation lease releases its paused request', async () => {
   const authorization = new Promise<void>(resolve => { finishAuthorization = resolve; });
   const gate = new NativeNavigationGate({
     sessionId: 'session-1',
+    pageHandle: 1,
     cdp,
     leases,
     assertNavigation: url => new URL(String(url)).href,
@@ -224,7 +240,7 @@ test('aborting the operation lease releases its paused request', async () => {
   });
   await gate.start();
   const leaseController = new AbortController();
-  const lease = leases.begin('session-1', 'agent', leaseController.signal);
+  const lease = leases.begin('session-1', 1, 'agent', leaseController.signal);
   cdp.emit('Fetch.requestPaused', pausedRequest('r1', 'https://example.test/start'));
   await authorizationStarted;
   leaseController.abort(new BrowserError('cancelled', 'lease aborted'));
@@ -232,7 +248,7 @@ test('aborting the operation lease releases its paused request', async () => {
   assert.deepEqual(cdp.calls('Fetch.failRequest').map(call => call.params), [
     { requestId: 'r1', errorReason: 'Aborted' },
   ]);
-  assert.equal(leases.current('session-1'), undefined);
+  assert.equal(leases.current('session-1', 1), undefined);
   finishAuthorization();
   await flush();
   assert.deepEqual(cdp.calls('Fetch.continueRequest'), []);
@@ -246,16 +262,17 @@ test('non-main-frame Document requests continue without authorization or visit s
   const authorized: string[] = [];
   const gate = new NativeNavigationGate({
     sessionId: 'session-1',
+    pageHandle: 1,
     cdp,
     leases,
     assertNavigation: url => new URL(String(url)).href,
     authorize: async (_sessionId, url) => { authorized.push(url); },
   });
   await gate.start();
-  const lease = leases.begin('session-1', 'agent');
+  const lease = leases.begin('session-1', 1, 'agent');
   cdp.emit('Fetch.requestPaused', pausedRequest('r1', 'https://frame.test/', { frameId: 'child' }), 'child-frame');
   await flush();
-  assert.deepEqual(authorized, []);
+  assert.equal(authorized.length, 0, 'no authorization should be requested');
   const continued = cdp.calls('Fetch.continueRequest')[0];
   assert.deepEqual(continued?.params, { requestId: 'r1' });
   assert.equal(continued?.frame, 'child-frame');
@@ -270,6 +287,7 @@ test('policy-denied URLs fail before authorization', async () => {
   const authorized: string[] = [];
   const gate = new NativeNavigationGate({
     sessionId: 'session-1',
+    pageHandle: 1,
     cdp,
     leases,
     assertNavigation: url => {
@@ -279,10 +297,10 @@ test('policy-denied URLs fail before authorization', async () => {
     authorize: async (_sessionId, url) => { authorized.push(url); },
   });
   await gate.start();
-  const lease = leases.begin('session-1', 'agent');
+  const lease = leases.begin('session-1', 1, 'agent');
   cdp.emit('Fetch.requestPaused', pausedRequest('r1', 'https://example.test/blocked'));
   await flush();
-  assert.deepEqual(authorized, []);
+  assert.equal(authorized.length, 0, 'no authorization should be requested');
   assert.deepEqual(cdp.calls('Fetch.failRequest').map(call => call.params), [
     { requestId: 'r1', errorReason: 'BlockedByClient' },
   ]);
@@ -291,13 +309,155 @@ test('policy-denied URLs fail before authorization', async () => {
   await gate.stop();
 });
 
-test('leases stack and release restores the previous operation source', () => {
+test('leases stack per page handle and keep sibling pages independent', () => {
   const leases = new NativeNavigationLeases();
-  const first = leases.begin('session-1', 'agent');
-  const second = leases.begin('session-1', 'other');
-  assert.equal(leases.current('session-1')?.source, 'other');
+  const first = leases.begin('session-1', 1, 'agent');
+  const second = leases.begin('session-1', 1, 'other');
+  const sibling = leases.begin('session-1', 2, 'agent');
+  assert.equal(leases.current('session-1', 1)?.source, 'other');
+  assert.equal(leases.current('session-1', 2)?.source, 'agent');
   second.release();
-  assert.equal(leases.current('session-1')?.source, 'agent');
+  assert.equal(leases.current('session-1', 1)?.source, 'agent');
   first.release();
-  assert.equal(leases.current('session-1'), undefined);
+  assert.equal(leases.current('session-1', 1), undefined);
+  assert.equal(leases.current('session-1', 2)?.source, 'agent');
+  sibling.release();
+  assert.equal(leases.current('session-1', 2), undefined);
+});
+
+test('a lease for one page does not attribute a sibling page in the same session', async () => {
+  const leases = new NativeNavigationLeases();
+  const lease = leases.begin('session-1', 1, 'agent');
+  const authorized: string[] = [];
+
+  const siblingCdp = new FakeCdp();
+  const siblingGate = new NativeNavigationGate({
+    sessionId: 'session-1',
+    pageHandle: 2,
+    cdp: siblingCdp,
+    leases,
+    assertNavigation: url => new URL(String(url)).href,
+    authorize: async (_sessionId, url) => { authorized.push(url); },
+  });
+  await siblingGate.start();
+  siblingCdp.emit('Fetch.requestPaused', pausedRequest('s1', 'https://example.test/sibling'));
+  await flush();
+  assert.equal(authorized.length, 0, 'no authorization should be requested');
+  assert.deepEqual(siblingCdp.calls('Fetch.continueRequest').map(call => call.params), [{ requestId: 's1' }]);
+  assert.equal(siblingGate.takeVisitSource('https://example.test/sibling'), 'other');
+  await siblingGate.stop();
+
+  const agentCdp = new FakeCdp();
+  const agentGate = new NativeNavigationGate({
+    sessionId: 'session-1',
+    pageHandle: 1,
+    cdp: agentCdp,
+    leases,
+    assertNavigation: url => new URL(String(url)).href,
+    authorize: async (_sessionId, url) => { authorized.push(url); },
+  });
+  await agentGate.start();
+  agentCdp.emit('Fetch.requestPaused', pausedRequest('a1', 'https://example.test/agent'));
+  await flush();
+  assert.deepEqual(authorized, ['https://example.test/agent']);
+  assert.equal(agentGate.takeVisitSource('https://example.test/agent'), 'agent');
+  lease.release();
+  await agentGate.stop();
+});
+
+test('stop during startup serializes after Fetch.enable and releases the paused request', async () => {
+  const cdp = new FakeCdp();
+  const leases = new NativeNavigationLeases();
+  let releaseEnable!: () => void;
+  const enable = new Promise<void>(resolve => { releaseEnable = resolve; });
+  const originalCommand = cdp.command.bind(cdp);
+  cdp.command = async (method, params = {}, frame) => {
+    if (method === 'Fetch.enable') {
+      cdp.commands.push({ method, params, frame });
+      await enable;
+      return {};
+    }
+    return originalCommand(method, params, frame);
+  };
+  let started!: () => void;
+  const authorizationStarted = new Promise<void>(resolve => { started = resolve; });
+  let finishAuthorization!: () => void;
+  const authorization = new Promise<void>(resolve => { finishAuthorization = resolve; });
+  const gate = new NativeNavigationGate({
+    sessionId: 'session-1',
+    pageHandle: 1,
+    cdp,
+    leases,
+    assertNavigation: url => new URL(String(url)).href,
+    authorize: async () => { started(); await authorization; },
+  });
+  const lease = leases.begin('session-1', 1, 'agent');
+  const start = gate.start();
+  await until(() => cdp.calls('Fetch.enable').length === 1);
+  cdp.emit('Fetch.requestPaused', pausedRequest('r1', 'https://example.test/start'));
+  await authorizationStarted;
+  const stop = gate.stop();
+  releaseEnable();
+  await start;
+  await stop;
+  finishAuthorization();
+  await flush();
+
+  assert.deepEqual(cdp.commands.map(call => call.method), [
+    'Page.getFrameTree',
+    'Fetch.enable',
+    'Fetch.failRequest',
+    'Fetch.disable',
+  ]);
+  assert.deepEqual(cdp.calls('Fetch.failRequest').map(call => call.params), [
+    { requestId: 'r1', errorReason: 'Aborted' },
+  ]);
+  assert.deepEqual(cdp.calls('Fetch.continueRequest'), []);
+  assert.equal(cdp.listenerCount, 0);
+  lease.release();
+});
+
+test('startup failure releases paused requests and disables Fetch', async () => {
+  const cdp = new FakeCdp();
+  const leases = new NativeNavigationLeases();
+  let rejectEnable!: (error: Error) => void;
+  const enable = new Promise<never>((_resolve, reject) => { rejectEnable = reject; });
+  const originalCommand = cdp.command.bind(cdp);
+  cdp.command = async (method, params = {}, frame) => {
+    if (method === 'Fetch.enable') {
+      cdp.commands.push({ method, params, frame });
+      await enable;
+      return {};
+    }
+    return originalCommand(method, params, frame);
+  };
+  let started!: () => void;
+  const authorizationStarted = new Promise<void>(resolve => { started = resolve; });
+  let finishAuthorization!: () => void;
+  const authorization = new Promise<void>(resolve => { finishAuthorization = resolve; });
+  const gate = new NativeNavigationGate({
+    sessionId: 'session-1',
+    pageHandle: 1,
+    cdp,
+    leases,
+    assertNavigation: url => new URL(String(url)).href,
+    authorize: async () => { started(); await authorization; },
+  });
+  const lease = leases.begin('session-1', 1, 'agent');
+  const start = gate.start();
+  await until(() => cdp.calls('Fetch.enable').length === 1);
+  cdp.emit('Fetch.requestPaused', pausedRequest('r1', 'https://example.test/start'));
+  await authorizationStarted;
+  rejectEnable(new Error('synthetic enable failure'));
+  await assert.rejects(start, /synthetic enable failure/);
+  finishAuthorization();
+  await flush();
+
+  assert.deepEqual(cdp.calls('Fetch.failRequest').map(call => call.params), [
+    { requestId: 'r1', errorReason: 'Aborted' },
+  ]);
+  assert.equal(cdp.calls('Fetch.disable').length, 1);
+  assert.deepEqual(cdp.calls('Fetch.continueRequest'), []);
+  assert.equal(cdp.listenerCount, 0);
+  lease.release();
 });
