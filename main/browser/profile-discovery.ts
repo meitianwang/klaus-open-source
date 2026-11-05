@@ -6,7 +6,8 @@
  * anything; it also never touches Preferences or SecurePreferences.
  */
 
-import { lstat, readFile, readdir, realpath } from 'node:fs/promises';
+import { lstat, readFile, realpath } from 'node:fs/promises';
+import type { Stats } from 'node:fs';
 import { homedir } from 'node:os';
 import { isAbsolute, join, sep } from 'node:path';
 import type {
@@ -80,24 +81,35 @@ function isWithinRoot(rootReal: string, candidateReal: string): boolean {
   return candidateReal === rootReal || candidateReal.startsWith(prefix);
 }
 
-async function realRoot(userDataDir: string): Promise<string | undefined> {
+export interface BrowserProfileDiscoveryFiles {
+  lstat(path: string): Promise<Pick<Stats, 'isDirectory' | 'isFile' | 'isSymbolicLink' | 'size'>>;
+  realpath(path: string): Promise<string>;
+  readFile(path: string, encoding: 'utf8'): Promise<string>;
+}
+
+const discoveryFiles: BrowserProfileDiscoveryFiles = { lstat, realpath, readFile };
+const missingEntry = (error: unknown): boolean => ['ENOENT', 'ENOTDIR'].includes((error as NodeJS.ErrnoException)?.code ?? '');
+const accessDenied = (error: unknown): boolean => ['EPERM', 'EACCES'].includes((error as NodeJS.ErrnoException)?.code ?? '');
+
+async function realRoot(userDataDir: string, files: BrowserProfileDiscoveryFiles): Promise<string | undefined> {
   try {
-    const info = await lstat(userDataDir);
+    const info = await files.lstat(userDataDir);
     if (!info.isDirectory()) return undefined;
-    return await realpath(userDataDir);
-  } catch {
-    return undefined;
+    return await files.realpath(userDataDir);
+  } catch (error) {
+    if (missingEntry(error)) return undefined;
+    throw error;
   }
 }
 
-async function readLocalState(userDataDir: string, rootReal: string): Promise<Record<string, unknown>> {
+async function readLocalState(rootReal: string, files: BrowserProfileDiscoveryFiles): Promise<Record<string, unknown>> {
   const path = join(rootReal, 'Local State');
-  const info = await lstat(path);
+  const info = await files.lstat(path);
   if (!info.isFile()) throw new BrowserError('local_state_missing', 'The browser profile index is not a regular file.');
   if (info.size > LOCAL_STATE_MAX_BYTES) throw new BrowserError('local_state_too_large', 'The browser profile index exceeds the supported size.');
-  const real = await realpath(path);
+  const real = await files.realpath(path);
   if (!isWithinRoot(rootReal, real)) throw new BrowserError('local_state_escape', 'The browser profile index is outside the source root.');
-  const raw = JSON.parse(await readFile(real, 'utf8')) as unknown;
+  const raw = JSON.parse(await files.readFile(real, 'utf8')) as unknown;
   return objectRecord(raw).profile as Record<string, unknown> ?? {};
 }
 
@@ -196,6 +208,7 @@ function addDiscoveryError(errors: BrowserDiscoveryIssue[], sourceId: string | n
 export async function discoverBrowserProfiles(
   roots: readonly BrowserSourceRoot[],
   signal?: AbortSignal,
+  files: BrowserProfileDiscoveryFiles = discoveryFiles,
 ): Promise<BrowserDiscoveryResult> {
   const profiles: BrowserProfileCandidate[] = [];
   const errors: BrowserDiscoveryIssue[] = [];
@@ -210,14 +223,22 @@ export async function discoverBrowserProfiles(
       addDiscoveryError(errors, source.id, 'invalid_source_path', 'The source root path is missing.');
       continue;
     }
-    const rootReal = await realRoot(source.userDataDir);
+    let rootReal: string | undefined;
+    try {
+      rootReal = await realRoot(source.userDataDir, files);
+    } catch (error) {
+      addDiscoveryError(errors, source.id, accessDenied(error) ? 'source_permission_denied' : 'source_root_unreadable', 'The browser data directory could not be inspected.');
+      continue;
+    }
     if (!rootReal) continue;
 
     let profileState: Record<string, unknown>;
     try {
-      profileState = await readLocalState(source.userDataDir, rootReal);
+      profileState = await readLocalState(rootReal, files);
     } catch (error) {
-      const code = error instanceof BrowserError ? error.code : 'local_state_unreadable';
+      const code = accessDenied(error) ? 'source_permission_denied'
+        : error instanceof BrowserError ? error.code
+          : missingEntry(error) ? 'local_state_missing' : 'local_state_unreadable';
       addDiscoveryError(errors, source.id, code, 'The browser profile index could not be read.');
       continue;
     }
@@ -238,10 +259,15 @@ export async function discoverBrowserProfiles(
         continue;
       }
       const profileDir = join(rootReal, profileId);
-      if (!(await isSafeDirectory(profileDir))) {
+      let profileReal: string;
+      try {
+        const info = await files.lstat(profileDir);
+        if (!info.isDirectory() || info.isSymbolicLink()) continue;
+        profileReal = await files.realpath(profileDir);
+      } catch (error) {
+        if (!missingEntry(error)) addDiscoveryError(errors, source.id, accessDenied(error) ? 'source_permission_denied' : 'profile_unreadable', 'A browser profile directory could not be inspected.');
         continue;
       }
-      const profileReal = await realpath(profileDir);
       if (!isWithinRoot(rootReal, profileReal)) {
         addDiscoveryError(errors, source.id, 'profile_escape_rejected', 'A profile directory resolves outside the source root.');
         continue;

@@ -11,9 +11,11 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { lstat, readFile, realpath } from 'node:fs/promises';
 import { BROWSER_IMPORT_DEFAULT_LIMITS, type BrowserImportTarget } from '../contracts/browser-import';
 import { discoverBrowserProfiles } from '../main/browser/profile-discovery';
 import { importBrowserProfile } from '../main/browser/profile-import';
+import { vectorPath } from '../main/paths';
 import { assert, assertDeepEqual, assertEqual, Harness } from './harness';
 import {
   createCookies,
@@ -29,6 +31,7 @@ import {
 } from './browser-profile-import-helpers';
 
 const h = new Harness();
+const discoveryVectors = JSON.parse(readFileSync(vectorPath('browser-profile-discovery-vectors.json'), 'utf8'));
 const root = mkdtempSync(join(tmpdir(), 'klaus-browser-import-'));
 let sequence = 0;
 
@@ -97,6 +100,53 @@ h.test('discovery reads Local State metadata and file existence and rejects syml
   assert(result.errors.some(issue => issue.sourceId === 'broken' && issue.code === 'local_state_unreadable'), 'malformed index reported');
   assert(result.errors.some(issue => issue.sourceId === 'chrome' && issue.code === 'profile_id_rejected'), 'traversal key reported');
   assert(!result.errors.some(issue => issue.sourceId === 'absent'), 'absent default root is skipped');
+});
+
+h.test('discovery preserves access denials at each source boundary without retrying the read', async () => {
+  for (const code of discoveryVectors.permissionErrnos) {
+    for (const stage of ['root', 'root-realpath', 'index', 'profile']) {
+      const f = fixture();
+      const profileReal = await realpath(f.profileDir);
+      let deniedCalls = 0;
+      const deny = (): never => { deniedCalls++; throw Object.assign(new Error('Synthetic source access denied'), { code }); };
+      const files = {
+        lstat: async (path: string) => {
+          if ((stage === 'root' && path === f.userDataDir) || (stage === 'profile' && path === profileReal)) deny();
+          return lstat(path);
+        },
+        realpath: async (path: string) => { if (stage === 'root-realpath' && path === f.userDataDir) deny(); return realpath(path); },
+        readFile: async (path: string, encoding: 'utf8') => { if (stage === 'index') deny(); return readFile(path, encoding); },
+      };
+      const result = await discoverBrowserProfiles([f.source], undefined, files);
+      assertEqual(result.profiles.length, 0, `${code} at ${stage} returns no inaccessible profile`);
+      assertEqual(result.errors[0]?.code, discoveryVectors.permissionCode, `${code} at ${stage} remains an access error`);
+      assertEqual(result.errors[0]?.sourceId, f.source.id, 'the source remains identified');
+      assertEqual(deniedCalls, 1, 'a denied read is not retried through another path');
+    }
+  }
+});
+
+h.test('discovery retains readable sources when another browser index is inaccessible', async () => {
+  const denied = fixture(), readable = fixture();
+  const deniedRootReal = await realpath(denied.userDataDir);
+  const result = await discoverBrowserProfiles([denied.source, { ...readable.source, id: 'edge' }], undefined, {
+    lstat, realpath,
+    readFile: async (path: string, encoding: 'utf8') => {
+      if (path.startsWith(`${deniedRootReal}/`)) throw Object.assign(new Error('Synthetic source access denied'), { code: 'EACCES' });
+      return readFile(path, encoding);
+    },
+  });
+  assertEqual(result.profiles.length, 1, 'the readable source remains available');
+  assertEqual(result.profiles[0]?.sourceId, 'edge', 'the readable source is identified');
+  assertEqual(result.errors[0]?.code, discoveryVectors.permissionCode, 'the inaccessible source remains visible as an error');
+});
+
+h.test('discovery distinguishes an uninitialized browser directory from an unreadable index', async () => {
+  const f = fixture();
+  rmSync(join(f.userDataDir, 'Local State'));
+  const result = await discoverBrowserProfiles([f.source]);
+  assertEqual(result.profiles.length, 0, 'there is no initialized profile');
+  assertEqual(result.errors[0]?.code, 'local_state_missing', 'a missing index is not an access denial');
 });
 
 h.test('discovery rejects an oversized Local State index', async () => {

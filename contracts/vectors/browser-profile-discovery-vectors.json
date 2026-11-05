@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "reason": "A failed browser profile read must remain distinguishable from a successful discovery with no profiles. One inaccessible source must not block readable profiles.",
+  "permissionCode": "source_permission_denied",
+  "permissionErrnos": ["EPERM", "EACCES"],
+  "outcomes": [
+    {"id":"no-profiles","hasProfile":false,"codes":[],"state":"empty","canImport":false,"canRetry":false},
+    {"id":"uninitialized-source","hasProfile":false,"codes":["local_state_missing"],"state":"empty","canImport":false,"canRetry":false},
+    {"id":"empty-profile-index","hasProfile":false,"codes":["profile_cache_empty"],"state":"empty","canImport":false,"canRetry":false},
+    {"id":"permission-denied","hasProfile":false,"codes":["source_permission_denied"],"state":"permission","canImport":false,"canRetry":true},
+    {"id":"unreadable-index","hasProfile":false,"codes":["local_state_unreadable"],"state":"failed","canImport":false,"canRetry":true},
+    {"id":"readable-source","hasProfile":true,"codes":[],"state":"ready","canImport":true,"canRetry":false},
+    {"id":"partially-readable-sources","hasProfile":true,"codes":["source_permission_denied"],"state":"partial","canImport":true,"canRetry":false},
+    {"id":"other-source-not-initialized","hasProfile":true,"codes":["local_state_missing"],"state":"ready","canImport":true,"canRetry":false}
+  ]
+}

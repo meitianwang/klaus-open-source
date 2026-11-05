@@ -1067,6 +1067,12 @@ export function BrowserSettingsTab() {
   }, [])
 
   const importApi = useMemo<BrowserImportUiApi>(() => ({
+    ...(/Mac/i.test(navigator.platform || '') && w().klaus?.systemPermissions?.openSettings ? {
+      openPermissionSettings: async () => {
+        const result = await w().klaus.systemPermissions.openSettings('fullDiskAccess')
+        if (result?.ok !== true) throw new Error(t('browser_import_permission_settings_failed'))
+      },
+    } : {}),
     discover: async () => {
       const service = w().settingsApi?.browserProfileImport
       if (!service?.discover) throw new Error(t('browser_import_unavailable'))

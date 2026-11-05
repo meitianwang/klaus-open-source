@@ -2,6 +2,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test
 import { Window } from 'happy-dom'
 import { importRetrySelection, mergeImportSummary } from './browser-import-model'
 import type { BrowserImportJobSnapshot } from '../../../../contracts/browser-import-jobs'
+import discoveryVectors from '../../../../contracts/vectors/browser-profile-discovery-vectors.json'
 
 const all = { cookies: true, passwords: true, history: true, extensions: true }
 const one = { cookies: true, passwords: false, history: false, extensions: false }
@@ -94,6 +95,70 @@ afterAll(() => {
 beforeAll(() => { requests = []; cancelled = []; closed = 0 })
 
 describe('browser import dialog lifecycle', () => {
+  test('discovery results distinguish an empty list, access errors and readable sources', async () => {
+    for (const row of discoveryVectors.outcomes) {
+      const root = await mount(makeApi({
+        discover: async () => ({ profiles: row.hasProfile ? profiles : [], errors: row.codes.map(code => ({ sourceId: 'edge', code, message: 'Synthetic discovery issue' })) }),
+      }))
+      const body = happyWindow.document.body.textContent
+      expect(button('Import').disabled).toBe(!row.canImport)
+      expect(Boolean(button('Retry'))).toBe(row.canRetry)
+      expect(body.includes('No supported browser profiles were found.')).toBe(row.state === 'empty')
+      expect(body.includes('Your system blocked access to browser profiles.')).toBe(row.state === 'permission' || row.state === 'partial')
+      expect(body.includes('Browser profiles could not be loaded.')).toBe(row.state === 'failed')
+      expect(body.includes('Some browser profiles could not be read.')).toBe(row.state === 'partial')
+      await unmount(root)
+    }
+  })
+
+  test('a denied discovery offers explicit settings navigation and a user-driven retry', async () => {
+    let reads = 0, opened = 0
+    const root = await mount(makeApi({
+      discover: async () => ++reads === 1
+        ? { profiles: [], errors: [{ sourceId: 'chrome', code: 'source_permission_denied', message: 'Synthetic access denial' }] }
+        : { profiles, errors: [] },
+      openPermissionSettings: async () => { opened++ },
+    }))
+    expect(happyWindow.document.body.textContent).toContain('macOS blocked access to browser profiles.')
+    expect(button('Import').disabled).toBe(true)
+    expect(reads).toBe(1)
+    expect(opened).toBe(0)
+    await click(button('Open System Settings'))
+    expect(opened).toBe(1)
+    expect(reads).toBe(1)
+    await click(button('Retry'))
+    expect(reads).toBe(2)
+    expect(button('Import').disabled).toBe(false)
+    expect(button('Open System Settings')).toBeUndefined()
+    await unmount(root)
+  })
+
+  test('a retry exception does not reuse the previous permission diagnosis', async () => {
+    let reads = 0
+    const root = await mount(makeApi({
+      discover: async () => {
+        if (++reads > 1) throw new Error('Synthetic discovery failure')
+        return { profiles: [], errors: [{ sourceId: 'chrome', code: 'source_permission_denied', message: 'Synthetic access denial' }] }
+      },
+    }))
+    await click(button('Retry'))
+    expect(happyWindow.document.body.textContent).toContain('Browser profiles could not be loaded.')
+    expect(happyWindow.document.body.textContent).not.toContain('Your system blocked access to browser profiles.')
+    expect(button('Import').disabled).toBe(true)
+    await unmount(root)
+  })
+
+  test('failed settings navigation preserves the denied state and exposes the error', async () => {
+    const root = await mount(makeApi({
+      discover: async () => ({ profiles: [], errors: [{ sourceId: 'chrome', code: 'source_permission_denied', message: 'Synthetic access denial' }] }),
+      openPermissionSettings: async () => { throw new Error('Synthetic settings navigation failure') },
+    }))
+    await click(button('Open System Settings'))
+    expect(happyWindow.document.body.textContent).toContain('System Settings could not be opened.')
+    expect(button('Import').disabled).toBe(true)
+    await unmount(root)
+  })
+
   test('the single profile has no picker and defaults match the import contract', async () => {
     requests = []; cancelled = []; closed = 0
     const root = await mount(makeApi())
