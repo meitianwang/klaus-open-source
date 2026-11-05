@@ -138,6 +138,19 @@ describe('image inspection disclosure contract', () => {
       expect(open).toContain(`data-media-path="${path}"`)
       expect(open).toContain(`?s=${images.owningSession}`)
     }
+    if (vector.paths.length) {
+      expect(open).not.toContain('Input and result')
+      expect(open).not.toContain('Copy input')
+      expect(open).not.toContain('Tool output')
+    }
+  })
+
+  test('failed image inspection retains diagnostic input and result', () => {
+    const tool = { ...value('view_image', { path: '/tmp/missing.png' }, 'error'), output: 'Image not found' }
+    const html = renderToStaticMarkup(<ActivityToolContent tool={tool} open onToggle={() => {}} locale="zh" />)
+    expect(html).toContain('输入')
+    expect(html).toContain('输出')
+    expect(html).toContain('Image not found')
   })
 
   test('viewed image media stays in the disclosure while generated output keeps its deliverable', () => {

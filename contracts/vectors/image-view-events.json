@@ -1,5 +1,5 @@
 {
-  "reason": "Image inspection keeps session-scoped thumbnails inside the event disclosure. Live result media updates the count and previews. Closing disclosures are excluded from preview navigation, and generated deliverables retain their existing presentation.",
+  "reason": "Successful image inspection keeps only session-scoped thumbnails inside the event disclosure; raw input and result stay hidden. Failures retain diagnostic details. Live result media updates the count and previews, closing disclosures are excluded from preview navigation, and generated deliverables retain their existing presentation.",
   "cases": [
     {
       "name": "two-local-references",

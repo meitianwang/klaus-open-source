@@ -76,8 +76,6 @@
 }
 
 .icon :global(svg) { margin: 0; opacity: 1; }
-.rawImageDetails { margin-top: 6px; }
-.rawImageDetails > summary { cursor: pointer; color: var(--fg-secondary); font-size: var(--text-caption, 12px); margin-bottom: 6px; }
 .activityTool[data-tool-kind='image'] .header:has(.headerButton[aria-expanded='true']) .summary { color: var(--fg); font-weight: 600; }
 
 .summary {

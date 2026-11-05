@@ -387,9 +387,7 @@ function ToolDetails({ tool, presentation, locale }: { tool: ActivityToolData; p
     {presentation.kind === 'image' ? <ImageActivityDetails tool={tool} presentation={presentation} locale={locale} /> : null}
     {presentation.semantic?.category === 'web' ? <WebActivitySources tool={tool} locale={locale} /> : null}
     {presentation.semantic?.category === 'schedule' ? <ScheduleActivityDetails tool={tool} locale={locale} /> : null}
-    {presentation.kind === 'image' && tool.state === 'done' && !!presentation.imagePaths?.length ? <details className={styles.rawImageDetails}>
-      <summary>{copyText(locale, 'Input and result', '输入与结果')}</summary>{details}
-    </details> : details}
+    {presentation.kind === 'image' && tool.state === 'done' && !!presentation.imagePaths?.length ? null : details}
   </>
 }
 
@@ -461,8 +459,9 @@ function OrdinaryToolCard({ tool, result, presentation, open, onToggle, locale, 
   open: boolean; onToggle: () => void; locale: string; elapsed: number | undefined; detailsId: string; summaryId: string
 }) {
   const exceptional = tool.state === 'error' || tool.state === 'interrupted' || tool.state === 'awaiting-approval'
-  // Every ordinary tool keeps its real input and result inspectable. Specialized
-  // privacy-preserving and agent-action rows returned above retain their own UI.
+  // Ordinary tools keep their real input and result inspectable. A successful
+  // image inspection needs only its thumbnails; failures retain diagnostic details.
+  // Specialized privacy-preserving and agent-action rows returned above retain their own UI.
   const expandable = true
   const declined = presentation.kind === 'exec' && tool.state === 'error' && tool.approvalReviews?.some(review => review.status === 'denied') === true
   const summary = declined && presentation.kind === 'exec' ? copyText(locale, 'Command declined', '命令已拒绝') : activityToolSummary(presentation, tool.state, open, locale, elapsed)
