@@ -9,6 +9,7 @@ import styles from './browser-import.module.css'
 export interface BrowserImportUiApi {
   discover(): Promise<BrowserDiscoveryResult>
   openPermissionSettings?(): Promise<void>
+  fileAccessStatus?(): Promise<'granted' | 'denied' | 'unknown'>
   start(request: BrowserImportRequest): Promise<BrowserImportJobHandle>
   cancel(jobId: string): Promise<unknown>
   subscribe(callback: (snapshot: BrowserImportJobSnapshot) => void): () => void
@@ -43,6 +44,7 @@ export function BrowserImportDialog({ api, onClose }: { api: BrowserImportUiApi;
   const [discovery, setDiscovery] = useState<BrowserDiscoveryResult | null>(null)
   const [discoveryFailed, setDiscoveryFailed] = useState(false)
   const [permissionSettingsFailed, setPermissionSettingsFailed] = useState(false)
+  const [fileAccess, setFileAccess] = useState<'granted' | 'denied' | 'unknown'>('unknown')
   const [discovering, setDiscovering] = useState(true)
   const [selectedKey, setSelectedKey] = useState('')
   const [selection, setSelection] = useState<ImportSelection>({ ...IMPORT_UI_DEFAULTS })
@@ -61,7 +63,9 @@ export function BrowserImportDialog({ api, onClose }: { api: BrowserImportUiApi;
   const discoveryIssues = discovery?.errors.filter(issue => !['local_state_missing', 'profile_cache_empty'].includes(issue.code)) ?? []
   const permissionDenied = !discoveryFailed && discoveryIssues.some(issue => issue.code === 'source_permission_denied')
   const unavailable = discoveryFailed || (!profile && discoveryIssues.length > 0)
-  const permissionMessage = t(api.openPermissionSettings ? 'browser_import_permission_denied_mac' : 'browser_import_permission_denied')
+  const permissionMessage = t(fileAccess === 'granted' ? 'browser_import_access_blocked_after_grant'
+    : fileAccess === 'denied' && api.openPermissionSettings ? 'browser_import_permission_denied_mac' : 'browser_import_permission_denied')
+  const canOpenPermissionSettings = permissionDenied && fileAccess !== 'granted' && Boolean(api.openPermissionSettings)
   const effectiveSelection: ImportSelection = {
     cookies: Boolean(profile?.cookies && selection.cookies),
     passwords: Boolean(profile?.passwords && selection.passwords),
@@ -74,9 +78,15 @@ export function BrowserImportDialog({ api, onClose }: { api: BrowserImportUiApi;
     setDiscovering(true)
     setDiscoveryFailed(false)
     setPermissionSettingsFailed(false)
+    setFileAccess('unknown')
     try {
       const result = await api.discover()
-      if (mounted.current && token === generation.current) setDiscovery(result)
+      const denied = result.errors.some(issue => issue.code === 'source_permission_denied')
+      const status = denied ? await api.fileAccessStatus?.().catch(() => 'unknown' as const) : 'unknown'
+      if (mounted.current && token === generation.current) {
+        setFileAccess(status ?? 'unknown')
+        setDiscovery(result)
+      }
     } catch {
       if (mounted.current && token === generation.current) setDiscoveryFailed(true)
     } finally {
@@ -262,12 +272,12 @@ export function BrowserImportDialog({ api, onClose }: { api: BrowserImportUiApi;
         </div> : formVisible ? <>
           {discovering ? <p role="status">{t('browser_import_discovering')}</p> : unavailable ? <div role="alert">
             <p>{permissionDenied ? permissionMessage : t('browser_import_discovery_failed')}</p>
-            {permissionDenied && api.openPermissionSettings && <button onClick={() => { void openPermissionSettings() }}>{t('browser_import_permission_settings')}</button>}
+            {canOpenPermissionSettings && <button onClick={() => { void openPermissionSettings() }}>{t('browser_import_permission_settings')}</button>}
             <button onClick={() => { void refresh() }}>{t('browser_import_retry')}</button>
           </div> : !profile ? <p role="status">{t('browser_import_no_profiles')}</p> : <>
             {discoveryIssues.length > 0 && <div role="status"><p>{t('browser_import_discovery_partial')}</p>
               {permissionDenied && <p>{permissionMessage}</p>}
-              {permissionDenied && api.openPermissionSettings && <button onClick={() => { void openPermissionSettings() }}>{t('browser_import_permission_settings')}</button>}
+              {canOpenPermissionSettings && <button onClick={() => { void openPermissionSettings() }}>{t('browser_import_permission_settings')}</button>}
             </div>}
             {discovery!.profiles.length > 1 ? <label className={styles['import-source']}>
               <span>{t('browser_import_source')}</span>

@@ -1068,6 +1068,11 @@ export function BrowserSettingsTab() {
 
   const importApi = useMemo<BrowserImportUiApi>(() => ({
     ...(/Mac/i.test(navigator.platform || '') && w().klaus?.systemPermissions?.openSettings ? {
+      fileAccessStatus: async () => {
+        const result = await w().klaus.systemPermissions.check()
+        const status = result?.permissions?.fullDiskAccess
+        return status === 'granted' || status === 'denied' ? status : 'unknown'
+      },
       openPermissionSettings: async () => {
         const result = await w().klaus.systemPermissions.openSettings('fullDiskAccess')
         if (result?.ok !== true) throw new Error(t('browser_import_permission_settings_failed'))

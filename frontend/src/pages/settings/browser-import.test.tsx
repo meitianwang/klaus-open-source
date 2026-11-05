@@ -118,6 +118,7 @@ describe('browser import dialog lifecycle', () => {
         ? { profiles: [], errors: [{ sourceId: 'chrome', code: 'source_permission_denied', message: 'Synthetic access denial' }] }
         : { profiles, errors: [] },
       openPermissionSettings: async () => { opened++ },
+      fileAccessStatus: async () => 'denied',
     }))
     expect(happyWindow.document.body.textContent).toContain('macOS blocked access to browser profiles.')
     expect(button('Import').disabled).toBe(true)
@@ -130,6 +131,61 @@ describe('browser import dialog lifecycle', () => {
     expect(reads).toBe(2)
     expect(button('Import').disabled).toBe(false)
     expect(button('Open System Settings')).toBeUndefined()
+    await unmount(root)
+  })
+
+  test('file access guidance follows the observed authorization state', async () => {
+    for (const row of discoveryVectors.permissionGuidance) {
+      const root = await mount(makeApi({
+        discover: async () => ({ profiles: [], errors: [{ sourceId: 'chrome', code: 'source_permission_denied', message: 'Synthetic access denial' }] }),
+        fileAccessStatus: async () => row.status,
+        openPermissionSettings: async () => {},
+      }))
+      const body = happyWindow.document.body.textContent
+      expect(Boolean(button('Open System Settings'))).toBe(row.openSettings)
+      expect(body.includes('quit and reopen')).toBe(row.asksForRestart)
+      expect(body.includes('Full Disk Access is already granted')).toBe(row.alreadyGranted)
+      expect(button('Import').disabled).toBe(true)
+      await unmount(root)
+    }
+  })
+
+  test('granted file access does not direct the user to authorize or restart again', async () => {
+    let reads = 0, checks = 0
+    const root = await mount(makeApi({
+      discover: async () => { reads++; return { profiles: [], errors: [{ sourceId: 'chrome', code: 'source_permission_denied', message: 'Synthetic access denial' }] } },
+      fileAccessStatus: async () => { checks++; return 'granted' },
+      openPermissionSettings: async () => { throw new Error('Settings must not be opened') },
+    }))
+    expect(happyWindow.document.body.textContent).toContain('Full Disk Access is already granted')
+    expect(happyWindow.document.body.textContent).toContain('security software or device management policies')
+    expect(button('Open System Settings')).toBeUndefined()
+    expect(button('Import').disabled).toBe(true)
+    expect(reads).toBe(1)
+    expect(checks).toBe(1)
+    await click(button('Retry'))
+    expect(reads).toBe(2)
+    expect(checks).toBe(2)
+    await unmount(root)
+  })
+
+  test('permission status is not checked for successful discovery', async () => {
+    let checks = 0
+    const root = await mount(makeApi({ fileAccessStatus: async () => { checks++; return 'granted' } }))
+    expect(checks).toBe(0)
+    expect(button('Import').disabled).toBe(false)
+    await unmount(root)
+  })
+
+  test('a failed permission probe preserves the source failure without claiming authorization is missing', async () => {
+    const root = await mount(makeApi({
+      discover: async () => ({ profiles: [], errors: [{ sourceId: 'chrome', code: 'source_permission_denied', message: 'Synthetic access denial' }] }),
+      fileAccessStatus: async () => { throw new Error('Synthetic probe failure') },
+      openPermissionSettings: async () => {},
+    }))
+    expect(happyWindow.document.body.textContent).toContain('File access permissions, security software or device policies')
+    expect(happyWindow.document.body.textContent).not.toContain('quit and reopen')
+    expect(button('Import').disabled).toBe(true)
     await unmount(root)
   })
 

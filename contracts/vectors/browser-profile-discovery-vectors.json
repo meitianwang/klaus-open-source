@@ -1,8 +1,13 @@
 {
   "version": 1,
-  "reason": "A failed browser profile read must remain distinguishable from a successful discovery with no profiles. One inaccessible source must not block readable profiles.",
+  "reason": "A failed browser profile read must remain distinguishable from a successful discovery with no profiles. One inaccessible source must not block readable profiles. An access refusal does not establish missing Full Disk Access; guidance must use the observed authorization state.",
   "permissionCode": "source_permission_denied",
   "permissionErrnos": ["EPERM", "EACCES"],
+  "permissionGuidance": [
+    {"status":"granted","openSettings":false,"asksForRestart":false,"alreadyGranted":true},
+    {"status":"denied","openSettings":true,"asksForRestart":true,"alreadyGranted":false},
+    {"status":"unknown","openSettings":true,"asksForRestart":false,"alreadyGranted":false}
+  ],
   "outcomes": [
     {"id":"no-profiles","hasProfile":false,"codes":[],"state":"empty","canImport":false,"canRetry":false},
     {"id":"uninitialized-source","hasProfile":false,"codes":["local_state_missing"],"state":"empty","canImport":false,"canRetry":false},
