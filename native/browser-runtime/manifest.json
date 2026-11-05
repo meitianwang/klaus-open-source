@@ -1005,6 +1005,18 @@
       "file": "patches/0165-native-source-snapshot-errors-eb90cb2ad53c43a0ef9cf75f3e43edddf50889827b543c141bc01b34fc43fdf0.patch",
       "sha256": "eb90cb2ad53c43a0ef9cf75f3e43edddf50889827b543c141bc01b34fc43fdf0",
       "purpose": "Preserve copy-stage errno and file-error diagnostics without attributing every database snapshot failure to source permissions. Keep the same single copy operation and bounded non-content diagnostics."
+    },
+    {
+      "repo": "electron",
+      "file": "patches/0166-native-history-confirmations-167862c4c10f52a01bf56cab43ead1a2bc10005d39fe5f6a2668180099f7f70f.patch",
+      "sha256": "167862c4c10f52a01bf56cab43ead1a2bc10005d39fe5f6a2668180099f7f70f",
+      "purpose": "Respect native history retention, acknowledge processed rows and explicit confirmed indices, project only confirmed visits, avoid duplicate visits through indexed confirmation, and retain the newest bounded source history before chronological application."
+    },
+    {
+      "repo": "electron",
+      "file": "patches/0167-native-password-source-selection-8238d75e2e62a5066fb2850af03d6fcab4a8fe0d5e4305198eb88c96485947a1.patch",
+      "sha256": "8238d75e2e62a5066fb2850af03d6fcab4a8fe0d5e4305198eb88c96485947a1",
+      "purpose": "Discover and read the account password database only when the primary database is absent; preserve denied-source and symlink boundaries and filter unsupported credential origins before decryption."
     }
   ],
   "link_boundary": {

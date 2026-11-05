@@ -1,0 +1,270 @@
+diff --git a/shell/browser/api/native_browser_import.cc b/shell/browser/api/native_browser_import.cc
+index 24155627d..228c8b196 100644
+--- a/shell/browser/api/native_browser_import.cc
++++ b/shell/browser/api/native_browser_import.cc
+@@ -318,6 +318,9 @@ class NativeImportRequest final
+   std::vector<ParsedCookie> cookies;
+   std::vector<password_manager::StoredCredential> passwords;
+   std::vector<history::URLRow> history;
++  bool history_receipt = false;
++  size_t skipped_expired = 0;
++  std::vector<int> confirmed_history_indices;
+   scoped_refptr<password_manager::PasswordStoreInterface> password_store;
+   std::unique_ptr<base::CancelableTaskTracker> history_tracker;
+   std::unique_ptr<NativePasswordReader> password_reader;
+@@ -327,6 +330,41 @@ class NativeImportRequest final
+   ~NativeImportRequest() = default;
+ };
+ 
++void SetHistoryReceipt(const scoped_refptr<NativeImportRequest>& request,
++                       base::DictValue* result) {
++  if (!request->history_receipt)
++    return;
++  result->Set("processed", static_cast<int>(request->next));
++  result->Set("skippedExpired", static_cast<int>(request->skipped_expired));
++  base::ListValue confirmed;
++  for (int index : request->confirmed_history_indices)
++    confirmed.Append(index);
++  result->Set("confirmedIndices", std::move(confirmed));
++}
++
++bool FindImportedHistoryVisit(history::HistoryDatabase* db,
++                              const history::URLRow& row,
++                              bool* found) {
++  *found = false;
++  history::URLRow stored;
++  const history::URLID url_id = db->GetRowForURL(row.url(), &stored);
++  if (!url_id)
++    return true;
++  history::VisitVector visits;
++  const base::Time times[] = {row.last_visit()};
++  if (!db->GetVisitsForTimes(times, &visits))
++    return false;
++  for (const history::VisitRow& visit : visits) {
++    if (visit.url_id == url_id && visit.visit_time == row.last_visit() &&
++        db->GetVisitSource(visit.visit_id) ==
++            history::SOURCE_OS_MIGRATION_IMPORTED) {
++      *found = true;
++      break;
++    }
++  }
++  return true;
++}
++
+ class HistoryImportTask final : public history::HistoryDBTask {
+  public:
+   using DoneCallback = base::OnceCallback<void(bool cancelled,
+@@ -334,7 +372,9 @@ class HistoryImportTask final : public history::HistoryDBTask {
+ 
+   HistoryImportTask(scoped_refptr<NativeImportRequest> request,
+                     DoneCallback done)
+-      : request_(std::move(request)), done_(std::move(done)) {}
++      : request_(std::move(request)), done_(std::move(done)) {
++    request_->history_receipt = true;
++  }
+ 
+   HistoryImportTask(const HistoryImportTask&) = delete;
+   HistoryImportTask& operator=(const HistoryImportTask&) = delete;
+@@ -351,33 +391,34 @@ class HistoryImportTask final : public history::HistoryDBTask {
+         return true;
+       }
+       const history::URLRow& row = request_->history[request_->next];
+-      history::URLRows rows{row};
+-      backend->AddPagesWithDetails(rows,
+-                                   history::SOURCE_OS_MIGRATION_IMPORTED);
+-
+-      history::URLRow stored;
+-      history::URLID url_id = db->GetRowForURL(row.url(), &stored);
+-      if (!url_id) {
+-        error_ = "History row was not stored";
+-        return true;
++      if (backend->IsExpiredVisitTime(row.last_visit())) {
++        ++request_->skipped_expired;
++        continue;
+       }
+-      history::VisitVector visits;
+-      if (!db->GetVisitsForURL(url_id, &visits)) {
++      bool found = false;
++      if (!FindImportedHistoryVisit(db, row, &found)) {
+         error_ = "History visit lookup failed";
+         return true;
+       }
+-      bool found = false;
+-      for (const history::VisitRow& visit : visits) {
+-        if (visit.visit_time == row.last_visit() &&
+-            db->GetVisitSource(visit.visit_id) == history::SOURCE_OS_MIGRATION_IMPORTED) {
+-          found = true;
+-          break;
++      if (!found) {
++        backend->AddPagesWithDetails(history::URLRows{row},
++                                     history::SOURCE_OS_MIGRATION_IMPORTED);
++        if (!FindImportedHistoryVisit(db, row, &found)) {
++          error_ = "History visit lookup failed";
++          return true;
+         }
+       }
+       if (!found) {
++        // The retention boundary may advance while the backend adds the row.
++        if (backend->IsExpiredVisitTime(row.last_visit())) {
++          ++request_->skipped_expired;
++          continue;
++        }
+         error_ = "History visit was not stored";
+         return true;
+       }
++      request_->confirmed_history_indices.push_back(
++          static_cast<int>(request_->next));
+       request_->applied.fetch_add(1, std::memory_order_relaxed);
+     }
+     return true;
+@@ -542,6 +583,7 @@ class NativeBrowserImport::Impl : public base::RefCounted<NativeBrowserImport::I
+                  NativeBrowserImport::DoneCallback done) {
+     auto request = base::MakeRefCounted<NativeImportRequest>(request_id,
+                                                           std::move(done));
++    request->history_receipt = category == "history";
+     if (closed_ || request_id.empty() ||
+         request_id.size() > kMaxRequestIdLength ||
+         pending_.contains(request_id) || pending_.size() >= kMaxPendingImports) {
+@@ -675,6 +717,7 @@ class NativeBrowserImport::Impl : public base::RefCounted<NativeBrowserImport::I
+     if (request->done_) {
+       base::DictValue result;
+       result.Set("applied", 0);
++      SetHistoryReceipt(request, &result);
+       result.Set("error", std::move(error));
+       std::move(request->done_).Run(std::move(result));
+     } else if (request->promise_) {
+@@ -690,6 +733,7 @@ class NativeBrowserImport::Impl : public base::RefCounted<NativeBrowserImport::I
+     base::DictValue result;
+     result.Set("applied",
+                static_cast<int>(request->applied.load(std::memory_order_relaxed)));
++    SetHistoryReceipt(request, &result);
+     if (cancelled)
+       result.Set("cancelled", true);
+     if (!error.empty())
+diff --git a/shell/browser/api/native_browser_source_import.cc b/shell/browser/api/native_browser_source_import.cc
+index 82af7c5c5..e95aea987 100644
+--- a/shell/browser/api/native_browser_source_import.cc
++++ b/shell/browser/api/native_browser_source_import.cc
+@@ -267,14 +267,36 @@ class NativeBrowserSourceImporter::Impl final : public base::RefCounted<Impl> {
+     job->child_id.clear();
+     const std::string category = job->categories[job->category];
+     const int applied = result.FindInt("applied").value_or(-1);
+-    if (applied < 0 || static_cast<size_t>(applied) > job->batch.size()) {
++    const bool is_history = category == "history";
++    const int processed = is_history
++        ? result.FindInt("processed").value_or(-1) : applied;
++    const int skipped = is_history
++        ? result.FindInt("skippedExpired").value_or(-1) : 0;
++    const auto* indices = is_history ? result.FindList("confirmedIndices") : nullptr;
++    bool valid = applied >= 0 && processed >= 0 && skipped >= 0 &&
++        static_cast<size_t>(processed) <= job->batch.size() &&
++        applied <= processed && skipped <= processed &&
++        applied + skipped == processed &&
++        (!is_history || (indices && indices->size() == static_cast<size_t>(applied)));
++    std::vector<int> confirmed_indices;
++    if (valid && is_history) {
++      int previous = -1;
++      for (const auto& value : *indices) {
++        const int index = value.GetIfInt().value_or(-1);
++        if (index <= previous || index >= processed) { valid = false; break; }
++        confirmed_indices.push_back(index);
++        previous = index;
++      }
++    }
++    if (!valid) {
+       job->errors.Append(Issue(category, "invalid_target_result", "The native store returned an invalid import receipt"));
+       Complete(job); return;
+     }
+     job->counts.Set(category, job->counts.FindInt(category).value_or(0) + applied);
+-    if (category == "history" && applied > 0 && history_) {
++    if (is_history && applied > 0 && history_) {
+       base::ListValue confirmed;
+-      for (int index = 0; index < applied; ++index) confirmed.Append(job->batch[index].Clone());
++      for (int index : confirmed_indices)
++        confirmed.Append(job->batch[index].Clone());
+       history_.Run(job->id, confirmed);
+     }
+     if (result.FindBool("cancelled").value_or(false)) {
+@@ -283,13 +305,13 @@ class NativeBrowserSourceImporter::Impl final : public base::RefCounted<Impl> {
+       return;
+     }
+     const std::string* error = result.FindString("error");
+-    const bool partial = static_cast<size_t>(applied) != job->batch.size();
++    const bool partial = static_cast<size_t>(processed) != job->batch.size();
+     if (partial || error) {
+       job->errors.Append(Issue(category, "apply_" + category + "_partial",
+           error ? *error : "Some rows were not confirmed by the native store",
+-          static_cast<int>(job->rows.size() - job->offset - applied)));
++          static_cast<int>(job->rows.size() - job->offset - processed)));
+       job->offset = job->rows.size();
+-    } else job->offset += job->batch.size();
++    } else job->offset += static_cast<size_t>(processed);
+     job->batch.clear();
+     WriteNext(job);
+   }
+diff --git a/shell/browser/api/native_browser_source_reader.cc b/shell/browser/api/native_browser_source_reader.cc
+index f74639f2c..359a4477b 100644
+--- a/shell/browser/api/native_browser_source_reader.cc
++++ b/shell/browser/api/native_browser_source_reader.cc
+@@ -35,6 +35,7 @@
+ #include "components/crx_file/id_util.h"
+ #include "sql/database.h"
+ #include "sql/statement.h"
++#include "url/gurl.h"
+ 
+ #if BUILDFLAG(IS_MAC)
+ #include "shell/browser/api/native_browser_source_crypto_mac.h"
+@@ -1599,14 +1600,14 @@ class NativeBrowserSourceReader::Impl {
+     sql::Statement stmt(db.GetUniqueStatement(
+         "SELECT u.url AS url, u.title AS title, v.visit_time AS visit_time "
+         "FROM visits v JOIN urls u ON u.id = v.url "
+-        "ORDER BY v.visit_time ASC LIMIT ?"));
++        "ORDER BY v.visit_time DESC LIMIT ?"));
+     if (!stmt.is_valid()) {
+       AddImportError(&errors, "history", "history_schema_unsupported", "The history database schema is not supported.");
+       return CategoryResult(std::move(rows), std::move(errors));
+     }
+     stmt.BindInt64(0, static_cast<int64_t>(kMaxHistoryRows) + 1);
+ 
+-    int row_count = 0;
++    int scanned_rows = 0;
+     int skipped = 0;
+     size_t memory_used = 0;
+     while (stmt.Step()) {
+@@ -1615,7 +1616,7 @@ class NativeBrowserSourceReader::Impl {
+                        "The browser import was cancelled.");
+         break;
+       }
+-      if (row_count >= kMaxHistoryRows) {
++      if (scanned_rows++ >= kMaxHistoryRows) {
+         int omitted = 1;
+         while (stmt.Step())
+           ++omitted;
+@@ -1632,10 +1633,14 @@ class NativeBrowserSourceReader::Impl {
+       std::string title = stmt.ColumnString(1);
+       int64_t visit_time = stmt.ColumnInt64(2);
+       std::optional<int64_t> visited_at = ChromeTimeToUnixMillis(visit_time);
+-      if (url.empty() || !visited_at.has_value()) {
++      GURL parsed_url(url);
++      if (!parsed_url.is_valid() || !visited_at.has_value()) {
+         ++skipped;
+         continue;
+       }
++      if (!parsed_url.SchemeIsHTTPOrHTTPS())
++        continue;
++      url = parsed_url.spec();
+       if (title.empty())
+         title = url;
+       if (title.size() > 2048)
+@@ -1653,9 +1658,10 @@ class NativeBrowserSourceReader::Impl {
+         break;
+       }
+       rows.Append(std::move(row));
+-      ++row_count;
+     }
+ 
++    // Select the newest bounded visits, then apply them chronologically.
++    std::reverse(rows.begin(), rows.end());
+     if (skipped > 0) {
+       AddImportError(&errors, "history", "history_rows_skipped",
+                      "Some history rows had no usable URL or timestamp.",

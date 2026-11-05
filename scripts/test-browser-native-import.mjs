@@ -13,7 +13,7 @@ const logs = join(root, 'dist', 'browser-native-import-logs');
 mkdirSync(logs, { recursive: true });
 const profile = mkdtempSync(join(logs, 'profile-'));
 try {
-  for (const phase of ['initial', 'restart', 'no-source', 'discovery-errors']) {
+  for (const phase of ['initial', 'restart', 'no-source', 'discovery-errors', 'history-policy', 'password-source-selection']) {
     const output = join(logs, `${profile.split('/').at(-1)}-${phase}.json`);
     const env = { ...process.env, KLAUS_CONFIG_DIR: profile, NATIVE_IMPORT_PROFILE: profile, NATIVE_IMPORT_OUTPUT: output, NATIVE_IMPORT_PHASE: phase };
     delete env.ELECTRON_RUN_AS_NODE;

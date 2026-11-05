@@ -3,8 +3,12 @@ import type {
 } from '../../contracts/browser-import';
 
 export interface NativeImportReceipt {
-  /** Confirmed prefix of the submitted batch, including cancellation. */
+  /** Confirmed rows; history uses explicit indices when retention skips rows. */
   applied: number;
+  /** History-only acknowledgement of a processed input prefix. */
+  processed?: number;
+  confirmedIndices?: number[];
+  skippedExpired?: number;
   cancelled?: boolean;
   error?: string;
 }

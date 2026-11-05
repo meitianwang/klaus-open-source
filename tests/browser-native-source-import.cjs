@@ -111,6 +111,133 @@ app.whenReady().then(async () => {
       assert.equal(unindexedResult.profiles.length, 2);
       assert(unindexedResult.profiles.some(value => value.profileId === 'Unindexed profile'));
       save('native-directory-discovery-optional-index-diagnostics-and-denied-source-boundary');
+    } else if (mode === 'password-source-selection') {
+      fs.rmSync(source, { recursive: true, force: true });
+      fixtures.writeLocalState(source, {});
+      const passwordRequest = profileId => ({ sourceId: 'chrome', profileId, categories: { history: false, cookies: false, passwords: true, extensions: false } });
+      const createPassword = (profileId, username) => {
+        const directory = fixtures.profileDirectory(source, profileId);
+        fixtures.createLogins(directory, [{ origin: 'https://password-selection.test/' + profileId, username, encrypted: encrypted('owned-selection-secret') }]);
+        return directory;
+      };
+      const accountOnly = createPassword('AccountOnly', 'owned-account-only');
+      fs.renameSync(path.join(accountOnly, 'Login Data'), path.join(accountOnly, 'Login Data For Account'));
+      const both = createPassword('Both', 'owned-account-not-selected');
+      fs.renameSync(path.join(both, 'Login Data'), path.join(both, 'Login Data For Account'));
+      fixtures.createLogins(both, [{ origin: 'https://password-selection.test/Both', username: 'owned-primary-selected', encrypted: encrypted('owned-primary-secret') }]);
+      const denied = createPassword('Denied', 'owned-denied-account');
+      fs.renameSync(path.join(denied, 'Login Data'), path.join(denied, 'Login Data For Account'));
+      fixtures.createLogins(denied, [{ origin: 'https://password-selection.test/Denied', username: 'owned-denied-primary', encrypted: encrypted('owned-denied-secret') }]);
+      const unsupported = fixtures.profileDirectory(source, 'Unsupported');
+      fixtures.createLogins(unsupported, [
+        { origin: 'android://owned-synthetic@owned.fixture/', username: 'owned-unsupported', encrypted: Buffer.from('unsupported-fixture-value') },
+        { origin: 'https://password-selection.test/Unsupported', username: 'owned-web-selected', encrypted: encrypted('owned-web-secret') },
+      ]);
+      const linked = fixtures.profileDirectory(source, 'Linked');
+      fs.symlinkSync(path.join(accountOnly, 'Login Data For Account'), path.join(linked, 'Login Data For Account'));
+      const discovery = await backend.discover(new AbortController().signal);
+      assert(discovery.profiles.some(row => row.profileId === 'AccountOnly' && row.passwords), 'an account-only source is discoverable');
+      assert(!discovery.profiles.some(row => row.profileId === 'Linked'), 'a symlinked account database is not an import source');
+      result.passwordSelection = [];
+      for (const profileId of ['AccountOnly', 'Both', 'Unsupported']) {
+        const receipt = await backend.importProfile('password-selection-' + profileId, passwordRequest(profileId), new AbortController().signal);
+        assert.equal(receipt.ok, true, JSON.stringify(receipt.errors));
+        assert.equal(receipt.counts.passwords, 1);
+        result.passwordSelection.push({ profileId, counts: receipt.counts, errors: receipt.errors });
+      }
+      fs.chmodSync(path.join(denied, 'Login Data'), 0o000);
+      try {
+        const receipt = await backend.importProfile('password-selection-denied', passwordRequest('Denied'), new AbortController().signal);
+        assert.equal(receipt.ok, false);
+        assert.equal(receipt.counts.passwords, 0, 'a denied primary database never selects another source');
+        assert(receipt.errors.some(error => error.code === vectors.snapshotFailureCode), JSON.stringify(receipt));
+        result.deniedPasswordErrors = receipt.errors;
+      } finally { fs.chmodSync(path.join(denied, 'Login Data'), 0o600); }
+      await manager.openManager('passwords', { viewId: 'owned-password-selection', bounds: { x: 0, y: 0, width: 1000, height: 700 } }, host);
+      const entry = manager.managementViews.get(host.webContents.id);
+      const nativeUsernames = await entry.cdp.evaluate(`(async () => (await chrome.passwordsPrivate.getSavedPasswordList()).filter(row => row.username.startsWith('owned-')).map(row => row.username).sort())()`);
+      assert.deepEqual(nativeUsernames, ['owned-account-only', 'owned-primary-selected', 'owned-web-selected']);
+      await manager.openManager('passwords', { viewId: 'owned-password-selection', action: 'close' }, host);
+      result.nativePasswordCount = nativeUsernames.length;
+      save('native-password-primary-or-account-selection-and-web-origin-eligibility');
+    } else if (mode === 'history-policy') {
+      fs.rmSync(source, { recursive: true, force: true });
+      const now = Date.now();
+      const expiredAt = now - 400 * 86400000;
+      const historyRequest = { sourceId: 'chrome', profileId: 'Default', categories: { history: true, cookies: false, passwords: false, extensions: false } };
+      fixtures.writeLocalState(source, { Default: { name: 'Owned history policy' }, Expired: { name: 'Expired history only' } });
+      fixtures.createHistory(fixtures.profileDirectory(source), [
+        ...Array.from({ length: 3 }, (_, index) => ({ url: 'https://history-policy.test/expired-' + index, title: 'Expired owned visit', visitedAt: expiredAt + index })),
+        ...Array.from({ length: 507 }, (_, index) => ({ url: 'https://history-policy.test/repeated-' + index % 7, title: 'Owned repeated visit', visitedAt: now - 600000 + index })),
+        { url: 'chrome://version', title: 'Excluded internal page', visitedAt: now - 300000 },
+        { url: 'file:///owned-fixture-only.html', title: 'Excluded local file URL', visitedAt: now - 200000 },
+      ]);
+      const imported = await backend.importProfile('history-policy-mixed', historyRequest, new AbortController().signal);
+      assert.equal(imported.ok, true, JSON.stringify(imported.errors));
+      assert.equal(imported.counts.history, 507, 'expired visits do not stop later eligible batches');
+      const projectionCount = () => {
+        const database = new DatabaseSync(manager.data.databasePath, { readOnly: true });
+        try { return database.prepare("SELECT count(*) AS n FROM browser_visits WHERE url LIKE 'https://history-policy.test/%'").get().n; }
+        finally { database.close(); }
+      };
+      assert.equal(projectionCount(), 507, 'host projection contains only confirmed nonexpired rows');
+      const repeated = await backend.importProfile('history-policy-repeat', historyRequest, new AbortController().signal);
+      assert.equal(repeated.ok, true, JSON.stringify(repeated.errors));
+      assert.equal(repeated.counts.history, 507);
+      assert.equal(projectionCount(), 507, 'repeating history import does not duplicate the host projection');
+      const cancellation = new AbortController();
+      const onHistory = (_event, id) => { if (id === 'history-policy-cancel') cancellation.abort(); };
+      profile.on('imported-history', onHistory);
+      const cancelled = await backend.importProfile('history-policy-cancel', historyRequest, cancellation.signal);
+      profile.removeListener('imported-history', onHistory);
+      assert.equal(cancelled.cancelled, true);
+      assert.equal(cancelled.counts.history, 247, 'cancellation counts confirmed rows after three expired rows');
+      assert(!cancelled.errors.some(error => error.code === 'apply_history_partial'));
+      fixtures.createHistory(fixtures.profileDirectory(source, 'Expired'), [{ url: 'https://history-policy.test/expired-only', visitedAt: expiredAt }]);
+      const expired = await backend.importProfile('history-policy-expired', { ...historyRequest, profileId: 'Expired' }, new AbortController().signal);
+      assert.equal(expired.ok, true, JSON.stringify(expired.errors));
+      assert.equal(expired.counts.history, 0);
+      const directRows = [
+        { url: 'https://history-policy.test/direct-expired-a', title: 'Expired direct A', visitedAt: expiredAt, source: 'other' },
+        { url: 'https://history-policy.test/direct-current', title: 'Direct current', visitedAt: now - 20000, source: 'other' },
+        { url: 'https://history-policy.test/direct-expired-b', title: 'Expired direct B', visitedAt: expiredAt + 1, source: 'other' },
+        { url: 'https://history-policy.test/direct-current', title: 'Direct current', visitedAt: now - 10000, source: 'other' },
+      ];
+      const direct = await profile.importHistory('history-policy-direct', directRows);
+      assert.equal(direct.applied, 2);
+      assert.equal(direct.processed, 4);
+      assert.equal(direct.skippedExpired, 2);
+      assert.deepEqual(direct.confirmedIndices, [1, 3]);
+      const directAgain = await profile.importHistory('history-policy-direct-repeat', directRows);
+      assert.deepEqual(directAgain.confirmedIndices, [1, 3]);
+      const nativeCounts = () => {
+        const database = new DatabaseSync(path.join(nativeRoot, 'Default', 'History'), { readOnly: true });
+        try { return database.prepare("SELECT count(*) AS total, sum(CASE WHEN u.url LIKE '%/expired-%' OR u.url LIKE '%/direct-expired-%' THEN 1 ELSE 0 END) AS expired FROM visits v JOIN urls u ON u.id=v.url WHERE u.url LIKE 'https://history-policy.test/%'").get(); }
+        finally { database.close(); }
+      };
+      await until(() => nativeCounts().total === 509, 'native history commit and idempotent visit count');
+      assert.equal(nativeCounts().expired, 0);
+      assert.equal(projectionCount(), 507);
+      result.counts = imported.counts;
+      result.cancelledConfirmed = cancelled.counts.history;
+      result.direct = direct;
+      result.nativeCounts = nativeCounts();
+      const boundedDirectory = fixtures.profileDirectory(source, 'Bounded');
+      fixtures.createHistory(boundedDirectory, []);
+      const boundedDatabase = new DatabaseSync(path.join(boundedDirectory, 'History'));
+      boundedDatabase.exec("BEGIN; INSERT INTO urls(id,url,title) VALUES (1,'https://history-budget.test/expired','Expired'),(2,'https://history-budget.test/recent-a','Recent A'),(3,'https://history-budget.test/recent-b','Recent B')");
+      const insertBounded = boundedDatabase.prepare('INSERT INTO visits(url,visit_time) VALUES(?,?)');
+      const chromeTime = milliseconds => BigInt(milliseconds) * 1000n + 11644473600000000n;
+      for (let index = 0; index < 50000; index++) insertBounded.run(1, chromeTime(expiredAt + index));
+      insertBounded.run(2, chromeTime(now - 1000));
+      insertBounded.run(3, chromeTime(now - 500));
+      boundedDatabase.exec('COMMIT'); boundedDatabase.close();
+      const bounded = await backend.importProfile('history-policy-bounded', { ...historyRequest, profileId: 'Bounded' }, new AbortController().signal);
+      assert.equal(bounded.counts.history, 2, 'the source row budget retains the newest visits');
+      assert(bounded.errors.some(error => error.code === 'history_row_limit'));
+      assert(!bounded.errors.some(error => error.code === 'apply_history_partial'));
+      result.bounded = { counts: bounded.counts, errors: bounded.errors };
+      save('native-history-retention-confirmed-indices-idempotence-and-cancellation');
     } else if (mode === 'no-source') {
       const discovery = await backend.discover(new AbortController().signal);
       assert.equal(discovery.profiles.length, 0);
