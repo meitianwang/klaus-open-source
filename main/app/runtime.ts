@@ -1441,6 +1441,7 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
   });
   const browser: BrowserManager = new BrowserManager({
     window, configRoot, managedWindows: true,
+    importDiscoveryIssues: issues => log.write('browser-import-discovery', JSON.stringify(issues)),
     emit: (channel, value) => sendToMainWindow(mainWindows.get(browser.windowId) ?? window, channel, value),
     emitToWindow: (owner, channel, value) => sendToMainWindow(owner, channel, value),
     enabled: () => browserPreferences.enabled(),

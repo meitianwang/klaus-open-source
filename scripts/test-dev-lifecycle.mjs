@@ -1,4 +1,6 @@
-import { assertElectronGuiAvailable, spawnElectronGui } from './electron-test-preflight.cjs';
+import { assertElectronGuiAvailable } from './electron-test-preflight.cjs';
+import { launchDevelopmentApplication } from './dev-application.mjs';
+import { resolveProductionElectronRuntime } from './electron-runtime-resolver.mjs';
 import { prepareTestEngine } from './prepare-test-engine.mjs';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
@@ -10,7 +12,8 @@ import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 assertElectronGuiAvailable();
-const root = fileURLToPath(new URL('..', import.meta.url)), require = createRequire(import.meta.url), electron = require('electron');
+const root = fileURLToPath(new URL('..', import.meta.url)), require = createRequire(import.meta.url);
+const electron = (await resolveProductionElectronRuntime({ appDirectory: root, env: process.env })).executable;
 for (const args of [[require.resolve('typescript/bin/tsc'), '-p', 'tsconfig.build.json'], ['scripts/build-preload.mjs']]) {
   const result = spawnSync(process.execPath, args, { cwd: root, stdio: 'inherit' });
   if (result.error) throw result.error;
@@ -25,7 +28,7 @@ for (const action of ['quit', 'disconnect']) {
   const setup = spawnSync(electron, ['-e', `const {kvSet}=require('./dist/main/services/settings'); for(const key of ['global_shortcut','quick_input_shortcut','notification.desktop','notification.sound']) kvSet(key,'off',process.env.KLAUS_CONFIG_DIR);`], { cwd: root, env: { ...env, ELECTRON_RUN_AS_NODE: '1' }, stdio: 'inherit' });
   if (setup.error || setup.status !== 0) throw setup.error ?? new Error('Could not prepare an isolated dev profile');
   writeFileSync(join(profile, 'klaus-guest-mode'), '1', { mode: 0o600 });
-  const child = spawnElectronGui(electron, ['.'], { cwd: root, env, stdio: ['ignore', 'pipe', 'pipe', 'ipc'] });
+  const child = await launchDevelopmentApplication({ executable: electron, appDirectory: root, env });
   let report, ready, output = '', failure;
   const exited = new Promise((resolve, reject) => {
     child.once('error', reject); child.once('exit', (code, signal) => resolve({ code, signal }));

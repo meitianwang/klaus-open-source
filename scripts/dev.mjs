@@ -1,4 +1,4 @@
-import { spawnElectronGui } from './electron-test-preflight.cjs';
+import { launchDevelopmentApplication } from './dev-application.mjs';
 import { devLaunchEnvironment, describeEarlyExit, ensureProfileDirectory, resolveDevProfile } from './dev-profile.mjs';
 import { describeElectronRuntime, productionElectronRuntimeMode, resolveProductionElectronRuntime } from './electron-runtime-resolver.mjs';
 import { spawn, spawnSync } from 'node:child_process';
@@ -124,12 +124,15 @@ if (plan.isolated) {
   else console.log('[dev] this profile has no account yet: sign in once here and it is remembered.');
 }
 const env = devLaunchEnvironment({ base: process.env, plan });
-const child = spawnElectronGui(runtime.executable, ['.'], { cwd: appDirectory, env, stdio: ['inherit', 'inherit', 'inherit', 'ipc'] });
+const child = await launchDevelopmentApplication({ executable: runtime.executable, appDirectory, env, stdio: ['inherit', 'inherit', 'inherit', 'ipc'] });
+child.stdout?.pipe(process.stdout, { end: false });
+child.stderr?.pipe(process.stderr, { end: false });
+if (child.logDirectory) console.log(`[dev] application logs: ${child.logDirectory}`);
 let stopping = false, ready = false, windowNeverOpened = false, watcher, watcherDone = Promise.resolve(), watchFailed = false;
 const requestQuit = () => {
   if (stopping) return;
   stopping = true;
-  if (child.connected) child.send({ type: 'klaus:dev:quit' }, () => {});
+  child.send({ type: 'klaus:dev:quit' }, () => {});
 };
 process.on('SIGINT', requestQuit);
 process.on('SIGTERM', requestQuit);

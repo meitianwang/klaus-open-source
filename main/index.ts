@@ -1,3 +1,4 @@
+import './app/dev-bootstrap';
 import { app, dialog } from 'electron';
 import { join } from 'node:path';
 import { userInfo } from 'node:os';
@@ -13,6 +14,7 @@ import { ensureSettingsBackup } from './app/settings-backup';
 import { instanceIdentity } from './app/instance-identity';
 import { DesktopInstanceGuard, instanceActivation, type InstanceActivation } from './native/instance-guard';
 import { notificationProbeRequested, runNotificationProbe } from './app/notifications';
+import { developmentControl as connectDevelopmentControl, type DevelopmentControl } from './app/dev-control';
 
 const edition = currentDesktopEdition();
 claimDesktopProfileEdition(configRootFrom(), edition);
@@ -29,17 +31,18 @@ let quitting = false;
 let preparation: Promise<unknown> | undefined;
 let startup: Promise<void> | undefined;
 let ownershipFailure: Error | undefined;
+let development: DevelopmentControl | undefined;
 if (!app.isPackaged) {
   process.on('SIGINT', () => app.quit());
   process.on('SIGTERM', () => app.quit());
-  if (process.connected) {
-    process.on('message', (message: unknown) => {
-      if (!message || typeof message !== 'object' || !('type' in message)) return;
+  development = connectDevelopmentControl({
+    packaged: false,
+    onCommand: message => {
       if (message.type === 'klaus:dev:quit') app.quit();
       if (message.type === 'klaus:dev:reload' && runtime && !quitting && !runtime.window.isDestroyed()) runtime.window.webContents.reload();
-    });
-    process.on('disconnect', () => app.quit());
-  }
+    },
+    onDisconnect: () => app.quit(),
+  });
 }
 const deepLinks = process.argv.filter(value => value.startsWith(edition.protocol + ':'));
 app.on('open-url', (event, url) => {
@@ -131,15 +134,14 @@ if (notificationProbe) {
           }
         }
         await runtime?.shutdown();
-        if (!app.isPackaged && process.connected) await new Promise<void>(resolve => {
-          process.send?.({ type: 'klaus:dev:closed', engineCount: runtime?.engine.liveProcessCount() ?? 0, native: runtime?.nativeCounts() }, () => resolve());
-        });
       }
       catch (error) { failed = true; console.error('Klaus shutdown:', error); }
       // A failed data-owner shutdown retains the native lock until process exit.
       if (!failed) {
         try { await guard.close(); } catch (error) { failed = true; console.error('Klaus instance shutdown:', error); }
       }
+      await development?.send({ type: 'klaus:dev:closed', exitCode: failed || ownershipFailure ? 1 : 0,
+        engineCount: runtime?.engine.liveProcessCount() ?? 0, native: runtime?.nativeCounts() });
       quitReady = true;
       if (failed || ownershipFailure) app.exit(1); else app.quit();
     })();
@@ -163,7 +165,7 @@ if (notificationProbe) {
     if (app.isPackaged) app.setAsDefaultProtocolClient(edition.protocol);
     runtime = await createDesktopRuntime(app, { windowsProfile });
     if (!quitting) for (const url of deepLinks.splice(0)) runtime.openDeepLink(url);
-    if (!app.isPackaged && process.connected && !quitting) process.send?.({ type: 'klaus:dev:ready', engines: runtime.engine.inspect().map(({ pid, generation }) => ({ pid, generation })) });
+    if (!quitting) await development?.send({ type: 'klaus:dev:ready', engines: runtime.engine.inspect().map(({ pid, generation }) => ({ pid, generation })) });
   }).catch(error => {
     dialog.showErrorBox('Klaus could not start', describeStartupFailure(error));
     app.quit();

@@ -13,6 +13,7 @@ import { NATIVE_SETTINGS_ROUTES, NativeSettingsHistory, nativeSettingsUrl, nativ
 import { waitForNativeSettings } from './native-settings-readiness';
 import { nativeSourceImportBackend } from './native-source-import';
 import type { BrowserProfileImportBackend } from '../../contracts/browser-import-jobs';
+import type { BrowserDiscoveryIssue } from '../../contracts/browser-import';
 import { browserBounds, navigationUrl } from './policy';
 import { BrowserError, json, message, object, string, type BrowserBounds, type BrowserObject, type BrowserScope, type BrowserState } from './types';
 import type { Json } from '../ipc/contract';
@@ -92,6 +93,7 @@ export interface BrowserManagerOptions {
   /** Runtime owns registered main windows and their lifetime. */
   managedWindows?: boolean;
   initializeProfile?(profile: NativeProfileHandle): void;
+  importDiscoveryIssues?(issues: readonly BrowserDiscoveryIssue[]): void;
 }
 
 export type BrowserOperationLease = (() => void) & { readonly signal: AbortSignal };
@@ -447,11 +449,19 @@ export class BrowserManager {
     signal.throwIfAborted();
     const profile = await this.profile();
     signal.throwIfAborted();
-    return nativeSourceImportBackend(profile, requestId => {
+    const backend = nativeSourceImportBackend(profile, requestId => {
       const failure = this.importProjectionFailures.get(requestId);
       this.importProjectionFailures.delete(requestId);
       return failure;
     });
+    return {
+      ...backend,
+      discover: async discoverySignal => {
+        const result = await backend.discover(discoverySignal);
+        if (result.errors.length) this.options.importDiscoveryIssues?.(result.errors);
+        return result;
+      },
+    };
   }
 
   /**
