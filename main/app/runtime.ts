@@ -78,7 +78,7 @@ import { registerUsageHandlers } from '../ipc/handlers/usage';
 import { createMobileRuntime, mobileEngineOwner } from './mobile-runtime';
 import { createConnectorsRuntime } from './connectors-runtime';
 import { MOBILE_DISPATCH_CHANNELS, type MobileBridgeService } from '../services/mobile/service';
-import { UsageService } from '../services/usage';
+import { claudeUsageCacheKey, UsageService } from '../services/usage';
 import { bindSessionWorkdir, readSessionModel } from '../services/session-store';
 import { registerTeamCollaborationHandlers } from '../ipc/handlers/team-collaboration';
 import { FeatureGatesService } from '../services/feature-gates';
@@ -1935,6 +1935,7 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
       void chatRealtime?.refreshAvailability().catch(error => log.write('voice-chat-availability', String(error)));
     },
   });
+  let invalidateClaudeUsage = (): void => {};
   const account = registerAuthHandlers(registry, {
     homeDir: options.externalAuthHomeDir,
     configRoot, request, push: emit, appVersion: app.getVersion(),
@@ -1949,6 +1950,7 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
     }),
     openExternal: url => shell.openExternal(url),
     onAuthChanged: async change => {
+      invalidateClaudeUsage();
       // Authentication callbacks may still own the credential write queue.
       // Invalidate immediately and drain without waiting on that same queue.
       void composerPredictions?.invalidateAll().catch(error => log.write('prediction-auth-cleanup', String(error)));
@@ -2079,6 +2081,7 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
   });
   const usage = new UsageService({
     authMode: sessionId => readSessionModel(sessionId || '', configRoot).source,
+    claudeCacheKey: async () => claudeUsageCacheKey(await account.subscriptions.claudeAccounts()),
     fetch: subscriptionFetch,
     models: async signal => {
       signal?.throwIfAborted(); const client = await sessions.client(), rows = await engineSettings.listModels();
@@ -2104,6 +2107,7 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
       if (client.isClosed() || sessions.engine()?.client !== client) throw new Error('The usage engine connection changed'); return value;
     },
   });
+  invalidateClaudeUsage = () => usage.invalidateClaude();
   registerUsageHandlers(registry, usage);
   early.add(() => usage.close());
   const feedback = new FeedbackService({ workspaces, appVersion: app.getVersion(), serverUrl: account.serverUrl,

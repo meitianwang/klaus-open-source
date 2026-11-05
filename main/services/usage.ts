@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { antigravityPresentationFamily, latestAntigravityFamilyIds, type AntigravityPresentationFamily } from '../../shared/antigravity-presentation';
 import type { Json } from '../ipc/contract';
 import { object, string, type JsonObject } from './service-types';
@@ -26,6 +27,10 @@ export interface UsageDeps {
    * 30 minutes; tests shrink it.
    */
   keepAliveIntervalMs?: number;
+  /** Local account order and login generation; never used as authentication. */
+  claudeCacheKey?: () => string | Promise<string>;
+  /** Clock injection keeps cache and cooldown checks deterministic. */
+  now?: () => number;
 }
 const finite = (value: unknown): number | undefined => typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 function extraCreditUsage(value: unknown): JsonObject | undefined {
@@ -449,8 +454,35 @@ export function zhipuUsage(value: unknown): JsonObject {
   else if (answer.quotaAvailable === false) result.quotaAvailable = false;
   return result;
 }
+/** Account order and login generation scope cached allowance without exposing credentials. */
+export function claudeUsageCacheKey(accounts: Json[]): string {
+  const identity = accounts.map(value => {
+    const account = object(value), tokens = object(account.tokens);
+    return [string(account.id), string(tokens.refreshToken) || string(tokens.accessToken)];
+  });
+  return createHash('sha256').update(JSON.stringify(identity)).digest('hex');
+}
+
+const CLAUDE_USAGE_CACHE_MS = 30_000;
+const CLAUDE_RATE_LIMIT_COOLDOWN_MS = 60_000;
+const CLAUDE_USAGE_ERROR_CACHE_MS = 5_000;
+
+interface ClaudeUsageCache {
+  key: string;
+  expiresAt: number;
+  value: Json;
+}
+interface ClaudeUsagePending {
+  key: string;
+  generation: number;
+  promise: Promise<Json>;
+}
+
 export class UsageService {
   private closed = false;
+  private claudeGeneration = 0;
+  private claudeCache: ClaudeUsageCache | undefined;
+  private claudePending: ClaudeUsagePending | undefined;
   private readonly abort = new AbortController();
   private readonly jobs = new Set<Promise<Json>>();
   /** Modes whose usage was actually requested on this machine, and when. */
@@ -473,7 +505,7 @@ export class UsageService {
   }
   private async tick(): Promise<void> {
     if (this.closed) return;
-    const horizon = Date.now() - 2 * this.keepAliveIntervalMs;
+    const horizon = this.now() - 2 * this.keepAliveIntervalMs;
     for (const mode of ['bailian']) {
       if ((this.lastRead.get(mode) ?? 0) < horizon) continue;
       try { await this.collect(undefined, mode); } catch { /* the next tick retries */ }
@@ -481,10 +513,54 @@ export class UsageService {
   }
   query(sessionId?: string): Promise<Json> {
     if (this.closed) return Promise.reject(new Error('Usage service closed'));
-    const pending = this.collect(sessionId); this.jobs.add(pending); void pending.catch(() => {}).finally(() => this.jobs.delete(pending)); return pending;
+    const mode = this.deps.authMode(sessionId);
+    const pending = mode === 'subscription' ? this.claudeQuery() : this.collect(sessionId, mode);
+    this.jobs.add(pending); void pending.catch(() => {}).finally(() => this.jobs.delete(pending)); return pending;
+  }
+  /** Authentication mutations invalidate completed reads and pending writes together. */
+  invalidateClaude(): void {
+    this.claudeGeneration++;
+    this.claudeCache = undefined;
+    this.claudePending = undefined;
+  }
+  private now(): number { return this.deps.now?.() ?? Date.now(); }
+  private claudeCacheDuration(value: Json): number {
+    const provider = object(object(object(value).snapshot).provider);
+    const accounts = Array.isArray(provider.accounts) ? provider.accounts.map(object) : [];
+    if ([provider, ...accounts].some(row => string(row.error) === 'Usage request failed (HTTP 429)')) return CLAUDE_RATE_LIMIT_COOLDOWN_MS;
+    return provider.state === 'ok' || accounts.some(row => row.state === 'ok') ? CLAUDE_USAGE_CACHE_MS : CLAUDE_USAGE_ERROR_CACHE_MS;
+  }
+  private async claudeQuery(): Promise<Json> {
+    // Source switches share one provider cache; account order and new logins do not.
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const key = await this.deps.claudeCacheKey?.() ?? '';
+      this.abort.signal.throwIfAborted();
+      const generation = this.claudeGeneration;
+      const cached = this.claudeCache;
+      if (cached?.key === key && cached.expiresAt > this.now()) return structuredClone(cached.value);
+      if (cached) this.claudeCache = undefined;
+      let pending = this.claudePending;
+      if (!pending || pending.key !== key || pending.generation !== generation) {
+        pending = { key, generation, promise: this.collect(undefined, 'subscription') };
+        this.claudePending = pending;
+      }
+      try {
+        const value = await pending.promise;
+        this.abort.signal.throwIfAborted();
+        const currentKey = await this.deps.claudeCacheKey?.() ?? '';
+        this.abort.signal.throwIfAborted();
+        if (generation !== this.claudeGeneration || key !== currentKey) continue;
+        this.claudeCache = { key, expiresAt: this.now() + this.claudeCacheDuration(value), value };
+        return structuredClone(value);
+      } finally {
+        if (this.claudePending === pending) this.claudePending = undefined;
+      }
+    }
+    throw new Error('Claude login changed; refresh the allowance again');
   }
   async close(): Promise<void> {
     this.closed = true;
+    this.invalidateClaude();
     if (this.keepAliveTimer !== undefined) clearInterval(this.keepAliveTimer);
     this.abort.abort(); await Promise.allSettled([...this.jobs]);
   }
@@ -539,8 +615,8 @@ export class UsageService {
         default: provider = { state: 'ok', models: [] };
       }
     } catch (error) { provider = { state: 'error', error: this.failure(error) }; }
-    this.lastRead.set(mode, Date.now());
-    this.abort.signal.throwIfAborted(); return { ok: true, snapshot: { mode, provider, fetchedAt: Date.now() } };
+    this.lastRead.set(mode, this.now());
+    this.abort.signal.throwIfAborted(); return { ok: true, snapshot: { mode, provider, fetchedAt: this.now() } };
   }
   private failure(error: unknown): string {
     // Facade failures can be plain RPC objects rather than Error instances.

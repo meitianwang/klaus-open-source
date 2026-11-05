@@ -10,6 +10,7 @@ import { guestModeActive, isLoggedIn, klausAuthStatus, readStoredAuth } from '..
 import { AUTH_MODES, DEFAULT_AUTH_MODE } from '../main/services/model-sources';
 import { isFailure, kvDel, kvGet, kvOpt, kvSet, kvSnapshot, settingsDbPath } from '../main/services/settings';
 import { registerServiceHandlerTests } from './service-handlers';
+import { registerUsageCacheTests } from './usage-cache';
 
 const h = new Harness();
 
@@ -435,6 +436,7 @@ h.test('supported sources need no account or membership to persist a preference'
 });
 
 registerServiceHandlerTests(h, freshRoot);
+registerUsageCacheTests(h);
 
 // Drain the queue, clean up, then report.
 void (async () => {
