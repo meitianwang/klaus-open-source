@@ -1,0 +1,85 @@
+diff --git a/BUILD.gn b/BUILD.gn
+index 17cc0b7830c3f0a3dc70ce80c4286481effcca4f..6df9ea1164fbd4e883d67ff5a74cf4ebe9ee9ee6 100644
+--- a/BUILD.gn
++++ b/BUILD.gn
+@@ -545,6 +545,7 @@ source_set("electron_lib") {
+     "//chrome/browser/password_manager/factories:factories",
+     "//chrome/browser/policy:impl",
+     "//chrome/browser/profiles:profile_manager_impl",
++    "//chrome/browser/profiles/keep_alive",
+     "//chrome/browser/profiles:profile_util_impl",
+     "//chrome/browser/profiles:profiles_extra_parts",
+     "//chrome/browser/profiles:profiles_extra_parts_impl",
+diff --git a/shell/browser/api/electron_api_native_browser.cc b/shell/browser/api/electron_api_native_browser.cc
+index ed53c5e5be45f378eb20e8f947be666d4369f829..30950ca0269ef5a18993abe1e0240db08bb3ae21 100644
+--- a/shell/browser/api/electron_api_native_browser.cc
++++ b/shell/browser/api/electron_api_native_browser.cc
+@@ -44,6 +44,9 @@
+ #include "chrome/browser/extensions/extension_management.h"
+ #include "chrome/browser/profiles/profile.h"
+ #include "chrome/browser/profiles/profile_manager.h"
++#include "chrome/browser/profiles/profile_observer.h"
++#include "chrome/browser/profiles/keep_alive/profile_keep_alive_types.h"
++#include "chrome/browser/profiles/keep_alive/scoped_profile_keep_alive.h"
+ #include "chrome/browser/permissions/permission_manager_factory.h"
+ #include "components/permissions/host_permission_scope.h"
+ #include "components/permissions/permission_request_manager.h"
+@@ -308,13 +311,17 @@ void DeferNativeRejections(
+ class NativeProfile final
+     : public gin_helper::TrackableObject<NativeProfile>,
+       private content::BrowsingDataRemover::Observer,
++      private ProfileObserver,
+       public ChromeDownloadManagerDelegate::TargetAuthorizer,
+       public content::DownloadManager::Observer,
+       public download::DownloadItem::Observer {
+  public:
+   NativeProfile(v8::Isolate* isolate, Profile* profile)
+       : profile_(profile),
++        profile_keep_alive_(std::make_unique<ScopedProfileKeepAlive>(
++            profile, ProfileKeepAliveOrigin::kEmbedderService)),
+         imports_(std::make_unique<NativeBrowserImport>(profile)) {
++    profile_->AddObserver(this);
+     Init(isolate);
+     download_manager_ = profile_->GetDownloadManager();
+     // Observation starts only after the host has subscribed. Existing
+@@ -327,6 +334,7 @@ class NativeProfile final
+     DetachDownloads();
+     if (data_remover_) data_remover_->RemoveObserver(this);
+     DeferNativeRejections(nullptr, std::move(clear_promise_), std::move(requests_));
++    ReleaseProfile();
+   }
+   static void BuildPrototype(v8::Isolate* isolate, v8::Local<v8::FunctionTemplate> prototype) {
+     prototype->SetClassName(gin::StringToV8(isolate, "NativeProfile"));
+@@ -361,6 +369,14 @@ class NativeProfile final
+     clear_promise_.reset();
+     for (auto& [id, request] : requests_) request->Cancel();
+     requests_.clear();
++    ReleaseProfile();
++  }
++  void OnProfileWillBeDestroyed(Profile* profile) override { Dispose(); }
++  void ReleaseProfile() {
++    if (profile_)
++      profile_->RemoveObserver(this);
++    profile_ = nullptr;
++    profile_keep_alive_.reset();
+   }
+   v8::Local<v8::Promise> ImportCookies(v8::Isolate* isolate,
+                                       const std::string& id,
+@@ -674,7 +690,8 @@ class NativeProfile final
+   }
+ 
+   void DetachDownloads() {
+-    ChromeDownloadManagerDelegate::ClearTargetAuthorizer(profile_, this);
++    if (profile_)
++      ChromeDownloadManagerDelegate::ClearTargetAuthorizer(profile_, this);
+     if (download_manager_) {
+       download_manager_->RemoveObserver(this);
+       download_manager_ = nullptr;
+@@ -879,6 +896,7 @@ class NativeProfile final
+   }
+ 
+   raw_ptr<Profile> profile_;
++  std::unique_ptr<ScopedProfileKeepAlive> profile_keep_alive_;
+   std::unique_ptr<NativeBrowserImport> imports_;
+   bool closed_ = false;
+   std::map<std::string, std::unique_ptr<NativeProfileRequest>> requests_;

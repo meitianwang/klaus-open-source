@@ -10,7 +10,10 @@ import { waitFor } from './harness';
 export async function assertBrowserSettingsRuntime(runtime: DesktopRuntime, profile: string): Promise<void> {
   const window = runtime.window, contents = window.webContents;
   const logs = join(__dirname, '../browser-settings-logs'); mkdirSync(logs, { recursive: true });
-  const evaluate = (script: string): Promise<any> => contents.executeJavaScript(script);
+  const evaluate = async (script: string): Promise<any> => {
+    try { return await contents.executeJavaScript(script); }
+    catch (error) { console.error('Browser settings fixture renderer script failed:', script); throw error; }
+  };
   const click = async (selector: string): Promise<void> => {
     const point = await evaluate(`(() => { const node = document.querySelector(${JSON.stringify(selector)}); node.scrollIntoView({ block: 'center' }); const rect = node.getBoundingClientRect(); return { x: Math.round(rect.x + rect.width / 2), y: Math.round(rect.y + rect.height / 2) }; })()`);
     contents.sendInputEvent({ type: 'mouseDown', button: 'left', clickCount: 1, ...point });
@@ -62,15 +65,22 @@ export async function assertBrowserSettingsRuntime(runtime: DesktopRuntime, prof
       writeFileSync(join(logs, 'browser-annotation-failure.json'), JSON.stringify(await evaluate('({ clicks: window.__annotationClicks, toasts: window.__annotationToasts, overlay: document.querySelector("[data-browser-annotation-overlay]")?.textContent, image: (() => {const i=document.querySelector("[data-browser-annotation-stage] img");return i && {src:i.getAttribute("src").slice(0,100),complete:i.complete,width:i.naturalWidth,height:i.naturalHeight}})(), text: document.body.innerText.slice(-2500) })'), null, 2));
       throw error;
     });
+    await evaluate(`window.__annotationPointers = []; for (const type of ['pointerdown', 'pointermove', 'pointerup']) document.addEventListener(type, event => window.__annotationPointers.push({ type, x: event.clientX, y: event.clientY, buttons: event.buttons, target: event.target?.tagName }), true);`);
     const rect = await evaluate('(() => { const r = document.querySelector("[data-browser-annotation-stage] img").getBoundingClientRect(); return {x:r.x,y:r.y,width:r.width,height:r.height}; })()');
     const start = { x: Math.round(rect.x + 20), y: Math.round(rect.y + 20) };
     const end = { x: Math.round(rect.x + Math.min(rect.width - 20, 180)), y: Math.round(rect.y + Math.min(rect.height - 20, 100)) };
     contents.sendInputEvent({ type: 'mouseDown', button: 'left', clickCount: 1, ...start });
-    contents.sendInputEvent({ type: 'mouseMove', ...end });
+    await evaluate('new Promise(resolve => requestAnimationFrame(resolve))');
+    contents.sendInputEvent({ type: 'mouseMove', modifiers: ['leftbuttondown'], ...end });
+    await evaluate('new Promise(resolve => requestAnimationFrame(resolve))');
     contents.sendInputEvent({ type: 'mouseUp', button: 'left', clickCount: 1, ...end });
     await evaluate('document.querySelector("[data-browser-annotation-overlay] textarea").focus()');
     await contents.insertText('Explain this synthetic region.');
-    await waitFor(() => evaluate('Boolean(document.querySelector("[data-browser-annotation-overlay] button:last-child:not(:disabled)"))'), 5000, 'the annotation region is selected');
+    await waitFor(() => evaluate('Boolean(document.querySelector("[data-browser-annotation-overlay] button:last-child:not(:disabled)"))'), 5000, 'the annotation region is selected').catch(async error => {
+      writeFileSync(join(logs, 'browser-annotation-selection-failure.png'), (await contents.capturePage()).toPNG());
+      writeFileSync(join(logs, 'browser-annotation-selection-failure.json'), JSON.stringify({ rect, start, end, browser: runtime.browser.state(), renderer: await evaluate('({ pointers: window.__annotationPointers, overlay: document.querySelector("[data-browser-annotation-overlay]")?.innerText, note: document.querySelector("[data-browser-annotation-overlay] textarea")?.value, focus: document.activeElement?.tagName })') }, null, 2));
+      throw error;
+    });
     await click('[data-browser-annotation-overlay] button:last-child');
     try {
       await waitFor(() => evaluate('!document.querySelector("[data-browser-annotation-overlay]") && document.body.textContent.includes("Explain this synthetic region.")'), 5000, 'the annotation reaches the composer draft without sending');

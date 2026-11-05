@@ -951,6 +951,36 @@
       "file": "patches/native-page-focus-1edf2ace3f3203a022caa82caa98a8887189c478e9474b8af6f4c7c1b68fb9fb.patch",
       "sha256": "1edf2ace3f3203a022caa82caa98a8887189c478e9474b8af6f4c7c1b68fb9fb",
       "purpose": "Expose native renderer focus for host overlay handoff"
+    },
+    {
+      "repo": "chromium",
+      "file": "patches/0157-embedder-application-keepalive-4be69b367a501a509162b02c114dbd75e1d681d04ae672f43f5b833f1e25c7e6.patch",
+      "sha256": "4be69b367a501a509162b02c114dbd75e1d681d04ae672f43f5b833f1e25c7e6",
+      "purpose": "Distinguish the embedding application lifetime from native browser windows"
+    },
+    {
+      "repo": "electron",
+      "file": "patches/0158-native-application-lifetime-1d7194af7280e53e436925b25ab829505048545c82e95aa443546a5185cc1345.patch",
+      "sha256": "1d7194af7280e53e436925b25ab829505048545c82e95aa443546a5185cc1345",
+      "purpose": "Keep host renderers alive when the final native browser window closes"
+    },
+    {
+      "repo": "chromium",
+      "file": "patches/0159-embedder-profile-service-origin-1094aabc78123f029818f4bf8d6817cd3cbd8fca2e40cdefa1cb72adf93d6387.patch",
+      "sha256": "1094aabc78123f029818f4bf8d6817cd3cbd8fca2e40cdefa1cb72adf93d6387",
+      "purpose": "Track native Profile service ownership independently of browser windows"
+    },
+    {
+      "repo": "electron",
+      "file": "patches/0160-native-profile-service-lifetime-98d46fa4ed7f546c6f6851a4c6716ab47b131d5c99cc9565ba6e9c78cb8bb4e2.patch",
+      "sha256": "98d46fa4ed7f546c6f6851a4c6716ab47b131d5c99cc9565ba6e9c78cb8bb4e2",
+      "purpose": "Retain native Profile services until their host handle is disposed"
+    },
+    {
+      "repo": "electron",
+      "file": "patches/0161-profile-service-acquire-35666ef4021c1ebca6aa53f31aea781fd62b574ba9f1fa069b24190cc242d175.patch",
+      "sha256": "35666ef4021c1ebca6aa53f31aea781fd62b574ba9f1fa069b24190cc242d175",
+      "purpose": "Reject native Profile service handles when keepalive acquisition fails"
     }
   ],
   "link_boundary": {

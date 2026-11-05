@@ -1,0 +1,34 @@
+diff --git a/shell/browser/api/electron_api_native_browser.cc b/shell/browser/api/electron_api_native_browser.cc
+index 30950ca0269ef5a18993abe1e0240db08bb3ae21..ed2bc15b0a5844e32cb54a14c0270995488c1fbd 100644
+--- a/shell/browser/api/electron_api_native_browser.cc
++++ b/shell/browser/api/electron_api_native_browser.cc
+@@ -316,10 +316,10 @@ class NativeProfile final
+       public content::DownloadManager::Observer,
+       public download::DownloadItem::Observer {
+  public:
+-  NativeProfile(v8::Isolate* isolate, Profile* profile)
++  NativeProfile(v8::Isolate* isolate, Profile* profile,
++                std::unique_ptr<ScopedProfileKeepAlive> keep_alive)
+       : profile_(profile),
+-        profile_keep_alive_(std::make_unique<ScopedProfileKeepAlive>(
+-            profile, ProfileKeepAliveOrigin::kEmbedderService)),
++        profile_keep_alive_(std::move(keep_alive)),
+         imports_(std::make_unique<NativeBrowserImport>(profile)) {
+     profile_->AddObserver(this);
+     Init(isolate);
+@@ -939,7 +939,14 @@ v8::Local<v8::Promise> CreateNativeProfile(v8::Isolate* isolate) {
+         v8::Isolate* isolate = promise.isolate();
+         v8::HandleScope scope(isolate);
+         v8::Context::Scope context_scope(promise.GetContext());
+-        promise.Resolve(new NativeProfile(isolate, profile));
++        auto keep_alive = ScopedProfileKeepAlive::TryAcquire(
++            profile, ProfileKeepAliveOrigin::kEmbedderService);
++        if (!keep_alive) {
++          promise.RejectWithErrorMessage("The native Profile is shutting down");
++          return;
++        }
++        promise.Resolve(new NativeProfile(isolate, profile,
++                                          std::move(keep_alive)));
+       }, std::move(promise)));
+   return handle;
+ }

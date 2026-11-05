@@ -1,6 +1,6 @@
 # Native browser runtime acceptance
 
-The manifest contains 156 immutable patches. Ordered preflight matches the actual source with both real indexes unchanged (874-native-source-state.log). The complete Electron target compiles, links and assembles its bundle with exit zero (867). The final electron_lib header dependency check passes (876). Product BrowserManager, settings, imports and lifecycle handling are connected.
+The manifest contains 161 immutable patches. Ordered preflight matches the actual source with both real indexes unchanged (906-final-native-source.log). The complete Electron target compiles, links and assembles its bundle with exit zero (906-final-native-build.log). The final electron_lib header dependency check passes (907-final-native-headers.log). Product BrowserManager, settings, imports and lifecycle handling are connected.
 
 ## Accepted behavior
 
@@ -16,8 +16,10 @@ Original commands, outputs and images are in the ignored browser-settings-alignm
 - Native persistent permission edits, WebUI edits, real page queries, task-denial precedence, default reset and restart persistence use one Profile rule store (822).
 - Native popup adoption preserves POST/307 and task ownership, handles target-blank and window.open, blocks denied redirects, cancels pending children on disable, retains accepted children after opener closure and exits cleanly (848). Startup-order regression checks pass (847, 851).
 
+- Application and Profile service keepalives have distinct ownership. Closing and reopening the final native window five times preserves the host renderer and live Profile services, then exits cleanly (905). Host compositor capture with a native child also passes (903). Native management windows close normally; no retired hidden pages are retained.
+
 ## Limits and remaining delivery
 
 Accepted native execution is macOS arm64. Windows and x64 native builds are not established. The native CSV picker reached its real dialog but selection was refused by the UI focus guard; no picker success is claimed. Production import APIs have independent synthetic success evidence. Legacy Electron profile files are retained without unverified internal database copying.
 
-Composed settings UI, the affected command-map audit, runtime artifact verification and dev/package consumption remain product delivery gates, followed by public review, push and primary-checkout reconciliation. Compilation and raw Profile probes do not establish these gates. Failed attempts remain negative evidence in ignored logs.
+The final runtime receipt, complete bundle tree and packager ZIP pass verification (908). Development preparation passed (878), and the final native runtime is consumed by a verified local application package (910). Independent composed settings UI acceptance covers all four management pages, native back navigation, 1280/760 layouts, 125% zoom, resize, six opens and real closure with zero remaining management views; the host PID and JavaScript remain live (settings-compose-worktree/dist/native-settings-compose-logs/20-final-33b9fa1.log). The complete production command-map audit passes with 727 required and registered handlers, zero missing or extra handlers, and 79 matching push producers (918). Its real annotation flow captures rendered pixels, selects a region and retains a draft attachment without sending. Public review, push and primary-checkout reconciliation are tracked separately. Failed attempts remain negative evidence in ignored logs.

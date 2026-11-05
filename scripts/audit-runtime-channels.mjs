@@ -30,7 +30,9 @@ for (const args of [
 }
 const fixtures = join(root, 'dist/fixtures'); mkdirSync(fixtures, { recursive: true });
 const profile = mkdtempSync(join(fixtures, 'channel-audit-'));
-const env = { ...process.env, KLAUS_CHANNEL_AUDIT_PROFILE: profile }; delete env.ELECTRON_RUN_AS_NODE;
+const env = { ...process.env, KLAUS_CHANNEL_AUDIT_PROFILE: profile, KLAUS_CONFIG_DIR: profile,
+  KLAUS_PLUGIN_HOME: join(profile, 'plugins'), KLAUS_SESSION_DIR: join(profile, 'sessions') };
+delete env.ELECTRON_RUN_AS_NODE;
 try {
 delete env.KLAUS_CHANNEL_AUDIT_ENGINE_BINARY;
 if (values['engine-binary'] !== undefined) {
