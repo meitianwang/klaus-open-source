@@ -1,0 +1,23 @@
+diff --git a/shell/browser/api/native_browser_source_reader.cc b/shell/browser/api/native_browser_source_reader.cc
+index ea2a3b5dd..f74639f2c 100644
+--- a/shell/browser/api/native_browser_source_reader.cc
++++ b/shell/browser/api/native_browser_source_reader.cc
+@@ -1001,9 +1001,16 @@ class NativeBrowserSourceReader::Impl {
+         base::FilePath extra = WithSuffix(source_db, suffix);
+         if (before[index].exists) {
+           base::FilePath extra_target = WithSuffix(target, suffix);
++          errno = 0;
+           if (!base::CopyFile(extra, extra_target)) {
+-            *error_code = "source_permission_denied";
+-            *error_message = "A browser database or sidecar could not be copied.";
++            const int copy_errno = errno;
++            const base::File::Error file_error = base::File::GetLastFileError();
++            *error_code = "database_snapshot_failed";
++            *error_message = base::StringPrintf(
++                "A browser database snapshot could not be copied "
++                "(operation=copy; part=%s; file_error=%d; errno=%d).",
++                index == 0 ? "database" : index == 1 ? "wal" : "shm",
++                static_cast<int>(file_error), copy_errno);
+             return false;
+           }
+         } else {

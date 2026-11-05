@@ -1,0 +1,158 @@
+diff --git a/shell/browser/api/native_browser_source_reader.cc b/shell/browser/api/native_browser_source_reader.cc
+index 09d16f8..ea2a3b5 100644
+--- a/shell/browser/api/native_browser_source_reader.cc
++++ b/shell/browser/api/native_browser_source_reader.cc
+@@ -180,6 +180,19 @@ int CompareExtensionVersion(const std::string& a, const std::string& b) {
+   return 0;
+ }
+ 
++bool IsImportableProfileDirectory(const std::string& id) {
++  if (!IsValidProfileId(id) ||
++      base::StartsWith(id, "login-staging-", base::CompareCase::SENSITIVE))
++    return false;
++  for (const char* excluded : {"CertificateRevocation", "GraphiteDawnCache",
++                               "Crashpad", "System Profile", "ShaderCache",
++                               "GrShaderCache", "Safe Browsing", "Guest Profile"}) {
++    if (id == excluded)
++      return false;
++  }
++  return true;
++}
++
+ bool IsWithinRoot(const base::FilePath& root, const base::FilePath& candidate) {
+   return root == candidate || root.IsParent(candidate);
+ }
+@@ -474,6 +487,7 @@ class NativeBrowserSourceReader::Impl {
+     DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+     std::vector<base::DictValue> profile_rows;
+     base::ListValue errors;
++    base::ListValue index_errors;
+ 
+     std::string code, message;
+     if (HasTestError(&code, &message)) {
+@@ -507,29 +521,32 @@ class NativeBrowserSourceReader::Impl {
+       std::string ls_code, ls_message;
+       base::DictValue profile_state =
+           ReadLocalState(root_real, &ls_code, &ls_message);
+-      if (!ls_code.empty()) {
+-        AddDiscoveryError(&errors, root.id, ls_code, ls_message);
+-        continue;
+-      }
++      if (!ls_code.empty())
++        AddDiscoveryError(&index_errors, root.id, ls_code, ls_message);
+       const base::Value* last_used_value = profile_state.Find("last_used");
+       const std::string* last_used =
+           last_used_value ? last_used_value->GetIfString() : nullptr;
+       const base::DictValue* info_cache = profile_state.FindDict("info_cache");
+-      if (!info_cache || info_cache->empty()) {
+-        AddDiscoveryError(&errors, root.id, "profile_cache_empty",
+-                          "The browser profile index contains no profiles.");
+-        continue;
+-      }
+-      for (const auto item : *info_cache) {
++      int entry_types = base::FileEnumerator::DIRECTORIES;
++#if BUILDFLAG(IS_POSIX) || BUILDFLAG(IS_FUCHSIA)
++      entry_types |= base::FileEnumerator::SHOW_SYM_LINKS;
++#endif
++      base::FileEnumerator directories(
++          root_real, false, entry_types, base::FilePath::StringType(),
++          base::FileEnumerator::FolderSearchPolicy::ALL,
++          base::FileEnumerator::ErrorPolicy::STOP_ENUMERATION);
++      for (base::FilePath profile_dir = directories.Next(); !profile_dir.empty();
++           profile_dir = directories.Next()) {
+         if (cancelled_->load())
+           break;
+-        const std::string& profile_id = item.first;
+-        if (!IsValidProfileId(profile_id)) {
+-          AddDiscoveryError(&errors, root.id, "profile_id_rejected",
+-                            "A profile directory name is not supported.");
++        const std::string profile_id = profile_dir.BaseName().AsUTF8Unsafe();
++        if (!IsImportableProfileDirectory(profile_id))
++          continue;
++        if (base::IsLink(profile_dir)) {
++          AddDiscoveryError(&errors, root.id, "profile_symlink_rejected",
++                            "A profile directory is a symbolic link.");
+           continue;
+         }
+-        base::FilePath profile_dir = root_real.Append(profile_id);
+         base::File::Info profile_info;
+         if (!base::GetFileInfo(profile_dir, &profile_info) ||
+             !profile_info.is_directory) {
+@@ -539,8 +556,7 @@ class NativeBrowserSourceReader::Impl {
+           }
+           continue;
+         }
+-        if (profile_info.is_symbolic_link ||
+-            base::IsLink(profile_dir)) {
++        if (profile_info.is_symbolic_link) {
+           AddDiscoveryError(&errors, root.id, "profile_symlink_rejected",
+                             "A profile directory is a symbolic link.");
+           continue;
+@@ -573,12 +589,15 @@ class NativeBrowserSourceReader::Impl {
+         has_extensions = base::GetFileInfo(ext_dir, &ext_info) &&
+                          ext_info.is_directory && !ext_info.is_symbolic_link;
+ 
++        if (!has_cookies && !has_passwords && !has_history && !has_extensions)
++          continue;
+         base::DictValue candidate;
+         candidate.Set("sourceId", root.id);
+         candidate.Set("sourceLabel", root.label);
+         candidate.Set("profileId", profile_id);
+         candidate.Set("displayName",
+-                      SafeDisplayName(&item.second, profile_id));
++                      SafeDisplayName(info_cache ? info_cache->Find(profile_id)
++                                                 : nullptr, profile_id));
+         candidate.Set("lastUsed", last_used && *last_used == profile_id);
+         candidate.Set("cookies", has_cookies);
+         candidate.Set("passwords", has_passwords);
+@@ -586,6 +605,12 @@ class NativeBrowserSourceReader::Impl {
+         candidate.Set("extensions", has_extensions);
+         profile_rows.push_back(std::move(candidate));
+       }
++      if (directories.GetError() != base::File::FILE_OK) {
++        const bool denied = directories.GetError() == base::File::FILE_ERROR_ACCESS_DENIED;
++        AddDiscoveryError(&errors, root.id,
++                          denied ? "source_permission_denied" : "profile_unreadable",
++                          "The browser profile directories could not be enumerated.");
++      }
+     }
+ 
+     std::sort(profile_rows.begin(), profile_rows.end(),
+@@ -613,6 +638,7 @@ class NativeBrowserSourceReader::Impl {
+     base::DictValue result;
+     result.Set("profiles", std::move(profiles));
+     result.Set("errors", std::move(errors));
++    result.Set("indexErrors", std::move(index_errors));
+     return result;
+   }
+ 
+@@ -867,24 +893,16 @@ class NativeBrowserSourceReader::Impl {
+       *error_message = "The selected browser data directory could not be inspected.";
+       return false;
+     }
+-    std::string ls_code, ls_message;
+-    base::DictValue local_state = ReadLocalState(root_real, &ls_code, &ls_message);
+-    if (!ls_code.empty()) {
+-      *error_code = ls_code;
+-      *error_message = ls_message;
+-      return false;
+-    }
+-    const base::DictValue* info_cache = local_state.FindDict("info_cache");
+-    if (!info_cache || !info_cache->Find(selected_profile_id_)) {
++    if (!IsImportableProfileDirectory(selected_profile_id_)) {
+       *error_code = "profile_not_found";
+-      *error_message = "The selected browser profile is no longer available.";
++      *error_message = "The selected directory is not a browser profile.";
+       return false;
+     }
+     base::FilePath profile_dir = root_real.Append(selected_profile_id_);
+     base::File::Info profile_info;
+-    if (!base::GetFileInfo(profile_dir, &profile_info) ||
+-        !profile_info.is_directory || profile_info.is_symbolic_link ||
+-        base::IsLink(profile_dir)) {
++    if (base::IsLink(profile_dir) ||
++        !base::GetFileInfo(profile_dir, &profile_info) ||
++        !profile_info.is_directory || profile_info.is_symbolic_link) {
+       *error_code = "profile_unavailable";
+       *error_message = "The selected browser profile can no longer be read.";
+       return false;

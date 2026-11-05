@@ -1,10 +1,10 @@
 import { randomUUID } from 'node:crypto';
-import type { BrowserDiscoveryResult, BrowserImportRequest, BrowserImportResult } from '../../contracts/browser-import';
+import type { BrowserDiscoveryIssue, BrowserDiscoveryResult, BrowserImportRequest, BrowserImportResult } from '../../contracts/browser-import';
 import type { BrowserProfileImportBackend } from '../../contracts/browser-import-jobs';
 import { BrowserError } from './types';
 
 export interface NativeSourceImportHandle {
-  listImportableProfiles(requestId: string): Promise<BrowserDiscoveryResult>;
+  listImportableProfiles(requestId: string): Promise<BrowserDiscoveryResult & { indexErrors?: BrowserDiscoveryIssue[] }>;
   importProfile(requestId: string, request: BrowserImportRequest): Promise<BrowserImportResult>;
   cancelProfileImport(requestId: string): void;
 }
@@ -13,6 +13,7 @@ export interface NativeSourceImportHandle {
 export function nativeSourceImportBackend(
   profile: NativeSourceImportHandle,
   projectionFailure: (requestId: string) => string | undefined = () => undefined,
+  indexIssues: (issues: readonly BrowserDiscoveryIssue[]) => void = () => {},
 ): BrowserProfileImportBackend {
   for (const method of ['listImportableProfiles', 'importProfile', 'cancelProfileImport'] as const) {
     if (typeof profile[method] !== 'function') {
@@ -36,7 +37,8 @@ export function nativeSourceImportBackend(
       const discoveryId = randomUUID();
       const result = await operation(discoveryId, signal, () => profile.listImportableProfiles(discoveryId));
       signal.throwIfAborted();
-      return result;
+      if (result.indexErrors?.length) indexIssues(result.indexErrors);
+      return { profiles: result.profiles, errors: result.errors };
     },
     importProfile: async (id, request, signal) => {
       const result = await operation(id, signal, () => profile.importProfile(id, request));

@@ -35,7 +35,83 @@ app.whenReady().then(async () => {
     manager.setConversation('owned-import');
     const backend = await manager.profileImporter(new AbortController().signal);
     const profile = await manager.profile();
-    if (mode === 'no-source') {
+    if (mode === 'discovery-errors') {
+      fs.rmSync(source, { recursive: true, force: true });
+      const index = path.join(source, 'Local State');
+      const discovery = async () => profile.listImportableProfiles(randomUUID());
+      const expectCode = async code => {
+        const value = await discovery();
+        assert.equal(value.profiles.length, 1, 'directory profiles do not require optional index access');
+        assert.equal(value.profiles[0].displayName, 'Default');
+        assert.equal(value.errors.length, 0, JSON.stringify(value));
+        assert(value.indexErrors.some(error => error.code === code), JSON.stringify(value));
+        result.discoveryErrors ??= [];
+        result.discoveryErrors.push({ code, errors: value.indexErrors });
+      };
+      const valid = () => {
+        fixtures.writeLocalState(source, { Default: { name: 'Owned discovery profile' } });
+        const directory = fixtures.profileDirectory(source, 'Default');
+        if (!fs.existsSync(path.join(directory, 'History'))) fixtures.createHistory(directory, [{ url: 'https://owned.test/native-index', title: 'Owned index-independent history', visitedAt: Date.now() }]);
+      };
+      valid();
+      assert.equal((await discovery()).profiles.length, 1);
+      fs.chmodSync(index, 0o000);
+      try {
+        await expectCode('source_permission_denied');
+        const imported = await backend.importProfile('without-readable-index', { sourceId: 'chrome', profileId: 'Default', categories: { history: true, cookies: false, passwords: false, extensions: false } }, new AbortController().signal);
+        assert.equal(imported.ok, true, JSON.stringify(imported.errors));
+        assert.equal(imported.counts.history, 1, 'selected directory import does not reopen the denied optional index');
+        result.importWithoutIndex = imported.counts;
+      }
+      finally { fs.chmodSync(index, 0o600); }
+      assert.equal((await discovery()).profiles.length, 1, 'restoring the owned index preserves directory discovery');
+      const deniedHistory = path.join(source, 'Default', 'History');
+      fs.chmodSync(deniedHistory, 0o000);
+      try {
+        const failedSnapshot = await backend.importProfile('denied-owned-snapshot', { sourceId: 'chrome', profileId: 'Default', categories: { history: true, cookies: false, passwords: false, extensions: false } }, new AbortController().signal);
+        assert.equal(failedSnapshot.ok, false);
+        assert.equal(failedSnapshot.counts.history, 0);
+        const copyError = failedSnapshot.errors.find(error => error.code === vectors.snapshotFailureCode);
+        assert(copyError, JSON.stringify(failedSnapshot));
+        assert.match(copyError.message, /operation=copy; part=database; file_error=-\d+; errno=\d+/);
+        assert(!failedSnapshot.errors.some(error => error.code === 'source_permission_denied'), 'copy failures do not claim to establish which side denied access');
+        result.snapshotErrors = failedSnapshot.errors;
+      } finally { fs.chmodSync(deniedHistory, 0o600); }
+      fs.unlinkSync(index);
+      await expectCode('local_state_missing');
+      fs.mkdirSync(index);
+      await expectCode('local_state_unreadable');
+      fs.rmdirSync(index);
+      const outside = path.join(root, 'owned-outside-index');
+      fs.writeFileSync(outside, '{ synthetic outside index }');
+      fs.symlinkSync(outside, index);
+      await expectCode('local_state_symlink_rejected');
+      fs.unlinkSync(index);
+      fs.writeFileSync(index, '{ malformed synthetic JSON');
+      await expectCode(vectors.malformedIndexCode);
+      fs.writeFileSync(index, '');
+      fs.truncateSync(index, 16 * 1024 * 1024 + 1);
+      await expectCode('local_state_too_large');
+      valid();
+      assert.equal((await discovery()).profiles.length, 1);
+      fs.chmodSync(source, 0o000);
+      try {
+        const deniedRoot = await discovery();
+        assert.equal(deniedRoot.profiles.length, 0);
+        assert(deniedRoot.errors.some(error => error.code === 'source_permission_denied'), JSON.stringify(deniedRoot));
+      } finally { fs.chmodSync(source, 0o700); }
+      for (const excluded of vectors.nonProfileDirectories) {
+        const directory = fixtures.profileDirectory(source, excluded);
+        fs.writeFileSync(path.join(directory, 'History'), '');
+      }
+      assert.equal((await discovery()).profiles.length, 1, 'browser state directories are not import profiles');
+      const unindexed = fixtures.profileDirectory(source, 'Unindexed profile');
+      fs.writeFileSync(path.join(unindexed, 'History'), '');
+      const unindexedResult = await discovery();
+      assert.equal(unindexedResult.profiles.length, 2);
+      assert(unindexedResult.profiles.some(value => value.profileId === 'Unindexed profile'));
+      save('native-directory-discovery-optional-index-diagnostics-and-denied-source-boundary');
+    } else if (mode === 'no-source') {
       const discovery = await backend.discover(new AbortController().signal);
       assert.equal(discovery.profiles.length, 0);
       assert(discovery.errors.some(error => error.code === vectors.mockSourceMissingCode));
@@ -48,7 +124,7 @@ app.whenReady().then(async () => {
       if (mode === 'initial') {
         const directory = path.join(source, 'Default');
         fixtures.writeLocalState(source, { Default: { name: 'Synthetic profile' }, 'Profile 1': { name: 'Second profile' } });
-        fixtures.profileDirectory(source, 'Profile 1');
+        fs.writeFileSync(path.join(fixtures.profileDirectory(source, 'Profile 1'), 'History'), '');
         const network = path.join(directory, 'Network');
         sourceDb = fixtures.createCookies(network, [
           { host: '127.0.0.1', name: 'imported', encrypted: encrypted('synthetic-cookie', '127.0.0.1'), expiresAt: Date.now() + 86400000, httpOnly: true, sameSite: 1 },
@@ -125,9 +201,10 @@ app.whenReady().then(async () => {
         assert.equal(schema.counts.history, 0);
         assert(schema.errors.some(error => error.code === vectors.unsupportedHistorySchemaCode));
         fs.writeFileSync(path.join(source, 'Local State'), '{ malformed synthetic JSON');
-        const malformed = await backend.discover(new AbortController().signal);
-        assert.equal(malformed.profiles.length, 0);
-        assert(malformed.errors.some(error => error.code === vectors.malformedIndexCode));
+        const malformed = await profile.listImportableProfiles(randomUUID());
+        assert(malformed.profiles.length > 0, 'malformed optional metadata does not hide directory profiles');
+        assert.equal(malformed.errors.length, 0);
+        assert(malformed.indexErrors.some(error => error.code === vectors.malformedIndexCode));
         fixtures.writeLocalState(source, { Default: { name: 'Synthetic profile' }, 'Profile 1': { name: 'Second profile' } });
         save('cancelled-confirmed-prefix-symlink-sidecar-and-malformed-source-rejected');
       }

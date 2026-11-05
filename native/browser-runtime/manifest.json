@@ -987,6 +987,24 @@
       "file": "patches/0162-native-source-profile-import-179f32d32a259604f35a57f85db6d2527694cbec6498134ae66c2b73b0317e3c.patch",
       "sha256": "179f32d32a259604f35a57f85db6d2527694cbec6498134ae66c2b73b0317e3c",
       "purpose": "Run profile metadata discovery, stable read-only database snapshots, bounded macOS source decryption and extension staging on a native sequenced worker. Apply rows directly to native Profile stores and await acknowledged cancellation with confirmed counts. Restrict synthetic source overrides to owned mock profiles."
+    },
+    {
+      "repo": "electron",
+      "file": "patches/0163-native-source-index-errors-86fe5f64df5f1adc56c65c08daa046c69d5ea14c740bd852bf499918d269290e.patch",
+      "sha256": "86fe5f64df5f1adc56c65c08daa046c69d5ea14c740bd852bf499918d269290e",
+      "purpose": "Preserve the original source-index errno before closing its single read stream, distinguish stat/open/read failures in bounded diagnostics, and keep the existing source access and cancellation boundaries."
+    },
+    {
+      "repo": "electron",
+      "file": "patches/0164-native-source-directory-discovery-be03da93964a75b4ee35957b4201f8ab0849aa561b63d3a7446b59d833fc07e1.patch",
+      "sha256": "be03da93964a75b4ee35957b4201f8ab0849aa561b63d3a7446b59d833fc07e1",
+      "purpose": "Discover supported source profiles from native directory enumeration, use the index only for optional display names, retain metadata-read diagnostics outside the UI result, and validate selected profile directories independently of the optional index."
+    },
+    {
+      "repo": "electron",
+      "file": "patches/0165-native-source-snapshot-errors-eb90cb2ad53c43a0ef9cf75f3e43edddf50889827b543c141bc01b34fc43fdf0.patch",
+      "sha256": "eb90cb2ad53c43a0ef9cf75f3e43edddf50889827b543c141bc01b34fc43fdf0",
+      "purpose": "Preserve copy-stage errno and file-error diagnostics without attributing every database snapshot failure to source permissions. Keep the same single copy operation and bounded non-content diagnostics."
     }
   ],
   "link_boundary": {

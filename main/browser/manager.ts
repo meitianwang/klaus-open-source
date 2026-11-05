@@ -453,7 +453,7 @@ export class BrowserManager {
       const failure = this.importProjectionFailures.get(requestId);
       this.importProjectionFailures.delete(requestId);
       return failure;
-    });
+    }, issues => this.options.importDiscoveryIssues?.(issues));
     return {
       ...backend,
       discover: async discoverySignal => {

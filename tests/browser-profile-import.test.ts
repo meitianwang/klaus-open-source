@@ -20,6 +20,15 @@ h.test('discovery preserves native permission errors instead of reporting an emp
   assertDeepEqual(await backend.discover(new AbortController().signal), result, 'native diagnostic preserved');
 });
 
+h.test('optional index diagnostics do not block directory profiles or enter the UI result', async () => {
+  const issues = [{ sourceId: 'chrome', code: 'source_permission_denied', message: 'Optional index access denied.' }];
+  const profiles = [{ sourceId: 'chrome', sourceLabel: 'Chrome', profileId: 'Default', displayName: 'Default', lastUsed: false, cookies: true, passwords: false, history: false, extensions: false }];
+  const logged: unknown[] = [];
+  const backend = nativeSourceImportBackend(fixture({ listImportableProfiles: async () => ({ profiles, errors: [], indexErrors: issues }) }), () => undefined, value => logged.push(value));
+  assertDeepEqual(await backend.discover(new AbortController().signal), { profiles, errors: [] }, 'directory discovery succeeds independently of optional names');
+  assertDeepEqual(logged, [issues], 'the denied metadata action remains recorded');
+});
+
 h.test('discovery creates unique bounded native operation ids', async () => {
   const ids: string[] = [];
   const backend = nativeSourceImportBackend(fixture({ listImportableProfiles: async id => { ids.push(id); return { profiles: [], errors: [] }; } }));
