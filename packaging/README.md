@@ -139,14 +139,6 @@ files. It checks Mach-O or PE architecture and requires macOS execute permission
 The Windows helper is built with `asInvoker` and `uiAccess=false`; a resource
 identity check does not replace the final application signing gate.
 
-The macOS browser-import helper follows
-`resources/browser-import/<platform-arch>`, or `--browser-import-dir`. Its
-executable and adjacent JSON manifest are required on macOS. The verifier
-requires schema 1, production mode, the exact target, source fingerprint,
-binary SHA-256 and signing metadata. Test-mode artifacts are rejected. Windows
-packages record the capability as unsupported and reject a leaked macOS helper.
-The package manifest exposes relative helper paths for the host runtime locator.
-
 The independent resource check can copy and validate a clean helper in its final
 resource layout without rebuilding an old application baseline:
 
@@ -206,9 +198,6 @@ Resources/
   computer-use/<platform-arch>/
     klaus-computer-use-helper[.exe]
     klaus-computer-use-helper[.exe].json
-  browser-import/<platform-arch>/       # macOS only
-    klaus-browser-import-helper
-    klaus-browser-import-helper.json
   plugins-builtin/                # browser only (loadable Chrome extension); digram ships via the official plugin market
   plugins-seed/
   canvas/

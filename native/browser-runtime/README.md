@@ -56,7 +56,7 @@ node scripts/electron-runtime-resolver.mjs create --runtime-dir <artifact> --rec
 node scripts/electron-runtime-resolver.mjs verify --runtime-dir <artifact> --receipt <artifact>/runtime.json --manifest native/browser-runtime/manifest.json --platform darwin --arch arm64 --require-packager-zip
 ```
 
-Set KLAUS_ELECTRON_RUNTIME_DIR, KLAUS_ELECTRON_RUNTIME_RECEIPT and KLAUS_ELECTRON_RUNTIME_MANIFEST for dev/package. Production defaults to native and rejects absent or mismatched artifacts. Explicit stock mode does not supply this native browser. Prepare the browser-import helper with scripts/browser-import-helper.mjs before packaging; development prepares and validates it automatically.
+Set KLAUS_ELECTRON_RUNTIME_DIR, KLAUS_ELECTRON_RUNTIME_RECEIPT and KLAUS_ELECTRON_RUNTIME_MANIFEST for dev/package. Production defaults to native and rejects absent or mismatched artifacts. Explicit stock mode does not supply this native browser.
 
 ## Verification
 
