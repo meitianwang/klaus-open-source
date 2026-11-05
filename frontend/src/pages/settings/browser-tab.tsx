@@ -9,6 +9,7 @@ import { BROWSER_DEFAULT_POLICY, BROWSER_RESOURCES, browserOriginPattern, type B
 import type { SiteOpenTargetId } from '../../../../contracts/browser-sites'
 import { BrowserImportDialog, type BrowserImportUiApi } from './browser-import-dialog'
 import { CapabilityRow, CapabilitySwitch } from './capability-tabs'
+import { pluginActivationNote } from '../plugins/activation-note'
 import { PrefToggleRow, SettingsPage } from './kv'
 import styles from './browser-settings.module.css'
 import settingsStyles from './settings.module.css'
@@ -1021,9 +1022,17 @@ export function BrowserSettingsTab() {
     void mutate('patch', value as Partial<BrowserSettingsSnapshot>, () => api()?.setPreferences?.(value))
   }, [mutate])
 
-  const toggleEnabled = useCallback((enabled: boolean) => {
-    void mutate('enabled', { enabled }, () => api()?.setEnabled?.(enabled))
-  }, [mutate])
+  const toggleEnabled = useCallback(async (enabled: boolean) => {
+    let receipt: any
+    const ok = await mutate('enabled', { enabled }, async () => {
+      receipt = await api()?.setEnabled?.(enabled)
+      return receipt
+    })
+    if (!ok) return
+    const message = t(enabled ? 'browser_settings_plugin_enabled' : 'browser_settings_plugin_disabled')
+    const note = pluginActivationNote(receipt, t)
+    w().showToast?.(note ? `${message} ${note}` : message, { tone: 'success' })
+  }, [mutate, t])
 
   const setChromeEnabled = useCallback((enabled: boolean) => {
     void mutate('chrome', { chromeEnabled: enabled }, () => api()?.setChromeEnabled?.(enabled))

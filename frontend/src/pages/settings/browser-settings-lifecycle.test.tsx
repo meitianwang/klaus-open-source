@@ -45,7 +45,8 @@ function installApi(api: any) {
   const host = globalThis as any
   host.window.settingsApi = { browserUse: api }
   host.window.__toasts = []
-  host.window.showToast = (text: string) => { host.window.__toasts.push(text) }
+  host.window.__toastOptions = []
+  host.window.showToast = (text: string, options?: any) => { host.window.__toasts.push(text); host.window.__toastOptions.push(options) }
   host.window.klsLoading = { render: () => '<div>loading</div>' }
   host.window.klausOpenExternalUrl = async () => {}
   host.window.klaus = { app: { openExternal: async () => {} }, browserUse: {} }
@@ -108,7 +109,7 @@ beforeAll(async () => {
   BrowserSettingsTab = (await import('./browser-tab')).BrowserSettingsTab
 })
 
-afterEach(() => { happyWindow.document.body.innerHTML = ''; FakeIntersectionObserver.instances = []; FakeResizeObserver.instances = [] })
+afterEach(() => { happyWindow.document.body.innerHTML = ''; happyWindow.currentLang = 'en'; FakeIntersectionObserver.instances = []; FakeResizeObserver.instances = [] })
 afterAll(() => { happyWindow.close?.() })
 
 describe('browser settings React lifecycle', () => {
@@ -166,6 +167,90 @@ describe('browser settings React lifecycle', () => {
     const toggle = happyWindow.document.querySelector('#browser-show-full-url') as any
     await act(async () => { toggle.click() })
     expect(writes).toEqual([{ showFullUrl: true }])
+    await act(async () => { root.unmount() })
+  })
+
+  test('browser toggle success feedback waits for its receipt in both directions', async () => {
+    for (const enabled of [true, false]) {
+      const pending = deferred<any>()
+      const writes: boolean[] = []
+      let saved = { ...base, enabled: !enabled }
+      installApi({
+        get: async () => saved,
+        setEnabled: (value: boolean) => { writes.push(value); return pending.promise },
+      })
+      const { container, root } = await mount()
+      const control = happyWindow.document.querySelector('#browser-settings-enabled')
+      await click(control)
+      expect(writes).toEqual([enabled])
+      expect(control.checked).toBe(enabled)
+      expect(control.disabled).toBe(true)
+      expect(happyWindow.__toasts).toEqual([])
+      saved = { ...saved, enabled }
+      await act(async () => { pending.resolve({ ok: true, settings: saved }) })
+      await settle()
+      expect(happyWindow.__toasts).toEqual([enabled ? 'Browser plugin enabled.' : 'Browser plugin disabled.'])
+      expect(happyWindow.__toastOptions).toEqual([{ tone: 'success' }])
+      expect(happyWindow.document.querySelector('#browser-settings-enabled')).toBe(control)
+      await act(async () => { root.unmount() })
+      container.remove()
+    }
+  })
+
+  test('browser toggle failures never confirm success and restore the saved state', async () => {
+    for (const failure of ['receipt', 'exception']) {
+      const message = `toggle ${failure} failed`
+      installApi({
+        get: async () => ({ ...base }),
+        setEnabled: async () => {
+          if (failure === 'exception') throw new Error(message)
+          return { ok: false, error: message }
+        },
+      })
+      const { container, root } = await mount()
+      await click(happyWindow.document.querySelector('#browser-settings-enabled'))
+      await settle()
+      expect(happyWindow.__toasts).toEqual([message])
+      expect(happyWindow.__toastOptions.every((options: any) => options?.tone !== 'success')).toBe(true)
+      expect(happyWindow.document.querySelector('#browser-settings-enabled').checked).toBe(true)
+      await act(async () => { root.unmount() })
+      container.remove()
+    }
+  })
+
+  test('browser toggle feedback respects the acknowledged activation scope', async () => {
+    const cases = [
+      { receipt: { restartRequired: true, appliedToCurrentSession: true }, note: 'Takes effect after restarting Klaus.' },
+      { receipt: { activationScope: 'endpoint_restart' }, note: 'Takes effect after restarting Klaus.' },
+      { receipt: { activationScope: 'next_turn', appliedToCurrentSession: true }, note: 'Active in this conversation now.' },
+      { receipt: { activationScope: 'next_turn' }, note: 'Takes effect from the next turn.' },
+    ]
+    for (const { receipt, note } of cases) {
+      let saved = { ...base }
+      installApi({
+        get: async () => saved,
+        setEnabled: async (enabled: boolean) => { saved = { ...saved, enabled }; return { ok: true, ...receipt, settings: saved } },
+      })
+      const { container, root } = await mount()
+      await click(happyWindow.document.querySelector('#browser-settings-enabled'))
+      await settle()
+      expect(happyWindow.__toasts).toEqual([`Browser plugin disabled. ${note}`])
+      await act(async () => { root.unmount() })
+      container.remove()
+    }
+  })
+
+  test('browser toggle confirmation is localized', async () => {
+    happyWindow.currentLang = 'zh'
+    let saved = { ...base }
+    installApi({
+      get: async () => saved,
+      setEnabled: async (enabled: boolean) => { saved = { ...saved, enabled }; return { ok: true, activationScope: 'next_turn', settings: saved } },
+    })
+    const { root } = await mount()
+    await click(happyWindow.document.querySelector('#browser-settings-enabled'))
+    await settle()
+    expect(happyWindow.__toasts).toEqual(['Browser 插件已关闭。 下一轮对话生效。'])
     await act(async () => { root.unmount() })
   })
 
