@@ -384,6 +384,12 @@
                 "default": false,
                 "type": "boolean"
               },
+              "forcedToolChoiceWithThinking": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
               "geminiThinking": {
                 "anyOf": [
                   {
@@ -6852,6 +6858,12 @@
                 "default": false,
                 "type": "boolean"
               },
+              "forcedToolChoiceWithThinking": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
               "geminiThinking": {
                 "anyOf": [
                   {
@@ -12169,6 +12181,12 @@
                 "default": false,
                 "type": "boolean"
               },
+              "forcedToolChoiceWithThinking": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
               "geminiThinking": {
                 "anyOf": [
                   {
@@ -12874,6 +12892,12 @@
               "fastMode": {
                 "default": false,
                 "type": "boolean"
+              },
+              "forcedToolChoiceWithThinking": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
               },
               "geminiThinking": {
                 "anyOf": [
@@ -13666,6 +13690,12 @@
               "fastMode": {
                 "default": false,
                 "type": "boolean"
+              },
+              "forcedToolChoiceWithThinking": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
               },
               "geminiThinking": {
                 "anyOf": [
