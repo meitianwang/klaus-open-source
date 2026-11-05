@@ -6,6 +6,40 @@ import { join } from 'node:path';
 import type { DesktopRuntime } from '../main/app/runtime';
 import { waitFor } from './harness';
 
+/** Plugin writes must update the mounted page without replacing its live controls. */
+export async function assertBrowserSettingsToggleRuntime(runtime: DesktopRuntime): Promise<void> {
+  const contents = runtime.window.webContents;
+  const evaluate = (script: string): Promise<any> => contents.executeJavaScript(script);
+  let switches = 0;
+  for (const enabled of [true, false, true]) {
+    await waitFor(() => evaluate('Boolean(document.querySelector("#browser-settings-enabled:not(:disabled)"))'), 5000, 'the browser switch is ready');
+    if (await evaluate(`document.getElementById('browser-settings-enabled').checked === ${enabled}`)) continue;
+    const point = await evaluate(`(() => {
+      const input = document.getElementById('browser-settings-enabled');
+      const label = input.closest('label');
+      label.scrollIntoView({ block: 'center' });
+      const row = label.parentElement.parentElement;
+      const copy = row.querySelector('[class*="browser-capability-copy"]');
+      window.__browserToggleNodes = [document.getElementById('settings-content'), input, row, copy, copy.firstChild.firstChild];
+      const rect = label.getBoundingClientRect();
+      return { x: Math.round(rect.x + rect.width / 2), y: Math.round(rect.y + rect.height / 2) };
+    })()`);
+    contents.sendInputEvent({ type: 'mouseDown', button: 'left', clickCount: 1, ...point });
+    contents.sendInputEvent({ type: 'mouseUp', button: 'left', clickCount: 1, ...point });
+    await waitFor(() => evaluate(`(async () => (await window.settingsApi.browserUse.get()).enabled === ${enabled}
+      && Boolean(document.querySelector('#browser-settings-enabled:not(:disabled)'))
+      && document.getElementById('browser-settings-enabled').checked === ${enabled})()`), 10_000, 'the browser switch persists');
+    await evaluate('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
+    assert.equal(await evaluate(`window.__browserToggleNodes.every(node => node.isConnected)
+      && document.getElementById('settings-content') === window.__browserToggleNodes[0]
+      && document.getElementById('browser-settings-enabled') === window.__browserToggleNodes[1]`), true,
+    'plugin enablement retains the settings container, switch, row and text nodes');
+    switches++;
+  }
+  assert(switches >= 2, 'both switch directions are exercised');
+  console.log('Browser settings toggle integration: both directions retain the mounted controls and text');
+}
+
 /** Exercise the production renderer, bridge, engine plugin switch and browser profile. */
 export async function assertBrowserSettingsRuntime(runtime: DesktopRuntime, profile: string): Promise<void> {
   const window = runtime.window, contents = window.webContents;
@@ -21,7 +55,7 @@ export async function assertBrowserSettingsRuntime(runtime: DesktopRuntime, prof
   };
   await evaluate('window.openSettings("browser")');
   await waitFor(() => evaluate('Boolean(document.querySelector("#browser-settings-enabled"))'), 10_000, 'browser settings renders through IPC');
-  if (!await evaluate('document.getElementById("browser-settings-enabled").checked')) await click('label:has(#browser-settings-enabled)');
+  await assertBrowserSettingsToggleRuntime(runtime);
   await waitFor(() => evaluate('Boolean(document.querySelector("#browser-settings-enabled:checked:not(:disabled)"))'), 10_000, 'the browser plugin is enabled through the engine');
   await click('label:has(#browser-show-full-url)');
   await waitFor(() => evaluate('(async () => (await window.settingsApi.browserUse.get()).showFullUrl === true)()'), 5000, 'full URL preference persists');
