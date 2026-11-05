@@ -15972,6 +15972,12 @@ function renderUsageExtra(extraUsage: ExtraCreditUsage | undefined) {
     + `<div class="usage-meta">${escapeHtml(tt('usage_extra_billing'))}</div></div>`
 }
 
+function claudeUsageErrorText(error: string) {
+  if (error === 'Claude login needs renewal; sign in again' || error === 'Usage request failed (HTTP 401)') return tt('usage_claude_login_required')
+  if (error === 'Usage request failed (HTTP 429)') return tt('usage_claude_rate_limited')
+  return error
+}
+
 function renderUsageProvider(name: string, data: { error?: string; plan?: string; state?: string } | null | undefined, bodyHtml: string) {
   // 只展示源名 + 套餐档位；账号邮箱不在浮层里重复展示。
   const plan = data?.plan
@@ -16016,6 +16022,7 @@ function renderUsageSnapshot(snapshot: { mode: string; provider?: { state?: stri
   const mode = snapshot.mode
   const provider = snapshot.provider || { state: 'error', error: 'empty snapshot' }
   let data = mode === 'cursor' && provider.error ? { ...provider, error: cursorErrorText(provider.error, tt) } : provider
+  if (mode === 'subscription' && data.error) data = { ...data, error: claudeUsageErrorText(data.error) }
   if (mode === 'kiro' && data.error) data = { ...data, error: knownKiroAuthErrorText(data.error, tt) || data.error }
   if (mode === 'qwenwork' && data.error) {
     const key = ({
@@ -16038,7 +16045,7 @@ function renderUsageSnapshot(snapshot: { mode: string; provider?: { state?: stri
         const label = escapeHtml(String(row.label || tt('usage_provider_claude')))
         const current = row.isCurrent ? `<span class="usage-plan-badge">${escapeHtml(tt('usage_account_current'))}</span>` : ''
         const inner = row.state === 'error'
-          ? `<div class="usage-empty usage-error-text">${escapeHtml(tt('usage_error'))}${row.error ? ` · ${escapeHtml(String(row.error).slice(0, 160))}` : ''}</div>`
+          ? `<div class="usage-empty usage-error-text">${escapeHtml(tt('usage_error'))}${row.error ? ` · ${escapeHtml(claudeUsageErrorText(String(row.error)).slice(0, 320))}` : ''}</div>`
           : renderUsageWindows(row) + renderUsageExtra(row.extraUsage)
         const gap = index > 0 ? ' style="margin-top:10px"' : ''
         return `<div class="usage-account"${gap}><div class="usage-provider-head"><span class="usage-provider-name">${label}</span>${current}</div>${inner}</div>`

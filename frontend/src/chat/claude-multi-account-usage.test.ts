@@ -9,7 +9,7 @@ import { I18N } from '../i18n/messages'
 // login carries a queue, and falls back to the single block otherwise. These
 // cases pin both shapes against the production renderer.
 const source = ts.createSourceFile('chat.ts', readFileSync(new URL('./chat.ts', import.meta.url), 'utf8'), ts.ScriptTarget.Latest, true)
-const names = ['renderUsageBarRow', 'renderUsageWindows', 'renderUsageCredits', 'renderUsageExtra', 'renderUsageProvider', 'renderUsageSnapshot', 'USAGE_MODE_PROVIDER_KEYS', 'USAGE_PRESET_MODE_NAMES']
+const names = ['renderUsageBarRow', 'renderUsageWindows', 'renderUsageCredits', 'renderUsageExtra', 'claudeUsageErrorText', 'renderUsageProvider', 'renderUsageSnapshot', 'USAGE_MODE_PROVIDER_KEYS', 'USAGE_PRESET_MODE_NAMES']
 const code = ts.transpileModule(
   names.map(name => {
     const node = source.statements.find((statement): statement is ts.FunctionDeclaration | ts.VariableStatement =>
@@ -35,6 +35,30 @@ function usageRenderer(translate: (key: string) => string = key => key, language
 }
 
 const renderer = usageRenderer()
+test('subscription renewal and usage throttling stay distinct and localized per account', () => {
+  for (const language of ['en', 'zh'] as const) {
+    const localized = usageRenderer(key => I18N[language][key] || key, language)
+    for (const [error, key] of [
+      ['Claude login needs renewal; sign in again', 'usage_claude_login_required'],
+      ['Usage request failed (HTTP 401)', 'usage_claude_login_required'],
+      ['Usage request failed (HTTP 429)', 'usage_claude_rate_limited'],
+    ]) {
+      const snapshot = { mode: 'subscription', provider: {
+        state: 'error', error, accounts: [
+          { id: 'a', state: 'error', error },
+          { id: 'b', state: 'ok', windows: [{ usedPercent: 18 }] },
+        ],
+      } }
+      const html = localized.renderUsageSnapshot(snapshot)
+      expect(html).toContain(I18N[language][key])
+      expect(html).not.toContain(error)
+      expect(html).toContain('82%')
+      expect(snapshot.provider.error).toBe(error)
+      const single = localized.renderUsageSnapshot({ mode: 'subscription', provider: { state: 'error', error } })
+      expect(single).toContain(I18N[language][key])
+    }
+  }
+})
 const qwenworkErrors = JSON.parse(readFileSync(new URL('../../../contracts/vectors/qwenwork-usage-error-vectors.json', import.meta.url), 'utf8')) as {
   cases: Array<{ expected: string; translation?: string }>
 }
@@ -160,7 +184,7 @@ describe('multi-account subscription usage', () => {
     expect(html).toContain('second@example.test')
     expect(html).toContain('usage_account_current')
     expect(html).toContain('58% usage_remaining')
-    expect(html.match(/Usage request failed \(HTTP 401\)/g)?.length).toBe(1)
+    expect(html.match(/usage_claude_login_required/g)?.length).toBe(1)
   })
 
   test('a failed source without account rows still shows the aggregate error', () => {
@@ -168,7 +192,7 @@ describe('multi-account subscription usage', () => {
       mode: 'subscription',
       provider: { state: 'error', error: 'Usage request failed (HTTP 401)' },
     })
-    expect(html).toContain('Usage request failed (HTTP 401)')
+    expect(html).toContain('usage_claude_login_required')
     expect(html).not.toContain('class="usage-account"')
   })
 

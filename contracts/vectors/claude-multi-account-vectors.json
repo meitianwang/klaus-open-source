@@ -50,6 +50,7 @@
       "state"
     ],
     "failureIsolation": "one account's usage failure reports state 'error' on its own row and never blanks the others",
+    "requestPolicy": "the host coalesces concurrent reads for the same login queue, caches snapshots briefly, and waits through a bounded cooldown after a usage HTTP 429; login or queue changes invalidate the cache",
     "noAccounts": "state 'signed_out' with an empty accounts array",
     "conditionalFields": {
       "error": "present only on a row whose state is error",
@@ -59,13 +60,16 @@
   "rotation": {
     "triggers": [
       "rate_limit",
-      "quota"
-    ],
-    "neverTriggers": [
+      "quota",
       "auth"
     ],
+    "neverTriggers": [
+      "network",
+      "invalid_request"
+    ],
+    "authentication": "renew the current account once before rotating after an authentication failure; single-account and static credentials retain their terminal authentication behavior",
     "advance": "the failed account moves to the tail and the new order is persisted to the credential file",
     "concurrent": "a caller whose failed account is no longer the head retries the current head without advancing again",
-    "cycleEnd": "the account that started the cycle failing again ends it; the refusal surfaces as the ordinary quota error and a later manual continue starts a fresh cycle"
+    "cycleEnd": "the account that started the cycle failing again ends it; the remaining provider refusal is terminal and a later manual continue starts a fresh cycle"
   }
 }

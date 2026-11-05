@@ -34,6 +34,15 @@ for (const language of ['en', 'zh'] as const) {
 
 describe('provider error wording', () => {
   for (const language of ['en', 'zh'] as const) {
+    test(`saved authentication failures remain actionable without a projected kind in ${language}`, () => {
+      const translate = (key: string) => I18N[language][key]
+      for (const kind of [undefined, 'unknown', 'auth']) {
+        expect(providerErrorText('Authentication failed for the selected model provider.', kind, translate)).toBe(translate('provider_auth'))
+      }
+      expect(providerErrorText('Another source failed.', undefined, translate)).toBe('Another source failed.')
+    })
+  }
+  for (const language of ['en', 'zh'] as const) {
     test(`billing refusals retain the correct classification and useful reason in ${language}`, () => {
       const translate = (key: string) => I18N[language][key]
       for (const row of billingVectors.cases) {

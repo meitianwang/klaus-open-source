@@ -2753,6 +2753,8 @@ export function providerErrorText(raw: string, kind: string | undefined, t: (key
   if (antigravity !== undefined) return antigravity
   const cursor = knownCursorErrorText(raw, t)
   if (cursor !== undefined) return cursor
+  // Older saved turns may contain the terminal sentence without its auth kind.
+  if ((!kind || kind === 'unknown') && raw === 'Authentication failed for the selected model provider.') return t('provider_auth')
   const fastModeCreditMessages = [raw, details?.message, details?.providerError?.message]
   if (fastModeCreditMessages.some(message => /usage credits are required for fast mode/i.test(message ?? ''))) {
     return t('provider_fast_mode_credits_required')

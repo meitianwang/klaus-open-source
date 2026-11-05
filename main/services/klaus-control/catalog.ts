@@ -2474,7 +2474,7 @@ export const CONTROL_SURFACES: ControlSurface[] = [
   },
   {
     "key": "claudeAuth",
-    "about": "Claude Code subscription sign-in (provider auth, separate from the Klaus account). The source keeps a queue of several Claude accounts. When the account in use is rate-limited or out of allowance, the engine moves it to the tail and retries the same request on the next one, erroring only after every account has been tried; authentication failures do not rotate and ask for a new sign-in. Per-account allowance is in account.usage.",
+    "about": "Claude Code subscription sign-in (provider auth, separate from the Klaus account). The source keeps a queue of several Claude accounts. When the account in use is rate-limited or out of allowance, the engine moves it to the tail and retries the same request on the next one, erroring only after every account has been tried; authentication failures first try token renewal and then rotate if another account is available. A single account or a queue whose logins all fail needs a new sign-in. Per-account allowance is in account.usage.",
     "reads": [
       {
         "action": "status",
