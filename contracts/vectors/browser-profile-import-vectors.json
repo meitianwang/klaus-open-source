@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "reason": "Profile source discovery, snapshots, decryption and target mutation belong to the native Profile. The host owns job authorization and awaits acknowledged cancellation without receiving cookie or password values.",
+  "sourceReader": "native-sequenced-worker",
+  "targetWriter": "native-profile-stores",
+  "receiptContainsSecrets": false,
+  "confirmedBatchSize": 250,
+  "syntheticCounts": {"cookies": 2, "passwords": 1, "history": 601, "extensions": 1},
+  "cancelledHistoryPrefix": 250,
+  "mockSourceMissingCode": "test_source_required",
+  "symlinkSidecarCode": "database_symlink_rejected",
+  "unsupportedHistorySchemaCode": "history_schema_unsupported",
+  "malformedIndexCode": "local_state_invalid",
+  "historyAttribution": "other",
+  "snapshotIncludes": ["database", "wal", "shm"],
+  "snapshotStability": ["existence", "size", "mtime"],
+  "requiresExtensionConfirmation": true,
+  "realProfileAcceptanceRequiresSystemAccess": true
+}

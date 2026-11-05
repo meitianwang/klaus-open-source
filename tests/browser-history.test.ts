@@ -56,6 +56,23 @@ h.test('browsing history pages with keyset cursors without duplicating or skippi
   assertEqual(store.history({ limit: 101 }).items.length, 100, 'page size is capped at 100');
 });
 
+h.test('native history projection preserves nearby visits and retries without duplicates', async () => {
+  const { store } = fixture();
+  const rows = Array.from({ length: 250 }, (_, index) => ({
+    url: 'https://example.test/imported', title: `Visit ${index}`, visitedAt: 1000 + index, source: 'other' as const,
+  }));
+  store.recordImportedVisits(rows);
+  store.recordImportedVisits(rows);
+  const first = store.history({ limit: 100 });
+  assertEqual(first.items.length, 100, 'history projection supports normal pagination');
+  assert(first.items.every(item => !item.isActorVisit), 'import is never agent activity');
+  const db = new DatabaseSync(store.databasePath);
+  assertEqual((db.prepare('SELECT count(*) AS n FROM browser_visits').get() as { n: number }).n, 250, 'distinct visits retained and retries are idempotent');
+  db.close();
+  await assertRejects(async () => store.recordImportedVisits([...rows, rows[0]!]), 'native event batches are bounded');
+  await assertRejects(async () => store.recordImportedVisits([rows[0]!, { ...rows[0]!, url: 'file:///tmp/example' }]), 'invalid batch cannot write a prefix');
+});
+
 h.test('history removal is bounded, idempotent and clear removes only visits', () => {
   const { store } = fixture();
   const first = store.recordVisit({ sessionId: 's', url: 'https://example.test/a', title: 'A', source: 'other', visitedAt: 1 });

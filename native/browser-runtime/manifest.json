@@ -981,6 +981,12 @@
       "file": "patches/0161-profile-service-acquire-35666ef4021c1ebca6aa53f31aea781fd62b574ba9f1fa069b24190cc242d175.patch",
       "sha256": "35666ef4021c1ebca6aa53f31aea781fd62b574ba9f1fa069b24190cc242d175",
       "purpose": "Reject native Profile service handles when keepalive acquisition fails"
+    },
+    {
+      "repo": "electron",
+      "file": "patches/0162-native-source-profile-import-179f32d32a259604f35a57f85db6d2527694cbec6498134ae66c2b73b0317e3c.patch",
+      "sha256": "179f32d32a259604f35a57f85db6d2527694cbec6498134ae66c2b73b0317e3c",
+      "purpose": "Run profile metadata discovery, stable read-only database snapshots, bounded macOS source decryption and extension staging on a native sequenced worker. Apply rows directly to native Profile stores and await acknowledged cancellation with confirmed counts. Restrict synthetic source overrides to owned mock profiles."
     }
   ],
   "link_boundary": {

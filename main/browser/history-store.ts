@@ -1,4 +1,5 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
+import type { BrowserImportHistoryEntry } from '../../contracts/browser-import';
 import { existsSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -252,6 +253,32 @@ export class BrowserDataStore {
       db.prepare('INSERT INTO browser_visits (id,session_id,url,title,visited_at,source,favicon_data_url) VALUES (?,?,?,?,?,?,?)')
         .run(id, sessionId, url, title, visitedAt, sourceName, favicon ?? null);
       return visitEntry({ id, url, title, visited_at: visitedAt, source: sourceName, favicon_data_url: favicon ?? null });
+    });
+  }
+
+  /** Project acknowledged native visits in bounded transactions, retaining distinct visits. */
+  recordImportedVisits(rows: readonly BrowserImportHistoryEntry[]): void {
+    if (!Array.isArray(rows) || rows.length > 250) throw new BrowserError('invalid_request', 'The imported history batch is invalid.');
+    const entries = rows.map(row => {
+      const url = new URL(row.url);
+      if (!['http:', 'https:'].includes(url.protocol) || row.url.length > 16_384
+        || !Number.isSafeInteger(row.visitedAt) || row.visitedAt < 0 || row.source !== 'other') {
+        throw new BrowserError('invalid_request', 'The imported history entry is invalid.');
+      }
+      return { ...row, title: String(row.title || url.hostname).slice(0, 2_048),
+        id: `import:${createHash('sha256').update(JSON.stringify([row.url, row.visitedAt])).digest('hex')}` };
+    });
+    if (!entries.length) return;
+    withDatabase(this.databasePath, db => {
+      db.exec('BEGIN IMMEDIATE');
+      try {
+        const insert = db.prepare(`INSERT OR IGNORE INTO browser_visits
+          (id,session_id,url,title,visited_at,source,favicon_data_url)
+          SELECT ?, 'browser-import', ?, ?, ?, 'other', NULL
+          WHERE NOT EXISTS (SELECT 1 FROM browser_visits WHERE session_id='browser-import' AND url=? AND visited_at=?)`);
+        for (const row of entries) insert.run(row.id, row.url, row.title, row.visitedAt, row.url, row.visitedAt);
+        db.exec('COMMIT');
+      } catch (error) { db.exec('ROLLBACK'); throw error; }
     });
   }
 

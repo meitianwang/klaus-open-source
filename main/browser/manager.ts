@@ -11,8 +11,8 @@ import { permissionCommand } from './page-advanced';
 import { NativeTaskPermissions, type NativePermissionSetting } from './native-permissions';
 import { NATIVE_SETTINGS_ROUTES, NativeSettingsHistory, nativeSettingsUrl, nativeSettingsTitleScript, nativeSettingsBackScript } from './native-settings';
 import { waitForNativeSettings } from './native-settings-readiness';
-import { nativeImportTarget } from './native-import';
-import type { BrowserImportTarget } from '../../contracts/browser-import';
+import { nativeSourceImportBackend } from './native-source-import';
+import type { BrowserProfileImportBackend } from '../../contracts/browser-import-jobs';
 import { browserBounds, navigationUrl } from './policy';
 import { BrowserError, json, message, object, string, type BrowserBounds, type BrowserObject, type BrowserScope, type BrowserState } from './types';
 import type { Json } from '../ipc/contract';
@@ -250,6 +250,13 @@ export class BrowserManager {
           profile.on('download-updated', (_event, snapshot) => this.downloads.nativeUpdated(snapshot));
           profile.on('download-removed', (_event, id) => this.downloads.nativeRemoved(id));
           profile.on('download-target', (_event, target) => { void this.downloads.resolveNativeTarget(target).catch(() => {}); });
+          profile.on('imported-history', (_event, requestId, rows) => {
+            try { this.data.recordImportedVisits(rows); }
+            catch {
+              this.importProjectionFailures.set(requestId, 'Imported browsing history could not be indexed for browsing-history management.');
+              if (this.importProjectionFailures.size > 32) this.importProjectionFailures.delete(this.importProjectionFailures.keys().next().value!);
+            }
+          });
           for (const snapshot of profile.startObserving()) this.downloads.nativeCreated(snapshot);
           return profile;
         } catch (error) {
@@ -433,14 +440,17 @@ export class BrowserManager {
     return (await this.profile()).setSitePermission(origin, permission, setting as 'granted' | 'denied' | 'prompt');
   }
 
-  async importTarget(signal: AbortSignal): Promise<BrowserImportTarget> {
+  private readonly importProjectionFailures = new Map<string, string>();
+
+  async profileImporter(signal: AbortSignal): Promise<BrowserProfileImportBackend> {
     this.requireAvailable();
     signal.throwIfAborted();
     const profile = await this.profile();
     signal.throwIfAborted();
-    return nativeImportTarget(profile, signal, rows => {
-      for (const row of rows) this.data.recordVisit({ sessionId: 'browser-import',
-        url: row.url, title: row.title, visitedAt: row.visitedAt, source: 'other' });
+    return nativeSourceImportBackend(profile, requestId => {
+      const failure = this.importProjectionFailures.get(requestId);
+      this.importProjectionFailures.delete(requestId);
+      return failure;
     });
   }
 

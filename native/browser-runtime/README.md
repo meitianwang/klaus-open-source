@@ -20,7 +20,9 @@ Profile networking uses bounded pull reads and cancellable headers and body read
 
 `clearData` waits for the native browsing-data remover and keeps passwords, addresses, extensions and downloaded files. Persistent permissions share HostContentSettingsMap with real pages and native settings. Task grants cannot override persistent denial, and prompt restores the Profile default. Unsupported persistence fails explicitly. Physical input retires task control; debugger input does not.
 
-Imports accept bounded cookie, password and history batches with confirmed prefix counts. Cookie partition attributes survive, password upserts are read back, and cancellation/disposal drain outstanding callbacks. Extensions use the genuine unpacked installer. Imported secrets never enter application renderers or logs.
+`listImportableProfiles` and `importProfile` own the complete source pipeline in native code. A sequenced worker enumerates metadata, validates indexed profiles, snapshots the database/WAL/SHM together, derives a source-specific macOS key only when needed, and stages confirmed extensions. Source databases remain unchanged. Cookie and password values never enter JavaScript, IPC or logs. The host receives only progress receipts and confirmed history metadata.
+
+Native writes use batches of at most 250 rows and return confirmed prefix counts. Cookie partition attributes survive, password upserts are read back, and cancellation/disposal drain outstanding callbacks. Extensions use the genuine unpacked installer. Synthetic source overrides require mock-Keychain mode and an owned source under the native data root; mock mode without that source fails before default discovery.
 
 ## Build
 
@@ -61,3 +63,5 @@ Set KLAUS_ELECTRON_RUNTIME_DIR, KLAUS_ELECTRON_RUNTIME_RECEIPT and KLAUS_ELECTRO
 ## Verification
 
 STATUS.md distinguishes accepted evidence and remaining limits. The isolated mock-Keychain construction probe does not replace page, import, download, popup or composed UI acceptance. Use synthetic profiles, GUI preflight and the declared launcher. Keep original commands, output and genuinely painted captures in ignored evidence directories.
+
+After building the host, run `node scripts/test-browser-native-import.mjs <native-electron-executable>` for isolated source discovery, encrypted import, acknowledged cancellation, malformed-source rejection, restart persistence and autofill. It uses only generated profiles and fixed synthetic credentials. Real source access and system Keychain authorization require their own explicit acceptance.

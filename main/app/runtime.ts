@@ -180,10 +180,6 @@ import type { VoiceOptions } from '../services/voice/service';
 import { NativeSubscriptionCredentials } from '../native/credentials';
 import { BrowserManager } from '../browser/manager';
 import { BrowserProfileImportService } from '../browser/profile-import-service';
-import { MacBrowserProfileDecryptor } from '../browser/profile-decryptor';
-import { defaultBrowserSourceRoots } from '../browser/profile-discovery';
-import { resolveBrowserImportHelper } from '../browser/profile-import-helper';
-import { BrowserImportDecryptError } from '../../contracts/browser-import';
 import { PendingBrowserPermissions } from '../browser/permission-requests';
 import { BrowserAccessController } from '../browser/access';
 import { AnnotationSessionManager } from '../browser/annotation-session';
@@ -1474,17 +1470,7 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
   nativeBrowserAvailable = browser.isAvailable();
   const browserImportOwners = new Map<number, string>();
   const browserImports = new BrowserProfileImportService({
-    configRoot, roots: () => defaultBrowserSourceRoots(),
-    target: (_request, signal) => browser.importTarget(signal),
-    createDecryptor: (source, signal) => {
-      if (!source.family || process.platform !== 'darwin') {
-        throw new BrowserImportDecryptError('decryption_unavailable', 'Encrypted browser data cannot be imported on this platform.');
-      }
-      return new MacBrowserProfileDecryptor({
-        helperPath: resolveBrowserImportHelper({ resourceDirs, packaged: app.isPackaged }),
-        family: source.family, signal,
-      });
-    },
+    configRoot, importer: signal => browser.profileImporter(signal),
     emit: (owner, snapshot) => {
       const id = [...browserImportOwners].find(([, key]) => key === owner)?.[0];
       const target = id === undefined ? undefined : mainWindows.get(id);

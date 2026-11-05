@@ -4,6 +4,8 @@ import type { BaseWindow } from 'electron';
 import { BrowserError, message, type BrowserBounds } from './types';
 import type { PageActivityLease, PageDebuggerChannel, PageTransport } from './page-transport';
 import type { NativeProfileImportHandle } from './native-import';
+import type { NativeSourceImportHandle } from './native-source-import';
+import type { BrowserImportHistoryEntry } from '../../contracts/browser-import';
 import type { BrowserDownloadNetwork, NativeDownloadSnapshot, NativeDownloadTarget, NativeProfileDownloadController } from './native-downloads';
 
 export interface NativeBrowserState {
@@ -46,7 +48,7 @@ export interface NativeProfileRequestHandle {
   cancelRequest(id: string): void;
 }
 
-export interface NativeProfileHandle extends NativeProfileRequestHandle, NativeProfileDownloadController, NativeProfileImportHandle {
+export interface NativeProfileHandle extends NativeProfileRequestHandle, NativeProfileDownloadController, NativeProfileImportHandle, NativeSourceImportHandle {
   startObserving(): NativeDownloadSnapshot[];
   getDownloads(): NativeDownloadSnapshot[];
   setSitePermission(origin: string, name: string, setting: 'granted' | 'denied' | 'prompt'): { ok: true };
@@ -54,6 +56,7 @@ export interface NativeProfileHandle extends NativeProfileRequestHandle, NativeP
   on(event: 'download-created' | 'download-updated', listener: (event: unknown, snapshot: NativeDownloadSnapshot) => void): this;
   on(event: 'download-target', listener: (event: unknown, target: NativeDownloadTarget) => void): this;
   on(event: 'download-removed', listener: (event: unknown, id: string) => void): this;
+  on(event: 'imported-history', listener: (event: unknown, requestId: string, rows: BrowserImportHistoryEntry[]) => void): this;
   removeAllListeners(): this;
   clearData(kind: 'all' | 'cache' | 'cookies' | 'siteData' | 'history' | 'downloads'): Promise<{ ok: true }>;
   dispose(): void;
