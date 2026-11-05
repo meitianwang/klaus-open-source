@@ -192,6 +192,8 @@ import { BrowserPreferences } from '../services/browser-preferences';
 import { registerCronSettingsHandlers } from '../ipc/handlers/cron';
 import { registerWorkspaceHandlers } from '../ipc/handlers/workspaces';
 import { registerFileHandlers } from '../ipc/handlers/files';
+import { registerEndResourceHandlers } from '../ipc/handlers/end-resources';
+import { EndResourceOpener } from '../services/end-resource-open';
 import { registerDocumentHandlers } from '../ipc/handlers/documents';
 import { pathInside, WorkspaceStore } from '../services/workspaces';
 import type { FileService } from '../services/files';
@@ -1719,6 +1721,16 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
     },
   });
   early.add(() => files?.close());
+  const endResourceFiles = files;
+  registerEndResourceHandlers(registry, new EndResourceOpener({
+    checkedPreviewPath: (sessionId, filePath) => endResourceFiles.previewFilePath(sessionId, filePath),
+    openPath: async path => { const error = await shell.openPath(path); if (error) throw new Error(error); },
+    revealPath: path => shell.showItemInFolder(path),
+    openExternal: url => shell.openExternal(url),
+    downloadsDirectory: () => app.getPath('downloads'),
+    fileIcon: async path => { const image = await app.getFileIcon(path, { size: 'normal' }); return image.isEmpty() ? undefined : image.toDataURL(); },
+    selfBundleId: edition.application,
+  }));
   const git = registerGitHandlers(registry, {
     workspaces, push,
     readLastTurn: async (id, turnId) => {

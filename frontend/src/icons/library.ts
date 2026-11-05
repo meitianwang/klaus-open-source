@@ -67,6 +67,15 @@ import arrowBendUpLeftSvg from '@phosphor-icons/core/assets/regular/arrow-bend-u
 import chatSvg from '@phosphor-icons/core/assets/regular/chat.svg?raw'
 import fileSvg from '@phosphor-icons/core/assets/regular/file.svg?raw'
 import fileTextSvg from '@phosphor-icons/core/assets/regular/file-text.svg?raw'
+import filePdfSvg from '@phosphor-icons/core/assets/regular/file-pdf.svg?raw'
+import fileDocSvg from '@phosphor-icons/core/assets/regular/file-doc.svg?raw'
+import fileXlsSvg from '@phosphor-icons/core/assets/regular/file-xls.svg?raw'
+import filePptSvg from '@phosphor-icons/core/assets/regular/file-ppt.svg?raw'
+import fileCsvSvg from '@phosphor-icons/core/assets/regular/file-csv.svg?raw'
+import fileCodeSvg from '@phosphor-icons/core/assets/regular/file-code.svg?raw'
+import fileHtmlSvg from '@phosphor-icons/core/assets/regular/file-html.svg?raw'
+import fileAudioSvg from '@phosphor-icons/core/assets/regular/file-audio.svg?raw'
+import fileImageSvg from '@phosphor-icons/core/assets/regular/file-image.svg?raw'
 import filePlusSvg from '@phosphor-icons/core/assets/regular/file-plus.svg?raw'
 import treeStructureSvg from '@phosphor-icons/core/assets/regular/tree-structure.svg?raw'
 import clipboardTextSvg from '@phosphor-icons/core/assets/regular/clipboard-text.svg?raw'
@@ -197,6 +206,9 @@ import checkBoldSvg from '@phosphor-icons/core/assets/bold/check-bold.svg?raw'
 // phosphor 的表盘族（gauge / speedometer）都是开口半穹顶，没有整圆表盘。
 import circleGaugeSvg from 'lucide-static/icons/circle-gauge.svg?raw'
 
+// Website resource card glyph: a two-tone globe that reads as "a page".
+const resourceGlobeSvg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" fill="#CDF3FF"/><path fill="#41CEF9" fill-rule="evenodd" clip-rule="evenodd" d="M12 2c5.522 0 10 4.478 10 10s-4.478 10-10 10S2 17.522 2 12 6.478 2 12 2ZM9.172 13c.146 4.477 1.284 7 2.828 7 1.544 0 2.682-2.523 2.828-7H9.172Zm-5.108 0a7.994 7.994 0 0 0 4.313 6.134C7.686 17.622 7.261 15.549 7.174 13h-3.11Zm12.762 0c-.087 2.55-.512 4.622-1.204 6.134A7.994 7.994 0 0 0 19.936 13h-3.11Zm-8.45-8.135A7.995 7.995 0 0 0 4.065 11h3.11c.087-2.55.511-4.623 1.203-6.135ZM12.001 4c-1.544 0-2.682 2.523-2.828 7h5.656C14.682 6.523 13.544 4 12 4Zm3.622.865C16.314 6.377 16.74 8.45 16.826 11h3.11a7.995 7.995 0 0 0-4.314-6.135Z"/></svg>'
+
 // 收编前 shell 属性（尺寸/类名/零散根属性）烤进 svg 根节点，保证替换后布局不动。
 function shell(svg: string, opts: { size?: number; cls?: string; attrs?: Record<string, string> } = {}): string {
   let out = svg.replace('<svg ', '<svg aria-hidden="true" ')
@@ -228,6 +240,21 @@ function lucideShell(svg: string, opts: { size?: number; cls?: string; attrs?: R
 
 export const LIBRARY: Record<string, string> = {
   ...Object.fromEntries(projectCoverIconCatalog.map(icon => [`tc-cover-${icon.id}`, shell(icon.svg)])),
+  // —— 回合末资源卡 ——
+  'resource-globe': shell(resourceGlobeSvg),
+  'resource-file-pdf': shell(filePdfSvg),
+  'resource-file-word': shell(fileDocSvg),
+  'resource-file-excel': shell(fileXlsSvg),
+  'resource-file-powerpoint': shell(filePptSvg),
+  'resource-file-spreadsheet': shell(fileCsvSvg),
+  'resource-file-presentation': shell(presentationChartSvg),
+  'resource-file-code': shell(fileCodeSvg),
+  'resource-file-html': shell(fileHtmlSvg),
+  'resource-file-audio': shell(fileAudioSvg),
+  'resource-file-image': shell(fileImageSvg),
+  'resource-file-document': shell(fileTextSvg),
+  'resource-file': shell(fileSvg),
+  'resource-external': shell(arrowSquareOutSvg),
   // —— 通用基元 ——
   'close': shell(xSvg),
   'plus': shell(plusSvg),

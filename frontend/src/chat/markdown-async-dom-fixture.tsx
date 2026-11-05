@@ -102,8 +102,9 @@ export async function verifySettledHighlightInteraction(container: HTMLElement):
       }
       setMarkdownWorkerFactory(() => worker as unknown as Worker)
       const sessionId = `settled-highlight-${split ? 'message' : 'wrapper'}`
-      const references = split ? [{ id: 'fixture-reference', url: 'https://example.invalid/reference', title: 'Fixture reference', turnId: 'fixture-turn' }] : []
-      const render = (text: string) => <FinalAssistantBubble text={text} sessionId={sessionId} turnId="fixture-turn" inlineVis={[fragment]} websiteReferences={references} />
+      // The split structure renders the reply beside a turn-end resource list;
+      // a local preview server address in the reply is that resource.
+      const render = (text: string) => <FinalAssistantBubble text={split ? `${text}\nPreview: http://localhost:4173/` : text} sessionId={sessionId} turnId="fixture-turn" inlineVis={[fragment]} endResourceTurn={split ? { turnId: 'fixture-turn', status: 'completed' } : null} />
       flushSync(() => root.render(render(source)))
       await frame(); await frame()
       const job = jobs.at(-1)

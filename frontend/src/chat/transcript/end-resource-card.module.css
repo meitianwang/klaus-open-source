@@ -1,0 +1,190 @@
+/* Turn-end resources: one rounded group per turn, one divided row per resource.
+   The group sits in the transcript's content column, under the final reply and
+   before its action row. */
+.list {
+  display: flex;
+  flex-direction: column;
+  max-width: 100%;
+  margin: 12px 0 4px;
+  overflow: hidden;
+  border-radius: 12px;
+  background: color-mix(in oklab, var(--bg-surface) 50%, transparent);
+  box-shadow: 0 0 0 0.5px color-mix(in oklab, var(--fg) 15%, transparent);
+  color: var(--fg);
+  font-family: var(--font);
+}
+
+.row { position: relative; }
+.row + .row,
+.row + .showMore { border-top: 1px solid var(--border); }
+
+/* The whole row opens the resource. It sits under the content so the open-in
+   control on top of it keeps its own clicks. */
+.rowButton {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  cursor: pointer;
+}
+.rowButton:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+.rowContent {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  pointer-events: none;
+}
+
+.rowIcon {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  background: color-mix(in oklab, var(--bg-surface) 92%, transparent);
+  color: var(--fg-secondary);
+}
+.rowIcon svg { width: 24px; height: 24px; }
+.favicon { width: 24px; height: 24px; border-radius: 2px; object-fit: contain; }
+
+.rowCopy { display: flex; min-width: 0; flex: 1; flex-direction: column; }
+.rowTitle {
+  overflow: hidden;
+  color: var(--fg);
+  font-size: var(--text-body);
+  font-weight: var(--weight-medium);
+  line-height: var(--leading-chat-message, 1.5);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rowSubtitle {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--fg-secondary);
+  font-size: calc(var(--text-body) - 1px);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.subtitleDefault { display: inline; }
+.subtitleHover { display: none; align-items: center; gap: 4px; }
+.external { display: inline-flex; color: var(--fg-secondary); }
+.external svg { width: 12px; height: 12px; }
+
+@media (hover: hover) {
+  .row:hover .rowButton { background: color-mix(in oklab, var(--bg-hover) 30%, transparent); }
+  .row:not([data-menu-open]):has(.rowButton:hover) .subtitleDefault { display: none; }
+  .row:not([data-menu-open]):has(.rowButton:hover) .subtitleHover { display: inline-flex; }
+}
+
+/* "Open in": a toolbar-size outline button. A website splits it into the
+   open action and the menu chevron; a file has the menu only. */
+.openIn {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-self: center;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: color-mix(in oklab, var(--fg) 2.5%, transparent);
+  pointer-events: auto;
+}
+.openIn button {
+  display: inline-flex;
+  height: 28px;
+  align-items: center;
+  border: 0;
+  background: transparent;
+  color: var(--fg);
+  font-family: var(--font);
+  font-size: var(--text-small);
+  line-height: 18px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.openIn button:hover,
+.openIn button[aria-expanded='true'] { background: var(--bg-hover); }
+.openIn button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.openInSingle { gap: 4px; padding: 0 6px 0 8px; }
+.openInPrimary { padding: 0 4px 0 8px; }
+.openInSecondary { position: relative; padding: 0 6px 0 8px; }
+.openInSecondary::before {
+  content: '';
+  position: absolute;
+  inset-block: 8px;
+  inset-inline-start: 0;
+  width: 1px;
+  background: currentColor;
+  opacity: 0.25;
+}
+.chevron { display: inline-flex; opacity: 0.5; }
+.chevron svg { width: 12px; height: 12px; }
+
+.showMore {
+  display: flex;
+  height: 40px;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  border: 0;
+  background: transparent;
+  color: var(--fg-tertiary);
+  font-family: var(--font);
+  font-size: var(--text-body);
+  cursor: pointer;
+}
+.showMore:hover { background: color-mix(in oklab, var(--bg-hover) 30%, transparent); }
+.showMore:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+.menu {
+  position: fixed;
+  z-index: 10000;
+  display: flex;
+  min-width: 160px;
+  max-width: min(320px, calc(100vw - 16px));
+  max-height: min(420px, calc(100vh - 16px));
+  flex-direction: column;
+  gap: 2px;
+  overflow-y: auto;
+  padding: 8px 4px 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  box-shadow: var(--shadow-md);
+  color: var(--fg);
+  outline: none;
+}
+.menuGroup { display: contents; }
+.menuSeparator { height: 1px; margin: 4px 6px; background: var(--border); }
+.menuItem {
+  display: flex;
+  width: 100%;
+  min-height: 30px;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: inherit;
+  font-family: var(--font);
+  font-size: var(--text-small);
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.menuItem:hover,
+.menuItem:focus-visible { background: var(--bg-hover); outline: none; }
+.menuItemIcon { display: inline-flex; flex-shrink: 0; align-items: center; justify-content: center; width: 16px; height: 16px; color: var(--fg-secondary); }
+.menuItemIcon svg { width: 16px; height: 16px; }
+.menuItemLabel { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.appIcon { width: 16px; height: 16px; flex-shrink: 0; object-fit: contain; }
+.menuMessage { padding: 6px 8px; color: var(--fg-tertiary); font-size: var(--text-caption); }

@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { createAgentTaskSaveGuard } from './agent-task-save-guard'
-import { replaceSiteReferences, siteReferencesForSession, websiteReferencesFromText } from './site-references'
+import { endResourcesForSession, publishEndResources } from './end-resources'
 
 let historyResponse: (sessionId: string) => Promise<any> = async sessionId => [{ role: 'user', uuid: sessionId, turnId: sessionId, text: 'Saved message' }]
 ;(globalThis as any).window = { addEventListener: () => {}, klaus: { session: { history: (sessionId: string) => historyResponse(sessionId) } } }
@@ -11,10 +11,10 @@ describe('loaded conversation retention', () => {
     const id = 'retention-archived'
     historyResponse = async () => [{ role: 'assistant', text: 'Archived content' }]
     await stream.loadSessionHistory(id)
-    replaceSiteReferences(id, websiteReferencesFromText('[Preview](https://example.test)', 'turn-a'))
+    publishEndResources(id, [{ turnId: 'turn-a', resources: [{ type: 'website', target: 'http://localhost:3000/' }] }])
     stream.retireSessionStream(id, { deleted: false })
     expect(stream.chatStreamStore.getState().sessions[id]).toBeUndefined()
-    expect(siteReferencesForSession(id)).toEqual([])
+    expect(endResourcesForSession(id)).toEqual([])
     await stream.loadSessionHistory(id)
     expect(stream.getSessionStream(id).history?.[0].text).toBe('Archived content')
     stream.retireSessionStream(id)
@@ -62,7 +62,7 @@ describe('loaded conversation retention', () => {
       await stream.loadSessionHistory(id)
       noteCommandReference(id, { name: 'retained-command' }, 'sent-command')
       noteMemoryWriteReference(id, 'memory-run', 'memory', ['retained-memory.md'])
-      replaceSiteReferences(id, websiteReferencesFromText('[Preview](https://example.test)', 'turn-a'))
+      publishEndResources(id, [{ turnId: 'turn-a', resources: [{ type: 'website', target: 'http://localhost:3000/' }] }])
       current = id
       renderReferencesPanel()
       const before = tabs.children.map((child: any) => child.textContent)
@@ -70,7 +70,7 @@ describe('loaded conversation retention', () => {
       expect(body.children[0].children[1].textContent).toBe('Retained command')
       current = null
       stream.retireSessionStream(id, { deleted: false })
-      expect(siteReferencesForSession(id)).toEqual([])
+      expect(endResourcesForSession(id)).toEqual([])
       current = id
       renderReferencesPanel()
       expect(tabs.children.map((child: any) => child.textContent)).toEqual(before)

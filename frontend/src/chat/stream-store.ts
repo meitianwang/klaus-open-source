@@ -22,7 +22,7 @@ import { preserveAgentLifecycle } from './agent-status'
 import { coalesceSubagentTaskAliases } from './subagent-navigation'
 import { ensureArtifactsForSession, retireArtifactsForSession } from './overview/artifacts'
 import { retireTranscriptViewport } from './transcript/viewport-state'
-import { retireSiteReferences } from './site-references'
+import { retireEndResources } from './end-resources'
 import { retainSavedHistoryItems, type SavedHistoryViewport } from './saved-history-retention'
 import { fetchTurnItemsPage, loadFirstPaint, loadOlderTurnsPage, type FirstPaintResult, type TranscriptPaginationState, type TranscriptTurnShell } from './transcript-pagination'
 import { commitOlderTurns, commitSavedSnapshot, commitTurnItems, ownsSavedBoundary, patchSavedTurn, savedBoundary, savedPagination, savedRowId, savedRows, savedShells, savedTurn, savedTurns, type SavedTranscript, type TurnBoundaryRequest, type TurnItemsPagination } from './saved-transcript'
@@ -542,7 +542,7 @@ function removeStreamFamily(sessionId: string, retired: boolean): void {
     retireMarkdownRuntime(id)
     retireArtifactsForSession(id)
     retireTranscriptViewport(id)
-    retireSiteReferences(id)
+    retireEndResources(id)
   }
   // Keep tombstones small while still rejecting delayed host traffic.
   while (retiredStreams.size > 1024) retiredStreams.delete(retiredStreams.keys().next().value!)

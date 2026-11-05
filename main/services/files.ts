@@ -695,6 +695,22 @@ export class FileService {
    * rather than an error, because "the user changed their mind" is not a
    * failure the card should toast about.
    */
+  /**
+   * The canonical path of a local file the conversation may preview, or a
+   * refusal. Turn-end resource actions (open in an application, reveal,
+   * download a copy) act only on what this admits.
+   */
+  async previewFilePath(sessionId: string, filePath: string): Promise<string> {
+    const result = await this.run({ sessionId, filePath }, async (): Promise<Json> => {
+      if (this.remoteOf({ sessionId, filePath })) return { error: 'This file lives on another computer.' };
+      const checked = await this.checked({ sessionId, filePath }, true);
+      if (!(await stat(checked.realPath)).isFile()) return { error: 'not a file' };
+      return { ok: true, filePath: checked.realPath };
+    });
+    const value = result as { ok?: boolean; filePath?: string; error?: string };
+    if (value.ok !== true || !value.filePath) throw new IpcHandlerError('FILE_REFUSED', value.error || 'file refused');
+    return value.filePath;
+  }
   saveArtifactCopy(payload: JsonObject, senderId: number): Promise<Json> {
     return this.run(payload, async (): Promise<Json> => {
       if (!this.deps.saveCopyDialog) return { error: 'save dialog unavailable' };

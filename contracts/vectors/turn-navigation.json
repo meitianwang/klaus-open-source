@@ -1,5 +1,5 @@
 {
-  "reason": "Keep fast previews and keyboard navigation while pinning reliable pointer lifetimes, nested live turns, visible ranges and offscreen rendering. Website icons appear only in hover previews, keeping the rail compact; the first existing marker retains website metadata and an accessible type label.",
+  "reason": "Keep fast previews and keyboard navigation while pinning reliable pointer lifetimes, nested live turns, visible ranges and offscreen rendering. Turn-end resource icons appear only in hover previews, keeping the rail compact; the first existing marker carries the turn's outputs (website first, then files, at most two named plus a count) and an accessible output label.",
   "minimumTurns": 2,
   "clearancePx": 48,
   "hoverDelayMs": 150,
@@ -16,7 +16,10 @@
     "hiddenCardsCreateMarkers": false,
     "previewIncludesType": true,
     "previewIncludesIcon": true,
-    "accessibleLabelIncludesType": true
+    "accessibleLabelIncludesType": true,
+    "source": "turn-end resource rows ([data-end-resource-type]) in the turn, including resumed segments",
+    "previewOutputsShown": 2,
+    "previewOrder": ["website", "file"]
   },
   "dragRepetitions": 6,
   "dragIndices": [0, 3, 6],

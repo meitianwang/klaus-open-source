@@ -4,7 +4,7 @@ import { describe, expect, test } from 'bun:test'
 
 const { aggregateArtifactTurns, specArtifactDocuments, renderArtifactsSection } = await import('./artifacts')
 const { setOverviewDeps } = await import('./shared')
-const { replaceSiteReferences } = await import('../site-references')
+const { publishEndResources } = await import('../end-resources')
 const { tt } = await import('../../app/i18n')
 type ArtifactTurn = import('./artifacts').ArtifactTurn
 
@@ -88,8 +88,8 @@ describe('artifact projections', () => {
 })
 
 
-describe('website artifact surface', () => {
-  test('renders session website titles, types, counts and opens the preferred target without tooltips', async () => {
+describe('output artifact surface', () => {
+  test('lists every turn output once, newest turn first, and opens each without tooltips', async () => {
     function element(tag: string): any {
       const el: any = {
         tagName: tag.toUpperCase(), className: '', type: '', textContent: '', innerHTML: '',
@@ -106,40 +106,47 @@ describe('website artifact surface', () => {
     const meta = element('span')
     const previousDocument = (globalThis as any).document
     const previousKlaus = (window as any).klaus
+    const previousOpen = (window as any).klausOpenWorkspaceFilePath
     const requests: unknown[] = []
-    let sessionId = 'website-artifact-session'
+    let sessionId = 'output-artifact-session'
     ;(globalThis as any).document = {
       createElement: element,
       getElementById: (id: string) => id === 'monitor-artifacts-body' ? body : id === 'monitor-artifacts-count' ? meta : null,
     }
     ;(window as any).klaus = { browser: { openSite: async (request: unknown) => { requests.push(request); return { ok: true } } } }
+    ;(window as any).klausOpenWorkspaceFilePath = (path: string) => requests.push({ file: path })
     setOverviewDeps({
       currentSessionId: () => sessionId,
       commandGroupKey: () => '', slashCommandDisplayName: () => '',
       specDocuments: () => [], subscribeSpecDocuments: () => () => {}, openSpecDocument: () => {},
     })
     try {
-      replaceSiteReferences(sessionId, [
-        { id: 'turn-1:site', title: 'Team dashboard', url: 'https://example.com/dashboard', turnId: 'turn-1' },
-        { id: 'turn-2:site', title: 'Team dashboard', url: 'https://example.com/dashboard', turnId: 'turn-2' },
+      publishEndResources(sessionId, [
+        { turnId: 'turn-1', resources: [{ type: 'website', target: 'http://localhost:5173/' }] },
+        { turnId: 'turn-2', resources: [{ type: 'file', path: '/work/out/report.pdf' }] },
+        { turnId: 'turn-3', resources: [{ type: 'website', target: 'http://localhost:5173/' }] },
       ])
       renderArtifactsSection()
-      expect(meta.textContent).toBe(`${tt('site_reference_website')} · 1`)
+      expect(meta.textContent).toBe(`${tt('end_resource_outputs')} · 2`)
       expect(body.children).toHaveLength(1)
       const group = body.children[0]
-      expect(group.children[0].textContent).toBe(`${tt('site_reference_website')} · 1`)
-      const row = group.children[1].children[0]
-      expect(row.tagName).toBe('BUTTON')
-      expect(row.type).toBe('button')
-      expect(row.attributes['data-kind']).toBe('website')
-      expect(row.attributes['aria-label']).toBe(`${tt('site_reference_open')}: Team dashboard`)
-      expect(row.children[1].textContent).toBe('Team dashboard')
-      expect(row.children[2].textContent).toBe(tt('site_reference_website'))
-      expect(row.attributes).not.toHaveProperty('title')
-      expect(row.attributes).not.toHaveProperty('data-klaus-tip')
-      row.listeners.click()
+      expect(group.children[0].textContent).toBe(`${tt('end_resource_outputs')} · 2`)
+      const [site, file] = group.children[1].children
+      expect(site.tagName).toBe('BUTTON')
+      expect(site.attributes['data-kind']).toBe('website')
+      expect(site.children[1].textContent).toBe('localhost:5173')
+      expect(site.children[2].textContent).toBe(tt('end_resource_website_subtitle'))
+      expect(file.attributes['data-kind']).toBe('output-file')
+      expect(file.children[1].textContent).toBe('report.pdf')
+      expect(file.children[2].textContent).toBe(tt('end_resource_output_file_type').replace('{extension}', 'PDF'))
+      for (const row of [site, file]) {
+        expect(row.attributes).not.toHaveProperty('title')
+        expect(row.attributes).not.toHaveProperty('data-klaus-tip')
+      }
+      site.listeners.click()
+      file.listeners.click()
       await Promise.resolve()
-      expect(requests).toEqual([{ sessionId, url: 'https://example.com/dashboard' }])
+      expect(requests).toEqual([{ sessionId, url: 'http://localhost:5173/' }, { file: '/work/out/report.pdf' }])
 
       sessionId = 'unrelated-artifact-session'
       renderArtifactsSection()
@@ -147,9 +154,10 @@ describe('website artifact surface', () => {
       expect(body.children).toHaveLength(1)
       expect(body.children[0].className).toBe('ctx-empty')
     } finally {
-      replaceSiteReferences('website-artifact-session', [])
+      publishEndResources('output-artifact-session', [])
       ;(globalThis as any).document = previousDocument
       ;(window as any).klaus = previousKlaus
+      ;(window as any).klausOpenWorkspaceFilePath = previousOpen
     }
   })
 })

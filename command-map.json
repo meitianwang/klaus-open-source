@@ -1,6 +1,6 @@
 {
   "summary": {
-    "invokeDeclared": 727,
+    "invokeDeclared": 733,
     "pushDeclared": 78
   },
   "rows": [
@@ -1034,6 +1034,30 @@
     },
     {
       "channel": "elicit:respond",
+      "kind": "invoke"
+    },
+    {
+      "channel": "end-resources:download-copy",
+      "kind": "invoke"
+    },
+    {
+      "channel": "end-resources:existing",
+      "kind": "invoke"
+    },
+    {
+      "channel": "end-resources:open",
+      "kind": "invoke"
+    },
+    {
+      "channel": "end-resources:page-meta",
+      "kind": "invoke"
+    },
+    {
+      "channel": "end-resources:reveal",
+      "kind": "invoke"
+    },
+    {
+      "channel": "end-resources:targets",
       "kind": "invoke"
     },
     {

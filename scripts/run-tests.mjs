@@ -19,7 +19,7 @@ const suites = [
   'voice-chat',
   'workspace-dependencies', 'workspace-dependency-tools', 'workspace-dependency-settings', 'workspace-skills',
   'skill-watcher', 'skill-reload-live',
-  'git-diff', 'git-review-actions', 'last-turn-changes', 'browser-tab-mention', 'site-open', 'chrome-tab-mentions', 'chrome-relay', 'chrome-setup',
+  'git-diff', 'git-review-actions', 'last-turn-changes', 'browser-tab-mention', 'site-open', 'end-resource-open', 'chrome-tab-mentions', 'chrome-relay', 'chrome-setup',
   'team-collaboration',
   'feature-gates', 'desktop-edition', 'desktop-regional-profile',
   'resume-recovery',

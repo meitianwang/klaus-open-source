@@ -221,7 +221,7 @@ describe('turn navigation rail rebuild', () => {
     controller!.destroy()
   })
 
-  test('keeps website icons in hover previews when repeated outputs share a turn', () => {
+  test('keeps resource outputs in hover previews when repeated rows share a turn', () => {
     const { controller, scrollEl, listEl, doc, tooltipEl } = makeRail(3)
     const anchors = [...scrollEl.children]
     const markers = [...listEl.querySelectorAll('button')]
@@ -230,30 +230,33 @@ describe('turn navigation rail rebuild', () => {
     scrollEl.insertBefore(wrapper, anchors[1])
     wrapper.appendChild(anchors[1])
     scrollEl.removeChild(anchors[1])
+    const file = fakeEl('div', doc)
+    file.setAttribute('data-end-resource-type', 'file')
+    file.setAttribute('data-end-resource-label', 'report.pdf')
+    wrapper.appendChild(file)
     const card = fakeEl('div', doc)
-    card.setAttribute('data-site-reference', '')
-    card.dataset.siteTitle = 'Team dashboard'
-    card.dataset.siteUrl = 'https://example.com/dashboard'
+    card.setAttribute('data-end-resource-type', 'website')
     wrapper.appendChild(card)
     const repeated = fakeEl('div', doc)
-    repeated.setAttribute('data-site-reference', '')
-    repeated.dataset.siteTitle = card.dataset.siteTitle
-    repeated.dataset.siteUrl = card.dataset.siteUrl
+    repeated.setAttribute('data-end-resource-type', 'website')
     wrapper.appendChild(repeated)
     controller!.refresh()
 
     expect(listEl.querySelectorAll('button')).toEqual(markers)
     expect(markers[1].getAttribute('data-turn-output')).toBe('website')
     expect(markers[1].querySelectorAll('[data-turn-output-icon]')).toHaveLength(vectors.websiteOutputs.markerIconsPerTurn)
-    expect(markers[1].getAttribute('aria-label')).toBe('User message 2 of 3 · Website')
+    expect(markers[1].getAttribute('aria-label')).toBe('User message 2 of 3 · Web preview, report.pdf')
     expect(markers[0].getAttribute('data-turn-output')).toBeNull()
-    expect(navigation.websiteOutputForTurn(anchors[1])).toEqual({ title: 'Team dashboard', url: 'https://example.com/dashboard' })
+    expect(navigation.turnOutputsForTurn(anchors[1])).toEqual([{ type: 'website', label: null }, { type: 'file', label: 'report.pdf' }])
     controller!.setChatActive(true)
     listEl.eventHandlers.focusin({ target: markers[1] })
-    expect(tooltipEl.querySelector('[data-turn-output-icon]')?.parentElement?.lastElementChild?.textContent).toBe('Website · Team dashboard')
-    expect(tooltipEl.querySelectorAll('[data-turn-output-icon]')).toHaveLength(Number(vectors.websiteOutputs.previewIncludesIcon))
-    expect(tooltipEl.querySelector('[data-turn-output-icon]')?.innerHTML).toContain('<svg')
+    const icons = tooltipEl.querySelectorAll('[data-turn-output-icon]')
+    expect(icons).toHaveLength(2)
+    expect(icons[0].parentElement?.lastElementChild?.textContent).toBe('Web preview')
+    expect(icons[1].parentElement?.lastElementChild?.textContent).toBe('report.pdf')
+    expect(icons[0].innerHTML).toContain('<svg')
 
+    file.remove()
     card.remove()
     repeated.remove()
     controller!.refresh()
@@ -264,7 +267,7 @@ describe('turn navigation rail rebuild', () => {
     controller!.destroy()
   })
 
-  test('attaches website output to only the first existing marker when a turn has steering messages', () => {
+  test('attaches resource outputs to only the first existing marker when a turn has steering messages', () => {
     const { controller, scrollEl, listEl, doc } = makeRail(3)
     const first = scrollEl.children[0]
     const steering = scrollEl.children[1]
@@ -276,9 +279,7 @@ describe('turn navigation rail rebuild', () => {
     scrollEl.removeChild(first)
     scrollEl.removeChild(steering)
     const card = fakeEl('div', doc)
-    card.setAttribute('data-site-reference', '')
-    card.dataset.siteTitle = 'Team dashboard'
-    card.dataset.siteUrl = 'https://example.com/dashboard'
+    card.setAttribute('data-end-resource-type', 'website')
     wrapper.appendChild(card)
     controller!.refresh()
 
@@ -287,7 +288,7 @@ describe('turn navigation rail rebuild', () => {
     expect(markers.filter((marker: any) => marker.getAttribute('data-turn-output') === 'website')).toHaveLength(vectors.websiteOutputs.markersPerTurn)
     expect(markers[0].getAttribute('data-turn-output')).toBe('website')
     expect(markers[1].getAttribute('data-turn-output')).toBeNull()
-    expect(navigation.websiteOutputForTurn(steering)).toBeNull()
+    expect(navigation.turnOutputsForTurn(steering)).toEqual([])
     controller!.destroy()
   })
 
@@ -303,18 +304,18 @@ describe('turn navigation rail rebuild', () => {
     resumed.setAttribute('data-klaus-transcript-turn-id', 'a')
     scrollEl.insertBefore(resumed, anchors[2]); resumed.appendChild(anchors[2]); scrollEl.removeChild(anchors[2])
     const card = fakeEl('div', doc)
-    card.setAttribute('data-site-reference', '')
-    card.dataset.siteTitle = 'Resumed dashboard'; card.dataset.siteUrl = 'https://example.com/dashboard'
+    card.setAttribute('data-end-resource-type', 'file')
+    card.setAttribute('data-end-resource-label', 'deck.pptx')
     resumed.appendChild(card); controller!.refresh()
     const markers = listEl.querySelectorAll('button')
-    expect(markers[0].getAttribute('data-turn-output')).toBe('website')
+    expect(markers[0].getAttribute('data-turn-output')).toBe('file')
     expect(markers[1].getAttribute('data-turn-output')).toBeNull()
     expect(markers[2].getAttribute('data-turn-output')).toBeNull()
-    expect(navigation.websiteOutputForTurn(anchors[0])?.title).toBe('Resumed dashboard')
+    expect(navigation.turnOutputsForTurn(anchors[0])).toEqual([{ type: 'file', label: 'deck.pptx' }])
     controller!.destroy()
   })
 
-  test('does not mark a turn for hidden website cards', () => {
+  test('does not mark a turn for hidden resource rows', () => {
     const { controller, scrollEl, listEl, doc } = makeRail(2)
     const anchor = scrollEl.children[0]
     const wrapper = fakeEl('div', doc)
@@ -323,12 +324,12 @@ describe('turn navigation rail rebuild', () => {
     wrapper.appendChild(anchor)
     scrollEl.removeChild(anchor)
     const card = fakeEl('div', doc)
-    card.setAttribute('data-site-reference', '')
+    card.setAttribute('data-end-resource-type', 'website')
     card.setAttribute('hidden', '')
     wrapper.appendChild(card)
     controller!.refresh()
 
-    expect(navigation.websiteOutputForTurn(anchor)).toBeNull()
+    expect(navigation.turnOutputsForTurn(anchor)).toEqual([])
     expect(listEl.querySelectorAll('button')[0].getAttribute('data-turn-output')).toBeNull()
     controller!.destroy()
   })

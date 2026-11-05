@@ -76,26 +76,38 @@ function formatLabel(template: string, index: number, total: number): string {
     .replace('{total}', String(total))
 }
 
-export interface TurnWebsiteOutput {
-  title: string
-  url: string
+export interface TurnOutput {
+  type: 'website' | 'file'
+  /** A file's name; a website has no label of its own. */
+  label: string | null
 }
 
-/** Website output belongs to the existing user turn, including repeated cards. */
-export function websiteOutputForTurn(anchor: HTMLElement): TurnWebsiteOutput | null {
+const RESOURCE_SELECTOR = '[data-end-resource-type]'
+const OUTPUT_ORDER: Record<TurnOutput['type'], number> = { website: 0, file: 1 }
+
+/** A turn's resource outputs belong to its first visible user marker, across resumed segments. */
+export function turnOutputsForTurn(anchor: HTMLElement): TurnOutput[] {
   const turn = anchor.closest<HTMLElement>('[data-klaus-transcript-turn]')
-  if (!turn) return null
+  if (!turn) return []
   const identity = turn.getAttribute('data-klaus-transcript-turn-id')
   const scope = turn.closest<HTMLElement>('[data-klaus-transcript-content]') ?? turn.parentElement
   const segments = identity && scope ? Array.from(scope.querySelectorAll<HTMLElement>('[data-klaus-transcript-turn]'))
     .filter(segment => segment.getAttribute('data-klaus-transcript-turn-id') === identity) : [turn]
   const firstAnchor = segments.flatMap(segment => Array.from(segment.querySelectorAll<HTMLElement>(ANCHOR_SELECTOR)))
     .find(element => !element.closest('[hidden], [aria-hidden="true"], [inert]'))
-  if (firstAnchor !== anchor) return null
-  const card = segments.flatMap(segment => Array.from(segment.querySelectorAll<HTMLElement>('[data-site-reference]')))
-    .find(element => !element.closest('[hidden], [aria-hidden="true"], [inert]'))
-  if (!card) return null
-  return { title: card.dataset.siteTitle || '', url: card.dataset.siteUrl || '' }
+  if (firstAnchor !== anchor) return []
+  const outputs: TurnOutput[] = []
+  const seen = new Set<string>()
+  for (const element of segments.flatMap(segment => Array.from(segment.querySelectorAll<HTMLElement>(RESOURCE_SELECTOR)))) {
+    if (element.closest('[hidden], [aria-hidden="true"], [inert]')) continue
+    const type = element.getAttribute('data-end-resource-type') === 'file' ? 'file' : 'website'
+    const label = type === 'file' ? element.getAttribute('data-end-resource-label') || null : null
+    const key = `${type}:${label ?? ''}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    outputs.push({ type, label })
+  }
+  return outputs.sort((a, b) => OUTPUT_ORDER[a.type] - OUTPUT_ORDER[b.type])
 }
 
 export interface TurnNavigationOptions {
@@ -131,7 +143,7 @@ export function createTurnNavigationController(options: TurnNavigationOptions) {
   let anchors: HTMLElement[] = []
   let markerButtons: HTMLButtonElement[] = []
   let markerGroups: HTMLElement[] = []
-  let websiteOutputs: Array<TurnWebsiteOutput | null> = []
+  let turnOutputs: TurnOutput[][] = []
   let anchorTops: number[] = []
   let activeIndex = -1
   let visibleStart = -1
@@ -255,7 +267,7 @@ export function createTurnNavigationController(options: TurnNavigationOptions) {
     anchors = []
     markerButtons = []
     markerGroups = []
-    websiteOutputs = []
+    turnOutputs = []
     anchorTops = []
     activeIndex = -1
     visibleStart = -1
@@ -357,7 +369,7 @@ export function createTurnNavigationController(options: TurnNavigationOptions) {
         const hasAnchor = (node: Node) => node.nodeType === 1 &&
           ((node as Element).matches(ANCHOR_SELECTOR) || !!(node as Element).querySelector(ANCHOR_SELECTOR))
         const hasWebsite = (node: Node) => node.nodeType === 1 &&
-          ((node as Element).matches('[data-site-reference]') || !!(node as Element).querySelector('[data-site-reference]'))
+          ((node as Element).matches(RESOURCE_SELECTOR) || !!(node as Element).querySelector(RESOURCE_SELECTOR))
         if (records.some(record => record.target === scrollEl || record.target === contentEl ||
           (record.type === 'attributes' && (hasAnchor(record.target) || hasWebsite(record.target))) ||
           Array.from(record.addedNodes).some(node => hasAnchor(node) || hasWebsite(node)) ||
@@ -365,7 +377,7 @@ export function createTurnNavigationController(options: TurnNavigationOptions) {
           scheduleRefresh(true)
         } else if (tooltipIndex >= 0) scheduleRefresh(false, false)
       })
-      mutationObserver!.observe(scrollEl!, { childList: true, characterData: true, subtree: true, attributes: true, attributeFilter: ['hidden', 'aria-hidden', 'inert', 'data-site-reference', 'data-site-title', 'data-site-url', 'data-klaus-transcript-turn-id'] })
+      mutationObserver!.observe(scrollEl!, { childList: true, characterData: true, subtree: true, attributes: true, attributeFilter: ['hidden', 'aria-hidden', 'inert', 'data-end-resource-type', 'data-end-resource-label', 'data-klaus-transcript-turn-id'] })
     }
     if (typeof win.ResizeObserver === 'function') {
       resizeObserver = new win.ResizeObserver((entries: ResizeObserverEntry[]) => {
@@ -432,7 +444,7 @@ export function createTurnNavigationController(options: TurnNavigationOptions) {
     railEl!.setAttribute('aria-label', translated('turn_navigation_label', 'User message navigation'))
     const template = translated('turn_navigation_item', 'User message {index} of {total}')
     markerButtons.forEach((button, index) => {
-      const type = websiteOutputs[index] ? translated('site_reference_website', 'Website') : ''
+      const type = turnOutputs[index]?.length ? turnOutputs[index].map(outputLabel).slice(0, 2).join(', ') : ''
       button.setAttribute('aria-label', [formatLabel(template, index, anchors.length), type].filter(Boolean).join(' · '))
     })
   }
@@ -490,21 +502,26 @@ export function createTurnNavigationController(options: TurnNavigationOptions) {
       const restored = anchors.indexOf(rovingAnchor)
       if (restored >= 0) setRovingIndex(restored, focused >= 0)
     }
-    refreshWebsiteOutputs()
+    refreshTurnOutputs()
     refreshLabels()
     observeCurrentChildren()
     measureGeometry()
   }
 
-  function refreshWebsiteOutputs() {
-    websiteOutputs = anchors.map(websiteOutputForTurn)
+  function outputLabel(output: TurnOutput): string {
+    if (output.label) return output.label
+    return output.type === 'website' ? translated('end_resource_website_title', 'Web preview') : translated('turn_navigation_file_output', 'File')
+  }
+
+  function refreshTurnOutputs() {
+    turnOutputs = anchors.map(turnOutputsForTurn)
     markerButtons.forEach((button, index) => {
-      const output = websiteOutputs[index]
-      if (!output) {
+      const outputs = turnOutputs[index]
+      if (!outputs?.length) {
         button.removeAttribute('data-turn-output')
         return
       }
-      button.setAttribute('data-turn-output', 'website')
+      button.setAttribute('data-turn-output', outputs[0]!.type)
     })
   }
 
@@ -658,20 +675,31 @@ export function createTurnNavigationController(options: TurnNavigationOptions) {
     const query = doc.createElement('div')
     query.className = styles['turn-navigation-tooltip-query']
     query.textContent = extractQueryPreview(anchor)
-    const website = websiteOutputForTurn(anchor)
-    const output = website ? doc.createElement('div') : null
-    if (output && website) {
+    const outputs = turnOutputsForTurn(anchor)
+    const output = outputs.length ? doc.createElement('div') : null
+    if (output) {
       output.className = styles['turn-navigation-tooltip-output']
-      const mark = doc.createElement('span')
-      mark.className = styles['turn-navigation-tooltip-output-icon']
-      mark.setAttribute('data-turn-output-icon', '')
-      mark.setAttribute('aria-hidden', 'true')
-      mark.innerHTML = icon('tc-globe')
-      const label = doc.createElement('span')
-      label.className = styles['turn-navigation-tooltip-output-label']
-      label.textContent = `${translated('site_reference_website', 'Website')} · ${website.title || website.url}`
-      output.appendChild(mark)
-      output.appendChild(label)
+      for (const entry of outputs.slice(0, 2)) {
+        const item = doc.createElement('span')
+        item.className = styles['turn-navigation-tooltip-output-item']
+        const mark = doc.createElement('span')
+        mark.className = styles['turn-navigation-tooltip-output-icon']
+        mark.setAttribute('data-turn-output-icon', entry.type)
+        mark.setAttribute('aria-hidden', 'true')
+        mark.innerHTML = icon(entry.type === 'website' ? 'tc-globe' : 'resource-file')
+        const label = doc.createElement('span')
+        label.className = styles['turn-navigation-tooltip-output-label']
+        label.textContent = outputLabel(entry)
+        item.appendChild(mark)
+        item.appendChild(label)
+        output.appendChild(item)
+      }
+      if (outputs.length > 2) {
+        const more = doc.createElement('span')
+        more.className = styles['turn-navigation-tooltip-output-more']
+        more.textContent = translated('turn_navigation_more_outputs', '+{count}').replace('{count}', String(outputs.length - 2))
+        output.appendChild(more)
+      }
     }
     const answer = extractAnswerPreview(anchor)
     if (answer) {

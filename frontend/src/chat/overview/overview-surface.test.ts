@@ -23,11 +23,11 @@ describe('overview surface', () => {
     expect(INDEX_HTML).toContain('monitor-subagents-body')
   })
 
-  test('keeps the Files-only layout while allowing conditional document and website groups', () => {
+  test('keeps the Files-only layout while allowing conditional document and output groups', () => {
     expect(ARTIFACTS_TS).not.toContain('overview_artifacts_group')
     expect(ARTIFACTS_TS).not.toContain('overview_artifacts_view_all')
     expect(ARTIFACTS_TS).toContain('if (specs.length > 0)')
-    expect(ARTIFACTS_TS).toContain("if (aggregate.files.length === 0 && specs.length === 0 && websites.length === 0)")
+    expect(ARTIFACTS_TS).toContain("if (aggregate.files.length === 0 && specs.length === 0 && outputs.length === 0)")
     expect(ARTIFACTS_TS).toContain('groups.push(rows)')
     expect(INDEX_HTML).toContain('monitor-artifacts-body')
   })

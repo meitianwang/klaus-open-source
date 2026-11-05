@@ -58,9 +58,10 @@ import type { ArtifactFile, LineCount } from '../overview/artifacts'
 import { isLargeDiff } from './turn-diff-parse'
 import { TurnDiffPreview } from './turn-diff-preview'
 import { openTurnChanges } from '../../pages/diff/store'
-import { replaceSiteReferences, websiteReferencesForItem, websiteReferencesFromText, type SiteReference } from '../site-references'
+import { publishEndResources, turnEndResources, type TurnEndResources } from '../end-resources'
+import { stripEndResourceLinkLines, endResourceFilePaths, endResourcesCoverEdits } from '../../../../contracts/end-resources'
 import { retainSessionView } from '../session-view-interest'
-import { SiteReferenceCards } from './site-reference-card'
+import { EndResourceCards, useTurnEndResources } from './end-resource-card'
 import { openFileCitationFromElement } from '../file-citation-open'
 import type { GoalSnapshot } from '../goals'
 import { PlanningQuestionHistoryView, PlanningQuestionView } from '../planning/questions-runtime'
@@ -1372,7 +1373,8 @@ export interface Unit {
   friendFollowUp?: boolean
   /** A received collaboration result presented inside its requesting process. */
   friendReplyInProcess?: boolean
-  websiteReferences?: SiteReference[]
+  /** The completed turn whose resources this final reply presents. */
+  endResourceTurn?: { turnId: string; status: string } | null
   type: 'agent-event' | 'compaction' | 'compact-file-restore' | 'compact-summary' | 'turn-status' | 'fail-hint' | 'user' | 'fork' | 'teammate' | 'delegation' | 'thinking' | 'text' | 'tools' | 'ask-user' | 'proposed-plan' | 'goal-completion' | 'approval-review' | 'workflow-record'
   key: string
   approvalReview?: ApprovalReview
@@ -1692,11 +1694,9 @@ type RenderNode =
   | { kind: 'turn-visuals'; key: string; artifacts: VisualArtifact[] }
   // 本回合工具产出的图片，恒可见。挂在折叠之外，理由见 foldUnits 里的注释。
   | { kind: 'turn-media'; key: string; paths: string[] }
-  // 本回合产出的 HTML 页面，恒可见的可预览卡片。数据源是引擎那份按回合的产物
-  // 记录（与 turn-changes 同源），由组件自己订阅读取，所以这里只带 turnId。
-  | { kind: 'turn-pages'; key: string; turnId: string; finalText: string }
   // 回合改动区块：跟在该回合最后一个兄弟节点之后，内容自己从产物 store 取。
-  | { kind: 'turn-changes'; key: string; turnId: string }
+  // 回合末资源卡已经呈现了它改的每个文件时不出（status/finalText 用于这个判定）。
+  | { kind: 'turn-changes'; key: string; turnId: string; status?: string; finalText?: string }
   // 回合内启动的子 agent 状态行；连续 spawn 共用一个投影节点，但逐个渲染。
   | { kind: 'turn-agents'; key: string; tools: NonNullable<Segment['tools']>; turnInterrupted: boolean; turnId?: string }
   // 工作树初始化行：跟在本回合首个用户气泡之后（worktree-init 语义），
@@ -1930,7 +1930,6 @@ function isSettledAskUserUnit(unit: { type: string; block?: any; req?: any; reso
 }
 
 export interface TurnArtifactAnchor {
-  websiteReferences?: SiteReference[]
   ownerKey?: string
 }
 
@@ -1952,8 +1951,6 @@ export function turnArtifactAnchors(history: any[]): Map<string, TurnArtifactAnc
   for (const msg of keyed) {
     if (!msg.turnId) continue
     const anchor = anchors.get(msg.turnId) ?? {}
-    const references = artifactUnitsForMessage(msg).filter(unit => unit.type === 'text').flatMap(unit => websiteReferencesFromText(unit.segment?.text ?? '', msg.turnId))
-    if (references.length) anchor.websiteReferences = [...new Map([...(anchor.websiteReferences ?? []), ...references].map(reference => [reference.id, reference])).values()]
     const hasFinal = msg.isFinalReply || msg.phase === 'final_answer'
       || msg.contentBlocks?.some((block: any) => block.phase === 'final_answer')
     if (hasFinal) {
@@ -2246,8 +2243,10 @@ export function foldTurnGroups(
       : ''
     if (lastText && resolvedFinal && resolvedFinal !== lastText.segment?.text) lastText.resolvedText = resolvedFinal
     const finalSource = resolvedFinal || lastText?.segment?.text || ''
-    if (lastText) lastText.websiteReferences = turnId && !ownsArtifacts ? [] : artifactAnchor?.websiteReferences
-      ?? [...new Map(units.filter(unit => unit.type === 'text' && (turnId ? unit.turnId === turnId : group.units.includes(unit))).flatMap(unit => websiteReferencesFromText(unit.segment?.text ?? '', turnId ?? turnKey)).map(reference => [reference.id, reference])).values()]
+    // Turn-end resources belong to the segment that owns the turn's final reply,
+    // and only once the turn has settled.
+    if (lastText) lastText.endResourceTurn = turnId && ownsArtifacts && !isTurnInProgress && ['completed', 'failed'].includes(turnStatus)
+      ? { turnId, status: turnStatus } : null
     const finalPaths = lastText ? collectMarkdownImagePaths(finalSource) : null
     // 回合末尾只放「真的在向用户汇报」的产物，规则是：
     //   - 最终回复把图嵌进正文（![](path)）→ 正文里出，末尾不再重复；
@@ -2291,14 +2290,9 @@ export function foldTurnGroups(
           kind: 'turn-changes',
           key: `turn-changes-${turnId}`,
           turnId,
+          status: turnStatus,
+          finalText: finalSource,
         }
-      : null
-    // 本回合产出的 HTML 页面出可预览卡片，但只出最终回复真的汇报过的：改源码写下的
-    // index.html、过程里临时生成的探针页，回复没提就不算交付物，不占汇报面。记录在
-    // overview store 里（与 turn-changes 同源），foldUnits 读不到，所以把最终回复文本
-    // 传给组件，由它按"提到才出"过滤。在途回合不出（那时改动归 composer 胶囊报）。
-    const pagesNode: RenderNode | null = turnId && ownsArtifacts && !isTurnInProgress
-      ? { kind: 'turn-pages', key: `turn-pages-${turnId}`, turnId, finalText: finalSource }
       : null
 
     const leading: Unit[] = []
@@ -2391,7 +2385,6 @@ export function foldTurnGroups(
     if (interruptedUnit) nodes.push({ kind: 'unit', unit: interruptedUnit })
     // 「本回合产出了什么」连排：图 → 页面 → 图表 → 改动的文件。都在折叠之外。
     if (mediaNode) nodes.push(mediaNode)
-    if (pagesNode) nodes.push(pagesNode)
     if (diagramsNode) nodes.push(diagramsNode)
     if (changesNode) nodes.push(changesNode)
     renderedGroups.push({ key: turnKey, turnId, nodes })
@@ -3086,7 +3079,7 @@ function UnitView({ unit, isThinkingExpanded, onToggleThinking, archived, runnin
       suppressImagePaths={unit.suppressImagePaths}
       sessionId={sessionId || streamSessionId || ''}
       inlineVis={segment.inlineVis}
-      websiteReferences={unit.websiteReferences}
+      endResourceTurn={readOnly ? null : unit.endResourceTurn}
       turnId={unit.turnId}
       actionsHtml={unit.hasActions ? renderMsgActionsHtml({ ts: unit.ts, copyText: '', kind: 'assistant', archived, running, readOnly, goalCompletion: unit.goalCompletion }) : ''}
     />
@@ -3434,84 +3427,6 @@ function VisualArtifactsBlock({ sessionId, artifacts }: { sessionId: string; art
   )
 }
 
-/**
- * Which of a turn's produced files count as a previewable page.
- *
- * Exported as a pure function so the rule is testable without a rendered
- * component: the same engine record feeds the changed-files block, which lists
- * EVERY file, while a preview card must only be offered for something the
- * sandbox can actually render. A deleted file is excluded because there is
- * nothing left to open; the extension test is case-insensitive because a
- * `.HTML` deliverable is the same deliverable.
- */
-export function pageArtifactsFromTurn(files: ReadonlyArray<{ path: string; name: string; relativePath: string; kind: string }>): Array<{ path: string; name: string; relativePath: string }> {
-  return files
-    .filter(file => file.kind !== 'delete' && /\.(?:html?|xhtml)$/iu.test(file.path))
-    .map(file => ({ path: file.path, name: file.name, relativePath: file.relativePath }))
-}
-
-/**
- * A turn's produced HTML pages, as clickable preview cards.
- *
- * Why this exists: a page the agent wrote had NO presentation path at all. The
- * rich HTML preview (sandboxed iframe, session-scoped capability URL) was only
- * reachable by finding the file in the Files panel and clicking it, so the
- * transcript ended with "the page is at <path>" and the user opened it by hand or
- * in an external browser. A written page is a deliverable, so it gets the same
- * treatment as a diagram: a card after the turn's fold.
- *
- * The card only POINTS at the file. Rendering it stays in the Files panel's
- * existing preview, which is the surface that already holds the sandbox rules;
- * a second renderer here would be a second copy of those rules to drift.
- */
-/**
- * Which of a turn's written pages the reply actually reports.
- *
- * Exported as a pure function so the gate is testable without a rendered
- * component: the engine record lists EVERY page the turn wrote, including
- * source-code edits to an `index.html` and throwaway probe pages, and none of
- * those are deliverables unless the reply put them in front of the user. Matching
- * is the same "path or bare filename appears in the reply" rule the image block
- * uses (collectReportedPaths), so a turn that says "the page is at
- * .klaus/queue-comparison.html" surfaces that page and nothing else.
- */
-export function reportedPages(pages: ReadonlyArray<{ path: string; name: string; relativePath: string }>, finalText: string): Array<{ path: string; name: string; relativePath: string }> {
-  if (!finalText || pages.length === 0) return []
-  const paths = new Set(pages.map(page => page.path))
-  const reported = collectReportedPaths(finalText, paths)
-  return pages.filter(page => reported.has(page.path))
-}
-
-function TurnPagesBlock({ sessionId, turnId, finalText }: { sessionId: string; turnId: string; finalText: string }) {
-  const t = useT()
-  const version = useSyncExternalStore(subscribeArtifacts, artifactsVersion)
-  // Same engine record the changed-files block reads (session/fileChanges), so a
-  // page listed here is a page the engine says this turn wrote; only the ones the
-  // reply reports are shown.
-  const pages = useMemo(() => reportedPages(pageArtifactsFromTurn(artifactTurn(sessionId, turnId)?.files ?? []), finalText), [version, sessionId, turnId, finalText])
-  if (!pages.length) return null
-  return (
-    <div className={styles['diagram-artifacts']}>
-      {pages.map(page => (
-        <button
-          className={styles['diagram-artifact-card']}
-          type="button"
-          key={page.path}
-          onClick={() => w().klausOpenWorkspaceFilePath?.(page.path)}
-        >
-          <RawHtml tag="span" className={styles['diagram-artifact-icon']} html={rawIconHtml('browser')} />
-          <span className={styles['diagram-artifact-copy']}>
-            <span className={styles['diagram-artifact-title']}>{page.name || page.relativePath || page.path}</span>
-            <span className={styles['diagram-artifact-hint']}>{t('page_artifact_ready')}</span>
-          </span>
-          <span className={styles['diagram-artifact-open']}>{t('page_artifact_open')}</span>
-          <RawHtml tag="span" className={styles['diagram-artifact-chevron']} html={rawIconHtml('chevron-right')} />
-        </button>
-      ))}
-    </div>
-  )
-}
-
 // 回合改动区块：一个完结回合改了哪些文件。
 //
 // 数据取自概览「产物」区那份按回合的记录（引擎的 session/fileChanges），不是
@@ -3652,16 +3567,24 @@ function TurnAgentRows({ tools, sessionId: _sessionId, turnInterrupted = false, 
   </div>
 }
 
-export function TurnChangesBlock({ sessionId, turnId }: {
+export function TurnChangesBlock({ sessionId, turnId, status, finalText }: {
   sessionId: string
   turnId: string
+  status?: string
+  finalText?: string
 }) {
   const t = useT()
   const version = useSyncExternalStore(subscribeArtifacts, artifactsVersion)
   const turn = useMemo(() => artifactTurn(sessionId, turnId), [version, sessionId, turnId])
   const [expanded, setExpanded] = useState(false)
   const cardRef = useRef<HTMLDivElement>(null)
-  if (!turn || turn.files.length === 0) return null
+  // The turn-end resource cards already present every file this turn edited.
+  const covered = useMemo(() => {
+    if (!turn || finalText === undefined) return false
+    const edited = turn.files.map(file => file.path)
+    return endResourcesCoverEdits(turnEndResources({ sessionId, status, finalText, editedPaths: edited }), edited)
+  }, [turn, sessionId, status, finalText])
+  if (!turn || turn.files.length === 0 || covered) return null
 
   const files = turn.files
   const count = files.length
@@ -3767,23 +3690,32 @@ export function TurnChangesBlock({ sessionId, turnId }: {
   )
 }
 
-export function FinalAssistantBubble({ text, actionsHtml = '', suppressImagePaths, sessionId = '', navigationAnswer = true, inlineVis, websiteReferences, turnId = '' }: { websiteReferences?: readonly SiteReference[]; turnId?: string; text: string; actionsHtml?: string; suppressImagePaths?: ReadonlySet<string>; sessionId?: string; navigationAnswer?: boolean; inlineVis?: readonly InlineVisFragment[] }) {
+export function FinalAssistantBubble({ text, actionsHtml = '', suppressImagePaths, sessionId = '', navigationAnswer = true, inlineVis, endResourceTurn, turnId = '' }: { endResourceTurn?: { turnId: string; status: string } | null; turnId?: string; text: string; actionsHtml?: string; suppressImagePaths?: ReadonlySet<string>; sessionId?: string; navigationAnswer?: boolean; inlineVis?: readonly InlineVisFragment[] }) {
   const source = suppressImagePaths?.size ? stripMarkdownImagesForPaths(text, suppressImagePaths) : text
-  const html = inlineVisPostProcess(useAsyncMarkdownHtml(source, sessionId, `history:${turnId}`, false))
-  const references = navigationAnswer ? websiteReferences ?? websiteReferencesFromText(source, turnId) : []
+  const { projected, present } = useTurnEndResources(sessionId, navigationAnswer ? endResourceTurn : null, source)
+  // A line that only links a file the resource card shows says the same thing
+  // twice; the card is that file's presentation. Copying keeps the full reply.
+  const display = useMemo(() => stripEndResourceLinkLines(source, endResourceFilePaths(present), sessionWorkdirOf(sessionId)), [source, present, sessionId])
+  const html = inlineVisPostProcess(useAsyncMarkdownHtml(display, sessionId, `history:${turnId}`, false))
   // 操作栏必须是 group 直接子节点（:scope > .msg-actions 查询与旧结构对齐），
   // 故 group 内容整体由工厂拼接。data-md 存原始 markdown 供复制。
   return (
     <InlineVisualizationHtml
       className="msg-group assistant"
       html={`<div class="msg assistant"${navigationAnswer ? ' data-nav-answer="true"' : ''} data-md="${escapeHtml(source || '')}">${html}</div>${actionsHtml}`}
-      message={references.length ? { html, markdown: source, answer: navigationAnswer, actionsHtml } : undefined}
-      afterContent={references.length ? <SiteReferenceCards references={references} sessionId={sessionId} /> : undefined}
+      message={projected.length ? { html, markdown: source, answer: navigationAnswer, actionsHtml } : undefined}
+      afterContent={present.length ? <EndResourceCards resources={present} sessionId={sessionId} /> : undefined}
       fragments={inlineVis ?? []}
       sessionId={sessionId}
       onOpenExternal={url => w().klaus?.app?.openExternal?.(url)}
     />
   )
+}
+
+/** The conversation's working directory, for resolving a reply's relative links. */
+function sessionWorkdirOf(sessionId: string): string | null {
+  const workdir = w().getKnownSessionInfo?.(sessionId)?.workdir
+  return typeof workdir === 'string' && workdir ? workdir : null
 }
 
 function CompactSummaryCard({ text, sessionId }: { text: string; sessionId?: string }) {
@@ -3915,29 +3847,37 @@ export function TranscriptView({ sessionId, container, scroll = 'none', readOnly
     }
   }, [container, sessionId, readOnly])
 
+  // Publish every settled turn's resources for the overview panel and the turn
+  // navigation preview. The same projection the cards use, fed by the same
+  // final reply and the same engine file-change record.
   useEffect(() => {
     if (readOnly) return
-    let previousHistory: unknown = undefined
-    let previousLive: unknown = undefined
-    let historyReferences: SiteReference[] = []
-    let liveReferences: SiteReference[] = []
     const sync = () => {
       const stream = selectSessionStream(chatStreamStore.getState(), sessionId)
       if (stream.history === null && !stream.liveUnits.length) return
-      if (stream.history !== previousHistory) {
-        previousHistory = stream.history
-        historyReferences = (stream.history ?? []).flatMap((message, index) => artifactUnitsForMessage(message)
-          .filter(unit => unit.type === 'text').flatMap(unit => websiteReferencesForItem(message, unit.segment?.text ?? '', unit.turnId ?? message.uuid ?? `history:${index}`)))
+      const finals = new Map<string, string>()
+      for (const message of stream.history ?? []) {
+        if (!message?.turnId) continue
+        const final = [...artifactUnitsForMessage(message)].reverse().find(unit => unit.type === 'text' && unit.isFinalReply && unit.segment?.text?.trim())
+        if (final) finals.set(message.turnId, final.segment?.text ?? '')
       }
-      if (stream.liveUnits !== previousLive) {
-        previousLive = stream.liveUnits
-        liveReferences = stream.liveUnits.filter(unit => unit.type === 'live-text')
-          .flatMap(unit => websiteReferencesForItem(unit, (unit as Extract<StoreLiveUnit, { type: 'live-text' }>).text, unit.turnId ?? stream.liveTurnId ?? unit.key))
+      for (const unit of stream.liveUnits) {
+        if (unit.type !== 'live-text' || unit.streaming || !unit.turnId) continue
+        if (unit.phase === 'final_answer' || unit.turnTail) finals.set(unit.turnId, unit.text)
       }
-      replaceSiteReferences(contextId, [...historyReferences, ...liveReferences])
+      const turns: TurnEndResources[] = []
+      for (const [turnId, finalText] of finals) {
+        const status = stream.turnStatuses[turnId] || (stream.running && stream.activeTurnId === turnId ? '' : stream.lastTerminalStatus && stream.liveTurnId === turnId ? stream.lastTerminalStatus : '')
+        const editedPaths = artifactTurn(contextId, turnId)?.files.map(file => file.path) ?? []
+        const resources = turnEndResources({ sessionId: contextId, status, finalText, editedPaths })
+        if (resources.length) turns.push({ turnId, resources })
+      }
+      publishEndResources(contextId, turns)
     }
     sync()
-    return chatStreamStore.subscribe(sync)
+    const stopStream = chatStreamStore.subscribe(sync)
+    const stopArtifacts = subscribeArtifacts(sync)
+    return () => { stopStream(); stopArtifacts() }
   }, [sessionId, contextId, readOnly])
 
   const keyedHistory = useMemo(() => (history || []).map((msg, index) => msg.uuid ? msg : { ...msg, uuid: `i-${index}` }), [history])
@@ -4070,12 +4010,10 @@ export function TranscriptView({ sessionId, container, scroll = 'none', readOnly
           onToggleFold={(foldKey, open) => setTurnCollapsed(sessionId, foldKey, open)} />
     : node.kind === 'turn-media'
       ? <TurnMediaBlock paths={node.paths} sessionId={contextId} key={node.key} />
-    : node.kind === 'turn-pages'
-      ? (readOnly ? null : <TurnPagesBlock sessionId={contextId} turnId={node.turnId} finalText={node.finalText} key={node.key} />)
     : node.kind === 'turn-visuals'
       ? <VisualArtifactsBlock sessionId={contextId} artifacts={node.artifacts} key={node.key} />
       : node.kind === 'turn-changes'
-        ? readOnly ? null : <TurnChangesBlock sessionId={contextId} turnId={node.turnId} key={node.key} />
+        ? readOnly ? null : <TurnChangesBlock sessionId={contextId} turnId={node.turnId} status={node.status} finalText={node.finalText} key={node.key} />
         : node.kind === 'turn-agents'
           ? <TurnAgentRows key={node.key} tools={node.tools} sessionId={contextId} turnInterrupted={node.turnInterrupted} turnId={node.turnId} />
         : node.kind === 'worktree-init'
@@ -4305,19 +4243,21 @@ function LiveDelegationView({ delegation }: { delegation: DelegationEnvelope }) 
       + renderDelegationBubbleHtml(delegation.input) + '</div>'} />
 }
 
-function LiveTextView({ unit, sessionId, unitProps, mediaPaths, mediaAliases, isLastText, websiteReferences }: {
+function LiveTextView({ unit, sessionId, unitProps, mediaPaths, mediaAliases, isLastText, endResourceTurn }: {
   unit: Extract<LiveUnit, { type: 'live-text' }>
   sessionId: string
   unitProps: UnitProps
   mediaPaths: ReadonlySet<string>
   mediaAliases?: ReadonlyMap<string, string>
   isLastText: boolean
-  websiteReferences?: readonly SiteReference[]
+  endResourceTurn?: { turnId: string; status: string } | null
 }) {
   // Resolve tool-generated media before rendering the last live answer.
   const resolved = isLastText && mediaPaths.size > 0 ? resolveRelativeImagePaths(unit.text, mediaPaths, mediaAliases) : unit.text
   const source = isLastText || mediaPaths.size === 0 ? resolved : stripMarkdownImagesForPaths(unit.text, mediaPaths)
-  const markdown = useAsyncMarkdownHtml(source, unitProps.sessionId || sessionId, unit.key, unit.streaming)
+  const { projected, present } = useTurnEndResources(sessionId, isLastText && !unit.streaming && !unitProps.readOnly ? endResourceTurn : null, source)
+  const display = useMemo(() => stripEndResourceLinkLines(source, endResourceFilePaths(present), sessionWorkdirOf(sessionId)), [source, present, sessionId])
+  const markdown = useAsyncMarkdownHtml(display, unitProps.sessionId || sessionId, unit.key, unit.streaming)
   const html = unit.streaming
     ? `${stripInlineVisLines(markdown)}<span class="streaming-dots"><span></span><span></span><span></span></span>`
     : inlineVisPostProcess(markdown)
@@ -4329,11 +4269,10 @@ function LiveTextView({ unit, sessionId, unitProps, mediaPaths, mediaAliases, is
         goalCompletion: unit.goalCompletion,
       })
     : ''
-  const references = isLastText ? websiteReferences ?? websiteReferencesForItem(unit, source, unit.turnId ?? '') : []
   const bubbleHtml = `<div class="msg assistant${unit.streaming ? ' streaming' : ''}${unit.aborted ? ' ' + styles['aborted'] : ''}"${isLastText ? ' data-nav-answer="true"' : ''} data-md="${escapeHtml(source)}">${html}</div>${actionsHtml}`
-  const bubble = references.length ? <InlineVisualizationHtml className="msg-group assistant" html={bubbleHtml} fragments={unit.streaming ? [] : unit.inlineVis ?? []} sessionId={sessionId}
+  const bubble = projected.length ? <InlineVisualizationHtml className="msg-group assistant" html={bubbleHtml} fragments={unit.streaming ? [] : unit.inlineVis ?? []} sessionId={sessionId}
     message={{ html, markdown: source, answer: isLastText, className: `msg assistant${unit.streaming ? ' streaming' : ''}${unit.aborted ? ' ' + styles['aborted'] : ''}`, actionsHtml }}
-    afterContent={<SiteReferenceCards references={references} sessionId={sessionId} />}
+    afterContent={present.length ? <EndResourceCards resources={present} sessionId={sessionId} /> : undefined}
     onOpenExternal={url => w().klaus?.app?.openExternal?.(url)} /> : unit.streaming
     ? <StreamingHtml className="msg-group assistant" html={bubbleHtml} />
     : <InlineVisualizationHtml className="msg-group assistant" html={bubbleHtml} fragments={unit.inlineVis ?? []} sessionId={sessionId}
@@ -4341,7 +4280,7 @@ function LiveTextView({ unit, sessionId, unitProps, mediaPaths, mediaAliases, is
   return unit.friendFollowUp ? <FriendFollowUp text={source} streaming={unit.streaming}>{bubble}</FriendFollowUp> : bubble
 }
 
-function LiveUnitView({ unit, tools, sessionId, unitProps, mediaPaths, mediaAliases, figurePaths, isLastText, websiteReferences, turnInterrupted, expandedToolIds, onToggleTool }: {
+function LiveUnitView({ unit, tools, sessionId, unitProps, mediaPaths, mediaAliases, figurePaths, isLastText, endResourceTurn, turnInterrupted, expandedToolIds, onToggleTool }: {
   unit: LiveUnit
   tools: Record<string, ToolCardState>
   sessionId: string
@@ -4353,7 +4292,7 @@ function LiveUnitView({ unit, tools, sessionId, unitProps, mediaPaths, mediaAlia
   // 已在别处呈现的图：工具卡不再重复出（见 LiveTools）。
   figurePaths: ReadonlySet<string>
   isLastText: boolean
-  websiteReferences?: readonly SiteReference[]
+  endResourceTurn?: { turnId: string; status: string } | null
   // The live Turn ended because the user stopped it; subagent rows must settle.
   turnInterrupted: boolean
   expandedToolIds: ReadonlySet<string>
@@ -4408,7 +4347,7 @@ function LiveUnitView({ unit, tools, sessionId, unitProps, mediaPaths, mediaAlia
     )
   }
   if (unit.type === 'live-text') return <LiveTextView unit={unit} sessionId={sessionId} unitProps={unitProps}
-    mediaPaths={mediaPaths} mediaAliases={mediaAliases} isLastText={isLastText} websiteReferences={websiteReferences} />
+    mediaPaths={mediaPaths} mediaAliases={mediaAliases} isLastText={isLastText} endResourceTurn={endResourceTurn} />
   if (unit.type === 'live-turn-status') {
     return <TurnTerminalStatus startedAt={unit.startedAt} finishedAt={unit.finishedAt} />
   }
@@ -4780,7 +4719,7 @@ type LiveActivityRenderProps = {
   /** Images already presented elsewhere (inline in the reply, or the turn-end
    *  block), which the folded tool cards must not render a second time. */
   figurePaths: ReadonlySet<string>
-  websiteReferences?: readonly SiteReference[]
+  endResourceTurn?: { turnId: string; status: string } | null
   lastLiveText: Extract<LiveUnit, { type: 'live-text' }> | null
   turnInterrupted: boolean
   turnKey: string
@@ -4798,7 +4737,7 @@ function LiveActivityNodeView({ node, ...props }: LiveActivityRenderProps & { no
   if (node.kind === 'work-divider') return <TurnWorkDivider startedAtMs={node.startedAtMs} completedAtMs={node.completedAtMs} />
   if (node.kind === 'unit') return <LiveUnitView unit={node.unit} tools={props.tools} sessionId={props.sessionId} unitProps={props.unitProps}
     mediaPaths={props.mediaPaths} mediaAliases={props.mediaAliases} figurePaths={props.figurePaths} isLastText={isFinalLiveText(node.unit, props.lastLiveText)}
-    websiteReferences={props.websiteReferences} turnInterrupted={props.turnInterrupted} expandedToolIds={props.expandedToolIds} onToggleTool={props.onToggleTool} />
+    endResourceTurn={props.endResourceTurn} turnInterrupted={props.turnInterrupted} expandedToolIds={props.expandedToolIds} onToggleTool={props.onToggleTool} />
   const foldKey = node.kind === 'activity' ? `activity:${props.turnKey}:${node.key}` : `turn:${props.turnKey}`
   const open = node.kind === 'activity' ? activityCollapseState(node.mode, props.collapseOverrides[foldKey]).open
     : turnCollapseState({ hasFinal: true, interrupted: props.turnInterrupted, hasActivity: true,
@@ -4812,7 +4751,7 @@ function LiveActivityNodeView({ node, ...props }: LiveActivityRenderProps & { no
   return <ActivityDisclosure enabled={node.mode === 'summary'} open={open} onToggle={() => props.onToggleFold(foldKey, open)} label={label}>
     {node.units.map(unit => <LiveUnitView unit={unit} tools={props.tools} sessionId={props.sessionId} unitProps={props.unitProps}
       mediaPaths={props.mediaPaths} mediaAliases={props.mediaAliases} figurePaths={props.figurePaths} isLastText={isFinalLiveText(unit, props.lastLiveText)}
-      websiteReferences={props.websiteReferences} turnInterrupted={props.turnInterrupted} expandedToolIds={props.expandedToolIds} onToggleTool={props.onToggleTool} key={unit.key} />)}
+      endResourceTurn={props.endResourceTurn} turnInterrupted={props.turnInterrupted} expandedToolIds={props.expandedToolIds} onToggleTool={props.onToggleTool} key={unit.key} />)}
   </ActivityDisclosure>
 }
 
@@ -5133,6 +5072,7 @@ export function LiveTail({ sessionId, unitProps, scroll = 'none', container, tim
   const turnKey = activeTurnId || liveTurnId || 'live'
   const turnDurations = useChatStream(state => selectSessionStream(state, sessionId).turnDurations)
   const durationMs = turnDurations[turnKey]
+  const liveTurnStatuses = useChatStream(state => selectSessionStream(state, sessionId).turnStatuses)
   const { startedAtMs: turnStartedAtMs, completedAtMs: turnWorkCompletedAtMs } = useTurnWorkTimes(sessionId)
   const liveTailStartedAt = useChatStream(state => selectSessionStream(state, sessionId).turnStartedAt)
   // live 层的工作树行跟在乐观用户气泡下（worktree-init 语义）。行归“拥有
@@ -5203,7 +5143,11 @@ export function LiveTail({ sessionId, unitProps, scroll = 'none', container, tim
     const embedded = final ? collectMarkdownImagePaths(resolvedFinal) : EMPTY_PATHS
     const reported = final ? collectReportedPaths(resolvedFinal, images, mediaAliases) : EMPTY_PATHS
     const turnMedia = produced.filter(path => (explicitMedia.has(path) || reported.has(path)) && !embedded.has(path))
-    return { turnKey: owner, lastLiveText: final, websiteReferences: [...new Map(texts.flatMap(unit => websiteReferencesForItem(unit, unit.text, owner)).map(reference => [reference.id, reference])).values()], mediaPaths: images, mediaAliases, durationMs: turnDurations[owner],
+    // The live layer holds a just-settled turn until history takes it over; the
+    // same resource projection applies once that turn has completed or failed.
+    const liveStatus = liveTurnStatuses[owner] || (owner === turnKey ? (running ? '' : terminalStatus ?? '') : 'completed')
+    const endResourceTurn = owner !== 'live' && (liveStatus === 'completed' || liveStatus === 'failed') ? { turnId: owner, status: liveStatus } : null
+    return { turnKey: owner, lastLiveText: final, endResourceTurn, mediaPaths: images, mediaAliases, durationMs: turnDurations[owner],
       turnMedia,
       // 已在别处呈现的图不在工具卡里再出一遍；没被汇报的图回到卡片，那是它唯一的呈现面。
       figurePaths: new Set<string>([...embedded, ...turnMedia]),
@@ -5446,8 +5390,8 @@ export function StaticTranscriptView({ msgs, container, running, sessionId }: {
         : node.kind === 'turn-fold'
           ? <TurnFold node={node} key={node.key} unitProps={unitProps} sessionId={sessionId || ''} onToggleFold={toggleFold} />
         // 子 Agent 的编辑已经被折进父回合那份记录里，区块归父转录；这里再出一遍
-        // 就是同一批文件报两次。turn-pages 同源同规则。
-        : node.kind === 'turn-changes' || node.kind === 'turn-pages'
+        // 就是同一批文件报两次。
+        : node.kind === 'turn-changes'
           ? null
           : node.kind === 'turn-agents'
             ? <TurnAgentRows key={node.key} tools={node.tools} sessionId={sessionId || ''} turnInterrupted={node.turnInterrupted} turnId={node.turnId} />

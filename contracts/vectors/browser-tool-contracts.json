@@ -134,12 +134,13 @@
     "scope": "host checks session, focus revision, URL policy and the tool-call key on each visible action"
   },
   "siteReferences": {
-    "producer": "assistant Markdown web links, including autolinks; tools, code examples, images and user messages do not create website resources",
-    "projections": "turn-end cards before message actions, session artifact rows, and website type and icon in turn hover previews",
-    "opening": "application browser, installed Google Chrome, system default browser, and copy link; successful opening remembers the target, copying does not",
-    "state": "cards show fixed website labels; only the menu loads, and opening failures show a notification",
-    "history": "resources replay from saved assistant content with no navigation and historical sessions remain clickable"
+    "producer": "a completed turn's final reply and its own edits: exactly one local server address with a port, otherwise exactly one edited HTML page; internet links in prose are citations and never become resources, and cited or linked documents replace any website (see end-resource-vectors.json)",
+    "projections": "turn-end resource list before message actions, conversation output rows in the overview, and output type and icon in turn hover previews",
+    "opening": "row click opens a local URL with the remembered local target or a page in the work panel preview; the Open in menu lists Klaus, operating-system applications for the target and copy link; menu choices do not change the remembered target",
+    "state": "a page card shows its own title and icon; only the menu loads applications, and opening failures show a notification",
+    "history": "resources replay from saved final replies and file-change records with no navigation and historical sessions remain clickable"
   },
+
   "interactiveWidget": {
     "producer": "exact host dynamic show_widget tool bound to the session and tool call; replace or unique patch with restricted project/widget or user skill template paths",
     "snapshot": "host-owned immutable revision file, content hash checked when granting and serving a session-scoped capability URL",

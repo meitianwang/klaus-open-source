@@ -129,12 +129,25 @@ body:global(.artifacts-open) .welcome-greeting {
 
 .turn-navigation-tooltip-output {
   display: flex;
+  min-width: 0;
   align-items: center;
-  gap: 6px;
+  gap: 12px;
   overflow: hidden;
-  margin-top: 4px;
+  margin-top: 8px;
   color: var(--fg-secondary);
   font-size: var(--text-badge);
+}
+
+.turn-navigation-tooltip-output-item {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+}
+
+.turn-navigation-tooltip-output-more {
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
 }
 
 .turn-navigation-tooltip-output-icon {
@@ -150,6 +163,7 @@ body:global(.artifacts-open) .welcome-greeting {
 
 .turn-navigation-tooltip-output-label {
   min-width: 0;
+  max-width: 144px;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;

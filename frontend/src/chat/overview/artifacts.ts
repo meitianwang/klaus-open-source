@@ -32,7 +32,10 @@ import { applyDefaultCollapseState, overviewDeps, styles } from './shared'
 import { fileIconSvg } from '../file-icon'
 import { icon } from '../../icons/registry'
 import type { SpecDocument } from '../spec-document-model'
-import { openSiteReference, siteReferencesForSession, subscribeSiteReferences, type SiteReference } from '../site-references'
+import { openSiteReference } from '../site-references'
+import { endResourcesForSession, openEndResourceFile, subscribeEndResources, type EndResource } from '../end-resources'
+import { isUrlTarget, websiteResourceLabel } from '../../../../contracts/end-resources'
+import { fileExtension } from '../../../../contracts/file-citation'
 
 const w = () => window as any
 
@@ -301,7 +304,7 @@ function scheduleReload(): void {
  * as its own event — only the engine's fold knows about it.
  */
 export function initArtifactsSection(): void {
-  subscribeSiteReferences(renderArtifactsSection)
+  subscribeEndResources(renderArtifactsSection)
   w().klaus?.on?.chatEvent?.((event: any) => {
     if (!event || event.sessionId !== state.sessionId) return
     if (event.type === 'diff_update' || event.type === 'tool_end' || event.type === 'done') scheduleReload()
@@ -394,25 +397,46 @@ function specArtifactRow(spec: Pick<SpecDocument, 'sessionId' | 'path' | 'title'
   return row
 }
 
-function websiteArtifactRow(reference: SiteReference, sessionId: string): HTMLButtonElement {
+/** Every turn's resources, newest turn first, one row per distinct resource. */
+export function conversationOutputs(sessionId: string): EndResource[] {
+  const outputs: EndResource[] = []
+  const seen = new Set<string>()
+  for (const turn of [...endResourcesForSession(sessionId)].reverse()) {
+    for (const resource of turn.resources) {
+      const key = resource.type === 'file' ? `path:${resource.path}` : isUrlTarget(resource.target) ? `url:${resource.target}` : `path:${resource.target}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      outputs.push(resource)
+    }
+  }
+  return outputs
+}
+
+function outputArtifactRow(resource: EndResource, sessionId: string): HTMLButtonElement {
   const row = document.createElement('button')
   row.type = 'button'
   row.className = styles['artifact-row']
-  row.setAttribute('data-kind', 'website')
-  row.setAttribute('data-site-url', reference.url)
-  row.setAttribute('aria-label', `${tt('site_reference_open')}: ${reference.title}`)
+  const website = resource.type === 'website'
+  const target = website ? resource.target : resource.path
+  row.setAttribute('data-kind', website ? 'website' : 'output-file')
+  const label = website ? websiteResourceLabel(target) || tt('end_resource_website_title') : target.split(/[\\/]/).pop() || target
+  row.setAttribute('aria-label', tt('end_resource_open_named').replace('{title}', label))
   const mark = document.createElement('span')
   mark.className = styles['artifact-icon']
   mark.setAttribute('aria-hidden', 'true')
-  mark.innerHTML = icon('tc-globe')
+  mark.innerHTML = website ? icon('tc-globe') : fileIconSvg(target)
   const name = document.createElement('span')
   name.className = styles['artifact-name']
-  name.textContent = reference.title
+  name.textContent = label
   const type = document.createElement('span')
   type.className = styles['artifact-tag']
-  type.textContent = tt('site_reference_website')
+  const extension = fileExtension(target).toUpperCase()
+  type.textContent = website ? tt('end_resource_website_subtitle') : extension ? tt('end_resource_output_file_type').replace('{extension}', extension) : tt('turn_navigation_file_output')
   row.append(mark, name, type)
-  row.addEventListener('click', () => { void openSiteReference(sessionId, reference.url) })
+  row.addEventListener('click', () => {
+    if (website && isUrlTarget(target)) void openSiteReference(sessionId, target)
+    else openEndResourceFile(target)
+  })
   return row
 }
 
@@ -436,21 +460,21 @@ export function renderArtifactsSection(): void {
   const aggregate = aggregateArtifactTurns(state.turns)
   const sessionId = overviewDeps().currentSessionId() || ''
   const specs = specArtifactDocuments(overviewDeps().specDocuments(sessionId), sessionId)
-  const websites = [...new Map(siteReferencesForSession(sessionId).map(reference => [reference.url, reference])).values()]
+  const outputs = conversationOutputs(sessionId)
   if (meta) {
     const lineCounts = aggregate.files.length === 0 ? '' : [
       aggregate.added === null || aggregate.added > 0 ? `+${formatLineCount(aggregate.added)}` : '',
       aggregate.removed === null || aggregate.removed > 0 ? `-${formatLineCount(aggregate.removed)}` : '',
     ].filter(Boolean).join(' ')
     meta.textContent = [
-      websites.length > 0 ? `${tt('site_reference_website')} · ${websites.length}` : '',
+      outputs.length > 0 ? `${tt('end_resource_outputs')} · ${outputs.length}` : '',
       lineCounts,
     ].filter(Boolean).join(' · ')
   }
   // Standing section: an empty conversation says so in place. Loading only
   // speaks when there is nothing on screen yet, so a refresh mid-turn does not
   // blank the list the user is reading.
-  if (aggregate.files.length === 0 && specs.length === 0 && websites.length === 0) {
+  if (aggregate.files.length === 0 && specs.length === 0 && outputs.length === 0) {
     const empty = document.createElement('div')
     empty.className = 'ctx-empty'
     empty.textContent = state.error
@@ -462,10 +486,10 @@ export function renderArtifactsSection(): void {
   }
   const groups: HTMLElement[] = []
   if (specs.length > 0) groups.push(artifactGroup(`${tt('spec_documents')} · ${specs.length}`, specs.map(specArtifactRow)))
-  if (websites.length > 0) groups.push(artifactGroup(`${tt('site_reference_website')} · ${websites.length}`, websites.map(reference => websiteArtifactRow(reference, sessionId))))
+  if (outputs.length > 0) groups.push(artifactGroup(`${tt('end_resource_outputs')} · ${outputs.length}`, outputs.map(resource => outputArtifactRow(resource, sessionId))))
   if (aggregate.files.length > 0) {
     const files = aggregate.files.map(artifactRow)
-    if (specs.length > 0 || websites.length > 0) groups.push(artifactGroup(tt('overview_artifacts_files'), files))
+    if (specs.length > 0 || outputs.length > 0) groups.push(artifactGroup(tt('overview_artifacts_files'), files))
     else {
       const rows = document.createElement('div')
       rows.className = 'artifacts-group-body'

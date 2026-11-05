@@ -1138,6 +1138,20 @@ expose('klaus', {
     setHostLayout: (layout: ComputerUsePipHostLayout): Promise<unknown> =>
       call('computer-use-pip:set-host-layout', layout),
   },
+  endResources: {
+    targets: (request: import('../../contracts/end-resource-open').EndResourceTargetsRequest): Promise<import('../../contracts/end-resource-open').EndResourceTargets> =>
+      call('end-resources:targets', request),
+    open: (request: import('../../contracts/end-resource-open').EndResourceOpenRequest): Promise<{ ok?: boolean; error?: string }> =>
+      call('end-resources:open', request),
+    reveal: (sessionId: string, filePath: string): Promise<{ ok?: boolean; error?: string }> =>
+      call('end-resources:reveal', { sessionId, filePath }),
+    downloadCopy: (sessionId: string, filePath: string): Promise<{ ok?: boolean; filePath?: string; error?: string }> =>
+      call('end-resources:download-copy', { sessionId, filePath }),
+    existing: (sessionId: string, paths: string[]): Promise<{ existing?: string[] }> =>
+      call('end-resources:existing', { sessionId, paths }),
+    pageMeta: (sessionId: string, filePath: string): Promise<import('../../contracts/end-resource-open').EndResourcePageMeta> =>
+      call('end-resources:page-meta', { sessionId, filePath }),
+  },
   browser: {
     siteOpenTargets: (): Promise<SiteOpenTargets | { ok: false; code: string; error: string }> =>
       call('site-references:open-targets'),

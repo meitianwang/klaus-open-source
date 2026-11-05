@@ -6,7 +6,7 @@
     "bridgeDir": "frontend/bridge"
   },
   "summary": {
-    "registeredInvoke": 727,
+    "registeredInvoke": 733,
     "registeredPush": 78,
     "roles": 11
   },
@@ -371,6 +371,12 @@
         "dream:trigger-now",
         "elicit:pending",
         "elicit:respond",
+        "end-resources:download-copy",
+        "end-resources:existing",
+        "end-resources:open",
+        "end-resources:page-meta",
+        "end-resources:reveal",
+        "end-resources:targets",
         "engine:compactSession",
         "engine:contextStats",
         "engine:refreshCommands",

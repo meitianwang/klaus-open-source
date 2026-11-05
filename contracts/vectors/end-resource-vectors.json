@@ -1,0 +1,47 @@
+{
+  "reason": "A completed turn ends with the deliverables its final reply and its own edits name: cited or linked documents as file cards, otherwise the one local server the reply names, otherwise the one HTML page the turn edited. Internet links are citations and never become resources; an unfinished turn has none.",
+  "projection": [
+    { "name": "internet links in prose are citations, not resources", "complete": true, "finalText": "See [the comparison](https://www.veed.io/learn/best-talking-head-video-apis) and [lvyelab](https://lvyelab.com/articles/x) and [Duix](https://github.com/duixcom/Duix-Avatar).", "editedPaths": [], "expected": [] },
+    { "name": "one local server with a port is a website resource", "complete": true, "finalText": "The app runs at `http://localhost:5173/`.", "editedPaths": [], "expected": [{ "type": "website", "target": "http://localhost:5173/" }] },
+    { "name": "two different local servers are ambiguous", "complete": true, "finalText": "Frontend http://localhost:5173 and API http://127.0.0.1:8080.", "editedPaths": [], "expected": [] },
+    { "name": "a local address without a port is not a started server", "complete": true, "finalText": "Open http://localhost/ in a browser.", "editedPaths": [], "expected": [] },
+    { "name": "trailing punctuation is not part of the address and repeats collapse", "complete": true, "finalText": "Ready at http://localhost:3000. Reload http://localhost:3000!", "editedPaths": [], "expected": [{ "type": "website", "target": "http://localhost:3000/" }] },
+    { "name": "subdomains of localhost count as local", "complete": true, "finalText": "Served on http://app.localhost:8443/dashboard", "editedPaths": [], "expected": [{ "type": "website", "target": "http://app.localhost:8443/dashboard" }] },
+    { "name": "one edited HTML page is a website resource", "complete": true, "finalText": "Done.", "editedPaths": ["/work/site/index.html", "/work/site/style.css"], "expected": [{ "type": "website", "target": "/work/site/index.html" }] },
+    { "name": "two edited HTML pages produce no website", "complete": true, "finalText": "Done.", "editedPaths": ["/work/site/index.html", "/work/site/about.html"], "expected": [] },
+    { "name": "the conversation's own inline visualization page is not a deliverable", "complete": true, "finalText": "Done.", "editedPaths": ["/Users/me/.klaus/visualizations/a186ce6d-8b19/chart.html"], "expected": [] },
+    { "name": "a server address outranks an edited page", "complete": true, "finalText": "Preview at http://localhost:4173", "editedPaths": ["/work/site/index.html"], "expected": [{ "type": "website", "target": "http://localhost:4173/" }] },
+    { "name": "a linked document is a file resource and replaces any website", "complete": true, "finalText": "Report: [report.pdf](/work/out/report.pdf), preview http://localhost:4173", "editedPaths": ["/work/site/index.html"], "expected": [{ "type": "file", "path": "/work/out/report.pdf" }] },
+    { "name": "linked file types are limited to documents", "complete": true, "finalText": "[notes](/work/out/notes.md) and [deck](/work/out/deck.pptx) and [code](/work/src/app.ts)", "editedPaths": [], "expected": [{ "type": "file", "path": "/work/out/deck.pptx" }] },
+    { "name": "relative links resolve against the working directory and deduplicate", "complete": true, "cwd": "/work", "finalText": "[a](out/sheet.xlsx) and [again](./out/sheet.xlsx)", "editedPaths": [], "expected": [{ "type": "file", "path": "/work/out/sheet.xlsx" }] },
+    { "name": "a link wrapped in a code span still counts", "complete": true, "finalText": "Saved `[paper](/work/out/paper.tex)`.", "editedPaths": [], "expected": [{ "type": "file", "path": "/work/out/paper.tex" }] },
+    { "name": "links inside fenced code do not count", "complete": true, "finalText": "```\n[paper](/work/out/paper.pdf)\n```", "editedPaths": [], "expected": [] },
+    { "name": "image embeds are not file resources", "complete": true, "finalText": "![cover](/work/out/cover.pdf)", "editedPaths": [], "expected": [] },
+    { "name": "citation directives admit the wider output set", "complete": true, "finalText": "Notes in :klaus-file-cite[notes]{path=\"/work/out/notes.md\"} and chart :klaus-file-cite[chart]{path=\"/work/out/chart.png\"}.", "editedPaths": [], "expected": [{ "type": "file", "path": "/work/out/notes.md" }, { "type": "file", "path": "/work/out/chart.png" }] },
+    { "name": "an unfinished turn has no resources", "complete": false, "finalText": "Preview at http://localhost:4173 and [report](/work/out/report.pdf)", "editedPaths": ["/work/site/index.html"], "expected": [] }
+  ],
+  "coverage": [
+    { "name": "files the cards present hide the changed-files card", "resources": [{ "type": "file", "path": "/work/out/report.pdf" }], "editedPaths": ["/work/out/report.pdf"], "covered": true },
+    { "name": "a markdown file card does not stand in for its diff", "resources": [{ "type": "file", "path": "/work/out/notes.md" }], "editedPaths": ["/work/out/notes.md"], "covered": false },
+    { "name": "a page website covers its own edit only", "resources": [{ "type": "website", "target": "/work/site/index.html" }], "editedPaths": ["/work/site/index.html", "/work/site/style.css"], "covered": false },
+    { "name": "a server website covers no file", "resources": [{ "type": "website", "target": "http://localhost:4173/" }], "editedPaths": ["/work/site/index.html"], "covered": false }
+  ],
+  "linkLines": [
+    { "name": "a bullet that only links a card's file is dropped", "text": "Done.\n- [report.pdf](/work/out/report.pdf)\nThanks.", "files": ["/work/out/report.pdf"], "expected": "Done.\nThanks." },
+    { "name": "a sentence around the link stays", "text": "The report is at [report.pdf](/work/out/report.pdf) for review.", "files": ["/work/out/report.pdf"], "expected": "The report is at [report.pdf](/work/out/report.pdf) for review." },
+    { "name": "links to other files stay", "text": "- [other.pdf](/work/out/other.pdf)", "files": ["/work/out/report.pdf"], "expected": "- [other.pdf](/work/out/other.pdf)" }
+  ],
+  "card": {
+    "websiteTitle": "page <title>, otherwise Web preview",
+    "websiteIcon": "page icon from a data image or a sibling image file up to 256 KiB, otherwise the website glyph",
+    "websiteSubtitle": "Website; on row hover Open (file page or in-app local URL) or Open in <browser> / default browser with an external mark",
+    "websiteTrailing": "split Open in button: primary opens like the row, chevron opens the menu",
+    "websiteMenu": ["Klaus", "applications that handle the URL or file, at most 5, default first", "loading message", "Copy link (local URL only, after a separator)"],
+    "fileTitle": "file name",
+    "fileSubtitle": "type name (Word, Excel, PowerPoint, PDF, ...), the directory for an unnamed type; Open preview on row hover",
+    "fileMenu": ["applications for the file, at most 5, (Default) for Office documents", "loading message", "separator, Show in Finder / File Explorer / File Manager", "Download a copy"],
+    "fileRowsWaitForExistence": true,
+    "collapse": { "visibleLimit": 4, "collapsedCount": 3 },
+    "menuChoicePersistsPreference": false
+  }
+}
