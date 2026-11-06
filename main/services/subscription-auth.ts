@@ -65,6 +65,22 @@ export function isQwenWorkLoginExpired(error: unknown): boolean {
   return errorMessage(error).includes('qwenwork_login_expired');
 }
 
+/**
+ * The engine's stable code for a refresh the gateway refused: the stored
+ * refresh token is dead, which for a rotated one-time token means another
+ * client of the same account refreshed first and holds the only live copy.
+ * The models handler answers this before its catalog fetch can produce the
+ * login-expired code, so recovery has to key on both.
+ */
+export function isQwenWorkRefreshFailed(error: unknown): boolean {
+  return errorMessage(error).includes('qwenwork_refresh_failed');
+}
+
+/** Either stable code for a stored QwenWork session only a reread of the official store can recover. */
+export function isQwenWorkRecoverable(error: unknown): boolean {
+  return isQwenWorkLoginExpired(error) || isQwenWorkRefreshFailed(error);
+}
+
 /** The same stable code for a dead WorkBuddy login. */
 export function isWorkBuddyLoginExpired(error: unknown): boolean {
   return errorMessage(error).includes('workbuddy_login_expired');

@@ -2,7 +2,7 @@ import { ChannelRegistry, IpcHandlerError } from '../registry';
 import type { Json } from '../contract';
 import { decodeBinary } from '../binary';
 import { AccountService, type AccountDeps } from '../../services/account-service';
-import { isQwenWorkLoginExpired, isWorkBuddyLoginExpired, isQoderWorkLoginExpired, needsCursorReadoption } from '../../services/subscription-auth';
+import { isQwenWorkRecoverable, isWorkBuddyLoginExpired, isQoderWorkLoginExpired, needsCursorReadoption } from '../../services/subscription-auth';
 import { object, string, requiredString, errorMessage, type JsonObject } from '../../services/service-types';
 
 export const AUTH_CHANNELS = [
@@ -190,11 +190,13 @@ export function registerAuthHandlers(registry: ChannelRegistry, deps: AccountDep
     // A dead copied token (the official client refreshed first) is recovered by
     // rereading the official store, which costs no refresh token. Only when the
     // reread finds nothing does the host let the engine spend the refresh
-    // token, and only then retry the catalog once.
+    // token, and only then retry the catalog once. The engine answers a dead
+    // stored refresh token before its catalog fetch, so the refused-refresh
+    // code opens this recovery too.
     try {
       return { ok: true, models: project(object(await deps.request('qwenwork/models', { read: 'cached' }))) };
     } catch (error) {
-      if (!isQwenWorkLoginExpired(error)) return { ok: false, error: errorMessage(error), models: [] };
+      if (!isQwenWorkRecoverable(error)) return { ok: false, error: errorMessage(error), models: [] };
     }
     try {
       if (await service.subscriptions.qwenworkReadopt()) {

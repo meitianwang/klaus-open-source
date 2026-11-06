@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { antigravityPresentationFamily, latestAntigravityFamilyIds, type AntigravityPresentationFamily } from '../../shared/antigravity-presentation';
 import type { Json } from '../ipc/contract';
 import { object, string, type JsonObject } from './service-types';
+import { isQwenWorkRecoverable } from './subscription-auth';
 import { responseText } from './mobile/transport';
 
 export interface UsageDeps {
@@ -17,6 +18,13 @@ export interface UsageDeps {
    * account session.
    */
   onRenewal?: (url: string) => void;
+  /**
+   * Reread the official QwenWork store after the engine reports the stored
+   * session dead (login expired or a refused refresh). The reread costs no
+   * refresh token, so the quota read retries once against whatever it adopts
+   * before surfacing the failure.
+   */
+  qwenworkRecover?: () => Promise<boolean>;
   /**
    * Whether the console keep-alive loop should run at all. Defaults to true;
    * tests pass false to keep their fake timers from seeing a background tick.
@@ -574,6 +582,22 @@ export class UsageService {
     let data: unknown; try { data = JSON.parse(text); } catch { throw new Error('Invalid usage response'); }
     if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error('Invalid usage response'); return object(data);
   }
+  /**
+   * The quota read of a rotated one-time session: the engine reports the stored
+   * copy dead once another client of the same account refreshed first, and
+   * rereading the official store costs no refresh token, so the read retries
+   * once against whatever that adoption lands before surfacing the failure.
+   */
+  private async qwenworkUsage(): Promise<unknown> {
+    try {
+      return await this.deps.request('qwenwork/usage', {}, this.abort.signal);
+    } catch (error) {
+      if (!isQwenWorkRecoverable(error)) throw error;
+      const recovered = this.deps.qwenworkRecover ? await this.deps.qwenworkRecover().catch(() => false) : false;
+      if (!recovered) throw error;
+      return await this.deps.request('qwenwork/usage', {}, this.abort.signal);
+    }
+  }
   private async collect(sessionId?: string, forcedMode?: string): Promise<Json> {
     const mode = forcedMode ?? this.deps.authMode(sessionId); let provider: JsonObject;
     try {
@@ -587,7 +611,7 @@ export class UsageService {
         }
         case 'qoder': provider = qoderUsage(await this.deps.request('qoder/usage', {}, this.abort.signal)); break;
         case 'cursor': provider = cursorUsage(await this.deps.request('cursor/usage', {}, this.abort.signal)); break;
-        case 'qwenwork': provider = qoderUsage(await this.deps.request('qwenwork/usage', {}, this.abort.signal)); break;
+        case 'qwenwork': provider = qoderUsage(await this.qwenworkUsage()); break;
         case 'qoderwork': provider = qoderUsage(await this.deps.request('qoderwork/usage', {}, this.abort.signal)); break;
         // WorkBuddy's billing answers with the same credit-pool shape, so the one
         // projection serves them all; the engine normalizes its packages and the

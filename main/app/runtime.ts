@@ -2059,6 +2059,7 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
       void shell.openExternal(url).catch(error => log.write('bailian-console-renewal', JSON.stringify({ outcome: 'failed', error: String(error) })));
     },
     codexAccessToken: signal => account.subscriptions.codexAccessToken(signal),
+    qwenworkRecover: () => account.subscriptions.qwenworkReadopt(),
     request: async (method, params, signal) => {
       signal?.throwIfAborted(); const client = await sessions.client(); signal?.throwIfAborted();
       // An allowance read can include a rejected request, renewal and one retry;

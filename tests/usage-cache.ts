@@ -188,4 +188,48 @@ export function registerUsageCacheTests(h: Harness): void {
     assert(initial !== claudeUsageCacheKey([{ ...first, tokens: { refreshToken: 'synthetic-new-login' } }, second]), 'a renewed login changes the key');
     assertEqual(initial, claudeUsageCacheKey([{ ...first, tokens: { ...first.tokens, accessToken: 'synthetic-refreshed-access' } }, second]), 'an access refresh within the login lineage does not change its identity');
   });
+
+  h.test('QwenWork quota read rereads the official store after a dead copied session and retries once', async () => {
+    let reads = 0, recovers = 0;
+    const quota: Json = { signedIn: true, account: 'fixture', quota: { userType: 'enterprise', userQuota: { total: 100, used: 25, remaining: 75, unit: 'credits' } } };
+    const usage = service({ authMode: () => 'qwenwork', qwenworkRecover: async () => { recovers++; return true; },
+      request: async method => {
+        assertEqual(method, 'qwenwork/usage', 'the quota read targets the QwenWork facade method');
+        reads++;
+        if (reads === 1) throw new Error('qwenwork_refresh_failed');
+        return quota;
+      } });
+    try {
+      const row = provider(await usage.query());
+      assertEqual(row.state, 'ok', 'the adopted session answers the retry');
+      assertEqual(reads, 2, 'one refused read plus one retry');
+      assertEqual(recovers, 1, 'the reread runs once');
+      assertEqual(object(row.credits).remaining, 75, 'the retry quota is projected');
+    } finally { await usage.close(); }
+  });
+
+  h.test('QwenWork quota read keeps the refresh failure when the reread finds nothing', async () => {
+    let reads = 0, recovers = 0;
+    const usage = service({ authMode: () => 'qwenwork', qwenworkRecover: async () => { recovers++; return false; },
+      request: async () => { reads++; throw new Error('qwenwork_refresh_failed'); } });
+    try {
+      const row = provider(await usage.query());
+      assertEqual(row.state, 'error', 'an unrecovered dead session surfaces as an error');
+      assertEqual(row.error, 'qwenwork_refresh_failed', 'the stable code reaches the quota panel');
+      assertEqual(reads, 1, 'no retry behind a failed reread');
+      assertEqual(recovers, 1, 'the reread was attempted');
+    } finally { await usage.close(); }
+  });
+
+  h.test('QwenWork quota read leaves unrelated failures to the caller without a reread', async () => {
+    let recovers = 0;
+    const usage = service({ authMode: () => 'qwenwork', qwenworkRecover: async () => { recovers++; return true; },
+      request: async () => { throw new Error('Usage request failed (HTTP 500)'); } });
+    try {
+      const row = provider(await usage.query());
+      assertEqual(row.state, 'error', 'a transport failure still surfaces as an error');
+      assertEqual(row.error, 'Usage request failed (HTTP 500)', 'the transport failure keeps its wording');
+      assertEqual(recovers, 0, 'a non-auth failure does not touch the official store');
+    } finally { await usage.close(); }
+  });
 }
