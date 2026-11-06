@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Harness } from './harness';
 import { ComposerService } from '../main/services/composer';
-import { readSessionThinkingLevel, setSessionThinkingLevel, readSessionUltraMode, applySessionUltraSelection, inheritSessionComposerPreferences, sessionPermissionPreset, setSessionPermissionPreset } from '../main/services/session-store';
+import { readSessionThinkingLevel, setSessionModel, setSessionThinkingLevel, readSessionUltraMode, applySessionUltraSelection, inheritSessionComposerPreferences, sessionPermissionPreset, setSessionPermissionPreset } from '../main/services/session-store';
 import { buildSessionConfig } from '../main/services/session-init';
 import { kvGet, kvSet, withSettingsDb } from '../main/services/settings';
 import { ChannelRegistry } from '../main/ipc/registry';
@@ -331,7 +331,7 @@ h.test('a native menu pick publishes its effort and exit from Ultra together', a
   assert.deepEqual(observed, Array.from({ length: pick.publicationCount }, () => [pick.level, false]));
   assert.equal(readSessionUltraMode('other', root), true);
   assert.equal(readSessionUltraMode('', root), true);
-  assert.equal(readSessionThinkingLevel('', root), 'high');
+  assert.equal(readSessionThinkingLevel('', root), pick.level);
 });
 
 h.test('selecting the preserved native effort still publishes the exit from Ultra', async () => {
@@ -397,11 +397,12 @@ h.test('native menu selection cannot enable Ultra or bypass permission confirmat
   assert.equal(readSessionUltraMode('current', root), false);
 });
 
-h.test('a direct native selection exits Ultra atomically without replacing future defaults', async () => {
+h.test('a direct native selection exits Ultra atomically and becomes the reasoning default for future chats', async () => {
   const root = fresh();
   setSessionThinkingLevel('current', 'high', root);
   applySessionUltraSelection('current', true, root);
   readSessionUltraMode('other', root);
+  readSessionThinkingLevel('other', root);
   const observed: unknown[] = [];
   await composer(root, () => {
     observed.push([readSessionThinkingLevel('current', root), readSessionUltraMode('current', root)]);
@@ -409,9 +410,24 @@ h.test('a direct native selection exits Ultra atomically without replacing futur
   assert.deepEqual(observed, [['low', false]]);
   assert.equal(readSessionThinkingLevel('current', root), 'low');
   assert.equal(readSessionUltraMode('current', root), false);
-  assert.equal(readSessionThinkingLevel('', root), 'high');
+  assert.equal(readSessionThinkingLevel('', root), 'low');
+  assert.equal(readSessionThinkingLevel('other', root), 'high');
+  assert.equal(readSessionThinkingLevel('future', root), 'low');
   assert.equal(readSessionUltraMode('', root), true);
   assert.equal(readSessionUltraMode('other', root), true);
+});
+
+h.test('an explicit medium pick in a chat is restored when its source is selected again', async () => {
+  const root = fresh();
+  setSessionModel('a', 'subscription:opus', 'subscription', root, { thinkingLevel: 'xhigh' });
+  await composer(root).setThinking({ sessionId: 'a', level: 'medium' });
+  assert.equal(readSessionThinkingLevel('future-1', root), 'medium');
+  setSessionModel('b', 'kimi:k3', 'kimi', root, { thinkingLevel: 'xhigh' });
+  assert.equal(readSessionThinkingLevel('', root), 'xhigh');
+  setSessionModel('b', 'auto', 'subscription', root);
+  assert.equal(readSessionThinkingLevel('b', root), 'medium');
+  assert.equal(readSessionThinkingLevel('', root), 'medium');
+  assert.equal(readSessionThinkingLevel('future-2', root), 'medium');
 });
 
 h.test('a rejected direct native selection restores the complete previous selection', async () => {

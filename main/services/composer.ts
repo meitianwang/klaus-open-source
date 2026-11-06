@@ -450,7 +450,10 @@ export class ComposerService {
       }
       const nativeMember = saved.source === 'trae' || saved.source === 'kiro';
       const selection = applySessionThinkingSelection(sessionId, nativeMember ? previous : selected, this.configRoot, undefined,
-        { model, ultraMode: false, updateThinking: !nativeMember, updateDefaults: !sessionId });
+        // A reasoning pick in any chat becomes the reasoning default for future
+        // chats. The exact native variant and leaving Ultra change only the
+        // draft's defaults.
+        { model, ultraMode: false, updateThinking: !nativeMember, updateUltraDefault: !sessionId, updateModelDefault: !sessionId });
       try {
         if (model || previous !== selected || previousUltra) await this.deps.onSessionConfigChanged({ kind: model ? 'model' : 'thinking', sessionId });
       } catch (error) {

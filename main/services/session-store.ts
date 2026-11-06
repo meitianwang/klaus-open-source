@@ -69,10 +69,11 @@ export function readLastSourceThinkingLevel(db: DatabaseSync, source: string): s
   return validThinkingLevel(level) ? level : undefined;
 }
 
+// The built-in default is stored explicitly: an absent row means "never chosen
+// on this source", and a source switch must restore an explicit medium pick.
 function writeLastSourceThinkingLevel(db: DatabaseSync, source: string, level: string): void {
   if (!validThinkingLevel(level)) return;
-  if (level === DEFAULT_THINKING_LEVEL) db.prepare('DELETE FROM settings WHERE key = ?').run(lastSourceThinkingKey(source));
-  else put(db, lastSourceThinkingKey(source), level);
+  put(db, lastSourceThinkingKey(source), level);
 }
 
 export function readLastSourceUltraMode(db: DatabaseSync, source: string): boolean | undefined {
@@ -488,9 +489,12 @@ export function setSessionThinkingLevel(sessionId: string, level: string, config
 /** Persist reasoning, its optional native selection, mode and permission together. */
 export function applySessionThinkingSelection(
   sessionId: string, level: string, configRoot: string, permissionPolicy?: RuntimePolicy,
-  options: { model?: SessionModelPreference; ultraMode?: false; updateThinking?: boolean; updateDefaults?: boolean } = {},
+  options: { model?: SessionModelPreference; ultraMode?: false; updateThinking?: boolean; updateDefaults?: boolean; updateUltraDefault?: boolean; updateModelDefault?: boolean } = {},
 ): { level: string; rollback(): void } {
   const { model, updateThinking = true, updateDefaults = true } = options;
+  // The Ultra default for future chats keeps its own write scope.
+  const updateUltraDefault = options.updateUltraDefault ?? updateDefaults;
+  const updateModelDefault = options.updateModelDefault ?? updateDefaults;
   if (!updateDefaults && !sessionId) throw new IpcHandlerError('BAD_REQUEST', 'Session-only preferences require a session id');
   if (!validThinkingLevel(level)) throw new IpcHandlerError('BAD_REQUEST', 'invalid level');
   if (permissionPolicy !== undefined && !decodeRuntimePolicy(permissionPolicy)) throw new IpcHandlerError('BAD_REQUEST', 'invalid permission policy');
@@ -501,8 +505,8 @@ export function applySessionThinkingSelection(
     ensureTables(db, configRoot);
     if (sessionId) ultraModeIn(db, sessionId);
     const keys = [...(updateThinking && updateDefaults ? ['composer.thinking_level'] : []),
-      ...(options.ultraMode === false && updateDefaults ? ['composer.ultra_mode'] : []),
-      ...(model && updateDefaults ? ['composer.main_model', 'auth_mode'] : [])];
+      ...(options.ultraMode === false && updateUltraDefault ? ['composer.ultra_mode'] : []),
+      ...(model && updateModelDefault ? ['composer.main_model', 'auth_mode'] : [])];
     const previous = keys.map(key => ({ key, value: get(db, key) }));
     const session = sessionId ? db.prepare('SELECT level, updated_at FROM session_thinking_levels WHERE session_id = ?').get(sessionId) : undefined;
     const previousUltra = sessionId && options.ultraMode === false
@@ -513,7 +517,7 @@ export function applySessionThinkingSelection(
       if (level === DEFAULT_THINKING_LEVEL) db.prepare('DELETE FROM settings WHERE key = ?').run('composer.thinking_level');
       else put(db, 'composer.thinking_level', level);
     }
-    if (options.ultraMode === false && updateDefaults) db.prepare('DELETE FROM settings WHERE key = ?').run('composer.ultra_mode');
+    if (options.ultraMode === false && updateUltraDefault) db.prepare('DELETE FROM settings WHERE key = ?').run('composer.ultra_mode');
     const now = Math.max(Date.now(), Number(session?.updated_at ?? 0) + 1, Number(previousUltra?.updated_at ?? 0) + 1,
       Number(previousModel?.updated_at ?? 0) + 1, Number(previousPermission?.updated_at ?? 0) + 1);
     const permissionJson = permissionPolicy ? JSON.stringify({ policy: permissionPolicy }) : undefined;
@@ -522,7 +526,7 @@ export function applySessionThinkingSelection(
       .run(sessionId, level, now);
     if (sessionId && options.ultraMode === false) db.prepare('UPDATE session_ultra_modes SET enabled = 0, updated_at = ? WHERE session_id = ?').run(now, sessionId);
     if (model) {
-      if (updateDefaults) {
+      if (updateModelDefault) {
         put(db, 'composer.main_model', model.mode);
         put(db, 'auth_mode', model.source);
       }
