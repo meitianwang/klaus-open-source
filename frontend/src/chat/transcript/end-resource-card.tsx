@@ -201,7 +201,7 @@ function WebsiteRow({ sessionId, resource }: { sessionId: string; resource: Extr
       setBrowserName(null)
       void localSiteTargets().then(result => {
         if (!result) return
-        const preferred = result.preferredTarget ?? 'in-app'
+        const preferred = (isLocalWebUrl(resource.target) ? result.localPreferredTarget ?? result.preferredTarget : result.preferredTarget) ?? 'in-app'
         if (preferred === 'in-app') { setBrowserName('in-app'); return }
         const target = result.targets.find(entry => entry.id === preferred)
         setBrowserName(target?.kind === 'named' ? target.name : '')

@@ -1,17 +1,24 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { object, type BrowserObject } from '../main/browser/types';
-import { assert, assertEqual, Harness } from './harness';
+import { assert, assertEqual, Harness, waitFor } from './harness';
 
 let unexpectedReads=0;
 export function serveReadingFixture(request:IncomingMessage,response:ServerResponse,base:string):boolean{
   if(!request.url?.startsWith('/advanced-reading'))return false;
   if(request.url==='/advanced-reading-effect'){unexpectedReads++;response.end('unexpected effect');return true;}
+  if(request.url==='/advanced-reading-child-fetch'){
+    response.writeHead(200,{'Content-Type':'text/plain'});response.end('child fetch body');return true;
+  }
+  if(request.url==='/advanced-reading-child-stream'){
+    response.writeHead(200,{'Content-Type':'text/plain'});response.write('ready');
+    const timer=setInterval(()=>response.write('data'),40);response.once('close',()=>clearInterval(timer));return true;
+  }
   if(request.url==='/advanced-reading-quiet'||request.url==='/advanced-reading-stream'){
     response.writeHead(200,{'Content-Type':'text/plain'});response.write('ready');
     if(request.url.endsWith('stream')){const timer=setInterval(()=>response.write('data'),40);response.once('close',()=>clearInterval(timer));}return true;
   }
   if(request.url==='/advanced-reading-frame'){
-    response.writeHead(200,{'Content-Type':'text/html'});response.end('<p id="frame-prose">Frame prose</p><button>Frame action</button><script>window.framePrivate="not in isolated world";</script>');return true;
+    response.writeHead(200,{'Content-Type':'text/html'});response.end('<p id="frame-prose">Frame prose</p><button>Frame action</button><script>window.framePrivate="not in isolated world";window.emitChildSignals=()=>{console.log("child-console");setTimeout(()=>{throw new Error("child-exception")},0);fetch("/advanced-reading-child-fetch").then(r=>r.text()).then(t=>window.childFetch=t).catch(()=>{});};window.startChildStream=()=>{window.childStream=new AbortController();fetch("/advanced-reading-child-stream",{signal:window.childStream.signal}).then(r=>r.text()).catch(()=>{})};</script>');return true;
   }
   response.writeHead(200,{'Content-Type':'text/html; charset=utf-8'});
   response.end('<!doctype html><title>Reading fixture</title><style>body{font:16px sans-serif}iframe{display:block;width:300px;height:90px}</style>'+
@@ -80,4 +87,37 @@ export function registerReadingTests(h:Harness,context:Context):void{
     try{await rejects('wait_for',{loadState:'networkidle',timeoutMs:900});}finally{await evaluate('flow.abort();quiet.abort();true');}
     await call('wait_for',{loadState:'networkidle',timeoutMs:2500});
   });
+  h.test('reading: owned OOPIF console, exception, network and networkidle activity are observed',async()=>{
+    await call('new_tab',{url:context.base()+'/advanced-reading-page'});
+    const snapshot=await value('snapshot');const frames=Array.isArray(snapshot.frameTargets)?snapshot.frameTargets:[];const frame=frames[0];
+    assert(typeof frame==='string','owned cross-process frame discovered');
+    await evaluate('typeof window.emitChildSignals',{frameTargetId:frame});
+    await evaluate('window.emitChildSignals();true',{frameTargetId:frame});
+    await waitFor(async()=>{
+      const result=object(await call('console',{frameTargetId:frame,limit:50}));
+      const entries=Array.isArray(result.entries)?result.entries.map(object):[];
+      return entries.some(entry=>String(entry.text).includes('child-console'));
+    },5000,'child console is captured');
+    const childConsole=object(await call('console',{frameTargetId:frame,limit:50}));
+    const childEntries=Array.isArray(childConsole.entries)?childConsole.entries.map(object):[];
+    assert(childEntries.some(entry=>String(entry.text).includes('child-console')),'child console entry carries the child frame identity');
+    assert(childEntries.some(entry=>String(entry.text).includes('child-exception')||entry.level==='error'),'child exception is captured');
+    const rootConsole=object(await call('console',{limit:100}));
+    assert((rootConsole.entries as BrowserObject[]).map(object).some(entry=>String(entry.text).includes('child-console')),'root console view includes owned child entries');
+    await waitFor(async()=>{
+      const result=object(await call('network',{frameTargetId:frame,limit:100}));
+      const requests=Array.isArray(result.requests)?result.requests.map(object):[];
+      return requests.some(entry=>String(entry.url).includes('/advanced-reading-child-fetch'));
+    },5000,'child fetch is captured');
+    const childNetwork=object(await call('network',{frameTargetId:frame,limit:100}));
+    assert((childNetwork.requests as BrowserObject[]).map(object).some(entry=>String(entry.url).includes('/advanced-reading-child-fetch')),'child network entry carries the child frame identity');
+    const rootNetwork=object(await call('network',{limit:100}));
+    assert((rootNetwork.requests as BrowserObject[]).map(object).some(entry=>String(entry.url).includes('/advanced-reading-child-fetch')),'root network view includes owned child entries');
+    await evaluate('window.startChildStream();true',{frameTargetId:frame});
+    let timedOut=false;try{await call('wait_for',{loadState:'networkidle',timeoutMs:900});}catch{timedOut=true;}
+    assert(timedOut,'child stream activity prevents networkidle');
+    await evaluate('window.childStream.abort();true',{frameTargetId:frame});
+    await call('wait_for',{loadState:'networkidle',timeoutMs:2500});
+  });
+
 }

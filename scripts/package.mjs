@@ -11,6 +11,7 @@ import { copyPolicyNotices } from '../engine/scripts/policy-notices.mjs';
 import { verifyPackage } from '../packaging/verify.mjs';
 import { DEFAULT_DESKTOP_EDITION, desktopEdition, packagedDesktopEditionDocument, useDesktopEditionsFile } from '../packaging/desktop-edition.mjs';
 import { DEFAULT_PLUGIN_SEED, collectBundledOfficialPlugins, copyBundledOfficialPlugins, officialPluginRecords, validatePluginSeed } from '../packaging/official-plugins.mjs';
+import { validateBrowserImportResource, helperName as browserImportHelperName } from '../packaging/browser-import.mjs';
 
 const appDirectory = fileURLToPath(new URL('..', import.meta.url));
 const repo = appDirectory;
@@ -39,7 +40,7 @@ const { values } = parseArgs({ options: {
   edition: { type: 'string', default: DEFAULT_DESKTOP_EDITION }, 'editions-file': { type: 'string' },
   platform: { type: 'string', default: process.platform }, arch: { type: 'string', default: process.arch },
   'engine-dir': { type: 'string' }, 'engine-commit': { type: 'string' }, 'native-dir': { type: 'string' },
-  'speech-dir': { type: 'string' }, 'recording-dir': { type: 'string' }, 'pip-dir': { type: 'string' }, 'computer-use-dir': { type: 'string' },
+  'speech-dir': { type: 'string' }, 'recording-dir': { type: 'string' }, 'pip-dir': { type: 'string' }, 'computer-use-dir': { type: 'string' }, 'browser-import-dir': { type: 'string' },
   'frontend-dir': { type: 'string' }, 'electron-zip': { type: 'string' }, out: { type: 'string' }, help: { type: 'boolean' },
   'official-plugins-dir': { type: 'string' }, 'bundle-official-plugin': { type: 'string', multiple: true }, 'plugin-seed-dir': { type: 'string' },
 } });
@@ -47,7 +48,7 @@ if (values.help) {
   console.log(`Desktop edition: --edition <id> (default ${DEFAULT_DESKTOP_EDITION}; additional editions come from --editions-file / KLAUS_DESKTOP_EDITIONS_FILE).`);
   console.log('Official plugins: --official-plugins-dir <marketplace dir> --bundle-official-plugin <name> (repeatable); none are bundled by default.');
   console.log('Plugin seed: --plugin-seed-dir <dir with known_marketplaces.json> (default: an empty seed).');
-  console.log('npm run package -- --engine-dir <staged bin/platform-arch> --native-dir <production artifacts> [--speech-dir <macOS speech artifacts>] [--recording-dir <macOS recording artifacts>] [--pip-dir <macOS PiP artifacts>] [--computer-use-dir <target Computer Use artifacts>] [--engine-commit <40-char commit>] [--platform darwin|win32] [--arch arm64|x64] [--electron-zip <official release archive>] [--out <directory>]');
+  console.log('npm run package -- --engine-dir <staged bin/platform-arch> --native-dir <production artifacts> [--speech-dir <macOS speech artifacts>] [--recording-dir <macOS recording artifacts>] [--pip-dir <macOS PiP artifacts>] [--computer-use-dir <target Computer Use artifacts>] [--browser-import-dir <target browser import helper>] [--engine-commit <40-char commit>] [--platform darwin|win32] [--arch arm64|x64] [--electron-zip <official release archive>] [--out <directory>]');
   process.exit(0);
 }
 const platform = values.platform, arch = values.arch;
@@ -75,6 +76,8 @@ const pipDirectory = platform === 'darwin' ? resolve(values['pip-dir'] ?? join(r
 const pip = pipDirectory ? validatePip(pipDirectory, { platform, arch, sourceRoot: join(appDirectory, 'native/pip') }) : undefined;
 const computerUseDirectory = resolve(values['computer-use-dir'] ?? join(repo, 'resources/computer-use', target));
 const computerUse = validateComputerUse(computerUseDirectory, { platform, arch, sourceRoot: join(appDirectory, 'native/computer-use') });
+const browserImportDirectory = resolve(values['browser-import-dir'] ?? join(repo, 'resources/browser-import', target));
+const browserImport = validateBrowserImportResource(browserImportDirectory, { repo, platform, arch });
 const pkg = readJson(join(appDirectory, 'package.json'));
 if (!/^\d+\.\d+\.\d+(?:-[\w.-]+)?$/.test(pkg.version)) throw new Error('The desktop package version is invalid');
 if (platform === 'darwin' && !/^\d+\.\d+\.\d+$/.test(pkg.version)) throw new Error('macOS bundle versions require three numeric components. Select the preview channel when signing a prerelease candidate.');
@@ -134,13 +137,15 @@ try {
   if (pipDirectory) for (const file of ['klaus-pip-producer', 'klaus-pip-producer.json']) copyTree(join(pipDirectory, file), join(resources, 'pip', target, file));
   const computerUseFilename = computerUseArtifactName(platform);
   for (const file of [computerUseFilename, computerUseFilename + '.json']) copyTree(join(computerUseDirectory, file), join(resources, 'computer-use', target, file));
+  const browserImportFilename = browserImportHelperName(platform);
+  for (const file of [browserImportFilename, browserImportFilename + '.json']) copyTree(join(browserImportDirectory, file), join(resources, 'browser-import', target, file));
   if (platform === 'darwin') copyTree(join(appDirectory, 'packaging/assets/icon.icns'), join(resources, 'app-icon.icns'));
   validateRequired(appStage, resources);
   const resourcesManifest = {
     layoutVersion: specification.layoutVersion, application: edition.productName, edition: edition.id, applicationId: edition.application, version: pkg.version, platform, arch,
     electronVersion: pkg.devDependencies.electron, buildKind: 'local-unsigned', createdAt: new Date().toISOString(),
     electronArchiveSha256: Object.values(download.checksums)[0],
-    ...identity, officialPlugins: officialPluginRecords(bundledOfficialPlugins), engine, native: native.manifest, ...(speech ? { speech } : {}), ...(recording ? { recording } : {}), ...(pip ? { pip } : {}), ...(computerUse ? { computerUse } : {}),
+    ...identity, officialPlugins: officialPluginRecords(bundledOfficialPlugins), engine, native: native.manifest, ...(speech ? { speech } : {}), ...(recording ? { recording } : {}), ...(pip ? { pip } : {}), ...(computerUse ? { computerUse } : {}), browserImport,
     appFiles: inventory(appStage), resourceFiles: inventory(resources),
   };
   writeFileSync(join(resources, 'desktop-resources.json'), `${JSON.stringify(resourcesManifest, null, 2)}\n`);

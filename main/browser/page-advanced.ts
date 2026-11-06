@@ -35,7 +35,7 @@ export async function performAdvancedPageOperation(context: PageOperationContext
     return { value: { filled } };
   }
   if (kind === 'resize') return { value: await resize(context, fields) };
-  if (kind === 'file_upload') return { value: await uploadFiles(cdp, fields, perform, context.signal) };
+  if (kind === 'file_upload') return { value: await uploadFiles(cdp, fields, perform, context.signal, context.authorizeUpload) };
   if (kind === 'content_export') {
     const value = await exportContent(context, fields);
     return { value, ...(typeof value.content === 'string' ? { typed: { text: value.content } } : {}) };

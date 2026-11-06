@@ -10,7 +10,7 @@ import type { BrowserCdp } from '../main/browser/page-operations';
 import { BrowserError, type BrowserObject } from '../main/browser/types';
 
 type EventListener = (method: string, params: BrowserObject, frame?: string) => void;
-function transport(options: { chooser?: boolean; multiple?: boolean; observation?: 'empty' | 'detached' | 'unavailable'; rejection?: string } = {}) {
+function transport(options: { chooser?: boolean; multiple?: boolean; observation?: 'empty' | 'detached' | 'unavailable'; rejection?: string; documentFrame?: string } = {}) {
   const calls: Array<{ method: string; params: BrowserObject }> = [], listeners = new Set<EventListener>();
   let selected = false;
   const cdp = {
@@ -18,7 +18,7 @@ function transport(options: { chooser?: boolean; multiple?: boolean; observation
       calls.push({ method, params });
       if (method === 'Runtime.evaluate') return { result: { objectId: 'control' } };
       if (method === 'DOM.describeNode') {
-        if (params.objectId === 'document') return { node: { nodeName: '#document', frameId: 'main', backendNodeId: 1 } };
+        if (params.objectId === 'document') return { node: { nodeName: '#document', frameId: options.documentFrame ?? 'main', backendNodeId: 1 } };
         const file = !options.chooser || params.objectId === 'chosen';
         return { node: { nodeName: file ? 'INPUT' : 'BUTTON', backendNodeId: file ? 42 : 41, attributes: file ? ['type', 'file', ...(options.multiple ? ['multiple', ''] : [])] : [] } };
       }
@@ -131,10 +131,20 @@ test('an owned out-of-process frame can address its file input directly', async 
   assert(page.selected());
 }));
 
-test('an out-of-process chooser has an explicit error without losing direct-input support', async () => fixture(async path => {
-  const page = transport({ chooser: true }); Object.assign(page.cdp, { captureScope: { root: page.cdp, frame: 'child-target' } });
-  await assert.rejects(uploadFiles(page.cdp, { files: [path] }, async () => {}), /File choosers in out-of-process frames are not supported/);
-  assert(!page.selected()); assert.equal(page.listeners.size, 0);
+test('an owned out-of-process chooser enables its child Page agent and accepts only that child source', async () => fixture(async path => {
+  const page = transport({ chooser: true, documentFrame: 'child-target' });
+  Object.assign(page.cdp, { captureScope: { root: page.cdp, frame: 'child-target' } });
+  const result = await uploadFiles(page.cdp, { files: [path] }, async () => {
+    page.emit({ backendNodeId: 99, frameId: 'sibling', mode: 'selectSingle' }, 'child-target');
+    page.emit({ backendNodeId: 42, frameId: 'child-target', mode: 'selectSingle' }, 'other-target');
+    page.emit({ backendNodeId: 42, frameId: 'child-target', mode: 'selectSingle' }, 'child-target');
+  });
+  assert.equal(result.via, 'file-chooser');
+  assert(page.selected());
+  const enable = page.calls.findIndex(call => call.method === 'Page.enable');
+  const intercept = page.calls.findIndex(call => call.method === 'Page.setInterceptFileChooserDialog' && call.params.enabled === true);
+  assert(enable >= 0 && enable < intercept, 'Page.enable precedes child chooser interception');
+  assert.equal(page.calls.filter(call => call.method === 'Page.setInterceptFileChooserDialog').at(-1)?.params.enabled, false);
 }));
 
 test('the advanced operation forwards cancellation before starting file selection', async () => fixture(async path => {

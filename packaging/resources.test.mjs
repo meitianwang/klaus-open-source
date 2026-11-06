@@ -408,7 +408,7 @@ for (const id of [undefined, 'domestic', 'international']) test(`Windows ${id ??
     for (const file of ['plugin.json', 'runtime/dist/index.html', 'runtime/dist/runtime-manifest.json', 'skills/sample-editor/SKILL.md']) write(join(official, file), '{}');
     write(join(resources, 'desktop-resources.json'), JSON.stringify(manifest));
     assert.throws(() => verifyPackage(root), /Packaged official plugins differ from the resource manifest/);
-    write(join(resources, 'desktop-resources.json'), JSON.stringify({ ...manifest, officialPlugins: [{ name: 'sample-editor', version: '1.0.0', skills: ['sample-editor'] }], resourceFiles: inventory(resources).filter(file => !['desktop-resources.json', 'app.asar'].includes(file.path)) }));
+    write(join(resources, 'desktop-resources.json'), JSON.stringify({ ...manifest, officialPlugins: [{ name: 'sample-editor', version: '1.0.0', skills: ['sample-editor'] }], resourceFiles: inventory(resources).filter(file => file.path !== 'desktop-resources.json' && file.path !== 'app.asar' && !file.path.startsWith('app.asar/')) }));
     assert.equal(verifyPackage(root).verified, true);
     rmSync(join(resources, 'plugins-official'), { recursive: true });
     write(join(resources, 'desktop-resources.json'), JSON.stringify(manifest));

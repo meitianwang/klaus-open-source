@@ -25,6 +25,7 @@ const api = () => (window as unknown as { klaus?: { browserUse?: Record<string, 
 const queue: PermissionRequest[] = []
 let showing = false
 let subscribed = false
+let active: { requestId: string; controller: AbortController } | undefined
 
 function fmt(key: string, vars: Record<string, string>): string {
   return tt(key).replace(/\{(\w+)\}/g, (_, name: string) => vars[name] ?? '')
@@ -41,20 +42,25 @@ function showNext(): void {
   const request = queue.shift()
   if (!request) return
   showing = true
+  const controller = new AbortController()
+  active = { requestId: request.requestId, controller }
   const dialog = (window as unknown as { klausDialog?: { confirm(opts: unknown): Promise<unknown> } }).klausDialog
+  const resource = request.permission.startsWith('browser:') ? request.permission.slice('browser:'.length) : undefined
   const settled = dialog
     ? dialog.confirm({
-        title: tt('browser_permission_title'),
-        message: fmt('browser_permission_message', { origin: request.origin, permission: request.permission }),
-        detail: tt('browser_permission_detail'),
+        title: tt(resource ? 'browser_access_prompt_title' : 'browser_permission_title'),
+        message: fmt(resource ? 'browser_access_prompt_message' : 'browser_permission_message',
+          { origin: request.origin, permission: resource ? tt(`browser_access_${resource}`) : request.permission }),
+        detail: tt(resource ? 'browser_access_prompt_detail' : 'browser_permission_detail'),
         confirmText: tt('browser_permission_allow'),
         cancelText: tt('cancel'),
+        signal: controller.signal,
       })
     : Promise.resolve(false)
   void settled
     .then(result => { answer(request, result === true) })
     .catch(() => { answer(request, false) })
-    .finally(() => { showing = false; showNext() })
+    .finally(() => { active = undefined; showing = false; showNext() })
 }
 
 export function mountBrowserPermissionDialogs(): void {
@@ -66,6 +72,10 @@ export function mountBrowserPermissionDialogs(): void {
     if (!request || typeof request.requestId !== 'string') return
     queue.push(request)
     showNext()
+  })
+  ;(surface.onPermissionCancelled as undefined | ((cb: (event: { requestId: string }) => void) => () => void))?.(event => {
+    for (let index = queue.length - 1; index >= 0; index--) if (queue[index]?.requestId === event.requestId) queue.splice(index, 1)
+    if (active?.requestId === event.requestId) active.controller.abort()
   })
 }
 

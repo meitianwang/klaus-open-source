@@ -4,6 +4,7 @@ import { copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSy
 import { basename, dirname, join, relative, resolve } from 'node:path';
 import { resolveReleaseTarget } from '../engine/scripts/prepare-rust-release.mjs';
 import { validatePolicyNotices } from '../engine/scripts/policy-notices.mjs';
+import { helperName as browserImportHelperName, sourceFingerprint as browserImportSourceSha256 } from '../scripts/browser-import-helper.mjs';
 
 export const specification = JSON.parse(readFileSync(new URL('./resources.json', import.meta.url), 'utf8'));
 export const sha256 = value => createHash('sha256').update(value).digest('hex');
@@ -186,6 +187,14 @@ export function validatePip(directory, { platform, arch, sourceRoot }) {
 export function computerUseArtifactName(platform) {
   if (platform !== 'darwin' && platform !== 'win32') throw new Error('Unsupported Computer Use helper platform');
   return 'klaus-computer-use-helper' + (platform === 'win32' ? '.exe' : '');
+}
+
+export function browserImportArtifactName(platform) {
+  return browserImportHelperName(platform);
+}
+
+export function browserImportSourceFingerprint(repo, platform) {
+  return browserImportSourceSha256(repo, platform);
 }
 
 export function computerUseSourceFingerprint(sourceRoot, platform = 'darwin') {

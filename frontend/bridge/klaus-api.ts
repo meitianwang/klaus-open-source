@@ -1,4 +1,7 @@
 import type { PptChatRequest } from './ppt-api'
+import type { BrowserImportRequest } from '../../contracts/browser-import'
+import type { BrowserImportJobSnapshot } from '../../contracts/browser-import-jobs'
+import type { BrowserAutofillProfileInput, BrowserAutofillProfileKind, BrowserPasswordInput, BrowserPasswordImportRow } from '../../contracts/browser-credentials'
 import type { WindowsSandboxReadinessResponse, WindowsSandboxSetupStartParams, WindowsSandboxSetupStartResponse, WindowsSandboxSetupCompletedNotification } from '../../contracts/windows-sandbox'
 import type { StorageSnapshot, StorageReviewRow, StorageCleanupOptions } from '../../main/services/device-storage'
 import type { StorageChatsChanged } from '../../contracts/storage-settings'
@@ -39,6 +42,12 @@ import { teamIssueDeepLink, type TeamIssueDeepLink } from '../../main/app/deep-l
 import type { CollaborationUpdate, DesktopCollaborationResponse, DraftOptions, ExecuteOptions, ExecutionReply, IssueDraft, IssueDraftOptions, LocalBinding, ProjectDraft } from '../../main/services/team-collaboration/types'
 import type { KeybindingUpdate, KeymapState } from '../../contracts/keybindings.js'
 import { call, post, subscribe, expose, localFilePath, type Unsubscribe } from './ipc.js'
+
+async function browserDataReply(pending: Promise<any>): Promise<any> {
+  const result = await pending
+  if (result && result.ok === false) throw new Error(String(result.error || 'Browser data operation failed.'))
+  return result
+}
 import { petApi } from './pet-api.js'
 import type { VoiceChatAnswer, VoiceChatAudioFrame, VoiceChatControl, VoiceChatEvent, VoiceChatLevels, VoiceChatOffer, VoiceChatPresentation, VoiceChatState } from '../../contracts/voice-chat'
 import { localMediaUrl } from './media-url'
@@ -952,7 +961,44 @@ expose('klaus', {
       set: (config: { source: string; model?: string }) => call('settings:music-gen:set', config),
     },
     browserUse: {
+      discoverProfiles: () => browserDataReply(call('settings:browser-use:discover-profiles')),
+      importStart: (request: BrowserImportRequest) => browserDataReply(call('settings:browser-use:import-start', request)),
+      importCancel: (jobId: string) => browserDataReply(call('settings:browser-use:import-cancel', { jobId })),
+      importState: (jobId: string) => browserDataReply(call('settings:browser-use:import-state', { jobId })),
+      openImportPermissionSettings: () => browserDataReply(call('settings:browser-use:import-permission-settings')),
+      subscribeImport: (listener: (snapshot: BrowserImportJobSnapshot) => void): Unsubscribe => subscribe('settings:browser-use:import-progress', listener),
+      credentials: {
+        listPasswords: (originUrl?: string) => browserDataReply(call('settings:browser-use:passwords', { originUrl })),
+        savePassword: (input: BrowserPasswordInput) => browserDataReply(call('settings:browser-use:password-save', input)),
+        revealPassword: (id: string) => browserDataReply(call('settings:browser-use:password-reveal', { id })),
+        copyPassword: async (id: string) => { await browserDataReply(call('settings:browser-use:password-copy', { id })) },
+        deletePassword: async (id: string) => { await browserDataReply(call('settings:browser-use:password-delete', { id })) },
+        importPasswords: (rows: BrowserPasswordImportRow[]) => browserDataReply(call('settings:browser-use:password-import', { rows })),
+        listAutofillProfiles: (kind?: BrowserAutofillProfileKind) => browserDataReply(call('settings:browser-use:autofill-profiles', { kind })),
+        getAutofillProfile: (id: string) => browserDataReply(call('settings:browser-use:autofill-profile', { id })),
+        saveAutofillProfile: (input: BrowserAutofillProfileInput) => browserDataReply(call('settings:browser-use:autofill-save', input)),
+        updateAutofillProfile: (id: string, input: BrowserAutofillProfileInput) => browserDataReply(call('settings:browser-use:autofill-update', { id, input })),
+        deleteAutofillProfile: async (id: string) => { await browserDataReply(call('settings:browser-use:autofill-delete', { id })) },
+      },
+      extensions: {
+        list: () => browserDataReply(call('settings:browser-use:extensions')),
+        install: (input: { path: string }) => browserDataReply(call('settings:browser-use:extension-install', input)),
+        choose: () => browserDataReply(call('settings:browser-use:extension-choose')),
+        setEnabled: (id: string, enabled: boolean) => browserDataReply(call('settings:browser-use:extension-set-enabled', { id, enabled })),
+        remove: async (id: string) => { await browserDataReply(call('settings:browser-use:extension-remove', { id })) },
+      },
       get: () => call('settings:browser-use:get'),
+      subscribe: (listener: (snapshot: any) => void): Unsubscribe => subscribe('settings:browser-use:changed', listener),
+      setPreferences: (patch: Record<string, unknown>) => call('settings:browser-use:set-preferences', patch),
+      setOriginPolicy: (policy: { pattern?: string; resource: string; setting: string }) => call('settings:browser-use:set-origin-policy', policy),
+      removeOriginPolicy: (pattern: string) => call('settings:browser-use:remove-origin-policy', { pattern }),
+      setSitePermission: (permission: { origin: string; permission: string; setting: string }) => call('settings:browser-use:set-site-permission', permission),
+      history: (options: Record<string, unknown> = {}) => call('settings:browser-use:history', options),
+      removeHistory: (ids: string[]) => call('settings:browser-use:remove-history', { ids }),
+      downloads: (options: Record<string, unknown> = {}) => call('settings:browser-use:downloads', options),
+      subscribeDownloads: (listener: (event: any) => void): Unsubscribe => subscribe('browser-use:downloads-changed', listener),
+      downloadAction: (action: string, id: string) => call('settings:browser-use:download-action', { action, id }),
+      chooseDownloadDirectory: () => call('settings:browser-use:choose-download-directory'),
       setEnabled: (enabled: boolean) =>
         call('settings:browser-use:set-enabled', { enabled }),
       setChromeEnabled: (enabled: boolean) =>
@@ -1137,6 +1183,11 @@ expose('klaus', {
       call('site-references:open', request),
   },
   browserUse: {
+    annotationCapture: (request: { sessionId: string; focusRevision: number }) => call('browser-use:annotation-capture', request),
+    annotationAnchor: (request: { snapshotId: string; point: { x: number; y: number } }) => call('browser-use:annotation-anchor', request),
+    annotationSave: (request: { snapshotId: string; sessionId: string; tabId: string; focusRevision: number; crop?: { x: number; y: number; width: number; height: number } | null }) => call('browser-use:annotation-save', request),
+    annotationCommit: (request: { snapshotId: string; sessionId: string; tabId: string; focusRevision: number }) => call('browser-use:annotation-commit', request),
+    annotationDiscard: (snapshotId: string) => call('browser-use:annotation-discard', { snapshotId }),
     mentionTabs: (options: { sessionId: string | null; query: string }): Promise<{ ok: true; tabs: BrowserTabMention[]; errors: Array<{ browserId: string; message: string; code?: string }> } | { ok: false; error: string }> =>
       call('browser-use:mention-tabs', options),
     state: () => call('browser-use:state'),
@@ -1164,6 +1215,7 @@ expose('klaus', {
     // parks the question and the window's own dialog answers it per requestId.
     onPermissionRequest: (cb: (request: { requestId: string; sessionId: string; permission: string; origin: string; pageUrl: string }) => void): Unsubscribe =>
       subscribe('browser-use:permission-request', (request: { requestId: string; sessionId: string; permission: string; origin: string; pageUrl: string }) => cb(request)),
+    onPermissionCancelled: (cb: (event: { requestId: string }) => void): Unsubscribe => subscribe('browser-use:permission-cancelled', cb),
     answerPermission: (requestId: string, allowed: boolean) =>
       call('browser-use:permission-answer', { requestId, allowed }),
   },

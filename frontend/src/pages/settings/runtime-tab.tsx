@@ -148,7 +148,7 @@ export function RuntimeChoice({ id, label, descriptionId, options, value, valueL
   }
 
   return <>
-    <button type="button" ref={triggerRef} id={id} className={styles['choice-trigger']} role="combobox"
+    <button type="button" ref={triggerRef} id={id} value={value} className={styles['choice-trigger']} role="combobox"
       aria-label={label} aria-describedby={descriptionId} aria-haspopup="listbox" aria-controls={open ? listId : undefined}
       aria-expanded={open} disabled={disabled} onKeyDown={keyDown}
       onClick={() => { if (open) close(); else openMenu() }}>

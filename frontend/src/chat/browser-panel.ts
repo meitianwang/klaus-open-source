@@ -10,6 +10,8 @@ import { acceptBrowserViewState, invalidateBrowserFrames } from './browser-view'
 import { noteBrowserPanelManualResize, syncBrowserAutoWidth } from './browser-auto-width'
 import type { BrowserUseOpenRequest } from '../../bridge/types'
 import { browserOpenGuard } from './browser-open-request'
+import { browserAddress } from '../../../contracts/browser-settings'
+import { openBrowserAnnotation, type BrowserAnnotationController } from './browser-annotation-controller'
 
 export { noteBrowserPanelManualResize }
 
@@ -46,7 +48,10 @@ interface KlausBrowserApi {
     tabs?: (req: { action: 'select' | 'new' | 'close'; tabId?: string; url?: string }) => Promise<BrowserOpResult>
   }
   settings?: {
-    browserUse?: { get?: () => Promise<{ enabled?: boolean } | null> }
+    browserUse?: {
+      get?: () => Promise<{ enabled?: boolean; showFullUrl?: boolean } | null>
+      subscribe?: (cb: (settings: { showFullUrl?: boolean }) => void) => () => void
+    }
   }
   on?: {
     browserUseState?: (cb: (state: BrowserUseState) => void) => unknown
@@ -78,6 +83,7 @@ const browserBackBtn = document.getElementById('browser-back') as HTMLButtonElem
 const browserForwardBtn = document.getElementById('browser-forward') as HTMLButtonElement | null
 const browserReloadBtn = document.getElementById('browser-reload') as HTMLButtonElement | null
 const browserScreenshotBtn = document.getElementById('browser-screenshot') as HTMLButtonElement | null
+const browserAnnotateBtn = document.getElementById('browser-annotate') as HTMLButtonElement | null
 
 // ---- 状态 ----
 let browserState: BrowserUseState | null = null
@@ -89,6 +95,7 @@ let browserBoundsRaf = 0
 // the next sync always re-applies.
 let lastSyncedBounds: BrowserBounds | null = null
 let browserUrlInputEditing = false
+let browserShowFullUrl = false
 let browserSessionGeneration = 0
 let browserRuntimeShowCount = 0
 let browserStatePushRevision = 0
@@ -193,12 +200,13 @@ export function updateBrowserPanelState(state: BrowserUseState | null = browserS
   const current = browserState || {}
   browserPanelHost?.classList.toggle('browser-mounted', !!current.visible)
   if (browserUrlInput && !browserUrlInputEditing) {
-    browserUrlInput.value = current.url && current.url !== 'about:blank' ? current.url : ''
+    browserUrlInput.value = browserAddress(current.url || '', browserShowFullUrl, false)
   }
   if (browserBackBtn) browserBackBtn.disabled = !current.canGoBack
   if (browserForwardBtn) browserForwardBtn.disabled = !current.canGoForward
   if (browserReloadBtn) browserReloadBtn.disabled = !current.visible
   if (browserScreenshotBtn) browserScreenshotBtn.disabled = !current.visible
+  if (browserAnnotateBtn) browserAnnotateBtn.disabled = !current.visible || !!current.loading
   // Every host-side page in the active conversation gets its own panel tab, so
   // two pages can be open at once instead of one replacing the other.
   const panelTabs = (window as unknown as { KlausPanelTabs?: { syncBrowserTabs?: (tabs: BrowserTabInfo[], activeId: string | null) => void } }).KlausPanelTabs
@@ -397,6 +405,70 @@ async function navigateBrowserToInput(urlOverride?: string): Promise<void> {
 export function initBrowserPanel(injected: BrowserPanelDeps): void {
   deps = injected
   const w = window as unknown as Record<string, unknown>
+  let annotation: BrowserAnnotationController | undefined
+  let annotationOpening = false
+  let annotationAbort: AbortController | undefined
+  browserAnnotateBtn?.addEventListener('click', async () => {
+    if (annotation || annotationOpening) return
+    annotationOpening = true
+    const opening = new AbortController()
+    annotationAbort = opening
+    const mount = document.createElement('div')
+    document.body.appendChild(mount)
+    const surface = (window as any).klaus.browserUse
+    const check = async (promise: Promise<any>) => {
+      const result = await promise
+      if (result?.ok === false) throw new Error(result.error || tt('settings_failed'))
+      return result
+    }
+    try {
+      const settings = await (window as any).klaus.settings.browserUse.get()
+      opening.signal.throwIfAborted()
+      annotation = await openBrowserAnnotation({
+        signal: opening.signal,
+        api: {
+          currentSessionId: () => browserOpenSurface().sessionId || 'manual',
+          currentFocusRevision: () => browserState?.focusRevision ?? null,
+          capture: request => check(surface.annotationCapture(request)),
+          anchorAt: request => check(surface.annotationAnchor(request)),
+          save: request => check(surface.annotationSave(request)),
+          commit: async request => { await check(surface.annotationCommit(request)) },
+          discard: async id => { await check(surface.annotationDiscard(id)) },
+          suspendBrowser: () => (w.klausSuspendBrowserForOverlay as () => Promise<void>)(),
+          resumeBrowser: async () => {
+            annotation = undefined
+            mount.remove()
+            await (w.klausResumeBrowserAfterOverlay as () => Promise<void>)()
+          },
+        },
+        mount,
+        labels: { title: tt('browser_annotate'), hint: tt('browser_annotation_hint'), note: tt('browser_annotation_note'),
+          cancel: tt('cancel'), submit: tt('browser_annotation_submit'), element: tt('browser_annotation_element'), region: tt('browser_annotation_region') },
+        screenshotMode: settings.annotationScreenshots === 'necessary' ? 'necessary' : 'always',
+        onSubmit: (payload, sessionId) => {
+          if (!(window as any).klausComposer?.appendBrowserAnnotation?.(payload, sessionId)) throw new Error(tt('browser_annotation_stale'))
+        },
+        onError: error => showToast(error instanceof Error ? error.message : String(error)),
+      })
+    } catch (error) {
+      mount.remove()
+      if (!opening.signal.aborted) showToast(error instanceof Error ? error.message : String(error))
+    } finally { annotationOpening = false }
+  })
+  let preferencesRevision = 0
+  const applyPreferences = (settings: { showFullUrl?: boolean } | null | undefined) => {
+    if (!settings) return
+    browserShowFullUrl = settings.showFullUrl === true
+    updateBrowserPanelState()
+  }
+  klausApi()?.settings?.browserUse?.subscribe?.(settings => {
+    preferencesRevision++
+    applyPreferences(settings)
+  })
+  const readPreferencesRevision = preferencesRevision
+  void klausApi()?.settings?.browserUse?.get?.().then(settings => {
+    if (preferencesRevision === readPreferencesRevision) applyPreferences(settings)
+  }).catch(() => {})
 
   // The embedded browser is a native child view, so it paints above every HTML
   // layer in the window: a panel dropdown that overlaps it would be sliced in half
@@ -569,7 +641,10 @@ export function initBrowserPanel(injected: BrowserPanelDeps): void {
     }
     void showBrowserPanel(scope)
   })
+  window.addEventListener('pagehide', () => annotationAbort?.abort())
   window.addEventListener('klaus:session-change', () => {
+    annotationAbort?.abort()
+    void annotation?.close()
     const generation = ++browserSessionGeneration
     invalidateBrowserFrames()
     // The still image belongs to the previous task's page.
@@ -593,6 +668,12 @@ export function initBrowserPanel(injected: BrowserPanelDeps): void {
     else void showBrowserPanel()
   })
   browserUrlInput?.addEventListener('keydown', event => {
+    if (event.key === 'Escape') {
+      browserUrlInputEditing = false
+      browserUrlInput.blur()
+      updateBrowserPanelState()
+      return
+    }
     if (event.key !== 'Enter') return
     event.preventDefault()
     const url = browserUrlInput.value.trim()
@@ -601,6 +682,11 @@ export function initBrowserPanel(injected: BrowserPanelDeps): void {
   })
   browserUrlInput?.addEventListener('input', () => {
     browserUrlInputEditing = true
+  })
+  browserUrlInput?.addEventListener('focus', () => {
+    browserUrlInputEditing = true
+    browserUrlInput.value = browserAddress(browserState?.url || '', browserShowFullUrl, true)
+    browserUrlInput.select()
   })
   browserUrlInput?.addEventListener('blur', () => {
     browserUrlInputEditing = false

@@ -6,6 +6,7 @@ import ts from 'typescript';
 import plist from 'plist';
 import { computerUseArtifactName, engineArtifactRecords, inventory, readJson, requireTarget, sha256, specification, validateComputerUse, validateEngine, validatePip, validateRecording, validateSpeech } from './resources.mjs';
 import { officialPluginRequiredFiles, parseOfficialPluginRecords } from './official-plugins.mjs';
+import { verifyBrowserImportResource } from './browser-import.mjs';
 import { POLICY_NOTICE_CATALOG, POLICY_NOTICE_DIRECTORY } from '../engine/scripts/policy-notices.mjs';
 import { DEFAULT_DESKTOP_EDITION, desktopEdition, packagedDesktopEditionDocument, validateDesktopEditionDocuments } from './desktop-edition.mjs';
 
@@ -147,8 +148,10 @@ export function verifyPackage(bundle) {
     const bytes = extractFile(archive, normalize(file.path));
     if (bytes.length !== file.size || sha256(bytes) !== file.sha256) throw new Error(`Packaged application hash mismatch: ${file.path}`);
   }
+  const browserImportRoot = join(locations.resources, 'browser-import');
+  const hasBrowserImport = manifest.browserImport !== undefined || existsSync(browserImportRoot);
   const actualResourceFiles = [];
-  for (const name of ['frontend', 'manual', 'bin', 'native', 'computer-use', ...specification.sharedRoots, ...specification.generatedRoots, ...(officialPlugins.length ? specification.optionalGeneratedRoots : []), ...(manifest.platform === 'darwin' ? ['app-icon.icns', 'speech', 'recording', 'pip'] : [])]) {
+  for (const name of ['frontend', 'manual', 'bin', 'native', 'computer-use', ...(hasBrowserImport ? ['browser-import'] : []), ...specification.sharedRoots, ...specification.generatedRoots, ...(officialPlugins.length ? specification.optionalGeneratedRoots : []), ...(manifest.platform === 'darwin' ? ['app-icon.icns', 'speech', 'recording', 'pip'] : [])]) {
     const root = join(locations.resources, name), stat = statSync(root);
     if (stat.isDirectory()) actualResourceFiles.push(...inventory(root).map(file => ({ ...file, path: `${name}/${file.path}` })));
     else actualResourceFiles.push({ path: name, size: stat.size, sha256: sha256(readFileSync(root)) });
@@ -188,6 +191,7 @@ export function verifyPackage(bundle) {
   } else if (manifest.recording || existsSync(join(locations.resources, 'recording'))) throw new Error('The macOS recording helper leaked into a Windows package');
   const pip = verifyPipResource(locations.resources, manifest);
   const computerUse = verifyComputerUseResource(locations.resources, manifest);
+  const browserImport = hasBrowserImport ? verifyBrowserImportResource(locations.resources, manifest) : undefined;
   return { ...locations, edition: edition.id, application: edition.application, version: manifest.version, target, electronVersion: manifest.electronVersion, buildKind: manifest.buildKind,
     clientCommit: manifest.clientCommit, clientTreeDirty: manifest.clientTreeDirty, recordedEngineCommit: manifest.recordedEngineCommit,
     engineCommit: engine.engineCommit, engineSha256: engineArtifact.sha256, engineArtifacts: artifacts, nativeSourceCommit: manifest.native.sourceCommit,
@@ -197,5 +201,6 @@ export function verifyPackage(bundle) {
     ...(recording ? { recordingSourceCommit: recording.sourceCommit, recordingSha256: recording.sha256 } : {}),
     ...(pip ? { pipSourceCommit: pip.sourceCommit, pipSha256: pip.sha256 } : {}),
     ...(computerUse ? { computerUseSourceCommit: computerUse.sourceCommit, computerUseSha256: computerUse.sha256 } : {}),
+    ...(browserImport?.supported ? { browserImportTarget: browserImport.target, browserImportSha256: browserImport.sha256, browserImportSigned: browserImport.signed } : {}),
     resourceBytes: actualResourceFiles.reduce((size, file) => size + file.size, 0), verified: true };
 }

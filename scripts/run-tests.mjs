@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
@@ -9,7 +9,7 @@ const executable = require('electron');
 const root = fileURLToPath(new URL('..', import.meta.url));
 const suites = [
   'source-isolation', 'source-selection-memory', 'antigravity', 'trae', 'kiro', 'media-inputs', 'composer-predictions', 'prediction-query', 'owned-edit-menu', 'menu-diagnostics', 'native-content-find',
-  'browser-file-upload', 'browser-file-upload-extension',
+  'browser-file-upload', 'browser-file-upload-extension', 'browser-debugger-session', 'browser-settings', 'browser-history', 'browser-input-cancellation', 'browser-profile-import', 'browser-profile-import-service', ...(process.platform === 'darwin' ? ['browser-profile-decryptor'] : []), 'browser-profile-import-helper', 'browser-credentials', 'browser-extensions',
   'power-save', 'desktop-log', 'session-view-interests',
   'voice-chat',
   'workspace-dependencies', 'workspace-dependency-tools', 'workspace-dependency-settings', 'workspace-skills',
@@ -42,7 +42,12 @@ if (!selected.length || selected.some(name => ['skill-reload-live', 'engine-live
 // Exercise the host's shipped Node runtime, including its SQLite implementation.
 // This does not replace integration tests inside a normal Electron application.
 for (const suite of selected.length ? selected : suites) {
-  const nodeTest = suite === 'menu-diagnostics' || suite === 'native-content-find' || suite === 'browser-file-upload' || suite === 'browser-file-upload-extension' || ['workspace-dependencies', 'workspace-dependency-tools', 'workspace-dependency-settings', 'workspace-skills', 'worktree-storage'].includes(suite) || suite === 'mobile-push' || suite === 'team-collaboration' || suite === 'run-preview' || suite === 'widgets' || suite === 'inline-visualization-dom' || suite === 'inline-visualization-wheel' || suite === 'visual-artifact-card-dom' || suite === 'ui-screenshot-delivery' || suite === 'chrome-tab-mentions';
+  if (suite === 'browser-profile-decryptor') {
+    const built = spawnSync(process.execPath, ['native/browser-import/build-macos-helper.mjs', '--mode', 'test', '--arch', process.arch, '--output', 'dist/browser-import-decrypt-test/browser-import-decrypt-test'], { cwd: root, stdio: 'inherit' });
+    if (built.error) throw built.error;
+    if (built.status !== 0) process.exit(built.status ?? 1);
+  }
+  const nodeTest = suite === 'menu-diagnostics' || suite === 'native-content-find' || suite === 'browser-file-upload' || suite === 'browser-file-upload-extension' || suite === 'browser-debugger-session' || ['workspace-dependencies', 'workspace-dependency-tools', 'workspace-dependency-settings', 'workspace-skills', 'worktree-storage'].includes(suite) || suite === 'mobile-push' || suite === 'team-collaboration' || suite === 'run-preview' || suite === 'widgets' || suite === 'inline-visualization-dom' || suite === 'inline-visualization-wheel' || suite === 'visual-artifact-card-dom' || suite === 'ui-screenshot-delivery' || suite === 'chrome-tab-mentions';
   const result = await new Promise((resolveResult, reject) => {
     // node:test owns its worker exit status; the legacy guard would force every
     // passing worker to exit 1. Both runners still require a complete report below.

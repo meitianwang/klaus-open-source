@@ -17,6 +17,7 @@ const root = mkdtempSync(join(tmpdir(), 'klaus-site-open-'));
 const vectors = JSON.parse(readFileSync(vectorPath('site-open-vectors.json'), 'utf8')) as {
   targets: string[]; defaultPreference: string; setting: string;
   validUrls: Array<{ input: string; expected: string }>; invalidUrls: string[];
+  credentialUrls: Array<{url: string;username: string;password?: string}>;
 };
 let fixtureId = 0;
 function fixture() {
@@ -43,9 +44,14 @@ function fixture() {
     failChrome: () => { failChrome = true; }, failExternal: () => { failExternal = true; } };
 }
 
+function credentialUrl(row: {url: string;username: string;password?: string}): string {
+  const url = new URL(row.url); url.username = row.username; url.password = row.password ?? ''; return url.href;
+}
+
 h.test('committed URL vectors validate website protocols and credential refusal', () => {
   for (const vector of vectors.validUrls) assert.equal(siteUrl(vector.input), vector.expected);
   for (const input of vectors.invalidUrls) assert.throws(() => siteUrl(input));
+  for (const row of vectors.credentialUrls) assert.throws(() => siteUrl(credentialUrl(row)));
   assert.equal(SITE_OPEN_TARGET_SETTING, vectors.setting);
 });
 
@@ -60,7 +66,7 @@ h.test('installed targets include application icons, OS default markers and a pe
   await f.sites.open({ sessionId: 'saved-session', url: 'https://example.com', target: 'chrome' });
   listed = await f.sites.targets(); assert.equal(listed.preferredTarget, 'chrome');
   const other = new SiteOpener(f.configRoot, f.browser, { findChrome: () => null });
-  assert.equal((await other.targets()).preferredTarget, 'in-app');
+  assert.equal((await other.targets()).preferredTarget, 'system-default');
   assert.equal(kvGet(SITE_OPEN_TARGET_SETTING, f.configRoot), 'chrome');
 });
 
@@ -84,12 +90,12 @@ h.test('failed panel presentation preserves the last successful preference', asy
   assert.equal(kvGet(SITE_OPEN_TARGET_SETTING, f.configRoot), 'system-default');
 });
 
-h.test('omitting a target uses the persisted choice and unavailable Chrome falls back to the built-in preference', async () => {
+h.test('omitting a target uses the persisted choice and unavailable Chrome falls back to the system browser', async () => {
   const f = fixture(); kvSet(SITE_OPEN_TARGET_SETTING, 'system-default', f.configRoot);
   assert.equal((await f.sites.open({ sessionId: 'saved-session', url: 'https://example.com' })).target, 'system-default');
   assert.deepEqual(f.calls, [['external', 'https://example.com/']]);
   kvSet(SITE_OPEN_TARGET_SETTING, 'chrome', f.configRoot); f.installed(false);
-  assert.equal((await f.sites.open({ sessionId: 'saved-session', url: 'https://example.com' })).target, 'in-app');
+  assert.equal((await f.sites.open({ sessionId: 'saved-session', url: 'https://example.com' })).target, 'system-default');
 });
 
 h.test('OS and named-browser failures never persist a failed choice', async () => {
@@ -105,7 +111,7 @@ h.test('OS and named-browser failures never persist a failed choice', async () =
 
 h.test('invalid URLs and unsupported targets do not launch or alter preference', async () => {
   const f = fixture();
-  await assert.rejects(f.sites.open({ sessionId: 'saved-session', url: 'https://user:pass@example.com/', target: 'chrome' }));
+  await assert.rejects(f.sites.open({ sessionId: 'saved-session', url: credentialUrl(vectors.credentialUrls[0]!), target: 'chrome' }));
   await assert.rejects(f.sites.open({ sessionId: 'saved-session', url: 'https://example.com/', target: 'other-browser' }));
   await assert.rejects(f.sites.open({ sessionId: '', url: 'https://example.com/', target: 'in-app' }));
   assert.deepEqual(f.calls, []); assert.equal(kvGet(SITE_OPEN_TARGET_SETTING, f.configRoot), null);
@@ -154,9 +160,9 @@ h.test('website IPC enforces the window boundary and returns structured failures
     const handler = registry.lookup(channel); assert(handler);
     return handler({ role: 'main', senderId, channel, args: [payload] });
   };
-  assert.equal(object(await invoke('site-references:open-targets', {})).preferredTarget, 'in-app');
+  assert.equal(object(await invoke('site-references:open-targets', {})).preferredTarget, 'system-default');
   assert.equal(object(await invoke('site-references:open', { sessionId: 'saved-session', url: 'https://example.com', target: 'chrome' })).ok, true);
-  assert.equal(object(await invoke('site-references:open', { sessionId: 'saved-session', url: 'https://user@example.com', target: 'chrome' })).code, 'invalid_request');
+  assert.equal(object(await invoke('site-references:open', { sessionId: 'saved-session', url: credentialUrl(vectors.credentialUrls[1]!), target: 'chrome' })).code, 'invalid_request');
   assert.equal(object(await invoke('site-references:open-targets', {}, 10)).code, 'FORBIDDEN_CHANNEL');
   assert.equal(object(await invoke('site-references:open', { sessionId: 'saved-session', url: 'https://example.com', target: 'chrome' }, 10)).code, 'FORBIDDEN_CHANNEL');
 });

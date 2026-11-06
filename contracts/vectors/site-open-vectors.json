@@ -1,14 +1,16 @@
 {
-  "reason": "Website references open through explicit local targets and remember only successful choices.",
+  "reason": "Web links default to the system browser, local development links default to the built-in browser, and successful explicit choices are remembered independently.",
   "targets": ["in-app", "chrome", "system-default"],
-  "defaultPreference": "in-app",
+  "defaultPreference": "system-default",
+  "localDefaultPreference": "in-app",
   "setting": "browser:site_open_target",
   "validUrls": [
     { "input": "https://example.com", "expected": "https://example.com/" },
     { "input": "http://localhost:3000/report?view=one#chart", "expected": "http://localhost:3000/report?view=one#chart" }
   ],
-  "invalidUrls": ["", "example.com", "file:///tmp/report.html", "javascript:alert(1)", "data:text/html,hello", "https://user:pass@example.com/", "https://user@example.com/", "about:blank"],
-  "preference": { "openSucceeded": "save", "launchFailed": "preserve", "panelNotShown": "preserve", "copy": "preserve", "missingChrome": "in-app" },
+  "credentialUrls": [{"url":"https://example.com/","username":"fixture-user","password":"fixture-only"},{"url":"https://example.com/","username":"fixture-user"}],
+  "invalidUrls": ["", "example.com", "file:///tmp/report.html", "javascript:alert(1)", "data:text/html,hello", "about:blank"],
+  "preference": { "openSucceeded": "save", "launchFailed": "preserve", "panelNotShown": "preserve", "copy": "preserve", "missingChrome": "system-default" },
   "namedBrowsers": ["Google Chrome"],
   "referenceSource": "assistant-message-content"
 }

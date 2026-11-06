@@ -41,7 +41,9 @@ for (const path of files) {
   visit(source);
 }
 // These are explicit internal transports, outside the renderer-facing contract.
-const internal = new Set(['klaus:delivery', 'klaus:resized', 'chat:event']);
+// Autofill messages go only to an isolated page preload through WebFrameMain;
+// application renderers neither subscribe to nor receive credential values.
+const internal = new Set(['klaus:delivery', 'klaus:resized', 'chat:event', 'browser-autofill:document', 'browser-autofill:fill']);
 const contract = JSON.parse(readFileSync(join(appDirectory, 'contracts/channel-table.json'), 'utf8'));
 const required = [...new Set(contract.roles.flatMap(role => role.push))].sort();
 const missing = required.filter(channel => !producers.has(channel));

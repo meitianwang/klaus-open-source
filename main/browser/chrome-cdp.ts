@@ -28,8 +28,32 @@ export class ChromePageDebugger implements BrowserCdp {
   private closed = false;
   turnId: string = randomUUID();
 
-  constructor(readonly relay: ChromeRelay, readonly sessionId: string, readonly tabId: number, private readonly allowed: () => boolean = () => true, private readonly navigationAllowed: (url: unknown) => string = navigationUrl) {
+  constructor(readonly relay: ChromeRelay, readonly sessionId: string, readonly tabId: number, private readonly allowed: () => boolean = () => true,
+    private readonly navigationAllowed: (url: unknown) => string = navigationUrl,
+    private readonly authorizeNavigation?: (url: string) => Promise<void>) {
 
+  }
+
+
+  /** Enable the owned child target's own Page/Runtime/Log/Network agents. */
+  private async enableChild(targetId: string): Promise<void> {
+    const session = this.frames.get(targetId);
+    if (!session) return;
+    try {
+      await this.send('Target.setAutoAttach', { autoAttach: true, waitForDebuggerOnStart: false, flatten: true }, targetId);
+      if (this.closed || this.frames.get(targetId) !== session) return;
+      await Promise.all([
+        this.send('Page.enable', {}, targetId),
+        this.send('Runtime.enable', {}, targetId),
+        this.send('Log.enable', {}, targetId),
+        this.send('Network.enable', { maxTotalBufferSize: 8 * 1024 * 1024, maxResourceBufferSize: 256 * 1024, maxPostDataSize: 16 * 1024 }, targetId),
+      ]);
+      if (!this.closed && this.frames.get(targetId) === session) await this.send('Fetch.enable', { patterns: [{ resourceType: 'Document', requestStage: 'Request' }] }, targetId);
+    } catch {
+      if (this.frames.get(targetId) !== session) return;
+      this.frames.delete(targetId);
+      if (!this.closed) await this.send('Target.detachFromTarget', { sessionId: session }).catch(() => {});
+    }
   }
 
   acceptNotification(notification: BrowserObject): void {
@@ -39,20 +63,32 @@ export class ChromePageDebugger implements BrowserCdp {
     if (source.tabId !== this.tabId && !(typeof source.targetId === 'string' && this.frames.has(source.targetId))) return;
     const params = object(event.params);
     const frame = typeof source.sessionId === 'string' ? [...this.frames].find(([, id]) => id === source.sessionId)?.[0] : undefined;
+    // Late events from a detached child must not be attributed to the root page.
+    if (typeof source.sessionId === 'string' && !frame) {
+      if (event.method === 'Target.detachedFromTarget') {
+        for (const [target, session] of this.frames) if (session === params.sessionId) this.frames.delete(target);
+      }
+      return;
+    }
     this.events.push({ sequence: ++this.eventSequence, method: String(event.method), params, timestamp: Date.now(), frameTargetId: frame ?? null });
     if (this.events.length > 1000) { this.events.shift(); this.evicted.events += 1; }
     if (event.method === 'Target.attachedToTarget' && object(params.targetInfo).type === 'iframe' && typeof params.sessionId === 'string') {
       const id = String(object(params.targetInfo).targetId);
       this.frames.set(id, params.sessionId);
-      void this.send('Target.setAutoAttach', { autoAttach: true, waitForDebuggerOnStart: false, flatten: true }, id).catch(() => {});
-      void this.send('Fetch.enable', { patterns: [{ resourceType: 'Document', requestStage: 'Request' }] }, id).catch(() => {});
+      void this.enableChild(id);
     } else if (event.method === 'Target.detachedFromTarget') {
       for (const [target, session] of this.frames) if (session === params.sessionId) this.frames.delete(target);
     } else if (event.method === 'Fetch.requestPaused') {
       let allowed = this.allowed();
       try { this.navigationAllowed(object(params.request).url); } catch { allowed = false; }
       const frame = typeof source.sessionId === 'string' ? [...this.frames].find(([, session]) => session === source.sessionId)?.[0] : undefined;
-      void this.send(allowed ? 'Fetch.continueRequest' : 'Fetch.failRequest', { requestId: params.requestId ?? '', ...(allowed ? {} : { errorReason: 'BlockedByClient' }) }, frame).catch(() => {});
+      void (async () => {
+        if (allowed) {
+          try { await this.authorizeNavigation?.(String(object(params.request).url)); } catch { allowed = false; }
+        }
+        allowed = allowed && this.allowed();
+        await this.send(allowed ? 'Fetch.continueRequest' : 'Fetch.failRequest', { requestId: params.requestId ?? '', ...(allowed ? {} : { errorReason: 'BlockedByClient' }) }, frame);
+      })().catch(() => {});
     } else if (event.method === 'Runtime.consoleAPICalled') {
       this.console.push({ source: 'console', level: consoleLevel(params.type), text: consoleArgumentsText(params.args), args: params.args ?? [], timestamp: eventTime(params.timestamp), targetId: source.targetId ?? this.targetId, frameTargetId: frame ?? null });
       if (this.console.length > 500) { this.console.shift(); this.evicted.console += 1; }

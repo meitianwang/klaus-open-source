@@ -458,6 +458,8 @@ async function dispatch(method, params) {
       return getUserTabs(params)
     case 'createTab':
       return createTab(params)
+    case 'discardCreatedTab':
+      return discardCreatedTab(params)
     case 'claimUserTab':
       return claimUserTab(params)
     case 'finalizeTabs':
@@ -604,6 +606,27 @@ async function createTab(params) {
   // The driver gets input into a background page with `Emulation`/`Page`
   // lifecycle CDP instead, so nothing here has to select the tab.
   return { ...toBasicTab(tab), active: tab.active === true }
+}
+
+// Cancellation targets one newly created tab without finalizing its siblings.
+async function discardCreatedTab(params) {
+  const session = resolveSession(params)
+  const tabId = numericTabId(params.tabId)
+  if (!session.tabIds.has(tabId) || session.tabOrigins.get(tabId) !== 'agent') {
+    throw new Error(`Tab ${tabId} is not an agent-created tab owned by this session`)
+  }
+  await cancelPageMedia(session.sessionId, tabId)
+  for (const [id, download] of ownedDownloads) {
+    if (download.sessionId !== session.sessionId || download.tabId !== tabId) continue
+    await chrome.downloads.cancel(id).catch(() => {})
+    ownedDownloads.delete(id)
+  }
+  await detachAttachedTabIdsBestEffort([tabId])
+  await removeTabs([tabId])
+  await untrackTab(session, tabId)
+  if (session.activeTabId === tabId) session.activeTabId = session.tabIds.values().next().value ?? null
+  await cleanupSessionGroup(session)
+  return {}
 }
 
 async function claimUserTab(params) {

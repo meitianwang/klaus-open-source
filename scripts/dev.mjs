@@ -67,6 +67,7 @@ catch (error) {
 
 run([join(repo, 'engine/scripts/prepare-rust-release.mjs'), '--dev', ...(options.has('--reuse-engine') ? ['--verify-only'] : [])]);
 const { requireTarget, validateNative, validateSpeech, validateRecording, validatePip, validateComputerUse } = await import('../packaging/resources.mjs');
+const { ensureBrowserImportHelper } = await import('../packaging/browser-import.mjs');
 requireTarget(process.platform, process.arch);
 const target = `${process.platform}-${process.arch}`;
 const nativeRoot = join(appDirectory, 'native');
@@ -87,6 +88,8 @@ if (options.has('--reuse-native')) {
   if (process.platform === 'darwin') for (const kind of ['speech', 'recording', 'pip']) run([`native/${kind}/build.mjs`, helperDirectory(kind)]);
   run([`native/computer-use/${process.platform === 'win32' ? 'build-windows.mjs' : 'build.mjs'}`, helperDirectory('computer-use')]);
 }
+const browserImport = ensureBrowserImportHelper({ repo, platform: process.platform, arch: process.arch });
+if (browserImport.supported) console.log(`[dev] browser import helper: ${browserImport.helperPath}`);
 
 run([require.resolve('typescript/bin/tsc'), '-p', 'tsconfig.build.json']);
 run([require.resolve('typescript/bin/tsc'), '-p', 'tsconfig.native-bindings.json']);

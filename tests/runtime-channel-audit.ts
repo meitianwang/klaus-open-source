@@ -1,4 +1,5 @@
 import { app } from 'electron';
+import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import { mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
@@ -9,6 +10,8 @@ import { currentDesktopEdition } from '../main/services/desktop-edition';
 import { claimDesktopProfileEdition } from '../main/services/desktop-profile';
 import { waitFor } from './harness';
 import { pushEventName, pushPayload } from '../main/ipc/push';
+import { assertBrowserSettingsRuntime } from './browser-settings-runtime';
+import { assertBrowserDataRuntime, seedBrowserImportFixture } from './browser-data-runtime';
 
 const root = process.env.KLAUS_CHANNEL_AUDIT_PROFILE;
 if (!root) throw new Error('Use scripts/audit-runtime-channels.mjs');
@@ -26,7 +29,15 @@ void (async () => {
     await app.whenReady();
     for (const key of ['global_shortcut', 'quick_input_shortcut']) kvSet(key, 'off', root);
     writeFileSync(join(root!, 'klaus-guest-mode'), '1', { mode: 0o600 });
+    const browserSource = seedBrowserImportFixture(root!);
+    const credentialFixtureKey = randomBytes(32);
+    const browserSecretCipher = { available: () => true,
+      encrypt: (value: string) => { const iv=randomBytes(12),cipher=createCipheriv('aes-256-gcm',credentialFixtureKey,iv);const encrypted=Buffer.concat([cipher.update(value,'utf8'),cipher.final()]);return Buffer.concat([iv,cipher.getAuthTag(),encrypted]); },
+      decrypt: (value: Buffer) => { const decipher=createDecipheriv('aes-256-gcm',credentialFixtureKey,value.subarray(0,12));decipher.setAuthTag(value.subarray(12,28));return Buffer.concat([decipher.update(value.subarray(28)),decipher.final()]).toString('utf8'); },
+    };
     runtime = await createDesktopRuntime(app, { show: false, tray: false, externalImportHome: root,
+      browserSecretCipher,
+      browserImportRoots: [{ id: 'synthetic', label: 'Synthetic browser', userDataDir: browserSource, family: 'chromium' }],
       engineFixtureBinary: process.env.KLAUS_CHANNEL_AUDIT_ENGINE_BINARY });
     const window = runtime.window;
     await waitFor(() => window.webContents.executeJavaScript(`(() => {
@@ -129,6 +140,8 @@ void (async () => {
     await waitFor(() => window.webContents.executeJavaScript('window.currentSettingsTab === "archivedSessions" && !document.querySelector("dialog:modal")'), 5000, 'archive management uses the existing settings page');
     await window.webContents.executeJavaScript('window.closeSettings()');
     console.log('Storage runtime integration: measurements, native review, worktree policy and archived navigation passed');
+    await assertBrowserSettingsRuntime(runtime, root!);
+    await assertBrowserDataRuntime(runtime);
     const registered = runtime.registry.channels();
     await runtime.shutdown();
     const result = { registered, distribution, language, windowTitle, engineAfterShutdown: runtime.engine.liveProcessCount(), nativeAfterShutdown: runtime.nativeCounts() };

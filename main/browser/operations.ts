@@ -110,17 +110,38 @@ export class BrowserOperations {
   private disposed = false;
   constructor(readonly manager: BrowserManager, readonly chrome?: ChromeBrowserService) {}
 
+  private assertActive(signal?: AbortSignal): void {
+    if (signal?.aborted) throw new BrowserError('cancelled', 'The browser operation was cancelled.');
+  }
+
+  private controlSignal(signal?: AbortSignal): AbortSignal | undefined {
+    return typeof this.manager.agentControlSignal === 'function'
+      ? this.manager.agentControlSignal(signal)
+      : signal;
+  }
+
   async execute(sessionId: string, name: string, args: unknown, signal?: AbortSignal): Promise<BrowserObject> {
     // Dialog answers must unblock a synchronous page call even while that call
     // occupies the ordinary operation queue.
-    try { if (parseOperation(name, args).kind === 'dialog') return await this.run(sessionId, name, args, signal); }
-    catch (error) { return browserFailure(error); }
+    let kind: string;
+    try { kind = parseOperation(name, args).kind; } catch (error) { return browserFailure(error); }
+    const control = this.controlSignal(signal);
+    if (control?.aborted) return browserFailure(new BrowserError('cancelled', 'The browser operation was cancelled.'));
+    if (kind === 'dialog') {
+      try {
+        this.assertActive(control);
+        return await this.run(sessionId, name, args, control);
+      } catch (error) { return browserFailure(error); }
+    }
     const generation = this.generations.get(sessionId) ?? 0;
     const run = (this.queues.get(sessionId) ?? Promise.resolve()).then(async () => {
+      this.assertActive(control);
       if (this.disposed) throw new BrowserError('unavailable', 'The browser operation service has shut down.');
       if (generation !== (this.generations.get(sessionId) ?? 0)) throw new BrowserError('unavailable', 'The task browser capability was released.');
-      const finish = this.manager.beginOperation(sessionId, name);
-      try { return await this.run(sessionId, name, args, signal); } finally { finish(); }
+      const lease = this.manager.beginOperation(sessionId, kind, control);
+      const leaseSignal = (lease as { signal?: AbortSignal }).signal;
+      const effective = leaseSignal ?? control;
+      try { this.assertActive(effective); return await this.run(sessionId, name, args, effective); } finally { lease(); }
     });
     const queued = run.catch(() => {});
     this.queues.set(sessionId, queued);
@@ -139,7 +160,7 @@ export class BrowserOperations {
   }
 
   private async run(sessionId: string, name: string, args: unknown, signal?: AbortSignal): Promise<BrowserObject> {
-    signal?.throwIfAborted();
+    this.assertActive(signal);
     if (this.disposed) throw new BrowserError('unavailable', 'The browser operation service has shut down.');
     if (!sessionId) throw new BrowserError('invalid_request', 'A task session is required.');
     const { kind, fields, target } = parseOperation(name, args);
@@ -214,17 +235,21 @@ export class BrowserOperations {
     }
     if (EXTERNAL_ONLY_OPERATIONS.has(kind) || kind === 'tabs' && fields.action === 'user') throw new BrowserError('unavailable', `${kind === 'tabs' ? 'User tabs' : kind} requires a connected external browser. Call list_connected_browsers, then select_browser with its browserId before using this operation.`);
     if (!DESCRIPTIONS[kind]) throw new BrowserError('unavailable', `Browser operation '${kind}' is not implemented in the Electron host yet.`);
-    if(kind==='wait_for'&&fields.ms!==undefined)return this.answer(sessionId,{value:await waitForPage(undefined,fields)});
+    if(kind==='wait_for'&&fields.ms!==undefined)return this.answer(sessionId,{value:await waitForPage(undefined,fields,signal)});
     if(kind==='tabs'&&fields.action==='name_session')throw new BrowserError('unavailable','Naming a task tab group is available only for a connected external Chrome browser.');
 
     const handle = fields.tabId === undefined ? undefined : typeof fields.tabId === 'number' ? fields.tabId : Number(fields.tabId);
     if (handle !== undefined && (!Number.isSafeInteger(handle) || handle <= 0)) throw new BrowserError('invalid_request', 'tabId must be a numeric handle returned by tabs.');
-    if (kind === 'tabs' || kind === 'new_tab' || kind === 'close') return this.tabs(sessionId, kind, fields, handle);
+    if (kind === 'tabs' || kind === 'new_tab' || kind === 'close') return this.tabs(sessionId, kind, fields, handle, signal);
     if (kind === 'read_urls') {
       const selected = (): number | undefined => this.manager.listPages(sessionId).find(page => page.id === this.manager.state(sessionId).tabId)?.handle;
       const value = await readUrls({
-        create: async () => { const page = await this.manager.createTab(sessionId, 'about:blank', false); return { id: page.handle, cdp: page.cdp }; },
-        navigate: async (page, url, fields, signal) => { this.manager.page(sessionId, page.id); await navigateForRead(page.cdp, this.manager.assertNavigation(url), fields, signal); },
+        create: async () => { const page = await this.manager.createTab(sessionId, 'about:blank', false, signal); return { id: page.handle, cdp: page.cdp }; },
+        navigate: async (page, url, fields, signal) => {
+          this.manager.page(sessionId, page.id);
+          await this.manager.authorize(sessionId, url, 'browsing', signal);
+          await navigateForRead(page.cdp, this.manager.assertNavigation(url), fields, signal);
+        },
         close: async page => { this.manager.closeTab(sessionId, page.id); },
         tabs: async () => this.manager.listPages(sessionId).map(page => page.handle), selected,
         // Background IAB pages never change selection. Preserve a concurrent
@@ -243,8 +268,13 @@ export class BrowserOperations {
       return this.answer(sessionId, { value: { accepted: action === 'accept' } }, page);
     }
 
-    const page = handle === undefined ? await this.manager.ensurePage(sessionId) : this.manager.page(sessionId, handle);
+    const page = handle === undefined ? await this.manager.ensurePage(sessionId, signal) : this.manager.page(sessionId, handle);
     await page.ready;
+    await this.manager.authorize(sessionId, kind === 'navigate' ? String(fields.url) : page.view.webContents.getURL(), 'browsing', signal);
+    if (kind === 'download' && !['list', 'wait', 'cancel'].includes(String(fields.action)) && !fields.waitOnly)
+      await this.manager.authorize(sessionId, page.view.webContents.getURL(), 'downloads', signal);
+    if (kind === 'webmcp') await this.manager.authorize(sessionId, page.view.webContents.getURL(), 'siteTools', signal);
+    if (kind === 'cdp') await this.manager.authorize(sessionId, page.view.webContents.getURL(), 'debug', signal);
     const cdp = page.cdp;
     const activePageBefore = this.manager.state(sessionId).tabId;
     const frame = typeof fields.frameTargetId === 'string' ? fields.frameTargetId : typeof target.frameTargetId === 'string' ? target.frameTargetId : undefined;
@@ -252,14 +282,15 @@ export class BrowserOperations {
     const perform = async (): Promise<BrowserObject> => {
       const { value, screenshot, typed } = await performPageOperation({
         cdp, frame, signal,
-        navigate: (url, options) => this.manager.navigate(page, url, options),
-        history: action => this.manager.historyAction(page, action),
-        download: (fields, timeout, transport) => this.manager.download(page, fields, timeout, transport),
+        authorizeUpload: (url, signal) => this.manager.authorize(sessionId, url, 'uploads', signal),
+        navigate: (url, options) => this.manager.navigate(page, url, options, signal),
+        history: action => this.manager.historyAction(page, action, signal),
+        download: (fields, timeout, transport) => this.manager.download(page, fields, timeout, transport, signal),
         artifactDirectory: join(this.manager.configRoot, 'artifacts'),
         permission: fields => this.manager.setPermission(page, fields),
         nativeViewport: async () => { const bounds = page.view.getBounds(), zoom = page.view.webContents.getZoomFactor(); return { width: Math.round(bounds.width / zoom), height: Math.round(bounds.height / zoom) }; },
       }, kind, fields);
-      signal?.throwIfAborted();
+      this.assertActive(signal);
       this.manager.publish();
       if (browserOperationRequestsPanel(kind, fields)) {
         const activePageAfter = this.manager.state(sessionId).tabId;
@@ -284,12 +315,15 @@ export class BrowserOperations {
     return String(browser.browserId);
   }
 
-  private async tabs(sessionId: string, kind: string, fields: BrowserObject, handle?: number): Promise<BrowserObject> {
+  private async tabs(sessionId: string, kind: string, fields: BrowserObject, handle?: number, signal?: AbortSignal): Promise<BrowserObject> {
     const closeTarget = String(fields.target ?? 'session');
     if (kind === 'close' && !['tab','session','all'].includes(closeTarget)) throw new BrowserError('invalid_request', 'close target must be tab, session or all.');
     const action = kind === 'new_tab' ? 'new' : kind === 'close' ? closeTarget === 'tab' ? 'close' : 'finalize' : fields.action ?? 'list';
     let page: BrowserPage | undefined;
-    if (action === 'new') page = await this.manager.createTab(sessionId, fields.url ?? 'about:blank');
+    if (action === 'new') {
+      await this.manager.authorize(sessionId, String(fields.url ?? 'about:blank'), undefined, signal);
+      page = await this.manager.createTab(sessionId, fields.url ?? 'about:blank', true, signal);
+    }
     else if (action === 'select') { if (handle === undefined) throw new BrowserError('invalid_request', 'Selecting a tab requires tabId.'); this.manager.selectTab(sessionId, handle); page = this.manager.page(sessionId, handle); }
     else if (action === 'close' || action === 'finalize') {
       const pages = this.manager.listPages(sessionId);

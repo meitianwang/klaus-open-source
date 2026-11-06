@@ -6,6 +6,7 @@ import { BrowserError, object, type BrowserObject } from './types';
 import type { BrowserCdp } from './page-operations';
 
 interface UploadTarget { objectId: string; backendNodeId: number; file: boolean; multiple: boolean }
+
 type UploadCommand = (method: string, params?: BrowserObject) => Promise<BrowserObject>;
 
 function assertActive(signal?: AbortSignal): void {
@@ -56,7 +57,7 @@ async function observeInput(command: UploadCommand, target: UploadTarget, expect
 }
 
 /** A successful browser command acknowledges file selection; the page owns any subsequent upload. */
-export async function uploadFiles(cdp: BrowserCdp, fields: BrowserObject, perform: (kind: string, fields: BrowserObject) => Promise<unknown>, signal?: AbortSignal): Promise<BrowserObject> {
+export async function uploadFiles(cdp: BrowserCdp, fields: BrowserObject, perform: (kind: string, fields: BrowserObject) => Promise<unknown>, signal?: AbortSignal, authorize?: (documentUrl: string, signal?: AbortSignal) => Promise<void>): Promise<BrowserObject> {
   assertActive(signal);
   const handles = new Set<string>();
   const command: UploadCommand = async (method, params = {}) => {
@@ -88,6 +89,18 @@ export async function uploadFiles(cdp: BrowserCdp, fields: BrowserObject, perfor
     const attach = async (target: UploadTarget, via: string): Promise<BrowserObject> => {
       if (!target.file) throw new BrowserError('invalid_request', 'The chosen upload target is not a file input.');
       if (files.length > 1 && !target.multiple) throw new BrowserError('invalid_request', 'This file input does not accept multiple files.');
+      const documentIdentity = async (): Promise<string> => {
+        const reply = await command('Runtime.callFunctionOn', { objectId: target.objectId, functionDeclaration: 'function(){const w=this.ownerDocument?.defaultView;return {connected:this.isConnected,url:w?.location.href,origin:w?.origin}}', returnByValue: true });
+        const identity = object(object(reply.result).value);
+        if (reply.exceptionDetails || identity.connected !== true || typeof identity.url !== 'string') throw new BrowserError('stale_target', 'The upload document changed before file selection.');
+        return typeof identity.origin === 'string' && identity.origin !== 'null' ? identity.origin : identity.url;
+      };
+      if (authorize) {
+        const documentUrl = await documentIdentity();
+        await authorize(documentUrl, signal);
+        assertActive(signal);
+        if (await documentIdentity() !== documentUrl) throw new BrowserError('stale_target', 'The upload document changed during authorization.');
+      }
       await command('DOM.setFileInputFiles', { backendNodeId: target.backendNodeId, files });
       // Change handlers may consume the files, clear the input, replace it, or navigate.
       // Retain that observation without replacing the CDP acknowledgement with a page-state guess.
@@ -98,7 +111,9 @@ export async function uploadFiles(cdp: BrowserCdp, fields: BrowserObject, perfor
     const target = await describeTarget(command, objectId);
     assertActive(signal);
     if (target.file) return await attach(target, 'file-input');
-    if (cdp.captureScope) throw new BrowserError('unavailable', 'File choosers in out-of-process frames are not supported. Address the file input directly.');
+    // An out-of-process frame has its own Page agent. Enable that agent before
+    // intercepting its chooser; the root Page.enable does not instrument it.
+    if (cdp.captureScope) await cdp.command('Page.enable');
     const frameId = await ownerFrame(command, objectId);
     assertActive(signal);
     const waitTimeout = timeoutMs(fields.timeoutMs, 10000);
@@ -109,7 +124,7 @@ export async function uploadFiles(cdp: BrowserCdp, fields: BrowserObject, perfor
       removeAbort = () => signal?.removeEventListener('abort', aborted);
       remove = cdp.onEvent((method, params, source) => {
         if (signal?.aborted) { aborted(); return; }
-        if (method === 'Page.fileChooserOpened' && source === undefined && params.frameId === frameId) resolveChooser(params);
+        if (method === 'Page.fileChooserOpened' && (source === undefined || source === cdp.captureScope?.frame) && params.frameId === frameId) resolveChooser(params);
       });
       timer = setTimeout(() => reject(new BrowserError('timeout', 'No file chooser opened for this control.')), waitTimeout);
       if (signal?.aborted) aborted();

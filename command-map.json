@@ -1,7 +1,7 @@
 {
   "summary": {
-    "invokeDeclared": 715,
-    "pushDeclared": 73
+    "invokeDeclared": 750,
+    "pushDeclared": 77
   },
   "rows": [
     {
@@ -214,6 +214,26 @@
     },
     {
       "channel": "bailian-auth:status",
+      "kind": "invoke"
+    },
+    {
+      "channel": "browser-use:annotation-anchor",
+      "kind": "invoke"
+    },
+    {
+      "channel": "browser-use:annotation-capture",
+      "kind": "invoke"
+    },
+    {
+      "channel": "browser-use:annotation-commit",
+      "kind": "invoke"
+    },
+    {
+      "channel": "browser-use:annotation-discard",
+      "kind": "invoke"
+    },
+    {
+      "channel": "browser-use:annotation-save",
       "kind": "invoke"
     },
     {
@@ -2097,6 +2117,30 @@
       "kind": "invoke"
     },
     {
+      "channel": "settings:browser-use:autofill-delete",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:browser-use:autofill-profile",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:browser-use:autofill-profiles",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:browser-use:autofill-save",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:browser-use:autofill-update",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:browser-use:choose-download-directory",
+      "kind": "invoke"
+    },
+    {
       "channel": "settings:browser-use:chrome-deploy-extension",
       "kind": "invoke"
     },
@@ -2141,11 +2185,95 @@
       "kind": "invoke"
     },
     {
+      "channel": "settings:browser-use:discover-profiles",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:browser-use:download-action",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:browser-use:downloads",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:browser-use:extension-choose",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:browser-use:extension-install",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:browser-use:extension-remove",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:browser-use:extension-set-enabled",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:browser-use:extensions",
+      "kind": "invoke"
+    },
+    {
       "channel": "settings:browser-use:get",
       "kind": "invoke"
     },
     {
+      "channel": "settings:browser-use:history",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:browser-use:import-cancel",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:browser-use:import-permission-settings",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:browser-use:import-start",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:browser-use:import-state",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:browser-use:password-copy",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:browser-use:password-delete",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:browser-use:password-import",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:browser-use:password-reveal",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:browser-use:password-save",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:browser-use:passwords",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:browser-use:remove-history",
+      "kind": "invoke"
+    },
+    {
       "channel": "settings:browser-use:remove-origin",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:browser-use:remove-origin-policy",
       "kind": "invoke"
     },
     {
@@ -2161,7 +2289,19 @@
       "kind": "invoke"
     },
     {
+      "channel": "settings:browser-use:set-origin-policy",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:browser-use:set-preferences",
+      "kind": "invoke"
+    },
+    {
       "channel": "settings:browser-use:set-screenshot-mode",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:browser-use:set-site-permission",
       "kind": "invoke"
     },
     {
@@ -2877,7 +3017,15 @@
       "kind": "push"
     },
     {
+      "channel": "browser-use:downloads-changed",
+      "kind": "push"
+    },
+    {
       "channel": "browser-use:open-panel",
+      "kind": "push"
+    },
+    {
+      "channel": "browser-use:permission-cancelled",
       "kind": "push"
     },
     {
@@ -3098,6 +3246,14 @@
     },
     {
       "channel": "run-preview:changed",
+      "kind": "push"
+    },
+    {
+      "channel": "settings:browser-use:changed",
+      "kind": "push"
+    },
+    {
+      "channel": "settings:browser-use:import-progress",
       "kind": "push"
     },
     {

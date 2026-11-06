@@ -18,6 +18,7 @@ import { MobileBridgeSettingsTab } from './capability-tabs'
 import { VoiceInputSettingsTab } from './voice-tab'
 import { KeyboardShortcutsTab } from './keyboard-shortcuts-tab'
 import { ComputerUseSettingsTab } from './computer-use-tab'
+import { BrowserSettingsTab } from './browser-tab'
 import { applyAvatar, bootstrapProfile } from './profile-tab'
 import { ProfilePage } from '../profile/ProfilePage'
 import { FriendsSettingsTab } from './friends-tab'
@@ -42,6 +43,7 @@ Object.assign(window as any, {
   loadVoiceInputSettingsTab: (container: HTMLElement) => mountSettingsTab(container, <VoiceInputSettingsTab />),
   loadKeyboardShortcutsTab: (container: HTMLElement) => mountSettingsTab(container, <KeyboardShortcutsTab />),
   loadComputerUseSettingsTab: (container: HTMLElement) => mountSettingsTab(container, <ComputerUseSettingsTab />),
+  loadBrowserSettingsTab: (container: HTMLElement) => mountSettingsTab(container, <BrowserSettingsTab />),
   loadProfileTab: (container: HTMLElement) => mountSettingsTab(container, <ProfilePage embedded />),
   loadFriendsSettingsTab: (container: HTMLElement) => mountSettingsTab(container, <FriendsSettingsTab />),
   loadPetsSettingsTab: (container: HTMLElement) => mountSettingsTab(container, <PetsSettingsTab />),
