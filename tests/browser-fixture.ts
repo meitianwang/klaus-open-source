@@ -162,6 +162,36 @@ async function main(): Promise<number> {
     assertDeepEqual(globals, { require: 'undefined', process: 'undefined', klaus: 'undefined', host: 'undefined' }, 'remote page has no host bridge');
   });
 
+  h.test('storage persistence never opens a dialog and ordinary site data survives reload', async () => {
+    const promptCount = permissionRequests.length;
+    const page = await manager.createTab('storage-permissions', `${base}/storage`);
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      assertEqual(await page.cdp.evaluate('navigator.storage.persist()'), false, 'an undecided page receives no persistence guarantee');
+    }
+    assertEqual(await page.cdp.evaluate('navigator.storage.persisted()'), false, 'the page has no implicit persistent grant');
+    await page.cdp.evaluate('localStorage.setItem("storage-permission-fixture","retained")');
+    await manager.navigate(page, `${base}/storage-reloaded`);
+    assertEqual(await page.cdp.evaluate('localStorage.getItem("storage-permission-fixture")'), 'retained', 'ordinary site data remains available');
+    assertEqual(await page.cdp.evaluate('navigator.storage.persist()'), false, 'reload remains noninteractive');
+    const automatic = await page.cdp.command('Runtime.evaluate', {
+      expression: 'navigator.storage.persist()', returnByValue: true, awaitPromise: true, userGesture: false,
+    });
+    assertEqual(object(automatic.result).value, false, 'a request without user activation also settles silently');
+    const sibling = await manager.createTab(page.owner, `${base}/storage-sibling`);
+    assertEqual(await sibling.cdp.evaluate('navigator.storage.persist()'), false, 'a sibling tab remains noninteractive');
+    const other = await manager.createTab('storage-other-task', `${base}/storage-other`);
+    assertEqual(await other.cdp.evaluate('navigator.storage.persist()'), false, 'another task remains noninteractive');
+    assertEqual(permissionRequests.length, promptCount, 'no request reaches the permission dialog');
+    await manager.setPermission(page, { action: 'set', origin: base, permission: 'durableStorage', setting: 'denied' });
+    assertEqual(await page.cdp.evaluate('navigator.storage.persist()'), false, 'an explicit refusal still reaches the browser');
+    const grantOrigin = `http://localhost:${port}`;
+    const granted = await manager.createTab('storage-granted', `${grantOrigin}/storage-granted`);
+    await manager.setPermission(granted, { action: 'grant', origin: grantOrigin, permissions: ['durableStorage'] });
+    assertEqual(await granted.cdp.evaluate('navigator.storage.persist()'), true, 'an explicit grant still reaches the browser');
+    assertEqual(permissionRequests.length, promptCount, 'explicit decisions never open a dialog');
+    for (const item of [page, sibling, other, granted]) manager.closeTab(item.owner, item.handle);
+  });
+
   h.test('screen wake locks can be reacquired without a permission dialog', async () => {
     await waitFor(async () => {
       app.focus({ steal: true }); window.focus(); pageA.view.webContents.focus();

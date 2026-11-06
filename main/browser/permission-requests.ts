@@ -113,6 +113,10 @@ export class BrowserPermissionDecisions {
   resolve(keys: string[], ask: () => Promise<boolean>, accept: () => boolean, permission?: string): Promise<boolean> {
     if (this.denied(keys)) return Promise.resolve(false)
     if (this.granted(keys, permission)) return Promise.resolve(true)
+    // Persistence is an optional storage guarantee, not an interactive consent
+    // request. Keep ordinary site storage available and retain an undecided
+    // policy so a later explicit grant can still take effect.
+    if (permission === 'persistent-storage') return Promise.resolve(false)
     const promptKey = [...keys].sort().join('|')
     const open = this.inflight.get(promptKey)
     if (open) return open

@@ -447,9 +447,9 @@ h.test('the permission answer channel settles only the owning window and never g
   assertEqual(await parked.answered, true, 'the parked caller sees the allow');
 });
 
-h.test('screen wake locks settle without prompting and other permissions retain their decisions', async () => {
+h.test('noninteractive permissions settle silently and other permissions retain their decisions', async () => {
   const vector = JSON.parse(readFileSync(join(__dirname, '../../contracts/vectors/browser-tool-contracts.json'), 'utf8')) as {
-    permissionDefaults: { vectors: Array<{ permission: string; granted: boolean }> };
+    permissionDefaults: { vectors: Array<{ permission: string; granted: boolean; prompts?: number }> };
   };
   for (const row of vector.permissionDefaults.vectors) {
     const decisions = new BrowserPermissionDecisions();
@@ -460,15 +460,38 @@ h.test('screen wake locks settle without prompting and other permissions retain 
     for (let attempt = 0; attempt < 3; attempt += 1) {
       assertEqual(await decisions.resolve(keys, ask, () => true, row.permission), row.granted, `${row.permission} request ${attempt}`);
     }
-    assertEqual(asked, row.granted ? 0 : 1, `${row.permission} prompt count`);
+    const prompts = row.prompts ?? (row.granted ? 0 : 1);
+    assertEqual(asked, prompts, `${row.permission} prompt count`);
     assertEqual(decisions.granted([], row.permission), false, 'an unidentified page is never granted');
     decisions.set(keys, 'denied');
     assertEqual(decisions.granted(keys, row.permission), false, 'explicit denial overrides the default');
     assertEqual(await decisions.resolve(keys, ask, () => true, row.permission), false, 'an explicitly denied request stays silent');
-    assertEqual(asked, row.granted ? 0 : 1, 'explicit denial does not open another question');
+    assertEqual(asked, prompts, 'explicit denial does not open another question');
     decisions.clear();
     assertEqual(decisions.granted(keys, row.permission), row.granted, 'clearing decisions restores the default');
   }
+});
+
+h.test('storage persistence defaults remain undecided and preserve explicit scoped grants', async () => {
+  const decisions = new BrowserPermissionDecisions();
+  const keys = [JSON.stringify(['task', 'https://storage.example.com', 'persistent-storage'])];
+  const other = [JSON.stringify(['other-task', 'https://storage.example.com', 'persistent-storage'])];
+  const ask = (): Promise<boolean> => { throw new Error('Storage persistence must never open a consent dialog'); };
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    assertEqual(await decisions.resolve(keys, ask, () => true, 'persistent-storage'), false, 'no implicit storage guarantee');
+  }
+  assertEqual(decisions.denied(keys), false, 'an automatic result is not a user refusal');
+  decisions.set(keys, 'granted');
+  assertEqual(await decisions.resolve(keys, ask, () => true, 'persistent-storage'), true, 'an explicit grant remains effective');
+  assertEqual(await decisions.resolve(other, ask, () => true, 'persistent-storage'), false, 'the grant does not cross tasks');
+  decisions.set(keys, 'denied');
+  assertEqual(await decisions.resolve(keys, ask, () => true, 'persistent-storage'), false, 'explicit denial remains effective');
+  decisions.set(keys, 'prompt');
+  assertEqual(decisions.denied(keys), false, 'reset removes the explicit denial');
+  assertEqual(await decisions.resolve(keys, ask, () => true, 'persistent-storage'), false, 'reset restores silent handling');
+  const reopened = new BrowserPermissionDecisions();
+  assertEqual(await reopened.resolve(keys, ask, () => true, 'persistent-storage'), false, 'fresh state does not open a question');
+  assertEqual(reopened.denied(keys), false, 'fresh state remains undecided');
 });
 
 h.test('remembered permission decisions stop a page that re-asks from reopening the dialog', async () => {

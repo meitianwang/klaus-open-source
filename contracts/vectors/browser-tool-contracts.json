@@ -115,9 +115,10 @@
     "restore": "Resume the same existing tab or the latest explicit scoped open; cancel stale captures and restores across task or tab changes."
   },
   "permissionDefaults": {
-    "reason": "Screen wake locks only keep the display awake and can be requested repeatedly after visibility changes; they must not interrupt browsing with a permission dialog.",
+    "reason": "Screen wake locks keep the display awake without prompting. Storage persistence requests settle silently without an implicit grant or a remembered user denial; explicit permission decisions still take precedence and ordinary site storage remains available.",
     "vectors": [
       { "permission": "screen-wake-lock", "granted": true },
+      { "permission": "persistent-storage", "granted": false, "prompts": 0 },
       { "permission": "geolocation", "granted": false },
       { "permission": "notifications", "granted": false },
       { "permission": "audioCapture", "granted": false },
