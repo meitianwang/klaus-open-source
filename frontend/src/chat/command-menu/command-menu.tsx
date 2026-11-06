@@ -248,6 +248,11 @@ export function CommandMenu({
   }, [deps, onClose])
 
   const onKeyDown = useCallback((event: React.KeyboardEvent) => {
+    // While an input method composition is active (pinyin candidates and
+    // similar), Enter, Escape and the arrow keys belong to the IME: the key
+    // that confirms a candidate must not activate the highlighted row, move
+    // the highlight or close the panel.
+    if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return
     if (event.key === 'Escape') { event.preventDefault(); onClose(); return }
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
       event.preventDefault()
