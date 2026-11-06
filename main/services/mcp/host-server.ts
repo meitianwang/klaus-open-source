@@ -86,7 +86,9 @@ export class HostMcpServer {
     }
     const base = await this.start();
     this.valid(owner);
-    return { mcpServers: [{ name: this.deps.name, transport: 'http', url: `${base}/mcp/${owner.token}?session=${encodeURIComponent(sessionId)}`, alwaysLoad: true }], runtimeCapabilityRoots: [] };
+    // Deferred by default: tool schemas are surfaced through tool_search
+    // instead of riding along in every model request.
+    return { mcpServers: [{ name: this.deps.name, transport: 'http', url: `${base}/mcp/${owner.token}?session=${encodeURIComponent(sessionId)}` }], runtimeCapabilityRoots: [] };
   }
   private send(response: ServerResponse, status: number, value?: unknown) {
     if (response.destroyed || response.writableEnded) return;

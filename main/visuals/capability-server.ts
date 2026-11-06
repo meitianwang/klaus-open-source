@@ -58,7 +58,8 @@ export class VisualCapabilityServer {
     const base=await this.start();
     if(this.closed||generation!==(this.generations.get(owner)??0)||!this.enabled())throw new Error('Visual capability was released while starting.');
     let token=this.tokens.get(owner);if(!token){token=randomBytes(32).toString('hex');this.tokens.set(owner,token);this.owners.set(token,owner);}
-    return {mcpServers:[{name:this.name,transport:'http',url:`${base}/mcp/${token}?session=${encodeURIComponent(owner)}`,alwaysLoad:true}],runtimeCapabilityRoots:[]};
+    // Deferred by default: schemas are surfaced via tool_search, not sent with every request.
+    return {mcpServers:[{name:this.name,transport:'http',url:`${base}/mcp/${token}?session=${encodeURIComponent(owner)}`}],runtimeCapabilityRoots:[]};
   }
   releaseSession(owner: string): void {this.generations.set(owner,(this.generations.get(owner)??0)+1);const token=this.tokens.get(owner);this.tokens.delete(owner);if(token){this.owners.delete(token);for(const [id,entry]of this.sessions)if(entry===token)this.sessions.delete(id);}}
   async shutdown(): Promise<void> {if(this.closed)return;this.closed=true;this.tokens.clear();this.owners.clear();this.sessions.clear();if(this.starting)await this.starting.catch(()=>{});if(this.server){this.server.closeAllConnections();await new Promise<void>(resolveClose=>this.server!.close(()=>resolveClose()));this.server=undefined;}}

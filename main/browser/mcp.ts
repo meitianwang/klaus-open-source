@@ -73,8 +73,10 @@ export class BrowserMcpServer {
     const base = await this.start();
     let token = this.tokens.get(rendererId);
     if (!token) { token = randomBytes(32).toString('hex'); this.tokens.set(rendererId, token); this.routes.set(token, rendererId); }
+    // Deferred by default: these tool schemas are surfaced through tool_search
+    // instead of riding along in every model request.
     return {
-      mcpServers: [{ name: 'klaus-browser', transport: 'http', url: `${base}/mcp/${token}?session=${encodeURIComponent(rendererId)}`, alwaysLoad: true }],
+      mcpServers: [{ name: 'klaus-browser', transport: 'http', url: `${base}/mcp/${token}?session=${encodeURIComponent(rendererId)}` }],
       runtimeCapabilityRoots: [{ id: 'klaus-browser', enabled: true, browser: { mcpServer: 'klaus-browser' } }],
     };
   }
