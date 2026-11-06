@@ -31,8 +31,6 @@ npm ci
 
 The launcher prepares the frontend, host, engine and native helpers, then opens a development window. The first native and engine builds take a while. The explicit profile keeps this checkout away from any installed copy.
 
-On macOS, the launcher opens the selected Electron application through LaunchServices so system privacy grants belong to that application. Grant permissions to the selected runtime app in System Settings, then quit and rerun the launcher. Restarting the host does not modify that app bundle; replacing the runtime or changing its signature may require authorization again. A private control channel preserves reload and graceful shutdown. Development console output is also saved under `dist/dev-launch-logs/`, and the launcher prints the current log directory.
-
 ## Configuration
 
 - **Editions.** Build identities (application id, product name, service address, data directory) are data in `contracts/desktop-editions.json`. Additional editions can be supplied at development or packaging time with `KLAUS_DESKTOP_EDITIONS_FILE` / `--editions-file`; a packaged app carries only its own definition.

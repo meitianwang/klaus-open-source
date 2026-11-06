@@ -2,11 +2,14 @@
  * Owner-scoped browser import jobs.
  *
  * The host must pass ownerId from its authenticated IPC context. It is never
- * read from a renderer request payload. A job owns one backend instance and one
- * AbortSignal. Discovery is only performed by the explicit discover entry point.
+ * read from a renderer request payload. A job owns one runtime target, one
+ * lazily-created managed decryptor and one AbortSignal. Discovery is only
+ * performed by the explicit discover/start entry points.
  */
 
 import { randomUUID } from 'node:crypto';
+import { rm } from 'node:fs/promises';
+import { join } from 'node:path';
 import {
   BROWSER_IMPORT_CATEGORIES,
   BrowserImportDecryptError,
@@ -17,6 +20,8 @@ import {
   type BrowserImportRequest,
   type BrowserImportResult,
   type BrowserImportSelection,
+  type BrowserImportTarget,
+  type BrowserSourceRoot,
 } from '../../contracts/browser-import';
 import {
   BrowserImportJobError,
@@ -25,8 +30,10 @@ import {
   type BrowserImportJobOptions,
   type BrowserImportJobSnapshot,
   type BrowserImportJobStage,
-  type BrowserProfileImportBackend,
+  type ManagedDecryptor,
 } from '../../contracts/browser-import-jobs';
+import { discoverBrowserProfiles } from './profile-discovery';
+import { importBrowserProfile } from './profile-import';
 
 interface JobRecord {
   jobId: string;
@@ -34,6 +41,7 @@ interface JobRecord {
   sourceId: string;
   profileId: string;
   request: BrowserImportRequest;
+  roots: BrowserSourceRoot[];
   controller: AbortController;
   snapshot: BrowserImportJobSnapshot;
   done: Promise<void>;
@@ -102,6 +110,31 @@ function copyRequest(input: BrowserImportRequest): BrowserImportRequest {
   };
 }
 
+function copyRoots(roots: BrowserImportJobOptions['roots']): BrowserSourceRoot[] {
+  let value: readonly BrowserSourceRoot[];
+  try {
+    value = typeof roots === 'function' ? roots() : roots;
+  } catch {
+    throw new BrowserImportJobError('roots_unavailable', 'The browser source roots are unavailable.');
+  }
+  if (!Array.isArray(value)) {
+    throw new BrowserImportJobError('roots_unavailable', 'The browser source roots are invalid.');
+  }
+  return value.map(root => {
+    if (!root || typeof root.id !== 'string' || !root.id
+      || typeof root.label !== 'string'
+      || typeof root.userDataDir !== 'string' || !root.userDataDir) {
+      throw new BrowserImportJobError('roots_unavailable', 'A browser source root is invalid.');
+    }
+    return {
+      id: root.id,
+      label: root.label,
+      userDataDir: root.userDataDir,
+      ...(root.family ? { family: root.family } : {}),
+    };
+  });
+}
+
 function errorCode(error: unknown, fallback: string): string {
   if (error instanceof BrowserImportJobError || error instanceof BrowserImportDecryptError) {
     return error.code;
@@ -153,30 +186,39 @@ function waitForAbort<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
   });
 }
 
-function isSafeInteger(value: unknown): value is number {
-  return typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= Number.MAX_SAFE_INTEGER;
+class LazyManagedDecryptor {
+  private instance: ManagedDecryptor | undefined;
+  private closed = false;
+  constructor(
+    private readonly factory: BrowserImportJobOptions['createDecryptor'],
+    private readonly source: BrowserSourceRoot,
+    private readonly signal: AbortSignal,
+  ) {}
+
+  async decrypt(input: Uint8Array, context: Parameters<ManagedDecryptor['decrypt']>[1]): Promise<string> {
+    if (this.closed) throw new BrowserImportDecryptError('decryptor_closed', 'The browser decryptor is closed.');
+    if (this.signal.aborted) throw new BrowserImportDecryptError('cancelled', 'The browser import was cancelled.');
+    if (!this.instance) this.instance = this.factory({ ...this.source }, this.signal);
+    return this.instance.decrypt(input, context);
+  }
+
+  async close(): Promise<void> {
+    this.closed = true;
+    if (this.instance) await this.instance.close();
+  }
 }
 
 export class BrowserProfileImportService {
   private readonly terminalLimit: number;
   private readonly jobs = new Map<string, JobRecord>();
   private activeJobId: string | undefined;
-  private disposed = false;
-  private disposal: Promise<void> | undefined;
   private readonly terminalByOwner = new Map<string, string[]>();
   private readonly destroyedOwners = new Set<string>();
   private readonly disposePromises = new Map<string, Promise<void>>();
-  private readonly discoveryControllers = new Map<string, Set<AbortController>>();
 
   constructor(private readonly options: BrowserImportJobOptions) {
     if (!options || typeof options.configRoot !== 'string' || !options.configRoot) {
       throw new BrowserImportJobError('invalid_config', 'A browser import config root is required.');
-    }
-    if (typeof options.importer !== 'function') {
-      throw new BrowserImportJobError('invalid_config', 'A browser import backend importer is required.');
-    }
-    if (typeof options.emit !== 'function') {
-      throw new BrowserImportJobError('invalid_config', 'A browser import emit callback is required.');
     }
     this.terminalLimit = Math.max(1, Math.min(100, Math.floor(options.terminalLimit ?? 10)));
   }
@@ -184,39 +226,8 @@ export class BrowserProfileImportService {
   /** Explicit UI-driven discovery. This is the only read-only discovery entry. */
   discover(ownerId: string, signal?: AbortSignal): Promise<BrowserImportDiscovery> {
     this.assertOwner(ownerId);
-    const controller = new AbortController();
-    const set = this.discoveryControllers.get(ownerId) ?? new Set();
-    set.add(controller);
-    this.discoveryControllers.set(ownerId, set);
-
-    let externalListener: (() => void) | undefined;
-    if (signal) {
-      externalListener = () => controller.abort();
-      if (signal.aborted) {
-        externalListener();
-      } else {
-        signal.addEventListener('abort', externalListener, { once: true });
-      }
-    }
-
-    const cleanup = (): void => {
-      if (externalListener && signal) signal.removeEventListener('abort', externalListener);
-      set.delete(controller);
-      if (set.size === 0) this.discoveryControllers.delete(ownerId);
-    };
-
-    return (async (): Promise<BrowserImportDiscovery> => {
-      try {
-        const backend = await waitForAbort(this.options.importer(controller.signal), controller.signal);
-        if (controller.signal.aborted) {
-          throw new BrowserImportJobError('cancelled', 'The browser import was cancelled.');
-        }
-        const result = await backend.discover(controller.signal);
-        return this.validateDiscoveryResult(result);
-      } finally {
-        cleanup();
-      }
-    })();
+    const roots = copyRoots(this.options.roots);
+    return discoverBrowserProfiles(roots, signal);
   }
 
   /**
@@ -226,6 +237,7 @@ export class BrowserProfileImportService {
   start(ownerId: string, request: BrowserImportRequest): BrowserImportJobHandle {
     this.assertOwner(ownerId);
     const copiedRequest = copyRequest(request);
+    const roots = copyRoots(this.options.roots);
     if (this.activeJobId) {
       throw new BrowserImportJobError('profile_busy', 'An import is already active for this browser target.');
     }
@@ -250,6 +262,7 @@ export class BrowserProfileImportService {
       sourceId: copiedRequest.sourceId,
       profileId: copiedRequest.profileId,
       request: copiedRequest,
+      roots,
       controller: new AbortController(),
       snapshot,
       done,
@@ -291,11 +304,6 @@ export class BrowserProfileImportService {
     if (existing) return existing;
     this.destroyedOwners.add(ownerId);
     const promise = (async () => {
-      const controllers = this.discoveryControllers.get(ownerId);
-      if (controllers) {
-        for (const controller of controllers) controller.abort();
-        this.discoveryControllers.delete(ownerId);
-      }
       const owned = [...this.jobs.values()].filter(job => job.ownerId === ownerId);
       for (const job of owned) {
         if (!job.terminal && !job.controller.signal.aborted) job.controller.abort();
@@ -311,18 +319,7 @@ export class BrowserProfileImportService {
     await promise;
   }
 
-  /** Drain active imports before the shared Profile is closed. */
-  disposeAll(): Promise<void> {
-    if (this.disposal) return this.disposal;
-    this.disposed = true;
-    const owners = new Set([...this.jobs.values()].map(job => job.ownerId));
-    for (const owner of this.discoveryControllers.keys()) owners.add(owner);
-    this.disposal = Promise.all([...owners].map(owner => this.disposeOwner(owner))).then(() => undefined);
-    return this.disposal;
-  }
-
   private assertOwner(ownerId: string): void {
-    if (this.disposed) throw new BrowserImportJobError('owner_destroyed', 'The browser import service has closed.');
     if (typeof ownerId !== 'string' || !ownerId.trim()) {
       throw new BrowserImportJobError('invalid_owner', 'An owner identifier is required.');
     }
@@ -345,34 +342,77 @@ export class BrowserProfileImportService {
 
   private async run(job: JobRecord): Promise<void> {
     let result: BrowserImportResult | undefined;
+    let lazy: LazyManagedDecryptor | undefined;
+    let closeError: unknown;
+    let jobRoot: string | undefined;
+    let phase: 'target' | 'import' = 'target';
     try {
       if (job.controller.signal.aborted) throw new BrowserImportJobError('cancelled', 'The browser import was cancelled.');
       this.setStage(job, 'preparing');
-      const backend = await waitForAbort(
-        this.options.importer(job.controller.signal),
+      const source = job.roots.find(root => root.id === job.sourceId);
+      if (!source) {
+        throw new BrowserImportJobError('source_unavailable', 'The selected browser source is not available.');
+      }
+      const target = await waitForAbort(
+        Promise.resolve().then(() => this.options.target(copyRequest(job.request), job.controller.signal)),
         job.controller.signal,
       );
       if (job.controller.signal.aborted) throw new BrowserImportJobError('cancelled', 'The browser import was cancelled.');
-      if (typeof backend.discover !== 'function' || typeof backend.importProfile !== 'function') {
-        throw new BrowserImportJobError('invalid_backend', 'The browser import backend is missing required methods.');
-      }
+      this.assertTargetCapabilities(job.request, target);
 
       this.setStage(job, 'importing');
-      const rawResult = await backend.importProfile(job.jobId, job.request, job.controller.signal);
-      result = this.validateImportResult(job.request, rawResult);
+      phase = 'import';
+      lazy = new LazyManagedDecryptor(this.options.createDecryptor, { ...source }, job.controller.signal);
+      jobRoot = join(this.options.configRoot, 'browser-import', 'jobs', job.jobId);
+      result = await importBrowserProfile(job.request, {
+        roots: job.roots.map(root => ({ ...root })),
+        decryptor: lazy,
+        target,
+        extensionRoot: join(this.options.configRoot, 'browser-import', 'extensions'),
+        tempRoot: join(jobRoot, 'tmp'),
+        signal: job.controller.signal,
+      });
       this.setStage(job, 'closing');
     } catch (error) {
       if (job.controller.signal.aborted || errorCode(error, '') === 'cancelled') {
         result = failureResult(job.request, 'cancelled', 'The browser import was cancelled.', emptyCounts(), true);
       } else {
-        const code = errorCode(error, 'import_failed');
+        const code = errorCode(error, phase === 'target' ? 'target_unavailable' : 'import_failed');
         const message = error instanceof BrowserImportJobError
           ? error.message
-          : 'The browser import did not complete.';
+          : phase === 'target'
+            ? 'The browser target could not be initialized.'
+            : 'The browser import did not complete.';
         result = failureResult(job.request, code, message);
+      }
+    } finally {
+      if (lazy) {
+        try {
+          await lazy.close();
+        } catch (error) {
+          closeError = error;
+        }
+      }
+      if (jobRoot) {
+        try {
+          await rm(jobRoot, { recursive: true, force: true });
+        } catch {
+          /* Best-effort cleanup of this job's empty scratch tree. */
+        }
       }
     }
 
+    if (closeError) {
+      const code = errorCode(closeError, 'decryptor_close_failed');
+      result = {
+        ...(result ?? failureResult(job.request, code, 'The browser decryptor could not be closed.')),
+        ok: false,
+        errors: [
+          ...((result ?? failureResult(job.request, code, 'The browser decryptor could not be closed.')).errors),
+          { category: 'profile', code, message: 'The browser decryptor could not be closed.' },
+        ],
+      };
+    }
     if (job.controller.signal.aborted && result) {
       result.cancelled = true;
       result.ok = false;
@@ -383,111 +423,19 @@ export class BrowserProfileImportService {
     this.finish(job, result ?? failureResult(job.request, 'import_failed', 'The browser import did not complete.'));
   }
 
-  private validateImportResult(
-    request: BrowserImportRequest,
-    raw: unknown,
-  ): BrowserImportResult {
-    if (!raw || typeof raw !== 'object') {
-      throw new BrowserImportJobError('invalid_result', 'The backend returned an invalid import result.');
-    }
-    const result = raw as Record<string, unknown>;
-    if (typeof result.ok !== 'boolean' || typeof result.cancelled !== 'boolean') {
-      throw new BrowserImportJobError('invalid_result', 'The backend result is missing completion flags.');
-    }
-    if (result.sourceId !== request.sourceId || result.profileId !== request.profileId) {
-      throw new BrowserImportJobError('invalid_result', 'The backend result identity does not match the request.');
-    }
-    if (!result.counts || typeof result.counts !== 'object') {
-      throw new BrowserImportJobError('invalid_result', 'The backend result is missing counts.');
-    }
-    const rawCounts = result.counts as Record<string, unknown>;
-    const counts = emptyCounts();
-    for (const category of BROWSER_IMPORT_CATEGORIES) {
-      if (!isSafeInteger(rawCounts[category])) {
-        throw new BrowserImportJobError('invalid_result', `The backend returned an invalid ${category} count.`);
-      }
-      counts[category] = rawCounts[category];
-    }
+  private assertTargetCapabilities(request: BrowserImportRequest, target: BrowserImportTarget): void {
     const selection = requestSelection(request);
-    for (const category of BROWSER_IMPORT_CATEGORIES) {
-      if (!selection[category] && counts[category] !== 0) {
-        throw new BrowserImportJobError('invalid_result', `The backend reported ${category} writes that were not requested.`);
-      }
+    const missing: string[] = [];
+    if (selection.cookies && typeof target.applyCookies !== 'function') missing.push('cookies');
+    if (selection.passwords && typeof target.applyPasswords !== 'function') missing.push('passwords');
+    if (selection.history && typeof target.applyHistory !== 'function') missing.push('history');
+    if (selection.extensions && typeof target.installExtension !== 'function') missing.push('extensions');
+    if (missing.length > 0) {
+      throw new BrowserImportJobError(
+        'target_capability_unavailable',
+        `The browser target cannot apply: ${missing.join(', ')}.`,
+      );
     }
-    const rawErrors = Array.isArray(result.errors) ? result.errors : [];
-    const errors: BrowserImportIssue[] = [];
-    for (const entry of rawErrors) {
-      if (!entry || typeof entry !== 'object') {
-        throw new BrowserImportJobError('invalid_result', 'The backend result contains an invalid error entry.');
-      }
-      const issue = entry as Record<string, unknown>;
-      if (!BROWSER_IMPORT_CATEGORIES.includes(issue.category as never) && issue.category !== 'profile' && issue.category !== 'discovery') {
-        throw new BrowserImportJobError('invalid_result', 'The backend result contains an invalid error category.');
-      }
-      if (typeof issue.code !== 'string' || !issue.code) {
-        throw new BrowserImportJobError('invalid_result', 'The backend result contains an invalid error code.');
-      }
-      if (typeof issue.message !== 'string') {
-        throw new BrowserImportJobError('invalid_result', 'The backend result contains an invalid error message.');
-      }
-      errors.push({
-        category: issue.category as BrowserImportIssue['category'],
-        code: issue.code,
-        message: issue.message,
-        ...(isSafeInteger(issue.count) ? { count: issue.count } : {}),
-      });
-    }
-    return {
-      ok: result.ok,
-      cancelled: result.cancelled,
-      sourceId: request.sourceId,
-      profileId: request.profileId,
-      counts,
-      errors,
-    };
-  }
-
-  private validateDiscoveryResult(raw: unknown): BrowserImportDiscovery {
-    if (!raw || typeof raw !== 'object') {
-      throw new BrowserImportJobError('invalid_discovery', 'The backend returned an invalid discovery result.');
-    }
-    const result = raw as Record<string, unknown>;
-    if (!Array.isArray(result.profiles) || !Array.isArray(result.errors)) {
-      throw new BrowserImportJobError('invalid_discovery', 'The backend discovery result is missing required arrays.');
-    }
-    const profiles = result.profiles.map((entry): BrowserImportDiscovery['profiles'][number] => {
-      if (!entry || typeof entry !== 'object') {
-        throw new BrowserImportJobError('invalid_discovery', 'The backend discovery result contains an invalid profile entry.');
-      }
-      const profile = entry as Record<string, unknown>;
-      const sourceId = typeof profile.sourceId === 'string' ? profile.sourceId : '';
-      const sourceLabel = typeof profile.sourceLabel === 'string' ? profile.sourceLabel : '';
-      const profileId = typeof profile.profileId === 'string' ? profile.profileId : '';
-      const displayName = typeof profile.displayName === 'string' ? profile.displayName : '';
-      return {
-        sourceId,
-        sourceLabel,
-        profileId,
-        displayName,
-        lastUsed: profile.lastUsed === true,
-        cookies: profile.cookies === true,
-        passwords: profile.passwords === true,
-        history: profile.history === true,
-        extensions: profile.extensions === true,
-      };
-    });
-    const errors = result.errors.map((entry): BrowserImportDiscovery['errors'][number] => {
-      if (!entry || typeof entry !== 'object') {
-        throw new BrowserImportJobError('invalid_discovery', 'The backend discovery result contains an invalid error entry.');
-      }
-      const issue = entry as Record<string, unknown>;
-      return {
-        sourceId: issue.sourceId === null || typeof issue.sourceId === 'string' ? issue.sourceId : null,
-        code: typeof issue.code === 'string' ? issue.code : 'invalid_discovery',
-        message: typeof issue.message === 'string' ? issue.message : 'The backend discovery result contains an invalid error entry.',
-      };
-    });
-    return { profiles, errors };
   }
 
   private setStage(job: JobRecord, stage: BrowserImportJobStage): void {

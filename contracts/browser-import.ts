@@ -1,9 +1,9 @@
 /**
  * Product-facing shapes for importing local data from a Chromium-family profile.
  *
- * Discovery enumerates profile directories, checks supported data files, and
- * uses the optional Local State index for display metadata. Import is driven by
- * an explicit user action; no password is read during discovery. The host decides which categories to
+ * Discovery reads only the browser's Local State index and checks which
+ * supported data files exist. Import is driven by an explicit user action; no
+ * password is read during discovery, and the host decides which categories to
  * pass to the target.
  */
 

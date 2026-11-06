@@ -91,49 +91,15 @@ export class BrowserPreferences {
       if (isFailure(value)) throw new IpcHandlerError(value.code, value.message);
       return ['in-app', 'chrome', 'system-default'].includes(String(value)) ? String(value) : key === WEB_URL_TARGET_KEY ? 'system-default' : 'in-app';
     };
-    return { ...object(this.profile().browser), sitePermissions: [], enabled: this.browserEnabled,
+    return { ...object(this.profile().browser), enabled: this.browserEnabled,
       webUrlTarget: target(WEB_URL_TARGET_KEY), localUrlTarget: target(LOCAL_URL_TARGET_KEY) };
   }
   access(url: string, resource: BrowserResource): BrowserAccess {
     return browserEffectiveAccess(object(this.profile().browser) as unknown as BrowserSettingsSnapshot, url, resource);
   }
-  migrateSitePermissions(apply: (row: { origin: string; permission: string; setting: 'granted' | 'denied' }) => boolean): { applied: number; remaining: number } {
-    return withSettingsTransaction(this.deps.configRoot, db => {
-      const saved = db.prepare('SELECT value FROM settings WHERE key=?').get(KEY) as { value?: string } | undefined;
-      if (!saved?.value) return { applied: 0, remaining: 0 };
-      let rawProfile: JsonObject;
-      try { rawProfile = object(JSON.parse(saved.value)); } catch { return { applied: 0, remaining: 0 }; }
-      const rows = object(container(saved.value).browser).sitePermissions as JsonObject[];
-      if (!rows.length) return { applied: 0, remaining: 0 };
-
-      const key = (row: { origin: string; permission: string; setting: string }) =>
-        `${row.origin}\u0000${row.permission}\u0000${row.setting}`;
-      const applied = new Set<string>();
-      let appliedCount = 0;
-      for (const row of rows) {
-        const candidate = { origin: row.origin as string, permission: row.permission as string,
-          setting: row.setting as 'granted' | 'denied' };
-        let accepted = false;
-        try { accepted = apply(candidate) === true; } catch { accepted = false; }
-        if (accepted) {
-          appliedCount++;
-          applied.add(key(candidate));
-        }
-      }
-      if (appliedCount > 0) {
-        const browser = object(rawProfile.browser);
-        const legacyRows = Array.isArray(browser.sitePermissions) ? browser.sitePermissions : [];
-        browser.sitePermissions = legacyRows.filter(item => {
-          const entry = object(item), origin = typeof entry.origin === 'string' ? browserOrigin(entry.origin) : undefined;
-          if (!origin || typeof entry.permission !== 'string' || !['granted', 'denied'].includes(String(entry.setting))) return true;
-          return !applied.has(key({ origin, permission: entry.permission, setting: String(entry.setting) }));
-        });
-        rawProfile.browser = browser;
-        db.prepare('INSERT INTO settings (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value')
-          .run(KEY, JSON.stringify(rawProfile));
-      }
-      return { applied: appliedCount, remaining: rows.length - appliedCount };
-    });
+  sitePermission(origin: string, permission: string): 'granted' | 'denied' | undefined {
+    const rows = object(this.profile().browser).sitePermissions as JsonObject[];
+    return rows.find(row => row.origin === origin && row.permission === permission)?.setting as 'granted' | 'denied' | undefined;
   }
 
   async initialize(): Promise<void> {
@@ -239,7 +205,11 @@ export class BrowserPreferences {
         if (typeof payload.pattern !== 'string') throw new IpcHandlerError('BAD_REQUEST', 'A website pattern is required');
         browser.originRules = (browser.originRules as JsonObject[]).filter(rule => rule.pattern !== payload.pattern);
       } else if (action === 'set-site-permission') {
-        throw new IpcHandlerError('SITE_PERMISSION_RETIRED', 'set-site-permission is retired; native site permissions are authoritative');
+        const origin = typeof payload.origin === 'string' ? browserOrigin(payload.origin) : undefined;
+        const accepted = ['geolocation', 'notifications', 'audioCapture', 'videoCapture', 'clipboard-read', 'fullscreen', 'screen-wake-lock'];
+        if (!origin || !accepted.includes(String(payload.permission)) || !['granted', 'denied', 'prompt'].includes(String(payload.setting))) throw new IpcHandlerError('BAD_REQUEST', 'Invalid site permission');
+        browser.sitePermissions = [...(browser.sitePermissions as JsonObject[]).filter(row => row.origin !== origin || row.permission !== payload.permission),
+          ...(payload.setting === 'prompt' ? [] : [{ origin, permission: payload.permission!, setting: payload.setting! }])];
       }
       else if (action === 'add-origin' || action === 'remove-origin') {
         const key = payload.kind === 'denied' ? 'deniedOrigins' : 'allowedOrigins';

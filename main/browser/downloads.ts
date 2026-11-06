@@ -199,51 +199,6 @@ export class DownloadStore {
     return { ...entry.value };
   }
 
-  /**
-   * Reopen one native GUID for an explicit resume attempt. This is the only
-   * path that may turn a settled native failure back into a live generation;
-   * ordinary late snapshots still hit the settled guard in applyNative().
-   */
-  reopenNative(id: string, patch: BrowserObject): BrowserObject | undefined {
-    const entry = this.entries.get(id);
-    if (!entry) return undefined;
-    if (!entry.settled) return { ...entry.value };
-    const state = String(entry.value.state ?? entry.value.status ?? '');
-    if (state !== 'failed') return { ...entry.value };
-    const base: BrowserObject = { ...entry.value };
-    delete base.error;
-    delete base.finishedAt;
-    const controller = new AbortController();
-    let resolveResult!: (value: BrowserObject) => void;
-    let reject!: (error: Error) => void;
-    const promise = new Promise<BrowserObject>((resolve, fail) => { resolveResult = resolve; reject = fail; });
-    void promise.catch(() => {});
-    const next: DownloadEntry = {
-      id,
-      owner: entry.owner,
-      value: { ...base, ...patch, id, status: 'in_progress', state: 'in_progress' },
-      controller,
-      settled: false,
-      promise,
-      finish: value => {
-        if (next.settled) return;
-        next.settled = true;
-        if (value instanceof Error) {
-          next.value = { ...next.value, status: controller.signal.aborted ? 'canceled' : 'failed', error: message(value), finishedAt: Date.now() };
-          reject(value);
-        } else {
-          next.value = { ...next.value, ...value, id, status: 'completed', state: 'completed', finishedAt: Date.now() };
-          resolveResult({ ...next.value });
-        }
-        this.notify('changed', next);
-      },
-    };
-    controller.signal.addEventListener('abort', () => next.finish(controller.signal.reason instanceof Error ? controller.signal.reason : new BrowserError('download_canceled', 'The download was canceled.')), { once: true });
-    this.entries.set(id, next);
-    this.notify('changed', next);
-    return { ...next.value };
-  }
-
   update(id: string, patch: BrowserObject): BrowserObject | undefined {
     const entry = this.entries.get(id);
     if (!entry) return undefined;

@@ -29,7 +29,7 @@ void (async () => {
     await app.whenReady();
     for (const key of ['global_shortcut', 'quick_input_shortcut']) kvSet(key, 'off', root);
     writeFileSync(join(root!, 'klaus-guest-mode'), '1', { mode: 0o600 });
-    runtime = await createDesktopRuntime(app, { show: true, tray: false, externalImportHome: root,
+    runtime = await createDesktopRuntime(app, { show: false, tray: false, externalImportHome: root,
       engineFixtureBinary: process.env.KLAUS_CHANNEL_AUDIT_ENGINE_BINARY });
     const window = runtime.window;
     await waitFor(() => window.webContents.executeJavaScript(`(() => {
@@ -52,16 +52,8 @@ void (async () => {
     assert.deepEqual(profileActivity, { days: [], totalTokens: 0, peakDailyTokens: 0, longestTaskMs: 0, longestStreakDays: 0, currentStreakDays: 0 });
     await window.webContents.executeJavaScript('document.getElementById("sidebar-profile").click()');
     await waitFor(() => window.webContents.executeJavaScript(`Boolean(document.querySelector('#settings-view.active #settings-content dl[aria-busy="false"]') && document.querySelectorAll('#settings-content dd').length === 5 && document.querySelector('#settings-content button:not(:disabled)'))`), 10_000, 'the sidebar settings profile entry renders real engine measurements');
-    await window.webContents.executeJavaScript('window.__auditFirstProfileButton = document.querySelector("#settings-content > div > div:first-child > button:not(:disabled)"); window.__auditFirstProfileButton.click()');
-    await waitFor(() => window.webContents.executeJavaScript(`(() => {
-      if (document.querySelector('[role="dialog"] input[name="displayName"]')) return true;
-      const button = document.querySelector('#settings-content > div > div:first-child > button:not(:disabled)');
-      if (button && button !== window.__auditFirstProfileButton) {
-        window.__auditFirstProfileButton = button;
-        button.click();
-      }
-      return false;
-    })()`), 5000, 'the profile editor opens from the live page');
+    await window.webContents.executeJavaScript('document.querySelector("#settings-content > div > div:first-child > button:not(:disabled)").click()');
+    await waitFor(() => window.webContents.executeJavaScript('Boolean(document.querySelector(\'[role="dialog"] input[name="displayName"]\'))'), 5000, 'the profile editor opens from the live page');
     await window.webContents.executeJavaScript('document.dispatchEvent(new KeyboardEvent("keydown", {key:"Escape",bubbles:true}))');
     await waitFor(() => window.webContents.executeJavaScript('!document.querySelector(\'[role="dialog"] input[name="displayName"]\')'), 5000, 'the profile editor closes with Escape');
     await window.webContents.executeJavaScript('window.openSettings("profile")');

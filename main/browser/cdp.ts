@@ -18,7 +18,6 @@ function releaseLease(lease: PageActivityLease): Promise<void> {
 export class PageDebugger {
   private readonly transport: PageTransport;
   private ready: Promise<void> | undefined;
-  private navigationReady: Promise<void> | undefined;
   private disposed = false;
   private activityUsers = 0;
   private activityGeneration = 0;
@@ -46,7 +45,6 @@ export class PageDebugger {
 
   private readonly onDetach = (): void => {
     this.ready = undefined;
-    this.navigationReady = undefined;
     this.frames.clear();
   };
 
@@ -124,7 +122,12 @@ export class PageDebugger {
     if (this.disposed || this.transport.isDestroyed()) throw new BrowserError('stale_tab', 'The browser page is closed.');
     if (this.ready) return this.ready;
     const starting = (async () => {
-      await this.prepareNavigation();
+      const channel = this.transport.debugger;
+      if (!channel.isAttached()) channel.attach('1.3');
+      const info = object(await this.send('Target.getTargetInfo'));
+      this.targetId = String(object(info.targetInfo).targetId ?? '');
+      if (!this.targetId) throw new BrowserError('host_error', 'The page did not return its CDP target id.');
+      await this.send('Page.enable');
       await this.send('Runtime.enable');
       await this.send('Log.enable');
       await this.send('Network.enable', { maxTotalBufferSize: 8 * 1024 * 1024, maxResourceBufferSize: 256 * 1024, maxPostDataSize: 16 * 1024 });
@@ -132,30 +135,6 @@ export class PageDebugger {
     })();
     this.ready = starting;
     try { await starting; } catch (error) { if (this.ready === starting) this.ready = undefined; throw error; }
-  }
-
-  /** Browser-side setup also works before an opener popup initializes its renderer. */
-  async prepareNavigation(): Promise<void> {
-    if (this.disposed || this.transport.isDestroyed()) throw new BrowserError('stale_tab', 'The browser page is closed.');
-    if (this.navigationReady) return this.navigationReady;
-    const starting = (async () => {
-      const channel = this.transport.debugger;
-      if (!channel.isAttached()) channel.attach('1.3');
-      const info = object(await this.send('Target.getTargetInfo'));
-      this.targetId = String(object(info.targetInfo).targetId ?? '');
-      if (!this.targetId) throw new BrowserError('host_error', 'The page did not return its CDP target id.');
-      await this.send('Page.enable');
-    })();
-    this.navigationReady = starting;
-    try { await starting; } catch (error) { if (this.navigationReady === starting) this.navigationReady = undefined; throw error; }
-  }
-
-  /** Only the navigation gate uses this before full renderer initialization. */
-  async navigationCommand(method: string, params: BrowserObject = {}, frameTarget?: string): Promise<BrowserObject> {
-    await this.prepareNavigation();
-    const sessionId = frameTarget && frameTarget !== this.targetId ? this.frames.get(frameTarget) : undefined;
-    if (frameTarget && frameTarget !== this.targetId && !sessionId) throw new BrowserError('stale_target', 'The iframe is not attached to this page.');
-    return this.send(method, params, sessionId);
   }
 
   private async send(method: string, params: BrowserObject = {}, sessionId?: string): Promise<BrowserObject> {
@@ -172,8 +151,6 @@ export class PageDebugger {
       throw new BrowserError('cdp_error', `${method}: ${message(error)}`);
     } finally { clearTimeout(timer); }
   }
-
-  ownedFrameTargets(): string[] { return [...this.frames.keys()]; }
 
   async command(method: string, params: BrowserObject = {}, frameTarget?: string): Promise<BrowserObject> {
     await this.initialize();

@@ -1,7 +1,6 @@
 import { extractFile, listPackage, statFile } from '@electron/asar';
 import { existsSync, lstatSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, normalize, posix, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
 import ts from 'typescript';
 import plist from 'plist';

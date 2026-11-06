@@ -1,6 +1,5 @@
-import { launchDevelopmentApplication } from './dev-application.mjs';
+import { spawnElectronGui } from './electron-test-preflight.cjs';
 import { devLaunchEnvironment, describeEarlyExit, ensureProfileDirectory, resolveDevProfile } from './dev-profile.mjs';
-import { describeElectronRuntime, productionElectronRuntimeMode, resolveProductionElectronRuntime } from './electron-runtime-resolver.mjs';
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
@@ -38,10 +37,7 @@ alongside the installed Klaus application.
 
 KLAUS_DESKTOP_EDITION selects the edition (default domestic). Editions beyond the
 public ones are read from the absolute path in KLAUS_DESKTOP_EDITIONS_FILE.
-Development defaults to the native runtime. Inject KLAUS_ELECTRON_RUNTIME_DIR,
-KLAUS_ELECTRON_RUNTIME_RECEIPT and KLAUS_ELECTRON_RUNTIME_MANIFEST, or explicitly
-set KLAUS_ELECTRON_RUNTIME_MODE=stock to use the pinned stock Electron package.
-Native selection never falls back to stock.
+
 Ctrl+C requests normal app shutdown, including engine and native cleanup.`);
   process.exit(0);
 }
@@ -56,29 +52,19 @@ function run(args, cwd = appDirectory) {
 }
 
 const require = createRequire(import.meta.url);
-const runtimeMode = productionElectronRuntimeMode({ env: process.env });
-const needsStockElectron = runtimeMode === 'stock';
-if (!existsSync(join(appDirectory, 'node_modules/vite/package.json')) || (needsStockElectron && !existsSync(join(appDirectory, 'node_modules/electron/package.json')))) {
+if (!existsSync(join(appDirectory, 'node_modules/electron/package.json')) || !existsSync(join(appDirectory, 'node_modules/vite/package.json'))) {
   if (options.has('--no-install')) throw new Error('Install desktop dependencies with npm ci in the desktop directory.');
   const npm = process.env.npm_execpath;
   if (!npm) throw new Error('Start through ./dev.sh, dev.bat, or npm run dev to install dependencies.');
   run([npm, 'ci']);
 }
 // npm may leave an Electron package without its downloaded runtime when install scripts were disabled.
-if (needsStockElectron) {
-  try { require('electron'); }
-  catch (error) {
-    if (options.has('--no-install')) throw error;
-    run([require.resolve('electron/install.js')]);
-  }
+try { require('electron'); }
+catch (error) {
+  if (options.has('--no-install')) throw error;
+  run([require.resolve('electron/install.js')]);
 }
-const runtime = await resolveProductionElectronRuntime({
-  appDirectory,
-  env: process.env,
-  platform: process.platform,
-  arch: process.arch,
-});
-console.log(`[dev] Electron runtime: ${describeElectronRuntime(runtime)}`);
+
 run([join(repo, 'engine/scripts/prepare-rust-release.mjs'), '--dev', ...(options.has('--reuse-engine') ? ['--verify-only'] : [])]);
 const { requireTarget, validateNative, validateSpeech, validateRecording, validatePip, validateComputerUse } = await import('../packaging/resources.mjs');
 requireTarget(process.platform, process.arch);
@@ -124,15 +110,12 @@ if (plan.isolated) {
   else console.log('[dev] this profile has no account yet: sign in once here and it is remembered.');
 }
 const env = devLaunchEnvironment({ base: process.env, plan });
-const child = await launchDevelopmentApplication({ executable: runtime.executable, appDirectory, env, stdio: ['inherit', 'inherit', 'inherit', 'ipc'] });
-child.stdout?.pipe(process.stdout, { end: false });
-child.stderr?.pipe(process.stderr, { end: false });
-if (child.logDirectory) console.log(`[dev] application logs: ${child.logDirectory}`);
+const child = spawnElectronGui(require('electron'), ['.'], { cwd: appDirectory, env, stdio: ['inherit', 'inherit', 'inherit', 'ipc'] });
 let stopping = false, ready = false, windowNeverOpened = false, watcher, watcherDone = Promise.resolve(), watchFailed = false;
 const requestQuit = () => {
   if (stopping) return;
   stopping = true;
-  child.send({ type: 'klaus:dev:quit' }, () => {});
+  if (child.connected) child.send({ type: 'klaus:dev:quit' }, () => {});
 };
 process.on('SIGINT', requestQuit);
 process.on('SIGTERM', requestQuit);

@@ -1,10 +1,10 @@
-import { BROWSER_IMPORT_CATEGORIES, BROWSER_IMPORT_DEFAULT_SELECTION, type BrowserImportCategory, type BrowserImportCounts, type BrowserImportIssue, type BrowserImportSelection } from '../../../../contracts/browser-import'
+import { BROWSER_IMPORT_CATEGORIES, type BrowserImportCategory, type BrowserImportCounts, type BrowserImportIssue, type BrowserImportSelection } from '../../../../contracts/browser-import'
 import type { BrowserImportJobSnapshot } from '../../../../contracts/browser-import-jobs'
 
 export type ImportSelection = Required<BrowserImportSelection>
 export type ImportSummary = { selection: ImportSelection; counts: BrowserImportCounts; errors: BrowserImportIssue[] }
 
-export const IMPORT_UI_DEFAULTS: Readonly<ImportSelection> = Object.freeze({ ...BROWSER_IMPORT_DEFAULT_SELECTION })
+export const IMPORT_UI_DEFAULTS: Readonly<ImportSelection> = Object.freeze({ cookies: true, passwords: true, history: true, extensions: false })
 export const IMPORT_MINIMUM_DURATION_MS = 750
 export const IMPORT_ROW_INTERVAL_MS = 500
 

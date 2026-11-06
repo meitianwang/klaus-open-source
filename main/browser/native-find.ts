@@ -36,8 +36,6 @@ export interface NativeFindPageOptions {
   evaluate?(expression: string): Promise<unknown>;
 }
 
-const activeFinds = new WeakMap<NativeFindHandle, object>();
-
 function object(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === 'object' ? value as Record<string, unknown> : null;
 }
@@ -65,23 +63,7 @@ export function nativeFindPage(handle: NativeFindHandle, options: NativeFindPage
   return {
     identity: handle,
     isDestroyed: () => handle.isDestroyed(),
-    find: async (query, findOptions, signal) => {
-      signal?.throwIfAborted();
-      const request = {};
-      activeFinds.set(handle, request);
-      const aborted = (): void => {
-        if (activeFinds.get(handle) !== request) return;
-        activeFinds.delete(handle);
-        if (!handle.isDestroyed()) handle.stopFind(false);
-      };
-      signal?.addEventListener('abort', aborted, { once: true });
-      try {
-        return await handle.find(query, findOptions);
-      } finally {
-        signal?.removeEventListener('abort', aborted);
-        if (activeFinds.get(handle) === request) activeFinds.delete(handle);
-      }
-    },
+    find: (query, findOptions) => handle.find(query, findOptions),
     stopFind: clear => handle.stopFind(clear),
     readSelection: async () => {
       const selected = await evaluate(NATIVE_CONTENT_FIND_SELECTION);

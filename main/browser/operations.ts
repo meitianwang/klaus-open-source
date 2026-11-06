@@ -177,8 +177,8 @@ export class BrowserOperations {
       } else {
         if (reference.browserId !== sessionId) throw new BrowserError('refused_by_policy', 'The referenced built-in browser belongs to another conversation.');
         const page = this.manager.page(sessionId, Number(reference.tabId));
-        const url = page.native.getURL() || 'about:blank';
-        if (url !== reference.url || (page.native.getTitle() || url) !== reference.title) {
+        const url = page.view.webContents.getURL() || 'about:blank';
+        if (url !== reference.url || (page.view.webContents.getTitle() || url) !== reference.title) {
           throw new BrowserError('stale_tab', 'The referenced built-in tab changed since it was mentioned. Select it again.');
         }
         this.manager.assertNavigation(url);
@@ -246,10 +246,9 @@ export class BrowserOperations {
       const value = await readUrls({
         create: async () => { const page = await this.manager.createTab(sessionId, 'about:blank', false, signal); return { id: page.handle, cdp: page.cdp }; },
         navigate: async (page, url, fields, signal) => {
-          const owned = this.manager.page(sessionId, page.id);
-          this.manager.bindOperationPage(owned, 'navigate');
+          this.manager.page(sessionId, page.id);
           await this.manager.authorize(sessionId, url, 'browsing', signal);
-          await this.manager.navigate(owned, url, fields, signal);
+          await navigateForRead(page.cdp, this.manager.assertNavigation(url), fields, signal);
         },
         close: async page => { this.manager.closeTab(sessionId, page.id); },
         tabs: async () => this.manager.listPages(sessionId).map(page => page.handle), selected,
@@ -263,20 +262,19 @@ export class BrowserOperations {
     if (kind === 'dialog') {
       const page = this.manager.page(sessionId, handle);
       const action = fields.action ?? 'get';
-      if (action === 'get') return this.answer(sessionId, { value: json(this.manager.dialogs.state(page)) }, page);
+      if (action === 'get') return this.answer(sessionId, { value: this.manager.dialogs.state(page) }, page);
       if (!['accept', 'dismiss'].includes(String(action))) throw new BrowserError('invalid_request', 'Dialog action must be get, accept or dismiss.');
-      await this.manager.dialogs.answer(page, action === 'accept', typeof fields.promptText === 'string' ? fields.promptText : '', typeof fields.dialogId === 'string' ? fields.dialogId : undefined);
+      this.manager.dialogs.answer(page, action === 'accept', typeof fields.promptText === 'string' ? fields.promptText : '', typeof fields.dialogId === 'string' ? fields.dialogId : undefined);
       return this.answer(sessionId, { value: { accepted: action === 'accept' } }, page);
     }
 
     const page = handle === undefined ? await this.manager.ensurePage(sessionId, signal) : this.manager.page(sessionId, handle);
     await page.ready;
-    this.manager.bindOperationPage(page, kind);
-    await this.manager.authorize(sessionId, kind === 'navigate' ? String(fields.url) : page.native.getURL(), 'browsing', signal);
+    await this.manager.authorize(sessionId, kind === 'navigate' ? String(fields.url) : page.view.webContents.getURL(), 'browsing', signal);
     if (kind === 'download' && !['list', 'wait', 'cancel'].includes(String(fields.action)) && !fields.waitOnly)
-      await this.manager.authorize(sessionId, page.native.getURL(), 'downloads', signal);
-    if (kind === 'webmcp') await this.manager.authorize(sessionId, page.native.getURL(), 'siteTools', signal);
-    if (kind === 'cdp') await this.manager.authorize(sessionId, page.native.getURL(), 'debug', signal);
+      await this.manager.authorize(sessionId, page.view.webContents.getURL(), 'downloads', signal);
+    if (kind === 'webmcp') await this.manager.authorize(sessionId, page.view.webContents.getURL(), 'siteTools', signal);
+    if (kind === 'cdp') await this.manager.authorize(sessionId, page.view.webContents.getURL(), 'debug', signal);
     const cdp = page.cdp;
     const activePageBefore = this.manager.state(sessionId).tabId;
     const frame = typeof fields.frameTargetId === 'string' ? fields.frameTargetId : typeof target.frameTargetId === 'string' ? target.frameTargetId : undefined;
@@ -284,16 +282,13 @@ export class BrowserOperations {
     const perform = async (): Promise<BrowserObject> => {
       const { value, screenshot, typed } = await performPageOperation({
         cdp, frame, signal,
-        authorizeUpload: async (url, signal) => {
-          await this.manager.authorize(sessionId, url, 'uploads', signal);
-          await this.manager.beginUpload(page, signal);
-        },
+        authorizeUpload: (url, signal) => this.manager.authorize(sessionId, url, 'uploads', signal),
         navigate: (url, options) => this.manager.navigate(page, url, options, signal),
         history: action => this.manager.historyAction(page, action, signal),
         download: (fields, timeout, transport) => this.manager.download(page, fields, timeout, transport, signal),
         artifactDirectory: join(this.manager.configRoot, 'artifacts'),
         permission: fields => this.manager.setPermission(page, fields),
-        nativeViewport: async () => { const bounds = page.native.getState().viewport ?? page.native.getBounds(), zoom = page.native.getZoomFactor(); return { width: Math.round(bounds.width / zoom), height: Math.round(bounds.height / zoom) }; },
+        nativeViewport: async () => { const bounds = page.view.getBounds(), zoom = page.view.webContents.getZoomFactor(); return { width: Math.round(bounds.width / zoom), height: Math.round(bounds.height / zoom) }; },
       }, kind, fields);
       this.assertActive(signal);
       this.manager.publish();
@@ -307,7 +302,7 @@ export class BrowserOperations {
           : page;
         await this.manager.requestPanel(sessionId, panelPage);
       }
-      const response: BrowserObject = { url: page.native.getURL(), title: page.native.getTitle(), ...typed, ...(value === undefined ? {} : { value }) };
+      const response: BrowserObject = { url: page.view.webContents.getURL(), title: page.view.webContents.getTitle(), ...typed, ...(value === undefined ? {} : { value }) };
       return this.answer(sessionId, response, page, screenshot);
     };
     return ['console', 'network'].includes(kind) ? perform() : cdp.activity(perform);
@@ -348,7 +343,7 @@ export class BrowserOperations {
     } else if (action === 'get' || action === 'selected') page = this.manager.page(sessionId, handle);
     else if (action !== 'list') throw new BrowserError('unavailable', `tabs action '${String(action)}' is not implemented.`);
     if (page && browserOperationRequestsPanel(kind, { ...fields, action })) await this.manager.requestPanel(sessionId, page);
-    const tabs = this.manager.listPages(sessionId).map(entry => ({ id: entry.handle, tabId: entry.handle, url: entry.native.getURL(), title: entry.native.getTitle(), active: entry.id === this.manager.state(sessionId).tabId }));
+    const tabs = this.manager.listPages(sessionId).map(entry => ({ id: entry.handle, tabId: entry.handle, url: entry.view.webContents.getURL(), title: entry.view.webContents.getTitle(), active: entry.id === this.manager.state(sessionId).tabId }));
     const value = action === 'new' && page ? { tabId: page.handle, ...tabs.find(row => row.id === page?.handle) }
       : (action === 'get' || action === 'selected') && page ? tabs.find(row => row.id === page?.handle) ?? null
       : tabs;

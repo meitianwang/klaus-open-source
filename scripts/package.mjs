@@ -11,7 +11,6 @@ import { copyPolicyNotices } from '../engine/scripts/policy-notices.mjs';
 import { verifyPackage } from '../packaging/verify.mjs';
 import { DEFAULT_DESKTOP_EDITION, desktopEdition, packagedDesktopEditionDocument, useDesktopEditionsFile } from '../packaging/desktop-edition.mjs';
 import { DEFAULT_PLUGIN_SEED, collectBundledOfficialPlugins, copyBundledOfficialPlugins, officialPluginRecords, validatePluginSeed } from '../packaging/official-plugins.mjs';
-import { describeElectronRuntime, resolveProductionElectronRuntime } from './electron-runtime-resolver.mjs';
 
 const appDirectory = fileURLToPath(new URL('..', import.meta.url));
 const repo = appDirectory;
@@ -41,15 +40,14 @@ const { values } = parseArgs({ options: {
   platform: { type: 'string', default: process.platform }, arch: { type: 'string', default: process.arch },
   'engine-dir': { type: 'string' }, 'engine-commit': { type: 'string' }, 'native-dir': { type: 'string' },
   'speech-dir': { type: 'string' }, 'recording-dir': { type: 'string' }, 'pip-dir': { type: 'string' }, 'computer-use-dir': { type: 'string' },
-  'frontend-dir': { type: 'string' }, 'electron-zip': { type: 'string' }, 'runtime-mode': { type: 'string' }, out: { type: 'string' }, help: { type: 'boolean' },
+  'frontend-dir': { type: 'string' }, 'electron-zip': { type: 'string' }, out: { type: 'string' }, help: { type: 'boolean' },
   'official-plugins-dir': { type: 'string' }, 'bundle-official-plugin': { type: 'string', multiple: true }, 'plugin-seed-dir': { type: 'string' },
 } });
 if (values.help) {
   console.log(`Desktop edition: --edition <id> (default ${DEFAULT_DESKTOP_EDITION}; additional editions come from --editions-file / KLAUS_DESKTOP_EDITIONS_FILE).`);
   console.log('Official plugins: --official-plugins-dir <marketplace dir> --bundle-official-plugin <name> (repeatable); none are bundled by default.');
   console.log('Plugin seed: --plugin-seed-dir <dir with known_marketplaces.json> (default: an empty seed).');
-  console.log('npm run package -- --engine-dir <staged bin/platform-arch> --native-dir <production artifacts> [--speech-dir <macOS speech artifacts>] [--recording-dir <macOS recording artifacts>] [--pip-dir <macOS PiP artifacts>] [--computer-use-dir <target Computer Use artifacts>] [--engine-commit <40-char commit>] [--platform darwin|win32] [--arch arm64|x64] [--electron-zip <official release archive>] [--runtime-mode native|stock] [--out <directory>]');
-  console.log('Packaging defaults to the native Electron runtime. Inject KLAUS_ELECTRON_RUNTIME_DIR, KLAUS_ELECTRON_RUNTIME_RECEIPT and KLAUS_ELECTRON_RUNTIME_MANIFEST, or deliberately set --runtime-mode stock / KLAUS_ELECTRON_RUNTIME_MODE=stock.');
+  console.log('npm run package -- --engine-dir <staged bin/platform-arch> --native-dir <production artifacts> [--speech-dir <macOS speech artifacts>] [--recording-dir <macOS recording artifacts>] [--pip-dir <macOS PiP artifacts>] [--computer-use-dir <target Computer Use artifacts>] [--engine-commit <40-char commit>] [--platform darwin|win32] [--arch arm64|x64] [--electron-zip <official release archive>] [--out <directory>]');
   process.exit(0);
 }
 const platform = values.platform, arch = values.arch;
@@ -81,27 +79,8 @@ const pkg = readJson(join(appDirectory, 'package.json'));
 if (!/^\d+\.\d+\.\d+(?:-[\w.-]+)?$/.test(pkg.version)) throw new Error('The desktop package version is invalid');
 if (platform === 'darwin' && !/^\d+\.\d+\.\d+$/.test(pkg.version)) throw new Error('macOS bundle versions require three numeric components. Select the preview channel when signing a prerelease candidate.');
 if (!/^\d+\.\d+\.\d+$/.test(pkg.devDependencies.electron)) throw new Error('The Electron runtime version must be pinned exactly');
-const runtime = await resolveProductionElectronRuntime({
-  appDirectory,
-  mode: values['runtime-mode'],
-  env: process.env,
-  platform,
-  arch,
-  requirePackagerZip: true,
-});
-if (runtime.electronVersion !== pkg.devDependencies.electron) throw new Error('The selected Electron runtime version differs from the pinned desktop dependency');
-console.log(`Electron runtime: ${describeElectronRuntime(runtime)}`);
-let download, electronZipDir, electronArchiveSha256;
-if (runtime.mode === 'native') {
-  if (values['electron-zip']) throw new Error('--electron-zip cannot be combined with an injected native Electron runtime');
-  download = { checksums: { [runtime.packagerZip.filename]: runtime.packagerZip.sha256 } };
-  electronZipDir = runtime.packagerZipDir;
-  electronArchiveSha256 = runtime.packagerZip.sha256;
-} else {
-  download = electronDownloadOptions(appDirectory, { version: pkg.devDependencies.electron, platform, arch });
-  electronZipDir = values['electron-zip'] ? verifiedElectronArchiveDirectory(values['electron-zip'], download) : undefined;
-  electronArchiveSha256 = Object.values(download.checksums)[0];
-}
+const download = electronDownloadOptions(appDirectory, { version: pkg.devDependencies.electron, platform, arch });
+const electronZipDir = values['electron-zip'] ? verifiedElectronArchiveDirectory(values['electron-zip'], download) : undefined;
 const bundledOfficialPlugins = collectBundledOfficialPlugins(values['official-plugins-dir'], values['bundle-official-plugin'] ?? []);
 const pluginSeedDirectory = resolve(values['plugin-seed-dir'] ?? DEFAULT_PLUGIN_SEED);
 validatePluginSeed(pluginSeedDirectory);
@@ -159,16 +138,15 @@ try {
   validateRequired(appStage, resources);
   const resourcesManifest = {
     layoutVersion: specification.layoutVersion, application: edition.productName, edition: edition.id, applicationId: edition.application, version: pkg.version, platform, arch,
-    electronVersion: runtime.electronVersion, buildKind: 'local-unsigned', createdAt: new Date().toISOString(),
-    electronArchiveSha256,
-    electronRuntime: runtime.summary,
+    electronVersion: pkg.devDependencies.electron, buildKind: 'local-unsigned', createdAt: new Date().toISOString(),
+    electronArchiveSha256: Object.values(download.checksums)[0],
     ...identity, officialPlugins: officialPluginRecords(bundledOfficialPlugins), engine, native: native.manifest, ...(speech ? { speech } : {}), ...(recording ? { recording } : {}), ...(pip ? { pip } : {}), ...(computerUse ? { computerUse } : {}),
     appFiles: inventory(appStage), resourceFiles: inventory(resources),
   };
   writeFileSync(join(resources, 'desktop-resources.json'), `${JSON.stringify(resourcesManifest, null, 2)}\n`);
   const packages = await packager({
     dir: appStage, out: output, platform, arch, name: edition.productName, executableName: edition.executableName,
-    appVersion: pkg.version, buildVersion: pkg.version, electronVersion: runtime.electronVersion,
+    appVersion: pkg.version, buildVersion: pkg.version, electronVersion: pkg.devDependencies.electron,
     download, ...(electronZipDir ? { electronZipDir } : {}),
     appBundleId: edition.application, helperBundleId: edition.helperApplication, appCopyright: 'Klaus',
     appCategoryType: 'public.app-category.developer-tools', darwinDarkModeSupport: true,

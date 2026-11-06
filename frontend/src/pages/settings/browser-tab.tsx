@@ -5,11 +5,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useT } from '../../i18n'
 import { ModalPortal } from '../../components/ModalPortal'
 import { BrowserCapabilityModal } from '../mcp/browser-connect'
-import { BROWSER_DEFAULT_POLICY, BROWSER_RESOURCES, browserOriginPattern, type BrowserAccess, type BrowserManagerBounds, type BrowserManagerOptions, type BrowserManagerState, type BrowserManagerTheme, type NativeManagerSurface, type BrowserResource, type BrowserSettingsSnapshot } from '../../../../contracts/browser-settings'
+import { BROWSER_DEFAULT_POLICY, BROWSER_RESOURCES, browserOriginPattern, type BrowserAccess, type BrowserManagerBounds, type BrowserManagerOptions, type BrowserManagerSurface, type BrowserResource, type BrowserSettingsSnapshot } from '../../../../contracts/browser-settings'
 import type { SiteOpenTargetId } from '../../../../contracts/browser-sites'
-import { BrowserImportDialog, type BrowserImportUiApi } from './browser-import-dialog'
 import { CapabilityRow, CapabilitySwitch } from './capability-tabs'
-import { pluginActivationNote } from '../plugins/activation-note'
 import { PrefToggleRow, SettingsPage } from './kv'
 import styles from './browser-settings.module.css'
 import settingsStyles from './settings.module.css'
@@ -17,13 +15,14 @@ import settingsStyles from './settings.module.css'
 const w = () => window as any
 
 type BrowserSource = 'all' | 'agent' | 'other'
+type SitePermissionSetting = 'granted' | 'denied' | 'prompt'
 type HistoryRow = { id: string; url: string; title: string; visitTime: number; isActorVisit: boolean }
 type DownloadRow = {
   id: string; url: string; filename: string; path: string; state: string
   receivedBytes: number; totalBytes: number; startedAt: number
   canPause: boolean; canResume: boolean; canCancel: boolean; exists: boolean
 }
-type DownloadEvent = { id: string; state?: string; receivedBytes?: number; totalBytes?: number; exists?: boolean; filename?: string; path?: string; url?: string; canPause?: boolean; canResume?: boolean; canCancel?: boolean }
+type DownloadEvent = { id: string; state?: string; receivedBytes?: number; totalBytes?: number; exists?: boolean; filename?: string; path?: string; url?: string }
 type Page<T> = { ok?: boolean; items: T[]; nextCursor?: string | null; error?: string }
 type BrowserUseApi = {
   get(): Promise<BrowserSettingsSnapshot | { ok?: boolean; settings?: BrowserSettingsSnapshot; error?: string }>
@@ -32,14 +31,14 @@ type BrowserUseApi = {
   setPreferences(patch: Record<string, unknown>): Promise<any>
   setOriginPolicy(input: { pattern?: string; resource: BrowserResource; setting: BrowserAccess | 'inherit' }): Promise<any>
   removeOriginPolicy(pattern: string): Promise<any>
+  setSitePermission(input: { origin: string; permission: string; setting: SitePermissionSetting }): Promise<any>
   history(input?: { query?: string; source?: BrowserSource; cursor?: string | null; limit?: number }): Promise<Page<HistoryRow>>
   removeHistory(ids: string[]): Promise<any>
   downloads(input?: { query?: string; cursor?: string | null; limit?: number }): Promise<Page<DownloadRow>>
   subscribeDownloads?(callback: (event: DownloadEvent) => void): () => void
   downloadAction(action: string, id: string): Promise<any>
   chooseDownloadDirectory(): Promise<{ ok?: boolean; settings?: BrowserSettingsSnapshot; path?: string | null; error?: string }>
-  openManager(surface: NativeManagerSurface, options?: BrowserManagerOptions): Promise<any>
-  onManagerState?(listener: (state: BrowserManagerState) => void): () => void
+  openManager(surface: BrowserManagerSurface, options?: BrowserManagerOptions): Promise<any>
   clearData(kind: string): Promise<any>
   subscribe?(callback: (snapshot: BrowserSettingsSnapshot) => void): () => void
 }
@@ -141,9 +140,6 @@ function applyDownloadEvent(row: DownloadRow, event: DownloadEvent): DownloadRow
     ...(typeof event.path === 'string' ? { path: event.path } : {}),
     ...(typeof event.url === 'string' ? { url: event.url } : {}),
     ...downloadFlags(state, row),
-    ...(typeof event.canPause === 'boolean' ? { canPause: event.canPause } : {}),
-    ...(typeof event.canResume === 'boolean' ? { canResume: event.canResume } : {}),
-    ...(typeof event.canCancel === 'boolean' ? { canCancel: event.canCancel } : {}),
   }
 }
 
@@ -162,33 +158,30 @@ function useDebounced<T>(value: T, delay: number): T {
 }
 
 const CLEAR_KINDS = ['history', 'downloads', 'cookies', 'cache', 'siteData'] as const
-const MANAGER_META: Record<NativeManagerSurface, { label: string; desc: string }> = {
+const SITE_PERMISSIONS = ['notifications', 'geolocation', 'camera', 'microphone', 'clipboard-read', 'clipboard-write', 'fullscreen', 'midi', 'pointerLock', 'screen-wake-lock'] as const
+
+function siteOrigin(input: string): string {
+  const value = input.trim()
+  if (!value) return ''
+  try {
+    const parsed = new URL(/^[a-z][a-z\d+.-]*:/i.test(value) ? value : `https://${value}`)
+    return ['http:', 'https:'].includes(parsed.protocol) ? parsed.origin : ''
+  } catch { return '' }
+}
+
+const MANAGER_META: Record<BrowserManagerSurface, { label: string; desc: string }> = {
   passwords: { label: 'browser_settings_passwords', desc: 'browser_settings_passwords_desc' },
   autofill: { label: 'browser_settings_autofill', desc: 'browser_settings_autofill_desc' },
   extensions: { label: 'browser_settings_extensions', desc: 'browser_settings_extensions_desc' },
   siteSettings: { label: 'browser_settings_site_settings', desc: 'browser_settings_site_settings_desc' },
-}
-
-const MANAGER_ROUTES: Record<NativeManagerSurface, { initialUrl: string; roots: string[] }> = {
-  passwords: { initialUrl: 'chrome://password-manager/passwords', roots: ['chrome://password-manager', 'chrome://settings/passwords'] },
-  autofill: { initialUrl: 'chrome://settings/contactInfo', roots: ['chrome://settings/addresses', 'chrome://settings/autofill', 'chrome://settings/contactInfo'] },
-  extensions: { initialUrl: 'chrome://extensions', roots: ['chrome://extensions'] },
-  siteSettings: { initialUrl: 'chrome://settings/content', roots: ['chrome://settings/content', 'chrome://settings/cookies', 'chrome://settings/handlers'] },
-}
-
-function managerAllowedUrl(surface: NativeManagerSurface, url: string): boolean {
-  return MANAGER_ROUTES[surface].roots.some(root => url === root || url.startsWith(`${root}/`) || url.startsWith(`${root}?`))
-}
-
-function managerTheme(): BrowserManagerTheme {
-  return document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light'
+  import: { label: 'browser_settings_import', desc: 'browser_settings_import_desc' },
 }
 
 function BrowserManagerRow({ surface, disabled, busy, onOpenManager }: {
-  surface: NativeManagerSurface
+  surface: BrowserManagerSurface
   disabled: boolean
   busy: string
-  onOpenManager: (surface: NativeManagerSurface) => void
+  onOpenManager: (surface: BrowserManagerSurface) => void
 }) {
   const t = useT()
   const meta = MANAGER_META[surface]
@@ -215,8 +208,7 @@ function BrowserManagerRow({ surface, disabled, busy, onOpenManager }: {
   )
 }
 
-type ManagerRequest = (surface: NativeManagerSurface, options: BrowserManagerOptions & { viewId: string }, generation: number) => Promise<any>
-type ManagerStateListener = (listener: (state: BrowserManagerState) => void) => () => void
+type ManagerRequest = (surface: BrowserManagerSurface, options: BrowserManagerOptions & { viewId: string }, generation: number) => Promise<any>
 
 let managerViewSequence = 0
 
@@ -239,23 +231,18 @@ function managerBounds(node: HTMLElement): BrowserManagerBounds | null {
 }
 
 /** A settings-pane subpage whose measured rectangle hosts the native manager. */
-export function NativeManagementPane({ surface, generation, onBack, openManager, onClose, onManagerState }: {
-  surface: NativeManagerSurface
+export function NativeManagementPane({ surface, generation, onBack, openManager, onClose }: {
+  surface: BrowserManagerSurface
   generation: number
   onBack: () => void
   openManager: ManagerRequest
-  onClose: (surface: NativeManagerSurface, generation: number, viewId: string) => void
-  onManagerState?: ManagerStateListener
+  onClose: (surface: BrowserManagerSurface, generation: number, viewId: string) => void
 }) {
   const t = useT()
   const hostRef = useRef<HTMLDivElement>(null)
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading')
   const [error, setError] = useState('')
   const [attempt, setAttempt] = useState(0)
-  const [viewId, setViewId] = useState<string | null>(null)
-  const [navigation, setNavigation] = useState<BrowserManagerState | null>(null)
-  const meta = MANAGER_META[surface]
-  const route = MANAGER_ROUTES[surface]
 
   useEffect(() => {
     const node = hostRef.current
@@ -268,8 +255,6 @@ export function NativeManagementPane({ surface, generation, onBack, openManager,
     let failed = false
     let lastBounds = ''
     const viewId = newManagerViewId()
-    setViewId(viewId)
-    setNavigation(null)
 
     const run = async (): Promise<void> => {
       if (disposed || failed) return
@@ -287,12 +272,7 @@ export function NativeManagementPane({ surface, generation, onBack, openManager,
         setError('')
       }
       try {
-        const result = await openManager(surface, {
-          action,
-          bounds,
-          viewId,
-          ...(action === 'open' ? { theme: managerTheme() } : {}),
-        }, generation)
+        const result = await openManager(surface, { action, bounds, viewId }, generation)
         if (disposed) return
         if (!result || result.ok === false || result.error) {
           failed = true
@@ -338,82 +318,20 @@ export function NativeManagementPane({ surface, generation, onBack, openManager,
     }
   }, [surface, generation, attempt, openManager, onClose, t])
 
-  useEffect(() => {
-    if (!viewId || !onManagerState) return
-    return onManagerState(state => {
-      if (state.surface !== surface || state.viewId !== viewId) return
-      if (!managerAllowedUrl(surface, state.url)) return
-      setNavigation(state)
-    })
-  }, [surface, viewId, onManagerState])
-
-  useEffect(() => {
-    if (!viewId || status !== 'ready') return
-    const sendTheme = (): void => {
-      void openManager(surface, { action: 'theme', theme: managerTheme(), viewId }, generation).catch(() => {})
-    }
-    const observer = typeof MutationObserver === 'undefined' ? null : new MutationObserver(sendTheme)
-    observer?.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
-    window.addEventListener('klaus:theme-change', sendTheme)
-    return () => {
-      observer?.disconnect()
-      window.removeEventListener('klaus:theme-change', sendTheme)
-    }
-  }, [surface, generation, viewId, status, openManager])
-
-  const sendAction = async (action: 'back' | 'forward' | 'navigate', extra: { url?: string } = {}): Promise<void> => {
-    if (!viewId) return
-    try {
-      const result = await openManager(surface, { action, viewId, ...extra }, generation)
-      if (result?.ok === false || result?.error) {
-        setStatus('error')
-        setError(String(result?.error || t('browser_settings_open_failed')))
-      }
-    } catch (cause: any) {
-      setStatus('error')
-      setError(cause?.message || t('browser_settings_open_failed'))
-    }
-  }
-
-  const goBack = (): void => {
-    if (navigation?.canGoBack) void sendAction('back')
-    else onBack()
-  }
-  const resetSection = (): void => {
-    const initialUrl = navigation?.initialUrl ?? route.initialUrl
-    if (navigation?.url && navigation.url !== initialUrl && managerAllowedUrl(surface, initialUrl)) void sendAction('navigate', { url: initialUrl })
-  }
-
-  const sectionLabel = t(meta.label)
-  const title = navigation?.title?.trim() || sectionLabel
   return (
     <SettingsPage
-      title={sectionLabel}
-      subtitle={t(meta.desc)}
+      title={t(MANAGER_META[surface].label)}
+      subtitle={t(MANAGER_META[surface].desc)}
       actions={<button type="button" id="browser-native-back" className={styles['browser-action-btn']} onClick={onBack}>{t('browser_settings_back')}</button>}
     >
-      <div className={styles['browser-native-shell']}>
-        <div className={styles['browser-native-toolbar']}>
-          <div className={styles['browser-native-nav']}>
-            <button type="button" data-native-nav="back" aria-label={t('browser_settings_back')} disabled={!navigation?.canGoBack} onClick={goBack}>←</button>
-            <button type="button" data-native-nav="forward" aria-label={t('browser_settings_forward')} disabled={!navigation?.canGoForward} onClick={() => { if (navigation?.canGoForward) void sendAction('forward') }}>→</button>
+      <div ref={hostRef} className={styles['browser-native-pane']} data-native-management-pane={surface} aria-busy={status === 'loading' || undefined}>
+        {status === 'loading' && <div role="status" className={styles['browser-native-state']}>{t('browser_settings_loading')}</div>}
+        {status === 'error' && (
+          <div role="alert" className={styles['browser-native-state']}>
+            <span>{error}</span>
+            <button type="button" className={styles['browser-action-btn']} onClick={() => { setStatus('loading'); setError(''); setAttempt(value => value + 1) }}>{t('browser_settings_retry')}</button>
           </div>
-          <nav className={styles['browser-native-breadcrumb']} aria-label={t('browser_settings_location')}>
-            <button type="button" className={styles['browser-native-crumb']} data-native-crumb="root" onClick={onBack}>{t('browser_use_title')}</button>
-            <span aria-hidden="true">/</span>
-            <button type="button" className={styles['browser-native-crumb']} data-native-crumb="section" disabled={!navigation?.url || navigation.url === route.initialUrl} onClick={resetSection}>{sectionLabel}</button>
-            {title !== sectionLabel && <><span aria-hidden="true">/</span><span className={styles['browser-native-title']} aria-current="page">{title}</span></>}
-          </nav>
-        </div>
-        <div ref={hostRef} className={styles['browser-native-pane']} data-native-management-pane={surface} aria-busy={status === 'loading' || undefined}>
-          {status === 'loading' && <div role="status" className={styles['browser-native-state']}>{t('browser_settings_loading')}</div>}
-          {status === 'error' && (
-            <div role="alert" className={styles['browser-native-state']}>
-              <span>{error}</span>
-              <button type="button" className={styles['browser-action-btn']} onClick={() => { setStatus('loading'); setError(''); setAttempt(value => value + 1) }}>{t('browser_settings_retry')}</button>
-            </div>
-          )}
-        </div>
+        )}
       </div>
     </SettingsPage>
   )
@@ -428,21 +346,21 @@ export interface BrowserSettingsViewProps {
   onOpenHistory: () => void
   onOpenDownloads: () => void
   onChooseDownloadDirectory: () => void
-  onOpenManager: (surface: NativeManagerSurface) => void
-  onOpenImport: () => void
+  onOpenManager: (surface: BrowserManagerSurface) => void
   onSetChromeEnabled: (enabled: boolean) => void
   onAddOrigin: (pattern: string) => Promise<boolean>
   onSetDefaultPolicy: (resource: BrowserResource, setting: BrowserAccess) => void
   onSetOriginPolicy: (pattern: string, resource: BrowserResource, setting: BrowserAccess | 'inherit') => void
   onRemoveOrigin: (pattern: string) => void
+  onSetSitePermission: (origin: string, permission: string, setting: SitePermissionSetting) => void
   onOpenChromeSetup: () => void
 }
 
 /** Pure presentation of the main settings page; the data owner passes a snapshot. */
 export function BrowserSettingsView({
   snapshot, busy, onToggleEnabled, onPatch, onClearData, onOpenHistory, onOpenDownloads,
-  onChooseDownloadDirectory, onOpenManager, onOpenImport, onSetChromeEnabled, onAddOrigin, onSetDefaultPolicy,
-  onSetOriginPolicy, onRemoveOrigin, onOpenChromeSetup,
+  onChooseDownloadDirectory, onOpenManager, onSetChromeEnabled, onAddOrigin, onSetDefaultPolicy,
+  onSetOriginPolicy, onRemoveOrigin, onSetSitePermission, onOpenChromeSetup,
 }: BrowserSettingsViewProps) {
   const t = useT()
   const disabled = snapshot.browserAvailable === false
@@ -450,6 +368,9 @@ export function BrowserSettingsView({
   const clearing = busy.startsWith('clear:')
   const [originDraft, setOriginDraft] = useState('')
   const [originError, setOriginError] = useState('')
+  const [siteOriginDraft, setSiteOriginDraft] = useState('')
+  const [sitePermissionDraft, setSitePermissionDraft] = useState<string>('notifications')
+  const [sitePermissionError, setSitePermissionError] = useState('')
   const webTargets = browserTargetOptions(t, snapshot.webUrlTarget)
   const localTargets = browserTargetOptions(t, snapshot.localUrlTarget)
   const annotationOptions = [
@@ -469,6 +390,15 @@ export function BrowserSettingsView({
     if (!pattern) { setOriginError(t('browser_settings_invalid_domain')); return }
     setOriginError('')
     if (await onAddOrigin(pattern)) setOriginDraft('')
+  }
+
+  const submitSitePermission = (event: React.FormEvent) => {
+    event.preventDefault()
+    const origin = siteOrigin(siteOriginDraft)
+    if (!origin) { setSitePermissionError(t('browser_settings_site_permission_invalid')); return }
+    setSitePermissionError('')
+    onSetSitePermission(origin, sitePermissionDraft, 'granted')
+    setSiteOriginDraft('')
   }
 
   return (
@@ -496,8 +426,9 @@ export function BrowserSettingsView({
                 className={styles['browser-action-btn']}
                 data-surface="import"
                 aria-label={`${t('browser_settings_import')}: ${t('browser_settings_import_action')}`}
-                disabled={disabled}
-                onClick={onOpenImport}
+                disabled={disabled || busy === 'manager:import'}
+                aria-busy={busy === 'manager:import' || undefined}
+                onClick={() => onOpenManager('import')}
               >
                 {t('browser_settings_import_action')}
               </button>
@@ -631,7 +562,36 @@ export function BrowserSettingsView({
                 ))}
               </div>
             )}
-
+          <div className={styles['browser-subsection-title']}>{t('browser_settings_site_permissions')}</div>
+          <div className={styles['browser-section-copy']}>{t('browser_settings_site_permissions_desc')}</div>
+          <form className={styles['browser-add-form']} onSubmit={submitSitePermission}>
+            <input className={styles['browser-input']} value={siteOriginDraft} placeholder={t('browser_settings_site_permission_origin_placeholder')} aria-label={t('browser_settings_site_permission_origin')} disabled={disabled} onChange={event => setSiteOriginDraft(event.target.value)} />
+            <select className={styles['browser-select']} value={sitePermissionDraft} aria-label={t('browser_settings_site_permission_permission')} disabled={disabled} onChange={event => setSitePermissionDraft(event.target.value)}>
+              {SITE_PERMISSIONS.map(permission => <option key={permission} value={permission}>{permission}</option>)}
+            </select>
+            <button type="submit" className={`${styles['browser-action-btn']} ${styles['is-primary']}`} disabled={disabled}>{t('browser_settings_site_permission_add')}</button>
+          </form>
+          {sitePermissionError && <div className={styles['browser-error']} role="alert">{sitePermissionError}</div>}
+          {snapshot.sitePermissions.length === 0
+            ? <div className={styles['browser-empty']}>{t('browser_settings_no_site_permissions')}</div>
+            : (
+              <div className={styles['browser-table']}>
+                <div className={`${styles['browser-table-row']} ${styles['browser-table-row-compact']} ${styles['browser-table-head']}`}>
+                  <span>{t('browser_settings_origin')}</span><span>{t('browser_settings_permission')}</span><span>{t('browser_settings_setting')}</span>
+                </div>
+                {snapshot.sitePermissions.map(row => (
+                  <div className={`${styles['browser-table-row']} ${styles['browser-table-row-compact']}`} key={`${row.origin}:${row.permission}`}>
+                    <span className={styles['browser-pattern']}>{row.origin}</span>
+                    <span>{row.permission}</span>
+                    <select className={styles['browser-select']} aria-label={`${row.origin} ${row.permission}`} value={row.setting} disabled={disabled} onChange={event => onSetSitePermission(row.origin, row.permission, event.target.value as SitePermissionSetting)}>
+                      <option value="granted">{t('browser_settings_granted')}</option>
+                      <option value="denied">{t('browser_settings_denied')}</option>
+                      <option value="prompt">{t('browser_settings_prompt')}</option>
+                    </select>
+                  </div>
+                ))}
+              </div>
+            )}
         </div>
       </div>
 
@@ -936,9 +896,8 @@ export function BrowserSettingsTab() {
   const [error, setError] = useState('')
   const [busy, setBusy] = useState('')
   const [view, setView] = useState<'main' | 'history' | 'downloads' | 'native'>('main')
-  const [nativeSurface, setNativeSurface] = useState<NativeManagerSurface>('passwords')
+  const [nativeSurface, setNativeSurface] = useState<BrowserManagerSurface>('passwords')
   const [nativeGenerationId, setNativeGenerationId] = useState(0)
-  const [importOpen, setImportOpen] = useState(false)
   const nativeGeneration = useRef(0)
   const [chromeSetupOpen, setChromeSetupOpen] = useState(false)
   const readSequence = useRef(0)
@@ -1022,17 +981,9 @@ export function BrowserSettingsTab() {
     void mutate('patch', value as Partial<BrowserSettingsSnapshot>, () => api()?.setPreferences?.(value))
   }, [mutate])
 
-  const toggleEnabled = useCallback(async (enabled: boolean) => {
-    let receipt: any
-    const ok = await mutate('enabled', { enabled }, async () => {
-      receipt = await api()?.setEnabled?.(enabled)
-      return receipt
-    })
-    if (!ok) return
-    const message = t(enabled ? 'browser_settings_plugin_enabled' : 'browser_settings_plugin_disabled')
-    const note = pluginActivationNote(receipt, t)
-    w().showToast?.(note ? `${message} ${note}` : message, { tone: 'success' })
-  }, [mutate, t])
+  const toggleEnabled = useCallback((enabled: boolean) => {
+    void mutate('enabled', { enabled }, () => api()?.setEnabled?.(enabled))
+  }, [mutate])
 
   const setChromeEnabled = useCallback((enabled: boolean) => {
     void mutate('chrome', { chromeEnabled: enabled }, () => api()?.setChromeEnabled?.(enabled))
@@ -1042,70 +993,24 @@ export function BrowserSettingsTab() {
     void mutate('choose-download-dir', null, () => api()?.chooseDownloadDirectory?.())
   }, [mutate])
 
-  const openManager = useCallback((surface: NativeManagerSurface) => {
+  const openManager = useCallback((surface: BrowserManagerSurface) => {
     const generation = ++nativeGeneration.current
     setNativeSurface(surface)
     setNativeGenerationId(generation)
     setView('native')
   }, [])
 
-  const managerRequest = useCallback(async (surface: NativeManagerSurface, options: BrowserManagerOptions & { viewId: string }, generation: number) => {
+  const managerRequest = useCallback(async (surface: BrowserManagerSurface, options: BrowserManagerOptions & { viewId: string }, generation: number) => {
     if (nativeGeneration.current !== generation) return { ok: false, error: 'stale' }
     const service = api()?.openManager
     if (!service) throw new Error('settings_failed')
     return service(surface, options)
   }, [])
 
-  const closeManager = useCallback((surface: NativeManagerSurface, generation: number, viewId: string) => {
+  const closeManager = useCallback((surface: BrowserManagerSurface, generation: number, viewId: string) => {
     if (nativeGeneration.current !== generation) return
     void managerRequest(surface, { action: 'close', viewId }, generation).catch(() => {})
   }, [managerRequest])
-
-  const subscribeManagerState = useCallback((listener: (state: BrowserManagerState) => void) => {
-    const off = api()?.onManagerState?.(listener)
-    return () => off?.()
-  }, [])
-
-  const importApi = useMemo<BrowserImportUiApi>(() => ({
-    ...(/Mac/i.test(navigator.platform || '') && w().klaus?.systemPermissions?.openSettings ? {
-      fileAccessStatus: async () => {
-        const result = await w().klaus.systemPermissions.check()
-        const status = result?.permissions?.fullDiskAccess
-        return status === 'granted' || status === 'denied' ? status : 'unknown'
-      },
-      openPermissionSettings: async () => {
-        const result = await w().klaus.systemPermissions.openSettings('fullDiskAccess')
-        if (result?.ok !== true) throw new Error(t('browser_import_permission_settings_failed'))
-      },
-    } : {}),
-    discover: async () => {
-      const service = w().settingsApi?.browserProfileImport
-      if (!service?.discover) throw new Error(t('browser_import_unavailable'))
-      return service.discover()
-    },
-    start: async request => {
-      const service = w().settingsApi?.browserProfileImport
-      if (!service?.start) throw new Error(t('browser_import_unavailable'))
-      return service.start(request)
-    },
-    cancel: async jobId => {
-      const service = w().settingsApi?.browserProfileImport
-      if (!service?.cancel) throw new Error(t('browser_import_unavailable'))
-      return service.cancel(jobId)
-    },
-    subscribe: callback => {
-      const service = w().settingsApi?.browserProfileImport
-      return service?.subscribe?.(callback) ?? (() => {})
-    },
-  }), [t])
-
-  const openImport = useCallback(() => {
-    if (!w().settingsApi?.browserProfileImport?.discover) {
-      w().showToast?.(t('browser_import_unavailable'))
-      return
-    }
-    setImportOpen(true)
-  }, [t])
 
   const clearData = useCallback(async (kinds: string[]) => {
     if (clearingRef.current) return
@@ -1153,6 +1058,10 @@ export function BrowserSettingsTab() {
     void mutate('origin', null, () => api()?.removeOriginPolicy?.(pattern))
   }, [mutate])
 
+  const setSitePermission = useCallback((origin: string, permission: string, setting: SitePermissionSetting) => {
+    void mutate('origin', null, () => api()?.setSitePermission?.({ origin, permission, setting }))
+  }, [mutate])
+
   if (loading) {
     return (
       <SettingsPage title={t('browser_use_title')} subtitle={t('browser_use_desc')}>
@@ -1180,7 +1089,6 @@ export function BrowserSettingsTab() {
       onBack={() => setView('main')}
       openManager={managerRequest}
       onClose={closeManager}
-      onManagerState={subscribeManagerState}
     />
   )
   return (
@@ -1195,12 +1103,12 @@ export function BrowserSettingsTab() {
         onOpenDownloads={() => setView('downloads')}
         onChooseDownloadDirectory={chooseDownloadDirectory}
         onOpenManager={openManager}
-        onOpenImport={openImport}
         onSetChromeEnabled={setChromeEnabled}
         onAddOrigin={addOrigin}
         onSetDefaultPolicy={setDefaultPolicy}
         onSetOriginPolicy={setOriginPolicy}
         onRemoveOrigin={removeOrigin}
+        onSetSitePermission={setSitePermission}
         onOpenChromeSetup={() => setChromeSetupOpen(true)}
       />
       {chromeSetupOpen && (
@@ -1208,7 +1116,6 @@ export function BrowserSettingsTab() {
           <BrowserCapabilityModal enabled={snapshot.enabled} onClose={() => { setChromeSetupOpen(false); void load() }} />
         </ModalPortal>
       )}
-      {importOpen && <BrowserImportDialog api={importApi} onClose={() => setImportOpen(false)} />}
     </>
   )
 }

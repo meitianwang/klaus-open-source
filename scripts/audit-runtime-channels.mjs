@@ -1,5 +1,4 @@
 import { assertElectronGuiAvailable, spawnElectronGuiSync } from './electron-test-preflight.cjs';
-import { describeElectronRuntime, resolveProductionElectronRuntime } from './electron-runtime-resolver.mjs';
 import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs';
@@ -11,8 +10,6 @@ import { resolveReleaseTarget } from '../engine/scripts/prepare-rust-release.mjs
 
 assertElectronGuiAvailable();
 const root = fileURLToPath(new URL('..', import.meta.url)), require = createRequire(import.meta.url);
-const runtime = await resolveProductionElectronRuntime({ appDirectory: root });
-console.log(`[command-map] Electron runtime: ${describeElectronRuntime(runtime)}`);
 const { values } = parseArgs({ options: { 'engine-binary': { type: 'string' } } });
 if (values['engine-binary'] !== undefined && !isAbsolute(values['engine-binary'])) {
   throw new Error('The audit engine must be an absolute Cargo producer path');
@@ -30,9 +27,7 @@ for (const args of [
 }
 const fixtures = join(root, 'dist/fixtures'); mkdirSync(fixtures, { recursive: true });
 const profile = mkdtempSync(join(fixtures, 'channel-audit-'));
-const env = { ...process.env, KLAUS_CHANNEL_AUDIT_PROFILE: profile, KLAUS_CONFIG_DIR: profile,
-  KLAUS_PLUGIN_HOME: join(profile, 'plugins'), KLAUS_SESSION_DIR: join(profile, 'sessions') };
-delete env.ELECTRON_RUN_AS_NODE;
+const env = { ...process.env, KLAUS_CHANNEL_AUDIT_PROFILE: profile }; delete env.ELECTRON_RUN_AS_NODE;
 try {
 delete env.KLAUS_CHANNEL_AUDIT_ENGINE_BINARY;
 if (values['engine-binary'] !== undefined) {
@@ -50,7 +45,7 @@ if (values['engine-binary'] !== undefined) {
   });
   console.log(JSON.stringify({ auditEngine: candidate, sameBytesAsStaged: true, producerPathVerified: true }));
 }
-  const result = spawnElectronGuiSync(runtime.executable, ['dist/tests/runtime-channel-audit.js', ...(runtime.mode === 'native' ? ['--use-mock-keychain'] : [])], {
+  const result = spawnElectronGuiSync(require('electron'), ['dist/tests/runtime-channel-audit.js'], {
     cwd: root, env, stdio: 'inherit', timeout: 60_000,
   });
   if (result.error) throw result.error;

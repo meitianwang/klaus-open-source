@@ -806,11 +806,7 @@ w().KLAUS_APPEARANCE_FONT_FIELDS = KLAUS_APPEARANCE_FONT_FIELDS
 // Registered in both windows that load this module, because the artifact preview
 // window has its own copy of the theme.
 try {
-  w().klaus?.on?.appPreferencesChanged?.((payload?: { key?: string }) => {
-    // The browser page owns plugin enablement through its snapshot subscription
-    // and pending edits. Reapplying preferences here would remount that page
-    // twice, discarding its live controls before the mutation settles.
-    if (payload?.key === 'plugins' && w().settingsVisible && w().currentSettingsTab === 'browser') return
+  w().klaus?.on?.appPreferencesChanged?.(() => {
     Promise.resolve(loadPreferences()).then(() => {
       // loadPreferences covers appearance and language. This covers every other
       // row: a settings tab that is open right now is showing what it read when

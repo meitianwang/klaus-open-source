@@ -45,8 +45,7 @@ function installApi(api: any) {
   const host = globalThis as any
   host.window.settingsApi = { browserUse: api }
   host.window.__toasts = []
-  host.window.__toastOptions = []
-  host.window.showToast = (text: string, options?: any) => { host.window.__toasts.push(text); host.window.__toastOptions.push(options) }
+  host.window.showToast = (text: string) => { host.window.__toasts.push(text) }
   host.window.klsLoading = { render: () => '<div>loading</div>' }
   host.window.klausOpenExternalUrl = async () => {}
   host.window.klaus = { app: { openExternal: async () => {} }, browserUse: {} }
@@ -109,7 +108,7 @@ beforeAll(async () => {
   BrowserSettingsTab = (await import('./browser-tab')).BrowserSettingsTab
 })
 
-afterEach(() => { happyWindow.document.body.innerHTML = ''; happyWindow.currentLang = 'en'; FakeIntersectionObserver.instances = []; FakeResizeObserver.instances = [] })
+afterEach(() => { happyWindow.document.body.innerHTML = ''; FakeIntersectionObserver.instances = []; FakeResizeObserver.instances = [] })
 afterAll(() => { happyWindow.close?.() })
 
 describe('browser settings React lifecycle', () => {
@@ -167,90 +166,6 @@ describe('browser settings React lifecycle', () => {
     const toggle = happyWindow.document.querySelector('#browser-show-full-url') as any
     await act(async () => { toggle.click() })
     expect(writes).toEqual([{ showFullUrl: true }])
-    await act(async () => { root.unmount() })
-  })
-
-  test('browser toggle success feedback waits for its receipt in both directions', async () => {
-    for (const enabled of [true, false]) {
-      const pending = deferred<any>()
-      const writes: boolean[] = []
-      let saved = { ...base, enabled: !enabled }
-      installApi({
-        get: async () => saved,
-        setEnabled: (value: boolean) => { writes.push(value); return pending.promise },
-      })
-      const { container, root } = await mount()
-      const control = happyWindow.document.querySelector('#browser-settings-enabled')
-      await click(control)
-      expect(writes).toEqual([enabled])
-      expect(control.checked).toBe(enabled)
-      expect(control.disabled).toBe(true)
-      expect(happyWindow.__toasts).toEqual([])
-      saved = { ...saved, enabled }
-      await act(async () => { pending.resolve({ ok: true, settings: saved }) })
-      await settle()
-      expect(happyWindow.__toasts).toEqual([enabled ? 'Browser plugin enabled.' : 'Browser plugin disabled.'])
-      expect(happyWindow.__toastOptions).toEqual([{ tone: 'success' }])
-      expect(happyWindow.document.querySelector('#browser-settings-enabled')).toBe(control)
-      await act(async () => { root.unmount() })
-      container.remove()
-    }
-  })
-
-  test('browser toggle failures never confirm success and restore the saved state', async () => {
-    for (const failure of ['receipt', 'exception']) {
-      const message = `toggle ${failure} failed`
-      installApi({
-        get: async () => ({ ...base }),
-        setEnabled: async () => {
-          if (failure === 'exception') throw new Error(message)
-          return { ok: false, error: message }
-        },
-      })
-      const { container, root } = await mount()
-      await click(happyWindow.document.querySelector('#browser-settings-enabled'))
-      await settle()
-      expect(happyWindow.__toasts).toEqual([message])
-      expect(happyWindow.__toastOptions.every((options: any) => options?.tone !== 'success')).toBe(true)
-      expect(happyWindow.document.querySelector('#browser-settings-enabled').checked).toBe(true)
-      await act(async () => { root.unmount() })
-      container.remove()
-    }
-  })
-
-  test('browser toggle feedback respects the acknowledged activation scope', async () => {
-    const cases = [
-      { receipt: { restartRequired: true, appliedToCurrentSession: true }, note: 'Takes effect after restarting Klaus.' },
-      { receipt: { activationScope: 'endpoint_restart' }, note: 'Takes effect after restarting Klaus.' },
-      { receipt: { activationScope: 'next_turn', appliedToCurrentSession: true }, note: 'Active in this conversation now.' },
-      { receipt: { activationScope: 'next_turn' }, note: 'Takes effect from the next turn.' },
-    ]
-    for (const { receipt, note } of cases) {
-      let saved = { ...base }
-      installApi({
-        get: async () => saved,
-        setEnabled: async (enabled: boolean) => { saved = { ...saved, enabled }; return { ok: true, ...receipt, settings: saved } },
-      })
-      const { container, root } = await mount()
-      await click(happyWindow.document.querySelector('#browser-settings-enabled'))
-      await settle()
-      expect(happyWindow.__toasts).toEqual([`Browser plugin disabled. ${note}`])
-      await act(async () => { root.unmount() })
-      container.remove()
-    }
-  })
-
-  test('browser toggle confirmation is localized', async () => {
-    happyWindow.currentLang = 'zh'
-    let saved = { ...base }
-    installApi({
-      get: async () => saved,
-      setEnabled: async (enabled: boolean) => { saved = { ...saved, enabled }; return { ok: true, activationScope: 'next_turn', settings: saved } },
-    })
-    const { root } = await mount()
-    await click(happyWindow.document.querySelector('#browser-settings-enabled'))
-    await settle()
-    expect(happyWindow.__toasts).toEqual(['Browser 插件已关闭。 下一轮对话生效。'])
     await act(async () => { root.unmount() })
   })
 
@@ -404,10 +319,7 @@ describe('browser settings React lifecycle', () => {
     const manage = happyWindow.document.querySelector('#browser-download-history-manage') as any
     await click(manage)
     expect(happyWindow.document.body.textContent).toContain('Downloading')
-    await act(async () => { push({ id: 'active', state: 'failed', canPause: false, canResume: true, canCancel: true }) })
-    expect(buttonByText('Resume')).toBeTruthy()
-    expect(Array.from(happyWindow.document.querySelectorAll('button')).some((node: any) => node.textContent?.trim() === 'Pause')).toBe(false)
-    await act(async () => { push({ id: 'active', state: 'completed', receivedBytes: 10, totalBytes: 10, canPause: false, canResume: false, canCancel: false }) })
+    await act(async () => { push({ id: 'active', state: 'completed', receivedBytes: 10, totalBytes: 10 }) })
     expect(happyWindow.document.body.textContent).toContain('Completed')
     expect(happyWindow.document.body.textContent).not.toContain('File deleted')
     expect(Array.from(happyWindow.document.querySelectorAll('button')).filter((node: any) => node.textContent?.trim() === 'Remove from history').length).toBe(1)
@@ -481,6 +393,12 @@ describe('browser settings React lifecycle', () => {
       expect(calls[0].viewId).toBe(opened.viewId)
       expect(happyWindow.document.querySelector('[data-native-management-pane]')).toBeNull()
 
+      calls.length = 0
+      await click(happyWindow.document.querySelector('#browser-open-import'))
+      await settle()
+      expect(calls).toHaveLength(1)
+      expect(calls[0]).toMatchObject({ surface: 'import', action: 'open', bounds: { x: 32, y: 96, width: 700, height: 480 } })
+      expect(calls[0].viewId).not.toBe(opened.viewId)
       await act(async () => { root.unmount() })
     } finally {
       restore()
@@ -594,90 +512,4 @@ describe('browser settings React lifecycle', () => {
       restore()
     }
   })
-
-  test('Import opens the custom profile import dialog instead of a native manager', async () => {
-    const calls: any[] = []
-    const discovered: number[] = []
-    installApi({
-      get: async () => ({ ...base, nativeManagementAvailable: true }),
-      subscribe: () => () => {},
-      openManager: async (surface: string, options: any = {}) => { calls.push({ surface, ...options }); return { ok: true, surface } },
-    })
-    ;(globalThis as any).window.settingsApi.browserProfileImport = {
-      discover: async () => { discovered.push(1); return { profiles: [], errors: [] } },
-      start: async () => { throw new Error('not used') },
-      cancel: async () => {},
-      subscribe: () => () => {},
-    }
-    const { root } = await mount()
-    await click(happyWindow.document.querySelector('#browser-open-import'))
-    await settle()
-    expect(discovered).toHaveLength(1)
-    expect(happyWindow.document.body.textContent).toContain('Import browser data')
-    expect(calls).toEqual([])
-    await act(async () => { root.unmount() })
-  })
-
-  test('native pane follows host navigation state and sends back, forward, navigate and theme actions', async () => {
-    const calls: any[] = []
-    let push: any
-    installApi({
-      get: async () => ({ ...base, nativeManagementAvailable: true }),
-      subscribe: () => () => {},
-      openManager: async (surface: string, options: any = {}) => { calls.push({ surface, ...options }); return { ok: true, surface } },
-      onManagerState: (callback: any) => { push = callback; return () => {} },
-    })
-    const restore = stubRect(() => ({ x: 24, y: 96, width: 640, height: 480 }))
-    try {
-      const { root } = await mount()
-      await click(happyWindow.document.querySelector('#browser-open-passwords'))
-      await settle()
-      const opened = calls.find(call => call.action === 'open')
-      expect(typeof opened.viewId).toBe('string')
-      expect(typeof push).toBe('function')
-
-      await act(async () => {
-        push({ surface: 'passwords', viewId: opened.viewId, url: 'chrome://password-manager/passwords', title: 'Saved passwords', canGoBack: true, canGoForward: true })
-      })
-      expect(happyWindow.document.body.textContent).toContain('Saved passwords')
-      const back = happyWindow.document.querySelector('[data-native-nav="back"]') as any
-      const forward = happyWindow.document.querySelector('[data-native-nav="forward"]') as any
-      expect(back.disabled).toBe(false)
-      expect(forward.disabled).toBe(false)
-
-      calls.length = 0
-      await click(back)
-      await settle()
-      expect(calls[0]).toMatchObject({ surface: 'passwords', action: 'back', viewId: opened.viewId })
-      await click(forward)
-      await settle()
-      expect(calls[1]).toMatchObject({ surface: 'passwords', action: 'forward', viewId: opened.viewId })
-
-      await act(async () => {
-        push({ surface: 'passwords', viewId: opened.viewId, url: 'https://evil.example/', title: 'Evil page', canGoBack: false, canGoForward: false })
-      })
-      expect(happyWindow.document.body.textContent).not.toContain('Evil page')
-
-      await act(async () => {
-        push({ surface: 'passwords', viewId: opened.viewId, url: 'chrome://password-manager/passwords/detail', title: 'Detail', canGoBack: false, canGoForward: false })
-      })
-      const section = happyWindow.document.querySelector('[data-native-crumb="section"]') as any
-      expect(section.disabled).toBe(false)
-      calls.length = 0
-      await click(section)
-      await settle()
-      expect(calls[0]).toMatchObject({ surface: 'passwords', action: 'navigate', url: 'chrome://password-manager/passwords', viewId: opened.viewId })
-
-      calls.length = 0
-      happyWindow.document.documentElement.dataset.theme = 'dark'
-      await act(async () => { happyWindow.dispatchEvent(new happyWindow.CustomEvent('klaus:theme-change')) })
-      await settle()
-      expect(calls.find(call => call.action === 'theme')).toMatchObject({ surface: 'passwords', action: 'theme', theme: 'dark', viewId: opened.viewId })
-      await act(async () => { root.unmount() })
-    } finally {
-      happyWindow.document.documentElement.dataset.theme = 'light'
-      restore()
-    }
-  })
-
 })

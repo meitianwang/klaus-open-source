@@ -11,7 +11,9 @@ import type {
   BrowserImportCounts,
   BrowserImportIssue,
   BrowserImportRequest,
-  BrowserImportResult,
+  BrowserImportTarget,
+  BrowserPasswordDecryptor,
+  BrowserSourceRoot,
 } from './browser-import';
 
 export const BROWSER_IMPORT_JOB_STAGES = [
@@ -44,24 +46,29 @@ export interface BrowserImportJobHandle {
   snapshot: BrowserImportJobSnapshot;
 }
 
-/**
- * Native backend that performs browser profile discovery and import. It is
- * initialized lazily by the importer factory and receives the service-owned
- * AbortSignal for cancellation.
- */
-export interface BrowserProfileImportBackend {
-  discover(signal: AbortSignal): Promise<BrowserDiscoveryResult>;
-  importProfile(
-    requestId: string,
-    request: BrowserImportRequest,
-    signal: AbortSignal,
-  ): Promise<BrowserImportResult>;
+/** A decryptor that owns helper/process resources and must be closed. */
+export interface ManagedDecryptor extends BrowserPasswordDecryptor {
+  close(): Promise<void>;
 }
 
+export type BrowserImportJobRoots =
+  | readonly BrowserSourceRoot[]
+  | (() => readonly BrowserSourceRoot[]);
+
 export interface BrowserImportJobOptions {
+  /**
+   * Root list or path-producing function. Discovery is not performed here;
+   * only the explicit discover/start entry points read Local State.
+   */
+  roots: BrowserImportJobRoots;
   configRoot: string;
-  /** Initialize the native backend for discovery or import. */
-  importer(signal: AbortSignal): Promise<BrowserProfileImportBackend>;
+  /** Initialize the runtime target for this import. */
+  target(request: BrowserImportRequest, signal: AbortSignal): Promise<BrowserImportTarget>;
+  /** Create the decryption adapter lazily on the first encrypted value. */
+  createDecryptor(
+    source: BrowserSourceRoot,
+    signal: AbortSignal,
+  ): ManagedDecryptor;
   /** High-level stage/counts progress. Never receives row values. */
   emit(ownerId: string, snapshot: BrowserImportJobSnapshot): void;
   /** Number of terminal snapshots retained per owner. Default 10. */

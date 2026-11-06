@@ -102,12 +102,16 @@ async function main(): Promise<number> {
   let enabled = true;
   let acknowledgePanelOpen = true;
   let observePanelOpen: ((payload: BrowserObject) => void) | undefined;
+  const permissionRequests: string[] = [];
   const authorizationRequests: Array<{ sessionId: string; url: string; resource: string }> = [];
+  const sitePermissions = new Map<string, 'granted' | 'denied'>();
   const openedDownloads: string[] = [];
   const revealedDownloads: string[] = [];
   let manager!: BrowserManager;
   manager = new BrowserManager({
     window, configRoot: profile!, enabled: () => enabled, dialogTimeoutMs: 3000,
+    requestPermission: async request => { permissionRequests.push(request.permission); return false; },
+    sitePermission: (origin, permission) => sitePermissions.get(`${origin}\u0000${permission}`),
     downloadDirectory: () => join(profile!, 'browser-downloads'),
     promptForUserDownloads: () => false,
     openDownloadPath: async path => { openedDownloads.push(path); return ''; },
@@ -158,6 +162,28 @@ async function main(): Promise<number> {
     assertDeepEqual(pageA.native.getBounds(), { x: 100, y: 100, width: 700, height: 500 }, 'view bounds');
     const globals = await pageA.cdp.evaluate('({require:typeof require,process:typeof process,klaus:typeof window.klaus,host:typeof window.__KLAUS_DESKTOP__})');
     assertDeepEqual(globals, { require: 'undefined', process: 'undefined', klaus: 'undefined', host: 'undefined' }, 'remote page has no host bridge');
+  });
+
+  h.test('screen wake locks can be reacquired without a permission dialog', async () => {
+    await waitFor(async () => {
+      app.focus({ steal: true }); window.focus(); pageA.native.focus();
+      return await pageA.cdp.evaluate('document.visibilityState') === 'visible';
+    }, 3000, 'the requesting page is visible');
+    const promptCount = permissionRequests.length;
+    const query = 'navigator.permissions.query({name:"screen-wake-lock"}).then(p=>p.state)';
+    assertEqual(await pageA.cdp.evaluate(query), 'granted', 'the permission check uses the silent default');
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      assertEqual(await pageA.cdp.evaluate('(async()=>{const lock=await navigator.wakeLock.request("screen");const acquired=!lock.released;await lock.release();return acquired&&lock.released})()'), true, 'the real page acquires and releases its wake lock');
+    }
+    assertEqual(permissionRequests.length, promptCount, 'repeated wake locks never ask the user');
+    await manager.setPermission(pageA, { action: 'set', origin: base, permission: 'screen-wake-lock', setting: 'denied' });
+    assertEqual(await pageA.cdp.evaluate(query), 'denied', 'an explicit site denial overrides the default');
+    assertEqual(await pageA.cdp.evaluate('navigator.wakeLock.request("screen").then(()=>false,error=>error.name==="NotAllowedError")'), true, 'the real request respects an explicit denial');
+    assertEqual(permissionRequests.length, promptCount, 'an explicit denial stays silent');
+    await manager.setPermission(pageA, { action: 'reset' });
+    assertEqual(await pageA.cdp.evaluate(query), 'granted', 'reset restores the silent default');
+    assertEqual(await pageA.cdp.evaluate('Notification.requestPermission()'), 'denied', 'notifications still require a decision');
+    assertDeepEqual(permissionRequests.slice(promptCount), ['notifications'], 'only the notification requested confirmation');
   });
 
   const nextPanelOpen = (): Promise<BrowserObject> => new Promise((resolveOpen, rejectOpen) => {
@@ -332,11 +358,11 @@ async function main(): Promise<number> {
     assertEqual(still.tabId, pageA.id, 'the capture names the page on screen');
     const size = nativeImage.createFromDataURL(String(still.dataUrl)).getSize();
     assert(size.width > 0 && size.height > 0, 'the still decodes to a real image');
-    app.focus({ steal: true }); window.focus(); pageA.native.focus();
-    await waitFor(() => pageA.native.isFocused(), 3000, 'the page holds keyboard focus');
+    app.focus({ steal: true }); window.focus(); pageA.view.webContents.focus();
+    await waitFor(() => pageA.view.webContents.isFocused(), 3000, 'the page holds keyboard focus');
     await invoke('browser-use:hide');
     await waitFor(() => window.webContents.isFocused(), 3000, 'the window page takes focus back for its dialog');
-    assert(!pageA.native.isFocused(), 'the detached page no longer receives keys');
+    assert(!pageA.view.webContents.isFocused(), 'the detached page no longer receives keys');
     const hidden = await invoke('browser-use:screenshot', { presented: true });
     assertEqual(hidden.ok, false, 'nothing on screen means nothing to capture');
     assertEqual(hidden.code, 'not_found', 'a precise refusal');
@@ -347,8 +373,7 @@ async function main(): Promise<number> {
     manager.setConversation('A');
     assertDeepEqual(manager.listPages('A').map(page => page.id), before, 'the task keeps exactly its pages');
     await invoke('browser-use:show', { sessionId: 'A', focusRevision: manager.focusRevision, bounds: { x: 120, y: 110, width: 650, height: 480 } });
-    assertEqual(manager.state().visible, true, 'the page returns after the overlay');
-    assert(manager.page('A').native === pageA.native, 'the same native page returns');
+    assert(window.contentView.children.includes(pageA.view), 'the page returns after the overlay');
   });
 
   h.test('task switches reject old scopes and foreign handles while background work keeps its own page', async () => {
@@ -632,15 +657,16 @@ async function main(): Promise<number> {
     manager.releaseConversation(session);
   });
 
-  h.test('genuine Profile site permissions apply and reset for the page origin', async () => {
+  h.test('persistent site permissions override task memory until the policy changes', async () => {
     const session = 'site-policy';
     const page = await manager.createTab(session, `${base}/site-policy`);
     const origin = new URL(base).origin;
-    const query = 'navigator.permissions.query({name:"geolocation"}).then(p=>p.state)';
-    await manager.setSitePermission({ origin, permission: 'geolocation', setting: 'denied' });
-    assertEqual(await page.cdp.evaluate(query), 'denied', 'genuine Profile denial applies');
-    await manager.setSitePermission({ origin, permission: 'geolocation', setting: 'prompt' });
-    assertEqual(await page.cdp.evaluate(query), 'prompt', 'genuine Profile prompt reset applies');
+    const key = `${origin}\u0000screen-wake-lock`;
+    sitePermissions.set(key, 'denied');
+    assertEqual(await page.cdp.evaluate('navigator.permissions.query({name:"screen-wake-lock"}).then(p=>p.state)'), 'denied', 'persistent site denial');
+    sitePermissions.delete(key);
+    manager.refreshPermissions();
+    assertEqual(await page.cdp.evaluate('navigator.permissions.query({name:"screen-wake-lock"}).then(p=>p.state)'), 'granted', 'policy refresh takes effect without a restart');
     manager.releaseConversation(session);
   });
 

@@ -7,14 +7,12 @@ export type NativeNavigationOrigin = BrowserVisitSource;
 export interface NativeNavigationCdp {
   command(method: string, params?: BrowserObject, frame?: string): Promise<BrowserObject>;
   onEvent(listener: (method: string, params: BrowserObject, frame?: string) => void): () => void;
-  ownedFrameTargets?(): string[];
 }
 
 export interface NativeNavigationLease {
   readonly sessionId: string;
   readonly pageHandle: number;
   readonly source: NativeNavigationOrigin;
-  readonly requiresAuthorization?: boolean;
   readonly signal: AbortSignal;
   release(): void;
 }
@@ -50,7 +48,6 @@ export class NativeNavigationLeases implements NativeNavigationLeaseSource {
     pageHandle: number,
     source: NativeNavigationOrigin,
     signal?: AbortSignal,
-    requiresAuthorization = source === 'agent',
   ): NativeNavigationLease {
     if (!sessionId) throw new BrowserError('invalid_request', 'A browser session id is required.');
     if (!validPageHandle(pageHandle)) throw new BrowserError('invalid_request', 'pageHandle must be a positive integer.');
@@ -71,7 +68,7 @@ export class NativeNavigationLeases implements NativeNavigationLeaseSource {
     const lease: NativeNavigationLease = {
       sessionId,
       pageHandle,
-      source, requiresAuthorization,
+      source,
       signal: controller.signal,
       release: (): void => {
         if (released) return;
@@ -105,11 +102,10 @@ export interface NativeNavigationGateOptions {
   cdp: NativeNavigationCdp;
   leases: NativeNavigationLeaseSource;
   assertNavigation(url: unknown): string;
-  mainFrameId?(): string;
   authorize?(
     sessionId: string,
     url: string,
-    resource: 'browsing' | 'uploads',
+    resource: 'browsing',
     signal: AbortSignal,
   ): Promise<void> | void;
 }
@@ -121,7 +117,6 @@ interface PausedNavigation {
   frame?: string;
   controller: AbortController;
   settled: boolean;
-  resource: 'browsing' | 'uploads';
   cleanup(): void;
   fail(reason: FailReason): Promise<void>;
 }
@@ -146,9 +141,6 @@ export class NativeNavigationGate {
   private mainFrameId = '';
   private readonly pending = new Map<string, PausedNavigation>();
   private readonly visitSources = new Map<string, NativeNavigationOrigin>();
-  private uploadSignal: AbortSignal | undefined;
-  private readonly uploadChains = new Set<string>();
-  private readonly uploadAborted = (): void => { void this.setUploadLease(); };
 
   constructor(private readonly options: NativeNavigationGateOptions) {
     if (!options.sessionId) throw new BrowserError('invalid_request', 'A browser session id is required.');
@@ -185,35 +177,6 @@ export class NativeNavigationGate {
     return source;
   }
 
-  /** Intercept file-bearing requests only while selected files belong to agent input. */
-  setUploadLease(signal?: AbortSignal): Promise<void> {
-    this.uploadSignal?.removeEventListener('abort', this.uploadAborted);
-    this.uploadSignal = signal?.aborted ? undefined : signal;
-    this.uploadSignal?.addEventListener('abort', this.uploadAborted, { once: true });
-    if (!this.uploadSignal) this.uploadChains.clear();
-    const cancelled = this.uploadSignal ? Promise.resolve()
-      : Promise.all([...this.pending.values()].filter(record => record.resource === 'uploads').map(record => record.fail('Aborted'))).then(() => {});
-    return cancelled.then(() => this.queue(async () => {
-      if (!this.enabled) return;
-      await this.configureRequests();
-    }));
-  }
-
-  private async configureRequests(frame?: string): Promise<void> {
-    const patterns = [{ resourceType: 'Document', requestStage: 'Request' }];
-    if (this.uploadSignal) patterns.push(
-      { resourceType: 'XHR', requestStage: 'Request' },
-      { resourceType: 'Fetch', requestStage: 'Request' },
-    );
-    await this.options.cdp.command('Fetch.enable', { patterns }, frame);
-    if (frame === undefined && this.uploadSignal) {
-      await Promise.all((this.options.cdp.ownedFrameTargets?.() ?? []).map(target => this.configureRequests(target)));
-    } else if (frame === undefined) {
-      await Promise.all((this.options.cdp.ownedFrameTargets?.() ?? []).map(target =>
-        this.options.cdp.command('Fetch.disable', {}, target).catch(() => {})));
-    }
-  }
-
   private queue(work: () => Promise<void>): Promise<void> {
     const run = this.lifecycle.then(work);
     this.lifecycle = run.then(() => {}, () => {});
@@ -228,18 +191,16 @@ export class NativeNavigationGate {
     const unsubscribe = this.options.cdp.onEvent((method, params, frame) => {
       if (generation !== this.generation || this.unsubscribe !== unsubscribe) return;
       if (method === 'Fetch.requestPaused') void this.onPaused(params, frame).catch(() => {});
-      else if (method === 'Target.attachedToTarget' && this.uploadSignal && object(params.targetInfo).type === 'iframe') {
-        const target = object(params.targetInfo).targetId;
-        if (typeof target === 'string') void this.configureRequests(target).catch(() => {});
-      }
     });
     this.unsubscribe = unsubscribe;
     try {
-      const tree = this.options.mainFrameId ? undefined : object((await this.options.cdp.command('Page.getFrameTree')).frameTree);
-      const mainFrameId = this.options.mainFrameId?.() ?? String(object(tree?.frame).id ?? '');
+      const tree = object((await this.options.cdp.command('Page.getFrameTree')).frameTree);
+      const mainFrameId = String(object(tree.frame).id ?? '');
       if (!mainFrameId) throw new BrowserError('host_error', 'The native page returned no main frame id.');
       this.mainFrameId = mainFrameId;
-      await this.configureRequests();
+      await this.options.cdp.command('Fetch.enable', {
+        patterns: [{ resourceType: 'Document', requestStage: 'Request' }],
+      });
       if (generation !== this.generation || this.unsubscribe !== unsubscribe) return;
       this.enabled = true;
     } catch (error) {
@@ -256,9 +217,6 @@ export class NativeNavigationGate {
   }
 
   private async stopInternal(): Promise<void> {
-    this.uploadSignal?.removeEventListener('abort', this.uploadAborted);
-    this.uploadSignal = undefined;
-    this.uploadChains.clear();
     this.enabled = false;
     this.unsubscribe?.();
     this.unsubscribe = undefined;
@@ -267,8 +225,6 @@ export class NativeNavigationGate {
     this.visitSources.clear();
     this.mainFrameId = '';
     try { await this.options.cdp.command('Fetch.disable'); } catch { /* the page may already be closing */ }
-    await Promise.all((this.options.cdp.ownedFrameTargets?.() ?? []).map(target =>
-      this.options.cdp.command('Fetch.disable', {}, target).catch(() => {})));
   }
 
   private async onPaused(params: BrowserObject, frame?: string): Promise<void> {
@@ -276,17 +232,15 @@ export class NativeNavigationGate {
     const requestId = typeof params.requestId === 'string' ? params.requestId : '';
     if (!requestId) return;
     const resourceType = typeof params.resourceType === 'string' ? params.resourceType : '';
-    const request = object(params.request);
-    const mainDocument = (!resourceType || resourceType === 'Document') && String(params.frameId ?? '') === this.mainFrameId;
-    const redirect = typeof params.redirectedRequestId === 'string' && this.uploadChains.has(params.redirectedRequestId);
-    const upload = !!this.uploadSignal && !this.uploadSignal.aborted && (
-      resourceType === 'Document' || request.hasPostData === true || redirect ||
-      ['POST', 'PUT', 'PATCH'].includes(String(request.method).toUpperCase()));
-    if (!mainDocument && !upload) {
+    if (resourceType && resourceType !== 'Document') {
       await this.continueRequest(requestId, frame);
       return;
     }
-    if (upload) this.uploadChains.add(requestId);
+    if (String(params.frameId ?? '') !== this.mainFrameId) {
+      await this.continueRequest(requestId, frame);
+      return;
+    }
+    const request = object(params.request);
     const rawUrl = typeof request.url === 'string' ? request.url : '';
     if (!rawUrl) {
       await this.failRequest(requestId, frame, 'BlockedByClient');
@@ -300,10 +254,9 @@ export class NativeNavigationGate {
     }
 
     const lease = this.options.leases.current(this.options.sessionId, this.options.pageHandle);
-    const source = lease?.source ?? (upload ? 'agent' : 'other');
-    const resource = upload ? 'uploads' : 'browsing';
+    const source = lease?.source ?? 'other';
     const controller = new AbortController();
-    const parent = lease?.signal ?? (upload ? this.uploadSignal : undefined);
+    const parent = lease?.signal;
     let record: PausedNavigation;
     const onLeaseAbort = (): void => {
       controller.abort(parent?.reason);
@@ -313,7 +266,7 @@ export class NativeNavigationGate {
       requestId,
       ...(frame === undefined ? {} : { frame }),
       controller,
-      settled: false, resource,
+      settled: false,
       cleanup: () => { parent?.removeEventListener('abort', onLeaseAbort); },
       fail: reason => this.failRecord(record, reason),
     };
@@ -327,8 +280,8 @@ export class NativeNavigationGate {
     try {
       if (record.settled) return;
       signal.throwIfAborted();
-      if ((upload || (lease?.requiresAuthorization ?? source === 'agent')) && this.options.authorize) {
-        await this.options.authorize(this.options.sessionId, url, resource, signal);
+      if (source === 'agent' && this.options.authorize) {
+        await this.options.authorize(this.options.sessionId, url, 'browsing', signal);
       }
       signal.throwIfAborted();
       if (record.settled) return;
@@ -337,7 +290,7 @@ export class NativeNavigationGate {
       record.settled = true;
       this.pending.delete(requestId);
       record.cleanup();
-      if (mainDocument) this.rememberVisit(url, source);
+      this.rememberVisit(url, source);
     } catch {
       await record.fail('BlockedByClient');
     }

@@ -2,7 +2,6 @@ import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test
 import { Window } from 'happy-dom'
 import { importRetrySelection, mergeImportSummary } from './browser-import-model'
 import type { BrowserImportJobSnapshot } from '../../../../contracts/browser-import-jobs'
-import discoveryVectors from '../../../../contracts/vectors/browser-profile-discovery-vectors.json'
 
 const all = { cookies: true, passwords: true, history: true, extensions: true }
 const one = { cookies: true, passwords: false, history: false, extensions: false }
@@ -95,153 +94,19 @@ afterAll(() => {
 beforeAll(() => { requests = []; cancelled = []; closed = 0 })
 
 describe('browser import dialog lifecycle', () => {
-  test('discovery results distinguish an empty list, access errors and readable sources', async () => {
-    for (const row of discoveryVectors.outcomes) {
-      const root = await mount(makeApi({
-        discover: async () => ({ profiles: row.hasProfile ? profiles : [], errors: row.codes.map(code => ({ sourceId: 'edge', code, message: 'Synthetic discovery issue' })) }),
-      }))
-      const body = happyWindow.document.body.textContent
-      expect(button('Import').disabled).toBe(!row.canImport)
-      expect(Boolean(button('Retry'))).toBe(row.canRetry)
-      expect(body.includes('No supported browser profiles were found.')).toBe(row.state === 'empty')
-      expect(body.includes('Your system blocked access to browser profiles.')).toBe(row.state === 'permission' || row.state === 'partial')
-      expect(body.includes('Browser profiles could not be loaded.')).toBe(row.state === 'failed')
-      expect(body.includes('Some browser profiles could not be read.')).toBe(row.state === 'partial')
-      await unmount(root)
-    }
-  })
-
-  test('a denied discovery offers explicit settings navigation and a user-driven retry', async () => {
-    let reads = 0, opened = 0
-    const root = await mount(makeApi({
-      discover: async () => ++reads === 1
-        ? { profiles: [], errors: [{ sourceId: 'chrome', code: 'source_permission_denied', message: 'Synthetic access denial' }] }
-        : { profiles, errors: [] },
-      openPermissionSettings: async () => { opened++ },
-      fileAccessStatus: async () => 'denied',
-    }))
-    expect(happyWindow.document.body.textContent).toContain('macOS blocked access to browser profiles.')
-    expect(button('Import').disabled).toBe(true)
-    expect(reads).toBe(1)
-    expect(opened).toBe(0)
-    await click(button('Open System Settings'))
-    expect(opened).toBe(1)
-    expect(reads).toBe(1)
-    await click(button('Retry'))
-    expect(reads).toBe(2)
-    expect(button('Import').disabled).toBe(false)
-    expect(button('Open System Settings')).toBeUndefined()
-    await unmount(root)
-  })
-
-  test('file access guidance follows the observed authorization state', async () => {
-    for (const row of discoveryVectors.permissionGuidance) {
-      const root = await mount(makeApi({
-        discover: async () => ({ profiles: [], errors: [{ sourceId: 'chrome', code: 'source_permission_denied', message: 'Synthetic access denial' }] }),
-        fileAccessStatus: async () => row.status,
-        openPermissionSettings: async () => {},
-      }))
-      const body = happyWindow.document.body.textContent
-      expect(Boolean(button('Open System Settings'))).toBe(row.openSettings)
-      expect(body.includes('quit and reopen')).toBe(row.asksForRestart)
-      expect(body.includes('Full Disk Access is already granted')).toBe(row.alreadyGranted)
-      expect(button('Import').disabled).toBe(true)
-      await unmount(root)
-    }
-  })
-
-  test('granted file access does not direct the user to authorize or restart again', async () => {
-    let reads = 0, checks = 0
-    const root = await mount(makeApi({
-      discover: async () => { reads++; return { profiles: [], errors: [{ sourceId: 'chrome', code: 'source_permission_denied', message: 'Synthetic access denial' }] } },
-      fileAccessStatus: async () => { checks++; return 'granted' },
-      openPermissionSettings: async () => { throw new Error('Settings must not be opened') },
-    }))
-    expect(happyWindow.document.body.textContent).toContain('Full Disk Access is already granted')
-    expect(happyWindow.document.body.textContent).toContain('security software or device management policies')
-    expect(button('Open System Settings')).toBeUndefined()
-    expect(button('Import').disabled).toBe(true)
-    expect(reads).toBe(1)
-    expect(checks).toBe(1)
-    await click(button('Retry'))
-    expect(reads).toBe(2)
-    expect(checks).toBe(2)
-    await unmount(root)
-  })
-
-  test('permission status is not checked for successful discovery', async () => {
-    let checks = 0
-    const root = await mount(makeApi({ fileAccessStatus: async () => { checks++; return 'granted' } }))
-    expect(checks).toBe(0)
-    expect(button('Import').disabled).toBe(false)
-    await unmount(root)
-  })
-
-  test('a failed permission probe preserves the source failure without claiming authorization is missing', async () => {
-    const root = await mount(makeApi({
-      discover: async () => ({ profiles: [], errors: [{ sourceId: 'chrome', code: 'source_permission_denied', message: 'Synthetic access denial' }] }),
-      fileAccessStatus: async () => { throw new Error('Synthetic probe failure') },
-      openPermissionSettings: async () => {},
-    }))
-    expect(happyWindow.document.body.textContent).toContain('File access permissions, security software or device policies')
-    expect(happyWindow.document.body.textContent).not.toContain('quit and reopen')
-    expect(button('Import').disabled).toBe(true)
-    await unmount(root)
-  })
-
-  test('a retry exception does not reuse the previous permission diagnosis', async () => {
-    let reads = 0
-    const root = await mount(makeApi({
-      discover: async () => {
-        if (++reads > 1) throw new Error('Synthetic discovery failure')
-        return { profiles: [], errors: [{ sourceId: 'chrome', code: 'source_permission_denied', message: 'Synthetic access denial' }] }
-      },
-    }))
-    await click(button('Retry'))
-    expect(happyWindow.document.body.textContent).toContain('Browser profiles could not be loaded.')
-    expect(happyWindow.document.body.textContent).not.toContain('Your system blocked access to browser profiles.')
-    expect(button('Import').disabled).toBe(true)
-    await unmount(root)
-  })
-
-  test('failed settings navigation preserves the denied state and exposes the error', async () => {
-    const root = await mount(makeApi({
-      discover: async () => ({ profiles: [], errors: [{ sourceId: 'chrome', code: 'source_permission_denied', message: 'Synthetic access denial' }] }),
-      openPermissionSettings: async () => { throw new Error('Synthetic settings navigation failure') },
-    }))
-    await click(button('Open System Settings'))
-    expect(happyWindow.document.body.textContent).toContain('System Settings could not be opened.')
-    expect(button('Import').disabled).toBe(true)
-    await unmount(root)
-  })
-
-  test('the single profile has no picker and defaults match the import contract', async () => {
+  test('the single profile has no picker and defaults include history', async () => {
     requests = []; cancelled = []; closed = 0
-    const root = await mount(makeApi())
+    await mount(makeApi())
     expect(happyWindow.document.querySelector('select')).toBeNull()
-    expect(Array.from(happyWindow.document.querySelectorAll('input')).map((input: any) => input.checked)).toEqual([true, true, false, false])
+    expect(Array.from(happyWindow.document.querySelectorAll('input')).map((input: any) => input.checked)).toEqual([true, true, true, false])
     await click(button('Import'))
-    expect(requests[0].categories).toEqual({ cookies: true, passwords: true, history: false, extensions: false })
+    expect(requests[0].categories).toEqual({ cookies: true, passwords: true, history: true, extensions: false })
     expect(happyWindow.document.querySelector('[aria-busy="true"]')).not.toBeNull()
-    const cancel = button('Cancel')
-    expect(cancel).toBeDefined()
+    expect(button('Cancel')).toBeUndefined()
     await act(async () => { happyWindow.document.dispatchEvent(new happyWindow.KeyboardEvent('keydown', { key: 'Escape', bubbles: true })) })
     expect(closed).toBe(0)
     await click(happyWindow.document.querySelector('.kls-modal-overlay'))
     expect(closed).toBe(0)
-
-    await click(cancel)
-    await click(cancel)
-    expect(cancelled).toEqual(['job'])
-    expect(button('Done')).toBeUndefined()
-    await push(snapshot('job', { stage: 'importing', revision: 2 }))
-    expect(button('Done')).toBeUndefined()
-    await push(snapshot('job', { stage: 'cancelled', revision: 3 }))
-    await waitForReveal()
-    expect(button('Done')).toBeDefined()
-    expect(happyWindow.document.body.textContent).toContain('Import cancelled')
-    await unmount(root)
-    expect(cancelled).toEqual(['job'])
   })
 
   test('extensions require a separate confirmation and cancellation returns to the form', async () => {
@@ -268,7 +133,7 @@ describe('browser import dialog lifecycle', () => {
     await click(button('Import'))
     await waitForReveal()
     expect(button('Done')).toBeDefined()
-    expect(happyWindow.document.querySelectorAll('[data-state="complete"]').length).toBe(2)
+    expect(happyWindow.document.querySelectorAll('[data-state="complete"]').length).toBe(3)
     await push(snapshot('fast', { stage: 'importing', revision: 1 }))
     expect(button('Done')).toBeDefined()
   })
@@ -303,27 +168,4 @@ describe('browser import dialog lifecycle', () => {
     expect(cancelled).toEqual(['late'])
     expect(subscriptions.size).toBe(0)
   })
-
-  test('cancelling before start returns cancels the late job immediately', async () => {
-    requests = []; cancelled = []; closed = 0
-    let resolveStart: any
-    const root = await mount(makeApi({ start: (request: any) => {
-      requests.push(request)
-      return new Promise(done => { resolveStart = done })
-    } }))
-    await click(button('Import'))
-    await click(button('Cancel'))
-    expect(cancelled).toEqual([])
-    expect(button('Done')).toBeUndefined()
-    await act(async () => { resolveStart({ jobId: 'late', snapshot: snapshot('late', { stage: 'importing', revision: 1 }) }) })
-    await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)) })
-    expect(cancelled).toEqual(['late'])
-    expect(button('Done')).toBeUndefined()
-    await push(snapshot('late', { stage: 'cancelled', revision: 2 }))
-    await waitForReveal()
-    expect(button('Done')).toBeDefined()
-    await unmount(root)
-    expect(cancelled).toEqual(['late'])
-  })
-
 })

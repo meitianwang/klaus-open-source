@@ -11,7 +11,6 @@ import { getPluginLogoSrc } from '../../icons/extension-logos'
 import { resourceReference } from '../../chat/composer/resource-reference'
 import { PluginDetail } from './PluginDetail'
 import { operationPending, pluginErrorKey, pluginStore, type PluginItem, type PluginOperation } from './plugin-store'
-import { pluginActivationNote } from './activation-note'
 import styles from './plugins.module.css'
 
 const w = () => window as any
@@ -60,8 +59,16 @@ export function PluginsPage() {
     if (!(await w().klausDialog.confirm({ message: `${t('plugins_uninstall_confirm')}\n\n${pluginName(plugin)}`, danger: true }))) return
     if (await pluginStore.uninstall(plugin)) showToast(t('settings_skills_uninstalled_toast'))
   }
+  const activationNote = (operation?: PluginOperation): string => {
+    const result = operation?.result
+    if (!result) return ''
+    if (result.restartRequired || result.activationScope === 'endpoint_restart') return t('plugins_effect_restart')
+    if (result.appliedToCurrentSession) return t('plugins_effect_now')
+    if (result.activationScope === 'next_turn') return t('plugins_effect_next_turn')
+    return ''
+  }
   const completionToast = (base: string, plugin: PluginItem): string => {
-    const note = pluginActivationNote(pluginStore.getSnapshot().operations[plugin.id]?.result, t)
+    const note = activationNote(pluginStore.getSnapshot().operations[plugin.id])
     return note ? `${base}${note}` : base
   }
   const update = async (plugin: PluginItem) => {

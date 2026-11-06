@@ -26,10 +26,7 @@ test('native binding loader prepares the EventEmitter prototype and fails closed
   class FakeNativeBrowser {}
   const binding = {
     NativeBrowser: FakeNativeBrowser as unknown as NativeBrowserBinding['NativeBrowser'],
-    NativeProfile: class FakeNativeProfile {},
     create: async () => ({} as NativeBrowserHandle),
-    createProfile: async () => { throw new Error('This loader fixture does not open a Profile.'); },
-    managementUrl: () => 'chrome://settings/content',
   };
   assert.equal(loadNativeBrowserBinding(() => binding), binding);
   assert.equal(Object.getPrototypeOf(FakeNativeBrowser.prototype), EventEmitter.prototype);
@@ -44,10 +41,7 @@ test('native browser events receive the prepended Electron event object', () => 
   class FakeNativeBrowser {}
   const binding = {
     NativeBrowser: FakeNativeBrowser as unknown as NativeBrowserBinding['NativeBrowser'],
-    NativeProfile: class FakeNativeProfile {},
     create: async () => ({} as NativeBrowserHandle),
-    createProfile: async () => { throw new Error('This loader fixture does not open a Profile.'); },
-    managementUrl: () => 'chrome://settings/content',
   };
   loadNativeBrowserBinding(() => binding);
   const instance = new FakeNativeBrowser() as unknown as EventEmitter;

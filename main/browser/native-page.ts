@@ -3,10 +3,7 @@ import { randomUUID } from 'node:crypto';
 import type { BaseWindow } from 'electron';
 import { BrowserError, message, type BrowserBounds } from './types';
 import type { PageActivityLease, PageDebuggerChannel, PageTransport } from './page-transport';
-import type { NativeProfileImportHandle } from './native-import';
-import type { NativeSourceImportHandle } from './native-source-import';
-import type { BrowserImportHistoryEntry } from '../../contracts/browser-import';
-import type { BrowserDownloadNetwork, NativeDownloadSnapshot, NativeDownloadTarget, NativeProfileDownloadController } from './native-downloads';
+import type { BrowserDownloadNetwork } from './native-downloads';
 
 export interface NativeBrowserState {
   url: string;
@@ -14,7 +11,6 @@ export interface NativeBrowserState {
   loading: boolean;
   canGoBack: boolean;
   canGoForward: boolean;
-  viewport?: BrowserBounds;
 }
 
 export interface NativeProfileHeaders {
@@ -48,71 +44,34 @@ export interface NativeProfileRequestHandle {
   cancelRequest(id: string): void;
 }
 
-export interface NativeProfileHandle extends NativeProfileRequestHandle, NativeProfileDownloadController, NativeProfileImportHandle, NativeSourceImportHandle {
-  startObserving(): NativeDownloadSnapshot[];
-  getDownloads(): NativeDownloadSnapshot[];
-  setSitePermission(origin: string, name: string, setting: 'granted' | 'denied' | 'prompt'): { ok: true };
-  getSitePermission(origin: string, name: string): { origin: string; permission: string; setting: 'granted' | 'denied' | 'prompt' };
-  on(event: 'download-created' | 'download-updated', listener: (event: unknown, snapshot: NativeDownloadSnapshot) => void): this;
-  on(event: 'download-target', listener: (event: unknown, target: NativeDownloadTarget) => void): this;
-  on(event: 'download-removed', listener: (event: unknown, id: string) => void): this;
-  on(event: 'imported-history', listener: (event: unknown, requestId: string, rows: BrowserImportHistoryEntry[]) => void): this;
-  removeAllListeners(): this;
-  clearData(kind: 'all' | 'cache' | 'cookies' | 'siteData' | 'history' | 'downloads'): Promise<{ ok: true }>;
-  dispose(): void;
-}
-
-export interface NativePopupInfo {
-  url: string;
-  disposition: number;
-  sessionId: string;
-  pageId: string;
-  isActorVisit: boolean;
-  requiresAuthorization: boolean;
-}
-
 export interface NativeBrowserHandle extends NativePageHandle, NativeProfileRequestHandle {
   close(): void;
-  getMainFrameId(): string;
-  resumePopup(): void;
-  cancelPopup(): void;
   getURL(): string;
   getTitle(): string;
-  getZoomFactor(): number;
-  setPermission(origin: string, name: string, setting: 'granted' | 'denied' | 'prompt'): void;
-  resetPermissions(): void;
-  find(query: string, options: { forward?: boolean; findNext?: boolean; matchCase?: boolean }): Promise<{ matches: number; active: number }>;
-  stopFind(clear: boolean): void;
   getState(): NativeBrowserState;
   loadURL(url: string): void;
   setBounds(bounds: BrowserBounds): void;
   getBounds(): BrowserBounds;
   setParent(parent: BaseWindow): void;
   setVisible(visible: boolean): void;
-  setDownloadSourceMetadata(metadata: { sessionId: string; pageId: string; isActorVisit: boolean; requiresAuthorization: boolean }): void;
-  setTheme(theme: 'light' | 'dark'): void;
   focus(): void;
-  isFocused(): boolean;
   setBubbleAnchor(anchor: BrowserBounds): void;
   getBubbleAnchor(): BrowserBounds;
   loadExtension(path: string): Promise<NativeExtensionInfo>;
-  on(event: 'popup-created', listener: (event: unknown, page: NativeBrowserHandle, info: NativePopupInfo) => void): this;
   on(event: 'did-navigate' | 'did-navigate-in-page', listener: (event: unknown, url: string) => void): this;
   on(event: 'page-title-updated', listener: (event: unknown, title: string) => void): this;
   on(event: 'render-process-gone', listener: (event: unknown, status: number) => void): this;
-  on(event: 'did-start-loading' | 'did-stop-loading' | 'destroyed' | 'manual-input', listener: (event: unknown) => void): this;
-  removeListener(event: 'popup-created', listener: (event: unknown, page: NativeBrowserHandle, info: NativePopupInfo) => void): this;
+  on(event: 'did-start-loading' | 'did-stop-loading' | 'destroyed', listener: (event: unknown) => void): this;
   removeListener(event: 'did-navigate' | 'did-navigate-in-page', listener: (event: unknown, url: string) => void): this;
   removeListener(event: 'page-title-updated', listener: (event: unknown, title: string) => void): this;
   removeListener(event: 'render-process-gone', listener: (event: unknown, status: number) => void): this;
-  removeListener(event: 'did-start-loading' | 'did-stop-loading' | 'destroyed' | 'manual-input', listener: (event: unknown) => void): this;
+  removeListener(event: 'did-start-loading' | 'did-stop-loading' | 'destroyed', listener: (event: unknown) => void): this;
 }
 
 export interface NativeBrowserCreateOptions {
   parent: BaseWindow;
   bounds: BrowserBounds;
   url?: string;
-  visible?: boolean;
 }
 
 export interface NativeBrowserConstructor {
@@ -121,11 +80,8 @@ export interface NativeBrowserConstructor {
 }
 
 export interface NativeBrowserBinding {
-  NativeProfile: { prototype: object };
   NativeBrowser: NativeBrowserConstructor;
   create(options: NativeBrowserCreateOptions): Promise<NativeBrowserHandle>;
-  createProfile(): Promise<NativeProfileHandle>;
-  managementUrl(surface: 'passwords' | 'autofill' | 'extensions' | 'siteSettings'): string;
 }
 
 type LinkedBindingLoader = (name: string) => unknown;
@@ -155,18 +111,21 @@ export function loadNativeBrowserBinding(load: LinkedBindingLoader = defaultLink
   if (raw === null || typeof raw !== 'object') {
     throw new BrowserError('unavailable', 'The native browser binding did not return an object.');
   }
-  const candidate = raw as { NativeBrowser?: unknown; NativeProfile?: unknown; create?: unknown; createProfile?: unknown; managementUrl?: unknown };
-  if (typeof candidate.NativeProfile !== 'function' || typeof candidate.NativeBrowser !== 'function' || typeof candidate.create !== 'function' || typeof candidate.createProfile !== 'function' || typeof candidate.managementUrl !== 'function') {
-    throw new BrowserError('unavailable', 'The native browser binding is missing NativeBrowser/NativeProfile/create/createProfile/managementUrl.');
+  const candidate = raw as { NativeBrowser?: unknown; create?: unknown };
+  if (typeof candidate.NativeBrowser !== 'function' || typeof candidate.create !== 'function') {
+    throw new BrowserError('unavailable', 'The native browser binding is missing NativeBrowser/create.');
   }
-  for (const constructor of [candidate.NativeBrowser, candidate.NativeProfile]) {
-    const prototype = (constructor as { prototype?: unknown }).prototype;
-    if (prototype === null || typeof prototype !== 'object') throw new BrowserError('unavailable', 'A native browser service has no prototype.');
-    if (!preparedPrototypes.has(prototype)) {
-      try { Object.setPrototypeOf(prototype, EventEmitter.prototype); }
-      catch (error) { throw new BrowserError('unavailable', 'The native service prototype could not be prepared: ' + message(error)); }
-      preparedPrototypes.add(prototype);
+  const prototype = (candidate.NativeBrowser as { prototype?: unknown }).prototype;
+  if (prototype === null || typeof prototype !== 'object') {
+    throw new BrowserError('unavailable', 'The native browser binding has no prototype.');
+  }
+  if (!preparedPrototypes.has(prototype)) {
+    try {
+      Object.setPrototypeOf(prototype, EventEmitter.prototype);
+    } catch (error) {
+      throw new BrowserError('unavailable', `The native browser prototype could not be prepared: ${message(error)}`);
     }
+    preparedPrototypes.add(prototype);
   }
   return raw as NativeBrowserBinding;
 }
