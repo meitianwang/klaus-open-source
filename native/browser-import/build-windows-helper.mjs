@@ -36,7 +36,7 @@ if (process.platform !== 'win32') {
 
 const build = spawnSync(
   'cargo',
-  ['build', '--release', '--manifest-path', resolve(project, 'Cargo.toml')],
+  ['build', '--release', '--manifest-path', resolve(project, 'Cargo.toml'), '--target-dir', resolve(project, 'target')],
   { cwd: project, stdio: 'inherit' },
 );
 if (build.error) {
