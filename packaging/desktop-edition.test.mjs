@@ -238,7 +238,8 @@ test('macOS regional primary executables require exact signed application identi
   await writeFile(join(bundle, path), binary);
   const options = { bundle, arch: 'arm64', identity: signingIdentity, teamId, electronVersion: '44.2.0', edition: edition.id };
   const run = (application, photos = true) => async (_command, args) => ({ stdout: args.includes('--entitlements') ? plist.build({
-    'com.apple.security.cs.allow-jit': true, 'com.apple.security.device.audio-input': true, 'com.apple.security.device.camera': true,
+    'com.apple.security.cs.allow-jit': true, 'com.apple.security.cs.disable-library-validation': true,
+    'com.apple.security.device.audio-input': true, 'com.apple.security.device.camera': true,
     ...(photos ? { 'com.apple.security.personal-information.photos-library': true } : {}),
   }) : args[0] === '--display' ? details(application) : '', stderr: '' });
   assert.equal((await verifyMacBundle({ ...options, run: run(edition.application) })).verified, true);

@@ -24,7 +24,13 @@ export function macSigningOptions({ app, arch, identity, electronVersion, editio
       if (inside.startsWith('..') || isAbsolute(inside)) throw new Error('Signing options cannot target a file outside the application');
       if (path === bundle || path === join(bundle, `Contents/MacOS/${edition.executableName}`)) return {
         hardenedRuntime: true,
-        entitlements: ['com.apple.security.cs.allow-jit', 'com.apple.security.device.audio-input', 'com.apple.security.device.camera',
+        // The main executable doubles as the host-provided Node runtime for
+        // session tools (KLAUS_NODE and the profile `node` shim both exec it).
+        // Skill and plugin JavaScript running there dlopens third-party native
+        // addons that are ad-hoc signed or signed by other teams; library
+        // validation would refuse every one of them, so this role disables it.
+        entitlements: ['com.apple.security.cs.allow-jit', 'com.apple.security.cs.disable-library-validation',
+          'com.apple.security.device.audio-input', 'com.apple.security.device.camera',
           'com.apple.security.personal-information.photos-library'],
       };
       if (path === speech) return { hardenedRuntime: true, entitlements: ['com.apple.security.device.audio-input'] };

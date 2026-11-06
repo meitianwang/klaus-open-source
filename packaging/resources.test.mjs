@@ -188,6 +188,9 @@ test('macOS signing plan permits engine V8 JIT while keeping ordinary helper per
   assert(options.optionsForFile(app).entitlements.includes('com.apple.security.device.audio-input'));
   for (const file of [app, join(app, 'Contents/MacOS/Klaus')]) {
     assert(options.optionsForFile(file).entitlements.includes('com.apple.security.personal-information.photos-library'));
+    // The app executable doubles as the host Node runtime and must be able to
+    // load third-party native addons signed by other teams or ad-hoc.
+    assert(options.optionsForFile(file).entitlements.includes('com.apple.security.cs.disable-library-validation'));
   }
   const speech = options.binaries.find(file => file.endsWith('klaus-speech-helper'));
   const engine = options.binaries.find(file => file.endsWith('klaus-agent-stdio'));
