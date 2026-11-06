@@ -15,7 +15,7 @@ import { instanceIdentity } from '../main/app/instance-identity';
 import { NativeSubscriptionCredentials } from '../main/native/credentials';
 import type { NativeAddon } from '../main/native/binding';
 import { effectiveEnv } from '../main/engine/spawn';
-import { nodeResolvableInPath } from '../main/engine/js-runtime-env';
+import { ensureNodeShim, nodeResolvableInPath, nodeShimContent, nodeShimFileName, prependShimPath, type NodeShimIo } from '../main/engine/js-runtime-env';
 import { chromeDiscoveryDirectory } from '../main/browser/chrome-native-host';
 import { Harness } from './harness';
 
@@ -67,21 +67,27 @@ h.test('account defaults follow the build edition without issuing requests', () 
 });
 
 h.test('both editions keep engine directories profile-local despite inherited overrides', () => {
-  for (const expected of vectors.defaults) {
-    const root = join(tmpdir(), 'isolated-engine-profiles', expected.edition);
-    const environment = desktopEngineEnvironment(root, { PATH: join(root, 'absent-node-path') }, process.execPath);
-    assert.deepEqual(environment, [
-      ['KLAUS_CONFIG_DIR', root], ['KLAUS_PLUGIN_HOME', join(root, 'plugins')], ['KLAUS_SESSION_DIR', join(root, 'sessions')],
-      ['KLAUS_NODE', process.execPath], ['ELECTRON_RUN_AS_NODE', '1'],
-    ]);
-    const inherited = effectiveEnv({ command: 'fixture-engine', args: [], env: environment }, {
-      KLAUS_PLUGIN_HOME: join(tmpdir(), 'foreign-profile', 'plugins'),
-      KLAUS_SESSION_DIR: join(tmpdir(), 'foreign-profile', 'sessions'),
-    });
-    const paths = Object.fromEntries(inherited);
-    assert.equal(paths.KLAUS_PLUGIN_HOME, join(root, 'plugins'));
-    assert.equal(paths.KLAUS_SESSION_DIR, join(root, 'sessions'));
-  }
+  temporary(root => {
+    const appBinary = join(root, 'Klaus');
+    writeFileSync(appBinary, '');
+    const delimiter = process.platform === 'win32' ? ';' : ':';
+    for (const expected of vectors.defaults) {
+      const profile = join(root, expected.edition);
+      const environment = desktopEngineEnvironment(profile, { PATH: join(profile, 'absent-node-path') }, appBinary);
+      assert.deepEqual(environment, [
+        ['KLAUS_CONFIG_DIR', profile], ['KLAUS_PLUGIN_HOME', join(profile, 'plugins')], ['KLAUS_SESSION_DIR', join(profile, 'sessions')],
+        ['KLAUS_NODE', appBinary], ['ELECTRON_RUN_AS_NODE', '1'],
+        ['PATH', join(profile, 'runtime-bin') + delimiter + join(profile, 'absent-node-path')],
+      ]);
+      const inherited = effectiveEnv({ command: 'fixture-engine', args: [], env: environment }, {
+        KLAUS_PLUGIN_HOME: join(tmpdir(), 'foreign-profile', 'plugins'),
+        KLAUS_SESSION_DIR: join(tmpdir(), 'foreign-profile', 'sessions'),
+      });
+      const paths = Object.fromEntries(inherited);
+      assert.equal(paths.KLAUS_PLUGIN_HOME, join(profile, 'plugins'));
+      assert.equal(paths.KLAUS_SESSION_DIR, join(profile, 'sessions'));
+    }
+  });
 });
 
 h.test('engine env carries the bundled Node runtime when PATH cannot resolve node', () => {
@@ -96,13 +102,113 @@ h.test('engine env carries the bundled Node runtime when PATH cannot resolve nod
     ];
     assert.deepEqual(desktopEngineEnvironment(configRoot, { PATH: emptyDir }, appBinary), [
       ...trio, ['KLAUS_NODE', appBinary], ['ELECTRON_RUN_AS_NODE', '1'],
+      ['PATH', join(configRoot, 'runtime-bin') + (process.platform === 'win32' ? ';' : ':') + emptyDir],
     ]);
+    // The real filesystem io materialized an executable shim for a bare `node` lookup.
+    const shimFile = join(configRoot, 'runtime-bin', nodeShimFileName(process.platform));
+    assert.equal(readFileSync(shimFile, 'utf8'), nodeShimContent(appBinary, process.platform));
     const binDir = join(root, 'bin');
     mkdirSync(binDir, { recursive: true });
     writeFileSync(join(binDir, 'node'), '');
     assert.deepEqual(desktopEngineEnvironment(configRoot, { PATH: binDir }, appBinary), trio);
     assert.deepEqual(desktopEngineEnvironment(configRoot, { PATH: emptyDir, KLAUS_NODE: '/custom/node' }, appBinary), trio);
     assert.deepEqual(desktopEngineEnvironment(configRoot, { PATH: emptyDir }, join(emptyDir, 'Klaus')), trio);
+  });
+});
+
+h.test('the node shim script wraps the bundled runtime and refuses unsafe executable paths', () => {
+  assert.equal(nodeShimFileName('darwin'), 'node');
+  assert.equal(nodeShimFileName('linux'), 'node');
+  assert.equal(nodeShimFileName('win32'), 'node.cmd');
+  const posix = nodeShimContent('/Applications/Klaus.app/Contents/MacOS/Klaus', 'darwin');
+  assert.ok(posix?.startsWith('#!/bin/sh'));
+  assert.ok(posix?.includes('ELECTRON_RUN_AS_NODE=1'));
+  assert.ok(posix?.includes('exec "/Applications/Klaus.app/Contents/MacOS/Klaus" "$@"'));
+  const windows = nodeShimContent('C:\\Program Files\\Klaus\\Klaus.exe', 'win32');
+  assert.ok(windows?.startsWith('@echo off'));
+  assert.ok(windows?.includes('set ELECTRON_RUN_AS_NODE=1'));
+  assert.ok(windows?.includes('"C:\\Program Files\\Klaus\\Klaus.exe" %*'));
+  // A path that could escape the quoting or expand inside the generated script yields no shim.
+  for (const unsafe of ['/tmp/a"b', "/tmp/a'b", '/tmp/a`b', '/tmp/a$b', '/tmp/a\\b', '/tmp/a\nb', '']) {
+    assert.equal(nodeShimContent(unsafe, 'darwin'), undefined, JSON.stringify(unsafe));
+  }
+  for (const unsafe of ['C:\\a"b.exe', "C:\\a'b.exe", 'C:\\a%b%.exe', 'C:\\a\nb.exe']) {
+    assert.equal(nodeShimContent(unsafe, 'win32'), undefined, JSON.stringify(unsafe));
+  }
+});
+
+h.test('shim materialization is idempotent, rewrites stale shims and never throws', () => {
+  const files = new Map<string, string>();
+  let writes = 0;
+  const io: NodeShimIo = {
+    exists: path => files.has(path),
+    mkdir: () => {},
+    read: path => files.get(path),
+    writeAtomic: (path, content) => { writes += 1; files.set(path, content); },
+  };
+  const dir = '/cfg/runtime-bin';
+  const target = dir + '/node';
+  const content = nodeShimContent('/opt/Klaus', 'darwin');
+  assert.equal(ensureNodeShim(dir, '/opt/Klaus', 'darwin', io), dir);
+  assert.equal(files.get(target), content);
+  assert.equal(writes, 1);
+  assert.equal(ensureNodeShim(dir, '/opt/Klaus', 'darwin', io), dir);
+  assert.equal(writes, 1, 'identical content is not rewritten');
+  files.set(target, '# stale');
+  assert.equal(ensureNodeShim(dir, '/opt/Klaus', 'darwin', io), dir);
+  assert.equal(files.get(target), content);
+  assert.equal(writes, 2, 'a stale shim is rewritten');
+  assert.equal(ensureNodeShim(dir, '/opt/"unsafe"', 'darwin', io), undefined);
+  assert.equal(ensureNodeShim(dir, '', 'darwin', io), undefined);
+  const broken: NodeShimIo = {
+    exists: () => { throw new Error('boom'); },
+    mkdir: () => { throw new Error('boom'); },
+    read: () => { throw new Error('boom'); },
+    writeAtomic: () => { throw new Error('boom'); },
+  };
+  assert.equal(ensureNodeShim(dir, '/opt/Klaus', 'darwin', broken), undefined, 'io failures degrade to no shim');
+  const winFiles = new Map<string, string>();
+  const winIo: NodeShimIo = {
+    exists: path => winFiles.has(path),
+    mkdir: () => {},
+    read: path => winFiles.get(path),
+    writeAtomic: (path, c) => { winFiles.set(path, c); },
+  };
+  assert.equal(ensureNodeShim('C:\\cfg\\runtime-bin', 'C:\\Klaus\\Klaus.exe', 'win32', winIo), 'C:\\cfg\\runtime-bin');
+  assert.equal(winFiles.get('C:\\cfg\\runtime-bin\\node.cmd'), nodeShimContent('C:\\Klaus\\Klaus.exe', 'win32'));
+});
+
+h.test('prependShimPath keeps existing entries and drops empty ones', () => {
+  assert.equal(prependShimPath('/usr/bin:/bin', '/shim', ':'), '/shim:/usr/bin:/bin');
+  assert.equal(prependShimPath('/usr/bin::/bin:', '/shim', ':'), '/shim:/usr/bin:/bin');
+  assert.equal(prependShimPath('', '/shim', ':'), '/shim');
+  assert.equal(prependShimPath(undefined, '/shim', ':'), '/shim');
+  assert.equal(prependShimPath('C:\\bin', 'C:\\shim', ';'), 'C:\\shim;C:\\bin');
+});
+
+h.test('windows engine env pairs the bundled runtime with a semicolon PATH shim', () => {
+  temporary(root => {
+    const files = new Map<string, string>();
+    const io: NodeShimIo = {
+      exists: path => files.has(path),
+      mkdir: () => {},
+      read: path => files.get(path),
+      writeAtomic: (path, content) => { files.set(path, content); },
+    };
+    const appBinary = join(root, 'Klaus.exe');
+    writeFileSync(appBinary, '');
+    const configRoot = join(root, 'cfg');
+    const shimDir = join(configRoot, 'runtime-bin');
+    const environment = desktopEngineEnvironment(configRoot, { PATH: 'C:\\empty' }, appBinary, 'win32', io);
+    assert.deepEqual(environment, [
+      ['KLAUS_CONFIG_DIR', configRoot], ['KLAUS_PLUGIN_HOME', join(configRoot, 'plugins')], ['KLAUS_SESSION_DIR', join(configRoot, 'sessions')],
+      ['KLAUS_NODE', appBinary], ['ELECTRON_RUN_AS_NODE', '1'],
+      ['PATH', shimDir + ';C:\\empty'],
+    ]);
+    assert.equal(files.get(shimDir + '\\node.cmd'), nodeShimContent(appBinary, 'win32'));
+    // A failed shim write keeps the KLAUS_NODE pairs and simply omits PATH.
+    const broken: NodeShimIo = { exists: () => false, mkdir: () => {}, read: () => undefined, writeAtomic: () => { throw new Error('read-only profile'); } };
+    assert.deepEqual(desktopEngineEnvironment(configRoot, { PATH: 'C:\\empty' }, appBinary, 'win32', broken), environment.slice(0, 5));
   });
 });
 

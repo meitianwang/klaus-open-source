@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
-import { bundledJsRuntimeEnv } from '../engine/js-runtime-env';
+import { bundledJsRuntimeEnv, ensureNodeShim, prependShimPath, realShimIo, type NodeShimIo } from '../engine/js-runtime-env';
 import { appRoot } from '../paths';
 import {
   DEFAULT_DESKTOP_EDITION, DESKTOP_EDITIONS_FILE_ENV, parseDesktopEditionId, validateDesktopEditionDocuments,
@@ -85,13 +85,22 @@ export function desktopEngineEnvironment(
   configRoot: string,
   env: NodeJS.ProcessEnv = process.env,
   execPath: string = process.execPath,
+  platform: NodeJS.Platform = process.platform,
+  io: NodeShimIo = realShimIo,
 ): Array<[string, string]> {
-  return [
+  const base: Array<[string, string]> = [
     ['KLAUS_CONFIG_DIR', configRoot],
     ['KLAUS_PLUGIN_HOME', join(configRoot, 'plugins')],
     ['KLAUS_SESSION_DIR', join(configRoot, 'sessions')],
-    // The REPL tool and raw-JavaScript workflow scripts need a Node runtime;
-    // carry the bundled one when the launch environment cannot resolve node.
-    ...bundledJsRuntimeEnv(env, execPath),
   ];
+  // The REPL tool and raw-JavaScript workflow scripts need a Node runtime;
+  // carry the bundled one when the launch environment cannot resolve node.
+  const jsRuntime = bundledJsRuntimeEnv(env, execPath, undefined, platform);
+  if (jsRuntime.length === 0) return base;
+  // Scripts that invoke a literal `node` need one on PATH. Materialize a shim
+  // inside the profile and prepend its directory; if the shim cannot be
+  // written, keep the KLAUS_NODE pairs, which are sufficient for the engine.
+  const shimDir = join(configRoot, 'runtime-bin');
+  if (!ensureNodeShim(shimDir, execPath, platform, io)) return [...base, ...jsRuntime];
+  return [...base, ...jsRuntime, ['PATH', prependShimPath(env.PATH, shimDir, platform === 'win32' ? ';' : ':')]];
 }
