@@ -216,23 +216,68 @@ function AuthModeMenu({ anchor, state, requests, onClose }: { anchor: HTMLElemen
   )
 }
 
+/**
+ * The pill names ONE conversation's provider. A mark read for another
+ * conversation is not this composer's source: while a session switch's read is
+ * still in flight the pill steps out of the row instead of keeping the
+ * previous conversation's brand mark on screen, the same rule the model
+ * trigger follows while its catalog loads.
+ */
+export function paintableAuthMode(
+  mode: string | null,
+  modeSession: string | null | undefined,
+  currentSessionId: string | null | undefined,
+): string | null {
+  if (mode === null || modeSession === undefined) return null
+  return modeSession === (currentSessionId ?? null) ? mode : null
+}
+
 function AuthModePill() {
   useT() // 语言切换时重渲 title/aria
   const [mode, setMode] = useState<string | null>(null)
+  // The conversation the painted mode was read for. Without it a session
+  // switch keeps the outgoing conversation's mark until the new read lands.
+  const [modeSession, setModeSession] = useState<string | null | undefined>(undefined)
   const [menu, setMenu] = useState<AuthMenuState | null>(null)
   const [menuRequests] = useState(() => new AuthMenuRequests(() => w().currentSessionId ?? null))
   const pillRef = useRef<HTMLButtonElement>(null)
   const refreshRevision = useRef(0)
+  // window.currentSessionId is not reactive, so a session flip needs an
+  // explicit re-render for the paint gate to drop the stale mark immediately.
+  const [, setSessionTick] = useState(0)
+  // Last confirmed source per conversation. Returning to a conversation paints
+  // its remembered mark the instant it becomes visible again, so a switch back
+  // neither blanks nor waits on the host read; the read still confirms and
+  // corrects the memory afterwards.
+  const sourceMemory = useRef(new Map<string | null, string>())
   const refresh = useCallback(async () => {
     const revision = ++refreshRevision.current
     const sessionId = w().currentSessionId
     try {
       const next = await effectiveModelSource(sessionId)
-      if (revision === refreshRevision.current && sessionId === w().currentSessionId) setMode(next)
+      if (revision === refreshRevision.current && sessionId === w().currentSessionId) {
+        sourceMemory.current.set(sessionId ?? null, next)
+        setMode(next)
+        setModeSession(sessionId ?? null)
+      }
     } catch {
-      if (revision === refreshRevision.current && sessionId === w().currentSessionId) setMode(null)
+      if (revision === refreshRevision.current && sessionId === w().currentSessionId) {
+        setMode(null)
+        setModeSession(sessionId ?? null)
+      }
     }
   }, [])
+  // Seed from memory, re-render for the paint gate, then let the read confirm.
+  const kick = useCallback(() => {
+    const current = w().currentSessionId ?? null
+    const remembered = sourceMemory.current.get(current)
+    if (remembered !== undefined) {
+      setMode(remembered)
+      setModeSession(current)
+    }
+    setSessionTick(tick => tick + 1)
+    void refresh()
+  }, [refresh])
 
   // Source/config changes and session switches can all change the effective
   // source shown here because a conversation keeps its own concrete model.
@@ -240,39 +285,45 @@ function AuthModePill() {
     const changed = () => {
       menuRequests.invalidate()
       setMenu(null)
-      void refresh()
+      kick()
     }
     void refresh()
+    // switchSession calls this the moment the target conversation becomes the
+    // visible one, before its browser-adoption await; the events below stay
+    // the backstop for source/config changes and late switches.
+    w().refreshAuthModePill = kick
     window.addEventListener('klaus:auth-mode-changed', changed)
     window.addEventListener('klaus:models-changed', changed)
     window.addEventListener('klaus:session-change', changed)
     return () => {
       refreshRevision.current++
       menuRequests.invalidate()
+      if (w().refreshAuthModePill) w().refreshAuthModePill = undefined
       window.removeEventListener('klaus:auth-mode-changed', changed)
       window.removeEventListener('klaus:models-changed', changed)
       window.removeEventListener('klaus:session-change', changed)
     }
-  }, [refresh, menuRequests])
+  }, [refresh, kick, menuRequests])
 
   // 点 pill 打开快速认证模式切换菜单；只有菜单底部的「管理模型配置」进入设置页。
   // useCallback 稳引用（menu 现值经 ref 读），否则 PillButton 的 memo 短路失效。
   const menuOpenRef = useRef(menu)
   menuOpenRef.current = menu
+  const paintedMode = paintableAuthMode(mode, modeSession, w().currentSessionId)
   const onClick = useCallback((event: React.MouseEvent) => {
     event.preventDefault()
     event.stopPropagation()
     if (menuOpenRef.current) { setMenu(null); return }
-    if (mode === null) return
+    if (paintedMode === null) return
     if (pillRef.current) claimOverlay(overlayIdForElement(pillRef.current, 'auth-mode-select'))
-    setMenu({ ...menuRequests.capture(), activeMode: mode })
-  }, [menuRequests, mode])
+    setMenu({ ...menuRequests.capture(), activeMode: paintedMode })
+  }, [menuRequests, paintedMode])
 
-  if (mode === null) return null
+  if (paintedMode === null) return null
 
   return (
     <>
-      <PillButton mode={mode} label={authModeLabel(mode)} onClick={onClick} pillRef={pillRef} />
+      <PillButton mode={paintedMode} label={authModeLabel(paintedMode)} onClick={onClick} pillRef={pillRef} />
       {menu && pillRef.current ? (
         <AuthModeMenu anchor={pillRef.current} state={menu} requests={menuRequests} onClose={() => setMenu(null)} />
       ) : null}

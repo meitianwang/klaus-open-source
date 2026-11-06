@@ -7320,6 +7320,15 @@ async function switchSession(id: string) {
   syncMainTranscriptChrome()
   ;(window as any).klausUpdateSideSendButton?.()
 
+  // Per-session model controls read their conversation over host IPC, and
+  // their other kick (klaus:session-change) only fires after the browser
+  // adoption await below. Kick them the moment the target conversation becomes
+  // the visible one so a slow adoption cannot leave the previous
+  // conversation's source mark and model painted over the new transcript; the
+  // pill drops its stale mark in the same call.
+  void refreshComposerPreferences()
+  ;(window as any).refreshAuthModePill?.()
+
   // Point the embedded browser at THIS session's own conversation before the
   // panel is reconciled below, so the tab strip is built from this session's own
   // pages (and new manual pages land here) instead of the app-wide "manual" pool
