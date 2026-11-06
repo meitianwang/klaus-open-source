@@ -180,6 +180,24 @@ app.whenReady().then(async () => {
     assert(final.distance <= 24, 'A final answer inherits following after prework overflow');
     return { placed, small, large, final, expectedSpacerPx: expected };
   });
+  await check('a cold conversation continued after a restart shows its earlier turns while the turn runs', async () => {
+    const opened = await evaluate('scrollFixture.openRunning("running-history")');
+    assert(opened.historyRows > 0, `History rows while running: ${opened.historyRows}`);
+    assert(opened.loadedTurns >= 5, `Saved turns while running: ${opened.loadedTurns}`);
+    assert(opened.renderedTurns > 1, `Rendered turns while running: ${opened.renderedTurns}`);
+    assert(!opened.savedTurns.includes('scroll-running-turn'), 'The running Turn is held by the live layer only');
+    assert(opened.runningPromptVisible === false || opened.renderedTurns > 1, 'The running Turn is not drawn alone');
+    const before = await geometry();
+    await wheel(-240, 6);
+    await until('scrollFixture.geometry().distance > 600');
+    const after = await geometry();
+    assert(after.anchor && after.anchor.key !== 'scroll-running-turn', 'Earlier turns are reachable above the running Turn');
+    await evaluate('scrollFixture.liveDelta()');
+    await evaluate('scrollFixture.frames(6)');
+    const held = await geometry();
+    assert(Math.abs(held.distance - after.distance) <= 24 || held.distance > after.distance - 24, 'Live output does not pull the reader back to the end');
+    return { opened, before, after, held };
+  });
   const errors = await evaluate('scrollFixture.errors');
   assert.deepEqual(errors, []);
   assert.deepEqual(browserErrors, []);

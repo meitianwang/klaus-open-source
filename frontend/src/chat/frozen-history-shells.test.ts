@@ -77,3 +77,25 @@ describe('frozen history read of a running conversation', () => {
     expect(stream.history?.map(row => row.uuid)).toContain('running-user')
   })
 })
+
+describe('frozen history read while the running Turn streams', () => {
+  test('older Turns apply even when the live layer changed during the read', async () => {
+    const calls: any[] = []
+    const id = 'frozen-streaming-during-read'
+    const page = savedPage(calls)
+    // The live Turn keeps streaming while the saved window is read, as a
+    // continued Turn does after a restart; every delta changes the live layer.
+    api = { historyPage: async (sessionId: string, options: any) => {
+      store.ingestChatEvent({ type: 'text_delta', sessionId: id, text: ' more', messageId: 'm1', turnId: LIVE })
+      store.flushChatFrames()
+      return page(sessionId, options)
+    } }
+    runOffScreen(id)
+    await store.loadSessionHistory(id)
+    const stream = store.getSessionStream(id)
+    expect(stream.history?.map(row => row.uuid)).toEqual(['older-user', 'older-final'])
+    expect(Object.keys(stream.turnShells)).toEqual([OLDER])
+    expect(stream.historyStale).toBe(false)
+    expect(stream.liveTurnId).toBe(LIVE)
+  })
+})

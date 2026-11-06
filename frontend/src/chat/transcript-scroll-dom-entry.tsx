@@ -57,6 +57,7 @@ host.klaus = { session: {
   historyPage: async (sessionId: string, options: any = {}) => {
     calls.push({ method: 'historyPage', sessionId, options: { ...options }, time: performance.now() })
     await wait(100)
+    if (sessionId.startsWith('running-')) streamDuringRead(sessionId)
     const end = sessionId.startsWith('empty') ? 0 : options.cursor ? Number(options.cursor) : turnIds.length
     const start = Math.max(0, end - (options.limit ?? 5)), selected = turnIds.slice(start, end)
     // A legacy host may explicitly return summary shells for a requested full page.
@@ -65,8 +66,12 @@ host.klaus = { session: {
       const all = rows.get(id)!
       return itemsView === 'full' ? all : itemsView === 'summary' ? [all[0], all.at(-1)!] : []
     })
-    return { messages, turns: selected.map(id => shell(id, itemsView)),
-      turnStatuses: Object.fromEntries(selected.map(id => [id, 'completed'])),
+    const running = sessionId.startsWith('running-') ? RUNNING_TURN : null
+    const runningRows = running && !options.cursor ? [{ uuid: `${running}-user`, turnId: running, role: 'user', text: RUNNING_PROMPT,
+      contentBlocks: [{ type: 'text', text: RUNNING_PROMPT }], timestamp: Date.now() - 1000 }] : []
+    const runningShell = running && !options.cursor ? [{ id: running, ordinal: 99_000, updatedAtOrdinal: 99_001, itemsView, status: 'interrupted', startedAtMs: Date.now() - 1000 }] : []
+    return { messages: [...messages, ...runningRows], turns: [...selected.map(id => shell(id, itemsView)), ...runningShell],
+      turnStatuses: { ...Object.fromEntries(selected.map(id => [id, 'completed'])), ...(running && !options.cursor ? { [running]: 'running' } : {}) },
       turnStartedAtMs: Object.fromEntries(selected.map(id => [id, shell(id, itemsView).startedAtMs])),
       turnFinishedAtMs: Object.fromEntries(selected.map(id => [id, shell(id, itemsView).finishedAtMs])),
       turnDurations: Object.fromEntries(selected.map(id => [id, 6000])),
@@ -83,6 +88,16 @@ host.klaus = { session: {
       nextCursor: start > 0 ? all[start].uuid : null } }
   },
 } }
+const RUNNING_TURN = 'scroll-running-turn', RUNNING_PROMPT = 'A continued turn that is still running.'
+let liveDeltas = 0
+function liveDelta(sessionId: string) {
+  ingestChatEvent({ type: 'text_delta', sessionId, turnId: RUNNING_TURN, messageId: `${RUNNING_TURN}-commentary`, phase: 'commentary', text: ` ${words(++liveDeltas, 6)}` })
+  flushChatFrames()
+}
+/** The continued Turn keeps producing output while saved history is read. */
+function streamDuringRead(sessionId: string) {
+  for (const delay of [10, 40, 80]) setTimeout(() => liveDelta(sessionId), delay)
+}
 let currentSessionId = '', submission = 0, liveTurnId = ''
 let phase = 'idle', sampling = false
 function rowKey(row: Element): string { return row.getAttribute('data-klaus-transcript-turn-key') || row.getAttribute('data-klaus-transcript-turn-id') || row.getAttribute('data-virtual-turn-key') || '' }
@@ -146,6 +161,25 @@ host.scrollFixture = {
     await frames(8)
     return geometry()
   },
+  /** A cold conversation whose newest Turn was continued after a restart and is still running. */
+  async openRunning(sessionId: string) {
+    ingestChatEvent({ type: 'session_runtime_status', sessionId, status: 'active', turnId: RUNNING_TURN })
+    ingestChatEvent({ type: 'stream_mode', sessionId, mode: 'requesting', turnId: RUNNING_TURN })
+    liveDelta(sessionId)
+    captureTranscriptViewport(viewport)
+    unmountReactTranscript(viewport)
+    currentSessionId = sessionId; host.currentSessionId = sessionId
+    controller.resetForConversation(transcriptViewportState(sessionId)?.distanceFromBottomPx ?? 0)
+    mountReactTranscript(sessionId, viewport, { scroll: 'main' })
+    for (let i = 0; i < 6; i++) { await wait(60); liveDelta(sessionId) }
+    await wait(400)
+    await frames(8)
+    const state = getSessionStream(sessionId)
+    return { ...geometry(), historyRows: state.history?.length ?? null, historyStale: state.historyStale,
+      liveTurnId: state.liveTurnId, savedTurns: Object.keys(state.turnShells),
+      text: viewport.innerText.slice(0, 400), runningPromptVisible: viewport.innerText.includes(RUNNING_PROMPT) }
+  },
+  liveDelta() { liveDelta(currentSessionId) },
   async send() {
     const uuid = `scroll-submission-${++submission}`, text = `A structured message ${submission} with retained formatting.`
     controller.prepareLatestTurnPlacement(currentSessionId)

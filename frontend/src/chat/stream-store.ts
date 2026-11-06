@@ -2477,6 +2477,11 @@ function liveOwnedTurnIds(state: SessionStreamState): Set<string> {
   return ids
 }
 
+/** Identity of the Turns the live layer owns; empty when ownership is unknown. */
+function frozenTurnKey(state: SessionStreamState): string {
+  return [...liveOwnedTurnIds(state)].sort().join('\u0000')
+}
+
 export interface HistoryFreezeGateInput {
   /** live 层是否持有在途或被中断的回合（liveLayerOwnsTurn）。 */
   liveLayerOwnsTurn: boolean
@@ -2626,6 +2631,9 @@ export function loadSessionHistory(sessionId: string, options: {
   })) return Promise.resolve()
   const readSeq = nextSeq()
   const readRevision = current.liveRevision
+  // A read issued while the live layer holds a Turn is sliced by Turn id, so
+  // that Turn streaming on during the read does not invalidate it.
+  const readFrozenTurns = liveLayerOwnsTurn(current) && frozenTurnKey(current) ? frozenTurnKey(current) : null
   const readHistory = current.history
   const snapshotRead = !options.savedPage && !subagentHistorySources.has(sessionId)
   const generation = (current.historyGeneration ?? 0) + Number(snapshotRead)
@@ -2787,7 +2795,8 @@ export function loadSessionHistory(sessionId: string, options: {
         }
         // 发起时不在冻结期，resolve 时却已经进了新回合或刚被中断：作废，等下一次
         // 移交时机重拉。
-        if (covers && readRevision !== prev.liveRevision) {
+        const sameFrozenTurn = readFrozenTurns !== null && liveLayerOwnsTurn(prev) && frozenTurnKey(prev) === readFrozenTurns
+        if (covers && readRevision !== prev.liveRevision && !sameFrozenTurn) {
           refreshAfterSettled = true
           return { historyLoading: false, historyStale: true }
         }
@@ -2968,7 +2977,11 @@ export function loadSessionHistory(sessionId: string, options: {
       if (historyInFlight.get(sessionId) === promise) historyInFlight.delete(sessionId)
     }
     scheduleHistoryRetention(sessionId)
-    if (valid && refreshAfterSettled && !liveLayerOwnsTurn(getSessionStream(sessionId))) {
+    const settled = getSessionStream(sessionId)
+    // A frozen read that was still invalidated retries only while no earlier
+    // Turn is on screen; otherwise the Turn's end performs the handoff read.
+    if (valid && refreshAfterSettled && (!liveLayerOwnsTurn(settled)
+      || settled.history === null && !settled.historyLoading && liveOwnedTurnIds(settled).size > 0)) {
       queueMicrotask(() => { if (!isSessionStreamRetired(sessionId)) void loadSessionHistory(sessionId) })
     }
   }
