@@ -133,6 +133,7 @@ describe('official plugin card names', () => {
     { id: 'digram@klaus-official', name: 'digram', zh: '图表', en: 'Diagrams' },
     { id: 'model3d@klaus-official', name: 'model3d', zh: '3D 工作室', en: '3D Studio' },
     { id: 'prototype-studio@klaus-official', name: 'prototype-studio', zh: '界面原型设计', en: 'Interface Design' },
+    { id: 'reverse-engineering@klaus-official', name: 'reverse-engineering', zh: '逆向工程', en: 'Reverse Engineering' },
     { id: 'video-editing@klaus-official', name: 'video-editing', zh: '视频剪辑', en: 'Video Editing' },
   ]
 

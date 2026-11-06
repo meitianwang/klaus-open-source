@@ -274,6 +274,10 @@ const SKILL_TEXT_I18N = {
     en: ['Interface Design', 'Edit interface designs with the complete local visual editor and a shared revisioned document; export the native design format, PNG, JPG, WebP, SVG, PDF and FIG.'],
     zh: ['界面原型设计', '使用完整的本地可视化编辑器设计桌面、平板和手机界面，代理与面板共同编辑同一文档，支持原生设计格式、PNG、JPG、WebP、SVG、PDF 和 FIG 导出；首次使用需更新桌面端。'],
   },
+  'reverse-engineering': {
+    en: ['Reverse Engineering', 'Inspect shipped binaries, apps and captures with the evidence behind every finding, and verify a rebuild against the original with mechanical checks.'],
+    zh: ['逆向工程', '对已发布的二进制、应用与抓包做证据化逆向分析，并用机器化对照验收重建结果。'],
+  },
   'video-editing': {
     en: ['Video Editing', 'Edit videos in the complete native Studio work panel. The agent and person share one live editor, revision and undo/save queue, retaining native projects, media, subtitles, versions and all exports.'],
     zh: ['视频剪辑', '在原生工作面板中使用完整 Studio，代理与人共同操作同一编辑器、版本和撤销保存队列，保留原生工程、素材、字幕、历史版本与各类导出。'],
@@ -655,11 +659,13 @@ const PLUGIN_NAME_EN_OVERRIDES = {
   digram: 'Diagrams',
   model3d: '3D Studio',
   'prototype-studio': 'Interface Design',
+  'reverse-engineering': 'Reverse Engineering',
   'video-editing': 'Video Editing',
 }
 
 const PLUGIN_NAME_ZH_OVERRIDES = {
   'video-editing': '视频剪辑',
+  'reverse-engineering': '逆向工程',
   codex: 'Codex 任务代理',
   '42crunch-api-security-testing': '42Crunch API 安全测试',
   'adobe-for-creativity': 'Adobe 创意工具',
@@ -860,6 +866,7 @@ const PLUGIN_DESCRIPTION_ZH_OVERRIDES = {
   'digram@klaus-official': '通过声明式文档创建并编辑图表；侧边栏支持绘制、缩放、拖动和导出 PNG/JPG/SVG。',
   'model3d@klaus-official': '在可编辑的 3D 视图中建模与雕刻、展开 UV、绘制贴图、绑定骨骼、制作动画和路径追踪渲染，计算在本机完成。',
   'prototype-studio@klaus-official': '使用完整的本地可视化编辑器设计桌面、平板和手机界面，代理与面板共同编辑同一文档，支持原生设计格式、PNG、JPG、WebP、SVG、PDF 和 FIG 导出；首次使用需更新桌面端。',
+  'reverse-engineering@klaus-official': '对已发布软件做无源码逆向分析，并用机器化对照验收重建版本：重建 JavaScript/Electron 应用图谱，读取 Mach-O 与 PE 结构，检查 .NET 程序集、Android 包、固件镜像、抓包、SQLite 快照、Go 与 WebAssembly 产物，深度原生反编译引擎随包内置，也可接入自有的 Hopper/Ghidra/IDA。重建验收提供感知图像相似度、网站逐宽度采集对照、控制台运行对照、UI 控件对照、机制数值表核验、--screenshot 与 --self-test 构建契约，以及判定重建何时足够好的轮次台账。分析全部在本机进行，每条结论附证据与未决项。',
   codex: '连接 Codex 进行代码审查、任务委托和工程协作。',
   'frontend-design': '创建具有辨识度和生产质感的前端界面，避免模板化的 AI 风格。',
   'plugin-dev': '提供插件开发、验证、钩子、MCP、命令和代理相关的工程工作流。',

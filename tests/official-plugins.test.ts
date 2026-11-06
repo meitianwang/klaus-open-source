@@ -323,7 +323,7 @@ await h.test('artwork catalogs larger than one MiB survive cache writes and subs
 
 await h.test('a catalog server is mirrored without downloading any plugin', async () => {
   const root = await mkdtemp(join(tmpdir(), 'klaus-official-plugins-'));
-  const fixture = await catalogServer([{ name: 'digram', version: '1.0.0' }, { name: 'rea', version: '1.0.0', legacyCompatible: false }]);
+  const fixture = await catalogServer([{ name: 'digram', version: '1.0.0' }, { name: 'reverse-engineering', version: '1.0.0', legacyCompatible: false }]);
   const values: Values = { values: { plugins: {}, marketplaces: {} }, version: 'v1' };
   const calls: Array<{ method: string; params: JsonObject }> = [];
   const service = new OfficialPluginsService({ configRoot: root, request: engine(values, calls), endpoint: () => ({ baseUrl: fixture.origin, direct: false }), onChanged: async () => {} });
@@ -339,7 +339,7 @@ await h.test('a catalog server is mirrored without downloading any plugin', asyn
     assertEqual(manifest.name, OFFICIAL_MARKETPLACE, 'the mirrored manifest names the marketplace');
     // Both plugins are listed, including the one an older engine could not run:
     // a client reading the catalog is by construction new enough to run it.
-    assertDeepEqual(manifest.plugins.map((item: JsonObject) => item.name).sort(), ['digram', 'rea'], 'the manifest lists every cataloged plugin');
+    assertDeepEqual(manifest.plugins.map((item: JsonObject) => item.name).sort(), ['digram', 'reverse-engineering'], 'the manifest lists every cataloged plugin');
     const entry = object(object(values.values.marketplaces)[OFFICIAL_MARKETPLACE]);
     assertEqual(entry.installLocation, join(root, 'plugins/marketplaces/klaus-official'), 'registered location');
     assertEqual(entry.officialRevision, fixture.revision, 'the catalog revision is recorded');
@@ -365,7 +365,7 @@ await h.test('a catalog server is mirrored without downloading any plugin', asyn
 
 await h.test('a plugin package is downloaded on demand and verified against its catalog hash', async () => {
   const root = await mkdtemp(join(tmpdir(), 'klaus-official-plugins-'));
-  const fixture = await catalogServer([{ name: 'digram', version: '1.0.0' }, { name: 'rea', version: '2.0.0' }]);
+  const fixture = await catalogServer([{ name: 'digram', version: '1.0.0' }, { name: 'reverse-engineering', version: '2.0.0' }]);
   const values: Values = { values: { plugins: {}, marketplaces: {} }, version: 'v1' };
   const service = new OfficialPluginsService({ configRoot: root, request: engine(values, []), endpoint: () => ({ baseUrl: fixture.origin, direct: false }), onChanged: async () => {} });
   try {
@@ -379,7 +379,7 @@ await h.test('a plugin package is downloaded on demand and verified against its 
     // The manifest written by refresh must survive a download: it lives outside
     // the plugin directory, and losing it would empty the marketplace UI.
     const stillListed = JSON.parse(await readFile(join(root, 'plugins/marketplaces/klaus-official/.claude-plugin/marketplace.json'), 'utf8'));
-    assertDeepEqual(stillListed.plugins.map((item: JsonObject) => item.name).sort(), ['digram', 'rea'], 'mirroring the manifest survives a download');
+    assertDeepEqual(stillListed.plugins.map((item: JsonObject) => item.name).sort(), ['digram', 'reverse-engineering'], 'mirroring the manifest survives a download');
 
     // A second call must not re-download.
     const before = fixture.requests.filter(url => url.includes('/packages/')).length;
