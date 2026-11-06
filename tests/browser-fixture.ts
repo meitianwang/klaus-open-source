@@ -110,6 +110,9 @@ async function main(): Promise<number> {
     window, configRoot: profile!, enabled: () => enabled, dialogTimeoutMs: 3000,
     requestPermission: async request => { permissionRequests.push(request.permission); return false; },
     sitePermission: (origin, permission) => sitePermissions.get(`${origin}\u0000${permission}`),
+    sitePermissionDenials: permission => [...sitePermissions]
+      .filter(([key, setting]) => setting === 'denied' && key.endsWith(`\u0000${permission}`))
+      .map(([key]) => key.slice(0, key.indexOf('\u0000'))),
     downloadDirectory: () => join(profile!, 'browser-downloads'),
     promptForUserDownloads: () => false,
     openDownloadPath: async path => { openedDownloads.push(path); return ''; },
@@ -165,6 +168,9 @@ async function main(): Promise<number> {
   h.test('storage persistence never opens a dialog and ordinary site data survives reload', async () => {
     const promptCount = permissionRequests.length;
     const page = await manager.createTab('storage-permissions', `${base}/storage`);
+    assertEqual(await page.cdp.evaluate('navigator.permissions.query({name:"persistent-storage"}).then(p=>p.state)'), 'prompt', 'an undecided origin reports the ask state');
+    assertEqual(await page.cdp.evaluate('navigator.permissions.query({name:"persistent-storage"}).then(p=>p instanceof PermissionStatus)'), true, 'the projected status stays a native PermissionStatus');
+    assertEqual(await page.cdp.evaluate('navigator.permissions.query({name:"geolocation"}).then(p=>p.state)'), 'denied', 'names outside the ask list keep the native state');
     for (let attempt = 0; attempt < 3; attempt += 1) {
       assertEqual(await page.cdp.evaluate('navigator.storage.persist()'), false, 'an undecided page receives no persistence guarantee');
     }
@@ -173,6 +179,7 @@ async function main(): Promise<number> {
     await manager.navigate(page, `${base}/storage-reloaded`);
     assertEqual(await page.cdp.evaluate('localStorage.getItem("storage-permission-fixture")'), 'retained', 'ordinary site data remains available');
     assertEqual(await page.cdp.evaluate('navigator.storage.persist()'), false, 'reload remains noninteractive');
+    assertEqual(await page.cdp.evaluate('navigator.permissions.query({name:"persistent-storage"}).then(p=>p.state)'), 'prompt', 'the ask state survives reload');
     const automatic = await page.cdp.command('Runtime.evaluate', {
       expression: 'navigator.storage.persist()', returnByValue: true, awaitPromise: true, userGesture: false,
     });
@@ -182,12 +189,19 @@ async function main(): Promise<number> {
     const other = await manager.createTab('storage-other-task', `${base}/storage-other`);
     assertEqual(await other.cdp.evaluate('navigator.storage.persist()'), false, 'another task remains noninteractive');
     assertEqual(permissionRequests.length, promptCount, 'no request reaches the permission dialog');
+    await page.cdp.evaluate('navigator.permissions.query({name:"persistent-storage"}).then(p=>{window.retainedStatus=p;p.addEventListener("change",()=>{window.retainedChanges=(window.retainedChanges||0)+1;});})');
     await manager.setPermission(page, { action: 'set', origin: base, permission: 'durableStorage', setting: 'denied' });
     assertEqual(await page.cdp.evaluate('navigator.storage.persist()'), false, 'an explicit refusal still reaches the browser');
+    assertEqual(await page.cdp.evaluate('navigator.permissions.query({name:"persistent-storage"}).then(p=>p.state)'), 'denied', 'an explicit denial passes through the native state');
+    await waitFor(async () => await page.cdp.evaluate('window.retainedStatus && window.retainedStatus.state') === 'denied', 3000, 'a retained status object observes the policy change');
+    assertEqual(await page.cdp.evaluate('window.retainedChanges >= 1'), true, 'the retained status announces the change');
+    await manager.setPermission(page, { action: 'set', origin: base, permission: 'durableStorage', setting: 'prompt' });
+    await waitFor(async () => await page.cdp.evaluate('navigator.permissions.query({name:"persistent-storage"}).then(p=>p.state)') === 'prompt', 3000, 'clearing the decision restores the ask state without a reload');
     const grantOrigin = `http://localhost:${port}`;
     const granted = await manager.createTab('storage-granted', `${grantOrigin}/storage-granted`);
     await manager.setPermission(granted, { action: 'grant', origin: grantOrigin, permissions: ['durableStorage'] });
     assertEqual(await granted.cdp.evaluate('navigator.storage.persist()'), true, 'an explicit grant still reaches the browser');
+    assertEqual(await granted.cdp.evaluate('navigator.permissions.query({name:"persistent-storage"}).then(p=>p.state)'), 'granted', 'an explicit grant passes through the native state');
     assertEqual(permissionRequests.length, promptCount, 'explicit decisions never open a dialog');
     for (const item of [page, sibling, other, granted]) manager.closeTab(item.owner, item.handle);
   });
@@ -692,6 +706,13 @@ async function main(): Promise<number> {
     sitePermissions.delete(key);
     manager.refreshPermissions();
     assertEqual(await page.cdp.evaluate('navigator.permissions.query({name:"screen-wake-lock"}).then(p=>p.state)'), 'granted', 'policy refresh takes effect without a restart');
+    const storageKey = `${origin}\u0000persistent-storage`;
+    sitePermissions.set(storageKey, 'denied');
+    manager.refreshPermissions();
+    await waitFor(async () => await page.cdp.evaluate('navigator.permissions.query({name:"persistent-storage"}).then(p=>p.state)') === 'denied', 3000, 'a persistent settings denial passes through the projection');
+    sitePermissions.delete(storageKey);
+    manager.refreshPermissions();
+    await waitFor(async () => await page.cdp.evaluate('navigator.permissions.query({name:"persistent-storage"}).then(p=>p.state)') === 'prompt', 3000, 'removing the denial restores the ask state without a reload');
     manager.releaseConversation(session);
   });
 

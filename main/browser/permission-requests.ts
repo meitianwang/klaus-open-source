@@ -139,6 +139,18 @@ export class BrowserPermissionDecisions {
     return settled
   }
 
+  /** Origins holding an explicit denial of one permission name in any task. */
+  deniedOrigins(permission: string): string[] {
+    const origins = new Set<string>();
+    for (const key of this.denials) {
+      try {
+        const parts = JSON.parse(key) as unknown;
+        if (Array.isArray(parts) && parts[2] === permission && typeof parts[1] === 'string') origins.add(parts[1]);
+      } catch { /* a key that is not a scoped triple cannot carry a denial */ }
+    }
+    return [...origins];
+  }
+
   /** Apply an explicit setting: granted, denied, or back to asking. */
   set(keys: string[], setting: string): void {
     for (const key of keys) {

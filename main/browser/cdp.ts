@@ -22,6 +22,10 @@ export class PageDebugger {
   readonly events: BrowserObject[] = [];
   readonly evicted = { console: 0, network: 0, events: 0 };
   private eventSequence = 0;
+  /** Desired document-start scripts, re-applied after every debugger attach. */
+  private readonly documentScripts = new Map<string, string>();
+  /** Registered script identifiers per key and session ('' is the root). */
+  private readonly documentScriptIds = new Map<string, Map<string, string>>();
   targetId = '';
 
   constructor(readonly contents: WebContents) {
@@ -32,6 +36,9 @@ export class PageDebugger {
   private readonly onDetach = (): void => {
     this.ready = undefined;
     this.frames.clear();
+    // Registrations die with the debugger attachment; the desired scripts stay
+    // and are re-applied by the next initialize.
+    this.documentScriptIds.clear();
   };
 
 
@@ -50,6 +57,7 @@ export class PageDebugger {
         this.send('Log.enable', {}, sessionId),
         this.send('Network.enable', { maxTotalBufferSize: 8 * 1024 * 1024, maxResourceBufferSize: 256 * 1024, maxPostDataSize: 16 * 1024 }, sessionId),
       ]);
+      for (const [key, source] of this.documentScripts) await this.applyDocumentScriptOn(key, source, sessionId);
     } catch {
       if (this.frames.get(targetId) !== sessionId) return;
       this.frames.delete(targetId);
@@ -117,6 +125,7 @@ export class PageDebugger {
       await this.send('Log.enable');
       await this.send('Network.enable', { maxTotalBufferSize: 8 * 1024 * 1024, maxResourceBufferSize: 256 * 1024, maxPostDataSize: 16 * 1024 });
       await this.send('Target.setAutoAttach', { autoAttach: true, waitForDebuggerOnStart: false, flatten: true });
+      for (const [key, source] of this.documentScripts) await this.applyDocumentScriptOn(key, source, undefined);
     })();
     this.ready = starting;
     try { await starting; } catch (error) { if (this.ready === starting) this.ready = undefined; throw error; }
@@ -135,6 +144,54 @@ export class PageDebugger {
       if (error instanceof BrowserError) throw error;
       throw new BrowserError('cdp_error', `${method}: ${message(error)}`);
     } finally { clearTimeout(timer); }
+  }
+
+  /**
+   * Register a script that runs at document start in the page's main world and
+   * in every attached iframe target. Registration survives a debugger
+   * re-attach; call it once the page reports ready.
+   */
+  async registerDocumentScript(key: string, source: string): Promise<void> {
+    this.documentScripts.set(key, source);
+    await this.updateDocumentScript(key, source);
+  }
+
+  /** Replace a registered document-start script everywhere it is installed. */
+  async updateDocumentScript(key: string, source: string): Promise<void> {
+    this.documentScripts.set(key, source);
+    if (this.disposed || this.contents.isDestroyed() || !this.ready) return;
+    try { await this.ready; } catch { return; }
+    if (this.disposed || this.contents.isDestroyed()) return;
+    this.clearDocumentScriptIds(key);
+    for (const sessionId of [undefined, ...this.frames.values()]) {
+      await this.applyDocumentScriptOn(key, source, sessionId);
+    }
+  }
+
+  private clearDocumentScriptIds(key: string): void {
+    const identifiers = this.documentScriptIds.get(key);
+    this.documentScriptIds.delete(key);
+    if (!identifiers) return;
+    for (const [sessionId, identifier] of identifiers) {
+      // Identifiers are unique per registration, so a late removal of the old
+      // script can never drop the replacement.
+      void this.send('Page.removeScriptToEvaluateOnNewDocument', { identifier }, sessionId || undefined).catch(() => {});
+    }
+  }
+
+  private async applyDocumentScriptOn(key: string, source: string, sessionId: string | undefined): Promise<void> {
+    if (this.disposed || this.contents.isDestroyed()) return;
+    try {
+      const result = await this.send('Page.addScriptToEvaluateOnNewDocument', { source }, sessionId);
+      const identifier = String(object(result).identifier ?? '');
+      if (!identifier) return;
+      const identifiers = this.documentScriptIds.get(key) ?? new Map<string, string>();
+      this.documentScriptIds.set(key, identifiers);
+      identifiers.set(sessionId ?? '', identifier);
+    } catch {
+      // A child target can detach between enablement and registration; the
+      // next attach re-applies every registered script.
+    }
   }
 
   async command(method: string, params: BrowserObject = {}, frameTarget?: string): Promise<BrowserObject> {

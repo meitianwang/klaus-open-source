@@ -13,6 +13,7 @@ import { navigateForRead, readUrls, type TemporaryPage } from '../main/browser/t
 import { MAX_BROWSER_WAIT_MS, waitForPage } from '../main/browser/page-wait';
 import { BROWSER_PANEL_OPEN_ACK_TIMEOUT_MS, browserOperationRequestsPanel } from '../main/browser/panel-contract';
 import { BrowserPermissionDecisions, PendingBrowserPermissions } from '../main/browser/permission-requests';
+import { permissionQueryShimSource, permissionQueryUpdateExpression, synthesizePermissionQueryPolicy } from '../main/browser/permission-query';
 import type { BrowserManager } from '../main/browser/manager';
 import { registerBrowserHandlers } from '../main/ipc/handlers/browser';
 import { ChannelRegistry } from '../main/ipc/registry';
@@ -492,6 +493,29 @@ h.test('storage persistence defaults remain undecided and preserve explicit scop
   const reopened = new BrowserPermissionDecisions();
   assertEqual(await reopened.resolve(keys, ask, () => true, 'persistent-storage'), false, 'fresh state does not open a question');
   assertEqual(reopened.denied(keys), false, 'fresh state remains undecided');
+});
+
+h.test('the permission query policy projects explicit denials and keeps undecided origins asking', () => {
+  const vector = JSON.parse(readFileSync(join(__dirname, '../../contracts/vectors/browser-permission-query-vectors.json'), 'utf8')) as {
+    permissionQueryPolicy: { vectors: Array<{ name: string; askNames: string[]; store: Record<string, string[]>; task: Record<string, string[]>; expected: Record<string, { denied: string[] }> }> };
+    shimSource: { vectors: Array<{ name: string; policy: Record<string, { denied: string[] }>; expectedIncludes: string[]; expectedExcludes?: string[] }> };
+    decisionOrigins: { vectors: Array<{ name: string; decisions: Array<{ key: string[]; setting: string }>; permission: string; expected: string[] }> };
+  };
+  for (const row of vector.permissionQueryPolicy.vectors) {
+    const policy = synthesizePermissionQueryPolicy(row.askNames, name => row.store[name] ?? [], name => row.task[name] ?? []);
+    assertDeepEqual(policy, row.expected, row.name);
+  }
+  for (const row of vector.shimSource.vectors) {
+    const source = permissionQueryShimSource(row.policy);
+    for (const fragment of row.expectedIncludes) assert(source.includes(fragment), `${row.name}: source includes ${fragment}`);
+    for (const fragment of row.expectedExcludes ?? []) assert(!source.includes(fragment), `${row.name}: source excludes ${fragment}`);
+    assert(permissionQueryUpdateExpression(row.policy).includes('__klausPermissionPolicyUpdate'), 'the update seam reaches an open document');
+  }
+  for (const row of vector.decisionOrigins.vectors) {
+    const decisions = new BrowserPermissionDecisions();
+    for (const decision of row.decisions) decisions.set([JSON.stringify(decision.key)], decision.setting);
+    assertDeepEqual([...decisions.deniedOrigins(row.permission)].sort(), row.expected, row.name);
+  }
 });
 
 h.test('remembered permission decisions stop a page that re-asks from reopening the dialog', async () => {

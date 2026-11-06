@@ -1445,6 +1445,7 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
     navigationAllowed: url => browserPreferences.allowsNavigation(url),
     authorize: (sessionId, url, resource, signal) => browserAccess.authorize(sessionId, url, resource, signal),
     sitePermission: (origin, permission) => browserPreferences.sitePermission(origin, permission),
+    sitePermissionDenials: permission => browserPreferences.permissionDenialOrigins(permission),
     downloadDirectory: () => String(browserPreferences.get().downloadDirectory ?? app.getPath('downloads')),
     promptForUserDownloads: () => browserPreferences.get().promptForDownloads === true,
     chooseDownloadPath: async request => {

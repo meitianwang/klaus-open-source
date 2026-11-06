@@ -1,0 +1,67 @@
+{
+  "_why": "The runtime permission check API is binary (allow or deny), so an undecided permission looks denied to page scripts while the host policy is three-state (allow, deny, ask). The document-start policy projection renders the host policy into permission query results: explicit denials pass through the native state, every undecided origin reports the ask state, and names outside the ask list are never rewritten.",
+  "permissionQueryPolicy": {
+    "vectors": [
+      {
+        "name": "undecided origins stay absent from the projection",
+        "askNames": ["persistent-storage"],
+        "store": {},
+        "task": {},
+        "expected": { "persistent-storage": { "denied": [] } }
+      },
+      {
+        "name": "a persistent settings denial is projected",
+        "askNames": ["persistent-storage"],
+        "store": { "persistent-storage": ["https://a.example"] },
+        "task": {},
+        "expected": { "persistent-storage": { "denied": ["https://a.example"] } }
+      },
+      {
+        "name": "a task-scoped denial is projected",
+        "askNames": ["persistent-storage"],
+        "store": {},
+        "task": { "persistent-storage": ["https://b.example"] },
+        "expected": { "persistent-storage": { "denied": ["https://b.example"] } }
+      },
+      {
+        "name": "overlapping denials deduplicate and sort",
+        "askNames": ["persistent-storage"],
+        "store": { "persistent-storage": ["https://b.example", "https://a.example"] },
+        "task": { "persistent-storage": ["https://a.example"] },
+        "expected": { "persistent-storage": { "denied": ["https://a.example", "https://b.example"] } }
+      },
+      {
+        "name": "names outside the ask list are never projected",
+        "askNames": ["persistent-storage"],
+        "store": { "geolocation": ["https://c.example"] },
+        "task": { "notifications": ["https://d.example"] },
+        "expected": { "persistent-storage": { "denied": [] } }
+      }
+    ]
+  },
+  "shimSource": {
+    "vectors": [
+      {
+        "name": "the document script embeds the policy and the update seam",
+        "policy": { "persistent-storage": { "denied": ["https://a.example"] } },
+        "expectedIncludes": ["\"persistent-storage\"", "https://a.example", "__klausPermissionPolicyUpdate", "navigator.permissions", "'prompt'"],
+        "expectedExcludes": ["geolocation"]
+      }
+    ]
+  },
+  "decisionOrigins": {
+    "vectors": [
+      {
+        "name": "only denials of the asked name are enumerated",
+        "decisions": [
+          { "key": ["task", "https://a.example", "persistent-storage"], "setting": "denied" },
+          { "key": ["task", "https://b.example", "persistent-storage"], "setting": "granted" },
+          { "key": ["other", "https://c.example", "persistent-storage"], "setting": "denied" },
+          { "key": ["task", "https://d.example", "geolocation"], "setting": "denied" }
+        ],
+        "permission": "persistent-storage",
+        "expected": ["https://a.example", "https://c.example"]
+      }
+    ]
+  }
+}

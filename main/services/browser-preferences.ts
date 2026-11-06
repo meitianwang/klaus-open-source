@@ -102,6 +102,12 @@ export class BrowserPreferences {
     return rows.find(row => row.origin === origin && row.permission === permission)?.setting as 'granted' | 'denied' | undefined;
   }
 
+  /** Origins with an explicit denial row for one permission name. */
+  permissionDenialOrigins(permission: string): string[] {
+    const rows = object(this.profile().browser).sitePermissions as JsonObject[];
+    return [...new Set(rows.filter(row => row.permission === permission && row.setting === 'denied').map(row => String(row.origin)))];
+  }
+
   async initialize(): Promise<void> {
     await this.mutations.run(async () => {
       const plugins = object((await this.engine.read()).plugins), edits: Json[] = [];

@@ -9,6 +9,14 @@ import { BrowserDataStore } from './history-store';
 import type { BrowserCdp } from './page-operations';
 import { permissionCommand } from './page-advanced';
 import { BrowserPermissionDecisions } from './permission-requests';
+import {
+  PERMISSION_QUERY_ASK_NAMES,
+  PERMISSION_QUERY_SCRIPT_KEY,
+  permissionQueryShimSource,
+  permissionQueryUpdateExpression,
+  synthesizePermissionQueryPolicy,
+  type PermissionQueryPolicy,
+} from './permission-query';
 import { browserBounds, navigationUrl } from './policy';
 import { BrowserError, json, message, object, string, type BrowserBounds, type BrowserObject, type BrowserScope, type BrowserState } from './types';
 import type { Json } from '../ipc/contract';
@@ -67,6 +75,12 @@ export interface BrowserManagerOptions {
    * permission decisions; undefined means the page should ask.
    */
   sitePermission?: (origin: string, permission: string) => 'granted' | 'denied' | undefined;
+  /**
+   * Origins with a persistent denial row for one permission name. The manager
+   * folds them into the document-start policy script so an undecided origin
+   * keeps the ask state that the binary check API cannot express.
+   */
+  sitePermissionDenials?: (permission: string) => string[];
   /**
    * Access check for agent operations and native downloads. Task-owned
    * navigation itself stays on the normal host path; the operation layer calls
@@ -267,6 +281,41 @@ export class BrowserManager {
     for (const cancel of [...this.pendingNavigationCancels]) cancel();
     this.pendingNavigationCancels.clear();
     this.lastAgentEnabled = this.isEnabled();
+    // Cleared task decisions move every undecided origin back to the ask
+    // state, which open documents must observe without a reload.
+    void this.syncPermissionQueryPolicy();
+  }
+
+  /** The host's three-state site policy as the page-visible query projection. */
+  permissionQueryPolicy(): PermissionQueryPolicy {
+    return synthesizePermissionQueryPolicy(
+      PERMISSION_QUERY_ASK_NAMES,
+      permission => { try { return this.options.sitePermissionDenials?.(permission) ?? []; } catch { return []; } },
+      permission => this.decisions.deniedOrigins(permission),
+    );
+  }
+
+  private async installPermissionQueryPolicy(page: BrowserPage): Promise<void> {
+    try {
+      await page.cdp.registerDocumentScript(PERMISSION_QUERY_SCRIPT_KEY, permissionQueryShimSource(this.permissionQueryPolicy()));
+    } catch {
+      // A page that closed mid-installation carries no policy obligations.
+    }
+  }
+
+  /** Re-render the policy into every open page and every future document. */
+  private async syncPermissionQueryPolicy(): Promise<void> {
+    const policy = this.permissionQueryPolicy();
+    const source = permissionQueryShimSource(policy);
+    const update = permissionQueryUpdateExpression(policy);
+    for (const page of [...this.pages.values()]) {
+      try {
+        await page.cdp.updateDocumentScript(PERMISSION_QUERY_SCRIPT_KEY, source);
+        await page.cdp.evaluate(update);
+      } catch {
+        // Closed or never-initialized pages keep no policy obligations.
+      }
+    }
   }
 
   private markAgentVisit(page: BrowserPage, url: string): void {
@@ -540,7 +589,9 @@ export class BrowserManager {
     this.bindPage(page);
     // A fresh WebContents has no live document yet. Attaching then awaiting
     // Page.enable before loadURL deadlocks initialization on Electron 44.
-    page.ready = (contents ? Promise.resolve() : view.webContents.loadURL('about:blank')).then(() => page.cdp.initialize());
+    page.ready = (contents ? Promise.resolve() : view.webContents.loadURL('about:blank'))
+      .then(() => page.cdp.initialize())
+      .then(() => this.installPermissionQueryPolicy(page));
     // A popup has no awaiting API caller. Keep its failed initialization observable.
     void page.ready.catch(error => { page.error = message(error); this.publish(); });
     this.present();
@@ -1025,6 +1076,7 @@ export class BrowserManager {
     const command = permissionCommand(fields);
     if (command.method === 'Browser.resetPermissions') {
       this.decisions.forget(key => (JSON.parse(key) as string[])[0] === page.owner);
+      await this.syncPermissionQueryPolicy();
       return { reset: true, scope: 'task' };
     }
     const origin = new URL(this.assertNavigation(command.params.origin)).origin;
@@ -1037,6 +1089,9 @@ export class BrowserManager {
     for (const name of names) {
       this.decisions.set([JSON.stringify([page.owner, origin, name])], setting);
     }
+    // An explicit task-scoped decision flips the page-visible query state of
+    // the undecided ask projection, so open documents are updated in place.
+    await this.syncPermissionQueryPolicy();
     return { origin, permissions: names, setting, scope: 'task', note: 'Chromium permission checks without an identifiable page remain denied. Device selection and operating-system permissions still apply.' };
   }
 
