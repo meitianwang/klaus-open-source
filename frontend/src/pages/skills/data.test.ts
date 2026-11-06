@@ -93,4 +93,31 @@ describe('skills data lifecycle', () => {
     expect(data.marketCursor).toBeNull()
     expect(data.marketIsRemote).toBe(false)
   })
+
+  test('cached catalog expires after the TTL so reopening the page refetches new publications', async () => {
+    reset()
+    let marketCalls = 0
+    globalWindow.klaus.skills = {
+      list: () => Promise.resolve([]),
+      market: () => { marketCalls += 1; return Promise.resolve({ items: [{ name: 'catalog-' + marketCalls }], nextCursor: null, isRemote: true }) },
+      builtin: () => Promise.resolve([]),
+    }
+    const previousNow = Date.now
+    let now = previousNow()
+    Date.now = () => now
+    try {
+      const first = await data.loadSkillsData()
+      expect(marketCalls).toBe(1)
+      const withinTtl = await data.loadSkillsData()
+      expect(withinTtl).toBe(first)
+      expect(marketCalls).toBe(1)
+      now += 6 * 60 * 1000
+      const afterTtl = await data.loadSkillsData()
+      expect(marketCalls).toBe(2)
+      expect(afterTtl.market.map(s => s.name)).toEqual(['catalog-2'])
+      expect(data.getSkillsCache()).toBe(afterTtl)
+    } finally {
+      Date.now = previousNow
+    }
+  })
 })

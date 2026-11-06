@@ -18,7 +18,14 @@ export interface SkillsData {
   marketIsRemote: boolean
 }
 
+// The server-hosted catalog can gain entries at any time. An unbounded cache
+// kept freshly published skills invisible until the manual refresh button was
+// clicked, so cached data expires after a short TTL and the next load
+// refetches; loads within the window still render instantly from cache.
+const SKILLS_CACHE_TTL_MS = 5 * 60 * 1000
+
 let cache: SkillsData | null = null
+let cacheAt = 0
 let loadPromise: Promise<SkillsData> | null = null
 let loadSeq = 0
 export let marketCursor: string | null = null
@@ -67,6 +74,7 @@ export function normalizeSkillsData(
 export function invalidateSkillsDataCache(): void {
   loadSeq++
   cache = null
+  cacheAt = 0
   loadPromise = null
   marketCursor = null
   marketIsRemote = false
@@ -116,6 +124,8 @@ export function replaceMarketInCache(items: SkillItem[], nextCursor: string | nu
   cache.marketIsRemote = isRemote
   marketCursor = nextCursor
   marketIsRemote = isRemote
+  // A completed remote query proves the catalog was just fetched.
+  cacheAt = Date.now()
 }
 
 export function appendMarketToCache(items: SkillItem[], nextCursor: string | null): SkillItem[] {
@@ -129,6 +139,7 @@ export function appendMarketToCache(items: SkillItem[], nextCursor: string | nul
   cache.market = [...cache.market, ...newItems]
   cache.marketNextCursor = nextCursor
   marketCursor = nextCursor
+  cacheAt = Date.now()
   return newItems
 }
 
@@ -136,7 +147,7 @@ export async function loadSkillsData(forceRefresh = false): Promise<SkillsData> 
   if (forceRefresh) {
     invalidateSkillsDataCache()
   }
-  if (!forceRefresh && cache) return cache
+  if (!forceRefresh && cache && Date.now() - cacheAt < SKILLS_CACHE_TTL_MS) return cache
   if (!forceRefresh && loadPromise) return loadPromise
 
   const seq = ++loadSeq
@@ -151,6 +162,7 @@ export async function loadSkillsData(forceRefresh = false): Promise<SkillsData> 
     }
     if (seq === loadSeq) {
       cache = data
+      cacheAt = Date.now()
       marketCursor = data.marketNextCursor
       marketIsRemote = data.marketIsRemote
     }
