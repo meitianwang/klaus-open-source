@@ -460,7 +460,7 @@
 
 .bypass-confirm-learn-more {
   font: inherit;
-  color: var(--accent);
+  color: var(--text-accent);
   background: none;
   border: 0;
   padding: 0;

@@ -67,7 +67,7 @@
 
 .ch-guide-num { font-weight: var(--weight-medium); color: var(--fg); }
 
-.ch-guide-link { margin-left: 6px; color: var(--accent); text-decoration: underline; }
+.ch-guide-link { margin-left: 6px; color: var(--text-accent); text-decoration: underline; }
 
 .ch-guide-action { margin-left: 6px; font-size: var(--text-small); padding: 2px 8px; }
 

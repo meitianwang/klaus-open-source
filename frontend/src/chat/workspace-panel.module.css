@@ -66,7 +66,7 @@
 .workspace-file-tab:global(.is-active) {
   background: var(--bg);
   color: var(--fg);
-  border-top-color: var(--accent);
+  border-top-color: var(--theme-accent);
 }
 
 .workspace-file-tab-icon {
@@ -614,7 +614,7 @@ details.ws-dir[open] > summary > .ws-chevron { transform: rotate(90deg); }
   height: 18px;
   min-width: 0;
   padding: 0 4px;
-  border: 1px solid var(--accent);
+  border: 1px solid var(--input-focus);
   border-radius: var(--radius-xxs);
   background: var(--bg-surface);
   color: var(--fg);

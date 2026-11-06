@@ -13,9 +13,9 @@
 .spec-document-actions button:disabled, .spec-document-find button:disabled { opacity: .4; cursor: default; }
 .spec-document-actions button:focus-visible, .spec-document-find button:focus-visible { outline: none; background: var(--bg-hover); color: var(--fg); box-shadow: none;}
 /* A find field is a text entry: the ring is its focus language. */
-.spec-document-select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; box-shadow: none; }
+.spec-document-select:focus-visible { outline: 2px solid var(--input-focus); outline-offset: 2px; box-shadow: none; }
 .spec-document-find { display: flex; align-items: center; gap: 6px; flex-shrink: 0; margin: 0 16px 6px auto; padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-surface); max-width: calc(100% - 32px); }
-.spec-document-find input { width: 180px; min-width: 48px; height: 20px; padding: 0 6px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg-surface); color: var(--fg); font-size: 12px; outline-color: var(--accent); }
+.spec-document-find input { width: 180px; min-width: 48px; height: 20px; padding: 0 6px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg-surface); color: var(--fg); font-size: 12px; outline-color: var(--input-focus); }
 .spec-document-find-count { min-width: 42px; text-align: right; font-size: 12px; color: var(--fg-tertiary); }
 .spec-document-views { flex: 1; min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
 .spec-document-view { position: relative; display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden; }
@@ -38,7 +38,7 @@
 .spec-document-content li :is(ul, ol) { margin-bottom: 1rem; }
 .spec-document-content li > :last-child { margin-bottom: 0; }
 .spec-document-content blockquote { padding-left: 12px; border-left: 3px solid var(--border); color: var(--fg-secondary); }
-.spec-document-content a { color: var(--accent); text-decoration: none; }
+.spec-document-content a { color: var(--text-accent); text-decoration: none; }
 .spec-document-content a:hover { text-decoration: underline; }
 .spec-document-content code { font-family: var(--font-mono); }
 .spec-document-content code:not(pre code) { padding: 1px 5px; background: var(--code-bg); border-radius: var(--radius-xxs); font-size: .92em; }
@@ -49,8 +49,8 @@
 .spec-document-content th { background: var(--bg-surface); font-weight: var(--weight-semibold); }
 .spec-document-content hr { margin: 16px 0; border: 0; border-top: 1px solid var(--border); }
 .spec-document-content :is(img, video) { max-width: 100%; height: auto; }
-.spec-document-content mark.spec-document-match { color: inherit; background: color-mix(in srgb, var(--accent) 22%, transparent); border-radius: 2px; }
-.spec-document-content mark.spec-document-match.is-current { outline: 1px solid var(--accent); background: color-mix(in srgb, var(--accent) 38%, transparent); }
+.spec-document-content mark.spec-document-match { color: inherit; background: color-mix(in srgb, var(--theme-accent) 22%, transparent); border-radius: 2px; }
+.spec-document-content mark.spec-document-match.is-current { outline: 1px solid var(--theme-accent); background: color-mix(in srgb, var(--theme-accent) 38%, transparent); }
 .spec-document-status { padding: 4px 20px; font-size: 12px; color: var(--fg-tertiary); overflow-wrap: anywhere; flex-shrink: 0; }
 .spec-document-empty { padding: 32px 20px; text-align: center; font-size: 13px; color: var(--fg-tertiary); }
 .spec-document-panel .spec-annotations { flex-shrink: 0; max-height: 160px; overflow: auto; margin: 8px 20px; }

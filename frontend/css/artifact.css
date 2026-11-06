@@ -94,10 +94,10 @@ body { display: flex; flex-direction: column; }
 .aw-view-btn:hover,
 .aw-icon-btn:hover { color: var(--fg-secondary); background: var(--bg-hover); }
 .aw-view-btn.is-active {
-  color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--text-accent); background: color-mix(in srgb, var(--theme-accent) 12%, transparent);
 }
 .aw-view-btn.is-active:hover {
-  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  background: color-mix(in srgb, var(--theme-accent) 18%, transparent);
 }
 .aw-view-btn svg, .aw-icon-btn svg { display: block; }
 .aw-icon-btn svg { width: 16px; height: 16px; }

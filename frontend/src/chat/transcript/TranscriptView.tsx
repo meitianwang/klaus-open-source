@@ -200,7 +200,7 @@ export function makeTranscriptClickHandler(
       const row = [...root.querySelectorAll<HTMLElement>('[data-uuid]')].find(row => row.dataset.uuid === requestLink.dataset.friendRequestTarget)
       if (row) {
         row.scrollIntoView({ behavior: 'smooth', block: 'center' })
-        row.animate([{ outline: '2px solid var(--accent)', outlineOffset: '6px' }, { outline: '2px solid transparent', outlineOffset: '6px' }], { duration: 1800 })
+        row.animate([{ outline: '2px solid var(--theme-accent)', outlineOffset: '6px' }, { outline: '2px solid transparent', outlineOffset: '6px' }], { duration: 1800 })
       } else if (requestLink.dataset.friendRequestTarget) {
         // The target row is loaded but not mounted by the virtual window yet.
         root.dispatchEvent(new CustomEvent('klaus-transcript-jump', { detail: { uuid: requestLink.dataset.friendRequestTarget } }))

@@ -71,7 +71,7 @@
 }
 
 .search:focus-within {
-  border-color: var(--accent);
+  border-color: var(--input-focus);
 }
 
 .search-icon {

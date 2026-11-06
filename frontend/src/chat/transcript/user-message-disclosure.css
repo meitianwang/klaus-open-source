@@ -14,7 +14,7 @@
   cursor: pointer;
 }
 [data-user-message-toggle][hidden], [data-user-message-ellipsis][hidden] { display: none; }
-[data-user-message-toggle]:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+[data-user-message-toggle]:focus-visible { outline: 2px solid var(--input-focus); outline-offset: 3px; }
 @media print {
   [data-user-message-body] { max-height: none !important; overflow: visible !important; }
   [data-user-message-ellipsis], [data-user-message-toggle] { display: none !important; }

@@ -183,7 +183,7 @@ body:global(.artifacts-open) .welcome-greeting {
 /* Declared here, not in css/styles.css: CSS Modules localizes animation names,
    so a keyframes referenced from a module must be defined in that module. */
 @keyframes turn-navigation-flash {
-  0%, 28% { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+  0%, 28% { background: color-mix(in srgb, var(--theme-accent) 12%, transparent); }
   100% { background: transparent; }
 }
 
@@ -197,7 +197,7 @@ body:global(.artifacts-open) .welcome-greeting {
 
   :global(.msg-group).turn-navigation-target {
     animation: none;
-    background: color-mix(in srgb, var(--accent) 10%, transparent);
+    background: color-mix(in srgb, var(--theme-accent) 10%, transparent);
   }
 }
 

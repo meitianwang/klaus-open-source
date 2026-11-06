@@ -29,7 +29,7 @@
   background: transparent;
   cursor: pointer;
 }
-.rowButton:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.rowButton:focus-visible { outline: 2px solid var(--input-focus); outline-offset: -2px; }
 
 .rowContent {
   position: relative;
@@ -112,7 +112,7 @@
 }
 .openIn button:hover,
 .openIn button[aria-expanded='true'] { background: var(--bg-hover); }
-.openIn button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.openIn button:focus-visible { outline: 2px solid var(--input-focus); outline-offset: -2px; }
 .openInSingle { gap: 4px; padding: 0 6px 0 8px; }
 .openInPrimary { padding: 0 4px 0 8px; }
 .openInSecondary { position: relative; padding: 0 6px 0 8px; }
@@ -142,7 +142,7 @@
   cursor: pointer;
 }
 .showMore:hover { background: color-mix(in oklab, var(--bg-hover) 30%, transparent); }
-.showMore:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.showMore:focus-visible { outline: 2px solid var(--input-focus); outline-offset: -2px; }
 
 .menu {
   position: fixed;

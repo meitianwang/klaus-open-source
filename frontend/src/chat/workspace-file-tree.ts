@@ -28,7 +28,7 @@ const TREE_CSS = `
   --trees-fg-muted-override: var(--fg-quaternary);
   --trees-font-family-override: var(--font);
   --trees-font-size-override: 13px;
-  --trees-focus-ring-color-override: var(--accent);
+  --trees-focus-ring-color-override: var(--input-focus);
   --trees-selected-bg-override: color-mix(in srgb, var(--fg) 8%, var(--bg));
   --trees-selected-fg-override: var(--fg);
   --trees-item-padding-x-override: 3px;

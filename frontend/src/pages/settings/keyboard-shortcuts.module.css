@@ -36,7 +36,7 @@
 }
 
 .search-field:focus-within {
-  border-color: var(--accent);
+  border-color: var(--input-focus);
 }
 
 .search-icon {
@@ -251,7 +251,7 @@
   height: 32px;
   padding: 0 10px;
   background: var(--bg-elevated);
-  border: 1px solid var(--accent);
+  border: 1px solid var(--input-focus);
   border-radius: var(--radius-md);
   color: var(--fg);
   font: inherit;

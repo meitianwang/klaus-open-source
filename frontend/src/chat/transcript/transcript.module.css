@@ -574,7 +574,7 @@
 }
 
 .turn-changes-head-btn:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--input-focus);
   outline-offset: -2px;
 }
 
@@ -1340,7 +1340,7 @@
 :global(.msg-group):global(.teammate) .teammate-bubble {
   background: var(--bg-elevated);
   border: 1px solid var(--border);
-  border-left: 3px solid var(--teammate-color, var(--accent));
+  border-left: 3px solid var(--teammate-color, var(--theme-accent));
   border-radius: var(--radius-md);
   padding: 10px 12px;
 }
@@ -1600,7 +1600,7 @@
 .compaction-spinner {
   width: 14px; height: 14px;
   border: 1.5px solid var(--border);
-  border-top-color: var(--accent);
+  border-top-color: var(--theme-accent);
   border-radius: 50%;
   animation: ctx-spin 0.8s linear infinite;
   flex-shrink: 0;
@@ -1669,7 +1669,7 @@
   font-weight: var(--weight-semibold);
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--accent);
+  color: var(--text-accent);
   opacity: 0.75;
 }
 
@@ -1892,7 +1892,7 @@
   padding: 0;
   border: 0;
   background: transparent;
-  color: var(--accent);
+  color: var(--text-accent);
   font: inherit;
   cursor: pointer;
 }

@@ -1069,7 +1069,7 @@ button.cron-run-open { cursor: pointer; }
 
 .cron-run-open-chat {
   margin-left: 6px;
-  color: var(--accent);
+  color: var(--text-accent);
   font-size: var(--text-badge);
 }
 

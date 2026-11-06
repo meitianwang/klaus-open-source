@@ -12,7 +12,7 @@
 .editor :global(.cm-line) { padding: 0; }
 .editor:global(.cm-focused) { outline: none; }
 .editor :global(.cm-cursor), .editor :global(.cm-dropCursor) { border-left-color: var(--fg); }
-.editor :global(.cm-selectionBackground) { background: color-mix(in srgb, var(--accent) 18%, transparent) !important; }
+.editor :global(.cm-selectionBackground) { background: color-mix(in srgb, var(--theme-accent) 18%, transparent) !important; }
 .editor :global(.cm-activeLine) { background: transparent; }
 
 .headingLine { font-weight: 600; line-height: 1.35; padding-top: 1em !important; padding-bottom: .5em !important; }
@@ -36,7 +36,7 @@
 .codeLine { background: var(--bg-surface); font-family: var(--font-mono, ui-monospace, monospace); font-size: .9em; padding: 0 12px !important; line-height: 1.6; }
 .tableSourceLine, .literalHtml { font-family: var(--font-mono, ui-monospace, monospace); font-size: .9em; }
 .widget { max-width: 100%; overflow-x: auto; outline: none; }
-.widgetFocused { outline: 2px solid var(--accent); outline-offset: 3px; }
+.widgetFocused { outline: 2px solid var(--input-focus); outline-offset: 3px; }
 .table { margin: 12px 0; }
 .table table { border-collapse: collapse; width: 100%; font-size: .94em; }
 .table th, .table td { border: 1px solid var(--border); padding: 7px 12px; text-align: left; min-width: 60px; }

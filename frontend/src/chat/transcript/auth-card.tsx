@@ -131,7 +131,7 @@ export function AuthRequiredCard({ reason, mode }: { reason?: string; mode?: str
     <div className="msg-group assistant">
       <div className="msg assistant auth-card" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 12, padding: 16, width: '100%', boxSizing: 'border-box' }}>
         <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start', marginBottom: 12 }}>
-          <RawHtml style={{ color: 'var(--accent)', marginTop: 2 }} html={icon} />
+          <RawHtml style={{ color: 'var(--text-accent)', marginTop: 2 }} html={icon} />
           <div style={{ flex: 1 }}>
             <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 4 }}>{title}</div>
             <div style={{ fontSize: 12, color: 'var(--fg-tertiary)', lineHeight: 1.5 }}>{hint}</div>

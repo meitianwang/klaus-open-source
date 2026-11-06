@@ -84,7 +84,7 @@ type Hex = string
 
 const KLAUS_DEFAULT_APPEARANCE_THEMES: Record<Variant, any> = {
   dark: {
-    accent: '#ffffff',
+    accent: '#339cff',
     contrast: 50,
     fonts: { code: null, ui: null },
     ink: '#dfdfdf',
@@ -93,7 +93,7 @@ const KLAUS_DEFAULT_APPEARANCE_THEMES: Record<Variant, any> = {
     surface: '#181818',
   },
   light: {
-    accent: '#1a1c1f',
+    accent: '#339cff',
     contrast: 45,
     fonts: { code: null, ui: null },
     ink: '#1a1c1f',
@@ -242,7 +242,7 @@ const KLAUS_APPEARANCE_CODE_THEME_SEEDS: Record<Variant, Record<string, any>> = 
     everforest: { accent: '#93b259', ink: '#5c6a72', semanticColors: { diffAdded: '#8da101', diffRemoved: '#f85552', skill: '#df69ba' }, surface: '#fdf6e3' },
     github: { accent: '#0969da', ink: '#1f2328', semanticColors: { diffAdded: '#1a7f37', diffRemoved: '#cf222e', skill: '#8250df' }, surface: '#ffffff' },
     gruvbox: { accent: '#458588', ink: '#3c3836', semanticColors: { diffAdded: '#3c3836', diffRemoved: '#cc241d', skill: '#b16286' }, surface: '#fbf1c7' },
-    'klaus-default': { accent: '#1a1c1f', ink: '#1a1c1f', semanticColors: { diffAdded: '#00a240', diffRemoved: '#e02e2a', skill: '#751ed9' }, surface: '#ffffff' },
+    'klaus-default': { accent: '#339cff', ink: '#1a1c1f', semanticColors: { diffAdded: '#00a240', diffRemoved: '#e02e2a', skill: '#751ed9' }, surface: '#ffffff' },
     linear: { accent: '#5e6ad2', ink: '#1b1b1b', semanticColors: { diffAdded: '#52a450', diffRemoved: '#c94446', skill: '#8160d8' }, surface: '#fcfcfd', fonts: { ui: 'Inter' }, opaqueWindows: true },
     notion: { accent: '#3183d8', ink: '#37352f', semanticColors: { diffAdded: '#008000', diffRemoved: '#a31515', skill: '#0000ff' }, surface: '#ffffff', fonts: { code: null, ui: null }, opaqueWindows: true },
     one: { accent: '#526fff', ink: '#383a42', semanticColors: { diffAdded: '#3bba54', diffRemoved: '#e45649', skill: '#526fff' }, surface: '#fafafa' },
@@ -263,7 +263,7 @@ const KLAUS_APPEARANCE_CODE_THEME_SEEDS: Record<Variant, Record<string, any>> = 
     everforest: { accent: '#a7c080', ink: '#d3c6aa', semanticColors: { diffAdded: '#a7c080', diffRemoved: '#e67e80', skill: '#d699b6' }, surface: '#2d353b' },
     github: { accent: '#1f6feb', ink: '#e6edf3', semanticColors: { diffAdded: '#3fb950', diffRemoved: '#f85149', skill: '#bc8cff' }, surface: '#0d1117' },
     gruvbox: { accent: '#458588', ink: '#ebdbb2', semanticColors: { diffAdded: '#ebdbb2', diffRemoved: '#cc241d', skill: '#b16286' }, surface: '#282828' },
-    'klaus-default': { accent: '#ffffff', ink: '#dfdfdf', semanticColors: { diffAdded: '#00a240', diffRemoved: '#e02e2a', skill: '#b06dff' }, surface: '#181818' },
+    'klaus-default': { accent: '#339cff', ink: '#dfdfdf', semanticColors: { diffAdded: '#00a240', diffRemoved: '#e02e2a', skill: '#b06dff' }, surface: '#181818' },
     linear: { accent: '#606acc', ink: '#e3e4e6', semanticColors: { diffAdded: '#69c967', diffRemoved: '#ff7e78', skill: '#c2a1ff' }, surface: '#0f0f11', fonts: { ui: 'Inter' }, opaqueWindows: true },
     lobster: { accent: '#ff5c5c', ink: '#e4e4e7', semanticColors: { diffAdded: '#22c55e', diffRemoved: '#ff5c5c', skill: '#3b82f6' }, surface: '#111827', fonts: { ui: 'Satoshi' } },
     material: { accent: '#80cbc4', ink: '#eeffff', semanticColors: { diffAdded: '#c3e88d', diffRemoved: '#f07178', skill: '#c792ea' }, surface: '#212121' },
@@ -431,6 +431,24 @@ function contrastRatio(a: string, b: string) {
 // black — black won by 0.023 and every danger button in the product rendered
 // black-on-red. So: take white whenever it still clears AA (4.5), and only fall
 // back to the higher-contrast option when white genuinely fails.
+// Contrast curve shared by accent-derived text colours: linear up to the
+// palette's default contrast, then steepened so raising contrast above the
+// default visibly separates accent text from the surface.
+function appearanceAccentContrast(themeContrast: number, variant: Variant) {
+  const anchor = KLAUS_DEFAULT_APPEARANCE_THEMES[variant].contrast
+  const base = anchor / 100
+  const linear = themeContrast / 100 + (themeContrast - anchor) / 60 * 0.7
+  return themeContrast <= anchor ? linear : base + (linear - base) * 2
+}
+
+// Accent used as a text colour (links and other inline accent text). On light
+// surfaces the accent is already legible; on dark surfaces it is lifted toward
+// white in proportion to the contrast setting.
+function appearanceTextAccent(theme: any, variant: Variant) {
+  if (variant === 'light') return theme.accent
+  return mixHex(theme.accent, '#ffffff', 0.3 + 0.15 * appearanceAccentContrast(theme.contrast, variant))
+}
+
 function readableTextOn(background: string) {
   const onWhite = contrastRatio(background, '#ffffff')
   if (onWhite >= 4.5) return '#ffffff'
@@ -494,8 +512,14 @@ function applyAppearanceThemeTokens(theme: any, variant: Variant) {
   for (const name of KLAUS_HLJS_TOKEN_KEYS) {
     codeTokenProperties[`--syntax-hljs-${kebabTokenName(name)}`] = tokenColor(name)
   }
-  const accentText = readableTextOn(theme.accent)
-  const accentHover = mixHex(theme.accent, accentText === '#ffffff' ? '#000000' : '#ffffff', 0.14)
+  // The theme accent is a hue for text, focus and tints. Solid primary
+  // controls are filled with the body ink instead, so a coloured accent never
+  // turns every primary button into a coloured block. The neutral dark palette
+  // keeps its pure white fill, matching its secondary ink above.
+  const primarySolid = neutralText && variant === 'dark' ? '#ffffff' : theme.ink
+  const accentText = readableTextOn(primarySolid)
+  const accentHover = mixHex(primarySolid, accentText === '#ffffff' ? '#000000' : '#ffffff', 0.14)
+  const textAccent = appearanceTextAccent(theme, variant)
   const codeBg = variant === 'dark'
     ? mixHex(theme.surface, theme.ink, 0.06 + contrast * 0.03)
     : mixHex(theme.surface, theme.ink, 0.035 + contrast * 0.025)
@@ -526,8 +550,9 @@ function applyAppearanceThemeTokens(theme: any, variant: Variant) {
     '--fg-secondary': fgSecondary,
     '--fg-tertiary': fgTertiary,
     '--fg-quaternary': fgQuaternary,
-    '--accent': theme.accent,
+    '--accent': primarySolid,
     '--accent-text': accentText,
+    '--text-accent': textAccent,
     '--accent-hover': accentHover,
     '--code-bg': codeBg,
     '--bg-code': codeBg,

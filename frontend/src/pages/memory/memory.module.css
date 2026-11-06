@@ -86,7 +86,7 @@
   /* Pulsing accent color drives the running neuron marker — same rule used
      for `.memory-history-row.status-running` so the visuals stay in sync.
      The wrapper just needs the gutter alignment. */
-  color: color-mix(in srgb, var(--accent) 70%, var(--moon-glow, #e8d8a8));
+  color: color-mix(in srgb, var(--theme-accent) 70%, var(--moon-glow, #e8d8a8));
 }
 
 /* Pulse animation borrowed from the timeline running-row rule — applies to
@@ -94,7 +94,7 @@
    provides. */
 .memory-current .memory-history-marker {
   color: inherit;
-  filter: drop-shadow(0 0 6px color-mix(in srgb, var(--accent) 50%, transparent));
+  filter: drop-shadow(0 0 6px color-mix(in srgb, var(--theme-accent) 50%, transparent));
   animation: memory-marker-pulse 2.4s ease-in-out infinite;
 }
 
@@ -147,7 +147,7 @@
 
 .memory-status-running {
   background: var(--theme-accent-bg);
-  color: var(--accent);
+  color: var(--text-accent);
 }
 
 .memory-status-completed {
@@ -353,7 +353,7 @@
 }
 
 .memory-history-row:global(.status-running) .memory-history-marker {
-  color: color-mix(in srgb, var(--accent) 70%, var(--moon-glow));
+  color: color-mix(in srgb, var(--theme-accent) 70%, var(--moon-glow));
   animation: memory-marker-pulse 2.4s ease-in-out infinite;
 }
 
@@ -441,8 +441,8 @@
 }
 .memory-file-chip[role='button']:focus-visible {
   outline: none;
-  border-color: var(--accent);
-  color: var(--accent);
+  border-color: var(--input-focus);
+  color: var(--text-accent);
 }
 .memory-detail-label[role='button']:focus-visible {
   outline: none;
@@ -653,7 +653,7 @@
    to hint that something distilled happened that round without competing
    with the status word for attention. */
 .memory-history-skill-chip {
-  color: color-mix(in srgb, var(--accent) 70%, var(--fg-tertiary));
+  color: color-mix(in srgb, var(--theme-accent) 70%, var(--fg-tertiary));
   font-variant-numeric: tabular-nums;
 }
 
@@ -682,7 +682,7 @@
 }
 
 .memory-history-status-running {
-  color: color-mix(in srgb, var(--accent) 80%, var(--fg-tertiary)) !important;
+  color: color-mix(in srgb, var(--theme-accent) 80%, var(--fg-tertiary)) !important;
 }
 
 .memory-history-sentinel { height: 1px; }
@@ -726,8 +726,8 @@
 }
 
 .memory-file-chip:hover {
-  border-color: var(--accent);
-  color: var(--accent);
+  border-color: var(--theme-accent);
+  color: var(--text-accent);
 }
 
 /* kls-btn-primary / kls-btn-ghost — variants used by the memory settings

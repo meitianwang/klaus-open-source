@@ -6,7 +6,7 @@
 :where(.page, .modal) button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; padding: 6px 10px; min-height: 32px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--fg); font: inherit; cursor: pointer; }
 :where(.page, .modal) button:hover:not(:disabled) { background: var(--bg-hover, color-mix(in srgb, var(--fg) 6%, var(--bg))); }
 :where(.page, .modal) button:disabled { opacity: .45; cursor: not-allowed; }
-:where(.page, .modal) :is(button, input, select, textarea, summary):focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+:where(.page, .modal) :is(button, input, select, textarea, summary):focus-visible { outline: 2px solid var(--input-focus); outline-offset: 3px; }
 :where(.page, .modal) :is(input, textarea, select) { font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 7px 9px; min-width: 0; }
 .modal textarea { resize: vertical; line-height: 1.5; }
 .page h1 { margin: 0; font-size: 24px; font-weight: 600; line-height: 32px; }
@@ -19,7 +19,7 @@
 .primaryButton { background: var(--accent) !important; border-color: var(--accent) !important; color: var(--accent-contrast, #fff) !important; white-space: nowrap; }
 .primaryButton:hover:not(:disabled) { filter: brightness(.95); }
 .iconButton { padding: 6px !important; width: 32px; height: 32px; flex: 0 0 auto; border-color: transparent !important; background: transparent; }
-.activeControl { color: var(--accent) !important; }
+.activeControl { color: var(--text-accent) !important; }
 .searchBox { width: 208px; min-width: 0; display: flex; align-items: center; gap: 6px; position: relative; }
 .searchBox > :global(.kls-icon-host) { position: absolute; left: 10px; pointer-events: none; color: var(--fg-tertiary); }
 .searchBox input { width: 100%; padding-left: 30px; padding-right: 29px; height: 32px; font-size: 12px; }
@@ -41,7 +41,7 @@
 .projectRowActions { position: absolute; right: 12px; display: flex; align-items: center; gap: 3px; }
 .focusButton { width: 28px; height: 28px; min-height: 28px !important; padding: 0 !important; border: 0 !important; background: transparent !important; color: var(--fg-tertiary); opacity: 0; transition: opacity 150ms; }
 .projectRow:hover .focusButton, .projectRow:focus-within .focusButton, .focusButton:focus-visible, .focused { opacity: 1; }
-.focused { color: var(--accent) !important; }
+.focused { color: var(--text-accent) !important; }
 .focusButton:hover { background: var(--bg-hover) !important; }
 .coverIcon { display: inline-flex; width: 40px; height: 40px; align-items: center; justify-content: center; flex: 0 0 auto; overflow: hidden; border-radius: 8px; color: white; isolation: isolate; position: relative; }
 .coverIcon::before, .coverIcon::after { content: ''; position: absolute; z-index: -1; pointer-events: none; }
@@ -55,7 +55,7 @@
 .coverIcon[data-color='Moss'] { background: radial-gradient(ellipse at 90% 20%, #dbd5ab, transparent 55%), linear-gradient(150deg, #526750, #93a38b 45%, #b6bd88); }
 .coverIcon > :global(.kls-icon-host) { filter: drop-shadow(0 1px 1px #0002); }
 .avatars { display: inline-flex; align-items: center; padding-left: 5px; }
-.avatar { width: 25px; height: 25px; flex: 0 0 auto; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; background: color-mix(in srgb, var(--accent) 15%, var(--bg)); color: var(--fg-secondary); border: 2px solid var(--bg); overflow: hidden; font-size: 11px; }
+.avatar { width: 25px; height: 25px; flex: 0 0 auto; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; background: color-mix(in srgb, var(--theme-accent) 15%, var(--bg)); color: var(--fg-secondary); border: 2px solid var(--bg); overflow: hidden; font-size: 11px; }
 .avatars .avatar { margin-left: -5px; }
 .avatar img { height: 100%; width: 100%; object-fit: cover; }
 .avatarButton { background: transparent !important; border-color: transparent !important; padding: 0 !important; }
@@ -95,7 +95,7 @@
 .modalFooter { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 6px; margin-top: 20px; }
 .createFooter { border-top: 1px solid var(--border); padding: 12px 20px; margin: 0; }
 .agentToggle { border: 0 !important; background: transparent !important; font-size: 12px !important; color: var(--fg-secondary) !important; }
-.agentToggle[aria-expanded='true'] { color: var(--accent) !important; }
+.agentToggle[aria-expanded='true'] { color: var(--text-accent) !important; }
 .createColumns { display: grid; grid-template-columns: minmax(0, 1fr); min-height: 340px; }
 .withAgent { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
 .createManual { padding: 20px; min-width: 0; }
@@ -116,10 +116,10 @@
 .coverPicker { display: flex; flex-direction: column; gap: 6px; }
 .coverPickerHeader { display: flex; align-items: center; justify-content: space-between; font-weight: 500; }
 .coverPickerHeader .iconButton { width: auto; padding: 0 !important; min-height: 22px; height: 22px; }
-.coverPickerLink { font-size: 12px; color: var(--accent); }
+.coverPickerLink { font-size: 12px; color: var(--text-accent); }
 .swatches { display: flex; flex-wrap: wrap; gap: 6px; padding: 0; margin: 0; border: 0; }
 .swatches button { width: 40px; height: 40px; min-height: 40px; padding: 0 !important; border: 0 !important; background: transparent !important; border-radius: 8px; }
-.swatches button[aria-pressed='true'] { outline: 1px solid var(--accent); outline-offset: 2px; }
+.swatches button[aria-pressed='true'] { outline: 1px solid var(--theme-accent); outline-offset: 2px; }
 .iconPopover { width: min(420px, calc(100vw - 32px)); border-radius: 12px; padding: 12px; }
 .iconSearch { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
 .iconSearch input { min-width: 0; flex: 1; width: 100%; }
@@ -127,7 +127,7 @@
 .iconCount { display: flex; justify-content: space-between; color: var(--fg-tertiary); margin-bottom: 8px; }
 .iconChoices { display: grid; grid-template-columns: repeat(auto-fill, 32px); gap: 4px; max-height: 264px; overflow-y: auto; }
 .iconChoices button { width: 32px; height: 32px; min-height: 32px; padding: 0; border-color: transparent; border-radius: 8px; }
-.iconChoices button[aria-pressed='true'] { color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, var(--bg)); border-color: var(--accent); }
+.iconChoices button[aria-pressed='true'] { color: var(--text-accent); background: color-mix(in srgb, var(--theme-accent) 10%, var(--bg)); border-color: var(--theme-accent); }
 .agentPane { background: color-mix(in srgb, var(--fg) 2%, var(--bg)); border-left: 1px solid var(--border); display: flex; flex-direction: column; min-width: 0; min-height: 360px; max-height: 520px; }
 .draftTranscript { flex: 1; overflow-y: auto; min-height: 180px; padding: 20px 16px; }
 .agentEmpty { min-height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; color: var(--fg-tertiary); gap: 12px; padding: 20px; }

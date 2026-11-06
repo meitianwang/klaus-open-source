@@ -41,7 +41,7 @@
   padding-bottom: 10px;
   margin-bottom: 2px;
   background:
-    radial-gradient(ellipse at 92% -8%, color-mix(in srgb, var(--accent) 5%, transparent) 0%, transparent 55%),
+    radial-gradient(ellipse at 92% -8%, color-mix(in srgb, var(--theme-accent) 5%, transparent) 0%, transparent 55%),
     var(--bg);
   background-attachment: fixed;
 }
@@ -67,7 +67,7 @@
 .lookupForm > label { display: block; margin-bottom: 8px; font-size: var(--text-body-sm); color: var(--fg-secondary); }
 .lookupFields { display: flex; gap: 10px; }
 .lookupFields input { flex: 1; min-width: 0; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-xs); color: var(--fg); background: var(--bg); font: inherit; }
-.lookupFields input:focus { outline: 2px solid var(--accent); outline-offset: 2px; }
+.lookupFields input:focus { outline: 2px solid var(--input-focus); outline-offset: 2px; }
 .profileResult { display: flex; align-items: center; gap: 14px; padding: 18px 0; }
 .profileResult strong { font-size: var(--text-body); color: var(--fg); }
 .profileResult p { margin: 6px 0 0; font-size: var(--text-body-sm); color: var(--fg-secondary); overflow-wrap: anywhere; }
@@ -118,7 +118,7 @@
 .deviceOption > span { flex: 1; min-width: 0; }
 .deviceOption strong { display: block; font-size: var(--text-body-sm); font-weight: var(--weight-medium); }
 .deviceOption small { display: block; margin-top: 6px; color: var(--fg-tertiary); font-size: var(--text-caption); }
-.deviceOption[aria-pressed="true"] { border-color: var(--accent); }
+.deviceOption[aria-pressed="true"] { border-color: var(--theme-accent); }
 .deviceOption:disabled { opacity: .6; cursor: default; }
 @media (max-width: 700px) { .sectionHeading { align-items: flex-start; flex-wrap: wrap; } }
 /* The back control remains visible for pointer and keyboard navigation. */
@@ -144,7 +144,7 @@
    the dialog. */
 .inviteRow { display: flex; align-items: center; gap: 10px; width: 100%; min-width: 0; }
 .inviteLabel { flex: 0 0 auto; font-size: var(--text-body-sm); color: var(--fg-secondary); }
-.inviteLink { flex: 1; min-width: 0; font-size: var(--text-body-sm); color: var(--accent); text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.inviteLink { flex: 1; min-width: 0; font-size: var(--text-body-sm); color: var(--text-accent); text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .inviteLink:hover { text-decoration: underline; }
 .scanStage { display: grid; justify-items: center; padding: 4px 0 10px; }
 .scanVideo, .scanPlaceholder { width: 100%; max-width: 360px; aspect-ratio: 4 / 3; border-radius: var(--radius-md); background: var(--bg-secondary); object-fit: cover; }
