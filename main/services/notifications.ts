@@ -152,13 +152,20 @@ export class DesktopNotifications {
   private deliver(notice: DesktopNotice, sound: 'done' | 'input', background = false): void {
     if (this.closed) return;
     try {
-      if (!background && this.deps.focused()) return;
+      if (!background && this.deps.focused()) {
+        this.deps.log(`Notification delivery ${JSON.stringify({ sessionId: notice.sessionId, reason: 'window-focused' })}`);
+        return;
+      }
+      let desktop = 'disabled', soundResult = 'disabled';
       if (this.deps.setting('notification.desktop') !== 'off') {
-        try { this.deps.show(notice); } catch (error) { this.deps.log(`Desktop notification failed: ${String(error)}`); }
+        try { this.deps.show(notice); desktop = 'requested'; }
+        catch (error) { desktop = 'failed'; this.deps.log(`Desktop notification failed: ${String(error)}`); }
       }
       if (this.deps.setting('notification.sound') !== 'off') {
-        try { this.deps.sound(sound); } catch (error) { this.deps.log(`Notification sound failed: ${String(error)}`); }
+        try { this.deps.sound(sound); soundResult = 'requested'; }
+        catch (error) { soundResult = 'failed'; this.deps.log(`Notification sound failed: ${String(error)}`); }
       }
+      this.deps.log(`Notification delivery ${JSON.stringify({ sessionId: notice.sessionId, desktop, sound: soundResult })}`);
     } catch (error) { this.deps.log(`Notification could not be delivered: ${String(error)}`); }
   }
   private outcome(id: string, failed: boolean, body: string, background = false, title?: string, turnId?: string): void {
@@ -169,7 +176,7 @@ export class DesktopNotifications {
       title: notificationSummary(title || this.titles.get(id) || `${this.chinese() ? '任务' : 'Task'} ${id.slice(0, 8)}`, NOTIFICATION_TITLE_CHARS),
       subtitle: failed ? (this.chinese() ? '任务失败' : 'Task failed') : (this.chinese() ? '任务完成' : 'Task completed'),
       body: summary,
-    }, failed ? 'input' : 'done', background);
+    }, failed ? 'input' : 'done', background || failed);
   }
   private mobileOutcome(id: string, turnId: string, failed: boolean): void {
     try { this.deps.mobileOutcome?.(id, turnId, failed); } catch { this.deps.log('Mobile outcome notification failed'); }
@@ -179,7 +186,11 @@ export class DesktopNotifications {
     this.outcome(id, failed, body, false, undefined, turnId);
   }
   private pendingPresentation(id: string, turnId: string): boolean {
-    try { return this.deps.pendingPresentation?.(id, turnId) ?? false; }
+    try {
+      const pending = this.deps.pendingPresentation?.(id, turnId) ?? false;
+      if (pending) this.deps.log(`Notification delivery ${JSON.stringify({ sessionId: id, turnId, reason: 'pending-work' })}`);
+      return pending;
+    }
     catch { this.deps.log('Notification pending-work policy is unavailable'); return true; }
   }
   input(channel: string, raw: Json): void {
@@ -308,7 +319,7 @@ export class DesktopNotifications {
       if (disposition === 'suppress' || this.pendingPresentation(id, turnId)) return;
       this.mobileOutcome(id, turnId, true);
       const authBody = failed ? notificationSummary(string(error.message)) : '';
-      this.deliver({ title: 'Klaus', sessionId: id, body: authBody || (this.chinese() ? '需要重新登录' : 'Sign in required') }, 'input'); return;
+      this.deliver({ title: 'Klaus', sessionId: id, body: authBody || (this.chinese() ? '需要重新登录' : 'Sign in required') }, 'input', true); return;
     }
     const body = failed ? string(error.message) || `Engine error (${reason})`
       : reason === 'completed' ? string(result.finalText) : string(result.finalText) || string(result.error);
@@ -320,6 +331,7 @@ export class DesktopNotifications {
       return;
     }
     if (disposition === 'inherit') this.terminalOutcome(id, failed || reason !== 'completed', body || (reason === 'completed' ? '' : reason), turnId);
+    else this.deps.log(`Notification delivery ${JSON.stringify({ sessionId: id, turnId, reason: 'presentation-suppressed' })}`);
   }
   close(): void { this.closed = true; this.goalDecisions.clear(); this.active.clear(); this.seen.clear(); this.titles.clear(); }
 }

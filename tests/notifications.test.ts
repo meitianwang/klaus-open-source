@@ -40,6 +40,22 @@ h.test('live task outcome uses its persisted title and one Unicode-safe summary'
   assertEqual([...notificationSummary('😀'.repeat(200))].length, 180, 'Unicode code points bounded');
   assert(notificationSummary('😀'.repeat(200)).endsWith('…'), 'truncation is explicit');
 });
+h.test('rate-limit failures notify while focused and retain settings and terminal deduplication', () => {
+  const f = fixture(); f.focus(true); f.start();
+  const failure = notificationToEvent('turn/failed', { sessionId: 'engine', submissionId: 'submission',
+    detail: { error: { code: 'provider_error', kind: 'rate_limit', message: 'Account rate limit reached' } } });
+  f.service.observeEngine(failure); f.service.observeEngine(failure);
+  assertEqual(f.notices.length, 1, 'a focused app still reports terminal failure once');
+  assertEqual(f.notices[0]?.subtitle, 'Task failed', 'failure is not presented as completion');
+  assertDeepEqual(f.sounds, ['input'], 'failure uses its independently enabled sound');
+  assert(f.logs.some(row => row.includes('"desktop":"requested"')), 'dispatch decision is recorded without message contents');
+  assert(!f.logs.some(row => row.includes('Account rate limit reached')), 'body is not duplicated into diagnostic logs');
+  const disabled = fixture(); disabled.focus(true);
+  disabled.settings.set('notification.desktop', 'off'); disabled.settings.set('notification.sound', 'off');
+  disabled.start(); disabled.service.observeEngine(failure);
+  assertEqual(disabled.notices.length + disabled.sounds.length, 0, 'failure respects disabled notification preferences');
+  assert(disabled.logs.some(row => row.includes('"desktop":"disabled"')), 'disabled delivery remains diagnosable');
+});
 h.test('a reserved goal successor suppresses completion only after actual admission', () => {
   const f = fixture(); f.start();
   const common = { decisionId: 'decision', priorSubmissionId: 'submission', goalId: 'generation', successorSubmissionId: 'next' };
@@ -196,7 +212,7 @@ h.test('goal decision storage and captured completion bodies stay bounded', () =
   f.decision({ sessionId: 'session-1', decisionId: 'decision-1', priorSubmissionId: 'prior', pending: false, continued: false });
   assertEqual(f.notices.length, 1, 'a valid remaining disposition releases its captured outcome');
   assertEqual([...f.notices[0]!.body].length, 180, 'captured completion stores only a bounded summary');
-  assertEqual(f.logs.length, 1, 'capacity diagnostic is inspectable');
+  assertEqual(f.logs.filter(row => row.includes('capacity reached')).length, 1, 'capacity diagnostic is inspectable');
   f.service.close(); f.service.observeEngine({ type: 'streamClosed' });
   assertEqual(f.notices.length, 1, 'closing bounded pending storage stays quiet');
 });
@@ -338,7 +354,9 @@ h.test('desktop and sound preferences are independent and focused foreground tas
   assertEqual(f.notices.length, 1, 'desktop enabled'); assertEqual(f.sounds.length, 1, 'sound disabled');
 });
 h.test('an OS banner error does not suppress the separately enabled sound', () => {
-  const f = fixture(); f.failDisplay(); f.start(); f.finish(); assertDeepEqual(f.sounds, ['done'], 'independent sound'); assertEqual(f.logs.length, 1, 'error inspectable');
+  const f = fixture(); f.failDisplay(); f.start(); f.finish(); assertDeepEqual(f.sounds, ['done'], 'independent sound');
+  assertEqual(f.logs.filter(row => row.startsWith('Desktop notification failed:')).length, 1, 'error inspectable');
+  assert(f.logs.some(row => row.includes('"desktop":"failed"') && row.includes('"sound":"requested"')), 'both independent delivery outcomes are logged');
 });
 h.test('duplicate aliases and stale completions never notify a second time', () => {
   const f = fixture(); f.start(); f.finish(); f.finish('completed', 'duplicate', 'actual'); f.finish();
@@ -443,7 +461,7 @@ h.test('native banners are silent, uniquely identified, grouped by session and r
   f.created[0]?.emit('click');
   await waitFor(() => opened.length === 1, 1000, 'native click routed');
   assertDeepEqual(opened, [{ kind: 'session', sessionId: 'thread-1' }], 'click opens the owning session');
-  assertEqual(logs.length, 0, 'healthy notification stays quiet in diagnostics');
+  assert(logs.some(row => row.includes('"notificationId":"klaus-fixed-id"') && row.includes('"sessionId":"thread-1"')), 'native dispatch has a routable diagnostic identity');
 });
 
 h.test('a friend-task banner routes its click to the authorization page and survives a restart through its group', async () => {

@@ -37,10 +37,10 @@ function fixture(turnId: string | null = 'captured-turn') {
   const clientQueueBySession = new Map([[sessionId, queue]])
   const pendingQueueAdditions = new Map([['pending-add', pending]])
   const continueArmUntil = new Map<string, number>(), timers: (() => void)[] = []
-  const terminalEffects: string[] = []
+  const terminalEffects: string[] = [], unread: string[] = []
   let renders = 0, clears = 0
   const context = {
-    Error, stopPendingComposerSubmission: () => false,
+    Error, stopPendingComposerSubmission: () => false, stopPendingFriendTask: () => false,
     creatingGoalSessions: new Set(), stoppingSessions: stopping, userInterruptedSessions: interrupted,
     goalInteractions: new GoalInteractionClock(), clearStopEscArm() {}, getSessionStream: store.getSessionStream,
     requestTurnInterrupt: store.requestTurnInterrupt,
@@ -59,7 +59,7 @@ function fixture(turnId: string | null = 'captured-turn') {
     inputEl: {}, focusComposerAfterTurn() { terminalEffects.push('focus') },
     updateSessionInList: async () => { terminalEffects.push('sessions') },
     isCronRunSession: () => false, surfacesBySession: new Map(),
-    composerPredictions: undefined, markSidebarSessionCompleted() {},
+    composerPredictions: undefined, markSidebarSessionCompleted(id: string) { unread.push(id) },
     klausApi: { chat: { interrupt(...args: unknown[]) {
       calls.push(args)
       if (calls.length === 1) return reply.promise
@@ -74,7 +74,7 @@ function fixture(turnId: string | null = 'captured-turn') {
     receive(event: Record<string, unknown>): void
   }
   return {
-    sessionId, stop, receive, reply, calls, toasts, stopping, interrupted, continueArmUntil, timers, terminalEffects,
+    sessionId, stop, receive, reply, calls, toasts, stopping, interrupted, continueArmUntil, timers, terminalEffects, unread,
     state: () => store.getSessionStream(sessionId), renders: () => renders, clears: () => clears,
     expectQueueIntact() {
       expect(clientQueueBySession.get(sessionId)).toBe(queue)
@@ -84,6 +84,18 @@ function fixture(turnId: string | null = 'captured-turn') {
     },
   }
 }
+
+test('a terminal provider failure marks its owning session unread without counting transient or foreign errors', () => {
+  const f = fixture()
+  f.receive({ type: 'api_error', sessionId: f.sessionId, turnId: 'captured-turn', terminal: false, error: 'Retrying' })
+  f.receive({ type: 'api_error', sessionId: f.sessionId, turnId: 'foreign-turn', terminal: true, error: 'Old failure' })
+  expect(f.unread).toEqual([])
+  f.receive({ type: 'api_error', sessionId: f.sessionId, turnId: 'captured-turn', terminal: true, kind: 'rate_limit', error: 'Rate limit reached' })
+  expect(f.unread).toEqual([f.sessionId])
+  const stopped = fixture()
+  stopped.receive({ type: 'interrupted', sessionId: stopped.sessionId, turnId: 'captured-turn' })
+  expect(stopped.unread).toEqual([])
+})
 
 for (const confirmed of [true, undefined]) test(`main Stop never retargets a replacement after a refused captured fence, confirmed=${confirmed}`, async () => {
   const f = fixture()

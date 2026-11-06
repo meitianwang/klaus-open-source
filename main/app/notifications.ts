@@ -152,7 +152,7 @@ export class NativeNotifications {
       release();
     });
     notice.once('close', release);
-    notice.once('failed', (_event, error) => { this.deps.log(`Native notification failed: ${String(error)}`); release(); });
+    notice.once('failed', (_event, error) => { this.deps.log(`Native notification failed (${notice.id}): ${String(error)}`); release(); });
     this.visible.set(notice.id, notice);
   }
   show(value: DesktopNotice): void {
@@ -162,7 +162,10 @@ export class NativeNotifications {
     const notice = this.api.create({ id: this.nextId(), ...(target ? { groupId: notificationGroup(target) } : {}),
       title: value.title, body: value.body, subtitle: value.subtitle, silent: true });
     this.retain(notice, target);
-    try { notice.show(); } catch (error) { this.release(notice); throw error; }
+    try {
+      notice.show();
+      this.deps.log(`Native notification requested ${JSON.stringify({ notificationId: notice.id, sessionId: value.sessionId })}`);
+    } catch (error) { this.release(notice); throw error; }
   }
   async restore(): Promise<void> {
     if (this.closed || !this.api.history || !this.api.isSupported()) return;

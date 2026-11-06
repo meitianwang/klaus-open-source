@@ -14419,7 +14419,7 @@ function handleChatEvent(event: ChatEvent) {
       // finished turn can still read "0/6". Re-pull the authoritative list once
       // the turn settles; the snapshot decision keeps any fresher push.
       void refreshTasksForSession(event.sessionId)
-      if (event.type === 'done') {
+      if (event.type === 'done' || (event.type === 'api_error' && event.terminal === true)) {
         markSidebarSessionCompleted(event.sessionId)
         // The host pushes a fresh `client_queue_snapshot` after dispatching, and a
         // session switch pulls one too, so an off-screen `done` needs no polling.
