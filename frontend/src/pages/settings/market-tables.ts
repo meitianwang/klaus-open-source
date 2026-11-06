@@ -282,6 +282,10 @@ const SKILL_TEXT_I18N = {
     en: ['Video Editing', 'Edit videos in the complete native Studio work panel. The agent and person share one live editor, revision and undo/save queue, retaining native projects, media, subtitles, versions and all exports.'],
     zh: ['视频剪辑', '在原生工作面板中使用完整 Studio，代理与人共同操作同一编辑器、版本和撤销保存队列，保留原生工程、素材、字幕、历史版本与各类导出。'],
   },
+  'voice-clone': {
+    en: ['Voice Swap', 'Re-speak or re-sing an audio file in another voice: the words and the melody stay, the speaker changes. Speech mode dubs a recording into another speaker; singing mode follows the source pitch so a vocal track keeps its melody. Runs locally, so no audio is uploaded.'],
+    zh: ['变声翻唱', '把一段录音换成另一个人的声音，词和旋律都保留：说话模式给录音配音或换成另一个说话人，翻唱模式按源音高重建，人声保留旋律只换音色。全部在本机运行，音频不上传。'],
+  },
   'klaus-ppt': {
     en: ['Klaus Presentations', 'Create Klaus-style presentation decks from structured business or product content.'],
     zh: ['Klaus 演示文稿', '根据结构化业务或产品内容生成 Klaus 风格演示文稿。'],
@@ -661,11 +665,13 @@ const PLUGIN_NAME_EN_OVERRIDES = {
   'prototype-studio': 'Interface Design',
   'reverse-engineering': 'Reverse Engineering',
   'video-editing': 'Video Editing',
+  'voice-clone': 'Voice Swap',
 }
 
 const PLUGIN_NAME_ZH_OVERRIDES = {
   'video-editing': '视频剪辑',
   'reverse-engineering': '逆向工程',
+  'voice-clone': '变声翻唱',
   codex: 'Codex 任务代理',
   '42crunch-api-security-testing': '42Crunch API 安全测试',
   'adobe-for-creativity': 'Adobe 创意工具',
@@ -867,6 +873,7 @@ const PLUGIN_DESCRIPTION_ZH_OVERRIDES = {
   'model3d@klaus-official': '在可编辑的 3D 视图中建模与雕刻、展开 UV、绘制贴图、绑定骨骼、制作动画和路径追踪渲染，计算在本机完成。',
   'prototype-studio@klaus-official': '使用完整的本地可视化编辑器设计桌面、平板和手机界面，代理与面板共同编辑同一文档，支持原生设计格式、PNG、JPG、WebP、SVG、PDF 和 FIG 导出；首次使用需更新桌面端。',
   'reverse-engineering@klaus-official': '对已发布软件做无源码逆向分析，并用机器化对照验收重建版本：重建 JavaScript/Electron 应用图谱，读取 Mach-O 与 PE 结构，检查 .NET 程序集、Android 包、固件镜像、抓包、SQLite 快照、Go 与 WebAssembly 产物，深度原生反编译引擎随包内置，也可接入自有的 Hopper/Ghidra/IDA。重建验收提供感知图像相似度、网站逐宽度采集对照、控制台运行对照、UI 控件对照、机制数值表核验、--screenshot 与 --self-test 构建契约，以及判定重建何时足够好的轮次台账。分析全部在本机进行，每条结论附证据与未决项。',
+  'voice-clone@klaus-official': '把一段录音换成另一个人的声音，词、旋律和情绪都保留：说话模式给录音配音或换成另一个说话人，翻唱模式按源音高重建，人声保留旋律只换音色。全部在本机完成，音频不上传。',
   codex: '连接 Codex 进行代码审查、任务委托和工程协作。',
   'frontend-design': '创建具有辨识度和生产质感的前端界面，避免模板化的 AI 风格。',
   'plugin-dev': '提供插件开发、验证、钩子、MCP、命令和代理相关的工程工作流。',
