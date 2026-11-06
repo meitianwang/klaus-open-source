@@ -79,47 +79,141 @@ export function sendSocket(socket: WebSocket, value: Json, limit = MOBILE_BODY_L
   return true;
 }
 
-const LOGICAL_CHUNK_THRESHOLD = 100 * 1024;
-const BINARY_CHUNK_BYTES = 96 * 1024;
+/**
+ * Segmented envelopes carry the logical message in `data`, so the envelope the
+ * writer emits must stay under this ceiling even after the JSON wrapper, the
+ * base64 expansion and the per-frame diagnostics are added.
+ */
+export const MESSAGE_ENVELOPE_MAX_BYTES = 150 * 1024;
+/** Payload target the segment count is sized against before the fit loop. */
+export const MESSAGE_SEGMENT_TARGET_BYTES = 100 * 1024;
+/** Largest logical message this endpoint emits or reassembles. */
+export const MESSAGE_REASSEMBLED_MAX_BYTES = 100 * 1024 * 1024;
+export const MESSAGE_SEGMENT_COUNT_MAX = 1024;
+/** Concurrent partial inbound messages retained per transport identity. */
+export const MESSAGE_ASSEMBLY_SLOTS = 128;
+/** Unacknowledged outbound envelopes retained per transport identity. */
+export const MESSAGE_OUTBOUND_CAPACITY = 128;
+/** A transport identity with no inbound activity for this long is dropped. */
+export const MESSAGE_CLIENT_IDLE_TIMEOUT_MS = 10 * 60_000;
+export const MESSAGE_IDLE_SWEEP_INTERVAL_MS = 30_000;
+/** Feature level a peer must advertise before the segmented profile is used. */
+// Level 3 already meant "chunk acknowledgements are available"; level 4 is the
+// segmented profile with per-role envelope sizing.
+export const MESSAGE_CHUNKING_LEVEL = 4;
+/** Level 2 framing: fixed 96 KiB parts above a 100 KiB logical threshold. */
+export const LEGACY_CHUNK_BYTES = 96 * 1024;
+export const LEGACY_LOGICAL_THRESHOLD = 100 * 1024;
+export type ChunkingProfile = 'legacy' | 'next';
 
-/** Reassembles logical client messages without putting every fragment behind engine work. */
+/**
+ * Level 2 framing, kept byte for byte so a peer that only advertises the older
+ * profile still receives parts its reassembler accepts.
+ */
+export function splitLegacyEnvelope(base: JsonObject, message: JsonObject): JsonObject[] {
+  const encoded = Buffer.from(JSON.stringify(message), 'utf8');
+  if (encoded.length <= LEGACY_LOGICAL_THRESHOLD) return [{ ...base, message: JSON.parse(encoded.toString('utf8')) as JsonObject }];
+  const count = Math.ceil(encoded.length / LEGACY_CHUNK_BYTES);
+  return Array.from({ length: count }, (_, index) => ({
+    ...base,
+    type: 'server_message_chunk',
+    index, count,
+    data: encoded.subarray(index * LEGACY_CHUNK_BYTES, (index + 1) * LEGACY_CHUNK_BYTES).toString('base64'),
+  }));
+}
+
+/**
+ * Splits one logical message into segment envelopes sized for the wire.
+ *
+ * The first segment count is an estimate from the payload target; the loop then
+ * grows the count until every emitted envelope fits, which is what actually
+ * bounds the frame. A payload whose metadata alone exceeds the frame ceiling,
+ * or that is larger than the reassembly budget, is dropped rather than sent.
+ */
+export function splitMessageEnvelope(base: JsonObject, message: JsonObject): JsonObject[] | undefined {
+  const raw = Buffer.from(JSON.stringify(message), 'utf8');
+  if (!raw.length || raw.length > MESSAGE_REASSEMBLED_MAX_BYTES) return undefined;
+  let segments = Math.max(2, Math.ceil(raw.length / MESSAGE_SEGMENT_TARGET_BYTES));
+  for (;;) {
+    const chunkSize = Math.max(1, Math.ceil(raw.length / segments));
+    segments = Math.ceil(raw.length / chunkSize);
+    if (segments > MESSAGE_SEGMENT_COUNT_MAX) return undefined;
+    const frames: JsonObject[] = [];
+    for (let index = 0; index < segments; index++) {
+      frames.push({
+        ...base,
+        type: 'server_message_chunk',
+        index, count: segments, message_size_bytes: raw.length,
+        data: raw.subarray(index * chunkSize, (index + 1) * chunkSize).toString('base64'),
+      });
+    }
+    if (frames.every(frame => Buffer.byteLength(JSON.stringify(frame), 'utf8') <= MESSAGE_ENVELOPE_MAX_BYTES)) return frames;
+    if (chunkSize === 1) return undefined;
+    segments++;
+  }
+}
+
+/**
+ * Reassembles segmented client messages without putting every fragment behind
+ * engine work.
+ *
+ * Parts must arrive in order from segment zero. A gap, a metadata change or a
+ * payload that disagrees with its declared size discards the whole assembly:
+ * continuing past a gap would splice unrelated bytes into one message. Parts
+ * that were already accepted are ignored so a retransmit is harmless.
+ */
 export class ClientMessageChunks {
-  private readonly assemblies = new Map<number, { count: number; chunks: Map<number, Buffer>; bytes: number; touchedAt: number }>();
+  private readonly assemblies = new Map<number, {
+    count: number; nextIndex: number; chunks: Buffer[]; bytes: number;
+    touchedAt: number; streamId: string; sizeBytes: number;
+  }>();
 
   receive(frame: JsonObject): JsonObject | undefined {
-    const { seq, index, count, data } = frame;
-    if (!Number.isSafeInteger(seq) || Number(seq) < 1 || !Number.isSafeInteger(index) || !Number.isSafeInteger(count)
-      || Number(count) < 1 || Number(count) > Math.ceil(MOBILE_BODY_LIMIT / BINARY_CHUNK_BYTES)
-      || Number(index) < 0 || Number(index) >= Number(count) || typeof data !== 'string'
-      || data.length > Math.ceil(BINARY_CHUNK_BYTES / 3) * 4) throw new MobileError(400, 'invalid_chunk', 'Invalid message fragment');
+    const seq = Number(frame.seq), index = Number(frame.index), count = Number(frame.count);
+    // The declared size is part of the newer frame shape; an older peer omits it
+    // and its parts are accepted on their own framing alone.
+    const declaredRaw = frame.message_size_bytes;
+    const declared = declaredRaw === undefined ? 0 : Number(declaredRaw);
+    const data = frame.data, streamId = String(frame.stream_id ?? '');
+    if (!Number.isSafeInteger(seq) || seq < 1) return undefined;
+    if (!Number.isSafeInteger(count) || count < 1 || count > MESSAGE_SEGMENT_COUNT_MAX) { this.assemblies.delete(seq); return undefined; }
+    if (!Number.isSafeInteger(index) || index < 0 || index >= count) { this.assemblies.delete(seq); return undefined; }
+    if (!Number.isSafeInteger(declared) || declared < 0 || declared > MESSAGE_REASSEMBLED_MAX_BYTES) { this.assemblies.delete(seq); return undefined; }
+    if (typeof data !== 'string' || !data) { this.assemblies.delete(seq); return undefined; }
     const bytes = Buffer.from(data, 'base64');
-    if (!bytes.length || bytes.toString('base64') !== data) throw new MobileError(400, 'invalid_chunk', 'Invalid message fragment encoding');
+    if (!bytes.length || bytes.toString('base64') !== data) { this.assemblies.delete(seq); return undefined; }
+    // One frame may not expand past the envelope ceiling before reassembly.
+    if (Buffer.byteLength(JSON.stringify(frame), 'utf8') > MESSAGE_ENVELOPE_MAX_BYTES) { this.assemblies.delete(seq); return undefined; }
     const now = Date.now();
     for (const [id, assembly] of this.assemblies) if (now - assembly.touchedAt > RELIABLE_TTL_MS) this.assemblies.delete(id);
-    const id = Number(seq), part = Number(index);
-    let assembly = this.assemblies.get(id);
+    let assembly = this.assemblies.get(seq);
     if (!assembly) {
-      if (this.assemblies.size >= 4) throw new MobileError(429, 'too_many_partial_messages', 'Too many unfinished messages');
-      assembly = { count: Number(count), chunks: new Map(), bytes: 0, touchedAt: now }; this.assemblies.set(id, assembly);
+      if (index !== 0) return undefined;
+      while (this.assemblies.size >= MESSAGE_ASSEMBLY_SLOTS) {
+        let oldest: number | undefined, oldestAt = Infinity;
+        for (const [id, value] of this.assemblies) if (value.touchedAt < oldestAt) { oldestAt = value.touchedAt; oldest = id; }
+        if (oldest === undefined) break;
+        this.assemblies.delete(oldest);
+      }
+      assembly = { count, nextIndex: 0, chunks: [], bytes: 0, touchedAt: now, streamId, sizeBytes: declared };
+      this.assemblies.set(seq, assembly);
     }
-    const previous = assembly.chunks.get(part);
-    if (assembly.count !== count || (previous && !previous.equals(bytes))) {
-      this.assemblies.delete(id); throw new MobileError(400, 'invalid_chunk', 'Message fragments disagree');
+    if (assembly.count !== count || assembly.sizeBytes !== declared || assembly.streamId !== streamId) {
+      this.assemblies.delete(seq); return undefined;
     }
-    if (!previous) { assembly.chunks.set(part, bytes); assembly.bytes += bytes.length; }
-    assembly.touchedAt = now;
-    const total = [...this.assemblies.values()].reduce((sum, value) => sum + value.bytes, 0);
-    if (assembly.bytes > MOBILE_BODY_LIMIT || total > MOBILE_BODY_LIMIT * 2) {
-      this.assemblies.delete(id); throw new MobileError(413, 'payload_too_large', 'Message is too large');
-    }
-    if (assembly.chunks.size !== assembly.count) return;
-    this.assemblies.delete(id);
-    const encoded = Buffer.concat(Array.from({ length: assembly.count }, (_, offset) => assembly!.chunks.get(offset)!));
+    if (index < assembly.nextIndex) { assembly.touchedAt = now; return undefined; }
+    if (index > assembly.nextIndex) { this.assemblies.delete(seq); return undefined; }
+    assembly.chunks.push(bytes); assembly.bytes += bytes.length; assembly.nextIndex = index + 1; assembly.touchedAt = now;
+    if (assembly.bytes > MESSAGE_REASSEMBLED_MAX_BYTES) { this.assemblies.delete(seq); return undefined; }
+    if (assembly.nextIndex !== assembly.count) return undefined;
+    this.assemblies.delete(seq);
+    if (declared && assembly.bytes !== declared) return undefined;
+    const encoded = Buffer.concat(assembly.chunks);
     let message: unknown;
     try { message = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(encoded)); }
-    catch { throw new MobileError(400, 'invalid_json', 'Invalid fragmented message'); }
-    if (!message || typeof message !== 'object' || Array.isArray(message)) throw new MobileError(400, 'invalid_json', 'Invalid fragmented message');
-    return { type: 'client_message', seq: id, message: message as JsonObject };
+    catch { return undefined; }
+    if (!message || typeof message !== 'object' || Array.isArray(message)) return undefined;
+    return { type: 'client_message', seq, message: message as JsonObject };
   }
 
   clear(): void { this.assemblies.clear(); }
@@ -132,7 +226,7 @@ export class ClientMessageChunks {
   receipts(): JsonObject[] {
     this.expire();
     return [...this.assemblies].map(([seq, assembly]) => ({
-      seq, count: assembly.count, receivedIndexes: [...assembly.chunks.keys()].sort((a, b) => a - b),
+      seq, count: assembly.count, receivedIndexes: Array.from({ length: assembly.nextIndex }, (_, offset) => offset),
     }));
   }
 }
@@ -144,7 +238,7 @@ function chunkReceipts(value: unknown): Map<number, { count: number; receivedInd
   for (const row of value) {
     const { seq, count, receivedIndexes } = object(row);
     if (!Number.isSafeInteger(seq) || Number(seq) < 1 || !Number.isSafeInteger(count) || Number(count) < 1
-      || Number(count) > Math.ceil(MAX_RELIABLE_BYTES / BINARY_CHUNK_BYTES) || !Array.isArray(receivedIndexes)
+      || Number(count) > MESSAGE_SEGMENT_COUNT_MAX || !Array.isArray(receivedIndexes)
       || receivedIndexes.length > Number(count) || result.has(Number(seq))) throw new MobileError(400, 'invalid_chunk_receipts', 'Invalid partial message receipts');
     const indexes = new Set<number>();
     for (const index of receivedIndexes) {
@@ -175,17 +269,30 @@ export class ReliableDelivery {
     this.prune(true);
   }
 
-  enqueue(message: JsonObject): JsonObject[] {
-    const seq = this.nextSeq++;
-    const encoded = Buffer.from(JSON.stringify(message));
-    const chunkCount = Math.ceil(encoded.length / BINARY_CHUNK_BYTES);
+  enqueue(message: JsonObject, profile: ChunkingProfile = 'legacy'): JsonObject[] {
+    const seq = this.nextSeq;
     const metadata = diagnosticMetadata(message) ?? {};
-    const frames: JsonObject[] = encoded.length <= LOGICAL_CHUNK_THRESHOLD
-      ? [{ type: 'server_message', seq, message: JSON.parse(encoded.toString('utf8')) as JsonObject, ...metadata }]
-      : Array.from({ length: chunkCount }, (_, index) => ({
-        type: 'server_message_chunk', seq, index, count: chunkCount, ...metadata,
-        data: encoded.subarray(index * BINARY_CHUNK_BYTES, (index + 1) * BINARY_CHUNK_BYTES).toString('base64'),
-      }));
+    // The cursor is the highest sequence this identity has been handed, so a
+    // replacement connection can resume from it without a history replay.
+    const base: JsonObject = { type: 'server_message', seq, cursor: String(seq), ...metadata };
+    let frames: JsonObject[] | undefined;
+    if (profile === 'legacy') {
+      frames = splitLegacyEnvelope(base, message);
+    } else {
+      const singleText = JSON.stringify({ ...base, message });
+      frames = Buffer.byteLength(singleText, 'utf8') <= MESSAGE_ENVELOPE_MAX_BYTES
+        // Re-parse so the frame owns its bytes and freezing it never freezes the
+        // caller's payload object.
+        ? [{ ...base, message: (JSON.parse(singleText) as JsonObject).message as Json }]
+        : splitMessageEnvelope(base, message);
+    }
+    // An oversized payload is dropped without consuming its sequence: a gap
+    // would force every open stream to reconnect for a message nobody sent.
+    if (!frames) {
+      process.emitWarning('Mobile transport dropped an oversized outbound message', { code: 'KLAUS_MOBILE_MESSAGE_TOO_LARGE' });
+      return [];
+    }
+    this.nextSeq = seq + 1;
     const encodedFrames = frames.map(frame => rememberFrame(frame));
     const bytes = frames.reduce((total, frame) => total + encodedSocketFrame(frame).bytes, 0);
     this.messages.push({ seq, frames, encodedFrames, bytes, createdAt: Date.now() }); this.bytes += bytes;

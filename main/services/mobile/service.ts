@@ -16,7 +16,7 @@ import { attachmentUpload, authMode, authorized, badRequest, elicitationResponse
 import { MobileRelay } from './relay';
 import type { MobilePushKind } from './push';
 import { mobileDeviceId, readMobileMachineIdentifier, MobileSettingsStore, type MobileSettings } from './settings';
-import { encodedSocketFrame, httpReply, readRequest, ReliableDelivery, ReliableDeliveryStore, responseText, socketBytes, stopSocket } from './transport';
+import { encodedSocketFrame, httpReply, MESSAGE_CHUNKING_LEVEL, readRequest, ReliableDelivery, ReliableDeliveryStore, responseText, socketBytes, stopSocket, type ChunkingProfile } from './transport';
 import { MobileTaskStreams, taskCursor } from './task-stream';
 import { REMOTE_THREAD_OPERATIONS, type RemoteThreadOperation } from '../remote-thread-client';
 import { MobileCatalog, catalogAccountKey, catalogCursor, type CatalogSourcePage } from './catalog';
@@ -65,7 +65,7 @@ export interface MobileBridgeDeps {
   diagramPreview?: (sessionId: string, id: string) => JsonObject | Promise<JsonObject>;
 }
 interface TaskFollowState { snapshotting: boolean; revision: number; pending: JsonObject[]; pendingBytes: number; generation: number }
-interface Peer { socket: WebSocket; subscriptions: Set<string>; follows: Map<string, TaskFollowState>; followRequests: Map<string, AbortController>; controller: AbortController; tail: Promise<void>; queuedBytes: number; queuedMessages: number; sendTail: Promise<void>; sendQueuedBytes: number; sendQueuedMessages: number; ready: boolean; outbound: JsonObject[]; outboundBytes: number; clientId?: string; delivery?: ReliableDelivery; catalogSync: boolean; catalogRequest?: AbortController; composerRefresh?: Promise<void>; composerRetry?: NodeJS.Timeout; composerAttempt: number; diagnostics: MobileLoadDiagnostics }
+interface Peer { socket: WebSocket; subscriptions: Set<string>; follows: Map<string, TaskFollowState>; followRequests: Map<string, AbortController>; controller: AbortController; tail: Promise<void>; queuedBytes: number; queuedMessages: number; sendTail: Promise<void>; sendQueuedBytes: number; sendQueuedMessages: number; ready: boolean; outbound: JsonObject[]; outboundBytes: number; clientId?: string; delivery?: ReliableDelivery; /** Framing this peer advertised; absent means the level 2 shape. */ chunking: ChunkingProfile; lastActivityAt: number; catalogSync: boolean; catalogRequest?: AbortController; composerRefresh?: Promise<void>; composerRetry?: NodeJS.Timeout; composerAttempt: number; diagnostics: MobileLoadDiagnostics }
 interface DraftPromotion { createdAt: number; fingerprint: string; owner: MobileEngineOwner; task?: Promise<JsonObject>; settled: boolean; ownedSessionId?: string; ownedWorktreePath?: string; cleanupFailures?: JsonObject[] }
 interface RecentSend { createdAt: number; requestId: string; fingerprint: string; completion: Promise<JsonObject>; settled: boolean }
 interface PendingMobileMessage { sessionId: string; clientMessageId: string; clientSeq?: number }
@@ -281,11 +281,12 @@ export class MobileBridgeService {
   }
   private status(config: MobileSettings): JsonObject {
     const relay = this.run?.relay?.status(), base = config.relayURL + '/api/mobile/relay/' + encodeURIComponent(config.relayId);
-    return { ok: true, settings: { enabled: config.enabled, running: config.enabled && !!this.run, lanEnabled: false, host: '127.0.0.1', port: this.run?.port ?? config.port,
+    return { ok: true, settings: { enabled: config.enabled, running: config.enabled && !!this.run, port: this.run?.port ?? config.port,
       friendTransportRunning: !!this.deps.friendMessage && !!this.run, friendTransportConnected: relay?.friendReady ?? false,
-      baseUrl: base, localBaseUrl: null, pairingUrl: null, localPairingUrl: null, relayEnabled: true, relayConnected: config.enabled && (relay?.connected ?? false),
-      relayUrl: config.relayURL, relayUrlOverride: config.relayOverride, relayId: config.relayId, relayBaseUrl: base, relayPairingUrl: null,
-      relayError: relay?.error ?? null, accountLinked: !!this.deps.account(), qrcodeDataUrl: null, token: config.token, features: MOBILE_FEATURES } };
+      baseUrl: base, relayEnabled: true, relayConnected: config.enabled && (relay?.connected ?? false),
+      relayUrl: config.relayURL, relayUrlOverride: config.relayOverride, relayId: config.relayId, relayBaseUrl: base,
+      relayError: relay?.error ?? null, accountLinked: !!this.deps.account(), token: config.token,
+      allowLockedComputerUse: config.allowLockedComputerUse, features: MOBILE_FEATURES } };
   }
   /** Remote availability follows connection establishment and failed-enable suppression. */
   remoteControlKeepsAwake(): boolean {
@@ -1003,7 +1004,7 @@ export class MobileBridgeService {
     if (pending.sessionId) this.taskStreams.publish(pending.sessionId, frame);
   }
   private peer(run: Run, socket: WebSocket, catalogSync = false): void {
-    const peer: Peer = { socket, subscriptions: new Set(), follows: new Map(), followRequests: new Map(), controller: new AbortController(), tail: Promise.resolve(), queuedBytes: 0, queuedMessages: 0, sendTail: Promise.resolve(), sendQueuedBytes: 0, sendQueuedMessages: 0, ready: false, outbound: [], outboundBytes: 0, catalogSync, composerAttempt: 0,
+    const peer: Peer = { socket, subscriptions: new Set(), follows: new Map(), followRequests: new Map(), controller: new AbortController(), tail: Promise.resolve(), queuedBytes: 0, queuedMessages: 0, sendTail: Promise.resolve(), sendQueuedBytes: 0, sendQueuedMessages: 0, ready: false, outbound: [], outboundBytes: 0, chunking: 'legacy', lastActivityAt: Date.now(), catalogSync, composerAttempt: 0,
       diagnostics: new MobileLoadDiagnostics(event => this.deps.log?.('load_diagnostic', event), undefined,
         { enabled: () => this.deps.diagnosticsEnabled?.() === true }) }; run.peers.add(peer);
     const signal = AbortSignal.any([run.controller.signal, peer.controller.signal]);
@@ -1108,7 +1109,23 @@ export class MobileBridgeService {
     this.deps.log?.('request_rejected', { code: failure.code, ...correlation });
     this.sendPeer(peer, diagnosticResponse({ type: 'error', code: failure.code, message: failure.message, ...correlation }, diagnosticRequest(request)));
   }
+  /**
+   * A peer advertises its segmented framing on envelopes it already sends. The
+   * field is additive, so a peer that never sends it keeps the older framing,
+   * and the switch is applied per message once it is observed.
+   */
+  private observeChunking(peer: Peer, payload: JsonObject): void {
+    const advertised = Number(payload.chunking);
+    if (Number.isSafeInteger(advertised) && advertised >= MESSAGE_CHUNKING_LEVEL) peer.chunking = 'next';
+  }
   private socketControl(peer: Peer, payload: JsonObject): boolean {
+    this.observeChunking(peer, payload);
+    if (payload.type === 'transport_ping') {
+      // A stream-level keepalive: answer on the same socket and never replay
+      // history for it. Without this answer a phone treats the stream as dead.
+      this.sendWire(peer, { type: 'transport_pong' });
+      return true;
+    }
     if (payload.type === 'server_chunk_ack') {
       const { seq, index, count } = payload;
       if (typeof seq === 'number' && typeof index === 'number' && typeof count === 'number') peer.delivery?.acknowledgeChunk(seq, index, count);
@@ -1157,6 +1174,7 @@ export class MobileBridgeService {
     }
   }
   private async socketMessage(run: Run, peer: Peer, call: MobileCall, owner: MobileEngineOwner, payload: JsonObject, clientSeq?: number): Promise<void> {
+    this.observeChunking(peer, payload);
     const type = string(payload.type), diagnostic = diagnosticRequest(payload);
     if (type === 'catalog_sync' || type === 'follow_task') peer.diagnostics.record(diagnostic, 'request_admitted');
     if (type === 'transport_resume') {
@@ -1171,7 +1189,11 @@ export class MobileBridgeService {
       }
       const delivery = run.deliveries.get(clientId);
       delivery.resumeChunkReceipts(payload.chunkAcknowledgements === true, payload.serverChunks);
-      const replay = delivery.replay(lastServerSeq), clientChunks = delivery.clientChunks.receipts();
+      // A subscriber may name the exact watermark it retained; an empty cursor
+      // keeps the sequence-based resume path.
+      const subscribeCursor = typeof payload.subscribeCursor === 'string' ? payload.subscribeCursor.trim() : '';
+      const afterSeq = /^\d+$/u.test(subscribeCursor) ? Number(subscribeCursor) : lastServerSeq;
+      const replay = delivery.replay(afterSeq), clientChunks = delivery.clientChunks.receipts();
       peer.clientId = clientId; peer.delivery = delivery;
       if (replay.stale) {
         const latestSeq = delivery.resetReplay();
@@ -1396,7 +1418,7 @@ export class MobileBridgeService {
     if (!peer.delivery) { this.sendWire(peer, payload); return; }
     const target = [...this.run?.peers ?? []].find(candidate => candidate.delivery === peer.delivery
       && !candidate.controller.signal.aborted && candidate.socket.readyState === WebSocket.OPEN) ?? peer;
-    for (const frame of peer.delivery.enqueue(payload)) this.sendWire(target, frame, 150 * 1024);
+    for (const frame of peer.delivery.enqueue(payload, peer.chunking)) this.sendWire(target, frame, 150 * 1024);
   }
   private sendReplay(peer: Peer, frames: JsonObject[]): Promise<void> {
     // Replay already belongs to the bounded journal. Queue one streaming writer

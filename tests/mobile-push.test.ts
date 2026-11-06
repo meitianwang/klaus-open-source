@@ -88,7 +88,8 @@ test("an unacknowledged durable push retries over the same healthy relay after t
   server.listen(0, '127.0.0.1'); await once(server, 'listening');
   const origin = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
   const relay = new MobileRelay({ enabled: true, port: 0, token: 'local-token', relayURL: origin,
-    relayOverride: null, relayId: 'fixture_relay_id', relaySecret: 'fixture-secret', localBaseURL: origin }, {
+    relayOverride: null, relayId: 'fixture_relay_id', relaySecret: 'fixture-secret',
+    allowLockedComputerUse: false, localBaseURL: origin }, {
     configRoot: root, account: () => ({ userId: 'account-a', token: 'account-token' }),
     platform: 'darwin', machineIdentifier: async () => 'fixture-machine', heartbeatMs: 20,
     retryDelaysMs: [20], fetch: async () => new Response('{}', { status: 200 }),

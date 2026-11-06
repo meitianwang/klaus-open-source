@@ -12,6 +12,29 @@ import { MobilePushOutbox, type MobilePushNotice } from './push';
 import { diagnosticFrame, MobileLoadDiagnostics, type DiagnosticMetadata } from './load-diagnostics';
 
 const FRAME_LIMIT = 36 * 1024 * 1024;
+/** Reconnect backoff grows from here and is never capped above the ceiling. */
+const RECONNECT_BACKOFF_INITIAL_MS = 5_000;
+const RECONNECT_BACKOFF_CAP_MS = 30_000;
+/** Extra spread added on top of a server-specified retry deadline. */
+const RETRY_AFTER_JITTER_MS = 30_000;
+/** Ceiling on draining writers after the relay is told to stop. */
+const SHUTDOWN_DRAIN_MS = 5_000;
+
+/**
+ * A server retry deadline is a lower bound, so the next attempt is uniformly
+ * spread after it instead of landing on the same instant as every other desktop.
+ */
+export function parseRetryAfter(value: string | null, now = Date.now()): number | undefined {
+  if (!value) return undefined;
+  const text = value.trim();
+  if (!text) return undefined;
+  if (/^\d+$/u.test(text)) {
+    const at = now + Number(text) * 1_000;
+    return Number.isFinite(at) && at > now ? at : undefined;
+  }
+  const at = Date.parse(text);
+  return Number.isFinite(at) && at > now ? at : undefined;
+}
 type RelayPowerPhase = 'connecting' | 'connected' | 'disconnected' | 'error';
 interface RelayDeps {
   connectionChanged?: () => void;
@@ -47,6 +70,8 @@ export class MobileRelay {
   private identity?: { account: MobileAccount; deviceId: string };
   private heartbeating = false;
   private outbox?: MobilePushOutbox;
+  /** Server-specified earliest retry time, cleared once it is honoured. */
+  private retryAt?: number;
   constructor(private readonly config: MobileSettings & { localBaseURL: string }, private readonly deps: RelayDeps) {}
   status(): { connected: boolean; friendReady: boolean; error: string | null } { return { connected: this.connected, friendReady: this.friendReady, error: this.error }; }
   powerStatus(): { status: RelayPowerPhase; enableFailed: boolean } { return { status: this.powerPhase, enableFailed: this.enableFailed }; }
@@ -92,7 +117,15 @@ export class MobileRelay {
   }
   close(): Promise<void> {
     this.stop();
-    return this.closing ??= (async () => { while (this.jobs.size) await Promise.allSettled([...this.jobs]); await Promise.allSettled([...this.connections]); await this.outbox?.flush(); })();
+    return this.closing ??= (async () => {
+      const drain = (async () => {
+        while (this.jobs.size) await Promise.allSettled([...this.jobs]);
+        await Promise.allSettled([...this.connections]);
+        await this.outbox?.flush();
+      })();
+      // A wedged writer must not hold process shutdown open indefinitely.
+      await Promise.race([drain, delay(SHUTDOWN_DRAIN_MS).catch(() => undefined)]);
+    })();
   }
   private stop(): void {
     const hadFriendTransport = this.friendReady;
@@ -131,8 +164,25 @@ export class MobileRelay {
       } catch { if (this.live()) { this.error = 'Relay registration failed'; this.powerChanged('error'); } }
       if (!this.live()) break;
       if (opened) attempt = 0;
-      const retries = this.deps.retryDelaysMs ?? [1000, 2000, 5000, 15_000];
-      await delay(retries[Math.min(attempt++, retries.length - 1)] ?? 15_000, undefined, { signal: this.abort.signal }).catch(() => {});
+      const server = this.retryAt; this.retryAt = undefined;
+      if (server !== undefined) {
+        const wait = Math.max(0, server - Date.now()) + Math.floor(Math.random() * RETRY_AFTER_JITTER_MS);
+        await delay(wait, undefined, { signal: this.abort.signal }).catch(() => {});
+        continue;
+      }
+      const configured = this.deps.retryDelaysMs ?? (this.everConnected ? undefined : [1000, 2000, 5000, 15_000]);
+      if (configured?.length) {
+        // Bring-up keeps a short ladder so a first registration is not delayed by
+        // a full backoff step; an explicit schedule keeps its order, only the tail repeats.
+        await delay(configured[Math.min(attempt++, configured.length - 1)] ?? RECONNECT_BACKOFF_CAP_MS,
+          undefined, { signal: this.abort.signal }).catch(() => {});
+        continue;
+      }
+      // After a working connection, a dropped relay retries on the growing ladder.
+      const backoff = Math.min(RECONNECT_BACKOFF_CAP_MS, RECONNECT_BACKOFF_INITIAL_MS * 2 ** Math.min(attempt, 10));
+      attempt++;
+      // Spread the retry so a fleet that lost the same relay does not return in lockstep.
+      await delay(backoff * (0.5 + Math.random() * 0.5), undefined, { signal: this.abort.signal }).catch(() => {});
     }
   }
   private connection(): Promise<boolean> {
@@ -364,6 +414,8 @@ export class MobileRelay {
     const post = async (path: string, body: JsonObject): Promise<number> => {
       if (!this.live()) throw new DOMException('Account changed', 'AbortError');
       const response = await (this.deps.fetch ?? fetch)(this.config.relayURL + '/api/mobile/devices/' + path, { method: 'POST', headers: { authorization: 'Bearer ' + account.token, 'content-type': 'application/json' }, body: JSON.stringify(body), redirect: 'error', signal: AbortSignal.any([this.abort.signal, AbortSignal.timeout(this.deps.requestTimeoutMs ?? 30_000)]) });
+      const retryAt = parseRetryAfter(response.headers.get('retry-after'));
+      if (retryAt !== undefined) this.retryAt = retryAt;
       await response.body?.cancel();
       if (!this.live()) throw new DOMException('Account changed', 'AbortError');
       return response.status;

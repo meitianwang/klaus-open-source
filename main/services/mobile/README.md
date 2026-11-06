@@ -33,19 +33,21 @@ transcript store, plugin ledger or a second implementation of desktop actions.
 
 ## Preserved wire behavior
 
-The settings object keeps the existing token and all relay/local null choices.
 Settings remain in `settings.db` under `mobile_bridge.enabled`, `.port`, `.token`,
-`.relay_url`, `.relay_id` and `.relay_secret`. The feature defaults off, binds only
-to `127.0.0.1`, and falls back to an ephemeral port when the preferred port is busy.
-It never advertises a LAN address or QR code. A disconnected relay is reported as
-disconnected, and no relay connection starts without the signed-in account.
+`.relay_url`, `.relay_id`, `.relay_secret` and `.allow_locked_computer_use`. The
+feature defaults on; an explicit opt-out is preserved. Phones reach this desktop
+only through the relay, so there is no advertised direct address, LAN address or
+pairing QR code. A disconnected relay is reported as disconnected, and no relay
+connection starts without the signed-in account.
 
 Local bootstrap/hello use **protocol version 3** (`projection.ts` bootstrap, pinned by
 `mobile-remote-stream-vectors.json`). Relay `desktop_hello` uses
 **protocol version 1**, the relay secret and SHA-256 of the pairing token; it never
 sends the raw pairing token to the relay. Real local sockets implement relayed
 mobile sockets. Device registration falls back to heartbeat, retries every 20
-seconds, and stops relay activity on 401. Connection retries use 1/2/5/15 seconds.
+seconds, and stops relay activity on 401. Bring-up retries use 1/2/5/15 seconds; after a working connection a dropped
+relay retries on a 5 s to 30 s exponential ladder with 0.5–1.0 spread, and a
+server `Retry-After` deadline is honoured plus up to 30 s of spread.
 The existing account-hashed SQLite device identity and legacy fallback seed are
 retained on macOS and Windows.
 
@@ -107,3 +109,26 @@ The new test runner entry is `mobile-bridge` -> `tests/mobile-bridge.test.js`.
 The WebSocket implementation uses public `ws` APIs: authentication in HTTP
 `upgrade`, `maxPayload`, `bufferedAmount`, `terminate` and `close` callbacks. See
 the [official ws API](https://github.com/websockets/ws/blob/master/doc/ws.md).
+
+## Transport framing
+
+Outbound logical messages are segmented when the envelope would exceed 150 KiB.
+The segment count starts from a 100 KiB payload target and grows until every
+emitted envelope fits; a message larger than 100 MiB, or one whose metadata alone
+exceeds the frame ceiling, is dropped without consuming its sequence.
+
+Inbound segmented messages are reassembled per transport identity across 128
+concurrent slots, oldest assembly evicted first. Parts must arrive in order from
+segment zero; a gap, a metadata change or a size mismatch discards the assembly,
+and retransmitted parts are ignored.
+
+A peer advertises its framing by including `chunking: 4` on envelopes it already
+sends (`transport_ping`, `transport_resume`). Until that is observed the older
+level 2 framing is used, so clients that never send the field keep working. The
+host advertises its own level through the bootstrap `features` object.
+
+Stream keepalives use `transport_ping` / `transport_pong` on the same socket; a
+ping never replays history. Resume envelopes may carry `subscribeCursor`, which
+bounds the replay to everything after that retained watermark. Every
+`server_message` and `server_message_chunk` carries `cursor`, the highest
+sequence handed to that identity.

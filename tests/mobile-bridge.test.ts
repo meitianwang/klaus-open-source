@@ -125,9 +125,13 @@ void (async () => {
     const f = await mobileFixture(); try {
       assert.deepEqual(f.registry.channels(), [...MOBILE_BRIDGE_CHANNELS].sort());
       const status = f.status(); assert.equal(status.enabled, true); assert.equal(status.running, false); assert.equal(status.port, 27189);
-      assert.equal(status.host, '127.0.0.1'); assert.equal(status.lanEnabled, false); assert.equal(status.accountLinked, false); assert.equal(status.relayConnected, false);
+      assert.equal(status.accountLinked, false); assert.equal(status.relayConnected, false);
+      assert.equal(status.allowLockedComputerUse, false);
+      assert.equal(status.keepAwakeWhilePluggedIn, undefined);
+      // Direct-connect descriptors are gone: a phone reaches this desktop only through the relay.
+      for (const key of ['host', 'lanEnabled', 'localBaseUrl', 'pairingUrl', 'localPairingUrl', 'relayPairingUrl', 'qrcodeDataUrl']) assert.equal(status[key], undefined);
       assert.deepEqual(status.features, MOBILE_FEATURES); assert.equal(Buffer.from(string(status.token), 'base64url').length, 32); assert.equal(Buffer.from(string(status.relayId), 'base64url').length, 18);
-      for (const key of ['localBaseUrl', 'pairingUrl', 'localPairingUrl', 'relayPairingUrl', 'qrcodeDataUrl', 'relayError']) assert.equal(status[key], null);
+      assert.equal(status.relayError, null);
       assert.deepEqual(object(object(await f.bridge.get()).settings), status); assert.equal(f.cloudRequests.length, 0); assert.equal(f.relays.length, 0);
       const keys = withSettingsDb(f.root, db => db.prepare('SELECT key FROM settings ORDER BY key').all()).map(row => row.key);
       assert.deepEqual(keys, ['mobile_bridge.relay_id', 'mobile_bridge.relay_secret', 'mobile_bridge.token']);
@@ -419,26 +423,31 @@ void (async () => {
     delivery.acknowledge(2); assert.deepEqual(delivery.replay(0).frames, frames, 'a future receipt cannot discard pending messages');
     delivery.acknowledge(1); assert.deepEqual(delivery.replay(1).frames, []);
   });
-  await h.test('client chunks reject inconsistent metadata, invalid encoding and malformed logical messages', () => {
+  await h.test('client chunks drop a broken assembly, ignore retransmits and complete only in segment order', () => {
     const chunks = new ClientMessageChunks(), message = { type: 'send_message', text: '图'.repeat(50_000) };
     const frames = clientChunks(1, message);
     assert.equal(chunks.receive(frames[0]!), undefined);
-    assert.equal(chunks.receive(frames[0]!), undefined, 'a duplicate part consumes no new capacity');
+    assert.equal(chunks.receive(frames[0]!), undefined, 'a retransmitted part is ignored');
     assert.deepEqual(chunks.receipts(), [{ seq: 1, count: 2, receivedIndexes: [0] }]);
-    assert.throws(() => chunks.receive({ ...frames[1]!, count: 3 }), /disagree/);
+    // A part that disagrees with the assembly metadata discards the assembly.
+    assert.equal(chunks.receive({ ...frames[1]!, count: 3 }), undefined);
+    assert.deepEqual(chunks.receipts(), []);
+    // A non-zero first part cannot start an assembly: the rest would be spliced.
     assert.equal(chunks.receive(frames[1]!), undefined);
-    assert.deepEqual(chunks.receive(frames[0]!), { type: 'client_message', seq: 1, message });
+    assert.equal(chunks.receive(frames[0]!), undefined);
+    assert.deepEqual(chunks.receive(frames[1]!), { type: 'client_message', seq: 1, message });
     const invalidFrames: JsonObject[] = [
-      { ...frames[0]!, seq: 0 }, { ...frames[0]!, index: 2 }, { ...frames[0]!, count: 300 },
+      { ...frames[0]!, seq: 0 }, { ...frames[0]!, index: 2 }, { ...frames[0]!, count: 3000 },
       { ...frames[0]!, data: 'AB==' }, { ...frames[0]!, data: ' '.repeat(10) },
-      { ...frames[0]!, data: Buffer.alloc(96 * 1024 + 1).toString('base64') },
+      { ...frames[0]!, message_size_bytes: -1 },
       { type: 'client_message_chunk', seq: 2, index: 0, count: 1, data: Buffer.from([0xff]).toString('base64') },
       { type: 'client_message_chunk', seq: 2, index: 0, count: 1, data: Buffer.from('[]').toString('base64') },
     ];
-    for (const frame of invalidFrames) assert.throws(() => chunks.receive(frame));
-    for (let seq = 1; seq <= 4; seq++) assert.equal(chunks.receive({ ...frames[0]!, seq }), undefined);
-    assert.throws(() => chunks.receive({ ...frames[0]!, seq: 5 }), /unfinished/);
-    chunks.clear(); assert.equal(chunks.receive({ ...frames[0]!, seq: 5 }), undefined);
+    for (const frame of invalidFrames) assert.equal(chunks.receive(frame), undefined, 'invalid parts are dropped, not fatal');
+    // Partial assemblies are bounded; the oldest is evicted rather than closing the connection.
+    for (let seq = 1; seq <= 130; seq++) assert.equal(chunks.receive({ ...frames[0]!, seq }), undefined);
+    assert.equal(chunks.receipts().length, 128);
+    chunks.clear(); assert.equal(chunks.receive(frames[0]!), undefined);
   });
   await h.test('cumulative receipts cannot cross incomplete segments and resume skips only receiver-retained parts', () => {
     const delivery = new ReliableDelivery(); delivery.resumeChunkReceipts(true, []);

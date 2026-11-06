@@ -5,7 +5,11 @@ import { promisify } from 'node:util';
 import { withSettingsTransaction } from '../settings';
 import { string, type JsonObject } from '../service-types';
 
-export interface MobileSettings { enabled: boolean; port: number; token: string; relayURL: string; relayOverride: string | null; relayId: string; relaySecret: string }
+export interface MobileSettings {
+  enabled: boolean; port: number; token: string; relayURL: string; relayOverride: string | null; relayId: string; relaySecret: string;
+  /** Keep serving remote tasks while the screen is locked. */
+  allowLockedComputerUse: boolean;
+}
 const prefix = 'mobile_bridge.';
 const normalizeURL = (value: string): string => value.trim().replace(/\/+$/u, '');
 export function relayURL(value: string): string {
@@ -27,12 +31,19 @@ export class MobileSettingsStore {
       if (typeof update?.enabled === 'boolean') put('enabled', update.enabled ? '1' : '0');
       if (typeof update?.port === 'number' && Number.isFinite(update.port)) put('port', String(Math.max(0, Math.min(65535, Math.floor(update.port)))));
       if (typeof update?.relayUrl === 'string') { const next = normalizeURL(update.relayUrl); if (next) relayURL(next); put('relay_url', next); }
+      if (typeof update?.allowLockedComputerUse === 'boolean') put('allow_locked_computer_use', update.allowLockedComputerUse ? '1' : '0');
       if (rotate) put('token', randomBytes(32).toString('base64url'));
       const rawPort = get('port'), port = /^\d+$/u.test(rawPort) ? Number(rawPort) : this.defaultPort;
       const rawEnabled = get('enabled').trim().toLowerCase();
+      // Absent keys fall back to the shipped defaults: keep-awake on, locked use off.
+      const flag = (key: string, fallback: boolean): boolean => {
+        const raw = get(key).trim().toLowerCase();
+        return raw ? ['1', 'true'].includes(raw) : fallback;
+      };
       const override = normalizeURL(get('relay_url')) || normalizeURL(this.env.KLAUS_MOBILE_RELAY_URL || '');
       return { enabled: rawEnabled ? ['1', 'true'].includes(rawEnabled) : true, port: Number.isSafeInteger(port) && port <= 65535 ? port : this.defaultPort, token: mint('token', 32),
-        relayURL: relayURL(override || this.defaultURL), relayOverride: override || null, relayId: mint('relay_id', 18), relaySecret: mint('relay_secret', 32) };
+        relayURL: relayURL(override || this.defaultURL), relayOverride: override || null, relayId: mint('relay_id', 18), relaySecret: mint('relay_secret', 32),
+        allowLockedComputerUse: flag('allow_locked_computer_use', false) };
     });
   }
 }

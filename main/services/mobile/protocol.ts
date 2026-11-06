@@ -12,7 +12,7 @@ export const MOBILE_FEATURES: JsonObject = {
   sendMessage: true, permissionControl: true, sessionManagement: true, desktopState: true,
   stopGeneration: true, workdirSelection: true, newChatContext: true, runtimeConfig: true, sessionModelConfig: true, sessionActions: true,
   slashCommands: true, composerAddMenu: true, threadCommunication: 1, friendsMessaging: 3, followUpQueue: 1,
-  taskStream: 1, taskHistoryRead: 1, reliableTransport: 1, messageChunking: 2,
+  taskStream: 1, taskHistoryRead: 1, reliableTransport: 1, messageChunking: 4,
   elicitationControl: true, asyncQuestionControl: true, questionAttachments: true,
   subagentTranscripts: true, mediaPreview: true, filePreview: true, diagramPreview: true,
 };

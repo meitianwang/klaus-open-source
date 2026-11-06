@@ -9,25 +9,72 @@
   },
   "taskStream": {
     "firstFollow": "task_snapshot",
-    "readFirst": {"_why": "Saved history must render while provider initialization proceeds. Read results and final follows are generation-scoped; only the final atomic snapshot establishes a live cursor.", "optIn": "follow_task.historyRead", "frame": "task_history", "identity": "transportRequestId", "liveMethod": "session/follow", "includeOriginalHistory": true, "capture": "saved read starts independently of resume and completes before the final ordered follow cut", "backgroundConcurrency": 2, "foregroundConcurrency": 1, "cancelledView": "release the read lane while admitted startup drains and cleans up", "lateRead": "discard after replacement or final snapshot", "activeItems": "engine event-pump capture at source cursor", "coveredMessageIds": "complete message UUIDs and persisted block identities suppress notification deltas arriving after their hydrated row", "reasoningIdentity": "persisted messageId allocated when reasoning starts; filtering empty blocks or aborting tools cannot change it", "liveTurnIdentity": "authoritative core turnId on item, delta, and raw progress frames; submissionId fallback is normalized by the active turn binding", "coveredToolResults": "turnId and toolUseId pairs suppress already persisted tool lifecycle and progress; file changes remain visible", "originalHistoryFence": "accepted rollout revision is unchanged across flush, original read, and live capture; eight moving captures return an explicit busy error", "liveTurnStatus": "both provider-free history and full follow overlay running from already-owned active turn leases; explicit terminal status remains authoritative and inactive recovery stays interrupted", "engineCommit": "734a754ac65b5a9fdecb916a49059c41cd52d98b"},
+    "readFirst": {
+      "_why": "Saved history must render while provider initialization proceeds. Read results and final follows are generation-scoped; only the final atomic snapshot establishes a live cursor.",
+      "optIn": "follow_task.historyRead",
+      "frame": "task_history",
+      "identity": "transportRequestId",
+      "liveMethod": "session/follow",
+      "includeOriginalHistory": true,
+      "capture": "saved read starts independently of resume and completes before the final ordered follow cut",
+      "backgroundConcurrency": 2,
+      "foregroundConcurrency": 1,
+      "cancelledView": "release the read lane while admitted startup drains and cleans up",
+      "lateRead": "discard after replacement or final snapshot",
+      "activeItems": "engine event-pump capture at source cursor",
+      "coveredMessageIds": "complete message UUIDs and persisted block identities suppress notification deltas arriving after their hydrated row",
+      "reasoningIdentity": "persisted messageId allocated when reasoning starts; filtering empty blocks or aborting tools cannot change it",
+      "liveTurnIdentity": "authoritative core turnId on item, delta, and raw progress frames; submissionId fallback is normalized by the active turn binding",
+      "coveredToolResults": "turnId and toolUseId pairs suppress already persisted tool lifecycle and progress; file changes remain visible",
+      "originalHistoryFence": "accepted rollout revision is unchanged across flush, original read, and live capture; eight moving captures return an explicit busy error",
+      "liveTurnStatus": "both provider-free history and full follow overlay running from already-owned active turn leases; explicit terminal status remains authoritative and inactive recovery stays interrupted",
+      "engineCommit": "734a754ac65b5a9fdecb916a49059c41cd52d98b"
+    },
     "patch": {
       "type": "task_patch",
-      "requiredFields": ["streamId", "baseRevision", "revision", "patches", "acceptedTextChanges"],
+      "requiredFields": [
+        "streamId",
+        "baseRevision",
+        "revision",
+        "patches",
+        "acceptedTextChanges"
+      ],
       "revisionStep": 1,
-      "operation": { "op": "add", "path": "/events/-" }
+      "operation": {
+        "op": "add",
+        "path": "/events/-"
+      }
     },
-    "cursorMismatch": ["task_gap", "task_snapshot"],
+    "cursorMismatch": [
+      "task_gap",
+      "task_snapshot"
+    ],
     "snapshot": {
       "_why": "`session:follow` projects the engine history without a sessionId, but the phone's history envelope requires it; a missing key made the phone discard the whole snapshot and spin on an empty transcript.",
-      "historyRequiredFields": ["sessionId", "messages"],
-      "requiredFields": ["history", "activeEvents", "coveredMessageIds"]
+      "historyRequiredFields": [
+        "sessionId",
+        "messages"
+      ],
+      "requiredFields": [
+        "history",
+        "activeEvents",
+        "coveredMessageIds"
+      ]
     },
     "snapshotCut": "engine history revision plus every later or non-engine host event exactly once",
-    "textBatch": { "fallbackMs": 16, "targetCharacters": 24, "maximumDrainFrames": 8 },
+    "textBatch": {
+      "fallbackMs": 16,
+      "targetCharacters": 24,
+      "maximumDrainFrames": 8
+    },
     "outputBatchMs": 50,
     "toolOutputRetentionCharacters": 20000,
     "toolOutputTruncationMarker": "[output truncated]\n",
-    "replay": { "maximumPatches": 512, "maximumBytes": 8388608, "maximumAgeMs": 300000 }
+    "replay": {
+      "maximumPatches": 512,
+      "maximumBytes": 8388608,
+      "maximumAgeMs": 300000
+    }
   },
   "transport": {
     "oneSocketPerClientId": true,
@@ -37,14 +84,49 @@
     "reconnect": "resume and replay every unacknowledged envelope",
     "clientMutationCommit": "persist the processed sequence after admission or a correlated rejection; a rejected request cannot block later sequences",
     "businessAcceptance": "message_accepted follows chat:send turn admission, independently of client_ack",
-    "businessRejection": ["action", "sessionId", "clientMessageId", "requestId", "clientSeq"],
-    "businessRecovery": { "resumeField": "pendingMessages", "fields": ["sessionId", "clientMessageId", "clientSeq"], "unknownOutcome": "after replay, an admitted request with no retained outcome remains user-recoverable and is never automatically resent" },
+    "businessRejection": [
+      "action",
+      "sessionId",
+      "clientMessageId",
+      "requestId",
+      "clientSeq"
+    ],
+    "businessRecovery": {
+      "resumeField": "pendingMessages",
+      "fields": [
+        "sessionId",
+        "clientMessageId",
+        "clientSeq"
+      ],
+      "unknownOutcome": "after replay, an admitted request with no retained outcome remains user-recoverable and is never automatically resent"
+    },
     "controlReceipts": "coalesced cumulative ACKs bypass the engine request queue",
     "clientChunkEnvelope": "client_message_chunk",
-    "clientChunkFields": ["seq", "index", "count", "data"],
+    "clientChunkFields": [
+      "seq",
+      "index",
+      "count",
+      "data"
+    ],
     "chunkData": "base64 of the logical message UTF-8 bytes, with one sequence shared by all parts",
-    "chunkAcknowledgements": { "client": "client_chunk_ack", "server": "server_chunk_ack", "fields": ["seq", "index", "count"] },
-    "partialResume": { "clientReports": "transport_resume.serverChunks", "serverReports": "transport_ready.clientChunks", "fields": ["seq", "count", "receivedIndexes"] },
+    "chunkAcknowledgements": {
+      "client": "client_chunk_ack",
+      "server": "server_chunk_ack",
+      "fields": [
+        "seq",
+        "index",
+        "count"
+      ]
+    },
+    "partialResume": {
+      "clientReports": "transport_resume.serverChunks",
+      "serverReports": "transport_ready.clientChunks",
+      "fields": [
+        "seq",
+        "count",
+        "receivedIndexes"
+      ]
+    },
     "partialAcknowledgement": "retain the logical envelope until all fragments and its cumulative receipt are acknowledged; resume only skips fragments the receiving peer reports it still retains",
     "maximumReassembledBytes": 29360128,
     "persistentState": true,
@@ -58,13 +140,78 @@
     "binaryChunkBytes": 98304,
     "maximumMessages": 1024,
     "maximumBytes": 67108864,
-    "maximumAgeMs": 300000
+    "maximumAgeMs": 300000,
+    "framing": {
+      "_why": "Segmented envelopes changed shape between feature levels, so the sender picks the profile the peer advertised and the receiver accepts both. A peer that never advertises keeps the older shape.",
+      "advertisedOn": [
+        "transport_ping",
+        "transport_resume"
+      ],
+      "advertisedField": "chunking",
+      "newProfileLevel": 4,
+      "defaultWhenUnobserved": "legacy",
+      "legacy": {
+        "logicalThresholdBytes": 102400,
+        "segmentBytes": 98304
+      },
+      "next": {
+        "segmentTargetBytes": 102400,
+        "envelopeMaxBytes": 153600,
+        "segmentCountMax": 1024,
+        "reassembledMaxBytes": 104857600
+      },
+      "receiveSide": "accepts both profiles; not gated by the peer level",
+      "negotiationMatrix": [
+        {
+          "sender": "legacy",
+          "receiver": "legacy",
+          "result": "legacy frames"
+        },
+        {
+          "sender": "legacy",
+          "receiver": "next",
+          "result": "legacy frames accepted by the newer reassembler"
+        },
+        {
+          "sender": "next",
+          "receiver": "legacy",
+          "result": "not produced: the sender keeps legacy until the peer advertises level 4"
+        },
+        {
+          "sender": "next",
+          "receiver": "next",
+          "result": "next frames"
+        }
+      ]
+    },
+    "keepalive": {
+      "frame": "transport_ping",
+      "reply": "transport_pong",
+      "intervalMs": 30000,
+      "pongGraceMs": 600000,
+      "skipHistory": true,
+      "missedPong": "the stream reconnects; the socket is kept"
+    },
+    "cursor": {
+      "field": "cursor",
+      "type": "string",
+      "value": "highest delivered sequence for the identity",
+      "resumeField": "subscribeCursor",
+      "emptyResumeField": "fall back to the last acknowledged sequence"
+    },
+    "outboundCapacityEnvelopes": 128,
+    "clientIdleTimeoutMs": 600000,
+    "clientIdleSweepMs": 30000
   },
   "relay": {
     "socketPingMs": 10000,
     "socketPongTimeoutMs": 60000,
     "stableConnectionMs": 60000,
-    "downstreamFlowControl": { "type": "mobile_ws_flow", "scope": "clientId", "paused": "boolean" }
+    "downstreamFlowControl": {
+      "type": "mobile_ws_flow",
+      "scope": "clientId",
+      "paused": "boolean"
+    }
   },
   "catalogRefresh": {
     "perDelta": false,
@@ -72,38 +219,168 @@
   },
   "interactionVisibility": {
     "_why": "A peer following one session used to be silently excluded from every other session's permission/elicit frames, so a desktop turn blocked on approval was invisible on the phone until the user opened that session.",
-    "unconditionalFrames": ["permission_pending", "permission_resolved", "permission_cancelled", "elicit_pending", "elicit_resolved", "elicit_cancelled"],
+    "unconditionalFrames": [
+      "permission_pending",
+      "permission_resolved",
+      "permission_cancelled",
+      "elicit_pending",
+      "elicit_resolved",
+      "elicit_cancelled"
+    ],
     "clientDeduplication": "requestId",
-    "awaitingProjection": { "field": "awaitingInteractionSessionIds", "carrier": ["desktop_state_changed", "hello", "sessions_changed"] },
-    "desktopStateEvents": ["goal_updated", "background_process_changed", "engine_status"]
+    "awaitingProjection": {
+      "field": "awaitingInteractionSessionIds",
+      "carrier": [
+        "desktop_state_changed",
+        "hello",
+        "sessions_changed"
+      ]
+    },
+    "desktopStateEvents": [
+      "goal_updated",
+      "background_process_changed",
+      "engine_status"
+    ]
   },
-  "connectionReadiness": {"_why": "Provider model catalogs and command discovery must not block the transport hello, session catalog, or mutation admission.", "hello": "local metadata and capabilities", "composer": "independent background refresh; errors retain the connection and existing values", "engineRecovery": "acquire the single engine connection before pinning requests; invalidate every prior follow epoch"},
+  "connectionReadiness": {
+    "_why": "Provider model catalogs and command discovery must not block the transport hello, session catalog, or mutation admission.",
+    "hello": "local metadata and capabilities",
+    "composer": "independent background refresh; errors retain the connection and existing values",
+    "engineRecovery": "acquire the single engine connection before pinning requests; invalidate every prior follow epoch"
+  },
   "frames": {
     "_why": "Decode-compatibility fixtures: the phone's decoder must accept exactly these host frames. A missing required key once made the phone discard the whole snapshot and spin forever.",
     "hello": {
-      "type": "hello", "protocolVersion": 3,
-      "features": { "sendMessage": true, "permissionControl": true, "sessionManagement": true, "desktopState": true, "stopGeneration": true, "workdirSelection": true, "runtimeConfig": true, "sessionActions": true, "slashCommands": true, "composerAddMenu": true, "taskStream": 1, "taskHistoryRead": 1, "reliableTransport": 1, "messageChunking": 2, "catalogSync": 1 },
-      "sessions": [{ "id": "s1", "title": "One", "createdAt": 1, "updatedAt": 2, "workdir": "/tmp", "isWorking": false }],
+      "type": "hello",
+      "protocolVersion": 3,
+      "features": {
+        "sendMessage": true,
+        "permissionControl": true,
+        "sessionManagement": true,
+        "desktopState": true,
+        "stopGeneration": true,
+        "workdirSelection": true,
+        "runtimeConfig": true,
+        "sessionActions": true,
+        "slashCommands": true,
+        "composerAddMenu": true,
+        "taskStream": 1,
+        "taskHistoryRead": 1,
+        "reliableTransport": 1,
+        "messageChunking": 2,
+        "catalogSync": 1
+      },
+      "sessions": [
+        {
+          "id": "s1",
+          "title": "One",
+          "createdAt": 1,
+          "updatedAt": 2,
+          "workdir": "/tmp",
+          "isWorking": false
+        }
+      ],
       "activeSessionId": "s1",
-      "desktopState": { "activeSessionId": "s1", "activeWorkdir": "/tmp", "runningSessionIds": [], "awaitingInteractionSessionIds": [], "projects": [] },
+      "desktopState": {
+        "activeSessionId": "s1",
+        "activeWorkdir": "/tmp",
+        "runningSessionIds": [],
+        "awaitingInteractionSessionIds": [],
+        "projects": []
+      },
       "projects": []
     },
-    "taskHistory": {"type": "task_history", "sessionId": "s1", "transportRequestId": "follow-1", "history": {"sessionId": "s1", "messages": [{"id": "s1-0", "role": "user", "text": "hi", "timestamp": 0}], "turnStatuses": {}, "turnDurations": {}}},
+    "taskHistory": {
+      "type": "task_history",
+      "sessionId": "s1",
+      "transportRequestId": "follow-1",
+      "history": {
+        "sessionId": "s1",
+        "messages": [
+          {
+            "id": "s1-0",
+            "role": "user",
+            "text": "hi",
+            "timestamp": 0
+          }
+        ],
+        "turnStatuses": {},
+        "turnDurations": {}
+      }
+    },
     "taskSnapshot": {
-      "type": "task_snapshot", "sessionId": "s1", "transportRequestId": "follow-1", "activeEvents": [], "coveredMessageIds": [], "coveredToolResults": [], "streamId": "stream-1", "revision": 3,
-      "history": { "sessionId": "s1", "messages": [{ "id": "s1-0", "role": "user", "text": "hi", "timestamp": 0 }], "turnStatuses": {}, "turnDurations": {} },
-      "liveEvents": [], "working": true, "interactions": []
+      "type": "task_snapshot",
+      "sessionId": "s1",
+      "transportRequestId": "follow-1",
+      "activeEvents": [],
+      "coveredMessageIds": [],
+      "coveredToolResults": [],
+      "streamId": "stream-1",
+      "revision": 3,
+      "history": {
+        "sessionId": "s1",
+        "messages": [
+          {
+            "id": "s1-0",
+            "role": "user",
+            "text": "hi",
+            "timestamp": 0
+          }
+        ],
+        "turnStatuses": {},
+        "turnDurations": {}
+      },
+      "liveEvents": [],
+      "working": true,
+      "interactions": []
     },
     "taskPatch": {
-      "type": "task_patch", "sessionId": "s1", "streamId": "stream-1", "baseRevision": 3, "revision": 4,
-      "patches": [{ "op": "add", "path": "/events/-", "value": { "type": "text_delta", "text": "x", "phase": "final_answer" } }],
+      "type": "task_patch",
+      "sessionId": "s1",
+      "streamId": "stream-1",
+      "baseRevision": 3,
+      "revision": 4,
+      "patches": [
+        {
+          "op": "add",
+          "path": "/events/-",
+          "value": {
+            "type": "text_delta",
+            "text": "x",
+            "phase": "final_answer"
+          }
+        }
+      ],
       "acceptedTextChanges": 1
     },
     "permissionPending": {
-      "type": "permission_pending", "sessionId": "s1", "requestId": "r1", "toolName": "bash", "message": "run ls",
-      "toolInput": { "command": "ls" }, "suggestions": [{ "type": "allow", "label": "Allow ls" }]
+      "type": "permission_pending",
+      "sessionId": "s1",
+      "requestId": "r1",
+      "toolName": "bash",
+      "message": "run ls",
+      "toolInput": {
+        "command": "ls"
+      },
+      "suggestions": [
+        {
+          "type": "allow",
+          "label": "Allow ls"
+        }
+      ]
     },
-    "transportReady": { "type": "transport_ready", "latestSeq": 7, "lastClientSeq": 2, "clientChunks": [] },
-    "error": { "type": "error", "code": "not_found", "message": "Not found", "action": "follow_task", "sessionId": "s1" }
+    "transportReady": {
+      "type": "transport_ready",
+      "latestSeq": 7,
+      "lastClientSeq": 2,
+      "clientChunks": []
+    },
+    "error": {
+      "type": "error",
+      "code": "not_found",
+      "message": "Not found",
+      "action": "follow_task",
+      "sessionId": "s1"
+    }
   }
 }
