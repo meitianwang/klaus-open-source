@@ -9,7 +9,7 @@ export function serveFileUploadFixture(request: IncomingMessage, response: Serve
   response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
   const child = request.url === '/advanced-upload-frame';
   response.end('<!doctype html><title>File selection fixture</title>' +
-    '<input id="hidden-file" type="file" multiple style="display:none"><button id="pick" onclick="document.querySelector(\'#hidden-file\').click()">Choose files</button><button id="no-picker">No chooser</button>' + (child ? '<button id="child-pick" onclick="window.childPickClicks=(window.childPickClicks||0)+1;document.querySelector(\'#hidden-file\').click()">Child choose</button>' : '') +
+    '<input id="hidden-file" type="file" multiple style="display:none"><button id="pick" onclick="document.querySelector(\'#hidden-file\').click()">Choose files</button><button id="no-picker">No chooser</button>' +
     '<input id="single-file" type="file"><input id="clear-file" type="file" style="display:none"><input id="replace-file" type="file" style="display:none"><input id="async-file" type="file" style="display:none">' +
     '<script>window.uploadEvents=[];for(const input of document.querySelectorAll("input[type=file]")){input.addEventListener("change",event=>{const file=event.target.files[0];uploadEvents.push({id:event.target.id,name:file?.name,size:file?.size});if(event.target.id==="clear-file")event.target.value="";if(event.target.id==="replace-file")event.target.replaceWith(event.target.cloneNode());if(event.target.id==="async-file")file.text().then(text=>{window.processedUpload={text,name:file.name};event.target.value="";});});}</script>' +
     (child ? '' : '<iframe id="same-frame" src="/advanced-upload-frame"></iframe><iframe id="remote-frame" src="' + base.replace('127.0.0.1','localhost') + '/advanced-upload-frame"></iframe>'));
@@ -64,16 +64,14 @@ export function registerFileUploadTests(h: Harness, context: { call(kind: string
     assertEqual(chooser.via, 'file-chooser', 'chooser belongs to the addressed child document');
     assertEqual(await evaluate('document.querySelector("#same-frame").contentDocument.querySelector("#hidden-file").files[0].name'), 'selection-b.txt', 'child document received the selected file');
   });
-  h.test('uploads: owned cross-process inputs receive direct and chooser selections', async () => {
+  h.test('uploads: owned cross-process inputs retain direct selection and chooser has an explicit capability boundary', async () => {
     const snapshot = object(await value('snapshot')), frames = snapshot.frameTargets;
     assert(Array.isArray(frames) && typeof frames[0] === 'string', 'real cross-process frame was discovered');
     const frameTargetId = frames[0];
     const direct = object(await value('file_upload', { frameTargetId, selector: '#hidden-file', files: [first] }));
     assertEqual(object(direct.observation).state, 'attached', 'owned cross-process target received native selection');
     assertEqual(await value('eval', { frameTargetId, expression: 'document.querySelector("#hidden-file").files[0].name' }), 'selection-a.txt', 'actual child FileList proves delivery');
-    const chooser = object(await value('file_upload', { frameTargetId, selector: '#child-pick', files: [second] }));
-    assertEqual(chooser.via, 'file-chooser', 'owned child chooser completed through its child Page agent');
-    assertEqual(await value('eval', { frameTargetId, expression: 'window.childPickClicks' }), 1, 'the child button handled the click');
-    assertEqual(await value('eval', { frameTargetId, expression: 'document.querySelector("#hidden-file").files[0].name' }), 'selection-b.txt', 'child input received the chooser selection');
+    let error = ''; try { await call('file_upload', { frameTargetId, selector: '#pick', files: [first] }); } catch (failure) { error = String(failure); }
+    assert(error.includes('File choosers in out-of-process frames are not supported'), 'cross-process chooser does not consume another frame event');
   });
 }

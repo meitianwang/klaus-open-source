@@ -35,7 +35,6 @@ export interface PageOperationContext {
   history(action: 'back' | 'forward' | 'reload'): Promise<void>;
   download(fields: BrowserObject, timeout: number, cdp: BrowserCdp): Promise<BrowserObject>;
   artifactDirectory?: string;
-  authorizeUpload?(documentUrl: string, signal?: AbortSignal): Promise<void>;
   permission?(fields: BrowserObject): Promise<BrowserObject>;
   nativeViewport?(): Promise<BrowserObject>;
 }
@@ -86,11 +85,11 @@ export async function performPageOperation(context: PageOperationContext, kind: 
       if (value === null) throw new BrowserError('not_found', 'Element not found.'); break;
     case 'click': value = await click(cdp, fields, context.signal); break;
     case 'type':
-      await typeText(cdp, { ...fields, text: typeof fields.text === 'string' ? fields.text : '', pressEnter: false }, context.signal);
-      if (typeof fields.key === 'string') await pressKey(cdp, fields.key, context.signal);
+      await typeText(cdp, { ...fields, text: typeof fields.text === 'string' ? fields.text : '', pressEnter: false });
+      if (typeof fields.key === 'string') await pressKey(cdp, fields.key);
       if (fields.pressEnter === true) {
-        await pressKey(cdp, 'Enter', context.signal);
-        await waitForPage(cdp, { loadState: 'load', timeoutMs: fields.timeoutMs ?? 30_000 }, context.signal);
+        await pressKey(cdp, 'Enter');
+        await waitForPage(cdp, { loadState: 'load', timeoutMs: fields.timeoutMs ?? 30_000 });
       }
       break;
     case 'set_checked': {
@@ -126,7 +125,7 @@ export async function performPageOperation(context: PageOperationContext, kind: 
       }
       value = json(result); break;
     }
-    case 'wait_for': value=await waitForPage(cdp,fields,context.signal); break;
+    case 'wait_for': value=await waitForPage(cdp,fields); break;
     case 'console': case 'network': {
       const action = fields.action ?? 'get';
       if (!['get', 'list', 'clear'].includes(String(action))) throw new BrowserError('unavailable', `${kind} action '${String(action)}' is not implemented.`);

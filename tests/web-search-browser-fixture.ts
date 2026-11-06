@@ -1,11 +1,10 @@
 import assert from 'node:assert/strict';
-import { app, BaseWindow, BrowserWindow } from 'electron';
+import { app, BaseWindow, BrowserWindow, webContents } from 'electron';
 import { createServer } from 'node:http';
 import { randomUUID } from 'node:crypto';
 import { appendFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { BrowserManager, type BrowserPage } from '../main/browser/manager';
-import type { NativeBrowserHandle } from '../main/browser/native-page';
+import { BrowserManager } from '../main/browser/manager';
 import { BrowserMcpServer } from '../main/browser/mcp';
 import { EngineManager, type ManagedEngine } from '../main/engine/manager';
 import type { ClientEvent } from '../main/engine/protocol';
@@ -20,8 +19,6 @@ if (!profile || !binary || !logDirectory) throw new Error('Use web-search-browse
 mkdirSync(profile, { recursive: true });
 mkdirSync(logDirectory, { recursive: true });
 app.setPath('userData', profile);
-app.commandLine.appendSwitch('native-browser-enabled');
-app.commandLine.appendSwitch('native-browser-data-dir', join(profile, 'electron', 'native-browser'));
 app.commandLine.appendSwitch('site-per-process');
 app.on('window-all-closed', () => {});
 const live = process.env.KLAUS_SEARCH_BROWSER_LIVE === '1';
@@ -98,81 +95,36 @@ async function main(): Promise<number> {
   const browser = new BrowserManager({ window, configRoot: profile!, enabled: () => true, emit: (channel, payload) => { pushes.push({ channel, payload }); } });
   const mcp = new BrowserMcpServer(browser, { chromeEnabled: () => false, chromeDiscoveryDirectory: join(profile!, 'chrome-discovery'),
     observeResult: (_owner, _lease, result) => { browserReplies.push(object(result)); trace('browser-reply', result); }, reportDiagnostic: message => trace('browser-diagnostic', message) });
-  const createdPages: NativeBrowserHandle[] = [];
-  const installBingFixture = async (page: BrowserPage): Promise<void> => {
-    const responseHeaders = [
-      { name: 'content-type', value: 'text/html; charset=utf-8' },
-      { name: 'content-security-policy', value: "default-src 'none'; style-src 'unsafe-inline'" },
-    ];
-    const unsubscribe = page.cdp.onEvent((method, params, frame) => {
-      if (method !== 'Fetch.requestPaused' || frame !== undefined) return;
-      const requestId = typeof params.requestId === 'string' ? params.requestId : '';
-      const request = object(params.request), url = typeof request.url === 'string' ? request.url : '';
-      const fail = (): void => {
-        if (requestId) void page.cdp.command('Fetch.failRequest', { requestId, errorReason: 'BlockedByClient' }).catch(() => {});
-      };
-      if (!requestId || !url) { fail(); return; }
-      let parsed: URL;
-      try { parsed = new URL(url); } catch { fail(); return; }
-      const current = activeCase;
-      if (parsed.hostname !== 'www.bing.com' || parsed.pathname !== '/search' || !current) { fail(); return; }
-      try { assert.equal(parsed.searchParams.get('q'), current.query, 'the canonical tool forwards the exact query to Bing'); }
-      catch (error) { trace('bing-query-mismatch', String(error)); fail(); return; }
-      navigations.push(url); trace('bing-navigation', { mode: current.kind, url });
-      const body = Buffer.from(html(current.kind)).toString('base64');
-      if (current.kind === 'cancel' || current.kind === 'timeout') {
-        current.releaseNavigation = () => {
-          if (page.native.isDestroyed()) return;
-          void page.cdp.command('Fetch.fulfillRequest', { requestId, responseCode: 200, responseHeaders, body }).catch(() => {});
-        };
-        return;
-      }
-      void page.cdp.command('Fetch.fulfillRequest', { requestId, responseCode: 200, responseHeaders, body }).catch(() => {});
-    });
-    page.native.on('destroyed', () => { unsubscribe(); });
-    await page.cdp.command('Fetch.enable', { patterns: [{ resourceType: 'Document', requestStage: 'Request' }] });
+  const createdContents: number[] = [];
+  const created = (_event: Electron.Event, contents: Electron.WebContents): void => {
+    if (contents.session === browser.browserSession) createdContents.push(contents.id);
   };
-  const originalCreateTab = browser.createTab.bind(browser);
-  browser.createTab = async (sessionId: string, input: unknown = 'about:blank', activate = true, signal?: AbortSignal): Promise<BrowserPage> => {
-    if (live) {
-      const page = await originalCreateTab(sessionId, input, activate, signal);
-      createdPages.push(page.native);
-      return page;
-    }
-    const requested = String(input);
-    const page = await originalCreateTab(sessionId, 'about:blank', activate, signal);
-    await page.ready;
-    await page.navigation.stop();
-    await installBingFixture(page);
-    createdPages.push(page.native);
-    if (requested === 'about:blank') return page;
-    try { await browser.navigate(page, requested, {}, signal); return page; }
-    catch (error) { browser.closeTab(sessionId, page.handle); throw error; }
-  };
-  const originalCreatePreviewTab = browser.createPreviewTab.bind(browser);
-  browser.createPreviewTab = async (sessionId: string): Promise<BrowserPage> => {
-    const page = await originalCreatePreviewTab(sessionId);
-    createdPages.push(page.native);
-    if (!live) {
-      await page.ready;
-      await page.navigation.stop();
-      await installBingFixture(page);
-    }
-    return page;
-  };
+  app.on('web-contents-created', created);
   const cases: CaseKind[] = live ? ['live'] : ['organic', 'empty', 'challenge', 'cancel', 'timeout'];
   let engine: ManagedEngine | undefined, stopping: Promise<void> | undefined;
   const shutdown = (): Promise<void> => stopping ??= (async () => {
     trace('shutdown', { enginePid: engine?.pid });
     await engines.shutdownAll();
     await mcp.shutdown();
+    if (!live) browser.browserSession.protocol.unhandle('https');
     browser.dispose();
     if (!window.isDestroyed()) window.destroy();
+    app.off('web-contents-created', created);
     provider.closeAllConnections();
     if (provider.listening) await new Promise<void>(resolve => provider.close(() => resolve()));
   })();
   process.once('SIGTERM', () => { void shutdown().finally(() => app.exit(1)); });
   try {
+    if (!live) browser.browserSession.protocol.handle('https', request => {
+      const url = new URL(request.url), current = activeCase;
+      if (url.hostname !== 'www.bing.com' || url.pathname !== '/search' || !current) return new Response('Fixture only permits its own Bing search page.', { status: 403 });
+      assert.equal(url.searchParams.get('q'), current.query, 'the canonical tool forwards the exact query to Bing');
+      navigations.push(request.url); trace('bing-navigation', { mode: current.kind, url: request.url });
+      if (current.kind === 'cancel' || current.kind === 'timeout') return new Promise<Response>(resolve => {
+        current.releaseNavigation = () => resolve(new Response(html('organic'), { headers: { 'content-type': 'text/html' } }));
+      });
+      return new Response(html(current.kind), { status: 200, headers: { 'content-type': 'text/html; charset=utf-8', 'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'" } });
+    });
     await new Promise<void>(resolve => provider.listen(0, '127.0.0.1', resolve));
     const address = provider.address(); assert(address && typeof address === 'object');
     const baseUrl = `http://127.0.0.1:${address.port}`;
@@ -184,13 +136,13 @@ async function main(): Promise<number> {
       trace('facade-request', { method, ...(params.sessionId ? { sessionId: params.sessionId } : {}) });
       return engine!.client.requestWithTimeout(method, params, 30_000);
     };
-    for (const kind of cases) await h.test(`${kind}: real engine search returns its result and retires temporary native tabs`, async () => {
+    for (const kind of cases) await h.test(`${kind}: real engine search returns its result and retires temporary Chromium tabs`, async () => {
       const owner = randomUUID(), query = kind === 'live' ? process.env.KLAUS_SEARCH_BROWSER_QUERY || 'Python official documentation' : `Klaus ${kind} fixture 中文`;
       activeCase = { kind, query, callId: 'toolu_search_' + kind, requested: false, providerCalls: 0, toolResults: [] };
       browser.setConversation(owner);
       const selected = await browser.createTab(owner, 'about:blank');
       await selected.cdp.evaluate("document.title='Preserved fixture tab'; document.body.textContent='Existing task page'; true");
-      const before = { state: browser.state(owner), pages: createdPages.length, replies: browserReplies.length, pushes: pushes.length, navigations: navigations.length };
+      const before = { state: browser.state(owner), contents: createdContents.length, replies: browserReplies.length, pushes: pushes.length, navigations: navigations.length };
       let completed = false, started = false;
       const searchItems = new Map<string, JsonObject>();
       const receive = (event: ClientEvent): void => {
@@ -214,11 +166,11 @@ async function main(): Promise<number> {
         await request('turn/start', { sessionId: owner, input: 'Run one web_search for the isolated browser fixture.' });
         if (kind === 'cancel' || kind === 'timeout') {
           await waitFor(() => Boolean(activeCase?.releaseNavigation), 10_000, 'Bing navigation is held before its response');
-          const temporary = createdPages.slice(before.pages);
-          assert(temporary.length > 0 && temporary.some(page => !page.isDestroyed()), 'a live temporary native page owns the pending request');
+          const temporary = createdContents.slice(before.contents);
+          assert(temporary.length > 0 && temporary.some(id => webContents.fromId(id)), 'a live temporary Chromium page owns the pending request');
           const began = Date.now();
           if (kind === 'cancel') await request('turn/interrupt', { sessionId: owner });
-          await waitFor(() => temporary.every(page => page.isDestroyed()), kind === 'cancel' ? 3000 : 29_000, 'cancelled or expired search destroys its temporary native page before the server replies');
+          await waitFor(() => temporary.every(id => !webContents.fromId(id)), kind === 'cancel' ? 3000 : 29_000, 'cancelled or expired search destroys its temporary Chromium page before the server replies');
           await waitFor(() => completed, 5000, 'cancelled or expired search turn completes');
           assert.equal(activeCase!.providerCalls, kind === 'cancel' ? 1 : 2);
           if (kind === 'timeout') {
@@ -230,7 +182,7 @@ async function main(): Promise<number> {
           assert.equal(browser.state(owner).tabId, before.state.tabId);
           assert.equal(await selected.cdp.evaluate('document.body.textContent'), 'Existing task page');
           assert.equal(browserReplies.length, before.replies, 'cancelled browser operations never publish a late result');
-          trace('case-validated', { kind, elapsedMs: Date.now() - began, temporaryPagesDestroyed: temporary.length, replyStillHeld: Boolean(activeCase!.releaseNavigation) });
+          trace('case-validated', { kind, elapsedMs: Date.now() - began, temporaryContentsDestroyed: temporary.length, replyStillHeld: Boolean(activeCase!.releaseNavigation) });
           return;
         }
         await waitFor(() => completed, 45_000, 'real browser search turn completed');
@@ -263,14 +215,14 @@ async function main(): Promise<number> {
         assert.equal(browser.state(owner).tabId, before.state.tabId);
         assert.equal(browser.state(owner).url, before.state.url);
         assert.equal(await selected.cdp.evaluate('document.body.textContent'), 'Existing task page');
-        const temporary = createdPages.slice(before.pages); assert(temporary.length > 0, 'search used actual temporary native pages');
-        await waitFor(() => temporary.every(page => page.isDestroyed()), 5000, 'temporary native pages destroyed');
+        const temporary = createdContents.slice(before.contents); assert(temporary.length > 0, 'search used actual temporary Chromium pages');
+        await waitFor(() => temporary.every(id => !webContents.fromId(id)), 5000, 'temporary Chromium contents destroyed');
         const changed = pushes.slice(before.pushes);
         assert(!changed.some(push => push.channel === 'browser-use:open-panel'), 'search does not open the visible browser panel');
         assert(!changed.some(push => push.channel === 'browser-use:state' && object(push.payload).tabId !== selected.id), 'selected page stays unchanged throughout the search');
         assert(!BaseWindow.getAllWindows().some(entry => entry.isVisible()), 'background search never exposes the fixture windows');
         if (!live) assert.equal(navigations.length - before.navigations, 1, 'one rendered Bing navigation per search');
-        trace('case-validated', { kind, count: output.count, selectedTab: selected.handle, temporaryPagesDestroyed: temporary.length });
+        trace('case-validated', { kind, count: output.count, selectedTab: selected.handle, temporaryContentsDestroyed: temporary.length });
       } finally {
         activeCase?.releaseNavigation?.();
         engine!.client.off('event', receive);

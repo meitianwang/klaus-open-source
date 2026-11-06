@@ -1,9 +1,0 @@
-{
-  "reason": "Stopping browser control must prevent further typing or submission and release any key already pressed. Both native and connected-browser transports share this contract.",
-  "keyCases": [
-    { "name": "cancel before input", "action": "type", "cancelAt": "before", "events": [] },
-    { "name": "cancel after a character press", "action": "type", "cancelAt": "keyDown", "events": ["keyDown:a", "keyUp:a"] },
-    { "name": "cancel after character release", "action": "type", "cancelAt": "keyUp", "events": ["keyDown:a", "keyUp:a"] },
-    { "name": "cancel before Enter character submission", "action": "key", "cancelAt": "rawKeyDown", "events": ["rawKeyDown:Enter", "keyUp:Enter"] }
-  ]
-}

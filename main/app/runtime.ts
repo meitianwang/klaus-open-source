@@ -179,8 +179,6 @@ import type { VoiceOptions } from '../services/voice/service';
 import { NativeSubscriptionCredentials } from '../native/credentials';
 import { BrowserManager } from '../browser/manager';
 import { PendingBrowserPermissions } from '../browser/permission-requests';
-import { BrowserAccessController } from '../browser/access';
-import { AnnotationSessionManager } from '../browser/annotation-session';
 import { RunPreview, RUN_PREVIEW_TOOL_SPEC } from '../browser/run-preview';
 import { SiteOpener } from '../browser/site-open';
 import { BrowserMcpServer } from '../browser/mcp';
@@ -1394,89 +1392,27 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
   });
   early.add(() => model3d.shutdown());
   registerModel3DHandlers(registry, { service: model3d });
-  let browserRuntimeAvailable = true;
   const browserPreferences = new BrowserPreferences({
     configRoot, request: (method, params) => sessions.request(method, object(params) ?? {}),
     resourceDirs,
     setPluginEnabled: async enabled => plugins.toggle({ id: 'browser@builtin', enabled }),
-    changed: action => {
-      configuration.markChanged();
-      if (['set-origin-policy', 'remove-origin-policy', 'set-approval-mode', 'add-origin', 'remove-origin', 'set-enabled', 'set-site-permission'].includes(action ?? '')) {
-        browserAccess.invalidate();
-        browserPermissions.clear();
-        browser.refreshPermissions();
-      }
-      emit('settings:browser-use:changed', browserSnapshot());
-      browser.publish();
-    },
+    changed: () => configuration.markChanged(),
   });
-  const browserSnapshot = (): Json => ({ ...browserPreferences.get(), browserAvailable: browserRuntimeAvailable });
-  const withBrowserAvailability = (result: Json): Json => {
-    const value = object(result);
-    if (!value) return result;
-    const settings = object(value.settings) ?? {};
-    return Object.keys(settings).length
-      ? { ...value, settings: { ...settings, browserAvailable: browserRuntimeAvailable } }
-      : value;
-  };
   // Browser pages ask for permissions through the product window's own dialog
   // rather than an operating-system box: park the question, push it to the
   // renderer and wait for its answer channel.
-  const browserPermissions = new PendingBrowserPermissions(undefined, requestId => emit('browser-use:permission-cancelled', { requestId }));
+  const browserPermissions = new PendingBrowserPermissions();
   early.add(() => browserPermissions.clear());
-  const browserAccess = new BrowserAccessController({
-    access: (url, resource) => browserPreferences.access(url, resource),
-    request: async (sessionId, origin, resource, signal) => {
-      const { requestId, answered } = browserPermissions.request({ sessionId, origin, pageUrl: origin, permission: `browser:${resource}` });
-      const cancelled = (): void => { browserPermissions.answer(requestId, false); };
-      signal?.addEventListener('abort', cancelled, { once: true });
-      sendToMainWindow(sessionMainWindow(sessionId), 'browser-use:permission-request', { requestId, sessionId, origin, pageUrl: origin, permission: `browser:${resource}` });
-      try { if (signal?.aborted) cancelled(); return await answered; }
-      finally { signal?.removeEventListener('abort', cancelled); }
-    },
-  });
-  const browser: BrowserManager = new BrowserManager({
-    window, configRoot, managedWindows: true,
-    emit: (channel, value) => sendToMainWindow(mainWindows.get(browser.windowId) ?? window, channel, value),
-    enabled: () => browserPreferences.enabled(),
-    available: () => browserRuntimeAvailable,
+  const browser = new BrowserManager({
+    window, configRoot, managedWindows: true, emit: (channel, value) => sendToMainWindow(mainWindows.get(browser.windowId) ?? window, channel, value), enabled: () => browserPreferences.enabled(),
     navigationAllowed: url => browserPreferences.allowsNavigation(url),
-    authorize: (sessionId, url, resource, signal) => browserAccess.authorize(sessionId, url, resource, signal),
-    sitePermission: (origin, permission) => browserPreferences.sitePermission(origin, permission),
-    downloadDirectory: () => String(browserPreferences.get().downloadDirectory ?? app.getPath('downloads')),
-    promptForUserDownloads: () => browserPreferences.get().promptForDownloads === true,
-    chooseDownloadPath: async request => {
-      const result = await dialog.showSaveDialog(focusedMainWindow(), { defaultPath: request.defaultPath });
-      return result.canceled ? undefined : result.filePath;
-    },
     requestPermission: async request => {
       const { requestId, answered } = browserPermissions.request(request);
       sendToMainWindow(mainWindows.get(browser.windowId) ?? window, 'browser-use:permission-request', { requestId, ...request });
       return answered;
     },
   });
-  early.add(() => { browserRuntimeAvailable = false; browser.dispose(); });
-  const annotationStaging = new Map<string, string>();
-  const browserAnnotations = new AnnotationSessionManager({ browser, persistence: {
-    save: async input => {
-      const stored = object(await attachments.upload({ name: 'browser-annotation.png', type: input.mimeType, buffer: input.bytes.toString('base64') }));
-      const path = string(stored?.path);
-      if (!path) throw new Error('The browser annotation attachment could not be saved.');
-      annotationStaging.set(input.snapshotId, path);
-      // Drafts can precede a saved conversation. Their preview contains only
-      // the screenshot already captured for this owning renderer.
-      return { path, name: 'browser-annotation.png', mimeType: input.mimeType, size: input.bytes.length,
-        width: input.width, height: input.height, previewUrl: `data:image/png;base64,${input.bytes.toString('base64')}` };
-    },
-    commit: async input => { annotationStaging.delete(input.snapshotId); },
-    discard: async (id, path) => {
-      const staged = annotationStaging.get(id);
-      if (!staged || path && path !== staged) return;
-      annotationStaging.delete(id);
-      await rm(staged, { force: true });
-    },
-  } });
-  early.add(() => browserAnnotations.dispose());
+  early.add(() => browser.dispose());
   const nativeContentFind = new NativeContentFind({
     onClose: ownerId => { const owner = mainWindows.get(ownerId); if (owner) sendToMainWindow(owner, 'keymap:run-command', { commandId: 'closeContentFind' }); },
     target: ownerId => {
@@ -1491,7 +1427,6 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
     return runPreview.start(args, context.sessionId, callId, context.assertCurrent);
   });
   browserMcp = new BrowserMcpServer(browser, {
-    releaseAccess: id => browserAccess.release(id),
     chromeEnabled: () => browserPreferences.get().chromeEnabled === true,
     chromeExtensionRoot: join(resourceDirs[0]!, 'plugins-builtin', 'browser', 'chrome-extension'),
     // The managed-policy install points Chrome at this HTTPS update manifest;
@@ -1512,15 +1447,9 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
       if (passive !== undefined) return passive;
       browser.adoptWindow(owner); return undefined;
     },
-    manager: browser, annotations: browserAnnotations, preview: runPreview, sites: new SiteOpener(configRoot, browser), chrome: browserMcp.chrome, permissions: browserPermissions, getSettings: () => browserSnapshot(),
-    setEnabled: async enabled => withBrowserAvailability(await browserPreferences.setEnabled(enabled)),
-    mutateSettings: async (action, value) => withBrowserAvailability(await browserPreferences.mutate(action, value)),
-    chooseDownloadDirectory: async () => {
-      const result = await dialog.showOpenDialog(focusedMainWindow(), { properties: ['openDirectory', 'createDirectory'],
-        defaultPath: String(browserPreferences.get().downloadDirectory ?? app.getPath('downloads')) });
-      if (result.canceled || !result.filePaths[0]) return { ok: true, cancelled: true };
-      return withBrowserAvailability(await browserPreferences.mutate('set-preferences', { downloadDirectory: result.filePaths[0] }));
-    },
+    manager: browser, preview: runPreview, sites: new SiteOpener(configRoot, browser), chrome: browserMcp.chrome, permissions: browserPermissions, getSettings: () => browserPreferences.get(),
+    setEnabled: enabled => browserPreferences.setEnabled(enabled),
+    mutateSettings: (action, value) => browserPreferences.mutate(action, value),
   });
   const native = createNativeRuntime(window, registry, {
     configRoot, packaged: app.isPackaged, fixtureAddonPath: options.nativeFixtureAddonPath,
@@ -2938,7 +2867,6 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
     });
     owner.webContents.once('destroyed', () => sessions.releaseViewOwner(id));
     const detachQuestions = (): void => {
-      void browserAnnotations.releaseWindow(id).catch(error => log.write('browser-annotation-cleanup', String(error)));
       sessions.releaseViewOwner(id);
       void chatRealtime?.release(id).catch(error => log.write('voice-chat-cleanup', String(error)));
       releaseChatVoiceLease(id);

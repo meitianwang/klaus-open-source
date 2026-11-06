@@ -17,7 +17,6 @@ export interface BrowserMcpOptions {
   reportDiagnostic?: (message: string) => void;
   beginOperation?: (sessionId: string) => unknown;
   observeResult?: (sessionId: string, lease: unknown, result: Json) => void;
-  releaseAccess?: (sessionId: string) => void;
 }
 
 interface BrowserCall { token: string; session?: string; controller: AbortController }
@@ -42,7 +41,6 @@ export class BrowserMcpServer {
       reportDiagnostic: options.reportDiagnostic ?? (message => process.stderr.write(`${message}\n`)),
       onTabsChanged: () => manager.publishTabInventoryChange(),
       artifactDirectory: join(manager.configRoot, 'artifacts'),
-      authorize: (sessionId, url, resource, signal) => manager.authorize(sessionId, url, resource, signal),
       setup: options.chromeExtensionRoot ? { configRoot: manager.configRoot, extensionRoot: options.chromeExtensionRoot, deployRoot: join(manager.configRoot, 'chrome-extension'), policyUpdateManifestUrl: options.chromePolicyUpdateManifestUrl, showExtensionFolder: path => shell.showItemInFolder(path) } : undefined,
     });
     this.operations = new BrowserOperations(manager, this.chrome);
@@ -173,7 +171,6 @@ export class BrowserMcpServer {
   }
 
   releaseSession(rendererId: string): void {
-    this.options.releaseAccess?.(rendererId);
     this.operations.releaseSession(rendererId);
     const token = this.tokens.get(rendererId);
     if (token) {

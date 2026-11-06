@@ -11,7 +11,6 @@ export interface SiteOpenTarget {
 export interface SiteOpenTargets {
   targets: SiteOpenTarget[];
   preferredTarget: SiteOpenTargetId;
-  localPreferredTarget?: SiteOpenTargetId;
 }
 
 export interface SiteOpenRequest {

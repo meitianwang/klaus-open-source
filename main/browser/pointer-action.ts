@@ -29,8 +29,7 @@ function inBudget<T>(work: () => Promise<T>, until: number, budget: number, sign
   return new Promise<T>((resolve, reject) => {
     const abort = (): void => finish(() => reject(new BrowserError('cancelled', 'The browser pointer action was cancelled.')));
     const finish = (settle: () => void): void => { clearTimeout(timer); signal?.removeEventListener('abort', abort); settle(); };
-    const timer = setTimeout(() => { onTimeout?.(); finish(() => reject(new BrowserError('timeout', `The pointer action exceeded its ${budget} ms deadline.`))); },
-      budget === 0 ? 30_000 : Math.max(1, until - Date.now()));
+    const timer = setTimeout(() => { onTimeout?.(); finish(() => reject(new BrowserError('timeout', `The pointer action exceeded its ${budget} ms deadline.`))); }, Math.max(1, until - Date.now()));
     signal?.addEventListener('abort', abort, { once: true });
     if (signal?.aborted) { abort(); return; }
     try { work().then(value => finish(() => resolve(value)), error => finish(() => reject(error))); }
@@ -87,7 +86,7 @@ function preparation(fields: BrowserObject, alignment: string, force: boolean): 
 async function checkFrameOwners(cdp: BrowserCdp, at: BrowserObject, alignment: string, force: boolean, until: number, budget: number, signal?: AbortSignal): Promise<void> {
   const active = (): void => {
     assertPointerActive(signal);
-    if (budget > 0 && Date.now() >= until) throw new BrowserError('timeout', `The pointer action exceeded its ${budget} ms deadline.`);
+    if (Date.now() >= until) throw new BrowserError('timeout', `The pointer action exceeded its ${budget} ms deadline.`);
   };
   const perform = async <T>(work: () => Promise<T>): Promise<T> => { active(); const result = await inBudget(work, until, budget, signal); active(); return result; };
   const root = cdp.captureScope?.root;
@@ -167,15 +166,15 @@ export async function pointerTarget(root: BrowserCdp, fields: BrowserObject, sig
   const expire = (): void => { expired = true; };
   const active = (): void => {
     assertPointerActive(signal);
-    // Zero performs one probe without retrying a failed condition. Remote
-    // execution still needs a bounded response window to return diagnostics.
+    // Zero retains its single immediate probe. Its timer still retires any
+    // outstanding recursive search before a late reply can continue it.
     if (expired || budget > 0 && Date.now() >= until) throw new BrowserError('timeout', `The pointer action exceeded its ${budget} ms deadline.`);
   };
   let last: unknown;
   for (;;) {
     for (const alignment of fields.force === true ? ['center'] : ALIGNMENTS) {
+      active();
       try {
-        active();
         const resolved = await inBudget(() => resolveElement(source, { ...fields, state: 'attached', visible: false, enabled: false, timeoutMs: 0 }, frame, true, active), until, budget, signal, expire);
         active();
         const result = object(await inBudget(() => resolved.cdp.evaluate(preparation(resolved.fields, alignment, fields.force === true)), until, budget, signal, expire));

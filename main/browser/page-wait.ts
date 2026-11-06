@@ -1,7 +1,6 @@
 import { locateElements, namesElement } from './dom';
 import { BrowserError, type BrowserObject } from './types';
 import type { BrowserCdp } from './page-operations';
-import { assertBrowserActionActive, browserAction, pauseBrowserAction } from './action-cancellation';
 
 export const MAX_BROWSER_WAIT_MS=120000;
 
@@ -25,11 +24,10 @@ export function waitedUrlMatches(actual:string,pattern:string):boolean{
   return new RegExp('^'+pattern.split('*').map(part=>part.replace(/[.*+?^${}()|[\]\\]/gu,'\\$&')).join('.*')+'$','u').test(actual);
 }
 
-export async function waitForPage(cdp:BrowserCdp|undefined,fields:BrowserObject,signal?:AbortSignal):Promise<BrowserObject>{
-  assertBrowserActionActive(signal);
+export async function waitForPage(cdp:BrowserCdp|undefined,fields:BrowserObject):Promise<BrowserObject>{
   const subject=waitSubject(fields);const duration=subject==='duration'?fields.ms??fields.durationMs:fields.timeoutMs??10000;
   const boundedDuration=boundedWaitDuration(duration);
-  if(subject==='duration'){await pauseBrowserAction(boundedDuration,signal);return {waitedMs:boundedDuration};}
+  if(subject==='duration'){await new Promise(resolve=>setTimeout(resolve,boundedDuration));return {waitedMs:boundedDuration};}
   if(!cdp)throw new BrowserError('stale_tab','This wait requires an active page.');
   if(subject==='url'&&(typeof fields.url!=='string'||!fields.url.trim()))throw new BrowserError('invalid_request','Wait URL must be a nonempty string or wildcard pattern.');
   const state=String(fields.state??'visible');const loadState=String(fields.loadState??'').toLowerCase();
@@ -41,21 +39,20 @@ export async function waitForPage(cdp:BrowserCdp|undefined,fields:BrowserObject,
   const stop=loadState==='networkidle'?cdp.onEvent(method=>{if(activity.has(method))lastActivity=Date.now();}):()=>{};
   try{
     for(;;){
-      assertBrowserActionActive(signal);
       try{
-        if(subject==='url'){const url=String(await browserAction(()=>cdp.evaluate('location.href'),signal));if(waitedUrlMatches(url,String(fields.url)))return {url};}
+        if(subject==='url'){const url=String(await cdp.evaluate('location.href'));if(waitedUrlMatches(url,String(fields.url)))return {url};}
         else if(subject==='load'){
-          const ready=await browserAction(()=>cdp.evaluate('document.readyState'),signal);
+          const ready=await cdp.evaluate('document.readyState');
           if(loadState==='networkidle'?Date.now()-lastActivity>=500:loadState==='load'?ready==='complete':['interactive','complete'].includes(String(ready)))return {loadState,...(loadState==='networkidle'?{quietMs:500,note:'No observed request or data activity for 500 ms; an open but quiet connection may remain.'}:{})};
         }else{
-          let elements=await browserAction(()=>locateElements(cdp,criteria),signal);
-          if(!elements.length&&fields.frames!==false)for(const frame of cdp.frameTargets())elements.push(...await browserAction(()=>locateElements(cdp,criteria,frame),signal));
+          let elements=await locateElements(cdp,criteria);
+          if(!elements.length&&fields.frames!==false)for(const frame of cdp.frameTargets())elements.push(...await locateElements(cdp,criteria,frame));
           const found=elements.length>0,visible=elements.some(e=>e.visible===true),enabled=elements.some(e=>e.enabled===true&&e.visible===true),disabled=elements.some(e=>e.enabled===false);
           if(state==='attached'?found:state==='detached'?!found:state==='visible'?visible:state==='hidden'?!visible:state==='enabled'?enabled:disabled)return {state,elements,count:elements.length};
         }
       }catch(error){if(!(error instanceof BrowserError)||!['cdp_error','evaluation_error'].includes(error.code)||!/context.*destroyed|cannot find context/iu.test(error.message))throw error;}
       if(Date.now()>=until)throw new BrowserError('timeout',`The page did not reach the requested ${subject} state before timeout.`);
-      await pauseBrowserAction(Math.min(50,Math.max(1,until-Date.now())),signal);
+      await new Promise(resolve=>setTimeout(resolve,Math.min(50,Math.max(1,until-Date.now()))));
     }
   }finally{stop();}
 }

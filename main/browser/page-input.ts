@@ -2,7 +2,6 @@ import { domScript, elementScript, namesElement } from './dom';
 import { BrowserError, object, type BrowserObject } from './types';
 import type { BrowserCdp } from './page-operations';
 import { assertPointerActive, pointerTarget } from './pointer-action';
-import { assertBrowserActionActive, browserAction, pauseBrowserAction } from './action-cancellation';
 
 export function modifiers(value: unknown): number {
   if (value === undefined || value === null) return 0;
@@ -57,32 +56,24 @@ export async function click(cdp: BrowserCdp, fields: BrowserObject, signal?: Abo
   return { ok: true, via: 'pointer' };
 }
 
-export async function typeText(cdp: BrowserCdp, fields: BrowserObject, signal?: AbortSignal): Promise<void> {
-  assertBrowserActionActive(signal);
+export async function typeText(cdp: BrowserCdp, fields: BrowserObject): Promise<void> {
   if (typeof fields.text !== 'string') throw new BrowserError('invalid_request', 'text must be a string.');
-  const text = fields.text;
   const selected = namesElement(fields) ? elementScript(fields) : 'active()';
-  await browserAction(() => cdp.evaluate(domScript(`const e=${selected}; if(!e||!e.isConnected)throw new Error('Element not found');if(e.disabled||e.readOnly||(!e.isContentEditable&&!e.matches('input:not([type=button]):not([type=checkbox]):not([type=radio]):not([type=submit]),textarea')))throw new Error('Element is not editable');e.focus();`)), signal);
-  if (fields.clear === true) { await pressKey(cdp, process.platform === 'darwin' ? 'Meta+A' : 'Control+A', signal); await pressKey(cdp, 'Backspace', signal); }
+  await cdp.evaluate(domScript(`const e=${selected}; if(!e||!e.isConnected)throw new Error('Element not found');if(e.disabled||e.readOnly||(!e.isContentEditable&&!e.matches('input:not([type=button]):not([type=checkbox]):not([type=radio]):not([type=submit]),textarea')))throw new Error('Element is not editable');e.focus();`));
+  if (fields.clear === true) { await pressKey(cdp, process.platform === 'darwin' ? 'Meta+A' : 'Control+A'); await pressKey(cdp, 'Backspace'); }
   const delay = fields.delayMs ?? fields.delay;
   if (delay !== undefined && (typeof delay !== 'number' || !Number.isFinite(delay) || delay < 0)) throw new BrowserError('invalid_request', 'delayMs must be a non-negative number.');
-  if (Number(delay) > 0 && text) {
-    for (const character of [...text]) {
-      assertBrowserActionActive(signal);
+  if (Number(delay) > 0 && fields.text) {
+    for (const character of [...fields.text]) {
       const event = { key: character, text: character, unmodifiedText: character };
-      try {
-        await browserAction(() => cdp.command('Input.dispatchKeyEvent', { type: 'keyDown', ...event }), signal);
-      } finally {
-        await cdp.command('Input.dispatchKeyEvent', { type: 'keyUp', ...event });
-      }
-      await pauseBrowserAction(Math.min(Number(delay), 200), signal);
+      await cdp.command('Input.dispatchKeyEvent', { type: 'keyDown', ...event });
+      await cdp.command('Input.dispatchKeyEvent', { type: 'keyUp', ...event });
+      await new Promise(resolveWait => setTimeout(resolveWait, Math.min(Number(delay), 200)));
     }
-  } else await browserAction(() => cdp.command('Input.insertText', { text }), signal);
-  assertBrowserActionActive(signal);
+  } else await cdp.command('Input.insertText', { text: fields.text });
 }
 
-export async function pressKey(cdp: BrowserCdp, input: string, signal?: AbortSignal): Promise<void> {
-  assertBrowserActionActive(signal);
+export async function pressKey(cdp: BrowserCdp, input: string): Promise<void> {
   const parts = input.trim().split('+');
   let key = parts.pop() ?? ''; if (!key && parts.at(-1) === '') { parts.pop(); key = '+'; }
   const held = modifiers(parts.length ? parts : undefined);
@@ -98,33 +89,29 @@ export async function pressKey(cdp: BrowserCdp, input: string, signal?: AbortSig
   const code = namedCodes[key] ?? (key.length === 1 && /[a-z]/iu.test(key) ? `Key${key.toUpperCase()}` : key.length === 1 && /[0-9]/u.test(key) ? `Digit${key}` : '');
   const event: BrowserObject = { key, code, windowsVirtualKeyCode: keyCode, modifiers: held };
   const printable = key.length === 1 && !(held & 6);
-  try {
-    await browserAction(() => cdp.command('Input.dispatchKeyEvent', { ...event, type: printable ? 'keyDown' : 'rawKeyDown', ...(printable ? { text: key } : {}), ...(command ? { commands:[command] } : {}) }), signal);
-    if (key === 'Enter' && held === 0) await browserAction(() => cdp.command('Input.dispatchKeyEvent', { ...event, type: 'char', text: '\r', unmodifiedText: '\r' }), signal);
-  } finally {
-    await cdp.command('Input.dispatchKeyEvent', { ...event, type: 'keyUp' });
-  }
-  assertBrowserActionActive(signal);
+  await cdp.command('Input.dispatchKeyEvent', { ...event, type: printable ? 'keyDown' : 'rawKeyDown', ...(printable ? { text: key } : {}), ...(command ? { commands:[command] } : {}) });
+  if (key === 'Enter' && held === 0) await cdp.command('Input.dispatchKeyEvent', { ...event, type: 'char', text: '\r', unmodifiedText: '\r' });
+  await cdp.command('Input.dispatchKeyEvent', { ...event, type: 'keyUp' });
 }
 
 export async function computerInput(cdp: BrowserCdp, fields: BrowserObject, signal?: AbortSignal): Promise<BrowserObject | undefined> {
   assertPointerActive(signal);
   const action = String(fields.action);
-  if (action === 'type') { await typeText(cdp, fields, signal); return; }
+  if (action === 'type') { await typeText(cdp, fields); return; }
   if (action === 'key' || action === 'keypress') {
     const keys = fields.key ?? fields.text ?? (Array.isArray(fields.keys) ? fields.keys.join('+') : fields.keys);
     if (typeof keys !== 'string' || !keys.trim()) throw new BrowserError('invalid_request', 'A key combination is required.');
-    if (namesElement(fields)) await browserAction(() => cdp.evaluate(domScript(`const e=${elementScript(fields)};if(!e)throw new Error('Element not found');e.focus();`)), signal);
-    await pressKey(cdp, keys, signal); return;
+    if (namesElement(fields)) await cdp.evaluate(domScript(`const e=${elementScript(fields)};if(!e)throw new Error('Element not found');e.focus();`));
+    await pressKey(cdp, keys); return;
   }
   if (action === 'wait') {
     const duration = fields.duration ?? 1;
     if (typeof duration !== 'number' || !Number.isFinite(duration) || duration < 0 || duration > 30) throw new BrowserError('invalid_request', 'Wait duration must be between 0 and 30 seconds.');
-    await pauseBrowserAction(duration * 1000, signal); return { waitedMs: duration * 1000 };
+    await new Promise(resolve => setTimeout(resolve, duration * 1000)); return { waitedMs: duration * 1000 };
   }
   if (action === 'scroll_to' || action === 'scrollto') {
     if (!namesElement(fields)) throw new BrowserError('invalid_request', 'scroll_to requires an element.');
-    await browserAction(() => location(cdp, fields), signal);
+    await location(cdp, fields);
     return { box: object(await cdp.evaluate(domScript(`const r=box(${elementScript(fields)});return {...r,inViewport:r.x>=0&&r.y>=0&&r.x+r.width<=innerWidth&&r.y+r.height<=innerHeight};`))) };
   }
   if (action === 'scroll') {
@@ -142,7 +129,6 @@ export async function computerInput(cdp: BrowserCdp, fields: BrowserObject, sign
       dy = direction === 'up' ? -amount * 100 : direction === 'down' ? amount * 100 : 0;
     }
     const delta = point({ x: dx ?? 0, y: dy ?? 0 });
-    assertBrowserActionActive(signal);
     await cdp.command('Input.dispatchMouseEvent', { type: 'mouseWheel', x: at.x, y: at.y, deltaX: delta.x, deltaY: delta.y, pointerType: 'mouse' }); return;
   }
   if (action === 'drag' || action === 'left_click_drag') {

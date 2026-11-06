@@ -1,7 +1,7 @@
 {
   "summary": {
-    "invokeDeclared": 729,
-    "pushDeclared": 76
+    "invokeDeclared": 715,
+    "pushDeclared": 73
   },
   "rows": [
     {
@@ -214,26 +214,6 @@
     },
     {
       "channel": "bailian-auth:status",
-      "kind": "invoke"
-    },
-    {
-      "channel": "browser-use:annotation-anchor",
-      "kind": "invoke"
-    },
-    {
-      "channel": "browser-use:annotation-capture",
-      "kind": "invoke"
-    },
-    {
-      "channel": "browser-use:annotation-commit",
-      "kind": "invoke"
-    },
-    {
-      "channel": "browser-use:annotation-discard",
-      "kind": "invoke"
-    },
-    {
-      "channel": "browser-use:annotation-save",
       "kind": "invoke"
     },
     {
@@ -2117,10 +2097,6 @@
       "kind": "invoke"
     },
     {
-      "channel": "settings:browser-use:choose-download-directory",
-      "kind": "invoke"
-    },
-    {
       "channel": "settings:browser-use:chrome-deploy-extension",
       "kind": "invoke"
     },
@@ -2165,31 +2141,11 @@
       "kind": "invoke"
     },
     {
-      "channel": "settings:browser-use:download-action",
-      "kind": "invoke"
-    },
-    {
-      "channel": "settings:browser-use:downloads",
-      "kind": "invoke"
-    },
-    {
       "channel": "settings:browser-use:get",
       "kind": "invoke"
     },
     {
-      "channel": "settings:browser-use:history",
-      "kind": "invoke"
-    },
-    {
-      "channel": "settings:browser-use:remove-history",
-      "kind": "invoke"
-    },
-    {
       "channel": "settings:browser-use:remove-origin",
-      "kind": "invoke"
-    },
-    {
-      "channel": "settings:browser-use:remove-origin-policy",
       "kind": "invoke"
     },
     {
@@ -2205,19 +2161,7 @@
       "kind": "invoke"
     },
     {
-      "channel": "settings:browser-use:set-origin-policy",
-      "kind": "invoke"
-    },
-    {
-      "channel": "settings:browser-use:set-preferences",
-      "kind": "invoke"
-    },
-    {
       "channel": "settings:browser-use:set-screenshot-mode",
-      "kind": "invoke"
-    },
-    {
-      "channel": "settings:browser-use:set-site-permission",
       "kind": "invoke"
     },
     {
@@ -2933,15 +2877,7 @@
       "kind": "push"
     },
     {
-      "channel": "browser-use:downloads-changed",
-      "kind": "push"
-    },
-    {
       "channel": "browser-use:open-panel",
-      "kind": "push"
-    },
-    {
-      "channel": "browser-use:permission-cancelled",
       "kind": "push"
     },
     {
@@ -3162,10 +3098,6 @@
     },
     {
       "channel": "run-preview:changed",
-      "kind": "push"
-    },
-    {
-      "channel": "settings:browser-use:changed",
       "kind": "push"
     },
     {

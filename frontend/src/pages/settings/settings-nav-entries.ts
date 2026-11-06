@@ -37,7 +37,6 @@ export const NAV_ENTRIES: NavEntry[] = [
   { kind: 'tab', stab: 'hooks', i18n: 'hooks_settings', icon: 'settings-nav-hooks' },
   { kind: 'tab', stab: 'engineMemory', i18n: 'settings_engine_memory', icon: 'settings-nav-engine-memory' },
   { kind: 'group', i18n: 'settings_group_integrations' },
-  { kind: 'tab', stab: 'browser', i18n: 'browser_use_title', icon: 'browser', searchKeys: ['browser_settings', 'browser_use_desc'] },
   // The connector switch remains on the connectors page.
   { kind: 'tab', stab: 'computerUse', i18n: 'computer_use_title', icon: 'computer-use-pip' },
   { kind: 'tab', stab: 'mobile', i18n: 'mobile_bridge_settings', icon: 'settings-nav-mobile' },

@@ -9330,7 +9330,7 @@ body.non-chat-view .side-rail {
 }
 .browser-toolbar {
   display: grid;
-  grid-template-columns: repeat(3, 28px) minmax(0, 1fr) repeat(2, 28px);
+  grid-template-columns: 28px 28px 28px minmax(0, 1fr) 28px;
   align-items: center;
   gap: 6px;
   padding: 10px 12px;

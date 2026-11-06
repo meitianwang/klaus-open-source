@@ -49,8 +49,6 @@ if (process.platform === 'win32') {
   if (!existsSync(process.env.KLAUS_SHELL)) throw new Error('The Windows fixture requires the system PowerShell executable');
 } else process.env.SHELL = '/bin/sh';
 app.setPath('userData', join(root, 'electron'));
-app.commandLine.appendSwitch('native-browser-enabled');
-app.commandLine.appendSwitch('native-browser-data-dir', join(root, 'electron', 'native-browser'));
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 registerAppScheme();
 app.on('window-all-closed', () => {});
@@ -1901,9 +1899,8 @@ void (async () => {
       assertEqual(await desktop.window.webContents.executeJavaScript("document.getElementById('artifacts-panel').classList.contains('collapsed')"), false, 'automatic open expanded the work panel');
       const tabId = desktop.browser.state(info.id).tabId!;
       const page = desktop.browser.page(info.id, tabId);
-      const pageHandle = page.handle;
-      const nativeIdentity = page.native;
-      assertEqual(await page.cdp.evaluate("document.getElementById('field').value"), 'MANUAL_VALUE', 'initial visible-page state exists');
+      const contentsId = page.view.webContents.id;
+      assertEqual(await page.view.webContents.executeJavaScript("document.getElementById('field').value"), 'MANUAL_VALUE', 'initial visible-page state exists');
       const completedTurns = async (): Promise<number> => (await records())
         .filter(row => row.channel === 'chat:event:batch')
         .flatMap(row => row.value as Array<Record<string, Json>>)
@@ -1911,9 +1908,8 @@ void (async () => {
       const completedBeforeEdit = await completedTurns();
       await invoke('chat:send', { sessionId: info.id, text: 'BROWSER FIXTURE' });
       await waitFor(async () => await completedTurns() > completedBeforeEdit, 30000, 'browser tool turn completed');
-      assertEqual(await page.cdp.evaluate("document.getElementById('field').value"), 'AGENT_VALUE', 'the real engine browser tool edited the displayed document');
-      assertEqual(desktop.browser.page(info.id, tabId).handle, pageHandle, 'the operation used the identical native page');
-      assert(desktop.browser.page(info.id, tabId).native === nativeIdentity, 'the native handle stayed stable');
+      assertEqual(await page.view.webContents.executeJavaScript("document.getElementById('field').value"), 'AGENT_VALUE', 'the real engine browser tool edited the displayed document');
+      assertEqual(desktop.browser.page(info.id, tabId).view.webContents.id, contentsId, 'the operation used the identical WebContents');
       await invoke('settings:browser-use:add-origin', { origin: provider!.url, kind: 'denied' });
       const denied = await invoke('browser-use:navigate', { url: provider!.url + '/browser-fixture' }) as {ok:boolean};
       assertEqual(denied.ok, false, 'the existing origin policy refuses navigation');
@@ -1964,7 +1960,7 @@ void (async () => {
         // The page asks; the question must surface as the window's own dialog
         // card, because an operating-system box cannot be themed, localized or
         // attributed to the task whose page asked.
-        const asked = page.cdp.evaluate('Notification.requestPermission()');
+        const asked = page.view.webContents.executeJavaScript('Notification.requestPermission()');
         await waitFor(() => desktop.window.webContents.executeJavaScript("Boolean(document.querySelector('.klaus-dialog-card'))"), 5000, 'the permission question opens the window dialog');
         const message = String(await desktop.window.webContents.executeJavaScript("document.querySelector('.klaus-dialog-message')?.textContent ?? ''"));
         assert(message.includes(origin), `the dialog names the asking origin: ${message}`);
@@ -1982,7 +1978,7 @@ void (async () => {
         // A dismissed question must deny: the user was asked and did not allow.
         // Wait for the fading card to leave before asking again, so the second
         // dialog is never confused with the first one closing.
-        const geo = page.cdp.evaluate("new Promise(resolve => navigator.geolocation.getCurrentPosition(() => resolve('granted'), () => resolve('denied'), { timeout: 8000 }))");
+        const geo = page.view.webContents.executeJavaScript("new Promise(resolve => navigator.geolocation.getCurrentPosition(() => resolve('granted'), () => resolve('denied'), { timeout: 8000 }))");
         await waitFor(() => desktop.window.webContents.executeJavaScript("Boolean([...document.querySelectorAll('.klaus-dialog-card')].find(card => (card.querySelector('.klaus-dialog-message')?.textContent ?? '').includes('geolocation')))"), 5000, 'a second permission question opens its own dialog');
         await desktop.window.webContents.executeJavaScript("[...document.querySelectorAll('.klaus-dialog-card')].find(card => (card.querySelector('.klaus-dialog-message')?.textContent ?? '').includes('geolocation')).querySelector('.klaus-dialog-cancel').click()");
         assertEqual(await geo, 'denied', 'cancelling the dialog denies the page permission');
