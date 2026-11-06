@@ -67,7 +67,7 @@ export interface MobileBridgeDeps {
 interface TaskFollowState { snapshotting: boolean; revision: number; pending: JsonObject[]; pendingBytes: number; generation: number }
 /** Byte ceiling for one peer's write queue; the envelope count is the primary bound. */
 const SEND_QUEUE_BYTES = 64 * 1024 * 1024;
-interface Peer { socket: WebSocket; subscriptions: Set<string>; follows: Map<string, TaskFollowState>; followRequests: Map<string, AbortController>; controller: AbortController; tail: Promise<void>; queuedBytes: number; queuedMessages: number; sendTail: Promise<void>; sendQueuedBytes: number; sendQueuedMessages: number; ready: boolean; outbound: JsonObject[]; outboundBytes: number; clientId?: string; delivery?: ReliableDelivery; /** Framing this peer advertised; absent means the level 2 shape. */ chunking: ChunkingProfile; lastActivityAt: number; /** Frames are admitted in call order even across a full queue. */ admissionTail: Promise<void>; capacityWaiters: Array<() => void>; catalogSync: boolean; catalogRequest?: AbortController; composerRefresh?: Promise<void>; composerRetry?: NodeJS.Timeout; composerAttempt: number; diagnostics: MobileLoadDiagnostics }
+interface Peer { socket: WebSocket; subscriptions: Set<string>; follows: Map<string, TaskFollowState>; followRequests: Map<string, AbortController>; controller: AbortController; tail: Promise<void>; queuedBytes: number; queuedMessages: number; sendTail: Promise<void>; sendQueuedBytes: number; sendQueuedMessages: number; ready: boolean; outbound: JsonObject[]; outboundBytes: number; clientId?: string; delivery?: ReliableDelivery; /** Framing this peer advertised; absent means the level 2 shape. */ chunking: ChunkingProfile; lastActivityAt: number; /** Frames are admitted in call order even across a full queue. */ admissionTail: Promise<void>; admissionPending: number; capacityWaiters: Array<() => void>; catalogSync: boolean; catalogRequest?: AbortController; composerRefresh?: Promise<void>; composerRetry?: NodeJS.Timeout; composerAttempt: number; diagnostics: MobileLoadDiagnostics }
 interface DraftPromotion { createdAt: number; fingerprint: string; owner: MobileEngineOwner; task?: Promise<JsonObject>; settled: boolean; ownedSessionId?: string; ownedWorktreePath?: string; cleanupFailures?: JsonObject[] }
 interface RecentSend { createdAt: number; requestId: string; fingerprint: string; completion: Promise<JsonObject>; settled: boolean }
 interface PendingMobileMessage { sessionId: string; clientMessageId: string; clientSeq?: number }
@@ -1030,7 +1030,7 @@ export class MobileBridgeService {
     if (pending.sessionId) this.taskStreams.publish(pending.sessionId, frame);
   }
   private peer(run: Run, socket: WebSocket, catalogSync = false): void {
-    const peer: Peer = { socket, subscriptions: new Set(), follows: new Map(), followRequests: new Map(), controller: new AbortController(), tail: Promise.resolve(), queuedBytes: 0, queuedMessages: 0, sendTail: Promise.resolve(), sendQueuedBytes: 0, sendQueuedMessages: 0, ready: false, outbound: [], outboundBytes: 0, chunking: 'legacy', lastActivityAt: Date.now(), admissionTail: Promise.resolve(), capacityWaiters: [], catalogSync, composerAttempt: 0,
+    const peer: Peer = { socket, subscriptions: new Set(), follows: new Map(), followRequests: new Map(), controller: new AbortController(), tail: Promise.resolve(), queuedBytes: 0, queuedMessages: 0, sendTail: Promise.resolve(), sendQueuedBytes: 0, sendQueuedMessages: 0, ready: false, outbound: [], outboundBytes: 0, chunking: 'legacy', lastActivityAt: Date.now(), admissionTail: Promise.resolve(), admissionPending: 0, capacityWaiters: [], catalogSync, composerAttempt: 0,
       diagnostics: new MobileLoadDiagnostics(event => this.deps.log?.('load_diagnostic', event), undefined,
         { enabled: () => this.deps.diagnosticsEnabled?.() === true }) }; run.peers.add(peer);
     const signal = AbortSignal.any([run.controller.signal, peer.controller.signal]);
@@ -1467,24 +1467,31 @@ export class MobileBridgeService {
     return peer.sendTail;
   }
   private sendWire(peer: Peer, payload: JsonObject, limit = MOBILE_BODY_LIMIT): void {
-    // Admission is serialised so a frame never overtakes an earlier frame that is
-    // waiting for queue capacity.
-    peer.admissionTail = peer.admissionTail.then(() => this.admitWire(peer, payload, limit)).catch(() => {});
+    // Fast path: with room in the queue the frame is written in call order without
+    // deferring to a microtask, so existing write ordering and diagnostics hold.
+    if (peer.admissionPending === 0 && !this.queueIsFull(peer, payload, limit)) { this.writeAdmitted(peer, payload, limit); return; }
+    peer.admissionPending++;
+    // A full queue makes the writer wait: frames are neither dropped nor
+    // overwritten, and the connection stays open until the peer drains it.
+    peer.admissionTail = peer.admissionTail.then(async () => {
+      while (!peer.controller.signal.aborted && peer.socket.readyState === WebSocket.OPEN
+        && this.queueIsFull(peer, payload, limit)) {
+        await new Promise<void>(resolve => peer.capacityWaiters.push(resolve));
+      }
+      if (!peer.controller.signal.aborted && peer.socket.readyState === WebSocket.OPEN) this.writeAdmitted(peer, payload, limit);
+    }).catch(() => {}).finally(() => { peer.admissionPending--; });
   }
-  private async admitWire(peer: Peer, payload: JsonObject, limit: number): Promise<void> {
+  private queueIsFull(peer: Peer, payload: JsonObject, limit: number): boolean {
+    const { bytes } = encodedSocketFrame(payload);
+    return bytes <= limit && (peer.sendQueuedMessages >= MESSAGE_OUTBOUND_CAPACITY || peer.sendQueuedBytes + bytes > SEND_QUEUE_BYTES);
+  }
+  private writeAdmitted(peer: Peer, payload: JsonObject, limit: number): void {
     if (peer.controller.signal.aborted || peer.socket.readyState !== WebSocket.OPEN) return;
     const { text, bytes } = encodedSocketFrame(payload), diagnostic = diagnosticMetadata(payload);
     if (bytes > limit) {
       peer.diagnostics.finish(diagnostic, 'limit');
       peer.controller.abort(); peer.socket.close(1013, 'frame exceeds the transport limit'); return;
     }
-    // A full outbound queue makes the writer wait: frames are neither dropped nor
-    // overwritten, and the connection stays open until the peer drains it.
-    while (!peer.controller.signal.aborted && peer.socket.readyState === WebSocket.OPEN
-      && (peer.sendQueuedMessages >= MESSAGE_OUTBOUND_CAPACITY || peer.sendQueuedBytes + bytes > SEND_QUEUE_BYTES)) {
-      await new Promise<void>(resolve => peer.capacityWaiters.push(resolve));
-    }
-    if (peer.controller.signal.aborted || peer.socket.readyState !== WebSocket.OPEN) return;
     const queuedAt = performance.now(), first = payload.type !== 'server_message_chunk' || payload.index === 0;
     const last = payload.type !== 'server_message_chunk' || payload.index === Number(payload.count) - 1;
     const fields = { bytes, sequence: payload.seq, index: payload.index, chunkCount: payload.count };
