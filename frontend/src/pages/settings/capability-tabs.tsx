@@ -150,6 +150,9 @@ export function MobileBridgeSettingsTab() {
   const cfg = state.cfg
   const enabled = cfg.enabled === true
   const accountLinked = cfg.accountLinked === true
+  // Feature flags beyond the legacy option type are carried in the same payload.
+  const saveBridgeSettings = api.set as (update: Record<string, unknown>) => Promise<any>
+  const lockedComputerUse = cfg.allowLockedComputerUse === true
 
   const saveAndReload = async (operation: () => Promise<any>) => {
     if (busy) return
@@ -266,6 +269,20 @@ export function MobileBridgeSettingsTab() {
             }} />
         } />
         {powerError ? <p className="empty-text" role="alert">{powerError}</p> : null}
+      </div>
+
+      <div className={styles['pref-card']} aria-busy={busy}>
+        <CapabilityRow
+          title={t('mobile_bridge_locked_use_title')} desc={t('mobile_bridge_locked_use_desc')}
+          iconName="browser-use-logo-6"
+          action={
+            <CapabilitySwitch
+              id="mobile-bridge-locked-use" checked={lockedComputerUse} disabled={busy}
+              ariaLabel={t('mobile_bridge_locked_use_title')}
+              onChange={(checked) => { void saveAndReload(() => saveBridgeSettings({ allowLockedComputerUse: checked })) }}
+            />
+          }
+        />
       </div>
 
       <div className="settings-section">
