@@ -145,7 +145,7 @@ try {
     layoutVersion: specification.layoutVersion, application: edition.productName, edition: edition.id, applicationId: edition.application, version: pkg.version, platform, arch,
     electronVersion: pkg.devDependencies.electron, buildKind: 'local-unsigned', createdAt: new Date().toISOString(),
     electronArchiveSha256: Object.values(download.checksums)[0],
-    ...identity, officialPlugins: officialPluginRecords(bundledOfficialPlugins), engine, native: native.manifest, ...(speech ? { speech } : {}), ...(recording ? { recording } : {}), ...(pip ? { pip } : {}), ...(computerUse ? { computerUse } : {}), browserImport,
+    ...identity, officialPlugins: officialPluginRecords(bundledOfficialPlugins), engine, native: native.manifest, ...(speech ? { speech } : {}), ...(recording ? { recording } : {}), ...(pip ? { pip } : {}), ...(computerUse ? { computerUse } : {}), browserImport: browserImport.record,
     appFiles: inventory(appStage), resourceFiles: inventory(resources),
   };
   writeFileSync(join(resources, 'desktop-resources.json'), `${JSON.stringify(resourcesManifest, null, 2)}\n`);
