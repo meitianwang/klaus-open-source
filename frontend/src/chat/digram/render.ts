@@ -27,7 +27,9 @@ import {
   type Rect,
 } from './geometry'
 import { LINE_HEIGHT, approximateMeasurer, wrapLabel, type TextMeasurer } from './measure'
-import { makeTheme, radiusFor, resolveEdgeTone, resolveTone, type DigramTheme } from './theme'
+import { applyDocumentTheme, makeTheme, radiusFor, resolveEdgeTone, resolveTone, type DigramTheme } from './theme'
+import { chartSvg } from './chart'
+import { escapeAttr, escapeText } from './escape'
 import {
   EDGE_DEFAULTS,
   NODE_DEFAULTS,
@@ -73,7 +75,10 @@ const DEFAULT_PADDING = 24
 const EDGE_LABEL_PAD = 4
 
 export function render(doc: DigramDocument, options: RenderOptions = {}): RenderResult {
-  const theme = options.theme ?? makeTheme('light')
+  // The document's brand theme (doc.theme) merges over the panel/base theme; the
+  // merge re-validates every override, so a hand-edited document file cannot
+  // inject invalid colors or fonts into the SVG.
+  const theme = applyDocumentTheme(options.theme ?? makeTheme('light'), doc.theme)
   const measurer = options.measurer ?? approximateMeasurer
   const padding = options.padding ?? DEFAULT_PADDING
   const page = pickPage(doc, options.page)
@@ -247,13 +252,21 @@ function nodeSvg(
   const parts: string[] = []
 
   if (shape === 'text') {
-    // 无框：只有字，连描边都不画。
+    // 无框：只有字，连描边都不画。chart 节点例外——图表画在框内区域。
+    if (node.chart) {
+      parts.push(chartSvg(node, rect, theme, measurer))
+      return group(node, parts, theme)
+    }
     parts.push(labelSvg(node, rect, colors.text, theme, measurer))
     return group(node, parts, theme)
   }
 
   if (shape === 'actor') {
     // 火柴人是线条形，填充没有意义。
+    if (node.chart) {
+      parts.push(chartSvg(node, rect, theme, measurer))
+      return group(node, parts, theme)
+    }
     parts.push(
       `<path d="${shapePath(shape, rect, 0)}" fill="none" stroke="${colors.stroke === 'none' ? colors.text : colors.stroke}"`
       + ` stroke-width="${n(theme.strokeWidth)}" stroke-linecap="round"/>`,
@@ -269,6 +282,12 @@ function nodeSvg(
       ? ''
       : ` stroke="${colors.stroke}" stroke-width="${n(theme.strokeWidth)}"`
   parts.push(`<path d="${shapePath(shape, rect, radius)}" fill="${fill}"${stroke}/>`)
+
+  // chart 节点：框照常画，框内画图表；node.label 成为图表标题，普通标签路径跳过。
+  if (node.chart) {
+    parts.push(chartSvg(node, rect, theme, measurer))
+    return group(node, parts, theme)
+  }
 
   if (shape === 'icon') {
     parts.push(iconSvg(node, rect, colors.text, options))
@@ -559,11 +578,5 @@ function selectionSvg(rect: Rect, theme: DigramTheme): string {
 
 // ------------------------------------------------------------------- 转义
 
-/** SVG 文本节点转义。`&` 必须先换，否则会二次转义已生成的实体。 */
-function escapeText(text: string): string {
-  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-}
-
-function escapeAttr(text: string): string {
-  return escapeText(text).replace(/"/g, '&quot;')
-}
+// escapeText / escapeAttr 定义在 escape.ts，chart.ts 与本文件共用同一对：
+// 整个渲染面只允许存在一份转义实现，信任边界才不会裂开。

@@ -8,6 +8,7 @@ import { storeBytes } from '../services/media';
 import { VisualCapabilityServer } from '../visuals/capability-server';
 import { message, readBounded, record, text, type Data } from '../visuals/data';
 import { document, inspect, type DigramDocument } from './model';
+import { mermaidToDocumentDraft, parseMermaidFlowchart } from './mermaid';
 import { DigramStore } from './store';
 import { digramTools } from './tools';
 
@@ -53,6 +54,15 @@ export class DigramService {
       if(this.closed||!(this.options.enabled?.()??true))throw new Error('Diagram tools are disabled or shut down.');
       text(owner,'diagram session');let value:Json;
       if(name==='digram_open'){const doc=this.store.open(owner,fields);this.changed(owner,doc);const artifact={kind:'diagram',id:doc.id,title:doc.title};return this.success({id:doc.id,document:doc,artifact},artifact);}
+      if(name==='digram_import'){
+        const format=String(fields.format??'mermaid').toLowerCase();
+        if(format!=='mermaid')throw new Error(`Unsupported import format: ${format}. Only mermaid flowcharts can be imported.`);
+        const parsed=parseMermaidFlowchart(text(fields.source,'source'));
+        const {draft,stats}=mermaidToDocumentDraft(parsed,fields.title===undefined?'Imported diagram':text(fields.title,'title'));
+        const doc=this.store.create(owner,draft);this.changed(owner,doc);
+        const artifact={kind:'diagram',id:doc.id,title:doc.title};
+        return this.success({id:doc.id,document:doc,artifact,warnings:parsed.warnings,stats},artifact);
+      }
       if(name==='digram_icons_search'){
         const query=String(fields.query??'').toLowerCase();const limit=Math.max(1,Math.min(200,Number(fields.limit??40)||40));
         return this.success({icons:[...(await this.catalog()).keys()].sort().filter(key=>key.toLowerCase().includes(query)).slice(0,limit).map(key=>({key,name:key.split(':').at(-1)!}))});

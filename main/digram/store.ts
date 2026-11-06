@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { applyEdits, document, emptyDocument, layout, type DigramDocument } from './model';
 import { json, readBounded, scopedPath, text, writeAtomic, type Data } from '../visuals/data';
+import type { Json } from '../ipc/contract';
 
 const MAX_DOCUMENT_BYTES = 16 * 1024 * 1024;
 const MAX_HISTORY_BYTES = 64 * 1024 * 1024;
@@ -38,6 +39,12 @@ export class DigramStore {
     text(sessionId,'diagram session');const id=fields.id===undefined?`dgm-${randomUUID()}`:text(fields.id,'id');
     if(existsSync(this.path(id)))return this.load(id,sessionId);
     const next=emptyDocument(id,typeof fields.title==='string'?fields.title:'Untitled',sessionId);this.save(next);return next;
+  }
+  /** Store a freshly built draft (imports): identity and ownership are stamped here, the draft only carries content. */
+  create(sessionId: string,draft: { title: string; pages: Json[] }): DigramDocument {
+    text(sessionId,'diagram session');
+    const next=document({id:`dgm-${randomUUID()}`,title:draft.title,sessionId,version:1,updatedAtMs:Date.now(),pages:draft.pages});
+    this.save(next);return next;
   }
   history(sessionId: string,id: string): DigramDocument[] {
     this.load(id,sessionId);

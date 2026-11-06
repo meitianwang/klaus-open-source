@@ -8,10 +8,11 @@ export type DigramDocument = Data & { id: string; title: string; version: number
 
 export const SHAPES = ['rect','rounded','pill','ellipse','diamond','hexagon','parallelogram','cylinder','document','note','actor','cloud','icon','text','group'];
 export const TONES = ['neutral','accent','info','success','warning','danger','violet','teal'];
+export const CHART_KINDS = ['bar','line','area','pie','donut','scatter','heatmap','gantt','sankey'];
 const NODE_DEFAULTS: Data = { shape:'rect',label:'',labelAlign:'center',labelValign:'middle',labelPlacement:'inside',tone:'neutral',variant:'soft',fontWeight:'regular',rotate:0,z:0 };
 const EDGE_DEFAULTS: Data = { fromSide:'auto',toSide:'auto',route:'orthogonal',waypoints:[],label:'',tone:'neutral',dash:false,arrowFrom:'none',arrowTo:'arrow',z:0 };
 const PAGE_DEFAULTS: Data = { name:'',size:{w:1600,h:900},grid:10,background:'paper',nodes:[],edges:[] };
-const OPTIONAL: Record<string,string[]> = { node:['radius','icon','parent','fontSize'],edge:[],page:[] };
+const OPTIONAL: Record<string,string[]> = { node:['radius','icon','parent','fontSize','chart'],edge:[],page:[] };
 
 function number(value: unknown, name: string, min = -100_000, max = 100_000): number {
   if (typeof value !== 'number' || !Number.isFinite(value) || value < min || value > max) throw new Error(`${name} must be finite and between ${min} and ${max}.`);
@@ -24,6 +25,91 @@ function string(value: unknown, name: string, limit = 2000): string {
 function enumeration(value: unknown, allowed: string[], name: string): void { if (typeof value !== 'string' || !allowed.includes(value)) throw new Error(`${name} must be one of ${allowed.join(', ')}.`); }
 function array(value: unknown, name: string, max: number): Json[] { if (!Array.isArray(value) || value.length > max) throw new Error(`${name} must be an array with at most ${max} entries.`); return value as Json[]; }
 function fields(input: unknown, keys: string[]): Data { return Object.fromEntries(Object.entries(record(input)).filter(([key]) => keys.includes(key))); }
+function boolean(value: unknown, name: string): boolean { if (typeof value !== 'boolean') throw new Error(`${name} must be a boolean.`); return value; }
+
+/** A chart series: named, optionally tone-mapped, carrying either category values or raw points. */
+function chartSeries(input: unknown, index: number): Data {
+  const raw = record(input); const result: Data = {};
+  if (raw.name !== undefined) result.name = string(raw.name,`series[${index}].name`,120);
+  if (raw.tone !== undefined && raw.tone !== null) { enumeration(raw.tone,TONES,`series[${index}].tone`); result.tone = raw.tone; }
+  if (raw.values !== undefined) result.values = array(raw.values,`series[${index}].values`,512).map((item,at)=>number(item,`series[${index}].values[${at}]`,-1e9,1e9));
+  if (raw.points !== undefined) result.points = array(raw.points,`series[${index}].points`,2000).map((item,at)=>({x:number(record(item).x,`series[${index}].points[${at}].x`,-1e9,1e9),y:number(record(item).y,`series[${index}].points[${at}].y`,-1e9,1e9)}));
+  if (result.values === undefined && result.points === undefined) throw new Error(`series[${index}] needs values or points.`);
+  return result;
+}
+function chartTime(value: unknown, name: string): string | number {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && value.length <= 40 && !Number.isNaN(Date.parse(value))) return value;
+  throw new Error(`${name} must be a finite number or a parseable date string.`);
+}
+/** Data charts rendered inside a node box. Kept JSON-safe and bounded so a hostile
+ *  document cannot smuggle render-time surprises or unbounded work into the panel. */
+function chartSpec(input: unknown): Data {
+  const raw = record(input); const kind = text(raw.kind,'chart kind'); enumeration(kind,CHART_KINDS,'chart kind');
+  const result: Data = { kind };
+  if (raw.tone !== undefined && raw.tone !== null) { enumeration(raw.tone,TONES,'chart tone'); result.tone = raw.tone; }
+  if (raw.categories !== undefined) result.categories = array(raw.categories,'chart categories',512).map((item,at)=>string(item,`categories[${at}]`,120));
+  if (raw.unit !== undefined) result.unit = string(raw.unit,'chart unit',40);
+  if (raw.min !== undefined) result.min = number(raw.min,'chart min',-1e9,1e9);
+  if (raw.max !== undefined) result.max = number(raw.max,'chart max',-1e9,1e9);
+  if (raw.stacked !== undefined) result.stacked = boolean(raw.stacked,'chart stacked');
+  if (raw.series !== undefined) result.series = array(raw.series,'chart series',32).map(chartSeries);
+  if (raw.slices !== undefined) result.slices = array(raw.slices,'chart slices',64).map((item,at)=>{ const slice = record(item); const value = number(slice.value,`slices[${at}].value`,0,1e9); const result: Data = {label:string(slice.label??'',`slices[${at}].label`,120),value}; if (slice.tone !== undefined && slice.tone !== null) { enumeration(slice.tone,TONES,`slices[${at}].tone`); result.tone = slice.tone; } return result; });
+  if (raw.rows !== undefined) result.rows = array(raw.rows,'chart rows',128).map((item,at)=>string(item,`rows[${at}]`,120));
+  if (raw.columns !== undefined) result.columns = array(raw.columns,'chart columns',128).map((item,at)=>string(item,`columns[${at}]`,120));
+  if (raw.values !== undefined) result.values = array(raw.values,'chart values',128).map((row,at)=>array(row,`values[${at}]`,128).map((cell,cellAt)=>number(cell,`values[${at}][${cellAt}]`,-1e9,1e9)));
+  if (raw.tasks !== undefined) result.tasks = array(raw.tasks,'chart tasks',256).map((item,at)=>{ const task = record(item); const result: Data = {label:string(task.label??'',`tasks[${at}].label`,120),start:chartTime(task.start,`tasks[${at}].start`),end:chartTime(task.end,`tasks[${at}].end`)}; if (task.tone !== undefined && task.tone !== null) { enumeration(task.tone,TONES,`tasks[${at}].tone`); result.tone = task.tone; } if (task.section !== undefined) result.section = string(task.section,`tasks[${at}].section`,120); return result; });
+  if (raw.flows !== undefined) result.flows = array(raw.flows,'chart flows',256).map((item,at)=>{ const flow = record(item); const value = number(flow.value,`flows[${at}].value`,0,1e9); if (!(value > 0)) throw new Error(`flows[${at}].value must be greater than zero.`); const result: Data = {from:string(flow.from??'',`flows[${at}].from`,120),to:string(flow.to??'',`flows[${at}].to`,120),value}; if (flow.tone !== undefined && flow.tone !== null) { enumeration(flow.tone,TONES,`flows[${at}].tone`); result.tone = flow.tone; } return result; });
+  const series = result.series as Data[] | undefined; const slices = result.slices as Data[] | undefined;
+  const matrix = result.values as Json[] | undefined; const tasks = result.tasks as Data[] | undefined; const flows = result.flows as Data[] | undefined;
+  if (['bar','line','area'].includes(kind) && !series?.length) throw new Error(`${kind} chart needs at least one series.`);
+  if (kind === 'scatter' && !series?.length) throw new Error('scatter chart needs at least one series.');
+  if (['pie','donut'].includes(kind)) { if (!slices?.length) throw new Error(`${kind} chart needs at least one slice.`); if (!slices.some(slice=>Number(slice.value) > 0)) throw new Error(`${kind} chart needs a positive total.`); }
+  if (kind === 'heatmap') {
+    if (!matrix?.length) throw new Error('heatmap chart needs a values matrix.');
+    const width = (matrix[0] as Json[]).length; if (!width) throw new Error('heatmap chart needs at least one column.');
+    matrix.forEach((row,at)=>{ if ((row as Json[]).length !== width) throw new Error(`heatmap values[${at}] must have ${width} columns.`); });
+    const columns = result.columns as string[] | undefined; const rows = result.rows as string[] | undefined;
+    if (columns && columns.length !== width) throw new Error(`heatmap columns must have ${width} entries.`);
+    if (rows && rows.length !== matrix.length) throw new Error(`heatmap rows must have ${matrix.length} entries.`);
+  }
+  if (kind === 'gantt') {
+    if (!tasks?.length) throw new Error('gantt chart needs at least one task.');
+    const time = (value: string | number): number => typeof value === 'number' ? value : Date.parse(value);
+    tasks.forEach((task,at)=>{ if (time(task.start as string|number) >= time(task.end as string|number)) throw new Error(`tasks[${at}] must start before it ends.`); });
+  }
+  if (kind === 'sankey' && !flows?.length) throw new Error('sankey chart needs at least one flow.');
+  return result;
+}
+
+function hexColor(value: unknown, name: string): string { if (typeof value !== 'string' || !/^#[0-9a-fA-F]{6}$/.test(value)) throw new Error(`${name} must be a #rrggbb hex color.`); return value.toLowerCase(); }
+function colorOverride(value: unknown, name: string): string | Data {
+  if (typeof value === 'string') return hexColor(value,name);
+  const raw = record(value); const result: Data = {};
+  if (raw.light !== undefined) result.light = hexColor(raw.light,`${name}.light`);
+  if (raw.dark !== undefined) result.dark = hexColor(raw.dark,`${name}.dark`);
+  if (!Object.keys(result).length) throw new Error(`${name} must set light or dark.`);
+  return result;
+}
+/** Document-level brand theme. Every value is bounded and hex-validated because it
+ *  is merged into the renderer theme and re-serialized into exported SVG. */
+export function themeSpec(input: unknown): Data {
+  const raw = record(input); const result: Data = {};
+  if (raw.palette !== undefined) {
+    const palette: Data = {};
+    for (const [key,value] of Object.entries(record(raw.palette))) { enumeration(key,TONES,'theme palette key'); palette[key] = colorOverride(value,`palette.${key}`); }
+    if (!Object.keys(palette).length) throw new Error('theme palette must override at least one tone.');
+    result.palette = palette;
+  }
+  if (raw.paper !== undefined) result.paper = colorOverride(raw.paper,'theme paper');
+  if (raw.fontFamily !== undefined) result.fontFamily = string(raw.fontFamily,'theme fontFamily',300);
+  if (raw.fontSize !== undefined) result.fontSize = number(raw.fontSize,'theme fontSize',6,48);
+  if (raw.radius !== undefined) result.radius = number(raw.radius,'theme radius',0,64);
+  if (raw.strokeWidth !== undefined) result.strokeWidth = number(raw.strokeWidth,'theme strokeWidth',0.25,8);
+  if (raw.cornerRadius !== undefined) result.cornerRadius = number(raw.cornerRadius,'theme cornerRadius',0,64);
+  if (!Object.keys(result).length) throw new Error('theme must override at least one property.');
+  return result;
+}
 
 function node(input: unknown): DigramNode {
   const result = { ...NODE_DEFAULTS, ...fields(input, [...Object.keys(NODE_DEFAULTS), 'id', 'x', 'y', 'w', 'h', ...OPTIONAL.node!]) } as DigramNode;
@@ -42,6 +128,10 @@ function node(input: unknown): DigramNode {
   if (result.radius !== undefined) number(result.radius,'radius',0,Number.MAX_VALUE);
   if (result.fontSize !== undefined) number(result.fontSize,'fontSize',4,200);
   if (result.shape === 'icon') { text(result.icon,'icon'); if (result.labelPlacement === 'inside') result.labelPlacement = 'below'; }
+  if (result.chart !== undefined && result.chart !== null) {
+    if (result.shape === 'group') throw new Error('group nodes cannot carry a chart.');
+    result.chart = chartSpec(result.chart);
+  } else delete result.chart;
   return result;
 }
 function edge(input: unknown): DigramEdge {
@@ -79,6 +169,7 @@ export function document(input: unknown): DigramDocument {
   const raw = record(input);
   const result: DigramDocument = { id:text(raw.id,'diagram id'),title:string(raw.title??'','diagram title',100_000),version:number(raw.version??0,'version',0,Number.MAX_SAFE_INTEGER),updatedAtMs:number(raw.updatedAtMs??0,'updatedAtMs',-Number.MAX_SAFE_INTEGER,Number.MAX_SAFE_INTEGER),pages:array(raw.pages,'pages',24).map(page) };
   if (raw.sessionId !== undefined && raw.sessionId !== null) result.sessionId = text(raw.sessionId,'sessionId');
+  if (raw.theme !== undefined && raw.theme !== null) result.theme = themeSpec(raw.theme);
   if (!Number.isInteger(result.version) || !Number.isInteger(result.updatedAtMs)) throw new Error('Diagram version and timestamp must be integers.');
   if (!result.pages.length) throw new Error('A diagram needs at least one page.');
   const ids = result.pages.map(item=>item.id); if (new Set(ids).size !== ids.length) throw new Error('Duplicate page id.');
@@ -107,6 +198,7 @@ export function applyEdits(current: DigramDocument, input: unknown): DigramDocum
     const op = record(operations[index]);
     try {
       if (op.op === 'setTitle') { next.title = string(op.title,'title',100_000).trim(); continue; }
+      if (op.op === 'setTheme') { if (op.theme === undefined || op.theme === null) delete next.theme; else next.theme = themeSpec(op.theme); continue; }
       if (op.op === 'addPage') { next.pages.push(page(op.page)); continue; }
       const target = selectPage(next,op.page);
       if (op.op === 'deletePage') { if (next.pages.length === 1) throw new Error('Cannot delete the only page.'); next.pages = next.pages.filter(item=>item !== target); continue; }
@@ -128,7 +220,7 @@ export function applyEdits(current: DigramDocument, input: unknown): DigramDocum
 }
 export function inspect(doc: DigramDocument, selector?: Json): Data {
   const selected = selectPage(doc,selector);
-  return { id:doc.id,title:doc.title,pages:doc.pages.map(item=>({id:item.id,name:item.name})),page:selected.id,nodes:selected.nodes.map(item=>({id:item.id,shape:item.shape,label:item.label,x:item.x,y:item.y,w:item.w,h:item.h,tone:item.tone!,parent:item.parent??null})),edges:selected.edges.map(item=>({id:item.id,from:item.from,to:item.to,label:item.label})) };
+  return { id:doc.id,title:doc.title,pages:doc.pages.map(item=>({id:item.id,name:item.name})),page:selected.id,nodes:selected.nodes.map(item=>({id:item.id,shape:item.shape,label:item.label,x:item.x,y:item.y,w:item.w,h:item.h,tone:item.tone!,parent:item.parent??null,chart:item.chart===undefined?null:String(record(item.chart).kind)})),edges:selected.edges.map(item=>({id:item.id,from:item.from,to:item.to,label:item.label})) };
 }
 export function layout(current: DigramDocument, fields: Data): DigramDocument {
   const next = structuredClone(current); const target = selectPage(next,fields.page); const kind = fields.kind ?? 'grid';
@@ -150,7 +242,7 @@ export function layout(current: DigramDocument, fields: Data): DigramDocument {
     }
     let x = 40;for(const item of nodes.filter(item=>!item.parent)){item.x=x;item.y=y;x+=item.w+gap;}
   } else {
-    const down = kind === 'tree' && fields.direction !== 'right'; const ranks = new Map(nodes.map(item=>[item.id,0]));
+    const down = fields.direction === 'down' || (kind === 'tree' && fields.direction !== 'right'); const ranks = new Map(nodes.map(item=>[item.id,0]));
     // Ignore feedback edges during longest-path ranking; a cycle must not
     // generate thousands of empty ranks or overflow the finite canvas bounds.
     const visiting = new Set<string>(); const visited = new Set<string>(); const edges = new Map<string,string[]>();
@@ -159,6 +251,25 @@ export function layout(current: DigramDocument, fields: Data): DigramDocument {
     const passed = new Set<string>();for(const id of order){passed.add(id);for(const child of edges.get(id)??[])if(!passed.has(child))ranks.set(child,Math.max(ranks.get(child)!,ranks.get(id)!+1));}
     const levels = [...new Set(ranks.values())].sort((a,b)=>a-b);let cursor=40;
     for(const level of levels){const row=nodes.filter(item=>ranks.get(item.id)===level);const crossSize=row.reduce((sum,item)=>sum+(down?item.w:item.h),0)+gap*Math.max(0,row.length-1);let cross=40+Math.max(0,(down?target.size.w:target.size.h)-80-crossSize)/2;for(const item of row){item.x=down?cross:cursor;item.y=down?cursor:cross;cross+=(down?item.w:item.h)+gap;}cursor+=Math.max(40,...row.map(item=>down?item.h:item.w))+gap*1.6;}
+  }
+  next.version=current.version+1;next.updatedAtMs=Date.now();return document(json(next));
+}
+
+/** Resize every group box to bound its children (recursively), deepest groups first.
+ *  Flow/tree/grid layouts place leaves but leave groups wherever the author put them;
+ *  imports call this afterwards so subgraphs become proper layer bands. */
+export function fitGroups(current: DigramDocument, selector?: Json): DigramDocument {
+  const next = structuredClone(current); const target = selectPage(next,selector);
+  const groups = target.nodes.filter(item=>item.shape === 'group');
+  const byId = new Map(target.nodes.map(item=>[item.id,item]));
+  const depthOf = (item: DigramNode): number => { let depth = 0; let cursor: unknown = item.parent; const seen = new Set<string>([item.id]); while (typeof cursor === 'string' && byId.has(cursor) && !seen.has(cursor)) { seen.add(cursor); depth += 1; cursor = byId.get(cursor)!.parent; } return depth; };
+  for (const group of groups.sort((a,b)=>depthOf(b)-depthOf(a))) {
+    const children = target.nodes.filter(item=>item.parent === group.id);
+    if (!children.length) continue;
+    let minX = Infinity,minY = Infinity,maxX = -Infinity,maxY = -Infinity;
+    for (const child of children) { minX = Math.min(minX,child.x); minY = Math.min(minY,child.y); maxX = Math.max(maxX,child.x+child.w); maxY = Math.max(maxY,child.y+child.h); }
+    const padX = 24,padBottom = 24,padTop = group.label ? 48 : 24;
+    Object.assign(group,{x:minX-padX,y:minY-padTop,w:maxX-minX+padX*2,h:maxY-minY+padTop+padBottom});
   }
   next.version=current.version+1;next.updatedAtMs=Date.now();return document(json(next));
 }

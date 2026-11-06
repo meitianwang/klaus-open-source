@@ -11,7 +11,7 @@
 // 2. **一个色只写一次基色，其余按规则派生。** 8 个 tone × 4 个 variant × 明暗两套
 //    = 64 组填充/描边/文字，手写必然互相不自洽。这里只写 8 个基色 + 一套混色规则。
 
-import type { Tone, Variant } from './types'
+import type { DocumentTheme, ThemeColor, Tone, Variant } from './types'
 
 /** 一个 tone 解析出来的三件套。`fill: 'none'` 是真的不填。 */
 export interface ToneColors {
@@ -28,6 +28,9 @@ export interface DigramTheme {
   grid: string
   /** 选中态描边（编辑面用）。 */
   selection: string
+  /** 语义色基色表。默认是 BASE；文档级品牌主题（DocumentTheme.palette）合并进来，
+   *  resolveTone/resolveEdgeTone/图表都从这里取色，覆盖才能全局生效。 */
+  palette: Record<Tone, { light: string; dark: string }>
   fontFamily: string
   /** 正文字号。层名等标题位由节点自己的 fontSize 覆盖。 */
   fontSize: number
@@ -111,6 +114,7 @@ export function makeTheme(kind: 'light' | 'dark'): DigramTheme {
     paper: kind === 'light' ? LIGHT_PAPER : DARK_PAPER,
     grid: kind === 'light' ? '#f0efec' : '#25282b',
     selection: kind === 'light' ? '#4a72a8' : '#7ea8dc',
+    palette: BASE,
     // 与外壳同一套字体栈（css/styles.css 的 --font）：图里的字和界面里的字必须
     // 是同一个形，否则贴进文档看着像两个产品。
     fontFamily:
@@ -126,7 +130,7 @@ export function makeTheme(kind: 'light' | 'dark'): DigramTheme {
 
 /** 解析一个 tone + variant 在当前主题下的三件套。 */
 export function resolveTone(theme: DigramTheme, tone: Tone, variant: Variant): ToneColors {
-  const base = BASE[tone][theme.kind]
+  const base = theme.palette[tone][theme.kind]
   const rule = DERIVE[variant]
   const ink = theme.kind === 'light' ? LIGHT_INK : DARK_INK
   const fill
@@ -148,7 +152,7 @@ export function resolveTone(theme: DigramTheme, tone: Tone, variant: Variant): T
 
 /** 边的颜色。边没有 variant——它就是一条线，只需要一个可读的描边色和标签色。 */
 export function resolveEdgeTone(theme: DigramTheme, tone: Tone): { stroke: string; text: string } {
-  const base = BASE[tone][theme.kind]
+  const base = theme.palette[tone][theme.kind]
   const ink = theme.kind === 'light' ? LIGHT_INK : DARK_INK
   return {
     // 比节点描边深一档：线要能从淡底块上跨过去还看得见。
@@ -169,4 +173,56 @@ export function radiusFor(
   if (shape === 'pill') return height / 2
   if (shape === 'rect') return 0
   return theme.radius
+}
+
+/** 图表序列色：tone 在当前主题下的基色（品牌覆盖已并入 palette）。 */
+export function baseColor(theme: DigramTheme, tone: Tone): string {
+  return theme.palette[tone][theme.kind]
+}
+
+/** 正文墨色。品牌主题不覆盖它——文字对比度是渲染器的责任，不是品牌的。 */
+export function inkColor(theme: DigramTheme): string {
+  return theme.kind === 'light' ? LIGHT_INK : DARK_INK
+}
+
+/** 混色规则开放给图表渲染器（heatmap 强度渐变等）。 */
+export function mixColors(a: string, b: string, amount: number): string {
+  return mix(a, b, amount)
+}
+
+const HEX_COLOR = /^#[0-9a-fA-F]{6}$/
+
+function resolveThemeColor(kind: 'light' | 'dark', value: ThemeColor, fallback: string): string {
+  const hex = typeof value === 'string' ? value : value[kind]
+  return typeof hex === 'string' && HEX_COLOR.test(hex) ? hex.toLowerCase() : fallback
+}
+
+/**
+ * 文档级品牌覆盖合并进当前明暗主题。宿主 model.ts 已经校验过 hex 与取值范围，
+ * 这里再做一次防御性过滤：手改过的文档文件也不能把非法颜色喂进 parseHex
+ * （NaN 会污染整串 SVG），非法值一律落回主题默认。
+ */
+export function applyDocumentTheme(theme: DigramTheme, override?: DocumentTheme | null): DigramTheme {
+  if (!override || typeof override !== 'object') return theme
+  let next = theme
+  if (override.palette) {
+    const palette = { ...theme.palette }
+    for (const tone of Object.keys(palette) as Tone[]) {
+      const entry = override.palette[tone]
+      if (entry === undefined) continue
+      const base = palette[tone]!
+      palette[tone] = {
+        light: resolveThemeColor('light', entry, base.light),
+        dark: resolveThemeColor('dark', entry, base.dark),
+      }
+    }
+    next = { ...next, palette }
+  }
+  if (override.paper !== undefined) next = { ...next, paper: resolveThemeColor(next.kind, override.paper, next.paper) }
+  if (typeof override.fontFamily === 'string' && override.fontFamily.length && override.fontFamily.length <= 300) next = { ...next, fontFamily: override.fontFamily }
+  if (typeof override.fontSize === 'number' && Number.isFinite(override.fontSize) && override.fontSize >= 6 && override.fontSize <= 48) next = { ...next, fontSize: override.fontSize }
+  if (typeof override.radius === 'number' && Number.isFinite(override.radius) && override.radius >= 0 && override.radius <= 64) next = { ...next, radius: override.radius }
+  if (typeof override.strokeWidth === 'number' && Number.isFinite(override.strokeWidth) && override.strokeWidth >= 0.25 && override.strokeWidth <= 8) next = { ...next, strokeWidth: override.strokeWidth }
+  if (typeof override.cornerRadius === 'number' && Number.isFinite(override.cornerRadius) && override.cornerRadius >= 0 && override.cornerRadius <= 64) next = { ...next, cornerRadius: override.cornerRadius }
+  return next
 }

@@ -3,7 +3,8 @@ import { join, resolve } from 'node:path';
 import { DigramService, exportFilename } from '../main/digram/service';
 import { registerDigramHandlers } from '../main/ipc/handlers/digram';
 import { ChannelRegistry } from '../main/ipc/registry';
-import { applyEdits, emptyDocument, layout, type DigramDocument } from '../main/digram/model';
+import { applyEdits, emptyDocument, fitGroups, layout, type DigramDocument } from '../main/digram/model';
+import { parseMermaidFlowchart } from '../main/digram/mermaid';
 import { VisualCapabilityServer } from '../main/visuals/capability-server';
 import { record, type Data } from '../main/visuals/data';
 import type { Json } from '../main/ipc/contract';
@@ -119,6 +120,159 @@ h.test('a file chooser resolved after task release cannot write a stale export',
   const pending=delayed.invoke({role:'main',senderId:42,channel:'digram:export',args:[{sessionId:'A',id:'alpha',format:'svg',svg:'<svg/>'}]}).then(()=>false,()=>true);
   delayed.releaseSession('A');reply!(path);assert(await pending,'released file chooser rejected');assertEqual(existsSync(path),false,'stale file was not written');await delayed.shutdown();
 });
+h.test('mermaid flowcharts parse into cells with shapes, labels, edge metadata and subgraph membership',()=>{
+  const parsed=parseMermaidFlowchart('flowchart TD\n  %% comment\n  A[Start] --> B{OK?}\n  B -->|yes| C([Done])\n  B -.->|no| A\n  subgraph sg1 [Detail]\n    D[(Store)] --> E((Node))\n  end\n  style A fill:#f9f\n  C --> D\n');
+  assertEqual(parsed.direction,'down','TD maps to down');
+  const byId=new Map(parsed.nodes.map(item=>[item.id,item]));
+  assertEqual(byId.get('A')!.shape,'rect','bracket is rect');assertEqual(byId.get('A')!.label,'Start','label text');
+  assertEqual(byId.get('B')!.shape,'diamond','brace is diamond');
+  assertEqual(byId.get('C')!.shape,'pill','stadium is pill');
+  assertEqual(byId.get('D')!.shape,'cylinder','cylinder bracket');
+  assertEqual(byId.get('E')!.shape,'ellipse','double paren is ellipse');
+  assertEqual(parsed.edges.length,5,'edge count');
+  const yes=parsed.edges.find(item=>item.from==='B'&&item.to==='C')!;assertEqual(yes.label,'yes','pipe label');assertEqual(yes.dash,false,'solid edge');assertEqual(yes.arrow,true,'arrow head');
+  const no=parsed.edges.find(item=>item.from==='B'&&item.to==='A')!;assertEqual(no.dash,true,'dotted arrow');
+  assertEqual(parsed.groups.length,1,'one subgraph');assertEqual(parsed.groups[0]!.label,'Detail','subgraph title');
+  assertEqual(parsed.membership.get('D'),'sg1','subgraph membership');
+  assert(parsed.warnings.some(item=>item.includes('styling directive')),'style skipped with a ledger warning');
+});
+
+h.test('mermaid LR, chained statements, inline labels and quoted labels parse',()=>{
+  const parsed=parseMermaidFlowchart('graph LR\n  A --> B --> C\n  A -- start --> B\n  Q["Quoted [label]"] --> B\n');
+  assertEqual(parsed.direction,'right','LR maps to right');
+  assertEqual(parsed.edges.length,4,'chain + inline + quoted edges');
+  assert(parsed.edges.some(item=>item.label==='start'),'inline label');
+  const q=parsed.nodes.find(item=>item.id==='Q')!;assertEqual(q.label,'Quoted [label]','quoted label keeps inner brackets');
+  const open=parseMermaidFlowchart('flowchart TD\n  A --- B\n  C ==> D\n  E <--x F\n');
+  assertEqual(open.edges[0]!.arrow,false,'open link has no head');
+  assertEqual(open.edges[1]!.arrow,true,'thick arrow keeps head');
+});
+
+h.test('mermaid import refuses other diagram families and malformed sources with actionable errors',async()=>{
+  let caught='';try{parseMermaidFlowchart('sequenceDiagram\n  A->>B: hi');}catch(error){caught=String(error);}
+  assert(caught.includes('sequenceDiagram'),'names the detected family');assert(caught.includes('flowchart'),'points at the supported subset');
+  caught='';try{parseMermaidFlowchart('nonsense without header');}catch(error){caught=String(error);}
+  assert(caught.includes('header'),'header hint');
+  caught='';try{parseMermaidFlowchart('flowchart TD\n  A[unclosed');}catch(error){caught=String(error);}
+  assert(caught.includes('Unbalanced'),'unbalanced bracket');
+  assertEqual((await service.execute('A','digram_import',{source:'flowchart TD\n A-->B',format:'drawio'})).isError,true,'non-mermaid format refused');
+  assertEqual((await service.execute('A','digram_import',{source:'   '})).isError,true,'empty source refused');
+});
+
+h.test('digram_import builds a laid-out owned document with an artifact card and a warnings ledger',async()=>{
+  const result=value(await service.execute('A','digram_import',{source:'flowchart TD\n  Start[Begin] --> Check{Valid?}\n  Check -->|yes| End[Done]\n  Check -->|no| Start\n  style Start fill:#fff\n',title:'Pipeline'}));
+  const doc=result.document as DigramDocument;
+  assertEqual(doc.title,'Pipeline','title applied');
+  assertEqual(doc.sessionId,'A','owned by the importing task');
+  assertEqual(doc.version,1,'fresh document');
+  assertDeepEqual(record(result.artifact),{kind:'diagram',id:doc.id,title:'Pipeline'},'artifact card');
+  const nodes=doc.pages[0]!.nodes;
+  assertEqual(nodes.length,3,'three cells');
+  const start=nodes.find(item=>item.id==='Start')!;const check=nodes.find(item=>item.id==='Check')!;const end=nodes.find(item=>item.id==='End')!;
+  assert(start.y<check.y&&check.y<end.y,'TD import flows downward');
+  assertEqual(check.shape,'diamond','decision shape kept');
+  const edges=doc.pages[0]!.edges;
+  assertEqual(edges.length,3,'edge count');
+  assert(edges.some(item=>item.label==='yes'&&item.dash===false),'labeled edge kept');
+  assert((result.warnings as Json[]).some(item=>String(item).includes('styling')),'fidelity ledger reports skipped styling');
+  assert(service.store.list('A').some(item=>item.id===doc.id),'stored and listed');
+  assertEqual((await service.execute('B','digram_get',{id:doc.id})).isError,true,'foreign task cannot read it');
+});
+
+h.test('imported subgraphs become group bands fitted around their children',async()=>{
+  const result=value(await service.execute('A','digram_import',{source:'flowchart LR\n  subgraph edge [Edge]\n    A[CDN] --> B[LB]\n  end\n  subgraph core [Core]\n    C[API] --> D[(DB)]\n  end\n  B --> C\n'}));
+  const doc=result.document as DigramDocument;
+  const nodes=doc.pages[0]!.nodes;
+  const groups=nodes.filter(item=>item.shape==='group');
+  assertEqual(groups.length,2,'two subgraphs became groups');
+  const a=nodes.find(item=>item.id==='A')!;
+  const edgeGroup=groups.find(item=>item.label==='Edge')!;
+  assert(a.x>=edgeGroup.x&&a.y>=edgeGroup.y&&a.x+a.w<=edgeGroup.x+edgeGroup.w&&a.y+a.h<=edgeGroup.y+edgeGroup.h,'child sits inside the fitted group bounds');
+  assertEqual(a.parent,'edge','membership became parent');
+});
+
+h.test('chart specs validate per kind and refuse malformed data',()=>{
+  const charted=(chart:Data)=>applyEdits(emptyDocument('charts','Charts','A'),[{op:'addNode',node:box('c',{chart})}]);
+  const ok=charted({kind:'bar',categories:['a'],series:[{values:[1]}]});
+  assertEqual(record(ok.pages[0]!.nodes[0]!.chart).kind,'bar','valid bar accepted');
+  for(const chart of ([
+    {kind:'spiral'},
+    {kind:'bar'},
+    {kind:'pie',slices:[]},
+    {kind:'pie',slices:[{label:'a',value:0}]},
+    {kind:'gantt',tasks:[{label:'x',start:'2026-02-01',end:'2026-01-01'}]},
+    {kind:'sankey',flows:[{from:'a',to:'b',value:0}]},
+    {kind:'heatmap',values:[[1],[2,3]]},
+    {kind:'bar',series:[{values:[1],tone:'hot-pink'}]},
+    {kind:'bar',series:[{name:'x'}]},
+    {kind:'bar',series:[{values:[1]},'junk']},
+  ] as Data[])){let refused=false;try{charted(chart);}catch{refused=true;}assert(refused,`chart ${JSON.stringify(chart).slice(0,60)} refused`);}
+  let refused=false;try{applyEdits(emptyDocument('g','G','A'),[{op:'addNode',node:box('g',{shape:'group',chart:{kind:'bar',series:[{values:[1]}]}})}]);}catch{refused=true;}
+  assert(refused,'group cannot carry a chart');
+  const stripped=charted({kind:'bar',series:[{values:[1]}],onClick:'evil'});
+  const stored=record(stripped.pages[0]!.nodes[0]!.chart);
+  assertEqual(Object.hasOwn(stored,'onClick'),false,'unknown chart fields are dropped');
+});
+
+h.test('setTheme stores validated brand overrides and clears on null',()=>{
+  const base=emptyDocument('brand','Brand','A');
+  const themed=applyEdits(base,[{op:'setTheme',theme:{palette:{accent:'#123456',info:{light:'#0000ff',dark:'#6699ff'}},paper:'#fffef8',fontFamily:'Inter, sans-serif',fontSize:16,radius:4}}]);
+  const theme=record(themed.theme);
+  assertEqual(record(theme.palette).accent,'#123456','hex stored normalized');
+  assertEqual(record(record(theme.palette).info).dark,'#6699ff','paired override');
+  assertEqual(theme.fontFamily,'Inter, sans-serif','font override');
+  assertEqual(themed.version,base.version+1,'version advances');
+  const cleared=applyEdits(themed,[{op:'setTheme',theme:null}]);
+  assertEqual(cleared.theme,undefined,'null clears the theme');
+  for(const bad of [
+    {palette:{accent:'#12345'}},
+    {palette:{accent:'red'}},
+    {palette:{hot:'#123456'}},
+    {palette:{accent:{light:'nope'}}},
+    {fontSize:200},
+    {fontFamily:'x'.repeat(400)},
+    {},
+  ]){let refused=false;try{applyEdits(base,[{op:'setTheme',theme:bad}]);}catch{refused=true;}assert(refused,`theme ${JSON.stringify(bad).slice(0,50)} refused`);}
+});
+
+h.test('flow layout honors direction down and keeps right as its default',()=>{
+  const base=applyEdits(emptyDocument('dir','Dir','A'),[{op:'addNode',node:box('a')},{op:'addNode',node:box('b')},{op:'addEdge',edge:{id:'ab',from:'a',to:'b'}}]);
+  const down=layout(base,{kind:'flow',direction:'down'});
+  const right=layout(base,{kind:'flow'});
+  const aDown=down.pages[0]!.nodes.find(item=>item.id==='a')!;const bDown=down.pages[0]!.nodes.find(item=>item.id==='b')!;
+  assert(bDown.y>aDown.y,'down flows vertically');
+  const aRight=right.pages[0]!.nodes.find(item=>item.id==='a')!;const bRight=right.pages[0]!.nodes.find(item=>item.id==='b')!;
+  assert(bRight.x>aRight.x,'default flow stays horizontal');
+});
+
+h.test('fitGroups wraps group bounds around descendants including nested groups',()=>{
+  const base=applyEdits(emptyDocument('fit','Fit','A'),[
+    {op:'addNode',node:box('outer',{shape:'group',label:'Outer'})},
+    {op:'addNode',node:box('inner',{shape:'group',parent:'outer'})},
+    {op:'addNode',node:{...box('leaf',{parent:'inner'}),x:100,y:100,w:120,h:48}},
+  ]);
+  const fitted=fitGroups(base);
+  const inner=fitted.pages[0]!.nodes.find(item=>item.id==='inner')!;
+  const outer=fitted.pages[0]!.nodes.find(item=>item.id==='outer')!;
+  assert(inner.x<=100&&inner.y<=100&&inner.x+inner.w>=220&&inner.y+inner.h>=148,'inner wraps the leaf');
+  assert(outer.x<=inner.x&&outer.y<=inner.y&&outer.x+outer.w>=inner.x+inner.w&&outer.y+outer.h>=inner.y+inner.h,'outer wraps inner');
+});
+
+h.test('tool discovery declares the import, theme and chart surfaces',()=>{
+  const tools=digramTools();const get=(name:string)=>record(tools.find(tool=>tool.name===name)?.inputSchema);
+  const importSchema=get('digram_import');
+  assertDeepEqual(importSchema.required,['source'],'import requires source');
+  assertEqual(record(record(importSchema.properties).format).default,'mermaid','import defaults to mermaid');
+  const item=record(record(record(get('digram_edit').properties).ops).items);
+  const op=record(item.properties).op as Data;
+  assert((op.enum as Json[]).includes('setTheme'),'edit declares setTheme');
+  const nodeInEdit=record(record(item.properties).node);
+  const chartSchema=record(nodeInEdit.properties).chart as Data;
+  assertDeepEqual(chartSchema.required,['kind'],'chart requires kind');
+  assert((record(chartSchema.properties).kind as Data).enum!==undefined,'chart kind enum present');
+  assert(Object.keys(record(item.properties)).includes('theme'),'edit item carries theme');
+});
+
 h.test('disabled tools disappear from init capabilities and fail existing calls explicitly',async()=>{enabled=false;assertDeepEqual(await service.hostCapabilities('A'),{mcpServers:[],runtimeCapabilityRoots:[]},'disabled MCP not injected');assertEqual((await service.execute('A','digram_open',{})).isError,true,'disabled creation refused');});
 
 void h.finish(join(__dirname,'digram-result.json'),'digram').then(async code=>{await service.shutdown();rmSync(root,{recursive:true,force:true});process.exit(code);});

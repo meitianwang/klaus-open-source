@@ -52,6 +52,86 @@ export interface Point {
   y: number
 }
 
+/** 数据图表。chart 是节点级字段：节点的框就是图表的画框，label 是图表标题。
+ *  数据形状按 kind 判别，宿主 model.ts 的 chartSpec 是同一套规则的校验端。 */
+export type ChartKind =
+  | 'bar'
+  | 'line'
+  | 'area'
+  | 'pie'
+  | 'donut'
+  | 'scatter'
+  | 'heatmap'
+  | 'gantt'
+  | 'sankey'
+
+export interface ChartSeries {
+  name?: string
+  tone?: Tone
+  /** 按 categories 对齐的数值序列。 */
+  values?: number[]
+  /** 散点坐标。 */
+  points?: Point[]
+  dash?: boolean
+}
+
+export interface ChartSlice {
+  label: string
+  value: number
+  tone?: Tone
+}
+
+export interface ChartTask {
+  label: string
+  /** ISO 日期字符串或毫秒数。 */
+  start: string | number
+  end: string | number
+  tone?: Tone
+  section?: string
+}
+
+export interface ChartFlow {
+  from: string
+  to: string
+  value: number
+  tone?: Tone
+}
+
+export interface ChartSpec {
+  kind: ChartKind
+  /** heatmap 强度色与图表级默认色；缺省 accent。 */
+  tone?: Tone
+  categories?: string[]
+  series?: ChartSeries[]
+  slices?: ChartSlice[]
+  /** heatmap 行标签。 */
+  rows?: string[]
+  /** heatmap 列标签。 */
+  columns?: string[]
+  /** heatmap 数值矩阵（rows × columns）。 */
+  values?: number[][]
+  tasks?: ChartTask[]
+  flows?: ChartFlow[]
+  stacked?: boolean
+  min?: number
+  max?: number
+  unit?: string
+}
+
+/** 文档级品牌主题的一个颜色：单一 hex 同时用于明暗，或分别指定。 */
+export type ThemeColor = string | { light?: string; dark?: string }
+
+/** 文档级品牌覆盖。hex 由宿主校验；渲染端再做一次防御性检查。 */
+export interface DocumentTheme {
+  palette?: Partial<Record<Tone, ThemeColor>>
+  paper?: ThemeColor
+  fontFamily?: string
+  fontSize?: number
+  radius?: number
+  strokeWidth?: number
+  cornerRadius?: number
+}
+
 export interface Size {
   w: number
   h: number
@@ -79,6 +159,8 @@ export interface DigramNode {
   fontWeight?: FontWeight
   rotate?: number
   z?: number
+  /** 数据图表。存在时框内画图表而不是普通标签（label 成为图表标题）。 */
+  chart?: ChartSpec
 }
 
 export interface DigramEdge {
@@ -113,6 +195,8 @@ export interface DigramDocument {
   title?: string
   version?: number
   updatedAtMs?: number
+  /** 品牌覆盖，渲染时合并进当前明暗主题。 */
+  theme?: DocumentTheme
   pages: DigramPage[]
 }
 
@@ -128,6 +212,7 @@ export type DigramOp =
   | { op: 'addPage'; page: DigramPage }
   | { op: 'deletePage'; page: string }
   | { op: 'setTitle'; title: string }
+  | { op: 'setTheme'; theme?: DocumentTheme | null }
 
 /** 缺省值集中在这里，而不是散落在渲染各处：文档里省略的字段和渲染时假定的
  *  默认值必须是同一份，否则「省略」和「显式写默认值」会画出两种结果。 */
