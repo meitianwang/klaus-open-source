@@ -11,7 +11,7 @@ import { copyPolicyNotices } from '../engine/scripts/policy-notices.mjs';
 import { verifyPackage } from '../packaging/verify.mjs';
 import { DEFAULT_DESKTOP_EDITION, desktopEdition, packagedDesktopEditionDocument, useDesktopEditionsFile } from '../packaging/desktop-edition.mjs';
 import { DEFAULT_PLUGIN_SEED, collectBundledOfficialPlugins, copyBundledOfficialPlugins, officialPluginRecords, validatePluginSeed } from '../packaging/official-plugins.mjs';
-import { validateBrowserImportResource, helperName as browserImportHelperName } from '../packaging/browser-import.mjs';
+import { HELPER_MANIFEST as browserImportManifestName, validateBrowserImportResource, helperName as browserImportHelperName } from '../packaging/browser-import.mjs';
 
 const appDirectory = fileURLToPath(new URL('..', import.meta.url));
 const repo = appDirectory;
@@ -138,7 +138,9 @@ try {
   const computerUseFilename = computerUseArtifactName(platform);
   for (const file of [computerUseFilename, computerUseFilename + '.json']) copyTree(join(computerUseDirectory, file), join(resources, 'computer-use', target, file));
   const browserImportFilename = browserImportHelperName(platform);
-  for (const file of [browserImportFilename, browserImportFilename + '.json']) copyTree(join(browserImportDirectory, file), join(resources, 'browser-import', target, file));
+  // The helper manifest keeps its fixed file name on every platform; deriving it
+  // from the helper name would look for "<helper>.exe.json" on Windows.
+  for (const file of [browserImportFilename, browserImportManifestName]) copyTree(join(browserImportDirectory, file), join(resources, 'browser-import', target, file));
   if (platform === 'darwin') copyTree(join(appDirectory, 'packaging/assets/icon.icns'), join(resources, 'app-icon.icns'));
   validateRequired(appStage, resources);
   const resourcesManifest = {
