@@ -150,8 +150,7 @@ export function MobileBridgeSettingsTab() {
   const cfg = state.cfg
   const enabled = cfg.enabled === true
   const accountLinked = cfg.accountLinked === true
-  // Feature flags beyond the legacy option type are carried in the same payload.
-  const saveBridgeSettings = api.set as (update: Record<string, unknown>) => Promise<any>
+  const saveBridgeSettings = api.set
   const lockedComputerUse = cfg.allowLockedComputerUse === true
 
   const saveAndReload = async (operation: () => Promise<any>) => {

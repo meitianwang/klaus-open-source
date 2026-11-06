@@ -1060,7 +1060,7 @@ expose('klaus', {
     mobileBridge: {
       get: () => call('settings:mobile-bridge:get'),
       devices: () => call('settings:mobile-bridge:devices'),
-      set: (update: { enabled?: boolean; port?: number; relayUrl?: string }) =>
+      set: (update: { enabled?: boolean; port?: number; relayUrl?: string; allowLockedComputerUse?: boolean }) =>
         call('settings:mobile-bridge:set', update),
       removeDevice: (deviceId: string) =>
         call('settings:mobile-bridge:remove-device', { deviceId }),
