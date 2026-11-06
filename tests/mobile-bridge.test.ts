@@ -499,6 +499,20 @@ void (async () => {
       assert.deepEqual(before, []);
     } finally { await f.close(); }
   });
+  await h.test('a phone-started turn stays remote-origin only until that turn settles', async () => {
+    const f = await mobileFixture(); try {
+      await f.enable(); const a = await f.connect(); await a.next('hello');
+      a.socket.send(JSON.stringify({ type: 'subscribe', sessionId: 's1' })); await a.next('history');
+      assert.equal(f.bridge.isRemoteOriginSession('s1'), false, 'an idle session carries no remote marker');
+      a.socket.send(JSON.stringify({ type: 'send_message', sessionId: 's1', text: '/not-approved', clientMessageId: 'origin-1' }));
+      await a.next('error');
+      assert.equal(f.bridge.isRemoteOriginSession('s1'), true, 'the phone started this turn');
+      // The turn ending drops the marker, so a later local turn in this session is free.
+      f.bridge.publishEngineEvent({ type: 'done', sessionId: 's1' }, f.owner());
+      assert.equal(f.bridge.isRemoteOriginSession('s1'), false, 'a settled turn no longer gates local work');
+      await stopSocket(a.socket);
+    } finally { await f.close(); }
+  });
   await h.test('segment receipts skip only retained parts and a bare sequence acknowledgement trims through the cursor', () => {
     const delivery = new ReliableDelivery(); delivery.resumeChunkReceipts(true, []);
     const frames = delivery.enqueue({ type: 'large_response', body: 'x'.repeat(240 * 1024) });

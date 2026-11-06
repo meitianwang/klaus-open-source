@@ -99,6 +99,11 @@ export class MobileBridgeService {
   private closing?: Promise<void>;
   private activeSession?: string;
   private readonly working = new Set<string>();
+  /**
+   * Sessions whose current turn was started from the phone. The locked-screen
+   * Computer Use gate asks this so a locally started turn is unaffected.
+   */
+  private readonly remoteOriginSessions = new Set<string>();
   /// Sessions with an unanswered permission or elicitation: the phone's "waiting on you" badge
   /// and inbox are projections of this set, so a desktop turn blocked on approval is visible
   /// from any screen, not only from inside the blocked session.
@@ -307,6 +312,10 @@ export class MobileBridgeService {
       relayError: relay?.error ?? null, accountLinked: !!this.deps.account(), token: config.token,
       allowLockedComputerUse: config.allowLockedComputerUse, features: MOBILE_FEATURES } };
   }
+  /** True while the session's current turn was started from the phone. */
+  isRemoteOriginSession(sessionId: string): boolean { return this.remoteOriginSessions.has(sessionId); }
+  private markRemoteOrigin(sessionId: string | undefined): void { if (sessionId) this.remoteOriginSessions.add(sessionId); }
+  private clearRemoteOrigin(sessionId: string): void { this.remoteOriginSessions.delete(sessionId); }
   /** Whether remote work may still drive apps while the screen is locked. */
   allowLockedComputerUse(): boolean {
     return this.run?.config.allowLockedComputerUse ?? this.settings.read().allowLockedComputerUse;
@@ -590,6 +599,8 @@ export class MobileBridgeService {
     if (method === 'POST' && path === '/api/mobile/sessions') {
       if (payload.initialMessage === undefined) throw new MobileError(400, 'initial_message_required', 'A new mobile session requires its first message');
       const promoted = await this.promoteDraft(run, this.call(run, owner), owner, required(payload.clientDraftId, 'clientDraftId'), workdir(payload.workdir), workspaceId(payload.workspaceId), mobileNewChatRun(payload), object(payload.initialMessage), modelPreference(payload.modelPreference));
+      // The first turn of a phone-created session is phone-originated.
+      this.markRemoteOrigin(string(promoted.sessionId));
       return result(201, promoted);
     }
     if (method === 'POST' && path === '/api/mobile/active-workdir') {
@@ -1191,6 +1202,8 @@ export class MobileBridgeService {
       // to this replacement socket. Only settled receipts need another response.
       if (entry && !entry.settled) continue;
       const correlation: JsonObject = { ...request, type: 'send_message', ...(entry ? { requestId: entry.requestId } : {}) };
+      // The recovered message is still phone-originated even on a new socket.
+      this.markRemoteOrigin(request.sessionId);
       if (entry) {
         this.track(run, entry.completion.then(metadata => this.sendPeer(peer, {
           type: 'message_accepted', sessionId: request.sessionId, clientMessageId: request.clientMessageId, requestId: entry.requestId, ...metadata,
@@ -1318,6 +1331,8 @@ export class MobileBridgeService {
     const id = required(payload.sessionId, 'sessionId');
     if (type === 'send_message') {
       await this.knownSession(call, id);
+      // The turn this message starts belongs to the phone.
+      this.markRemoteOrigin(id);
       peer.subscriptions.add(id); this.deps.sessionInterestChanged?.(id);
       this.acceptMessage(run, owner, id, payload, peer, clientSeq); return;
     }
@@ -1596,6 +1611,7 @@ export class MobileBridgeService {
     this.deps.sessionInterestChanged?.(id);
     if (this.activeSession === id) this.activeSession = undefined;
     this.working.delete(id);
+    this.clearRemoteOrigin(id);
     this.taskStreams.forget(id);
     for (const [key, entry] of this.permissions) if (entry.sessionId === id) this.permissions.delete(key);
     for (const [key, entry] of this.elicitations) if (entry.sessionId === id) this.elicitations.delete(key);
@@ -1623,7 +1639,7 @@ export class MobileBridgeService {
     // here published a `desktop_state_changed` that told the phone the turn was over while the
     // desktop was still running it.
     const settled = type === 'done' || type === 'interrupted' || (type === 'api_error' && event.terminal === true);
-    if (id && settled) this.working.delete(id);
+    if (id && settled) { this.working.delete(id); this.clearRemoteOrigin(id); }
     const run = this.run; if (!run) return;
     const engineFrame = { type: 'engine_event', event };
     this.broadcast(run, engineFrame, id ?? undefined);

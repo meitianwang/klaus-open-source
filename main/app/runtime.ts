@@ -172,6 +172,7 @@ import { initializeModelTierMapping } from '../services/model-tier-settings';
 import { createVoiceRuntime, voiceModelAccess } from './voice-runtime';
 import { createPipRuntime } from './pip-runtime';
 import { createComputerUseRuntime } from './computer-use-runtime';
+import { lockedScreenRefusal } from '../services/computer-use/locked-screen-gate';
 import { discoverFriendApps } from '../services/friend-apps';
 import type { RecordingCommand } from '../services/recording/helper';
 import { PIP_PREFERENCES_KEY } from '../services/pip';
@@ -2253,11 +2254,13 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
   early.add(async () => { if (!(await pip!.shutdown()).complete) throw new Error('Picture-in-Picture startup resources did not finish closing'); });
   const computerHelper = computerUseHelperPath(), recordingHelper = recordingHelperPath();
   computerUse = await createComputerUseRuntime(registry, { configRoot,
-    // A locked screen refuses remote-driven Computer Use unless the user opted in;
-    // the desktop user cannot be watching, so the work waits for an unlock.
-    computerUseRefusal: () => powerMonitor.getSystemIdleState(1) === 'locked' && !(mobile?.allowLockedComputerUse() ?? false)
-      ? 'Computer Use is paused while the screen is locked. Enable locked-screen control in Remote Control settings to allow it.'
-      : undefined,
+    // Only a phone-started turn is gated: a locally started session keeps working
+    // the same way whether or not the screen happens to be locked.
+    computerUseRefusal: sessionId => lockedScreenRefusal({
+      locked: powerMonitor.getSystemIdleState(1) === 'locked',
+      allowed: mobile?.allowLockedComputerUse() ?? false,
+      remoteOrigin: mobile?.isRemoteOriginSession(sessionId) ?? false,
+    }),
     taskScope: id => {
       const scope = friendSessionScope(configRoot, id);
       if (!scope) return undefined;

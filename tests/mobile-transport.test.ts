@@ -8,6 +8,7 @@ import { spawn } from 'node:child_process';
 import { Worker } from 'node:worker_threads';
 import { encodedSocketFrame, ReliableDelivery, ReliableDeliveryStore } from '../main/services/mobile/transport';
 import { object } from '../main/services/service-types';
+import { LOCKED_SCREEN_REFUSAL, lockedScreenRefusal } from '../main/services/computer-use/locked-screen-gate';
 import { CLIENT_CURSOR_TTL_MS, MAX_RELIABLE_BYTES, MAX_RELIABLE_CLIENTS, MAX_RELIABLE_MESSAGES, RELIABLE_TTL_MS } from '../main/services/mobile/transport-storage';
 import { Harness, sleep } from './harness';
 
@@ -29,6 +30,17 @@ h.test('incremental persistence keeps the committed replay and mutation-receipt 
   assert.equal(MAX_RELIABLE_CLIENTS, object(vector.replay).maxClients);
   assert.equal(RELIABLE_TTL_MS, object(vector.replay).ttlMs);
   assert.equal(CLIENT_CURSOR_TTL_MS, object(vector.receipt).ttlMs);
+});
+
+h.test('locked-screen Computer Use refusal applies only to a phone-started turn', () => {
+  // Phone turn, locked, switch off: refused.
+  assert.equal(lockedScreenRefusal({ locked: true, allowed: false, remoteOrigin: true }), LOCKED_SCREEN_REFUSAL);
+  // Phone turn, locked, switch on: allowed.
+  assert.equal(lockedScreenRefusal({ locked: true, allowed: true, remoteOrigin: true }), undefined);
+  // Locally started turn, locked: allowed, the gate does not own local work.
+  assert.equal(lockedScreenRefusal({ locked: true, allowed: false, remoteOrigin: false }), undefined);
+  // Unlocked: allowed.
+  assert.equal(lockedScreenRefusal({ locked: false, allowed: false, remoteOrigin: true }), undefined);
 });
 
 h.test('reliable frames are immutable and their encoding is reused without touching the source payload', () => {
