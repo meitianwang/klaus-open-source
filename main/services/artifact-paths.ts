@@ -2,7 +2,7 @@ import { isAbsolute, resolve } from 'node:path';
 import type { Json } from '../ipc/contract';
 import { object } from './service-types';
 import { publishedImagePaths } from './published-image-paths';
-import { toolArtifactPaths } from './tool-artifact-paths';
+import { shellToolInputPaths, toolArtifactPaths } from './tool-artifact-paths';
 
 /**
  * The paths a conversation touched, published from managed output, or selected in its file viewer.
@@ -19,6 +19,8 @@ import { toolArtifactPaths } from './tool-artifact-paths';
  * The ledger is that record. Assistant image embeds publish exact files from
  * managed output without relying on shell stdout. Engine events name touched files; the trusted main
  * file viewer can also authorize an exact canonical file selected by the user.
+ * Shell command inputs name the files an approved execution reaches, which is
+ * the only record a command-written deliverable outside the roots ever gets.
  * What it changes is that
  * the conversation can then SHOW the user a file the conversation itself
  * touched, through the same capability-URL channel that re-checks scope and the
@@ -49,6 +51,7 @@ export class SessionArtifactPaths {
   private readonly canonicalize: (path: string) => string;
   private readonly publishedImageRoot?: string;
   private readonly messageText = new Map<string, { sessionId: string; messageId: string; text: string | null }>();
+  private readonly toolArgs = new Map<string, { sessionId: string; toolName: string; text: string | null }>();
 
   constructor(options: ArtifactPathOptions = {}) {
     this.limits = options.limits ?? { sessions: 64, pathsPerSession: 2000 };
@@ -133,6 +136,41 @@ export class SessionArtifactPaths {
     }
   }
 
+  /**
+   * Shell command strings arrive live as start arguments or streamed argument
+   * deltas; both name paths the approved execution reaches, so the ledger records
+   * them once the call's arguments are complete. Command stdout never feeds this.
+   */
+  observeToolEvent(sessionId: string, row: Record<string, Json>, streamId = ''): void {
+    const toolCallId = typeof row.toolCallId === 'string' ? row.toolCallId : '';
+    const toolName = typeof row.toolName === 'string' ? row.toolName : '';
+    if (row.type === 'tool_start') {
+      if (toolCallId) this.toolArgs.set(JSON.stringify([sessionId, streamId, toolCallId]), { sessionId, toolName, text: null });
+      this.recordMany(sessionId, shellToolInputPaths(toolName, row.args));
+      return;
+    }
+    if (!toolCallId) return;
+    const key = JSON.stringify([sessionId, streamId, toolCallId]);
+    if (row.type === 'tool_input_delta') {
+      const delta = typeof row.delta === 'string' ? row.delta : '';
+      if (!delta) return;
+      const previous = this.toolArgs.get(key);
+      const text = (previous?.text ?? '') + delta;
+      this.toolArgs.set(key, { sessionId, toolName: previous?.toolName || toolName, text: text.length > 512 * 1024 ? null : text });
+      while (this.toolArgs.size > this.limits.sessions) this.toolArgs.delete(this.toolArgs.keys().next().value!);
+      return;
+    }
+    if (row.type === 'tool_end') {
+      const entry = this.toolArgs.get(key);
+      this.toolArgs.delete(key);
+      if (entry?.text) this.recordMany(sessionId, shellToolInputPaths(entry.toolName || toolName, entry.text));
+      return;
+    }
+    if (row.type === 'done' || row.type === 'interrupted') {
+      for (const [storedKey, value] of this.toolArgs) if (value.sessionId === sessionId) this.toolArgs.delete(storedKey);
+    }
+  }
+
   /** Whether this conversation itself named this exact path. */
   has(sessionId: string, path: string): boolean {
     if (!sessionId || !path || !isAbsolute(path)) return false;
@@ -142,6 +180,7 @@ export class SessionArtifactPaths {
   forget(sessionId: string): void {
     this.bySession.delete(sessionId);
     for (const [key, value] of this.messageText) if (value.sessionId === sessionId) this.messageText.delete(key);
+    for (const [key, value] of this.toolArgs) if (value.sessionId === sessionId) this.toolArgs.delete(key);
     const index = this.order.indexOf(sessionId);
     if (index >= 0) this.order.splice(index, 1);
   }
@@ -149,6 +188,7 @@ export class SessionArtifactPaths {
   clear(): void {
     this.bySession.clear();
     this.messageText.clear();
+    this.toolArgs.clear();
     this.order.length = 0;
   }
 }
@@ -167,10 +207,15 @@ export class SessionArtifactPaths {
  *   - `tool_end.content` shaped as `{ path, found }`: the file tools' own result
  *     record, naming a path the agent read back (a generated cover it inspected
  *     to check its own work).
+ *   - `tool_start.args` plus the `tool_input_delta` stream closed by `tool_end`:
+ *     the command string of an approved shell call, scanned for exact path
+ *     tokens (a download or extract written outside every owned root).
  *
  * Assistant image embeds additionally publish exact files from managed output.
- * A path mentioned in prose or command stdout is not a publication, and files
- * elsewhere still need a structured tool record or explicit viewer selection.
+ * A path mentioned in prose or command stdout is not a publication; the command
+ * string of an approved shell call is the one argument source, because running
+ * that command is what the session approved. Files elsewhere still need a
+ * structured tool record or explicit viewer selection.
  */
 export function recordArtifactPathsFromChatEvent(ledger: SessionArtifactPaths, event: Json, streamId = ''): void {
   const row = object(event);
@@ -183,6 +228,7 @@ export function recordArtifactPathsFromChatEvent(ledger: SessionArtifactPaths, e
     return;
   }
   ledger.observeMessage(sessionId, row, streamId);
+  ledger.observeToolEvent(sessionId, row, streamId);
   if (row.type === 'diff_update') {
     for (const change of Array.isArray(row.changes) ? row.changes : []) ledger.record(sessionId, object(change)?.path);
     return;
@@ -222,6 +268,7 @@ export function recordArtifactPathsFromHistory(ledger: SessionArtifactPaths, ses
       if (!record) continue;
       if (record.type === 'image' || record.type === 'document') { ledger.record(sessionId, record.path); continue; }
       if (record.type !== 'tool_use') continue;
+      ledger.recordMany(sessionId, shellToolInputPaths(typeof record.name === 'string' ? record.name : '', record.input));
       const result = object(record.__result as Json);
       if (!result) continue;
       if (result.is_error === true) continue;

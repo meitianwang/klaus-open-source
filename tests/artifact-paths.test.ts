@@ -1,6 +1,6 @@
 import { readFileSync, realpathSync } from 'node:fs';
 import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Json } from '../main/ipc/contract';
 import {
@@ -8,6 +8,7 @@ import {
   recordArtifactPathsFromChatEvent,
   recordArtifactPathsFromHistory,
 } from '../main/services/artifact-paths';
+import { shellToolInputPaths } from '../main/services/tool-artifact-paths';
 import { assert, Harness } from './harness';
 import { MediaFiles } from '../main/services/media-files';
 import { mapChatEvents } from '../main/ipc/project';
@@ -370,6 +371,67 @@ h.test('a saved read image recovers its source identity when result metadata is 
   const cold = new SessionArtifactPaths({ canonicalize: realpathSync });
   recordArtifactPathsFromHistory(cold, 's1', history);
   assert(cold.has('s1', image.path as string), 'cold history still authorizes the immutable image bytes');
+});
+
+h.test('an approved shell command admits the exact paths it names, live and cold', async () => {
+  const { file, outside } = await fixture();
+  const audio = join(outside, 'track.mp3');
+  await writeFile(audio, 'bytes');
+  const command = `ffmpeg -y -i ${file} -vn -c:a libmp3lame "${audio}"`;
+  // Live: a command execution arrives with its full command at tool_start.
+  const ledger = new SessionArtifactPaths({ canonicalize: realpathSync });
+  recordArtifactPathsFromChatEvent(ledger, { type: 'tool_start', sessionId: 's1', toolName: 'Bash', toolCallId: 'c1', args: { command } });
+  assert(ledger.has('s1', audio), 'the quoted destination of an approved command is admitted');
+  assert(ledger.has('s1', file), 'the bare source token is admitted too');
+  // Live streaming: arguments arrive as JSON deltas closed by tool_end.
+  const streamed = new SessionArtifactPaths({ canonicalize: realpathSync });
+  const deltaText = JSON.stringify({ command });
+  recordArtifactPathsFromChatEvent(streamed, { type: 'tool_start', sessionId: 's1', toolName: 'bash', toolCallId: 'c2', args: {} });
+  for (const part of [deltaText.slice(0, 12), deltaText.slice(12)]) {
+    recordArtifactPathsFromChatEvent(streamed, { type: 'tool_input_delta', sessionId: 's1', toolCallId: 'c2', delta: part });
+  }
+  assert(!streamed.has('s1', audio), 'partial argument text grants nothing yet');
+  recordArtifactPathsFromChatEvent(streamed, { type: 'tool_end', sessionId: 's1', toolName: 'bash', toolCallId: 'c2', content: 'ok' });
+  assert(streamed.has('s1', audio), 'the completed argument stream admits the command paths');
+  // Cold: the saved tool_use input restores the same authority after a restart.
+  const cold = new SessionArtifactPaths({ canonicalize: realpathSync });
+  recordArtifactPathsFromHistory(cold, 's1', { messages: [{ role: 'assistant', contentBlocks: [
+    { type: 'tool_use', id: 'c1', name: 'bash', input: { command } },
+  ] }] });
+  assert(cold.has('s1', audio), 'a reopen restores the command-named path');
+  assert(!cold.has('s2', audio), 'another conversation gets no grant');
+  const media = new MediaFiles(async (path, id) => cold.has(id, path));
+  const url = `klaus-media://localhost/${Buffer.from(audio).toString('base64url')}?s=s1`;
+  const response = await media.respond(new Request(url));
+  assert(response.status === 200, 'the media route serves a command-written deliverable');
+  await response.arrayBuffer();
+  const foreign = await media.respond(new Request(`klaus-media://localhost/${Buffer.from(audio).toString('base64url')}?s=s2`));
+  assert(foreign.status === 403, 'the grant stays bound to its own conversation');
+  media.close();
+});
+
+h.test('shell admission reads only command strings: prose keys, other tools and stdout grant nothing', async () => {
+  const { outside } = await fixture();
+  const mentioned = join(outside, 'mentioned.mp3');
+  const ledger = new SessionArtifactPaths();
+  recordArtifactPathsFromChatEvent(ledger, { type: 'tool_start', sessionId: 's1', toolName: 'bash', toolCallId: 'c1',
+    args: { description: `extract ${mentioned}`, command: 'echo done' } });
+  recordArtifactPathsFromChatEvent(ledger, { type: 'tool_start', sessionId: 's1', toolName: 'read', toolCallId: 'c2', args: { path: mentioned } });
+  recordArtifactPathsFromChatEvent(ledger, { type: 'tool_end', sessionId: 's1', toolName: 'bash', toolCallId: 'c1', content: `wrote ${mentioned}` });
+  assert(!ledger.has('s1', mentioned), 'descriptions, other tools and stdout are not command strings');
+  recordArtifactPathsFromChatEvent(ledger, { type: 'tool_start', sessionId: 's1', toolName: 'bash', toolCallId: 'c3',
+    args: { command: `true ${join(homedir(), 'Downloads/probe.mp3')}` } });
+  assert(ledger.has('s1', join(homedir(), 'Downloads/probe.mp3')), 'a bare absolute token in the command is admitted');
+});
+
+h.test('command path tokens expand ~ and refuse relative text and non-shell tools', () => {
+  const home = '/Users/tester';
+  const paths = shellToolInputPaths('bash', { command: `ffmpeg -i ~/Downloads/t.mp3 -o /tmp/out.mp3 --cfg=rel.conf` }, home);
+  assert(paths.includes(`${home}/Downloads/t.mp3`), 'a ~ token expands to the owning home');
+  assert(paths.includes('/tmp/out.mp3'), 'a bare absolute token is admitted');
+  assert(!paths.some(path => path.includes('rel.conf')), 'a relative flag value grants nothing');
+  assert(shellToolInputPaths('read', { command: 'cat /tmp/out.mp3' }, home).length === 0, 'a non-shell tool input grants nothing');
+  assert(shellToolInputPaths('bash', { description: '/tmp/out.mp3' }, home).length === 0, 'a prose argument key grants nothing');
 });
 
 const publications = JSON.parse(readFileSync(join(__dirname, '../../contracts/vectors/ui-screenshot-delivery.json'), 'utf8')).publicationCases as
