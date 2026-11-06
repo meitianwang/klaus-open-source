@@ -449,6 +449,56 @@ void (async () => {
     assert.equal(chunks.receipts().length, 128);
     chunks.clear(); assert.equal(chunks.receive(frames[0]!), undefined);
   });
+  await h.test('segmented framing is chosen per advertised level and both shapes reassemble', () => {
+    const large = { type: 'fixture_large', body: 'x'.repeat(240 * 1024) };
+    // Sender grid: an unheard peer keeps the older shape, a level 4 peer gets the newer one.
+    const legacyFrames = new ReliableDelivery().enqueue(large, 'legacy');
+    const nextFrames = new ReliableDelivery().enqueue(large, 'next');
+    assert(legacyFrames.length > 1 && nextFrames.length > 1);
+    assert(legacyFrames.every(frame => frame.type === 'server_message_chunk' && frame.message_size_bytes === undefined));
+    assert(legacyFrames.every(frame => Buffer.byteLength(JSON.stringify(frame)) <= 150 * 1024));
+    assert(nextFrames.every(frame => frame.type === 'server_message_chunk' && typeof frame.message_size_bytes === 'number'));
+    assert(nextFrames.every(frame => Buffer.byteLength(JSON.stringify(frame)) <= 150 * 1024));
+    // Default is the older shape until a peer is observed.
+    assert.deepEqual(new ReliableDelivery().enqueue(large), legacyFrames);
+    // Cursor is the delivered watermark, carried on every frame of either shape.
+    for (const frame of [...legacyFrames, ...nextFrames]) assert.equal(typeof frame.cursor, 'string');
+
+    // Receiver grid: both shapes reassemble to the same logical message.
+    const reassemble = (frames: JsonObject[]): JsonObject | undefined => {
+      const chunks = new ClientMessageChunks(); let result: JsonObject | undefined;
+      for (const frame of frames) {
+        // All parts of one logical message share its sequence number.
+        const part: JsonObject = { type: 'client_message_chunk', seq: 1,
+          index: Number(frame.index), count: Number(frame.count), data: String(frame.data) };
+        if (typeof frame.message_size_bytes === 'number') part.message_size_bytes = frame.message_size_bytes;
+        result = chunks.receive(part);
+      }
+      return result;
+    };
+    const expected = (_frames: JsonObject[]): JsonObject =>
+      ({ type: 'client_message', seq: 1, message: large });
+    assert.deepEqual(reassemble(legacyFrames), expected(legacyFrames), 'legacy sender, newer receiver');
+    assert.deepEqual(reassemble(nextFrames), expected(nextFrames), 'newer sender, newer receiver');
+    // A newer sender never emits its shape to an unheard peer, which is the
+    // compatibility guarantee: the older receiver only ever sees legacy frames.
+    assert(legacyFrames.every(frame => frame.message_size_bytes === undefined), 'legacy peer never receives the newer shape');
+  });
+  await h.test('a peer keeps the older framing until it advertises the newer level', async () => {
+    const f = await mobileFixture();
+    try {
+      await f.enable();
+      const client = await f.connect(); await client.next('hello');
+      client.socket.send(JSON.stringify({ type: 'transport_resume', clientId: 'phone-chunk', lastServerSeq: 0 }));
+      await client.next('transport_ready');
+      const before = client.messages.filter(row => row.type === 'server_message_chunk');
+      // No message yet: the advertisement itself is the only signal.
+      client.socket.send(JSON.stringify({ type: 'transport_ping', skipHistory: true, chunking: 4 }));
+      const pong = await client.next('transport_pong');
+      assert.equal(object(pong).type, 'transport_pong');
+      assert.deepEqual(before, []);
+    } finally { await f.close(); }
+  });
   await h.test('cumulative receipts cannot cross incomplete segments and resume skips only receiver-retained parts', () => {
     const delivery = new ReliableDelivery(); delivery.resumeChunkReceipts(true, []);
     const frames = delivery.enqueue({ type: 'large_response', body: 'x'.repeat(240 * 1024) });

@@ -2253,6 +2253,11 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
   early.add(async () => { if (!(await pip!.shutdown()).complete) throw new Error('Picture-in-Picture startup resources did not finish closing'); });
   const computerHelper = computerUseHelperPath(), recordingHelper = recordingHelperPath();
   computerUse = await createComputerUseRuntime(registry, { configRoot,
+    // A locked screen refuses remote-driven Computer Use unless the user opted in;
+    // the desktop user cannot be watching, so the work waits for an unlock.
+    computerUseRefusal: () => powerMonitor.getSystemIdleState(1) === 'locked' && !(mobile?.allowLockedComputerUse() ?? false)
+      ? 'Computer Use is paused while the screen is locked. Enable locked-screen control in Remote Control settings to allow it.'
+      : undefined,
     taskScope: id => {
       const scope = friendSessionScope(configRoot, id);
       if (!scope) return undefined;

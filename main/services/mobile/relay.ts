@@ -15,6 +15,8 @@ const FRAME_LIMIT = 36 * 1024 * 1024;
 /** Reconnect backoff grows from here and is never capped above the ceiling. */
 const RECONNECT_BACKOFF_INITIAL_MS = 5_000;
 const RECONNECT_BACKOFF_CAP_MS = 30_000;
+/** Readiness poll while the signed-in account has not been enrolled yet. */
+const ACCOUNT_READY_RETRY_MS = 1_000;
 /** Extra spread added on top of a server-specified retry deadline. */
 const RETRY_AFTER_JITTER_MS = 30_000;
 /** Ceiling on draining writers after the relay is told to stop. */
@@ -154,15 +156,20 @@ export class MobileRelay {
     let attempt = 0;
     while (this.live()) {
       let opened = false;
+      // Enrolment and transport failures wait differently: enrolment waits for the
+      // account to become ready, a transport failure backs off.
+      let phase: 'enroll' | 'connection' = 'enroll';
       this.powerChanged('connecting');
       try {
         if (await this.register()) {
           if (!this.heartbeating) { this.heartbeating = true; this.track(this.heartbeat()); }
+          phase = 'connection';
           opened = await this.connection();
         }
         else if (this.live()) this.powerChanged('error');
       } catch { if (this.live()) { this.error = 'Relay registration failed'; this.powerChanged('error'); } }
       if (!this.live()) break;
+      // Only a connection that stayed up for the stability window resets the ladder.
       if (opened) attempt = 0;
       const server = this.retryAt; this.retryAt = undefined;
       if (server !== undefined) {
@@ -170,15 +177,17 @@ export class MobileRelay {
         await delay(wait, undefined, { signal: this.abort.signal }).catch(() => {});
         continue;
       }
-      const configured = this.deps.retryDelaysMs ?? (this.everConnected ? undefined : [1000, 2000, 5000, 15_000]);
-      if (configured?.length) {
-        // Bring-up keeps a short ladder so a first registration is not delayed by
-        // a full backoff step; an explicit schedule keeps its order, only the tail repeats.
-        await delay(configured[Math.min(attempt++, configured.length - 1)] ?? RECONNECT_BACKOFF_CAP_MS,
+      if (this.deps.retryDelaysMs?.length) {
+        // An explicit schedule keeps its order; only the tail repeats.
+        await delay(this.deps.retryDelaysMs[Math.min(attempt++, this.deps.retryDelaysMs.length - 1)] ?? RECONNECT_BACKOFF_CAP_MS,
           undefined, { signal: this.abort.signal }).catch(() => {});
         continue;
       }
-      // After a working connection, a dropped relay retries on the growing ladder.
+      if (phase === 'enroll') {
+        // The account may still be settling; this is a readiness poll, not a backoff.
+        await delay(ACCOUNT_READY_RETRY_MS, undefined, { signal: this.abort.signal }).catch(() => {});
+        continue;
+      }
       const backoff = Math.min(RECONNECT_BACKOFF_CAP_MS, RECONNECT_BACKOFF_INITIAL_MS * 2 ** Math.min(attempt, 10));
       attempt++;
       // Spread the retry so a fleet that lost the same relay does not return in lockstep.

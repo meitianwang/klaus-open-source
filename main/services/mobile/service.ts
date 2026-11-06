@@ -16,7 +16,7 @@ import { attachmentUpload, authMode, authorized, badRequest, elicitationResponse
 import { MobileRelay } from './relay';
 import type { MobilePushKind } from './push';
 import { mobileDeviceId, readMobileMachineIdentifier, MobileSettingsStore, type MobileSettings } from './settings';
-import { encodedSocketFrame, httpReply, MESSAGE_CHUNKING_LEVEL, readRequest, ReliableDelivery, ReliableDeliveryStore, responseText, socketBytes, stopSocket, type ChunkingProfile } from './transport';
+import { encodedSocketFrame, httpReply, MESSAGE_CHUNKING_LEVEL, MESSAGE_OUTBOUND_CAPACITY, MESSAGE_CLIENT_IDLE_TIMEOUT_MS, MESSAGE_IDLE_SWEEP_INTERVAL_MS, readRequest, ReliableDelivery, ReliableDeliveryStore, responseText, socketBytes, stopSocket, type ChunkingProfile } from './transport';
 import { MobileTaskStreams, taskCursor } from './task-stream';
 import { REMOTE_THREAD_OPERATIONS, type RemoteThreadOperation } from '../remote-thread-client';
 import { MobileCatalog, catalogAccountKey, catalogCursor, type CatalogSourcePage } from './catalog';
@@ -65,11 +65,13 @@ export interface MobileBridgeDeps {
   diagramPreview?: (sessionId: string, id: string) => JsonObject | Promise<JsonObject>;
 }
 interface TaskFollowState { snapshotting: boolean; revision: number; pending: JsonObject[]; pendingBytes: number; generation: number }
-interface Peer { socket: WebSocket; subscriptions: Set<string>; follows: Map<string, TaskFollowState>; followRequests: Map<string, AbortController>; controller: AbortController; tail: Promise<void>; queuedBytes: number; queuedMessages: number; sendTail: Promise<void>; sendQueuedBytes: number; sendQueuedMessages: number; ready: boolean; outbound: JsonObject[]; outboundBytes: number; clientId?: string; delivery?: ReliableDelivery; /** Framing this peer advertised; absent means the level 2 shape. */ chunking: ChunkingProfile; lastActivityAt: number; catalogSync: boolean; catalogRequest?: AbortController; composerRefresh?: Promise<void>; composerRetry?: NodeJS.Timeout; composerAttempt: number; diagnostics: MobileLoadDiagnostics }
+/** Byte ceiling for one peer's write queue; the envelope count is the primary bound. */
+const SEND_QUEUE_BYTES = 64 * 1024 * 1024;
+interface Peer { socket: WebSocket; subscriptions: Set<string>; follows: Map<string, TaskFollowState>; followRequests: Map<string, AbortController>; controller: AbortController; tail: Promise<void>; queuedBytes: number; queuedMessages: number; sendTail: Promise<void>; sendQueuedBytes: number; sendQueuedMessages: number; ready: boolean; outbound: JsonObject[]; outboundBytes: number; clientId?: string; delivery?: ReliableDelivery; /** Framing this peer advertised; absent means the level 2 shape. */ chunking: ChunkingProfile; lastActivityAt: number; /** Frames are admitted in call order even across a full queue. */ admissionTail: Promise<void>; capacityWaiters: Array<() => void>; catalogSync: boolean; catalogRequest?: AbortController; composerRefresh?: Promise<void>; composerRetry?: NodeJS.Timeout; composerAttempt: number; diagnostics: MobileLoadDiagnostics }
 interface DraftPromotion { createdAt: number; fingerprint: string; owner: MobileEngineOwner; task?: Promise<JsonObject>; settled: boolean; ownedSessionId?: string; ownedWorktreePath?: string; cleanupFailures?: JsonObject[] }
 interface RecentSend { createdAt: number; requestId: string; fingerprint: string; completion: Promise<JsonObject>; settled: boolean }
 interface PendingMobileMessage { sessionId: string; clientMessageId: string; clientSeq?: number }
-interface Run { server: Server; ws: WebSocketServer; controller: AbortController; sockets: Set<Socket>; peers: Set<Peer>; jobs: Set<Promise<unknown>>; config: MobileSettings; account?: MobileAccount; port: number; relay?: MobileRelay; recent: Map<string, RecentSend>; pendingSendBytes: number; pendingSendCount: number; promotions: Map<string, DraftPromotion>; followUps: MobileFollowUpControls; deliveries: ReliableDeliveryStore; catalog?: MobileCatalog; stateRefresh?: Promise<void>; stateRefreshAgain: boolean; stateIncludeSessions?: boolean; modelRefresh?: Promise<void>; modelRefreshAgain?: boolean; modelRevision?: number }
+interface Run { server: Server; ws: WebSocketServer; controller: AbortController; sockets: Set<Socket>; peers: Set<Peer>; jobs: Set<Promise<unknown>>; config: MobileSettings; account?: MobileAccount; port: number; relay?: MobileRelay; recent: Map<string, RecentSend>; pendingSendBytes: number; pendingSendCount: number; promotions: Map<string, DraftPromotion>; followUps: MobileFollowUpControls; deliveries: ReliableDeliveryStore; catalog?: MobileCatalog; stateRefresh?: Promise<void>; stateRefreshAgain: boolean; idleSweep?: NodeJS.Timeout; stateIncludeSessions?: boolean; modelRefresh?: Promise<void>; modelRefreshAgain?: boolean; modelRevision?: number }
 interface PendingInteraction { owner: MobileEngineOwner; sessionId: string | null; resolving?: boolean }
 type InteractionKind = 'permission' | 'elicit';
 const MAX_UNPROTECTED_FOLLOWS = 64;
@@ -113,6 +115,23 @@ export class MobileBridgeService {
     if (!run || run.controller.signal.aborted) return false;
     return [...run.peers].some(peer => !peer.controller.signal.aborted
       && (peer.follows.has(sessionId) || peer.followRequests.has(sessionId) || peer.subscriptions.has(sessionId)));
+  }
+  /**
+   * A transport identity that has sent nothing for the idle window is dropped:
+   * its queued frames and partial assemblies go away, while the durable inbound
+   * cursor keeps its own longer retention.
+   */
+  private sweepIdlePeers(run: Run): void {
+    if (this.run !== run || run.controller.signal.aborted) return;
+    const now = Date.now();
+    for (const peer of [...run.peers]) {
+      if (now - peer.lastActivityAt < MESSAGE_CLIENT_IDLE_TIMEOUT_MS) continue;
+      this.deps.log?.('peer_idle_expired', { clientId: peer.clientId ?? null });
+      peer.delivery?.clientChunks.clear();
+      peer.delivery?.resetReplay();
+      peer.controller.abort();
+      peer.socket.close(4000, 'idle transport expired');
+    }
   }
   private peerInterestChanged(peer: Peer): void {
     for (const id of new Set([...peer.follows.keys(), ...peer.followRequests.keys(), ...peer.subscriptions])) {
@@ -288,6 +307,10 @@ export class MobileBridgeService {
       relayError: relay?.error ?? null, accountLinked: !!this.deps.account(), token: config.token,
       allowLockedComputerUse: config.allowLockedComputerUse, features: MOBILE_FEATURES } };
   }
+  /** Whether remote work may still drive apps while the screen is locked. */
+  allowLockedComputerUse(): boolean {
+    return this.run?.config.allowLockedComputerUse ?? this.settings.read().allowLockedComputerUse;
+  }
   /** Remote availability follows connection establishment and failed-enable suppression. */
   remoteControlKeepsAwake(): boolean {
     const run = this.run, account = this.deps.account(), status = run?.relay?.powerStatus();
@@ -319,6 +342,8 @@ export class MobileBridgeService {
       this.checkOpen(); const address = server.address(); if (!address || typeof address === 'string') throw new Error('Mobile listener address unavailable');
       run.port = address.port; this.run = run;
       if (this.deps.account()) { run.relay = new MobileRelay({ ...config, localBaseURL: 'http://127.0.0.1:' + run.port }, this.deps); run.relay.start(); }
+      run.idleSweep = setInterval(() => this.sweepIdlePeers(run), MESSAGE_IDLE_SWEEP_INTERVAL_MS);
+      run.idleSweep.unref();
       this.deps.connectionChanged?.();
     } catch (error) { run.controller.abort(); server.close(); ws.close(); for (const socket of run.sockets) socket.destroy(); await run.deliveries.close().catch(() => {}); throw error; }
   }
@@ -330,6 +355,7 @@ export class MobileBridgeService {
     const run = this.run; this.run = undefined; this.permissions.clear(); this.elicitations.clear(); this.working.clear(); this.observedOwner = undefined;
     this.deps.connectionChanged?.();
     if (!run) return;
+    if (run.idleSweep) clearInterval(run.idleSweep);
     run.controller.abort(); await run.relay?.close(); await run.catalog?.close();
     const peers = [...run.peers].map(peer => {
       this.peerInterestChanged(peer);
@@ -1004,7 +1030,7 @@ export class MobileBridgeService {
     if (pending.sessionId) this.taskStreams.publish(pending.sessionId, frame);
   }
   private peer(run: Run, socket: WebSocket, catalogSync = false): void {
-    const peer: Peer = { socket, subscriptions: new Set(), follows: new Map(), followRequests: new Map(), controller: new AbortController(), tail: Promise.resolve(), queuedBytes: 0, queuedMessages: 0, sendTail: Promise.resolve(), sendQueuedBytes: 0, sendQueuedMessages: 0, ready: false, outbound: [], outboundBytes: 0, chunking: 'legacy', lastActivityAt: Date.now(), catalogSync, composerAttempt: 0,
+    const peer: Peer = { socket, subscriptions: new Set(), follows: new Map(), followRequests: new Map(), controller: new AbortController(), tail: Promise.resolve(), queuedBytes: 0, queuedMessages: 0, sendTail: Promise.resolve(), sendQueuedBytes: 0, sendQueuedMessages: 0, ready: false, outbound: [], outboundBytes: 0, chunking: 'legacy', lastActivityAt: Date.now(), admissionTail: Promise.resolve(), capacityWaiters: [], catalogSync, composerAttempt: 0,
       diagnostics: new MobileLoadDiagnostics(event => this.deps.log?.('load_diagnostic', event), undefined,
         { enabled: () => this.deps.diagnosticsEnabled?.() === true }) }; run.peers.add(peer);
     const signal = AbortSignal.any([run.controller.signal, peer.controller.signal]);
@@ -1021,6 +1047,7 @@ export class MobileBridgeService {
     this.track(run, peer.tail);
     socket.on('message', bytes => {
       if (signal.aborted) return;
+      peer.lastActivityAt = Date.now();
       const buffer = socketBytes(bytes); let size = buffer.byteLength, payload: JsonObject | undefined, parseError: unknown;
       try {
         const value: unknown = JSON.parse(buffer.toString());
@@ -1440,16 +1467,28 @@ export class MobileBridgeService {
     return peer.sendTail;
   }
   private sendWire(peer: Peer, payload: JsonObject, limit = MOBILE_BODY_LIMIT): void {
+    // Admission is serialised so a frame never overtakes an earlier frame that is
+    // waiting for queue capacity.
+    peer.admissionTail = peer.admissionTail.then(() => this.admitWire(peer, payload, limit)).catch(() => {});
+  }
+  private async admitWire(peer: Peer, payload: JsonObject, limit: number): Promise<void> {
     if (peer.controller.signal.aborted || peer.socket.readyState !== WebSocket.OPEN) return;
     const { text, bytes } = encodedSocketFrame(payload), diagnostic = diagnosticMetadata(payload);
+    if (bytes > limit) {
+      peer.diagnostics.finish(diagnostic, 'limit');
+      peer.controller.abort(); peer.socket.close(1013, 'frame exceeds the transport limit'); return;
+    }
+    // A full outbound queue makes the writer wait: frames are neither dropped nor
+    // overwritten, and the connection stays open until the peer drains it.
+    while (!peer.controller.signal.aborted && peer.socket.readyState === WebSocket.OPEN
+      && (peer.sendQueuedMessages >= MESSAGE_OUTBOUND_CAPACITY || peer.sendQueuedBytes + bytes > SEND_QUEUE_BYTES)) {
+      await new Promise<void>(resolve => peer.capacityWaiters.push(resolve));
+    }
+    if (peer.controller.signal.aborted || peer.socket.readyState !== WebSocket.OPEN) return;
     const queuedAt = performance.now(), first = payload.type !== 'server_message_chunk' || payload.index === 0;
     const last = payload.type !== 'server_message_chunk' || payload.index === Number(payload.count) - 1;
     const fields = { bytes, sequence: payload.seq, index: payload.index, chunkCount: payload.count };
     if (first) peer.diagnostics.record(diagnostic, 'send_queued', { ...fields, queueBytes: peer.sendQueuedBytes });
-    if (bytes > limit || peer.sendQueuedMessages >= 1_024 || peer.sendQueuedBytes + bytes > 64 * 1024 * 1024) {
-      peer.diagnostics.finish(diagnostic, 'limit');
-      peer.controller.abort(); peer.socket.close(1013, 'mobile client is not draining'); return;
-    }
     peer.sendQueuedBytes += bytes; peer.sendQueuedMessages++;
     peer.sendTail = peer.sendTail.then(() => new Promise<void>((resolve, reject) => {
       if (peer.controller.signal.aborted || peer.socket.readyState !== WebSocket.OPEN) { resolve(); return; }
@@ -1465,6 +1504,8 @@ export class MobileBridgeService {
       if (!peer.controller.signal.aborted) { peer.controller.abort(); peer.socket.terminate(); }
     }).finally(() => {
       peer.sendQueuedBytes -= bytes; peer.sendQueuedMessages--;
+      // Wake exactly one waiting admission; it re-checks the threshold itself.
+      peer.capacityWaiters.shift()?.();
     });
   }
   private broadcast(run: Run, payload: JsonObject, sessionId?: string, include: (peer: Peer) => boolean = () => true, unconditional = false): void {

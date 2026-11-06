@@ -36,6 +36,8 @@ export interface ComputerUseRuntimeDependencies {
   onElicitationCancelled?(sessionId: string, requestId: string): void;
   log(kind: string, message: string): void;
   taskScope?(sessionId: string): ComputerUseTaskScope | undefined;
+  /** Undefined when Computer Use is allowed; otherwise the reason it is refused. */
+  computerUseRefusal?(): string | undefined;
 }
 interface Owner { retiring: boolean; closing?: Promise<void> }
 const object = (value: unknown): Record<string, unknown> => value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
@@ -78,6 +80,7 @@ export async function createComputerUseRuntime(registry: ChannelRegistry, deps: 
   panel.bind(recording);
   const recordingConnector = new RecordingConnector(recording);
   const connector = new ComputerUseConnector({ policy, backend,
+    refusal: () => deps.computerUseRefusal?.(),
     saveScreenshot: (data, mime) => storeBytes(Buffer.from(data, 'base64'), mime, deps.configRoot),
     beginOperation: id => deps.pip()?.beginOperation(id),
     approvedWindow: async (id, epoch, surface, signal) => {

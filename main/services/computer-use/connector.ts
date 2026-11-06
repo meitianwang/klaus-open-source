@@ -22,6 +22,11 @@ export interface ComputerUseDependencies {
   approvedWindow?(sessionId: string, epoch: unknown, surface: Row, signal: AbortSignal): Promise<void>;
   /** Recording and other host-exclusive interaction owners may reject input here. */
   guardInteraction?(sessionId: string, signal: AbortSignal): Promise<void>;
+  /**
+   * Reports why Computer Use is refused right now, e.g. the screen is locked and
+   * the user has not allowed locked-screen control. Undefined means allowed.
+   */
+  refusal?(sessionId: string): string | undefined;
 }
 const writes = new Set(['click', 'perform_secondary_action', 'set_value', 'select_text', 'scroll', 'drag', 'press_key', 'type_text']);
 const text = (value: string): ComputerUseResult => ({ content: [{ type: 'text', text: value }] });
@@ -132,6 +137,10 @@ export class ComputerUseConnector {
       controllers: new Set(), pending: new Set(), states: new Map(), taskScope: this.deps.policy.taskScopeIdentity(sessionId) });
   }
   call(name: string, payload: unknown, context: ComputerUseContext): Promise<ComputerUseResult> {
+    // A locked screen refuses new work before any tool state is touched, so a
+    // remote turn cannot drive apps while the user is away.
+    const refused = this.deps.refusal?.(context.sessionId);
+    if (refused) return Promise.reject(new Error(refused));
     const owner = this.owners.get(context.sessionId), tool = this.tools.find(tool => tool.name === name);
     if (this.closing || !owner || owner.closing) return Promise.reject(new Error('Computer Use session owner is unavailable'));
     if (!tool) return Promise.reject(new Error('Unknown Computer Use tool'));
