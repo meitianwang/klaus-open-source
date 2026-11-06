@@ -11,13 +11,6 @@ export const BROWSER_DEFAULT_POLICY: BrowserOriginPolicy = {
 export const WEB_URL_TARGET_KEY = 'browser:site_open_target';
 export const LOCAL_URL_TARGET_KEY = 'browser:local_site_open_target';
 
-/** Native management surfaces hosted by the browser's own WebUI. */
-export const BROWSER_MANAGER_SURFACES = ['passwords', 'autofill', 'extensions', 'siteSettings', 'import'] as const;
-export type BrowserManagerSurface = typeof BROWSER_MANAGER_SURFACES[number];
-export type BrowserManagerAction = 'open' | 'bounds' | 'close';
-export interface BrowserManagerBounds { x: number; y: number; width: number; height: number }
-export interface BrowserManagerOptions { action?: BrowserManagerAction; bounds?: BrowserManagerBounds; viewId?: string }
-
 export interface BrowserSettingsSnapshot {
   /** Agent/plugin authorization. */
   enabled: boolean;
@@ -26,11 +19,6 @@ export interface BrowserSettingsSnapshot {
    * an older host where the browser is available.
    */
   browserAvailable?: boolean;
-  /**
-   * True only when the host can open its native browser management pages.
-   * Older hosts and stock runtimes omit this field.
-   */
-  nativeManagementAvailable?: boolean;
   chromeEnabled: boolean;
   showFullUrl: boolean;
   annotationScreenshots: 'always' | 'necessary';

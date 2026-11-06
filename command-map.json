@@ -1,6 +1,6 @@
 {
   "summary": {
-    "invokeDeclared": 730,
+    "invokeDeclared": 729,
     "pushDeclared": 76
   },
   "rows": [
@@ -2178,10 +2178,6 @@
     },
     {
       "channel": "settings:browser-use:history",
-      "kind": "invoke"
-    },
-    {
-      "channel": "settings:browser-use:open-manager",
       "kind": "invoke"
     },
     {

@@ -26,7 +26,6 @@ import type { FriendsSnapshot, FriendProfile, FriendsRuntimeSnapshot, FriendApps
 import type { BrowserTabMention } from '../../shared/browser-tab-mention'
 import type { SessionMentionPage, SessionMentionRequest } from '../../shared/session-mentions'
 import type { SiteOpenRequest, SiteOpenResult, SiteOpenTargets } from '../../contracts/browser-sites'
-import type { BrowserManagerOptions, BrowserManagerSurface } from '../../contracts/browser-settings'
 import type { DesktopDistribution } from '../../shared/desktop-edition'
 import { desktopDistribution } from '../src/app/distribution'
 import type { DiffOptions } from '../../contracts/git-changes'
@@ -965,7 +964,6 @@ expose('klaus', {
       subscribeDownloads: (listener: (event: any) => void): Unsubscribe => subscribe('browser-use:downloads-changed', listener),
       downloadAction: (action: string, id: string) => call('settings:browser-use:download-action', { action, id }),
       chooseDownloadDirectory: () => call('settings:browser-use:choose-download-directory'),
-      openManager: (surface: BrowserManagerSurface, options: BrowserManagerOptions = {}) => call('settings:browser-use:open-manager', { surface, ...options }),
       setEnabled: (enabled: boolean) =>
         call('settings:browser-use:set-enabled', { enabled }),
       setChromeEnabled: (enabled: boolean) =>

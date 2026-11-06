@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useT } from '../../i18n'
 import { ModalPortal } from '../../components/ModalPortal'
 import { BrowserCapabilityModal } from '../mcp/browser-connect'
-import { BROWSER_DEFAULT_POLICY, BROWSER_RESOURCES, browserOriginPattern, type BrowserAccess, type BrowserManagerBounds, type BrowserManagerOptions, type BrowserManagerSurface, type BrowserResource, type BrowserSettingsSnapshot } from '../../../../contracts/browser-settings'
+import { BROWSER_DEFAULT_POLICY, BROWSER_RESOURCES, browserOriginPattern, type BrowserAccess, type BrowserResource, type BrowserSettingsSnapshot } from '../../../../contracts/browser-settings'
 import type { SiteOpenTargetId } from '../../../../contracts/browser-sites'
 import { CapabilityRow, CapabilitySwitch } from './capability-tabs'
 import { PrefToggleRow, SettingsPage } from './kv'
@@ -38,7 +38,6 @@ type BrowserUseApi = {
   subscribeDownloads?(callback: (event: DownloadEvent) => void): () => void
   downloadAction(action: string, id: string): Promise<any>
   chooseDownloadDirectory(): Promise<{ ok?: boolean; settings?: BrowserSettingsSnapshot; path?: string | null; error?: string }>
-  openManager(surface: BrowserManagerSurface, options?: BrowserManagerOptions): Promise<any>
   clearData(kind: string): Promise<any>
   subscribe?(callback: (snapshot: BrowserSettingsSnapshot) => void): () => void
 }
@@ -169,174 +168,9 @@ function siteOrigin(input: string): string {
   } catch { return '' }
 }
 
-const MANAGER_META: Record<BrowserManagerSurface, { label: string; desc: string }> = {
-  passwords: { label: 'browser_settings_passwords', desc: 'browser_settings_passwords_desc' },
-  autofill: { label: 'browser_settings_autofill', desc: 'browser_settings_autofill_desc' },
-  extensions: { label: 'browser_settings_extensions', desc: 'browser_settings_extensions_desc' },
-  siteSettings: { label: 'browser_settings_site_settings', desc: 'browser_settings_site_settings_desc' },
-  import: { label: 'browser_settings_import', desc: 'browser_settings_import_desc' },
-}
-
-function BrowserManagerRow({ surface, disabled, busy, onOpenManager }: {
-  surface: BrowserManagerSurface
-  disabled: boolean
-  busy: string
-  onOpenManager: (surface: BrowserManagerSurface) => void
-}) {
-  const t = useT()
-  const meta = MANAGER_META[surface]
-  return (
-    <div className="pref-row">
-      <div className={styles['browser-copy']}>
-        <div className={settingsStyles['pref-row-label']} id={`browser-manager-${surface}-label`}>{t(meta.label)}</div>
-        <div className={settingsStyles['pref-row-desc']} id={`browser-manager-${surface}-desc`}>{t(meta.desc)}</div>
-      </div>
-      <button
-        type="button"
-        id={`browser-open-${surface}`}
-        className={styles['browser-action-btn']}
-        data-surface={surface}
-        aria-labelledby={`browser-manager-${surface}-label`}
-        aria-describedby={`browser-manager-${surface}-desc`}
-        disabled={disabled || busy === `manager:${surface}`}
-        aria-busy={busy === `manager:${surface}` || undefined}
-        onClick={() => onOpenManager(surface)}
-      >
-        {t('browser_settings_manage')}
-      </button>
-    </div>
-  )
-}
-
-type ManagerRequest = (surface: BrowserManagerSurface, options: BrowserManagerOptions & { viewId: string }, generation: number) => Promise<any>
-
-let managerViewSequence = 0
-
-/** A view token is unique across pane remounts and retries. */
-function newManagerViewId(): string {
-  if (typeof globalThis.crypto?.randomUUID === 'function') return globalThis.crypto.randomUUID()
-  managerViewSequence += 1
-  return `manager-${Date.now().toString(36)}-${managerViewSequence.toString(36)}-${Math.random().toString(36).slice(2)}`
-}
-
-function managerBounds(node: HTMLElement): BrowserManagerBounds | null {
-  const rect = node.getBoundingClientRect()
-  if (!(rect.width > 0) || !(rect.height > 0)) return null
-  return {
-    x: Math.round(rect.x),
-    y: Math.round(rect.y),
-    width: Math.round(rect.width),
-    height: Math.round(rect.height),
-  }
-}
-
-/** A settings-pane subpage whose measured rectangle hosts the native manager. */
-export function NativeManagementPane({ surface, generation, onBack, openManager, onClose }: {
-  surface: BrowserManagerSurface
-  generation: number
-  onBack: () => void
-  openManager: ManagerRequest
-  onClose: (surface: BrowserManagerSurface, generation: number, viewId: string) => void
-}) {
-  const t = useT()
-  const hostRef = useRef<HTMLDivElement>(null)
-  const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading')
-  const [error, setError] = useState('')
-  const [attempt, setAttempt] = useState(0)
-
-  useEffect(() => {
-    const node = hostRef.current
-    if (!node) return
-    let disposed = false
-    let frame: number | undefined
-    let opened = false
-    let opening = false
-    let requested = false
-    let failed = false
-    let lastBounds = ''
-    const viewId = newManagerViewId()
-
-    const run = async (): Promise<void> => {
-      if (disposed || failed) return
-      const bounds = managerBounds(node)
-      if (!bounds) return
-      const key = `${bounds.x}:${bounds.y}:${bounds.width}:${bounds.height}`
-      if (key === lastBounds) return
-      if (!opened && opening) return
-      lastBounds = key
-      const action: 'open' | 'bounds' = opened ? 'bounds' : 'open'
-      if (action === 'open') {
-        opening = true
-        requested = true
-        setStatus('loading')
-        setError('')
-      }
-      try {
-        const result = await openManager(surface, { action, bounds, viewId }, generation)
-        if (disposed) return
-        if (!result || result.ok === false || result.error) {
-          failed = true
-          setStatus('error')
-          setError(String(result?.error || t('browser_settings_open_failed')))
-          return
-        }
-        if (action === 'open') {
-          opened = true
-          setStatus('ready')
-        }
-      } catch (cause: any) {
-        if (disposed) return
-        failed = true
-        setStatus('error')
-        setError(cause?.message || t('browser_settings_open_failed'))
-      } finally {
-        if (action === 'open') opening = false
-      }
-    }
-
-    const schedule = (): void => {
-      if (disposed || failed || frame !== undefined) return
-      frame = window.requestAnimationFrame(() => {
-        frame = undefined
-        void run()
-      })
-    }
-
-    schedule()
-    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(schedule)
-    observer?.observe(node)
-    const update = (): void => schedule()
-    window.addEventListener('resize', update)
-    document.addEventListener('scroll', update, true)
-    return () => {
-      disposed = true
-      if (frame !== undefined) window.cancelAnimationFrame(frame)
-      observer?.disconnect()
-      window.removeEventListener('resize', update)
-      document.removeEventListener('scroll', update, true)
-      if (requested) onClose(surface, generation, viewId)
-    }
-  }, [surface, generation, attempt, openManager, onClose, t])
-
-  return (
-    <SettingsPage
-      title={t(MANAGER_META[surface].label)}
-      subtitle={t(MANAGER_META[surface].desc)}
-      actions={<button type="button" id="browser-native-back" className={styles['browser-action-btn']} onClick={onBack}>{t('browser_settings_back')}</button>}
-    >
-      <div ref={hostRef} className={styles['browser-native-pane']} data-native-management-pane={surface} aria-busy={status === 'loading' || undefined}>
-        {status === 'loading' && <div role="status" className={styles['browser-native-state']}>{t('browser_settings_loading')}</div>}
-        {status === 'error' && (
-          <div role="alert" className={styles['browser-native-state']}>
-            <span>{error}</span>
-            <button type="button" className={styles['browser-action-btn']} onClick={() => { setStatus('loading'); setError(''); setAttempt(value => value + 1) }}>{t('browser_settings_retry')}</button>
-          </div>
-        )}
-      </div>
-    </SettingsPage>
-  )
-}
-
+// Native password, contact and extension surfaces are host capabilities. Do not
+// fake them with embedded browser pages; render them only when the host exposes
+// a supported surface.
 export interface BrowserSettingsViewProps {
   snapshot: BrowserSettingsSnapshot
   busy: string
@@ -346,7 +180,6 @@ export interface BrowserSettingsViewProps {
   onOpenHistory: () => void
   onOpenDownloads: () => void
   onChooseDownloadDirectory: () => void
-  onOpenManager: (surface: BrowserManagerSurface) => void
   onSetChromeEnabled: (enabled: boolean) => void
   onAddOrigin: (pattern: string) => Promise<boolean>
   onSetDefaultPolicy: (resource: BrowserResource, setting: BrowserAccess) => void
@@ -359,7 +192,7 @@ export interface BrowserSettingsViewProps {
 /** Pure presentation of the main settings page; the data owner passes a snapshot. */
 export function BrowserSettingsView({
   snapshot, busy, onToggleEnabled, onPatch, onClearData, onOpenHistory, onOpenDownloads,
-  onChooseDownloadDirectory, onOpenManager, onSetChromeEnabled, onAddOrigin, onSetDefaultPolicy,
+  onChooseDownloadDirectory, onSetChromeEnabled, onAddOrigin, onSetDefaultPolicy,
   onSetOriginPolicy, onRemoveOrigin, onSetSitePermission, onOpenChromeSetup,
 }: BrowserSettingsViewProps) {
   const t = useT()
@@ -416,25 +249,7 @@ export function BrowserSettingsView({
       </div>
 
       <div className="settings-section">
-        <div className={settingsStyles['settings-section-title-row']}>
-          <div className="settings-section-title">{t('browser_settings_general')}</div>
-          {snapshot.nativeManagementAvailable === true && (
-            <div className={settingsStyles['settings-section-title-action']}>
-              <button
-                type="button"
-                id="browser-open-import"
-                className={styles['browser-action-btn']}
-                data-surface="import"
-                aria-label={`${t('browser_settings_import')}: ${t('browser_settings_import_action')}`}
-                disabled={disabled || busy === 'manager:import'}
-                aria-busy={busy === 'manager:import' || undefined}
-                onClick={() => onOpenManager('import')}
-              >
-                {t('browser_settings_import_action')}
-              </button>
-            </div>
-          )}
-        </div>
+        <div className="settings-section-title">{t('browser_settings_general')}</div>
         <div className={styles['browser-card']}>
           <BrowserSelectRow id="browser-web-target" label={t('browser_settings_open_web')} desc={t('browser_settings_open_web_desc')} value={snapshot.webUrlTarget} options={webTargets} disabled={disabled} onChange={value => onPatch({ webUrlTarget: value as SiteOpenTargetId })} />
           <BrowserSelectRow id="browser-local-target" label={t('browser_settings_open_local')} desc={t('browser_settings_open_local_desc')} value={snapshot.localUrlTarget} options={localTargets} disabled={disabled} onChange={value => onPatch({ localUrlTarget: value as SiteOpenTargetId })} />
@@ -468,25 +283,6 @@ export function BrowserSettingsView({
         </div>
       </div>
 
-      {snapshot.nativeManagementAvailable === true && (
-        <div className="settings-section">
-          <div className="settings-section-title">{t('browser_settings_autofill_and_passwords')}</div>
-          <div className={styles['browser-card']}>
-            <BrowserManagerRow surface="passwords" disabled={disabled} busy={busy} onOpenManager={onOpenManager} />
-            <BrowserManagerRow surface="autofill" disabled={disabled} busy={busy} onOpenManager={onOpenManager} />
-          </div>
-        </div>
-      )}
-
-      {snapshot.nativeManagementAvailable === true && (
-        <div className="settings-section">
-          <div className="settings-section-title">{t('browser_settings_extensions')}</div>
-          <div className={styles['browser-card']}>
-            <BrowserManagerRow surface="extensions" disabled={disabled} busy={busy} onOpenManager={onOpenManager} />
-          </div>
-        </div>
-      )}
-
       <div className="settings-section">
         <div className="settings-section-title">{t('browser_settings_downloads')}</div>
         <div className={styles['browser-card']}>
@@ -507,7 +303,7 @@ export function BrowserSettingsView({
               <div className={settingsStyles['pref-row-label']}>{t('browser_settings_download_history')}</div>
               <div className={settingsStyles['pref-row-desc']}>{t('browser_settings_download_history_desc')}</div>
             </div>
-            <button type="button" id="browser-download-history-manage" className={styles['browser-action-btn']} disabled={disabled} onClick={onOpenDownloads}>{t('browser_settings_manage')}</button>
+            <button type="button" className={styles['browser-action-btn']} disabled={disabled} onClick={onOpenDownloads}>{t('browser_settings_manage')}</button>
           </div>
         </div>
       </div>
@@ -516,9 +312,6 @@ export function BrowserSettingsView({
         <div className="settings-section-title">{t('browser_settings_sites')}</div>
         <div className={styles['browser-card']}>
           <div className={styles['browser-section-copy']}>{t('browser_settings_sites_desc')}</div>
-          {snapshot.nativeManagementAvailable === true && (
-            <BrowserManagerRow surface="siteSettings" disabled={disabled} busy={busy} onOpenManager={onOpenManager} />
-          )}
           <div className={`${styles['browser-table']} ${styles['browser-default-policy']}`}>
             <div className={`${styles['browser-table-row']} ${styles['browser-default-policy-row']}`}>
               <span>{t('browser_settings_default_policy')}</span>
@@ -895,10 +688,7 @@ export function BrowserSettingsTab() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState('')
-  const [view, setView] = useState<'main' | 'history' | 'downloads' | 'native'>('main')
-  const [nativeSurface, setNativeSurface] = useState<BrowserManagerSurface>('passwords')
-  const [nativeGenerationId, setNativeGenerationId] = useState(0)
-  const nativeGeneration = useRef(0)
+  const [view, setView] = useState<'main' | 'history' | 'downloads'>('main')
   const [chromeSetupOpen, setChromeSetupOpen] = useState(false)
   const readSequence = useRef(0)
   const mutationSequence = useRef(0)
@@ -993,25 +783,6 @@ export function BrowserSettingsTab() {
     void mutate('choose-download-dir', null, () => api()?.chooseDownloadDirectory?.())
   }, [mutate])
 
-  const openManager = useCallback((surface: BrowserManagerSurface) => {
-    const generation = ++nativeGeneration.current
-    setNativeSurface(surface)
-    setNativeGenerationId(generation)
-    setView('native')
-  }, [])
-
-  const managerRequest = useCallback(async (surface: BrowserManagerSurface, options: BrowserManagerOptions & { viewId: string }, generation: number) => {
-    if (nativeGeneration.current !== generation) return { ok: false, error: 'stale' }
-    const service = api()?.openManager
-    if (!service) throw new Error('settings_failed')
-    return service(surface, options)
-  }, [])
-
-  const closeManager = useCallback((surface: BrowserManagerSurface, generation: number, viewId: string) => {
-    if (nativeGeneration.current !== generation) return
-    void managerRequest(surface, { action: 'close', viewId }, generation).catch(() => {})
-  }, [managerRequest])
-
   const clearData = useCallback(async (kinds: string[]) => {
     if (clearingRef.current) return
     clearingRef.current = true
@@ -1081,16 +852,6 @@ export function BrowserSettingsTab() {
   }
   if (view === 'history') return <BrowserHistoryPanel onBack={() => setView('main')} />
   if (view === 'downloads') return <BrowserDownloadsPanel onBack={() => setView('main')} />
-  if (view === 'native') return (
-    <NativeManagementPane
-      key={`${nativeSurface}:${nativeGenerationId}`}
-      surface={nativeSurface}
-      generation={nativeGenerationId}
-      onBack={() => setView('main')}
-      openManager={managerRequest}
-      onClose={closeManager}
-    />
-  )
   return (
     <>
       <BrowserSettingsView
@@ -1102,7 +863,6 @@ export function BrowserSettingsTab() {
         onOpenHistory={() => setView('history')}
         onOpenDownloads={() => setView('downloads')}
         onChooseDownloadDirectory={chooseDownloadDirectory}
-        onOpenManager={openManager}
         onSetChromeEnabled={setChromeEnabled}
         onAddOrigin={addOrigin}
         onSetDefaultPolicy={setDefaultPolicy}

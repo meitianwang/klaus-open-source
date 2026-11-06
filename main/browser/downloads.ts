@@ -89,19 +89,10 @@ export class DownloadStore {
     catch { /* History bookkeeping must not change download completion semantics. */ }
   }
 
-  create(owner: string, url: string, initial: BrowserObject = {}, meta: BrowserObject = {}, stableId?: string): DownloadEntry {
+  create(owner: string, url: string, initial: BrowserObject = {}, meta: BrowserObject = {}): DownloadEntry {
     this.active(owner);
-    if (stableId !== undefined && (typeof stableId !== 'string' || !stableId.trim())) {
-      throw new BrowserError('invalid_request', 'A stable download id must be a non-empty string.');
-    }
-    const id = stableId ?? randomUUID();
-    const existing = this.entries.get(id);
-    if (existing) {
-      if (existing.owner !== owner) throw new BrowserError('stale_download', 'The download belongs to another page.');
-      return existing;
-    }
     if ([...this.entries.values()].filter(entry => entry.owner === owner).length >= 100) throw new BrowserError('download_limit', 'This page reached its 100 download handle limit. Open another tab to continue.');
-    const controller = new AbortController();
+    const id = randomUUID(); const controller = new AbortController();
     let resolveResult!: (value: BrowserObject) => void; let reject!: (error: Error) => void;
     const promise = new Promise<BrowserObject>((resolve, fail) => { resolveResult = resolve; reject = fail; });
     // User clicks may complete or fail before a tool starts waiting for them.
@@ -163,41 +154,7 @@ export class DownloadStore {
     return entry ? { ...entry.value } : undefined;
   }
 
-  has(id: string): boolean { return this.entries.has(id); }
-
-  ownerOf(id: string): string | undefined { return this.entries.get(id)?.owner; }
-
   settled(id: string): boolean { return this.entries.get(id)?.settled === true; }
-
-  /**
-   * Apply a native Profile snapshot to an existing entry. Paused/in-progress
-   * states notify progress; terminal states settle the same promise waiters
-   * use for local downloads. Late terminal snapshots never reopen an entry.
-   */
-  applyNative(id: string, patch: BrowserObject): BrowserObject | undefined {
-    const entry = this.entries.get(id);
-    if (!entry) return undefined;
-    if (entry.settled) return { ...entry.value };
-    const state = String(patch.state ?? patch.status ?? '');
-    if (state === 'completed') {
-      entry.finish({ ...patch, id: entry.id, status: 'completed', state: 'completed', finishedAt: typeof patch.finishedAt === 'number' ? patch.finishedAt : Date.now() });
-      return { ...entry.value };
-    }
-    if (state === 'failed') {
-      entry.value = { ...entry.value, ...patch, id: entry.id };
-      entry.finish(new BrowserError('download_failed', typeof patch.error === 'string' ? patch.error : 'Native download failed.'));
-      return { ...entry.value };
-    }
-    if (state === 'canceled') {
-      entry.value = { ...entry.value, ...patch, id: entry.id };
-      entry.controller.abort(new BrowserError('download_canceled', 'The native download was canceled.'));
-      return { ...entry.value };
-    }
-    if (state !== 'in_progress' && state !== 'paused') return { ...entry.value };
-    entry.value = { ...entry.value, ...patch, id: entry.id, status: state, state };
-    this.notify('changed', entry);
-    return { ...entry.value };
-  }
 
   update(id: string, patch: BrowserObject): BrowserObject | undefined {
     const entry = this.entries.get(id);
@@ -258,11 +215,9 @@ export class DownloadStore {
     }
   }
 
-  release(owner: string, keep: ReadonlySet<string> = new Set()): void {
-    // Native Profile downloads outlive a tab. Keeping any entry leaves the
-    // owner reusable so a later native event can still be recorded.
-    if (!keep.size) this.released.add(owner);
-    for (const [id,entry] of this.entries) if (entry.owner === owner && !keep.has(id)) {
+  release(owner: string): void {
+    this.released.add(owner);
+    for (const [id,entry] of this.entries) if (entry.owner === owner) {
       if (!entry.settled) entry.controller.abort(new BrowserError('stale_tab', 'The download page was released.'));
       this.entries.delete(id);
       this.meta.delete(id);
