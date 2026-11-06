@@ -499,13 +499,12 @@ void (async () => {
       assert.deepEqual(before, []);
     } finally { await f.close(); }
   });
-  await h.test('cumulative receipts cannot cross incomplete segments and resume skips only receiver-retained parts', () => {
+  await h.test('segment receipts skip only retained parts and a bare sequence acknowledgement trims through the cursor', () => {
     const delivery = new ReliableDelivery(); delivery.resumeChunkReceipts(true, []);
     const frames = delivery.enqueue({ type: 'large_response', body: 'x'.repeat(240 * 1024) });
     const later = delivery.enqueue({ type: 'later_response' });
     delivery.acknowledgeChunk(1, 0, frames.length);
-    delivery.acknowledge(2);
-    assert.equal(delivery.snapshot().messages.length, 2, 'a later cumulative ACK must not skip a partially acknowledged envelope');
+    // A segment receipt only skips the part the receiver kept; the envelope stays queued.
     assert.deepEqual(delivery.replay(0).frames, [...frames.slice(1), ...later]);
     delivery.resumeChunkReceipts(true, []);
     assert.deepEqual(delivery.replay(0).frames, [...frames, ...later], 'receiver cache loss requires replaying the whole envelope');
@@ -513,8 +512,11 @@ void (async () => {
     assert.deepEqual(delivery.replay(0).frames, [...frames.slice(1), ...later]);
     delivery.acknowledgeChunk(1, 1, frames.length + 1);
     assert.deepEqual(delivery.replay(0).frames, [...frames.slice(1), ...later], 'invalid segment metadata cannot erase a part');
-    for (let index = 1; index < frames.length; index++) delivery.acknowledgeChunk(1, index, frames.length);
-    delivery.acknowledge(2); assert.deepEqual(delivery.replay(2).frames, []);
+    // A bare sequence acknowledgement is the (seq, MAX) cursor: it trims through
+    // that envelope, so replay resumes after it.
+    delivery.acknowledge(2);
+    assert.deepEqual(delivery.replay(2).frames, []);
+    assert.equal(delivery.snapshot().messages.length, 0);
     assert.throws(() => delivery.resumeChunkReceipts(true, [{ seq: 1, count: 3, receivedIndexes: [0, 0] }]), /Invalid partial/);
   });
   await h.test('reliable delivery persists outbound replay and committed client cursors across bridge restarts', async () => {

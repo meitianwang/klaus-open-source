@@ -301,11 +301,27 @@ export class ReliableDelivery {
     return [...frames];
   }
 
-  acknowledge(seq: number): void {
+  /**
+   * Trims the replay queue against an acknowledgement cursor.
+   *
+   * A bare sequence acknowledgement is the (seq, MAX) cursor: everything up to and
+   * including that message is delivered, so it is trimmed even when individual
+   * segment receipts were never sent. A segment acknowledgement is the (seq, index)
+   * cursor: it marks that part and only trims once every part is acknowledged.
+   */
+  acknowledge(seq: number, segmentIndex?: number): void {
     if (!Number.isSafeInteger(seq) || seq < 0 || seq >= this.nextSeq) return;
+    if (segmentIndex !== undefined && Number.isSafeInteger(segmentIndex) && segmentIndex >= 0) {
+      const message = this.messages.find(row => row.seq === seq);
+      if (message && message.frames[0]?.type === 'server_message_chunk') {
+        let acknowledged = this.acknowledgedChunks.get(seq);
+        if (!acknowledged) { acknowledged = new Set(); this.acknowledgedChunks.set(seq, acknowledged); }
+        acknowledged.add(segmentIndex);
+      }
+    }
     while (this.messages[0] && this.messages[0].seq <= seq) {
       const message = this.messages[0];
-      if (this.requireChunkAcknowledgements && message.frames[0]?.type === 'server_message_chunk'
+      if (segmentIndex !== undefined && message.seq === seq && message.frames.length > 1
         && this.acknowledgedChunks.get(message.seq)?.size !== message.frames.length) break;
       this.bytes -= this.messages.shift()!.bytes; this.acknowledgedChunks.delete(message.seq);
     }
