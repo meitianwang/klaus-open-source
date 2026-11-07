@@ -25,6 +25,14 @@
       "Zhipu"
     ]
   },
+  "codexImageEditing": {
+    "reason": "Reference-image edits use JSON image_url data URLs in source order, with a 16-pixel dimension grid. Recognized upstream diagnostics become bounded host-authored reasons; echoed credentials, prompts, media and unknown text never cross the tool boundary.",
+    "editPath": "/backend-api/codex/images/edits",
+    "requestedSize": "1920x1080",
+    "wireSize": "1920x1088",
+    "encoding": "json-data-urls",
+    "errorBodyLimitBytes": 16384
+  },
   "base64Decoding": {
     "reason": "Generated media can span many megabytes. Canonical Base64 must decode without exhausting the call stack, while malformed encodings and decoded payloads beyond the media limit remain rejected.",
     "largePayloadBytes": 8388608,

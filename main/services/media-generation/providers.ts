@@ -247,13 +247,21 @@ export { speechDownloadUrl };
 /** Only the already supported provider wires live here. Settings and credentials stay with their owners. */
 export class MediaProviders {
   constructor(readonly http: MediaHttp, readonly options: ProviderOptions = {}) {}
-  async openaiImage(config: JsonObject, input: GenerationInput, signal: AbortSignal, extraHeaders: Record<string, string> = {}): Promise<GeneratedFile[]> {
+  async codexImage(input: GenerationInput, credential: { accessToken: string; accountId: string }, signal: AbortSignal): Promise<GeneratedFile[]> {
+    const size = input.size?.match(/^(\d+)x(\d+)$/u);
+    // Image dimensions use a 16-pixel grid; preserve the requested framing as closely as possible.
+    const normalized = size ? { ...input, size: `${Math.ceil(Number(size[1]) / 16) * 16}x${Math.ceil(Number(size[2]) / 16) * 16}` } : input;
+    return this.openaiImage({ provider: 'openai-compatible', baseUrl: 'https://chatgpt.com/backend-api/codex', apiKey: credential.accessToken, model: 'gpt-image-2' }, normalized, signal, codexImageHeaders(credential.accountId), 'json');
+  }
+  async openaiImage(config: JsonObject, input: GenerationInput, signal: AbortSignal, extraHeaders: Record<string, string> = {}, editEncoding: 'multipart' | 'json' = 'multipart'): Promise<GeneratedFile[]> {
     const ark = config.provider === 'doubao-ark', base = endpoint(string(config.baseUrl), ark ? 'https://ark.cn-beijing.volces.com/api/v3' : 'https://api.openai.com/v1');
     const model = string(config.model) || (ark ? '' : 'gpt-image-2'); if (!model) throw new MediaGenerationError('Set a model override for this image provider.');
     const headers = { ...extraHeaders, ...(string(config.apiKey) ? { Authorization: 'Bearer ' + string(config.apiKey) } : {}) };
     let init: RequestInit;
     if (!input.sources.length) {
       init = jsonPost({ model, prompt: input.prompt, n: 1, ...(input.size ? { size: input.size } : {}), ...(model.startsWith('dall-e') ? { response_format: 'b64_json' } : {}) }, headers);
+    } else if (editEncoding === 'json') {
+      init = jsonPost({ model, prompt: input.prompt, images: input.sources.map(source => ({ image_url: `data:${source.mime};base64,${source.bytes.toString('base64')}` })), ...(input.size ? { size: input.size } : {}) }, headers);
     } else {
       const form = new FormData(); form.append('model', model); form.append('prompt', input.prompt); if (input.size) form.append('size', input.size);
       for (const source of input.sources) form.append('image[]', new Blob([new Uint8Array(source.bytes)], { type: source.mime }), source.name);

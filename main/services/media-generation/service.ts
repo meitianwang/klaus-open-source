@@ -14,7 +14,7 @@ import type { SubscriptionAuthService } from '../subscription-auth';
 import type { WorkspaceStore } from '../workspaces';
 import { generationArguments, GENERATION_TOOL_SPECS, LIMITS, type GeneratedFile, type GenerationContext, type GenerationInput, type GenerationTool, type MediaKind, type SourceImage } from './contract';
 import { base64Bytes, MediaHttp } from './http';
-import { audioFile, codexImageHeaders, imageFile, videoFile, MediaProviders, type ProviderOptions } from './providers';
+import { audioFile, imageFile, videoFile, MediaProviders, type ProviderOptions } from './providers';
 
 /** The conversation source whose media routes run on its own subscription key. */
 const MINIMAX_MEDIA_SOURCE = 'minimax';
@@ -258,7 +258,7 @@ export class MediaGenerationService {
         const result = await providers.minimaxVideo(config, input, combined);
         files = [result.file];
       } else if (codex?.accessToken) {
-        files = await providers.openaiImage({ provider: 'openai-compatible', baseUrl: 'https://chatgpt.com/backend-api/codex', apiKey: codex.accessToken, model: 'gpt-image-2' }, input, combined, codexImageHeaders(codex.accountId));
+        files = await providers.codexImage(input, codex, combined);
       } else if (qoder) {
         files = await providers.qoderImage(input, context.sessionId, combined, async (params, callSignal) => {
           current();

@@ -16,10 +16,14 @@ import { registerWorkbuddyMediaTests } from './workbuddy-media-generation';
 import { registerAntigravityNativeMediaTests } from './antigravity-native-media';
 import { registerCursorMediaTests } from './cursor-media-generation';
 import { registerMediaConversationBoundaryTests } from './media-conversation-boundary';
+import { registerCodexImageGenerationTests } from './codex-image-generation';
+import { registerMediaHttpTests } from './media-generation-http';
 import { Harness, waitFor as waitForCondition } from './harness';
 import { generationVector, mediaFixture, mp3, mp4, png, resultText, wav, webp } from './media-generation-fixture';
 
 const h = new Harness();
+registerCodexImageGenerationTests(h);
+registerMediaHttpTests(h);
 registerAntigravityNativeMediaTests(h);
 registerCursorMediaTests(h);
 registerWorkbuddyMediaTests(h);
