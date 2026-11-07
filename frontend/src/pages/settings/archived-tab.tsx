@@ -8,6 +8,7 @@ import { SettingsPage } from './kv'
 import { useSettingsSnapshot } from './settings-snapshot'
 import { ensureSettingsAccountListener } from '../profile/ProfilePage'
 import styles from './settings.module.css'
+import { settingsErrorText } from './settings-error-text'
 
 const w = () => window as any
 
@@ -48,7 +49,7 @@ export function ArchivedSessionsTab() {
         list.sort((a: ArchivedSession, b: ArchivedSession) => Number(b.updatedAt || b.createdAt || 0) - Number(a.updatedAt || a.createdAt || 0))
         if (!cancelled && publish(list)) setLoadError(null)
       } catch (error: any) {
-        if (!cancelled) setLoadError(error?.message || t('archived_sessions_load_failed'))
+        if (!cancelled) setLoadError(settingsErrorText('archived-load', error, 'archived_sessions_load_failed'))
       }
     })()
     return () => { cancelled = true }
@@ -139,12 +140,12 @@ export function ArchivedSessionsTab() {
       ))
       if (failure) {
         await w().klausDialog.alert(
-          failure.result?.code || failure.result?.error || t('setup_status_unknown'),
+          settingsErrorText('archived-delete-all', failure.result?.error || failure.result?.code, 'archived_delete_all_failed'),
         )
       }
       setReloadSequence(value => value + 1)
     } catch (error: any) {
-      setLoadError(error?.message || t('archived_sessions_load_failed'))
+      setLoadError(settingsErrorText('archived-load', error, 'archived_sessions_load_failed'))
     } finally {
       setDeleteAllPending(false)
     }
@@ -166,7 +167,7 @@ export function ArchivedSessionsTab() {
     const result = await operation
     bump()
     if (!result?.ok) {
-      await w().klausDialog.alert(result?.error || t('archived_sessions_load_failed'))
+      await w().klausDialog.alert(settingsErrorText('archived-open', result?.error, 'archived_open_failed'))
       return
     }
   }
@@ -187,7 +188,7 @@ export function ArchivedSessionsTab() {
       await w().klausDialog.alert(
         t('archived_unarchive_failed').replace(
           '{reason}',
-          result?.code || result?.error || result?.status || t('setup_status_unknown'),
+          settingsErrorText('archived-unarchive', result?.error || result?.code || result?.status, 'setup_status_unknown'),
         ),
       )
       return

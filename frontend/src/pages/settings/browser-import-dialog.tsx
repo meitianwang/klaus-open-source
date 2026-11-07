@@ -2,10 +2,13 @@ import { useEffect, useId, useRef, useState } from 'react'
 import { BROWSER_IMPORT_CATEGORIES, type BrowserDiscoveryResult, type BrowserImportCategory, type BrowserImportRequest, type BrowserProfileCandidate } from '../../../../contracts/browser-import'
 import type { BrowserImportJobHandle, BrowserImportJobSnapshot } from '../../../../contracts/browser-import-jobs'
 import { ModalPortal } from '../../components/ModalPortal'
+import { icon } from '../../icons/registry'
 import { useT } from '../../i18n'
 import { IMPORT_UI_DEFAULTS, importCategoryErrors, importIssueLabelKey, importIsTerminal, importRetrySelection, mergeImportSummary, type ImportSelection, type ImportSummary } from './browser-import-model'
 import { RuntimeChoice } from './runtime-tab'
+import shared from './settings.module.css'
 import styles from './browser-import.module.css'
+import { logHostDiagnostic } from './settings-error-text'
 
 export interface BrowserImportUiApi {
   discover(): Promise<BrowserDiscoveryResult>
@@ -27,8 +30,9 @@ type ActiveRun = {
 }
 
 const profileKey = (profile: BrowserProfileCandidate) => JSON.stringify([profile.sourceId, profile.profileId])
-const profileLabel = (profile: BrowserProfileCandidate) => `${profile.sourceLabel} — ${profile.displayName}`
+const profileLabel = (profile: BrowserProfileCandidate) => `${profile.sourceLabel} ${profile.displayName}`
 const selectedCategories = (selection: ImportSelection) => BROWSER_IMPORT_CATEGORIES.filter(category => selection[category])
+const CATEGORY_ICONS: Record<BrowserImportCategory, string> = { cookies: 'import-cookies', passwords: 'import-passwords', history: 'import-history', extensions: 'import-extensions' }
 
 export function BrowserImportDialog({ api, onClose }: { api: BrowserImportUiApi; onClose: () => void }) {
   const t = useT()
@@ -105,6 +109,10 @@ export function BrowserImportDialog({ api, onClose }: { api: BrowserImportUiApi;
   }
   const acceptRef = useRef(accept)
   acceptRef.current = accept
+
+  useEffect(() => {
+    for (const issue of discovery?.errors ?? []) logHostDiagnostic('browser-import', `${issue.code}: ${issue.message}`)
+  }, [discovery])
 
   useEffect(() => {
     mounted.current = true
@@ -252,24 +260,32 @@ export function BrowserImportDialog({ api, onClose }: { api: BrowserImportUiApi;
             {permissionDenied && api.openPermissionSettings && <button onClick={() => { void openPermissionSettings() }}>{t('browser_import_permission_settings')}</button>}
             <button onClick={() => { void refresh() }}>{t('browser_import_retry')}</button>
           </div> : !profile ? <p role="status">{t('browser_import_no_profiles')}</p> : <>
-            {discoveryIssues.length > 0 && <div role="status"><p>{t('browser_import_discovery_partial')}</p>
-              {permissionDenied && <p>{permissionMessage}</p>}
-              {permissionDenied && api.openPermissionSettings && <button onClick={() => { void openPermissionSettings() }}>{t('browser_import_permission_settings')}</button>}
-            </div>}
-            {discovery!.profiles.length > 1 ? <RuntimeChoice
-              id="browser-import-profile"
-              label={t('browser_import_source')}
-              options={discovery!.profiles.map(candidate => ({ value: profileKey(candidate), label: profileLabel(candidate) }))}
-              value={profileKey(profile)}
-              onChange={setSelectedKey}
-            /> : <p className={styles['import-source-name']}>{profileLabel(profile)}</p>}
-            <div className={styles['import-categories']}>
-              {BROWSER_IMPORT_CATEGORIES.filter(category => category === 'cookies' || category === 'passwords' || profile[category]).map(category => <label key={category}>
-                <input type="checkbox" data-import-category={category} checked={effectiveSelection[category]} disabled={!profile[category]} onChange={event => setSelection(current => ({ ...current, [category]: event.target.checked }))} />
-                <span>{categoryLabel(category)}</span>
-              </label>)}
+            <div className={styles['import-source-row']}>
+              <span className={styles['import-source-key']}>{t('browser_import_source')}</span>
+              <div className={styles['import-source-box']}>
+                {discovery!.profiles.length > 1 ? <RuntimeChoice
+                  id="browser-import-profile"
+                  label={t('browser_import_source')}
+                  options={discovery!.profiles.map(candidate => ({ value: profileKey(candidate), label: profileLabel(candidate) }))}
+                  value={profileKey(profile)}
+                  onChange={setSelectedKey}
+                /> : <>
+                  <span className={styles['import-source-icon']} aria-hidden="true" dangerouslySetInnerHTML={{ __html: icon('import-source-browser', { size: 18 }) }} />
+                  <span className={styles['import-source-text']}>{profileLabel(profile)}</span>
+                </>}
+              </div>
             </div>
             <p className={styles['import-guidance']}>{t('browser_import_close_source').replace('{source}', profile.sourceLabel)}</p>
+            <div className={styles['import-card']}>
+              {BROWSER_IMPORT_CATEGORIES.filter(category => category === 'cookies' || category === 'passwords' || profile[category]).map(category => <label key={category} className={styles['import-row']}>
+                <span className={styles['import-row-icon']} aria-hidden="true" dangerouslySetInnerHTML={{ __html: icon(CATEGORY_ICONS[category], { size: 18 }) }} />
+                <span className={styles['import-row-label']}>{categoryLabel(category)}</span>
+                <span className={`${shared['pref-switch']}${profile[category] ? '' : ` ${shared['pref-switch-disabled']}`}`}>
+                  <input type="checkbox" data-import-category={category} checked={effectiveSelection[category]} disabled={!profile[category]} onChange={event => setSelection(current => ({ ...current, [category]: event.target.checked }))} />
+                  <span className={shared['pref-switch-track']} />
+                </span>
+              </label>)}
+            </div>
           </>}
           {permissionSettingsFailed && <p role="alert" className={styles['import-error']}>{t('browser_import_permission_settings_failed')}</p>}
           {submitFailed && <p role="alert" className={styles['import-error']}>{t('browser_import_start_failed')}</p>}

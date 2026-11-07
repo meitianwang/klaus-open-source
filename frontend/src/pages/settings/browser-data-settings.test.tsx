@@ -4,7 +4,8 @@ import { Window } from 'happy-dom'
 let React: any
 let act: any
 let createRoot: any
-let BrowserDataSettings: any
+let BrowserExtensionSettings: any
+let BrowserPasswordManager: any
 let happyWindow: any
 const roots = new Set<any>()
 const savedGlobals = new Map<string, PropertyDescriptor | undefined>()
@@ -49,6 +50,11 @@ function labels() {
       cancelButton: 'Cancel',
       errorLabel: 'Error',
       copySucceeded: 'Password copied',
+      operationFailed: 'Could not update browser data',
+      passwordSearch: 'Search passwords',
+      passwordAdd: 'Add',
+      passwordAccounts: '{count} accounts',
+      passwordNoResults: 'No matching passwords',
     },
     extensionsTitle: 'Browser extensions',
     extensionsDescription: 'Install and manage extensions for the built-in browser.',
@@ -66,6 +72,7 @@ function labels() {
     removeAction: 'Remove',
     installFailed: 'Could not install extension',
     extensionActionFailed: 'Could not update extension',
+    extensionItemError: 'This extension reported a load problem',
   }
 }
 
@@ -173,13 +180,13 @@ async function setInputValue(input: any, value: string) {
   })
 }
 
-async function mount(api: any, l: any) {
+async function mount(component: any, api: any, l: any) {
   const container = happyWindow.document.createElement('div')
   happyWindow.document.body.appendChild(container)
   const root = createRoot(container)
   roots.add(root)
   await act(async () => {
-    root.render(React.createElement(BrowserDataSettings, { api, labels: l }))
+    root.render(React.createElement(component, { api, labels: l }))
   })
   return { container, root }
 }
@@ -211,7 +218,8 @@ beforeAll(async () => {
   React = await import('react')
   act = React.act
   createRoot = (await import('react-dom/client')).createRoot
-  BrowserDataSettings = (await import('./browser-data-settings')).BrowserDataSettings
+  BrowserExtensionSettings = (await import('./browser-data-settings')).BrowserExtensionSettings
+  BrowserPasswordManager = (await import('./browser-credentials')).BrowserPasswordManager
 })
 
 afterEach(() => {
@@ -231,13 +239,11 @@ afterAll(() => {
   savedGlobals.clear()
 })
 
-describe('browser data settings', () => {
-  test('renders extension and credential data with injected labels and no tooltips', async () => {
+describe('browser extension settings', () => {
+  test('renders the extension list with injected labels and no tooltips', async () => {
     const fake = makeApi()
-    const { container, root } = await mount(fake.api, labels())
-    expect(container.textContent).toContain('Browser extensions')
+    const { container, root } = await mount(BrowserExtensionSettings, fake.api.extensions, labels())
     expect(container.textContent).toContain('Test Extension')
-    expect(container.textContent).toContain('https://example.test')
     expect(container.querySelector('[title]')).toBeNull()
     expect(container.querySelector('[data-klaus-tip]')).toBeNull()
     await unmount(root)
@@ -245,7 +251,7 @@ describe('browser data settings', () => {
 
   test('install uses the injected path API and refreshes the real list', async () => {
     const fake = makeApi()
-    const { container, root } = await mount(fake.api, labels())
+    const { container, root } = await mount(BrowserExtensionSettings, fake.api.extensions, labels())
     const input = container.querySelector('input') as any
     await setInputValue(input, '/tmp/second-extension')
     await click(buttonByText('Install extension'))
@@ -271,7 +277,7 @@ describe('browser data settings', () => {
         return { item: chosen }
       },
     })
-    const { container, root } = await mount(fake.api, labels())
+    const { container, root } = await mount(BrowserExtensionSettings, fake.api.extensions, labels())
     expect(container.textContent).not.toContain('Extension folder')
     await click(buttonByText('Install extension'))
     expect(fake.chooseCalls).toBe(1)
@@ -283,7 +289,7 @@ describe('browser data settings', () => {
 
   test('a cancelled choose does not install or refresh the list', async () => {
     const fake = makeApi({ choose: async () => ({ cancelled: true }) })
-    const { root } = await mount(fake.api, labels())
+    const { root } = await mount(BrowserExtensionSettings, fake.api.extensions, labels())
     await click(buttonByText('Install extension'))
     expect(fake.chooseCalls).toBe(1)
     expect(fake.installs).toEqual([])
@@ -314,7 +320,7 @@ describe('browser data settings', () => {
         return Promise.resolve({ items: [enabled] })
       },
     })
-    const { container, root } = await mount(fake.api, labels())
+    const { container, root } = await mount(BrowserExtensionSettings, fake.api.extensions, labels())
     await click(buttonByText('Refresh'))
     await click(buttonByText('Enable'))
     await act(async () => { fresh.resolve({ items: [enabled] }) })
@@ -326,7 +332,7 @@ describe('browser data settings', () => {
 
   test('enable, disable and remove stay on the injected API and surface failures', async () => {
     const fake = makeApi()
-    const { container, root } = await mount(fake.api, labels())
+    const { container, root } = await mount(BrowserExtensionSettings, fake.api.extensions, labels())
     await click(buttonByText('Enable'))
     expect(fake.toggles).toEqual([{ id: 'extension-one', enabled: true }])
     await click(buttonByText('Disable'))
@@ -339,17 +345,39 @@ describe('browser data settings', () => {
     const input = container.querySelector('input') as any
     await setInputValue(input, '/tmp/bad-extension')
     await click(buttonByText('Install extension'))
-    expect(container.textContent).toContain('Could not install extension: manifest is invalid')
+    expect(container.textContent).toContain('Could not install extension')
+    expect(container.textContent).not.toContain('manifest is invalid')
     expect(container.textContent).not.toContain('Second Extension')
     await unmount(root)
   })
+})
 
-  test('copy delegates the secret to the host API', async () => {
+describe('browser password manager', () => {
+  test('groups accounts by origin and keeps secrets behind expand and reveal', async () => {
     const fake = makeApi()
-    const { root } = await mount(fake.api, labels())
+    const { container, root } = await mount(BrowserPasswordManager, fake.api.credentials, labels().credentials)
+    expect(container.textContent).toContain('https://example.test')
+    expect(container.textContent).not.toContain('alice')
+    expect(container.textContent).not.toContain('secret')
+    expect(container.querySelector('input[type="password"]')).toBeNull()
+    await click(container.querySelector('[aria-expanded="false"]'))
+    expect(container.textContent).toContain('alice')
     await click(buttonByText('Copy'))
     expect(fake.copies).toEqual(['password-one'])
     expect(happyWindow.document.body.textContent).not.toContain('secret')
+    await click(buttonByText('Reveal'))
+    expect(happyWindow.document.body.textContent).toContain('secret')
+    await unmount(root)
+  })
+
+  test('the add button reveals the entry form and search filters origins', async () => {
+    const fake = makeApi()
+    const { container, root } = await mount(BrowserPasswordManager, fake.api.credentials, labels().credentials)
+    await click(buttonByText('Add'))
+    expect(container.querySelector('input[type="password"]')).not.toBeNull()
+    const search = container.querySelector('input[type="search"]') as any
+    await setInputValue(search, 'nothing-matches')
+    expect(container.textContent).toContain('No matching passwords')
     await unmount(root)
   })
 })

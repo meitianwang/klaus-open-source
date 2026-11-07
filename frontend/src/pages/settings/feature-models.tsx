@@ -10,6 +10,7 @@ import {
   type FeatureModelField, type FeatureModelRow as FeatureModelRowSpec, type FeatureModelSlot, type FeatureModelValues,
 } from './feature-models-state'
 import styles from './settings.module.css'
+import { settingsErrorText } from './settings-error-text'
 
 const w = () => window as any
 
@@ -112,8 +113,7 @@ export function useFeatureModelSettings(options?: GlobalModelTierOptions | null)
       const saved = result?.settings ? normalizedFeatureModelValues(result.settings) : { ...values, [field]: value }
       setSnapshot(current => current?.pending === pending ? { values: saved } : current)
     }).catch((error: any) => {
-      const message = error?.message || t('settings_failed')
-      setSnapshot(current => current?.pending === pending && previous ? { ...previous, saveError: message } : current)
+      setSnapshot(current => current?.pending === pending && previous ? { ...previous, saveError: settingsErrorText('feature-models-save', error, 'feature_models_save_failed') } : current)
     }).finally(() => {
       savePending.current = false
       window.dispatchEvent(new Event('klaus:models-changed'))

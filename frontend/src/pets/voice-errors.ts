@@ -18,5 +18,5 @@ export function petVoiceError(value: unknown, language: 'en' | 'zh'): string {
   if (/no (?:explicit realtime capability|configured realtime model)|explicit (?:realtime|transcription) model/i.test(raw)) return m.realtimeModelRequired;
   if (/sign.?in|authenticat|credential|logged.?in/i.test(raw)) return m.voiceSignIn;
   if (/realtime-source-unavailable/i.test(raw)) return m.voiceSourceUnavailable;
-  return language === 'en' && raw && !/^[\w-]+$/.test(raw) ? raw : m.voiceFailed;
+  return m.voiceFailed;
 }

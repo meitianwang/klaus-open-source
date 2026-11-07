@@ -4,6 +4,7 @@ import { modelOptionForValue } from '../../../../shared/cursor-model-catalog'
 import { useEffect, useLayoutEffect, useRef, type ReactNode } from 'react'
 import type { GlobalModelTierMapping, GlobalModelTierOptions, ModelTierName, ModelTierReference } from '../../../bridge/types'
 import { t as tGlobal } from '../../i18n'
+import { settingsErrorText } from './settings-error-text'
 import { rawIconHtml } from '../../components/Icon'
 import styles from './settings.module.css'
 
@@ -144,19 +145,19 @@ export function ModelSourceSelect({ className, items, ...rest }: {
 
 export async function loadGlobalModelTierMappings(): Promise<GlobalModelTierMapping> {
   const result = await w().settingsApi.models.getTiers()
-  if (result?.ok !== true || !result.mapping) throw new Error(result?.error || tGlobal('settings_section_load_failed'))
+  if (result?.ok !== true || !result.mapping) throw new Error(settingsErrorText('model-tiers-load', result?.error, 'settings_section_load_failed'))
   return result.mapping
 }
 
 export async function loadGlobalModelTierOptions(): Promise<GlobalModelTierOptions> {
   const result = await w().settingsApi.models.tierOptions()
-  if (result?.ok !== true || !Array.isArray(result.sources)) throw new Error(result?.error || tGlobal('settings_section_load_failed'))
+  if (result?.ok !== true || !Array.isArray(result.sources)) throw new Error(settingsErrorText('model-tiers-options', result?.error, 'settings_section_load_failed'))
   return result
 }
 
 export async function saveGlobalModelTier(tier: ModelTierName, target: ModelTierReference | null, expectedRevision: number): Promise<GlobalModelTierMapping> {
   const result = await w().settingsApi.models.setTier(tier, target, expectedRevision)
-  if (result?.ok !== true || !result.mapping) throw new Error(result?.error || tGlobal('settings_failed'))
+  if (result?.ok !== true || !result.mapping) throw new Error(settingsErrorText('model-tiers-save', result?.error, 'settings_failed'))
   return result.mapping
 }
 

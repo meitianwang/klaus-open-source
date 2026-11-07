@@ -3,6 +3,7 @@ import type { PetAppshotSettings, PetAppshotState } from '../../../../contracts/
 import type { DesktopPetApi } from '../../../bridge/pet-api';
 import { petMessages } from '../../pets/messages';
 import { captureShortcut, shortcutLabel } from '../../pets/settings-model';
+import { logHostDiagnostic } from './settings-error-text';
 
 export function AppshotSettings({ api, language }: { api: DesktopPetApi; language: 'en' | 'zh' }) {
   const [state, setState] = useState<PetAppshotState | null>(null), [error, setError] = useState(''), [pending, setPending] = useState(false);
@@ -10,20 +11,20 @@ export function AppshotSettings({ api, language }: { api: DesktopPetApi; languag
   const [capturing, setCapturing] = useState(false), captureActive = useRef(false), captureButton = useRef<HTMLButtonElement>(null);
   const endCapture = () => { if (captureActive.current) { captureActive.current = false; void window.klaus.settings.keymap.captureEnd().catch(() => {}); } setCapturing(false); };
   useEffect(() => () => { if (captureActive.current) void window.klaus.settings.keymap.captureEnd().catch(() => {}); }, []);
-  useEffect(() => { let current = true; api.appshotSettings().then(value => { if (current) setState(value); }).catch(error => { if (current) setError(String(error)); }); return () => { current = false; }; }, [api]);
+  useEffect(() => { let current = true; api.appshotSettings().then(value => { if (current) { if (value?.unavailableReason) logHostDiagnostic('appshot', value.unavailableReason); setState(value); } }).catch(error => { if (current) { logHostDiagnostic('appshot', error); setError(m.error); } }); return () => { current = false; }; }, [api, m]);
   const update = async (patch: Partial<PetAppshotSettings>) => {
     if (pending) return; setPending(true); setError('');
-    try { setState(await api.updateAppshotSettings(patch)); } catch (error) { setError(error instanceof Error ? error.message : String(error)); } finally { setPending(false); }
+    try { setState(await api.updateAppshotSettings(patch)); } catch (error) { logHostDiagnostic('appshot', error); setError(m.error); } finally { setPending(false); }
   };
   return <section className="pet-settings-section" aria-label={m.appshotTitle}>
     <div className="pet-settings-row"><div><strong>{m.appshotTitle}</strong><p>{m.appshotDescription}</p></div></div>
     {error && <p role="alert">{error}</p>}
     {!state ? <p role="status">{m.loading}</p> : <>
-      {!state.supported && <p role="status">{state.unavailableReason || m.error}</p>}
+      {!state.supported && <p role="status">{m.error}</p>}
       <fieldset disabled={pending || !state.supported} style={{ border: 0, padding: 0, margin: 0 }}>
         <div className="pet-settings-row"><label htmlFor="appshot-shortcut">{m.appshotShortcut}</label><select id="appshot-shortcut" value={state.settings.shortcut && !['DoubleCommand', 'DoubleAlt'].includes(state.settings.shortcut) ? 'custom' : state.settings.shortcut ?? ''} onChange={event => { if (event.target.value !== 'custom') void update({ shortcut: event.target.value || null }); }}>
           <option value="DoubleCommand">{m.appshotDoubleCommand}</option><option value="DoubleAlt">{m.appshotDoubleAlt}</option>{state.settings.shortcut && !['DoubleCommand', 'DoubleAlt'].includes(state.settings.shortcut) && <option value="custom">{shortcutLabel(state.settings.shortcut, navigator.platform.includes('Mac'))}</option>}<option value="">{m.appshotNoShortcut}</option>
-        </select><button type="button" ref={captureButton} onClick={() => { void window.klaus.settings.keymap.captureBegin().then(() => { captureActive.current = true; setCapturing(true); captureButton.current?.focus(); }).catch((error: unknown) => setError(error instanceof Error ? error.message : String(error))); }} onBlur={endCapture} onKeyDown={event => {
+        </select><button type="button" ref={captureButton} onClick={() => { void window.klaus.settings.keymap.captureBegin().then(() => { captureActive.current = true; setCapturing(true); captureButton.current?.focus(); }).catch((error: unknown) => { logHostDiagnostic('appshot', error); setError(m.error); }); }} onBlur={endCapture} onKeyDown={event => {
           if (!capturing) return; event.preventDefault(); event.stopPropagation(); if (event.key === 'Escape') { endCapture(); return; } const shortcut = captureShortcut(event); if (shortcut !== null) { endCapture(); void update({ shortcut: shortcut || null }); }
         }}>{capturing ? m.appshotShortcutRecording : m.appshotCustomShortcut}</button></div>
         <div className="pet-settings-row"><label htmlFor="appshot-destination">{m.appshotDestination}</label><select id="appshot-destination" value={state.settings.destination} onChange={event => void update({ destination: event.target.value as PetAppshotSettings['destination'] })}>

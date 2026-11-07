@@ -9,6 +9,7 @@ import {
 import type { GlobalModelTierMapping, GlobalModelTierOptions, ModelTierReference } from '../../../bridge/types'
 import { FOLLOW_CHAT_MODEL, GlobalModelTiersState } from './global-model-tiers-state'
 import styles from './settings.module.css'
+import { settingsErrorText } from './settings-error-text'
 import { useSettingsSnapshot } from './settings-snapshot'
 
 const w = () => window as any
@@ -116,7 +117,7 @@ export function GlobalModelTiers({ configureSource }: { configureSource: (source
       const saved = result?.settings || { enabled, model }
       setAdvisorState(current => current?.pending === pending ? { enabled: Boolean(saved.enabled), model: String(saved.model || '') } : current)
     } catch (error: any) {
-      const message = error?.message || t('settings_failed')
+      const message = settingsErrorText('model-tiers-action', error, 'settings_failed')
       setAdvisorState(current => current?.pending === pending && previous ? { ...previous, saveError: message } : current)
       setAdvisorError(message)
     } finally {
@@ -232,7 +233,7 @@ export function GlobalModelTiers({ configureSource }: { configureSource: (source
         </div>
       </div>
       <div className={styles['tiers-group']}>
-        {mapping?.migration?.warning ? <p className={styles['tier-migration']} role="alert">{mapping.migration.warning === 'invalid_legacy_mapping' ? t('model_tiers_migration_invalid') : mapping.migration.warning}</p> : null}
+        {mapping?.migration?.warning ? <p className={styles['tier-migration']} role="alert">{mapping.migration.warning === 'invalid_legacy_mapping' ? t('model_tiers_migration_invalid') : t('model_tiers_migration_warning')}</p> : null}
         {loadError || optionsError ? (
           <div className={styles['tier-load-error']} role="alert">
             <span>{loadError || optionsError}</span>

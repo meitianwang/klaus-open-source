@@ -6,6 +6,7 @@ import { useT } from '../../i18n'
 import { rawIconHtml } from '../../components/Icon'
 import { SettingsPage } from './kv'
 import styles from './settings.module.css'
+import { settingsErrorText } from './settings-error-text'
 
 const w = () => window as any
 
@@ -84,7 +85,7 @@ export function SystemAuthTab() {
       // before a newly granted permission can be observed by Klaus.
       w().showRestartPrompt()
     } catch (error: any) {
-      w().showToast(error?.message || t('settings_failed'))
+      w().showToast(settingsErrorText('system-auth', error, 'settings_failed'))
     } finally {
       setBusyKey('')
     }

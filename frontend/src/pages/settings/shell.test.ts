@@ -58,6 +58,7 @@ function fixture() {
     require: (name: string) => {
       if (name === '../../i18n') return { t: (key: string) => key }
       if (name === './kv') return { unmountSettingsTab() {} }
+      if (name === './settings-error-text') return { logHostDiagnostic() {}, settingsErrorText: (_surface: string, _detail: unknown, key: string) => key }
       if (name === './settings.module.css') return { default: {} }
       throw Error(`Unexpected import: ${name}`)
     },

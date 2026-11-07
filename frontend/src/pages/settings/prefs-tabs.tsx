@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useT, t as tGlobal } from '../../i18n'
 import { PrefToggleRow, SettingsPage, kvSet, useSettingsDraftSync } from './kv'
 import styles from './settings.module.css'
+import { settingsErrorText } from './settings-error-text'
 import type { PowerSaveSnapshot } from '../../../../contracts/power-save'
 import { useSettingsSnapshot } from './settings-snapshot'
 import { FeatureModelRow, useFeatureModelSettings } from './feature-models'
@@ -153,7 +154,7 @@ export function PreferencesTab() {
           wsExcludes: ((excludes?.patterns || []) as string[]).join('\n'),
         })
       } catch (error: any) {
-        if (!cancelled) setLoadError(error?.message || t('preferences_load_failed'))
+        if (!cancelled) setLoadError(settingsErrorText('prefs-load', error, 'preferences_load_failed'))
       }
     })()
     return () => { cancelled = true }
@@ -294,7 +295,7 @@ export function PreferencesTab() {
               if (!res?.ok) throw new Error(res?.error || t('settings_failed'))
             } catch (error: any) {
               setData(prev => prev && { ...prev, loginItem: !checked })
-              w().showToast(error?.message || t('settings_failed'))
+              w().showToast(settingsErrorText('prefs', error, 'settings_failed'))
             } finally {
               setBusyKey('')
             }
@@ -310,7 +311,7 @@ export function PreferencesTab() {
             } catch (error: any) {
               const actual = powerRef.current && powerRef.current.revision > startingRevision ? powerRef.current.preferences.preventSleepWhileRunning : !checked
               setData(prev => prev && { ...prev, keepAwake: actual })
-              w().showToast(error?.message || t('settings_failed'))
+              w().showToast(settingsErrorText('prefs', error, 'settings_failed'))
             } finally {
               setBusyKey('')
             }
@@ -395,7 +396,7 @@ export function PreferencesTab() {
                   w().showToast(t('workspace_excludes_saved'))
                 } catch (error: any) {
                   setData(current => current && { ...current, wsExcludes: previous })
-                  w().showToast(error?.message || t('settings_failed'))
+                  w().showToast(settingsErrorText('prefs', error, 'settings_failed'))
                 } finally {
                   setBusyKey('')
                 }
@@ -439,7 +440,7 @@ export function PermissionRulesTab() {
       if (!res?.ok) throw new Error(res?.error || t('settings_section_load_failed'))
       publish({ allow: res.allow || [], deny: res.deny || [], ask: res.ask || [] })
     } catch (error: any) {
-      setError(error?.message || t('settings_section_load_failed'))
+      setError(settingsErrorText('prefs', error, 'settings_section_load_failed'))
     }
   }, [t, beginRead])
 
@@ -465,7 +466,7 @@ export function PermissionRulesTab() {
       w().showToast(t('settings_saved'))
       await refresh()
     } catch (error: any) {
-      w().showToast(error?.message || t('perm_rules_add_failed'))
+      w().showToast(settingsErrorText('perm-rules', error, 'perm_rules_add_failed'))
     } finally {
       setBusy(false)
     }
@@ -485,7 +486,7 @@ export function PermissionRulesTab() {
       w().showToast(t('settings_saved'))
       await refresh()
     } catch (error: any) {
-      w().showToast(error?.message || t('perm_rules_delete_failed'))
+      w().showToast(settingsErrorText('perm-rules', error, 'perm_rules_delete_failed'))
     } finally {
       setBusy(false)
     }

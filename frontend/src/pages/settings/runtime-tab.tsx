@@ -10,6 +10,7 @@ import { useT } from '../../i18n'
 import { PrefToggleRow, SettingsPage } from './kv'
 import { useSettingsSnapshot } from './settings-snapshot'
 import { dependenciesDiagnoseFeedback } from './workspace-dependency-state'
+import { settingsErrorText } from './settings-error-text'
 import styles from './runtime-tab.module.css'
 
 interface Choice {
@@ -210,7 +211,7 @@ export function RuntimeSettingsTab({ embedded = false }: { embedded?: boolean })
       if (!publish(rows)) return
       setProjectError('')
     } catch (reason) {
-      if (sequence === projectsSequenceRef.current && publish(current => current)) setProjectError(reason instanceof Error ? reason.message : String(reason))
+      if (sequence === projectsSequenceRef.current && publish(current => current)) setProjectError(settingsErrorText('runtime-projects', reason, 'settings_section_load_failed'))
     }
   }, [beginProjectsRead])
 
@@ -224,7 +225,7 @@ export function RuntimeSettingsTab({ embedded = false }: { embedded?: boolean })
       setDeps(next)
       setReinstalling(next.state === 'installing')
     } catch (reason) {
-      setDepsError(reason instanceof Error ? reason.message : String(reason))
+      setDepsError(settingsErrorText('runtime-deps', reason, 'runtime_write_error'))
     }
   }, [])
   useEffect(() => {
@@ -243,7 +244,7 @@ export function RuntimeSettingsTab({ embedded = false }: { embedded?: boolean })
     }).catch((reason: unknown) => {
       if (sequence === sequenceRef.current && publish(current => current)) {
         setReadFailed(true)
-        setError(reason instanceof Error ? reason.message : String(reason))
+        setError(settingsErrorText('runtime-load', reason, 'settings_section_load_failed'))
       }
     })
     return () => { sequenceRef.current++ }
@@ -266,7 +267,7 @@ export function RuntimeSettingsTab({ embedded = false }: { embedded?: boolean })
       if (sequence === sequenceRef.current) setSnapshot(next)
     } catch (reason) {
       if (sequence === sequenceRef.current) {
-        setError(reason instanceof Error ? reason.message : t('runtime_write_error'))
+        setError(settingsErrorText('runtime-save', reason, 'runtime_write_error'))
         // A durable write can succeed before live publication fails. Display
         // the authoritative file state without repeating the mutation.
         try {
@@ -285,12 +286,12 @@ export function RuntimeSettingsTab({ embedded = false }: { embedded?: boolean })
     try {
       const result = await w().settingsApi.runtimeConfig.open(scope)
       if (result?.ok === false || result?.error) throw new Error(result.error || t('settings_failed'))
-    } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)) }
+    } catch (reason) { setError(settingsErrorText('runtime-open-config', reason, 'settings_failed')) }
     finally { setOpening(false) }
   }
   const openHelp = () => {
     void w().klaus.app.openExternal(desktopSiteUrl('/docs/desktop/plan-and-permission')).catch((reason: unknown) => {
-      setError(reason instanceof Error ? reason.message : String(reason))
+      setError(settingsErrorText('runtime-open-help', reason, 'settings_failed'))
     })
   }
   const setDepEnabled = async (checked: boolean) => {
@@ -299,7 +300,7 @@ export function RuntimeSettingsTab({ embedded = false }: { embedded?: boolean })
       const result = await w().settingsApi.kv.set(WORKSPACE_DEPENDENCIES_ENABLED_KEY, checked ? 'on' : 'off')
       if (result?.ok === false || result?.error) throw new Error(result.error || t('runtime_write_error'))
       await loadDeps()
-    } catch (reason) { setDepsError(reason instanceof Error ? reason.message : t('runtime_write_error')) }
+    } catch (reason) { setDepsError(settingsErrorText('runtime-deps', reason, 'runtime_write_error')) }
   }
   const diagnoseDeps = async () => {
     if (diagnosingRef.current) return

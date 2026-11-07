@@ -26,7 +26,7 @@ test('rapid search choices persist in order and a failed final save restores the
   expect(calls).toEqual(['native'])
   finish({ ok: true }); await Promise.all([first, second])
   expect(calls).toEqual(['native', 'codex'])
-  expect(snapshot).toEqual({ source: 'native', error: 'Credential expired', saveError: true })
+  expect(snapshot).toEqual({ source: 'native', error: 'Save failed', saveError: true })
   expect(frames.every(frame => Boolean(frame.source))).toBe(true)
   expect(settled).toBe(1)
 })

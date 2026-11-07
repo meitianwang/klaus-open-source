@@ -7,6 +7,7 @@ import { useSettingsSnapshot } from './settings-snapshot'
 import { HOOK_EVENTS, groupHookEntries, hookEntries, needsHookReview, parseHooksEditorValue, type HookEntry, type HooksReply } from './hooks-model'
 import shared from './settings.module.css'
 import styles from './hooks-settings.module.css'
+import { logHostDiagnostic, settingsErrorText } from './settings-error-text'
 
 const w = () => window as any
 interface HookSource {
@@ -21,7 +22,6 @@ interface HookSource {
 }
 const scopeOf = (source: HookSource) => source.projectRoot ? { projectRoot: source.projectRoot } : undefined
 const entriesOf = (source: HookSource) => source.kind === 'plugin' ? [] : hookEntries(source.reply ?? {}, source.kind)
-const errorText = (error: unknown) => error instanceof Error ? error.message : String(error)
 const folderName = (path: string) => path.split(/[\\/]/).filter(Boolean).pop() || path
 const countText = (t: (key: string) => string, key: string, count: number) => t(count === 1 ? `${key}_one` : key).replace('{count}', String(count))
 
@@ -53,14 +53,14 @@ export function HooksSettingsTab() {
       w().klaus.plugins.market(),
     ])
     if (seq !== revision.current) return
-    const notes: string[] = []
+    const failures: unknown[] = []
     const read = (index: number) => {
       const result = results[index]!
       if (result.status === 'fulfilled') {
-        if (result.value?.error) notes.push(String(result.value.error))
+        if (result.value?.error) failures.push(result.value.error)
         return result.value
       }
-      notes.push(errorText(result.reason))
+      failures.push(result.reason)
       return undefined
     }
     const projects = read(0)
@@ -90,7 +90,7 @@ export function HooksSettingsTab() {
           const reply: HooksReply = await w().settingsApi.klausHooks.get(scopeOf(source))
           if (reply?.ok === false) throw new Error(reply.error || t('settings_failed'))
           source.reply = reply
-        } catch (error) { source.error = errorText(error) }
+        } catch (error) { source.error = settingsErrorText('hooks-source', error, 'hooks_source_load_failed') }
       }
     }
     await Promise.all(Array.from({ length: Math.min(4, next.length) }, worker))
@@ -106,7 +106,10 @@ export function HooksSettingsTab() {
       return
     }
     setSourceErrors(Object.fromEntries(next.filter(source => source.error).map(source => [source.id, source.error!])))
-    setError(notes.join('\n'))
+    if (failures.length) {
+      for (const failure of failures) logHostDiagnostic('hooks', failure)
+      setError(t('hooks_source_load_failed'))
+    } else setError('')
     setLoading(false)
   }, [t, beginSourcesRead])
 
@@ -224,20 +227,21 @@ function HookSourceDialog({ source, title, busy, update, onClose }: {
       const reply = await update(operation)
       if (success) setMessage({ text: success, error: false })
       return reply
-    } catch (error) { setMessage({ text: errorText(error), error: true }); return undefined }
+    } catch (error) { setMessage({ text: settingsErrorText('hooks-apply', error, 'hooks_apply_failed'), error: true }); return undefined }
     finally { busyRef.current = false }
   }
   const reveal = (path: string) => {
     if (!path) return
     void w().artifacts.reveal(path).then((result: any) => {
       if (result?.error || result?.ok === false) throw new Error(result.error || t('settings_failed'))
-    }).catch((error: unknown) => setMessage({ text: errorText(error), error: true }))
+    }).catch((error: unknown) => setMessage({ text: settingsErrorText('hooks-reveal', error, 'settings_failed'), error: true }))
   }
   const save = async () => {
     let hooks: Record<string, unknown>
     try { hooks = parseHooksEditorValue(draft) }
     catch (error) {
-      setMessage({ text: error instanceof Error && error.message === 'hooks_invalid_object' ? t('hooks_invalid_object') : `${t('hooks_invalid_json')}: ${errorText(error)}`, error: true })
+      logHostDiagnostic('hooks-editor', error)
+      setMessage({ text: error instanceof Error && error.message === 'hooks_invalid_object' ? t('hooks_invalid_object') : t('hooks_invalid_json'), error: true })
       return
     }
     const reply = await act(() => w().settingsApi.klausHooks.set(hooks, scopeOf(source)), t('hooks_saved'))
@@ -313,7 +317,7 @@ function HookSourceDialog({ source, title, busy, update, onClose }: {
             <button type="button" className="btn-sm btn-primary" id="hooks-save-btn" disabled={locked || !dirty} onClick={() => { void save() }}>{t('hooks_save')}</button>
             <button type="button" className="btn-sm" disabled={locked} onClick={() => {
               try { setDraft(JSON.stringify(parseHooksEditorValue(draft), null, 2)); setMessage(null) }
-              catch (error) { setMessage({ text: `${t('hooks_invalid_json')}: ${errorText(error)}`, error: true }) }
+              catch (error) { logHostDiagnostic('hooks-editor', error); setMessage({ text: t('hooks_invalid_json'), error: true }) }
             }}>{t('hooks_format')}</button>
             {dirty && <span className={styles.notice}>{t('hooks_unsaved_changes')}</span>}
           </div>

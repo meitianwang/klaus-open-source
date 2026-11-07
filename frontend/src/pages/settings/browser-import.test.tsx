@@ -146,11 +146,24 @@ describe('browser import dialog lifecycle', () => {
       expect(button('Import').disabled).toBe(!row.canImport)
       expect(Boolean(button('Retry'))).toBe(row.canRetry)
       expect(body.includes('No supported browser profiles were found.')).toBe(row.state === 'empty')
-      expect(body.includes('Your system blocked access to browser profiles.')).toBe(row.state === 'permission' || row.state === 'partial')
+      expect(body.includes('Your system blocked access to browser profiles.')).toBe(row.state === 'permission')
       expect(body.includes('Browser profiles could not be loaded.')).toBe(row.state === 'failed')
-      expect(body.includes('Some browser profiles could not be read.')).toBe(row.state === 'partial')
+      expect(body.includes('Some browser profiles could not be read.')).toBe(false)
       await unmount(root)
     }
+  })
+
+  test('a partially readable discovery keeps the form clean and hides raw issue codes', async () => {
+    const root = await mount(makeApi({
+      discover: async () => ({ profiles, errors: [{ sourceId: 'chrome', code: 'source_permission_denied', message: 'Synthetic access denial' }] }),
+    }))
+    const body = happyWindow.document.body.textContent
+    expect(body).not.toContain('source_permission_denied')
+    expect(body).not.toContain('Synthetic access denial')
+    expect(body).not.toContain('Some browser profiles could not be read.')
+    expect(happyWindow.document.querySelectorAll('[data-import-category]').length).toBe(4)
+    expect(button('Import').disabled).toBe(false)
+    await unmount(root)
   })
 
   test('a denied discovery offers explicit settings navigation and a user-driven retry', async () => {

@@ -96,6 +96,8 @@ import presentationChartSvg from '@phosphor-icons/core/assets/regular/presentati
 import deviceMobileSvg from '@phosphor-icons/core/assets/regular/device-mobile.svg?raw'
 import copySvg from '@phosphor-icons/core/assets/regular/copy.svg?raw'
 import clockSvg from '@phosphor-icons/core/assets/regular/clock.svg?raw'
+import clockCounterClockwiseSvg from '@phosphor-icons/core/assets/regular/clock-counter-clockwise.svg?raw'
+import cookieSvg from '@phosphor-icons/core/assets/regular/cookie.svg?raw'
 import arrowUUpLeftSvg from '@phosphor-icons/core/assets/regular/arrow-u-up-left.svg?raw'
 import arrowArcLeftSvg from '@phosphor-icons/core/assets/regular/arrow-arc-left.svg?raw'
 import arrowArcRightSvg from '@phosphor-icons/core/assets/regular/arrow-arc-right.svg?raw'
@@ -124,6 +126,7 @@ import swapSvg from '@phosphor-icons/core/assets/regular/swap.svg?raw'
 import imageSvg from '@phosphor-icons/core/assets/regular/image.svg?raw'
 import imageBrokenSvg from '@phosphor-icons/core/assets/regular/image-broken.svg?raw'
 import imagesSvg from '@phosphor-icons/core/assets/regular/images.svg?raw'
+import gearSixSvg from '@phosphor-icons/core/assets/regular/gear-six.svg?raw'
 import filmStripSvg from '@phosphor-icons/core/assets/regular/film-strip.svg?raw'
 import musicNotesSvg from '@phosphor-icons/core/assets/regular/music-notes.svg?raw'
 import paperclipSvg from '@phosphor-icons/core/assets/regular/paperclip.svg?raw'
@@ -138,6 +141,7 @@ import starSvg from '@phosphor-icons/core/assets/regular/star.svg?raw'
 import starFillSvg from '@phosphor-icons/core/assets/fill/star-fill.svg?raw'
 import lightningFillSvg from '@phosphor-icons/core/assets/fill/lightning-fill.svg?raw'
 import funnelSvg from '@phosphor-icons/core/assets/regular/funnel.svg?raw'
+import funnelSimpleSvg from '@phosphor-icons/core/assets/regular/funnel-simple.svg?raw'
 import arrowsDownUpSvg from '@phosphor-icons/core/assets/regular/arrows-down-up.svg?raw'
 import diceFiveSvg from '@phosphor-icons/core/assets/regular/dice-five.svg?raw'
 import userSquareSvg from '@phosphor-icons/core/assets/regular/user-square.svg?raw'
@@ -457,6 +461,17 @@ export const LIBRARY: Record<string, string> = {
   'tool-plan-mode': shell(clipboardTextSvg, { cls: 'tool-item-icon' }),
   'tool-notebook': shell(bookOpenSvg, { cls: 'tool-item-icon' }),
   'tool-clock': shell(clockSvg, { cls: 'tool-item-icon' }),
+  'import-passwords': shell(keySvg),
+  'import-cookies': shell(cookieSvg),
+  'import-history': shell(clockCounterClockwiseSvg),
+  'import-downloads': shell(downloadSimpleSvg),
+  'import-cache': shell(imagesSvg),
+  'import-site-data': shell(gearSixSvg),
+  'import-extensions': shell(puzzlePieceSvg),
+  'import-source-browser': shell(globeSvg),
+  'browser-history-filter': shell(funnelSimpleSvg, { size: 16 }),
+  'browser-history-more': shell(dotsThreeSvg, { size: 16 }),
+  'browser-history-favicon': shell(globeSvg),
   'tool-bell': shell(bellSvg, { cls: 'tool-item-icon' }),
   'tool-monitor': shell(pulseSvg, { cls: 'tool-item-icon' }),
   'tool-worktree': shell(gitBranchSvg, { cls: 'tool-item-icon' }),

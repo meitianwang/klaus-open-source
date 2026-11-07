@@ -67,6 +67,7 @@ import {
 } from '../../app/keybindings/state'
 import { matchScore } from '../../chat/command-menu/matcher'
 import { SettingsPage } from './kv'
+import { settingsErrorText } from './settings-error-text'
 import kb from './keyboard-shortcuts.module.css'
 
 /** In-group priority list: these ids lead their group, the rest
@@ -179,7 +180,7 @@ export function KeyboardShortcutsTab() {
       await setCommandKeybinding(command.id, update)
       setCapture(prev => (prev?.commandId === command.id ? null : prev))
     } catch (error: any) {
-      setRowErrors(prev => ({ ...prev, [command.id]: error?.message || t('kb_update_error') }))
+      setRowErrors(prev => ({ ...prev, [command.id]: settingsErrorText('keyboard', error, 'kb_update_error') }))
       setCapture(prev => (prev?.commandId === command.id ? null : prev))
     } finally {
       setPendingCommand(null)
@@ -191,7 +192,7 @@ export function KeyboardShortcutsTab() {
     try {
       await setCommandKeybinding(command.id, { type: 'remove', accelerator: entry.accelerator })
     } catch (error: any) {
-      setRowErrors(prev => ({ ...prev, [command.id]: error?.message || t('kb_update_error') }))
+      setRowErrors(prev => ({ ...prev, [command.id]: settingsErrorText('keyboard', error, 'kb_update_error') }))
     } finally {
       setPendingCommand(null)
     }
@@ -202,7 +203,7 @@ export function KeyboardShortcutsTab() {
     try {
       await setCommandKeybinding(command.id, { type: 'reset' })
     } catch (error: any) {
-      setRowErrors(prev => ({ ...prev, [command.id]: error?.message || t('kb_update_error') }))
+      setRowErrors(prev => ({ ...prev, [command.id]: settingsErrorText('keyboard', error, 'kb_update_error') }))
     } finally {
       setPendingCommand(null)
     }
@@ -215,7 +216,7 @@ export function KeyboardShortcutsTab() {
       await resetAllKeybindings()
       setResetDialogOpen(false)
     } catch (error: any) {
-      setResetError(error?.message || t('kb_reset_all_error'))
+      setResetError(settingsErrorText('keyboard-reset', error, 'kb_reset_all_error'))
     } finally {
       setResetting(false)
     }

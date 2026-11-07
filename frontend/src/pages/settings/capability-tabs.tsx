@@ -5,6 +5,7 @@ import { rawIconHtml } from '../../components/Icon'
 import { SettingsPage } from './kv'
 import { useSettingsSnapshot } from './settings-snapshot'
 import styles from './settings.module.css'
+import { settingsErrorText } from './settings-error-text'
 
 const w = () => window as any
 
@@ -85,7 +86,7 @@ export function MobileBridgeSettingsTab() {
     const api = w().settingsApi.mobileBridge
     if (!api?.get) { publish({ kind: 'unavailable' }); return }
     const result = await api.get().catch((err: any) => ({ ok: false, error: err?.message || String(err) }))
-    if (!result?.ok) { if (publish(current => current)) setLoadError(result?.error || t('settings_failed')); return }
+    if (!result?.ok) { if (publish(current => current)) setLoadError(settingsErrorText('mobile-bridge-load', result?.error, 'settings_failed')); return }
     publish({ kind: 'ready', cfg: result.settings || {} })
   }, [t, beginStateRead])
 
@@ -115,7 +116,7 @@ export function MobileBridgeSettingsTab() {
         powerRevision.current = snapshot.revision
         setPowerError('')
       }
-    }).catch((error: any) => { if (!cancelled && publish(current => current)) setPowerError(error?.message || t('settings_failed')) })
+    }).catch((error: any) => { if (!cancelled && publish(current => current)) setPowerError(settingsErrorText('power-load', error, 'settings_failed')) })
     return () => { cancelled = true; off() }
   }, [t, beginPowerRead, setPower])
   const shouldPoll = state.kind === 'ready' && state.cfg?.accountLinked === true
@@ -162,7 +163,7 @@ export function MobileBridgeSettingsTab() {
       const res = await operation().catch((err: any) => ({ ok: false, error: err?.message || String(err) }))
       if (res?.cancelled) return
       if (!res?.ok) {
-        w().showToast(res?.error || t('settings_failed'))
+        w().showToast(settingsErrorText('mobile-bridge', res?.error, 'settings_failed'))
         return
       }
       await Promise.all([reload(), reloadDevices()])
@@ -263,7 +264,7 @@ export function MobileBridgeSettingsTab() {
                   if (!result?.ok) throw new Error(result?.error || t('settings_failed'))
                   if (result.revision >= powerRevision.current) { powerRevision.current = result.revision; setPower({ keepAwake: result.keepRemoteControlAwakeWhilePluggedIn, revision: result.revision }) }
                 })
-                .catch((error: any) => w().showToast(error?.message || t('settings_failed')))
+                .catch((error: any) => w().showToast(settingsErrorText('power', error, 'settings_failed')))
                 .finally(() => setPowerBusy(false))
             }} />
         } />

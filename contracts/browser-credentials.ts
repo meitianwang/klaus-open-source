@@ -288,6 +288,11 @@ export interface BrowserCredentialsLabels {
   contactNameLabel: string;
   cancelButton: string;
   errorLabel: string;
+  operationFailed: string;
+  passwordSearch: string;
+  passwordAdd: string;
+  passwordAccounts: string;
+  passwordNoResults: string;
   copySucceeded: string;
 }
 

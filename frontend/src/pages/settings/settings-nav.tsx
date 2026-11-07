@@ -32,7 +32,7 @@ function VersionFooter() {
         setVersion(status?.currentVersion ?? null)
         // Keep the reason for unavailable updates beside the running version
         // so every platform has a visible explanation.
-        setUnavailable(status && status.supported === false ? (status.error || 'updates_unavailable') : null)
+        setUnavailable(status && status.supported === false ? 'updates_unavailable' : null)
       })
       .catch(() => {})
     return () => { cancelled = true }
@@ -42,7 +42,7 @@ function VersionFooter() {
     <div className={styles['settings-version']}>
       {tr('settings_version_label')} {version}
       {unavailable && (
-        <div className={styles['settings-version-unavailable']}>{tr('update_unavailable_notice').replace('{reason}', unavailable)}</div>
+        <div className={styles['settings-version-unavailable']}>{tr('update_unavailable_notice').replace('{reason}', tr(unavailable))}</div>
       )}
     </div>
   )

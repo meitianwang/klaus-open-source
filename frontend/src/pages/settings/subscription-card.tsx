@@ -6,6 +6,7 @@ import { knownTraeAuthErrorText } from '../../app/trae-errors'
 import { knownKiroAuthErrorText } from '../../app/kiro-errors'
 import { activateModelSource, KlsSelect } from './model-shared'
 import styles from './settings.module.css'
+import { settingsErrorText } from './settings-error-text'
 
 const w = () => window as any
 
@@ -1041,7 +1042,7 @@ export function SubscriptionCardBody({ mode, reloadSeq, reload, activateModelOnL
       if (result?.ok !== true) throw new Error(authErrorText(source, result?.error))
       reload()
     } catch (error: any) {
-      setStatusMsg(error?.message || t('profile_logout_failed'))
+      setStatusMsg(settingsErrorText('profile-logout', error, 'profile_logout_failed'))
     }
   }
 

@@ -10,6 +10,7 @@ import { useT } from '../../i18n'
 import { desktopDistribution, desktopSiteUrl, loadDesktopDistribution, subscribeDesktopDistribution } from '../../app/distribution'
 import { PrefToggleRow, SettingsPage, boolChecked, kvGet, kvSet } from './kv'
 import { useSettingsSnapshot } from './settings-snapshot'
+import { settingsErrorText } from './settings-error-text'
 import styles from './settings.module.css'
 
 const w = () => window as any
@@ -57,7 +58,7 @@ export function AboutTab() {
     setTraceError('')
     void kvGet('klaus.providerTrace')
       .then(raw => { publish(boolChecked(raw, false)) })
-      .catch((error: unknown) => { if (publish(current => current)) setTraceError(error instanceof Error ? error.message : String(error)) })
+      .catch((error: unknown) => { if (publish(current => current)) setTraceError(settingsErrorText('about-trace', error, 'about_trace_load_failed')) })
   }, [beginTraceRead])
   useEffect(() => { loadTrace() }, [loadTrace])
 
@@ -98,7 +99,7 @@ export function AboutTab() {
       const next = await api.check()
       setStatus(next ?? null)
     } catch (error: any) {
-      setCheckError(String(error?.message || error))
+      setCheckError(settingsErrorText('about-update-check', error, 'update_check_failed'))
     } finally {
       setChecking(false)
     }
@@ -116,7 +117,7 @@ export function AboutTab() {
       }
       // A successful install relaunches the app; nothing to reset.
     } catch (error: any) {
-      w().showToast(String(error?.message || error))
+      w().showToast(settingsErrorText('about-update-install', error, 'update_install_failed'))
       setInstalling(false)
     }
   }, [checking, installing, t])
@@ -135,12 +136,12 @@ export function AboutTab() {
   const statusLine = (() => {
     if (checkError) return t('update_unavailable_notice').replace('{reason}', checkError)
     if (!supported) {
-      return t('update_unavailable_notice').replace('{reason}', status?.error || t('updates_unavailable'))
+      return t('update_unavailable_notice').replace('{reason}', t('updates_unavailable'))
     }
     if (state === 'checking') return t('update_header_checking')
     if (state === 'downloading') return t('update_header_downloading')
     if (downloaded) return t('update_ready').replace('{v}', availableVersion)
-    if (state === 'error' && status?.error) return t('update_unavailable_notice').replace('{reason}', status.error)
+    if (state === 'error' && status?.error) return t('update_unavailable_notice').replace('{reason}', t('updates_unavailable'))
     return t('about_up_to_date')
   })()
 

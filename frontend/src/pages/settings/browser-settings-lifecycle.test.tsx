@@ -153,7 +153,7 @@ describe('browser settings React lifecycle', () => {
     const toggle = happyWindow.document.getElementById('browser-settings-enabled')
     await act(async () => { toggle.click() })
     expect(toggle.checked).toBe(false)
-    expect(happyWindow.__toasts).toEqual(['Synthetic persistence failure'])
+    expect(happyWindow.__toasts).toEqual(['Could not save the setting.'])
     expect(happyWindow.__toastOptions).not.toContainEqual({ tone: 'success' })
     expect(happyWindow.document.getElementById('browser-settings-enabled')).toBe(toggle)
     await act(async () => { root.unmount() })
@@ -215,7 +215,7 @@ describe('browser settings React lifecycle', () => {
     await act(async () => { root.unmount() })
   })
 
-  test('individual clearing stays scoped and a rejected request can be retried', async () => {
+  test('the clear dialog scopes deletion to the chosen kinds and a rejected request can be retried', async () => {
     const calls: string[] = []
     let rejectClear: (error: Error) => void = () => {}
     installApi({
@@ -228,20 +228,29 @@ describe('browser settings React lifecycle', () => {
       },
     })
     const { root } = await mount()
-    expect(happyWindow.document.querySelector('#browser-clear-data-options')).toBeNull()
-    const disclosure = happyWindow.document.querySelector('[aria-controls="browser-clear-data-options"]')
-    await click(disclosure)
-    const options = happyWindow.document.querySelector('#browser-clear-data-options')
-    const history = options.querySelector('button')
-    await click(history)
-    await click(history)
-    expect(calls).toEqual(['history'])
-    expect(history.getAttribute('aria-busy')).toBe('true')
-    expect((happyWindow.document.querySelector('#browser-clear-data') as any).disabled).toBe(true)
-    await act(async () => { rejectClear(new Error('clear failed')) })
-    expect((happyWindow as any).__toasts).toContain('clear failed')
-    expect(history.disabled).toBe(false)
+    expect(happyWindow.document.querySelector('[data-clear-dialog]')).toBeNull()
     await click(happyWindow.document.querySelector('#browser-clear-data'))
+    const dialog = happyWindow.document.querySelector('[data-clear-dialog]')
+    const boxes = Array.from(dialog.querySelectorAll('[data-clear-kind]')) as any[]
+    expect(boxes.map(box => box.getAttribute('data-clear-kind'))).toEqual(['history', 'downloads', 'cookies', 'cache', 'siteData'])
+    expect(boxes.map(box => box.checked)).toEqual([true, true, true, true, false])
+    // Narrow the scope to browsing history only, then delete.
+    for (const box of boxes.slice(1, 4)) await act(async () => { box.click() })
+    await click(buttonByText('Delete data'))
+    expect(calls).toEqual(['history'])
+    expect(happyWindow.document.querySelector('[data-clear-dialog]')).toBeNull()
+    const trigger = happyWindow.document.querySelector('#browser-clear-data') as any
+    expect(trigger.disabled).toBe(true)
+    expect(trigger.getAttribute('aria-busy')).toBe('true')
+    await act(async () => { rejectClear(new Error('clear failed')) })
+    expect((happyWindow as any).__toasts).toContain('Could not save the setting.')
+    expect((happyWindow as any).__toasts).not.toContain('clear failed')
+    expect((happyWindow.document.querySelector('#browser-clear-data') as any).disabled).toBe(false)
+    // Retry with every kind selected: the host receives one all-kinds request.
+    await click(happyWindow.document.querySelector('#browser-clear-data'))
+    const reopened = happyWindow.document.querySelector('[data-clear-dialog]')
+    await act(async () => { (reopened.querySelector('[data-clear-kind="siteData"]') as any).click() })
+    await click(buttonByText('Delete data'))
     expect(calls).toEqual(['history', 'all'])
     await act(async () => { root.unmount() })
   })
@@ -275,6 +284,82 @@ describe('browser settings React lifecycle', () => {
     expect(retry).toBeTruthy()
     await click(retry)
     expect(calls.length).toBe(3)
+    await act(async () => { root.unmount() })
+  })
+
+  test('history groups entries by visit date with collapsible day cards, row menus and a header clear action', async () => {
+    const removed: string[][] = []
+    const day = 86400000
+    const today = new Date(2026, 10, 6, 10, 0, 0).getTime()
+    const older = today - 3 * day
+    installApi({
+      get: async () => ({ ...base }),
+      subscribe: () => () => {},
+      history: async () => ({
+        items: [
+          { id: 'h1', url: 'https://example.com/a', title: 'Newer page', visitTime: today, isActorVisit: false },
+          { id: 'h2', url: 'https://example.com/b', title: 'Older page', visitTime: older, isActorVisit: false },
+        ],
+        nextCursor: null,
+      }),
+      removeHistory: async (ids: string[]) => { removed.push(ids); return { ok: true } },
+      clearData: async () => ({ ok: true }),
+    })
+    const { root } = await mount()
+    await click(buttonByText('Manage'))
+    expect(happyWindow.document.body.textContent).toContain('All history records')
+    let groups = Array.from(happyWindow.document.querySelectorAll('[data-hist-group]')) as any[]
+    expect(groups.length).toBe(2)
+    expect(groups[0].textContent).toContain('November 6, 2026')
+    expect(groups[1].textContent).toContain('November 3, 2026')
+    expect(groups[0].querySelectorAll('[data-hist-row]').length).toBe(1)
+    expect(groups[1].querySelectorAll('[data-hist-row]').length).toBe(0)
+    await click(groups[1].querySelector('button'))
+    expect(groups[1].querySelectorAll('[data-hist-row]').length).toBe(1)
+    // The row overflow menu removes a single entry.
+    await click(happyWindow.document.querySelector('[data-hist-menu="h2"]'))
+    await click(buttonByText('Remove'))
+    expect(removed).toEqual([['h2']])
+    // The source filter lives behind the search pill trigger.
+    await click(happyWindow.document.querySelector('[data-hist-popover-trigger][aria-label="Filter by visit source"]'))
+    await click(buttonByText('Agent'))
+    expect(happyWindow.document.body.textContent).toContain('Agent history records')
+    // The header clear action opens the shared clear dialog.
+    await click(buttonByText('Clear browsing data'))
+    expect(happyWindow.document.querySelector('[data-clear-dialog]')).not.toBeNull()
+    await click(buttonByText('Cancel'))
+    expect(happyWindow.document.querySelector('[data-clear-dialog]')).toBeNull()
+    await act(async () => { root.unmount() })
+  })
+
+  test('the site rule dialog adds a pattern and applies chosen overrides', async () => {
+    const policyCalls: any[] = []
+    installApi({
+      get: async () => ({ ...base }),
+      subscribe: () => () => {},
+      setOriginPolicy: async (input: any) => { policyCalls.push(input); return { ok: true } },
+    })
+    const { root } = await mount()
+    await click(happyWindow.document.querySelector('#browser-site-rule-add'))
+    const dialog = happyWindow.document.querySelector('[data-site-rule-dialog]')
+    expect(dialog).not.toBeNull()
+    const confirm = Array.from(dialog.querySelectorAll('button')).find((node: any) => node.textContent?.trim() === 'Add') as any
+    expect(confirm.disabled).toBe(true)
+    const input = dialog.querySelector('input') as any
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(happyWindow.HTMLInputElement.prototype, 'value')?.set
+      if (setter) setter.call(input, 'example.com')
+      else input.value = 'example.com'
+      input.dispatchEvent(new happyWindow.InputEvent('input', { bubbles: true, data: 'example.com', inputType: 'insertText' }))
+    })
+    expect(confirm.disabled).toBe(false)
+    await choose('browser-site-rule-browsing', 'allow')
+    await click(confirm)
+    expect(policyCalls).toEqual([
+      { pattern: 'example.com', resource: 'browsing', setting: 'inherit' },
+      { pattern: 'example.com', resource: 'browsing', setting: 'allow' },
+    ])
+    expect(happyWindow.document.querySelector('[data-site-rule-dialog]')).toBeNull()
     await act(async () => { root.unmount() })
   })
 
@@ -312,9 +397,11 @@ describe('browser settings React lifecycle', () => {
     const checkbox = happyWindow.document.querySelector('input[type="checkbox"]') as any
     await act(async () => { checkbox.click() })
     expect((buttonByText('Remove selected') as any).disabled).toBe(false)
-    await choose('browser-history-source', 'agent')
+    await click(happyWindow.document.querySelector('[aria-label="Filter by visit source"]'))
+    await click(buttonByText('Agent'))
     await act(async () => { await new Promise(resolve => setTimeout(resolve, 50)) })
-    expect((buttonByText('Remove selected') as any).disabled).toBe(true)
+    expect(buttonByText('Remove selected')).toBeUndefined()
+    expect((happyWindow.document.querySelector('input[type="checkbox"]') as any).checked).toBe(false)
     await act(async () => { root.unmount() })
   })
 
@@ -333,12 +420,15 @@ describe('browser settings React lifecycle', () => {
     const { root } = await mount()
     const manage = Array.from(happyWindow.document.querySelectorAll('button')).filter((node: any) => node.textContent?.trim() === 'Manage')[0] as any
     await click(manage)
+    await click(happyWindow.document.querySelector('[data-hist-menu="h1"]'))
     const remove = buttonByText('Remove')
     await click(remove)
-    await click(remove)
+    await click(happyWindow.document.querySelector('[data-hist-menu="h1"]'))
+    await click(buttonByText('Remove'))
     expect(calls.length).toBe(1)
     await act(async () => { rejectRemoval(new Error('delete failed')) })
-    expect((happyWindow as any).__toasts.some((text: string) => text.includes('delete failed'))).toBe(true)
+    expect((happyWindow as any).__toasts.some((text: string) => text.includes('Could not save the setting.'))).toBe(true)
+    expect((happyWindow as any).__toasts.some((text: string) => text.includes('delete failed'))).toBe(false)
     await act(async () => { root.unmount() })
   })
 
@@ -373,7 +463,8 @@ describe('browser settings React lifecycle', () => {
     const remove = Array.from(happyWindow.document.querySelectorAll('button')).filter((node: any) => node.textContent?.trim() === 'Remove from history')[0] as any
     await click(remove)
     expect(actions).toEqual(['remove'])
-    expect((happyWindow as any).__toasts.some((text: string) => text.includes('action failed'))).toBe(true)
+    expect((happyWindow as any).__toasts.some((text: string) => text.includes('Could not save the setting.'))).toBe(true)
+    expect((happyWindow as any).__toasts.some((text: string) => text.includes('action failed'))).toBe(false)
     const back = buttonByText('Back')
     await click(back)
     expect(offCalled).toBe(true)

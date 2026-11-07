@@ -5,6 +5,7 @@ import { kvGet, kvSet } from './kv'
 import { ModelSourceSelect } from './model-shared'
 import { useSettingsSnapshot } from './settings-snapshot'
 import styles from './settings.module.css'
+import { settingsErrorText } from './settings-error-text'
 
 interface VoiceCapabilities { systemAsr: boolean; availability: Record<string, boolean>; effectiveSource?: string; streaming?: boolean; nativeStreaming?: boolean; experience?: string }
 interface VoiceSourceSnapshot { source: string | null; pending?: object; error?: string; saveError?: boolean }
@@ -37,7 +38,7 @@ export function useVoiceInputSource(reloadSeq = 0) {
           if (config?.ok === false) throw new Error(t('voice_source_unavailable'))
           publish({ value: { systemAsr: !!config?.systemAsr, availability: config?.availability || {}, effectiveSource: config?.source, streaming: config?.streaming === true, nativeStreaming: config?.nativeStreaming === true, experience: config?.experience } })
         } catch (error: any) {
-          publish(current => ({ ...current, error: error?.message || t('settings_section_load_failed') }))
+          publish(current => ({ ...current, error: settingsErrorText('voice-source', error, 'settings_section_load_failed') }))
         }
       })()
     }

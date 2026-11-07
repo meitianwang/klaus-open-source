@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { BrowserCredentialsApi, BrowserCredentialsLabels } from '../../../../contracts/browser-credentials'
-import { BrowserCredentialsSettings } from './browser-credentials'
 import styles from './browser-data-settings.module.css'
+import { logHostDiagnostic } from './settings-error-text'
 
 /** Extension lifecycle operations are injected by the settings bridge. */
 export interface BrowserExtensionInfoLike {
@@ -59,22 +59,20 @@ export interface BrowserDataSettingsLabels {
   removeAction: string
   installFailed: string
   extensionActionFailed: string
+  extensionItemError: string
 }
 
 interface Props {
-  api: BrowserDataSettingsApi
+  api: BrowserExtensionsApiLike
   labels: BrowserDataSettingsLabels
-}
-
-function errorText(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
 }
 
 function normalizeList(reply: BrowserExtensionsListReply): BrowserExtensionInfoLike[] {
   return Array.isArray(reply) ? reply : reply.items
 }
 
-export function BrowserDataSettings({ api, labels }: Props) {
+/** Extension management lives on its own surface, separate from saved passwords. */
+export function BrowserExtensionSettings({ api, labels }: Props) {
   const [extensions, setExtensions] = useState<BrowserExtensionInfoLike[]>([])
   const [extensionPath, setExtensionPath] = useState('')
   const [loading, setLoading] = useState(true)
@@ -88,12 +86,12 @@ export function BrowserDataSettings({ api, labels }: Props) {
     const revision = ++loadRevision.current
     setLoading(true)
     try {
-      const reply = await api.extensions.list()
+      const reply = await api.list()
       if (!mounted.current || revision !== loadRevision.current) return
       setExtensions(normalizeList(reply))
       setError('')
     } catch (cause) {
-      if (mounted.current && revision === loadRevision.current) setError(`${labels.extensionActionFailed}: ${errorText(cause)}`)
+      if (mounted.current && revision === loadRevision.current) { logHostDiagnostic('browser-extensions', cause); setError(labels.extensionActionFailed) }
     } finally {
       if (mounted.current && revision === loadRevision.current) setLoading(false)
     }
@@ -112,24 +110,25 @@ export function BrowserDataSettings({ api, labels }: Props) {
     setBusy('install')
     setError('')
     try {
-      await api.extensions.install({ path })
+      await api.install({ path })
       setExtensionPath('')
       await loadExtensions()
     } catch (cause) {
-      setError(`${labels.installFailed}: ${errorText(cause)}`)
+      logHostDiagnostic('browser-extensions', cause)
+      setError(labels.installFailed)
     } finally {
       setBusy(null)
     }
   }
 
   const choose = async () => {
-    if (!api.extensions.choose) return
+    if (!api.choose) return
     setBusy('install')
     setError('')
     try {
-      const result = await api.extensions.choose()
+      const result = await api.choose()
       if (!result.cancelled) await loadExtensions()
-    } catch (cause) { setError(`${labels.installFailed}: ${errorText(cause)}`) }
+    } catch (cause) { logHostDiagnostic('browser-extensions', cause); setError(labels.installFailed) }
     finally { setBusy(null) }
   }
 
@@ -137,10 +136,11 @@ export function BrowserDataSettings({ api, labels }: Props) {
     setBusy(`toggle:${item.id}`)
     setError('')
     try {
-      await api.extensions.setEnabled(item.id, enabled)
+      await api.setEnabled(item.id, enabled)
       await loadExtensions()
     } catch (cause) {
-      setError(`${labels.extensionActionFailed}: ${errorText(cause)}`)
+      logHostDiagnostic('browser-extensions', cause)
+      setError(labels.extensionActionFailed)
     } finally {
       setBusy(null)
     }
@@ -150,84 +150,76 @@ export function BrowserDataSettings({ api, labels }: Props) {
     setBusy(`remove:${item.id}`)
     setError('')
     try {
-      await api.extensions.remove(item.id)
+      await api.remove(item.id)
       await loadExtensions()
     } catch (cause) {
-      setError(`${labels.extensionActionFailed}: ${errorText(cause)}`)
+      logHostDiagnostic('browser-extensions', cause)
+      setError(labels.extensionActionFailed)
     } finally {
       setBusy(null)
     }
   }
 
   return (
-    <div className={styles.root}>
-      <section className={styles.extensions}>
-        <header className={styles.header}>
-          <h2>{labels.extensionsTitle}</h2>
-          <p>{labels.extensionsDescription}</p>
-        </header>
+    <section className={styles.extensions}>
+      {error ? <p className={styles.error} role="alert">{error}</p> : null}
 
-        {error ? <p className={styles.error} role="alert">{error}</p> : null}
+      {api.choose ? <div className={styles.actions}><button type="button" disabled={busy !== null || loading} onClick={() => void choose()}>{labels.installExtension}</button><button type="button" disabled={busy !== null || loading} onClick={() => void loadExtensions()}>{labels.refreshExtensions}</button></div> : <form className={styles.installForm} onSubmit={install}>
+        <label>
+          <span>{labels.extensionPathLabel}</span>
+          <input
+            value={extensionPath}
+            onChange={event => setExtensionPath(event.target.value)}
+            spellCheck={false}
+          />
+        </label>
+        <div className={styles.actions}>
+          <button type="submit" disabled={busy !== null || !extensionPath.trim()}>
+            {labels.installExtension}
+          </button>
+          <button type="button" disabled={busy !== null || loading} onClick={() => void loadExtensions()}>
+            {labels.refreshExtensions}
+          </button>
+        </div>
+      </form>}
 
-        {api.extensions.choose ? <div className={styles.actions}><button type="button" disabled={busy !== null || loading} onClick={() => void choose()}>{labels.installExtension}</button><button type="button" disabled={busy !== null || loading} onClick={() => void loadExtensions()}>{labels.refreshExtensions}</button></div> : <form className={styles.installForm} onSubmit={install}>
-          <label>
-            <span>{labels.extensionPathLabel}</span>
-            <input
-              value={extensionPath}
-              onChange={event => setExtensionPath(event.target.value)}
-              spellCheck={false}
-            />
-          </label>
-          <div className={styles.actions}>
-            <button type="submit" disabled={busy !== null || !extensionPath.trim()}>
-              {labels.installExtension}
-            </button>
-            <button type="button" disabled={busy !== null || loading} onClick={() => void loadExtensions()}>
-              {labels.refreshExtensions}
-            </button>
-          </div>
-        </form>}
-
-        {extensions.length ? (
-          <ul className={styles.list}>
-            {extensions.map(item => (
-              <li key={item.id} className={styles.row}>
-                <div className={styles.rowMain}>
-                  <strong>{item.name || item.id}</strong>
-                  <span>{item.version} · {item.path}</span>
-                  <span>
-                    {item.enabled ? labels.enabledLabel : labels.disabledLabel}
-                    {' · '}
-                    {item.loaded ? labels.loadedLabel : labels.notLoadedLabel}
-                    {item.permissions.length ? ` · ${labels.permissionsLabel}: ${item.permissions.join(', ')}` : ''}
-                  </span>
-                  {item.error ? <span className={styles.error}>{item.error}</span> : null}
-                </div>
-                <div className={styles.actions}>
-                  <button
-                    type="button"
-                    disabled={busy !== null}
-                    onClick={() => void setEnabled(item, !item.enabled)}
-                  >
-                    {item.enabled ? labels.disableAction : labels.enableAction}
-                  </button>
-                  <button
-                    type="button"
-                    disabled={busy !== null}
-                    onClick={() => void remove(item)}
-                  >
-                    {labels.removeAction}
-                  </button>
-                </div>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className={styles.empty}>{loading ? labels.refreshExtensions : labels.emptyExtensions}</p>
-        )}
-      </section>
-
-      <BrowserCredentialsSettings api={api.credentials} labels={labels.credentials} />
-    </div>
+      {extensions.length ? (
+        <ul className={styles.list}>
+          {extensions.map(item => (
+            <li key={item.id} className={styles.row}>
+              <div className={styles.rowMain}>
+                <strong>{item.name || item.id}</strong>
+                <span>{item.version} · {item.path}</span>
+                <span>
+                  {item.enabled ? labels.enabledLabel : labels.disabledLabel}
+                  {' · '}
+                  {item.loaded ? labels.loadedLabel : labels.notLoadedLabel}
+                  {item.permissions.length ? ` · ${labels.permissionsLabel}: ${item.permissions.join(', ')}` : ''}
+                </span>
+                {item.error ? <span className={styles.error}>{labels.extensionItemError}</span> : null}
+              </div>
+              <div className={styles.actions}>
+                <button
+                  type="button"
+                  disabled={busy !== null}
+                  onClick={() => void setEnabled(item, !item.enabled)}
+                >
+                  {item.enabled ? labels.disableAction : labels.enableAction}
+                </button>
+                <button
+                  type="button"
+                  disabled={busy !== null}
+                  onClick={() => void remove(item)}
+                >
+                  {labels.removeAction}
+                </button>
+              </div>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className={styles.empty}>{loading ? labels.refreshExtensions : labels.emptyExtensions}</p>
+      )}
+    </section>
   )
 }

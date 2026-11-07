@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useT } from '../../i18n'
 import { PrefNumberRow, PrefTextRow, PrefToggleRow, SettingsPage, boolChecked, kvGet, kvSet } from './kv'
 import styles from './settings.module.css'
+import { settingsErrorText } from './settings-error-text'
 import { AUTO_MEMORY_DEFAULT } from './engine-memory-defaults'
 import { useSettingsSnapshot } from './settings-snapshot'
 import { FeatureModelRow, useFeatureModelSettings } from './feature-models'
@@ -59,7 +60,7 @@ function useKvValues(keys: string[]): KvValuesState {
         publish(map)
       })
       .catch((reason: unknown) => {
-        if (!cancelled) setError(reason instanceof Error ? reason.message : String(reason))
+        if (!cancelled) setError(settingsErrorText('engine-kv', reason, 'settings_section_load_failed'))
       })
     return () => { cancelled = true }
   }, [reloadSequence, beginRead])

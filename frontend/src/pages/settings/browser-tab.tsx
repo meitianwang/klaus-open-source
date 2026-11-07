@@ -2,17 +2,22 @@
 // policies, download history and the Chrome extension connection. The page is
 // driven by the flat BrowserSettingsSnapshot returned by settingsApi.browserUse.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useT } from '../../i18n'
+import { intlLocale, useT } from '../../i18n'
+import { icon } from '../../icons/registry'
 import { ModalPortal } from '../../components/ModalPortal'
 import { BrowserCapabilityModal } from '../mcp/browser-connect'
-import { BROWSER_DEFAULT_POLICY, BROWSER_RESOURCES, browserOriginPattern, type BrowserAccess, type BrowserResource, type BrowserSettingsSnapshot } from '../../../../contracts/browser-settings'
+import { BROWSER_DEFAULT_POLICY, BROWSER_RESOURCES, type BrowserAccess, type BrowserResource, type BrowserSettingsSnapshot } from '../../../../contracts/browser-settings'
 import type { SiteOpenTargetId } from '../../../../contracts/browser-sites'
 import { CapabilityRow, CapabilitySwitch } from './capability-tabs'
+import { logHostDiagnostic, settingsErrorText } from './settings-error-text'
 import { pluginActivationNote } from '../plugins/activation-note'
 import { PrefToggleRow, SettingsPage } from './kv'
 import { RuntimeChoice } from './runtime-tab'
 import { BrowserImportDialog, type BrowserImportUiApi } from './browser-import-dialog'
-import { BrowserDataSettings, type BrowserDataSettingsApi } from './browser-data-settings'
+import { BrowserClearDialog, BROWSER_CLEAR_KINDS } from './browser-clear-dialog'
+import { BrowserSiteRuleDialog } from './browser-site-rule-dialog'
+import { BrowserExtensionSettings, type BrowserDataSettingsApi } from './browser-data-settings'
+import { BrowserAutofillSettings, BrowserPasswordManager } from './browser-credentials'
 import { browserDataLabels } from './browser-data-labels'
 import styles from './browser-settings.module.css'
 import settingsStyles from './settings.module.css'
@@ -59,8 +64,8 @@ function failed(reply: any): string | null {
   return reply.error ? String(reply.error) : null
 }
 
-function showError(t: (key: string) => string, message: string): void {
-  w().showToast?.(message === 'settings_failed' ? t('browser_settings_save_failed') : message)
+function showError(message: string): void {
+  w().showToast?.(message)
 }
 
 export function browserTargetOptions(t: (key: string) => string, saved: SiteOpenTargetId) {
@@ -100,8 +105,21 @@ function accessLabel(t: (key: string) => string, access: BrowserAccess | 'inheri
   return t(access === 'inherit' ? 'browser_settings_inherit' : `browser_settings_${access}`)
 }
 
-function formatTime(value: number): string {
-  return Number.isFinite(value) && value > 0 ? new Date(value).toLocaleString() : ''
+function historyDateKey(value: number): string {
+  const date = new Date(value)
+  return `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}`
+}
+
+function historyDateLabel(locale: string, value: number): string {
+  return Number.isFinite(value) && value > 0 ? new Intl.DateTimeFormat(locale, { year: 'numeric', month: 'long', day: 'numeric' }).format(new Date(value)) : ''
+}
+
+function historyClockLabel(locale: string, value: number): string {
+  return Number.isFinite(value) && value > 0 ? new Intl.DateTimeFormat(locale, { hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(value)) : ''
+}
+
+function historyHost(value: string): string {
+  try { return new URL(value).hostname } catch { return '' }
 }
 
 function formatBytes(value: number): string {
@@ -159,7 +177,8 @@ function useDebounced<T>(value: T, delay: number): T {
   return debounced
 }
 
-const CLEAR_KINDS = ['history', 'downloads', 'cookies', 'cache', 'siteData'] as const
+const CLEAR_KINDS = BROWSER_CLEAR_KINDS
+const SITE_POLICY_PAGE_SIZE = 2
 const SITE_PERMISSIONS = ['notifications', 'geolocation', 'camera', 'microphone', 'clipboard-read', 'clipboard-write', 'fullscreen', 'midi', 'pointerLock', 'screen-wake-lock'] as const
 
 function siteOrigin(input: string): string {
@@ -183,7 +202,9 @@ export interface BrowserSettingsViewProps {
   onOpenHistory: () => void
   onOpenDownloads: () => void
   onOpenImport?: () => void
-  onOpenDataSettings?: () => void
+  onOpenPasswords?: () => void
+  onOpenAutofill?: () => void
+  onOpenExtensions?: () => void
   onChooseDownloadDirectory: () => void
   onSetChromeEnabled: (enabled: boolean) => void
   onAddOrigin: (pattern: string) => Promise<boolean>
@@ -198,14 +219,15 @@ export interface BrowserSettingsViewProps {
 export function BrowserSettingsView({
   snapshot, busy, onToggleEnabled, onPatch, onClearData, onOpenHistory, onOpenDownloads,
   onChooseDownloadDirectory, onSetChromeEnabled, onAddOrigin, onSetDefaultPolicy,
-  onSetOriginPolicy, onRemoveOrigin, onSetSitePermission, onOpenChromeSetup, onOpenImport, onOpenDataSettings,
+  onSetOriginPolicy, onRemoveOrigin, onSetSitePermission, onOpenChromeSetup, onOpenImport,
+  onOpenPasswords, onOpenAutofill, onOpenExtensions,
 }: BrowserSettingsViewProps) {
   const t = useT()
   const disabled = snapshot.browserAvailable === false
-  const [clearExpanded, setClearExpanded] = useState(false)
+  const [clearOpen, setClearOpen] = useState(false)
   const clearing = busy.startsWith('clear:')
-  const [originDraft, setOriginDraft] = useState('')
-  const [originError, setOriginError] = useState('')
+  const [sitePage, setSitePage] = useState(0)
+  const [siteDialogOpen, setSiteDialogOpen] = useState(false)
   const [siteOriginDraft, setSiteOriginDraft] = useState('')
   const [sitePermissionDraft, setSitePermissionDraft] = useState<string>('notifications')
   const [sitePermissionError, setSitePermissionError] = useState('')
@@ -222,13 +244,9 @@ export function BrowserSettingsView({
     { value: 'deny', label: accessLabel(t, 'deny') },
   ]
 
-  const submitOrigin = async (event: React.FormEvent) => {
-    event.preventDefault()
-    const pattern = browserOriginPattern(originDraft)
-    if (!pattern) { setOriginError(t('browser_settings_invalid_domain')); return }
-    setOriginError('')
-    if (await onAddOrigin(pattern)) setOriginDraft('')
-  }
+  const sitePageCount = Math.ceil(BROWSER_RESOURCES.length / SITE_POLICY_PAGE_SIZE)
+  const visiblePolicyResources = BROWSER_RESOURCES.slice(sitePage * SITE_POLICY_PAGE_SIZE, sitePage * SITE_POLICY_PAGE_SIZE + SITE_POLICY_PAGE_SIZE)
+  const siteGridTemplate = `minmax(140px, 1.3fr) repeat(${visiblePolicyResources.length}, minmax(96px, 1fr)) 44px`
 
   const submitSitePermission = (event: React.FormEvent) => {
     event.preventDefault()
@@ -265,19 +283,8 @@ export function BrowserSettingsView({
               <div className={settingsStyles['pref-row-label']}>{t('browser_settings_clear_data')}</div>
               <div className={settingsStyles['pref-row-desc']}>{t('browser_settings_clear_data_desc')}</div>
             </div>
-            <div className={styles['browser-row-actions']}>
-              <button type="button" id="browser-clear-data" className={styles['browser-action-btn']} disabled={disabled || clearing} aria-busy={busy === 'clear:all' || undefined} onClick={() => onClearData([...CLEAR_KINDS])}>{t(busy === 'clear:all' ? 'browser_settings_clearing' : 'browser_settings_clear_all')}</button>
-              <button type="button" className={styles['browser-disclosure']} aria-controls="browser-clear-data-options" aria-expanded={clearExpanded} aria-label={t('browser_settings_clear_options')} disabled={disabled || clearing} onClick={() => setClearExpanded(value => !value)}>
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true" className={clearExpanded ? styles['browser-disclosure-open'] : undefined}><path d="m4 6 4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
-              </button>
-            </div>
+            <button type="button" id="browser-clear-data" className={styles['browser-action-btn']} disabled={disabled || clearing} aria-busy={clearing || undefined} onClick={() => setClearOpen(true)}>{t(clearing ? 'browser_settings_clearing' : 'browser_settings_clear_dialog_title')}</button>
           </div>
-          {clearExpanded && <div id="browser-clear-data-options" className={styles['browser-clear-options']}>
-            {CLEAR_KINDS.map(kind => <div key={kind} className={`pref-row ${styles['browser-clear-option']}`}>
-              <div className={settingsStyles['pref-row-label']}>{t(`browser_settings_data_${kind}`)}</div>
-              <button type="button" className={styles['browser-action-btn']} disabled={disabled || clearing} aria-busy={busy === `clear:${kind}` || undefined} onClick={() => onClearData([kind])}>{t(busy === `clear:${kind}` ? 'browser_settings_clearing' : 'browser_settings_clear_one')}</button>
-            </div>)}
-          </div>}
           <div className="pref-row">
             <div className={styles['browser-copy']}>
               <div className={settingsStyles['pref-row-label']}>{t('browser_settings_history_label')}</div>
@@ -288,7 +295,11 @@ export function BrowserSettingsView({
         </div>
       </div>
 
-      {onOpenDataSettings && <div className="settings-section"><div className="settings-section-title">{t('browser_data_title')}</div><div className={styles['browser-card']}><div className="pref-row"><div className={styles['browser-copy']}><div className={settingsStyles['pref-row-label']}>{t('browser_data_browser_data_manage')}</div><div className={settingsStyles['pref-row-desc']}>{t('browser_data_description')}</div></div><button type="button" id="browser-data-manage" className={styles['browser-action-btn']} disabled={disabled} onClick={onOpenDataSettings}>{t('browser_settings_manage')}</button></div></div></div>}
+      {(onOpenPasswords || onOpenAutofill) && <div className="settings-section"><div className="settings-section-title">{t('browser_autofill_section_title')}</div><div className={styles['browser-card']}>
+        <div className="pref-row"><div className={styles['browser-copy']}><div className={settingsStyles['pref-row-label']}>{t('browser_password_manager_entry')}</div><div className={settingsStyles['pref-row-desc']}>{t('browser_password_manager_desc')}</div></div><button type="button" id="browser-passwords-manage" className={styles['browser-action-btn']} disabled={disabled} onClick={() => onOpenPasswords?.()}>{t('browser_settings_manage')}</button></div>
+        <div className="pref-row"><div className={styles['browser-copy']}><div className={settingsStyles['pref-row-label']}>{t('browser_contacts_entry')}</div><div className={settingsStyles['pref-row-desc']}>{t('browser_contacts_desc')}</div></div><button type="button" id="browser-contacts-manage" className={styles['browser-action-btn']} disabled={disabled} onClick={() => onOpenAutofill?.()}>{t('browser_settings_manage')}</button></div>
+      </div></div>}
+      {onOpenExtensions && <div className="settings-section"><div className="settings-section-title">{t('browser_data_extensions_title')}</div><div className={styles['browser-card']}><div className="pref-row"><div className={styles['browser-copy']}><div className={settingsStyles['pref-row-label']}>{t('browser_data_extensions_title')}</div><div className={settingsStyles['pref-row-desc']}>{t('browser_data_extensions_description')}</div></div><button type="button" id="browser-extensions-manage" className={styles['browser-action-btn']} disabled={disabled} onClick={onOpenExtensions}>{t('browser_settings_manage')}</button></div></div></div>}
       <div className="settings-section">
         <div className="settings-section-title">{t('browser_settings_downloads')}</div>
         <div className={styles['browser-card']}>
@@ -315,49 +326,55 @@ export function BrowserSettingsView({
       </div>
 
       <div className="settings-section">
-        <div className="settings-section-title">{t('browser_settings_sites')}</div>
-        <div className={styles['browser-card']}>
-          <div className={styles['browser-section-copy']}>{t('browser_settings_sites_desc')}</div>
-          <div className={`${styles['browser-table']} ${styles['browser-default-policy']}`}>
-            <div className={`${styles['browser-table-row']} ${styles['browser-default-policy-row']}`}>
-              <span>{t('browser_settings_default_policy')}</span>
-              {BROWSER_RESOURCES.map(resource => (
-                <label key={resource} className={styles['browser-policy-cell']}>
-                  <span className={styles['browser-policy-label']}>{resourceLabel(t, resource)}</span>
-                  <RuntimeChoice id={`browser-policy-${resource}`} label={`${t('browser_settings_default_policy')} ${resourceLabel(t, resource)}`} value={snapshot.defaultPolicy[resource]} options={accessOptions(false)} disabled={disabled} onChange={value => onSetDefaultPolicy(resource, value as BrowserAccess)} />
-                </label>
-              ))}
-            </div>
+        <div className={styles['browser-section-heading']}>
+          <div className={styles['browser-copy']}>
+            <div className="settings-section-title">{t('browser_settings_sites')}</div>
+            <div className={settingsStyles['pref-row-desc']}>{t('browser_settings_sites_desc')}</div>
           </div>
-          <div className={styles['browser-section-copy']}>{t('browser_settings_site_rules_desc')}</div>
-          <form className={styles['browser-add-form']} onSubmit={event => { void submitOrigin(event) }}>
-            <input className={styles['browser-input']} value={originDraft} placeholder={t('browser_settings_domain_placeholder')} aria-label={t('browser_settings_add_domain')} disabled={disabled} onChange={event => setOriginDraft(event.target.value)} />
-            <button type="submit" className={`${styles['browser-action-btn']} ${styles['is-primary']}`} disabled={disabled}>{t('browser_settings_add_domain')}</button>
-          </form>
-          {originError && <div className={styles['browser-error']} role="alert">{originError}</div>}
-          {snapshot.originRules.length === 0
-            ? <div className={styles['browser-empty']}>{t('browser_settings_no_site_rules')}</div>
-            : (
-              <div className={styles['browser-table']}>
-                <div className={`${styles['browser-table-row']} ${styles['browser-table-head']}`}>
-                  <span>{t('browser_settings_site_rules')}</span>
-                  {BROWSER_RESOURCES.map(resource => <span key={resource}>{resourceLabel(t, resource)}</span>)}
-                  <span />
-                </div>
-                {snapshot.originRules.map(rule => (
-                  <div className={styles['browser-table-row']} key={rule.pattern}>
-                    <span className={styles['browser-pattern']}>{rule.pattern}</span>
-                    {BROWSER_RESOURCES.map(resource => (
-                      <span key={resource} className={styles['browser-policy-cell']}>
-                        <RuntimeChoice id={`browser-origin-${encodeURIComponent(rule.pattern)}-${resource}`} label={`${rule.pattern} ${resourceLabel(t, resource)}`} value={rule.policy[resource] ?? 'inherit'} options={accessOptions(true)} disabled={disabled} onChange={value => onSetOriginPolicy(rule.pattern, resource, value as BrowserAccess | 'inherit')} />
-                      </span>
-                    ))}
-                    <button type="button" className={styles['browser-icon-action']} aria-label={`${t('browser_settings_remove')} ${rule.pattern}`} disabled={disabled} onClick={() => onRemoveOrigin(rule.pattern)}>{t('browser_settings_remove')}</button>
-                  </div>
-                ))}
-              </div>
-            )}
-          <div className={styles['browser-subsection-title']}>{t('browser_settings_site_permissions')}</div>
+          <button type="button" id="browser-site-rule-add" className={styles['browser-action-btn']} disabled={disabled} onClick={() => setSiteDialogOpen(true)}>{t('browser_settings_site_add')}</button>
+        </div>
+        <div className={styles['browser-table']}>
+          <div className={`${styles['browser-table-row']} ${styles['browser-table-head']}`} style={{ gridTemplateColumns: siteGridTemplate }}>
+            <span>{t('browser_settings_site_pattern')}</span>
+            {visiblePolicyResources.map(resource => <span key={resource}>{resourceLabel(t, resource)}</span>)}
+            <span className={styles['browser-table-pager']}>
+              <button type="button" disabled={disabled || sitePage === 0} aria-label={t('browser_settings_site_prev')} onClick={() => setSitePage(value => Math.max(0, value - 1))}>
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="m10 4-4 4 4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
+              </button>
+              <button type="button" disabled={disabled || sitePage >= sitePageCount - 1} aria-label={t('browser_settings_site_next')} onClick={() => setSitePage(value => Math.min(sitePageCount - 1, value + 1))}>
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="m6 4 4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
+              </button>
+            </span>
+          </div>
+          <div className={styles['browser-table-row']} style={{ gridTemplateColumns: siteGridTemplate }}>
+            <span className={styles['browser-site-default']}>{t('browser_settings_site_default')}</span>
+            {visiblePolicyResources.map(resource => (
+              <span key={resource} className={styles['browser-policy-cell']}>
+                <RuntimeChoice id={`browser-policy-${resource}`} label={`${t('browser_settings_default_policy')} ${resourceLabel(t, resource)}`} value={snapshot.defaultPolicy[resource]} options={accessOptions(false)} disabled={disabled} onChange={value => onSetDefaultPolicy(resource, value as BrowserAccess)} />
+              </span>
+            ))}
+            <span />
+          </div>
+          {snapshot.originRules.map(rule => (
+            <div className={styles['browser-table-row']} key={rule.pattern} style={{ gridTemplateColumns: siteGridTemplate }}>
+              <span className={styles['browser-pattern']}>{rule.pattern}</span>
+              {visiblePolicyResources.map(resource => (
+                <span key={resource} className={styles['browser-policy-cell']}>
+                  <RuntimeChoice id={`browser-origin-${encodeURIComponent(rule.pattern)}-${resource}`} label={`${rule.pattern} ${resourceLabel(t, resource)}`} value={rule.policy[resource] ?? 'inherit'} options={accessOptions(true)} disabled={disabled} onChange={value => onSetOriginPolicy(rule.pattern, resource, value as BrowserAccess | 'inherit')} />
+                </span>
+              ))}
+              <button type="button" className={styles['browser-icon-action']} aria-label={`${t('browser_settings_remove')} ${rule.pattern}`} disabled={disabled} onClick={() => onRemoveOrigin(rule.pattern)}>
+                <span aria-hidden="true" dangerouslySetInnerHTML={{ __html: icon('trash', { size: 16 }) }} />
+              </button>
+            </div>
+          ))}
+        </div>
+        <div className={styles['browser-table-note']}>{t('browser_settings_site_rules_note')}</div>
+      </div>
+
+      <div className="settings-section">
+        <div className="settings-section-title">{t('browser_settings_site_permissions')}</div>
+        <div className={styles['browser-card']}>
           <div className={styles['browser-section-copy']}>{t('browser_settings_site_permissions_desc')}</div>
           <form className={styles['browser-add-form']} onSubmit={submitSitePermission}>
             <input className={styles['browser-input']} value={siteOriginDraft} placeholder={t('browser_settings_site_permission_origin_placeholder')} aria-label={t('browser_settings_site_permission_origin')} disabled={disabled} onChange={event => setSiteOriginDraft(event.target.value)} />
@@ -394,11 +411,21 @@ export function BrowserSettingsView({
           </div>
         </div>
       </div>
+      {clearOpen && <BrowserClearDialog busy={clearing} onClose={() => setClearOpen(false)} onConfirm={kinds => { setClearOpen(false); onClearData([...kinds]) }} />}
+      {siteDialogOpen && <BrowserSiteRuleDialog onClose={() => setSiteDialogOpen(false)} onAdd={async (pattern, policies) => {
+        const ok = await onAddOrigin(pattern)
+        if (!ok) return false
+        for (const resource of BROWSER_RESOURCES) {
+          const value = policies[resource]
+          if (value && value !== 'inherit') onSetOriginPolicy(pattern, resource, value)
+        }
+        return true
+      }} />}
     </SettingsPage>
   )
 }
 
-function BrowserHistoryPanel({ onBack }: { onBack: () => void }) {
+function BrowserHistoryPanel({ onBack, clearing, onClearData }: { onBack: () => void; clearing: boolean; onClearData: (kinds: string[]) => void }) {
   const t = useT()
   const [query, setQuery] = useState('')
   const [source, setSource] = useState<BrowserSource>('all')
@@ -412,6 +439,11 @@ function BrowserHistoryPanel({ onBack }: { onBack: () => void }) {
   const sequence = useRef(0)
   const sentinel = useRef<HTMLDivElement | null>(null)
   const debounced = useDebounced(query, 300)
+  const [filterOpen, setFilterOpen] = useState(false)
+  const [menuFor, setMenuFor] = useState<string | null>(null)
+  const [dateCollapsed, setDateCollapsed] = useState<Record<string, boolean>>({})
+  const [clearOpen, setClearOpen] = useState(false)
+  const locale = intlLocale()
 
   const load = useCallback(async (reset: boolean) => {
     const service = api()
@@ -427,7 +459,7 @@ function BrowserHistoryPanel({ onBack }: { onBack: () => void }) {
       setItems(current => reset ? next : [...current, ...next.filter(row => !current.some(existing => existing.id === row.id))])
       setCursor(page.nextCursor ?? null)
     } catch (loadError: any) {
-      if (seq === sequence.current) setError(loadError?.message || t('browser_settings_history_load_failed'))
+      if (seq === sequence.current) setError(settingsErrorText('browser-history-load', loadError, 'browser_settings_history_load_failed'))
     } finally {
       if (seq === sequence.current) setLoading(false)
     }
@@ -447,8 +479,8 @@ function BrowserHistoryPanel({ onBack }: { onBack: () => void }) {
 
   const openRow = async (row: HistoryRow) => {
     const open = w().klausOpenExternalUrl || w().klaus?.app?.openExternal
-    if (typeof open !== 'function') { showError(t, t('browser_settings_open_failed')); return }
-    try { await open(row.url) } catch (openError: any) { showError(t, openError?.message || t('browser_settings_open_failed')) }
+    if (typeof open !== 'function') { showError(t('browser_settings_open_failed')); return }
+    try { await open(row.url) } catch (openError: any) { showError(settingsErrorText('browser-history-open', openError, 'browser_settings_open_failed')) }
   }
 
   const removeRows = async (ids: string[]) => {
@@ -459,59 +491,129 @@ function BrowserHistoryPanel({ onBack }: { onBack: () => void }) {
     try {
       const result = await service.removeHistory(ids)
       const failure = failed(result)
-      if (failure) { showError(t, failure); return }
+      if (failure) { showError(settingsErrorText('browser-history-remove', failure, 'browser_settings_save_failed')); return }
       const removed = new Set(ids)
       setItems(current => current.filter(row => !removed.has(row.id)))
       setSelected(current => new Set([...current].filter(id => !removed.has(id))))
       w().showToast?.(t('browser_settings_history_removed').replace('{count}', String(ids.length)))
     } catch (removeError: any) {
-      showError(t, removeError?.message || t('browser_settings_save_failed'))
+      showError(settingsErrorText('browser-history-remove', removeError, 'browser_settings_save_failed'))
     } finally {
       removingRef.current = false
       setRemoving(false)
     }
   }
 
+  const copyLink = async (row: HistoryRow) => {
+    try {
+      await navigator.clipboard.writeText(row.url)
+      w().showToast?.(t('browser_settings_history_copied'))
+    } catch (copyError: any) {
+      showError(settingsErrorText('browser-history-copy', copyError, 'browser_settings_save_failed'))
+    }
+  }
+
+  useEffect(() => {
+    if (!filterOpen && !menuFor) return
+    const onDown = (event: MouseEvent) => {
+      const target = event.target as HTMLElement
+      if (target.closest('[data-hist-popover]') || target.closest('[data-hist-popover-trigger]')) return
+      setFilterOpen(false)
+      setMenuFor(null)
+    }
+    document.addEventListener('mousedown', onDown)
+    return () => document.removeEventListener('mousedown', onDown)
+  }, [filterOpen, menuFor])
+
+  const groups = useMemo(() => {
+    const map = new Map<string, { key: string; label: string; rows: HistoryRow[] }>()
+    for (const row of items) {
+      const key = historyDateKey(row.visitTime)
+      let group = map.get(key)
+      if (!group) {
+        group = { key, label: historyDateLabel(locale, row.visitTime), rows: [] }
+        map.set(key, group)
+      }
+      group.rows.push(row)
+    }
+    return [...map.values()]
+  }, [items, locale])
+
+  const headLabel = selected.size > 0
+    ? t('browser_settings_history_selected').replace('{count}', String(selected.size))
+    : source === 'all'
+      ? t('browser_settings_history_all_records')
+      : t('browser_settings_history_source_records').replace('{source}', t(`browser_settings_history_source_${source}`))
+
   const retry = () => { void load(items.length > 0 && cursor ? false : true) }
 
   return (
-    <SettingsPage title={t('browser_settings_history_title')} subtitle={t('browser_settings_history_desc')} actions={<button type="button" className={styles['browser-action-btn']} onClick={onBack}>{t('browser_settings_back')}</button>}>
-      <div className={styles['browser-card']}>
-        <div className={styles['browser-toolbar']}>
-          <input className={styles['browser-input']} type="search" value={query} placeholder={t('browser_settings_history_search')} aria-label={t('browser_settings_history_search')} onChange={event => setQuery(event.target.value)} />
-          <RuntimeChoice id="browser-history-source" label={t('browser_settings_history_source')} value={source} options={['all', 'agent', 'other'].map(item => ({ value: item, label: t(`browser_settings_history_source_${item}`) }))} onChange={value => setSource(value as BrowserSource)} />
-          <button type="button" className={styles['browser-action-btn']} disabled={!selected.size || removing} onClick={() => { void removeRows([...selected]) }}>{t('browser_settings_history_remove_selected')}</button>
-        </div>
-        {error && (
-          <div className={styles['browser-error']} role="alert">
-            <span>{error}</span>
-            <button type="button" className={styles['browser-icon-action']} onClick={retry}>{t('browser_settings_retry')}</button>
-          </div>
-        )}
-        {!items.length && !loading && !error && <div className={styles['browser-empty']}>{(debounced || source !== 'all') ? t('browser_settings_history_no_results') : t('browser_settings_history_empty')}</div>}
-        <div className={styles['browser-list']}>
-          {items.map(row => (
-            <div className={styles['browser-list-row']} key={row.id}>
-              <input type="checkbox" checked={selected.has(row.id)} aria-label={`${t('browser_settings_select')} ${row.title || row.url}`} onChange={event => setSelected(current => {
-                const next = new Set(current)
-                if (event.target.checked) next.add(row.id); else next.delete(row.id)
-                return next
-              })} />
-              <div className={styles['browser-list-copy']}>
-                <button type="button" className={styles['browser-list-title']} onClick={() => { void openRow(row) }}>{row.title || row.url}</button>
-                <div className={styles['browser-list-url']}>{row.url}</div>
-                <div className={styles['browser-list-meta']}>{formatTime(row.visitTime)}{row.isActorVisit ? <span className={styles['browser-badge']}>{t('browser_settings_agent_badge')}</span> : null}</div>
-              </div>
-              <div className={styles['browser-row-actions']}>
-                <button type="button" className={styles['browser-action-btn']} onClick={() => { void openRow(row) }}>{t('browser_settings_history_open')}</button>
-                <button type="button" className={styles['browser-action-btn']} disabled={removing} onClick={() => { void removeRows([row.id]) }}>{t('browser_settings_remove')}</button>
-              </div>
-            </div>
-          ))}
-        </div>
-        {loading && <div className={styles['browser-loading']} role="status">{t('browser_settings_loading')}</div>}
-        <div ref={sentinel} className={styles['browser-sentinel']} aria-hidden="true" />
+    <SettingsPage title={t('browser_settings_history_title')} actions={<button type="button" className={styles['browser-action-btn']} onClick={onBack}>{t('browser_settings_back')}</button>}>
+      <div className={styles['browser-hist-search']}>
+        <span className={styles['browser-hist-search-icon']} aria-hidden="true" dangerouslySetInnerHTML={{ __html: icon('search', { size: 16 }) }} />
+        <input className={styles['browser-hist-input']} type="search" value={query} placeholder={t('browser_settings_history_search')} aria-label={t('browser_settings_history_search')} onChange={event => setQuery(event.target.value)} />
+        <button type="button" className={styles['browser-hist-filter']} data-hist-popover-trigger aria-label={t('browser_settings_history_filter')} aria-expanded={filterOpen || undefined} onClick={() => setFilterOpen(value => !value)}>
+          <span aria-hidden="true" dangerouslySetInnerHTML={{ __html: icon('browser-history-filter', { size: 16 }) }} />
+        </button>
+        {filterOpen && <div className={styles['browser-hist-menu']} data-hist-popover role="menu">
+          {(['all', 'agent', 'other'] as const).map(value => <button key={value} type="button" role="menuitemradio" aria-checked={source === value} onClick={() => { setSource(value); setFilterOpen(false) }}>{t(`browser_settings_history_source_${value}`)}</button>)}
+        </div>}
       </div>
+      <div className={styles['browser-hist-head']}>
+        <div className={styles['browser-hist-head-label']}>{headLabel}</div>
+        <div className={styles['browser-hist-head-actions']}>
+          {selected.size > 0 && <button type="button" className={styles['browser-action-btn']} disabled={removing} onClick={() => { void removeRows([...selected]) }}>{t('browser_settings_history_remove_selected')}</button>}
+          <button type="button" className={styles['browser-action-btn']} disabled={clearing} aria-busy={clearing || undefined} onClick={() => setClearOpen(true)}>{t(clearing ? 'browser_settings_clearing' : 'browser_settings_clear_dialog_title')}</button>
+        </div>
+      </div>
+      {error && (
+        <div className={styles['browser-error']} role="alert">
+          <span>{error}</span>
+          <button type="button" className={styles['browser-icon-action']} onClick={retry}>{t('browser_settings_retry')}</button>
+        </div>
+      )}
+      {!items.length && !loading && !error && <div className={styles['browser-hist-empty']}>{(debounced || source !== 'all') ? t('browser_settings_history_no_results') : t('browser_settings_history_empty')}</div>}
+      {groups.map((group, index) => {
+        const expanded = dateCollapsed[group.key] != null ? !dateCollapsed[group.key] : index === 0
+        return (
+          <div className={styles['browser-hist-group']} key={group.key} data-hist-group={group.key}>
+            <button type="button" className={styles['browser-hist-group-head']} aria-expanded={expanded} onClick={() => setDateCollapsed(current => ({ ...current, [group.key]: expanded }))}>
+              <span>{group.label}</span>
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true" className={expanded ? styles['browser-hist-chevron-open'] : undefined}><path d="m4 6 4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
+            </button>
+            {expanded && <div className={styles['browser-hist-rows']}>
+              {group.rows.map(row => {
+                const host = historyHost(row.url)
+                return (
+                  <div className={styles['browser-hist-row']} key={row.id} data-hist-row={row.id}>
+                    <input type="checkbox" className={styles['browser-hist-check']} checked={selected.has(row.id)} aria-label={`${t('browser_settings_select')} ${row.title || row.url}`} onChange={event => setSelected(current => {
+                      const next = new Set(current)
+                      if (event.target.checked) next.add(row.id); else next.delete(row.id)
+                      return next
+                    })} />
+                    <span className={styles['browser-hist-fav']} aria-hidden="true" dangerouslySetInnerHTML={{ __html: icon('browser-history-favicon', { size: 18 }) }} />
+                    <button type="button" className={styles['browser-hist-title']} onClick={() => { void openRow(row) }}>{row.title || row.url}</button>
+                    {host && <span className={styles['browser-hist-domain']}>{host}</span>}
+                    {row.isActorVisit && <span className={styles['browser-badge']}>{t('browser_settings_agent_badge')}</span>}
+                    <span className={styles['browser-hist-time']}>{historyClockLabel(locale, row.visitTime)}</span>
+                    <button type="button" className={styles['browser-hist-more']} data-hist-popover-trigger data-hist-menu={row.id} aria-label={t('browser_settings_history_menu')} aria-expanded={menuFor === row.id || undefined} onClick={() => setMenuFor(current => current === row.id ? null : row.id)}>
+                      <span aria-hidden="true" dangerouslySetInnerHTML={{ __html: icon('browser-history-more', { size: 16 }) }} />
+                    </button>
+                    {menuFor === row.id && <div className={styles['browser-hist-menu']} data-hist-popover role="menu">
+                      <button type="button" role="menuitem" onClick={() => { setMenuFor(null); void openRow(row) }}>{t('browser_settings_history_open')}</button>
+                      <button type="button" role="menuitem" onClick={() => { setMenuFor(null); void copyLink(row) }}>{t('browser_settings_history_copy_link')}</button>
+                      <button type="button" role="menuitem" disabled={removing} onClick={() => { setMenuFor(null); void removeRows([row.id]) }}>{t('browser_settings_remove')}</button>
+                    </div>}
+                  </div>
+                )
+              })}
+            </div>}
+          </div>
+        )
+      })}
+      {loading && <div className={styles['browser-loading']} role="status">{t('browser_settings_loading')}</div>}
+      <div ref={sentinel} className={styles['browser-sentinel']} aria-hidden="true" />
+      {clearOpen && <BrowserClearDialog busy={clearing} onClose={() => setClearOpen(false)} onConfirm={kinds => { setClearOpen(false); onClearData([...kinds]) }} />}
     </SettingsPage>
   )
 }
@@ -554,7 +656,7 @@ function BrowserDownloadsPanel({ onBack }: { onBack: () => void }) {
       setItems(current => reset ? next : [...current, ...next.filter(row => !current.some(existing => existing.id === row.id))])
       setCursor(page.nextCursor ?? null)
     } catch (loadError: any) {
-      if (seq === sequence.current) setError(loadError?.message || t('browser_settings_downloads_load_failed'))
+      if (seq === sequence.current) setError(settingsErrorText('browser-downloads-load', loadError, 'browser_settings_downloads_load_failed'))
     } finally {
       if (seq === sequence.current) setLoading(false)
     }
@@ -614,10 +716,10 @@ function BrowserDownloadsPanel({ onBack }: { onBack: () => void }) {
     try {
       const result = await service.downloadAction(action, id)
       const failure = failed(result)
-      if (failure) { showError(t, failure); return }
+      if (failure) { showError(settingsErrorText('browser-downloads-action', failure, 'browser_settings_save_failed')); return }
       await load(true)
     } catch (actionError: any) {
-      showError(t, actionError?.message || t('browser_settings_save_failed'))
+      showError(settingsErrorText('browser-downloads-action', actionError, 'browser_settings_save_failed'))
     } finally {
       actingRef.current = null
       setActing(null)
@@ -639,7 +741,7 @@ function BrowserDownloadsPanel({ onBack }: { onBack: () => void }) {
           </div>
         )}
         {!items.length && !loading && !error && <div className={styles['browser-empty']}>{debounced ? t('browser_settings_downloads_no_results') : t('browser_settings_downloads_empty')}</div>}
-        <div className={styles['browser-list']}>
+        <div>
           {items.map(row => {
             const terminal = !row.canPause && !row.canResume && !row.canCancel
             return (
@@ -680,7 +782,7 @@ export function BrowserSettingsTab() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState('')
-  const [view, setView] = useState<'main' | 'history' | 'downloads' | 'data'>('main')
+  const [view, setView] = useState<'main' | 'history' | 'downloads' | 'passwords' | 'autofill' | 'extensions'>('main')
   const [importOpen, setImportOpen] = useState(false)
   const importApi = useMemo<BrowserImportUiApi>(() => ({
     discover: () => w().settingsApi.browserUse.discoverProfiles(),
@@ -714,11 +816,11 @@ export function BrowserSettingsTab() {
       const result = await api()?.get?.()
       if (sequence !== readSequence.current || pendingMutations.current > 0) return
       const next = snapshotOf(result)
-      if (!next) throw new Error((result as any)?.error || t('browser_settings_load_failed'))
+      if (!next) { logHostDiagnostic('browser-settings-load', (result as any)?.error); throw new Error(t('browser_settings_load_failed')) }
       apply(next)
       setError('')
     } catch (loadError: any) {
-      if (sequence === readSequence.current && pendingMutations.current === 0) setError(loadError?.message || t('browser_settings_load_failed'))
+      if (sequence === readSequence.current && pendingMutations.current === 0) setError(t('browser_settings_load_failed'))
     } finally {
       if (sequence === readSequence.current) setLoading(false)
     }
@@ -749,7 +851,7 @@ export function BrowserSettingsTab() {
       const failure = failed(result)
       if (failure) {
         if (sequence === mutationSequence.current && previous) apply(previous)
-        showError(t, failure)
+        showError(settingsErrorText('browser-settings-save', failure, 'browser_settings_save_failed'))
       } else {
         ok = true
         const next = snapshotOf(result)
@@ -757,7 +859,7 @@ export function BrowserSettingsTab() {
       }
     } catch (workError: any) {
       if (sequence === mutationSequence.current && previous) apply(previous)
-      showError(t, workError?.message || t('browser_settings_save_failed'))
+      showError(settingsErrorText('browser-settings-save', workError, 'browser_settings_save_failed'))
     } finally {
       pendingMutations.current--
       if (pendingMutations.current === 0) {
@@ -809,9 +911,9 @@ export function BrowserSettingsTab() {
         else cleared += kind === 'all' ? kinds.length : 1
       }
       if (cleared) w().showToast?.(t('browser_settings_clear_done').replace('{count}', String(cleared)))
-      if (firstError) showError(t, firstError)
+      if (firstError) showError(settingsErrorText('browser-data-clear', firstError, 'browser_settings_save_failed'))
     } catch (clearError: any) {
-      showError(t, clearError?.message || t('browser_settings_save_failed'))
+      showError(settingsErrorText('browser-data-clear', clearError, 'browser_settings_save_failed'))
     } finally {
       clearingRef.current = false
       pendingMutations.current--
@@ -859,9 +961,11 @@ export function BrowserSettingsTab() {
       </SettingsPage>
     )
   }
-  if (view === 'history') return <BrowserHistoryPanel onBack={() => setView('main')} />
+  if (view === 'history') return <BrowserHistoryPanel onBack={() => setView('main')} clearing={busy.startsWith('clear:')} onClearData={kinds => { void clearData(kinds) }} />
   if (view === 'downloads') return <BrowserDownloadsPanel onBack={() => setView('main')} />
-  if (view === 'data') return <SettingsPage title={t('browser_data_title')} subtitle={t('browser_data_description')}><button type="button" className="btn-sm" onClick={() => setView('main')}>{t('browser_settings_back')}</button>{dataApi.credentials && dataApi.extensions ? <BrowserDataSettings api={dataApi} labels={browserDataLabels(t)} /> : <p role="alert">{t('browser_settings_load_failed')}</p>}</SettingsPage>
+  if (view === 'passwords') return <SettingsPage title={t('browser_passwords_page_title')} subtitle={t('browser_password_manager_desc')}><button type="button" className="btn-sm" onClick={() => setView('main')}>{t('browser_settings_back')}</button>{dataApi.credentials ? <BrowserPasswordManager api={dataApi.credentials} labels={browserDataLabels(t).credentials} /> : <p role="alert">{t('browser_settings_load_failed')}</p>}</SettingsPage>
+  if (view === 'autofill') return <SettingsPage title={t('browser_autofill_page_title')} subtitle={t('browser_contacts_desc')}><button type="button" className="btn-sm" onClick={() => setView('main')}>{t('browser_settings_back')}</button>{dataApi.credentials ? <BrowserAutofillSettings api={dataApi.credentials} labels={browserDataLabels(t).credentials} /> : <p role="alert">{t('browser_settings_load_failed')}</p>}</SettingsPage>
+  if (view === 'extensions') return <SettingsPage title={t('browser_data_extensions_title')} subtitle={t('browser_data_extensions_description')}><button type="button" className="btn-sm" onClick={() => setView('main')}>{t('browser_settings_back')}</button>{dataApi.extensions ? <BrowserExtensionSettings api={dataApi.extensions} labels={browserDataLabels(t)} /> : <p role="alert">{t('browser_settings_load_failed')}</p>}</SettingsPage>
   return (
     <>
       <BrowserSettingsView
@@ -873,7 +977,9 @@ export function BrowserSettingsTab() {
         onOpenHistory={() => setView('history')}
         onOpenDownloads={() => setView('downloads')}
         onOpenImport={() => setImportOpen(true)}
-        onOpenDataSettings={() => setView('data')}
+        onOpenPasswords={() => setView('passwords')}
+        onOpenAutofill={() => setView('autofill')}
+        onOpenExtensions={() => setView('extensions')}
         onChooseDownloadDirectory={chooseDownloadDirectory}
         onSetChromeEnabled={setChromeEnabled}
         onAddOrigin={addOrigin}

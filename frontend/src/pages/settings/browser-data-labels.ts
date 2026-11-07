@@ -33,6 +33,11 @@ export function browserDataLabels(t: (key: string) => string): BrowserDataSettin
       contactNameLabel: t('browser_data_contact_name_label'),
       cancelButton: t('browser_data_cancel_button'),
       errorLabel: t('browser_data_error_label'),
+      operationFailed: t('browser_data_operation_failed'),
+      passwordSearch: t('browser_password_search'),
+      passwordAdd: t('browser_password_add'),
+      passwordAccounts: t('browser_password_accounts'),
+      passwordNoResults: t('browser_password_no_results'),
       copySucceeded: t('browser_data_copy_succeeded'),
     },
     extensionsTitle: t('browser_data_extensions_title'),
@@ -51,5 +56,6 @@ export function browserDataLabels(t: (key: string) => string): BrowserDataSettin
     removeAction: t('browser_data_remove_action'),
     installFailed: t('browser_data_install_failed'),
     extensionActionFailed: t('browser_data_extension_action_failed'),
+    extensionItemError: t('browser_extension_item_error'),
   }
 }

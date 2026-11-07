@@ -1,4 +1,5 @@
 import type { EffectiveMediaModel, EffectiveMediaModelCatalog } from '../../../../contracts/effective-media-models'
+import { logHostDiagnostic } from './settings-error-text'
 
 export interface MediaSelectionChange extends EffectiveMediaModel { model?: string }
 interface PendingSelection {
@@ -48,11 +49,12 @@ export function enqueueMediaSelection(snapshot: MediaSelectionSnapshot, change: 
       const next = pending.changes.shift()!
       try {
         const result = await api.set(next.source, next.model)
-        if (result?.ok !== true) throw new Error(result?.error || api.error)
+        if (result?.ok !== true) { logHostDiagnostic('effective-media', result?.error); throw new Error(api.error) }
         pending.confirmed = apply(pending.confirmed, next)
         error = undefined
       } catch (cause) {
-        error = cause instanceof Error ? cause.message : api.error
+        logHostDiagnostic('effective-media', cause)
+        error = api.error
       }
       if (!error) next.onSaved?.()
     }

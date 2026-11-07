@@ -1,5 +1,6 @@
 import { modelOptionForValue, modelOptionIsSelectable } from '../../../../shared/cursor-model-catalog'
 import type { GlobalModelTierMapping, GlobalModelTierOptions, ModelTierName, ModelTierReference } from '../../../bridge/types'
+import { settingsErrorText } from './settings-error-text'
 
 export const FOLLOW_CHAT_MODEL = 'inherit'
 
@@ -25,10 +26,6 @@ export interface TierSettingsApi {
   get: () => Promise<GlobalModelTierMapping>
   options: () => Promise<GlobalModelTierOptions>
   set: (tier: ModelTierName, target: ModelTierReference | null, revision: number) => Promise<GlobalModelTierMapping>
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
 }
 
 // Every asynchronous read owns a generation. Closing or replacing this view
@@ -72,12 +69,12 @@ export class GlobalModelTiersState {
         if (generation !== this.generation) return
         if (!this.snapshot.mapping || mapping.revision >= this.snapshot.mapping.revision) this.update({ mapping })
       }, error => {
-        if (generation === this.generation) this.update({ loadError: errorMessage(error) })
+        if (generation === this.generation) this.update({ loadError: settingsErrorText('model-tiers-load', error, 'settings_section_load_failed') })
       }),
       this.api.options().then(options => {
         if (generation === this.generation) this.update({ options })
       }, error => {
-        if (generation === this.generation) this.update({ optionsError: errorMessage(error), options: null })
+        if (generation === this.generation) this.update({ optionsError: settingsErrorText('model-tiers-options', error, 'settings_section_load_failed'), options: null })
       }),
     ])
     if (generation === this.generation) this.update({ loading: false })
@@ -127,7 +124,7 @@ export class GlobalModelTiersState {
       return true
     } catch (error) {
       if (generation !== this.saveGeneration) return false
-      this.update({ saving: false, saveError: errorMessage(error) })
+      this.update({ saving: false, saveError: settingsErrorText('model-tiers-save', error, 'settings_failed') })
       // Re-read after a conflict. Keep the draft and its original revision so a
       // second click cannot overwrite newer settings without an explicit review.
       await this.load()

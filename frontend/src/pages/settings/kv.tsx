@@ -8,6 +8,7 @@ import { flushSync } from 'react-dom'
 import { useLayoutEffect, useRef, type RefObject } from 'react'
 import { t } from '../../i18n'
 import styles from './settings.module.css'
+import { settingsErrorText } from './settings-error-text'
 
 const w = () => window as any
 
@@ -22,7 +23,7 @@ export async function kvSet(key: string, value: string): Promise<boolean> {
     if (result?.ok === false || result?.error) throw new Error(result?.error || t('settings_failed'))
     return true
   } catch (error: any) {
-    w().showToast(error?.message || t('settings_failed'))
+    w().showToast(settingsErrorText('kv', error, 'settings_failed'))
     return false
   }
 }

@@ -10,6 +10,7 @@ import { VOICE_REFINEMENT_FEATURE_MODEL_ROW } from './feature-models-state'
 import { useVoiceInputSource, VoiceInputSourceRow } from './voice-source-settings'
 import { RealtimeSettings } from './realtime-settings'
 import styles from './settings.module.css'
+import { settingsErrorText } from './settings-error-text'
 import voiceStyles from './voice-settings.module.css'
 
 const w = () => window as any
@@ -69,7 +70,7 @@ export function VoiceInputSettingsTab() {
       wordsCache = result; setWords(result)
       setSelected(previous => new Set([...previous].filter(id => result.some(word => word.id === id && word.enabled !== false))))
     } catch (value: any) {
-      if (mounted.current && current === request.current) setError(value?.message || t('settings_section_load_failed'))
+      if (mounted.current && current === request.current) setError(settingsErrorText('voice-dictionary', value, 'settings_section_load_failed'))
     } finally { if (mounted.current && current === request.current) setLoading(false) }
   }, [t])
   const loadPersonalization = useCallback(async () => {
@@ -79,7 +80,7 @@ export function VoiceInputSettingsTab() {
       const result = await kvGet('voice.learning.enabled')
       if (!mounted.current || revision !== personalizationRevision || personalizationPending) return
       personalizationCache = boolChecked(result, true); setPersonalized(personalizationCache)
-    } catch (value: any) { if (mounted.current) setPersonalizationError(value?.message || t('settings_section_load_failed')) }
+    } catch (value: any) { if (mounted.current) setPersonalizationError(settingsErrorText('voice-personalization', value, 'settings_section_load_failed')) }
   }, [t])
   useEffect(() => {
     void loadWords(); void loadPersonalization()
@@ -87,7 +88,7 @@ export function VoiceInputSettingsTab() {
     window.addEventListener('klaus:voice-personalization-changed', loadPersonalization)
     return () => { window.removeEventListener('klaus:voice-dictionary-changed', loadWords); window.removeEventListener('klaus:voice-personalization-changed', loadPersonalization) }
   }, [loadWords, loadPersonalization])
-  const showFailure = (value: any) => w().showToast(value?.message || t('settings_failed'))
+  const showFailure = (value: any) => w().showToast(settingsErrorText('voice-dictionary-save', value, 'settings_failed'))
   const refresh = async () => { wordsRevision++; await loadWords(); window.dispatchEvent(new Event('klaus:voice-dictionary-changed')) }
   const setPersonalization = async (next: boolean) => {
     if (busy) return

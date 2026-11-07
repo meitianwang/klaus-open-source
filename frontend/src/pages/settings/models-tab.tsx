@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useT, t as tGlobal } from '../../i18n'
 import { ModalPortal } from '../../components/ModalPortal'
+import { settingsErrorText } from './settings-error-text'
 import type { GlobalModelTierMapping } from '../../../bridge/types'
 import {
   activateModelSource, AUTH_MODE_ORDER, CONTEXT_TIER_CUSTOM, CONTEXT_TIER_OPTIONS,
@@ -210,7 +211,7 @@ export function ModelFormModal({ existing, onClose, onSaved, embedded }: { exist
       window.dispatchEvent(new Event('klaus:models-changed'))
       onSaved()
     } catch (error: any) {
-      const message = error?.message || t('settings_failed')
+      const message = settingsErrorText('models-save', error, 'settings_failed')
       setSaveError(message)
       w().showToast(message)
     } finally {
@@ -480,7 +481,7 @@ function CustomModelsBody({ reloadSeq, reload, mapping, form, setForm }: { reloa
           setData({ models })
         }
       } catch (error: any) {
-        if (!cancelled) setLoadError(error?.message || t('settings_section_load_failed'))
+        if (!cancelled) setLoadError(settingsErrorText('models-custom-load', error, 'settings_section_load_failed'))
       }
     })()
     return () => { cancelled = true }
@@ -497,7 +498,7 @@ function CustomModelsBody({ reloadSeq, reload, mapping, form, setForm }: { reloa
       if (!existing) throw new Error(t('settings_section_load_failed'))
       setForm({ existing })
     } catch (error: any) {
-      w().showToast(error?.message || t('settings_failed'))
+      w().showToast(settingsErrorText('models-action', error, 'settings_failed'))
     }
   }
 
@@ -509,7 +510,7 @@ function CustomModelsBody({ reloadSeq, reload, mapping, form, setForm }: { reloa
       window.dispatchEvent(new Event('klaus:models-changed'))
       reload()
     } catch (error: any) {
-      w().showToast(error?.message || t('settings_failed'))
+      w().showToast(settingsErrorText('models-action', error, 'settings_failed'))
     }
   }
 
@@ -604,7 +605,7 @@ export function ModelsTab() {
         modelSettingsCategory = next
         setCategory(next)
       } catch (error: any) {
-        if (!cancelled) setLoadError(error?.message || tGlobal('settings_section_load_failed'))
+        if (!cancelled) setLoadError(settingsErrorText('models-load', error, 'settings_section_load_failed'))
       }
     })()
     return () => { cancelled = true }

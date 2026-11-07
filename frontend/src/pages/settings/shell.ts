@@ -5,6 +5,7 @@
 import { t as tGlobal } from '../../i18n'
 import { unmountSettingsTab } from './kv'
 import styles from './settings.module.css'
+import { settingsErrorText } from './settings-error-text'
 
 const w = () => window as any
 
@@ -22,7 +23,7 @@ if (hostWindow) hostWindow.klausOpenExternalUrl = hostWindow.klausOpenExternalUr
   const opener = (window as any).klaus?.app?.openExternal
   if (typeof opener === 'function') {
     const res = await opener(url)
-    if (res?.ok === false) throw new Error(res.error || 'failed to open external url')
+    if (res?.ok === false) throw new Error(settingsErrorText('open-external', res.error, 'settings_failed'))
     return
   }
   window.open(url, '_blank', 'noopener,noreferrer')
@@ -206,7 +207,7 @@ export function showRestartPrompt(): void {
   modal.querySelector('#sys-auth-restart-later')?.addEventListener('click', close)
   modal.querySelector('#sys-auth-restart-now')?.addEventListener('click', async () => {
     try { await w().klaus.systemPermissions.restartApp() }
-    catch (err: any) { w().showToast(String(err?.message || err)) }
+    catch (err: any) { w().showToast(settingsErrorText('sys-auth-restart', err, 'settings_failed')) }
   })
   ;(modal.querySelector('#sys-auth-restart-later') as HTMLElement | null)?.focus()
 }

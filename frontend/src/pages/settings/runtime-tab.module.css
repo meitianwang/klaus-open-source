@@ -77,8 +77,9 @@
 .choice-panel {
   position: fixed;
   z-index: 1200;
-  width: 320px;
-  max-width: calc(100vw - 16px);
+  width: max-content;
+  min-width: 160px;
+  max-width: min(320px, calc(100vw - 16px));
   padding: 4px;
   overflow-y: auto;
   box-sizing: border-box;

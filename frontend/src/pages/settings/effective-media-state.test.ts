@@ -77,7 +77,7 @@ test('failed source changes restore the complete last confirmed pair', async () 
   const f = fixture(async () => ({ ok: false, error: 'Credential expired' }))
   await f.choose('qwenwork', 'source')
   expect(f.current().reply?.current).toEqual({ source: 'custom', modelId: 'custom-two' })
-  expect(f.current().error).toBe('Credential expired')
+  expect(f.current().error).toBe('Save failed')
   expect(f.current().saveError).toBe(true)
   expect(f.current().pending).toBeUndefined()
 })
@@ -90,7 +90,7 @@ test('a failed queued model choice rolls back to the preceding successful source
   const model = f.choose('native-one', 'model')
   write.resolve({ ok: true }); await Promise.all([source, model])
   expect(f.current().reply?.current).toEqual({ source: 'qwenwork', modelId: 'native-two' })
-  expect(f.current().error).toBe('Model unavailable')
+  expect(f.current().error).toBe('Save failed')
 })
 
 test('a newer valid choice can succeed after an earlier source change fails', async () => {

@@ -96,7 +96,7 @@ describe('shared model tier editor', () => {
     state.selectSource('custom')
     state.selectModel('balanced')
     expect(await state.save()).toBe(false)
-    expect(state.getSnapshot().saveError).toBe('Source unavailable')
+    expect(state.getSnapshot().saveError).toBe('Failed')
     expect(state.getSnapshot().editor?.modelId).toBe('balanced')
     expect(state.getSnapshot().mapping).toEqual(initial())
     expect(mock.persisted()).toEqual(initial())
@@ -112,7 +112,7 @@ describe('shared model tier editor', () => {
     state.selectModel('balanced')
     mock.replace({ ...initial(), revision: 8, low: { source: 'codex', modelId: 'strong' } })
     expect(await state.save()).toBe(false)
-    expect(state.getSnapshot().saveError).toBe('MODEL_TIERS_REVISION_CONFLICT')
+    expect(state.getSnapshot().saveError).toBe('Failed')
     expect(state.getSnapshot().mapping?.low).toEqual({ source: 'codex', modelId: 'strong' })
     expect(state.getSnapshot().editor?.revision).toBe(7)
     expect(state.canSave()).toBe(false)
@@ -181,7 +181,7 @@ describe('shared model tier editor', () => {
     state.open('high')
     expect(state.getSnapshot().mapping).toEqual(initial())
     expect(state.getSnapshot().options).toBeNull()
-    expect(state.getSnapshot().optionsError).toBe('Catalog failed')
+    expect(state.getSnapshot().optionsError).toBe('Could not load this setting. Please try again.')
     expect(state.canSave()).toBe(false)
   })
 
@@ -277,7 +277,7 @@ describe('shared model tier projection', () => {
     const previousWindow = (globalThis as any).window
     ;(globalThis as any).window = { settingsApi: { models: { setTier: async () => ({ ok: false, error: 'MODEL_TIERS_REVISION_CONFLICT' }) } } }
     try {
-      expect(await saveGlobalModelTier('high', null, 7).then(() => '', error => error.message)).toBe('MODEL_TIERS_REVISION_CONFLICT')
+      expect(await saveGlobalModelTier('high', null, 7).then(() => '', error => error.message)).toBe('Failed')
     } finally {
       ;(globalThis as any).window = previousWindow
     }

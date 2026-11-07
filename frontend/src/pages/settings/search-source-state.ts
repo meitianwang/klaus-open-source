@@ -1,4 +1,5 @@
 import { SUBSCRIPTION_WEB_SEARCH_SOURCES, type WebSearchSource } from '../../../../contracts/web-search-settings'
+import { logHostDiagnostic } from './settings-error-text'
 
 interface PendingSearchSource { confirmed: WebSearchSource; changes: WebSearchSource[]; done?: Promise<void> }
 export interface SearchSourceSnapshot { source: WebSearchSource | null; pending?: PendingSearchSource; error?: string; saveError?: boolean }
@@ -27,10 +28,10 @@ export function enqueueSearchSource(snapshot: SearchSourceSnapshot, source: WebS
       const next = pending.changes.shift()!
       try {
         const result = await api.set(next)
-        if (result?.ok !== true) throw new Error(result?.error || api.error)
+        if (result?.ok !== true) { logHostDiagnostic('search-source', result?.error); throw new Error(api.error) }
         pending.confirmed = next
         error = undefined
-      } catch (cause) { error = cause instanceof Error ? cause.message : api.error }
+      } catch (cause) { logHostDiagnostic('search-source', cause); error = api.error }
     }
     update(current => current.pending === pending ? { source: pending.confirmed, ...(error ? { error, saveError: true } : {}) } : current)
     api.settled()

@@ -6,6 +6,7 @@ import { StorageButton, StorageDialog } from './storage-dialog'
 import { worktreeConversations, worktreePinned, worktreeSource, type WorktreeConversation } from './worktree-storage-model'
 import type { ManagedWorktreeRecord, WorktreeStorageSettings, WorktreeStorageSettingsPatch } from '../../../../contracts/worktree-storage'
 import styles from './storage.module.css'
+import { settingsErrorText } from './settings-error-text'
 
 const w = () => window as any
 
@@ -26,7 +27,7 @@ export function WorktreesManager() {
       if (listed?.ok === false || listed?.error || !Array.isArray(listed.worktrees)) throw Error(listed?.error || t('worktrees_error_body'))
       if (!alive.current || current !== revision.current) return
       setRecords(listed.worktrees); setConversations(rows); if (!saveLock.current.size) setSettings(listed.settings); setError(null)
-    } catch (reason: any) { if (alive.current && current === revision.current) setError(reason?.message || t('worktrees_error_body')) }
+    } catch (reason: any) { if (alive.current && current === revision.current) setError(settingsErrorText('worktrees', reason, 'worktrees_error_body')) }
     finally { if (alive.current && current === revision.current) setRefreshing(false) }
   }, [t])
   useEffect(() => {
@@ -75,7 +76,7 @@ export function WorktreesManager() {
         ...(source?.projectRoot || record.repoRoot ? { projectRoot: source?.projectRoot || record.repoRoot } : {}) })
       if (!info?.id) throw Error(info?.error || t('settings_failed'))
       await w().updateSessionInList?.(); w().closeSettings?.(); await w().switchSession(info.id)
-    } catch (reason: any) { w().showToast(reason?.message || t('settings_failed')) }
+    } catch (reason: any) { w().showToast(settingsErrorText('worktrees-save', reason, 'settings_failed')) }
     finally { rowLock.current.delete(record.path); if (alive.current) setPending(new Set(rowLock.current)) }
   }
   const remove = async (record: ManagedWorktreeRecord) => {
