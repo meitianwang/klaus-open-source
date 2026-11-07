@@ -37,3 +37,24 @@ export function mergeImportSummary(previous: ImportSummary | null, selection: Im
   }
   return { selection: combined, counts, errors }
 }
+
+/** Localized copy for known import issue codes. Unknown codes render nothing: raw diagnostics never reach the user. */
+const IMPORT_ISSUE_LABEL_KEYS: Record<string, string> = {
+  app_bound_encryption_unsupported: 'browser_import_app_bound_unsupported',
+  extension_file_limit: 'browser_import_extension_file_limit',
+  extension_size_limit: 'browser_import_extension_size_limit',
+  snapshot_unstable: 'browser_import_source_changed',
+  snapshot_corrupted: 'browser_import_source_changed',
+  keychain_auth_cancelled: 'browser_import_passwords_locked',
+  keychain_auth_failed: 'browser_import_passwords_locked',
+  keychain_interaction_not_allowed: 'browser_import_passwords_locked',
+  keychain_item_not_found: 'browser_import_passwords_locked',
+  keychain_item_invalid: 'browser_import_passwords_locked',
+  keychain_error: 'browser_import_passwords_locked',
+  key_derivation_failed: 'browser_import_passwords_locked',
+  test_key_missing: 'browser_import_passwords_locked',
+}
+
+export function importIssueLabelKey(code: string): string | null {
+  return IMPORT_ISSUE_LABEL_KEYS[code] ?? null
+}

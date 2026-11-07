@@ -3,7 +3,7 @@ import { BROWSER_IMPORT_CATEGORIES, type BrowserDiscoveryResult, type BrowserImp
 import type { BrowserImportJobHandle, BrowserImportJobSnapshot } from '../../../../contracts/browser-import-jobs'
 import { ModalPortal } from '../../components/ModalPortal'
 import { useT } from '../../i18n'
-import { IMPORT_UI_DEFAULTS, importCategoryErrors, importIsTerminal, importRetrySelection, mergeImportSummary, type ImportSelection, type ImportSummary } from './browser-import-model'
+import { IMPORT_UI_DEFAULTS, importCategoryErrors, importIssueLabelKey, importIsTerminal, importRetrySelection, mergeImportSummary, type ImportSelection, type ImportSummary } from './browser-import-model'
 import { RuntimeChoice } from './runtime-tab'
 import styles from './browser-import.module.css'
 
@@ -230,11 +230,6 @@ export function BrowserImportDialog({ api, onClose }: { api: BrowserImportUiApi;
   const failedRows = summary ? selectedCategories(importRetrySelection(summary)) : []
   const allFailed = summary && failedRows.length === rows.length && rows.every(category => summary.counts[category] === 0)
   const categoryLabel = (category: BrowserImportCategory) => t(`browser_import_${category}`)
-  const issueDetails = discoveryIssues.length > 0 ? <ul className={styles['import-issues']}>
-    {discoveryIssues.map((issue, index) => <li key={`${issue.sourceId}:${issue.code}:${index}`}>
-      <span>{issue.code}</span>{issue.message ? `: ${issue.message}` : ''}
-    </li>)}
-  </ul> : null
   const terminal = snapshot ? importIsTerminal(snapshot) : false
   const cancelled = snapshot?.stage === 'cancelled'
   const formVisible = !pending && !summary
@@ -254,13 +249,11 @@ export function BrowserImportDialog({ api, onClose }: { api: BrowserImportUiApi;
         </div> : formVisible ? <>
           {discovering ? <p role="status">{t('browser_import_discovering')}</p> : unavailable ? <div role="alert">
             <p>{permissionDenied ? permissionMessage : t('browser_import_discovery_failed')}</p>
-            {issueDetails}
             {permissionDenied && api.openPermissionSettings && <button onClick={() => { void openPermissionSettings() }}>{t('browser_import_permission_settings')}</button>}
             <button onClick={() => { void refresh() }}>{t('browser_import_retry')}</button>
           </div> : !profile ? <p role="status">{t('browser_import_no_profiles')}</p> : <>
             {discoveryIssues.length > 0 && <div role="status"><p>{t('browser_import_discovery_partial')}</p>
               {permissionDenied && <p>{permissionMessage}</p>}
-              {issueDetails}
               {permissionDenied && api.openPermissionSettings && <button onClick={() => { void openPermissionSettings() }}>{t('browser_import_permission_settings')}</button>}
             </div>}
             {discovery!.profiles.length > 1 ? <RuntimeChoice
@@ -295,7 +288,10 @@ export function BrowserImportDialog({ api, onClose }: { api: BrowserImportUiApi;
                 <div><span>{categoryLabel(category)}</span>{displaySummary && <>
                   {(count > 0 || finished) && <small>{t('browser_import_count').replace('{count}', String(count))}</small>}
                   {errors.length > 0 && <small>{t(`browser_import_${category}_failed`)}</small>}
-                  {errors.map((issue, index) => <small key={`${issue.code}:${index}`}>{issue.code === 'app_bound_encryption_unsupported' ? t('browser_import_app_bound_unsupported') : issue.message} ({issue.code})</small>)}
+                  {errors.map((issue, index) => {
+                    const label = importIssueLabelKey(issue.code)
+                    return label ? <small key={`${issue.code}:${index}`}>{t(label)}</small> : null
+                  })}
                 </>}</div>
               </li>
             })}

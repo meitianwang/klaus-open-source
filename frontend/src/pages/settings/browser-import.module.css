@@ -13,8 +13,6 @@
 .import-source { display: grid; gap: 8px; font-size: var(--text-small); }
 .import-source select { width: 100%; min-width: 0; height: 36px; padding: 0 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-elevated); color: var(--fg); font: inherit; }
 .import-source-name { margin: 0 0 12px; font-size: var(--text-small); font-weight: 500; overflow-wrap: anywhere; }
-.import-issues { margin: 8px 0 0; padding: 0; list-style: none; display: grid; gap: 4px; color: var(--fg-secondary); font-size: var(--text-caption); line-height: 1.5; overflow-wrap: anywhere; }
-.import-issues span { font-family: var(--font-mono, ui-monospace, monospace); color: var(--fg); }
 .import-categories { display: grid; gap: 16px; padding: 16px 0; }
 .import-categories label { display: flex; align-items: center; gap: 10px; cursor: pointer; }
 .import-categories input { width: 16px; height: 16px; margin: 0; accent-color: var(--accent); }

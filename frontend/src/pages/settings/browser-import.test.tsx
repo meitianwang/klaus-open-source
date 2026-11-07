@@ -162,7 +162,8 @@ describe('browser import dialog lifecycle', () => {
       openPermissionSettings: async () => { opened++ },
     }))
     expect(happyWindow.document.body.textContent).toContain('Your system blocked access to browser profiles.')
-    expect(happyWindow.document.body.textContent).toContain('source_permission_denied: Synthetic access denial')
+    expect(happyWindow.document.body.textContent).not.toContain('source_permission_denied')
+    expect(happyWindow.document.body.textContent).not.toContain('Synthetic access denial')
     expect(button('Import').disabled).toBe(true)
     expect(reads).toBe(1)
     expect(opened).toBe(0)
@@ -191,7 +192,7 @@ describe('browser import dialog lifecycle', () => {
     await unmount(root)
   })
 
-  test('profile_permission_denied uses the same generic denial without losing the issue', async () => {
+  test('profile_permission_denied uses the same generic denial without exposing raw issue codes', async () => {
     const root = await mount(makeApi({
       discover: async () => ({
         profiles: [],
@@ -199,7 +200,8 @@ describe('browser import dialog lifecycle', () => {
       }),
     }))
     expect(happyWindow.document.body.textContent).toContain('Your system blocked access to browser profiles.')
-    expect(happyWindow.document.body.textContent).toContain('profile_permission_denied: Synthetic profile denial')
+    expect(happyWindow.document.body.textContent).not.toContain('profile_permission_denied')
+    expect(happyWindow.document.body.textContent).not.toContain('Synthetic profile denial')
     expect(happyWindow.document.body.textContent).not.toContain('macOS blocked')
     await unmount(root)
   })
@@ -307,6 +309,29 @@ describe('browser import dialog lifecycle', () => {
     expect(happyWindow.document.querySelector('[data-category="cookies"]').textContent).toContain('7 imported')
     expect(happyWindow.document.querySelector('[data-category="passwords"]').textContent).toContain('3 imported')
     expect(button('Retry')).toBeUndefined()
+  })
+
+  test('result rows localize known issue codes and hide raw diagnostics', async () => {
+    requests = []; cancelled = []; closed = 0
+    await mount(makeApi({ start: async (request: any) => {
+      requests.push(request)
+      return { jobId: 'issues', snapshot: snapshot('issues', { stage: 'failed', errors: [
+        { category: 'cookies', code: 'app_bound_encryption_unsupported', message: 'Raw app-bound detail' },
+        { category: 'passwords', code: 'keychain_auth_cancelled', message: 'Raw keychain detail' },
+        { category: 'history', code: 'row_failed', message: 'Raw unknown detail' },
+      ] }) }
+    } }))
+    await click(button('Import'))
+    await waitForReveal()
+    const body = happyWindow.document.body.textContent
+    expect(body).toContain('These entries use application-bound encryption')
+    expect(body).toContain('System keychain access was refused or unavailable')
+    expect(body).not.toContain('Raw app-bound detail')
+    expect(body).not.toContain('Raw keychain detail')
+    expect(body).not.toContain('Raw unknown detail')
+    expect(body).not.toContain('app_bound_encryption_unsupported')
+    expect(body).not.toContain('keychain_auth_cancelled')
+    expect(body).not.toContain('row_failed')
   })
 
   test('an owner unmount before start acknowledgement cancels the late job', async () => {
