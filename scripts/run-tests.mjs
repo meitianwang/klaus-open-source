@@ -9,7 +9,7 @@ const executable = require('electron');
 const root = fileURLToPath(new URL('..', import.meta.url));
 const suites = [
   'source-isolation', 'source-selection-memory', 'antigravity', 'trae', 'kiro', 'media-inputs', 'composer-predictions', 'prediction-query', 'owned-edit-menu', 'menu-diagnostics', 'native-content-find',
-  'browser-file-upload', 'browser-file-upload-extension', 'browser-debugger-session', 'browser-settings', 'browser-history', 'browser-input-cancellation', 'browser-profile-import', 'browser-profile-import-service', ...(process.platform === 'darwin' ? ['browser-profile-decryptor'] : []), 'browser-profile-import-helper', 'browser-credentials', 'browser-extensions',
+  'browser-file-upload', 'browser-file-upload-extension', 'browser-debugger-session', 'browser-settings', 'browser-history', 'browser-input-cancellation', 'browser-profile-import', 'browser-profile-import-service', ...(process.platform === 'darwin' ? ['browser-profile-decryptor'] : []), 'browser-profile-import-helper', 'browser-credentials', 'browser-extensions', 'browser-fit-zoom',
   'power-save', 'desktop-log', 'session-view-interests',
   'voice-chat',
   'workspace-dependencies', 'workspace-dependency-tools', 'workspace-dependency-settings', 'workspace-skills',

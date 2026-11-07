@@ -3,6 +3,7 @@ import { existsSync, mkdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { PageDebugger } from './cdp';
+import { FIT_ZOOM_EPS, INTRINSIC_WIDTH_EXPRESSION, SETTLE_FRAME_EXPRESSION, fitZoomForViewport } from './fit-zoom';
 import { BrowserDialogs } from './dialogs';
 import { NativeDownloads } from './native-downloads';
 import { BrowserDataStore } from './history-store';
@@ -690,6 +691,11 @@ export class BrowserManager {
     for (const event of ['did-start-loading', 'did-stop-loading', 'page-title-updated']) {
       contents.on(event as 'did-start-loading', () => this.publish());
     }
+    contents.on('did-start-loading', () => {
+      // A new document lays out at its natural scale; the settled probe
+      // decides afterwards whether the shown width needs a proportional fit.
+      try { if (Math.abs((contents.getZoomFactor() || 1) - 1) > FIT_ZOOM_EPS) contents.setZoomFactor(1); } catch { /* destroyed mid-navigation */ }
+    });
     contents.on('page-title-updated', () => {
       const url = contents.getURL();
       if (!this.isHistoryUrl(url)) return;
@@ -701,7 +707,12 @@ export class BrowserManager {
     });
     contents.on('did-navigate-in-page', (_event, url, isMainFrame) => {
       this.publish();
-      if (isMainFrame) this.scheduleVisit(page, url);
+      if (isMainFrame) {
+        this.scheduleVisit(page, url);
+        // App shells swap routes without a load event; the intrinsic width
+        // changes with the route, so re-measure once the route settles.
+        this.scheduleContentProbe(page);
+      }
     });
     // A finished load is the first moment the layout metrics describe the new
     // document; the probe itself debounces so redirect chains measure once.
@@ -947,27 +958,59 @@ export class BrowserManager {
     if (this.disposed || !this.alive(page) || this.shown !== page) return;
     const contents = page.view.webContents;
     if (contents.isLoading()) return;
-    let width = 0;
+    const zoom = this.options.window.webContents.getZoomFactor() || 1;
+    // The view bounds are physical pixels (they carry the window zoom); the
+    // layout metrics are CSS pixels, so compare in CSS pixels.
+    const viewport = page.view.getBounds().width / zoom;
+    // Measure at the page's natural scale: a scaled page hides its intrinsic
+    // width (a fluid shell reports exactly the viewport the scale gave it),
+    // so the probe returns to zoom 1, lets one frame lay out, and only then
+    // reads metrics. The fit is re-applied from the fresh reading below.
+    if (Math.abs((contents.getZoomFactor() || 1) - 1) > FIT_ZOOM_EPS) {
+      try {
+        contents.setZoomFactor(1);
+        await this.settleFrame(page);
+      } catch {
+        return;
+      }
+      if (this.disposed || !this.alive(page) || this.shown !== page || contents.isLoading()) return;
+    }
+    let intrinsic = 0;
     try {
       const metrics = object(await page.cdp.command('Page.getLayoutMetrics'));
       const size = object(metrics.cssContentSize ?? metrics.contentSize);
-      const content = Number(size.width);
-      const zoom = this.options.window.webContents.getZoomFactor() || 1;
-      // The view bounds are physical pixels (they carry the window zoom); the
-      // layout metrics are CSS pixels, so compare in CSS pixels.
-      const viewport = page.view.getBounds().width / zoom;
-      // A sub-pixel difference is rounding, not overflow: keep it at 0 so the
-      // renderer never chases a fraction of a pixel.
-      width = Number.isFinite(content) && content > viewport + 1 ? Math.ceil(content) : 0;
+      const documentWidth = Number(size.width);
+      const evaluated = object(await page.cdp.command('Runtime.evaluate', { expression: INTRINSIC_WIDTH_EXPRESSION, returnByValue: true }));
+      const scrollBoxes = Number(object(evaluated.result).value);
+      intrinsic = Math.max(Number.isFinite(documentWidth) ? documentWidth : 0, Number.isFinite(scrollBoxes) ? scrollBoxes : 0);
     } catch {
       return;
     }
     if (!this.alive(page)) return;
     this.suppressedReloads.delete(page.handle);
     this.pendingVisits.delete(page.handle);
-    page.contentWidth = width;
+    // A sub-pixel difference is rounding, not overflow: keep it at 0 so the
+    // renderer never chases a fraction of a pixel.
+    page.contentWidth = intrinsic > viewport + 1 ? Math.ceil(intrinsic) : 0;
     page.contentRevision = (page.contentRevision ?? 0) + 1;
+    // The renderer widens the panel towards the reported width, capped by what
+    // the window can give; the width the panel cannot give is recovered here
+    // proportionally, so the whole document stays on screen instead of
+    // clipping behind a horizontal scrollbar.
+    const fit = fitZoomForViewport(viewport, intrinsic);
+    if (Math.abs(fit - 1) > FIT_ZOOM_EPS) {
+      try { contents.setZoomFactor(fit); } catch { /* destroyed mid-probe */ }
+    }
     this.publish();
+  }
+
+  /** One laid-out frame after a zoom change, bounded so a stalled page cannot hang the probe. */
+  private settleFrame(page: BrowserPage): Promise<void> {
+    return new Promise<void>(resolve => {
+      const timer = setTimeout(resolve, 250);
+      void page.cdp.command('Runtime.evaluate', { expression: SETTLE_FRAME_EXPRESSION, awaitPromise: true, returnByValue: true })
+        .then(() => { clearTimeout(timer); resolve(); }, () => { clearTimeout(timer); resolve(); });
+    });
   }
 
   async requestPanel(sessionId: string, page?: BrowserPage): Promise<boolean> {
