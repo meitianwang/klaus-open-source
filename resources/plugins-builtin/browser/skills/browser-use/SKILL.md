@@ -5,12 +5,12 @@ description: Operate browser pages, inspect live tabs and page content, fill for
 
 Browser control is a host MCP server named `klaus-browser`. Every operation is
 one tool: `mcp__klaus-browser__<operation>`, such as
-`mcp__klaus-browser__navigate`, `mcp__klaus-browser__click` or
-`mcp__klaus-browser__tabs`. These tools are deferred and are not in the initial
-tool list. Activate them with `tool_search` before first use — search by
+`mcp__klaus-browser__navigate`, `mcp__klaus-browser__ax_state` or
+`mcp__klaus-browser__ax_action`. These tools are deferred and are not in the
+initial tool list. Activate them with `tool_search` before first use — search by
 capability, or load exact names with
-`select:mcp__klaus-browser__navigate,mcp__klaus-browser__click`. The host owns
-the browser connection and tab handles. Do not launch a separate browser,
+`select:mcp__klaus-browser__navigate,mcp__klaus-browser__ax_state`. The host
+owns the browser connection and tab handles. Do not launch a separate browser,
 import an unrelated automation client, or obtain browser credentials from files
 to work around a browser-tool error.
 
@@ -47,24 +47,47 @@ existing user tabs, or task cleanup.
    external connection failure must remain an error; do not switch to the built-in
    browser and continue on a different page.
 
-## Observe, act, and verify
+## Observe and act: accessibility-first
 
-- Read a page snapshot or structural text before choosing a target. Prefer role,
-  accessible name, label, placeholder, or a returned element ref. Narrow multiple
-  matches by scope or index instead of clicking an arbitrary match.
-- Use named click, type, form, checkbox, select, upload and download operations.
-  A page script does not reproduce trusted pointer or keyboard input. Use
-  coordinates only when the target cannot be named, and obtain a current screenshot
-  before choosing them.
+- `ax_state` is the primary observation. It renders the page as accessibility
+  text with integer element indices, and always includes the title, URL, the
+  focused element and any selected text. After the first read of a document it
+  returns a diff (`~` changed, `+` added, plus removed ID ranges); pass
+  `disableDiffing: true` for the full tree. Capture waits for the page to
+  settle first — do not add sleeps around it.
+- `ax_action` is the primary interaction, addressing an `elementIndex` from the
+  latest `ax_state` with real browser input: `click` (count, button, held key
+  combination, hold duration), `type_text`, `set_value`, `paste`, `press_key`
+  (xdotool-style keys such as `Return` or `super+c`), `scroll`, `select_text`,
+  `secondary_action` (only names the state exposes, such as `Scroll to Visible`)
+  and `drag`.
+- Indices belong to the state that returned them. After any action or
+  navigation, read `ax_state` again instead of reusing old indices. A failed
+  action returns the fresh accessibility state with the error — re-derive the
+  target from it instead of repeating the same action blindly.
+- Batch multi-step interactions in one `REPL` call. The REPL binds the browser
+  tools as async functions and adds a hierarchical `browser` API:
+  `browser.getState()`, `browser.getTab(id)` with `tab.ax.click(index)`,
+  `tab.content.text()`, `tab.dev.console()` and more; `browser.docs()` prints
+  the full reference.
+- Use `snapshot`, `read_page`, `locator` and the named click, type, form,
+  checkbox, select, upload and download operations for structured reads and
+  stable criteria-based targeting; they complement the index workflow. A page
+  script does not reproduce trusted pointer or keyboard input. Use coordinates
+  only when the target cannot be addressed by index or name, and obtain a
+  current screenshot before choosing them.
 - Navigate with the navigation operation. Page typing does not address a browser
   address bar. Never type browser shortcuts or a URL into a web page to navigate.
-- Wait for the specific element, URL or load state needed by the next action.
-  Use a bounded timeout and inspect what timed out before retrying.
-- Re-read after navigation or a re-render that invalidates a ref. If a target is
-  covered or disabled, inspect the page and resolve the condition. Do not bypass
-  it with script or substitute a different action.
+- For named-element workflows, wait for the specific element, URL or load state
+  needed by the next action. Use a bounded timeout and inspect what timed out
+  before retrying.
+- If a target is covered or disabled, inspect the page and resolve the
+  condition. Do not bypass it with script or substitute a different action.
 - Verify the resulting page state. For visual work, capture a screenshot and
-  inspect it. Keep actual saved artifact paths when a result is to be shared.
+  inspect it as proof of what the user would see; the result reports `scale`
+  (image pixels per CSS pixel), so divide image-measured coordinates by scale
+  before clicking them. Keep actual saved artifact paths when a result is to be
+  shared.
 - Read console and network diagnostics to distinguish a failed request from a
   page that is still loading. Preserve the reported error and body availability;
   an empty or truncated result does not establish that no error occurred.

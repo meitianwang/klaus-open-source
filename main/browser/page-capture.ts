@@ -77,7 +77,13 @@ export async function captureScreenshot(root: BrowserCdp, fields: BrowserObject,
       const result = await (cdp.captureScope?.root ?? cdp).command('Page.captureScreenshot', params); data = String(result.data ?? '');
     }
     if (!data) throw new BrowserError('host_error', 'The browser returned no screenshot.');
-    return { data, dataUrl: `data:image/${format};base64,${data}`, mimeType: `image/${format}`, ...(annotated ? { annotated } : {}) };
+    // Image pixels per CSS pixel: devicePixelRatio already folds in page zoom
+    // (including the panel fit-zoom) and the display scale; an explicit clip
+    // scale multiplies on top. Reporting it lets a coordinate measured on the
+    // image convert back into the pointer coordinate space with one division.
+    const dpr = Number(metrics.dpr);
+    const scale = Number.isFinite(dpr) && dpr > 0 ? Math.round(dpr * Number(clip?.scale ?? 1) * 1000) / 1000 : undefined;
+    return { data, dataUrl: `data:image/${format};base64,${data}`, mimeType: `image/${format}`, ...(scale === undefined ? {} : { scale }), ...(annotated ? { annotated } : {}) };
   } finally { if (overlay) await cdp.evaluate(`document.getElementById(${JSON.stringify(overlay)})?.remove()`).catch(() => {}); }
 }
 

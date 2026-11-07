@@ -11,6 +11,7 @@ import { integerTimestampMs } from '../main/browser/event-shapes';
 import { performPageOperation, type PageOperationContext } from '../main/browser/page-operations';
 import { navigateForRead, readUrls, type TemporaryPage } from '../main/browser/task-operations';
 import { MAX_BROWSER_WAIT_MS, waitForPage } from '../main/browser/page-wait';
+import { captureScreenshot } from '../main/browser/page-capture';
 import { BROWSER_PANEL_OPEN_ACK_TIMEOUT_MS, browserOperationRequestsPanel } from '../main/browser/panel-contract';
 import { BrowserPermissionDecisions, PendingBrowserPermissions } from '../main/browser/permission-requests';
 import { permissionQueryShimSource, permissionQueryUpdateExpression, synthesizePermissionQueryPolicy } from '../main/browser/permission-query';
@@ -560,6 +561,42 @@ h.test('concurrent permission requests for the same keys share one question', as
   decisions.set(keys, 'denied');
   decisions.clear();
   assertEqual(decisions.denied(keys), false, 'clearing drops every remembered decision');
+});
+
+h.test('screenshot results report the image-pixel-per-CSS-pixel scale', async () => {
+  const metrics = { width: 800, height: 600, x: 0, y: 0, dpr: 2 };
+  const cdp = {
+    evaluate: async () => metrics,
+    command: async (method: string) => (method === 'Page.captureScreenshot' ? { data: 'aGk=' } : {}),
+  } as unknown as Parameters<typeof captureScreenshot>[0];
+  const plain = await captureScreenshot(cdp, {});
+  assertEqual(plain.scale, 2, 'a device-scale capture reports its scale');
+  const zoomed = await captureScreenshot(cdp, { clip: { x: 0, y: 0, width: 100, height: 50, scale: 2 } });
+  assertEqual(zoomed.scale, 4, 'an explicit clip scale multiplies into the reported scale');
+});
+
+h.test('youtube transcript export renders caption lines with timestamps', async () => {
+  const payload = {
+    ok: true, url: 'https://www.youtube.com/watch?v=example', title: 'Demo Video',
+    language: 'en', trackName: 'English', generated: false,
+    lines: [{ startMs: 0, durationMs: 1500, text: 'Hello world' }, { startMs: 65000, durationMs: 2000, text: 'Second line' }],
+  };
+  const context = { cdp: { evaluate: async () => payload } } as unknown as PageOperationContext;
+  const { value, typed } = await performPageOperation(context, 'content_export', { format: 'youtube_transcript' });
+  const exported = object(value);
+  assertEqual(exported.format, 'youtube_transcript', 'the export names its format');
+  assertEqual(exported.lineCount, 2, 'both caption lines render');
+  const content = String(exported.content);
+  assert(content.includes('[00:00] Hello world'), `timestamped first line: ${content}`);
+  assert(content.includes('[01:05] Second line'), `minute rollover: ${content}`);
+  assert(String(object(typed).text).includes('Hello world'), 'the transcript reaches the typed text channel');
+});
+
+h.test('youtube transcript export reports missing captions as a page problem', async () => {
+  const context = { cdp: { evaluate: async () => ({ ok: false, reason: 'no_captions', url: 'https://example.com/' }) } } as unknown as PageOperationContext;
+  const error = await assertRejects(() => performPageOperation(context, 'content_export', { format: 'youtube_transcript' }), 'a page without captions is refused');
+  assertEqual((error as BrowserError).code, 'not_found', 'missing captions are a not-found page state');
+  assert(String((error as BrowserError).message).includes('caption tracks'), 'the message names the gap');
 });
 
 void h.finish(join(__dirname, 'browser-policy-result.json'), 'browser-policy').then(code => process.exit(code));

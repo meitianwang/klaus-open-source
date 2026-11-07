@@ -1,6 +1,6 @@
 {
   "_why": "Pins browser-tool discovery and Electron input behavior. Typed locators encode an omitted selector as an empty string; decoding must preserve their accessible criteria while direct empty selectors remain invalid. Typed log timestamps use integer milliseconds while raw event timestamps retain source precision. Capability queries identify the requested backend without changing selection and never advertise unavailable operations as supported. Browser computer scroll uses a viewport-centered wheel event by default because a synthesized gesture at the top-left could stall on document editors.",
-  "browserTargetedOperations": ["navigate", "back", "forward", "reload", "click", "type", "locator", "snapshot", "read_page", "screenshot", "console", "network", "eval", "computer", "tabs", "new_tab", "close", "history", "tabs_content", "claim_tab", "mark_tab", "file_upload", "download", "batch", "visibility", "read_urls"],
+  "browserTargetedOperations": ["navigate", "back", "forward", "reload", "click", "type", "locator", "snapshot", "read_page", "screenshot", "console", "network", "eval", "computer", "tabs", "new_tab", "close", "history", "tabs_content", "claim_tab", "mark_tab", "file_upload", "download", "batch", "visibility", "read_urls", "ax_state", "ax_action"],
   "capabilityQueries": {
     "unavailable": ["gif_creator", "upload_image", "shortcuts_list", "shortcuts_execute"],
     "externalOnly": ["history", "claim_tab", "tabs_content", "mark_tab"],
@@ -35,7 +35,8 @@
     "network", "read_page", "find", "form_input", "select_option", "set_checked", "page_assets", "webmcp", "cdp", "computer",
     "tabs", "new_tab", "locator", "element_info", "wait_for", "page_text", "batch", "resize", "close", "gif_creator",
     "upload_image", "file_upload", "shortcuts_list", "shortcuts_execute", "switch_browser", "list_connected_browsers", "select_browser", "browser_for_url", "capabilities", "visibility",
-    "history", "tabs_content", "read_urls", "claim_tab", "resolve_tab", "content_export", "download", "clipboard", "dialog", "permission", "mark_tab"
+    "history", "tabs_content", "read_urls", "claim_tab", "resolve_tab", "content_export", "download", "clipboard", "dialog", "permission", "mark_tab",
+    "ax_state", "ax_action"
   ],
   "mustDeclare": {
     "navigate": ["url", "waitUntil", "viewport", "tabId", "target"],
@@ -88,7 +89,9 @@
     "clipboard": ["action", "text", "items", "tabId"],
     "dialog": ["action", "accept", "promptText", "tabId"],
     "permission": ["action", "origin", "permissions", "permission", "setting"],
-    "mark_tab": ["status", "tabId", "name"]
+    "mark_tab": ["status", "tabId", "name"],
+    "ax_state": ["mode", "disableDiffing", "maxChars", "fast", "save", "fullPage", "format", "tabId"],
+    "ax_action": ["action", "elementIndex", "snapshotId", "point", "text", "value", "format", "key", "duration", "direction", "pages", "clickCount", "mouseButton", "prefix", "suffix", "selectionType", "name", "timeoutMs", "tabId"]
   },
   "defaults": {
     "click.timeoutMs": 3000,
@@ -100,7 +103,9 @@
     "close.target": "session",
     "download.timeoutMs": 60000,
     "read_urls.contentType": "text",
-    "read_urls.timeoutMs": 20000
+    "read_urls.timeoutMs": 20000,
+    "ax_state.mode": "state",
+    "ax_action.timeoutMs": 30000
   },
   "computerScroll": {
     "default": { "method": "Input.dispatchMouseEvent", "params": { "type": "mouseWheel", "x": 320, "y": 240, "deltaX": 0, "deltaY": 200, "pointerType": "mouse" } },
@@ -170,7 +175,9 @@
       { "kind": "snapshot", "fields": {}, "opens": false },
       { "kind": "read_page", "fields": {}, "opens": false },
       { "kind": "screenshot", "fields": {}, "opens": false },
-      { "kind": "tabs", "fields": { "action": "list" }, "opens": false }
+      { "kind": "tabs", "fields": { "action": "list" }, "opens": false },
+      { "kind": "ax_action", "fields": {}, "opens": true },
+      { "kind": "ax_state", "fields": {}, "opens": false }
     ]
   },
   "descriptionFragments": {
@@ -187,6 +194,8 @@
     "gif_creator": "repeated screenshot",
     "upload_image": "Use file_upload",
     "shortcuts_list": "locator, click and type",
-    "shortcuts_execute": "locator, click and type"
+    "shortcuts_execute": "locator, click and type",
+    "ax_state": "integer element indices",
+    "ax_action": "fresh accessibility state"
   }
 }

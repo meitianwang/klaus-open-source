@@ -67,6 +67,81 @@ export function workspaceExportUrl(input: unknown, format: unknown, gid?: unknow
   return {editor,documentId:id,url:exported.href,format:kind};
 }
 
+/** In-page caption-track extraction for the current YouTube watch page. */
+const youtubeTranscriptSource = (language: string): string => `(async () => {
+  const pr = window.ytInitialPlayerResponse;
+  const tracks = pr && pr.captions && pr.captions.playerCaptionsTracklistRenderer && pr.captions.playerCaptionsTracklistRenderer.captionTracks;
+  if (!Array.isArray(tracks) || !tracks.length) return { ok: false, reason: 'no_captions', url: location.href, title: document.title };
+  const want = ${JSON.stringify(language)}.toLowerCase();
+  const manual = tracks.filter(track => track && track.kind !== 'asr');
+  const pool = manual.length ? manual : tracks;
+  const byWant = want
+    ? pool.find(track => String(track.languageCode || '').toLowerCase() === want)
+      || pool.find(track => String(track.languageCode || '').toLowerCase().startsWith(want))
+    : undefined;
+  const track = byWant || pool[0];
+  if (!track || !track.baseUrl) return { ok: false, reason: 'no_captions', url: location.href, title: document.title };
+  const separator = String(track.baseUrl).includes('?') ? '&' : '?';
+  let response;
+  try {
+    response = await fetch(String(track.baseUrl) + separator + 'fmt=json3', { credentials: 'include', signal: AbortSignal.timeout(20000) });
+  } catch (error) {
+    return { ok: false, reason: 'fetch_failed', message: String((error && error.message) || error) };
+  }
+  if (!response.ok) return { ok: false, reason: 'fetch_failed', status: response.status };
+  const data = await response.json();
+  const lines = [];
+  for (const event of (data && Array.isArray(data.events)) ? data.events : []) {
+    if (!event || !Array.isArray(event.segs)) continue;
+    const text = event.segs.map(segment => String(segment && segment.utf8 != null ? segment.utf8 : '')).join('').replace(/\\s+/gu, ' ').trim();
+    if (!text) continue;
+    lines.push({ startMs: Number(event.tStartMs || 0), durationMs: Number(event.dDurationMs || 0), text });
+  }
+  if (!lines.length) return { ok: false, reason: 'empty_transcript', url: location.href };
+  const name = track.name || {};
+  return {
+    ok: true,
+    url: location.href,
+    title: String((pr.videoDetails && pr.videoDetails.title) || document.title || ''),
+    language: String(track.languageCode || ''),
+    trackName: String(name.simpleText || (Array.isArray(name.runs) && name.runs[0] && name.runs[0].text) || track.languageCode || ''),
+    generated: track.kind === 'asr',
+    lines,
+  };
+})()`;
+
+/** Caption transcript of the current YouTube watch page through its own caption tracks. */
+async function youtubeTranscript(context: PageOperationContext, fields: BrowserObject): Promise<BrowserObject> {
+  const language = typeof fields.language === 'string' ? fields.language.trim() : '';
+  const result = object(await context.cdp.evaluate(youtubeTranscriptSource(language)));
+  if (result.ok !== true) {
+    const reason = String(result.reason ?? '');
+    if (reason === 'no_captions') throw new BrowserError('not_found', `This page exposes no caption tracks${typeof result.url === 'string' && result.url ? ` (${String(result.url)})` : ''}. Open the YouTube watch page first; some videos and live streams have no captions.`);
+    if (reason === 'fetch_failed') throw new BrowserError('host_error', `Fetching the caption track failed${result.status !== undefined ? ` with HTTP ${String(result.status)}` : ''}${typeof result.message === 'string' && result.message ? `: ${String(result.message)}` : '.'}`);
+    throw new BrowserError('not_found', 'The caption track returned no transcript lines.');
+  }
+  const lines = (Array.isArray(result.lines) ? result.lines : []).map(object);
+  const stamp = (value: unknown): string => {
+    const total = Math.max(0, Math.floor(Number(value ?? 0) / 1000));
+    const hours = Math.floor(total / 3600), minutes = Math.floor((total % 3600) / 60), seconds = total % 60;
+    const mm = String(minutes).padStart(2, '0'), ss = String(seconds).padStart(2, '0');
+    return hours > 0 ? `${hours}:${mm}:${ss}` : `${mm}:${ss}`;
+  };
+  const rendered = lines.map(line => `[${stamp(line.startMs)}] ${String(line.text ?? '')}`).join('\n');
+  const asked = Number(fields.maxChars ?? fields.maxCharacters);
+  const limit = Number.isFinite(asked) && asked > 0 ? Math.min(Math.floor(asked), 200000) : 200000;
+  const content = rendered.length > limit ? `${rendered.slice(0, limit)}\n[transcript truncated at ${limit} characters]` : rendered;
+  return {
+    format: 'youtube_transcript',
+    video: { title: String(result.title ?? ''), url: String(result.url ?? '') },
+    language: String(result.language ?? ''),
+    trackName: String(result.trackName ?? ''),
+    generated: result.generated === true,
+    lineCount: lines.length,
+    content,
+  };
+}
+
 export async function exportContent(context: PageOperationContext, fields: BrowserObject): Promise<BrowserObject> {
   if(typeof fields.gsuite==='string'&&fields.gsuite.trim()) {
     const page=object(await context.cdp.evaluate('({url:location.href,title:document.title})'));
@@ -74,6 +149,8 @@ export async function exportContent(context: PageOperationContext, fields: Brows
     const result=await context.download({url:exported.url!},timeoutMs(fields.timeoutMs,60000),context.cdp);
     return {...result,format:exported.format!,gsuite:exported};
   }
+  const askedFormat = String(fields.contentType ?? fields.content_type ?? fields.format ?? '').trim().toLowerCase();
+  if (askedFormat === 'youtube_transcript' || askedFormat === 'youtube-transcript') return youtubeTranscript(context, fields);
   const format=contentFormat(fields,'pdf');
   if(['text','markdown','html','domSnapshot'].includes(format))return readContent(context.cdp,{...fields,format});
   if(format==='pdf') {

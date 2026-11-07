@@ -57,7 +57,7 @@ interface PanelOpenWaiter {
   resolve(opened: boolean): void;
 }
 export interface BrowserPermissionRequest { sessionId: string; permission: string; origin: string; pageUrl: string }
-const AGENT_INPUT_OPERATIONS = new Set(['click', 'type', 'form_input', 'computer', 'locator', 'press', 'file_upload']);
+const AGENT_INPUT_OPERATIONS = new Set(['click', 'type', 'form_input', 'computer', 'locator', 'press', 'file_upload', 'ax_action']);
 const AGENT_NAVIGATION_OPERATIONS = new Set(['navigate']);
 const AGENT_POPUP_OPERATIONS = new Set([...AGENT_INPUT_OPERATIONS, 'eval', 'navigate']);
 export type BrowserAuthorizationResource = 'browsing' | 'downloads' | 'uploads' | 'siteTools' | 'debug';

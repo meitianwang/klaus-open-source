@@ -1,4 +1,5 @@
 import { checkRawCdp, timeoutMs } from './policy';
+import { captureAxState, performAxAction } from './ax';
 import { BrowserError, json, object, string, type BrowserObject } from './types';
 import type { Json } from '../ipc/contract';
 import { domScript, elementInfoScript, elementScript, frameCdp, namesElement, resolveElement } from './dom';
@@ -127,6 +128,14 @@ export async function performPageOperation(context: PageOperationContext, kind: 
       value = json(result); break;
     }
     case 'wait_for': value=await waitForPage(cdp,fields,context.signal); break;
+    case 'ax_state': {
+      // The accessibility state always addresses the whole tab; its capture
+      // merges every owned frame itself.
+      const ax = await captureAxState({ cdp: context.cdp, signal: context.signal, artifactDirectory: context.artifactDirectory }, fields);
+      value = ax.value; typed = ax.typed; screenshot = ax.screenshot;
+      break;
+    }
+    case 'ax_action': value = await performAxAction({ cdp: context.cdp, signal: context.signal }, fields); break;
     case 'console': case 'network': {
       const action = fields.action ?? 'get';
       if (!['get', 'list', 'clear'].includes(String(action))) throw new BrowserError('unavailable', `${kind} action '${String(action)}' is not implemented.`);

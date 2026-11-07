@@ -9,7 +9,7 @@ export const BROWSER_PANEL_OPEN_ACK_TIMEOUT_MS = 600;
 
 const VISUAL_OPERATIONS = new Set([
   'navigate', 'back', 'forward', 'reload', 'click', 'type', 'form_input',
-  'select_option', 'set_checked', 'computer',
+  'select_option', 'set_checked', 'computer', 'ax_action',
 ]);
 
 /** Reading the page stays in the background; only operations that change the

@@ -20,6 +20,7 @@ const ALL_OPERATIONS = [
   'file_upload', 'shortcuts_list', 'shortcuts_execute', 'switch_browser', 'list_connected_browsers',
   'select_browser', 'browser_for_url', 'capabilities', 'visibility', 'history', 'tabs_content',
   'read_urls', 'claim_tab', 'resolve_tab', 'content_export', 'download', 'clipboard', 'dialog', 'permission', 'mark_tab',
+  'ax_state', 'ax_action',
 ] as const;
 
 const UNAVAILABLE_OPERATIONS = new Set(['gif_creator', 'upload_image', 'shortcuts_list', 'shortcuts_execute']);
@@ -32,7 +33,7 @@ const DESCRIPTIONS: Record<string, string> = {
   new_tab: 'Create a tab owned by this task. Optional url.', close: 'Retire this task\'s tabs. target tab closes tabId/current; target session or all retires the session, preserving keep entries.',
   snapshot: 'Read visible elements with stable refs. selector/ref scopes the snapshot; includeText/includeLinks can omit text or link URLs. limit/maxChars report truncation; cross-process frames are listed separately.',
   read_page: 'Read structural text nodes with refs, counts and truncation. selector/refId scopes the subtree, depth limits nesting, maxChars bounds Unicode text; filter:interactive returns actionable elements. includeText:false returns page identity only.', page_text: 'Read structural page text with the same scope/depth/filter/includeText options as read_page.',
-  screenshot: 'Capture this task\'s page or named element. fullPage, CSS-pixel clip, format (png/jpeg), JPEG quality, point annotation and save are available.',
+  screenshot: 'Capture this task\'s page or named element. fullPage, CSS-pixel clip, format (png/jpeg), JPEG quality, point annotation and save are available. The result reports scale: image pixels per CSS pixel (page zoom × device scale); divide image-measured coordinates by scale to click them.',
   eval: 'Evaluate expression/script on this page, or call a function expression with args. readOnly/isolated uses a separate page world and Chromium side-effect refusal with bounded results; operations whose effects cannot be excluded fail explicitly. Optional frameTargetId.',
   click: 'Click a named element using real Chromium pointer input. Resolve and wait for visibility, enabled state, stable bounds and an unobstructed hit target under one deadline (default 3000 ms). Multiple visible matches fail with diagnostics; narrow with within or nth. A click is never replaced by keyboard activation. Optional button and clickCount.',
   type: 'Type text using real Chromium input into selector/ref or the focused element. clear optionally replaces its current value.',
@@ -60,7 +61,7 @@ const DESCRIPTIONS: Record<string, string> = {
   batch: 'Run up to 20 named operations in order, stop at the first failure and retain completed results. No nested batches.',
   resize: 'Set viewport width/height, optional mobile/deviceScaleFactor, only when the task needs a specific viewport. The override outlives the call, so use reset: true before finishing.',
   file_upload: 'Supply absolute files to a file input or its chooser through the browser protocol. Return browser acknowledgement, submitted file metadata and a separate live FileList observation. A page may consume, clear or replace the input after accepting files; verify its preview or attachment state before claiming the site completed the upload.',
-  content_export: 'Export live page content as text, markdown, html, pdf or mhtml. Optional scope/maxChars; gsuite exports the current Google document.',
+  content_export: 'Export live page content as text, markdown, html, pdf or mhtml. Optional scope/maxChars; gsuite exports the current Google document; youtube_transcript extracts the caption transcript of the current YouTube watch page (optional language).',
   page_assets: 'List page images, stylesheets, fonts and other assets. action: bundle saves selected kinds/assetIds through the page login and returns individual failures.',
   webmcp: 'List readable page-declared agent tools, or call name with input. List them before manually driving a page that may expose a purpose-built tool. Opaque native registries are reported explicitly.',
   clipboard: 'Read/write text or rich items through Chromium editing commands; actions read/read_text/write/write_text/read_items/write_items.',
@@ -68,6 +69,8 @@ const DESCRIPTIONS: Record<string, string> = {
   read_urls: 'Read up to 10 URLs in temporary background tabs, return per-page results and cleanup status, preserving this task\'s selected page.',
   tabs_content: 'Read the external Chrome user tab list without fetching or claiming any URL.',
   mark_tab: 'Mark an external task tab deliverable or handoff, applied on close; name/title instead names its task tab group.',
+  ax_state: 'Read the page as accessibility text with integer element indices; the primary observation for driving a page. Defaults to the diff from the previous state (~ changed, + added, removed ID ranges); disableDiffing returns the full tree. Title and URL are always included. Indices belong to the returned snapshot: after any action or navigation, re-read the state instead of reusing old indices. The runtime waits for the page to settle before capturing. mode screenshot or both attaches a capture.',
+  ax_action: 'Act on an element index from the latest ax_state using real browser input: click (clickCount, mouseButton, held key combination, hold duration 0-30s), type_text, set_value, paste (format text/md/html), press_key (xdotool-style keys such as Return, super+c, KP_0; optional hold duration), scroll (element index or point, direction, pages), select_text (prefix/suffix, selectionType), secondary_action (exact exposed name such as Scroll to Visible), drag (start point to end point). A failed action returns a fresh accessibility state with the error; re-derive indices from it.',
   gif_creator: 'NOT IMPLEMENTED in this client: no GIF or frame-recording capture exists. Take repeated screenshot calls instead and describe the sequence.',
   upload_image: 'NOT IMPLEMENTED in this client: browser-side image upload has no separate tool. Use file_upload on the page\'s file input or chooser.',
   shortcuts_list: 'NOT IMPLEMENTED in this client: browser shortcut discovery is unavailable. Drive the page directly with locator, click and type.',
@@ -151,12 +154,24 @@ export class BrowserOperations {
 
   private answer(sessionId: string, response: BrowserObject, page?: BrowserPage, screenshot?: BrowserObject, browserId?: string): BrowserObject {
     const captureText = captureResultText(screenshot, response.url);
-    const content: Json[] = [{ type: 'text', text: screenshot ? captureText : JSON.stringify(response) }];
+    // Accessibility state is model-facing prose: it ships as the text block
+    // verbatim instead of a JSON encoding; metadata stays in structuredContent.
+    const axText = typeof response.axText === 'string' ? String(response.axText) : undefined;
+    let structured = response;
+    let textBlock: string;
+    if (axText !== undefined) {
+      textBlock = screenshot ? `${axText}\n\n${captureText}` : axText;
+      structured = { ...response };
+      delete structured.axText;
+    } else {
+      textBlock = screenshot ? captureText : JSON.stringify(response);
+    }
+    const content: Json[] = [{ type: 'text', text: textBlock }];
     if (screenshot) content.push({ type: 'image', data: screenshot.data ?? '', mimeType: screenshot.mimeType ?? 'image/png' });
     const surface = browserId && browserId !== 'iab'
       ? { kind: 'browserUse', backend: 'chrome', browserId, sessionId }
       : this.manager.surface(sessionId, page, screenshot ? { url: screenshot.dataUrl ?? '' } : undefined);
-    return { ...(response.partial === true && response.error ? { isError: true, error: response.error } : {}), content, structuredContent: response, _meta: { 'klaus/toolSurface': surface } };
+    return { ...(structured.partial === true && structured.error ? { isError: true, error: structured.error } : {}), content, structuredContent: structured, _meta: { 'klaus/toolSurface': surface } };
   }
 
   private async run(sessionId: string, name: string, args: unknown, signal?: AbortSignal): Promise<BrowserObject> {

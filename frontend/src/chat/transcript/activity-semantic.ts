@@ -25,6 +25,8 @@ const ACTIONS: Record<string, ActionText> = {
   browser_locator: ['tool-browser', '定位网页元素', 'Locating webpage element', 'Located webpage element', 'locate webpage element'],
   browser_form_input: ['tool-browser', '填写网页表单', 'Filling webpage form', 'Filled webpage form', 'fill webpage form'],
   browser_computer: ['tool-browser', '操作浏览器', 'Using browser', 'Used browser', 'use browser'],
+  browser_ax_state: ['tool-browser', '读取网页元素状态', 'Reading webpage element state', 'Read webpage element state', 'read webpage element state'],
+  browser_ax_action: ['tool-browser-click', '操作网页元素', 'Acting on webpage element', 'Acted on webpage element', 'act on webpage element'],
   browser_tabs: ['tool-browser', '查看浏览器标签页', 'Viewing browser tabs', 'Viewed browser tabs', 'view browser tabs'],
   browser_new_tab: ['tool-browser', '打开浏览器标签页', 'Opening browser tab', 'Opened browser tab', 'open browser tab'],
   browser_select_tab: ['tool-browser', '切换浏览器标签页', 'Switching browser tab', 'Switched browser tab', 'switch browser tab'],

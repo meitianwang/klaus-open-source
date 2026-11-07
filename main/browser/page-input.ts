@@ -36,6 +36,8 @@ export async function click(cdp: BrowserCdp, fields: BrowserObject, signal?: Abo
   const held = modifiers(fields.modifiers ?? fields.keys);
   const clickCount = fields.clickCount ?? 1;
   if (![1, 2, 3].includes(Number(clickCount))) throw new BrowserError('invalid_request', 'Click count must be 1, 2 or 3.');
+  const holdMs = fields.holdMs;
+  if (holdMs !== undefined && (typeof holdMs !== 'number' || !Number.isFinite(holdMs) || holdMs < 0 || holdMs > 30000)) throw new BrowserError('invalid_request', 'holdMs must be from 0 to 30000 milliseconds.');
   assertPointerActive(signal);
   const target = namesElement(fields) || fields.text !== undefined ? await pointerTarget(cdp, fields, signal) : { cdp, ...point(fields.coordinate ?? fields) };
   cdp = target.cdp;
@@ -50,6 +52,9 @@ export async function click(cdp: BrowserCdp, fields: BrowserObject, signal?: Abo
     // Release even when the press itself throws, or cancellation wins afterward.
     await cdp.command('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button, buttons, clickCount, modifiers: held });
     assertPointerActive(signal);
+    // A held press keeps the button down for the requested duration; the
+    // release below still runs when the hold is cancelled midway.
+    if (Number(holdMs) > 0) await pauseBrowserAction(Number(holdMs), signal);
   } finally {
     await cdp.command('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button, buttons: 0, clickCount, modifiers: held });
   }
