@@ -1,54 +1,39 @@
 # Browser operations
 
-The engine exposes `browser_*` tools; the host MCP server also exposes named
-operations under `mcp__klaus-browser__*`. Use the tool schema actually returned in
-the session. A native operation can internally call its MCP transport; that is
-one browser action, not a reason to repeat the action manually.
+Every browser operation is one host MCP tool named
+`mcp__klaus-browser__<operation>`. These tools are deferred: activate the ones
+you need with `tool_search` before calling them — search by capability, or load
+exact names with `select:mcp__klaus-browser__navigate,...`. Names below are
+bare operation names; the callable tool carries the prefix. Use only tools
+exposed and permitted in this session; an operation that is not exposed is not
+an entry point you can manufacture by adding a prefix.
 
-Names below refer to host operations unless a complete native tool name is
-shown. A host operation name does not guarantee a matching native tool. Use
-only tools exposed and permitted in this session; internal transport tools are
-not an alternate entry point around the native tool or a policy denial.
+## Input contracts
 
-## Native and host contracts
+| Operation | Input |
+| --- | --- |
+| Select browser | `select_browser`: `browserId` (also accepts `deviceId` or `id`) |
+| Upload files | `file_upload`: `files` array (also accepts `paths` or a single `path`) |
+| Ordered actions | `batch`: `operations` array (also accepts `actions` or `steps`); each operation needs `type` |
+| Wait | `wait_for` with one declared subject: an element state, URL, load state, or bounded duration |
+| Download | `download` starts a download, or uses `action: wait` / `action: cancel` with the owned download ID |
 
-| Operation | Native tool input | Host MCP input |
-| --- | --- | --- |
-| Select browser | `browser_select_browser`: required `deviceId` | `select_browser`: `browserId` (also accepts `deviceId` or `id`) |
-| Upload files | `browser_file_upload`: required `paths` array | `file_upload`: `files` array (also accepts `paths` or `path`) |
-| Ordered actions | `browser_batch`: required `actions` array; each action needs `type` | `batch`: `operations` array (also accepts `actions` or `steps`) |
-| Wait | Exposed `browser_locator` action `wait_for`, or `browser_computer` action `wait`, using that tool's schema | `wait_for` with its declared subject fields |
-| Download | `browser_download` starts a download or uses `waitOnly`; it has no ID-based cancel input | `download` supports `action: wait` or `action: cancel` with the owned download ID |
-
-There is no standalone native `browser_wait_for`, `browser_capabilities`,
-`browser_back`, `browser_forward` or `browser_reload` tool. `browser_for_url` is
-also a host-only operation. Do not manufacture these tools by adding a prefix.
-Use a host-only operation only when its actual allowed MCP tool is exposed;
-otherwise report the limitation. Host navigation permits `about:blank`, while
-native navigation validates HTTP(S). To create an empty native tab, use
-`browser_tabs` with `action: new` and omit the URL.
+Navigation permits HTTP(S) and `about:blank`; privileged URL schemes are
+rejected. To create an empty tab, use `tabs` with `action: new` and omit the
+URL. Local file paths are upload inputs, not navigation URLs.
 
 ## Result envelopes
 
-For an ordinary host MCP runtime response, operation data is under
+For an ordinary runtime response, operation data is under
 `structuredContent.value`. A partially failed batch has `isError: true`,
 `structuredContent.partial: true`, and `structuredContent.error`; its completed
 work remains in `structuredContent.value.completed`, `.stopped`, and `.results`.
 
-A native structured result places the runtime response under `output.response`.
-A partial batch has `output.ok: false`, `output.response.partial: true`, and
-`output.response.error`; completed work remains in
-`output.response.value.completed`, `.stopped`, and `.results`. The tool is also
-marked failed. Native model-facing text can serialize the operation value
-directly, without those wrappers. Inspect the actual presented error and value;
-early validation or transport failures can use a separate error output. Never
-infer success merely because one expected wrapper is absent.
-
-For native upload results, browser acceptance and observation are
-`output.response.value.acknowledged` and `.observation.state`; host MCP uses
-`structuredContent.value.acknowledged` and `.observation.state`. In native
-value-only model text, those fields appear directly as `acknowledged` and
-`observation.state`. Acceptance is distinct from the website finishing upload.
+For upload results, browser acceptance and observation are
+`structuredContent.value.acknowledged` and `.observation.state`. Acceptance is
+distinct from the website finishing upload. Early validation or transport
+failures can use a separate error output. Inspect the actual presented error and
+value; never infer success merely because one expected wrapper is absent.
 
 ## Discovery and navigation
 
@@ -71,7 +56,7 @@ value-only model text, those fields appear directly as `acknowledged` and
 - `snapshot` and `read_page` return page identity, structural content and element
   refs. Scope long reads, check truncation, and read the remaining relevant portion.
 - `locator` accepts CSS, refs and accessible criteria. `options` carries action
-  settings on native tools. `count` and text reads do not establish clickability.
+  settings. `count` and text reads do not establish clickability.
   A locator action must target one element unless an explicit index narrows it.
 - `click` sends pointer input. `type` targets an editable field, with `clear` to
   replace existing content. `locator` with `action: fill` replaces content;

@@ -115,6 +115,7 @@
     "mcp__studio__generate_music",
     "view_image",
     "browser_screenshot",
+    "mcp__klaus-browser__screenshot",
     "generate_image_metadata",
     "gen_music_status"
   ]

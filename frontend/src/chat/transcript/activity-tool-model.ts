@@ -2,7 +2,7 @@ import type { ApprovalReview } from '../../../../contracts/approval-review'
 import { isCompactActivityTool, isDynamicActivityTool, isToolDiscovery, mcpActivityIsCommand, mcpActivitySource } from './chat-activity'
 import { isAgentActionToolName } from './activity-agent-action-model'
 import { mediaGenerationKind, MEDIA_GENERATION_ICONS, type MediaGenerationKind } from './media-generation-activity'
-import { activityDisplayName, activityResultObjects, semanticActivity, type SemanticActivity } from './activity-semantic'
+import { activityDisplayName, activityResultObjects, browserActivityToolName, semanticActivity, type SemanticActivity } from './activity-semantic'
 
 export type ActivityToolState = 'running' | 'done' | 'error' | 'interrupted' | 'awaiting-approval'
 
@@ -187,7 +187,7 @@ function semanticShellCommand(command: string): Pick<ActivityToolPresentation, '
 export function activityToolPresentation(tool: ActivityToolData): ActivityToolPresentation {
   const args = parseArguments(tool.args)
   const object = record(args)
-  const name = tool.toolName.toLowerCase().replace(/^functions[._]/, '')
+  const name = browserActivityToolName(tool.toolName)
   const commandValue = textField(object, 'command', 'cmd') || (Array.isArray(object?.command) ? object.command.join(' ') : '')
   const command = displayShellCommand(commandValue)
   const path = textField(object, 'file_path', 'notebook_path', 'path', 'filePath', 'filename', 'directory')

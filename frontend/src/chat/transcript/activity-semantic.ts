@@ -151,8 +151,20 @@ export function friendRecipientName(args: Record<string, unknown>, output?: stri
   return friendDirectoryName(args.friendId) || result?.friendName || friendDirectoryName(result?.friendId)
 }
 
+/**
+ * The host browser stack exposes its operations as MCP tools. They carry the
+ * same activity semantics as the engine browser protocol tools, so both name
+ * shapes render through one table.
+ */
+export function browserActivityToolName(toolName: string): string {
+  const name = toolName.toLowerCase().replace(/^functions[._]/, '')
+  const owned = /^mcp__klaus-browser__(.+)$/.exec(name)
+  if (!owned) return name
+  return owned[1].startsWith('browser_') ? owned[1] : `browser_${owned[1]}`
+}
+
 export function semanticActivity(toolName: string, input?: unknown, output?: string): SemanticActivity | null {
-  let name = toolName.toLowerCase().replace(/^functions[._]/, '')
+  let name = browserActivityToolName(toolName)
   const ownedMcp = /^mcp__(klaus-prototype|klaus-digram|klaus-video-editing)__(.+)$/.exec(name)
   if (ownedMcp && ((ownedMcp[1] === 'klaus-prototype' && ownedMcp[2].startsWith('prototype_')) || (ownedMcp[1] === 'klaus-digram' && ownedMcp[2].startsWith('digram_')) || (ownedMcp[1] === 'klaus-video-editing' && ownedMcp[2].startsWith('video_editing_')))) name = ownedMcp[2]
   if (name === 'websearch') name = 'web_search'

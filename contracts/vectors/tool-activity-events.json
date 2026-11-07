@@ -146,6 +146,45 @@
       }
     },
     {
+      "toolName": "mcp__klaus-browser__navigate",
+      "args": {
+        "url": "https://example.com/private?token=secret"
+      },
+      "icon": "tool-browser",
+      "labels": {
+        "done": [
+          "Opened webpage · example.com",
+          "已打开网页 · example.com"
+        ]
+      }
+    },
+    {
+      "toolName": "mcp__klaus-browser__click",
+      "args": {
+        "name": "Submit"
+      },
+      "icon": "tool-browser-click",
+      "labels": {
+        "done": [
+          "Clicked webpage element · Submit",
+          "已点击网页元素 · Submit"
+        ]
+      }
+    },
+    {
+      "toolName": "mcp__klaus-browser__tabs",
+      "args": {
+        "action": "new"
+      },
+      "icon": "tool-browser",
+      "labels": {
+        "done": [
+          "Opened browser tab",
+          "已打开浏览器标签页"
+        ]
+      }
+    },
+    {
       "toolName": "web_search",
       "args": {
         "query": "weather Shanghai"

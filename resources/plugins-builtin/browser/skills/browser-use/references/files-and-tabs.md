@@ -1,5 +1,7 @@
 # Files and task-owned tabs
 
+Bare operation names below are host MCP tools: `mcp__klaus-browser__<name>`.
+
 ## Upload
 
 Use `file_upload` with absolute regular-file paths and the real input or chooser
@@ -12,8 +14,8 @@ browser protocol without opening a chooser. For a chooser control, it arms the
 chooser listener before clicking, then supplies files to the identified input.
 Observe the returned delivery state and diagnostics, then verify the resulting
 preview, filename or attachment state. Browser acceptance does not establish
-that the site's server completed the upload. Use `paths` on native
-`browser_file_upload`; the host MCP operation also accepts `files`.
+that the site's server completed the upload. Supply paths in `files`; the
+operation also accepts `paths` or a single `path`.
 See [result envelopes](operations.md#result-envelopes) for the receipt location.
 
 `acknowledged` records browser acceptance. `observation.state` separately reports
@@ -30,15 +32,13 @@ handler as a workaround for an upload-tool failure. Report the concrete blocker.
 ## Download
 
 Use `download` for URLs or original page media. Keep the returned page-owned
-download ID. The host MCP operation can poll or cancel that ID instead of
-starting the download again. Native `browser_download` supports `waitOnly` for
-the page's active download but has no ID-based cancel input; do not assume
-MCP-only fields are accepted by the native tool. If multiple downloads make the
-active download ambiguous, inspect the available host schema or report the limit.
-Wait for a completed local file before reporting a saved artifact. A filename
-or partial file alone is not completion. External Chrome can attribute only the
-downloads owned by its extension operation; arbitrary human downloads may be
-unavailable.
+download ID. The operation can poll (`action: wait`) or cancel
+(`action: cancel`) that ID instead of starting the download again. If multiple
+downloads make the active download ambiguous, inspect the available schema or
+report the limit. Wait for a completed local file before reporting a saved
+artifact. A filename or partial file alone is not completion. External Chrome
+can attribute only the downloads owned by its extension operation; arbitrary
+human downloads may be unavailable.
 
 ## Ownership and cleanup
 
