@@ -1,0 +1,15 @@
+{
+  "description": "A first history read publishes its generation and loading protection atomically, even when mounted content exceeds the idle cache budget. Child history may repair an inferred stop only while the child stream remains running; a stale parent snapshot cannot undo a live cancellation.",
+  "cachePressure": {
+    "protectedTextBytes": 35651584,
+    "expectedHistoryLoadingAfterRead": false,
+    "expectedText": "Saved message"
+  },
+  "childCancellation": {
+    "turnId": "cancelled-turn",
+    "parentStatus": "running",
+    "historyStatus": "interrupted",
+    "expectedRunning": false,
+    "expectedTerminalStatus": "interrupted"
+  }
+}

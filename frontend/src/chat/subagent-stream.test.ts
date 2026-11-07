@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { mergeAgentTimeline, subagentStreamId, type AgentTimelineRecord } from './subagent-stream'
 import streamVectors from '../../../contracts/vectors/subagent-stream-vectors.json'
+import historyVectors from '../../../contracts/vectors/history-load-ownership-vectors.json'
 
 ;(globalThis as any).window ||= {}
 ;(globalThis as any).window.addEventListener ||= () => {}
@@ -18,9 +19,11 @@ describe('child conversation streaming', () => {
 
     stream.ingestChatEvent({ sessionId, type: 'tasks_changed', tasks: { task: running } })
     expect(stream.getSessionStream(sessionId).agentTasks.task.status).toBe('running')
-    expect(stream.getSessionStream(childId)).toMatchObject({
+    const repaired = stream.getSessionStream(childId)
+    expect(repaired).toMatchObject({
       running: true, activityVisible: true, interruptedLiveTurn: null, lastTerminalStatus: null,
     })
+    expect(repaired.liveUnits.some(unit => unit.type === 'live-turn-status')).toBe(false)
   })
 
   test('a real child cancellation clears the snapshot repair marker', () => {
@@ -92,6 +95,60 @@ describe('child conversation streaming', () => {
       expect(loaded.turnStatuses['old-child-run']).toBe('interrupted')
       expect(loaded.turnStatuses['current-child-run']).toBeUndefined()
       expect(loaded.liveUnits.some(unit => unit.type === 'live-text' && unit.text === 'Current child work')).toBe(true)
+    } finally { (window as any).klaus = previousApi }
+  })
+
+  test('a stale running task and history cannot revive a real child cancellation', async () => {
+    const sessionId = 'child-cancel-before-history-flush'
+    const vector = historyVectors.childCancellation
+    const task = { agentId: 'cancel-before-flush', status: vector.parentStatus, lifecycleUpdatedAtMs: 100 }
+    stream.ingestChatEvent({ sessionId, type: 'tasks_changed', tasks: { task } })
+    stream.ingestChatEvent({ sessionId, type: 'agent_progress', agentId: task.agentId,
+      event: { type: 'text_delta', turnId: vector.turnId, text: 'Partial answer' } })
+    stream.ingestChatEvent({ sessionId, type: 'agent_progress', agentId: task.agentId,
+      event: { type: 'interrupted', turnId: vector.turnId } })
+    const childId = subagentStreamId(sessionId, task.agentId)
+    const previousApi = (window as any).klaus
+    ;(window as any).klaus = { agents: { history: async () => ({
+      messages: [{ role: 'user', uuid: 'cancelled-user', turnId: vector.turnId, text: 'Work' }],
+      turnStatuses: { [vector.turnId]: vector.historyStatus },
+    }) } }
+    try {
+      await stream.loadSessionHistory(childId)
+      const loaded = stream.getSessionStream(childId)
+      expect(loaded.running).toBe(vector.expectedRunning)
+      expect(loaded.lastTerminalStatus).toBe(vector.expectedTerminalStatus)
+      expect(loaded.interruptedLiveTurn?.turnId).toBe(vector.turnId)
+      expect(loaded.liveUnits.some(unit => unit.type === 'live-turn-status')).toBe(true)
+    } finally { (window as any).klaus = previousApi }
+  })
+
+  test('a running child drops an inferred stop on its open turn and keeps a recorded one', async () => {
+    const sessionId = 'child-open-inferred-stop'
+    const task = { agentId: 'open-child', status: 'running', lifecycleUpdatedAtMs: 100 }
+    stream.ingestChatEvent({ sessionId, type: 'tasks_changed', tasks: { task } })
+    stream.ingestChatEvent({ sessionId, type: 'tasks_changed', tasks: { task: { ...task, status: 'stopped' } } })
+    stream.ingestChatEvent({ sessionId, type: 'tasks_changed', tasks: { task } })
+    const childId = subagentStreamId(sessionId, task.agentId)
+    const previousApi = (window as any).klaus
+    ;(window as any).klaus = { agents: { history: async () => ({
+      messages: [
+        { role: 'user', uuid: 'fork', turnId: 'live-turn', text: 'Read the file', timestamp: 1_000 },
+        { role: 'assistant', uuid: 'note', turnId: 'live-turn', text: 'Measuring frames' },
+      ],
+      turnStatuses: { 'live-turn': 'interrupted', 'done-turn': 'interrupted' },
+      turnFinishedAtMs: { 'done-turn': 10 },
+      turnStartedAtMs: { 'live-turn': 1_000 },
+    }) } }
+    try {
+      await stream.loadSessionHistory(childId)
+      const loaded = stream.getSessionStream(childId)
+      expect(loaded.running).toBe(true)
+      expect(loaded.activeTurnId).toBe('live-turn')
+      expect(loaded.turnStatuses['live-turn']).toBeUndefined()
+      expect(loaded.turnStatuses['done-turn']).toBe('interrupted')
+      expect(loaded.liveUnits.some(unit => unit.type === 'live-turn-status')).toBe(false)
+      expect(loaded.lastTerminalStatus).toBeNull()
     } finally { (window as any).klaus = previousApi }
   })
 

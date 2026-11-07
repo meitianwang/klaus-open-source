@@ -3281,7 +3281,7 @@ function TurnFold({ node, onToggleFold, sessionId, unitProps }: {
   const pagination = useTurnItemsPagination(owner, node.turnId)
   const label = <TurnWorkLabel startedAtMs={node.running || node.completedAtMs != null ? node.startedAtMs ?? null : null}
     completedAtMs={node.completedAtMs} durationMs={!node.running ? node.durationMs : undefined}
-    fallback={t('activity_previous_messages').replace('{count}', String(node.messageCount))} />
+    fallback={node.running ? undefined : t('activity_previous_messages').replace('{count}', String(node.messageCount))} />
   const gap = pagination && !pagination.hasLoadedOldest && node.turnId ? [{
     key: `history-gap:${node.turnId}`, persistent: false,
     content: <TurnHistoryGap sessionId={owner} turnId={node.turnId} pagination={pagination} open={node.open} />,
@@ -4745,7 +4745,7 @@ function LiveActivityNodeView({ node, ...props }: LiveActivityRenderProps & { no
   const label = node.kind === 'activity' ? <ActivityHeader node={node} />
     : <TurnWorkLabel startedAtMs={node.running || node.completedAtMs != null ? node.startedAtMs : null}
         completedAtMs={node.completedAtMs} durationMs={!node.running ? props.durationMs : undefined}
-        fallback={t('activity_previous_messages').replace('{count}', String(node.messageCount))} />
+        fallback={node.running ? undefined : t('activity_previous_messages').replace('{count}', String(node.messageCount))} />
   if (node.kind === 'turn') return <ActivityDisclosure variant="turn" open={open} onToggle={() => props.onToggleFold(foldKey, open)} label={label}
     sections={node.items.map(item => ({ key: item.key, persistent: node.persistent.includes(item), content: <LiveActivityNodeView node={item} {...props} /> }))} />
   return <ActivityDisclosure enabled={node.mode === 'summary'} open={open} onToggle={() => props.onToggleFold(foldKey, open)} label={label}>
@@ -4766,7 +4766,7 @@ function LiveTurnActivityView({ nodes, ...props }: LiveActivityRenderProps & { n
     collapsed: props.collapseOverrides[foldKey] }).open
   const label = fold ? <TurnWorkLabel startedAtMs={fold.running || fold.completedAtMs != null ? fold.startedAtMs : null}
     completedAtMs={fold.completedAtMs} durationMs={!fold.running ? props.durationMs : undefined}
-    fallback={t('activity_previous_messages').replace('{count}', String(fold.messageCount))} /> : null
+    fallback={fold.running ? undefined : t('activity_previous_messages').replace('{count}', String(fold.messageCount))} /> : null
   return <ActivityDisclosure variant="turn" enabled={!!fold} open={open} label={label} headerBefore={fold?.items[0]?.key} onToggle={() => props.onToggleFold(foldKey, open)}
     sections={nodes.flatMap(node => node.kind === 'turn'
       ? node.items.map(item => ({ key: item.key, persistent: node.persistent.includes(item), content: <LiveActivityNodeView node={item} {...props} /> }))
@@ -4910,7 +4910,7 @@ const TranscriptTurnFrame = memo(function TranscriptTurnFrame({ renderKey, ident
   const pagination = useTurnItemsPagination(owner, saved?.turnId)
   const label = fold ? <TurnWorkLabel startedAtMs={fold.running || fold.completedAtMs != null ? fold.startedAtMs ?? null : null}
     completedAtMs={fold.completedAtMs} durationMs={!fold.running ? savedFold?.durationMs ?? liveProps?.durationMs : undefined}
-    fallback={t('activity_previous_messages').replace('{count}', String(fold.messageCount))} /> : null
+    fallback={fold.running ? undefined : t('activity_previous_messages').replace('{count}', String(fold.messageCount))} /> : null
   const sections = new Map<string, { key: string; persistent: boolean; content: ReactNode }>()
   let openerKey: string | undefined
   const add = (key: string, persistent: boolean, content: ReactNode, follows = true) => {

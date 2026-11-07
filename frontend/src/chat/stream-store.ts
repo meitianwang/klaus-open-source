@@ -865,6 +865,38 @@ export function seedSubagentTasks(sessionId: string, tasks: Record<string, Agent
   }
 }
 
+/** Disk replay marks every turn that has no terminal record as interrupted.
+ *  A child that is still running has not finished that turn. A recorded stop
+ *  carries a finish time, a duration, or the calls the stop cancelled. */
+function childTailStillOpen(
+  turnId: string | null | undefined,
+  running: boolean,
+  statuses: Record<string, string>,
+  finishedAt: Record<string, number>,
+  durations: Record<string, number>,
+  cancelled: Record<string, string[]>,
+  hasFinal: boolean,
+): turnId is string {
+  return running && !!turnId && !hasFinal
+    && statuses[turnId] !== 'completed' && statuses[turnId] !== 'failed'
+    && finishedAt[turnId] == null && durations[turnId] == null && !(cancelled[turnId]?.length)
+}
+
+function withoutInferredInterrupt(statuses: Record<string, string>, turnId: string | null): Record<string, string> {
+  if (!turnId || statuses[turnId] !== 'interrupted') return statuses
+  const next = { ...statuses }
+  delete next[turnId]
+  return next
+}
+
+/** Drop the stop row painted for an open child turn. A row with no turn id was
+ *  synthesized before the turn was known; a recorded stop names its turn. */
+function withoutOpenStopRow(units: LiveUnit[], turnId: string | null): LiveUnit[] {
+  if (!turnId) return units
+  const next = units.filter(unit => unit.type !== 'live-turn-status' || (!!unit.turnId && unit.turnId !== turnId))
+  return next.length === units.length ? units : next
+}
+
 /** A child owns its stream and disclosure state; its parent owns the history endpoint. */
 export function prepareSubagentStream(parentSessionId: string, taskId: string, task: Partial<AgentTask>): string {
   const agentId = task.agentId || taskId
@@ -885,11 +917,35 @@ export function prepareSubagentStream(parentSessionId: string, taskId: string, t
     // Reconnects can miss the child's requesting frame. A newer lifecycle can
     // restore liveness; an equal version may repair only the stop synthesized
     // from a task snapshot, never a cancellation delivered by the child stream.
-    patchSession(streamId, prev => prev.running ? {} : ({
-      running: true, streamMode: 'requesting', activityVisible: true,
-      interruptedLiveTurn: null, lastTerminalStatus: null, stopRequestedAt: null,
-      historyStale: true,
-    }))
+    patchSession(streamId, prev => {
+      // A same-version running snapshot undoes a stop this client synthesized
+      // from a missing task row. Clearing only the running flag leaves the
+      // stop row on screen and keeps later events for that turn discarded.
+      // A newer lifecycle after a real cancellation must keep that turn's row.
+      const dropped = repairSnapshotInterrupt
+        ? new Set(Object.entries(prev.turnStatuses).filter(([id, status]) => status === 'interrupted'
+          && prev.turnFinishedAtMs[id] == null && prev.turnDurations[id] == null
+          && !(prev.turnCancelledTools[id]?.length)).map(([id]) => id))
+        : null
+      const liveUnits = dropped
+        ? prev.liveUnits.filter(unit => unit.type !== 'live-turn-status' || (!!unit.turnId && !dropped.has(unit.turnId)))
+        : prev.liveUnits
+      const turnStatuses = dropped ? { ...prev.turnStatuses } : prev.turnStatuses
+      if (dropped) for (const id of dropped) delete turnStatuses[id]
+      const cleared = dropped != null && (liveUnits.length !== prev.liveUnits.length || dropped.size > 0)
+      if (prev.running && !cleared) return {}
+      if (!repairSnapshotInterrupt && prev.running) return {}
+      const only = dropped && dropped.size === 1 ? [...dropped][0] : null
+      return {
+        running: true, streamMode: 'requesting' as const, activityVisible: true,
+        interruptedLiveTurn: null, lastTerminalStatus: null, stopRequestedAt: null,
+        historyStale: true,
+        ...(cleared ? {
+          liveUnits, turnStatuses,
+          ...(only && !prev.activeTurnId ? { activeTurnId: only, liveTurnId: prev.liveTurnId || only } : {}),
+        } : {}),
+      }
+    })
   }
   return streamId
 }
@@ -2638,8 +2694,14 @@ export function loadSessionHistory(sessionId: string, options: {
   const snapshotRead = !options.savedPage && !subagentHistorySources.has(sessionId)
   const generation = (current.historyGeneration ?? 0) + Number(snapshotRead)
   if (snapshotRead) cancelSavedHistoryLoads(sessionId)
+  // Publish the generation and the loading flag in one write. Every write can
+  // trim the stream cache, and a stream that is not yet loading or current is
+  // evictable: evicting it between two writes recreated it at generation 0, so
+  // this read could never commit and the transcript stayed on its skeleton.
   patchSession(sessionId, prev => ({
     historyGeneration: generation,
+    historyLoading: true,
+    ...(snapshotRead ? { historyLoadFailed: false, historyRetry: null } : {}),
     ...(snapshotRead && prev.savedTranscript ? { savedTranscript: {
       ...prev.savedTranscript, generation,
       entitiesByKey: Object.fromEntries(Object.entries(prev.savedTranscript.entitiesByKey).map(([key, turn]) =>
@@ -2652,7 +2714,6 @@ export function loadSessionHistory(sessionId: string, options: {
   historyReadTokens.set(sessionId, readToken)
   const currentRead = () => historyReadTokens.get(sessionId) === readToken && !isSessionStreamRetired(sessionId)
     && (getSessionStream(sessionId).historyGeneration ?? 0) === generation && (options.savedPage?.current() ?? true)
-  patchSession(sessionId, () => ({ historyLoading: true, ...(snapshotRead ? { historyLoadFailed: false, historyRetry: null } : {}) }))
   const promise = (async () => {
     try {
       const child = subagentHistorySources.get(sessionId)
@@ -2801,6 +2862,23 @@ export function loadSessionHistory(sessionId: string, options: {
           return { historyLoading: false, historyStale: true }
         }
         const rows = Array.isArray(history) ? history : []
+        const tailForResume = Array.isArray(history) ? history.at(-1)?.turnId : null
+        const tailHasFinal = !!tailForResume && Array.isArray(history) && history.some((message: any) => message.turnId === tailForResume
+          && (message.isFinalReply && message.text?.trim()
+            || message.contentBlocks?.some((block: any) => block.type === 'text' && block.phase === 'final_answer' && block.text?.trim())))
+        const parentTask = child ? getSessionStream(child.parentSessionId).agentTasks[child.taskId] : undefined
+        // A live child has no terminal record yet, so disk replay calls the open
+        // turn interrupted. That paints "stopped" and collapses its activity.
+        const tailOpen = childTailStillOpen(tailForResume, prev.running && !!parentTask && parentTask.status === 'running' && parentTask.isIdle !== true,
+          projectTurnStatuses, turnFinishedAtMs, turnDurations, turnCancelledTools, tailHasFinal)
+          ? tailForResume : null
+        const resumeOpenChild = tailOpen ? {
+          running: true as const,
+          streamMode: 'requesting' as const,
+          activityVisible: true,
+          ...(prev.lastTerminalStatus === 'interrupted' || (prev.interruptedLiveTurn && (!prev.interruptedLiveTurn.turnId || prev.interruptedLiveTurn.turnId === tailOpen))
+            ? { interruptedLiveTurn: null, lastTerminalStatus: null, stopRequestedAt: null } : {}),
+        } : {}
         const supportsSavedItemAnchors = result?.supportsItemAnchors === true
           || options.savedPage !== undefined && prev.supportsSavedItemAnchors
         const pageMeta = nextSaved
@@ -2867,7 +2945,13 @@ export function loadSessionHistory(sessionId: string, options: {
               turnShells: frozenSaved ? savedShells(frozenSaved) : { ...prev.turnShells, ...shellEntries(frozenShells(pageMeta.shells)) },
               ...(frozenSaved ? { savedTranscript: frozenSaved } : {}),
             } : {}),
-            turnStatuses: preservingLiveTurns(projectTurnStatuses, prev.turnStatuses, excluded),
+            turnStatuses: withoutInferredInterrupt(preservingLiveTurns(projectTurnStatuses, prev.turnStatuses, excluded), tailOpen),
+            ...(tailOpen ? {
+              ...resumeOpenChild,
+              activeTurnId: prev.activeTurnId || tailOpen,
+              liveTurnId: prev.liveTurnId || tailOpen,
+              liveUnits: withoutOpenStopRow(prev.liveUnits, tailOpen),
+            } : {}),
             turnStartedAtMs: preservingLiveTurns(turnStartedAtMs, prev.turnStartedAtMs, excluded),
             turnFinishedAtMs: preservingLiveTurns(turnFinishedAtMs, prev.turnFinishedAtMs, excluded),
             turnDurations: preservingLiveTurns(turnDurations, prev.turnDurations, excluded),
@@ -2898,7 +2982,7 @@ export function loadSessionHistory(sessionId: string, options: {
           && (!prev.activeTurnId || prev.activeTurnId === tailTurnId)
           && !hasFinal && !['completed', 'failed'].includes(projectTurnStatuses[tailTurnId])
           && !turnFinishedAtMs[tailTurnId] && turnDurations[tailTurnId] == null && !turnCancelledTools[tailTurnId]?.length
-          ? tailTurnId : null
+          ? tailTurnId : tailOpen
         // Disk replay marks unfinished turns interrupted. A known running
         // conversation without terminal evidence is still executing that tail.
         const restoredStatuses = { ...projectTurnStatuses }
@@ -2952,13 +3036,16 @@ export function loadSessionHistory(sessionId: string, options: {
             : (restoredTurnId || ((covers && prev.activeTurnId) ? null : prev.activeTurnId)),
           // Approval cards have a separate host lifetime and are absent from
           // transcript history. A late history read must not erase a recovered card.
-          ...(covers || liveCut ? { liveUnits: (liveCut ? unitsBeforeRewind(reviewHandoff.liveUnits, liveCut) : reviewHandoff.liveUnits).filter(unit => !covers || unit.type === 'live-planning-question' && unit.request.status === 'pending'
+          ...(covers || liveCut ? { liveUnits: withoutOpenStopRow((liveCut ? unitsBeforeRewind(reviewHandoff.liveUnits, liveCut) : reviewHandoff.liveUnits).filter(unit => !covers || unit.type === 'live-planning-question' && unit.request.status === 'pending'
             || 'req' in unit && unit.resolved === null
             && (unit.type !== 'live-ask' || unit.req.responseChannel !== 'async-question'
-              || !settledHistory.some(message => message.contentBlocks?.some((block: any) => block.id === unit.req.toolCallId)))),
+              || !settledHistory.some(message => message.contentBlocks?.some((block: any) => block.id === unit.req.toolCallId)))), tailOpen),
             tools: covers ? {} : prev.tools,
-            liveTurnId: covers || (liveCut && (!prev.liveTurnId || liveCut.turnIds.includes(prev.liveTurnId))) ? null : prev.liveTurnId }
-            : { liveUnits: reviewHandoff.liveUnits.filter(unit => unit.type !== 'live-user' || !savedUserIds.has(unit.msg.uuid)) }),
+            liveTurnId: tailOpen && !(liveCut && (!prev.liveTurnId || liveCut.turnIds.includes(prev.liveTurnId)))
+              ? (prev.liveTurnId || tailOpen)
+              : (covers || (liveCut && (!prev.liveTurnId || liveCut.turnIds.includes(prev.liveTurnId))) ? null : prev.liveTurnId) }
+            : { liveUnits: withoutOpenStopRow(reviewHandoff.liveUnits.filter(unit => unit.type !== 'live-user' || !savedUserIds.has(unit.msg.uuid)), tailOpen) }),
+          ...resumeOpenChild,
         }
       })
     } catch (error) {
@@ -2975,6 +3062,12 @@ export function loadSessionHistory(sessionId: string, options: {
     if (historyReadTokens.get(sessionId) === readToken) {
       historyReadTokens.delete(sessionId)
       if (historyInFlight.get(sessionId) === promise) historyInFlight.delete(sessionId)
+    }
+    // An abandoned first read with no successor must not leave the skeleton on
+    // screen. Mark the stream stale so a mounted transcript issues a fresh read.
+    if (!valid && snapshotRead && !historyReadTokens.has(sessionId) && !isSessionStreamRetired(sessionId)) {
+      const left = getSessionStream(sessionId)
+      if (left.historyLoading && left.history === null) patchSession(sessionId, () => ({ historyLoading: false, historyStale: true }))
     }
     scheduleHistoryRetention(sessionId)
     const settled = getSessionStream(sessionId)
