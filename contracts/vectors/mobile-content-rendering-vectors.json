@@ -1426,6 +1426,56 @@
       ]
     },
     {
+      "name": "host MCP process screenshot stays in activity",
+      "blocks": [
+        {
+          "type": "tool_use",
+          "id": "mcp__klaus-browser__screenshot",
+          "name": "mcp__klaus-browser__screenshot",
+          "__result": {
+            "is_error": false,
+            "content": [
+              {
+                "type": "image",
+                "path": "/tmp/host-check.png"
+              }
+            ]
+          }
+        }
+      ],
+      "finalText": "Done",
+      "media": [],
+      "diagrams": [],
+      "suppressed": []
+    },
+    {
+      "name": "host MCP reported screenshot becomes a deliverable",
+      "blocks": [
+        {
+          "type": "tool_use",
+          "id": "mcp__klaus-browser__screenshot-reported",
+          "name": "mcp__klaus-browser__screenshot",
+          "__result": {
+            "is_error": false,
+            "content": [
+              {
+                "type": "image",
+                "path": "/tmp/host-check.png"
+              }
+            ]
+          }
+        }
+      ],
+      "finalText": "See host-check.png",
+      "media": [
+        "/tmp/host-check.png"
+      ],
+      "diagrams": [],
+      "suppressed": [
+        "/tmp/host-check.png"
+      ]
+    },
+    {
       "name": "duplicate media and diagrams render once",
       "blocks": [
         {
