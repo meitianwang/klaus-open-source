@@ -210,7 +210,14 @@ export function createMainWindow(productName = 'Klaus'): BrowserWindow {
       titleBarStyle: process.platform === 'darwin' ? 'hidden' : 'default',
       titleBarOverlay: false,
     trafficLightPosition: { x: 16, y: 16 },
-    webPreferences: securePreferences('main'),
+    // macOS draws this window transparent. HTML fullscreen then resizes it into
+    // native fullscreen, and that transition exits element fullscreen, so a
+    // video's fullscreen control snaps the picture back and looks dead. Keep
+    // the video in the page top layer instead of resizing the window.
+    webPreferences: {
+      ...securePreferences('main'),
+      ...(process.platform === 'darwin' ? { disableHtmlFullscreenWindowResize: true } : {}),
+    },
   });
   // Shared frontend HTML must not replace the packaged product's window identity.
   window.on('page-title-updated', event => event.preventDefault());
