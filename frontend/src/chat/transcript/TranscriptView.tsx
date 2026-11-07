@@ -4568,9 +4568,16 @@ function projectLiveTurn(
   const ownerTurnId = liveUnits.find(unit => unit.turnId)?.turnId
   const preventAutoCollapse = running || !interrupted && (resolveSubagentActivities(agents, interrupted).some(row => subagentPreventsAutoCollapse(row, ownerTurnId))
     || unsettledAgentEventRows(before))
+  // Same verdict as the saved-history projection: a settled turn folds before
+  // its final reply when it opened with a user request — including a turn the
+  // user stopped. A retained stopped turn therefore reads identically before
+  // and after history takes ownership (closed outer fold, partial reply and
+  // stopped divider outside it) instead of falling back to flat rows.
+  const settledInterrupted = interrupted && !running
+    && leading.some(node => node.kind === 'unit' && node.unit.type === 'live-user')
   const state = turnCollapseState({ hasFinal: !!final, interrupted, hasActivity: activity.length > 0,
     hasRunningTools: running && entries.some(entry => entry.action?.running),
-    allowCollapseBeforeFinal: (running || terminal) && !interrupted,
+    allowCollapseBeforeFinal: (running || terminal) && !interrupted || settledInterrupted,
     preventAutoCollapse,
   })
   const completedAtMs = recordedCompletedAtMs ?? (final?.type === 'live-text'
@@ -4741,6 +4748,9 @@ function LiveActivityNodeView({ node, ...props }: LiveActivityRenderProps & { no
   const foldKey = node.kind === 'activity' ? `activity:${props.turnKey}:${node.key}` : `turn:${props.turnKey}`
   const open = node.kind === 'activity' ? activityCollapseState(node.mode, props.collapseOverrides[foldKey]).open
     : turnCollapseState({ hasFinal: true, interrupted: props.turnInterrupted, hasActivity: true,
+        // A settled interrupted turn that owns a fold node settled under the
+        // same rule as the saved projection: collapsible, closed by default.
+        allowCollapseBeforeFinal: props.turnInterrupted && !node.running,
         preventAutoCollapse: node.preventAutoCollapse || props.collapseOverrides[`mcp-expanded:${props.turnKey}`] === true, collapsed: props.collapseOverrides[foldKey] }).open
   const label = node.kind === 'activity' ? <ActivityHeader node={node} />
     : <TurnWorkLabel startedAtMs={node.running || node.completedAtMs != null ? node.startedAtMs : null}
@@ -4762,6 +4772,7 @@ function LiveTurnActivityView({ nodes, ...props }: LiveActivityRenderProps & { n
   const fold = nodes.find(node => node.kind === 'turn')
   const foldKey = `turn:${props.turnKey}`
   const open = !fold || turnCollapseState({ hasFinal: true, interrupted: props.turnInterrupted, hasActivity: true,
+    allowCollapseBeforeFinal: props.turnInterrupted && !fold.running,
     preventAutoCollapse: fold.preventAutoCollapse || props.collapseOverrides[`mcp-expanded:${props.turnKey}`] === true,
     collapsed: props.collapseOverrides[foldKey] }).open
   const label = fold ? <TurnWorkLabel startedAtMs={fold.running || fold.completedAtMs != null ? fold.startedAtMs : null}
@@ -4901,6 +4912,7 @@ const TranscriptTurnFrame = memo(function TranscriptTurnFrame({ renderKey, ident
   const foldKey = savedFold?.foldKey || `turn:${liveProps?.turnKey || ''}`
   const open = savedFold?.open ?? (!liveFold || turnCollapseState({ hasFinal: true,
     interrupted: !!liveProps?.turnInterrupted, hasActivity: true,
+    allowCollapseBeforeFinal: !!liveProps?.turnInterrupted && !liveFold.running,
     preventAutoCollapse: liveFold.preventAutoCollapse || liveProps?.collapseOverrides[`mcp-expanded:${liveProps.turnKey}`] === true,
     collapsed: liveProps?.collapseOverrides[foldKey] }).open)
   const fold = savedFold || liveFold
@@ -4921,7 +4933,11 @@ const TranscriptTurnFrame = memo(function TranscriptTurnFrame({ renderKey, ident
   const addWorkHeader = () => add('turn-work-header', true, !fold && divider
     ? <TurnWorkDivider startedAtMs={divider.startedAtMs} completedAtMs={divider.completedAtMs} /> : null, false)
   const savedTerminal = saved?.nodes.find(node => node.kind === 'unit' && node.unit.type === 'turn-status')
-  const liveTerminal = live?.nodes.find(node => node.kind === 'unit' && node.unit.type === 'live-turn-status')
+  // A settled interrupted turn keeps its stopped row as a persistent section
+  // inside the fold node's items, so the terminal lookup must reach into the
+  // fold or the divider loses its elapsed time.
+  const liveTerminal = [...(live?.nodes ?? []), ...(live?.nodes ?? []).flatMap(node => node.kind === 'turn' ? node.items : [])]
+    .find(node => node.kind === 'unit' && node.unit.type === 'live-turn-status')
   const terminalDuration = savedTerminal?.kind === 'unit' ? savedTerminal.unit.msg?.durationMs : undefined
   const terminalUnit = liveTerminal?.kind === 'unit' && liveTerminal.unit.type === 'live-turn-status' ? liveTerminal.unit : undefined
   const addTerminalStatus = () => add('turn-terminal-status', true,

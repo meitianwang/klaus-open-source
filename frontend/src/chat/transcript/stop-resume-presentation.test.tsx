@@ -10,12 +10,13 @@ let TranscriptView: typeof import('./TranscriptView').TranscriptView
 let TurnTerminalStatus: typeof import('./TranscriptView').TurnTerminalStatus
 let LiveTail: typeof import('./TranscriptView').LiveTail
 let foldTurnGroups: typeof import('./TranscriptView').foldTurnGroups
+let groupLiveActivityUnits: typeof import('./TranscriptView').groupLiveActivityUnits
 let unitsFromMessages: typeof import('./TranscriptView').unitsFromMessages
 const originalWindow = globalThis.window
 beforeAll(async () => {
   ;(globalThis as any).window = { ...originalWindow, currentLang: 'en', addEventListener() {}, removeEventListener() {}, matchMedia: () => ({ matches: true }) }
   ;({ chatStreamStore, getSessionStream, ingestChatEvent, ingestLocalUserTurn } = await import('../stream-store'))
-  ;({ TranscriptView, TurnTerminalStatus, LiveTail, foldTurnGroups, unitsFromMessages } = await import('./TranscriptView'))
+  ;({ TranscriptView, TurnTerminalStatus, LiveTail, foldTurnGroups, groupLiveActivityUnits, unitsFromMessages } = await import('./TranscriptView'))
 })
 afterAll(() => { (globalThis as any).window = originalWindow })
 
@@ -90,6 +91,33 @@ describe('stopped turn presentation across continuation', () => {
     const html = render(base())
     expect(occurrences(html, 'You stopped after 0s')).toBe(1)
     expect(html).not.toContain('data-work-label="working"')
+  })
+
+  test('a settled interrupted turn opened by a user request keeps its outer fold', () => {
+    const tools = {
+      bash1: { toolCallId: 'bash1', toolName: 'bash', args: {}, argsDelta: '', progress: [], status: 'interrupted' as const, agent: false, bgTask: false },
+    }
+    const nodes = groupLiveActivityUnits([
+      { type: 'live-user', key: 'user-1', turnId: 'stopped-turn', msg: user },
+      { type: 'live-tools', key: 'tools-1', turnId: 'stopped-turn', order: ['bash1'], sealed: true },
+      stopped,
+    ], tools, false, false, true)
+    const fold = nodes.find(node => node.kind === 'turn')
+    expect(fold).toBeDefined()
+    expect(fold?.kind === 'turn' && fold.preventAutoCollapse).toBe(false)
+  })
+
+  test('a retained stopped turn with activity renders one closed outer fold and one stopped label', () => {
+    const tools = {
+      bash1: { toolCallId: 'bash1', toolName: 'bash', args: {}, argsDelta: '', progress: [], status: 'interrupted' as const, agent: false, bgTask: false },
+    }
+    const html = render({ ...base(), tools, liveUnits: [
+      { type: 'live-user', key: 'user-1', turnId: 'stopped-turn', msg: user },
+      { type: 'live-tools', key: 'tools-1', turnId: 'stopped-turn', order: ['bash1'], sealed: true },
+      stopped,
+    ] })
+    expect(html).toContain('data-variant="turn" data-open="false"')
+    expect(occurrences(html, 'You stopped after')).toBe(1)
   })
 
   test('a continuation without content owns its clock separately from the stopped turn', () => {
