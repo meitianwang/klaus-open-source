@@ -319,9 +319,14 @@ static void Walk(AXUIElementRef element, NSString *path, NSUInteger depth, NSMut
     }
 }
 
+// Lossy quality for observation frames: keeps repeated per-turn payloads small
+// while UI text stays legible. Attachment captures stay lossless.
+static const double ObservationJpegQuality = 0.8;
+
 @interface Screenshot : NSObject <SCStreamOutput, SCStreamDelegate>
 @property(nonatomic) SCStream *stream;
-@property(nonatomic) NSData *png;
+@property(nonatomic) NSData *image;
+@property(nonatomic) BOOL jpeg;
 @property(nonatomic) NSError *error;
 @property(nonatomic) BOOL done;
 @property(nonatomic) BOOL stopped;
@@ -338,10 +343,13 @@ static void Walk(AXUIElementRef element, NSString *path, NSUInteger depth, NSMut
     CIImage *image = [CIImage imageWithCVPixelBuffer:pixels]; CGImageRef cg = [[CIContext contextWithOptions:nil] createCGImage:image fromRect:image.extent];
     if (!cg) return;
     NSBitmapImageRep *bitmap = [[NSBitmapImageRep alloc] initWithCGImage:cg]; CGImageRelease(cg);
-    self.png = [bitmap representationUsingType:NSBitmapImageFileTypePNG properties:@{}]; self.done = YES;
+    self.image = self.jpeg
+        ? [bitmap representationUsingType:NSBitmapImageFileTypeJPEG properties:@{NSImageCompressionFactor: @(ObservationJpegQuality)}]
+        : [bitmap representationUsingType:NSBitmapImageFileTypePNG properties:@{}];
+    self.done = YES;
 }
 @end
-static NSDictionary *Capture(pid_t pid, CGWindowID windowId, CGRect bounds) {
+static NSDictionary *Capture(pid_t pid, CGWindowID windowId, CGRect bounds, BOOL jpeg) {
     Permissions(YES); __block BOOL found = NO; __block SCShareableContent *content = nil; __block NSError *failure = nil;
     [SCShareableContent getShareableContentExcludingDesktopWindows:YES onScreenWindowsOnly:YES completionHandler:^(SCShareableContent *value, NSError *error) {
         dispatch_async(dispatch_get_main_queue(), ^{ content = value; failure = error; found = YES; });
@@ -357,7 +365,7 @@ static NSDictionary *Capture(pid_t pid, CGWindowID windowId, CGRect bounds) {
     configuration.minimumFrameInterval = CMTimeMake(1, 30); configuration.capturesAudio = NO;
     if (@available(macOS 14.0, *)) { configuration.ignoreShadowsSingleWindow = YES; configuration.shouldBeOpaque = YES; }
     if (@available(macOS 14.2, *)) configuration.includeChildWindows = NO;
-    Screenshot *capture = [Screenshot new]; capture.width = configuration.width; capture.height = configuration.height;
+    Screenshot *capture = [Screenshot new]; capture.jpeg = jpeg; capture.width = configuration.width; capture.height = configuration.height;
     capture.stream = [[SCStream alloc] initWithFilter:filter configuration:configuration delegate:capture];
     NSError *outputError = nil;
     if (![capture.stream addStreamOutput:capture type:SCStreamOutputTypeScreen sampleHandlerQueue:dispatch_get_main_queue() error:&outputError]) Fail(@"ScreenCaptureKit output could not be attached");
@@ -371,8 +379,8 @@ static NSDictionary *Capture(pid_t pid, CGWindowID windowId, CGRect bounds) {
         double limit = CFAbsoluteTimeGetCurrent() + 0.35;
         while (!capture.stopped && CFAbsoluteTimeGetCurrent() < limit) [NSRunLoop.currentRunLoop runMode:NSDefaultRunLoopMode beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.01]];
     }
-    if (capture.error || !capture.png.length || capture.png.length > 15 * 1024 * 1024) Fail(@"Approved window capture failed");
-    return @{@"data": [capture.png base64EncodedStringWithOptions:0], @"mimeType": @"image/png", @"width": @(capture.width), @"height": @(capture.height)};
+    if (capture.error || !capture.image.length || capture.image.length > 15 * 1024 * 1024) Fail(@"Approved window capture failed");
+    return @{@"data": [capture.image base64EncodedStringWithOptions:0], @"mimeType": jpeg ? @"image/jpeg" : @"image/png", @"width": @(capture.width), @"height": @(capture.height)};
 }
 static NSDictionary *State(NSDictionary *args) {
     Permissions(YES); NSRunningApplication *running = VerifiedApplication(Dict(args[@"app"]));
@@ -415,7 +423,7 @@ static NSDictionary *State(NSDictionary *args) {
                 if (IsElement(menubar)) Walk((__bridge AXUIElementRef)menubar, @"menubar", 0, nodes, &budget, &truncated);
                 BOOL busy = NO; for (NSDictionary *node in nodes) if ([node[@"busy"] boolValue]) { busy = YES; break; }
                 if (busy && CFAbsoluteTimeGetCurrent() < retryUntil) { Pause(0.1); continue; }
-                NSDictionary *image = Capture(running.processIdentifier, [window[@"windowId"] unsignedIntValue], ReadRectangle(window[@"bounds"]));
+                NSDictionary *image = Capture(running.processIdentifier, [window[@"windowId"] unsignedIntValue], ReadRectangle(window[@"bounds"]), YES);
                 VerifiedApplication(Dict(args[@"app"])); id after; NSDictionary *fresh = Window(app, running.processIdentifier, &after, NO);
                 if (![fresh[@"windowId"] isEqual:window[@"windowId"]] || !SameRectangle(ReadRectangle(fresh[@"bounds"]), ReadRectangle(window[@"bounds"]))) Fail(@"Approved window moved during capture; request fresh state");
                 NSMutableArray *confirmed = [NSMutableArray array]; NSUInteger confirmedBudget = 0; BOOL confirmedTruncated = NO;
@@ -779,7 +787,8 @@ static NSDictionary *Appshot(NSDictionary *args) {
                 }
             }
         } else context[@"accessibilityUnavailableReason"] = @"The selected window does not expose an accessibility tree";
-        NSDictionary *image = Capture(process, identifier, bounds);
+        // Attachment captures keep the lossless PNG contract their consumers validate.
+        NSDictionary *image = Capture(process, identifier, bounds, NO);
         VerifiedApplication(identity);
         NSArray *fresh = CFBridgingRelease(CGWindowListCopyWindowInfo(kCGWindowListOptionOnScreenOnly | kCGWindowListExcludeDesktopElements, kCGNullWindowID));
         if (!SelectWindow(fresh, process, identifier, bounds)) {

@@ -42,6 +42,31 @@ function bounds(value: unknown): Bounds {
   return { x: number(row.x, 'x', -1_000_000, 1_000_000), y: number(row.y, 'y', -1_000_000, 1_000_000),
     width: number(row.width, 'width', 1, 100_000), height: number(row.height, 'height', 1, 100_000) };
 }
+/**
+ * Reads the pixel geometry from a JPEG start-of-frame segment. The declared width and
+ * height drive the screenshot-to-window coordinate mapping, so the encoded frame must
+ * agree with them exactly; a truncated or inconsistent payload is rejected.
+ */
+function jpegFrame(bytes: Buffer): { width: number; height: number } | undefined {
+  if (bytes.length < 4 || bytes[0] !== 0xff || bytes[1] !== 0xd8 || bytes[2] !== 0xff) return undefined;
+  let offset = 2;
+  while (offset + 4 <= bytes.length) {
+    if (bytes[offset] !== 0xff) return undefined;
+    const marker = bytes[offset + 1];
+    if (marker === undefined) return undefined;
+    if (marker === 0xff) { offset += 1; continue; }
+    if (marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7) || marker === 0xd8 || marker === 0xd9) { offset += 2; continue; }
+    if (marker === 0xda) return undefined;
+    const length = bytes.readUInt16BE(offset + 2);
+    if (length < 2) return undefined;
+    if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
+      if (length < 8 || offset + 9 > bytes.length) return undefined;
+      return { height: bytes.readUInt16BE(offset + 5), width: bytes.readUInt16BE(offset + 7) };
+    }
+    offset += 2 + length;
+  }
+  return undefined;
+}
 export function snapshot(value: unknown, expected: AppIdentity): AppSnapshot {
   const row = object(value, 'state'), app = appIdentity(row.app);
   if (!sameApp(expected, app) || !app.pid) throw new Error('Computer Use application identity changed');
@@ -69,10 +94,11 @@ export function snapshot(value: unknown, expected: AppIdentity): AppSnapshot {
   });
   const screenshot = object(row.screenshot, 'screenshot'), data = string(screenshot.data, 'image data', 20 * 1024 * 1024);
   const width = number(screenshot.width, 'image width', 1, 4096, true), height = number(screenshot.height, 'image height', 1, 4096, true);
-  const header = Buffer.from(data.slice(0, 32), 'base64');
-  if (screenshot.mimeType !== 'image/png' || width * height > 8_000_000 || !/^[A-Za-z0-9+/]+={0,2}$/.test(data)
-    || header.length < 24 || !header.subarray(0, 8).equals(Buffer.from('89504e470d0a1a0a', 'hex'))
-    || header.readUInt32BE(16) !== width || header.readUInt32BE(20) !== height) throw new Error('Computer Use screenshot is invalid');
+  // The scan window only has to reach the start-of-frame segment; profile or metadata
+  // segments precede it, entropy data never does.
+  const frame = jpegFrame(Buffer.from(data.slice(0, 65_536), 'base64'));
+  if (screenshot.mimeType !== 'image/jpeg' || width * height > 8_000_000 || !/^[A-Za-z0-9+/]+={0,2}$/.test(data)
+    || frame === undefined || frame.width !== width || frame.height !== height) throw new Error('Computer Use screenshot is invalid');
   const windowBounds = bounds(row.bounds), imageBounds = screenshot.bounds == null ? undefined : bounds(screenshot.bounds);
   if (imageBounds && (imageBounds.x < windowBounds.x || imageBounds.y < windowBounds.y
     || imageBounds.x + imageBounds.width > windowBounds.x + windowBounds.width
@@ -81,7 +107,7 @@ export function snapshot(value: unknown, expected: AppIdentity): AppSnapshot {
     ...(typeof row.treeTruncated === 'boolean' ? { treeTruncated: row.treeTruncated } : {}),
     ...(typeof row.loading === 'boolean' ? { loading: row.loading } : {}),
     ...(typeof row.observationChanged === 'boolean' ? { observationChanged: row.observationChanged } : {}),
-    screenshot: { data, mimeType: 'image/png', width, height, ...(imageBounds ? { bounds: imageBounds } : {}) } };
+    screenshot: { data, mimeType: 'image/jpeg', width, height, ...(imageBounds ? { bounds: imageBounds } : {}) } };
 }
 function enumValue(value: unknown, label: string, values: string[], fallback: string): string {
   if (value === undefined) return fallback;

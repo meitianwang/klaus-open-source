@@ -60,7 +60,9 @@ element, ambiguous selection, lost foreground owner, locked desktop, recent
 physical input or missing permission fails explicitly. Blank one-child AXGroups
 are collapsed without changing the native path so native application wrappers
 do not consume the entire document depth budget. Tree text retains the existing
-state/diff format; the window screenshot remains mandatory. Secure AX text-field
+state/diff format; the window screenshot remains mandatory and is JPEG-encoded
+(quality 0.8) so repeated per-turn frames stay small. The `appshot` attachment
+path keeps its lossless PNG contract. Secure AX text-field
 values are not read. Selection offsets use raw UTF-16 text, rather than the
 normalized display summary.
 

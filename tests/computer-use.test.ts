@@ -17,12 +17,12 @@ import { storeBytes } from '../main/services/media';
 
 const h = new Harness(), temporary = mkdtempSync(join(tmpdir(), 'klaus-computer-use-'));
 const app = { input: 'Fixture', name: 'Fixture', path: '/Applications/Fixture.app', bundleId: 'test.fixture', pid: 123 };
-const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aEAAAAABJRU5ErkJggg==';
+const jpeg = '/9j/4AAQSkZJRgABAgAAAQABAAD/2wBDABALChAYKDM9DAwOExo6PDcODRAYKDlFOA4RFh0zV1A+EhYlOERtZ00YIzdAUWhxXDFATldneXhlSFxfYnBkZ2P/wAALCAABAAEBAREA/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/9oACAEBAAA/ACv/2Q==';
 const state = (): AppSnapshot => ({ app, windowId: 55, bounds: { x: -200, y: 10, width: 800, height: 400 },
   elements: [{ index: '0', path: 'w0', depth: 0, role: 'AXWindow', title: 'Fixture', settable: false, actions: [] },
     { index: '1', path: 'w0.0', depth: 1, role: 'AXTextField', roleDescription: 'text field', title: 'Input', value: 'first', settable: true,
       actions: [{ raw: 'AXConfirm', description: 'Confirm' }], bounds: { x: 10, y: 20, width: 100, height: 50 } }],
-  screenshot: { data: png, mimeType: 'image/png', width: 1, height: 1 } });
+  screenshot: { data: jpeg, mimeType: 'image/jpeg', width: 1, height: 1 } });
 function deferred<T = void>() { let resolve!: (value: T) => void; const promise = new Promise<T>(yes => { resolve = yes; }); return { promise, resolve }; }
 const closing: Array<() => Promise<unknown>> = [];
 function fixture(override?: ComputerUseBackend['request'], hooks: Partial<Pick<ComputerUseDependencies, 'beginOperation' | 'approvedWindow' | 'guardInteraction' | 'saveScreenshot' | 'audio'>> = {}, policyOverrides: Partial<ComputerUsePolicyDependencies> = {}) {
@@ -85,6 +85,9 @@ h.test('paste, audio and observation vectors pin the shipped schemas', () => {
   strict.equal(vector.audioRecording.sampleRate, 24000); strict.equal(vector.audioRecording.channels, 2);
   strict.deepEqual(vector.audioRecording.durationRangeMs, [100, 300000]); strict.equal(vector.audioRecording.defaultDurationMs, 60000);
   strict.equal(schema('start_audio_recording').properties.max_duration_ms!.type, 'integer');
+  strict.equal(vector.screenshotImage.mimeType, 'image/jpeg');
+  strict.equal(vector.screenshotImage.dimensionCrossCheck, 'start-of-frame segment');
+  strict.equal(vector.screenshotImage.maxPixels, 8_000_000);
   for (const name of ['paste', 'start_audio_recording', 'stop_audio_recording']) {
     strict.equal(COMPUTER_USE_TOOLS.find(tool => tool.name === name)!.annotations.readOnlyHint, false);
   }
@@ -132,7 +135,7 @@ h.test('resolved identity is checked against policy before activation', async ()
 });
 h.test('the returned image has the MCP image shape and exact screenshot coordinate mapping', async () => {
   const f = fixture(), result = await f.read();
-  strict.deepEqual(result.content[1], { type: 'image', data: png, mimeType: 'image/png' });
+  strict.deepEqual(result.content[1], { type: 'image', data: jpeg, mimeType: 'image/jpeg' });
   strict.match(String(result.content[0]?.text), /<app_state>/);
   await f.connector.call('click', { app: app.input, x: 0.5, y: 0.25 }, f.context());
   strict.deepEqual(f.requests.find(request => request.method === 'action')?.args.point, { x: 200, y: 110 });
@@ -244,6 +247,8 @@ h.test('unreadable state and ambiguous indices fail before exposing a usable cac
   strict.throws(() => snapshot({ ...state(), app: { ...app, pid: 124 } }, app), /identity changed/);
   strict.throws(() => snapshot({ ...state(), screenshot: { ...state().screenshot, data: 'not-an-image' } }, app), /screenshot is invalid/);
   strict.throws(() => snapshot({ ...state(), screenshot: { ...state().screenshot, width: 2 } }, app), /screenshot is invalid/);
+  // The observation wire format switched to lossy frames; a lossless payload must not slip through.
+  strict.throws(() => snapshot({ ...state(), screenshot: { ...state().screenshot, mimeType: 'image/png' } }, app), /screenshot is invalid/);
 });
 h.test('state deltas retain no-change, changed-element and full-tree fallback semantics', () => {
   const before = state(), after = state(); strict.match(stateText(after, before), /no change/);
@@ -536,10 +541,10 @@ h.test('native screenshot saves exact bytes and gives the same quoted path to th
   const path = String(first.structuredContent?.path || '');
   strict.equal(first.structuredContent?.saved, true);
   strict.equal(path, second.structuredContent?.path);
-  strict.deepEqual(readFileSync(path), Buffer.from(png, 'base64'));
+  strict.deepEqual(readFileSync(path), Buffer.from(jpeg, 'base64'));
   strict.equal(first.content[1]?.type, 'image');
-  strict.equal(first.content[1]?.data, png);
-  strict.equal(first.content[1]?.mimeType, 'image/png');
+  strict.equal(first.content[1]?.data, jpeg);
+  strict.equal(first.content[1]?.mimeType, 'image/jpeg');
   strict.ok(String(first.content[0]?.text).startsWith('Saved: ' + JSON.stringify(path) + '\n'));
   strict.ok(String(first.content[0]?.text).includes('<app_state>'));
 });
@@ -584,7 +589,7 @@ h.test('scope revocation during resolution or capture blocks the next operation 
     const f = fixture(async request => {
       if (request.method === method) { entered = true; await gate.promise; }
       return request.method === 'resolve' || request.method === 'activate' ? app : state();
-    }, { saveScreenshot: () => { saved++; return '/capture.png'; } }, { taskScope: () => scope });
+    }, { saveScreenshot: () => { saved++; return '/capture.jpg'; } }, { taskScope: () => scope });
     const read = f.read(), rejected = strict.rejects(read, /authorization changed|inactive/);
     await waitFor(() => entered, 1000, 'scoped native operation entered');
     scope = { active: false, apps: [] }; gate.resolve(); await rejected;
@@ -607,7 +612,7 @@ h.test('an adversarial capture identity outside the selected app cannot be saved
   let saved = 0;
   const f = fixture(async request => request.method === 'resolve' || request.method === 'activate' ? app
     : { ...state(), app: { ...app, bundleId: 'private.other', path: '/Applications/Other.app' } },
-    { saveScreenshot: () => { saved++; return '/capture.png'; } }, { taskScope: () => ({ active: true, apps: ['bundle:test.fixture'] }) });
+    { saveScreenshot: () => { saved++; return '/capture.jpg'; } }, { taskScope: () => ({ active: true, apps: ['bundle:test.fixture'] }) });
   await strict.rejects(f.read(), /identity/); strict.equal(saved, 0);
 });
 

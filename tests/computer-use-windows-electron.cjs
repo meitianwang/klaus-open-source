@@ -95,13 +95,14 @@ line3</textarea><div id="cancel-drag" style="width:90px;height:25px;background:b
     }, 7000);
     assert.equal(approvals, 0); assert.equal(result.content[1].type, 'image');
     const metadata = result._meta.klaus.computerUse; assert.equal(metadata.app.pid, process.pid);
-    const png = Buffer.from(result.content[1].data, 'base64'), image = nativeImage.createFromBuffer(png);
+    assert.equal(result.content[1].mimeType, 'image/jpeg');
+    const jpeg = Buffer.from(result.content[1].data, 'base64'), image = nativeImage.createFromBuffer(jpeg);
     assert.deepEqual(image.getSize(), { width: metadata.mapping.screenshotPixelWidth, height: metadata.mapping.screenshotPixelHeight });
     assert.match(result.content[0].text, /Fixture input/);
     const pixels = image.toBitmap(); let color = 0;
     for (let offset = 0; offset < pixels.length; offset += 4) if (Math.max(...pixels.subarray(offset, offset + 3)) - Math.min(...pixels.subarray(offset, offset + 3)) > 100) color++;
-    assert.ok(color > 1000, 'The WGC PNG must contain the synthetic colored controls');
-    fs.writeFileSync(path.join(root, 'approved-window.png'), png);
+    assert.ok(color > 1000, 'The WGC JPEG must contain the synthetic colored controls');
+    fs.writeFileSync(path.join(root, 'approved-window.jpg'), jpeg);
   });
   await test('UIA Invoke and ValuePattern update the real approved controls', async () => {
     latest = await invoke('click', { element_index: index('Fixture increment') }); await until(async () => await dom('count') === 1);

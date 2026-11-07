@@ -77,6 +77,9 @@ from the state the model was last shown; `disable_diff` returns the full tree,
 and an action result diffs against its own pre-action observation. Continuously updating content returns
 an explicit notice. Tree truncation is also reported. An unchanged accessibility
 tree makes no claim about the visible screenshot or whether input succeeded.
+Observation frames arrive as JPEG; the declared width and height are
+cross-checked against the encoded start-of-frame segment before the state is
+accepted.
 
 Keyboard input accepts named navigation keys, punctuation keysyms, side-specific
 modifiers and keypad keys. Printable keys use the target keyboard layout.

@@ -11,7 +11,7 @@ export interface Element {
 export interface AppSnapshot {
   app: AppIdentity; windowId: number; bounds: Bounds; elements: Element[];
   treeTruncated?: boolean; loading?: boolean; observationChanged?: boolean;
-  screenshot: { data: string; mimeType: 'image/png'; width: number; height: number; bounds?: Bounds };
+  screenshot: { data: string; mimeType: 'image/jpeg'; width: number; height: number; bounds?: Bounds };
 }
 export interface NativeRequest {
   resourceId: string; operationId: string; generation: number; sequence: number;

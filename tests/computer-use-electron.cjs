@@ -99,7 +99,9 @@ line3</textarea>
     console.log(`synthetic-accessibility-enabled: ${app.isAccessibilitySupportEnabled()}`);
     const metadata = result._meta.klaus.computerUse; assert.equal(metadata.app.pid, process.pid);
     assert.ok(metadata.mapping.screenshotPixelWidth > 100); assert.match(result.content[0].text, /Fixture input/);
-    fs.writeFileSync(path.join(root, 'approved-window.png'), Buffer.from(result.content[1].data, 'base64'));
+    assert.equal(result.content[1].mimeType, 'image/jpeg');
+    assert.ok(result.content[1].data.startsWith('/9j/'), 'native observation frames must be JPEG');
+    fs.writeFileSync(path.join(root, 'approved-window.jpg'), Buffer.from(result.content[1].data, 'base64'));
   });
   await test('native accessibility click and value writes change the real synthetic controls', async () => {
     latest = await invoke('click', { element_index: index('Fixture increment') }); await until(async () => await dom('count') === 1);

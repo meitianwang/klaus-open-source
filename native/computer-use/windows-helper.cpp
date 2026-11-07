@@ -2,6 +2,7 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <ole2.h>
+#include <propidl.h>
 #include <UIAutomation.h>
 #include <dwmapi.h>
 #include <shellapi.h>
@@ -47,6 +48,10 @@ using namespace winrt::Windows::Graphics::Capture;
 using namespace winrt::Windows::Graphics::DirectX;
 using namespace winrt::Windows::Graphics::DirectX::Direct3D11;
 using Clock = std::chrono::steady_clock;
+
+// Lossy quality for observation frames: keeps repeated per-turn payloads small
+// while UI text stays legible.
+constexpr float ObservationJpegQuality = 0.8f;
 
 // This process performs one OS operation. No COM object or desktop state is
 // shared with another request, the Electron UI thread, or a session owner.
@@ -331,14 +336,19 @@ static JsonObject Capture(HWND window,const RECT& bounds) {
     com_ptr<IWICBitmapSource> source=bitmap.as<IWICBitmapSource>();com_ptr<IWICBitmapScaler> scaler;
     if(scale<1){Require(factory->CreateBitmapScaler(scaler.put()),"Window image scaler is unavailable");Require(scaler->Initialize(bitmap.get(),width,height,WICBitmapInterpolationModeFant),"Window image scaling failed");source=scaler.as<IWICBitmapSource>();}
     com_ptr<IStream> stream;Require(CreateStreamOnHGlobal(nullptr,TRUE,stream.put()),"Window image buffer failed");com_ptr<IWICBitmapEncoder> encoder;
-    Require(factory->CreateEncoder(GUID_ContainerFormatPng,nullptr,encoder.put()),"PNG encoder is unavailable");Require(encoder->Initialize(stream.get(),WICBitmapEncoderNoCache),"PNG initialization failed");
-    com_ptr<IWICBitmapFrameEncode> image;Require(encoder->CreateNewFrame(image.put(),nullptr),"PNG frame creation failed");Require(image->Initialize(nullptr),"PNG frame initialization failed");
-    Require(image->SetSize(width,height),"PNG dimensions failed");auto format=GUID_WICPixelFormat32bppBGRA;Require(image->SetPixelFormat(&format),"PNG format failed");
-    Require(image->WriteSource(source.get(),nullptr),"PNG frame encoding failed");Require(image->Commit(),"PNG frame commit failed");Require(encoder->Commit(),"PNG commit failed");
-    STATSTG stat{};Require(stream->Stat(&stat,STATFLAG_NONAME),"PNG size is unavailable");if(!stat.cbSize.QuadPart||stat.cbSize.QuadPart>15*1024*1024)Fail("Window capture exceeds its byte limit");
-    HGLOBAL memory=nullptr;Require(GetHGlobalFromStream(stream.get(),&memory),"PNG buffer is unavailable");auto bytes=static_cast<const BYTE*>(GlobalLock(memory));if(!bytes)Fail("PNG buffer is unavailable");
+    Require(factory->CreateEncoder(GUID_ContainerFormatJpeg,nullptr,encoder.put()),"JPEG encoder is unavailable");Require(encoder->Initialize(stream.get(),WICBitmapEncoderNoCache),"JPEG initialization failed");
+    com_ptr<IWICBitmapFrameEncode> image;com_ptr<IPropertyBag2> options;
+    Require(encoder->CreateNewFrame(image.put(),options.put()),"JPEG frame creation failed");
+    PROPBAG2 qualityKey{};qualityKey.pstrName=const_cast<LPWSTR>(L"JpegCompressionQuality");
+    VARIANT quality;VariantInit(&quality);quality.vt=VT_R4;quality.fltVal=ObservationJpegQuality;
+    Require(options->Write(1,&qualityKey,&quality),"JPEG quality option failed");
+    Require(image->Initialize(options.get()),"JPEG frame initialization failed");
+    Require(image->SetSize(width,height),"JPEG dimensions failed");auto format=GUID_WICPixelFormat24bppBGR;Require(image->SetPixelFormat(&format),"JPEG format failed");
+    Require(image->WriteSource(source.get(),nullptr),"JPEG frame encoding failed");Require(image->Commit(),"JPEG frame commit failed");Require(encoder->Commit(),"JPEG commit failed");
+    STATSTG stat{};Require(stream->Stat(&stat,STATFLAG_NONAME),"JPEG size is unavailable");if(!stat.cbSize.QuadPart||stat.cbSize.QuadPart>15*1024*1024)Fail("Window capture exceeds its byte limit");
+    HGLOBAL memory=nullptr;Require(GetHGlobalFromStream(stream.get(),&memory),"JPEG buffer is unavailable");auto bytes=static_cast<const BYTE*>(GlobalLock(memory));if(!bytes)Fail("JPEG buffer is unavailable");
     Cleanup unlock{[&]{GlobalUnlock(memory);}};JsonObject result;result.Insert(L"data",S(to_hstring(Base64(bytes,static_cast<DWORD>(stat.cbSize.QuadPart)))));
-    result.Insert(L"mimeType",S(L"image/png"));result.Insert(L"width",N(width));result.Insert(L"height",N(height));
+    result.Insert(L"mimeType",S(L"image/jpeg"));result.Insert(L"width",N(width));result.Insert(L"height",N(height));
     result.Insert(L"bounds",Rectangle({bounds.left,bounds.top,bounds.left+content.Width,bounds.top+content.Height}));return result;
 }
 static JsonObject State(const JsonObject& args) {
