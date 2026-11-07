@@ -24,6 +24,8 @@
 #include <atomic>
 #include <chrono>
 #include <cmath>
+#include <cstdio>
+#include <cstring>
 #include <functional>
 #include <iostream>
 #include <map>
@@ -448,6 +450,83 @@ static void Type(HWND window,DWORD pid,const std::wstring& text) {
         for(size_t i=0;i<count;i++){WORD character=static_cast<WORD>(text[offset+i]);events.push_back(Key(0,KEYEVENTF_UNICODE,character));events.push_back(Key(0,KEYEVENTF_UNICODE|KEYEVENTF_KEYUP,character));}
         UINT accepted=0;Cleanup cleanup{[&]{ReleaseKeys(events,accepted);}};Send(events,false,&accepted);offset+=count;}
 }
+static std::vector<std::pair<UINT,std::vector<BYTE>>> SaveClipboard() {
+    std::vector<std::pair<UINT,std::vector<BYTE>>> saved;
+    if(!OpenClipboard(nullptr))return saved;
+    for(UINT format=EnumClipboardFormats(0);format;format=EnumClipboardFormats(format)){
+        HANDLE handle=GetClipboardData(format);if(!handle)continue;
+        SIZE_T size=GlobalSize(handle);if(!size||size>64*1024*1024)continue;
+        const void* data=GlobalLock(handle);if(!data)continue;
+        saved.emplace_back(format,std::vector<BYTE>(static_cast<const BYTE*>(data),static_cast<const BYTE*>(data)+size));
+        GlobalUnlock(handle);
+    }
+    CloseClipboard();
+    return saved;
+}
+static void RestoreClipboard(const std::vector<std::pair<UINT,std::vector<BYTE>>>& saved) {
+    if(!OpenClipboard(nullptr))return;
+    EmptyClipboard();
+    for(const auto& entry:saved){
+        HANDLE handle=GlobalAlloc(GMEM_MOVEABLE,entry.second.size());if(!handle)continue;
+        void* data=GlobalLock(handle);
+        if(data){memcpy(data,entry.second.data(),entry.second.size());GlobalUnlock(handle);if(!SetClipboardData(entry.first,handle))GlobalFree(handle);}
+        else GlobalFree(handle);
+    }
+    CloseClipboard();
+}
+static std::string Utf8(const std::wstring& text) {
+    if(text.empty())return {};
+    int size=WideCharToMultiByte(CP_UTF8,0,text.data(),static_cast<int>(text.size()),nullptr,0,nullptr,nullptr);
+    if(size<=0)return {};
+    std::string output(static_cast<size_t>(size),'\0');
+    WideCharToMultiByte(CP_UTF8,0,text.data(),static_cast<int>(text.size()),output.data(),size,nullptr,nullptr);
+    return output;
+}
+static void SetClipboardBytes(UINT format,const std::string& bytes) {
+    HANDLE handle=GlobalAlloc(GMEM_MOVEABLE,bytes.size()+1);if(!handle)return;
+    void* data=GlobalLock(handle);
+    if(data){memcpy(data,bytes.data(),bytes.size());static_cast<char*>(data)[bytes.size()]='\0';GlobalUnlock(handle);if(!SetClipboardData(format,handle))GlobalFree(handle);}
+    else GlobalFree(handle);
+}
+static std::string HtmlFlavor(const std::string& fragment) {
+    // The registered HTML clipboard flavor is UTF-8 with fixed-width byte offsets.
+    static const char* pre="Version:0.9\r\nStartHTML:%010u\r\nEndHTML:%010u\r\nStartFragment:%010u\r\nEndFragment:%010u\r\n";
+    const std::string head="<html><body>\r\n<!--StartFragment-->",tail="<!--EndFragment-->\r\n</body></html>";
+    int headerLength=snprintf(nullptr,0,pre,0u,0u,0u,0u);
+    if(headerLength<=0||headerLength>=256)return {};
+    unsigned startHTML=static_cast<unsigned>(headerLength);
+    unsigned startFragment=startHTML+static_cast<unsigned>(head.size());
+    unsigned endFragment=startFragment+static_cast<unsigned>(fragment.size());
+    unsigned endHTML=endFragment+static_cast<unsigned>(tail.size());
+    char header[256];
+    int written=snprintf(header,sizeof(header),pre,startHTML,endHTML,startFragment,endFragment);
+    if(written!=headerLength)return {};
+    return std::string(header,static_cast<size_t>(written))+head+fragment+tail;
+}
+static void Paste(HWND window,DWORD pid,const std::wstring& text,const std::wstring& format) {
+    if(format!=L"text"&&format!=L"md"&&format!=L"html")Fail("Unsupported paste format");
+    // Snapshot the user's clipboard so the paste can put it back afterwards.
+    auto saved=SaveClipboard();
+    struct Restore{std::vector<std::pair<UINT,std::vector<BYTE>>>* value;~Restore(){RestoreClipboard(*value);}}restore{&saved};
+    if(!OpenClipboard(nullptr))Fail("The system clipboard is locked by another window; the paste was not sent");
+    bool published=false;
+    EmptyClipboard();
+    size_t bytes=(text.size()+1)*sizeof(wchar_t);
+    HANDLE handle=GlobalAlloc(GMEM_MOVEABLE,bytes);
+    if(handle){
+        void* data=GlobalLock(handle);
+        if(data){memcpy(data,text.data(),text.size()*sizeof(wchar_t));static_cast<wchar_t*>(data)[text.size()]=L'\0';GlobalUnlock(handle);published=SetClipboardData(CF_UNICODETEXT,handle)!=nullptr;if(!published)GlobalFree(handle);}
+        else GlobalFree(handle);
+    }
+    std::string utf8=Utf8(text);
+    if(published&&format==L"md"){UINT markdown=RegisterClipboardFormatW(L"Markdown");if(markdown)SetClipboardBytes(markdown,utf8);}
+    if(published&&format==L"html"){UINT html=RegisterClipboardFormatW(L"HTML Format");std::string body=HtmlFlavor(utf8);if(html&&!body.empty())SetClipboardBytes(html,body);}
+    CloseClipboard();
+    if(!published)Fail("The system clipboard rejected the paste content");
+    Press(window,pid,L"ctrl+v");
+    // Give the target window time to read the clipboard before restoring it.
+    Pause(250);
+}
 static void SelectText(IUIAutomationElement* element,const JsonObject& args) {
     BOOL password=TRUE;element->get_CurrentIsPassword(&password);if(password)Fail("Secure fields do not expose selectable text");
     auto pattern=Pattern<IUIAutomationTextPattern>(element,UIA_TextPatternId);if(!pattern)Fail("This field does not expose native text selection");
@@ -495,13 +574,17 @@ static JsonObject Action(const JsonObject& args) {
     }else if(name==L"select_text"){if(!element)Fail("An accessibility element is required");Foreground(window,pid);SelectText(element.get(),args);
     }else if(name==L"press_key")Press(window,pid,Text(args,L"key",128),args.HasKey(L"duration")?Number(args,L"duration",0,30):0);
     else if(name==L"type_text")Type(window,pid,Text(args,L"text",50000,true));
+    else if(name==L"paste")Paste(window,pid,Text(args,L"text",50000,true),args.HasKey(L"format")?Text(args,L"format"):std::wstring(L"text"));
     else if(name==L"scroll"){
-        if(!element)Fail("An accessibility element is required");auto direction=Text(args,L"direction");double pages=Number(args,L"pages",0.1,10);
+        auto direction=Text(args,L"direction");double pages=Number(args,L"pages",0.1,10);
         if(direction!=L"up"&&direction!=L"down"&&direction!=L"left"&&direction!=L"right")Fail("Unsupported scroll direction");
-        auto scroll=Pattern<IUIAutomationScrollPattern>(element.get(),UIA_ScrollPatternId);
+        auto scroll=element?Pattern<IUIAutomationScrollPattern>(element.get(),UIA_ScrollPatternId):com_ptr<IUIAutomationScrollPattern>{};
         if(scroll&&std::floor(pages)==pages){for(int i=0;i<static_cast<int>(pages);i++){Foreground(window,pid);Require(scroll->Scroll(direction==L"left"?ScrollAmount_LargeDecrement:direction==L"right"?ScrollAmount_LargeIncrement:ScrollAmount_NoAmount,
             direction==L"up"?ScrollAmount_LargeDecrement:direction==L"down"?ScrollAmount_LargeIncrement:ScrollAmount_NoAmount),"Native scroll failed; action was not retried");}}
-        else{RECT r{};Require(element->get_CurrentBoundingRectangle(&r),"Scroll element bounds are unavailable");POINT point{(r.left+r.right)/2,(r.top+r.bottom)/2};if(!PtInRect(&bounds,point))Fail("Scroll element is outside the approved window");PointerTarget(window,pid,point);
+        else{POINT point{};
+            if(element){RECT r{};Require(element->get_CurrentBoundingRectangle(&r),"Scroll element bounds are unavailable");point={(r.left+r.right)/2,(r.top+r.bottom)/2};if(!PtInRect(&bounds,point))Fail("Scroll element is outside the approved window");}
+            else point=Point(args.GetNamedObject(L"point"),bounds);
+            PointerTarget(window,pid,point);
             LONG delta=static_cast<LONG>(std::lround(pages*WHEEL_DELTA));if(direction==L"down"||direction==L"left")delta=-delta;
             std::vector<INPUT> events{Pointer(point,MOUSEEVENTF_MOVE),Pointer(point,direction==L"left"||direction==L"right"?MOUSEEVENTF_HWHEEL:MOUSEEVENTF_WHEEL,static_cast<DWORD>(delta))};Send(events);}
     }else if(name==L"drag"){

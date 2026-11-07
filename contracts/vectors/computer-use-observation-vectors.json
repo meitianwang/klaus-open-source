@@ -28,5 +28,9 @@
   "windowsInput": { "_why": "Extended and Unicode encodings may share scan values without identifying the same held key.", "cleanupIdentity": ["virtualKey", "scanCode", "extended", "unicode"], "keypadEqual": "native keypad mapping or explicit unsupported layout" },
   "appRecoveryIdentifiers": ["path", "bundleId", "pid"],
   "observation": { "accessibilityActivation": "set once and poll readiness", "accessibilityReadinessTimeoutMs": 5000, "settleAfterInputMs": 1000, "additionalLoadingWaitMs": 5000, "retryInput": false, "reportTruncation": true },
-  "errors": { "notStarted": "No input was sent", "startedOrUnconfirmed": "may have executed" }
+  "errors": { "notStarted": "No input was sent", "startedOrUnconfirmed": "may have executed" },
+  "appStateDiff": { "_why": "Repeated observations stay comparable without hiding first-look content.", "firstObservation": "full tree", "default": "diff from the state the model was last shown", "disableDiff": "full tree on request" },
+  "scrollTarget": { "_why": "Content without an accessible element still scrolls at an observed point.", "targets": ["element_index", "screenshot point"] },
+  "paste": { "_why": "Large or formatted text must not depend on typing keystrokes, and the user's clipboard stays theirs.", "formats": ["text", "md", "html"], "restoresClipboard": true, "focusedControl": true },
+  "audioRecording": { "_why": "System output capture must stay bounded, single-active and volume-neutral.", "source": "system output across apps", "encoding": "wav", "sampleRate": 24000, "channels": 2, "defaultDurationMs": 60000, "durationRangeMs": [100, 300000], "singleActiveRecording": true, "preserveSystemVolumeAndMute": true, "retrieval": "stop returns an audio content block" }
 }

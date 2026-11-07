@@ -42,7 +42,7 @@ const invoke = async (name, args = {}) => {
   }
 };
 async function read() {
-  latest = await invoke('get_app_state');
+  latest = await invoke('get_app_state', { disable_diff: true });
   // Only the fixture's own accessibility result is retained for diagnosis.
   fs.writeFileSync(path.join(root, 'latest-tree.txt'), latest.content[0].text);
   return latest;
@@ -103,6 +103,9 @@ line3</textarea>
   });
   await test('native accessibility click and value writes change the real synthetic controls', async () => {
     latest = await invoke('click', { element_index: index('Fixture increment') }); await until(async () => await dom('count') === 1);
+    // A plain re-observation diffs from the state the model was last shown.
+    const delta = await invoke('get_app_state');
+    assert.match(delta.content[0].text, /diff from the accessibility tree|no change in the accessibility tree/);
     await read(); latest = await invoke('set_value', { element_index: index('Fixture input'), value: 'changed fixture text' });
     assert.equal(await dom('document.querySelector("#input").value'), 'changed fixture text');
   });

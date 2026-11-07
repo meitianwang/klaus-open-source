@@ -22,7 +22,7 @@ const sourceHash = fingerprint(), compiler = execFileSync('xcrun', ['clang', '--
 mkdirSync(output, { recursive: true });
 const target = resolve(output, 'klaus-computer-use-helper'), temporary = target + '.tmp';
 execFileSync('xcrun', ['clang', '-arch', machine, '-O2', '-fobjc-arc', '-fblocks', '-Wall', '-Wextra', '-Werror', '-mmacosx-version-min=13.0',
-  '-framework', 'AppKit', '-framework', 'ApplicationServices', '-framework', 'Carbon', '-framework', 'ScreenCaptureKit', '-framework', 'CoreImage', '-framework', 'CoreMedia', '-framework', 'CoreVideo', '-framework', 'Security', '-framework', 'LocalAuthentication',
+  '-framework', 'AppKit', '-framework', 'ApplicationServices', '-framework', 'Carbon', '-framework', 'ScreenCaptureKit', '-framework', 'CoreImage', '-framework', 'CoreMedia', '-framework', 'CoreVideo', '-framework', 'CoreAudio', '-framework', 'Security', '-framework', 'LocalAuthentication',
   '-Wl,-sectcreate,__TEXT,__info_plist,' + plist, source, lockscreen, '-o', temporary], { stdio: 'inherit' });
 // A translated parent can still spawn a native compiler; verify the actual Mach-O.
 const compiled = readFileSync(temporary);

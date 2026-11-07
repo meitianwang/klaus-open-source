@@ -3,6 +3,7 @@
 #import <Carbon/Carbon.h>
 #import <ScreenCaptureKit/ScreenCaptureKit.h>
 #import <CoreImage/CoreImage.h>
+#import <CoreAudio/CoreAudio.h>
 #import "lockscreen.h"
 #include <signal.h>
 #include <stdlib.h>
@@ -621,6 +622,36 @@ static void Unicode(NSRunningApplication *app, NSString *value) {
         offset += count;
     }
 }
+static void Paste(NSRunningApplication *app, NSString *value, NSString *format) {
+    NSPasteboard *board = NSPasteboard.generalPasteboard;
+    // Snapshot the user's clipboard contents so the paste can put them back.
+    NSMutableArray<NSDictionary<NSPasteboardType, NSData *> *> *saved = [NSMutableArray array];
+    for (NSPasteboardItem *item in board.pasteboardItems) {
+        NSMutableDictionary<NSPasteboardType, NSData *> *copy = [NSMutableDictionary dictionary];
+        for (NSPasteboardType type in item.types) { NSData *data = [item dataForType:type]; if (data) copy[type] = data; }
+        if (copy.count) [saved addObject:copy];
+    }
+    @try {
+        NSPasteboardItem *item = [NSPasteboardItem new];
+        [item setString:value forType:NSPasteboardTypeString];
+        NSData *encoded = [value dataUsingEncoding:NSUTF8StringEncoding];
+        if ([format isEqualToString:@"md"] && encoded) [item setData:encoded forType:@"net.daringfireball.markdown"];
+        if ([format isEqualToString:@"html"] && encoded) [item setData:encoded forType:NSPasteboardTypeHTML];
+        [board clearContents]; [board writeObjects:@[item]];
+        Keyboard(app, @"super+v", 0);
+        // Give the target app time to read the pasteboard before restoring it.
+        Pause(0.25);
+    } @finally {
+        [board clearContents];
+        NSMutableArray<NSPasteboardItem *> *restore = [NSMutableArray array];
+        for (NSDictionary<NSPasteboardType, NSData *> *entry in saved) {
+            NSPasteboardItem *item = [NSPasteboardItem new];
+            for (NSPasteboardType type in entry) [item setData:entry[type] forType:type];
+            [restore addObject:item];
+        }
+        if (restore.count) [board writeObjects:restore];
+    }
+}
 static NSDictionary *Action(NSDictionary *args) {
     Permissions(NO); GuardInteraction(args); NSRunningApplication *running = VerifiedApplication(Dict(args[@"app"])); Foreground(running);
     AXUIElementRef app = AXUIElementCreateApplication(running.processIdentifier);
@@ -629,7 +660,7 @@ static NSDictionary *Action(NSDictionary *args) {
         if (![window[@"windowId"] isEqual:args[@"windowId"]] || !SameRectangle(rect, ReadRectangle(Dict(args[@"windowBounds"])))) Fail(@"Approved window changed; read fresh app state before sending input");
         id selected = args[@"element"] ? ResolveElement(app, root, Dict(args[@"element"]), window[@"path"]) : nil;
         AXUIElementRef element = selected ? (__bridge AXUIElementRef)selected : NULL; NSString *name = Text(args[@"name"]);
-        if (([name isEqualToString:@"press_key"] || [name isEqualToString:@"type_text"]) && args[@"focusedElement"]) {
+        if (([name isEqualToString:@"press_key"] || [name isEqualToString:@"type_text"] || [name isEqualToString:@"paste"]) && args[@"focusedElement"]) {
             id observed = ResolveElement(app, root, Dict(args[@"focusedElement"]), window[@"path"]);
             id focused = CopyAttribute(app, kAXFocusedUIElementAttribute);
             if (!IsElement(focused) || !CFEqual((__bridge CFTypeRef)observed, (__bridge CFTypeRef)focused)) Fail(@"Focused element changed; request fresh state before typing");
@@ -671,7 +702,9 @@ static NSDictionary *Action(NSDictionary *args) {
             AXValueRef selectedRange = AXValueCreate(kAXValueCFRangeType, &range);
             @try { Foreground(running); Set(element, kAXSelectedTextRangeAttribute, selectedRange); } @finally { CFRelease(selectedRange); }
         } else if ([name isEqualToString:@"scroll"]) {
-            if (!element) Fail(@"A scroll target is required"); CGRect frame = ElementBounds(element); CGPoint point = CGPointMake(CGRectGetMidX(frame), CGRectGetMidY(frame));
+            CGPoint point;
+            if (element) { CGRect frame = ElementBounds(element); point = CGPointMake(CGRectGetMidX(frame), CGRectGetMidY(frame)); }
+            else point = InputPoint(Dict(args[@"point"]), rect);
             if (!CGRectContainsPoint(rect, point)) Fail(@"Scroll target is outside the approved window");
             double amount = Numeric(args[@"pages"], 0.1, 10) * 650; NSString *direction = Text(args[@"direction"]);
             int32_t dy = [direction isEqualToString:@"up"] ? (int32_t)amount : [direction isEqualToString:@"down"] ? -(int32_t)amount : 0;
@@ -687,6 +720,7 @@ static NSDictionary *Action(NSDictionary *args) {
             @finally { CGEventRef up = CGEventCreateMouseEvent(EventSource(), kCGEventLeftMouseUp, to, kCGMouseButtonLeft); if (up) { CGEventPost(kCGHIDEventTap, up); CFRelease(up); PostedAt = NowMs(); } }
         } else if ([name isEqualToString:@"press_key"]) Keyboard(running, Text(args[@"key"]), args[@"duration"] ? Numeric(args[@"duration"], 0, 30) : 0);
         else if ([name isEqualToString:@"type_text"]) Unicode(running, Text(args[@"text"]));
+        else if ([name isEqualToString:@"paste"]) Paste(running, Text(args[@"text"]), Text(args[@"format"]));
         else Fail(@"Unknown native input operation");
         Pause(0.12); return @{@"applied": @YES};
     } @finally { CFRelease(app); }
@@ -766,6 +800,150 @@ static NSDictionary *Appshot(NSDictionary *args) {
         return @{@"screenshot": image, @"context": context};
     } @finally { CFRelease(application); }
 }
+static inline int16_t AudioSampleToInt16(float sample) {
+    sample = fmaxf(-1, fminf(1, sample));
+    return (int16_t)lrintf(sample < 0 ? sample * 32768.0f : sample * 32767.0f);
+}
+@interface AudioCapture : NSObject <SCStreamOutput, SCStreamDelegate>
+@property(nonatomic) SCStream *stream;
+@property(nonatomic) NSFileHandle *file;
+@property(nonatomic) dispatch_queue_t queue;
+@property(nonatomic) NSUInteger dataBytes;
+@property(nonatomic) NSUInteger limitBytes;
+@property(nonatomic) BOOL done;
+@property(nonatomic) BOOL limitReached;
+@property(nonatomic) BOOL stopRequested;
+@property(nonatomic) NSError *error;
+@end
+@implementation AudioCapture
+- (void)stream:(SCStream *)stream didStopWithError:(NSError *)error { (void)stream; self.error = error; self.done = YES; }
+- (void)stream:(SCStream *)stream didOutputSampleBuffer:(CMSampleBufferRef)buffer ofType:(SCStreamOutputType)type {
+    (void)stream;
+    if (type != SCStreamOutputTypeAudio || self.done || !CMSampleBufferIsValid(buffer)) return;
+    CMFormatDescriptionRef description = CMSampleBufferGetFormatDescription(buffer);
+    const AudioStreamBasicDescription *format = description ? CMAudioFormatDescriptionGetStreamBasicDescription(description) : NULL;
+    if (!format || format->mFormatID != kAudioFormatLinearPCM || !(format->mFormatFlags & kAudioFormatFlagIsFloat) || format->mBitsPerChannel != 32) return;
+    CMBlockBufferRef block = CMSampleBufferGetDataBuffer(buffer);
+    if (!block) return;
+    size_t lengthAtOffset = 0, totalLength = 0; char *bytes = NULL;
+    if (CMBlockBufferGetDataPointer(block, 0, &lengthAtOffset, &totalLength, &bytes) != kCMBlockBufferNoErr || !bytes || lengthAtOffset != totalLength) return;
+    const float *source = (const float *)bytes;
+    NSUInteger floats = totalLength / sizeof(float);
+    if (!floats) return;
+    UInt32 channels = format->mChannelsPerFrame ? format->mChannelsPerFrame : 1;
+    BOOL planar = (format->mFormatFlags & kAudioFormatFlagIsNonInterleaved) != 0;
+    NSMutableData *pcm = [NSMutableData data];
+    int16_t pair[2];
+    if (channels >= 2 && planar) {
+        NSUInteger frames = floats / channels;
+        for (NSUInteger frame = 0; frame < frames; frame++) {
+            pair[0] = AudioSampleToInt16(source[frame]); pair[1] = AudioSampleToInt16(source[frames + frame]);
+            [pcm appendBytes:pair length:sizeof(pair)];
+        }
+    } else if (channels >= 2) {
+        NSUInteger frames = floats / channels;
+        for (NSUInteger frame = 0; frame < frames; frame++) {
+            pair[0] = AudioSampleToInt16(source[frame * channels]); pair[1] = AudioSampleToInt16(source[frame * channels + 1]);
+            [pcm appendBytes:pair length:sizeof(pair)];
+        }
+    } else {
+        for (NSUInteger index = 0; index < floats; index++) {
+            pair[0] = AudioSampleToInt16(source[index]); pair[1] = pair[0];
+            [pcm appendBytes:pair length:sizeof(pair)];
+        }
+    }
+    if (!pcm.length || self.dataBytes >= self.limitBytes) { if (self.dataBytes >= self.limitBytes) { self.limitReached = YES; self.done = YES; } return; }
+    if (self.dataBytes + pcm.length > self.limitBytes) {
+        NSUInteger allowed = self.limitBytes - self.dataBytes; allowed -= allowed % (2 * sizeof(int16_t));
+        [pcm setLength:allowed]; self.limitReached = YES;
+    }
+    if (pcm.length) { [self.file writeData:pcm]; self.dataBytes += pcm.length; }
+    if (self.limitReached || self.dataBytes >= self.limitBytes) self.done = YES;
+}
+@end
+static NSData *WavHeader(NSUInteger dataBytes) {
+    unsigned char header[44] = {0};
+    memcpy(header, "RIFF", 4); memcpy(header + 8, "WAVEfmt ", 8); memcpy(header + 36, "data", 4);
+    UInt32 riff = (UInt32)(36 + dataBytes), size = (UInt32)dataBytes, rate = 24000, byteRate = 24000 * 4, fmtSize = 16;
+    UInt16 audioFormat = 1, channels = 2, alignment = 4, bits = 16;
+    memcpy(header + 4, &riff, 4); memcpy(header + 16, &fmtSize, 4); memcpy(header + 20, &audioFormat, 2);
+    memcpy(header + 22, &channels, 2); memcpy(header + 24, &rate, 4); memcpy(header + 28, &byteRate, 4);
+    memcpy(header + 32, &alignment, 2); memcpy(header + 34, &bits, 2); memcpy(header + 40, &size, 4);
+    return [NSData dataWithBytes:header length:sizeof(header)];
+}
+static NSDictionary *RecordAudio(NSDictionary *args, NSData *leftover) {
+    Permissions(YES);
+    NSString *path = Text(args[@"path"]);
+    if (!path.length || path.length > 4096) Fail(@"Audio recording needs an output path");
+    double milliseconds = Numeric(args[@"maxDurationMs"], 100, 300000);
+    OperationDeadline = milliseconds / 1000 + 20;
+    __block BOOL found = NO; __block SCShareableContent *content = nil; __block NSError *failure = nil;
+    [SCShareableContent getShareableContentExcludingDesktopWindows:YES onScreenWindowsOnly:NO completionHandler:^(SCShareableContent *value, NSError *error) {
+        dispatch_async(dispatch_get_main_queue(), ^{ content = value; failure = error; found = YES; });
+    }];
+    WaitUntil(^BOOL { return found; }, 4);
+    if (failure || !content || !content.displays.count) Fail(@"ScreenCaptureKit could not enumerate displays for audio capture");
+    SCContentFilter *filter = [[SCContentFilter alloc] initWithDisplay:content.displays.firstObject excludingWindows:@[]];
+    SCStreamConfiguration *configuration = [SCStreamConfiguration new];
+    configuration.capturesAudio = YES; configuration.sampleRate = 24000; configuration.channelCount = 2;
+    configuration.excludesCurrentProcessAudio = YES;
+    AudioCapture *capture = [AudioCapture new];
+    capture.limitBytes = (NSUInteger)(milliseconds / 1000 * 24000 * 4);
+    capture.queue = dispatch_queue_create("computer-use.audio.output", DISPATCH_QUEUE_SERIAL);
+    if (![NSFileManager.defaultManager createFileAtPath:path contents:nil attributes:nil]) Fail(@"Audio recording output could not be created");
+    capture.file = [NSFileHandle fileHandleForWritingAtPath:path];
+    if (!capture.file) Fail(@"Audio recording output could not be opened");
+    [capture.file writeData:WavHeader(0)];
+    capture.stream = [[SCStream alloc] initWithFilter:filter configuration:configuration delegate:capture];
+    NSError *outputError = nil;
+    if (![capture.stream addStreamOutput:capture type:SCStreamOutputTypeAudio sampleHandlerQueue:capture.queue error:&outputError]) {
+        [capture.file closeFile]; [NSFileManager.defaultManager removeItemAtPath:path error:nil];
+        Fail(@"ScreenCaptureKit audio output could not be attached");
+    }
+    __block BOOL started = NO; __block NSError *startError = nil;
+    [capture.stream startCaptureWithCompletionHandler:^(NSError *error) { dispatch_async(dispatch_get_main_queue(), ^{ startError = error; started = YES; }); }];
+    WaitUntil(^BOOL { return started || capture.done; }, 5);
+    if (startError || (!started && capture.done)) {
+        [capture.file closeFile]; [NSFileManager.defaultManager removeItemAtPath:path error:nil];
+        Fail(@"System audio capture could not start");
+    }
+    fprintf(stderr, "klaus-audio-recording-started\n");
+    dispatch_source_t stdinSource = dispatch_source_create(DISPATCH_SOURCE_TYPE_READ, STDIN_FILENO, 0, dispatch_get_main_queue());
+    NSMutableData *pending = leftover.length ? [leftover mutableCopy] : [NSMutableData data];
+    const BOOL alreadyStopped = [[[NSString alloc] initWithData:pending encoding:NSUTF8StringEncoding] containsString:@"\"stop\":true"];
+    dispatch_source_set_event_handler(stdinSource, ^{
+        char buffer[256]; ssize_t count = read(STDIN_FILENO, buffer, sizeof(buffer));
+        if (count < 0) return;
+        if (count == 0) { capture.stopRequested = YES; dispatch_source_cancel(stdinSource); return; }
+        [pending appendBytes:buffer length:(NSUInteger)count];
+        if (pending.length > 4096) [pending setLength:4096];
+        if ([[[NSString alloc] initWithData:pending encoding:NSUTF8StringEncoding] containsString:@"\"stop\":true"]) {
+            capture.stopRequested = YES; dispatch_source_cancel(stdinSource);
+        }
+    });
+    dispatch_source_set_cancel_handler(stdinSource, ^{ capture.stopRequested = YES; });
+    dispatch_resume(stdinSource);
+    if (alreadyStopped) { capture.stopRequested = YES; dispatch_source_cancel(stdinSource); }
+    @try {
+        while (!capture.stopRequested && !capture.done) { Check(); Pause(0.05); }
+        __block BOOL stopped = NO;
+        [capture.stream stopCaptureWithCompletionHandler:^(NSError *error) { (void)error; dispatch_async(dispatch_get_main_queue(), ^{ stopped = YES; }); }];
+        double drain = CFAbsoluteTimeGetCurrent() + 0.5;
+        while (!stopped && CFAbsoluteTimeGetCurrent() < drain) [NSRunLoop.currentRunLoop runMode:NSDefaultRunLoopMode beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.01]];
+        dispatch_sync(capture.queue, ^{});
+        if (capture.error && !capture.stopRequested && !capture.limitReached) Fail(@"System audio capture failed");
+        [capture.file seekToFileOffset:0]; [capture.file writeData:WavHeader(capture.dataBytes)]; [capture.file closeFile];
+        Check();
+        return @{@"path": path, @"durationMs": @((NSUInteger)(capture.dataBytes / 96.0)), @"sampleRate": @24000,
+            @"channels": @2, @"bytes": @(capture.dataBytes + 44), @"limitReached": @(capture.limitReached)};
+    } @catch (NSException *error) {
+        dispatch_source_cancel(stdinSource);
+        @try { [capture.stream stopCaptureWithCompletionHandler:^(NSError *streamError) { (void)streamError; }]; } @catch (NSException *ignored) { (void)ignored; }
+        @try { [capture.file closeFile]; } @catch (NSException *ignored) { (void)ignored; }
+        [NSFileManager.defaultManager removeItemAtPath:path error:nil];
+        @throw error;
+    }
+}
 static NSDictionary *ListApps(void) {
     NSMutableDictionary *apps = [NSMutableDictionary dictionary];
     for (NSRunningApplication *app in NSWorkspace.sharedWorkspace.runningApplications) {
@@ -794,8 +972,18 @@ int main(void) {
     @autoreleasepool {
         Parent = getppid(); StartedAt = CFAbsoluteTimeGetCurrent(); signal(SIGTERM, Stop); signal(SIGINT, Stop); signal(SIGPIPE, SIG_IGN);
         [NSApplication sharedApplication]; [NSApp setActivationPolicy:NSApplicationActivationPolicyProhibited];
-        NSMutableData *input = [NSMutableData data]; unsigned char chunk[8192]; ssize_t count;
-        while ((count = read(STDIN_FILENO, chunk, sizeof(chunk))) > 0) { [input appendBytes:chunk length:(NSUInteger)count]; if (input.length > 256 * 1024) return 2; }
+        NSMutableData *input = [NSMutableData data]; NSMutableData *leftover = [NSMutableData data]; unsigned char chunk[8192]; ssize_t count;
+        const unsigned char newlineByte = '\n'; NSData *newline = [NSData dataWithBytes:&newlineByte length:1];
+        while ((count = read(STDIN_FILENO, chunk, sizeof(chunk))) > 0) {
+            [input appendBytes:chunk length:(NSUInteger)count];
+            // A framed request ends at its first newline; long-lived operations keep watching stdin.
+            NSRange frame = [input rangeOfData:newline options:0 range:NSMakeRange(0, input.length)];
+            if (frame.location != NSNotFound) {
+                [leftover appendData:[input subdataWithRange:NSMakeRange(frame.location + 1, input.length - frame.location - 1)]];
+                [input setLength:frame.location]; break;
+            }
+            if (input.length > 256 * 1024) return 2;
+        }
         NSDictionary *request = Dict([NSJSONSerialization JSONObjectWithData:input options:0 error:nil]); NSMutableDictionary *response = [NSMutableDictionary dictionary];
         for (NSString *key in @[@"resourceId", @"operationId", @"generation", @"sequence"]) if (request[key]) response[key] = request[key];
         @try {
@@ -805,7 +993,7 @@ int main(void) {
             if ([method isEqualToString:@"promptLoginPassword"]) OperationDeadline = 180;
             if ([method isEqualToString:@"action"] && args[@"duration"]) OperationDeadline = fmax(OperationDeadline, 13 + Numeric(args[@"duration"], 0, 30) * ([Text(args[@"name"]) isEqualToString:@"click"] ? Numeric(args[@"click_count"], 1, 5) : 1));
             Check();
-            if ([method isEqualToString:@"capabilities"]) result = @{@"version": @1, @"supported": @YES, @"autoUnlock": @YES, @"permissions": @{@"accessibility": (AXIsProcessTrusted() ? @YES : @NO), @"screenRecording": @(CGPreflightScreenCaptureAccess()), @"input": @(CGPreflightPostEventAccess())}};
+            if ([method isEqualToString:@"capabilities"]) result = @{@"version": @1, @"supported": @YES, @"autoUnlock": @YES, @"audio": @YES, @"permissions": @{@"accessibility": (AXIsProcessTrusted() ? @YES : @NO), @"screenRecording": @(CGPreflightScreenCaptureAccess()), @"input": @(CGPreflightPostEventAccess())}};
             else if ([method isEqualToString:@"loginPasswordPresence"]) result = @{@"hasLoginPassword": @([KlausSystemLockScreenPlatform() hasPassword])};
             else if ([method isEqualToString:@"promptLoginPassword"]) result = KlausPromptLoginPassword(KlausSystemLockScreenPlatform(), Text(request[@"operationId"]), ^{ Check(); });
             else if ([method isEqualToString:@"deleteLoginPassword"]) { Check(); [KlausSystemLockScreenPlatform() removePasswordOwnedBy:nil]; result = @{@"deleted": @YES}; }
@@ -819,6 +1007,7 @@ int main(void) {
             else if ([method isEqualToString:@"state"]) result = State(args);
             else if ([method isEqualToString:@"appshot"]) result = Appshot(args);
             else if ([method isEqualToString:@"action"]) result = Action(args);
+            else if ([method isEqualToString:@"recordAudio"]) result = RecordAudio(args, leftover);
             else Fail(@"Unknown Computer Use native method");
             Check(); response[@"ok"] = @YES; response[@"result"] = result ?: @{};
         } @catch (NSException *error) { response[@"ok"] = @NO; response[@"error"] = [error.name isEqualToString:@"ComputerUse"] ? error.reason : @"Computer Use native operation failed"; }

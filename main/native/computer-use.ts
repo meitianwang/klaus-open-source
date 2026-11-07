@@ -23,6 +23,7 @@ export class NativeComputerUse implements ComputerUseBackend {
   private lastOwnInputAt = 0;
   private cooldownUntil = 0;
   private passwordSupported = false;
+  private audioSupported = false;
   private passwordSequence = 0;
   private readonly passwordResource = randomUUID();
   constructor(private readonly options: { command?: ComputerUseHelperCommand; platform?: NodeJS.Platform; timeoutMs?: number; autoUnlockEnabled?(): boolean }) {}
@@ -81,6 +82,8 @@ export class NativeComputerUse implements ComputerUseBackend {
     this.pending.add(task); void task.finally(() => this.pending.delete(task)).catch(() => {}); return task;
   }
   availability() { return { available: this.supported && !this.closing, ...(this.error ? { error: this.error } : {}) }; }
+  /** System audio capture is an explicit native capability, never a fallback. */
+  audioAvailable() { return this.audioSupported && this.supported && !this.closing; }
   initialize(): Promise<void> {
     if (this.closing) return Promise.reject(new Error('Computer Use native backend is closed'));
     return this.initialized ??= (async () => {
@@ -92,6 +95,7 @@ export class NativeComputerUse implements ComputerUseBackend {
           method: 'capabilities', args: {} }, this.controller.signal));
         if (response.version !== 1 || response.supported !== true) throw new Error('Computer Use helper protocol is unavailable');
         this.passwordSupported = platform === 'darwin' && response.autoUnlock === true;
+        this.audioSupported = platform === 'darwin' && response.audio === true;
         this.supported = true; this.error = '';
       } catch (error) { this.error = error instanceof Error ? error.message : 'Computer Use helper failed'; }
     })();

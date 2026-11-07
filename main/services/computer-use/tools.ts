@@ -30,6 +30,10 @@ export const COMPUTER_USE_TOOLS = [
         "app": {
           "description": "App name, full app path, or unambiguous bundle identifier",
           "type": "string"
+        },
+        "disable_diff": {
+          "description": "Return the full accessibility tree instead of the changes since the state you were last shown",
+          "type": "boolean"
         }
       },
       "required": [
@@ -221,7 +225,7 @@ export const COMPUTER_USE_TOOLS = [
       "openWorldHint": false,
       "readOnlyHint": false
     },
-    "description": "Scroll an element in a direction by a number of pages",
+    "description": "Scroll an element or a screenshot point in a direction by a number of pages",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -234,17 +238,24 @@ export const COMPUTER_USE_TOOLS = [
           "type": "string"
         },
         "element_index": {
-          "description": "Element identifier",
+          "description": "Element identifier to scroll. Omit when scrolling at x and y.",
           "type": "string"
         },
         "pages": {
           "description": "Number of pages to scroll. Fractional values are supported. Defaults to 1",
           "type": "number"
+        },
+        "x": {
+          "description": "X coordinate in screenshot pixel coordinates; used only without element_index",
+          "type": "number"
+        },
+        "y": {
+          "description": "Y coordinate in screenshot pixel coordinates; used only without element_index",
+          "type": "number"
         }
       },
       "required": [
         "app",
-        "element_index",
         "direction"
       ],
       "type": "object"
@@ -353,6 +364,78 @@ export const COMPUTER_USE_TOOLS = [
       "type": "object"
     },
     "name": "type_text"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false
+    },
+    "description": "Paste literal text into the currently focused control through the system pasteboard, then restore the user's clipboard. Newlines paste as-is and do not submit a message or form. format md or html additionally offers Markdown or HTML flavors to apps that accept them. Returns the updated screenshot and accessibility state.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "app": {
+          "description": "App name, full app path, or unambiguous bundle identifier",
+          "type": "string"
+        },
+        "format": {
+          "description": "Pasteboard flavor to offer: text, md, or html. Defaults to text.",
+          "enum": [
+            "text",
+            "md",
+            "html"
+          ],
+          "type": "string"
+        },
+        "text": {
+          "description": "Literal text to paste",
+          "type": "string"
+        }
+      },
+      "required": [
+        "app",
+        "text"
+      ],
+      "type": "object"
+    },
+    "name": "paste"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false
+    },
+    "description": "Record the computer's audio output across apps, not the microphone or a single app. Only one recording can be active. Capture stops automatically at max_duration_ms; call stop_audio_recording to retrieve the result. Preserve the user's system volume and mute state; never change them to capture audio.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "max_duration_ms": {
+          "description": "Capture limit in milliseconds, from 100 to 300000. Defaults to 60000.",
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
+    "name": "start_audio_recording"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false
+    },
+    "description": "Stop the active system audio recording and return it as 24 kHz stereo WAV audio.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {},
+      "type": "object"
+    },
+    "name": "stop_audio_recording"
   },
   {
     "annotations": {

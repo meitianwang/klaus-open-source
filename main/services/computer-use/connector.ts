@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { ComputerUsePolicyService } from './policy';
 import { actionLabel, stateText } from './format';
 import { COMPUTER_USE_TOOLS } from './tools';
+import type { CapturedAudio } from './audio';
 import { normalizeKeyChord } from './keys';
 import { appIdentity, deadline, number, object, sameApp, string, type AppIdentity, type AppSnapshot, type Bounds,
   type ComputerUseBackend, type ComputerUseContext, type ComputerUseResult, type Element, type NativeRequest, type Row } from './types';
@@ -17,6 +18,11 @@ interface Owner {
 export interface ComputerUseDependencies {
   policy: ComputerUsePolicyService; backend: ComputerUseBackend;
   saveScreenshot(data: string, mimeType: string): string;
+  /** System audio capture spanning a start and a stop call; undefined where unavailable. */
+  audio?: {
+    start(sessionId: string, maxDurationMs: number, signal: AbortSignal): Promise<void>;
+    stop(sessionId: string, signal: AbortSignal): Promise<CapturedAudio>;
+  };
   /** Take the presentation epoch before metadata lookup or an approval await. */
   beginOperation?(sessionId: string): unknown;
   approvedWindow?(sessionId: string, epoch: unknown, surface: Row, signal: AbortSignal): Promise<void>;
@@ -28,7 +34,7 @@ export interface ComputerUseDependencies {
    */
   refusal?(sessionId: string): string | undefined;
 }
-const writes = new Set(['click', 'perform_secondary_action', 'set_value', 'select_text', 'scroll', 'drag', 'press_key', 'type_text']);
+const writes = new Set(['click', 'perform_secondary_action', 'set_value', 'select_text', 'scroll', 'drag', 'press_key', 'type_text', 'paste']);
 const text = (value: string): ComputerUseResult => ({ content: [{ type: 'text', text: value }] });
 const keyOf = (app: AppIdentity) => `${app.path}\0${app.pid ?? 0}`;
 function bounds(value: unknown): Bounds {
@@ -83,7 +89,7 @@ function enumValue(value: unknown, label: string, values: string[], fallback: st
 }
 export function validateAction(name: string, args: Row): Row {
   const result: Row = { name };
-  if (['perform_secondary_action', 'set_value', 'select_text', 'scroll'].includes(name) || (args.element_index != null && args.element_index !== '')) result.element_index = string(args.element_index, 'element_index', 16);
+  if (['perform_secondary_action', 'set_value', 'select_text'].includes(name) || (args.element_index != null && args.element_index !== '')) result.element_index = string(args.element_index, 'element_index', 16);
   if (name === 'click') {
     result.click_count = args.click_count === undefined ? 1 : number(args.click_count, 'click_count', 1, 5, true);
     const button = typeof args.mouse_button === 'string' ? args.mouse_button.trim().toLowerCase() : args.mouse_button;
@@ -105,9 +111,14 @@ export function validateAction(name: string, args: Row): Row {
     const direction = typeof args.direction === 'string' ? args.direction.trim().toLowerCase() : args.direction;
     result.direction = enumValue(typeof direction === 'string' ? ({ u: 'up', d: 'down', l: 'left', r: 'right' } as Record<string, string>)[direction] ?? direction : direction, 'direction', ['up', 'down', 'left', 'right'], 'down');
     result.pages = args.pages === undefined ? 1 : number(args.pages, 'pages', 0.1, 10);
+    if (!result.element_index) { result.x = number(args.x, 'x', 0, 4096); result.y = number(args.y, 'y', 0, 4096); }
   }
   if (name === 'press_key') {
     result.key = normalizeKeyChord(string(args.key, 'key', 128));
+  }
+  if (name === 'paste') {
+    result.text = string(args.text, 'text', 50_000, true);
+    result.format = enumValue(args.format, 'format', ['text', 'md', 'html'], 'text');
   }
   if ((name === 'click' || name === 'press_key') && args.duration !== undefined) result.duration = number(args.duration, 'duration', 0, 30);
   return result;
@@ -182,6 +193,19 @@ export class ComputerUseConnector {
         const result = await this.deps.policy.setAppPolicy(args, controller.signal); current();
         return text(`${result.notes.join(' ')}\n\n${await this.deps.policy.describePolicy(controller.signal)}`);
       }
+      if (name === 'start_audio_recording' || name === 'stop_audio_recording') {
+        if (restricted) throw new Error('Friend tasks cannot record system audio');
+        const audio = this.deps.audio;
+        if (!audio) throw new Error('System audio recording is unavailable on this computer');
+        if (name === 'start_audio_recording') {
+          const limit = args.max_duration_ms === undefined ? 60000 : number(args.max_duration_ms, 'max_duration_ms', 100, 300000, true);
+          await audio.start(context.sessionId, limit, controller.signal); current();
+          return text(`Recording system audio. Capture stops automatically after ${limit} ms; call stop_audio_recording to retrieve the recording.`);
+        }
+        const captured = await audio.stop(context.sessionId, controller.signal); current();
+        return { content: [{ type: 'text', text: `System audio recording stopped: ${(captured.recording.durationMs / 1000).toFixed(1)} s at ${captured.recording.sampleRate} Hz, ${captured.recording.channels} channels${captured.recording.limitReached ? '; the duration limit was reached' : ''}.` },
+          { type: 'audio', data: captured.data.toString('base64'), mimeType: 'audio/wav' }] };
+      }
       if (name === 'list_apps') {
         if (restricted) {
           const scope = this.deps.policy.taskScope(context.sessionId)!;
@@ -202,6 +226,7 @@ export class ComputerUseConnector {
           const app = object(item); return `${string(app.name, 'app name')} (${string(app.path, 'app path')})${app.running === true ? ' [running]' : ''}${typeof app.bundleId === 'string' && app.bundleId ? `, bundle ID ${string(app.bundleId, 'bundle identifier')}` : ''}${typeof app.pid === 'number' ? `, pid ${number(app.pid, 'pid', 1, 0x7fffffff, true)}` : ''}${typeof app.lastUsed === 'string' ? `, last used ${string(app.lastUsed, 'last used', 128)}` : ''}${typeof app.useCount === 'number' ? `, uses ${number(app.useCount, 'use count', 0, Number.MAX_SAFE_INTEGER, true)}` : ''}`;
         }).join('\n') || 'No applications are available.');
       }
+      if (args.disable_diff !== undefined && typeof args.disable_diff !== 'boolean') throw new Error('Invalid Computer Use disable_diff');
       const input = string(args.app, 'app').trim(), turnId = string(context.turnId, 'turnId');
       const action = writes.has(name) ? validateAction(name, args) : undefined;
       this.deps.policy.guardInput(context.sessionId, input);
@@ -230,9 +255,9 @@ export class ComputerUseConnector {
                 const selected = element.actions.find(item => item.raw === action.action || item.description === action.action || actionLabel(item) === action.action);
                 if (!selected) throw new Error('The element does not expose that secondary action'); values.action = selected.raw;
               }
-            } else if (name === 'click') values.point = coordinates(cached.snapshot, action.x, action.y);
+            } else if (name === 'click' || (name === 'scroll' && !action.element_index)) values.point = coordinates(cached.snapshot, action.x, action.y);
             if (name === 'drag') { values.from = coordinates(cached.snapshot, action.from_x, action.from_y); values.to = coordinates(cached.snapshot, action.to_x, action.to_y); }
-            if (name === 'press_key' || name === 'type_text') values.focusedElement = cached.snapshot.elements.find(element => element.focused);
+            if (name === 'press_key' || name === 'type_text' || name === 'paste') values.focusedElement = cached.snapshot.elements.find(element => element.focused);
             enteredAction = true; await native('action', values); actionCompleted = true;
           }
           const state = snapshot(await native('state', { app: active }), active);
@@ -250,7 +275,11 @@ export class ComputerUseConnector {
             const oldest = [...this.owners.values()].find(value => value.states.size && value !== owner) ?? owner;
             oldest.states.delete(oldest.states.keys().next().value!);
           }
-          return { content: [{ type: 'text', text: `Saved: ${JSON.stringify(path)}\nEmbed: ${savedImageMarkdown(path)}\n${stateText(state, action ? cached?.snapshot : undefined)}` }, { type: 'image', data: state.screenshot.data, mimeType: state.screenshot.mimeType }],
+          // Observations diff from the state the model was last shown; the full
+          // tree stays available on request, and an action diffs against its own
+          // pre-action observation so the effect of the input stays visible.
+          const previous = action || args.disable_diff !== true ? cached?.snapshot : undefined;
+          return { content: [{ type: 'text', text: `Saved: ${JSON.stringify(path)}\nEmbed: ${savedImageMarkdown(path)}\n${stateText(state, previous)}` }, { type: 'image', data: state.screenshot.data, mimeType: state.screenshot.mimeType }],
             structuredContent: { path, mimeType: state.screenshot.mimeType, saved: true },
             _meta: { klaus: { computerUse: { app: state.app, windowId: state.windowId, screenshotMode: 'alwaysInclude', elementCount: state.elements.length, mapping } } } };
         });

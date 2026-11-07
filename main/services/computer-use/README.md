@@ -2,7 +2,7 @@
 
 `ComputerUsePolicyService` owns standing app restrictions, durable enabled state
 and approvals scoped to a host-authenticated session. `ComputerUseConnector`
-registers the twelve native app tools; `createComputerUseRuntime` connects their
+registers the fifteen native app tools; `createComputerUseRuntime` connects their
 authenticated MCP transport to the native backend and recording lifecycle.
 
 Construct it with `configRoot`, a real backend `availability()` function, and
@@ -72,7 +72,9 @@ window array. Its owner and bounds are checked before input and after capture.
 Renderer accessibility activation is written once and readiness is polled;
 repeated writes can restart the renderer's activation debounce. Observations
 wait after input and during loading, retry transient reads within a bounded
-window, and reread the tree after capture. Continuously updating content returns
+window, and reread the tree after capture. A repeated `get_app_state` diffs
+from the state the model was last shown; `disable_diff` returns the full tree,
+and an action result diffs against its own pre-action observation. Continuously updating content returns
 an explicit notice. Tree truncation is also reported. An unchanged accessibility
 tree makes no claim about the visible screenshot or whether input succeeded.
 
@@ -80,6 +82,17 @@ Keyboard input accepts named navigation keys, punctuation keysyms, side-specific
 modifiers and keypad keys. Printable keys use the target keyboard layout.
 BackSpace and Delete retain distinct backward/forward deletion behavior.
 `type_text` sends Return for a newline and does not change the clipboard.
+`paste` sends text through the system pasteboard with an optional `md` or
+`html` flavor and restores the user's prior clipboard contents afterwards,
+even on failure. `scroll` targets an element or exact screenshot coordinates.
+
+`start_audio_recording` and `stop_audio_recording` capture system audio output
+across apps as a bounded 24 kHz stereo WAV (100-300000 ms, default 60000). One
+recording can be active at a time and it belongs to the session that started
+it; retrieval returns an audio content block and removes the host copy. Capture
+never changes the system volume or mute state, friend-restricted sessions
+cannot record, and session release or shutdown discards an active recording.
+Support is an explicit native capability, never a fallback.
 
 `click.key` holds its chord across the click sequence on macOS. Click and key
 durations are measured in seconds. Keys and mouse buttons are released in native

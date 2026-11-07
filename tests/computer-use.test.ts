@@ -11,6 +11,7 @@ import type { AppSnapshot, ComputerUseBackend, ComputerUseContext, NativeRequest
 import { createComputerUseRuntime } from '../main/app/computer-use-runtime';
 import { ChannelRegistry } from '../main/ipc/registry';
 import { NativeComputerUse } from '../main/native/computer-use';
+import { ComputerUseAudioRecorder } from '../main/services/computer-use/audio';
 import { elementText, stateText } from '../main/services/computer-use/format';
 import { storeBytes } from '../main/services/media';
 
@@ -24,7 +25,7 @@ const state = (): AppSnapshot => ({ app, windowId: 55, bounds: { x: -200, y: 10,
   screenshot: { data: png, mimeType: 'image/png', width: 1, height: 1 } });
 function deferred<T = void>() { let resolve!: (value: T) => void; const promise = new Promise<T>(yes => { resolve = yes; }); return { promise, resolve }; }
 const closing: Array<() => Promise<unknown>> = [];
-function fixture(override?: ComputerUseBackend['request'], hooks: Partial<Pick<ComputerUseDependencies, 'beginOperation' | 'approvedWindow' | 'guardInteraction' | 'saveScreenshot'>> = {}, policyOverrides: Partial<ComputerUsePolicyDependencies> = {}) {
+function fixture(override?: ComputerUseBackend['request'], hooks: Partial<Pick<ComputerUseDependencies, 'beginOperation' | 'approvedWindow' | 'guardInteraction' | 'saveScreenshot' | 'audio'>> = {}, policyOverrides: Partial<ComputerUsePolicyDependencies> = {}) {
   const requests: NativeRequest[] = [], approvals: unknown[] = [], currentState = state();
   const backend: ComputerUseBackend = { availability: () => ({ available: true }), close: async () => ({ complete: true }),
     request: async (request, signal) => {
@@ -47,8 +48,8 @@ function fixture(override?: ComputerUseBackend['request'], hooks: Partial<Pick<C
   return { connector, policy, requests, approvals, currentState, context, configRoot,
     read: (ctx = context()) => connector.call('get_app_state', { app: app.input }, ctx) };
 }
-h.test('twelve named tools preserve explicit read and write effect annotations', () => {
-  strict.equal(COMPUTER_USE_TOOLS.length, 12); strict.equal(new Set(COMPUTER_USE_TOOLS.map(tool => tool.name)).size, 12);
+h.test('fifteen named tools preserve explicit read and write effect annotations', () => {
+  strict.equal(COMPUTER_USE_TOOLS.length, 15); strict.equal(new Set(COMPUTER_USE_TOOLS.map(tool => tool.name)).size, 15);
   for (const tool of COMPUTER_USE_TOOLS) {
     strict.equal(tool.inputSchema.additionalProperties, false);
     strict.equal(tool.annotations.readOnlyHint, ['list_apps', 'get_app_state', 'get_computer_use_policy'].includes(tool.name));
@@ -63,10 +64,30 @@ h.test('documented keysym names and punctuation retain their platform-independen
   for (const item of vector.keyCases) strict.equal(validateAction('press_key', { key: item.input }).key, item.normalized, item.input);
   for (const key of vector.invalidKeys) strict.throws(() => validateAction('press_key', { key }), /Unsupported|Invalid/);
   strict.deepEqual(validateAction('click', { element_index: '', x: 2, y: 3 }), { name: 'click', click_count: 1, mouse_button: 'left', x: 2, y: 3 });
-  strict.throws(() => validateAction('scroll', { element_index: '', pages: 1 }), /element_index/);
+  strict.deepEqual(validateAction('scroll', { direction: 'down', x: 2, y: 3 }), { name: 'scroll', direction: 'down', pages: 1, x: 2, y: 3 });
+  strict.throws(() => validateAction('scroll', { element_index: '', pages: 1 }), /Invalid Computer Use x/);
+  strict.deepEqual(validateAction('paste', { text: 'hi' }), { name: 'paste', text: 'hi', format: 'text' });
+  strict.throws(() => validateAction('paste', { text: 'hi', format: 'rtf' }), /format/);
   strict.deepEqual(validateAction('click', { x: 2, y: 3, key: 'Control_L+a', duration: 0.2, mouse_button: 'L' }), { name: 'click', click_count: 1, mouse_button: 'left', key: 'control_l+a', x: 2, y: 3, duration: 0.2 });
   strict.equal(validateAction('scroll', { element_index: '1', direction: ' D ' }).direction, 'down');
   strict.throws(() => validateAction('press_key', { key: 'a', duration: 31 }), /duration/);
+});
+h.test('paste, audio and observation vectors pin the shipped schemas', () => {
+  const vector = JSON.parse(readFileSync(join(__dirname, '../../contracts/vectors/computer-use-observation-vectors.json'), 'utf8'));
+  const schema = (name: string) => COMPUTER_USE_TOOLS.find(tool => tool.name === name)!.inputSchema as
+    { properties: Record<string, { type?: string; enum?: readonly string[] }>; required?: readonly string[] };
+  strict.deepEqual(vector.paste.formats, ['text', 'md', 'html']);
+  strict.deepEqual(schema('paste').properties.format!.enum, vector.paste.formats);
+  strict.deepEqual(schema('scroll').required, ['app', 'direction']);
+  strict.deepEqual(vector.scrollTarget.targets, ['element_index', 'screenshot point']);
+  strict.equal(schema('get_app_state').properties.disable_diff!.type, 'boolean');
+  strict.equal(vector.appStateDiff.default, 'diff from the state the model was last shown');
+  strict.equal(vector.audioRecording.sampleRate, 24000); strict.equal(vector.audioRecording.channels, 2);
+  strict.deepEqual(vector.audioRecording.durationRangeMs, [100, 300000]); strict.equal(vector.audioRecording.defaultDurationMs, 60000);
+  strict.equal(schema('start_audio_recording').properties.max_duration_ms!.type, 'integer');
+  for (const name of ['paste', 'start_audio_recording', 'stop_audio_recording']) {
+    strict.equal(COMPUTER_USE_TOOLS.find(tool => tool.name === name)!.annotations.readOnlyHint, false);
+  }
 });
 h.test('observation text distinguishes accessibility changes, visible results and incomplete trees', () => {
   const before = state(), after = state(); after.elements[1]!.focused = true;
@@ -229,6 +250,66 @@ h.test('state deltas retain no-change, changed-element and full-tree fallback se
   after.elements[1]!.value = 'updated'; strict.match(stateText(after, before), /~\s+1 text field/);
   after.elements[0]!.path = 'w1'; strict.match(stateText(after, before), /Most of the tree changed/);
 });
+h.test('repeated observations diff from the last shown state unless the full tree is requested', async () => {
+  const f = fixture();
+  const first = await f.read();
+  strict.match(String(first.content[0]?.text), /<app_state>/);
+  f.currentState.elements[1]!.value = 'updated';
+  const second = await f.read();
+  strict.match(String(second.content[0]?.text), /diff from the accessibility tree/);
+  strict.match(String(second.content[0]?.text), /~\s+1 text field/);
+  f.currentState.elements[1]!.value = 'third';
+  const full = await f.connector.call('get_app_state', { app: app.input, disable_diff: true }, f.context());
+  strict.match(String(full.content[0]?.text), /<app_state>/);
+  strict.match(String(full.content[0]?.text), /third/);
+  await strict.rejects(f.connector.call('get_app_state', { app: app.input, disable_diff: 'yes' }, f.context()), /disable_diff/);
+});
+h.test('scroll targets an element or exact screenshot coordinates', async () => {
+  const f = fixture();
+  await f.read();
+  await f.connector.call('scroll', { app: app.input, direction: 'down', x: 0, y: 0 }, f.context());
+  const atPoint = f.requests.filter(request => request.method === 'action').pop();
+  strict.equal(atPoint?.args.name, 'scroll');
+  strict.deepEqual(atPoint?.args.point, { x: -200, y: 10 });
+  strict.equal(atPoint?.args.element_index, undefined);
+  await f.connector.call('scroll', { app: app.input, direction: 'up', element_index: '1' }, f.context());
+  const atElement = f.requests.filter(request => request.method === 'action').pop();
+  strict.ok(atElement?.args.element); strict.equal(atElement?.args.point, undefined);
+});
+h.test('paste requires an observed state and reaches the native action with its format', async () => {
+  const f = fixture();
+  await strict.rejects(f.connector.call('paste', { app: app.input, text: 'hello' }, f.context()), /Call get_app_state/);
+  await f.read();
+  const result = await f.connector.call('paste', { app: app.input, text: 'hello', format: 'html' }, f.context());
+  const action = f.requests.filter(request => request.method === 'action').pop();
+  strict.equal(action?.args.name, 'paste'); strict.equal(action?.args.text, 'hello'); strict.equal(action?.args.format, 'html');
+  strict.ok(result.content.some(item => item.type === 'image'));
+  await strict.rejects(f.connector.call('paste', { app: app.input, text: 'x', format: 'rtf' }, f.context()), /format/);
+  await strict.rejects(f.connector.call('paste', { app: app.input }, f.context()), /text/);
+});
+h.test('system audio tools are session-scoped and never reach friend tasks', async () => {
+  const calls: Array<{ kind: string; sessionId: string; ms?: number }> = [];
+  const f = fixture(undefined, { audio: {
+    start: async (sessionId, ms) => { calls.push({ kind: 'start', sessionId, ms }); },
+    stop: async sessionId => { calls.push({ kind: 'stop', sessionId });
+      return { recording: { path: '/tmp/fixture.wav', durationMs: 1500, sampleRate: 24000, channels: 2, bytes: 60044, limitReached: false }, data: Buffer.from('riff-fixture') }; } } });
+  const started = await f.connector.call('start_audio_recording', {}, f.context());
+  strict.match(String(started.content[0]?.text), /Recording system audio/);
+  strict.deepEqual(calls[0], { kind: 'start', sessionId: 'a', ms: 60000 });
+  await strict.rejects(f.connector.call('start_audio_recording', { max_duration_ms: 50 }, f.context()), /max_duration_ms/);
+  await strict.rejects(f.connector.call('start_audio_recording', { max_duration_ms: 100.5 }, f.context()), /max_duration_ms/);
+  const stopped = await f.connector.call('stop_audio_recording', {}, f.context());
+  const block = stopped.content.find(item => item.type === 'audio');
+  strict.equal(block?.mimeType, 'audio/wav');
+  strict.equal(Buffer.from(String(block?.data), 'base64').toString(), 'riff-fixture');
+  strict.match(String(stopped.content[0]?.text), /1\.5 s at 24000 Hz, 2 channels/);
+  const plain = fixture();
+  await strict.rejects(plain.connector.call('start_audio_recording', {}, plain.context()), /unavailable on this computer/);
+  const friend = fixture(undefined, { audio: { start: async () => {}, stop: async () => { throw new Error('unreachable'); } } },
+    { taskScope: () => ({ active: true, apps: ['bundle:test.fixture'] }) });
+  await strict.rejects(friend.connector.call('start_audio_recording', {}, friend.context()), /Friend tasks cannot record system audio/);
+  await strict.rejects(friend.connector.call('stop_audio_recording', {}, friend.context()), /Friend tasks cannot record system audio/);
+});
 
 const script = join(temporary, 'native-fixture.cjs');
 writeFileSync(script, `let input='';process.stdin.on('data',b=>input+=b);process.stdin.on('end',()=>{
@@ -283,6 +364,60 @@ h.test('unsupported platforms and a missing Windows helper report explicit unava
   await strict.rejects(backend.request(request(), new AbortController().signal), /not installed for linux/); await backend.close();
   const windows = new NativeComputerUse({ platform: 'win32' }); await windows.initialize(); strict.equal(windows.availability().available, false);
   await strict.rejects(windows.request(request(), new AbortController().signal), /helper is missing/); await windows.close();
+});
+const audioScript = join(temporary, 'audio-fixture.cjs');
+writeFileSync(audioScript, `const fs=require('node:fs');let text='',rec=null;
+const finish=()=>{if(!rec||rec.done)return;rec.done=true;const path=rec.frame.args.path;
+ const out={resourceId:rec.frame.resourceId,operationId:rec.frame.operationId,generation:1,sequence:1,ok:true,postedAt:0,actionStarted:false,
+ result:{path,durationMs:10,sampleRate:24000,channels:2,bytes:fs.statSync(path).size,limitReached:rec.frame.args.maxDurationMs<=200}};
+ process.stdout.write(JSON.stringify(out),()=>process.exit(0));};
+process.stdin.on('data',chunk=>{text+=chunk;let end;while((end=text.indexOf('\\n'))>=0){const line=text.slice(0,end);text=text.slice(end+1);if(!line.trim())continue;const frame=JSON.parse(line);
+ if(frame.method==='recordAudio'){fs.writeFileSync(frame.args.path,Buffer.alloc(44+960));rec={frame};process.stderr.write('klaus-audio-recording-started\\n');if(frame.args.maxDurationMs<=200)setTimeout(finish,120);}
+ else if(frame.stop===true)finish();}});
+process.stdin.on('end',()=>finish());
+`);
+function audioRecorder(available = true) {
+  const recorder = new ComputerUseAudioRecorder({ root: join(temporary, `audio-${randomUUID()}`), available: () => available, log: () => {},
+    command: { executable: process.execPath, args: [audioScript], env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' } } });
+  closing.push(() => recorder.close()); return recorder;
+}
+h.test('audio recording starts on the native ack, stays single-active and returns the captured file once', async () => {
+  const recorder = audioRecorder();
+  await recorder.start('a', 60000, new AbortController().signal);
+  await strict.rejects(recorder.start('b', 1000, new AbortController().signal), /already active/);
+  const captured = await recorder.stop('a', new AbortController().signal);
+  strict.equal(captured.recording.durationMs, 10); strict.equal(captured.recording.sampleRate, 24000);
+  strict.equal(captured.recording.limitReached, false);
+  strict.equal(captured.data.length, 44 + 960); strict.equal(captured.recording.bytes, captured.data.length);
+  strict.equal(existsSync(captured.recording.path), false);
+  await strict.rejects(recorder.stop('a', new AbortController().signal), /No audio recording is active/);
+});
+h.test('audio recording finalizes at its duration limit and only its session retrieves it', async () => {
+  const recorder = audioRecorder();
+  await recorder.start('a', 200, new AbortController().signal);
+  await strict.rejects(recorder.stop('b', new AbortController().signal), /another session/);
+  const captured = await recorder.stop('a', new AbortController().signal);
+  strict.equal(captured.recording.limitReached, true);
+});
+h.test('audio recording refuses unavailable platforms and drains on release and close', async () => {
+  const off = audioRecorder(false);
+  await strict.rejects(off.start('a', 1000, new AbortController().signal), /requires the current native helper/);
+  strict.deepEqual(await off.close(2000), { complete: true });
+  const recorder = audioRecorder();
+  await recorder.start('a', 60000, new AbortController().signal);
+  await recorder.release('a');
+  strict.deepEqual(await recorder.close(2000), { complete: true });
+  await strict.rejects(recorder.start('a', 1000, new AbortController().signal), /shutting down/);
+});
+h.test('native audio capability is explicit and never assumed', async () => {
+  const capScript = join(temporary, 'audio-cap.cjs');
+  writeFileSync(capScript, `let input='';process.stdin.on('data',b=>input+=b);process.stdin.on('end',()=>{const r=JSON.parse(input);
+ process.stdout.write(JSON.stringify({resourceId:r.resourceId,operationId:r.operationId,generation:r.generation,sequence:r.sequence,ok:true,postedAt:0,
+ result:{version:1,supported:true,audio:process.env.AUDIO_CAP==='1'}}));});`);
+  const on = new NativeComputerUse({ platform: 'darwin', command: { executable: process.execPath, args: [capScript], env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', AUDIO_CAP: '1' } } });
+  closing.push(() => on.close()); await on.initialize(); strict.equal(on.audioAvailable(), true);
+  const off = new NativeComputerUse({ platform: 'darwin', command: { executable: process.execPath, args: [capScript], env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' } } });
+  closing.push(() => off.close()); await off.initialize(); strict.equal(off.audioAvailable(), false);
 });
 h.test('Windows framing requests graceful cancellation and waits for the actual cleanup and child exit', async () => {
   const worker = join(temporary, 'windows-framing.cjs'), marker = join(temporary, 'windows-entered'), cleanup = join(temporary, 'windows-cleanup');

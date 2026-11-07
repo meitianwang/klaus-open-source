@@ -7,6 +7,7 @@ import type { ChannelRegistry } from '../ipc/registry';
 import { registerComputerUseSettingsHandlers } from '../ipc/handlers/computer-use';
 import { registerRecordingHandlers } from '../ipc/handlers/recording';
 import { NativeComputerUse, type ComputerUseHelperCommand } from '../native/computer-use';
+import { ComputerUseAudioRecorder } from '../services/computer-use/audio';
 import { ComputerUsePolicyService } from '../services/computer-use/policy';
 import { ComputerUseAppDetails } from '../services/computer-use/app-details';
 import type { ComputerUseTaskScope } from '../services/computer-use/policy';
@@ -79,9 +80,12 @@ export async function createComputerUseRuntime(registry: ChannelRegistry, deps: 
   });
   panel.bind(recording);
   const recordingConnector = new RecordingConnector(recording);
+  const audio = new ComputerUseAudioRecorder({ command: deps.command, root: join(deps.configRoot, 'computer-use-audio'),
+    available: () => native.audioAvailable(), log: message => deps.log('computer-use-audio', message) });
   const connector = new ComputerUseConnector({ policy, backend,
     refusal: sessionId => deps.computerUseRefusal?.(sessionId),
     saveScreenshot: (data, mime) => storeBytes(Buffer.from(data, 'base64'), mime, deps.configRoot),
+    audio: { start: (id, ms, signal) => audio.start(id, ms, signal), stop: (id, signal) => audio.stop(id, signal) },
     beginOperation: id => deps.pip()?.beginOperation(id),
     approvedWindow: async (id, epoch, surface, signal) => {
       signal.throwIfAborted(); if (typeof epoch === 'number') deps.pip()?.approvedWindow(id, epoch, surface);
@@ -162,9 +166,9 @@ export async function createComputerUseRuntime(registry: ChannelRegistry, deps: 
     const owner = owners.get(id); if (!owner) return;
     if (owner.closing) return owner.closing;
     owner.retiring = true; turns.delete(id);
-    const native = connector.closeSession(id), recorded = recording.stopSession(id), transport = mcp.releaseSession(id);
+    const native = connector.closeSession(id), recorded = recording.stopSession(id), transport = mcp.releaseSession(id), audioRelease = audio.release(id);
     const work = (async () => {
-      const results = await Promise.allSettled([native, recorded, transport]);
+      const results = await Promise.allSettled([native, recorded, transport, audioRelease]);
       const errors = results.flatMap(result => result.status === 'rejected' ? [result.reason]
         : result.value && !result.value.complete ? [new Error('Computer Use task resources have not finished closing')] : []);
       if (errors.length) throw new AggregateError(errors, 'Computer Use task cleanup is incomplete');
@@ -230,7 +234,7 @@ export async function createComputerUseRuntime(registry: ChannelRegistry, deps: 
       const task = (async () => {
         const results = await Promise.allSettled(tasks);
         await Promise.allSettled([...background]);
-        const reports = await Promise.allSettled([panel.shutdown(), connector.close()]);
+        const reports = await Promise.allSettled([panel.shutdown(), connector.close(), audio.close()]);
         const errors = [...results, ...reports].flatMap(result => result.status === 'rejected' ? [result.reason] : []);
         for (const error of errors) deps.log('computer-use-shutdown', String(error));
         return { complete: !errors.length && reports.every(result => result.status === 'fulfilled' && result.value.complete) && owners.size === 0 };

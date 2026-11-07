@@ -1,6 +1,6 @@
 # Computer Use application backend
 
-The TypeScript connector owns the twelve existing MCP tool contracts, trusted
+The TypeScript connector owns the fifteen existing MCP tool contracts, trusted
 session/turn identity, approval leases, element history, screenshot mapping and
 the desktop-operation queue. It does not register an HTTP server or expose a
 renderer bridge. The host owns the authenticated MCP transport and elicitation.
@@ -42,7 +42,7 @@ this surface under `_meta.klaus.computerUse`; choose one presentation hook to
 avoid publishing it twice. The optional hook must settle when its signal aborts.
 
 The native protocol has only `capabilities`, `listApps`, `resolve`, `activate`,
-`state` and `action`. Every request and response carries `resourceId`,
+`state`, `action` and the long-lived `recordAudio`. Every request and response carries `resourceId`,
 `operationId`, `generation` and `sequence`; the response must match all four.
 The helper has no engine, shell dispatch, network, configuration database,
 approval cache or session identifiers. Metadata resolution never activates an
@@ -69,6 +69,21 @@ WindowServer HID routing after the foreground PID, approved window bounds and
 presence checks; Chromium does not receive those pointer events through the
 direct-to-PID route. Keyboard and mouse releases are emitted when an entered
 sequence is cancelled. Unicode typing does not read or write the clipboard.
+`paste` is the only operation that touches the clipboard: it snapshots the prior
+contents, publishes the text with optional Markdown or HTML flavors, sends the
+platform paste chord and restores the snapshot even on failure. `scroll` targets
+an element or exact window coordinates.
+
+`recordAudio` is the only multi-frame operation. On macOS the helper reads its
+request as the first newline-terminated stdin frame, announces a running capture
+with `klaus-audio-recording-started` on stderr, and finalizes a bounded 24 kHz
+stereo WAV when it receives a `{"stop":true}` frame, when stdin reaches EOF,
+when its duration limit elapses or when it is cancelled; a cancelled capture
+deletes its partial file. Its native deadline is the duration limit plus a
+20-second margin. Capture records system audio output without changing the
+system volume or mute state, and `capabilities` reports `audio` only where that
+capture exists. The host owns the recording child outside the serialized
+one-operation queue and keeps at most one active recording.
 An input failure or failed final capture is never automatically retried: the
 result says the action may already have executed and invalidates the old state.
 
