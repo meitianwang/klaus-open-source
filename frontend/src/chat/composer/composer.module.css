@@ -111,8 +111,8 @@
 
 .main-model-fast-row { flex-shrink: 0; gap: 8px; }
 .main-model-fast-row :global(.kls-select-item-desc) { white-space: normal; }
-.main-model-fast-row > :global(.kls-icon-host),
-.main-model-trigger-fast { color: var(--theme-accent); }
+.main-model-fast-row[aria-checked="true"] > :global(.kls-icon-host),
+.main-model-trigger-fast { color: var(--accent); }
 .main-model-trigger-fast { display: inline-flex; flex-shrink: 0; }
 
 .main-model-fast-switch {
