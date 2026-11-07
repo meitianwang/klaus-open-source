@@ -6,14 +6,18 @@ import { release } from 'node:os';
 import { StringDecoder } from 'node:string_decoder';
 
 export const CURSOR_DIAGNOSTIC_BUILD = 'cursor-diagnostics-20261020';
-const numbers = new Set('rpcRequestId generation elapsedMs waitMs totalMs timeoutMs queueMs responseMs deadlineOverrunMs count ageMs httpStatus contentLength bytes wireBytes decodedBytes failures osError code dropped schemaVersion'.split(' '));
-const booleans = new Set('hasAccount hasClientVersion hasClientIdentity hasTeam hasRefreshToken hasAccessToken teamPresent expiryKnown expired nearExpiry rejected customApiOrigin saved loggedIn needsLogin needsReimport loginExpired forceRefresh cachedRead stale scheduled polling cooldown timeout connect request body decode http2 proxyEnvPresent caOverridePresent metadataPresent success present'.split(' '));
+const numbers = new Set('rpcRequestId generation elapsedMs waitMs totalMs timeoutMs queueMs responseMs deadlineOverrunMs count ageMs httpStatus contentLength bytes wireBytes decodedBytes failures osError code dropped schemaVersion packetCount heldCalls pendingMessages initialRoots latestRoots batchCount batchStarted batchCompleted textBytes line column'.split(' '));
+const booleans = new Set('hasAccount hasClientVersion hasClientIdentity hasTeam hasRefreshToken hasAccessToken teamPresent expiryKnown expired nearExpiry rejected customApiOrigin saved loggedIn needsLogin needsReimport loginExpired forceRefresh cachedRead stale scheduled polling cooldown timeout connect request body decode http2 proxyEnvPresent caOverridePresent metadataPresent success present ended'.split(' '));
 const words: Record<string, Set<string>> = {
   signal: new Set(['SIGKILL', 'SIGTERM', 'SIGSEGV', 'SIGABRT', 'SIGBUS', 'SIGILL', 'SIGTRAP', 'SIGINT']),
   outcome: new Set(['ok', 'error', 'pending', 'cancelled', 'timeout', 'server', 'io', 'closed']),
   error: new Set(['network', 'authorization', 'credential', 'response', 'timeout', 'cancelled', 'unclassified']),
   authMethod: new Set(['imported', 'browser']), endpoint: new Set(['catalog', 'refresh', 'profile', 'login_poll', 'other']),
   platform: new Set(['darwin', 'win32', 'linux']), arch: new Set(['arm64', 'x64']),
+  stage: new Set(['receive', 'ready', 'finish']),
+  category: new Set(['Io', 'Syntax', 'Data', 'Eof']),
+  site: new Set(['checkpoint.pending', 'checkpoint.pending_item', 'checkpoint.pending_json', 'certify.role',
+    'certify.content', 'certify.text', 'certify.reasoning', 'roots.original_json', 'roots.updated_json', 'roots.appended_json']),
 };
 const hashes = new Set(['clientCommit', 'recordedEngineCommit', 'engineCommit', 'binarySha256', 'expectedBinarySha256', 'engineSourceFingerprint']);
 
@@ -22,8 +26,24 @@ function errorCategory(value: unknown): string {
   if (value === 'cursor_network_error' || value === 'cursor_login_network_error') return 'network';
   if (['cursor_not_signed_in', 'cursor_login_denied', 'cursor_adopted_credential_needs_reimport', 'cursor_browser_login_expired'].includes(value)) return 'authorization';
   if (['cursor_credential_changed', 'cursor_credentials_changed', 'cursor_client_credentials_invalid', 'cursor_credential_write_failed', 'cursor_credential_read_failed'].includes(value)) return 'credential';
-  if (['cursor_invalid_response', 'cursor_login_invalid_response', 'cursor_response_read_failed', 'cursor_response_too_large', 'cursor_models_unavailable'].includes(value)) return 'response';
+  if (['cursor_invalid_response', 'cursor_login_invalid_response', 'cursor_response_read_failed', 'cursor_response_too_large', 'cursor_models_unavailable', 'cursor_native_message_invalid'].includes(value)) return 'response';
   return 'unclassified';
+}
+
+function safeMessageShape(value: unknown): Record<string, unknown> | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const raw = value as Record<string, unknown>;
+  const kinds = new Set(['null', 'boolean', 'number', 'string', 'array', 'object']);
+  if (typeof raw.type !== 'string' || !kinds.has(raw.type)) return undefined;
+  const fields = (Array.isArray(raw.fields) ? raw.fields : []).slice(0, 8).flatMap(entry => {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return [];
+    const { field, type } = entry as Record<string, unknown>;
+    return typeof field === 'string' && ['role', 'content', 'type', 'text'].includes(field)
+      && typeof type === 'string' && kinds.has(type) ? [{ field, type }] : [];
+  });
+  return { type: raw.type, fields,
+    ...(typeof raw.unknownFieldCount === 'number' && Number.isSafeInteger(raw.unknownFieldCount)
+      && raw.unknownFieldCount >= 0 ? { unknownFieldCount: raw.unknownFieldCount } : {}) };
 }
 
 /** Only explicitly approved metadata enters the shareable diagnostic file. */
@@ -33,7 +53,8 @@ export function safeCursorFields(raw: Record<string, unknown>): Record<string, u
     if (numbers.has(key) && typeof value === 'number' && Number.isFinite(value)) fields[key] = value;
     else if (booleans.has(key) && typeof value === 'boolean') fields[key] = value;
     else if (typeof value === 'string' && words[key]?.has(value)) fields[key] = value;
-    else if (key === 'flowTraceId' && typeof value === 'string' && /^[a-f0-9-]{36}$/.test(value)) fields[key] = value;
+    else if (['flowTraceId', 'requestId'].includes(key) && typeof value === 'string' && /^[a-f0-9-]{36}$/.test(value)) fields[key] = value;
+    else if (key === 'shape') { const shape = safeMessageShape(value); if (shape) fields[key] = shape; }
     else if (hashes.has(key) && typeof value === 'string' && /^[a-f0-9]{40}(?:[a-f0-9]{24})?$/.test(value)) fields[key] = value;
     else if (['version', 'electronVersion', 'osRelease'].includes(key) && typeof value === 'string' && /^\d+(?:\.\d+){1,3}$/.test(value)) fields[key] = value;
     else if (key === 'buildId' && value === CURSOR_DIAGNOSTIC_BUILD) fields[key] = value;

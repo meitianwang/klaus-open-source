@@ -7,7 +7,7 @@ import { SubscriptionAuthService, type SubscriptionCredentials } from '../main/s
 
 test('shareable diagnostics omit secrets and arbitrary response fields', () => {
   assert.deepEqual(safeCursorFields({ hasAccount: true, httpStatus: 401, elapsedMs: 12,
-    account: 'private@example.invalid', accessToken: 'secret', verifier: 'secret', url: 'https://user:secret@example.invalid',
+    account: 'private@example.invalid', accessToken: 'secret', verifier: 'secret', url: 'https://example.invalid/private',
     error: 'secret', message: 'secret', bodyText: 'secret', count: Infinity }),
   { hasAccount: true, httpStatus: 401, elapsedMs: 12 });
 });
@@ -105,4 +105,35 @@ test('compressed body diagnostics distinguish wire and decoded sizes without res
   assert.deepEqual(safeCursorFields({ wireBytes: 21_725, decodedBytes: 417_228, body: 'private', contentEncoding: 'private' }), {
     wireBytes: 21_725, decodedBytes: 417_228,
   });
+});
+
+test('native message rejections retain request identity site and bounded structure in persisted logs', () => {
+  const records: any[] = [];
+  const diagnostics = new CursorDiagnostics({ write: (_kind, detail) => records.push(JSON.parse(detail)) });
+  const operationId = 'aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa';
+  const requestId = 'bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb';
+  for (const [phase, fields] of [
+    ['request_send', { requestId }],
+    ['native_message_rejected', { site: 'certify.content', shape: { type: 'object',
+      fields: [{ field: 'content', type: 'null', value: 'private' }, { field: 'private', type: 'string' }],
+      unknownFieldCount: 2, content: 'private' } }],
+    ['certification_failed', { stage: 'finish', packetCount: 17, heldCalls: 0, pendingMessages: 0,
+      initialRoots: 3, latestRoots: 4, batchStarted: 0, batchCompleted: 0, textBytes: 19, ended: true,
+      error: 'cursor_native_message_invalid' }],
+    ['native_message_rejected', { site: 'roots.appended_json', category: 'Eof', line: 1, column: 19, bytes: 19 }],
+  ] as const) {
+    diagnostics.stderr(Buffer.from('[CursorDiagnostic] ' + JSON.stringify({ schemaVersion: 1,
+      operation: 'model_step', phase, operationId, fields }) + '\n'), 1);
+  }
+  assert.equal(records[0].fields.requestId, requestId);
+  assert.equal(records[1].operationId, operationId);
+  assert.deepEqual(records[1].fields.shape, { type: 'object', fields: [{ field: 'content', type: 'null' }], unknownFieldCount: 2 });
+  assert.equal(records[2].fields.stage, 'finish');
+  assert.equal(records[2].fields.packetCount, 17);
+  assert.equal(records[2].fields.error, 'response');
+  assert.equal(records[3].fields.category, 'Eof');
+  assert.equal(records[3].fields.column, 19);
+  assert.ok(!JSON.stringify(records).includes('private'));
+  assert.deepEqual(safeCursorFields({ site: 'private', stage: 'private', category: 'private', requestId: 'private',
+    shape: { type: 'private', fields: [] } }), {});
 });
