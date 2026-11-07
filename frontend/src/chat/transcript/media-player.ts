@@ -211,6 +211,21 @@ function buildMenuButton(name: string, path: string, sessionId: string, src: str
     copy.textContent = text('media_player_copy_path', 'Copy path')
     copy.addEventListener('click', () => { void writeClipboardText(path).catch(() => w().showToast?.(text('copy_failed', 'Copy failed'))); closeMenu(true) })
     menu.appendChild(copy)
+    // Reveal uses the host's show-in-folder. A surface without the channel
+    // (the preview window) simply does not offer the action.
+    if (path && typeof w().klaus?.artifacts?.reveal === 'function') {
+      const reveal = document.createElement('button')
+      reveal.type = 'button'
+      reveal.setAttribute('role', 'menuitem')
+      reveal.textContent = text('media_player_reveal', 'Open in folder')
+      reveal.addEventListener('click', () => {
+        closeMenu(true)
+        void Promise.resolve(w().klaus.artifacts.reveal(path)).then(result => {
+          if (result?.error || result?.ok === false) w().showToast?.(text('artifacts_action_reveal_failed', 'Could not reveal this file'))
+        }).catch(() => w().showToast?.(text('artifacts_action_reveal_failed', 'Could not reveal this file')))
+      })
+      menu.appendChild(reveal)
+    }
     // Save-a-copy needs the host's save dialog; a surface without the channel
     // (the preview window) simply does not offer the action.
     if (typeof w().klaus?.artifacts?.saveCopy === 'function') {
