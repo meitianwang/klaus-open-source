@@ -412,6 +412,9 @@ const historicalReviews = new WeakMap<any[], DeniedApprovalReview[]>()
 const retainedStreams = new ByteBudgetLru<string, { stream: SessionStreamState; bytes: number }>(64 * 1024 * 1024, 32)
 const mountedStreams = new Map<string, number>()
 const retiredStreams = new Map<string, number>()
+// Endpoint identity outlives evictable transcript payloads and ends on close.
+const ephemeralSessions = new Set<string>()
+const EMPTY_EPHEMERAL_SESSION: SessionStreamState = { ...EMPTY_SESSION, historySource: 'ephemeral' }
 const historyReadTokens = new Map<string, object>()
 const retentionParticipants = new Set<{ protected(sessionId: string): boolean; retire(sessionId: string): void }>()
 const savedHistoryViewports = new Map<string, Map<symbol, SavedHistoryViewport | null>>()
@@ -571,6 +574,7 @@ export function retainSessionStream(sessionId: string): () => void {
 
 export function retireSessionStream(sessionId: string, options: { deleted?: boolean } = { deleted: true }): void {
   flushChatFrames()
+  for (const id of streamFamily(sessionId)) ephemeralSessions.delete(id)
   removeStreamFamily(sessionId, options.deleted !== false)
 }
 
@@ -623,7 +627,7 @@ function patchSession(sessionId: string, patch: (prev: SessionStreamState) => Pa
   flushChatFrames()
   if (isSessionStreamRetired(sessionId)) return
   chatStreamStore.setState(state => {
-    const prev = state.sessions[sessionId] || EMPTY_SESSION
+    const prev = selectSessionStream(state, sessionId)
     const next = { ...prev, ...patch(prev) }
     retentionChanged = next.savedTranscript !== prev.savedTranscript || next.historyLoading !== prev.historyLoading
       || next.turnsPagination !== prev.turnsPagination || next.running !== prev.running
@@ -775,7 +779,8 @@ const subagentHistorySources = new Map<string, { parentSessionId: string; agentI
 
 /** Register endpoint identity before mounting or refreshing its transcript. */
 export function prepareEphemeralSessionStream(sessionId: string): void {
-  if (!sessionId || isSessionStreamRetired(sessionId) || getSessionStream(sessionId).historySource === 'ephemeral') return
+  if (!sessionId || isSessionStreamRetired(sessionId) || ephemeralSessions.has(sessionId)) return
+  ephemeralSessions.add(sessionId)
   // A late saved-page failure must not overwrite the newly selected source.
   historyReadTokens.delete(sessionId)
   historyInFlight.delete(sessionId)
@@ -2457,7 +2462,7 @@ export function getSessionStream(sessionId: string): SessionStreamState {
 
 /** Missing sessions must share stable snapshots while their first turn mounts. */
 export function selectSessionStream(state: ChatStreamStore, sessionId: string): SessionStreamState {
-  return state.sessions[sessionId] || EMPTY_SESSION
+  return state.sessions[sessionId] || (ephemeralSessions.has(sessionId) ? EMPTY_EPHEMERAL_SESSION : EMPTY_SESSION)
 }
 
 export function setTurnCollapsed(sessionId: string, turnId: string, collapsed: boolean): void {
@@ -2677,7 +2682,7 @@ export function loadSessionHistory(sessionId: string, options: {
   if (inFlight) return options.reconcile || options.savedPage
     ? inFlight.then(() => loadSessionHistory(sessionId, options)) : inFlight
   if (options.savedPage && !options.savedPage.current()) return Promise.resolve()
-  const current = chatStreamStore.getState().sessions[sessionId] || EMPTY_SESSION
+  const current = getSessionStream(sessionId)
   if (current.provisional || unadmittedUserTurn(sessionId)) return Promise.resolve()
   // 冻结期该不该发这次读取，由 shouldReadHistoryDuringFreeze 单一裁定（契约向量钉住）。
   if (!options.reconcile && !options.savedPage && !shouldReadHistoryDuringFreeze({

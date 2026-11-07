@@ -23,6 +23,7 @@ if (typeof window === 'undefined') (globalThis as any).window = { addEventListen
 const { isThinkingLevelValue, isThinkingLevelForModel, mainModelMenuValue } = await import('./composer/model-select')
 const { modelOptionForValue } = await import('../../../shared/cursor-model-catalog')
 import vectors from '../../../contracts/vectors/side-task-feedback-vectors.json'
+import { createSidePanePlacement } from './panels/side-pane-placement'
 
 // Run the real draft lifecycle, quote insertion and surface binding together.
 // Only DOM geometry and host effects are supplied by the fixture.
@@ -40,7 +41,7 @@ function collect(node: any) {
   if (isFunctionDeclaration(node) && functionNames.has(node.name?.text || '')) declarations.push(node.getText(ast))
   if (isExpressionStatement(node) && isBinaryExpression(node.expression)) {
     const name = node.expression.left.getText(ast).split('.').at(-1)!
-    if (hookNames.has(name)) { declarations.push(node.getText(ast)); found.add(name) }
+    if (hookNames.has(name) && !node.expression.left.getText(ast).startsWith('runtime.hooks.')) { declarations.push(node.getText(ast)); found.add(name) }
   }
   forEachChild(node, collect)
 }
@@ -48,7 +49,7 @@ collect(ast)
 const lifecycleAst = createSourceFile('attachment-lifecycle.ts', readFileSync(new URL('./composer/attachment-lifecycle.ts', import.meta.url), 'utf8'), ScriptTarget.ESNext, true)
 for (const node of lifecycleAst.statements) if (isFunctionDeclaration(node)) declarations.push(node.getText(lifecycleAst).replace(/^export\s+/, ''))
 for (const name of hookNames) if (!found.has(name)) throw new Error(`Missing production hook: ${name}`)
-const script = transpileModule(`${chatRunnerStubs}${declarations.join('\n')}\n({ sideSubmit, sideUpload, addSideFiles, attachSidePastedText, handleSideComposerPaste, updateSideSendButton, sideComposedInputText });`, {
+const script = transpileModule(`${chatRunnerStubs}${declarations.join('\n')}\n({ sideSubmit, sideUpload, addSideFiles, attachSidePastedText, handleSideComposerPaste, updateSideSendButton, sideComposedInputText, refreshSideComposerModel, releaseSideDeferredSend });`, {
   compilerOptions: { target: ScriptTarget.ES2022, module: ModuleKind.CommonJS },
 }).outputText
 
@@ -97,7 +98,7 @@ export function createSideComposerFixture() {
     // call resolves against this context. The real module is a no-op on the
     // fixture's geometry-less element, exactly as in a detached composer.
     scrollCaretIntoView,
-    prepareEphemeralSessionStream() {},
+    prepareEphemeralSessionStream() {}, retireSessionStream() {},
     window: {} as any, document: { getElementById: (id: string) => id === 'side-send' ? button : id === 'side-input' ? input : null },
     URL: class extends URL { static revokeObjectURL(url: string) { calls.revoked.push(url) } static createObjectURL(_file: unknown) { return 'blob:fixture' } },
     sideInput: input, sideSend: button, sideWindowsSandboxBanner: null, sideVoiceChatUi: undefined, sideSurfaceSessionId: null as string | null,
@@ -167,7 +168,25 @@ export function createSideComposerFixture() {
     submitTurnPayload: async (id: string) => { calls.submissions.push(id) }, requestTurnContinue() {}, requestTurnStop() {},
   }
   context.window = { currentSessionId: 'main', isSessionRunning: (id: string) => !!running[id] }
-  const api = runInNewContext(script, context) as { sideSubmit(options?: { followUp?: boolean }): Promise<void>; sideUpload(entry: Entry): Promise<void>; addSideFiles(files: any[]): void; attachSidePastedText(text: string): Promise<void>; handleSideComposerPaste(event: any): Promise<void>; updateSideSendButton(): void; sideComposedInputText(): string }
+  let api: { sideSubmit(options?: { followUp?: boolean }): Promise<void>; sideUpload(entry: Entry): Promise<void>; addSideFiles(files: any[]): void; attachSidePastedText(text: string): Promise<void>; handleSideComposerPaste(event: any): Promise<void>; updateSideSendButton(): void; sideComposedInputText(): string; refreshSideComposerModel(): Promise<void>; releaseSideDeferredSend(): void }
+  const runtime = {
+    placement: 'right', hooks: context.window,
+    get sessionId() { return context.sideSurfaceSessionId },
+    refreshModel: () => api.refreshSideComposerModel(),
+    refreshQueue: () => context.renderSideFollowUpQueue(),
+    refresh: () => { model.setDisabled(false); model.setRuntime(null); context.window.klausUpdateSideSendButton?.() },
+    resetScroll: (distance: number) => context.sideScrollController.resetForConversation(distance),
+    compensateScroll: (distance: number) => context.sideScrollController.compensateScrollToDistanceFromBottomPx(distance),
+    retainsAttachment: (entry: Entry) => context.sidePendingFiles.includes(entry),
+  }
+  Object.assign(context, {
+    runtime, sidePaneRuntimes: new Map([['right', runtime]]), sidePanePlacement: createSidePanePlacement(), sidePanePlacements: ['right'],
+    sideRuntime: () => runtime, sideRuntimeForSession: (id: string) => runtime.sessionId === id ? runtime : undefined,
+    setSidePaneSession: (_runtime: unknown, id: string | null) => { context.sideSurfaceSessionId = id },
+    showLeftSidePane() {},
+    refreshSideAttachmentPanes: (entry: Entry) => { if (context.sidePendingFiles.includes(entry)) { context.sideRenderPreviews(); api.releaseSideDeferredSend() } },
+  })
+  api = runInNewContext(script, context)
   context.window.klausUpdateSideSendButton = api.updateSideSendButton
   return { context, window: context.window, input, button, model, calls, api, running, viewportSnapshots,
     setText(value: string) { input.value = value; input.setSelectionRange(value.length, value.length); context.sideLastComposerInputValue = value },

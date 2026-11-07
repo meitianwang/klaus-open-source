@@ -1,8 +1,8 @@
 import { join } from 'node:path';
 import { readFileSync } from 'node:fs';
-import { SideTaskRegistry, SIDE_TASK_IDLE_MS } from '../main/sessions/side-tasks';
+import { SideTaskRegistry } from '../main/sessions/side-tasks';
 import { sideTaskTitle } from '../contracts/side-task-titles';
-import { Harness, assert, assertEqual, assertDeepEqual, assertRejects } from './harness';
+import { Harness, assert, assertEqual } from './harness';
 
 const h=new Harness();
 const titles = JSON.parse(readFileSync(join(__dirname, '../../contracts/vectors/side-task-title-vectors.json'), 'utf8')) as {
@@ -85,27 +85,22 @@ h.test('a renderer default index overrides the count without consuming a differe
   assertEqual(registry.reserve('parent').initialTitleIndex, 2, 'default mode still uses family count rather than the override maximum');
   assertEqual(registry.reserve('other-parent').initialTitleIndex, 1, 'override is local to this reservation');
 });
-h.test('side tasks expire after an idle hour and a completed turn restarts the hour',()=>{
-  let now=0;const registry=new SideTaskRegistry(()=>now),task=registry.reserve('parent');registry.activate(task.id);
-  now=SIDE_TASK_IDLE_MS-1;assertEqual(registry.expired().length,0,'alive before deadline');registry.working(task.id,true);
-  now+=2*SIDE_TASK_IDLE_MS;assertEqual(registry.expired().length,0,'long active turn holds its lifetime');registry.working(task.id,false);
-  now+=SIDE_TASK_IDLE_MS-1;assertEqual(registry.expired().length,0,'completion renews idle lifetime');now++;
-  assertDeepEqual(registry.expired().map(task=>task.id),[task.id],'exact idle boundary');
-});
-h.test('reservations and incomplete closes hold their slot until actual disposal',async()=>{
-  const registry=new SideTaskRegistry(),tasks=Array.from({length:8},()=>registry.reserve('parent'));
-  await assertRejects(async()=>registry.reserve('parent'),'concurrent startup limit');
-  registry.activate(tasks[0]!.id);registry.beginClosing(tasks[0]!.id);
-  await assertRejects(async()=>registry.reserve('parent'),'incomplete close still owns a process slot');
-  registry.closeFailed(tasks[0]!.id);assertEqual(registry.get(tasks[0]!.id)?.phase,'active','failed close remains recoverable');
-  registry.remove(tasks[0]!.id);const replacement=registry.reserve('parent');assertEqual(replacement.title,'Side task 8','replacement uses the current family count plus one');
-  assertEqual(registry.reserve('another-parent').parentSessionId,'another-parent','independent family');
+h.test('side tasks retain their identity through idle time and have no fixed family cap',()=>{
+  let now=0;const registry=new SideTaskRegistry(()=>now),tasks=Array.from({length:12},()=>registry.reserve('parent'));
+  for(const task of tasks) registry.activate(task.id);
+  now=24*60*60*1000;
+  assertEqual(registry.all().length,12,'idle time preserves every open side tab');
+  assertEqual(registry.touch(tasks[0]!.id),true,'old context remains active');
+  assertEqual(registry.get(tasks[0]!.id)?.updatedAt,now,'activity updates its timestamp');
+  registry.beginClosing(tasks[0]!.id);registry.closeFailed(tasks[0]!.id);
+  assertEqual(registry.get(tasks[0]!.id)?.phase,'active','failed close remains recoverable');
+  registry.remove(tasks[0]!.id);assertEqual(registry.all().length,11,'only explicit disposal removes a tab');
 });
 h.test('touch and rename renew only active tasks and returned rows cannot mutate registry state',()=>{
   let now=0;const registry=new SideTaskRegistry(()=>now),task=registry.reserve('parent');
   assertEqual(registry.touch(task.id),false,'not visible before actual startup');registry.activate(task.id);
   now=100;registry.rename(task.id,'Actual title');const row=registry.get(task.id)!;row.title='forged';
-  assertEqual(registry.get(task.id)?.title,'Actual title','snapshot ownership');assertEqual(registry.get(task.id)?.expiresAt,SIDE_TASK_IDLE_MS+100,'rename is activity');
+  assertEqual(registry.get(task.id)?.title,'Actual title','snapshot ownership');assertEqual(registry.get(task.id)?.updatedAt,100,'rename is activity');
   now=200;registry.touch(task.id);assertEqual(registry.get(task.id)?.updatedAt,200,'focus renews');
   registry.beginClosing(task.id);assertEqual(registry.touch(task.id),false,'closing task cannot extend its life');
   assertEqual(registry.clear().length,1,'generation reset returns affected tasks');assertEqual(registry.all().length,0,'no stale generation remains');

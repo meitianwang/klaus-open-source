@@ -123,6 +123,9 @@ interface Tab {
   badge: string
   url: string
   pending: boolean
+  running?: boolean
+  unread?: boolean
+  placement?: 'left' | 'right'
   sessionId?: string | null
   revision?: number
 }
@@ -136,6 +139,7 @@ const mru: string[] = []
 // stale restore paint B's tabs over A's.
 let restoreToken = 0
 let activationToken = 0
+let leftActiveId: string | null = null
 let canvasOpenToken = 0
 let maximized = localStorage.getItem(MAXIMIZED_KEY) === '1'
 let draggingId: string | null = null
@@ -180,6 +184,7 @@ function tabPresentation(tab: Tab): { title: string; iconHtml: string } {
 interface StripSnapshot {
   tabs: TabView[]
   activeId: string | null
+  leftActiveId: string | null
   panelOpen: boolean
   maximized: boolean
   lang: number
@@ -188,6 +193,7 @@ interface StripSnapshot {
 const store = createStore<StripSnapshot>(() => ({
   tabs: [],
   activeId: null,
+  leftActiveId: null,
   panelOpen: false,
   maximized,
   lang: 0,
@@ -204,9 +210,13 @@ function publish() {
     return
   }
   const open = panelOpen()
+  const leftHost = document.getElementById('left-side-tabs')
+  if (leftHost) leftHost.hidden = !tabs.some(tab => tab.placement === 'left')
   store.setState({
-    tabs: tabs.map(tab => ({ ...tab, ...tabPresentation(tab), fixed: isFixed(tab), active: open && activeId === tab.id })),
+    tabs: tabs.map(tab => ({ ...tab, ...tabPresentation(tab), fixed: isFixed(tab),
+      active: tab.placement === 'left' ? leftActiveId === tab.id : open && activeId === tab.id })),
     activeId,
+    leftActiveId,
     panelOpen: open,
     maximized,
     lang: langTick,
@@ -238,6 +248,9 @@ function ensure(kind: string, key = '', patch: Partial<Tab> = {}) {
       badge: patch.badge || '',
       url: patch.url || '',
       pending: !!patch.pending,
+      running: !!patch.running,
+      unread: !!patch.unread,
+      placement: patch.placement || 'right',
     }
     // Fixed tabs lead the strip in declaration order; instance tabs append in
     // creation order, which is what makes "close right" meaningful.
@@ -253,6 +266,9 @@ function ensure(kind: string, key = '', patch: Partial<Tab> = {}) {
     if ('badge' in patch) tab.badge = patch.badge || ''
     if ('url' in patch) tab.url = patch.url || ''
     if ('pending' in patch) tab.pending = !!patch.pending
+    if ('running' in patch) tab.running = !!patch.running
+    if ('unread' in patch) tab.unread = !!patch.unread
+    if ('placement' in patch) tab.placement = patch.placement || 'right'
   }
   return tab
 }
@@ -300,7 +316,7 @@ function mostRecentTab(excludeId: string) {
   for (const id of mru) {
     if (id === excludeId) continue
     const tab = tabs.find(item => item.id === id)
-    if (tab && !isFixed(tab)) return tab
+    if (tab && tab.placement !== 'left' && !isFixed(tab)) return tab
   }
   return null
 }
@@ -311,6 +327,12 @@ function mostRecentTab(excludeId: string) {
 // diverge.
 async function activateTab(tab: Tab | null, { reloadCanvas = false } = {}) {
   if (!tab) return false
+  if (tab.kind === 'side-task' && tab.placement === 'left') {
+    await w().KlausSideTasks?.activateById?.(tab.key)
+    leftActiveId = tab.id
+    publish()
+    return true
+  }
   const activation = ++activationToken
   switch (tab.kind) {
     case 'monitor':
@@ -422,11 +444,12 @@ async function closeTab(tab: Tab | null) {
   if (tab.kind === 'canvas') { activationToken++; canvasOpenToken++ }
   if (tab.kind === 'prototype' || tab.kind === 'video-editing' || tab.kind === 'ppt') activationToken++
   const closingSessionToken = restoreToken
+  const left = tab.placement === 'left'
   // Read this BEFORE the surface owner runs: tearing a surface down can move
   // the mode (and with it the active tab) on its own, and some owners also
   // collapse the panel on the way out. Whether the closed tab HAD focus is the
   // only thing that decides if a fallback is owed, so it is captured first.
-  const wasActive = activeId === tab.id
+  const wasActive = left ? leftActiveId === tab.id : activeId === tab.id
   closingTabId = tab.id
   try {
     switch (tab.kind) {
@@ -457,7 +480,7 @@ async function closeTab(tab: Tab | null) {
         if (!tab.pending) await w().klausCloseBrowserTab?.(tab.key)
         break
       case 'side-task':
-        await w().KlausSideTasks?.closeById?.(tab.key)
+        if (await w().KlausSideTasks?.closeById?.(tab.key) === false) return
         break
       case 'subagent':
         w().KlausSubagentPanel?.closeByTaskId?.(tab.key)
@@ -497,6 +520,15 @@ async function closeTab(tab: Tab | null) {
   // left (pending placeholders) is dropped here.
   if (find(tab.kind, tab.key)) remove(tab.kind, tab.key)
   forgetMru(tab.id)
+  if (left) {
+    if (wasActive) {
+      const next = tabs.find(item => item.placement === 'left')
+      if (next) await activateTab(next)
+      else { leftActiveId = null; w().KlausSideTasks?.showParent?.() }
+    }
+    publish()
+    return
+  }
   // Activating the fallback also re-opens the panel, so closing a tab can never
   // shut the whole surface — the summary is always there to land on.
   if (wasActive || !activeId) {
@@ -730,8 +762,9 @@ function syncBrowserTabs(list: Array<{ id: string; url?: string; title?: string 
   publish()
 }
 
-// Side tasks: one outer tab per live side task, with the expiry countdown.
-function syncSideTasks(list: Array<{ id: string; title?: string; badge?: string }> = [], activeSideId: string | null = null) {
+// Side tasks publish their independent lifecycle and attention state.
+function syncSideTasks(list: Array<{ id: string; title?: string; badge?: string; running?: boolean; unread?: boolean; placement?: 'left' | 'right' }> = [], activeSideId: string | null = null, leftSideId: string | null = null) {
+  leftActiveId = leftSideId ? descriptorId('side-task', leftSideId) : null
   const live = new Set(list.map(item => item.id))
   for (let i = tabs.length - 1; i >= 0; i--) {
     const tab = tabs[i]
@@ -744,6 +777,9 @@ function syncSideTasks(list: Array<{ id: string; title?: string; badge?: string 
     ensure('side-task', item.id, {
       title: item.title ?? defaultTitle('side-task'),
       badge: item.badge || '',
+      running: !!item.running,
+      unread: !!item.unread,
+      placement: item.placement || 'right',
     })
   }
   if (currentMode() === 'side-chat' && activeSideId) {
@@ -754,12 +790,39 @@ function syncSideTasks(list: Array<{ id: string; title?: string; badge?: string 
   publish()
 }
 
+async function moveSideTask(tab: Tab, placement: 'left' | 'right') {
+  const token = restoreToken
+  if (await w().KlausSideTasks?.moveTo?.(tab.key, placement) === false || token !== restoreToken) return
+  tab.placement = placement
+  if (placement === 'left') {
+    leftActiveId = tab.id
+    if (activeId === tab.id) {
+      activeId = null
+      await activateTab(mostRecentTab(tab.id) || find('monitor', ''))
+    }
+  } else {
+    if (leftActiveId === tab.id) leftActiveId = null
+    setActiveId(tab.id)
+  }
+  publish()
+}
+
+function dropSideTask(event: React.DragEvent | DragEvent, placement: 'left' | 'right') {
+  const tab = findById(event.dataTransfer?.getData('text/plain') || draggingId || '')
+  if (tab?.kind !== 'side-task' || tab.placement === placement) return
+  event.preventDefault()
+  event.stopPropagation()
+  draggingId = null
+  pendingPublish = false
+  void moveSideTask(tab, placement).catch(error => w().showToast?.(String(error)))
+}
+
 function sideTaskQuotePanels(): SideTaskQuotePanel[] {
   const active = activeId ? findById(activeId) : null
   return [{
     placement: 'right',
     activeId: active?.kind === 'side-task' ? active.key : null,
-    tabs: tabs.filter(tab => tab.kind === 'side-task').map(tab => tab.key),
+    tabs: tabs.filter(tab => tab.kind === 'side-task' && tab.placement !== 'left').map(tab => tab.key),
   }]
 }
 
@@ -1064,8 +1127,8 @@ function buildNewItems(): MenuItem[] {
 // ── Context menu: close / close others / close right ─────────────────────
 function buildContextItems(tab: Tab): CtxItem[] {
   const index = tabs.findIndex(item => item.id === tab.id)
-  const others = tabs.filter(item => item.id !== tab.id && !isFixed(item))
-  const right = tabs.slice(index + 1).filter(item => !isFixed(item))
+  const others = tabs.filter(item => item.id !== tab.id && !isFixed(item) && item.placement === tab.placement)
+  const right = tabs.slice(index + 1).filter(item => !isFixed(item) && item.placement === tab.placement)
   const items: CtxItem[] = [
     { label: tt('artifacts_tab_close'), disabled: isFixed(tab), run: () => closeTab(tab) },
     { label: tt('artifacts_tab_close_others'), disabled: others.length === 0, run: () => closeMany(others) },
@@ -1074,6 +1137,9 @@ function buildContextItems(tab: Tab): CtxItem[] {
   // A side task is temporary by design; converting it forks its transcript into
   // a standalone session, which is the only way to keep it.
   if (tab.kind === 'side-task') {
+    const target = tab.placement === 'left' ? 'right' : 'left'
+    items.push({ label: tt(target === 'left' ? 'side_task_move_left' : 'side_task_move_right'),
+      separated: true, run: () => moveSideTask(tab, target) })
     items.push({
       label: tt('side_task_convert'),
       separated: true,
@@ -1228,6 +1294,48 @@ function clearDropMarkers(scroller: HTMLElement | null) {
   }
 }
 
+function SideTabStatus({ view }: { view: TabView }) {
+  return <>
+    <span className={styles['artifacts-tab-icon']} aria-hidden="true">
+      {view.running ? <span className={styles['artifacts-tab-spinner']} />
+        : <span dangerouslySetInnerHTML={{ __html: view.iconHtml }} />}
+      {view.unread && !view.running ? <span className={styles['artifacts-tab-unread-dot']} /> : null}
+    </span>
+    {view.running || view.unread ? <span className={styles['artifacts-tab-status']}>
+      {tt(view.running ? 'side_task_running' : 'side_task_unread')}
+    </span> : null}
+  </>
+}
+
+function LeftSideTabsStrip() {
+  const snap = useStore(store)
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; items: CtxItem[] } | null>(null)
+  const left = snap.tabs.filter(view => view.placement === 'left')
+  if (!left.length) return null
+  return <>
+    <div className={styles['artifacts-tabs-scroll']} role="tablist"
+      onDragOver={event => { if (findById(draggingId || '')?.kind === 'side-task') event.preventDefault() }}
+      onDrop={event => dropSideTask(event, 'left')}>
+      <div className={`${styles['artifacts-tab']} ${!snap.leftActiveId ? 'active' : ''}`}>
+        <button type="button" className={styles['artifacts-tab-trigger']} role="tab" aria-selected={!snap.leftActiveId}
+          onClick={() => { leftActiveId = null; w().KlausSideTasks?.showParent?.(); publish() }}>{tt('side_task_parent')}</button>
+      </div>
+      {left.map(view => <div key={view.id} className={`${styles['artifacts-tab']} ${styles['artifacts-tab-instance']} ${view.active ? 'active' : ''}`}
+        data-tab-id={view.id} data-panel-tab="side-task" draggable
+        onDragStart={event => { draggingId = view.id; event.dataTransfer.setData('text/plain', view.id); event.dataTransfer.effectAllowed = 'move' }}
+        onDragEnd={() => { draggingId = null; if (pendingPublish) { pendingPublish = false; publish() } }}
+        onContextMenu={event => { event.preventDefault(); const tab = findById(view.id); if (tab) setCtxMenu({ x: event.clientX, y: event.clientY, items: buildContextItems(tab) }) }}
+        onAuxClick={event => { if (event.button === 1) { event.preventDefault(); void closeTab(findById(view.id)) } }}>
+        <button type="button" className={styles['artifacts-tab-trigger']} role="tab" aria-selected={view.active}
+          onClick={() => { void activateTab(findById(view.id)) }}><SideTabStatus view={view} /><span className={styles['artifacts-tab-label']}>{view.title}</span></button>
+        <button type="button" className={styles['artifacts-tab-close']} aria-label={`${tt('artifacts_tab_close')}: ${view.title}`}
+          onClick={() => { void closeTab(findById(view.id)) }} dangerouslySetInnerHTML={{ __html: icon('row-close-x') }} />
+      </div>)}
+    </div>
+    {ctxMenu ? <TabContextMenu {...ctxMenu} onClose={() => setCtxMenu(null)} /> : null}
+  </>
+}
+
 function PanelTabsStrip() {
   const snap = useStore(store)
   const scrollerRef = useRef<HTMLDivElement | null>(null)
@@ -1365,8 +1473,10 @@ function PanelTabsStrip() {
 
   return (
     <>
-      <div id="artifacts-tabs-scroll" className={styles['artifacts-tabs-scroll']} ref={scrollerRef} role="tablist">
-        {snap.tabs.map(view => (
+      <div id="artifacts-tabs-scroll" className={styles['artifacts-tabs-scroll']} ref={scrollerRef} role="tablist"
+        onDragOver={event => { if (findById(draggingId || '')?.placement === 'left') event.preventDefault() }}
+        onDrop={event => dropSideTask(event, 'right')}>
+        {snap.tabs.filter(view => view.placement !== 'left').map(view => (
           <div
             key={view.id}
             className={[
@@ -1400,7 +1510,7 @@ function PanelTabsStrip() {
             onDrop={onTabDrop(view)}
           >
             <button type="button" className={styles['artifacts-tab-trigger']} role="tab" aria-selected={view.active ? 'true' : 'false'}>
-              <span className={styles['artifacts-tab-icon']} aria-hidden="true" dangerouslySetInnerHTML={{ __html: view.iconHtml }} />
+              <SideTabStatus view={view} />
               <span className={styles['artifacts-tab-label']}>{view.title}</span>
               {view.badge ? <span className={styles['artifacts-tab-countdown']}>{view.badge}</span> : null}
             </button>
@@ -1475,6 +1585,17 @@ if (stripHost) {
   stripHost.replaceChildren()
   createRoot(stripHost).render(<PanelTabsStrip />)
 }
+const leftStripHost = document.getElementById('left-side-tabs')
+if (leftStripHost) {
+  createRoot(leftStripHost).render(<LeftSideTabsStrip />)
+  const main = document.getElementById('main')
+  main?.addEventListener('dragover', event => {
+    if (findById(draggingId || '')?.kind === 'side-task' && !artifactsPanel?.contains(event.target as Node)) event.preventDefault()
+  })
+  main?.addEventListener('drop', event => {
+    if (!artifactsPanel?.contains(event.target as Node)) dropSideTask(event, 'left')
+  })
+}
 
 window.addEventListener('klaus:lang-change', () => {
   for (const tab of tabs) {
@@ -1508,6 +1629,7 @@ if (maximized) applyMaximized()
   syncTerminals,
   syncBrowserTabs,
   syncSideTasks,
+  moveSideTask: (id: string, placement: 'left' | 'right') => { const tab = find('side-task', id); if (tab) return moveSideTask(tab, placement) },
   sideTaskQuotePanels,
   openSubagent,
   remapSubagentTasks,

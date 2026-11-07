@@ -12,6 +12,6 @@
     { "id": "pending-draft-is-a-reusable-target", "panels": [{ "placement": "right", "activeId": "pending-side-1", "tabs": ["pending-side-1"] }], "available": ["pending-side-1"], "target": "pending-side-1" },
     { "id": "no-available-target", "panels": [{ "placement": "right", "activeId": "failed", "tabs": ["failed"] }], "available": [], "target": null }
   ],
-  "handoff": { "maximumTasks": 8, "automaticSubmissions": 0, "pendingForks": 1 },
+  "handoff": { "maximumTasks": null, "automaticSubmissions": 0, "pendingForks": 1 },
   "initialTitle": { "first": "side_task_untitled", "third": "side_task_untitled 3" }
 }

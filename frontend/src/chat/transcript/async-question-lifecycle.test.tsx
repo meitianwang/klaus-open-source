@@ -559,11 +559,16 @@ describe('reopen is wired to surfaces showing a session, never to state changes'
     expect(chat.indexOf('reopenAsyncQuestionsForSession(id)', reopen + 1)).toBe(-1)
   })
   test('the side tab reopens the tab that just activated', () => {
-    const activate = chat.indexOf('window.klausSideSurfaceActivate = async (sideId)')
+    const activate = chat.indexOf('window.klausSideSurfaceActivate = async (sideId, placement:')
     const reopen = chat.indexOf('reopenAsyncQuestionsForSession(sideId)')
     expect(activate).toBeGreaterThan(-1)
-    // Every side tab shares one cloned composer slot, so the questions belong to
-    // whichever tab just became visible, not to all mounted side transcripts.
+    // Both panes activate the requested side identity before reopening its question.
+    const activated = chat.slice(activate, chat.indexOf('window.klausSideSurfaceRemove', activate))
+    expect(activated).toContain('const runtime = sideRuntime(placement)')
+    expect(activated).toContain('setSidePaneSession(runtime, sideId)')
+    expect(activated).toContain('runtime.hooks.klausSideComposerBind?.(sideId)')
+    expect(activated).toContain('mountReactTranscript(sideId, surface.messagesEl')
+    expect(activated.indexOf('setSidePaneSession(runtime, sideId)')).toBeLessThan(activated.indexOf('reopenAsyncQuestionsForSession(sideId)'))
     expect(reopen).toBeGreaterThan(activate)
     expect(chat.indexOf('window.klausSideSurfaceRemove', activate)).toBeGreaterThan(reopen)
   })

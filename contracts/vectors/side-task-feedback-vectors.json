@@ -4,8 +4,12 @@
   "creating": { "hostCreates": 1, "reusesOpeningTab": true },
   "activated": { "composerHidden": false },
   "cancelled": { "lateTaskClosed": true, "activeSideId": null },
-  "eligibility": { "positiveFallbackReads": 1, "loadedHistoryReads": 0, "maximumTasks": 8 },
+  "eligibility": { "positiveFallbackReads": 1, "loadedHistoryReads": 0, "maximumTasks": null },
   "selection": { "quotes": ["Quoted passage"], "automaticSubmissions": 0 },
   "send": { "duplicateSubmissions": 1, "failureConsumesDraft": false, "consumedRunningDraftButton": "submit_tooltip_stop" },
-  "main": { "preparationUi": false, "transcriptPreparationUi": true, "runningFollowUpReserved": false }
+  "main": { "preparationUi": false, "transcriptPreparationUi": true, "runningFollowUpReserved": false },
+  "close": { "emptyConfirms": 0, "submittedConfirms": 1, "cancelCloses": 0, "rememberOnlyConfirmed": true, "duplicateDialogs": 1 },
+  "attention": { "runningIcon": "spinner", "unreadResponse": "dot", "runningPrecedesUnread": true, "visibleClearsUnread": true, "expiryBadge": "" },
+  "placement": { "targets": ["left", "right"], "preserveSessionId": true, "independentActiveTabs": true, "parentRouteUnchanged": true },
+  "lifetime": { "idleExpiryMs": null, "end": ["explicit-close", "parent-deletion", "application-exit"] }
 }

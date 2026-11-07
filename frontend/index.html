@@ -298,12 +298,17 @@
 
     <!-- Main -->
     <div id="main">
+      <nav id="left-side-tabs" class="left-side-tabs" aria-label="Conversation tabs" hidden></nav>
+      <section id="left-side-chat-panel" class="side-chat-panel left-side-chat-panel" data-mode="side-chat" aria-label="Side task" hidden>
+        <div id="left-side-messages" class="side-messages" tabindex="-1"></div>
+        <div id="left-side-composer-host" class="side-composer-host"></div>
+      </section>
       <div id="header"></div>
       <!-- Export / report-issue header buttons were removed; both actions live
            in the per-session context menu (⋯ button / right-click) now.
-           Side tasks no longer take over the main area with a top tab bar:
-           they live in the right #artifacts-panel (data-mode="side-chat"),
-           rendered alongside the main conversation. -->
+           Side tasks can occupy either conversation pane. The selected parent
+           stays in the sidebar while its transcript remains mounted underneath
+           the left side surface. -->
 
       <!-- Welcome -->
       <div id="welcome" class="welcome">
@@ -728,8 +733,8 @@
         </section>
         <!-- Side-chat surface (data-mode="side-chat"): a self-contained mini
              conversation that lives beside the main chat. Its own
-             tab row (side tasks + new), transcript and composer; it never takes
-             over the main area. -->
+             tab row (side tasks + new), transcript and composer. Moving a side
+             task between panes keeps its endpoint and draft. -->
         <section id="side-chat-panel" class="side-chat-panel" aria-label="Side task">
           <div id="side-chat-expired" class="side-chat-expired" hidden>
             <span data-i18n="side_task_expired">This side task has expired.</span>

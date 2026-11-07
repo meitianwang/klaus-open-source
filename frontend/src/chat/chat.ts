@@ -41,6 +41,7 @@ const klausApi = window.klaus
 // 流式状态 store（Batch 4）：chatEvent 全事件镜像入 store，功能域随迁移逐个改为订阅。
 import { ingestPlanningQuestion, ingestGoalCompletion, ingestTaskGoalSnapshot, ingestPlanningSnapshot, ingestChatEvent, ingestChatFrameEvent, isStoppedTurnFrame, retireSessionStream, isSessionStreamRetired, registerSessionRetentionParticipant, trimSessionStreamCache, ingestEngineStatus, ingestLiveApproval, requestTurnInterrupt, clearTurnInterruptRequest, canContinueTurn, getSessionStream, ingestLocalUserTurn, retractLocalUserTurn, observeEditedUserTurn, commitEditedUserTurn, noteOnScreenCollapseStats, resolveLiveApproval, chatStreamStore, loadSessionHistory, reconcileSessionWorking, prepareSubagentStream, seedSubagentTasks, subagentOwnerStreamId, updateAsyncQuestionUi, reopenAsyncQuestionsForSession } from './stream-store'
 import type { EditedUserTurnSnapshot } from './stream-store'
+import { createSidePanePlacement, identifySidePaneComposer, sidePaneDocument, sidePaneElementId, sidePanePlacements, sidePaneWindow, type SidePanePlacement } from './panels/side-pane-placement'
 import type { ChatEvent, FollowUpStatusEvent, SessionInfo, FollowUpQueueItem, ClientQueueRow, ClientQueueSnapshot, ClientQueueWireRow, QueuedFollowUpDispatchedEvent, AgentTask, SlashCommandInfo, PendingFileEntry, CronTask, ModelOption, OutgoingPayload, FeedbackAttachment, FeedbackEmailStatus, FeedbackSubmitResult } from './engine-events'
 import { prepareEphemeralSessionStream } from './stream-store'
 import { mountReactTranscript, unmountReactTranscript } from './transcript'
@@ -408,10 +409,7 @@ let activeSlashTriggerRange: { start: number; end: number; prefix?: '/' | '@' | 
 let composerMenuMode: string | null = null
 let composerPredictions: ReturnType<typeof mountComposerPredictions> | null = null
 let mainWindowsSandboxBanner: WindowsSandboxBannerMount | null = null
-let sideWindowsSandboxBanner: WindowsSandboxBannerMount | null = null
 let voiceChatUi: ReturnType<typeof mountVoiceChat> | undefined
-let sideVoiceChatUi: ReturnType<typeof mountVoiceChat> | undefined
-let mountSideComposerVoice: (() => void) | undefined
 const predictionModelSelections = new Map<string, string>()
 let workspaceAtTrigger: { start: number; end: number; query?: string } | null = null
 // The @ menu opens on category rows (files / folders) rather than a flat dump
@@ -1458,32 +1456,77 @@ let activeRenderSurface = mainSurface
 // the side surface here while its tab is open; the main session resolves to
 // mainSurface implicitly in the event handler.
 const surfacesBySession = new Map()
-let sideSurfaceSessionId: string | null = null
-/**
- * The side composer's own queue island.
- *
- * A side chat is a separate session with its own queue, so it gets its own mount
- * rather than sharing the main one — a side row must never act on the main
- * conversation's queue. Declared here (not beside the mount) because
- * `initSideComposer` assigns it during boot while `renderFollowUpQueue` reads it
- * later; both happen after module evaluation, but a `let` up here cannot be caught
- * in a TDZ by an early repaint either way.
- */
-let sideFollowUpQueueApi: FollowUpQueueApi | null = null
-// Each side task gets its own ChatSurface (own messagesEl slot inside
-// #side-messages, own indicator instances, own stream state) that lives for as
-// long as the tab exists. Registrations in surfacesBySession are PERMANENT
-// while the tab is open, so live engine events always paint into the correct
-// slot regardless of which tab is currently visible — switching tabs is a
-// zero-cost show/hide, streams never break, no cache/re-fetch dance.
-const sideSurfaces = new Map()  // sideId -> ChatSurface
-function sideMessagesContainer() { return document.getElementById('side-messages') }
-function getOrCreateSideSurface(sideId: string) {
+type SideComposerRuntime = {
+  placement: SidePanePlacement
+  sessionId: string | null
+  hooks: Record<string, any>
+  setSession?: (id: string | null) => void
+  ownsDraft?: (id: string) => boolean
+  refreshModel?: () => Promise<void>
+  refreshQueue?: () => void
+  refresh?: () => void
+  syncRuntime?: () => void
+  refreshSelectors?: () => void
+  invalidatePreferences?: () => void
+  preparePlacement?: (id: string) => void
+  resetScroll?: (distance: number) => void
+  compensateScroll?: (distance: number) => void
+  retainsAttachment?: (entry: PendingFileEntry) => boolean
+  refreshAttachment?: (entry: PendingFileEntry, force?: boolean) => void
+  detachAttachment?: (entry: PendingFileEntry, cancelPaste: boolean) => void
+  dispose?: () => void
+  mountVoice?: () => void
+  focus?: () => void
+}
+const sidePaneRuntimes = new Map<SidePanePlacement, SideComposerRuntime>()
+const sidePanePlacement = createSidePanePlacement()
+const sideComposerDrafts = new Map<string, { value: string; files: PendingFileEntry[]; deferred: DeferredSendIntent | null; document?: ComposerDocumentSnapshot }>()
+const sideComposerFriendContexts = new Map<string, FriendComposeContext>()
+const sideSurfaces = new Map<string, ReturnType<typeof createChatSurface>>()
+function sideRuntime(placement: SidePanePlacement = 'right'): SideComposerRuntime {
+  let runtime = sidePaneRuntimes.get(placement)
+  if (!runtime) {
+    runtime = { placement, sessionId: null, hooks: {} }
+    sidePaneRuntimes.set(placement, runtime)
+  }
+  return runtime
+}
+function sideRuntimeForSession(id: string): SideComposerRuntime | undefined {
+  return [...sidePaneRuntimes.values()].find(runtime => runtime.sessionId === id)
+}
+function setSidePaneSession(runtime: SideComposerRuntime, id: string | null) {
+  runtime.setSession?.(id)
+  runtime.sessionId = id
+}
+function refreshSideAttachmentPanes(entry: PendingFileEntry, force = false) {
+  for (const runtime of sidePaneRuntimes.values()) runtime.refreshAttachment?.(entry, force)
+}
+function sideMessagesContainer(placement: SidePanePlacement = 'right') {
+  return document.getElementById(sidePaneElementId('side-messages', placement))
+}
+function showLeftSidePane(id: string | null) {
+  const panel = document.getElementById('left-side-chat-panel')
+  const main = document.getElementById('main')
+  if (!panel || !main) return
+  if (id) {
+    if (!main.dataset.leftSideSession) captureTranscriptViewport(mainSurface.messagesEl)
+    main.dataset.leftSideSession = id
+    panel.hidden = false
+  } else {
+    delete main.dataset.leftSideSession
+    panel.hidden = true
+    activateTranscriptViewport(mainSurface.messagesEl)
+  }
+}
+function getOrCreateSideSurface(sideId: string, placement: SidePanePlacement = 'right') {
   if (!sideId) return null
-  const existing = sideSurfaces.get(sideId)
-  if (existing) return existing
-  const container = sideMessagesContainer()
+  const container = sideMessagesContainer(placement)
   if (!container) return null
+  const existing = sideSurfaces.get(sideId)
+  if (existing) {
+    if (existing.messagesEl.parentElement !== container) container.appendChild(existing.messagesEl)
+    return existing
+  }
   const slot = document.createElement('div')
   slot.className = 'side-messages-slot'
   slot.dataset.sideid = sideId
@@ -1494,100 +1537,100 @@ function getOrCreateSideSurface(sideId: string) {
   surfacesBySession.set(sideId, surface)
   return surface
 }
-// side-tasks.js calls this when a side tab becomes active: bring the target
-// side task's slot into view (all other slots stay in the DOM, just hidden).
-// slot 挂 React transcript（store 驱动：历史拉取/live 事件都在 store 里），
-// 切 tab 是纯 show/hide，流不断、无重拉。
-window.klausSideSurfaceActivate = async (sideId) => {
+window.klausSideSurfaceActivate = async (sideId, placement: SidePanePlacement = 'right') => {
   if (!sideId) return
   prepareEphemeralSessionStream(sideId)
+  const runtime = sideRuntime(placement)
+  const source = sideRuntimeForSession(sideId)
+  if (source && source !== runtime) {
+    const previous = sideSurfaces.get(sideId)
+    if (previous) captureTranscriptViewport(previous.messagesEl)
+    source.hooks.klausSideComposerBind?.(null)
+    setSidePaneSession(source, null)
+    source.refresh?.()
+    source.refreshQueue?.()
+    if (source.placement === 'left') showLeftSidePane(null)
+  }
   const retainedSurface = sideSurfaces.has(sideId)
-  const switching = sideSurfaceSessionId !== sideId
-  const surface = getOrCreateSideSurface(sideId)
+  const switching = runtime.sessionId !== sideId
+  const previous = runtime.sessionId ? sideSurfaces.get(runtime.sessionId) : null
+  if (switching && previous) captureTranscriptViewport(previous.messagesEl)
+  const surface = getOrCreateSideSurface(sideId, placement)
   if (!surface) return
   const savedDistance = transcriptViewportState(sideId)?.distanceFromBottomPx ?? 0
-  if (switching) {
-    const previous = sideSurfaceSessionId ? sideSurfaces.get(sideSurfaceSessionId) : null
-    if (previous) captureTranscriptViewport(previous.messagesEl)
-    sideScrollController?.resetForConversation(savedDistance)
-  }
-  sideSurfaceSessionId = sideId
-  sideVoiceChatUi?.refresh()
-  sideWindowsSandboxBanner?.refresh()
-  sideModelApi?.setDisabled(false)
-  ;(window as any).klausSideComposerBind?.(sideId)
-  ;(window as any).klausUpdateSideSendButton?.()
-  void refreshSideComposerModel()
-  // The side composer is reused across side tabs, so its queue has to follow the tab
-  // that just became active. Paint from cache immediately (a flash of the previous
-  // side chat's queue would be worse than an empty bar), then pull the host's
-  // snapshot — this conversation's queue may never have been read in this window.
-  renderSideFollowUpQueue()
+  if (switching) runtime.resetScroll?.(savedDistance)
+  sidePanePlacement.activate(sideId, placement)
+  setSidePaneSession(runtime, sideId)
+  runtime.hooks.klausSideComposerBind?.(sideId)
+  runtime.refresh?.()
+  void runtime.refreshModel?.()
+  runtime.refreshQueue?.()
   void refreshClientQueue(sideId, { reset: true })
-
-  // Show target slot, hide siblings. Doing this before await so the UI
-  // reflects the tab click immediately even if history hasn't loaded yet.
-  const container = sideMessagesContainer()
-  if (container) {
-    for (const child of container.children) {
-      if (child.classList?.contains('side-messages-slot')) {
-        (child as HTMLElement).hidden = (child as HTMLElement).dataset.sideid !== sideId
-      }
-    }
+  const container = sideMessagesContainer(placement)
+  if (container) for (const child of container.children) {
+    if (child.classList?.contains('side-messages-slot')) (child as HTMLElement).hidden = (child as HTMLElement).dataset.sideid !== sideId
   }
-
+  if (placement === 'left') showLeftSidePane(sideId)
   activateTranscriptViewport(surface.messagesEl)
-  if (switching && retainedSurface && sideScrollController && sideScrollController.scrollEl.clientHeight > 0) {
-    sideScrollController.compensateScrollToDistanceFromBottomPx(savedDistance)
-  }
-  // React root 接管 slot（首次挂载即自拉历史；重复调用同容器换 props 幂等）。
+  if (switching && retainedSurface) runtime.compensateScroll?.(savedDistance)
   mountReactTranscript(sideId, surface.messagesEl, { scroll: 'simple' })
-  // This side tab is the one on screen now, and every side tab shares one cloned
-  // composer slot, so the questions belong to whichever tab just activated. Same
-  // rule as the main transcript: a surface starting to show a session, never a
-  // store change, is what puts a deferred question back.
   reopenAsyncQuestionsForSession(sideId)
 }
-// Remove a specific side task's slot + registration — called when its tab is
-// closed. Frees the DOM and stops future event dispatch for that id.
-window.klausSideSurfaceRemove = (sideId) => {
-  ;(window as any).klausSideComposerDiscard?.(sideId)
+window.klausSideSurfaceRemove = sideId => {
   if (!sideId) return
+  for (const runtime of sidePaneRuntimes.values()) runtime.hooks.klausSideComposerDiscard?.(sideId)
   const surface = sideSurfaces.get(sideId)
   if (surface) {
-    if (sideSurfaceSessionId === sideId) captureTranscriptViewport(surface.messagesEl)
+    captureTranscriptViewport(surface.messagesEl)
     unmountReactTranscript(surface.messagesEl)
     resetStreamState(surface)
     surface.messagesEl.remove()
     sideSurfaces.delete(sideId)
   }
   surfacesBySession.delete(sideId)
-  if (sideSurfaceSessionId === sideId) {
-    sideSurfaceSessionId = null
-    sideVoiceChatUi?.refresh()
-    ;(window as any).klausUpdateSideSendButton?.()
-    // Nothing is bound to the side composer now, so its queue must empty rather than
-    // keep offering the closed chat's rows. The host drops the durable rows too.
-    renderSideFollowUpQueue()
+  retireSessionStream(sideId)
+  sidePanePlacement.remove(sideId)
+  for (const runtime of sidePaneRuntimes.values()) if (runtime.sessionId === sideId) {
+    setSidePaneSession(runtime, null)
+    runtime.refresh?.()
+    runtime.refreshQueue?.()
+    if (runtime.placement === 'left') showLeftSidePane(null)
   }
 }
-// Cross-family navigation — hide all slots and drop the active pointer, but
-// KEEP surfaces + registrations alive so switching back to a main session
-// with existing side tasks finds their slots intact (with all their in-flight
-// stream state). Only klausSideSurfaceRemove destroys a slot.
-window.klausSideSurfaceClear = () => {
-  const previous = sideSurfaceSessionId ? sideSurfaces.get(sideSurfaceSessionId) : null
-  if (previous) captureTranscriptViewport(previous.messagesEl)
-  for (const surface of sideSurfaces.values()) surface.messagesEl.hidden = true
-  sideSurfaceSessionId = null
-  sideVoiceChatUi?.refresh()
-  ;(window as any).klausSideComposerBind?.(null)
-  ;(window as any).klausUpdateSideSendButton?.()
-  // Navigated away from the side family entirely: the queue bar has no conversation
-  // to describe, so it empties instead of showing a hidden tab's messages.
-  renderSideFollowUpQueue()
+window.klausSideSurfaceClear = (placement?: SidePanePlacement) => {
+  for (const pane of placement ? [placement] : sidePanePlacements) {
+    const runtime = sideRuntime(pane)
+    const previous = runtime.sessionId ? sideSurfaces.get(runtime.sessionId) : null
+    if (previous) captureTranscriptViewport(previous.messagesEl)
+    for (const slot of sideMessagesContainer(pane)?.children || []) (slot as HTMLElement).hidden = true
+    runtime.hooks.klausSideComposerBind?.(null)
+    setSidePaneSession(runtime, null)
+    runtime.refresh?.()
+    runtime.refreshQueue?.()
+    if (pane === 'left') showLeftSidePane(null)
+  }
+  sidePanePlacement.clear(placement)
 }
-window.klausSideSurfaceSessionId = () => sideSurfaceSessionId
+window.klausSideSurfaceSessionId = (placement: SidePanePlacement = 'right') => sideRuntime(placement).sessionId
+;(window as any).klausSideSurfacePlacement = (id: string) => sidePanePlacement.placement(id)
+;(window as any).klausSideSurfaceMove = (id: string, placement: SidePanePlacement) => window.klausSideSurfaceActivate?.(id, placement)
+;(window as any).klausSideSurfaceShowParent = () => window.klausSideSurfaceClear?.('left')
+;(window as any).klausSideComposerBind = (id: string | null, placement: SidePanePlacement = 'right') => sideRuntime(placement).hooks.klausSideComposerBind?.(id)
+;(window as any).klausSideComposerPrepare = (id: string, parentId: string | null, placement: SidePanePlacement = 'right') => {
+  if (placement === 'left') showLeftSidePane(id)
+  return sideRuntime(placement).hooks.klausSideComposerPrepare?.(id, parentId)
+}
+;(window as any).klausSideComposerAddSelection = (text: string, placement: SidePanePlacement = 'right') => sideRuntime(placement).hooks.klausSideComposerAddSelection?.(text)
+;(window as any).klausSideComposerPromote = (id: string, sessionId: string, inheritModel = true) => ([...sidePaneRuntimes.values()].find(runtime => runtime.ownsDraft?.(id)) || sideRuntime()).hooks.klausSideComposerPromote?.(id, sessionId, inheritModel)
+;(window as any).klausSideComposerDiscard = (id: string) => {
+  for (const runtime of sidePaneRuntimes.values()) {
+    const pendingLeft = runtime.placement === 'left' && !runtime.sessionId && runtime.ownsDraft?.(id)
+    runtime.hooks.klausSideComposerDiscard?.(id)
+    if (pendingLeft) showLeftSidePane(null)
+  }
+}
+;(window as any).klausUpdateSideSendButton = () => { for (const runtime of sidePaneRuntimes.values()) runtime.hooks.klausUpdateSideSendButton?.() }
+
 async function resolveEditorMentionReference(entry: MentionEntry, sessionId: string | null): Promise<Omit<ComposerReferenceToken, 'range'> | null> {
     if (entry.kind === 'agent') return { kind: 'agent', name: entry.name, value: `@agent-${entry.path}`, source: 'configured' }
     if (entry.kind === 'plugin') return resourceReference('plugin', entry.name, entry.path || entry.name)
@@ -1612,7 +1655,100 @@ async function resolveEditorMentionReference(entry: MentionEntry, sessionId: str
 // visually and behaviourally identical, re-id'd to #side-* and bound to the
 // active side task. Attachments (+) and voice (mic) are wired to side-scoped
 // state / the shared recorder; discovery is bound to the active side draft.
-function initSideComposer() {
+function initSideComposer(placement: SidePanePlacement = 'right') {
+  const runtime = sideRuntime(placement)
+  const document = sidePaneDocument(globalThis.document, placement)
+  const window = sidePaneWindow(globalThis.window, runtime.hooks)
+  let sideSurfaceSessionId: string | null = runtime.sessionId
+  let sideModelApi: ModelSelectApi | null = null
+  let sidePermissionApi: PermissionSelectApi | null = null
+  let sideFollowUpQueueApi: FollowUpQueueApi | null = null
+  let sideScrollController: TranscriptScrollController | null = null
+  let sideVoiceChatUi: ReturnType<typeof mountVoiceChat> | undefined
+  let sideWindowsSandboxBanner: WindowsSandboxBannerMount | null = null
+  let sideComposerModelRevision = 0
+  let sideComposerModelScope: { sessionId: string; source: string } | null = null
+  let mountSideComposerVoice: (() => void) | undefined
+  const sideMessagesContainer = () => document.getElementById('side-messages')
+  const renderSideFollowUpQueue = () => {
+    if (!sideFollowUpQueueApi) return
+    if (!sideSurfaceSessionId || findKnownSession(sideSurfaceSessionId)?.archived) sideFollowUpQueueApi.render(null, null, followUpQueueMode === 'queue')
+    else renderQueueInto(sideFollowUpQueueApi, sideSurfaceSessionId)
+  }
+  runtime.setSession = id => { sideSurfaceSessionId = id; runtime.sessionId = id }
+  runtime.refreshQueue = renderSideFollowUpQueue
+  runtime.invalidatePreferences = () => { sideComposerModelRevision++ }
+  runtime.refreshModel = refreshSideComposerModel
+  runtime.refresh = () => {
+    sideVoiceChatUi?.refresh()
+    sideWindowsSandboxBanner?.refresh()
+    sideModelApi?.setDisabled(!sideSurfaceSessionId)
+    sideModelApi?.setRuntime(sideSurfaceSessionId ? getSessionStream(sideSurfaceSessionId) : null)
+    runtime.hooks.klausUpdateSideSendButton?.()
+  }
+  runtime.syncRuntime = () => sideModelApi?.setRuntime(sideSurfaceSessionId ? getSessionStream(sideSurfaceSessionId) : null)
+  runtime.refreshSelectors = () => { sideModelApi?.refresh(); sidePermissionApi?.refresh() }
+  runtime.preparePlacement = id => sideScrollController?.prepareLatestTurnPlacement(id)
+  runtime.resetScroll = distance => sideScrollController?.resetForConversation(distance)
+  runtime.compensateScroll = distance => {
+    if (sideScrollController && sideScrollController.scrollEl.clientHeight > 0) sideScrollController.compensateScrollToDistanceFromBottomPx(distance)
+  }
+  let disposed = false
+  runtime.dispose = () => {
+    if (disposed) return
+    disposed = true
+    sideVoiceChatUi?.dispose()
+    sideWindowsSandboxBanner?.dispose()
+    sideComposerControl?.destroy?.()
+  }
+  runtime.mountVoice = () => mountSideComposerVoice?.()
+  runtime.hooks.klausSideSurfaceSessionId = () => sideSurfaceSessionId
+  async function refreshSideComposerModel() {
+  syncComposerInferenceStatus()
+  const sessionId = window.klausSideSurfaceSessionId?.()
+  const revision = ++sideComposerModelRevision
+  if (!sideModelApi || !sessionId) return
+  try {
+    const saved = await klausApi.session.getMainModel(sessionId, { resolve: false })
+    if (revision !== sideComposerModelRevision || sessionId !== window.klausSideSurfaceSessionId?.()) return
+    const cachedItems = mainModelCatalogCache.get(saved.source)
+    // Seed send readiness only after reading this endpoint's persisted source.
+    if (cachedItems) composerModelReadinessCache.remember(sessionId, saved.source, cachedItems)
+    if (sideComposerModelScope?.sessionId !== sessionId || sideComposerModelScope.source !== saved.source) {
+      sideModelApi.setItems(cachedItems || [], cachedItems ? { value: saved.mode } : { value: '', loading: true })
+    }
+    const [resolved, items, thinking, fastMode, permission, ultraMode] = await Promise.all([
+      klausApi.session.getMainModel(sessionId),
+      buildMainModelItems(saved.source),
+      klausApi.session.getThinkingLevel?.(sessionId).catch(() => ({ level: 'medium' })),
+      klausApi.session.getFastMode(sessionId),
+      klausApi.session.getPermissionMode
+        ? klausApi.session.getPermissionMode(sessionId).catch(() => null)
+        : Promise.resolve(null),
+      klausApi.session.getUltraMode(sessionId),
+    ])
+    if (revision !== sideComposerModelRevision || sessionId !== window.klausSideSurfaceSessionId?.()) return
+    if (resolved.source !== saved.source || resolved.mode !== saved.mode) return
+    composerModelReadinessCache.remember(sessionId, saved.source, items)
+    const mode = mainModelMenuValue(items, resolved.resolvedMode)
+    const thinkingLevel = isThinkingLevelForModel(modelOptionForValue(items, mode), thinking?.level) ? thinking.level : 'medium'
+    // The side composer is its own conversation: its permission preset rides its
+    // own stored row, never the main composer's.
+    if (permission) sidePermissionApi?.setValue(permissionPresetFromResponse(permission))
+    else sidePermissionApi?.setUnavailable()
+    // Passed UNCLAMPED, same as the main composer: the picker derives the
+    // displayed rung from the stored pick per model. Clamping here would push a
+    // downgraded value into the selector's state and make it stick.
+    sideComposerModelScope = { sessionId, source: saved.source }
+    sideModelApi.setItems(items, { value: mode, thinkingLevel, ultraMode: ultraMode.enabled, fastMode: fastMode.enabled, fastModeSupported: fastMode.supported, fastModeBilling: fastMode.billing })
+  } catch (error) {
+    console.warn('[side-composer-model] refresh failed:', error)
+    if (revision !== sideComposerModelRevision || sessionId !== window.klausSideSurfaceSessionId?.()) return
+    sideComposerModelScope = null
+    sideModelApi.setItems([], { value: '', unavailable: true })
+  }
+}
+
   const host = document.getElementById('side-composer-host')
   const template = document.getElementById('input-wrapper')
   if (!host || !template || host.dataset.ready === '1') return
@@ -1681,7 +1817,7 @@ function initSideComposer() {
   let sideFriendSending = false
   let sideFriendAttempt: { key: string; id: string } | null = null
   const persistedSideFriendAttempts = friendDispatchAttempts(localStorage, windowStateKey('side'))
-  const sideFriendContexts = new Map<string, FriendComposeContext>()
+  const sideFriendContexts = sideComposerFriendContexts
   const sideFriendIntentHost = document.createElement('div')
   sideFriendIntentHost.id = 'side-friend-intent-select'
   sideFriendIntentHost.className = 'kls-select kls-select--flat kls-select--friend-intent'
@@ -1724,6 +1860,7 @@ function initSideComposer() {
   }
   mountSideComposerVoice()
   let sideDraftScope: string | null = null
+  runtime.ownsDraft = id => sideDraftScope === id || pendingSideDraft?.id === id
   let pendingSideDraft: { id: string; parentId: string | null } | null = null
   let sideBindingRevision = 0
   let sideHistoryBrowsingIndex = -1
@@ -1859,7 +1996,7 @@ function initSideComposer() {
 
   if (sideInput && sideComposerControl) {
     const menu = document.createElement('div')
-    menu.id = 'side-slash-menu'
+    menu.id = sidePaneElementId('side-slash-menu', placement)
     menu.className = 'slash-menu hidden'
     // Viewport coordinates must stay outside clipped composer ancestors.
     document.body.appendChild(menu)
@@ -1994,8 +2131,10 @@ function initSideComposer() {
   function sideAttachmentRetained(entry: PendingFileEntry) {
     return sidePendingFiles.includes(entry) || sideAttachmentHistory.retains(entry)
       || [...sideDrafts].some(([scope, draft]) => scope !== sideDraftScope && draft.files.includes(entry))
+      || [...sidePaneRuntimes.values()].some(pane => pane !== runtime && pane.retainsAttachment?.(entry))
   }
   function removeSideAttachment(entry: PendingFileEntry, cancelPaste = false) {
+    for (const pane of sidePaneRuntimes.values()) if (pane !== runtime) pane.detachAttachment?.(entry, cancelPaste)
     for (const draft of sideDrafts.values()) {
       if (!draft.files.includes(entry)) continue
       draft.files = draft.files.filter(candidate => candidate !== entry)
@@ -2018,11 +2157,12 @@ function initSideComposer() {
       removeSideAttachment(entry)
       disposeAttachmentObjectUrl(entry)
       entry.uploading = false
+      refreshSideAttachmentPanes(entry, true)
       if (active) { showToast(tt('upload_failed_short') + entry.file.name); sideRenderPreviews(); releaseSideDeferredSend() }
       return
     }
     entry.uploading = false
-    if (sidePendingFiles.includes(entry)) { sideRenderPreviews(); releaseSideDeferredSend() }
+    refreshSideAttachmentPanes(entry)
   }
   function addSideFiles(files: FileList | File[]) {
     for (const f of files) {
@@ -2051,11 +2191,12 @@ function initSideComposer() {
     sideRenderPreviews()
     updateSideSendButton()
     const result = await settlePastedTextAttachment(pending, text, {
-      create: value => createPastedTextAttachment(value, () => sidePendingFiles.includes(pending)), retained: () => sideAttachmentRetained(pending),
+      create: value => createPastedTextAttachment(value, () => sideAttachmentRetained(pending)), retained: () => sideAttachmentRetained(pending),
       removeStored: path => klausApi.chat.pastedTextRemove(path),
     })
     const active = sidePendingFiles.includes(pending)
     if (result === 'failed') removeSideAttachment(pending, true)
+    refreshSideAttachmentPanes(pending)
     if (active) { sideRenderPreviews(); updateSideSendButton(); if (result === 'ready') releaseSideDeferredSend() }
   }
   async function handleSideComposerPaste(e: ClipboardEvent) {
@@ -2140,7 +2281,7 @@ function initSideComposer() {
     scrollCaretIntoView(sideInput)
   }
   let sidePendingSendAfterUpload: DeferredSendIntent | null = null
-  const sideDrafts = new Map<string, { value: string; files: PendingFileEntry[]; deferred: DeferredSendIntent | null; document?: ComposerDocumentSnapshot }>()
+  const sideDrafts = sideComposerDrafts
   ;(window as any).klausSideComposerBind = (scope: string | null) => {
     sideDiscovery?.hide()
     if (scope === sideDraftScope) { void sideDiscovery?.refresh(); return }
@@ -2686,6 +2827,16 @@ function initSideComposer() {
     event.stopImmediatePropagation()
   }
   sideInput?.addEventListener('keydown', handleSideRecallKeydown, true)
+  runtime.retainsAttachment = entry => sidePendingFiles.includes(entry)
+  runtime.refreshAttachment = (entry, force = false) => { if (force || sidePendingFiles.includes(entry)) { sideRenderPreviews(); updateSideSendButton(); releaseSideDeferredSend() } }
+  runtime.detachAttachment = (entry, cancelPaste) => {
+    if (!sidePendingFiles.includes(entry)) return
+    sidePendingFiles = sidePendingFiles.filter(candidate => candidate !== entry)
+    if (cancelPaste) { sidePendingSendAfterUpload = null; sideSend?.classList.remove('awaiting-upload') }
+    sideAttachmentHistory.discard(entry)
+  }
+  runtime.focus = () => sideInput?.focus()
+  identifySidePaneComposer(clone, placement)
   renderSideFollowUpQueue()
 }
 const welcomeEl = document.getElementById('welcome') as HTMLElement
@@ -2812,7 +2963,6 @@ mountOuterScrollbar({
   },
 })
 // The side controller is created after its composer and floating button exist.
-let sideScrollController: TranscriptScrollController | null = null
 
 function updateScrollToBottomBtn() { mainScrollController.syncFloatButton() }
 
@@ -3972,7 +4122,8 @@ async function init() {
   // Sidebar collapse state
   updateSidebarToggleState()
   initSidebarScrollbars()
-  initSideComposer()
+  initSideComposer('right')
+  initSideComposer('left')
 
   const initialSessions = await readSessionSnapshot()
   if (initialSessions) {
@@ -4049,13 +4200,13 @@ window.addEventListener('klaus:auth-mode-changed', () => {
   composerPredictions?.invalidate()
   invalidateComposerPreferenceReads()
   void refreshComposerPreferences()
-  void refreshSideComposerModel()
+  void refreshAllSideComposerModels()
 })
 window.addEventListener('klaus:models-changed', () => {
   composerPredictions?.invalidate()
   invalidateComposerPreferenceReads()
   void refreshComposerPreferences()
-  void refreshSideComposerModel()
+  void refreshAllSideComposerModels()
 })
 // 欢迎屏问候语/示例 chips 已迁 React 岛（src/chat/welcome.tsx），useT 自行语言重渲。
 
@@ -8639,7 +8790,7 @@ function isSideChatSession(sessionId: string | null | undefined): boolean {
 
 function renderLocalUserPayload(targetSessionId: string, payload: OutgoingPayload | FollowUpQueueItem, options: { uuid?: string; edit?: EditedUserTurnSnapshot; steered?: boolean } = {}) {
   if (isSideChatSession(targetSessionId)) {
-    if (sideSurfaceSessionId === targetSessionId) sideScrollController?.prepareLatestTurnPlacement(targetSessionId)
+    sideRuntimeForSession(targetSessionId)?.preparePlacement?.(targetSessionId)
   } else if (targetSessionId === window.currentSessionId) {
     // Capture before the optimistic row changes the content geometry. Background
     // delivery must not move the conversation currently visible in this column.
@@ -8777,7 +8928,7 @@ chatStreamStore.subscribe((state, previousState) => {
   for (const change of sessionRunningChanges(previousState.sessions, state.sessions)) {
     if (state.sessions[change.sessionId]?.provisional || previousState.sessions[change.sessionId]?.provisional) continue
     setSessionRunning(change.sessionId, change.running)
-    if (change.sessionId === sideSurfaceSessionId) (window as any).klausUpdateSideSendButton?.()
+    if (sideRuntimeForSession(change.sessionId)) (window as any).klausUpdateSideSendButton?.()
     // Session state is also a reconciliation trigger for the task source. A
     // detached agent keeps its own activity state while the parent row settles.
     void reconcileAgentTasksFromEngine(change.sessionId)
@@ -8971,7 +9122,7 @@ function applyClientQueueSnapshot(sessionId: string, snapshot: { revision?: unkn
  */
 function repaintQueueIslands(sessionId: string | null) {
   if (sessionId && sessionId === window.currentSessionId) renderFollowUpQueue()
-  if (sessionId && sideSurfaceSessionId === sessionId) renderSideFollowUpQueue()
+  if (sessionId && sideRuntimeForSession(sessionId)) renderSideFollowUpQueue()
 }
 
 /** Pull the host's queue for a session — on open, and after anything unexpected. */
@@ -9642,13 +9793,7 @@ function renderMainFollowUpQueue() {
  * so a stale queue there would offer to send another conversation's messages.
  */
 function renderSideFollowUpQueue() {
-  if (!sideFollowUpQueueApi) return
-  const sideId = sideSurfaceSessionId
-  if (!sideId || findKnownSession(sideId)?.archived) {
-    sideFollowUpQueueApi.render(null, null, followUpQueueMode === 'queue')
-    return
-  }
-  renderQueueInto(sideFollowUpQueueApi, sideId)
+  for (const runtime of sidePaneRuntimes.values()) runtime.refreshQueue?.()
 }
 
 /**
@@ -13803,11 +13948,9 @@ branchBtn?.addEventListener('click', () => {
 // ==================== Composer preferences ====================
 const mainModelRoot = document.getElementById('main-model-select')
 let mainModelApi: ModelSelectApi | null = null
-let sideModelApi: ModelSelectApi | null = null
 
 const permissionSelectRoot = document.getElementById('permission-select')
 let permissionSelectApi: PermissionSelectApi | null = null
-let sidePermissionApi: PermissionSelectApi | null = null
 
 // codex 订阅模型的展示名：去掉 GPT 前缀、连字符改空格（GPT-5.6-Sol → 5.6 Sol，
 // GPT-5.3-Codex-Spark → 5.3 Codex Spark）——菜单里全是同一家族，前缀是纯噪音。
@@ -13927,19 +14070,16 @@ let composerPreferencesSnapshot: ComposerPreferencesSnapshot | null = null
 // borrow the snapshot of the conversation that was on screen a moment earlier.
 const composerPreferencesBySession = new Map<string | null, ComposerPreferencesSnapshot>()
 let composerPreferencesRevision = 0
-let sideComposerModelRevision = 0
-let sideComposerModelScope: { sessionId: string; source: string } | null = null
 function invalidateComposerPreferenceReads() {
   composerPreferencesRevision++
-  sideComposerModelRevision++
+  for (const runtime of sidePaneRuntimes.values()) runtime.invalidatePreferences?.()
   mainModelCatalogCache.invalidate()
   composerModelReadinessCache.invalidate()
 }
 function syncComposerInferenceStatus() {
   const mainId = window.currentSessionId
-  const sideId = window.klausSideSurfaceSessionId?.()
   mainModelApi?.setRuntime(mainId ? getSessionStream(mainId) : null)
-  sideModelApi?.setRuntime(sideId ? getSessionStream(sideId) : null)
+  for (const runtime of sidePaneRuntimes.values()) runtime.syncRuntime?.()
 }
 // Successful catalogs are shared by both pickers and send preflight. Changes
 // invalidate them explicitly; concurrent cold reads share one host request.
@@ -14110,55 +14250,13 @@ async function refreshComposerPreferences() {
   }
 }
 
-async function refreshSideComposerModel() {
-  syncComposerInferenceStatus()
-  const sessionId = window.klausSideSurfaceSessionId?.()
-  const revision = ++sideComposerModelRevision
-  if (!sideModelApi || !sessionId) return
-  try {
-    const saved = await klausApi.session.getMainModel(sessionId, { resolve: false })
-    if (revision !== sideComposerModelRevision || sessionId !== window.klausSideSurfaceSessionId?.()) return
-    const cachedItems = mainModelCatalogCache.get(saved.source)
-    // Seed send readiness only after reading this endpoint's persisted source.
-    if (cachedItems) composerModelReadinessCache.remember(sessionId, saved.source, cachedItems)
-    if (sideComposerModelScope?.sessionId !== sessionId || sideComposerModelScope.source !== saved.source) {
-      sideModelApi.setItems(cachedItems || [], cachedItems ? { value: saved.mode } : { value: '', loading: true })
-    }
-    const [resolved, items, thinking, fastMode, permission, ultraMode] = await Promise.all([
-      klausApi.session.getMainModel(sessionId),
-      buildMainModelItems(saved.source),
-      klausApi.session.getThinkingLevel?.(sessionId).catch(() => ({ level: 'medium' })),
-      klausApi.session.getFastMode(sessionId),
-      klausApi.session.getPermissionMode
-        ? klausApi.session.getPermissionMode(sessionId).catch(() => null)
-        : Promise.resolve(null),
-      klausApi.session.getUltraMode(sessionId),
-    ])
-    if (revision !== sideComposerModelRevision || sessionId !== window.klausSideSurfaceSessionId?.()) return
-    if (resolved.source !== saved.source || resolved.mode !== saved.mode) return
-    composerModelReadinessCache.remember(sessionId, saved.source, items)
-    const mode = mainModelMenuValue(items, resolved.resolvedMode)
-    const thinkingLevel = isThinkingLevelForModel(modelOptionForValue(items, mode), thinking?.level) ? thinking.level : 'medium'
-    // The side composer is its own conversation: its permission preset rides its
-    // own stored row, never the main composer's.
-    if (permission) sidePermissionApi?.setValue(permissionPresetFromResponse(permission))
-    else sidePermissionApi?.setUnavailable()
-    // Passed UNCLAMPED, same as the main composer: the picker derives the
-    // displayed rung from the stored pick per model. Clamping here would push a
-    // downgraded value into the selector's state and make it stick.
-    sideComposerModelScope = { sessionId, source: saved.source }
-    sideModelApi.setItems(items, { value: mode, thinkingLevel, ultraMode: ultraMode.enabled, fastMode: fastMode.enabled, fastModeSupported: fastMode.supported, fastModeBilling: fastMode.billing })
-  } catch (error) {
-    console.warn('[side-composer-model] refresh failed:', error)
-    if (revision !== sideComposerModelRevision || sessionId !== window.klausSideSurfaceSessionId?.()) return
-    sideComposerModelScope = null
-    sideModelApi.setItems([], { value: '', unavailable: true })
-  }
+async function refreshAllSideComposerModels() {
+  await Promise.all([...sidePaneRuntimes.values()].map(runtime => runtime.refreshModel?.()))
 }
 window.refreshComposerPreferences = refreshComposerPreferences
 window.refreshPermissionButton = refreshComposerPreferences
-window.refreshSidePermissionButton = refreshSideComposerModel
-window.refreshSideModelButton = refreshSideComposerModel
+window.refreshSidePermissionButton = refreshAllSideComposerModels
+window.refreshSideModelButton = refreshAllSideComposerModels
 
 const COMPOSER_PREFERENCE_KEYS = new Set([
   'composer.main_model',
@@ -14183,7 +14281,7 @@ klausApi.on.appPreferencesChanged?.(({ key }: { key?: string }) => {
     composerPredictions?.invalidate()
     invalidateComposerPreferenceReads()
     void refreshComposerPreferences()
-    void refreshSideComposerModel()
+    void refreshAllSideComposerModels()
   }
   if (key && SIDEBAR_COLLAPSE_KEYS.has(key)) void applyRemoteSidebarCollapseChange(key)
   // The dragged Projects order is not a settings:kv row (it lives in the
@@ -14232,9 +14330,8 @@ void refreshComposerPreferences()
 
 function refreshComposerSelectorTranslations() {
   mainModelApi?.refresh()
-  sideModelApi?.refresh()
+  for (const runtime of sidePaneRuntimes.values()) runtime.refreshSelectors?.()
   permissionSelectApi?.refresh()
-  sidePermissionApi?.refresh()
 }
 
 // ==================== Chat mode (auto / plan) ====================
@@ -14803,7 +14900,7 @@ klausApi.on.engineStatus((status: string) => {
   if (status !== lastModelEngineStatus) {
     lastModelEngineStatus = status
     invalidateComposerPreferenceReads()
-    if (status === 'ok') { void refreshComposerPreferences(); void refreshSideComposerModel() }
+    if (status === 'ok') { void refreshComposerPreferences(); void refreshAllSideComposerModels() }
   }
   ingestEngineStatus(status)
 })
@@ -17433,7 +17530,7 @@ voiceChatUi = mountVoiceChat({
   present: (eligible, sessionId, notice) => klausApi.voice.chat.present({ eligible, sessionId, ...(notice ? { notice } : {}) }),
   levels: (microphone, output, outputBands) => klausApi.voice.chat.levels({ microphone, output, outputBands }),
 })
-mountSideComposerVoice?.()
+for (const runtime of sidePaneRuntimes.values()) runtime.mountVoice?.()
 window.klausStopVoiceChatForSession = sessionId => voiceChatUi!.controller.stopForSession(sessionId)
 chatStreamStore.subscribe(() => voiceChatUi?.refresh())
 klausApi.voice.chat.onToggle(({ action }: { action: 'start' | 'stop' }) => {
@@ -17442,7 +17539,7 @@ klausApi.voice.chat.onToggle(({ action }: { action: 'start' | 'stop' }) => {
   newChat()
   void voiceChatUi?.controller.start()
 })
-window.addEventListener('pagehide', () => { sideVoiceChatUi?.dispose(); voiceChatUi?.dispose() }, { once: true })
+window.addEventListener('pagehide', () => { for (const runtime of sidePaneRuntimes.values()) runtime.dispose?.(); voiceChatUi?.dispose() }, { once: true })
 
 window.addEventListener('klaus:restore-question-draft', ((event: CustomEvent<{ sessionId: string; drafts: Array<{ text: string }> }>) => {
   const { sessionId, drafts } = event.detail
@@ -17489,11 +17586,11 @@ const windowsSandboxComposer = document.getElementById('input-wrapper')
 if (windowsSandboxComposer) mainWindowsSandboxBanner = mountWindowsSandboxBanner(windowsSandboxComposer, () => windowsSandboxContext(selectedProjectWorkdir(), window.currentSessionId))
 window.addEventListener('klaus:session-change', () => {
   mainWindowsSandboxBanner?.refresh()
-  sideWindowsSandboxBanner?.refresh()
+  for (const runtime of sidePaneRuntimes.values()) runtime.refresh?.()
 })
 window.addEventListener('pagehide', () => {
   mainWindowsSandboxBanner?.dispose()
-  sideWindowsSandboxBanner?.dispose()
+  for (const runtime of sidePaneRuntimes.values()) runtime.dispose?.()
 }, { once: true })
 
 composerPredictions = mountComposerPredictions({

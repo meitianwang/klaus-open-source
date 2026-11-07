@@ -396,6 +396,19 @@ function queueIslands() {
       async removeQueued(sessionId: string, request: unknown) { engineRemovals.push({ sessionId, request }); return { ok: true } },
     } },
   }
+  let paneQueue: ts.VariableDeclaration | undefined
+  const findPaneQueue = (node: ts.Node) => {
+    if (ts.isVariableDeclaration(node) && node.name.getText(source) === 'renderSideFollowUpQueue') paneQueue = node
+    ts.forEachChild(node, findPaneQueue)
+  }
+  findPaneQueue(source)
+  if (!paneQueue?.initializer) throw Error('Missing pane-local queue renderer')
+  runInNewContext(ts.transpileModule(`globalThis.paintPaneQueue = ${paneQueue.initializer.getText(source)}`, {
+    compilerOptions: { target: ts.ScriptTarget.ES2022 },
+  }).outputText, sandbox)
+  const sideRuntime = { sessionId: side, refreshQueue: () => sandbox.paintPaneQueue() }
+  sandbox.sidePaneRuntimes = new Map([['right', sideRuntime]])
+  sandbox.sideRuntimeForSession = (id: string) => id === sandbox.sideSurfaceSessionId ? sideRuntime : undefined
   runInNewContext(productionCode(['asQueuedItem', 'clientQueueFor', 'clientQueueSnapshotFor', 'clientQueueMutationKey',
     'applyClientQueueSnapshot', 'repaintQueueIslands', 'refreshClientQueue', 'runClientQueueMutation', 'renderQueueInto', 'removeEngineFollowUp',
     'renderFollowUpQueue', 'renderMainFollowUpQueue', 'renderSideFollowUpQueue',

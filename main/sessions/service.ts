@@ -432,8 +432,6 @@ export class SessionService {
   private readonly sideQuestions = new SideQuestions((id, question, signal) => this.runSideQuestion(id, question, signal));
   private readonly predictionQueries = new Map<string, number>();
   private readonly sideTasks: SideTaskRegistry;
-  private sideTaskTimer?: NodeJS.Timeout;
-  private sideTaskSweep?: Promise<void>;
   private readonly sideTaskCleanup = new Set<Promise<void>>();
   private readonly sideTaskUsage = new Map<string, { owner: ManagedEngineLike; engineId: string; usage: Record<string, Json> }>();
   private readonly sideTaskUsageReads = new Map<string, Promise<void>>();
@@ -898,15 +896,10 @@ export class SessionService {
   }
   private sideTaskRow(task: SideTask): Record<string, Json> {
     const model = readSessionModel(task.id, this.configRoot);
-    return { id: task.id, title: task.title, initialTitleIndex: task.initialTitleIndex, createdAt: task.createdAt, updatedAt: task.updatedAt, expiresAt: task.expiresAt,
+    return { id: task.id, title: task.title, initialTitleIndex: task.initialTitleIndex, createdAt: task.createdAt, updatedAt: task.updatedAt,
       parentSessionId: task.parentSessionId, role: 'side_task', sideTaskStatus: task.phase, isWorking: task.working, archived: false,
       workdir: this.deps.workspaces?.resolveSessionDirectory(task.id) ?? sessionWorkdir(task.id, this.configRoot) ?? join(this.configRoot, 'sessions', task.id),
       modelConfig: { mode: model.mode, source: model.source, thinkingLevel: readSessionThinkingLevel(task.id, this.configRoot) }, ...(task.error ? { error: task.error } : {}) };
-  }
-  private watchSideTasks(): void {
-    if (this.sideTaskTimer || this.closing) return;
-    this.sideTaskTimer = setInterval(() => this.scheduleSideTaskSweep(), 60_000);
-    this.sideTaskTimer.unref();
   }
   private async forgetSideTask(id: string): Promise<void> {
     this.sideTaskUsage.delete(id);
@@ -917,7 +910,6 @@ export class SessionService {
     await this.deps.onDeleted?.(id);
     forgetEphemeralPreferences(id, this.configRoot);
     this.sideTasks.remove(id);
-    if (!this.sideTasks.all().length && this.sideTaskTimer) { clearInterval(this.sideTaskTimer); this.sideTaskTimer = undefined; }
   }
   private async closeSideTaskNow(id: string): Promise<Json> {
     if (!this.sideTasks.get(id)) throw new IpcHandlerError('NOT_A_SIDE_TASK', 'The conversation is not an active side task');
@@ -964,35 +956,6 @@ export class SessionService {
     return rows.some(row => !['completed', 'failed', 'cancelled', 'interrupted'].includes(String(object(row)?.status)))
       || shells.some(row => !['completed', 'failed', 'stopped'].includes(String(object(row)?.status)));
   }
-  sweepSideTasks(): Promise<void> {
-    if (this.sideTaskSweep) return this.sideTaskSweep;
-    if (this.closing) return Promise.resolve();
-    this.syncSideTaskActivity();
-    const sweep = (async () => {
-      for (const expired of this.sideTasks.expired()) {
-        // A pending mutation can be waiting for user authorization. Let it settle before GC.
-        if (this.mutations.has(expired.id) || this.viewInterests.has(expired.id) || this.deps.isSessionRetirementProtected?.(expired.id)) continue;
-        await this.mutate(expired.id, async () => {
-        if (!this.sideTasks.expired().some(task => task.id === expired.id) || this.viewInterests.has(expired.id) || this.deps.isSessionRetirementProtected?.(expired.id)) return;
-        if (await this.backgroundKeepsSession(expired.id, { priority: 'background', source: 'thread', conversationId: expired.id })) { this.sideTasks.touch(expired.id); return; }
-        if (!this.sideTasks.expired().some(task => task.id === expired.id) || this.deps.state.isWorking(expired.id)
-          || this.viewInterests.has(expired.id) || this.deps.isSessionRetirementProtected?.(expired.id)) return;
-        await this.closeSideTaskNow(expired.id);
-        });
-      }
-    })();
-    this.sideTaskSweep = sweep;
-    void sweep.finally(() => { if (this.sideTaskSweep === sweep) this.sideTaskSweep = undefined; }).catch(() => {});
-    return sweep;
-  }
-
-  private scheduleSideTaskSweep(): void {
-    if (this.closing || this.sideTaskSweep) return;
-    // Background cleanup must outlive the IPC request that noticed an idle task.
-    const sweep = this.requestOwner.exit(() => Promise.resolve().then(() => this.sweepSideTasks()));
-    void sweep.catch(error => this.deps.log?.('side-task-sweep', String(error)));
-  }
-
   private refreshSideTaskUsage(id: string, owner: ManagedEngineLike, engineId: string): void {
     if (this.closing || this.sideTaskUsageReads.has(id)) return;
     const read = this.requestOwner.exit(() => Promise.resolve().then(async () => {
@@ -1164,7 +1127,7 @@ export class SessionService {
   sessionInterestChanged(id: string): void {
     this.inactiveLiveSessions.delete(id);
     this.scheduleIdleRetirement();
-    if (this.isSideTask(id)) { this.sideTasks.touch(id); this.scheduleSideTaskSweep(); }
+    if (this.isSideTask(id)) { this.sideTasks.touch(id); }
   }
 
   private hasContinuingGoal(id: string): boolean { return this.deps.state.workflows.goal(id)?.goal?.status === 'active' && this.deps.state.workflows.mode(id)?.mode !== 'plan'; }
@@ -1204,7 +1167,6 @@ export class SessionService {
   }
   async listSideTasks(parentId: string): Promise<Json[]> {
     this.syncSideTaskActivity();
-    this.scheduleSideTaskSweep();
     return this.sideTasks.all().filter(task => task.parentSessionId === parentId && task.phase !== 'starting').map(task => {
       const row = this.sideTaskRow(task), engineId = this.deps.state.liveSession(task.id), owner = this.attached;
       if (engineId && owner && !owner.client.isClosed() && task.phase === 'active') {
@@ -1218,14 +1180,12 @@ export class SessionService {
   }
   async touchSideTask(id: string): Promise<Json> {
     const ok = this.sideTasks.touch(id);
-    this.scheduleSideTaskSweep();
     return { ok };
   }
   async createSideTask(parentId: string, initialTitleIndex?: Json): Promise<Json> {
     if (!parentId.trim() || parentId.startsWith('__') || Buffer.byteLength(parentId) > 256 || this.isSideTask(parentId)) throw new IpcHandlerError('INVALID_PARENT_SESSION', 'A side task requires an ordinary parent conversation');
-    this.scheduleSideTaskSweep();
-    if (initialTitleIndex !== undefined && (typeof initialTitleIndex !== 'number' || !Number.isSafeInteger(initialTitleIndex) || initialTitleIndex < 1 || initialTitleIndex > 8)) {
-      throw new IpcHandlerError('BAD_REQUEST', 'A side-task title index must be between one and eight');
+    if (initialTitleIndex !== undefined && (typeof initialTitleIndex !== 'number' || !Number.isSafeInteger(initialTitleIndex) || initialTitleIndex < 1)) {
+      throw new IpcHandlerError('BAD_REQUEST', 'A side-task title index must be a positive safe integer');
     }
     const task = this.sideTasks.reserve(parentId, initialTitleIndex as number | undefined);
     try {
@@ -1239,12 +1199,12 @@ export class SessionService {
           const projectRoot = this.deps.workspaces?.projectAssignment(parentId);
           inheritSessionComposerPreferences(parentId, task.id, this.configRoot);
           await this.mutate(task.id, () => this.createSession(task.id, { workdir, workspaceId, projectRoot }, { threadId: parentId, sideTask: true }));
-          this.sideTasks.activate(task.id); this.watchSideTasks();
+          this.sideTasks.activate(task.id);
           return this.sideTaskRow(this.sideTasks.get(task.id)!);
         }));
     } catch (error) {
       if (this.deps.state.liveSession(task.id)) {
-        this.sideTasks.failed(task.id, 'Side-task startup or cleanup failed. Close it to retry cleanup.'); this.watchSideTasks();
+        this.sideTasks.failed(task.id, 'Side-task startup or cleanup failed. Close it to retry cleanup.');
       } else {
         await this.forgetSideTask(task.id);
       }
@@ -1567,7 +1527,6 @@ export class SessionService {
       this.sideTaskCleanup.add(cleanup);
       void cleanup.catch(error => this.deps.log?.('side-task-cleanup', String(error))).finally(() => this.sideTaskCleanup.delete(cleanup));
     }
-    if (this.sideTaskTimer) { clearInterval(this.sideTaskTimer); this.sideTaskTimer = undefined; }
     this.deps.pushChatEvents([
       ...lost.pending.map(entry => cancelledEvent(entry.isApproval, entry.requestId, entry.sessionId)),
       ...lost.running.flatMap((sessionId): Json[] => [
@@ -5145,7 +5104,6 @@ export class SessionService {
     this.titles.close();
     const followUps = this.followUps.close();
     const pendingTurns = this.pendingTurns.close();
-    if (this.sideTaskTimer) { clearInterval(this.sideTaskTimer); this.sideTaskTimer = undefined; }
     const questions = this.sideQuestions.close();
     void questions.catch(() => {});
     this.shutdownPromise = (async () => {

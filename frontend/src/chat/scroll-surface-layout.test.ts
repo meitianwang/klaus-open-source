@@ -39,19 +39,19 @@ describe('scroll-to-latest arrow placement', () => {
   })
 
   test('floats on the seam above the composer, pill-shaped and shadow-free', () => {
-    const rule = cssRule(STYLES_CSS, '#scroll-to-bottom, #side-scroll-to-bottom {')
+    const rule = cssRule(STYLES_CSS, '#scroll-to-bottom, :is(#side-scroll-to-bottom, #left-side-scroll-to-bottom) {')
     expect(rule).toContain('position: absolute;')
     expect(rule).toContain('bottom: 100%;')
     expect(rule).toContain('left: 50%;')
     expect(rule).toContain('border-radius: 9999px;')
     expect(rule).not.toContain('box-shadow')
-    const visible = cssRule(STYLES_CSS, '#scroll-to-bottom.visible, #side-scroll-to-bottom.visible {')
+    const visible = cssRule(STYLES_CSS, '#scroll-to-bottom.visible, :is(#side-scroll-to-bottom, #left-side-scroll-to-bottom).visible {')
     expect(visible).toContain('opacity: 1;')
     expect(visible).toContain('pointer-events: auto;')
   })
 
   test('swaps to a spinner glyph while the turn runs', () => {
-    const hidden = cssRule(STYLES_CSS, '#scroll-to-bottom .scroll-to-bottom-spin,\n#side-scroll-to-bottom .scroll-to-bottom-spin {')
+    const hidden = cssRule(STYLES_CSS, '#scroll-to-bottom .scroll-to-bottom-spin,\n:is(#side-scroll-to-bottom, #left-side-scroll-to-bottom) .scroll-to-bottom-spin {')
     expect(hidden).toContain('display: none;')
     const generating = cssRule(STYLES_CSS, '#scroll-to-bottom[data-generating] .scroll-to-bottom-spin,')
     expect(generating).toContain('display: block;')

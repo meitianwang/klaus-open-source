@@ -851,9 +851,9 @@ describe('stop interaction vectors: running composer submit mode', () => {
     expect(I18N.en['submit_tooltip_steer']).toBe('Steer')
     expect(I18N.zh['submit_tooltip_steer']).toBe('引导')
     const css = readFileSync(new URL('../../css/styles.css', import.meta.url), 'utf8')
-    expect(css).toContain('#send.busy.running-submit .icon-send, #side-send.busy.running-submit .icon-send { display: block; }')
-    expect(css).toContain('#send.busy.running-submit .icon-stop, #side-send.busy.running-submit .icon-stop { display: none; }')
-    expect(css).toContain('#send.busy.running-submit, #side-send.busy.running-submit {\n  background-color: var(--accent);')
+    expect(css).toContain('#send.busy.running-submit .icon-send, :is(#side-send, #left-side-send).busy.running-submit .icon-send { display: block; }')
+    expect(css).toContain('#send.busy.running-submit .icon-stop, :is(#side-send, #left-side-send).busy.running-submit .icon-stop { display: none; }')
+    expect(css).toContain('#send.busy.running-submit, :is(#side-send, #left-side-send).busy.running-submit {\n  background-color: var(--accent);')
     const chat = readFileSync(new URL('./chat.ts', import.meta.url), 'utf8')
     // The click on the submit face is a submit; every other busy click is a stop.
     expect(chat).toContain("if (btnSend.classList.contains('running-submit')) void send()")

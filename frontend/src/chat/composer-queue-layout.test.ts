@@ -37,7 +37,7 @@ describe('composer status layout', () => {
     // stack above the input became one attached card. The rows and their wrappers
     // must stay chrome-free, or every row would sit inside a second box and the
     // stack would read as nested frames.
-    const wrapper = cssRule(STYLES_CSS, '#input-wrapper, #side-input-wrapper {')
+    const wrapper = cssRule(STYLES_CSS, '#input-wrapper, :is(#side-input-wrapper, #left-side-input-wrapper) {')
     const queue = cssRule(STYLES_CSS, '.follow-up-queue {')
     const hiddenQueue = cssRule(STYLES_CSS, '.follow-up-queue[hidden] {')
     const goal = cssRule(STYLES_CSS, '#goal-indicator {')
@@ -90,10 +90,10 @@ describe('composer status layout', () => {
 
     // The input keeps its ordinary corner radius in front of the inset status rail.
     expect(STYLES_CSS).toContain('#input-wrapper:has(#composer-status-stack > :not([hidden])) #input-area,')
-    expect(STYLES_CSS).toContain('#side-input-wrapper:has(#side-composer-status-stack > :not([hidden])) #side-input-area {')
+    expect(STYLES_CSS).toContain(':is(#side-input-wrapper, #left-side-input-wrapper):has(:is(#side-composer-status-stack, #left-side-composer-status-stack) > :not([hidden])) :is(#side-input-area, #left-side-input-area) {')
     const attachedInput = cssRule(STYLES_CSS, '#input-wrapper:has(#composer-status-stack > :not([hidden])) #input-area,')
     expect(attachedInput).not.toContain('border-radius:')
-    expect(cssRule(STYLES_CSS, '#input-area, #side-input-area {')).toContain('border-radius: var(--radius-sm);')
+    expect(cssRule(STYLES_CSS, '#input-area, :is(#side-input-area, #left-side-input-area) {')).toContain('border-radius: var(--radius-sm);')
 
     // Only required questions replace the ordinary input and join its status stack.
 
@@ -219,11 +219,20 @@ describe('composer status layout', () => {
     expect(CHAT_TS).toContain('{ offerSideChat: false }')
     // Every side-session change repaints, or the reused composer shows the previous
     // side chat's rows.
+    expect(CHAT_TS).toContain("initSideComposer('right')")
+    expect(CHAT_TS).toContain("initSideComposer('left')")
+    expect(CHAT_TS).toContain('runtime.refreshQueue = renderSideFollowUpQueue')
     for (const hook of ['window.klausSideSurfaceActivate', 'window.klausSideSurfaceRemove', 'window.klausSideSurfaceClear']) {
       const start = CHAT_TS.indexOf(hook)
+      const nextHook = CHAT_TS.indexOf('\nwindow.', start + hook.length)
       expect(start).toBeGreaterThan(0)
-      expect(CHAT_TS.slice(start, start + 2000)).toContain('renderSideFollowUpQueue()')
+      expect(nextHook).toBeGreaterThan(start)
+      expect(CHAT_TS.slice(start, nextHook)).toContain('runtime.refreshQueue?.()')
     }
+    const activate = CHAT_TS.slice(CHAT_TS.indexOf('window.klausSideSurfaceActivate'), CHAT_TS.indexOf('window.klausSideSurfaceRemove'))
+    expect(activate).toContain('const runtime = sideRuntime(placement)')
+    expect(activate).toContain('source.refreshQueue?.()')
+    expect(activate).toContain('setSidePaneSession(runtime, sideId)')
   })
 
   test('the side composer can queue while its turn runs, like the main one', () => {
@@ -261,7 +270,7 @@ describe('composer status layout', () => {
 
 describe('composer attachment layout', () => {
   test('caps the preview item itself to the visible chip width', () => {
-    const row = cssRule(STYLES_CSS, '#previews, #side-previews {')
+    const row = cssRule(STYLES_CSS, '#previews, :is(#side-previews, #left-side-previews) {')
     const item = cssRule(STYLES_CSS, '.kls-attach-item {')
     const quote = cssRule(COMPOSER_CSS, '.quote-preview-item {')
 

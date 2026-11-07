@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "reason": "A side conversation may occupy either conversation pane without changing the selected parent. Pane moves preserve endpoint identity and independently owned composer state, rather than rebuilding or redirecting a draft through the other pane.",
+  "placements": ["left", "right"],
+  "parentSelectionOnActivate": "unchanged",
+  "perPane": ["activeSession", "composerDocument", "attachments", "deferredSend", "modelPicker", "permissionPicker", "queue", "scrollController"],
+  "move": {
+    "newSessionCreated": false,
+    "transcriptNodeReplaced": false,
+    "transfer": ["draftDocument", "quoteMetadata", "attachments", "deferredSend", "queueIdentity", "viewport"],
+    "uploadSettlement": "updates the moved owner; never submits or clears the other pane"
+  },
+  "showParent": { "clearsActivePane": "left", "removesSideTabs": false, "clearsRightDraft": false },
+  "pending": { "editableBeforeEndpoint": true, "sendBeforeEndpoint": false, "modelBeforeEndpoint": false }
+}

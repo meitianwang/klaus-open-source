@@ -2,13 +2,13 @@
 // The transcript and composer are the SAME components as the main chat, driven
 // by chat.js's ChatSurface abstraction (window.klausSideSurface* hooks + the
 // cloned #input-wrapper). This module owns the side-task family (create / close /
-// switch, up to 8), the idle-expiry banner, the side-rail entry, and pointing
+// switch), the unavailable-state banner, the side-rail entry, and pointing
 // the shared side surface at the active side task. The tabs themselves are
 // rendered by panels/panel-tabs.tsx, which owns the whole strip.
 //
 //（迁自 js/side-tasks.js：纯数据面+显隐开关，无 HTML 建造，TS 化原样收编。）
 import { selectSideTaskQuoteTarget, type SideTaskQuotePanel } from '../../../../contracts/side-task-quotes'
-import { prepareEphemeralSessionStream } from '../stream-store'
+import { getSessionStream, prepareEphemeralSessionStream } from '../stream-store'
 
 const w = () => window as any
 
@@ -37,9 +37,10 @@ let parentId: string | null = null
 let parentReady = false
 let expiredSessionId: string | null = null
 let activeSideId: string | null = null
+let leftSideId: string | null = null
+type SidePlacement = 'left' | 'right'
+const placements = new Map<string, SidePlacement>()
 let refreshSequence = 0
-let expiryRefreshPending = false
-let nextExpiryRefreshAt = 0
 let navigationRevision = 0
 let activationRevision = 0
 let pendingSequence = 0
@@ -66,7 +67,7 @@ const eligibilityReads = new Map<string, Promise<boolean>>()
 // whether the panel was open for each parent session the user has visited.
 // Lets us auto-restore the same view on switch-back so the user doesn't have
 // to reopen the panel every time they navigate away and back.
-const stateBySession = new Map<string, { activeSideId: string | null; wasOpen: boolean }>()
+const stateBySession = new Map<string, { activeSideId: string | null; leftSideId: string | null; wasOpen: boolean }>()
 
 const text = (key: string): string => w().tt?.(key) || key
 const currentId = (): string | null => w().getCurrentSessionId?.() || null
@@ -92,17 +93,8 @@ function saveStateFor(sessionId: string | null) {
   if (!sessionId) return
   const wasOpen = panelOpen()
   const active = activeSideId && tasks.has(activeSideId) ? activeSideId : null
-  if (wasOpen || active) stateBySession.set(sessionId, { activeSideId: active, wasOpen })
+  if (wasOpen || active || leftSideId) stateBySession.set(sessionId, { activeSideId: active, leftSideId, wasOpen })
   else stateBySession.delete(sessionId)
-}
-
-function countdown(expiresAt?: number) {
-  const remaining = (expiresAt || 0) - Date.now()
-  if (remaining > 10 * 60_000) return ''
-  if (remaining <= 0) return text('side_task_expired_short')
-  const minutes = Math.floor(remaining / 60_000)
-  const seconds = Math.floor((remaining % 60_000) / 1000)
-  return `${minutes}:${String(seconds).padStart(2, '0')}`
 }
 
 // ── Panel entry ───────────────────────────────────────────────────────────
@@ -149,7 +141,7 @@ async function openFromRail() {
       await activated
       return
     }
-    if (tasks.size === 0 && canCreate()) { await create(); return }
+    if ([...tasks.keys()].every(id => placements.get(id) === 'left') && canCreate()) { await create(); return }
   }
   const request = newPending('loading')
   opening = request
@@ -158,7 +150,7 @@ async function openFromRail() {
     void setActive(activeSideId).catch(showError)
   } else {
     activeSideId = request.id
-    w().klausSideSurfaceClear?.()
+    w().klausSideSurfaceClear?.('right')
     w().klausSideComposerPrepare?.(request.id, request.sessionId)
   }
   render()
@@ -168,7 +160,7 @@ async function openFromRail() {
       if (!requestIsCurrent(request)) return
       if (opening !== request) { await request.promise; return }
       const existing = activeSideId && tasks.has(activeSideId) ? activeSideId
-        : [...tasks.values()].sort((a, b) => a.createdAt - b.createdAt)[0]?.id
+        : [...tasks.values()].filter(task => placements.get(task.id) !== 'left').sort((a, b) => a.createdAt - b.createdAt)[0]?.id
       if (existing) {
         await w().klausSideComposerPromote?.(request.id, existing, false)
         if (!requestIsCurrent(request)) return
@@ -189,7 +181,7 @@ async function openFromRail() {
 }
 
 function canCreate() {
-  return familyNavigationRevision === navigationRevision && !!parentId && parentReady && tasks.size < 8 && !creation
+  return familyNavigationRevision === navigationRevision && !!parentId && parentReady && !creation
 }
 
 async function create(): Promise<string | null> {
@@ -203,7 +195,7 @@ async function create(): Promise<string | null> {
   activeSideId = request.id
   expiredSessionId = null
   w().openArtifactsPanel?.('side-chat')
-  w().klausSideSurfaceClear?.()
+  w().klausSideSurfaceClear?.('right')
   w().klausSideComposerPrepare?.(request.id, family)
   render()
   let createdTask: SideTask | null = null
@@ -226,6 +218,7 @@ async function create(): Promise<string | null> {
       // A listing started before the fork must not erase the newly returned task.
       refreshSequence++
       prepareEphemeralSessionStream(task.id)
+      knownSideIds.add(task.id)
       tasks.set(task.id, task)
       creation = null
       await setActive(task.id)
@@ -242,7 +235,7 @@ async function create(): Promise<string | null> {
       w().klausSideComposerDiscard?.(request.id)
       if (creation === request) {
         creation = null
-        if (activeSideId === request.id) { activeSideId = null; w().klausSideSurfaceClear?.() }
+        if (activeSideId === request.id) { activeSideId = null; w().klausSideSurfaceClear?.('right') }
       }
       if (request.navigationRevision === navigationRevision) render()
     }
@@ -255,24 +248,59 @@ async function closeSideTask(id: string) {
   return api.session.closeSideTask(id)
 }
 
-async function close(task: SideTask) {
+const closingTasks = new Map<string, Promise<boolean>>()
+const SKIP_CLOSE_CONFIRMATION = 'klaus.skip-side-chat-close-confirmation'
+
+function hasSubmittedTurns(id: string): boolean {
+  const stream = getSessionStream(id)
+  return Object.keys(stream.turnShells).length > 0 || Object.keys(stream.turnStatuses).length > 0
+    || !!stream.history?.some(message => message.role === 'user')
+    || stream.liveUnits.some(unit => unit.type === 'live-user')
+}
+
+async function confirmClose(id: string): Promise<boolean> {
+  if (!hasSubmittedTurns(id)) return true
+  try { if (w().localStorage?.getItem(SKIP_CLOSE_CONFIRMATION) === '1') return true } catch {}
+  const choice = await w().klausDialog?.confirm({
+    title: text('side_task_close_title'), message: text('side_task_close_message'),
+    confirmText: text('side_task_close_confirm'), cancelText: text('cancel'), danger: true,
+    checkbox: { label: text('side_task_close_skip') },
+  })
+  if (choice?.confirmed !== true) return false
+  if (choice.checked) { try { w().localStorage?.setItem(SKIP_CLOSE_CONFIRMATION, '1') } catch {} }
+  return true
+}
+
+function close(task: SideTask): Promise<boolean> {
+  const existing = closingTasks.get(task.id)
+  if (existing) return existing
+  const request = closeConfirmed(task).finally(() => { closingTasks.delete(task.id) })
+  closingTasks.set(task.id, request)
+  return request
+}
+
+async function closeConfirmed(task: SideTask): Promise<boolean> {
   const navigation = navigationRevision
-  // No confirm dialog: side tasks are ephemeral by design (idle-TTL sweeps
-  // them anyway) and the tab's × should behave like closing a browser tab.
+  if (!await confirmClose(task.id)) return false
   const result = await closeSideTask(task.id)
   if (result?.ok !== true) throw new Error(result?.error || text('side_task_close_failed'))
   // Free the slot + registration in chat.js so the DOM doesn't linger and
   // subsequent events for this id stop being dispatched anywhere.
   w().klausSideSurfaceRemove?.(task.id)
-  if (navigation !== navigationRevision) return
+  knownSideIds.delete(task.id)
+  unreadSideIds.delete(task.id)
+  placements.delete(task.id)
+  if (navigation !== navigationRevision) return true
+  if (leftSideId === task.id) { leftSideId = null; w().klausSideSurfaceShowParent?.() }
   tasks.delete(task.id)
   if (activeSideId === task.id) activationRevision++
   if (activeSideId === task.id) activeSideId = null
   // Discarding the last side task leaves side-chat mode; where the panel goes
   // next is the strip's call (it falls back to the Monitor tab), so this only
   // clears the shared surface.
-  if (tasks.size === 0) { exitPanel(); return }
+  if (tasks.size === 0) { exitPanel(); return true }
   render()
+  return true
 }
 
 // Leave side-chat mode: clear the shared side surface and drop the active-task
@@ -281,12 +309,19 @@ async function close(task: SideTask) {
 // it would flash shut and immediately reopen.
 function exitPanel() {
   activeSideId = null
-  w().klausSideSurfaceClear?.()
+  w().klausSideSurfaceClear?.('right')
   render()
   saveStateFor(currentId())
 }
 
 async function setActive(sideId: string) {
+  if (placements.get(sideId) === 'left') {
+    leftSideId = sideId
+    await w().klausSideSurfaceActivate?.(sideId, 'left')
+    render()
+    saveStateFor(currentId())
+    return
+  }
   const revision = ++activationRevision
   const navigation = navigationRevision
   const previousSideId = activeSideId
@@ -316,14 +351,21 @@ async function setActive(sideId: string) {
     if (revision !== activationRevision || navigation !== navigationRevision) return
     activeSideId = previousSideId && tasks.has(previousSideId) ? previousSideId : null
     if (activeSideId) w().klausSideSurfaceActivate?.(activeSideId)
-    else w().klausSideSurfaceClear?.()
+    else w().klausSideSurfaceClear?.('right')
     render()
     throw error
   }
 }
 
-// Live events stream into the side surface via chat.js's own dispatch. Here we
-// only react to turn completion to refresh the tab's title / expiry.
+const knownSideIds = new Set<string>()
+const unreadSideIds = new Set<string>()
+
+function sideIsVisible(id: string): boolean {
+  return document.visibilityState !== 'hidden' && (placements.get(id) === 'left'
+    ? id === leftSideId : id === activeSideId && panelOpen())
+}
+
+// The transcript owns messages; the tab mirrors its working and unread state.
 function onEngineEvent(event: { sessionId?: string; type?: string; title?: string } | null) {
   const sid = event?.sessionId
   const title = event?.title
@@ -338,8 +380,10 @@ function onEngineEvent(event: { sessionId?: string; type?: string; title?: strin
     readyParents.add(sid)
     if (sid === parentId) { parentReady = true; render() }
   }
-  if (!sid || sid !== activeSideId) return
-  if (event?.type === 'done' || event?.type === 'interrupted') {
+  if (!sid || !knownSideIds.has(sid)) return
+  if (event?.type === 'done' && !sideIsVisible(sid)) unreadSideIds.add(sid)
+  if (tasks.has(sid) && ['user_message', 'session_runtime_status', 'done', 'interrupted', 'api_error'].includes(event?.type || '')) render()
+  if (sid === activeSideId && (event?.type === 'done' || event?.type === 'interrupted')) {
     refresh(currentId()).catch((error: unknown) => w().showToast?.(String((error as any)?.message || error)))
   }
 }
@@ -352,16 +396,17 @@ function render() {
   const expired = !!activeSideId && !pendingActive && !tasks.has(activeSideId)
   if (expired) expiredSessionId = activeSideId
 
-  // Hand the family to the strip: one instance tab per live side task,
-  // ordered by creation, with the expiry countdown as its badge.
+  // Hand the family to the strip in creation order, with per-task attention.
   const ordered = [...tasks.values()].sort((a, b) => a.createdAt - b.createdAt)
+  if (activeSideId && sideIsVisible(activeSideId)) unreadSideIds.delete(activeSideId)
+  if (leftSideId && sideIsVisible(leftSideId)) unreadSideIds.delete(leftSideId)
   const tabs = ordered.map(task => ({
     id: task.id,
     title: task.initialTitleIndex != null ? defaultTitle(task.initialTitleIndex) : task.title ?? text('side_task_untitled'),
-    badge: countdown(task.expiresAt),
+    badge: '', running: getSessionStream(task.id).running, unread: unreadSideIds.has(task.id), placement: placements.get(task.id) || 'right',
   }))
-  if (pending) tabs.push({ id: pending.id, title: defaultTitle(pending.titleIndex), badge: '' })
-  w().KlausPanelTabs?.syncSideTasks?.(tabs, activeSideId)
+  if (pending) tabs.push({ id: pending.id, title: defaultTitle(pending.titleIndex), badge: '', running: false, unread: false, placement: 'right' })
+  w().KlausPanelTabs?.syncSideTasks?.(tabs, activeSideId, leftSideId)
   panel.setAttribute('aria-busy', String(!!pendingActive))
 
   // Body: the shared transcript + composer show when a side task is active;
@@ -395,7 +440,6 @@ function defaultTitle(index: number) {
 
 function addHint() {
   if (!parentId || !parentReady) return text('side_task_empty_hint')
-  if (tasks.size >= 8) return text('side_task_limit_hint')
   return text('side_task_untitled')
 }
 
@@ -428,6 +472,7 @@ async function refreshFamily(sessionId: string | null) {
   const sequence = ++refreshSequence
   const titlesAtStart = titleRevision
   if (!sessionId) {
+    leftSideId = null
     parentId = null
     parentReady = false
     tasks.clear()
@@ -464,6 +509,7 @@ async function refreshFamily(sessionId: string | null) {
   for (const task of listed) {
     const updated = titleUpdates.get(task.id)
     prepareEphemeralSessionStream(task.id)
+    knownSideIds.add(task.id)
     tasks.set(task.id, updated && updated.revision > titlesAtStart ? { ...task, title: updated.title, initialTitleIndex: null } : task)
   }
   for (const id of titleUpdates.keys()) if (!tasks.has(id)) titleUpdates.delete(id)
@@ -477,7 +523,7 @@ async function refreshFamily(sessionId: string | null) {
     expiredSessionId = null
     if ((!activeSideId || !tasks.has(activeSideId)) && activeSideId !== pendingPanel()?.id) {
       activeSideId = null
-      w().klausSideSurfaceClear?.()
+      w().klausSideSurfaceClear?.('right')
     }
     // Restore whatever side task was open last time we were on this parent.
     // restoreArtifactsPanelForChatView (in chat.js) already put the panel
@@ -487,12 +533,18 @@ async function refreshFamily(sessionId: string | null) {
     if (!pendingPanel() && saved?.activeSideId && tasks.has(saved.activeSideId)) {
       void setActive(saved.activeSideId).catch(showError)
     }
+    if (saved?.leftSideId && tasks.has(saved.leftSideId)) void setActive(saved.leftSideId).catch(showError)
   } else if (activeSideId && activeSideId !== pendingPanel()?.id && !tasks.has(activeSideId) && panelOpen()) {
     // Same family, but the open side task vanished from the listing: it was
     // closed elsewhere or swept by the idle TTL. Free its slot too so we
     // don't leak a DOM the user can never reach.
     expiredSessionId = activeSideId
     w().klausSideSurfaceRemove?.(activeSideId)
+  }
+  if (leftSideId && !tasks.has(leftSideId)) {
+    w().klausSideSurfaceRemove?.(leftSideId)
+    leftSideId = null
+    w().klausSideSurfaceShowParent?.()
   }
   render()
 }
@@ -510,6 +562,7 @@ window.addEventListener('klaus:session-change', (event) => {
   const sessionId = (event as CustomEvent).detail?.sessionId ?? null
   cancelPending()
   activeSideId = null
+  leftSideId = null
   w().klausSideSurfaceClear?.()
   void refresh(sessionId).catch(error => {
     if (revision === navigationRevision && sessionId === currentId()) showError(error)
@@ -519,29 +572,17 @@ window.addEventListener('klaus:session-change', (event) => {
 // applyI18n cannot reach it: without this it kept the previous language's
 // wording until the next unrelated render.
 window.addEventListener('klaus:lang-change', () => render())
-window.setInterval(() => {
-  if (panelOpen()) render()
-  const now = Date.now()
-  if (
-    expiryRefreshPending
-    || now < nextExpiryRefreshAt
-    || ![...tasks.values()].some((task) => task.expiresAt && task.expiresAt <= now)
-  ) {
-    return
-  }
-  expiryRefreshPending = true
-  nextExpiryRefreshAt = now + 5_000
-  refresh(currentId())
-    .catch(showError)
-    .finally(() => { expiryRefreshPending = false })
-}, 1000)
+document.addEventListener?.('visibilitychange', () => render())
 
 ;(window as any).KlausSideTasks = {
   find,
   refresh,
   onEngineEvent,
   openFromRail,
-  getActiveSideId: () => (activeSideId && tasks.has(activeSideId) ? activeSideId : null),
+  getActiveSideId: (placement: SidePlacement = 'right') => {
+    const id = placement === 'left' ? leftSideId : activeSideId
+    return id && tasks.has(id) ? id : null
+  },
   // The strip renders the `+` menu; whether a side-task entry belongs in it at
   // all, and what creating one does, live here.
   canCreate,
@@ -551,9 +592,33 @@ window.setInterval(() => {
     if (pendingPanel()?.id === sideId) { w().openArtifactsPanel?.('side-chat'); return }
     if (!tasks.has(sideId)) return
     cancelPending()
-    w().openArtifactsPanel?.('side-chat')
+    if (placements.get(sideId) !== 'left') w().openArtifactsPanel?.('side-chat')
     await setActive(sideId)
   },
+  moveTo: async (sideId: string, placement: SidePlacement) => {
+    if (!tasks.has(sideId) || !['left', 'right'].includes(placement)) return false
+    const navigation = navigationRevision
+    placements.set(sideId, placement)
+    await w().klausSideSurfaceMove?.(sideId, placement)
+    if (navigation !== navigationRevision || !tasks.has(sideId)) return false
+    if (placement === 'left') {
+      leftSideId = sideId
+      if (activeSideId === sideId) {
+        activeSideId = [...tasks.keys()].find(id => id !== sideId && placements.get(id) !== 'left') ?? null
+        if (activeSideId) await w().klausSideSurfaceActivate?.(activeSideId, 'right')
+        else w().klausSideSurfaceClear?.('right')
+      }
+    } else {
+      if (leftSideId === sideId) { leftSideId = null; w().klausSideSurfaceShowParent?.() }
+      activeSideId = sideId
+      w().openArtifactsPanel?.('side-chat')
+    }
+    render()
+    saveStateFor(currentId())
+    return true
+  },
+  showParent: () => { leftSideId = null; w().klausSideSurfaceShowParent?.(); render(); saveStateFor(currentId()) },
+  placementOf: (id: string): SidePlacement => placements.get(id) || 'right',
   // A queued request always starts in a fresh side conversation with the same parent context.
   createForQueued: async (sourceSessionId: string): Promise<string | null> => {
     if (sourceSessionId !== currentId()) return null
@@ -626,7 +691,7 @@ window.setInterval(() => {
     }
     const task = tasks.get(sideId)
     if (!task) return
-    await close(task)
+    return close(task)
   },
   // Promote a side task to a standalone session: fork its transcript, then
   // discard the temporary task. The fork path surfaces its own error, so a
@@ -638,7 +703,11 @@ window.setInterval(() => {
     const closed = await closeSideTask(sideId)
     if (closed?.ok !== true) throw new Error(closed?.error || text('side_task_close_failed'))
     tasks.delete(sideId)
+    placements.delete(sideId)
+    knownSideIds.delete(sideId)
+    unreadSideIds.delete(sideId)
     if (activeSideId === sideId) activeSideId = null
+    if (leftSideId === sideId) { leftSideId = null; w().klausSideSurfaceShowParent?.() }
     w().klausSideSurfaceRemove?.(sideId)
     render()
   },

@@ -37,6 +37,9 @@ function fixture(options: { loaded?: boolean | null; tasks?: ReturnType<typeof t
   const events = new Map<string, Array<(event: any) => void>>()
   const calls = { history: [] as string[], list: [] as string[], create: [] as string[], close: [] as string[], touch: [] as string[], opens: 0 }
   const messages: string[] = []
+  const streams = new Map<string, any>()
+  const storage = new Map<string, string>()
+  const confirmations: any[] = []
   let rows = options.tasks || []
   const api = { session: {
     listSideTasks: async (id: string) => { calls.list.push(id); return rows },
@@ -53,7 +56,9 @@ function fixture(options: { loaded?: boolean | null; tasks?: ReturnType<typeof t
     getKnownSessionInfo: () => ({ engine: 'klaus' }),
     klausSideTaskHasUserMessage: () => options.loaded ?? null,
     openArtifactsPanel: (mode: string) => { calls.opens++; elements.get('artifacts-panel')!.setAttribute('data-mode', mode); elements.get('artifacts-panel')!.classList.remove('collapsed') },
-    klausDialog: { alert: (message: string) => { messages.push(message) } },
+    klausDialog: { alert: (message: string) => { messages.push(message) },
+      confirm: async (options: any) => { confirmations.push(options); return { confirmed: true, checked: false } } },
+    localStorage: { getItem: (key: string) => storage.get(key) ?? null, setItem: (key: string, value: string) => storage.set(key, value) },
     addEventListener: (name: string, handler: (event: any) => void) => { events.set(name, [...events.get(name) || [], handler]) },
     setInterval() {},
     KlausSideTasks: undefined as any,
@@ -66,16 +71,135 @@ function fixture(options: { loaded?: boolean | null; tasks?: ReturnType<typeof t
   runInNewContext(script, { window, document: { getElementById: (id: string) => elements.get(id) }, exports: {},
     require: (name: string) => {
       if (name === '../../../../contracts/side-task-quotes') return quoteRouting
-      if (name === '../stream-store') return { prepareEphemeralSessionStream() {} }
+      if (name === '../stream-store') return { prepareEphemeralSessionStream() {},
+        getSessionStream: (id: string) => streams.get(id) ?? { running: false, turnShells: {}, turnStatuses: {}, history: [], liveUnits: [] } }
       throw new Error(`Unexpected side-tasks import: ${name}`)
     } })
   const emit = (name: string, event: any = {}) => { for (const handler of events.get(name) || []) handler(event) }
-  return { window, api, calls, state, elements, messages, composer, panelTabs, emit, actions: window.KlausSideTasks,
+  return { window, api, calls, state, elements, messages, composer, panelTabs, emit, streams, storage, confirmations, actions: window.KlausSideTasks,
     setRows: (next: typeof rows) => { rows = next },
     switchTo(id: string | null) { window.currentSessionId = id; emit('klaus:session-change', { detail: { sessionId: id } }) },
 
   }
 }
+
+test('closing a submitted side conversation can be cancelled without removing its tab', async () => {
+  const f = fixture({ loaded: true, tasks: [task('submitted')] })
+  await f.actions.openFromRail()
+  f.streams.set('submitted', { turnShells: { turn: {} }, turnStatuses: {}, history: [], liveUnits: [], running: false })
+  f.window.klausDialog.confirm = async (options: any) => { f.confirmations.push(options); return { confirmed: false, checked: true } }
+  await f.panelTabs.close('submitted')
+  expect(f.confirmations).toHaveLength(vectors.close.submittedConfirms)
+  expect(f.calls.close).toHaveLength(vectors.close.cancelCloses)
+  expect(f.state.tabs.map(tab => tab.id)).toContain('submitted')
+  expect(f.storage.size).toBe(0)
+})
+
+test('empty side drafts close directly and confirmed preference skips later warnings', async () => {
+  const f = fixture({ loaded: true, tasks: [task('empty'), task('submitted'), task('later')] })
+  await f.actions.openFromRail()
+  f.composer.input.value = 'An unsent draft alone has no submitted turn'
+  await f.actions.closeById('empty')
+  expect(f.confirmations).toHaveLength(vectors.close.emptyConfirms)
+  for (const id of ['submitted', 'later']) f.streams.set(id, { turnShells: {}, turnStatuses: { turn: 'completed' }, history: [], liveUnits: [], running: false })
+  f.window.klausDialog.confirm = async (options: any) => { f.confirmations.push(options); return { confirmed: true, checked: true } }
+  await f.actions.closeById('submitted')
+  await f.actions.closeById('later')
+  expect(f.confirmations).toHaveLength(1)
+  expect(f.calls.close).toEqual(['empty', 'submitted', 'later'])
+})
+
+test('duplicate close requests share one confirmation and one endpoint disposal', async () => {
+  const f = fixture({ loaded: true, tasks: [task('submitted')] })
+  await f.actions.openFromRail()
+  f.streams.set('submitted', { turnShells: {}, turnStatuses: {}, history: [{ role: 'user' }], liveUnits: [], running: false })
+  const answer = deferred<any>()
+  f.window.klausDialog.confirm = (options: any) => { f.confirmations.push(options); return answer.promise }
+  const first = f.actions.closeById('submitted'), second = f.actions.closeById('submitted')
+  expect(f.confirmations).toHaveLength(vectors.close.duplicateDialogs)
+  answer.resolve({ confirmed: true, checked: false })
+  await Promise.all([first, second])
+  expect(f.calls.close).toEqual(['submitted'])
+})
+
+test('a background response is unread until its own visible tab activates', async () => {
+  const f = fixture({ loaded: true, tasks: [task('one'), task('two')] })
+  await f.actions.openFromRail()
+  f.streams.set('two', { turnShells: {}, turnStatuses: {}, history: [], liveUnits: [], running: true })
+  f.actions.onEngineEvent({ sessionId: 'two', type: 'session_runtime_status' })
+  const tab = () => f.panelTabs.snapshot().tabs.find((tab: any) => tab.key === 'two')
+  expect(tab().running).toBe(true)
+  expect(tab().badge).toBe(vectors.attention.expiryBadge)
+  f.streams.get('two').running = false
+  f.actions.onEngineEvent({ sessionId: 'two', type: 'done' })
+  expect(tab().unread).toBe(true)
+  await f.actions.activateById('one')
+  expect(tab().unread).toBe(true)
+  await f.actions.activateById('two')
+  expect(tab().unread).toBe(false)
+})
+
+test('moving side tabs preserves independent left and right selections and quote routing', async () => {
+  const f = fixture({ loaded: true, tasks: [task('one'), task('two'), task('three')] })
+  const moves: Array<[string, string]> = []
+  f.window.klausSideSurfaceMove = async (id: string, placement: string) => { moves.push([id, placement]) }
+  await f.actions.openFromRail()
+  await f.panelTabs.actions.moveSideTask('one', 'left')
+  expect(f.actions.getActiveSideId('left')).toBe('one')
+  expect(f.actions.getActiveSideId('right')).toBe('two')
+  expect(f.panelTabs.actions.sideTaskQuotePanels()[0].tabs).toEqual(['two', 'three'])
+  await f.actions.activateById('three')
+  expect(f.actions.getActiveSideId('left')).toBe('one')
+  expect(f.actions.getActiveSideId('right')).toBe('three')
+  f.actions.showParent()
+  expect(f.panelTabs.snapshot().tabs.find((tab: any) => tab.key === 'one').placement).toBe('left')
+  expect(f.actions.getActiveSideId('left')).toBeNull()
+  expect(f.actions.getActiveSideId('right')).toBe('three')
+  await f.panelTabs.actions.moveSideTask('one', 'right')
+  expect(f.actions.getActiveSideId('right')).toBe('one')
+  expect(f.panelTabs.actions.sideTaskQuotePanels()[0].tabs).toContain('one')
+  expect(f.window.currentSessionId).toBe('main')
+  expect(f.calls.create).toEqual([])
+  expect(moves).toEqual([['one', 'left'], ['one', 'right']])
+})
+
+test('a delayed pane move cannot activate an old family after navigation', async () => {
+  const f = fixture({ loaded: true, tasks: [task('moving')] })
+  await f.actions.openFromRail()
+  const moved = deferred<void>()
+  f.window.klausSideSurfaceMove = () => moved.promise
+  const moving = f.actions.moveTo('moving', 'left')
+  f.setRows([])
+  f.switchTo('other')
+  await settle()
+  moved.resolve()
+  expect(await moving).toBe(false)
+  expect(f.actions.getActiveSideId('left')).toBeNull()
+  expect(f.actions.getActiveSideId('right')).toBeNull()
+})
+
+test('creating and cancelling a right draft leaves the active left conversation intact', async () => {
+  const f = fixture({ loaded: true, tasks: [task('left')] })
+  f.window.klausSideSurfaceMove = async () => {}
+  await f.actions.openFromRail()
+  await f.actions.moveTo('left', 'left')
+  const cleared: unknown[] = []
+  f.window.klausSideSurfaceClear = (placement: unknown) => { cleared.push(placement) }
+  const pending = deferred<ReturnType<typeof task>>()
+  f.api.session.createSideTask = async id => { f.calls.create.push(id); return pending.promise }
+  const creating = f.actions.openFromRail()
+  await settle()
+  const draft = f.state.tabs.find(tab => tab.id.startsWith('pending-side-'))!
+  expect(draft).toBeDefined()
+  expect(f.actions.getActiveSideId('left')).toBe('left')
+  await f.actions.closeById(draft.id)
+  expect(f.actions.getActiveSideId('left')).toBe('left')
+  expect(cleared.every(placement => placement === 'right')).toBe(true)
+  pending.resolve(task('cancelled-late'))
+  await creating
+  expect(f.calls.close).toContain('cancelled-late')
+  expect(f.actions.getActiveSideId('left')).toBe('left')
+})
 
 for (const stage of ['list', 'history'] as const) {
   test(`an abandoned side-task ${stage} failure cannot alert after navigation`, async () => {
@@ -326,9 +450,10 @@ test('the gate reuses loaded user history and latches a successful fallback with
   expect(empty.actions.canCreate()).toBe(false)
   empty.actions.onEngineEvent({ type: 'user_message', sessionId: 'main' })
   expect(empty.actions.canCreate()).toBe(true)
-  empty.setRows(Array.from({ length: vectors.eligibility.maximumTasks }, (_, index) => task(`task-${index}`)))
+  expect(vectors.eligibility.maximumTasks).toBeNull()
+  empty.setRows(Array.from({ length: 12 }, (_, index) => task(`task-${index}`)))
   await empty.actions.refresh('main')
-  expect(empty.actions.canCreate()).toBe(false)
+  expect(empty.actions.canCreate()).toBe(true)
 })
 
 test('a quote handoff only prepares the side draft', async () => {
@@ -415,10 +540,10 @@ test('quotes reuse the active real tab, then the actual reordered strip when a n
 test('an unavailable active task is skipped and eight live tasks still allow quote reuse', async () => {
   const f = fixture({ loaded: true, tasks: [task('closing', 'main', { sideTaskStatus: 'closing' }),
     task('starting', 'main', { sideTaskStatus: 'starting' }), task('failed', 'main', { sideTaskStatus: 'failed' }),
-    ...Array.from({ length: routingVectors.handoff.maximumTasks - 3 }, (_, index) => task(`ready-${index}`, 'main', { sideTaskStatus: 'active' }))] })
+    ...Array.from({ length: 8 - 3 }, (_, index) => task(`ready-${index}`, 'main', { sideTaskStatus: 'active' }))] })
   await f.actions.refresh('main')
   await f.actions.activateById('closing')
-  expect(f.actions.canCreate()).toBe(false)
+  expect(f.actions.canCreate()).toBe(true)
   expect(await f.actions.askWithSelection('Reuse at the limit')).toBe(true)
   expect(f.state.bound).toBe('ready-0')
   expect(f.calls.create).toEqual([])

@@ -1,9 +1,8 @@
 {
-  "reason": "Cancelling a snapshot of pending host work does not prevent a newly arriving dynamic tool from starting during close. The session lifecycle owner must hold admission closed before awaiting cleanup and across direct expiry or startup rollback paths, with nested holds released independently.",
+  "reason": "Cancelling a snapshot of pending host work does not prevent a newly arriving dynamic tool from starting during close. The session lifecycle owner must hold admission closed before awaiting cleanup and across explicit close or startup rollback paths, with nested holds released independently.",
   "cases": {
     "delete": [["before", false], ["preparing", true], ["closing", true], ["closed-hook", true], ["finished", false]],
     "overlap": [["both-pending", true], ["first-failed", true], ["all-failed", false]],
-    "expiry": [["active", false], ["closing", true], ["expired", false]],
     "startup-rollback": [["rolling-back", true], ["finished", false]],
     "shutdown": [["before", false], ["draining", true], ["finished", true]]
   },

@@ -3,7 +3,7 @@
   "source": {
     "liveTranscriptSource": "engine/readThreadHistory",
     "ephemeralTranscriptSource": "session/history",
-    "_whyEphemeralTranscriptSource": "Temporary side tasks have no saved rollout. Register their identity before transcript requests, replay their visible live snapshot, and retain that source across tab navigation. A promoted conversation has a separate identity and uses saved pagination.",
+    "_whyEphemeralTranscriptSource": "Temporary side tasks have no saved rollout. Register their identity before transcript requests, replay their visible live snapshot, and retain that source across tab navigation and transcript payload eviction. Endpoint identity is released on explicit retirement, independently of cache pressure before the first mount. A promoted conversation has a separate identity and uses saved pagination.",
     "renderFirstPaintSource": "engine/readThreadHistory paged, itemsView full, five newest local turns; reduce a rejected oversized window and fall back to one summary turn only when necessary",
     "itemAnchorField": "beforeItemId",
     "itemAnchorCapability": "supportsItemAnchors",

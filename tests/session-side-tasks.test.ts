@@ -1,7 +1,6 @@
 import { acceptedTurnInput } from './turn-input-fixture';
 import { FakeEngineQueue } from './engine-queue-fixture';
 import { EventEmitter } from 'node:events';
-import { AsyncResource } from 'node:async_hooks';
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -13,7 +12,6 @@ import { kvSet, withSettingsDb } from '../main/services/settings';
 import { WorkspaceStore } from '../main/services/workspaces';
 import { ExtensionDiscovery } from '../main/services/extensions/discovery';
 import { SessionService, type EngineClientLike, type SessionServiceDeps } from '../main/sessions/service';
-import { SIDE_TASK_IDLE_MS } from '../main/sessions/side-tasks';
 import { readSessionTitle } from '../main/services/session-titles';
 import { encodeSelectedTextEnvelope } from '../contracts/selected-text-envelope';
 import type { RpcRequestOptions } from '../main/engine/request-scheduler';
@@ -205,7 +203,7 @@ async function queuedRows(service: SessionService, id: string): Promise<Json[]> 
 
 h.test('renderer default indices survive materialization and invalid indices reserve no side task', async () => {
   const { service, client } = fixture(), expected = titleVectors.defaults.rendererIndexOverride;
-  for (const invalid of [null, expected.min - 1, expected.max + 1, -1, 1.5, '2', true, {}, [], Number.MAX_SAFE_INTEGER, Number.NaN, Number.POSITIVE_INFINITY]) {
+  for (const invalid of [null, 0, -1, 1.5, '2', true, {}, [], Number.MAX_SAFE_INTEGER + 1, Number.NaN, Number.POSITIVE_INFINITY]) {
     await assertRejects(() => service.createSideTask('parent', invalid), 'invalid index is rejected before allocation');
     assertDeepEqual(await service.listSideTasks('parent'), [], 'invalid index leaves no reservation');
   }
@@ -701,23 +699,22 @@ h.test('a peer conversation cannot deliver into a side task', async () => {
   assertEqual(ordinary.ok, true, 'an ordinary conversation still accepts delivery');
 });
 
-h.test('concurrent reservations are bounded before startup, and failed cleanup retains its slot for retry', async () => {
+h.test('more than eight concurrent reservations remain independent and failed cleanup stays retryable', async () => {
   const { service, client } = fixture();
   let release!: () => void; const ready = new Promise<void>(resolve => { release = resolve; }); client.heldStart = () => ready;
-  const pending = Array.from({ length: 9 }, () => service.createSideTask('parent'));
-  const outcomes = Promise.allSettled(pending);
+  const outcomes = Promise.allSettled(Array.from({ length: 12 }, (_, index) => service.createSideTask('parent', index + 1)));
   await waitFor(() => client.sent('session/startSideTask').length === 1, 1000, 'one serialized startup entered');
   release(); const results = await outcomes;
-  assertEqual(results.filter(result => result.status === 'fulfilled').length, 8, 'exactly eight reservations admitted');
-  assertEqual(client.sent('session/startSideTask').length, 8, 'ninth request never created an engine resource');
+  assertEqual(results.filter(result => result.status === 'fulfilled').length, 12, 'all requested tabs can start');
+  assertEqual(client.sent('session/startSideTask').length, 12, 'each tab owns an engine resource');
   const id = String(object((results[0] as PromiseFulfilledResult<Json>).value)?.id);
   client.closeFails = true;
   await assertRejects(() => service.closeSideTask(id), 'failed drain surfaces error');
   const failed = (await service.listSideTasks('parent')).find(row => object(row)?.id === id);
   assertEqual(object(failed)?.sideTaskStatus, 'failed', 'failed resource remains visible for cleanup');
-  await assertRejects(() => service.createSideTask('parent'), 'undrained resource still occupies a slot');
-  client.closeFails = false; await service.closeSideTask(id); await create(service);
-  assertEqual((await service.listSideTasks('parent')).length, 8, 'slot reusable only after real close');
+  await create(service);
+  client.closeFails = false; await service.closeSideTask(id);
+  assertEqual((await service.listSideTasks('parent')).length, 12, 'successful close removes only its own tab');
 });
 
 h.test('invalid startup identity does not lose an unclosed endpoint or leak an unusable reservation', async () => {
@@ -773,47 +770,24 @@ h.test('a mismatched startup endpoint cannot redirect cleanup into the parent', 
   assertDeepEqual(await service.listSideTasks('parent'), [], 'successful cleanup releases the invalid side reservation');
 });
 
-h.test('idle expiry observes running turns, idle persistent agents, and background processes before closing', async () => {
+h.test('idle side tasks remain available until explicitly closed without background expiry reads', async () => {
   const { service, state, client, advance } = fixture(); const id = await create(service);
-  state.markTurnRunning(id); advance(SIDE_TASK_IDLE_MS + 1); await service.sweepSideTasks();
-  assert(service.isSideTask(id), 'active turn retained past deadline');
-  state.clearTurnRunning(id); await service.sweepSideTasks();
-  advance(SIDE_TASK_IDLE_MS - 1); await service.sweepSideTasks(); assert(service.isSideTask(id), 'settled turn starts a fresh idle deadline');
-  advance(2); client.agents = [{ status: 'idle' }]; await service.sweepSideTasks(); assert(service.isSideTask(id), 'idle persistent teammate retains parent resources');
-  client.agents = [{ status: 'completed' }]; client.processes = [{ status: 'running' }]; advance(SIDE_TASK_IDLE_MS + 1);
-  await service.sweepSideTasks(); assert(service.isSideTask(id), 'running shell retained');
-  client.processes = [{ status: 'completed' }]; advance(SIDE_TASK_IDLE_MS + 1); await service.sweepSideTasks();
-  assert(!service.isSideTask(id), 'idle terminal work expires');
-  assertEqual(state.liveSession(id), undefined, 'expiry drains actual binding');
-  assertDeepEqual(await service.touchSideTask(id), { ok: false }, 'touch cannot resurrect expired context');
-});
-
-h.test('a live activity renewal wins over an in-flight expiry snapshot', async () => {
-  const { service, client, advance } = fixture(); const id = await create(service); advance(SIDE_TASK_IDLE_MS + 1);
-  let release!: () => void; client.heldBackground = () => new Promise<void>(resolve => { release = resolve; });
-  const sweeping = service.sweepSideTasks(); await waitFor(() => !!release, 1000, 'expiry snapshot held');
-  const sending = service.send(id, { text: 'Renew while the snapshot is pending' });
-  release(); await sweeping; await sending;
-  assert(service.isSideTask(id), 'renewal invalidates old expiry decision');
-  assertEqual(client.sent('session/close').length, 0, 'new work is not closed by stale idle snapshot');
-});
-
-h.test('side controls finish while another family is waiting for expired-resource inspection', async () => {
-  const { service, client, advance } = fixture(); const id = await create(service); advance(SIDE_TASK_IDLE_MS + 1);
-  let release!: () => void;
-  const held = new Promise<void>(resolve => { release = resolve; }); client.heldBackground = () => held;
-  const sweeping = service.sweepSideTasks();
-  await waitFor(() => client.sent('session/backgroundProcesses').length === 1, 1000, 'expiry inspection entered');
-  assertEqual(client.calls.find(call => call.method === 'session/backgroundProcesses')?.scheduling?.priority,
-    responsiveness.cleanupPriority, 'optional cleanup receives background admission');
-  try {
-    assertEqual((await service.listSideTasks('parent')).length, 1, 'metadata does not join unrelated cleanup');
-    assertDeepEqual(await service.touchSideTask(id), { ok: true }, 'foreground activity renews before cleanup');
-    client.visible.push({ id: 'other-parent', title: 'Other', archived: false });
-    const row = object(await service.createSideTask('other-parent'))!;
-    assertEqual(row.parentSessionId, 'other-parent', 'another family creates before the blocked sweep finishes');
-  } finally { release(); await sweeping; }
-  assert(service.isSideTask(id), 'renewed task survives the original expiry snapshot');
+  state.markTurnRunning(id); advance(2 * 60 * 60 * 1000);
+  assertEqual((await service.listSideTasks('parent')).length, 1, 'active work remains attached');
+  state.clearTurnRunning(id); advance(24 * 60 * 60 * 1000);
+  const rows = await service.listSideTasks('parent');
+  assertEqual(rows.length, 1, 'idle tabs persist past the former one-hour deadline');
+  assertEqual(object(rows[0])?.expiresAt, undefined, 'metadata carries no destructive deadline');
+  assertDeepEqual(await service.touchSideTask(id), { ok: true }, 'activity remains accepted');
+  assertEqual(client.sent('session/subagentLifecycle').length, 0, 'listing does not schedule expiry inspection');
+  assertEqual(client.sent('session/backgroundProcesses').length, 0, 'idle tabs need no shell inspection');
+  assertEqual(client.sent('session/close').length, 0, 'elapsed time cannot discard context');
+  await service.send(id, { text: 'Continue the retained side discussion' });
+  assertEqual(client.sent('turn/submit').length, 1, 'the original endpoint still accepts work');
+  await service.closeSideTask(id);
+  assert(!service.isSideTask(id), 'explicit close releases identity');
+  assertEqual(state.liveSession(id), undefined, 'explicit close drains the binding');
+  assertDeepEqual(await service.touchSideTask(id), { ok: false }, 'activity cannot resurrect a closed endpoint');
 });
 
 h.test('optional side statistics are coalesced and cannot cross a live binding', async () => {
@@ -846,42 +820,17 @@ h.test('side creation snapshots a live parent without starting or resuming that 
   assertEqual(client.sent('session/createSideTask').length, 0, 'side creation is one atomic lifecycle request');
 });
 
-h.test('periodic side cleanup survives the request scope that created its timer', async () => {
+h.test('side creation does not install an idle-expiry timer tied to the request scope', async () => {
   const { service, client, advance } = fixture(); await service.client();
-  const original = global.setInterval, controller = new AbortController();
-  let tick!: () => void;
-  global.setInterval = ((callback: () => void, delay: number) => {
-    tick = AsyncResource.bind(callback);
-    return original(callback, delay);
-  }) as typeof setInterval;
+  const original = global.setInterval, controller = new AbortController(); let intervals = 0;
+  global.setInterval = ((...args: Parameters<typeof setInterval>) => { intervals++; return original(...args); }) as typeof setInterval;
   let id: string;
   try { id = await service.withEngineOwner(service.engine()!, controller.signal, () => create(service)); }
   finally { global.setInterval = original; }
-  controller.abort(); advance(SIDE_TASK_IDLE_MS + 1); tick();
-  await waitFor(() => !service.isSideTask(id), 1000, 'timer cleanup finishes outside the cancelled caller');
-  assertEqual(client.sent('session/close').length, 1, 'expired resources actually close after the remote request retires');
-});
-
-h.test('an idle inspection cannot send an old endpoint id to a replacement engine', async () => {
-  const old = new Client(), replacement = new Client(); let current = old;
-  const { service, advance } = fixture({ manager: {
-    attach: async () => ({ client: current, generation: current === old ? 1 : 2 }),
-    shutdownAll: async () => { old.closed = true; replacement.closed = true; },
-  } });
-  await create(service); advance(SIDE_TASK_IDLE_MS + 1);
-  const original = old.requestWithTimeout.bind(old);
-  let release!: () => void;
-  old.requestWithTimeout = async (method, params, timeout, scheduling) => {
-    const reply = await original(method, params, timeout, scheduling);
-    if (method === 'session/subagentLifecycle') await new Promise<void>(resolve => { release = resolve; });
-    return reply;
-  };
-  const sweeping = service.sweepSideTasks(), rejected = assertRejects(() => sweeping, 'old-generation inspection retires');
-  await waitFor(() => !!release, 1000, 'first background snapshot is pending');
-  old.closed = true; old.emit('event', { type: 'streamClosed' }); current = replacement;
-  await service.client(); release(); await rejected;
-  assertEqual(replacement.sent('session/backgroundProcesses').length, 0, 'a second read never migrates the old engine identity');
-  assertEqual(replacement.sent('session/close').length, 0, 'old-generation cleanup cannot close a replacement endpoint');
+  controller.abort(); advance(24 * 60 * 60 * 1000);
+  assertEqual(intervals, 0, 'temporary context lives until close or application shutdown');
+  assert(service.isSideTask(id), 'retired creation request does not retire its side endpoint');
+  assertEqual(client.sent('session/close').length, 0, 'no expiry cleanup was scheduled');
 });
 
 h.test('promotion forks the live endpoint into a persistent identity while preserving the source', async () => {

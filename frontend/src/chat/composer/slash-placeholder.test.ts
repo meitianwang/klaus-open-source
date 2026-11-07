@@ -10,7 +10,7 @@ const STYLES_CSS = readFileSync(
 
 describe('composer mirror layer invariants', () => {
   test('the input hides its native scrollbar so both text layers wrap at the same width', () => {
-    const start = STYLES_CSS.indexOf('#input[contenteditable="true"], #side-input[contenteditable="true"] {')
+    const start = STYLES_CSS.indexOf('#input[contenteditable="true"], :is(#side-input, #left-side-input)[contenteditable="true"] {')
     expect(start).toBeGreaterThanOrEqual(0)
     const rule = STYLES_CSS.slice(start, STYLES_CSS.indexOf('}', start))
     expect(rule).toContain('scrollbar-width: none;')

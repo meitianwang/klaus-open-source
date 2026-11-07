@@ -1343,8 +1343,8 @@ beside the main chat. Its own tab row,
   color: var(--fg-tertiary);
 }
 .side-chat-add[aria-disabled="true"] { opacity: 0.4; cursor: not-allowed; }
-/* The side chat now reuses the main transcript renderer (#side-messages) and a
-   clone of the main composer (#side-input-wrapper), so the old bespoke
+/* The side chat now reuses the main transcript renderer (:is(#side-messages, #left-side-messages)) and a
+   clone of the main composer (:is(#side-input-wrapper, #left-side-input-wrapper)), so the old bespoke
    .side-chat-messages / .side-chat-msg / .side-chat-composer rules were removed. */
 .side-chat-empty {
   flex: 1 1 auto;
@@ -1673,7 +1673,7 @@ body.artifacts-open .welcome-composer-slot {
    would tint the entire transcript. The caret or selection provides the
    visible focus within these regions. */
 #messages:focus-visible,
-#side-messages:focus-visible {
+:is(#side-messages, #left-side-messages):focus-visible {
   outline: none;
   box-shadow: none;
 }
@@ -3160,7 +3160,7 @@ mark.spec-annotated {
 }
 
 /* ===== Input area ===== */
-#input-wrapper, #side-input-wrapper {
+#input-wrapper, :is(#side-input-wrapper, #left-side-input-wrapper) {
   /* Chip hover tokens live on the wrapper (not #input-area) so the run-context
      row above the card resolves them too. */
   --input-chip-bg: color-mix(in srgb, var(--bg-hover) 80%, var(--bg-elevated));
@@ -3211,7 +3211,7 @@ mark.spec-annotated {
    the composer between the welcome and conversation docks), so it never takes
    part in composer layout and the side clone gets it for free.
    The button stays mounted for the shared bottom-following controller. */
-#scroll-to-bottom, #side-scroll-to-bottom {
+#scroll-to-bottom, :is(#side-scroll-to-bottom, #left-side-scroll-to-bottom) {
   position: absolute;
   bottom: 100%;
   margin-bottom: 8px;
@@ -3231,16 +3231,16 @@ mark.spec-annotated {
   transition: opacity 150ms ease, translate 150ms ease;
   z-index: 20;
 }
-#scroll-to-bottom.visible, #side-scroll-to-bottom.visible {
+#scroll-to-bottom.visible, :is(#side-scroll-to-bottom, #left-side-scroll-to-bottom).visible {
   opacity: 1;
   translate: -50% 0;
   pointer-events: auto;
 }
-#scroll-to-bottom:hover, #side-scroll-to-bottom:hover {
+#scroll-to-bottom:hover, :is(#side-scroll-to-bottom, #left-side-scroll-to-bottom):hover {
   color: var(--fg);
   border-color: color-mix(in srgb, var(--fg) 16%, var(--border));
 }
-#scroll-to-bottom svg, #side-scroll-to-bottom svg {
+#scroll-to-bottom svg, :is(#side-scroll-to-bottom, #left-side-scroll-to-bottom) svg {
   width: 14px;
   height: 14px;
 }
@@ -3249,15 +3249,15 @@ spinner (data-chat-timeline-scroll-generating): the affordance then
    reads as "live output below", not just "older content below". Both glyphs
    are mounted; the data attribute picks one so the swap never reflows. */
 #scroll-to-bottom .scroll-to-bottom-spin,
-#side-scroll-to-bottom .scroll-to-bottom-spin { display: none; }
+:is(#side-scroll-to-bottom, #left-side-scroll-to-bottom) .scroll-to-bottom-spin { display: none; }
 #scroll-to-bottom[data-generating] svg:not(.scroll-to-bottom-spin),
-#side-scroll-to-bottom[data-generating] svg:not(.scroll-to-bottom-spin) { display: none; }
+:is(#side-scroll-to-bottom, #left-side-scroll-to-bottom)[data-generating] svg:not(.scroll-to-bottom-spin) { display: none; }
 #scroll-to-bottom[data-generating] .scroll-to-bottom-spin,
-#side-scroll-to-bottom[data-generating] .scroll-to-bottom-spin {
+:is(#side-scroll-to-bottom, #left-side-scroll-to-bottom)[data-generating] .scroll-to-bottom-spin {
   display: block;
   animation: kls-spin 0.8s linear infinite;
 }
-[data-theme="dark"] #input-wrapper, [data-theme="dark"] #side-input-wrapper {
+[data-theme="dark"] #input-wrapper, [data-theme="dark"] :is(#side-input-wrapper, #left-side-input-wrapper) {
   --input-chip-bg: color-mix(in srgb, var(--bg-hover) 72%, var(--bg-elevated));
   --input-chip-hover: color-mix(in srgb, var(--input-chip-bg) 88%, var(--fg));
 }
@@ -3326,7 +3326,7 @@ spinner (data-chat-timeline-scroll-generating): the affordance then
    the input-card spec) and a soft shadow. Previously the chat dock used a
    flat gray rounded-3xl capsule while welcome had this card, which made the
    composer visibly change style after the first send. */
-#input-area, #side-input-area {
+#input-area, :is(#side-input-area, #left-side-input-area) {
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
@@ -3338,13 +3338,13 @@ spinner (data-chat-timeline-scroll-generating): the affordance then
   box-shadow: var(--shadow-md);
   transition: border-color var(--transition), background var(--transition);
 }
-[data-theme="dark"] #input-area, [data-theme="dark"] #side-input-area {
+[data-theme="dark"] #input-area, [data-theme="dark"] :is(#side-input-area, #left-side-input-area) {
   background: var(--bg-elevated);
 }
 
 /* No glowing focus ring — only a slightly deeper border so the surface still
    reads as one calm chrome element. */
-#input-area:focus-within, #side-input-area:focus-within {
+#input-area:focus-within, :is(#side-input-area, #left-side-input-area):focus-within {
   border-color: color-mix(in srgb, var(--fg) 16%, var(--border));
   outline: none;
   box-shadow: var(--shadow-md);
@@ -3352,14 +3352,14 @@ spinner (data-chat-timeline-scroll-generating): the affordance then
 
 /* Keep the composer in front of the status rail without changing its corner radius. */
 #input-wrapper:has(#composer-status-stack > :not([hidden])) #input-area,
-#side-input-wrapper:has(#side-composer-status-stack > :not([hidden])) #side-input-area {
+:is(#side-input-wrapper, #left-side-input-wrapper):has(:is(#side-composer-status-stack, #left-side-composer-status-stack) > :not([hidden])) :is(#side-input-area, #left-side-input-area) {
   position: relative;
 }
 /* The run-context row only shows while the session has no messages, which is also
    when nothing can be queued — but keep it out of the card's top edge anyway so a
    future ordering change cannot leave a stray rounded corner mid-stack. */
 #input-wrapper:has(#composer-status-stack > :not([hidden])) #composer-context-row,
-#side-input-wrapper:has(#side-composer-status-stack > :not([hidden])) #side-composer-context-row {
+:is(#side-input-wrapper, #left-side-input-wrapper):has(:is(#side-composer-status-stack, #left-side-composer-status-stack) > :not([hidden])) :is(#side-composer-context-row, #left-side-composer-context-row) {
   margin-bottom: 0;
 }
 
@@ -3376,11 +3376,11 @@ spinner (data-chat-timeline-scroll-generating): the affordance then
    auto margin so the cluster never falls left. */
 .input-row #ctx-usage-chip { margin-left: auto; }
 .input-row #ctx-usage-chip[hidden] + #voice-input-btn,
-.input-row #side-ctx-usage-chip[hidden] + #side-voice-input-btn,
-/* Side composer hides #side-ctx-usage-chip entirely (display:none via inline
+.input-row :is(#side-ctx-usage-chip, #left-side-ctx-usage-chip)[hidden] + :is(#side-voice-input-btn, #left-side-voice-input-btn),
+/* Side composer hides :is(#side-ctx-usage-chip, #left-side-ctx-usage-chip) entirely (display:none via inline
    style), which breaks the `[hidden] + sibling` selector — fall back to a
    direct rule so the mic + send cluster still docks right. */
-.side-composer-host #side-voice-input-btn { margin-left: auto; }
+.side-composer-host :is(#side-voice-input-btn, #left-side-voice-input-btn) { margin-left: auto; }
 /* Narrow composer (welcome slot with the monitor panel open, small windows):
    the flexible pickers give up width first so the fixed mic/send buttons are
    never pushed out of the clipped composer surface. */
@@ -3389,14 +3389,14 @@ spinner (data-chat-timeline-scroll-generating): the affordance then
 .input-row .kls-select .kls-select-trigger { max-width: 100%; min-width: 0; }
 .input-row .kls-select--flat .kls-select-text { flex: 0 1 auto; min-width: 0; }
 .input-row #voice-input-btn,
-.input-row #side-voice-input-btn,
+.input-row :is(#side-voice-input-btn, #left-side-voice-input-btn),
 .input-row #send,
-.input-row #side-send { flex-shrink: 0; }
+.input-row :is(#side-send, #left-side-send) { flex-shrink: 0; }
 
 /* Composer add button: compact square affordance for files, skills, plugins,
  * and slash commands. It sits with the flat toolbar controls instead of
  * reading as a separate attachment-only action. */
-#composer-plus-btn, #side-composer-plus-btn {
+#composer-plus-btn, :is(#side-composer-plus-btn, #left-side-composer-plus-btn) {
   background: transparent;
   border: 1px solid transparent;
   border-radius: var(--radius-sm);
@@ -3415,22 +3415,22 @@ spinner (data-chat-timeline-scroll-generating): the affordance then
 #composer-plus-btn:hover,
 #composer-plus-btn.open,
 #composer-plus-btn:focus-visible,
-#side-composer-plus-btn:hover,
-#side-composer-plus-btn.open,
-#side-composer-plus-btn:focus-visible {
+:is(#side-composer-plus-btn, #left-side-composer-plus-btn):hover,
+:is(#side-composer-plus-btn, #left-side-composer-plus-btn).open,
+:is(#side-composer-plus-btn, #left-side-composer-plus-btn):focus-visible {
   outline: none;
   color: var(--fg-secondary);
   background: var(--input-chip-hover);
   box-shadow: none;
 }
-#composer-plus-btn:active, #side-composer-plus-btn:active { transform: scale(0.96); }
-#composer-plus-btn:focus-visible, #side-composer-plus-btn:focus-visible {
+#composer-plus-btn:active, :is(#side-composer-plus-btn, #left-side-composer-plus-btn):active { transform: scale(0.96); }
+#composer-plus-btn:focus-visible, :is(#side-composer-plus-btn, #left-side-composer-plus-btn):focus-visible {
   outline: none;
   box-shadow:
     0 0 0 2px var(--input-bg),
     0 0 0 4px color-mix(in srgb, var(--input-focus) 28%, transparent);
 }
-#composer-plus-btn svg, #side-composer-plus-btn svg { width: 16px; height: 16px; }
+#composer-plus-btn svg, :is(#side-composer-plus-btn, #left-side-composer-plus-btn) svg { width: 16px; height: 16px; }
 
 /* Workdir picker: pill control with a strong folder glyph and label. */
 
@@ -3946,7 +3946,7 @@ spinner (data-chat-timeline-scroll-generating): the affordance then
   white-space: nowrap;
 }
 
-#input, #side-input {
+#input, :is(#side-input, #left-side-input) {
   resize: none;
   border: none;
   background: transparent;
@@ -3963,7 +3963,7 @@ spinner (data-chat-timeline-scroll-generating): the affordance then
   padding: 4px 2px;
   outline: none;
 }
-#input[contenteditable="true"], #side-input[contenteditable="true"] {
+#input[contenteditable="true"], :is(#side-input, #left-side-input)[contenteditable="true"] {
   box-sizing: border-box;
   white-space: pre-wrap;
   overflow-wrap: break-word;
@@ -3978,12 +3978,12 @@ spinner (data-chat-timeline-scroll-generating): the affordance then
   cursor: text;
 }
 #input[contenteditable="true"]::-webkit-scrollbar,
-#side-input[contenteditable="true"]::-webkit-scrollbar { display: none; }
-#input::placeholder, #side-input::placeholder,
-#input[data-placeholder]:empty::before, #side-input[data-placeholder]:empty::before {
+:is(#side-input, #left-side-input)[contenteditable="true"]::-webkit-scrollbar { display: none; }
+#input::placeholder, :is(#side-input, #left-side-input)::placeholder,
+#input[data-placeholder]:empty::before, :is(#side-input, #left-side-input)[data-placeholder]:empty::before {
   color: color-mix(in srgb, var(--fg-quaternary) 88%, #8f8a82);
 }
-#input[data-placeholder]:empty::before, #side-input[data-placeholder]:empty::before {
+#input[data-placeholder]:empty::before, :is(#side-input, #left-side-input)[data-placeholder]:empty::before {
   content: attr(data-placeholder);
   pointer-events: none;
   white-space: pre-wrap;
@@ -4021,7 +4021,7 @@ spinner (data-chat-timeline-scroll-generating): the affordance then
   text-indent: var(--composer-token-indent, 0);
 }
 
-#send, #side-send {
+#send, :is(#side-send, #left-side-send) {
   background-color: var(--accent);
   background-clip: content-box;
   color: var(--accent-text);
@@ -4037,72 +4037,72 @@ spinner (data-chat-timeline-scroll-generating): the affordance then
   flex-shrink: 0;
   transition: all var(--transition);
 }
-#send:hover:not(:disabled), #side-send:hover:not(:disabled) { background-color: var(--accent-hover); transform: scale(1.04); }
-#send:active:not(:disabled), #side-send:active:not(:disabled) { transform: scale(0.96); }
+#send:hover:not(:disabled), :is(#side-send, #left-side-send):hover:not(:disabled) { background-color: var(--accent-hover); transform: scale(1.04); }
+#send:active:not(:disabled), :is(#side-send, #left-side-send):active:not(:disabled) { transform: scale(0.96); }
 /* Disabled (空输入态):换成中性灰填充,跟 accent 黑色实心区分开 ——
  * 读起来是"暂时不能点",而不是误导用户它是可点击的主行动按钮。
  * 图标保持白色不变,沿用 accent-text。 */
-#send:disabled, #side-send:disabled {
+#send:disabled, :is(#side-send, #left-side-send):disabled {
   background-color: var(--fg-quaternary);
   opacity: 1;
   cursor: not-allowed;
 }
 /* Keep the 30px hit target while matching the context indicator's 16px visual
  * footprint. Every SVG state shares the same 10px glyph box inside that frame. */
-#send svg, #side-send svg { width: 10px; height: 10px; }
+#send svg, :is(#side-send, #left-side-send) svg { width: 10px; height: 10px; }
 /* 默认显示上箭头（发送）；busy 态显示方块（停止），背景变深色实心 */
-#send .icon-stop, #side-send .icon-stop { display: none; }
-#send.busy, #side-send.busy {
+#send .icon-stop, :is(#side-send, #left-side-send) .icon-stop { display: none; }
+#send.busy, :is(#side-send, #left-side-send).busy {
   background-color: var(--fg);
   color: var(--bg);
   opacity: 1 !important;
   cursor: pointer;
 }
-#send.busy:hover, #side-send.busy:hover { background-color: var(--fg-secondary); transform: scale(1.04); }
-#send.busy.stopping, #side-send.busy.stopping {
+#send.busy:hover, :is(#side-send, #left-side-send).busy:hover { background-color: var(--fg-secondary); transform: scale(1.04); }
+#send.busy.stopping, :is(#side-send, #left-side-send).busy.stopping {
   cursor: wait;
   opacity: 0.62 !important;
 }
-#send.busy.stopping:hover, #side-send.busy.stopping:hover { background-color: var(--fg); transform: none; }
-#send.busy .icon-send, #side-send.busy .icon-send { display: none; }
-#send.busy .icon-stop, #side-send.busy .icon-stop { display: block; }
+#send.busy.stopping:hover, :is(#side-send, #left-side-send).busy.stopping:hover { background-color: var(--fg); transform: none; }
+#send.busy .icon-send, :is(#side-send, #left-side-send).busy .icon-send { display: none; }
+#send.busy .icon-stop, :is(#side-send, #left-side-send).busy .icon-stop { display: block; }
 /* Running with something typed: the button hands back to submit —
  * the stop affordance yields to a queued/steered follow-up while the composer
  * holds content). Same accent face as the idle send, so the arrow on accent
  * reads "press to send", and the stop square no longer competes with it. */
-#send.busy.running-submit, #side-send.busy.running-submit {
+#send.busy.running-submit, :is(#side-send, #left-side-send).busy.running-submit {
   background-color: var(--accent);
   color: var(--accent-text);
 }
-#send.busy.running-submit:hover, #side-send.busy.running-submit:hover { background-color: var(--accent-hover); }
-#send.busy.running-submit .icon-send, #side-send.busy.running-submit .icon-send { display: block; }
-#send.busy.running-submit .icon-stop, #side-send.busy.running-submit .icon-stop { display: none; }
+#send.busy.running-submit:hover, :is(#side-send, #left-side-send).busy.running-submit:hover { background-color: var(--accent-hover); }
+#send.busy.running-submit .icon-send, :is(#side-send, #left-side-send).busy.running-submit .icon-send { display: block; }
+#send.busy.running-submit .icon-stop, :is(#side-send, #left-side-send).busy.running-submit .icon-stop { display: none; }
 /* The stop request is out and the button is disabled, so the square glyph would
  * read as "press me again". A spinner says the stop is in flight instead. */
-#send .icon-stopping, #side-send .icon-stopping { display: none; }
-#send.busy.stopping .icon-stop, #side-send.busy.stopping .icon-stop { display: none; }
-#send.busy.stopping .icon-stopping, #side-send.busy.stopping .icon-stopping {
+#send .icon-stopping, :is(#side-send, #left-side-send) .icon-stopping { display: none; }
+#send.busy.stopping .icon-stop, :is(#side-send, #left-side-send).busy.stopping .icon-stop { display: none; }
+#send.busy.stopping .icon-stopping, :is(#side-send, #left-side-send).busy.stopping .icon-stopping {
   display: block;
   animation: voice-busy-spin 0.9s linear infinite;
 }
 @media (prefers-reduced-motion: reduce) {
-  #send.busy.stopping .icon-stopping, #side-send.busy.stopping .icon-stopping { animation: none; }
+  #send.busy.stopping .icon-stopping, :is(#side-send, #left-side-send).busy.stopping .icon-stopping { animation: none; }
 }
 /* Escape arms the stop before it fires it, so the key that finishes the job is
  * named on the button itself for the two seconds the arming lasts. */
-#send .send-esc-hint, #side-send .send-esc-hint { display: none; }
-#send.esc-armed .send-esc-hint, #side-send.esc-armed .send-esc-hint {
+#send .send-esc-hint, :is(#side-send, #left-side-send) .send-esc-hint { display: none; }
+#send.esc-armed .send-esc-hint, :is(#side-send, #left-side-send).esc-armed .send-esc-hint {
   display: block;
   font-size: var(--text-badge);
   font-weight: var(--weight-medium);
   letter-spacing: 0.02em;
   line-height: 1;
 }
-#send.esc-armed .icon-stop, #side-send.esc-armed .icon-stop { display: none; }
+#send.esc-armed .icon-stop, :is(#side-send, #left-side-send).esc-armed .icon-stop { display: none; }
 /* Continue keeps the neutral rounded-square treatment, but uses the same 16px
  * visual frame as Send, Stop, the progress spinner, and the context indicator. */
-#send .icon-continue, #side-send .icon-continue { display: none; }
-#send.continue, #side-send.continue {
+#send .icon-continue, :is(#side-send, #left-side-send) .icon-continue { display: none; }
+#send.continue, :is(#side-send, #left-side-send).continue {
   background-color: transparent;
   color: var(--fg-tertiary);
   border: none;
@@ -4113,33 +4113,33 @@ spinner (data-chat-timeline-scroll-generating): the affordance then
   opacity: 1 !important;
   cursor: pointer;
 }
-#send.continue:hover:not(:disabled), #side-send.continue:hover:not(:disabled) {
+#send.continue:hover:not(:disabled), :is(#side-send, #left-side-send).continue:hover:not(:disabled) {
   background-color: var(--bg-hover);
   color: var(--fg-secondary);
 }
-#send.continue:focus-visible, #side-send.continue:focus-visible {
+#send.continue:focus-visible, :is(#side-send, #left-side-send).continue:focus-visible {
   outline: none;
   box-shadow:
     0 0 0 2px var(--input-bg),
     0 0 0 4px color-mix(in srgb, var(--input-focus) 28%, transparent);
 }
-#send.continue:disabled, #side-send.continue:disabled { cursor: wait; opacity: 0.62 !important; }
-#send.continue .icon-send, #side-send.continue .icon-send { display: none; }
-#send.continue .icon-continue, #side-send.continue .icon-continue { display: block; }
-#send.continue.continuing .icon-continue, #side-send.continue.continuing .icon-continue { display: none; }
-#send.continue.continuing .icon-stopping, #side-send.continue.continuing .icon-stopping {
+#send.continue:disabled, :is(#side-send, #left-side-send).continue:disabled { cursor: wait; opacity: 0.62 !important; }
+#send.continue .icon-send, :is(#side-send, #left-side-send).continue .icon-send { display: none; }
+#send.continue .icon-continue, :is(#side-send, #left-side-send).continue .icon-continue { display: block; }
+#send.continue.continuing .icon-continue, :is(#side-send, #left-side-send).continue.continuing .icon-continue { display: none; }
+#send.continue.continuing .icon-stopping, :is(#side-send, #left-side-send).continue.continuing .icon-stopping {
   display: block;
   animation: voice-busy-spin 0.9s linear infinite;
 }
 @media (prefers-reduced-motion: reduce) {
-  #send.continue.continuing .icon-stopping, #side-send.continue.continuing .icon-stopping { animation: none; }
+  #send.continue.continuing .icon-stopping, :is(#side-send, #left-side-send).continue.continuing .icon-stopping { animation: none; }
 }
 /* Send pressed while an attachment is still uploading: the intent was accepted
  * and is parked until the upload settles (see composer/deferred-send.ts). The
  * button stays a disabled grey, so a breathing animation is what separates
  * "received, waiting" from "cannot press" — otherwise that keystroke looks like
  * the app ignored it. */
-#send.awaiting-upload, #side-send.awaiting-upload {
+#send.awaiting-upload, :is(#side-send, #left-side-send).awaiting-upload {
   animation: send-awaiting-upload 1.1s ease-in-out infinite;
 }
 @keyframes send-awaiting-upload {
@@ -4147,12 +4147,12 @@ spinner (data-chat-timeline-scroll-generating): the affordance then
   50% { opacity: 0.45; }
 }
 @media (prefers-reduced-motion: reduce) {
-  #send.awaiting-upload, #side-send.awaiting-upload { animation: none; opacity: 0.7; }
+  #send.awaiting-upload, :is(#side-send, #left-side-send).awaiting-upload { animation: none; opacity: 0.7; }
 }
 
 /* ===== Side-chat composer container styles =====
-   The composer itself (#side-input-wrapper / #side-input-area / #side-input /
-   #side-send / #side-composer-plus-btn) is fully covered by the main composer
+   The composer itself (:is(#side-input-wrapper, #left-side-input-wrapper) / :is(#side-input-area, #left-side-input-area) / :is(#side-input, #left-side-input) /
+   :is(#side-send, #left-side-send) / :is(#side-composer-plus-btn, #left-side-composer-plus-btn)) is fully covered by the main composer
    rules above via unified selectors, so main-composer tweaks flow to the side
    composer automatically. Only container-level bits (message list, slots,
    composer host) live here. */
@@ -4170,15 +4170,15 @@ spinner (data-chat-timeline-scroll-generating): the affordance then
 .side-composer-host[hidden] { display: none; }
 
 @media (max-width: 900px) {
-  #input-wrapper, #side-input-wrapper {
+  #input-wrapper, :is(#side-input-wrapper, #left-side-input-wrapper) {
     width: 100%;
     padding: 0 16px 20px;
   }
-  #input-area, #side-input-area {
+  #input-area, :is(#side-input-area, #left-side-input-area) {
     min-height: 166px;
     padding: 18px;
   }
-  #input, #side-input {
+  #input, :is(#side-input, #left-side-input) {
     min-height: 68px;
     font-size: var(--text-title);
   }
@@ -4186,7 +4186,7 @@ spinner (data-chat-timeline-scroll-generating): the affordance then
      must inherit every metric the input uses — a font-size step here that only
      the input sees wraps the two layers at different widths and desyncs the
      visible text from the caret. */
-  #composer-slash-mirror, #side-composer-slash-mirror {
+  #composer-slash-mirror, :is(#side-composer-slash-mirror, #left-side-composer-slash-mirror) {
     font-size: var(--text-title);
   }
   #workdir-btn {
@@ -4203,7 +4203,7 @@ spinner (data-chat-timeline-scroll-generating): the affordance then
    on the same vertical line as the input text (16px card padding + 2px
    input side padding) — that shared column line is what reads as neat.
    Only the vertical margins go negative; left stays on the text column. */
-#previews, #side-previews {
+#previews, :is(#side-previews, #left-side-previews) {
   display: none;
   flex-wrap: wrap;
   align-items: center;
@@ -5419,30 +5419,30 @@ spinner (data-chat-timeline-scroll-generating): the affordance then
 .kls-select--flat .kls-select-text {
   flex: 0 0 auto;
 }
-:is(#main-model-select, #side-model-select, #friend-intent-select, #side-friend-intent-select) .kls-select-trigger {
+:is(#main-model-select, :is(#side-model-select, #left-side-model-select), #friend-intent-select, :is(#side-friend-intent-select, #left-side-friend-intent-select)) .kls-select-trigger {
   max-width: 170px;
   color: var(--fg-tertiary);
   font-weight: var(--weight-regular);
 }
-:is(#main-model-select, #side-model-select, #friend-intent-select, #side-friend-intent-select) .kls-select-trigger:hover,
-:is(#main-model-select, #side-model-select, #friend-intent-select, #side-friend-intent-select).open .kls-select-trigger {
+:is(#main-model-select, :is(#side-model-select, #left-side-model-select), #friend-intent-select, :is(#side-friend-intent-select, #left-side-friend-intent-select)) .kls-select-trigger:hover,
+:is(#main-model-select, :is(#side-model-select, #left-side-model-select), #friend-intent-select, :is(#side-friend-intent-select, #left-side-friend-intent-select)).open .kls-select-trigger {
   color: var(--fg-secondary);
 }
-:is(#main-model-select, #side-model-select, #friend-intent-select, #side-friend-intent-select) .kls-select-text {
+:is(#main-model-select, :is(#side-model-select, #left-side-model-select), #friend-intent-select, :is(#side-friend-intent-select, #left-side-friend-intent-select)) .kls-select-text {
   max-width: 132px;
 }
-:is(#main-model-select, #side-model-select, #permission-select, #side-permission-select, #friend-intent-select, #side-friend-intent-select) .kls-select-text {
+:is(#main-model-select, :is(#side-model-select, #left-side-model-select), #permission-select, :is(#side-permission-select, #left-side-permission-select), #friend-intent-select, :is(#side-friend-intent-select, #left-side-friend-intent-select)) .kls-select-text {
   line-height: var(--leading-composer-control);
 }
 /* The friend intent host is created at runtime and stays hidden until a
    friend mention lands; the shared wrapper's inline-block display would
    otherwise win over the hidden attribute. */
-:is(#friend-intent-select, #side-friend-intent-select)[hidden] { display: none; }
-:is(#main-model-select, #side-model-select, #friend-intent-select, #side-friend-intent-select) .kls-select-panel {
+:is(#friend-intent-select, :is(#side-friend-intent-select, #left-side-friend-intent-select))[hidden] { display: none; }
+:is(#main-model-select, :is(#side-model-select, #left-side-model-select), #friend-intent-select, :is(#side-friend-intent-select, #left-side-friend-intent-select)) .kls-select-panel {
   min-width: 188px;
   max-width: min(280px, calc(100vw - 16px));
 }
-:is(#main-model-select, #side-model-select, #friend-intent-select, #side-friend-intent-select) .kls-select-item-label {
+:is(#main-model-select, :is(#side-model-select, #left-side-model-select), #friend-intent-select, :is(#side-friend-intent-select, #left-side-friend-intent-select)) .kls-select-item-label {
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -5618,11 +5618,11 @@ single repository — `disabled` + `disabledReason`). The row keeps its
 .kls-select-trigger.is-danger .kls-select-caret { color: var(--danger); }
 
 /* Permission controls keep their warning ink on a quiet, neutral surface. */
-:is(#permission-select, #side-permission-select) .kls-select-trigger {
+:is(#permission-select, :is(#side-permission-select, #left-side-permission-select)) .kls-select-trigger {
   border-radius: 999px;
   gap: 6px;
 }
-:is(#permission-select, #side-permission-select) .kls-select-trigger.is-danger {
+:is(#permission-select, :is(#side-permission-select, #left-side-permission-select)) .kls-select-trigger.is-danger {
   color: #f65300;
   background: var(--bg-hover);
 }
@@ -7000,7 +7000,7 @@ single repository — `disabled` + `disabledReason`). The row keeps its
 }
 
 /* 语音输入按钮：idle 麦克风 / recording 红色脉冲停止 / transcribing 旋转。 */
-#voice-input-btn, #side-voice-input-btn {
+#voice-input-btn, :is(#side-voice-input-btn, #left-side-voice-input-btn) {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -7014,12 +7014,12 @@ single repository — `disabled` + `disabledReason`). The row keeps its
   cursor: pointer;
   transition: background var(--transition), color var(--transition);
 }
-#voice-input-btn:hover:not(:disabled), #side-voice-input-btn:hover:not(:disabled) { background: var(--bg-hover); color: var(--fg-secondary); }
-#voice-input-btn svg, #side-voice-input-btn svg { width: 14px; height: 14px; display: none; }
-#voice-input-btn[data-voice-state="idle"] .voice-icon-mic, #side-voice-input-btn[data-voice-state="idle"] .voice-icon-mic { display: block; }
-#voice-input-btn[data-voice-state="recording"] .voice-icon-stop, #side-voice-input-btn[data-voice-state="recording"] .voice-icon-stop { display: block; }
-#voice-input-btn:is([data-voice-state="starting"], [data-voice-state="transcribing"]) .voice-icon-busy, #side-voice-input-btn:is([data-voice-state="starting"], [data-voice-state="transcribing"]) .voice-icon-busy { display: block; animation: voice-busy-spin 0.9s linear infinite; }
-#voice-input-btn[data-voice-state="recording"], #side-voice-input-btn[data-voice-state="recording"] {
+#voice-input-btn:hover:not(:disabled), :is(#side-voice-input-btn, #left-side-voice-input-btn):hover:not(:disabled) { background: var(--bg-hover); color: var(--fg-secondary); }
+#voice-input-btn svg, :is(#side-voice-input-btn, #left-side-voice-input-btn) svg { width: 14px; height: 14px; display: none; }
+#voice-input-btn[data-voice-state="idle"] .voice-icon-mic, :is(#side-voice-input-btn, #left-side-voice-input-btn)[data-voice-state="idle"] .voice-icon-mic { display: block; }
+#voice-input-btn[data-voice-state="recording"] .voice-icon-stop, :is(#side-voice-input-btn, #left-side-voice-input-btn)[data-voice-state="recording"] .voice-icon-stop { display: block; }
+#voice-input-btn:is([data-voice-state="starting"], [data-voice-state="transcribing"]) .voice-icon-busy, :is(#side-voice-input-btn, #left-side-voice-input-btn):is([data-voice-state="starting"], [data-voice-state="transcribing"]) .voice-icon-busy { display: block; animation: voice-busy-spin 0.9s linear infinite; }
+#voice-input-btn[data-voice-state="recording"], :is(#side-voice-input-btn, #left-side-voice-input-btn)[data-voice-state="recording"] {
   color: var(--danger);
   background: var(--danger-bg, rgba(224, 46, 42, 0.12));
   animation: voice-recording-pulse 1.4s ease-in-out infinite;
@@ -8862,7 +8862,7 @@ body.non-chat-view .side-rail {
 /* Side-chat mode fills the whole panel body (like terminal): other sections
    drop out and the side-chat surface only paints in this mode. */
 .artifacts-panel[data-mode="side-chat"] .artifacts-section { display: none; }
-.artifacts-panel:not([data-mode="side-chat"]) #side-chat-panel { display: none; }
+.artifacts-panel:not([data-mode="side-chat"]) :is(#side-chat-panel, #left-side-chat-panel) { display: none; }
 .artifacts-panel[data-mode="side-chat"] .artifacts-body {
   padding: 0;
   overflow: hidden;
@@ -10331,17 +10331,17 @@ body.non-chat-view .side-rail {
 
 /* Optional questions stack above the ordinary composer; required questions
    replace it without clearing the user's message draft. */
-#question-composer-slot:empty, #side-question-composer-slot:empty { display: none; }
+#question-composer-slot:empty, :is(#side-question-composer-slot, #left-side-question-composer-slot):empty { display: none; }
 #question-composer-slot:has(> [data-question-mode="async"]),
-#side-question-composer-slot:has(> [data-question-mode="async"]) { margin-bottom: 8px; }
+:is(#side-question-composer-slot, #left-side-question-composer-slot):has(> [data-question-mode="async"]) { margin-bottom: 8px; }
 #input-wrapper:has(#question-composer-slot > [data-question-mode="async"]) #input-area,
-#side-input-wrapper:has(#side-question-composer-slot > [data-question-mode="async"]) #side-input-area { min-height: 0; }
+:is(#side-input-wrapper, #left-side-input-wrapper):has(:is(#side-question-composer-slot, #left-side-question-composer-slot) > [data-question-mode="async"]) :is(#side-input-area, #left-side-input-area) { min-height: 0; }
 #input-wrapper:has(#question-composer-slot > [data-question-mode="async"]) #input,
-#side-input-wrapper:has(#side-question-composer-slot > [data-question-mode="async"]) #side-input { min-height: calc(1.5em + 8px); }
+:is(#side-input-wrapper, #left-side-input-wrapper):has(:is(#side-question-composer-slot, #left-side-question-composer-slot) > [data-question-mode="async"]) :is(#side-input, #left-side-input) { min-height: calc(1.5em + 8px); }
 #input-wrapper:has(#question-composer-slot > [data-question-mode="required"]) .composer-content > #input-area,
 #input-wrapper:has(#question-composer-slot > [data-question-mode="required"]) .composer-content > #composer-context-row,
-#side-input-wrapper:has(#side-question-composer-slot > [data-question-mode="required"]) .composer-content > #side-input-area,
-#side-input-wrapper:has(#side-question-composer-slot > [data-question-mode="required"]) .composer-content > #side-composer-context-row { display: none; }
+:is(#side-input-wrapper, #left-side-input-wrapper):has(:is(#side-question-composer-slot, #left-side-question-composer-slot) > [data-question-mode="required"]) .composer-content > :is(#side-input-area, #left-side-input-area),
+:is(#side-input-wrapper, #left-side-input-wrapper):has(:is(#side-question-composer-slot, #left-side-question-composer-slot) > [data-question-mode="required"]) .composer-content > :is(#side-composer-context-row, #left-side-composer-context-row) { display: none; }
 
 /* ==================== sidebar activity view (priority threads) ==================== */
 
@@ -10577,3 +10577,11 @@ html[data-theme="dark"] .klaus-inline-vis-banner { background: #181818; border-c
 html[data-theme="dark"] .klaus-inline-vis-banner-button { border-color: rgba(255, 255, 255, .18); }
 html[data-theme="dark"] .klaus-inline-vis-banner-button:hover { background: rgba(255, 255, 255, .08); }
 html[data-theme="dark"] .klaus-inline-vis-expanded { border-color: rgba(255, 255, 255, .14); background: #181818; }
+
+/* Both conversation panes retain their own transcript and composer roots. */
+.left-side-tabs[hidden],
+.left-side-chat-panel[hidden] { display: none !important; }
+.left-side-tabs { position: relative; z-index: 6; display: flex; align-items: stretch; height: 34px; flex: 0 0 34px; min-width: 0; border-bottom: 1px solid var(--border-subtle); }
+.left-side-chat-panel { flex: 1 1 auto; min-height: 0; height: auto; }
+#main[data-left-side-session] > :not(#left-side-tabs):not(#left-side-chat-panel) { display: none !important; }
+#left-side-chat-panel .side-composer-host { flex: 0 0 auto; }

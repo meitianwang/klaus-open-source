@@ -12029,7 +12029,7 @@
       "params": {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "title": "SessionStartSideTaskParams",
-        "description": "Start an ephemeral side task in one request. A live parent contributes only its latest completed turn; a cold parent is read from its persisted record. The inherited turn is hidden from the new thread's visible transcript.",
+        "description": "Start an ephemeral side task in one request. A live parent contributes its completed context prefix; a cold parent is read from its persisted record. The inherited context is hidden from the new thread's visible transcript.",
         "type": "object",
         "required": [
           "init",

@@ -7,7 +7,7 @@ import { selectSideTaskQuoteTarget, type SideTaskQuotePanel } from '../../../../
 import vectors from '../../../../contracts/vectors/side-task-quote-routing-vectors.json'
 
 // Execute the actual registry and its drag/drop mutation, without mounting React.
-const script = transpileModule(`${readFileSync(new URL('./panel-tabs.tsx', import.meta.url), 'utf8')}\n;({ moveTab, store });`, {
+const script = transpileModule(`${readFileSync(new URL('./panel-tabs.tsx', import.meta.url), 'utf8')}\n;({ moveTab, closeTab, find, store });`, {
   compilerOptions: { target: ScriptTarget.ES2022, module: ModuleKind.CommonJS, jsx: JsxEmit.ReactJSX },
 }).outputText
 
@@ -31,7 +31,8 @@ export function createPanelTabsFixture(window: any, panel: any) {
     localStorage: { getItem: (key: string) => storage.get(key) ?? null, setItem: (key: string, value: string) => { storage.set(key, value) } },
   })
   return { actions: window.KlausPanelTabs, snapshot: () => api.store.getState(),
-    move: (from: string, to: string, after = false) => api.moveTab(`side-task:${from}`, `side-task:${to}`, after) }
+    move: (from: string, to: string, after = false) => api.moveTab(`side-task:${from}`, `side-task:${to}`, after),
+    close: (id: string) => api.closeTab(api.find('side-task', id)) }
 }
 
 function fixture() {

@@ -62,6 +62,35 @@ body:global(.artifacts-maximized) :global(.panel-resizer) {
   height: 15px;
 }
 
+.artifacts-tab-icon { position: relative; }
+.artifacts-tab-icon > span { display: inline-flex; }
+.artifacts-tab-spinner {
+  width: 12px;
+  height: 12px;
+  border: 1.5px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: artifacts-tab-spin 0.8s linear infinite;
+}
+.artifacts-tab-unread-dot {
+  position: absolute;
+  top: -1px;
+  right: -2px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--status-info, #3b82f6);
+}
+.artifacts-tab-status {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+@keyframes artifacts-tab-spin { to { transform: rotate(360deg); } }
+
 .artifacts-tab-trigger {
   display: inline-flex;
   align-items: center;

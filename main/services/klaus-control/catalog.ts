@@ -499,7 +499,7 @@ export const CONTROL_SURFACES: ControlSurface[] = [
   },
   {
     "key": "sideTask",
-    "about": "Side tasks: temporary threads forked from a conversation's last complete turn, inheriting its project, working directory, model and thinking level. They have no transcript of their own and do not appear in the sidebar; closing one discards it.",
+    "about": "Side tasks: temporary threads that inherit a conversation's completed context, project, working directory, model and thinking level. Inherited messages are hidden from their own transcript. They can move between left and right panes, do not appear in the sidebar, and live until explicitly closed or the application exits.",
     "reads": [
       {
         "action": "list",
@@ -513,7 +513,7 @@ export const CONTROL_SURFACES: ControlSurface[] = [
       {
         "action": "create",
         "channel": "side-task:create",
-        "args": "{ parentSessionId: string } — required; the PARENT conversation, which must be an ordinary active chat. There is no opening prompt here: the fork starts empty (max 8 per conversation, dropped after an hour idle)",
+        "args": "{ parentSessionId: string } — required; the PARENT conversation, which must be an ordinary active chat. There is no opening prompt here: the visible transcript starts empty while the completed parent context stays available to the model",
         "confirm": false,
         "currentSession": true
       },

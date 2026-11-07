@@ -827,7 +827,8 @@ void (async () => {
         const deltas = (await records()).filter(record => record.channel === 'chat:event:batch').flatMap(record => record.value as Array<{type:string;sessionId:string;text?:string}>);
         assert(deltas.filter(event => event.sessionId === sideId && event.type === 'text_delta' && event.text).length >= 2, 'multiple side-task deltas reach the normal renderer stream');
         const request = provider!.requests.find(request => JSON.stringify(request.messages).includes('PLAIN FIXTURE from the actual side composer'));
-        assert(request && JSON.stringify(request.messages).includes('inherited side-task context two'), 'actual provider sees the latest complete parent prefix');
+        assert(request && JSON.stringify(request.messages).includes('inherited side-task context one')
+          && JSON.stringify(request.messages).includes('inherited side-task context two'), 'actual provider sees the completed parent context prefix');
         await desktop.sessions.request('config/batchWrite', {edits:[{keyPath:'modelProviders.sideTaskFixture',mergeStrategy:'replace',value:{name:'Side fixture',provider:'anthropic',model:'side-fixture-model',baseUrl:provider!.url,maxContextTokens:160000,thinking:'off'}}]});
         await desktop.sessions.request('model/credential/write', {id:'sideTaskFixture',apiKey:'side-fixture-key'});
         await invoke('session:set-main-model', {sessionId:sideId,mode:'custom:sideTaskFixture',source:'custom'});
@@ -835,11 +836,11 @@ void (async () => {
         assertEqual(await desktop.sessions.resolveLiveSession(sideId), engineId, 'model switch preserves the ephemeral endpoint');
         const changed = provider!.requests.find(request => JSON.stringify(request.messages).includes('PLAIN FIXTURE side-task model changed'));
         assert(changed?.model === 'side-fixture-model' && JSON.stringify(changed.messages).includes('inherited side-task context two')
-          && !JSON.stringify(changed.messages).includes('inherited side-task context one'), 'new model retains the latest complete parent turn selected by the side-task contract');
+          && JSON.stringify(changed.messages).includes('inherited side-task context one'), 'new model retains the completed parent context prefix');
         const sideHistory = JSON.stringify(await invoke('session:history', {sessionId:sideId}));
         const promoted = await invoke('session:fork', {sessionId:sideId}) as {id:string}; branchId = promoted.id;
         const branchHistory = JSON.stringify(await invoke('session:history', {sessionId:branchId}));
-        assert(!branchHistory.includes('inherited side-task context one') && branchHistory.includes('inherited side-task context two')
+        assert(branchHistory.includes('inherited side-task context one') && branchHistory.includes('inherited side-task context two')
           && branchHistory.includes('from the actual side composer') && branchHistory.includes('side-task model changed'), 'promotion reveals and persists inherited prefix plus side turns');
         assertEqual(JSON.stringify(await invoke('session:history', {sessionId:sideId})), sideHistory, 'promotion preserves the open source');
         assertEqual(JSON.stringify(await invoke('session:history', {sessionId:parent.id})), parentHistory, 'side turns and promotion do not alter the parent');

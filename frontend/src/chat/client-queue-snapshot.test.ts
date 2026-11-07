@@ -75,6 +75,7 @@ function renderer(currentSessionId = 'conversation', options: { sideSessionId?: 
     isSideChatSession: (sessionId: string | null | undefined) => !!sessionId && sideSurfaces.has(sessionId),
     mainScrollController: { prepareLatestTurnPlacement: () => { mainPlacements++ } },
     sideScrollController: { prepareLatestTurnPlacement: () => { sidePlacements++ } },
+    sideRuntimeForSession: (id: string) => id === sideSessionId ? { preparePlacement: () => { sidePlacements++ } } : undefined,
     showTranscriptSurface() {}, noteCommandReference() {}, syncComposerContextRowVisibility() {},
     ingestLocalUserTurn: (_sessionId: string, payload: { text?: string; displayText?: string }) => {
       bubbles.push({ sessionId: _sessionId, text: String(payload?.displayText || payload?.text || '') })

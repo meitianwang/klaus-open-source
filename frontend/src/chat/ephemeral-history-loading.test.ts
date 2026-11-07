@@ -45,6 +45,31 @@ test('ephemeral history uses the live endpoint with a production-shaped paged br
   expect(vectors.source.ephemeralTranscriptSource).toBe('session/history')
 })
 
+test('cache pressure before mounting preserves a temporary endpoint identity', async () => {
+  const calls = fixture(), id = 'ephemeral-before-mount'
+  const protectedIds = ['ephemeral-protected-large']
+  const releases = protectedIds.map(id => store.retainSessionStream(id))
+  api.history = async (sessionId: string) => {
+    calls.push(`live:${sessionId}`)
+    return { messages: protectedIds.includes(sessionId)
+      ? [{ role: 'assistant', text: 'x'.repeat(store.sessionStreamCacheStats().maxBytes) }] : [] }
+  }
+  try {
+    for (const protectedId of protectedIds) {
+      store.prepareEphemeralSessionStream(protectedId)
+      await store.loadSessionHistory(protectedId)
+    }
+    calls.length = 0
+    store.prepareEphemeralSessionStream(id)
+    await store.loadSessionHistory(id)
+    expect(calls).toEqual([`live:${id}`])
+    expect(store.getSessionStream(id).historyLoadFailed).toBe(false)
+  } finally {
+    releases.forEach(release => release())
+    for (const sessionId of [...protectedIds, id]) store.retireSessionStream(sessionId)
+  }
+})
+
 test('a real live read failure preserves accepted rows and retries the same source', async () => {
   const calls = fixture(), id = 'ephemeral-retry'
   store.prepareEphemeralSessionStream(id)
@@ -76,6 +101,20 @@ test('source registration invalidates a pending saved read and is idempotent', a
   expect(store.getSessionStream(id).historyLoadFailed).toBe(false)
   expect(store.getSessionStream(id).history).toEqual(rows(id))
   expect(calls).toEqual([`saved:${id}`, `live:${id}`])
+})
+
+test('explicit retirement releases the temporary endpoint identity', async () => {
+  const calls = fixture(), id = 'ephemeral-identity-retired'
+  store.prepareEphemeralSessionStream(id)
+  store.retireSessionStream(id, { deleted: false })
+  api.historyPage = async (sessionId: string) => {
+    calls.push(`saved:${sessionId}`)
+    return { messages: [], turns: [], page: { hasMore: false } }
+  }
+  await store.loadSessionHistory(id)
+  expect(calls).toEqual([`saved:${id}`])
+  expect(store.getSessionStream(id).historySource).toBe('saved')
+  store.retireSessionStream(id)
 })
 
 test('a closing ephemeral endpoint cannot be resurrected by a delayed live reply', async () => {

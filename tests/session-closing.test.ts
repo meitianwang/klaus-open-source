@@ -10,7 +10,6 @@ import { object, type JsonObject } from '../main/services/service-types';
 import { kvSet } from '../main/services/settings';
 import { DynamicTools } from '../main/sessions/dynamic-tools';
 import { SessionService, type EngineClientLike, type SessionServiceDeps } from '../main/sessions/service';
-import { SIDE_TASK_IDLE_MS } from '../main/sessions/side-tasks';
 import { Harness, waitFor } from './harness';
 import { mediaFixture, resultText } from './media-generation-fixture';
 import { FakeEngineQueue } from './engine-queue-fixture';
@@ -88,14 +87,13 @@ class Client extends EventEmitter implements EngineClientLike {
   }
 }
 async function fixture(overrides: Partial<SessionServiceDeps> = {}) {
-  const media = await mediaFixture(), client = new Client(), state = new HostState(); let now = 100;
+  const media = await mediaFixture(), client = new Client(), state = new HostState();
   kvSet('auth_mode', 'custom', media.root); media.config('custom', 'image', {});
-  const sessions = new SessionService({ configRoot: media.root, state, workspaces: media.workspaces, pushChatEvents: () => {}, sideTaskClock: () => now,
-    manager: { attach: async () => ({ client, generation: 1 }), shutdownAll: async () => { client.closed = true; } },
+  const sessions = new SessionService({ configRoot: media.root, state, workspaces: media.workspaces, pushChatEvents: () => {},     manager: { attach: async () => ({ client, generation: 1 }), shutdownAll: async () => { client.closed = true; } },
     spawnOptions: () => ({ command: '/unused', args: [], env: [] }), ...overrides });
   await sessions.client();
   state.rememberSession('one', 'engine-one', { cwd: media.workspaces.resolveSessionDirectory('one') }, { source: 'custom', selection: 'custom:fixture' });
-  return { media, client, state, sessions, advance: () => { now += SIDE_TASK_IDLE_MS + 1; }, close: async () => { await sessions.shutdown(); await media.close(); } };
+  return { media, client, state, sessions, close: async () => { await sessions.shutdown(); await media.close(); } };
 }
 
 h.test('delete fences a dynamic call already queued before the first asynchronous cleanup hook', async () => {
@@ -142,16 +140,18 @@ h.test('synchronous preparation failure and direct close-hook failure cannot lea
     finally { await f.close(); }
   }
 });
-h.test('idle side-task expiry fences direct close even though no preparation hook runs', async () => {
-  const gate = deferred(); let closingId = '', preparations = 0;
-  const f = await fixture({ beginClosing: async () => { preparations++; return () => {}; }, onClosing: async id => { closingId = id; await gate.promise; } });
-  let sweeping: Promise<void> | undefined;
+h.test('explicit side-task close fences the endpoint while its close hook is pending', async () => {
+  const gate = deferred(); let closingId = '';
+  const f = await fixture({ onClosing: async id => { closingId = id; await gate.promise; } });
+  let closing: Promise<unknown> | undefined;
   try {
-    const id = String(object(await f.sessions.createSideTask('parent')).id), stages: Stage[] = [['active', f.sessions.isSessionClosing(id)]];
-    f.advance(); sweeping = f.sessions.sweepSideTasks(); await waitFor(() => closingId === id, 1000, 'expiry close started');
-    equal(preparations, 0); stages.push(['closing', f.sessions.isSessionClosing(id)]);
-    gate.resolve(); await sweeping; stages.push(['expired', f.sessions.isSessionClosing(id)]); await vector('expiry', stages); equal(f.state.liveSession(id), undefined);
-  } finally { gate.resolve(); await sweeping?.catch(() => {}); await f.close(); }
+    const id = String(object(await f.sessions.createSideTask('parent')).id);
+    equal(f.sessions.isSessionClosing(id), false);
+    closing = f.sessions.closeSideTask(id); await waitFor(() => closingId === id, 1000, 'explicit close started');
+    equal(f.sessions.isSessionClosing(id), true);
+    gate.resolve(); await closing;
+    equal(f.state.liveSession(id), undefined); equal(f.sessions.isSideTask(id), false);
+  } finally { gate.resolve(); await closing?.catch(() => {}); await f.close(); }
 });
 h.test('startup rollback fences a still-bound writer before awaiting its close RPC', async () => {
   const f = await fixture(), gate = deferred(); f.client.failTitle = true; f.client.holdClose = gate.promise;
