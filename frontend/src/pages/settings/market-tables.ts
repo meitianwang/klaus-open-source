@@ -6,6 +6,10 @@
 const AGENT_CATEGORY_ORDER = ['user', 'project', 'builtin', 'plugin', 'policy', 'failed', 'other']
 
 const SKILL_TEXT_I18N = {
+  'stickman-video-director': {
+    en: ['Stickman Video Director', 'Turn topics, requirements, articles or scripts into stickman videos: director mode produces approved storyboards and standalone shot prompts; autopilot mode renders narrated, captioned films to MP4.'],
+    zh: ['火柴人视频导演', '把主题、需求、文章或脚本变成手绘火柴人视频：导演模式产出分镜脚本与独立镜头提示词，自动驾驶模式渲染带旁白和字幕的 MP4 成片。'],
+  },
   'talking-head-video': {
     en: ['Talking-head Video', 'Edit presenter footage with captions, explanation scenes and circular picture-in-picture. Start from video, audio and a photo, a script, or an idea.'],
     zh: ['口播视频剪辑', '剪辑口播素材，添加字幕、讲解画面和圆形人物画中画。支持视频、音频加照片、文稿或想法起步。'],
@@ -666,12 +670,14 @@ const PLUGIN_NAME_EN_OVERRIDES = {
   'reverse-engineering': 'Reverse Engineering',
   'video-editing': 'Video Editing',
   'voice-clone': 'Voice Swap',
+  'stickman-video-director': 'Stickman Video Director',
 }
 
 const PLUGIN_NAME_ZH_OVERRIDES = {
   'video-editing': '视频剪辑',
   'reverse-engineering': '逆向工程',
   'voice-clone': '变声翻唱',
+  'stickman-video-director': '火柴人视频导演',
   codex: 'Codex 任务代理',
   '42crunch-api-security-testing': '42Crunch API 安全测试',
   'adobe-for-creativity': 'Adobe 创意工具',
@@ -874,6 +880,7 @@ const PLUGIN_DESCRIPTION_ZH_OVERRIDES = {
   'prototype-studio@klaus-official': '使用完整的本地可视化编辑器设计桌面、平板和手机界面，代理与面板共同编辑同一文档，支持原生设计格式、PNG、JPG、WebP、SVG、PDF 和 FIG 导出；首次使用需更新桌面端。',
   'reverse-engineering@klaus-official': '对已发布软件做无源码逆向分析，并用机器化对照验收重建版本：重建 JavaScript/Electron 应用图谱，读取 Mach-O 与 PE 结构，检查 .NET 程序集、Android 包、固件镜像、抓包、SQLite 快照、Go 与 WebAssembly 产物，深度原生反编译引擎随包内置，也可接入自有的 Hopper/Ghidra/IDA。重建验收提供感知图像相似度、网站逐宽度采集对照、控制台运行对照、UI 控件对照、机制数值表核验、--screenshot 与 --self-test 构建契约，以及判定重建何时足够好的轮次台账。分析全部在本机进行，每条结论附证据与未决项。',
   'voice-clone@klaus-official': '把一段录音换成另一个人的声音，词、旋律和情绪都保留：说话模式给录音配音或换成另一个说话人，翻唱模式按源音高重建，人声保留旋律只换音色。全部在本机完成，音频不上传。',
+  'stickman-video-director@klaus-official': '把主题、需求、文章或脚本变成手绘火柴人视频：导演模式产出经确认的分镜脚本与独立镜头提示词，自动驾驶模式渲染带旁白、字幕与音效的插画微动画 MP4 成片。',
   codex: '连接 Codex 进行代码审查、任务委托和工程协作。',
   'frontend-design': '创建具有辨识度和生产质感的前端界面，避免模板化的 AI 风格。',
   'plugin-dev': '提供插件开发、验证、钩子、MCP、命令和代理相关的工程工作流。',

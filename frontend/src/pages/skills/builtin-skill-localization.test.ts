@@ -135,6 +135,7 @@ describe('official plugin card names', () => {
     { id: 'prototype-studio@klaus-official', name: 'prototype-studio', zh: '界面原型设计', en: 'Interface Design' },
     { id: 'reverse-engineering@klaus-official', name: 'reverse-engineering', zh: '逆向工程', en: 'Reverse Engineering' },
     { id: 'video-editing@klaus-official', name: 'video-editing', zh: '视频剪辑', en: 'Video Editing' },
+    { id: 'stickman-video-director@klaus-official', name: 'stickman-video-director', zh: '火柴人视频导演', en: 'Stickman Video Director' },
   ]
 
   test('中文档给出中文产品名，不回退成 slug 的机械大写', async () => {
