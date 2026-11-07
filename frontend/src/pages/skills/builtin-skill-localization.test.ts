@@ -25,6 +25,7 @@ const BUILTIN_SKILL_DIR_NAMES = [
   'cron-manager',
   'deep-research',
   'klaus-docs',
+  'pdf',
   'skill-creator',
   'slash-command-creator',
 ]

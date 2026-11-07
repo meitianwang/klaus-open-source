@@ -228,6 +228,7 @@ const SKILL_LOGO_BY_DIR: Record<string, string> = {
   'deep-research': 'skill-logos/deep-research.png',
   'frontend-design': 'skill-logos/frontend-design.png',
   'klaus-docs': 'skill-logos/klaus-docs.png',
+  'pdf': 'skill-logos/pdf.png',
   'product-feature-video': 'skill-logos/product-feature-video.png',
   'skill-creator': 'skill-logos/skill-creator.png',
   'slash-command-creator': 'skill-logos/slash-command-creator.png',

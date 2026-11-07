@@ -14,6 +14,18 @@ const SKILL_TEXT_I18N = {
     en: ['Talking-head Video', 'Edit presenter footage with captions, explanation scenes and circular picture-in-picture. Start from video, audio and a photo, a script, or an idea.'],
     zh: ['口播视频剪辑', '剪辑口播素材，添加字幕、讲解画面和圆形人物画中画。支持视频、音频加照片、文稿或想法起步。'],
   },
+  'douyin-audio-downloader': {
+    en: ['Douyin Audio Downloader', 'Capture the signed CDN media URL of a public Douyin video through the in-app browser (no login), download it with curl, and extract the audio track to m4a/mp3 with ffmpeg.'],
+    zh: ['抖音音频下载', '用应用内浏览器打开公开抖音视频页，捕获签名 CDN 媒体地址（无需登录），curl 下载后用 ffmpeg 抽取音轨为 m4a/mp3。'],
+  },
+  'product-feature-video': {
+    en: ['Product Feature Video', 'Create product promos, feature showcases and release videos from real components or approved screenshots with deterministic code rendering.'],
+    zh: ['产品功能宣传片', '从真实组件或授权截图制作产品宣传片、功能展示与版本更新视频，确定性代码渲染交付。'],
+  },
+  'remove-ai-tone': {
+    en: ['Remove AI Tone', 'Rewrite drafts, messages and replies to drop formulaic AI phrasing while keeping facts, intent and your own voice.'],
+    zh: ['去除 AI 味', '在写作、修改成稿、代拟与他人的聊天消息、回复评论时清理套话、机械句式和翻译腔，保留事实、意图与个人语气。'],
+  },
   '1password': {
     en: ['1Password', 'Read secrets, inject credentials, and manage vaults with the 1Password CLI.'],
     zh: ['1Password 密钥管理', '通过 1Password CLI 读取密钥、注入凭据并管理保险库。'],

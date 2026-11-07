@@ -19,6 +19,7 @@ const LOGO_SKILLS = [
   'deep-research',
   'frontend-design',
   'klaus-docs',
+  'pdf',
   'product-feature-video',
   'skill-creator',
   'slash-command-creator',
@@ -52,7 +53,7 @@ describe('skill brand logos', () => {
       expect(getSkillLogoSrc({ dirName })).toBe(`skill-logos/${dirName}.png`)
     }
     expect(getSkillLogoSrc({ dirName: 'Canvas' })).toBe('skill-logos/canvas.png')
-    expect(getSkillLogoSrc({ dirName: 'pdf' })).toBe('')
+    expect(getSkillLogoSrc({ dirName: 'pdf' })).toBe('skill-logos/pdf.png')
     expect(getSkillLogoSrc({ name: 'weather' })).toBe('')
     expect(getSkillLogoSrc(null)).toBe('')
     expect(getSkillLogoSrc(undefined)).toBe('')
@@ -94,11 +95,11 @@ describe('skill brand logos', () => {
     expect(getSkillBrandTile({ dirName: 'canvas' })).toEqual({ kind: 'logo', src: 'skill-logos/canvas.png' })
     expect(getSkillBrandTile({ dirName: 'canvas', icon: 'https://x/y.png', emoji: '🎨' }))
       .toEqual({ kind: 'logo', src: 'skill-logos/canvas.png' })
-    expect(getSkillBrandTile({ dirName: 'pdf', icon: ' https://x/y.png ' }))
+    expect(getSkillBrandTile({ dirName: 'weather', icon: ' https://x/y.png ' }))
       .toEqual({ kind: 'icon', src: 'https://x/y.png' })
-    expect(getSkillBrandTile({ dirName: 'pdf', icon: '  ', emoji: ' 🧪 ' }))
+    expect(getSkillBrandTile({ dirName: 'weather', icon: '  ', emoji: ' 🧪 ' }))
       .toEqual({ kind: 'emoji', emoji: '🧪' })
-    expect(getSkillBrandTile({ dirName: 'pdf' })).toBeNull()
+    expect(getSkillBrandTile({ dirName: 'weather' })).toBeNull()
     expect(getSkillBrandTile(null)).toBeNull()
   })
 })
