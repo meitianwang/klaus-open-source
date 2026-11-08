@@ -49,7 +49,7 @@ const DESCRIPTIONS: Record<string, string> = {
   dialog: 'Read the pending page dialog (action: get) or answer it (action: accept/dismiss, optional promptText and dialogId). A page dialog blocks its other operations, so get its text before choosing how to answer.',
   download: 'Save a URL or original page media (locator/ref/coordinates, canvas, SVG, blob) to a completed local file; filename/saveAs is a basename. action:list returns page-owned handles; waitOnly/action:wait and downloadId wait without starting another download; action:cancel cancels that handle. Ambiguous URL matches require downloadId. IAB supports human click downloads; external Chrome can wait only for extension-owned handles. Page media is bounded to 256 MiB; timeoutMs to 60000.',
   visibility: 'Get or set this task\'s browser panel visibility. action: get/set, visible: boolean. A background task cannot take focus.',
-  list_connected_browsers: 'List the built-in browser and reachable external Chrome extension instances with stable browser ids.',
+  list_connected_browsers: 'List the built-in browser and reachable external Chrome extension instances with stable browser ids. tabs:true attaches each browser\'s tab inventory ({id, title, url, active?}) without claiming, focusing or navigating anything; a browser whose inventory fails stays listed and the reason is reported in errors.',
   select_browser: 'Select browserId for this task. Explicit external Chrome failures never fall back to iab.',
   switch_browser: 'Switch this task to the first reachable connected Chrome. Takes no arguments; use select_browser with a stable browserId when choosing a specific instance.',
   browser_for_url: 'Choose and remember a browser for url from exact host or subdomain tab/history evidence instead of guessing where the user is signed in. Local pages use iab.',
@@ -224,7 +224,22 @@ export class BrowserOperations {
       this.selected.set(sessionId, choice);
       return this.answer(sessionId, { value: { browserId: choice } });
     }
-    if (kind === 'list_connected_browsers') return this.answer(sessionId, { value: { browsers: [{ id: 'iab', browserId: 'iab', name: 'Built-in browser', available: true }, ...await this.chrome?.list() ?? []], selectedBrowserId: this.selected.get(sessionId) ?? 'iab' } });
+    if (kind === 'list_connected_browsers') {
+      const wantTabs = fields.tabs === true;
+      const external = await this.chrome?.list() ?? [];
+      const errors: BrowserObject[] = [];
+      const chrome = this.chrome;
+      const settled = await Promise.all(external.map(async entry => {
+        const id = String(entry.browserId ?? entry.id ?? '');
+        if (!wantTabs || !chrome) return { entry, failure: undefined as BrowserObject | undefined };
+        try { return { entry: { ...entry, tabs: await chrome.inventoryTabs(id) } as BrowserObject, failure: undefined as BrowserObject | undefined }; }
+        catch (error) { return { entry, failure: { browserId: id, message: message(error) } as BrowserObject | undefined }; }
+      }));
+      for (const row of settled) if (row.failure) errors.push(row.failure);
+      const externals = settled.map(row => row.entry);
+      const iab: BrowserObject = { id: 'iab', browserId: 'iab', name: 'Built-in browser', type: 'iab', available: true, ...(wantTabs ? { tabs: this.tabInventory(sessionId) } : {}) };
+      return this.answer(sessionId, { value: { browsers: [iab, ...externals], selectedBrowserId: this.selected.get(sessionId) ?? 'iab', ...(wantTabs && errors.length ? { errors } : {}) } });
+    }
     if (kind === 'capabilities') {
       if (requested !== 'iab') {
         if (!this.chrome) throw new BrowserError('unavailable', 'External Chrome is not connected.');
@@ -328,6 +343,14 @@ export class BrowserOperations {
     const browser = (await this.chrome.list()).find(row => row.available === true && typeof row.browserId === 'string');
     if (!browser) throw new BrowserError('unavailable', 'External Chrome is not connected.');
     return String(browser.browserId);
+  }
+
+  /** Session-scoped built-in tab rows; the same handles the tabs operation exposes. */
+  private tabInventory(sessionId: string): BrowserObject[] {
+    const pages = this.manager.listPages(sessionId);
+    if (!pages.length) return [];
+    const active = this.manager.state(sessionId).tabId;
+    return pages.map(entry => ({ id: entry.handle, title: entry.view.webContents.getTitle(), url: entry.view.webContents.getURL() || 'about:blank', active: entry.id === active }));
   }
 
   private async tabs(sessionId: string, kind: string, fields: BrowserObject, handle?: number, signal?: AbortSignal): Promise<BrowserObject> {

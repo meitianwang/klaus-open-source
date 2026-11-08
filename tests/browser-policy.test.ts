@@ -297,6 +297,61 @@ h.test('capability queries describe the requested browser without changing the s
   assert(String(object(error.error).message).includes('select_browser'), 'backend-specific error gives the exact recovery operation');
 });
 
+h.test('list_connected_browsers keeps its default shape and attaches an opt-in tab inventory', async () => {
+  const vector = JSON.parse(readFileSync(join(__dirname, '../../contracts/vectors/browser-tool-contracts.json'), 'utf8')).browserInventory as {
+    requestField: string; iabEntry: BrowserObject; iabTabRow: string[]; externalTabRow: string[]; inventoryLease: string; inventoryLimit: number; errorRow: string[];
+  };
+  const chromeSource = readFileSync(join(__dirname, '../../main/browser/chrome-browser.ts'), 'utf8');
+  assert(chromeSource.includes(vector.inventoryLease), 'the external inventory rides a fixed lease isolated from task turns');
+  assert(chromeSource.includes(`limit: ${vector.inventoryLimit}`), 'the external inventory stays bounded');
+  const pages = [
+    { handle: 5, id: 'iab-5', view: { webContents: { getTitle: () => 'A', getURL: () => 'https://a.invalid/' } } },
+    { handle: 6, id: 'iab-6', view: { webContents: { getTitle: () => '', getURL: () => '' } } },
+  ];
+  const manager = {
+    isEnabled: () => true, beginOperation: () => () => {},
+    surface: (sessionId: string) => ({ kind: 'browserUse', backend: 'iab', browserId: 'iab', sessionId }),
+    listPages: () => pages, state: () => ({ tabId: 'iab-5' }),
+  } as unknown as BrowserManager;
+  const listed = [
+    { id: 'chrome:one', browserId: 'chrome:one', name: 'Chrome', type: 'chrome', available: true, version: '1.0', executable: '/opt/example/chrome' },
+    { id: 'chrome:two', browserId: 'chrome:two', name: 'Chrome 2', type: 'chrome', available: true, version: '1.0', executable: '/opt/example/chrome2' },
+  ];
+  const chrome = {
+    list: async () => listed.map(entry => ({ ...entry })),
+    inventoryTabs: async (browserId: string) => {
+      if (browserId === 'chrome:two') throw new Error('relay offline');
+      return [{ id: 9, title: 'B', url: 'https://b.invalid/' }];
+    },
+  } as unknown as ChromeBrowserService;
+  const operations = new BrowserOperations(manager, chrome);
+
+  const plain = object(object((await operations.execute('inv-task', 'list_connected_browsers', {})).structuredContent).value);
+  const plainBrowsers = plain.browsers as BrowserObject[];
+  assertDeepEqual(plainBrowsers[0], vector.iabEntry, 'the built-in entry keeps its committed shape plus its type');
+  assertDeepEqual(plainBrowsers.slice(1), listed, 'external entries pass through untouched by default');
+  assert(!('errors' in plain), 'the default response carries no errors key');
+  assert(!('tabs' in plainBrowsers[0]!), 'the default response attaches no inventory');
+  assertEqual(plain.selectedBrowserId, 'iab', 'the selection is reported');
+
+  const inventory = object(object((await operations.execute('inv-task', 'list_connected_browsers', { [vector.requestField]: true })).structuredContent).value);
+  const browsers = inventory.browsers as BrowserObject[];
+  assertDeepEqual(browsers[0]!.tabs, [
+    { id: 5, title: 'A', url: 'https://a.invalid/', active: true },
+    { id: 6, title: '', url: 'about:blank', active: false },
+  ], 'built-in rows are session-scoped with the active flag');
+  assertDeepEqual(Object.keys(object((browsers[0]!.tabs as BrowserObject[])[0])).sort(), [...vector.iabTabRow].sort(), 'built-in row keys are pinned');
+  assertDeepEqual(browsers[1]!.tabs, [{ id: 9, title: 'B', url: 'https://b.invalid/' }], 'external rows come from the bounded inventory');
+  assertDeepEqual(Object.keys(object((browsers[1]!.tabs as BrowserObject[])[0])).sort(), [...vector.externalTabRow].sort(), 'external row keys are pinned');
+  assertEqual(browsers[2]!.browserId, 'chrome:two', 'an unreachable browser stays listed');
+  assert(!('tabs' in browsers[2]!), 'a failed inventory attaches no tabs');
+  const errors = inventory.errors as BrowserObject[];
+  assertEqual(errors.length, 1, 'the failure is isolated into errors');
+  assertEqual(errors[0]!.browserId, 'chrome:two', 'the error names its browser');
+  assert(String(errors[0]!.message).includes('relay offline'), 'the reason is preserved');
+  assertDeepEqual(Object.keys(errors[0]!).sort(), [...vector.errorRow].sort(), 'error row keys are pinned');
+});
+
 h.test('browser-targeted operation schemas expose the browser selection field', () => {
   const vector = JSON.parse(readFileSync(join(__dirname, '../../contracts/vectors/browser-tool-contracts.json'), 'utf8')) as { browserTargetedOperations: string[] };
   for (const name of vector.browserTargetedOperations) {

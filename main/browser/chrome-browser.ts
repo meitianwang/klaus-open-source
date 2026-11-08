@@ -79,6 +79,22 @@ export class ChromeBrowserService {
     return rows.map(object);
   }
 
+  /** Global user-tab inventory for cross-surface state; never claims, focuses, or navigates. */
+  async inventoryTabs(browserId: string): Promise<BrowserObject[]> {
+    const connection = await this.connect(browserId);
+    this.requireTabMentions(connection);
+    // A fixed inventory lease keeps aggregation isolated from real task turns
+    // and bounded per connected instance, like the mention picker's lease.
+    const rows = await connection.relay.request('getUserTabs', { session_id: 'klaus-browser-inventory', turn_id: 'inventory', query: '', limit: 100, includeFavicons: false }, 3000);
+    if (!Array.isArray(rows)) throw new BrowserError('host_error', 'The browser returned an invalid tab inventory.');
+    return rows.flatMap(row => {
+      const entry = object(row);
+      const id = Number(entry.id);
+      if (!Number.isSafeInteger(id) || id < 1 || typeof entry.url !== 'string') return [];
+      return [{ id, title: String(entry.title || entry.url), url: entry.url }];
+    });
+  }
+
   private requireTabMentions(connection: Connection): void {
     const capabilities = object(connection.instance.info.metadata).capabilities;
     if (!Array.isArray(capabilities) || !capabilities.includes('tab_mentions_v1')) throw new BrowserError('unavailable', 'Reload the bundled Klaus browser extension to mention existing tabs while preserving their original window and group.');

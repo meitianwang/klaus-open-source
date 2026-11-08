@@ -6,6 +6,16 @@
     "externalOnly": ["history", "claim_tab", "tabs_content", "mark_tab"],
     "selection": "A query reports the requested browserId and the unchanged selectedBrowserId; tool metadata identifies the queried backend."
   },
+  "browserInventory": {
+    "reason": "The unified inventory stays opt-in: the default response keeps its committed entry shape plus the built-in type, tabs:true attaches session-scoped built-in rows and bounded external user rows, and one unreachable browser degrades into an errors row instead of failing the whole inventory.",
+    "requestField": "tabs",
+    "iabEntry": { "id": "iab", "browserId": "iab", "name": "Built-in browser", "type": "iab", "available": true },
+    "iabTabRow": ["id", "title", "url", "active"],
+    "externalTabRow": ["id", "title", "url"],
+    "inventoryLease": "klaus-browser-inventory",
+    "inventoryLimit": 100,
+    "errorRow": ["browserId", "message"]
+  },
   "fileUpload": {
     "reason": "Browser acknowledgement and subsequent page-owned input state are different facts. A page may clear or replace an input synchronously after receiving its real files.",
     "protocol": "DOM.setFileInputFiles with a verified backendNodeId",
@@ -74,7 +84,7 @@
     "shortcuts_list": [],
     "shortcuts_execute": [],
     "switch_browser": [],
-    "list_connected_browsers": [],
+    "list_connected_browsers": ["tabs"],
     "select_browser": ["deviceId"],
     "browser_for_url": ["url"],
     "capabilities": ["deviceId"],

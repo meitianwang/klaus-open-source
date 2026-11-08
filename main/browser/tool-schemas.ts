@@ -52,7 +52,7 @@ export const BROWSER_INPUT_SCHEMAS: Record<string, BrowserObject> = {
     ...tab, target: record('Optional one-call browser target.', { properties: { browserId: text(), tabId: tab.tabId } }),
   }, ['url']),
   back: schema(tab), forward: schema(tab), reload: schema(tab),
-  list_connected_browsers: schema(),
+  list_connected_browsers: schema({ tabs: bool('Attach the tab inventory: this session\'s built-in browser tabs plus bounded external user tabs. Never claims, focuses or navigates.') }),
   resolve_tab: schema({ mention: text('Canonical plugin://browser@klaus-bundled browser tab mention URI.') }, ['mention']),
   capabilities: schema(browserChoice),
   select_browser: schema(browserChoice, [], { anyOf: [{ required: ['deviceId'] }, { required: ['browserId'] }, { required: ['id'] }] }),
