@@ -25,7 +25,8 @@ const context = (signal = new AbortController().signal) => ({ sessionId: 'window
 const invoke = (name, args = {}, signal) => connector.call(name, { app: input, ...args }, context(signal));
 const dom = source => window.webContents.executeJavaScript(source);
 async function read() {
-  latest = await invoke('get_app_state');
+  // Element-index lookups need the full tree; the default observation is an incremental diff.
+  latest = await invoke('get_app_state', { disable_diff: true });
   fs.writeFileSync(path.join(root, 'latest-tree.txt'), latest.content[0].text);
   return latest;
 }
