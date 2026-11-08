@@ -683,6 +683,10 @@ const PLUGIN_NAME_EN_OVERRIDES = {
   'video-editing': 'Video Editing',
   'voice-clone': 'Voice Swap',
   'stickman-video-director': 'Stickman Video Director',
+  'audio-separator': 'Audio Separator',
+  iphoneuse: 'iPhone Use',
+  ppt: 'PPT',
+  browser: 'Browser',
 }
 
 const PLUGIN_NAME_ZH_OVERRIDES = {
