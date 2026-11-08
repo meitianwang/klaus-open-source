@@ -15,7 +15,7 @@ internal static class ComputerUseSyntheticApp
         Application.SetCompatibleTextRenderingDefault(false);
         using (var form = new Form { Text = "Klaus CU Windows Native Fixture", Width = 520, Height = 340,
             StartPosition = FormStartPosition.Manual, Left = 420, Top = 220 })
-        using (var timer = new Timer { Interval = 60000 })
+        using (var timer = new Timer { Interval = 300000 })
         {
             form.Controls.Add(new Label { Text = "Only synthetic fixture content", AutoSize = true, Left = 30, Top = 35 });
             form.Controls.Add(new TextBox { Text = "Synthetic native field", AccessibleName = "Native fixture field", Left = 30, Top = 85, Width = 300 });

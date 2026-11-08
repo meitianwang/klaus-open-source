@@ -68,7 +68,7 @@ async function run() {
     <div id="drop" aria-label="Fixture drop target" ondragover="event.preventDefault()" ondrop="event.preventDefault();dropped=true" style="background:lightgreen;width:160px;height:50px;margin-left:300px">Drop</div>
     <textarea id="multiline" aria-label="Fixture multiline" style="width:350px;height:60px">line1
 line2
-line3</textarea><div id="cancel-drag" style="width:90px;height:25px;background:blue">Cancel drag</div>
+line3</textarea><div id="cancel-drag" style="width:90px;height:25px;background:blue;user-select:none;-webkit-user-select:none">Cancel drag</div>
     <div id="hover" aria-label="Fixture hover target" onmouseenter="hovers++" style="width:90px;height:28px;background:orange;margin-top:10px">Hover</div>
     <script>window.count=0;window.dropped=false;window.keyEvents=0;window.keys=[];window.heldCodes=[];window.downs=0;window.ups=0;window.rights=0;window.hovers=0;
     document.addEventListener('keydown',e=>{keyEvents++;if(!heldCodes.includes(e.code))heldCodes.push(e.code);keys.push({key:e.key,code:e.code,ctrl:e.ctrlKey,shift:e.shiftKey,alt:e.altKey,meta:e.metaKey,composing:e.isComposing,target:e.target.id})});document.addEventListener('keyup',e=>{heldCodes=heldCodes.filter(code=>code!==e.code)});document.addEventListener('mousedown',()=>downs++);document.addEventListener('mouseup',()=>ups++);
@@ -234,6 +234,10 @@ line3</textarea><div id="cancel-drag" style="width:90px;height:25px;background:b
   await test('the desktop drag handle holds the real button across calls and releases it', async () => {
     // Same foreground guarantee as the stitched-desktop test above.
     await read(); window.focus(); await until(() => window.isFocused()); await sleep(200);
+    // The held-drag path must stay a pure mouse sequence: pressing leftover
+    // selected text would turn move_to into a text drag whose release is
+    // consumed by the drag loop instead of surfacing a DOM mouseup.
+    await dom('getSelection().removeAllRanges()');
     desktopLatest = await desktopCall('get_desktop_screenshot');
     const downs = await dom('downs'), ups = await dom('ups');
     const start = await desktopPoint('#cancel-drag');
@@ -247,7 +251,12 @@ line3</textarea><div id="cancel-drag" style="width:90px;height:25px;background:b
     await desktopCall('desktop_drag_handle', { op: 'move_to', x: move.x, y: move.y });
     assert.deepEqual(await dom('({downs,ups})'), { downs: downs + 1, ups });
     await desktopCall('desktop_drag_handle', { op: 'end' });
-    await until(async () => await dom('ups') === ups + 1);
+    try { await until(async () => await dom('ups') === ups + 1); }
+    catch (error) {
+      const state = await dom('({downs,ups,focus:document.hasFocus(),vis:document.visibilityState})').catch(String);
+      console.error('drag-handle-release-state=' + JSON.stringify(state));
+      throw error;
+    }
     // after the release the surface takes ordinary input again
     const button = await desktopPoint('button'), before = await dom('count');
     await desktopCall('desktop_click', { x: button.x, y: button.y });
