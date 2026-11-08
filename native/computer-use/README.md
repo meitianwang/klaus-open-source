@@ -42,8 +42,8 @@ this surface under `_meta.klaus.computerUse`; choose one presentation hook to
 avoid publishing it twice. The optional hook must settle when its signal aborts.
 
 The native protocol has only `capabilities`, `listApps`, `resolve`, `activate`,
-`state`, `action`, `desktopState`, `desktopAction` and the long-lived `recordAudio`
-and `watchEscape`. Every request and response carries `resourceId`,
+`state`, `action`, `desktopState`, `desktopAction` and the long-lived `recordAudio`,
+`watchEscape` and `watchLockedUse`. Every request and response carries `resourceId`,
 `operationId`, `generation` and `sequence`; the response must match all four.
 The helper has no engine, shell dispatch, network, configuration database,
 approval cache or session identifiers. Metadata resolution never activates an
@@ -77,7 +77,7 @@ contents, publishes the text with optional Markdown or HTML flavors, sends the
 platform paste chord and restores the snapshot even on failure. `scroll` targets
 an element or exact window coordinates.
 
-`recordAudio` and `watchEscape` are the long-lived multi-frame operations. On macOS the helper reads its
+`recordAudio`, `watchEscape` and `watchLockedUse` are the long-lived multi-frame operations. On macOS the helper reads its
 request as the first newline-terminated stdin frame, announces a running capture
 with `klaus-audio-recording-started` on stderr, and finalizes a bounded 24 kHz
 stereo WAV when it receives a `{"stop":true}` frame, when stdin reaches EOF,
@@ -101,6 +101,22 @@ the watch. Input the helper posts itself carries a source mark
 (`kCGEventSourceUserData` `0x4b4c4155` on macOS, `dwExtraInfo` `0x4b435541` on
 Windows) and never reports an Escape, so the model cannot stop its own turn
 with a key it sent.
+
+`watchLockedUse` guards a screen this helper family unlocked itself. It arms
+the same way (`klaus-locked-use-watch-started` on stderr; `{"stop":true}` or
+stdin EOF ends it) and listens for physical keyboard and mouse input. Events
+this helper family posts carry the same source mark and never count. After a
+1.5-second arm grace, the first unmarked input posts the standard lock chord
+(control+command+Q, itself marked), verifies on the main pump for up to 2
+seconds that the session re-locked, emits one
+`{"event":"physicalInput","relocked":true|false}` frame and stops.
+`tapDisabled`, `unavailable` and `stopped` frames match `watchEscape`. The
+unlock attempt itself is gated on process ancestry: when the helper binary
+carries a valid signature, its parent chain (up to 10 processes) must include
+the same signing team, or the attempt fails with dedicated trust wording;
+an unsigned development build skips the gate. `activate` (with `inputAction`)
+and `action` results carry `autoUnlocked: true` when that call took the screen
+from locked to unlocked.
 An input failure or failed final capture is never automatically retried: the
 result says the action may already have executed and invalidates the old state.
 

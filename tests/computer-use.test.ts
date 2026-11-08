@@ -6,9 +6,10 @@ import { randomUUID } from 'node:crypto';
 import { Harness, waitFor } from './harness';
 import { ComputerUsePolicyService, type ComputerUsePolicyDependencies, type ComputerUseTaskScope } from '../main/services/computer-use/policy';
 import { withSettingsDb } from '../main/services/settings';
-import { ComputerUseConnector, COMPUTER_USE_TOOLS, ESCAPE_STOP_MESSAGES, desktopSnapshot, snapshot, validateAction, validateDesktopAction, type ComputerUseDependencies } from '../main/services/computer-use/connector';
+import { ComputerUseConnector, COMPUTER_USE_TOOLS, ESCAPE_STOP_MESSAGES, LOCK_PAUSE_MESSAGES, desktopSnapshot, snapshot, validateAction, validateDesktopAction, type ComputerUseDependencies } from '../main/services/computer-use/connector';
 import { ComputerUseEscapeWatcher } from '../main/services/computer-use/escape-watch';
-import { COMPUTER_USE_OVERLAY_COPY, computerUseOverlayHtml } from '../main/app/computer-use-overlay';
+import { ComputerUseLockedUseWatcher } from '../main/services/computer-use/locked-use-watch';
+import { COMPUTER_USE_OVERLAY_COPY, computerUseOverlayHtml, overlayBannerBounds } from '../main/app/computer-use-overlay';
 import { appGuidanceFor, appGuidancePrefix, APP_GUIDANCE_BUNDLE_IDS } from '../main/services/computer-use/app-guides';
 import type { AppSnapshot, ComputerUseBackend, ComputerUseContext, NativeRequest } from '../main/services/computer-use/types';
 import { createComputerUseRuntime } from '../main/app/computer-use-runtime';
@@ -28,7 +29,7 @@ const state = (): AppSnapshot => ({ app, windowId: 55, bounds: { x: -200, y: 10,
   screenshot: { data: jpeg, mimeType: 'image/jpeg', width: 1, height: 1 } });
 function deferred<T = void>() { let resolve!: (value: T) => void; const promise = new Promise<T>(yes => { resolve = yes; }); return { promise, resolve }; }
 const closing: Array<() => Promise<unknown>> = [];
-function fixture(override?: ComputerUseBackend['request'], hooks: Partial<Pick<ComputerUseDependencies, 'beginOperation' | 'approvedWindow' | 'guardInteraction' | 'saveScreenshot' | 'audio' | 'desktopAvailable' | 'escapeStopMessage'>> = {}, policyOverrides: Partial<ComputerUsePolicyDependencies> = {}) {
+function fixture(override?: ComputerUseBackend['request'], hooks: Partial<Pick<ComputerUseDependencies, 'beginOperation' | 'approvedWindow' | 'guardInteraction' | 'saveScreenshot' | 'audio' | 'desktopAvailable' | 'escapeStopMessage' | 'onAutoUnlocked'>> = {}, policyOverrides: Partial<ComputerUsePolicyDependencies> = {}) {
   const requests: NativeRequest[] = [], approvals: unknown[] = [], currentState = state();
   const backend: ComputerUseBackend = { availability: () => ({ available: true }), close: async () => ({ complete: true }),
     request: async (request, signal) => {
@@ -969,6 +970,149 @@ h.test('the emergency stop vector pins the shipped wording, watch protocol and b
   strict.ok(zh.includes(COMPUTER_USE_OVERLAY_COPY.zh.title) && zh.includes(COMPUTER_USE_OVERLAY_COPY.zh.hint) && zh.includes('prefers-color-scheme'));
   const en = computerUseOverlayHtml('en');
   strict.ok(en.includes(COMPUTER_USE_OVERLAY_COPY.en.title) && en.includes(COMPUTER_USE_OVERLAY_COPY.en.hint));
+});
+
+h.test('the locked-use watcher reports physical input with its re-lock outcome for the attributed turn', async () => {
+  const script = fakeWatcherScript('locked-use-watcher', `
+process.stderr.write('klaus-locked-use-watch-started\\n');
+let buffer = '';
+process.stdin.setEncoding('utf8');
+process.stdin.on('data', chunk => {
+  buffer += chunk;
+  if (buffer.includes('"stop":true')) { process.stdout.write('{"event":"stopped"}\\n'); process.exit(0); }
+});
+setTimeout(() => process.stdout.write('{"event":"physicalInput","relocked":true}\\n'), 50);
+`);
+  const inputs: Array<[string, string, boolean]> = [];
+  const watcher = new ComputerUseLockedUseWatcher({ command: watcherCommand(script), available: () => true, log: () => {},
+    onPhysicalInput: (sessionId, turnId, relocked) => inputs.push([sessionId, turnId, relocked]) });
+  watcher.ensure('a', 'turn1');
+  strict.equal(watcher.watching, true);
+  // Attribution is read at delivery time: a re-activation before the frame arrives wins.
+  watcher.ensure('b', 'turn2');
+  await waitFor(() => inputs.length === 1, 10000, 'physical input frame delivered');
+  strict.deepEqual(inputs[0], ['b', 'turn2', true]);
+  await watcher.stop();
+  strict.equal(watcher.watching, false);
+  await watcher.close(1000);
+});
+h.test('a failed or unreported re-lock never claims success and an unavailable locked-use watch degrades to a logged no-watch', async () => {
+  const failed = fakeWatcherScript('locked-use-failed', `
+let buffer = '';
+process.stdin.setEncoding('utf8');
+process.stdin.on('data', chunk => {
+  buffer += chunk;
+  if (buffer.includes('"stop":true')) { process.stdout.write('{"event":"stopped"}\\n'); process.exit(0); }
+});
+process.stdout.write('{"event":"physicalInput","relocked":false}\\n');
+setTimeout(() => process.stdout.write('{"event":"physicalInput"}\\n'), 30);
+`);
+  const inputs: Array<[string, string, boolean]> = [];
+  const watcher = new ComputerUseLockedUseWatcher({ command: watcherCommand(failed), available: () => true, log: () => {},
+    onPhysicalInput: (sessionId, turnId, relocked) => inputs.push([sessionId, turnId, relocked]) });
+  watcher.ensure('a', 'turn1');
+  await waitFor(() => inputs.length >= 2, 10000, 'both frames delivered');
+  // A missing flag is treated as a failed re-lock: the host wording then asks the
+  // person to lock the machine manually instead of claiming a verified lock.
+  strict.deepEqual(inputs, [['a', 'turn1', false], ['a', 'turn1', false]]);
+  await watcher.close(2000);
+
+  const script = fakeWatcherScript('locked-use-unavailable', `
+process.stdout.write('{"event":"unavailable","reason":"fixture-permission"}\\n');
+process.stdout.write('not json\\n');
+`);
+  const logs: string[] = [];
+  let pauses = 0;
+  const degraded = new ComputerUseLockedUseWatcher({ command: watcherCommand(script), available: () => true,
+    log: message => logs.push(message), onPhysicalInput: () => { pauses++; } });
+  degraded.ensure('a', 'turn1');
+  await waitFor(() => !degraded.watching, 10000, 'unavailable watch settles');
+  strict.equal(pauses, 0);
+  strict.ok(logs.some(line => line.includes('unavailable') && line.includes('fixture-permission')));
+  strict.ok(logs.some(line => line.includes('malformed frame')));
+  strict.deepEqual(await degraded.close(1000), { complete: true });
+});
+h.test('an auto-unlocking activation arms the locked-use surface through the connector', async () => {
+  const armed: Array<[string, string]> = [];
+  const f = fixture(async request => {
+    if (request.method === 'resolve') return app;
+    if (request.method === 'activate') return request.args.inputAction ? { ...app, autoUnlocked: true } : app;
+    if (request.method === 'state') return structuredClone(state());
+    return { applied: true };
+  }, { onAutoUnlocked: (sessionId, turnId) => armed.push([sessionId, turnId]) });
+  await f.read();
+  strict.deepEqual(armed, [], 'a plain state read never arms the locked-use surface');
+  await f.connector.call('click', { app: app.input, x: 0, y: 0 }, f.context());
+  strict.deepEqual(armed, [['a', 'turn1']], 'the unlocking input action arms its session turn');
+});
+h.test('an auto-unlocking action result also arms and an ordinary action does not re-arm', async () => {
+  const armed: Array<[string, string]> = [];
+  let actions = 0;
+  const f = fixture(async request => {
+    if (request.method === 'resolve' || request.method === 'activate') return app;
+    if (request.method === 'state') return structuredClone(state());
+    if (request.method === 'action') { actions++; return actions === 1 ? { applied: true, autoUnlocked: true } : { applied: true }; }
+    return { applied: true };
+  }, { onAutoUnlocked: (sessionId, turnId) => armed.push([sessionId, turnId]) });
+  await f.read();
+  strict.deepEqual(armed, []);
+  await f.connector.call('click', { app: app.input, x: 0, y: 0 }, f.context());
+  strict.deepEqual(armed, [['a', 'turn1']]);
+  await f.connector.call('click', { app: app.input, x: 0, y: 0 }, f.context());
+  strict.deepEqual(armed, [['a', 'turn1']], 'only a result that reports the unlock arms');
+});
+h.test('a locked-use pause refuses the rest of the turn with its own wording and the next turn recovers', async () => {
+  const gate = deferred();
+  let entered = false;
+  const f = fixture(async (request, signal) => {
+    if (request.method === 'resolve' || request.method === 'activate') return app;
+    if (request.method === 'state') return structuredClone(state());
+    if (request.method === 'action') {
+      entered = true;
+      await new Promise<void>((resolve, reject) => {
+        const abort = () => reject(signal.reason instanceof Error ? signal.reason : new Error('aborted'));
+        signal.addEventListener('abort', abort, { once: true });
+        gate.promise.then(() => { signal.removeEventListener('abort', abort); resolve(); });
+      });
+      return { applied: true };
+    }
+    return { applied: true };
+  });
+  await f.read();
+  const pending = f.connector.call('click', { app: app.input, x: 0, y: 0 }, f.context());
+  await waitFor(() => entered, 2000, 'native action entered');
+  f.connector.stopTurn('a', 'turn1', LOCK_PAUSE_MESSAGES.relocked);
+  gate.resolve();
+  // The pause wording is delivered verbatim; it is never the uncertain-action wrapper.
+  await strict.rejects(pending, (error: unknown) => error instanceof Error && error.message === LOCK_PAUSE_MESSAGES.relocked);
+  await strict.rejects(f.read(f.context()), (error: unknown) => error instanceof Error && error.message === LOCK_PAUSE_MESSAGES.relocked);
+  strict.equal(f.connector.turnStopped('a', 'turn1'), true);
+  const next = await f.read(f.context('a', 'turn2'));
+  strict.ok(next.content[0]?.text);
+});
+h.test('the banner placement maths centres inside any display work area', () => {
+  strict.deepEqual(overlayBannerBounds({ x: 100, y: -200, width: 1440, height: 900 }), { x: 610, y: -188, width: 420, height: 52 });
+  strict.deepEqual(overlayBannerBounds({ x: 0, y: 0, width: 2560, height: 1440 }), { x: 1070, y: 12, width: 420, height: 52 });
+});
+h.test('the locked-use vector pins the watch protocol, wording and native trust gate', () => {
+  const vector = JSON.parse(readFileSync(join(__dirname, '../../contracts/vectors/computer-use-lockscreen-vectors.json'), 'utf8')).lockedUse;
+  strict.deepEqual(vector.pauseMessages, { relocked: LOCK_PAUSE_MESSAGES.relocked, relockFailed: LOCK_PAUSE_MESSAGES.relockFailed });
+  strict.equal(vector.watchMethod, 'watchLockedUse');
+  strict.equal(vector.startedMarker, 'klaus-locked-use-watch-started');
+  strict.deepEqual(vector.watchFrames, ['physicalInput', 'tapDisabled', 'unavailable', 'stopped']);
+  strict.equal(vector.relockedField, 'relocked');
+  strict.equal(vector.overlayAllDisplaysOnAutoUnlock, true);
+  const objc = readFileSync(join(__dirname, '../../native/computer-use/klaus-computer-use-helper.m'), 'utf8');
+  for (const needle of [vector.watchMethod, vector.startedMarker, vector.ownInputMark, `"${vector.autoUnlockedField}"`,
+    `CGEventCreateKeyboardEvent(source, ${vector.relockChord.keycode}, true)`, 'kCGEventFlagMaskControl | kCGEventFlagMaskCommand']) {
+    strict.ok(objc.includes(needle), `helper source carries ${needle}`);
+  }
+  const lockscreen = readFileSync(join(__dirname, '../../native/computer-use/lockscreen.m'), 'utf8');
+  strict.ok(lockscreen.includes(vector.trustMessage), 'the trust refusal wording ships in the native source');
+  strict.ok(lockscreen.includes('KlausAncestryTrusted') && lockscreen.includes(`KlausAncestorWalkDepth = ${vector.ancestorWalkDepth}`), 'the ancestry gate and its depth ship in the native source');
+  strict.ok(lockscreen.includes(vector.ownInputMark), 'the unlock keystrokes carry the own-input mark');
+  const runtime = readFileSync(join(__dirname, '../../main/app/computer-use-runtime.ts'), 'utf8');
+  strict.ok(runtime.includes('setAllDisplays') && runtime.includes('onAutoUnlocked'), 'the runtime arms the all-display banner on auto-unlock');
 });
 
 void h.finish(join(temporary, 'result.json'), 'computer-use').then(async code => {

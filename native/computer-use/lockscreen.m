@@ -5,10 +5,13 @@
 #import <LocalAuthentication/LocalAuthentication.h>
 #include <math.h>
 #include <string.h>
+#include <sys/sysctl.h>
+#include <unistd.h>
 
 static NSString *const Account = @"computer_use.login_password";
 static NSString *const LockedFallback = @"The Mac is locked and automatic unlock could not unlock it. Ask the user to unlock the Mac manually before continuing.";
 static NSString *const PhysicalInput = @"The Mac is locked and automatic unlock is paused because physical input was detected. Ask the user to unlock the Mac manually before continuing.";
+static NSString *const TrustDenied = @"Automatic unlock is unavailable because this helper was not launched by a trusted Klaus process. Ask the user to unlock the Mac manually.";
 static void Fail(NSString *message) { @throw [NSException exceptionWithName:@"ComputerUse" reason:message userInfo:nil]; }
 // Product credential namespaces: `agent-engine`, optionally followed by
 // lowercase alphanumeric `-segments`, at most 64 bytes. Each desktop edition
@@ -67,18 +70,80 @@ NSDictionary *KlausPromptLoginPassword(id<KlausLockScreenPlatform> platform, NSS
     } @finally { ClearPassword(password); }
 }
 
-void KlausEnsureUnlocked(id<KlausLockScreenPlatform> platform, BOOL enabled, void (^check)(void), void (^pause)(double), void (^posted)(void)) {
+BOOL KlausEnsureUnlocked(id<KlausLockScreenPlatform> platform, BOOL enabled, BOOL (^trusted)(void), void (^check)(void), void (^pause)(double), void (^posted)(void)) {
     check(); NSNumber *locked = [platform locked]; check();
-    if (locked && !locked.boolValue) return;
+    if (locked && !locked.boolValue) return NO;
     if (!locked) Fail(LockedFallback);
     double idle = [platform secondsSinceInput]; check();
     if (!isfinite(idle) || idle < 0 || idle < 5) Fail(PhysicalInput);
     if (!enabled || ![platform hasPassword]) Fail(LockedFallback);
+    // Only a launcher whose process ancestry proves it may spend the stored
+    // credential; everything else keeps the Mac locked.
+    if (trusted && !trusted()) Fail(TrustDenied);
     check();
     @try { [platform attemptStoredPassword:check posted:posted]; }
     @catch (NSException *error) { (void)error; check(); }
     check(); pause(0.6); check(); locked = [platform locked]; check();
     if (!locked || locked.boolValue) Fail(LockedFallback);
+    return YES;
+}
+
+NSString *KlausLockScreenTrustMessage(void) { return TrustDenied; }
+
+BOOL KlausAncestryTrusted(BOOL selfSigned, BOOL ancestorMatched) { return selfSigned ? ancestorMatched : YES; }
+
+/// How many parent processes the ancestry walk inspects before giving up.
+static const int KlausAncestorWalkDepth = 10;
+
+static NSString *OwnTeamIdentifier(BOOL *signedOut) {
+    BOOL valid = NO; NSString *team = nil;
+    SecCodeRef code = NULL;
+    if (SecCodeCopySelf(kSecCSDefaultFlags, &code) == errSecSuccess && code) {
+        valid = SecCodeCheckValidity(code, kSecCSDefaultFlags, NULL) == errSecSuccess;
+        if (valid) {
+            CFDictionaryRef info = NULL;
+            if (SecCodeCopySigningInformation(code, kSecCSSigningInformation, &info) == errSecSuccess && info) {
+                id value = ((__bridge NSDictionary *)info)[(__bridge NSString *)kSecCodeInfoTeamIdentifier];
+                if ([value isKindOfClass:NSString.class] && [value length]) team = value;
+                CFRelease(info);
+            }
+        }
+        CFRelease(code);
+    }
+    if (signedOut) *signedOut = valid && team != nil;
+    return team;
+}
+
+static BOOL AncestorMatchesTeam(NSString *team) {
+    pid_t pid = getppid();
+    for (int depth = 0; depth < KlausAncestorWalkDepth && pid > 1; depth++) {
+        SecCodeRef code = NULL;
+        NSDictionary *attributes = @{(__bridge id)kSecGuestAttributePid: @(pid)};
+        if (SecCodeCopyGuestWithAttributes(NULL, (__bridge CFDictionaryRef)attributes, kSecCSDefaultFlags, &code) == errSecSuccess && code) {
+            BOOL matches = NO;
+            if (SecCodeCheckValidity(code, kSecCSDefaultFlags, NULL) == errSecSuccess) {
+                CFDictionaryRef info = NULL;
+                if (SecCodeCopySigningInformation(code, kSecCSSigningInformation, &info) == errSecSuccess && info) {
+                    id value = ((__bridge NSDictionary *)info)[(__bridge NSString *)kSecCodeInfoTeamIdentifier];
+                    matches = [value isKindOfClass:NSString.class] && [value isEqual:team];
+                    CFRelease(info);
+                }
+            }
+            CFRelease(code);
+            if (matches) return YES;
+        }
+        int mib[4] = {CTL_KERN, KERN_PROC, KERN_PROC_PID, pid};
+        struct kinfo_proc info; size_t size = sizeof(info);
+        if (sysctl(mib, 4, &info, &size, NULL, 0) != 0 || size < sizeof(info)) break;
+        pid = info.kp_eproc.e_ppid;
+    }
+    return NO;
+}
+
+BOOL KlausSystemAncestryTrusted(void) {
+    BOOL selfSigned = NO;
+    NSString *team = OwnTeamIdentifier(&selfSigned);
+    return KlausAncestryTrusted(selfSigned, selfSigned ? AncestorMatchesTeam(team) : NO);
 }
 
 static NSMutableDictionary *CredentialQuery(void) {
@@ -184,8 +249,15 @@ static BOOL IsElement(id value) { return value && CFGetTypeID((__bridge CFTypeRe
             check(); AXError result = AXUIElementSetAttributeValue((__bridge AXUIElementRef)field, kAXValueAttribute, (__bridge CFStringRef)password); password = nil;
             if (result != kAXErrorSuccess) Fail(LockedFallback);
             check();
-            CGEventRef down = CGEventCreateKeyboardEvent(NULL, 36, true), up = CGEventCreateKeyboardEvent(NULL, 36, false);
+            // The unlock keystrokes carry the same own-input mark as every other
+            // event this helper family posts, so watch modes never mistake the
+            // unlock itself for a person at the keyboard.
+            CGEventSourceRef unlockSource = CGEventSourceCreate(kCGEventSourceStatePrivate);
+            CGEventRef down = CGEventCreateKeyboardEvent(unlockSource, 36, true), up = CGEventCreateKeyboardEvent(unlockSource, 36, false);
+            if (unlockSource) CFRelease(unlockSource);
             if (!down || !up) { if (down) CFRelease(down); if (up) CFRelease(up); Fail(LockedFallback); }
+            CGEventSetIntegerValueField(down, kCGEventSourceUserData, 0x4b4c4155);
+            CGEventSetIntegerValueField(up, kCGEventSourceUserData, 0x4b4c4155);
             BOOL pressed = NO;
             @try { check(); CGEventPost(kCGHIDEventTap, down); pressed = YES; posted(); }
             @finally { if (pressed) { CGEventPost(kCGHIDEventTap, up); posted(); } CFRelease(down); CFRelease(up); }

@@ -120,15 +120,23 @@ int main(int argc, char **argv) {
         for (NSDictionary *scenario in vector[@"lockCases"]) {
             Fixture *f = [Fixture new]; f.locks = scenario[@"locked"]; f.idle = [scenario[@"idle"] doubleValue];
             f.present = [scenario[@"password"] boolValue]; f.cancelBeforeInput = [scenario[@"cancelBeforeInput"] boolValue];
-            __block NSUInteger pauses = 0, posts = 0; NSString *outcome = @"unlocked";
+            __block NSUInteger pauses = 0, posts = 0; NSString *outcome = @"unlocked"; BOOL returned = NO;
             @try {
-                KlausEnsureUnlocked(f, [scenario[@"enabled"] boolValue], ^{ if (f.cancelled) Cancel(); },
+                returned = KlausEnsureUnlocked(f, [scenario[@"enabled"] boolValue],
+                    ^{ return (BOOL)(scenario[@"trusted"] == nil ? YES : [scenario[@"trusted"] boolValue]); },
+                    ^{ if (f.cancelled) Cancel(); },
                     ^(double duration) { Expect(duration * 1000 == [vector[@"verificationDelayMs"] doubleValue]); pauses++; }, ^{ posts++; });
             } @catch (NSException *error) {
-                outcome = [error.reason isEqual:@"cancelled"] ? @"cancelled" : [error.reason containsString:@"physical input"] ? @"paused" : @"manual";
+                outcome = [error.reason isEqual:@"cancelled"] ? @"cancelled"
+                    : [error.reason containsString:@"physical input"] ? @"paused"
+                    : [error.reason isEqual:KlausLockScreenTrustMessage()] ? @"untrusted" : @"manual";
             }
             Expect([outcome isEqual:scenario[@"outcome"]]); Expect(f.attempts == [scenario[@"attempts"] unsignedIntegerValue]);
             Expect(posts == f.attempts); Expect(pauses == f.attempts);
+            Expect(returned == [scenario[@"returned"] boolValue]);
+        }
+        for (NSDictionary *scenario in vector[@"ancestryCases"]) {
+            Expect(KlausAncestryTrusted([scenario[@"selfSigned"] boolValue], [scenario[@"ancestorMatched"] boolValue]) == [scenario[@"trusted"] boolValue]);
         }
         for (NSDictionary *scenario in vector[@"inputCases"]) {
             double own = scenario[@"sinceOwn"] == NSNull.null ? INFINITY : [scenario[@"sinceOwn"] doubleValue];

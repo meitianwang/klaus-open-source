@@ -33,6 +33,57 @@ const OVERLAY_HEIGHT = 52;
 /** Gap between the banner top and the work-area top edge. */
 const OVERLAY_TOP_MARGIN = 12;
 
+/** Centre a banner horizontally inside one display work area, near its top edge. */
+export function overlayBannerBounds(area: { x: number; y: number; width: number; height: number }): { x: number; y: number; width: number; height: number } {
+  return { x: Math.round(area.x + (area.width - OVERLAY_WIDTH) / 2), y: area.y + OVERLAY_TOP_MARGIN, width: OVERLAY_WIDTH, height: OVERLAY_HEIGHT };
+}
+
+/** Shared construction options: every banner is a non-activating, click-through panel. */
+const bannerWindowOptions = () => ({
+  title: 'Klaus Computer Use',
+  width: OVERLAY_WIDTH,
+  height: OVERLAY_HEIGHT,
+  show: false,
+  frame: false,
+  transparent: true,
+  resizable: false,
+  movable: true,
+  minimizable: false,
+  maximizable: false,
+  fullscreenable: false,
+  skipTaskbar: true,
+  hasShadow: false,
+  focusable: false,
+  alwaysOnTop: true,
+  backgroundColor: '#00000000',
+  // A panel never activates the app when shown, so the banner cannot pull
+  // focus from whatever the person or the automation is working in.
+  ...(process.platform === 'darwin' ? { type: 'panel' as const } : {}),
+  webPreferences: {
+    // No preload, no Node and no script: this is a static, click-through
+    // status banner rendered from a fixed data URL.
+    javascript: false,
+    contextIsolation: true,
+    sandbox: true,
+    nodeIntegration: false,
+    nodeIntegrationInSubFrames: false,
+    webviewTag: false,
+    devTools: false,
+  },
+});
+
+/** Shared post-construction behaviour: above other panels, on every workspace, click-through. */
+function configureBanner(window: BrowserWindow): void {
+  // Above normal overlays so it survives other always-on-top panels; visible on
+  // every workspace including full-screen ones so it is never hidden by the app
+  // the operator is being pulled into.
+  window.setAlwaysOnTop(true, 'screen-saver');
+  window.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true, skipTransformProcessType: true });
+  // Never eat a click: the person must be able to reach whatever is under it.
+  window.setIgnoreMouseEvents(true);
+  window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+}
+
 function resolveLanguage(value: string | undefined): ComputerUseOverlayLanguage {
   return typeof value === 'string' && value.toLowerCase().startsWith('zh') ? 'zh' : 'en';
 }
@@ -99,6 +150,8 @@ export class ComputerUseOverlay {
   private window?: BrowserWindow;
   private loadedLanguage?: ComputerUseOverlayLanguage;
   private destroyed = false;
+  private allDisplays = false;
+  private extras: BrowserWindow[] = [];
   constructor(private readonly deps: ComputerUseOverlayDependencies) {}
 
   get visible(): boolean {
@@ -117,11 +170,27 @@ export class ComputerUseOverlay {
       this.loadCopy(window, resolveLanguage(this.deps.language()));
       this.place(window);
       window.showInactive();
+      if (this.allDisplays) this.layoutExtras();
     } catch (error) { this.deps.log(`computer use overlay failed to show: ${String(error)}`); }
+  }
+
+  /**
+   * Cover every display instead of only the cursor's. Locked-use mode turns this
+   * on: the screen was unlocked by automation, so the banner has to face whoever
+   * walks up to any monitor. Applies immediately while visible; `hide` returns to
+   * the single-display banner.
+   */
+  setAllDisplays(on: boolean): void {
+    if (this.destroyed || this.allDisplays === on) return;
+    this.allDisplays = on;
+    if (!this.visible) return;
+    if (on) this.layoutExtras(); else this.clearExtras();
   }
 
   /** Hide the banner without destroying it; a no-op when it is not up. */
   hide(): void {
+    this.clearExtras();
+    this.allDisplays = false;
     const window = this.window;
     if (!window || window.isDestroyed()) return;
     try { if (window.isVisible()) window.hide(); }
@@ -131,6 +200,8 @@ export class ComputerUseOverlay {
   /** Permanently tear the banner down; later `show` calls are ignored. */
   destroy(): void {
     this.destroyed = true;
+    this.clearExtras();
+    this.allDisplays = false;
     const window = this.window;
     this.window = undefined; this.loadedLanguage = undefined;
     if (window && !window.isDestroyed()) { try { window.destroy(); } catch { /* already gone */ } }
@@ -140,46 +211,8 @@ export class ComputerUseOverlay {
     let window = this.window;
     if (window && window.isDestroyed()) { window = undefined; this.window = undefined; this.loadedLanguage = undefined; }
     if (!window) {
-      window = new BrowserWindow({
-        title: 'Klaus Computer Use',
-        width: OVERLAY_WIDTH,
-        height: OVERLAY_HEIGHT,
-        show: false,
-        frame: false,
-        transparent: true,
-        resizable: false,
-        movable: true,
-        minimizable: false,
-        maximizable: false,
-        fullscreenable: false,
-        skipTaskbar: true,
-        hasShadow: false,
-        focusable: false,
-        alwaysOnTop: true,
-        backgroundColor: '#00000000',
-        // A panel never activates the app when shown, so the banner cannot pull
-        // focus from whatever the person or the automation is working in.
-        ...(process.platform === 'darwin' ? { type: 'panel' as const } : {}),
-        webPreferences: {
-          // No preload, no Node and no script: this is a static, click-through
-          // status banner rendered from a fixed data URL.
-          javascript: false,
-          contextIsolation: true,
-          sandbox: true,
-          nodeIntegration: false,
-          nodeIntegrationInSubFrames: false,
-          webviewTag: false,
-          devTools: false,
-        },
-      });
-      // Above normal overlays so it survives other always-on-top panels; visible on
-      // every workspace including full-screen ones so it is never hidden by the app
-      // the operator is being pulled into.
-      window.setAlwaysOnTop(true, 'screen-saver');
-      window.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true, skipTransformProcessType: true });
-      // Never eat a click: the person must be able to reach whatever is under it.
-      window.setIgnoreMouseEvents(true);
-      window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+      window = new BrowserWindow(bannerWindowOptions());
+      configureBanner(window);
       window.on('closed', () => { if (this.window === window) { this.window = undefined; this.loadedLanguage = undefined; } });
       this.window = window;
     }
@@ -196,10 +229,37 @@ export class ComputerUseOverlay {
   /** Centre the banner horizontally on the cursor's display, near the top edge. */
   private place(window: BrowserWindow): void {
     try {
-      const area = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea;
-      const x = Math.round(area.x + (area.width - OVERLAY_WIDTH) / 2);
-      const y = area.y + OVERLAY_TOP_MARGIN;
-      window.setBounds({ x, y, width: OVERLAY_WIDTH, height: OVERLAY_HEIGHT });
+      window.setBounds(overlayBannerBounds(screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea));
     } catch (error) { this.deps.log(`computer use overlay failed to place: ${String(error)}`); }
+  }
+
+  /** One banner per display other than the cursor's; the pool is turn-scoped. */
+  private layoutExtras(): void {
+    try {
+      const language = resolveLanguage(this.deps.language());
+      const cursorDisplay = screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
+      const targets = screen.getAllDisplays().filter(display => display.id !== cursorDisplay.id);
+      // A cheap rebuild whenever the display count changes keeps bounds and
+      // displays paired without tracking identities across hot-plug events.
+      if (this.extras.length !== targets.length) { this.clearExtras(); this.extras = targets.map(() => this.createBanner(language)); }
+      this.extras.forEach((extra, index) => {
+        if (extra.isDestroyed()) return;
+        const target = targets[index];
+        if (target) extra.setBounds(overlayBannerBounds(target.workArea));
+        if (!extra.isVisible()) extra.showInactive();
+      });
+    } catch (error) { this.deps.log(`computer use overlay failed to cover displays: ${String(error)}`); }
+  }
+
+  private clearExtras(): void {
+    for (const extra of this.extras) if (!extra.isDestroyed()) { try { extra.destroy(); } catch { /* already gone */ } }
+    this.extras = [];
+  }
+
+  private createBanner(language: ComputerUseOverlayLanguage): BrowserWindow {
+    const window = new BrowserWindow(bannerWindowOptions());
+    configureBanner(window);
+    void window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(computerUseOverlayHtml(language))}`);
+    return window;
   }
 }

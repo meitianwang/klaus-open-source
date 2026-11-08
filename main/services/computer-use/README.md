@@ -24,6 +24,21 @@ starts clean. A refused or unavailable listener degrades to a logged no-watch
 and never blocks ordinary work. The stop wording, watch frames and banner copy
 are pinned by the `emergencyStop` observation vector.
 
+Locked use extends the same machinery. When an input action actually
+auto-unlocked the screen (the native result reports `autoUnlocked`), the
+connector calls `onAutoUnlocked` and the runtime arms one best-effort
+`watchLockedUse` helper child (`locked-use-watch.ts`) and switches the in-use
+banner to every display (`ComputerUseOverlay.setAllDisplays`). Physical
+keyboard or mouse input during that unlock re-locks the screen natively and
+reports one `physicalInput` frame; the runtime then calls `stopTurn` with the
+locked-use pause wording (verbatim, `LOCK_PAUSE_MESSAGES`), hides the banner,
+and the turn refuses further calls until a new turn starts. A failed re-lock
+uses its own wording that asks the person to lock the machine manually. The
+watch frames, wording, arm grace, lock chord and ancestry gate are pinned by
+the `lockedUse` block of `computer-use-lockscreen-vectors.json`; `hide`
+returns the banner to its single-display mode, so all-display coverage is
+turn-scoped.
+
 Construct it with `configRoot`, a real backend `availability()` function, and
 `enabledChanged(enabled, signal)`. Register
 `registerComputerUseSettingsHandlers(registry, service)` for the existing three

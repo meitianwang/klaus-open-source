@@ -7,17 +7,43 @@
   "presence": { "interactionSeconds": 1.5, "ownPostMarginSeconds": 0.2, "cooldownMs": 2000, "lockedPhysicalSeconds": 5 },
   "verificationDelayMs": 600,
   "lockCases": [
-    { "name": "already unlocked", "locked": [false], "idle": 0, "enabled": false, "password": false, "attempts": 0, "outcome": "unlocked" },
-    { "name": "disabled", "locked": [true], "idle": 10, "enabled": false, "password": true, "attempts": 0, "outcome": "manual" },
-    { "name": "no stored password", "locked": [true], "idle": 10, "enabled": true, "password": false, "attempts": 0, "outcome": "manual" },
-    { "name": "person at lock screen", "locked": [true], "idle": 4.9, "enabled": true, "password": true, "attempts": 0, "outcome": "paused" },
-    { "name": "unknown physical input", "locked": [true], "idle": -1, "enabled": true, "password": true, "attempts": 0, "outcome": "paused" },
-    { "name": "system refuses unlock", "locked": [true, true], "idle": 10, "enabled": true, "password": true, "attempts": 1, "outcome": "manual" },
-    { "name": "observed unlocked after attempt", "locked": [true, false], "idle": 10, "enabled": true, "password": true, "attempts": 1, "outcome": "unlocked" },
-    { "name": "lock state cannot be read", "locked": [null], "idle": 10, "enabled": true, "password": true, "attempts": 0, "outcome": "manual" },
-    { "name": "verification cannot be read", "locked": [true, null], "idle": 10, "enabled": true, "password": true, "attempts": 1, "outcome": "manual" },
-    { "name": "cancelled before input", "locked": [true], "idle": 10, "enabled": true, "password": true, "cancelBeforeInput": true, "attempts": 0, "outcome": "cancelled" }
+    { "name": "already unlocked", "locked": [false], "idle": 0, "enabled": false, "password": false, "attempts": 0, "outcome": "unlocked", "trusted": true, "returned": false },
+    { "name": "disabled", "locked": [true], "idle": 10, "enabled": false, "password": true, "attempts": 0, "outcome": "manual", "trusted": true, "returned": false },
+    { "name": "no stored password", "locked": [true], "idle": 10, "enabled": true, "password": false, "attempts": 0, "outcome": "manual", "trusted": true, "returned": false },
+    { "name": "person at lock screen", "locked": [true], "idle": 4.9, "enabled": true, "password": true, "attempts": 0, "outcome": "paused", "trusted": true, "returned": false },
+    { "name": "unknown physical input", "locked": [true], "idle": -1, "enabled": true, "password": true, "attempts": 0, "outcome": "paused", "trusted": true, "returned": false },
+    { "name": "system refuses unlock", "locked": [true, true], "idle": 10, "enabled": true, "password": true, "attempts": 1, "outcome": "manual", "trusted": true, "returned": false },
+    { "name": "observed unlocked after attempt", "locked": [true, false], "idle": 10, "enabled": true, "password": true, "attempts": 1, "outcome": "unlocked", "trusted": true, "returned": true },
+    { "name": "lock state cannot be read", "locked": [null], "idle": 10, "enabled": true, "password": true, "attempts": 0, "outcome": "manual", "trusted": true, "returned": false },
+    { "name": "verification cannot be read", "locked": [true, null], "idle": 10, "enabled": true, "password": true, "attempts": 1, "outcome": "manual", "trusted": true, "returned": false },
+    { "name": "cancelled before input", "locked": [true], "idle": 10, "enabled": true, "password": true, "cancelBeforeInput": true, "attempts": 0, "outcome": "cancelled", "trusted": true, "returned": false },
+    { "name": "untrusted launcher", "locked": [true], "idle": 10, "enabled": true, "password": true, "trusted": false, "attempts": 0, "outcome": "untrusted", "returned": false }
   ],
+  "ancestryCases": [
+    { "selfSigned": true, "ancestorMatched": true, "trusted": true },
+    { "selfSigned": true, "ancestorMatched": false, "trusted": false },
+    { "selfSigned": false, "ancestorMatched": false, "trusted": true },
+    { "selfSigned": false, "ancestorMatched": true, "trusted": true }
+  ],
+  "lockedUse": {
+    "_why": "Locked-use hardening: a watch mode the host arms after this helper family unlocked the screen treats any unmarked physical input as a person taking over, re-locks with the standard chord and pauses the turn with verbatim wording; the ancestry gate keeps the stored credential spendable only by a trusted launcher.",
+    "watchMethod": "watchLockedUse",
+    "startedMarker": "klaus-locked-use-watch-started",
+    "watchFrames": ["physicalInput", "tapDisabled", "unavailable", "stopped"],
+    "relockedField": "relocked",
+    "ownInputMark": "0x4b4c4155",
+    "armGraceMs": 1500,
+    "relockVerifyMs": 2000,
+    "relockChord": { "keycode": 12, "modifiers": "control+command" },
+    "ancestorWalkDepth": 10,
+    "autoUnlockedField": "autoUnlocked",
+    "overlayAllDisplaysOnAutoUnlock": true,
+    "trustMessage": "Automatic unlock is unavailable because this helper was not launched by a trusted Klaus process. Ask the user to unlock the Mac manually.",
+    "pauseMessages": {
+      "relocked": "Physical keyboard or mouse input was detected, so the screen was re-locked and this Computer Use turn is paused. Ask the user to unlock the Mac manually; work can continue in a new turn.",
+      "relockFailed": "Physical keyboard or mouse input was detected and this Computer Use turn is paused, but the screen could not be re-locked automatically. Ask the user to lock the Mac manually; work can continue in a new turn."
+    }
+  },
   "inputCases": [
     { "idle": 0.3, "sinceOwn": 2, "interacting": true },
     { "idle": 0.1, "sinceOwn": 0.1, "interacting": false },

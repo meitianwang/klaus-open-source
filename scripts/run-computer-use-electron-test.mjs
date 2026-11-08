@@ -32,6 +32,6 @@ execFileSync('/usr/libexec/PlistBuddy', ['-c', `Set :CFBundleIdentifier com.klau
 execFileSync('/usr/bin/codesign', ['--force', '--sign', '-', '--preserve-metadata=entitlements,flags,runtime', runtime], { stdio: 'inherit' });
 const result = spawnElectronGuiSync(join(runtime, 'Contents/MacOS/Electron'), ['tests/computer-use-electron.cjs', '-ApplePersistenceIgnoreState', 'YES'], { cwd: desktop, env, stdio: 'inherit', timeout: 440000 });
 let complete = false;
-try { const summary = JSON.parse(readFileSync(join(root, 'result.json'), 'utf8')); complete = summary.passed === 14 && summary.failed === 0 && summary.results.length === 14; } catch {}
+try { const summary = JSON.parse(readFileSync(join(root, 'result.json'), 'utf8')); complete = summary.passed === 15 && summary.failed === 0 && summary.results.length === 15; } catch {}
 if (result.status === 0 && complete) rmSync(root, { recursive: true, force: true }); else console.error(`Synthetic Computer Use evidence: ${root}`);
 if (result.error) throw result.error; process.exit(result.status === 0 && complete ? 0 : 1);

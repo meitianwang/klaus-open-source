@@ -25,8 +25,10 @@ interface Owner {
   desktopDrag?: { dragging: boolean; x: number; y: number };
   /** Sticky after a failed drag cleanup: the desktop input surface stays closed. */
   desktopClosed?: boolean;
-  /** The turn a physical Escape stop refused; a new turn starts clean. */
+  /** The turn a physical stop (Escape, or a locked-use takeover) refused; a new turn starts clean. */
   escStopped?: string;
+  /** Verbatim refusal wording of a stopped turn; absent means the Escape stop wording. */
+  stopMessage?: string;
 }
 export interface ComputerUseDependencies {
   policy: ComputerUsePolicyService; backend: ComputerUseBackend;
@@ -35,6 +37,8 @@ export interface ComputerUseDependencies {
   desktopAvailable?: boolean;
   /** Platform-specific wording a physical Escape stop delivers to the model. */
   escapeStopMessage?: string;
+  /** An input action actually auto-unlocked the screen; the host arms the locked-use surface. */
+  onAutoUnlocked?(sessionId: string, turnId: string): void;
   /** System audio capture spanning a start and a stop call; undefined where unavailable. */
   audio?: {
     start(sessionId: string, maxDurationMs: number, signal: AbortSignal): Promise<void>;
@@ -62,6 +66,11 @@ const DESKTOP_CLOSED = 'The desktop input session is closed after a failed clean
 export const ESCAPE_STOP_MESSAGES = {
   macos: "This application session has been explicitly stopped by the user for this turn. Stop your work and send a final message noting they stopped the session and you're ready to continue if they want you to. Computer Use can be used again in the next assistant turn.",
   windows: 'Computer Use was stopped by the user with the physical Escape key. Stop your work, do not call further Computer Use tools in this turn, and send a final message noting that the user stopped Computer Use.',
+} as const;
+/** Model-readable locked-use takeover wording; pinned by the lockscreen contract vectors. */
+export const LOCK_PAUSE_MESSAGES = {
+  relocked: 'Physical keyboard or mouse input was detected, so the screen was re-locked and this Computer Use turn is paused. Ask the user to unlock the Mac manually; work can continue in a new turn.',
+  relockFailed: 'Physical keyboard or mouse input was detected and this Computer Use turn is paused, but the screen could not be re-locked automatically. Ask the user to lock the Mac manually; work can continue in a new turn.',
 } as const;
 const text = (value: string): ComputerUseResult => ({ content: [{ type: 'text', text: value }] });
 const keyOf = (app: AppIdentity) => `${app.path}\0${app.pid ?? 0}`;
@@ -333,7 +342,7 @@ export class ComputerUseConnector {
       current();
       const turnId = string(context.turnId, 'turnId');
       // A physical Escape stop refuses the rest of this turn; the next turn starts clean.
-      if (owner.escStopped === turnId) throw new Error(this.escapeStopMessage());
+      if (owner.escStopped === turnId) throw new Error(owner.stopMessage ?? this.escapeStopMessage());
       if (restricted) this.deps.policy.guardSession(context.sessionId);
       if (name === 'get_computer_use_policy') {
         const description = await this.deps.policy.describeSessionPolicy(context.sessionId, controller.signal); current(); return text(description);
@@ -430,7 +439,7 @@ export class ComputerUseConnector {
           this.tail = operation.catch(() => {}); return await operation;
         } catch (error) {
           // A user stop surfaces its own wording; it is never an uncertain action.
-          if (owner.escStopped === turnId) throw new Error(this.escapeStopMessage());
+          if (owner.escStopped === turnId) throw new Error(owner.stopMessage ?? this.escapeStopMessage());
           if (enteredNative && !completed) {
             owner.desktop = undefined;
             if (owner.desktopDrag?.dragging) await this.releaseDesktopDrag(owner);
@@ -478,7 +487,9 @@ export class ComputerUseConnector {
           await this.deps.guardInteraction?.(context.sessionId, lease.signal); check();
           const cached = owner.states.get(keyOf(resolved));
           if (action && (!cached || cached.turnId !== turnId)) throw new Error(`Call get_app_state for ${input} in this assistant turn before sending input`);
-          const active = appIdentity(await native('activate', { app: resolved, inputAction: !!action }));
+          const activateResult = await native('activate', { app: resolved, inputAction: !!action });
+          if (object(activateResult).autoUnlocked === true) this.deps.onAutoUnlocked?.(context.sessionId, turnId);
+          const active = appIdentity(activateResult);
           if (!sameApp(resolved, active)) throw new Error('Computer Use activated application identity changed');
           if (action && cached) {
             const values: Row = { ...action, app: active, windowId: cached.snapshot.windowId, windowBounds: cached.snapshot.bounds };
@@ -493,7 +504,10 @@ export class ComputerUseConnector {
             } else if (name === 'click' || (name === 'scroll' && !action.element_index)) values.point = coordinates(cached.snapshot, action.x, action.y);
             if (name === 'drag') { values.from = coordinates(cached.snapshot, action.from_x, action.from_y); values.to = coordinates(cached.snapshot, action.to_x, action.to_y); }
             if (name === 'press_key' || name === 'type_text' || name === 'paste') values.focusedElement = cached.snapshot.elements.find(element => element.focused);
-            enteredAction = true; await native('action', values); actionCompleted = true;
+            enteredAction = true;
+            const actionResult = await native('action', values);
+            if (object(actionResult).autoUnlocked === true) this.deps.onAutoUnlocked?.(context.sessionId, turnId);
+            actionCompleted = true;
           }
           const state = snapshot(await native('state', { app: active }), active);
           const image = state.screenshot.bounds ?? state.bounds;
@@ -526,7 +540,7 @@ export class ComputerUseConnector {
         this.tail = operation.catch(() => {}); return await operation;
       } catch (error) {
         // A user stop surfaces its own wording; it is never an uncertain action.
-        if (owner.escStopped === turnId) throw new Error(this.escapeStopMessage());
+        if (owner.escStopped === turnId) throw new Error(owner.stopMessage ?? this.escapeStopMessage());
         if (enteredAction) {
           owner.states.delete(keyOf(resolved));
           if (!actionCompleted && error instanceof Error && 'computerUseActionStarted' in error && error.computerUseActionStarted === false) {
@@ -556,13 +570,15 @@ export class ComputerUseConnector {
   private escapeStopMessage(): string { return this.deps.escapeStopMessage ?? ESCAPE_STOP_MESSAGES.macos; }
   /**
    * Physical emergency stop for one session: refuses the rest of the given turn and
-   * aborts in-flight calls with the stop wording. The next turn starts clean.
+   * aborts in-flight calls with the stop wording. `message` overrides the wording (a
+   * locked-use takeover pauses with its own text); the next turn starts clean.
    */
-  stopTurn(sessionId: string, turnId: string): void {
+  stopTurn(sessionId: string, turnId: string, message?: string): void {
     const owner = this.owners.get(sessionId);
     if (!owner || owner.closing || owner.escStopped === turnId) return;
     owner.escStopped = turnId;
-    const stop = new Error(this.escapeStopMessage());
+    owner.stopMessage = message;
+    const stop = new Error(message ?? this.escapeStopMessage());
     for (const controller of owner.controllers) controller.abort(stop);
   }
   /** True when a physical Escape stop already refused this session's current turn. */

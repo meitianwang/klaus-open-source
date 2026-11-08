@@ -12,8 +12,9 @@ import { ComputerUsePolicyService } from '../services/computer-use/policy';
 import { ComputerUseAppDetails } from '../services/computer-use/app-details';
 import type { ComputerUseTaskScope } from '../services/computer-use/policy';
 import type { ComputerUseBackend } from '../services/computer-use/types';
-import { ComputerUseConnector, ESCAPE_STOP_MESSAGES } from '../services/computer-use/connector';
+import { ComputerUseConnector, ESCAPE_STOP_MESSAGES, LOCK_PAUSE_MESSAGES } from '../services/computer-use/connector';
 import { ComputerUseEscapeWatcher } from '../services/computer-use/escape-watch';
+import { ComputerUseLockedUseWatcher } from '../services/computer-use/locked-use-watch';
 import { storeBytes } from '../services/media';
 import { HostMcpServer } from '../services/mcp/host-server';
 import { RecordingConnector, RECORDING_TOOLS } from '../services/recording/connector';
@@ -91,6 +92,12 @@ export async function createComputerUseRuntime(registry: ChannelRegistry, deps: 
     // input; only the Windows native helper implements it.
     desktopAvailable: process.platform === 'win32',
     escapeStopMessage: process.platform === 'win32' ? ESCAPE_STOP_MESSAGES.windows : ESCAPE_STOP_MESSAGES.macos,
+    onAutoUnlocked: (sessionId, turnId) => {
+      // The screen just went from locked to unlocked by automation: guard it with
+      // the re-lock watch and face the banner at every display for this turn.
+      lockedUseWatcher.ensure(sessionId, turnId);
+      if (overlayOwner === sessionId) overlay.setAllDisplays(true);
+    },
     refusal: sessionId => deps.computerUseRefusal?.(sessionId),
     saveScreenshot: (data, mime) => storeBytes(Buffer.from(data, 'base64'), mime, deps.configRoot),
     audio: { start: (id, ms, signal) => audio.start(id, ms, signal), stop: (id, signal) => audio.stop(id, signal) },
@@ -119,6 +126,18 @@ export async function createComputerUseRuntime(registry: ChannelRegistry, deps: 
       connector.stopTurn(sessionId, turnId);
       overlayOwner = undefined; overlay.hide();
       void escapeWatcher.stop();
+    },
+    onIdleStop: sessionId => hideOverlayFor(sessionId) });
+  // A second single-slot watcher, armed only after this session actually
+  // auto-unlocked the screen: physical keyboard or mouse input during that
+  // unlock re-locks natively and pauses the attributed turn.
+  const lockedUseWatcher = new ComputerUseLockedUseWatcher({ command: deps.command,
+    available: () => process.platform === 'darwin' && backend.availability().available,
+    log: message => deps.log('computer-use-locked', message),
+    onPhysicalInput: (sessionId, turnId, relocked) => {
+      connector.stopTurn(sessionId, turnId, relocked ? LOCK_PAUSE_MESSAGES.relocked : LOCK_PAUSE_MESSAGES.relockFailed);
+      overlayOwner = undefined; overlay.hide();
+      void lockedUseWatcher.stop();
     },
     onIdleStop: sessionId => hideOverlayFor(sessionId) });
   const recordingNames = new Set(RECORDING_TOOLS.map(tool => tool.name));
@@ -197,7 +216,7 @@ export async function createComputerUseRuntime(registry: ChannelRegistry, deps: 
     const owner = owners.get(id); if (!owner) return;
     if (owner.closing) return owner.closing;
     owner.retiring = true; turns.delete(id);
-    escapeWatcher.stopFor(id); hideOverlayFor(id);
+    escapeWatcher.stopFor(id); lockedUseWatcher.stopFor(id); hideOverlayFor(id);
     const native = connector.closeSession(id), recorded = recording.stopSession(id), transport = mcp.releaseSession(id), audioRelease = audio.release(id);
     const work = (async () => {
       const results = await Promise.allSettled([native, recorded, transport, audioRelease]);
@@ -256,7 +275,7 @@ export async function createComputerUseRuntime(registry: ChannelRegistry, deps: 
           if (prior && prior !== turn) mcp.cancelTurn(id, prior); turns.set(id, turn);
         } else if (event.type === 'done' || event.type === 'interrupted' || (event.type === 'api_error' && event.terminal === true)) {
           if (turn) mcp.cancelTurn(id, turn); turns.delete(id);
-          escapeWatcher.stopFor(id); hideOverlayFor(id);
+          escapeWatcher.stopFor(id); lockedUseWatcher.stopFor(id); hideOverlayFor(id);
         }
       }
     },
@@ -267,7 +286,7 @@ export async function createComputerUseRuntime(registry: ChannelRegistry, deps: 
       const task = (async () => {
         const results = await Promise.allSettled(tasks);
         await Promise.allSettled([...background]);
-        const reports = await Promise.allSettled([panel.shutdown(), connector.close(), audio.close(), escapeWatcher.close()]);
+        const reports = await Promise.allSettled([panel.shutdown(), connector.close(), audio.close(), escapeWatcher.close(), lockedUseWatcher.close()]);
         overlay.destroy();
         const errors = [...results, ...reports].flatMap(result => result.status === 'rejected' ? [result.reason] : []);
         for (const error of errors) deps.log('computer-use-shutdown', String(error));

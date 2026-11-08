@@ -233,6 +233,36 @@ line3</textarea>
       console.log('escape-watch-state: armed');
     }
   });
+  await test('the locked-use watch arms or reports unavailability with the pinned frame protocol', async () => {
+    const child = spawn(process.env.KLAUS_COMPUTER_USE_HELPER, [], { stdio: ['pipe', 'pipe', 'pipe'] });
+    let stdout = '', stderr = ''; const frames = [];
+    child.stdout.on('data', chunk => {
+      stdout += String(chunk); let index;
+      while ((index = stdout.indexOf('\n')) >= 0) { const line = stdout.slice(0, index).trim(); stdout = stdout.slice(index + 1); if (line) frames.push(JSON.parse(line)); }
+    });
+    child.stderr.on('data', chunk => { stderr += String(chunk); });
+    child.stdin.on('error', () => {});
+    const exited = new Promise(resolve => { child.once('close', resolve); });
+    const settled = () => Promise.race([exited, sleep(5000).then(() => 'timeout')]);
+    child.stdin.write(JSON.stringify({ resourceId: 'locked-use-watch-fixture', operationId: 'locked-use-watch-fixture', generation: 1, sequence: 1, method: 'watchLockedUse', args: {} }) + '\n');
+    // Two legal outcomes pin the same protocol: the watch arms (stderr marker)
+    // or the OS refuses the listener (framed unavailable + clean exit). No
+    // synthetic physical input is injected: an unmarked event would re-lock
+    // this machine, and real input is the person's affair.
+    await until(() => stderr.includes('klaus-locked-use-watch-started') || frames.length > 0, 15000);
+    if (frames.some(frame => frame.event === 'unavailable')) {
+      assert.equal(typeof frames.find(frame => frame.event === 'unavailable').reason, 'string');
+      assert.equal(await settled(), 0);
+      console.log('locked-use-watch-state: unavailable');
+    } else {
+      assert.ok(stderr.includes('klaus-locked-use-watch-started'), 'an armed watch announces itself on stderr');
+      assert.ok(!frames.some(frame => frame.event === 'unavailable'));
+      child.stdin.write('{"stop":true}\n');
+      await until(() => frames.some(frame => frame.event === 'stopped'), 5000);
+      assert.equal(await settled(), 0);
+      console.log('locked-use-watch-state: armed');
+    }
+  });
   await test('native close drains owned children and rejects later work', async () => {
     assert.deepEqual(await connector.close(), { complete: true });
     await assert.rejects(invoke('get_app_state'), /unavailable/);

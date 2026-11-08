@@ -173,8 +173,8 @@ static void Permissions(BOOL screenshot) {
     if (!AXIsProcessTrusted()) Fail(@"Accessibility permission is required. Enable Klaus in System Settings > Privacy & Security > Accessibility");
     if (screenshot && !CGPreflightScreenCaptureAccess()) Fail(@"Screen Recording permission is required. Enable Klaus in System Settings > Privacy & Security > Screen Recording");
 }
-static void GuardInteraction(NSDictionary *args) {
-    KlausEnsureUnlocked(KlausSystemLockScreenPlatform(), [args[@"autoUnlock"] boolValue], ^{ Check(); }, ^(double seconds) { Pause(seconds); }, ^{ PostedAt = NowMs(); });
+static BOOL GuardInteraction(NSDictionary *args) {
+    BOOL unlocked = KlausEnsureUnlocked(KlausSystemLockScreenPlatform(), [args[@"autoUnlock"] boolValue], ^{ return KlausSystemAncestryTrusted(); }, ^{ Check(); }, ^(double seconds) { Pause(seconds); }, ^{ PostedAt = NowMs(); });
     NSDictionary *app = Dict(args[@"app"]); NSString *name = Text(app[@"name"]).length ? Text(app[@"name"]) : Text(app[@"input"]);
     if (NowMs() < [args[@"cooldownUntil"] doubleValue]) Fail(KlausInteractionWaitMessage(name));
     double idle = CGEventSourceSecondsSinceLastEventType(kCGEventSourceStateHIDSystemState, kCGAnyInputEventType);
@@ -183,12 +183,13 @@ static void GuardInteraction(NSDictionary *args) {
     if (PostedAt > own) sinceOwn = (NowMs() - PostedAt) / 1000;
     if (KlausUserIsInteracting(idle, sinceOwn)) { CooldownUntil = NowMs() + 2000; Fail(KlausInteractionWaitMessage(name)); }
     if (!CGPreflightPostEventAccess()) Fail(@"Input injection permission is unavailable");
+    return unlocked;
 }
 static void Foreground(NSRunningApplication *app) {
     Check(); if (NSWorkspace.sharedWorkspace.frontmostApplication.processIdentifier != app.processIdentifier) Fail(@"Approved application lost keyboard focus; read fresh app state");
 }
 static NSDictionary *Activate(NSDictionary *args) {
-    Permissions(NO); if ([args[@"inputAction"] boolValue]) GuardInteraction(args);
+    Permissions(NO); BOOL unlocked = NO; if ([args[@"inputAction"] boolValue]) unlocked = GuardInteraction(args);
     NSDictionary *identity = Dict(args[@"app"]); NSRunningApplication *app = nil;
     if (identity[@"pid"]) app = VerifiedApplication(identity);
     else {
@@ -206,7 +207,9 @@ static NSDictionary *Activate(NSDictionary *args) {
     if (@available(macOS 14.0, *)) { [NSApp yieldActivationToApplication:app]; [app activateWithOptions:0]; }
     else [app activateWithOptions:NSApplicationActivateIgnoringOtherApps];
     WaitUntil(^BOOL { return NSWorkspace.sharedWorkspace.frontmostApplication.processIdentifier == app.processIdentifier; }, 2);
-    return Identity(app, Text(identity[@"input"]));
+    if (!unlocked) return Identity(app, Text(identity[@"input"]));
+    NSMutableDictionary *activated = [Identity(app, Text(identity[@"input"])) mutableCopy];
+    activated[@"autoUnlocked"] = @YES; return activated;
 }
 static NSDictionary *SelectWindow(NSArray<NSDictionary *> *infos, pid_t pid, CGWindowID identifier, CGRect bounds) {
     NSMutableArray *matches = [NSMutableArray array];
@@ -497,7 +500,7 @@ static void Mouse(NSRunningApplication *app, CGPoint point, NSString *button, NS
     for (NSUInteger i = 0; i < count; i++) {
         CGEventRef press = CGEventCreateMouseEvent(EventSource(), down, point, btn); CGEventSetFlags(press, flags); CGEventSetIntegerValueField(press, kCGMouseEventClickState, (int64_t)i + 1); Post(press, app);
         @try { Pause(duration); }
-        @finally { CGEventRef release = CGEventCreateMouseEvent(EventSource(), up, point, btn); if (release) { CGEventSetFlags(release, flags); CGEventSetIntegerValueField(release, kCGMouseEventClickState, (int64_t)i + 1); CGEventPost(kCGHIDEventTap, release); CFRelease(release); PostedAt = NowMs(); } }
+        @finally { CGEventRef release = CGEventCreateMouseEvent(EventSource(), up, point, btn); if (release) { CGEventSetFlags(release, flags); CGEventSetIntegerValueField(release, kCGMouseEventClickState, (int64_t)i + 1); CGEventSetIntegerValueField(release, kCGEventSourceUserData, 0x4b4c4155); CGEventPost(kCGHIDEventTap, release); CFRelease(release); PostedAt = NowMs(); } }
     }
 }
 static NSDictionary *Keys(void) {
@@ -604,6 +607,7 @@ static void HoldChord(NSRunningApplication *app, NSString *spec, BOOL pointerCho
             CGEventRef up = CGEventCreateKeyboardEvent(EventSource(), releaseCode, false);
             if (up) {
                 CGEventSetFlags(up, HeldFlags(remaining));
+                CGEventSetIntegerValueField(up, kCGEventSourceUserData, 0x4b4c4155);
                 if (pointerChord) CGEventPost(kCGHIDEventTap, up); else CGEventPostToPid(app.processIdentifier, up);
                 CFRelease(up); PostedAt = NowMs();
             }
@@ -661,7 +665,7 @@ static void Paste(NSRunningApplication *app, NSString *value, NSString *format) 
     }
 }
 static NSDictionary *Action(NSDictionary *args) {
-    Permissions(NO); GuardInteraction(args); NSRunningApplication *running = VerifiedApplication(Dict(args[@"app"])); Foreground(running);
+    Permissions(NO); BOOL unlocked = GuardInteraction(args); NSRunningApplication *running = VerifiedApplication(Dict(args[@"app"])); Foreground(running);
     AXUIElementRef app = AXUIElementCreateApplication(running.processIdentifier);
     @try {
         id root; NSDictionary *window = Window(app, running.processIdentifier, &root, NO); CGRect rect = ReadRectangle(window[@"bounds"]);
@@ -725,12 +729,12 @@ static NSDictionary *Action(NSDictionary *args) {
             Post(CGEventCreateMouseEvent(EventSource(), kCGEventLeftMouseDown, from, kCGMouseButtonLeft), running);
             @try { for (NSUInteger i = 1; i <= 12; i++) { double fraction = i / 12.0; CGPoint point = CGPointMake(from.x + (to.x - from.x) * fraction, from.y + (to.y - from.y) * fraction);
                 Post(CGEventCreateMouseEvent(EventSource(), kCGEventLeftMouseDragged, point, kCGMouseButtonLeft), running); Pause(0.01); } }
-            @finally { CGEventRef up = CGEventCreateMouseEvent(EventSource(), kCGEventLeftMouseUp, to, kCGMouseButtonLeft); if (up) { CGEventPost(kCGHIDEventTap, up); CFRelease(up); PostedAt = NowMs(); } }
+            @finally { CGEventRef up = CGEventCreateMouseEvent(EventSource(), kCGEventLeftMouseUp, to, kCGMouseButtonLeft); if (up) { CGEventSetIntegerValueField(up, kCGEventSourceUserData, 0x4b4c4155); CGEventPost(kCGHIDEventTap, up); CFRelease(up); PostedAt = NowMs(); } }
         } else if ([name isEqualToString:@"press_key"]) Keyboard(running, Text(args[@"key"]), args[@"duration"] ? Numeric(args[@"duration"], 0, 30) : 0);
         else if ([name isEqualToString:@"type_text"]) Unicode(running, Text(args[@"text"]));
         else if ([name isEqualToString:@"paste"]) Paste(running, Text(args[@"text"]), Text(args[@"format"]));
         else Fail(@"Unknown native input operation");
-        Pause(0.12); return @{@"applied": @YES};
+        Pause(0.12); return unlocked ? @{@"applied": @YES, @"autoUnlocked": @YES} : @{@"applied": @YES};
     } @finally { CFRelease(app); }
 }
 static NSDictionary *Appshot(NSDictionary *args) {
@@ -1043,6 +1047,130 @@ static void WatchEscape(NSData *leftover) {
     CFRelease(watch.source); CFRelease(watch.tap); watch.tap = NULL; watch.source = NULL;
     EmitWatchFrame(@{@"event": @"stopped"});
 }
+// Long-lived locked-use watch: while a turn runs on a screen this helper family
+// unlocked itself, any physical (unmarked) keyboard or mouse input immediately
+// re-locks the session and reports one framed event, then the watch ends. Input
+// the helpers post themselves carries the kCGEventSourceUserData mark and never
+// triggers the re-lock. The lock verification runs on the main pump instead of
+// inside the tap callback so the tap never stalls.
+@interface LockedUseWatch : NSObject
+@property(nonatomic) CFMachPortRef tap;
+@property(nonatomic) CFRunLoopSourceRef source;
+@property(nonatomic) BOOL stopRequested;
+@property(nonatomic) BOOL fired;
+@property(nonatomic) BOOL chordPosted;
+@property(nonatomic) double armedAt;
+@end
+@implementation LockedUseWatch
+@end
+/// The standard lock chord (control+command+Q), marked as this family's own input.
+static BOOL PostLockChord(void) {
+    CGEventSourceRef source = CGEventSourceCreate(kCGEventSourceStatePrivate);
+    CGEventRef down = CGEventCreateKeyboardEvent(source, 12, true), up = CGEventCreateKeyboardEvent(source, 12, false);
+    if (source) CFRelease(source);
+    if (!down || !up) { if (down) CFRelease(down); if (up) CFRelease(up); return NO; }
+    CGEventFlags flags = kCGEventFlagMaskControl | kCGEventFlagMaskCommand;
+    CGEventSetFlags(down, flags); CGEventSetFlags(up, flags);
+    CGEventSetIntegerValueField(down, kCGEventSourceUserData, 0x4b4c4155);
+    CGEventSetIntegerValueField(up, kCGEventSourceUserData, 0x4b4c4155);
+    CGEventPost(kCGHIDEventTap, down); CGEventPost(kCGHIDEventTap, up);
+    CFRelease(down); CFRelease(up);
+    return YES;
+}
+static BOOL ScreenIsLockedNow(void) {
+    NSDictionary *session = CFBridgingRelease(CGSessionCopyCurrentDictionary());
+    if (![session isKindOfClass:NSDictionary.class]) return NO;
+    return [session[@"CGSSessionScreenIsLocked"] boolValue];
+}
+static CGEventRef LockedUseTapCallback(CGEventTapProxy proxy, CGEventType type, CGEventRef event, void *context) {
+    (void)proxy;
+    LockedUseWatch *watch = (__bridge LockedUseWatch *)context;
+    if (watch.stopRequested) return event;
+    if (type == kCGEventTapDisabledByTimeout) {
+        // A starved tap is re-armed; the host logs the hiccup.
+        if (watch.tap) CGEventTapEnable(watch.tap, true);
+        EmitWatchFrame(@{@"event": @"tapDisabled", @"reason": @"timeout"});
+        return event;
+    }
+    if (type == kCGEventTapDisabledByUserInput) {
+        EmitWatchFrame(@{@"event": @"unavailable", @"reason": @"native-input-access-lost"});
+        watch.stopRequested = YES;
+        return event;
+    }
+    if (watch.fired) return event;
+    // Automation's own input is marked; an unmarked event is a person.
+    if (CGEventGetIntegerValueField(event, kCGEventSourceUserData) == 0x4b4c4155) return event;
+    // Events racing the arm (the unlock keystroke's tail, session transition
+    // noise) land inside the grace window and are not treated as a person.
+    if (CFAbsoluteTimeGetCurrent() - watch.armedAt < 1.5) return event;
+    watch.fired = YES;
+    watch.chordPosted = PostLockChord();
+    return event;
+}
+static void WatchLockedUse(NSData *leftover) {
+    if (!CGPreflightListenEventAccess()) {
+        EmitWatchFrame(@{@"event": @"unavailable", @"reason": @"macos-input-monitoring-permission-required"});
+        return;
+    }
+    LockedUseWatch *watch = [LockedUseWatch new];
+    CGEventMask mask = CGEventMaskBit(kCGEventKeyDown) | CGEventMaskBit(kCGEventLeftMouseDown)
+        | CGEventMaskBit(kCGEventRightMouseDown) | CGEventMaskBit(kCGEventOtherMouseDown)
+        | CGEventMaskBit(kCGEventScrollWheel) | CGEventMaskBit(kCGEventMouseMoved)
+        | CGEventMaskBit(kCGEventLeftMouseDragged) | CGEventMaskBit(kCGEventRightMouseDragged)
+        | CGEventMaskBit(kCGEventOtherMouseDragged);
+    watch.tap = CGEventTapCreate(kCGHIDEventTap, kCGHeadInsertEventTap, kCGEventTapOptionListenOnly, mask, LockedUseTapCallback, (__bridge void *)watch);
+    if (!watch.tap) { EmitWatchFrame(@{@"event": @"unavailable", @"reason": @"macos-event-tap-refused"}); return; }
+    watch.source = CFMachPortCreateRunLoopSource(NULL, watch.tap, 0);
+    if (!watch.source) {
+        CFMachPortInvalidate(watch.tap); CFRelease(watch.tap); watch.tap = NULL;
+        EmitWatchFrame(@{@"event": @"unavailable", @"reason": @"macos-event-tap-source-failed"}); return;
+    }
+    CFRunLoopAddSource(CFRunLoopGetMain(), watch.source, kCFRunLoopCommonModes);
+    CGEventTapEnable(watch.tap, true);
+    watch.armedAt = CFAbsoluteTimeGetCurrent();
+    fprintf(stderr, "klaus-locked-use-watch-started\n");
+    dispatch_source_t stdinSource = dispatch_source_create(DISPATCH_SOURCE_TYPE_READ, STDIN_FILENO, 0, dispatch_get_main_queue());
+    NSMutableData *pending = leftover.length ? [leftover mutableCopy] : [NSMutableData data];
+    const BOOL alreadyStopped = [[[NSString alloc] initWithData:pending encoding:NSUTF8StringEncoding] containsString:@"\"stop\":true"];
+    dispatch_source_set_event_handler(stdinSource, ^{
+        char buffer[256]; ssize_t count = read(STDIN_FILENO, buffer, sizeof(buffer));
+        if (count < 0) return;
+        if (count == 0) { watch.stopRequested = YES; dispatch_source_cancel(stdinSource); return; }
+        [pending appendBytes:buffer length:(NSUInteger)count];
+        if (pending.length > 4096) [pending setLength:4096];
+        if ([[[NSString alloc] initWithData:pending encoding:NSUTF8StringEncoding] containsString:@"\"stop\":true"]) {
+            watch.stopRequested = YES; dispatch_source_cancel(stdinSource);
+        }
+    });
+    dispatch_source_set_cancel_handler(stdinSource, ^{ watch.stopRequested = YES; });
+    dispatch_resume(stdinSource);
+    if (alreadyStopped) { watch.stopRequested = YES; dispatch_source_cancel(stdinSource); }
+    // The tap and the stdin source both live on the main run loop; pump it until
+    // the watch reports, the host stops it, the parent dies, or a day has passed.
+    double limit = CFAbsoluteTimeGetCurrent() + 24 * 3600;
+    while (!watch.stopRequested && !Cancelled && getppid() == Parent && CFAbsoluteTimeGetCurrent() < limit) {
+        [NSRunLoop.currentRunLoop runMode:NSDefaultRunLoopMode beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.2]];
+        if (watch.fired && !watch.stopRequested) {
+            // Verify the re-lock on the pump, never inside the tap callback.
+            BOOL relocked = NO;
+            if (watch.chordPosted) {
+                double verifyLimit = CFAbsoluteTimeGetCurrent() + 2.0;
+                while (CFAbsoluteTimeGetCurrent() < verifyLimit) {
+                    if (ScreenIsLockedNow()) { relocked = YES; break; }
+                    [NSRunLoop.currentRunLoop runMode:NSDefaultRunLoopMode beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.1]];
+                }
+            }
+            EmitWatchFrame(@{@"event": @"physicalInput", @"relocked": @(relocked)});
+            watch.stopRequested = YES;
+        }
+    }
+    dispatch_source_cancel(stdinSource);
+    CGEventTapEnable(watch.tap, false);
+    CFRunLoopRemoveSource(CFRunLoopGetMain(), watch.source, kCFRunLoopCommonModes);
+    CFMachPortInvalidate(watch.tap);
+    CFRelease(watch.source); CFRelease(watch.tap); watch.tap = NULL; watch.source = NULL;
+    EmitWatchFrame(@{@"event": @"stopped"});
+}
 static NSDictionary *ListApps(void) {
     NSMutableDictionary *apps = [NSMutableDictionary dictionary];
     for (NSRunningApplication *app in NSWorkspace.sharedWorkspace.runningApplications) {
@@ -1108,6 +1236,7 @@ int main(void) {
             else if ([method isEqualToString:@"action"]) result = Action(args);
             else if ([method isEqualToString:@"recordAudio"]) result = RecordAudio(args, leftover);
             else if ([method isEqualToString:@"watchEscape"]) { WatchEscape(leftover); return 0; }
+            else if ([method isEqualToString:@"watchLockedUse"]) { WatchLockedUse(leftover); return 0; }
             else Fail(@"Unknown Computer Use native method");
             Check(); response[@"ok"] = @YES; response[@"result"] = result ?: @{};
         } @catch (NSException *error) { response[@"ok"] = @NO; response[@"error"] = [error.name isEqualToString:@"ComputerUse"] ? error.reason : @"Computer Use native operation failed"; }
