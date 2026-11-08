@@ -66,7 +66,6 @@
       "required": "An interrupted turn keeps an outer turn disclosure so the user can collapse the partial work. Contiguous inner tool groups retain independent disclosures. This aligns with Codex, where groupable execution items are summarized even when the turn terminates early.",
       "klaus": {
         "foldRule": "foldUnits() sets isTurnCancelled from turnStatuses[turnId]==='interrupted' but still allows allowCollapseBeforeFinal, so interrupted turns with a user request get an outer process fold that defaults closed.",
-        "changeNote": "2026-11-08: the live projection shares the same verdict — projectLiveTurn admits the outer fold for a settled interrupted turn opened by a user request and the live fold-open sites honour it, so a retained stopped turn (stop, then continue) reads closed before history takes ownership instead of stranding flat process rows.",
         "partialTextRetained": true,
         "reasoningRetained": true,
         "toolRowsRetained": true,

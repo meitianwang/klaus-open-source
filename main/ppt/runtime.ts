@@ -180,7 +180,7 @@ export class PptRuntime {
       const versioned = /^\/_f\/(v[1-9]\d*)\/(.*)$/.exec(path);
       if (path === '/' || path === '/index.html') return this.response(null, 302, 'text/plain', { Location: `/_f/${this.store.get(owner, id).version}/index.html` });
       const relative = versioned ? versioned[2]! : path.slice(1), version = versioned?.[1];
-      if ((relative === 'index.html' || relative === '') && version) return this.response(this.content(), 200, 'text/html; charset=utf-8', { 'Content-Security-Policy': "default-src 'none'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; media-src 'self' blob: data:; font-src 'self' data: blob: https:; connect-src 'self' https: wss:; frame-src 'self' data: blob:; object-src 'none'; base-uri 'none'; form-action 'none'" });
+      if ((relative === 'index.html' || relative === '') && version) return this.response(this.content(), 200, 'text/html; charset=utf-8', { 'Content-Security-Policy': "default-src 'none'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob: https:; media-src 'self' blob: data:; font-src 'self' data: blob: https:; connect-src 'self' https: wss:; frame-src 'self' data: blob:; object-src 'none'; base-uri 'none'; form-action 'none'" });
       if (relative === '_files.json' && version) {
         const files = Object.fromEntries(this.store.files(owner, id, version).map(file => [file.path, { sha256: file.sha256, size: file.size, contentType: file.contentType }]));
         // The runtime entry exists before any slide files are published. Listing it
