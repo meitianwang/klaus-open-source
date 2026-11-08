@@ -1171,6 +1171,163 @@ static void WatchLockedUse(NSData *leftover) {
     CFRelease(watch.source); CFRelease(watch.tap); watch.tap = NULL; watch.source = NULL;
     EmitWatchFrame(@{@"event": @"stopped"});
 }
+// Long-lived history observation: records which application is in front and the
+// focused window's title (plus an http(s) document URL when the app exposes one)
+// as an interaction timeline. Only accessibility text is read - never
+// screenshots or audio - and private-browsing windows are never recorded.
+// Notification callbacks only set dirty flags; every accessibility read happens
+// on the main pump with a short messaging timeout so a busy app cannot stall
+// the watch.
+@interface HistoryWatch : NSObject
+@property(nonatomic) BOOL stopRequested;
+@property(nonatomic) BOOL activationDirty;
+@property(nonatomic) BOOL titleDirty;
+@property(nonatomic) id activationObserver;
+@property(nonatomic) AXObserverRef axObserver;
+@property(nonatomic) pid_t observedPid;
+@property(nonatomic) NSString *lastBundleId;
+@property(nonatomic) NSString *lastTitle;
+@property(nonatomic) NSString *lastUrl;
+@end
+@implementation HistoryWatch
+@end
+static BOOL HistoryTitleIsPrivate(NSString *title) {
+    if (!title.length) return NO;
+    NSString *lower = title.lowercaseString;
+    static NSArray<NSString *> *markers;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ markers = @[@"private browsing", @"incognito", @"inprivate", @"private window", @"プライベート", @"シークレット"]; });
+    for (NSString *marker in markers) if ([lower containsString:marker]) return YES;
+    return NO;
+}
+static void HistoryAxCallback(AXObserverRef observer, AXUIElementRef element, CFStringRef notification, void *context) {
+    (void)observer; (void)element; (void)notification;
+    HistoryWatch *watch = (__bridge HistoryWatch *)context;
+    watch.titleDirty = YES;
+}
+static NSString *HistoryCopyString(AXUIElementRef element, CFStringRef attribute) {
+    CFTypeRef value = NULL;
+    if (AXUIElementCopyAttributeValue(element, attribute, &value) != kAXErrorSuccess || !value) return nil;
+    NSString *text = [(__bridge id)value isKindOfClass:NSString.class] ? (__bridge NSString *)value : nil;
+    CFRelease(value);
+    return text;
+}
+static void HistoryDetach(HistoryWatch *watch) {
+    if (watch.axObserver) {
+        CFRunLoopSourceRef source = AXObserverGetRunLoopSource(watch.axObserver);
+        if (source) CFRunLoopRemoveSource(CFRunLoopGetMain(), source, kCFRunLoopCommonModes);
+        CFRelease(watch.axObserver); watch.axObserver = NULL;
+    }
+    watch.observedPid = 0;
+}
+static void HistoryAttach(HistoryWatch *watch, NSRunningApplication *app) {
+    HistoryDetach(watch);
+    if (!app || app.processIdentifier <= 0) return;
+    AXUIElementRef target = AXUIElementCreateApplication(app.processIdentifier);
+    AXUIElementSetMessagingTimeout(target, 0.2f);
+    AXObserverRef observer = NULL;
+    if (AXObserverCreate(app.processIdentifier, HistoryAxCallback, &observer) == kAXErrorSuccess && observer) {
+        AXError focused = AXObserverAddNotification(observer, target, kAXFocusedWindowChangedNotification, (__bridge void *)watch);
+        AXError titled = AXObserverAddNotification(observer, target, kAXTitleChangedNotification, (__bridge void *)watch);
+        const BOOL registered = focused == kAXErrorSuccess || focused == kAXErrorNotificationAlreadyRegistered
+            || titled == kAXErrorSuccess || titled == kAXErrorNotificationAlreadyRegistered;
+        if (registered) {
+            CFRunLoopAddSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(observer), kCFRunLoopCommonModes);
+            watch.axObserver = observer; watch.observedPid = app.processIdentifier; observer = NULL;
+        }
+    }
+    if (observer) CFRelease(observer);
+    CFRelease(target);
+    // Read the freshly attached app's window once so the timeline starts now.
+    watch.titleDirty = YES;
+}
+static void HistoryDrain(HistoryWatch *watch) {
+    NSRunningApplication *front = NSWorkspace.sharedWorkspace.frontmostApplication;
+    if (!front || front.processIdentifier <= 0) return;
+    NSString *bundleId = front.bundleIdentifier ?: @"";
+    if (watch.activationDirty) {
+        watch.activationDirty = NO;
+        if (front.processIdentifier != watch.observedPid) HistoryAttach(watch, front);
+        NSMutableDictionary *frame = [@{@"event": @"appActivated", @"name": front.localizedName ?: @"Application",
+            @"pid": @(front.processIdentifier), @"at": @(NowMs())} mutableCopy];
+        if (bundleId.length) frame[@"bundleId"] = bundleId;
+        EmitWatchFrame(frame);
+        watch.lastBundleId = nil; watch.lastTitle = nil; watch.lastUrl = nil;
+    }
+    if (!watch.titleDirty) return;
+    watch.titleDirty = NO;
+    if (!watch.axObserver || watch.observedPid != front.processIdentifier) return;
+    AXUIElementRef target = AXUIElementCreateApplication(front.processIdentifier);
+    AXUIElementSetMessagingTimeout(target, 0.2f);
+    NSString *title = nil, *document = nil;
+    CFTypeRef windowValue = NULL;
+    if (AXUIElementCopyAttributeValue(target, kAXFocusedWindowAttribute, &windowValue) == kAXErrorSuccess && windowValue) {
+        AXUIElementRef window = (AXUIElementRef)(void *)windowValue;
+        AXUIElementSetMessagingTimeout(window, 0.2f);
+        title = HistoryCopyString(window, kAXTitleAttribute);
+        document = HistoryCopyString(window, kAXDocumentAttribute);
+        CFRelease(windowValue);
+    }
+    CFRelease(target);
+    // Private browsing is never recorded, at the source.
+    if (HistoryTitleIsPrivate(title) || HistoryTitleIsPrivate(document)) {
+        watch.lastBundleId = nil; watch.lastTitle = nil; watch.lastUrl = nil; return;
+    }
+    // Only http(s) document URLs are kept; local file paths never enter the ledger.
+    NSString *url = [document hasPrefix:@"http://"] || [document hasPrefix:@"https://"] ? document : nil;
+    if (!title.length && !url.length) return;
+    const BOOL unchanged = watch.lastBundleId && [watch.lastBundleId isEqualToString:bundleId]
+        && ((!watch.lastTitle && !title.length) || [watch.lastTitle isEqualToString:title ?: @""])
+        && ((!watch.lastUrl && !url.length) || [watch.lastUrl isEqualToString:url ?: @""]);
+    if (unchanged) return;
+    watch.lastBundleId = bundleId; watch.lastTitle = title ?: @""; watch.lastUrl = url ?: @"";
+    NSMutableDictionary *frame = [@{@"event": @"windowTitle", @"at": @(NowMs())} mutableCopy];
+    if (bundleId.length) frame[@"bundleId"] = bundleId;
+    if (title.length) frame[@"title"] = title;
+    if (url.length) frame[@"url"] = url;
+    EmitWatchFrame(frame);
+}
+static void WatchHistory(NSData *leftover) {
+    if (!AXIsProcessTrusted()) {
+        EmitWatchFrame(@{@"event": @"unavailable", @"reason": @"macos-accessibility-permission-required"});
+        return;
+    }
+    HistoryWatch *watch = [HistoryWatch new];
+    watch.activationObserver = [NSWorkspace.sharedWorkspace.notificationCenter addObserverForName:NSWorkspaceDidActivateApplicationNotification
+        object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note) { (void)note; watch.activationDirty = YES; }];
+    HistoryAttach(watch, NSWorkspace.sharedWorkspace.frontmostApplication);
+    // Record the current frontmost app once so the timeline starts from now.
+    watch.activationDirty = YES;
+    fprintf(stderr, "klaus-history-watch-started\n");
+    dispatch_source_t stdinSource = dispatch_source_create(DISPATCH_SOURCE_TYPE_READ, STDIN_FILENO, 0, dispatch_get_main_queue());
+    NSMutableData *pending = leftover.length ? [leftover mutableCopy] : [NSMutableData data];
+    const BOOL alreadyStopped = [[[NSString alloc] initWithData:pending encoding:NSUTF8StringEncoding] containsString:@"\"stop\":true"];
+    dispatch_source_set_event_handler(stdinSource, ^{
+        char buffer[256]; ssize_t count = read(STDIN_FILENO, buffer, sizeof(buffer));
+        if (count < 0) return;
+        if (count == 0) { watch.stopRequested = YES; dispatch_source_cancel(stdinSource); return; }
+        [pending appendBytes:buffer length:(NSUInteger)count];
+        if (pending.length > 4096) [pending setLength:4096];
+        if ([[[NSString alloc] initWithData:pending encoding:NSUTF8StringEncoding] containsString:@"\"stop\":true"]) {
+            watch.stopRequested = YES; dispatch_source_cancel(stdinSource);
+        }
+    });
+    dispatch_source_set_cancel_handler(stdinSource, ^{ watch.stopRequested = YES; });
+    dispatch_resume(stdinSource);
+    if (alreadyStopped) { watch.stopRequested = YES; dispatch_source_cancel(stdinSource); }
+    // Notifications only mark dirty; the pump performs every accessibility read
+    // until the host stops the watch, the parent dies, or a day has passed.
+    double limit = CFAbsoluteTimeGetCurrent() + 24 * 3600;
+    while (!watch.stopRequested && !Cancelled && getppid() == Parent && CFAbsoluteTimeGetCurrent() < limit) {
+        [NSRunLoop.currentRunLoop runMode:NSDefaultRunLoopMode beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.25]];
+        if (watch.activationDirty || watch.titleDirty) HistoryDrain(watch);
+    }
+    dispatch_source_cancel(stdinSource);
+    if (watch.activationObserver) [NSWorkspace.sharedWorkspace.notificationCenter removeObserver:watch.activationObserver];
+    watch.activationObserver = nil;
+    HistoryDetach(watch);
+    EmitWatchFrame(@{@"event": @"stopped"});
+}
 static NSDictionary *ListApps(void) {
     NSMutableDictionary *apps = [NSMutableDictionary dictionary];
     for (NSRunningApplication *app in NSWorkspace.sharedWorkspace.runningApplications) {
@@ -1237,6 +1394,7 @@ int main(void) {
             else if ([method isEqualToString:@"recordAudio"]) result = RecordAudio(args, leftover);
             else if ([method isEqualToString:@"watchEscape"]) { WatchEscape(leftover); return 0; }
             else if ([method isEqualToString:@"watchLockedUse"]) { WatchLockedUse(leftover); return 0; }
+            else if ([method isEqualToString:@"watchHistory"]) { WatchHistory(leftover); return 0; }
             else Fail(@"Unknown Computer Use native method");
             Check(); response[@"ok"] = @YES; response[@"result"] = result ?: @{};
         } @catch (NSException *error) { response[@"ok"] = @NO; response[@"error"] = [error.name isEqualToString:@"ComputerUse"] ? error.reason : @"Computer Use native operation failed"; }

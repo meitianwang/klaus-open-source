@@ -141,6 +141,7 @@ export function loadSettingsTab(tab: string): void {
     case 'mobile': w().loadMobileBridgeSettingsTab(content); break
     case 'browser': w().loadBrowserSettingsTab(content); break
     case 'computerUse': w().loadComputerUseSettingsTab(content); break
+    case 'computerHistory': w().loadComputerHistorySettingsTab(content); break
     case 'voiceInput': w().loadVoiceInputSettingsTab(content); break
     case 'storage': w().loadStorageSettingsTab(content); break
     case 'worktrees': w().loadWorktreesSettingsTab(content); break

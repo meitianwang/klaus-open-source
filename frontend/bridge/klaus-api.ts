@@ -1057,6 +1057,23 @@ expose('klaus', {
         status: () => call('computer-use:record:status'),
       },
     },
+    // Local environment history: a bounded on-device timeline of app and window
+    // observations. Nothing is uploaded; the organization policy can block it.
+    computerHistory: {
+      get: () => call('settings:computer-history:get'),
+      setEnabled: (enabled: boolean) =>
+        call('settings:computer-history:set-enabled', { enabled }),
+      pause: () => call('settings:computer-history:pause'),
+      resume: () => call('settings:computer-history:resume'),
+      updateObservation: (entry: { observe: 'include' | 'exclude'; scope: 'app' | 'url'; target: string }) =>
+        call('settings:computer-history:update-observation', entry),
+      removeObservationEntry: (scope: 'app' | 'url', target: string) =>
+        call('settings:computer-history:remove-observation-entry', { scope, target }),
+      clearHistory: (interval: 'all' | 'last-day' | 'last-hour') =>
+        call('settings:computer-history:clear-history', { interval }),
+      entries: (limit?: number, before?: number) =>
+        call('settings:computer-history:entries', { ...(limit !== undefined ? { limit } : {}), ...(before !== undefined ? { before } : {}) }),
+    },
     mobileBridge: {
       get: () => call('settings:mobile-bridge:get'),
       devices: () => call('settings:mobile-bridge:devices'),

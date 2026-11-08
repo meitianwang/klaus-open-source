@@ -1,0 +1,57 @@
+{
+  "_why": "Computer History is a privacy-sensitive local observation surface: the frame protocol, retention budget, observation-policy decision table, private-browsing markers and refusal wording are all user-visible contracts. Pinning them keeps the collection boundary, the 48-hour local retention and the organization switch from drifting silently.",
+  "frames": {
+    "nativeMethod": "watchHistory",
+    "events": ["appActivated", "windowTitle", "unavailable", "stopped"],
+    "unavailableReason": "macos-accessibility-permission-required",
+    "startedMarker": "klaus-history-watch-started",
+    "stopRequest": "{\"stop\":true}"
+  },
+  "retention": {
+    "windowMs": 172800000,
+    "maxEntries": 20000,
+    "pruneIntervalMs": 900000
+  },
+  "storage": {
+    "subdirectory": "computer-history",
+    "ledgerFile": "events.jsonl",
+    "memorySubdirectory": "memory",
+    "digestFilePattern": "<local-date>.md"
+  },
+  "settingsKeys": {
+    "enabled": "computer_history.enabled",
+    "policy": "computer_history.observation_policy"
+  },
+  "maxPolicyEntries": 256,
+  "privateWindowMarkers": ["private browsing", "incognito", "inprivate", "private window", "プライベート", "シークレット"],
+  "methods": ["start", "status", "pause", "resume", "stop", "getSettings", "updateSettings", "updateObservationPolicy", "clearHistory"],
+  "clearIntervals": ["all", "last-day", "last-hour"],
+  "managedKey": "computerHistoryEnabled",
+  "messages": {
+    "organizationBlocked": "Computer History is blocked by your organization's policy.",
+    "unavailablePlatform": "Computer History is available only on macOS"
+  },
+  "channels": [
+    "settings:computer-history:get",
+    "settings:computer-history:set-enabled",
+    "settings:computer-history:pause",
+    "settings:computer-history:resume",
+    "settings:computer-history:update-observation",
+    "settings:computer-history:remove-observation-entry",
+    "settings:computer-history:clear-history",
+    "settings:computer-history:entries"
+  ],
+  "policyCases": [
+    { "entries": [], "frame": { "bundleId": "com.apple.Notes" }, "observe": true },
+    { "entries": [{ "observe": "exclude", "scope": "app", "target": "com.apple.notes" }], "frame": { "bundleId": "com.apple.Notes" }, "observe": false },
+    { "entries": [{ "observe": "exclude", "scope": "app", "target": "com.apple.notes" }], "frame": { "bundleId": "com.apple.Safari" }, "observe": true },
+    { "entries": [{ "observe": "include", "scope": "app", "target": "com.apple.notes" }], "frame": { "bundleId": "com.apple.Notes" }, "observe": true },
+    { "entries": [{ "observe": "include", "scope": "app", "target": "com.apple.notes" }], "frame": { "bundleId": "com.apple.Safari" }, "observe": false },
+    { "entries": [{ "observe": "exclude", "scope": "url", "target": "example.com" }], "frame": { "bundleId": "com.apple.Safari", "url": "https://www.example.com/page" }, "observe": false },
+    { "entries": [{ "observe": "exclude", "scope": "url", "target": "example.com" }], "frame": { "bundleId": "com.apple.Safari", "url": "https://other.invalid/" }, "observe": true },
+    { "entries": [{ "observe": "include", "scope": "url", "target": "example.com" }, { "observe": "exclude", "scope": "url", "target": "secret.example.com" }], "frame": { "url": "https://secret.example.com/x" }, "observe": false },
+    { "entries": [{ "observe": "include", "scope": "url", "target": "example.com" }], "frame": { "url": "https://example.com/" }, "observe": true },
+    { "entries": [{ "observe": "include", "scope": "url", "target": "example.com" }], "frame": { "bundleId": "com.apple.Notes" }, "observe": false },
+    { "entries": [{ "observe": "include", "scope": "app", "target": "com.apple.safari" }], "frame": { "bundleId": "com.apple.Safari" }, "observe": true }
+  ]
+}

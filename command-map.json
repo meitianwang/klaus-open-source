@@ -1,6 +1,6 @@
 {
   "summary": {
-    "invokeDeclared": 750,
+    "invokeDeclared": 758,
     "pushDeclared": 77
   },
   "rows": [
@@ -2302,6 +2302,38 @@
     },
     {
       "channel": "settings:browser-use:set-site-permission",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:computer-history:clear-history",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:computer-history:entries",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:computer-history:get",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:computer-history:pause",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:computer-history:remove-observation-entry",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:computer-history:resume",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:computer-history:set-enabled",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:computer-history:update-observation",
       "kind": "invoke"
     },
     {

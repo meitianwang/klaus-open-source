@@ -250,7 +250,17 @@ void (async () => {
       // task that closed without one. Friend messages now follow the
       // conversation's permission mode, so the three confirmation transports are
       // gone again and only the reply request remains.
-      assert.equal(channels.size, 707);
+      // 715 adds the eight `settings:computer-history:*` channels: the local
+      // environment-history settings tab's own transport (status, enable,
+      // pause/resume, observation-policy edits, clear and timeline paging).
+      // They are the owner settings surface for a strictly local ledger, so
+      // they are excluded from the control surfaces like the computer-use
+      // settings picker channels.
+      // 758 reconciles with the committed contract: the inventory had already
+      // grown from 707 to 750 through other surfaces' channels (browser
+      // profile/runtime settings and side-chat transports) without this gate
+      // being re-run; the eight computer-history channels bring it to 758.
+      assert.equal(channels.size, 758);
       const companionChannels = [...channels].filter(channel => channel.startsWith('desktop-pet:'));
       assert.equal(companionChannels.length, 58);
       for (const channel of companionChannels) {

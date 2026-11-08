@@ -5,12 +5,14 @@ import { currentDesktopEdition } from '../desktop-edition';
 /** Admin-provisioned enterprise policy file name, deployed beside the product's system data. */
 export const MANAGED_COMPUTER_USE_FILE = 'managed-computer-use.json';
 /** The only schema keys a managed policy may carry; anything else is a corrupt policy. */
-export const MANAGED_COMPUTER_USE_KEYS = ['computerUseEnabled', 'blockedApps'] as const;
+export const MANAGED_COMPUTER_USE_KEYS = ['computerUseEnabled', 'computerHistoryEnabled', 'blockedApps'] as const;
 /** Fail-closed wording, mirroring the unreadable user-policy precedent: blocked until repaired. */
 export const MANAGED_COMPUTER_USE_UNREADABLE = 'Computer Use managed policy is unreadable; it is blocked until the policy file is repaired.';
 
 export interface ManagedComputerUsePolicy {
   computerUseEnabled: boolean;
+  /** Organization-level switch for the local environment-history observation. */
+  computerHistoryEnabled: boolean;
   blockedApps: string[];
 }
 export type ManagedPolicySnapshot =
@@ -39,11 +41,13 @@ export function parseManagedComputerUsePolicy(text: string): ManagedPolicySnapsh
     for (const key of Object.keys(row)) if (!(MANAGED_COMPUTER_USE_KEYS as readonly string[]).includes(key)) throw new Error(`unknown managed policy key: ${key}`);
     const enabled = row.computerUseEnabled;
     if (enabled !== undefined && typeof enabled !== 'boolean') throw new Error('computerUseEnabled must be a boolean');
+    const historyEnabled = row.computerHistoryEnabled;
+    if (historyEnabled !== undefined && typeof historyEnabled !== 'boolean') throw new Error('computerHistoryEnabled must be a boolean');
     const blocked = row.blockedApps;
     if (blocked !== undefined && (!Array.isArray(blocked) || blocked.length > 4096
       || blocked.some(item => typeof item !== 'string' || item.length > 4096 || item.includes('\0')))) throw new Error('blockedApps must be an array of app selectors');
     return { status: 'active',
-      policy: { computerUseEnabled: enabled !== false,
+      policy: { computerUseEnabled: enabled !== false, computerHistoryEnabled: historyEnabled !== false,
         blockedApps: (blocked as string[] | undefined)?.map(item => item.trim()).filter(Boolean) ?? [] } };
   } catch {
     return { status: 'unreadable', error: MANAGED_COMPUTER_USE_UNREADABLE };

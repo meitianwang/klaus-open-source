@@ -172,6 +172,9 @@ import { initializeModelTierMapping } from '../services/model-tier-settings';
 import { createVoiceRuntime, voiceModelAccess } from './voice-runtime';
 import { createPipRuntime } from './pip-runtime';
 import { createComputerUseRuntime } from './computer-use-runtime';
+import { ComputerHistoryService } from '../services/computer-history/service';
+import { registerComputerHistorySettingsHandlers } from '../ipc/handlers/computer-history';
+import { ManagedComputerUsePolicyReader } from '../services/computer-use/managed-policy';
 import { lockedScreenRefusal } from '../services/computer-use/locked-screen-gate';
 import { discoverFriendApps } from '../services/friend-apps';
 import type { RecordingCommand } from '../services/recording/helper';
@@ -2289,6 +2292,16 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
     log: (kind, message) => log.write(kind, message),
   });
   early.add(async () => { if (!(await computerUse!.shutdown()).complete) throw new Error('Computer Use startup resources did not finish closing'); });
+  // Local environment-history observation: macOS-only, admin-manageable, and
+  // strictly local (a bounded timeline under the config root, never uploaded).
+  const computerHistoryManaged = new ManagedComputerUsePolicyReader();
+  const computerHistory = new ComputerHistoryService({ configRoot,
+    command: computerHelper ? { executable: computerHelper } : undefined,
+    managedPolicy: () => computerHistoryManaged.read(),
+    log: message => log.write('computer-history', message) });
+  registerComputerHistorySettingsHandlers(registry, computerHistory);
+  computerHistory.autostart();
+  early.add(async () => { if (!(await computerHistory.shutdown()).complete) throw new Error('Computer History startup resources did not finish closing'); });
   const quickDeliveryTargets = new Map<string, number>();
   const quickDelivery = new QuickInputDelivery({
     ready: async (signal, value) => {

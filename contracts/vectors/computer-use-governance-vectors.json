@@ -19,7 +19,11 @@
   },
   "managedPolicy": {
     "fileName": "managed-computer-use.json",
-    "schemaKeys": ["computerUseEnabled", "blockedApps"],
+    "schemaKeys": [
+      "computerUseEnabled",
+      "computerHistoryEnabled",
+      "blockedApps"
+    ],
     "darwinDirectory": "/Library/Application Support",
     "windowsDirectoryEnv": "ProgramData",
     "failClosed": true

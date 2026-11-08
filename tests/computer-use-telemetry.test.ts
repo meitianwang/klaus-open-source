@@ -82,9 +82,9 @@ h.test('governance vectors pin the managed policy data surface', () => {
 });
 
 h.test('managed policy parsing is strict and fails closed', () => {
-  strict.deepEqual(parseManagedComputerUsePolicy('{}'), { status: 'active', policy: { computerUseEnabled: true, blockedApps: [] } });
-  strict.deepEqual(parseManagedComputerUsePolicy('{"computerUseEnabled": false}'), { status: 'active', policy: { computerUseEnabled: false, blockedApps: [] } });
-  strict.deepEqual(parseManagedComputerUsePolicy('{"blockedApps": [" bundle:com.example.app ", ""]}'), { status: 'active', policy: { computerUseEnabled: true, blockedApps: ['bundle:com.example.app'] } });
+  strict.deepEqual(parseManagedComputerUsePolicy('{}'), { status: 'active', policy: { computerUseEnabled: true, computerHistoryEnabled: true, blockedApps: [] } });
+  strict.deepEqual(parseManagedComputerUsePolicy('{"computerUseEnabled": false}'), { status: 'active', policy: { computerUseEnabled: false, computerHistoryEnabled: true, blockedApps: [] } });
+  strict.deepEqual(parseManagedComputerUsePolicy('{"blockedApps": [" bundle:com.example.app ", ""]}'), { status: 'active', policy: { computerUseEnabled: true, computerHistoryEnabled: true, blockedApps: ['bundle:com.example.app'] } });
   strict.deepEqual(parseManagedComputerUsePolicy('{"computerUseEnabled": "no"}'), { status: 'unreadable', error: MANAGED_COMPUTER_USE_UNREADABLE });
   strict.deepEqual(parseManagedComputerUsePolicy('{"unknownKey": 1}'), { status: 'unreadable', error: MANAGED_COMPUTER_USE_UNREADABLE });
   strict.deepEqual(parseManagedComputerUsePolicy('[]'), { status: 'unreadable', error: MANAGED_COMPUTER_USE_UNREADABLE });
@@ -98,13 +98,13 @@ h.test('the managed reader caches by file identity and reloads on change', () =>
   strict.deepEqual(reader.read(), { status: 'absent' });
   writeFileSync(path, JSON.stringify({ computerUseEnabled: false }));
   const first = reader.read();
-  strict.deepEqual(first, { status: 'active', policy: { computerUseEnabled: false, blockedApps: [] } });
+  strict.deepEqual(first, { status: 'active', policy: { computerUseEnabled: false, computerHistoryEnabled: true, blockedApps: [] } });
   strict.equal(reader.read(), first, 'unchanged file reuses the cached snapshot object');
   writeFileSync(path, '{ corrupt');
   const broken = reader.read();
   strict.equal(broken.status, 'unreadable');
   writeFileSync(path, JSON.stringify({ computerUseEnabled: true, blockedApps: ['bundle:com.example.app'] }));
-  strict.deepEqual(reader.read(), { status: 'active', policy: { computerUseEnabled: true, blockedApps: ['bundle:com.example.app'] } });
+  strict.deepEqual(reader.read(), { status: 'active', policy: { computerUseEnabled: true, computerHistoryEnabled: true, blockedApps: ['bundle:com.example.app'] } });
 });
 
 h.test('a present but unreadable managed file fails closed', () => {

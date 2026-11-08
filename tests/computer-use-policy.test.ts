@@ -472,7 +472,7 @@ h.test('an organization policy blocks everything and cannot be overridden locall
   let snapshot: ManagedPolicySnapshot = { status: 'absent' };
   const f = fixture({ managedPolicy: () => snapshot });
   strict.equal(f.service.get().managedDisabled, false);
-  snapshot = { status: 'active', policy: { computerUseEnabled: false, blockedApps: [] } };
+  snapshot = { status: 'active', policy: { computerUseEnabled: false, computerHistoryEnabled: true, blockedApps: [] } };
   strict.equal(f.service.get().enabled, false);
   strict.equal(f.service.get().managedDisabled, true);
   strict.throws(() => f.service.guardSession('a'), /blocked by your organization's policy/);
@@ -486,7 +486,7 @@ h.test('an organization policy blocks everything and cannot be overridden locall
 });
 
 h.test('an organization app block wins over saved always-allowed entries and task grants', async () => {
-  const snapshot: ManagedPolicySnapshot = { status: 'active', policy: { computerUseEnabled: true, blockedApps: ['bundle:com.apple.Notes', 'Safari'] } };
+  const snapshot: ManagedPolicySnapshot = { status: 'active', policy: { computerUseEnabled: true, computerHistoryEnabled: true, blockedApps: ['bundle:com.apple.Notes', 'Safari'] } };
   const f = fixture({ managedPolicy: () => snapshot });
   f.service.addAllowedApp({ app: 'Notes' });
   await strict.rejects(f.service.approve(notes, f.context()), /blocked from using the app 'Notes' by your organization's policy/);
@@ -512,7 +512,7 @@ h.test('an unreadable organization policy fails closed until repaired', async ()
 });
 
 h.test('friend task authorization cannot bypass an organization disable', () => {
-  const snapshot: ManagedPolicySnapshot = { status: 'active', policy: { computerUseEnabled: false, blockedApps: [] } };
+  const snapshot: ManagedPolicySnapshot = { status: 'active', policy: { computerUseEnabled: false, computerHistoryEnabled: true, blockedApps: [] } };
   const f = fixture({ managedPolicy: () => snapshot, taskScope: () => ({ active: true, apps: ['bundle:com.apple.Notes'] }) });
   strict.equal(f.service.sessionSettings('a').enabled, false);
   strict.equal(f.service.sessionSettings('a').managedDisabled, true);
@@ -523,7 +523,7 @@ h.test('a mid-session organization change voids live leases', async () => {
   let snapshot: ManagedPolicySnapshot = { status: 'absent' };
   const f = fixture({ managedPolicy: () => snapshot });
   const lease = await f.service.approve(notes, f.context());
-  snapshot = { status: 'active', policy: { computerUseEnabled: true, blockedApps: ['bundle:com.apple.Notes'] } };
+  snapshot = { status: 'active', policy: { computerUseEnabled: true, computerHistoryEnabled: true, blockedApps: ['bundle:com.apple.Notes'] } };
   strict.throws(() => f.service.assertCurrent(lease), /organization's policy/);
   f.service.release(lease);
 });

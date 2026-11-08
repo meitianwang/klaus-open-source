@@ -6,7 +6,7 @@
     "bridgeDir": "frontend/bridge"
   },
   "summary": {
-    "registeredInvoke": 750,
+    "registeredInvoke": 758,
     "registeredPush": 77,
     "roles": 11
   },
@@ -682,6 +682,14 @@
         "settings:browser-use:set-preferences",
         "settings:browser-use:set-screenshot-mode",
         "settings:browser-use:set-site-permission",
+        "settings:computer-history:clear-history",
+        "settings:computer-history:entries",
+        "settings:computer-history:get",
+        "settings:computer-history:pause",
+        "settings:computer-history:remove-observation-entry",
+        "settings:computer-history:resume",
+        "settings:computer-history:set-enabled",
+        "settings:computer-history:update-observation",
         "settings:computer-use:add-allowed-app",
         "settings:computer-use:app-details",
         "settings:computer-use:get",
