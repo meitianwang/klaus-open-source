@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { createHash } = require('node:crypto');
-const { execFileSync } = require('node:child_process');
+const { execFileSync, spawn } = require('node:child_process');
 const { app, BrowserWindow, screen, nativeImage } = require('electron');
 const { NativeComputerUse } = require('../dist/main/native/computer-use');
 const { ComputerUsePolicyService } = require('../dist/main/services/computer-use/policy');
@@ -248,6 +248,33 @@ line3</textarea><div id="cancel-drag" style="width:90px;height:25px;background:b
     const button = await desktopPoint('button'), before = await dom('count');
     await desktopCall('desktop_click', { x: button.x, y: button.y });
     await until(async () => await dom('count') === before + 1);
+  });
+  await test('the escape watch reports an injected unmarked Escape and settles on the framed stop', async () => {
+    const child = spawn(process.env.KLAUS_COMPUTER_USE_HELPER, [], { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
+    let stdout = '', stderr = ''; const frames = [];
+    child.stdout.on('data', chunk => {
+      stdout += String(chunk); let index;
+      while ((index = stdout.indexOf('\n')) >= 0) { const line = stdout.slice(0, index).trim(); stdout = stdout.slice(index + 1); if (line) frames.push(JSON.parse(line)); }
+    });
+    child.stderr.on('data', chunk => { stderr += String(chunk); });
+    child.stdin.on('error', () => {});
+    const exited = new Promise(resolve => { child.once('close', resolve); });
+    const settled = () => Promise.race([exited, sleep(5000).then(() => 'timeout')]);
+    child.stdin.write(JSON.stringify({ resourceId: 'escape-watch-fixture', operationId: 'escape-watch-fixture', generation: 1, sequence: 1, method: 'watchEscape', args: {} }) + '\n');
+    // An interactive session must arm the low-level keyboard hook; unavailability
+    // is a failure here, unlike the permission-gated macOS listener.
+    await until(() => stderr.includes('klaus-escape-watch-started') || frames.length > 0, 15000);
+    const unavailable = frames.find(frame => frame.event === 'unavailable');
+    assert.equal(unavailable, undefined, `the interactive session must arm the keyboard hook: ${JSON.stringify(frames)}`);
+    assert.ok(stderr.includes('klaus-escape-watch-started'));
+    // Inject Escape without the helper's own extra-info mark; the watch must report it.
+    const source = `$ErrorActionPreference='Stop'; Add-Type -Namespace KlausFixture -Name Keyboard -MemberDefinition '[DllImport("user32.dll")] public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, System.UIntPtr dwExtraInfo);'; [KlausFixture.Keyboard]::keybd_event(0x1B, 0, 0, [System.UIntPtr]::Zero); [KlausFixture.Keyboard]::keybd_event(0x1B, 0, 2, [System.UIntPtr]::Zero)`;
+    execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(source, 'utf16le').toString('base64')], { windowsHide: true, timeout: 20000 });
+    await until(() => frames.some(frame => frame.event === 'escape'), 5000);
+    child.stdin.write('{"stop":true}\n');
+    await until(() => frames.some(frame => frame.event === 'stopped'), 5000);
+    assert.equal(await settled(), 0);
+    console.log('escape-watch-state: armed-and-reported');
   });
   await test('close drains native resources and rejects later work', async () => {
     assert.deepEqual(await connector.close(), { complete: true }); await assert.rejects(invoke('get_app_state'), /unavailable/);

@@ -2278,6 +2278,7 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
       signal.throwIfAborted(); emit('app:preferences-changed', { key: 'computer_use.enabled' });
     },
     createRecorderWindow: () => createRecorderWindow(setting('language') || edition.defaultLanguage || app.getLocale()),
+    language: () => setting('language') || edition.defaultLanguage || app.getLocale(),
     registerRecorderOwner: owner => { const id = owner.webContents.id; windows.register(id, 'recorder'); broadcaster.addTarget({ id, role: 'recorder' }); },
     unregisterRecorderOwner: id => { subscriptions.clearOwner(id); delivery.closeOwner(id); windows.unregister(id); broadcaster.removeTarget(id); },
     recordingEnded: async value => {

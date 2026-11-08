@@ -953,6 +953,96 @@ static NSDictionary *RecordAudio(NSDictionary *args, NSData *leftover) {
         @throw error;
     }
 }
+// Long-lived escape watch: reports the physical Escape key as framed stdout
+// events until the host stops it. The tap is listen-only, and input this
+// helper posts itself carries the kCGEventSourceUserData mark, so the model
+// can never stop its own turn by pressing a key it sent.
+static void EmitWatchFrame(NSDictionary *frame) {
+    NSData *output = [NSJSONSerialization dataWithJSONObject:frame options:0 error:nil];
+    if (!output) return;
+    NSMutableData *line = [output mutableCopy];
+    const unsigned char newline = '\n'; [line appendBytes:&newline length:1];
+    const unsigned char *bytes = line.bytes; NSUInteger offset = 0;
+    while (offset < line.length) { ssize_t written = write(STDOUT_FILENO, bytes + offset, line.length - offset); if (written <= 0) break; offset += (NSUInteger)written; }
+}
+@interface EscapeWatch : NSObject
+@property(nonatomic) CFMachPortRef tap;
+@property(nonatomic) CFRunLoopSourceRef source;
+@property(nonatomic) BOOL stopRequested;
+@property(nonatomic) double lastEscapeAt;
+@end
+@implementation EscapeWatch
+@end
+static CGEventRef EscapeTapCallback(CGEventTapProxy proxy, CGEventType type, CGEventRef event, void *context) {
+    (void)proxy;
+    EscapeWatch *watch = (__bridge EscapeWatch *)context;
+    if (watch.stopRequested) return event;
+    if (type == kCGEventTapDisabledByTimeout) {
+        // A starved tap is re-armed; the host logs the hiccup.
+        if (watch.tap) CGEventTapEnable(watch.tap, true);
+        EmitWatchFrame(@{@"event": @"tapDisabled", @"reason": @"timeout"});
+        return event;
+    }
+    if (type == kCGEventTapDisabledByUserInput) {
+        EmitWatchFrame(@{@"event": @"unavailable", @"reason": @"native-input-access-lost"});
+        watch.stopRequested = YES;
+        return event;
+    }
+    if (type == kCGEventKeyDown && CGEventGetIntegerValueField(event, kCGKeyboardEventKeycode) == 53) {
+        if (CGEventGetIntegerValueField(event, kCGEventSourceUserData) == 0x4b4c4155) return event;
+        double now = CFAbsoluteTimeGetCurrent();
+        if (now - watch.lastEscapeAt < 1.0) return event;
+        watch.lastEscapeAt = now;
+        EmitWatchFrame(@{@"event": @"escape"});
+    }
+    return event;
+}
+static void WatchEscape(NSData *leftover) {
+    if (!CGPreflightListenEventAccess()) {
+        EmitWatchFrame(@{@"event": @"unavailable", @"reason": @"macos-input-monitoring-permission-required"});
+        return;
+    }
+    EscapeWatch *watch = [EscapeWatch new];
+    CGEventMask mask = CGEventMaskBit(kCGEventKeyDown);
+    watch.tap = CGEventTapCreate(kCGHIDEventTap, kCGHeadInsertEventTap, kCGEventTapOptionListenOnly, mask, EscapeTapCallback, (__bridge void *)watch);
+    if (!watch.tap) { EmitWatchFrame(@{@"event": @"unavailable", @"reason": @"macos-event-tap-refused"}); return; }
+    watch.source = CFMachPortCreateRunLoopSource(NULL, watch.tap, 0);
+    if (!watch.source) {
+        CFMachPortInvalidate(watch.tap); CFRelease(watch.tap); watch.tap = NULL;
+        EmitWatchFrame(@{@"event": @"unavailable", @"reason": @"macos-event-tap-source-failed"}); return;
+    }
+    CFRunLoopAddSource(CFRunLoopGetMain(), watch.source, kCFRunLoopCommonModes);
+    CGEventTapEnable(watch.tap, true);
+    fprintf(stderr, "klaus-escape-watch-started\n");
+    dispatch_source_t stdinSource = dispatch_source_create(DISPATCH_SOURCE_TYPE_READ, STDIN_FILENO, 0, dispatch_get_main_queue());
+    NSMutableData *pending = leftover.length ? [leftover mutableCopy] : [NSMutableData data];
+    const BOOL alreadyStopped = [[[NSString alloc] initWithData:pending encoding:NSUTF8StringEncoding] containsString:@"\"stop\":true"];
+    dispatch_source_set_event_handler(stdinSource, ^{
+        char buffer[256]; ssize_t count = read(STDIN_FILENO, buffer, sizeof(buffer));
+        if (count < 0) return;
+        if (count == 0) { watch.stopRequested = YES; dispatch_source_cancel(stdinSource); return; }
+        [pending appendBytes:buffer length:(NSUInteger)count];
+        if (pending.length > 4096) [pending setLength:4096];
+        if ([[[NSString alloc] initWithData:pending encoding:NSUTF8StringEncoding] containsString:@"\"stop\":true"]) {
+            watch.stopRequested = YES; dispatch_source_cancel(stdinSource);
+        }
+    });
+    dispatch_source_set_cancel_handler(stdinSource, ^{ watch.stopRequested = YES; });
+    dispatch_resume(stdinSource);
+    if (alreadyStopped) { watch.stopRequested = YES; dispatch_source_cancel(stdinSource); }
+    // The tap and the stdin source both live on the main run loop; pump it
+    // until the host stops the watch, the parent dies, or a day has passed.
+    double limit = CFAbsoluteTimeGetCurrent() + 24 * 3600;
+    while (!watch.stopRequested && !Cancelled && getppid() == Parent && CFAbsoluteTimeGetCurrent() < limit) {
+        [NSRunLoop.currentRunLoop runMode:NSDefaultRunLoopMode beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.2]];
+    }
+    dispatch_source_cancel(stdinSource);
+    CGEventTapEnable(watch.tap, false);
+    CFRunLoopRemoveSource(CFRunLoopGetMain(), watch.source, kCFRunLoopCommonModes);
+    CFMachPortInvalidate(watch.tap);
+    CFRelease(watch.source); CFRelease(watch.tap); watch.tap = NULL; watch.source = NULL;
+    EmitWatchFrame(@{@"event": @"stopped"});
+}
 static NSDictionary *ListApps(void) {
     NSMutableDictionary *apps = [NSMutableDictionary dictionary];
     for (NSRunningApplication *app in NSWorkspace.sharedWorkspace.runningApplications) {
@@ -1017,6 +1107,7 @@ int main(void) {
             else if ([method isEqualToString:@"appshot"]) result = Appshot(args);
             else if ([method isEqualToString:@"action"]) result = Action(args);
             else if ([method isEqualToString:@"recordAudio"]) result = RecordAudio(args, leftover);
+            else if ([method isEqualToString:@"watchEscape"]) { WatchEscape(leftover); return 0; }
             else Fail(@"Unknown Computer Use native method");
             Check(); response[@"ok"] = @YES; response[@"result"] = result ?: @{};
         } @catch (NSException *error) { response[@"ok"] = @NO; response[@"error"] = [error.name isEqualToString:@"ComputerUse"] ? error.reason : @"Computer Use native operation failed"; }

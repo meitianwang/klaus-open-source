@@ -6,7 +6,9 @@ import { randomUUID } from 'node:crypto';
 import { Harness, waitFor } from './harness';
 import { ComputerUsePolicyService, type ComputerUsePolicyDependencies, type ComputerUseTaskScope } from '../main/services/computer-use/policy';
 import { withSettingsDb } from '../main/services/settings';
-import { ComputerUseConnector, COMPUTER_USE_TOOLS, desktopSnapshot, snapshot, validateAction, validateDesktopAction, type ComputerUseDependencies } from '../main/services/computer-use/connector';
+import { ComputerUseConnector, COMPUTER_USE_TOOLS, ESCAPE_STOP_MESSAGES, desktopSnapshot, snapshot, validateAction, validateDesktopAction, type ComputerUseDependencies } from '../main/services/computer-use/connector';
+import { ComputerUseEscapeWatcher } from '../main/services/computer-use/escape-watch';
+import { COMPUTER_USE_OVERLAY_COPY, computerUseOverlayHtml } from '../main/app/computer-use-overlay';
 import { appGuidanceFor, appGuidancePrefix, APP_GUIDANCE_BUNDLE_IDS } from '../main/services/computer-use/app-guides';
 import type { AppSnapshot, ComputerUseBackend, ComputerUseContext, NativeRequest } from '../main/services/computer-use/types';
 import { createComputerUseRuntime } from '../main/app/computer-use-runtime';
@@ -26,7 +28,7 @@ const state = (): AppSnapshot => ({ app, windowId: 55, bounds: { x: -200, y: 10,
   screenshot: { data: jpeg, mimeType: 'image/jpeg', width: 1, height: 1 } });
 function deferred<T = void>() { let resolve!: (value: T) => void; const promise = new Promise<T>(yes => { resolve = yes; }); return { promise, resolve }; }
 const closing: Array<() => Promise<unknown>> = [];
-function fixture(override?: ComputerUseBackend['request'], hooks: Partial<Pick<ComputerUseDependencies, 'beginOperation' | 'approvedWindow' | 'guardInteraction' | 'saveScreenshot' | 'audio' | 'desktopAvailable'>> = {}, policyOverrides: Partial<ComputerUsePolicyDependencies> = {}) {
+function fixture(override?: ComputerUseBackend['request'], hooks: Partial<Pick<ComputerUseDependencies, 'beginOperation' | 'approvedWindow' | 'guardInteraction' | 'saveScreenshot' | 'audio' | 'desktopAvailable' | 'escapeStopMessage'>> = {}, policyOverrides: Partial<ComputerUsePolicyDependencies> = {}) {
   const requests: NativeRequest[] = [], approvals: unknown[] = [], currentState = state();
   const backend: ComputerUseBackend = { availability: () => ({ available: true }), close: async () => ({ complete: true }),
     request: async (request, signal) => {
@@ -857,6 +859,116 @@ h.test('invalid selectors invalidate cached state and never restore ordinary acc
   scope = { active: true, apps: ['bundle:test.fixture'] };
   await strict.rejects(f.connector.call('type_text', { app: app.input, text: 'old state' }, f.context()), /get_app_state/);
   strict.equal(f.requests.some(request => request.method === 'action'), false);
+});
+
+const fakeWatcherScript = (name: string, body: string): string => {
+  const script = join(temporary, `${name}-${randomUUID()}.cjs`);
+  writeFileSync(script, body);
+  return script;
+};
+const watcherCommand = (script: string) => ({ executable: process.execPath, args: [script], env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' } });
+
+h.test('a physical stop surfaces its own wording for entered input and refuses the rest of the turn', async () => {
+  const gate = deferred();
+  let entered = false;
+  const f = fixture(async (request, signal) => {
+    if (request.method === 'resolve' || request.method === 'activate') return app;
+    if (request.method === 'state') return structuredClone(state());
+    if (request.method === 'action') {
+      entered = true;
+      await new Promise<void>((resolve, reject) => {
+        const abort = () => reject(signal.reason instanceof Error ? signal.reason : new Error('aborted'));
+        signal.addEventListener('abort', abort, { once: true });
+        gate.promise.then(() => { signal.removeEventListener('abort', abort); resolve(); });
+      });
+      return { applied: true };
+    }
+    return { applied: true };
+  });
+  await f.read();
+  const pending = f.connector.call('click', { app: app.input, x: 0, y: 0 }, f.context());
+  await waitFor(() => entered, 2000, 'native action entered');
+  f.connector.stopTurn('a', 'turn1');
+  gate.resolve();
+  // The stop wording is delivered verbatim; it is never the uncertain-action wrapper.
+  await strict.rejects(pending, (error: unknown) => error instanceof Error && error.message === ESCAPE_STOP_MESSAGES.macos);
+  const before = f.requests.length;
+  await strict.rejects(f.read(f.context()), (error: unknown) => error instanceof Error && error.message === ESCAPE_STOP_MESSAGES.macos);
+  strict.equal(f.requests.length, before);
+  strict.equal(f.connector.turnStopped('a', 'turn1'), true);
+  strict.equal(f.connector.turnStopped('b', 'turn1'), false);
+  strict.equal(f.connector.turnStopped('a', 'turn2'), false);
+  const next = await f.read(f.context('a', 'turn2'));
+  strict.match(String(next.content[0]?.text), /<app_state>|diff from the accessibility tree|no change/);
+});
+h.test('the configured platform stop wording is delivered verbatim before any native work', async () => {
+  const f = fixture(undefined, { escapeStopMessage: ESCAPE_STOP_MESSAGES.windows });
+  f.connector.stopTurn('a', 'turn1');
+  await strict.rejects(f.read(f.context()), (error: unknown) => error instanceof Error && error.message === ESCAPE_STOP_MESSAGES.windows);
+  strict.equal(f.requests.length, 0);
+  // A stop for an unknown or closing owner is a no-op.
+  f.connector.stopTurn('missing', 'turn1');
+  const next = await f.read(f.context('a', 'turn2'));
+  strict.ok(next.content[0]?.text);
+});
+h.test('the escape watcher reports a physical escape for the attributed turn and settles on stop', async () => {
+  const script = fakeWatcherScript('escape-watcher', `
+process.stderr.write('klaus-escape-watch-started\\n');
+let buffer = '';
+process.stdin.setEncoding('utf8');
+process.stdin.on('data', chunk => {
+  buffer += chunk;
+  if (buffer.includes('"stop":true')) { process.stdout.write('{"event":"stopped"}\\n'); process.exit(0); }
+});
+setTimeout(() => process.stdout.write('{"event":"escape"}\\n'), 50);
+`);
+  const escapes: Array<[string, string]> = [];
+  const watcher = new ComputerUseEscapeWatcher({ command: watcherCommand(script), available: () => true, log: () => {},
+    onEscape: (sessionId, turnId) => escapes.push([sessionId, turnId]) });
+  watcher.ensure('a', 'turn1');
+  strict.equal(watcher.watching, true);
+  // Attribution is read at delivery time: a re-activation before the frame arrives wins.
+  watcher.ensure('b', 'turn2');
+  await waitFor(() => escapes.length === 1, 10000, 'escape frame delivered');
+  strict.deepEqual(escapes[0], ['b', 'turn2']);
+  await watcher.stop();
+  strict.equal(watcher.watching, false);
+  await watcher.close(1000);
+});
+h.test('an unavailable escape watch degrades to a logged no-watch and never stops a turn', async () => {
+  const script = fakeWatcherScript('escape-unavailable', `
+process.stdout.write('{"event":"unavailable","reason":"fixture-permission"}\\n');
+process.stdout.write('not json\\n');
+`);
+  const logs: string[] = [];
+  let escapes = 0;
+  const watcher = new ComputerUseEscapeWatcher({ command: watcherCommand(script), available: () => true,
+    log: message => logs.push(message), onEscape: () => { escapes++; } });
+  watcher.ensure('a', 'turn1');
+  await waitFor(() => !watcher.watching, 10000, 'unavailable watch settles');
+  strict.equal(escapes, 0);
+  strict.ok(logs.some(line => line.includes('unavailable') && line.includes('fixture-permission')));
+  strict.ok(logs.some(line => line.includes('malformed frame')));
+  strict.deepEqual(await watcher.close(1000), { complete: true });
+});
+h.test('the emergency stop vector pins the shipped wording, watch protocol and banner copy', () => {
+  const vector = JSON.parse(readFileSync(join(__dirname, '../../contracts/vectors/computer-use-observation-vectors.json'), 'utf8')).emergencyStop;
+  strict.deepEqual(vector.stopMessages, { macos: ESCAPE_STOP_MESSAGES.macos, windows: ESCAPE_STOP_MESSAGES.windows });
+  strict.equal(vector.watchMethod, 'watchEscape');
+  strict.equal(vector.startedMarker, 'klaus-escape-watch-started');
+  strict.deepEqual(vector.watchFrames, ['escape', 'unavailable', 'tapDisabled', 'stopped']);
+  strict.deepEqual(vector.overlay.en, [COMPUTER_USE_OVERLAY_COPY.en.title, COMPUTER_USE_OVERLAY_COPY.en.hint]);
+  strict.deepEqual(vector.overlay.zh, [COMPUTER_USE_OVERLAY_COPY.zh.title, COMPUTER_USE_OVERLAY_COPY.zh.hint]);
+  const objc = readFileSync(join(__dirname, '../../native/computer-use/klaus-computer-use-helper.m'), 'utf8');
+  const cpp = readFileSync(join(__dirname, '../../native/computer-use/windows-helper.cpp'), 'utf8');
+  strict.deepEqual(vector.ownInputMarks, { macos: '0x4b4c4155', windows: '0x4b435541' });
+  for (const [source, mark] of [[objc, vector.ownInputMarks.macos], [cpp, vector.ownInputMarks.windows]] as const) {
+    strict.ok(source.includes(mark) && source.includes(vector.startedMarker) && source.includes('watchEscape'));
+  }
+  const zh = computerUseOverlayHtml('zh');
+  strict.ok(zh.includes(COMPUTER_USE_OVERLAY_COPY.zh.title) && zh.includes(COMPUTER_USE_OVERLAY_COPY.zh.hint) && zh.includes('prefers-color-scheme'));
+  const en = computerUseOverlayHtml('en');
+  strict.ok(en.includes(COMPUTER_USE_OVERLAY_COPY.en.title) && en.includes(COMPUTER_USE_OVERLAY_COPY.en.hint));
 });
 
 void h.finish(join(temporary, 'result.json'), 'computer-use').then(async code => {

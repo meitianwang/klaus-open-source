@@ -12,7 +12,8 @@ import { ComputerUsePolicyService } from '../services/computer-use/policy';
 import { ComputerUseAppDetails } from '../services/computer-use/app-details';
 import type { ComputerUseTaskScope } from '../services/computer-use/policy';
 import type { ComputerUseBackend } from '../services/computer-use/types';
-import { ComputerUseConnector } from '../services/computer-use/connector';
+import { ComputerUseConnector, ESCAPE_STOP_MESSAGES } from '../services/computer-use/connector';
+import { ComputerUseEscapeWatcher } from '../services/computer-use/escape-watch';
 import { storeBytes } from '../services/media';
 import { HostMcpServer } from '../services/mcp/host-server';
 import { RecordingConnector, RECORDING_TOOLS } from '../services/recording/connector';
@@ -20,6 +21,7 @@ import type { RecordingCommand } from '../services/recording/helper';
 import { RecordingService, type RecordingEnded } from '../services/recording/service';
 import type { PipService } from '../services/pip';
 import { RecorderPanel } from './recorder-panel';
+import { ComputerUseOverlay } from './computer-use-overlay';
 import { bundleIconPathFromRoot, icnsIconDataUrl } from '../browser/site-open';
 
 export interface ComputerUseRuntimeDependencies {
@@ -33,6 +35,8 @@ export interface ComputerUseRuntimeDependencies {
   registerRecorderOwner(window: BrowserWindow): void;
   unregisterRecorderOwner(id: number): void;
   recordingEnded(value: RecordingEnded): Promise<void>;
+  /** Resolved UI language for the in-use banner; a `zh` prefix reads the zh copy. */
+  language?(): string;
   /** A Computer Use question died without a user answer; the card must close. */
   onElicitationCancelled?(sessionId: string, requestId: string): void;
   log(kind: string, message: string): void;
@@ -86,6 +90,7 @@ export async function createComputerUseRuntime(registry: ChannelRegistry, deps: 
     // The full-desktop surface stitches every visible display and drives global
     // input; only the Windows native helper implements it.
     desktopAvailable: process.platform === 'win32',
+    escapeStopMessage: process.platform === 'win32' ? ESCAPE_STOP_MESSAGES.windows : ESCAPE_STOP_MESSAGES.macos,
     refusal: sessionId => deps.computerUseRefusal?.(sessionId),
     saveScreenshot: (data, mime) => storeBytes(Buffer.from(data, 'base64'), mime, deps.configRoot),
     audio: { start: (id, ms, signal) => audio.start(id, ms, signal), stop: (id, signal) => audio.stop(id, signal) },
@@ -99,6 +104,23 @@ export async function createComputerUseRuntime(registry: ChannelRegistry, deps: 
       if (state.recording === true || state.state === 'approving' || state.state === 'starting') throw new Error('Computer input is paused while the user records a demonstration');
     },
   });
+  const overlay = new ComputerUseOverlay({ language: () => deps.language?.(), log: message => deps.log('computer-use-overlay', message) });
+  // The banner belongs to the session whose call armed it, independent of whether the
+  // escape watch itself could arm; that session's turn end or release hides it.
+  let overlayOwner: string | undefined;
+  const hideOverlayFor = (id: string): void => { if (overlayOwner === id) { overlayOwner = undefined; overlay.hide(); } };
+  // One single-slot watcher: the most recent computer-use call owns the watch, and a
+  // physical Escape stops the turn the watch is attributed to. Best-effort by design;
+  // a missing permission degrades to "no emergency stop" with a log line.
+  const escapeWatcher = new ComputerUseEscapeWatcher({ command: deps.command,
+    available: () => backend.availability().available,
+    log: message => deps.log('computer-use-escape', message),
+    onEscape: (sessionId, turnId) => {
+      connector.stopTurn(sessionId, turnId);
+      overlayOwner = undefined; overlay.hide();
+      void escapeWatcher.stop();
+    },
+    onIdleStop: sessionId => hideOverlayFor(sessionId) });
   const recordingNames = new Set(RECORDING_TOOLS.map(tool => tool.name));
   const mcp = new HostMcpServer({ name: 'computer-use', currentTurn: deps.currentTurn,
     onElicitationCancelled: (sessionId, requestId) => deps.onElicitationCancelled?.(sessionId, requestId),
@@ -118,6 +140,12 @@ export async function createComputerUseRuntime(registry: ChannelRegistry, deps: 
         if (recordingNames.has(name)) throw new Error('Friend tasks cannot record computer activity');
       }
       if (recordingNames.has(name)) return recordingConnector.call(name, args, context);
+      // The in-use banner and the physical-stop watch share the turn's lifetime; an
+      // Escape-stopped turn must not re-arm either.
+      if (!connector.turnStopped(context.sessionId, context.turnId)) {
+        escapeWatcher.ensure(context.sessionId, context.turnId);
+        overlayOwner = context.sessionId; overlay.show();
+      }
       const result = await connector.call(name, args, context);
       if (name === 'set_computer_use_policy') await recording.updatePolicy();
       return result;
@@ -169,6 +197,7 @@ export async function createComputerUseRuntime(registry: ChannelRegistry, deps: 
     const owner = owners.get(id); if (!owner) return;
     if (owner.closing) return owner.closing;
     owner.retiring = true; turns.delete(id);
+    escapeWatcher.stopFor(id); hideOverlayFor(id);
     const native = connector.closeSession(id), recorded = recording.stopSession(id), transport = mcp.releaseSession(id), audioRelease = audio.release(id);
     const work = (async () => {
       const results = await Promise.allSettled([native, recorded, transport, audioRelease]);
@@ -227,6 +256,7 @@ export async function createComputerUseRuntime(registry: ChannelRegistry, deps: 
           if (prior && prior !== turn) mcp.cancelTurn(id, prior); turns.set(id, turn);
         } else if (event.type === 'done' || event.type === 'interrupted' || (event.type === 'api_error' && event.terminal === true)) {
           if (turn) mcp.cancelTurn(id, turn); turns.delete(id);
+          escapeWatcher.stopFor(id); hideOverlayFor(id);
         }
       }
     },
@@ -237,7 +267,8 @@ export async function createComputerUseRuntime(registry: ChannelRegistry, deps: 
       const task = (async () => {
         const results = await Promise.allSettled(tasks);
         await Promise.allSettled([...background]);
-        const reports = await Promise.allSettled([panel.shutdown(), connector.close(), audio.close()]);
+        const reports = await Promise.allSettled([panel.shutdown(), connector.close(), audio.close(), escapeWatcher.close()]);
+        overlay.destroy();
         const errors = [...results, ...reports].flatMap(result => result.status === 'rejected' ? [result.reason] : []);
         for (const error of errors) deps.log('computer-use-shutdown', String(error));
         return { complete: !errors.length && reports.every(result => result.status === 'fulfilled' && result.value.complete) && owners.size === 0 };

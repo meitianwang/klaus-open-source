@@ -642,6 +642,44 @@ static JsonObject Action(const JsonObject& args) {
     }else Fail("Unknown Computer Use input operation");
     Pause(120);JsonObject result;result.Insert(L"applied",B(true));return result;
 }
+// Long-lived escape watch: reports the physical Escape key as framed stdout
+// events until the host stops it. Input this helper posts itself carries the
+// 0x4b435541 extra-info mark, so the model can never stop its own turn with a
+// key it sent; any other Escape press stops the turn.
+static DWORD EscapePumpThread = 0;
+static double LastEscapeAt = 0;
+static HHOOK EscapeHook = nullptr;
+static void EmitWatchFrame(const char* json) { std::cout<<json<<'\n';std::cout.flush(); }
+static LRESULT CALLBACK EscapeHookProc(int code, WPARAM wParam, LPARAM lParam) {
+    if(code==HC_ACTION&&(wParam==WM_KEYDOWN||wParam==WM_SYSKEYDOWN)){
+        auto* key=reinterpret_cast<KBDLLHOOKSTRUCT*>(lParam);
+        if(key->vkCode==VK_ESCAPE&&key->dwExtraInfo!=0x4b435541ull){
+            double now=Now();
+            // One report per second absorbs the key repeat of a held Escape.
+            if(now-LastEscapeAt>=1000.0){LastEscapeAt=now;EmitWatchFrame("{\"event\":\"escape\"}");}
+        }
+    }
+    return CallNextHookEx(EscapeHook,code,wParam,lParam);
+}
+// Defined below with the one-shot request reader; the watch needs it first.
+static std::string Line(size_t limit);
+static void WatchEscape() {
+    EscapePumpThread=GetCurrentThreadId();
+    // The host stops the watch with a framed {"stop":true}; stdin EOF (the host
+    // is gone) stops it too. Line() returns empty strings forever after EOF, so
+    // the stream state must end the loop or the watch would never settle.
+    std::thread([]{
+        try{for(;;){auto frame=Line(1024);if(frame.find("\"stop\":true")!=std::string::npos||std::cin.eof())break;}}catch(...){}
+        PostThreadMessageW(EscapePumpThread,WM_QUIT,0,0);
+    }).detach();
+    EscapeHook=SetWindowsHookExW(WH_KEYBOARD_LL,EscapeHookProc,GetModuleHandleW(nullptr),0);
+    if(!EscapeHook){EmitWatchFrame("{\"event\":\"unavailable\",\"reason\":\"windows-keyboard-hook-refused\"}");return;}
+    fputs("klaus-escape-watch-started\n",stderr);fflush(stderr);
+    MSG message;
+    while(GetMessageW(&message,nullptr,0,0)>0){TranslateMessage(&message);DispatchMessage(&message);}
+    UnhookWindowsHookEx(EscapeHook);EscapeHook=nullptr;
+    EmitWatchFrame("{\"event\":\"stopped\"}");
+}
 static RECT VirtualScreenRect() {
     RECT rect{GetSystemMetrics(SM_XVIRTUALSCREEN),GetSystemMetrics(SM_YVIRTUALSCREEN),0,0};
     rect.right=rect.left+GetSystemMetrics(SM_CXVIRTUALSCREEN);rect.bottom=rect.top+GetSystemMetrics(SM_CYVIRTUALSCREEN);
@@ -780,10 +818,14 @@ int main() {
         SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
         auto request=JsonObject::Parse(to_hstring(Line(256*1024)));for(auto key:{L"resourceId",L"operationId",L"generation",L"sequence"})response.Insert(key,request.GetNamedValue(key));
         Text(request,L"resourceId");Text(request,L"operationId");Number(request,L"generation",1,9007199254740991);Number(request,L"sequence",1,9007199254740991);
+        auto method=Text(request,L"method");
+        // The escape watch is long-lived, answers in framed stdout events and
+        // owns stdin itself, so the one-shot cancel reader must not start.
+        if(method==L"watchEscape"){WatchEscape();return 0;}
         // EOF or any later control frame cancels this one private operation. The
         // host keeps stdin open and waits for the actual process/stdio close.
         std::thread([]{try{Line(1024);}catch(...){}cancelled.store(true);}).detach();
-        auto method=Text(request,L"method");auto args=request.GetNamedObject(L"args");JsonObject result;
+        auto args=request.GetNamedObject(L"args");JsonObject result;
         if((method==L"action"||method==L"desktopAction")&&Text(args,L"name")==L"press_key"&&args.HasKey(L"duration"))operationDeadline=std::max(operationDeadline,13+Number(args,L"duration",0,30));
         if(method==L"capabilities"){InteractiveSession();auto automation=create_instance<IUIAutomation>(CLSID_CUIAutomation);result.Insert(L"version",N(1));result.Insert(L"supported",B(automation&&GraphicsCaptureSession::IsSupported()));}
         else if(method==L"resolve")result=Resolve(Text(args,L"input"));else if(method==L"activate")result=Activate(args);else if(method==L"state")result=State(args);

@@ -25,12 +25,16 @@ interface Owner {
   desktopDrag?: { dragging: boolean; x: number; y: number };
   /** Sticky after a failed drag cleanup: the desktop input surface stays closed. */
   desktopClosed?: boolean;
+  /** The turn a physical Escape stop refused; a new turn starts clean. */
+  escStopped?: string;
 }
 export interface ComputerUseDependencies {
   policy: ComputerUsePolicyService; backend: ComputerUseBackend;
   saveScreenshot(data: string, mimeType: string): string;
   /** The full-desktop surface exists only where the native helper stitches displays; undefined elsewhere. */
   desktopAvailable?: boolean;
+  /** Platform-specific wording a physical Escape stop delivers to the model. */
+  escapeStopMessage?: string;
   /** System audio capture spanning a start and a stop call; undefined where unavailable. */
   audio?: {
     start(sessionId: string, maxDurationMs: number, signal: AbortSignal): Promise<void>;
@@ -54,6 +58,11 @@ const DESKTOP_PLATFORM_ERROR = 'The full desktop surface is available only on Wi
 const DESKTOP_TURN_GATE = 'Call get_desktop_screenshot in this assistant turn before sending input';
 const DESKTOP_IDENTITY_REQUIRED = 'Desktop input needs a foreground application; focus one and call get_desktop_screenshot again';
 const DESKTOP_CLOSED = 'The desktop input session is closed after a failed cleanup; stop and report the error';
+/** Model-readable physical-stop wording per platform; pinned by contract vectors. */
+export const ESCAPE_STOP_MESSAGES = {
+  macos: "This application session has been explicitly stopped by the user for this turn. Stop your work and send a final message noting they stopped the session and you're ready to continue if they want you to. Computer Use can be used again in the next assistant turn.",
+  windows: 'Computer Use was stopped by the user with the physical Escape key. Stop your work, do not call further Computer Use tools in this turn, and send a final message noting that the user stopped Computer Use.',
+} as const;
 const text = (value: string): ComputerUseResult => ({ content: [{ type: 'text', text: value }] });
 const keyOf = (app: AppIdentity) => `${app.path}\0${app.pid ?? 0}`;
 function bounds(value: unknown): Bounds {
@@ -322,6 +331,9 @@ export class ComputerUseConnector {
     };
     const task = Promise.resolve().then(async () => {
       current();
+      const turnId = string(context.turnId, 'turnId');
+      // A physical Escape stop refuses the rest of this turn; the next turn starts clean.
+      if (owner.escStopped === turnId) throw new Error(this.escapeStopMessage());
       if (restricted) this.deps.policy.guardSession(context.sessionId);
       if (name === 'get_computer_use_policy') {
         const description = await this.deps.policy.describeSessionPolicy(context.sessionId, controller.signal); current(); return text(description);
@@ -350,7 +362,6 @@ export class ComputerUseConnector {
         if (owner.desktopClosed) throw new Error(DESKTOP_CLOSED);
         const settings = this.deps.policy.sessionSettings(context.sessionId);
         if (!settings.enabled || !settings.availableOnThisPlatform) throw new Error('Computer Use is unavailable or disabled');
-        const turnId = string(context.turnId, 'turnId');
         if (name === 'get_desktop_screenshot') {
           const previous = this.tail;
           const operation = previous.catch(() => {}).then(async () => {
@@ -418,6 +429,8 @@ export class ComputerUseConnector {
           });
           this.tail = operation.catch(() => {}); return await operation;
         } catch (error) {
+          // A user stop surfaces its own wording; it is never an uncertain action.
+          if (owner.escStopped === turnId) throw new Error(this.escapeStopMessage());
           if (enteredNative && !completed) {
             owner.desktop = undefined;
             if (owner.desktopDrag?.dragging) await this.releaseDesktopDrag(owner);
@@ -449,7 +462,7 @@ export class ComputerUseConnector {
         }).join('\n') || 'No applications are available.');
       }
       if (args.disable_diff !== undefined && typeof args.disable_diff !== 'boolean') throw new Error('Invalid Computer Use disable_diff');
-      const input = string(args.app, 'app').trim(), turnId = string(context.turnId, 'turnId');
+      const input = string(args.app, 'app').trim();
       const action = writes.has(name) ? validateAction(name, args) : undefined;
       this.deps.policy.guardInput(context.sessionId, input);
       const epoch = this.deps.beginOperation?.(context.sessionId);
@@ -512,6 +525,8 @@ export class ComputerUseConnector {
         });
         this.tail = operation.catch(() => {}); return await operation;
       } catch (error) {
+        // A user stop surfaces its own wording; it is never an uncertain action.
+        if (owner.escStopped === turnId) throw new Error(this.escapeStopMessage());
         if (enteredAction) {
           owner.states.delete(keyOf(resolved));
           if (!actionCompleted && error instanceof Error && 'computerUseActionStarted' in error && error.computerUseActionStarted === false) {
@@ -536,6 +551,23 @@ export class ComputerUseConnector {
       await this.deps.backend.request({ resourceId: owner.resourceId, operationId: randomUUID(), generation: owner.generation,
         sequence: ++owner.sequence, method: 'desktopAction', args: { name: 'mouse_up', x: drag.x, y: drag.y } }, AbortSignal.timeout(budget));
     } catch { owner.desktopClosed = true; }
+  }
+  /** Wording surfaced to the model when the user pressed the physical Escape key. */
+  private escapeStopMessage(): string { return this.deps.escapeStopMessage ?? ESCAPE_STOP_MESSAGES.macos; }
+  /**
+   * Physical emergency stop for one session: refuses the rest of the given turn and
+   * aborts in-flight calls with the stop wording. The next turn starts clean.
+   */
+  stopTurn(sessionId: string, turnId: string): void {
+    const owner = this.owners.get(sessionId);
+    if (!owner || owner.closing || owner.escStopped === turnId) return;
+    owner.escStopped = turnId;
+    const stop = new Error(this.escapeStopMessage());
+    for (const controller of owner.controllers) controller.abort(stop);
+  }
+  /** True when a physical Escape stop already refused this session's current turn. */
+  turnStopped(sessionId: string, turnId: string): boolean {
+    return this.owners.get(sessionId)?.escStopped === turnId;
   }
   async closeSession(sessionId: string, deadlineMs = 5000): Promise<{ complete: boolean }> {
     const owner = this.owners.get(sessionId); if (!owner) return { complete: true };

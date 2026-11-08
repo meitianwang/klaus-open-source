@@ -13,6 +13,17 @@ First-visit app guidance (`app-guides.ts`) prefixes the observation text of a
 guided app the first time each session observes it, matched by exact bundle
 identifier and delivered at most once per app per session.
 
+A physical Escape press is the person's emergency stop. The runtime owns one
+best-effort `watchEscape` helper child (`escape-watch.ts`) attributed to the
+most recent computer-use call's session turn, plus a non-activating,
+click-through in-use banner (`app/computer-use-overlay.ts`) shown while a turn
+drives input. A reported Escape calls `ComputerUseConnector.stopTurn`, which
+aborts in-flight calls and refuses the rest of that turn with the platform stop
+wording delivered verbatim — never the uncertain-action wrapper; the next turn
+starts clean. A refused or unavailable listener degrades to a logged no-watch
+and never blocks ordinary work. The stop wording, watch frames and banner copy
+are pinned by the `emergencyStop` observation vector.
+
 Construct it with `configRoot`, a real backend `availability()` function, and
 `enabledChanged(enabled, signal)`. Register
 `registerComputerUseSettingsHandlers(registry, service)` for the existing three

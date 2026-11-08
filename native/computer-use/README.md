@@ -42,7 +42,8 @@ this surface under `_meta.klaus.computerUse`; choose one presentation hook to
 avoid publishing it twice. The optional hook must settle when its signal aborts.
 
 The native protocol has only `capabilities`, `listApps`, `resolve`, `activate`,
-`state`, `action`, `desktopState`, `desktopAction` and the long-lived `recordAudio`. Every request and response carries `resourceId`,
+`state`, `action`, `desktopState`, `desktopAction` and the long-lived `recordAudio`
+and `watchEscape`. Every request and response carries `resourceId`,
 `operationId`, `generation` and `sequence`; the response must match all four.
 The helper has no engine, shell dispatch, network, configuration database,
 approval cache or session identifiers. Metadata resolution never activates an
@@ -76,7 +77,7 @@ contents, publishes the text with optional Markdown or HTML flavors, sends the
 platform paste chord and restores the snapshot even on failure. `scroll` targets
 an element or exact window coordinates.
 
-`recordAudio` is the only multi-frame operation. On macOS the helper reads its
+`recordAudio` and `watchEscape` are the long-lived multi-frame operations. On macOS the helper reads its
 request as the first newline-terminated stdin frame, announces a running capture
 with `klaus-audio-recording-started` on stderr, and finalizes a bounded 24 kHz
 stereo WAV when it receives a `{"stop":true}` frame, when stdin reaches EOF,
@@ -86,6 +87,20 @@ deletes its partial file. Its native deadline is the duration limit plus a
 system volume or mute state, and `capabilities` reports `audio` only where that
 capture exists. The host owns the recording child outside the serialized
 one-operation queue and keeps at most one active recording.
+
+`watchEscape` is the physical emergency-stop listener. The helper reads its
+request as the first newline-terminated stdin frame, announces an armed watch
+with `klaus-escape-watch-started` on stderr, and then emits newline-delimited
+JSON frames on stdout: `{"event":"escape"}` when an unmarked physical Escape
+arrives (at most one report per second), `{"event":"tapDisabled","reason":...}`
+when the macOS event tap was starved and re-armed, `{"event":"unavailable",
+"reason":...}` when the OS refuses the listener (missing Input Monitoring on
+macOS, refused low-level hook on Windows; the helper then exits), and
+`{"event":"stopped"}` on the way out. A `{"stop":true}` frame or stdin EOF ends
+the watch. Input the helper posts itself carries a source mark
+(`kCGEventSourceUserData` `0x4b4c4155` on macOS, `dwExtraInfo` `0x4b435541` on
+Windows) and never reports an Escape, so the model cannot stop its own turn
+with a key it sent.
 An input failure or failed final capture is never automatically retried: the
 result says the action may already have executed and invalidates the old state.
 
