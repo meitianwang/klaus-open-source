@@ -200,7 +200,9 @@ line3</textarea><div id="cancel-drag" style="width:90px;height:25px;background:b
     assert.match(changed.content[0].text, /Native HWND Unicode 中文/);
   });
   await test('the stitched desktop observation gates and maps global input onto the fixture controls', async () => {
-    window.focus(); await until(() => window.isFocused()); await sleep(300);
+    // isFocused() alone does not prove the Win32 foreground on real hardware; the
+    // window-level observation activates the approved window through the product path.
+    await read(); window.focus(); await until(() => window.isFocused()); await sleep(300);
     desktopLatest = await desktopCall('get_desktop_screenshot');
     assert.equal(desktopLatest.content[1].mimeType, 'image/jpeg');
     assert.ok(desktopLatest.content[1].data.startsWith('/9j/'), 'the stitched desktop frame must be JPEG');
@@ -230,7 +232,8 @@ line3</textarea><div id="cancel-drag" style="width:90px;height:25px;background:b
     await until(async () => await dom('dropped') === true);
   });
   await test('the desktop drag handle holds the real button across calls and releases it', async () => {
-    window.focus(); await until(() => window.isFocused()); await sleep(200);
+    // Same foreground guarantee as the stitched-desktop test above.
+    await read(); window.focus(); await until(() => window.isFocused()); await sleep(200);
     desktopLatest = await desktopCall('get_desktop_screenshot');
     const downs = await dom('downs'), ups = await dom('ups');
     const start = await desktopPoint('#cancel-drag');
