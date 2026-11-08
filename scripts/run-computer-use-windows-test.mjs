@@ -15,8 +15,8 @@ execFileSync(compiler, ['/nologo', '/target:winexe', '/warn:4', '/warnaserror+',
 const env = { ...process.env, KLAUS_COMPUTER_USE_TEST_ROOT: root,
   KLAUS_COMPUTER_USE_HELPER: process.env.KLAUS_COMPUTER_USE_HELPER ?? resolve(desktop, 'native/artifacts/computer-use/win32-x64/klaus-computer-use-helper.exe') };
 delete env.ELECTRON_RUN_AS_NODE;
-const result = spawnElectronGuiSync(require('electron'), ['tests/computer-use-windows-electron.cjs'], { cwd: desktop, env, stdio: 'inherit', timeout: 185000 });
+const result = spawnElectronGuiSync(require('electron'), ['tests/computer-use-windows-electron.cjs'], { cwd: desktop, env, stdio: 'inherit', timeout: 255000 });
 let complete = false;
-try { const summary = JSON.parse(readFileSync(join(root, 'result.json'), 'utf8')); complete = summary.passed === 10 && summary.failed === 0 && summary.results.length === 10 && summary.cleanup; } catch {}
+try { const summary = JSON.parse(readFileSync(join(root, 'result.json'), 'utf8')); complete = summary.passed === 12 && summary.failed === 0 && summary.results.length === 12 && summary.cleanup; } catch {}
 if (result.status === 0 && complete) rmSync(root, { recursive: true, force: true }); else console.error(`Synthetic Windows Computer Use evidence: ${root}`);
 if (result.error) throw result.error; process.exit(result.status === 0 && complete ? 0 : 1);

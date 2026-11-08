@@ -304,35 +304,40 @@ static std::string Base64(const BYTE* bytes,DWORD length) {
     std::string result(size,'\0');if(!CryptBinaryToStringA(bytes,length,CRYPT_STRING_BASE64|CRYPT_STRING_NOCRLF,result.data(),&size))Fail("Capture encoding failed");
     while(!result.empty()&&result.back()=='\0')result.pop_back();return result;
 }
-static JsonObject Capture(HWND window,const RECT& bounds) {
-    Desktop();if(!GraphicsCaptureSession::IsSupported())Fail("Windows Graphics Capture is unavailable");
-    auto interop=get_activation_factory<GraphicsCaptureItem,IGraphicsCaptureItemInterop>();GraphicsCaptureItem item{nullptr};
-    Require(interop->CreateForWindow(window,guid_of<GraphicsCaptureItem>(),put_abi(item)),"Approved window capture is unavailable");
-    auto size=item.Size();if(size.Width!=bounds.right-bounds.left||size.Height!=bounds.bottom-bounds.top||size.Width<1||size.Height<1||size.Width>16384||size.Height>16384||static_cast<int64_t>(size.Width)*size.Height>16000000)
-        Fail("Approved window capture geometry changed; read fresh app state");
-    com_ptr<ID3D11Device> d3d;com_ptr<ID3D11DeviceContext> context;
-    Require(D3D11CreateDevice(nullptr,D3D_DRIVER_TYPE_HARDWARE,nullptr,D3D11_CREATE_DEVICE_BGRA_SUPPORT,nullptr,0,D3D11_SDK_VERSION,d3d.put(),nullptr,context.put()),"Window capture device is unavailable");
-    auto dxgi=d3d.as<IDXGIDevice>();com_ptr<IInspectable> inspectable;
+struct CaptureDevices { com_ptr<ID3D11Device> d3d; com_ptr<ID3D11DeviceContext> context; IDirect3DDevice device{nullptr}; };
+static CaptureDevices MakeCaptureDevices() {
+    CaptureDevices devices;
+    Require(D3D11CreateDevice(nullptr,D3D_DRIVER_TYPE_HARDWARE,nullptr,D3D11_CREATE_DEVICE_BGRA_SUPPORT,nullptr,0,D3D11_SDK_VERSION,devices.d3d.put(),nullptr,devices.context.put()),"Window capture device is unavailable");
+    auto dxgi=devices.d3d.as<IDXGIDevice>();com_ptr<IInspectable> inspectable;
     Require(CreateDirect3D11DeviceFromDXGIDevice(dxgi.get(),inspectable.put()),"Window capture device interop failed");
-    auto device=inspectable.as<IDirect3DDevice>();
-    auto pool=Direct3D11CaptureFramePool::CreateFreeThreaded(device,DirectXPixelFormat::B8G8R8A8UIntNormalized,2,size);
+    devices.device=inspectable.as<IDirect3DDevice>();return devices;
+}
+struct FrameBytes { std::vector<BYTE> pixels; UINT width=0; UINT height=0; };
+// Runs one WGC capture for an item and copies the guarded content crop into a
+// contiguous BGRA buffer. The guard sees the frame content size before any
+// pixel is published and may fail the whole operation.
+static FrameBytes AcquireFrame(const CaptureDevices& devices,const GraphicsCaptureItem& item,const std::function<void(winrt::Windows::Graphics::SizeInt32)>& guard,const char* timeoutMessage="Approved window did not produce a capture frame") {
+    auto pool=Direct3D11CaptureFramePool::CreateFreeThreaded(devices.device,DirectXPixelFormat::B8G8R8A8UIntNormalized,2,item.Size());
     auto session=pool.CreateCaptureSession(item);Cleanup release{[&]{session.Close();pool.Close();}};
     if(winrt::Windows::Foundation::Metadata::ApiInformation::IsPropertyPresent(L"Windows.Graphics.Capture.GraphicsCaptureSession",L"IsCursorCaptureEnabled"))session.IsCursorCaptureEnabled(false);
     session.StartCapture();Direct3D11CaptureFrame frame{nullptr};auto end=Clock::now()+std::chrono::seconds(3);
-    while(!(frame=pool.TryGetNextFrame())){if(Clock::now()>=end)Fail("Approved window did not produce a capture frame");Pause(10);}
-    Cleanup closeFrame{[&]{frame.Close();}};auto content=frame.ContentSize();
-    // Fractional DPI can leave one undefined edge pixel in the allocated WGC
-    // surface. Keep the exact window guard, and publish only the valid crop.
-    if(!SameBounds(bounds,WindowBounds(window))||content.Width<1||content.Height<1||content.Width>size.Width||content.Height>size.Height||size.Width-content.Width>1||size.Height-content.Height>1)
-        throw std::runtime_error("Approved window resized during capture: expected "+std::to_string(size.Width)+"x"+std::to_string(size.Height)+", received "+std::to_string(content.Width)+"x"+std::to_string(content.Height));
+    while(!(frame=pool.TryGetNextFrame())){if(Clock::now()>=end)Fail(timeoutMessage);Pause(10);}
+    Cleanup closeFrame{[&]{frame.Close();}};auto content=frame.ContentSize();guard(content);
     auto access=frame.Surface().as<::Windows::Graphics::DirectX::Direct3D11::IDirect3DDxgiInterfaceAccess>();com_ptr<ID3D11Texture2D> texture;
     Require(access->GetInterface(__uuidof(ID3D11Texture2D),texture.put_void()),"Window frame texture is unavailable");
     D3D11_TEXTURE2D_DESC descriptor{};texture->GetDesc(&descriptor);descriptor.Usage=D3D11_USAGE_STAGING;descriptor.BindFlags=0;descriptor.MiscFlags=0;descriptor.CPUAccessFlags=D3D11_CPU_ACCESS_READ;
-    com_ptr<ID3D11Texture2D> staging;Require(d3d->CreateTexture2D(&descriptor,nullptr,staging.put()),"Window frame allocation failed");context->CopyResource(staging.get(),texture.get());
-    D3D11_MAPPED_SUBRESOURCE mapped{};Require(context->Map(staging.get(),0,D3D11_MAP_READ,0,&mapped),"Window frame could not be read");Cleanup unmap{[&]{context->Unmap(staging.get(),0);}};
+    com_ptr<ID3D11Texture2D> staging;Require(devices.d3d->CreateTexture2D(&descriptor,nullptr,staging.put()),"Window frame allocation failed");devices.context->CopyResource(staging.get(),texture.get());
+    D3D11_MAPPED_SUBRESOURCE mapped{};Require(devices.context->Map(staging.get(),0,D3D11_MAP_READ,0,&mapped),"Window frame could not be read");Cleanup unmap{[&]{devices.context->Unmap(staging.get(),0);}};
+    FrameBytes bytes;bytes.width=static_cast<UINT>(content.Width);bytes.height=static_cast<UINT>(content.Height);
+    bytes.pixels.resize(static_cast<size_t>(bytes.width)*bytes.height*4);auto source=static_cast<const BYTE*>(mapped.pData);
+    for(UINT row=0;row<bytes.height;row++)std::memcpy(bytes.pixels.data()+static_cast<size_t>(row)*bytes.width*4,source+static_cast<size_t>(row)*mapped.RowPitch,static_cast<size_t>(bytes.width)*4);
+    return bytes;
+}
+// Scales to the observation long-edge budget and encodes one lossy JPEG frame.
+static JsonObject ScaleAndEncode(const FrameBytes& frame) {
     auto factory=create_instance<IWICImagingFactory>(CLSID_WICImagingFactory);com_ptr<IWICBitmap> bitmap;
-    Require(factory->CreateBitmapFromMemory(static_cast<UINT>(content.Width),static_cast<UINT>(content.Height),GUID_WICPixelFormat32bppBGRA,mapped.RowPitch,mapped.RowPitch*static_cast<UINT>(content.Height),static_cast<BYTE*>(mapped.pData),bitmap.put()),"Window bitmap encoding failed");
-    double scale=std::min(1.0,2560.0/std::max(content.Width,content.Height));UINT width=static_cast<UINT>(std::max(1L,std::lround(content.Width*scale))),height=static_cast<UINT>(std::max(1L,std::lround(content.Height*scale)));
+    Require(factory->CreateBitmapFromMemory(frame.width,frame.height,GUID_WICPixelFormat32bppBGRA,static_cast<UINT>(static_cast<size_t>(frame.width)*4),static_cast<UINT>(static_cast<size_t>(frame.width)*frame.height*4),const_cast<BYTE*>(frame.pixels.data()),bitmap.put()),"Window bitmap encoding failed");
+    double scale=std::min(1.0,2560.0/std::max(frame.width,frame.height));UINT width=static_cast<UINT>(std::max(1L,std::lround(frame.width*scale))),height=static_cast<UINT>(std::max(1L,std::lround(frame.height*scale)));
     com_ptr<IWICBitmapSource> source=bitmap.as<IWICBitmapSource>();com_ptr<IWICBitmapScaler> scaler;
     if(scale<1){Require(factory->CreateBitmapScaler(scaler.put()),"Window image scaler is unavailable");Require(scaler->Initialize(bitmap.get(),width,height,WICBitmapInterpolationModeFant),"Window image scaling failed");source=scaler.as<IWICBitmapSource>();}
     com_ptr<IStream> stream;Require(CreateStreamOnHGlobal(nullptr,TRUE,stream.put()),"Window image buffer failed");com_ptr<IWICBitmapEncoder> encoder;
@@ -348,8 +353,22 @@ static JsonObject Capture(HWND window,const RECT& bounds) {
     STATSTG stat{};Require(stream->Stat(&stat,STATFLAG_NONAME),"JPEG size is unavailable");if(!stat.cbSize.QuadPart||stat.cbSize.QuadPart>15*1024*1024)Fail("Window capture exceeds its byte limit");
     HGLOBAL memory=nullptr;Require(GetHGlobalFromStream(stream.get(),&memory),"JPEG buffer is unavailable");auto bytes=static_cast<const BYTE*>(GlobalLock(memory));if(!bytes)Fail("JPEG buffer is unavailable");
     Cleanup unlock{[&]{GlobalUnlock(memory);}};JsonObject result;result.Insert(L"data",S(to_hstring(Base64(bytes,static_cast<DWORD>(stat.cbSize.QuadPart)))));
-    result.Insert(L"mimeType",S(L"image/jpeg"));result.Insert(L"width",N(width));result.Insert(L"height",N(height));
-    result.Insert(L"bounds",Rectangle({bounds.left,bounds.top,bounds.left+content.Width,bounds.top+content.Height}));return result;
+    result.Insert(L"mimeType",S(L"image/jpeg"));result.Insert(L"width",N(width));result.Insert(L"height",N(height));return result;
+}
+static JsonObject Capture(HWND window,const RECT& bounds) {
+    Desktop();if(!GraphicsCaptureSession::IsSupported())Fail("Windows Graphics Capture is unavailable");
+    auto interop=get_activation_factory<GraphicsCaptureItem,IGraphicsCaptureItemInterop>();GraphicsCaptureItem item{nullptr};
+    Require(interop->CreateForWindow(window,guid_of<GraphicsCaptureItem>(),put_abi(item)),"Approved window capture is unavailable");
+    auto size=item.Size();if(size.Width!=bounds.right-bounds.left||size.Height!=bounds.bottom-bounds.top||size.Width<1||size.Height<1||size.Width>16384||size.Height>16384||static_cast<int64_t>(size.Width)*size.Height>16000000)
+        Fail("Approved window capture geometry changed; read fresh app state");
+    auto devices=MakeCaptureDevices();
+    // Fractional DPI can leave one undefined edge pixel in the allocated WGC
+    // surface. Keep the exact window guard, and publish only the valid crop.
+    auto pixels=AcquireFrame(devices,item,[&](winrt::Windows::Graphics::SizeInt32 content){
+        if(!SameBounds(bounds,WindowBounds(window))||content.Width<1||content.Height<1||content.Width>size.Width||content.Height>size.Height||size.Width-content.Width>1||size.Height-content.Height>1)
+            throw std::runtime_error("Approved window resized during capture: expected "+std::to_string(size.Width)+"x"+std::to_string(size.Height)+", received "+std::to_string(content.Width)+"x"+std::to_string(content.Height));});
+    auto image=ScaleAndEncode(pixels);
+    image.Insert(L"bounds",Rectangle({bounds.left,bounds.top,bounds.left+static_cast<LONG>(pixels.width),bounds.top+static_cast<LONG>(pixels.height)}));return image;
 }
 static JsonObject State(const JsonObject& args) {
     Desktop();auto identity=args.GetNamedObject(L"app");DWORD pid=VerifyApp(identity);HWND window=WindowFor(pid);RECT bounds=WindowBounds(window);
@@ -398,12 +417,20 @@ static void PointerTarget(HWND window,DWORD pid,POINT point) {
     Foreground(window,pid);HWND target=GetAncestor(WindowFromPoint(point),GA_ROOT);
     if(target!=window)Fail("Another window covers the requested point; read fresh app state");
 }
-static void Mouse(HWND window,DWORD pid,POINT point,const std::wstring& button,int count) {
+static void GuardNoMouseHeld() {
     for(int key:{VK_LBUTTON,VK_RBUTTON,VK_MBUTTON,VK_XBUTTON1,VK_XBUTTON2})if(GetAsyncKeyState(key)&0x8000)Fail("A mouse button is already held; leave physical input untouched");
-    PointerTarget(window,pid,point);DWORD down=MOUSEEVENTF_LEFTDOWN,up=MOUSEEVENTF_LEFTUP;
+}
+static void MouseButtons(const std::wstring& button,DWORD& down,DWORD& up) {
+    down=MOUSEEVENTF_LEFTDOWN;up=MOUSEEVENTF_LEFTUP;
     if(button==L"right"){down=MOUSEEVENTF_RIGHTDOWN;up=MOUSEEVENTF_RIGHTUP;}else if(button==L"middle"){down=MOUSEEVENTF_MIDDLEDOWN;up=MOUSEEVENTF_MIDDLEUP;}else if(button!=L"left")Fail("Unsupported mouse button");
-    for(int i=0;i<count;i++){PointerTarget(window,pid,point);UINT accepted=0;std::vector<INPUT> events{Pointer(point,MOUSEEVENTF_MOVE),Pointer(point,down),Pointer(point,up)};
+}
+static void MouseClicks(const std::function<void()>& verify,POINT point,const std::wstring& button,int count) {
+    DWORD down,up;MouseButtons(button,down,up);
+    for(int i=0;i<count;i++){verify();UINT accepted=0;std::vector<INPUT> events{Pointer(point,MOUSEEVENTF_MOVE),Pointer(point,down),Pointer(point,up)};
         Cleanup cleanup{[&]{if(accepted==2){std::vector<INPUT> release{Pointer(point,up)};Send(release,true);}}};Send(events,false,&accepted);Pause(50);}
+}
+static void Mouse(HWND window,DWORD pid,POINT point,const std::wstring& button,int count) {
+    GuardNoMouseHeld();PointerTarget(window,pid,point);MouseClicks([&]{PointerTarget(window,pid,point);},point,button,count);
 }
 static bool Extended(WORD key) { return key==VK_LEFT||key==VK_RIGHT||key==VK_UP||key==VK_DOWN||key==VK_HOME||key==VK_END||key==VK_PRIOR||key==VK_NEXT||key==VK_DELETE||key==VK_LWIN; }
 static WORD KeyCode(const std::wstring& name) {
@@ -423,11 +450,11 @@ static WORD KeyCode(const std::wstring& name) {
     if(name.size()==4&&name.starts_with(L"kp_")&&name[3]>=L'0'&&name[3]<=L'9')return static_cast<WORD>(VK_NUMPAD0+name[3]-L'0');
     Fail("Unsupported keyboard key");
 }
-static void Press(HWND window,DWORD pid,const std::wstring& specification,double duration=0) {
+static void PressCore(HWND layoutWindow,const std::function<void()>& verify,const std::wstring& specification,double duration=0) {
     std::vector<std::wstring> parts;size_t offset=0;
     for(;;){auto end=specification.find(L'+',offset);parts.push_back(specification.substr(offset,end-offset));if(end==std::wstring::npos)break;offset=end+1;}
     auto name=parts.back();parts.pop_back();std::vector<WORD> modifiers;
-    HKL layout=GetKeyboardLayout(GetWindowThreadProcessId(window,nullptr));WORD key;
+    HKL layout=GetKeyboardLayout(GetWindowThreadProcessId(layoutWindow?layoutWindow:GetForegroundWindow(),nullptr));WORD key;
     if(name==L"plus"||(name.size()==1&&name[0]>=33&&name[0]<=126)) {
         SHORT mapped=VkKeyScanExW(name==L"plus"?L'+':name[0],layout);
         if(mapped==-1)Fail("The current keyboard layout cannot produce this key");
@@ -449,16 +476,22 @@ static void Press(HWND window,DWORD pid,const std::wstring& specification,double
     events.push_back(Key(key,extended?KEYEVENTF_EXTENDEDKEY:0,0,layout));events.push_back(Key(key,KEYEVENTF_KEYUP|(extended?KEYEVENTF_EXTENDEDKEY:0),0,layout));
     for(auto it=modifiers.rbegin();it!=modifiers.rend();++it)events.push_back(Key(*it,KEYEVENTF_KEYUP|(Extended(*it)?KEYEVENTF_EXTENDEDKEY:0),0,layout));
     std::vector<INPUT> down(events.begin(),events.begin()+static_cast<std::ptrdiff_t>(modifiers.size()+1)),up(events.begin()+static_cast<std::ptrdiff_t>(modifiers.size()+1),events.end());
-    UINT accepted=0;Cleanup cleanup{[&]{ReleaseKeys(down,accepted);}};Foreground(window,pid);Send(down,false,&accepted);Pause(static_cast<int>(duration*1000));Foreground(window,pid);Send(up);accepted=0;
+    UINT accepted=0;Cleanup cleanup{[&]{ReleaseKeys(down,accepted);}};verify();Send(down,false,&accepted);Pause(static_cast<int>(duration*1000));verify();Send(up);accepted=0;
 }
-static void Type(HWND window,DWORD pid,const std::wstring& text) {
+static void Press(HWND window,DWORD pid,const std::wstring& specification,double duration=0) {
+    PressCore(window,[&]{Foreground(window,pid);},specification,duration);
+}
+static void TypeCore(const std::function<void()>& verify,const std::function<void()>& pressReturn,const std::wstring& text) {
     for(int key:{VK_SHIFT,VK_CONTROL,VK_MENU,VK_LWIN,VK_RWIN})if(GetAsyncKeyState(key)&0x8000)Fail("An input modifier is already held; leave physical input untouched");
-    for(size_t offset=0;offset<text.size();){Foreground(window,pid);size_t count=std::min<size_t>(20,text.size()-offset);
-        if(text[offset]==L'\r'||text[offset]==L'\n'){wchar_t newline=text[offset++];Press(window,pid,L"return");if(newline==L'\r'&&offset<text.size()&&text[offset]==L'\n')offset++;continue;}
+    for(size_t offset=0;offset<text.size();){verify();size_t count=std::min<size_t>(20,text.size()-offset);
+        if(text[offset]==L'\r'||text[offset]==L'\n'){wchar_t newline=text[offset++];pressReturn();if(newline==L'\r'&&offset<text.size()&&text[offset]==L'\n')offset++;continue;}
         for(size_t i=0;i<count;i++)if(text[offset+i]==L'\r'||text[offset+i]==L'\n'){count=i;break;}
         if(offset+count<text.size()&&IS_HIGH_SURROGATE(text[offset+count-1]))count--;std::vector<INPUT> events;
         for(size_t i=0;i<count;i++){WORD character=static_cast<WORD>(text[offset+i]);events.push_back(Key(0,KEYEVENTF_UNICODE,character));events.push_back(Key(0,KEYEVENTF_UNICODE|KEYEVENTF_KEYUP,character));}
         UINT accepted=0;Cleanup cleanup{[&]{ReleaseKeys(events,accepted);}};Send(events,false,&accepted);offset+=count;}
+}
+static void Type(HWND window,DWORD pid,const std::wstring& text) {
+    TypeCore([&]{Foreground(window,pid);},[&]{Press(window,pid,L"return");},text);
 }
 static std::vector<std::pair<UINT,std::vector<BYTE>>> SaveClipboard() {
     std::vector<std::pair<UINT,std::vector<BYTE>>> saved;
@@ -513,7 +546,7 @@ static std::string HtmlFlavor(const std::string& fragment) {
     if(written!=headerLength)return {};
     return std::string(header,static_cast<size_t>(written))+head+fragment+tail;
 }
-static void Paste(HWND window,DWORD pid,const std::wstring& text,const std::wstring& format) {
+static void PasteCore(const std::function<void()>& pressPaste,const std::wstring& text,const std::wstring& format) {
     if(format!=L"text"&&format!=L"md"&&format!=L"html")Fail("Unsupported paste format");
     // Snapshot the user's clipboard so the paste can put it back afterwards.
     auto saved=SaveClipboard();
@@ -533,9 +566,12 @@ static void Paste(HWND window,DWORD pid,const std::wstring& text,const std::wstr
     if(published&&format==L"html"){UINT html=RegisterClipboardFormatW(L"HTML Format");std::string body=HtmlFlavor(utf8);if(html&&!body.empty())SetClipboardBytes(html,body);}
     CloseClipboard();
     if(!published)Fail("The system clipboard rejected the paste content");
-    Press(window,pid,L"ctrl+v");
+    pressPaste();
     // Give the target window time to read the clipboard before restoring it.
     Pause(250);
+}
+static void Paste(HWND window,DWORD pid,const std::wstring& text,const std::wstring& format) {
+    PasteCore([&]{Press(window,pid,L"ctrl+v");},text,format);
 }
 static void SelectText(IUIAutomationElement* element,const JsonObject& args) {
     BOOL password=TRUE;element->get_CurrentIsPassword(&password);if(password)Fail("Secure fields do not expose selectable text");
@@ -598,12 +634,135 @@ static JsonObject Action(const JsonObject& args) {
             LONG delta=static_cast<LONG>(std::lround(pages*WHEEL_DELTA));if(direction==L"down"||direction==L"left")delta=-delta;
             std::vector<INPUT> events{Pointer(point,MOUSEEVENTF_MOVE),Pointer(point,direction==L"left"||direction==L"right"?MOUSEEVENTF_HWHEEL:MOUSEEVENTF_WHEEL,static_cast<DWORD>(delta))};Send(events);}
     }else if(name==L"drag"){
-        for(int key:{VK_LBUTTON,VK_RBUTTON,VK_MBUTTON,VK_XBUTTON1,VK_XBUTTON2})if(GetAsyncKeyState(key)&0x8000)Fail("A mouse button is already held; leave physical input untouched");
+        GuardNoMouseHeld();
         POINT from=Point(args.GetNamedObject(L"from"),bounds),to=Point(args.GetNamedObject(L"to"),bounds);PointerTarget(window,pid,from);PointerTarget(window,pid,to);
         POINT current=from;UINT accepted=0;Cleanup release{[&]{if(accepted==2){std::vector<INPUT> input{Pointer(current,MOUSEEVENTF_LEFTUP)};Send(input,true);}}};
         std::vector<INPUT> begin{Pointer(from,MOUSEEVENTF_MOVE),Pointer(from,MOUSEEVENTF_LEFTDOWN)};Send(begin,false,&accepted);
         for(int i=1;i<=10;i++){Presence(args);Foreground(window,pid);current={from.x+(to.x-from.x)*i/10,from.y+(to.y-from.y)*i/10};PointerTarget(window,pid,current);std::vector<INPUT> move{Pointer(current,MOUSEEVENTF_MOVE)};Send(move);Pause(15);}
     }else Fail("Unknown Computer Use input operation");
+    Pause(120);JsonObject result;result.Insert(L"applied",B(true));return result;
+}
+static RECT VirtualScreenRect() {
+    RECT rect{GetSystemMetrics(SM_XVIRTUALSCREEN),GetSystemMetrics(SM_YVIRTUALSCREEN),0,0};
+    rect.right=rect.left+GetSystemMetrics(SM_CXVIRTUALSCREEN);rect.bottom=rect.top+GetSystemMetrics(SM_CYVIRTUALSCREEN);
+    if(rect.right<=rect.left||rect.bottom<=rect.top)Fail("The desktop display geometry is unavailable");
+    return rect;
+}
+static POINT DesktopPoint(const JsonObject& args) {
+    auto rect=VirtualScreenRect();
+    double x=Number(args,L"x",rect.left,rect.right),y=Number(args,L"y",rect.top,rect.bottom);
+    POINT point{static_cast<LONG>(std::floor(x)),static_cast<LONG>(std::floor(y))};
+    if(!PtInRect(&rect,point))Fail("Input point is outside the desktop");
+    return point;
+}
+static void DesktopFocus(const std::wstring& path,DWORD pid) {
+    Check();HWND window=GetForegroundWindow();DWORD active=0;
+    if(window)GetWindowThreadProcessId(window,&active);
+    if(!window||active!=pid||Lower(ProcessPath(active))!=Lower(path))Fail("The foreground application changed; take a new desktop screenshot");
+}
+static void DesktopIdentity(const JsonObject& args) {
+    if(!args.HasKey(L"app"))Fail("Desktop input needs the foreground application identity from a fresh desktop screenshot");
+    auto identity=args.GetNamedObject(L"app");
+    DesktopFocus(Text(identity,L"path"),static_cast<DWORD>(Number(identity,L"pid",1,INT32_MAX)));
+}
+struct DesktopMonitor { HMONITOR handle; RECT bounds; };
+static std::vector<DesktopMonitor> VisibleMonitors() {
+    std::vector<DesktopMonitor> monitors;
+    if(!EnumDisplayMonitors(nullptr,nullptr,[](HMONITOR handle,HDC,LPRECT,LPARAM data)->BOOL{
+        auto& rows=*reinterpret_cast<std::vector<DesktopMonitor>*>(data);
+        MONITORINFO info{};info.cbSize=sizeof(info);
+        if(GetMonitorInfoW(handle,&info))rows.push_back({handle,info.rcMonitor});
+        return TRUE;},reinterpret_cast<LPARAM>(&monitors))||monitors.empty())Fail("Desktop display enumeration failed");
+    Check();return monitors;
+}
+static JsonObject DesktopState() {
+    Desktop();if(!GraphicsCaptureSession::IsSupported())Fail("Windows Graphics Capture is unavailable");
+    auto monitors=VisibleMonitors();auto virtualBounds=VirtualScreenRect();
+    UINT canvasWidth=static_cast<UINT>(virtualBounds.right-virtualBounds.left),canvasHeight=static_cast<UINT>(virtualBounds.bottom-virtualBounds.top);
+    if(static_cast<int64_t>(canvasWidth)*canvasHeight>32000000)Fail("The desktop display geometry exceeds the capture limit");
+    auto devices=MakeCaptureDevices();
+    std::vector<BYTE> canvas(static_cast<size_t>(canvasWidth)*canvasHeight*4);JsonArray displays;
+    for(const auto& monitor:monitors){
+        auto interop=get_activation_factory<GraphicsCaptureItem,IGraphicsCaptureItemInterop>();GraphicsCaptureItem item{nullptr};
+        Require(interop->CreateForMonitor(monitor.handle,guid_of<GraphicsCaptureItem>(),put_abi(item)),"Desktop display capture is unavailable");
+        auto size=item.Size();
+        if(size.Width!=monitor.bounds.right-monitor.bounds.left||size.Height!=monitor.bounds.bottom-monitor.bounds.top||size.Width<1||size.Height<1||size.Width>16384||size.Height>16384)
+            Fail("Desktop display capture geometry changed; take a new desktop screenshot");
+        auto pixels=AcquireFrame(devices,item,[&](winrt::Windows::Graphics::SizeInt32 content){
+            if(content.Width<1||content.Height<1||content.Width>size.Width||content.Height>size.Height||size.Width-content.Width>1||size.Height-content.Height>1)
+                Fail("Desktop display changed during capture; take a new desktop screenshot");},"Desktop display capture did not produce a frame");
+        LONG originX=monitor.bounds.left-virtualBounds.left,originY=monitor.bounds.top-virtualBounds.top;
+        for(UINT row=0;row<pixels.height;row++){
+            LONG y=originY+static_cast<LONG>(row);if(y<0||y>=static_cast<LONG>(canvasHeight))continue;
+            LONG first=std::max<LONG>(originX,0),last=std::min<LONG>(originX+static_cast<LONG>(pixels.width),static_cast<LONG>(canvasWidth));
+            if(first>=last)continue;
+            std::memcpy(canvas.data()+(static_cast<size_t>(y)*canvasWidth+static_cast<size_t>(first))*4,
+                pixels.pixels.data()+(static_cast<size_t>(row)*pixels.width+static_cast<size_t>(first-originX))*4,static_cast<size_t>(last-first)*4);
+        }
+        JsonObject display;display.Insert(L"bounds",Rectangle(monitor.bounds));display.Insert(L"width",N(pixels.width));display.Insert(L"height",N(pixels.height));displays.Append(display);
+    }
+    FrameBytes stitched;stitched.pixels=std::move(canvas);stitched.width=canvasWidth;stitched.height=canvasHeight;
+    HWND foreground=GetForegroundWindow();DWORD pid=0;if(foreground)GetWindowThreadProcessId(foreground,&pid);
+    JsonObject value;std::wstring path=pid&&pid!=GetCurrentProcessId()?ProcessPath(pid):std::wstring{};
+    if(!path.empty())value.Insert(L"app",Identity(path,BaseName(path),pid));
+    else value.Insert(L"app",JsonValue::CreateNullValue());
+    value.Insert(L"screenshot",ScaleAndEncode(stitched));value.Insert(L"virtualBounds",Rectangle(virtualBounds));
+    value.Insert(L"displays",displays);value.Insert(L"sourceWidth",N(canvasWidth));value.Insert(L"sourceHeight",N(canvasHeight));
+    return value;
+}
+static JsonObject DesktopAction(const JsonObject& args) {
+    auto name=Text(args,L"name");
+    if(name!=L"mouse_up")Presence(args);
+    if(name==L"click"){
+        DesktopIdentity(args);GuardNoMouseHeld();POINT point=DesktopPoint(args);
+        auto button=args.HasKey(L"mouse_button")?Text(args,L"mouse_button"):std::wstring(L"left");
+        MouseClicks([]{},point,button,static_cast<int>(Number(args,L"click_count",1,3)));
+    }else if(name==L"move"){
+        DesktopIdentity(args);POINT point=DesktopPoint(args);
+        std::vector<INPUT> events{Pointer(point,MOUSEEVENTF_MOVE)};Send(events);
+    }else if(name==L"scroll"){
+        DesktopIdentity(args);POINT point=DesktopPoint(args);LONG deltaX=0,deltaY=0;
+        if(args.HasKey(L"delta_x"))deltaX=static_cast<LONG>(Number(args,L"delta_x",-12000,12000));
+        if(args.HasKey(L"delta_y"))deltaY=static_cast<LONG>(Number(args,L"delta_y",-12000,12000));
+        if(!deltaX&&!deltaY)Fail("The scroll needs a non-zero delta");
+        std::vector<INPUT> events{Pointer(point,MOUSEEVENTF_MOVE)};
+        if(deltaY)events.push_back(Pointer(point,MOUSEEVENTF_WHEEL,static_cast<DWORD>(-deltaY)));
+        if(deltaX)events.push_back(Pointer(point,MOUSEEVENTF_HWHEEL,static_cast<DWORD>(deltaX)));
+        Send(events);
+    }else if(name==L"type_text"){
+        DesktopIdentity(args);TypeCore([&]{DesktopIdentity(args);},[&]{PressCore(nullptr,[&]{DesktopIdentity(args);},L"return");},Text(args,L"text",50000,true));
+    }else if(name==L"press_key"){
+        DesktopIdentity(args);PressCore(nullptr,[&]{DesktopIdentity(args);},Text(args,L"key",128),args.HasKey(L"duration")?Number(args,L"duration",0,30):0);
+    }else if(name==L"paste"){
+        DesktopIdentity(args);PasteCore([&]{PressCore(nullptr,[&]{DesktopIdentity(args);},L"ctrl+v");},Text(args,L"text",50000,true),args.HasKey(L"format")?Text(args,L"format"):std::wstring(L"text"));
+    }else if(name==L"drag"){
+        DesktopIdentity(args);GuardNoMouseHeld();
+        auto value=args.GetNamedValue(L"path",JsonValue::CreateNullValue());
+        if(value.ValueType()!=JsonValueType::Array)Fail("The drag path is required");
+        auto path=value.GetArray();
+        if(path.Size()<2||path.Size()>16)Fail("The drag path needs between two and sixteen points");
+        std::vector<POINT> points;
+        for(uint32_t index=0;index<path.Size();index++){
+            auto entry=path.GetObjectAt(index);
+            if(entry.ValueType()!=JsonValueType::Object)Fail("Each drag path entry needs x and y coordinates");
+            points.push_back(DesktopPoint(entry.GetObject()));}
+        POINT current=points.front();UINT accepted=0;
+        Cleanup release{[&]{if(accepted==2){std::vector<INPUT> input{Pointer(current,MOUSEEVENTF_LEFTUP)};Send(input,true);}}};
+        std::vector<INPUT> begin{Pointer(points.front(),MOUSEEVENTF_MOVE),Pointer(points.front(),MOUSEEVENTF_LEFTDOWN)};Send(begin,false,&accepted);
+        for(size_t i=1;i<points.size();i++)for(int step=1;step<=10;step++){
+            Presence(args);
+            current={points[i-1].x+(points[i].x-points[i-1].x)*step/10,points[i-1].y+(points[i].y-points[i-1].y)*step/10};
+            std::vector<INPUT> move{Pointer(current,MOUSEEVENTF_MOVE)};Send(move);Pause(15);}
+    }else if(name==L"mouse_down"){
+        DesktopIdentity(args);GuardNoMouseHeld();POINT point=DesktopPoint(args);
+        std::vector<INPUT> events{Pointer(point,MOUSEEVENTF_MOVE),Pointer(point,MOUSEEVENTF_LEFTDOWN)};Send(events);
+    }else if(name==L"mouse_move"){
+        POINT point=DesktopPoint(args);
+        std::vector<INPUT> events{Pointer(point,MOUSEEVENTF_MOVE)};Send(events);
+    }else if(name==L"mouse_up"){
+        POINT point=DesktopPoint(args);
+        std::vector<INPUT> events{Pointer(point,MOUSEEVENTF_MOVE),Pointer(point,MOUSEEVENTF_LEFTUP)};Send(events);
+    }else Fail("Unknown desktop input operation");
     Pause(120);JsonObject result;result.Insert(L"applied",B(true));return result;
 }
 static JsonObject ListApps() {
@@ -625,10 +784,10 @@ int main() {
         // host keeps stdin open and waits for the actual process/stdio close.
         std::thread([]{try{Line(1024);}catch(...){}cancelled.store(true);}).detach();
         auto method=Text(request,L"method");auto args=request.GetNamedObject(L"args");JsonObject result;
-        if(method==L"action"&&Text(args,L"name")==L"press_key"&&args.HasKey(L"duration"))operationDeadline=std::max(operationDeadline,13+Number(args,L"duration",0,30));
+        if((method==L"action"||method==L"desktopAction")&&Text(args,L"name")==L"press_key"&&args.HasKey(L"duration"))operationDeadline=std::max(operationDeadline,13+Number(args,L"duration",0,30));
         if(method==L"capabilities"){InteractiveSession();auto automation=create_instance<IUIAutomation>(CLSID_CUIAutomation);result.Insert(L"version",N(1));result.Insert(L"supported",B(automation&&GraphicsCaptureSession::IsSupported()));}
         else if(method==L"resolve")result=Resolve(Text(args,L"input"));else if(method==L"activate")result=Activate(args);else if(method==L"state")result=State(args);
-        else if(method==L"action")result=Action(args);else if(method==L"listApps")result=ListApps();else Fail("Unknown Computer Use native method");
+        else if(method==L"action")result=Action(args);else if(method==L"desktopState")result=DesktopState();else if(method==L"desktopAction")result=DesktopAction(args);else if(method==L"listApps")result=ListApps();else Fail("Unknown Computer Use native method");
         Check();response.Insert(L"ok",B(true));response.Insert(L"result",result);
     }catch(const std::exception& error){response.Insert(L"ok",B(false));response.Insert(L"error",S(to_hstring(error.what())));}
     catch(const hresult_error& error){response.Insert(L"ok",B(false));response.Insert(L"error",S(L"Computer Use OS call failed (HRESULT "+std::to_wstring(static_cast<uint32_t>(error.code().value))+L")"));}

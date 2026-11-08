@@ -83,6 +83,9 @@ export async function createComputerUseRuntime(registry: ChannelRegistry, deps: 
   const audio = new ComputerUseAudioRecorder({ command: deps.command, root: join(deps.configRoot, 'computer-use-audio'),
     available: () => native.audioAvailable(), log: message => deps.log('computer-use-audio', message) });
   const connector = new ComputerUseConnector({ policy, backend,
+    // The full-desktop surface stitches every visible display and drives global
+    // input; only the Windows native helper implements it.
+    desktopAvailable: process.platform === 'win32',
     refusal: sessionId => deps.computerUseRefusal?.(sessionId),
     saveScreenshot: (data, mime) => storeBytes(Buffer.from(data, 'base64'), mime, deps.configRoot),
     audio: { start: (id, ms, signal) => audio.start(id, ms, signal), stop: (id, signal) => audio.stop(id, signal) },

@@ -12,7 +12,7 @@ const root = process.env.KLAUS_COMPUTER_USE_TEST_ROOT;
 if (process.platform !== 'win32' || !root || !path.isAbsolute(root) || !path.basename(root).startsWith('klaus-computer-use-windows-')) throw Error('An isolated Windows Computer Use fixture profile is required');
 app.setPath('userData', path.join(root, 'electron'));
 app.on('window-all-closed', () => {});
-const results = []; let window, backend, connector, latest, approvals = 0;
+const results = []; let window, backend, connector, latest, desktopLatest, approvals = 0;
 const input = process.execPath, nativeApp = path.join(root, 'Klaus CU Windows Native Fixture.exe');
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 async function until(probe, timeout = 7000) {
@@ -41,6 +41,15 @@ async function point(selector) {
   return { x: (content.x + geometry.x * geometry.scale - mapping.screenshotScreenX) / mapping.screenshotScreenWidth * mapping.screenshotPixelWidth,
     y: (content.y + geometry.y * geometry.scale - mapping.screenshotScreenY) / mapping.screenshotScreenHeight * mapping.screenshotPixelHeight };
 }
+/** Maps a fixture control center onto stitched desktop screenshot pixels. */
+async function desktopPoint(selector) {
+  const geometry = await dom(`(()=>{const r=document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2,scale:devicePixelRatio}})()`);
+  const mapping = desktopLatest._meta.klaus.computerUse.mapping;
+  const content = screen.dipToScreenRect(window, window.getContentBounds());
+  return { x: (content.x + geometry.x * geometry.scale - mapping.screenshotScreenX) / mapping.screenshotScreenWidth * mapping.screenshotPixelWidth,
+    y: (content.y + geometry.y * geometry.scale - mapping.screenshotScreenY) / mapping.screenshotScreenHeight * mapping.screenshotPixelHeight };
+}
+const desktopCall = (name, args = {}, signal) => connector.call(name, args, context(signal));
 async function test(name, run) {
   try { await run(); results.push({ name, ok: true }); console.log(`  ok   ${name}`); }
   catch (error) { results.push({ name, ok: false, error: error.stack }); console.error(`  FAIL ${name}\n${error.stack}`); throw error; }
@@ -59,7 +68,8 @@ async function run() {
     <textarea id="multiline" aria-label="Fixture multiline" style="width:350px;height:60px">line1
 line2
 line3</textarea><div id="cancel-drag" style="width:90px;height:25px;background:blue">Cancel drag</div>
-    <script>window.count=0;window.dropped=false;window.keyEvents=0;window.keys=[];window.heldCodes=[];window.downs=0;window.ups=0;window.rights=0;
+    <div id="hover" aria-label="Fixture hover target" onmouseenter="hovers++" style="width:90px;height:28px;background:orange;margin-top:10px">Hover</div>
+    <script>window.count=0;window.dropped=false;window.keyEvents=0;window.keys=[];window.heldCodes=[];window.downs=0;window.ups=0;window.rights=0;window.hovers=0;
     document.addEventListener('keydown',e=>{keyEvents++;if(!heldCodes.includes(e.code))heldCodes.push(e.code);keys.push({key:e.key,code:e.code,ctrl:e.ctrlKey,shift:e.shiftKey,alt:e.altKey,meta:e.metaKey,composing:e.isComposing,target:e.target.id})});document.addEventListener('keyup',e=>{heldCodes=heldCodes.filter(code=>code!==e.code)});document.addEventListener('mousedown',()=>downs++);document.addEventListener('mouseup',()=>ups++);
     document.addEventListener('contextmenu',event=>{event.preventDefault();rights++});</script></body></html>`);
   await window.loadFile(path.join(root, 'synthetic.html'));
@@ -72,11 +82,13 @@ line3</textarea><div id="cancel-drag" style="width:90px;height:25px;background:b
   backend.request = async (operation, signal) => {
     const result = await request(operation, signal);
     if (operation.method === 'state') fs.writeFileSync(path.join(root, 'raw-state.json'), JSON.stringify({ ...result, screenshot: { ...result.screenshot, data: '<own fixture image omitted>' } }, null, 2));
+    if (operation.method === 'desktopState') fs.writeFileSync(path.join(root, 'raw-desktop.json'), JSON.stringify({ ...result, screenshot: { ...result.screenshot, data: '<own fixture image omitted>' } }, null, 2));
     return result;
   };
   const policy = new ComputerUsePolicyService({ configRoot: path.join(root, 'profile'), availability: () => backend.availability(), enabledChanged: async () => {} });
   await policy.setAppPolicy({ restricted_to_apps: [input, nativeApp] });
   connector = new ComputerUseConnector({ policy, backend,
+    desktopAvailable: process.platform === 'win32',
     saveScreenshot: (data, mime) => storeBytes(Buffer.from(data, 'base64'), mime, path.join(root, 'profile')),
   }); connector.attachSession('windows-fixture');
   await test('interactive Windows loads UIA and captures only the approved real Electron HWND', async () => {
@@ -186,6 +198,57 @@ line3</textarea><div id="cancel-drag" style="width:90px;height:25px;background:b
     const changed = await invoke('type_text', { app: nativeApp, text: 'Native HWND Unicode 中文' });
     assert.match(changed.content[0].text, /Native HWND Unicode 中文/);
   });
+  await test('the stitched desktop observation gates and maps global input onto the fixture controls', async () => {
+    window.focus(); await until(() => window.isFocused()); await sleep(300);
+    desktopLatest = await desktopCall('get_desktop_screenshot');
+    assert.equal(desktopLatest.content[1].mimeType, 'image/jpeg');
+    assert.ok(desktopLatest.content[1].data.startsWith('/9j/'), 'the stitched desktop frame must be JPEG');
+    const meta = desktopLatest._meta.klaus.computerUse;
+    assert.equal(meta.screenshotMode, 'desktop'); assert.equal(meta.app.pid, process.pid);
+    assert.equal(approvals, 0);
+    const jpeg = Buffer.from(desktopLatest.content[1].data, 'base64'), image = nativeImage.createFromBuffer(jpeg);
+    assert.deepEqual(image.getSize(), { width: meta.mapping.screenshotPixelWidth, height: meta.mapping.screenshotPixelHeight });
+    assert.ok(Math.max(meta.mapping.screenshotPixelWidth, meta.mapping.screenshotPixelHeight) <= 2560, 'the stitched frame keeps the observation long-edge budget');
+    const primary = screen.getPrimaryDisplay();
+    assert.ok(meta.mapping.screenshotScreenWidth >= primary.bounds.width * primary.scaleFactor - 2, 'the stitched frame spans the visible displays');
+    assert.ok(meta.mapping.screenshotScreenHeight >= primary.bounds.height * primary.scaleFactor - 2);
+    fs.writeFileSync(path.join(root, 'desktop-frame.jpg'), jpeg);
+    const button = await desktopPoint('button'), before = await dom('count');
+    await desktopCall('desktop_click', { x: button.x, y: button.y });
+    await until(async () => await dom('count') === before + 1);
+    const hover = await desktopPoint('#hover');
+    await desktopCall('desktop_move', { x: hover.x, y: hover.y });
+    await until(async () => await dom('hovers') >= 1);
+    await dom('document.querySelector("#scroll").scrollTop=0');
+    const region = await desktopPoint('#scroll');
+    await desktopCall('desktop_scroll', { x: region.x, y: region.y, delta_y: 240 });
+    await until(async () => await dom('document.querySelector("#scroll").scrollTop') > 0);
+    await dom('window.dropped=false');
+    const from = await desktopPoint('#drag'), to = await desktopPoint('#drop');
+    await desktopCall('desktop_drag', { path: [{ x: from.x, y: from.y }, { x: to.x, y: to.y }] });
+    await until(async () => await dom('dropped') === true);
+  });
+  await test('the desktop drag handle holds the real button across calls and releases it', async () => {
+    window.focus(); await until(() => window.isFocused()); await sleep(200);
+    desktopLatest = await desktopCall('get_desktop_screenshot');
+    const downs = await dom('downs'), ups = await dom('ups');
+    const start = await desktopPoint('#cancel-drag');
+    await desktopCall('desktop_drag_handle', { op: 'start', x: start.x, y: start.y });
+    await until(async () => await dom('downs') === downs + 1);
+    assert.equal(await dom('ups'), ups, 'the button must stay held between calls');
+    // observing mid-drag is allowed and keeps the button held
+    desktopLatest = await desktopCall('get_desktop_screenshot');
+    assert.equal(await dom('ups'), ups);
+    const move = await desktopPoint('#drop');
+    await desktopCall('desktop_drag_handle', { op: 'move_to', x: move.x, y: move.y });
+    assert.deepEqual(await dom('({downs,ups})'), { downs: downs + 1, ups });
+    await desktopCall('desktop_drag_handle', { op: 'end' });
+    await until(async () => await dom('ups') === ups + 1);
+    // after the release the surface takes ordinary input again
+    const button = await desktopPoint('button'), before = await dom('count');
+    await desktopCall('desktop_click', { x: button.x, y: button.y });
+    await until(async () => await dom('count') === before + 1);
+  });
   await test('close drains native resources and rejects later work', async () => {
     assert.deepEqual(await connector.close(), { complete: true }); await assert.rejects(invoke('get_app_state'), /unavailable/);
   });
@@ -210,5 +273,5 @@ async function finish(code) {
   fs.writeFileSync(path.join(root, 'result.json'), JSON.stringify({ passed, failed, results, cleanup: code === 0 }, null, 2));
   console.log(`computer-use-windows-electron: ${passed} passed, ${failed} failed, 0 info`); app.exit(code);
 }
-const watchdog = setTimeout(() => { console.error('Windows Computer Use fixture deadline exceeded'); void finish(1); }, 170000);
+const watchdog = setTimeout(() => { console.error('Windows Computer Use fixture deadline exceeded'); void finish(1); }, 240000);
 run().then(() => { clearTimeout(watchdog); return finish(0); }, error => { clearTimeout(watchdog); console.error(error.stack); return finish(1); });

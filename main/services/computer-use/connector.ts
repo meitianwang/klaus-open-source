@@ -1,12 +1,13 @@
 import { savedImageMarkdown } from '../media';
 import { randomUUID } from 'node:crypto';
-import { ComputerUsePolicyService } from './policy';
+import { ComputerUsePolicyService, type ComputerUseOperation } from './policy';
 import { actionLabel, stateText } from './format';
 import { COMPUTER_USE_TOOLS } from './tools';
 import type { CapturedAudio } from './audio';
 import { normalizeKeyChord } from './keys';
 import { appIdentity, deadline, number, object, sameApp, string, type AppIdentity, type AppSnapshot, type Bounds,
-  type ComputerUseBackend, type ComputerUseContext, type ComputerUseResult, type Element, type NativeRequest, type Row } from './types';
+  type ComputerUseBackend, type ComputerUseContext, type ComputerUseResult, type DesktopSnapshot, type Element,
+  type NativeRequest, type Row } from './types';
 export { COMPUTER_USE_TOOLS } from './tools';
 
 interface Owner {
@@ -14,10 +15,19 @@ interface Owner {
   controllers: Set<AbortController>; pending: Set<Promise<unknown>>;
   states: Map<string, { turnId: string; snapshot: AppSnapshot }>;
   taskScope: string;
+  /** Single-slot cache of the latest full-desktop observation geometry and identity. */
+  desktop?: { turnId: string; app: AppIdentity | null; screenshot: { width: number; height: number };
+    virtualBounds: Bounds; source: { width: number; height: number } };
+  /** Left-button drag held across calls; x and y are physical desktop pixels. */
+  desktopDrag?: { dragging: boolean; x: number; y: number };
+  /** Sticky after a failed drag cleanup: the desktop input surface stays closed. */
+  desktopClosed?: boolean;
 }
 export interface ComputerUseDependencies {
   policy: ComputerUsePolicyService; backend: ComputerUseBackend;
   saveScreenshot(data: string, mimeType: string): string;
+  /** The full-desktop surface exists only where the native helper stitches displays; undefined elsewhere. */
+  desktopAvailable?: boolean;
   /** System audio capture spanning a start and a stop call; undefined where unavailable. */
   audio?: {
     start(sessionId: string, maxDurationMs: number, signal: AbortSignal): Promise<void>;
@@ -35,6 +45,12 @@ export interface ComputerUseDependencies {
   refusal?(sessionId: string): string | undefined;
 }
 const writes = new Set(['click', 'perform_secondary_action', 'set_value', 'select_text', 'scroll', 'drag', 'press_key', 'type_text', 'paste']);
+const desktopWrites = new Set(['desktop_click', 'desktop_drag', 'desktop_drag_handle', 'desktop_move', 'desktop_scroll',
+  'desktop_type_text', 'desktop_press_key', 'desktop_paste']);
+const DESKTOP_PLATFORM_ERROR = 'The full desktop surface is available only on Windows';
+const DESKTOP_TURN_GATE = 'Call get_desktop_screenshot in this assistant turn before sending input';
+const DESKTOP_IDENTITY_REQUIRED = 'Desktop input needs a foreground application; focus one and call get_desktop_screenshot again';
+const DESKTOP_CLOSED = 'The desktop input session is closed after a failed cleanup; stop and report the error';
 const text = (value: string): ComputerUseResult => ({ content: [{ type: 'text', text: value }] });
 const keyOf = (app: AppIdentity) => `${app.path}\0${app.pid ?? 0}`;
 function bounds(value: unknown): Bounds {
@@ -155,6 +171,99 @@ function coordinates(state: AppSnapshot, x: unknown, y: unknown): { x: number; y
   const image = state.screenshot.bounds ?? state.bounds;
   return { x: image.x + px / state.screenshot.width * image.width, y: image.y + py / state.screenshot.height * image.height };
 }
+/**
+ * Validates one stitched full-desktop observation. The encoded frame must agree with
+ * the declared geometry exactly, like the windowed capture, because the screenshot
+ * size drives the model-to-physical coordinate mapping for every desktop input.
+ */
+export function desktopSnapshot(value: unknown): DesktopSnapshot {
+  const row = object(value, 'desktop state');
+  const app = row.app == null ? null : appIdentity(row.app);
+  if (app && !app.pid) throw new Error('Computer Use desktop application identity is incomplete');
+  const screenshot = object(row.screenshot, 'screenshot'), data = string(screenshot.data, 'image data', 20 * 1024 * 1024);
+  const width = number(screenshot.width, 'image width', 1, 4096, true), height = number(screenshot.height, 'image height', 1, 4096, true);
+  const frame = jpegFrame(Buffer.from(data.slice(0, 65_536), 'base64'));
+  if (screenshot.mimeType !== 'image/jpeg' || width * height > 8_000_000 || !/^[A-Za-z0-9+/]+={0,2}$/.test(data)
+    || frame === undefined || frame.width !== width || frame.height !== height) throw new Error('Computer Use desktop screenshot is invalid');
+  const virtualBounds = bounds(row.virtualBounds);
+  const sourceWidth = number(row.sourceWidth, 'source width', 1, 100_000, true), sourceHeight = number(row.sourceHeight, 'source height', 1, 100_000, true);
+  if (sourceWidth * sourceHeight > 32_000_000) throw new Error('Computer Use desktop geometry exceeds its limit');
+  if (!Array.isArray(row.displays) || !row.displays.length || row.displays.length > 16) throw new Error('Computer Use desktop display list is invalid');
+  const displays = row.displays.map((item): { bounds: Bounds; width: number; height: number } => {
+    const display = object(item, 'display');
+    return { bounds: bounds(display.bounds), width: number(display.width, 'display width', 1, 100_000, true), height: number(display.height, 'display height', 1, 100_000, true) };
+  });
+  return { app, screenshot: { data, mimeType: 'image/jpeg', width, height }, virtualBounds, displays, sourceWidth, sourceHeight };
+}
+type DesktopCache = { turnId: string; app: AppIdentity | null; screenshot: { width: number; height: number };
+  virtualBounds: Bounds; source: { width: number; height: number } };
+export function validateDesktopAction(name: string, args: Row): Row {
+  const point = (source: Row, labelX = 'x', labelY = 'y') => ({ x: number(source.x, labelX, 0, 4096), y: number(source.y, labelY, 0, 4096) });
+  switch (name) {
+    case 'desktop_click': {
+      const result: Row = point(args);
+      result.click_count = args.click_count === undefined ? 1 : number(args.click_count, 'click_count', 1, 3, true);
+      const button = typeof args.mouse_button === 'string' ? args.mouse_button.trim().toLowerCase() : args.mouse_button;
+      result.mouse_button = enumValue(typeof button === 'string' ? ({ l: 'left', r: 'right', m: 'middle' } as Record<string, string>)[button] ?? button : button, 'mouse_button', ['left', 'right', 'middle'], 'left');
+      return result;
+    }
+    case 'desktop_move': return point(args);
+    case 'desktop_scroll': {
+      const result: Row = point(args);
+      if (args.delta_x !== undefined) result.delta_x = number(args.delta_x, 'delta_x', -12000, 12000, true);
+      if (args.delta_y !== undefined) result.delta_y = number(args.delta_y, 'delta_y', -12000, 12000, true);
+      if (!result.delta_x && !result.delta_y) throw new Error('The desktop scroll needs a non-zero delta_x or delta_y');
+      return result;
+    }
+    case 'desktop_type_text': return { text: string(args.text, 'text', 50_000, true) };
+    case 'desktop_press_key': {
+      const result: Row = { key: normalizeKeyChord(string(args.key, 'key', 128)) };
+      if (args.duration !== undefined) result.duration = number(args.duration, 'duration', 0, 30);
+      return result;
+    }
+    case 'desktop_paste': return { text: string(args.text, 'text', 50_000, true), format: enumValue(args.format, 'format', ['text', 'md', 'html'], 'text') };
+    case 'desktop_drag': {
+      if (!Array.isArray(args.path) || args.path.length < 2 || args.path.length > 16) throw new Error('The desktop drag path needs between 2 and 16 points');
+      return { path: args.path.map(item => point(object(item, 'drag path point'), 'path x', 'path y')) };
+    }
+    case 'desktop_drag_handle': {
+      const op = enumValue(args.op, 'drag handle op', ['start', 'move_to', 'end'], '');
+      if (!op) throw new Error('The desktop drag handle needs op start, move_to or end');
+      return op === 'end' ? { op } : { op, ...point(args) };
+    }
+    default: throw new Error('Unknown desktop input tool');
+  }
+}
+/** Maps validated screenshot-pixel input onto physical virtual-desktop coordinates. */
+function desktopActionValues(name: string, action: Row, cached: DesktopCache): Row {
+  const app = cached.app!;
+  // The exclusive edge mirrors the windowed mapping: a screenshot pixel coordinate
+  // addresses pixel interiors, so the physical point stays inside the desktop.
+  const map = (x: unknown, y: unknown) => {
+    const px = number(x, 'desktop screenshot x', 0, cached.screenshot.width - Number.EPSILON * cached.screenshot.width);
+    const py = number(y, 'desktop screenshot y', 0, cached.screenshot.height - Number.EPSILON * cached.screenshot.height);
+    return { x: cached.virtualBounds.x + px / cached.screenshot.width * cached.source.width,
+      y: cached.virtualBounds.y + py / cached.screenshot.height * cached.source.height };
+  };
+  const point = () => map(action.x, action.y);
+  switch (name) {
+    case 'desktop_click': return { name: 'click', app, ...point(), click_count: action.click_count, mouse_button: action.mouse_button };
+    case 'desktop_move': return { name: 'move', app, ...point() };
+    case 'desktop_scroll': return { name: 'scroll', app, ...point(),
+      ...(action.delta_x === undefined ? {} : { delta_x: action.delta_x }), ...(action.delta_y === undefined ? {} : { delta_y: action.delta_y }) };
+    case 'desktop_type_text': return { name: 'type_text', app, text: action.text };
+    case 'desktop_press_key': return { name: 'press_key', app, key: action.key, ...(action.duration === undefined ? {} : { duration: action.duration }) };
+    case 'desktop_paste': return { name: 'paste', app, text: action.text, format: action.format };
+    case 'desktop_drag': return { name: 'drag', app,
+      path: (action.path as Row[]).map(item => map(number(item.x, 'path x', 0, 4096), number(item.y, 'path y', 0, 4096))) };
+    case 'desktop_drag_handle':
+      if (action.op === 'start') return { name: 'mouse_down', app, ...point() };
+      if (action.op === 'move_to') return { name: 'mouse_move', ...point() };
+      // The caller substitutes the held physical point before releasing.
+      return { name: 'mouse_up', x: 0, y: 0 };
+    default: throw new Error('Unknown desktop input tool');
+  }
+}
 
 /** The host authenticates calls; this object owns all session state and serializes desktop actions. */
 export class ComputerUseConnector {
@@ -231,6 +340,90 @@ export class ComputerUseConnector {
         const captured = await audio.stop(context.sessionId, controller.signal); current();
         return { content: [{ type: 'text', text: `System audio recording stopped: ${(captured.recording.durationMs / 1000).toFixed(1)} s at ${captured.recording.sampleRate} Hz, ${captured.recording.channels} channels${captured.recording.limitReached ? '; the duration limit was reached' : ''}.` },
           { type: 'audio', data: captured.data.toString('base64'), mimeType: 'audio/wav' }] };
+      }
+      if (name === 'get_desktop_screenshot' || desktopWrites.has(name)) {
+        if (!this.deps.desktopAvailable) throw new Error(DESKTOP_PLATFORM_ERROR);
+        if (restricted) throw new Error('Friend tasks cannot control the full desktop');
+        if (owner.desktopClosed) throw new Error(DESKTOP_CLOSED);
+        const settings = this.deps.policy.sessionSettings(context.sessionId);
+        if (!settings.enabled || !settings.availableOnThisPlatform) throw new Error('Computer Use is unavailable or disabled');
+        const turnId = string(context.turnId, 'turnId');
+        if (name === 'get_desktop_screenshot') {
+          const previous = this.tail;
+          const operation = previous.catch(() => {}).then(async () => {
+            current();
+            await this.deps.guardInteraction?.(context.sessionId, controller.signal); current();
+            const state = desktopSnapshot(await invoke('desktopState', {}));
+            let lease: ComputerUseOperation | undefined;
+            try {
+              if (state.app) {
+                lease = await this.deps.policy.approve(state.app, { ...context, signal: controller.signal });
+                this.deps.policy.assertCurrent(lease);
+              }
+              const mapping = { screenshotPixelWidth: state.screenshot.width, screenshotPixelHeight: state.screenshot.height,
+                screenshotScreenX: state.virtualBounds.x, screenshotScreenY: state.virtualBounds.y,
+                screenshotScreenWidth: state.virtualBounds.width, screenshotScreenHeight: state.virtualBounds.height };
+              // Only geometry and identity are needed for the next input. Retaining
+              // base64 frames here would multiply image memory by sessions.
+              const path = this.deps.saveScreenshot(state.screenshot.data, state.screenshot.mimeType);
+              current();
+              owner.desktop = { turnId, app: state.app, screenshot: { width: state.screenshot.width, height: state.screenshot.height },
+                virtualBounds: state.virtualBounds, source: { width: state.sourceWidth, height: state.sourceHeight } };
+              const focus = state.app ? `; input goes to ${state.app.name}` : '; no foreground application identity is available, so desktop input stays closed until an application window has focus';
+              return { content: [{ type: 'text', text: `Saved: ${JSON.stringify(path)}\nEmbed: ${savedImageMarkdown(path)}\nFull desktop across ${state.displays.length} display(s): ${state.sourceWidth}x${state.sourceHeight} physical pixels, screenshot ${state.screenshot.width}x${state.screenshot.height}${focus}. Desktop input tools use screenshot pixel coordinates.` },
+                { type: 'image', data: state.screenshot.data, mimeType: state.screenshot.mimeType }],
+                structuredContent: { path, mimeType: state.screenshot.mimeType, saved: true },
+                _meta: { klaus: { computerUse: { app: state.app, screenshotMode: 'desktop', displayCount: state.displays.length, mapping } } } };
+            } finally { if (lease) this.deps.policy.release(lease); }
+          });
+          this.tail = operation.catch(() => {}); return await operation;
+        }
+        const action = validateDesktopAction(name, args);
+        const pinned = owner.desktop;
+        if (!pinned || pinned.turnId !== turnId) throw new Error(DESKTOP_TURN_GATE);
+        if (!pinned.app) throw new Error(DESKTOP_IDENTITY_REQUIRED);
+        const app = pinned.app;
+        const lease = await this.deps.policy.approve(app, { ...context, signal: controller.signal });
+        let enteredNative = false, completed = false;
+        try {
+          const check = () => { current(); this.deps.policy.assertCurrent(lease); };
+          const native = async (method: NativeRequest['method'], values: Row) => { check(); const result = await invoke(method, values, lease.signal); check(); return result; };
+          const previous = this.tail;
+          const operation = previous.catch(() => {}).then(async () => {
+            check();
+            await this.deps.guardInteraction?.(context.sessionId, lease.signal); check();
+            // A screenshot queued earlier in this turn may have replaced the cache;
+            // input only proceeds against the exact pinned observation.
+            const cached = owner.desktop;
+            if (!cached || cached.turnId !== turnId || !cached.app || !sameApp(cached.app, app)) throw new Error(DESKTOP_TURN_GATE);
+            const values = desktopActionValues(name, action, cached);
+            if (name === 'desktop_drag_handle') {
+              const drag = owner.desktopDrag, dragging = drag?.dragging === true;
+              if (action.op === 'start' && dragging) throw new Error('drag handle can only be started once');
+              if (action.op === 'move_to' && !dragging) throw new Error('drag handle must be started before moving');
+              if (action.op === 'end') {
+                if (!dragging) throw new Error('drag handle must be started before ending');
+                values.x = drag!.x; values.y = drag!.y;
+              }
+              // Register the hold before the native call: a cancel between posting
+              // the press and its response must still find a drag to release.
+              if (action.op === 'start') owner.desktopDrag = { dragging: true, x: Number(values.x), y: Number(values.y) };
+            }
+            enteredNative = true; await native('desktopAction', values); completed = true;
+            if (name === 'desktop_drag_handle') owner.desktopDrag = { dragging: action.op !== 'end', x: Number(values.x), y: Number(values.y) };
+            return text(`Applied ${name}. Call get_desktop_screenshot to observe the result.`);
+          });
+          this.tail = operation.catch(() => {}); return await operation;
+        } catch (error) {
+          if (enteredNative && !completed) {
+            owner.desktop = undefined;
+            if (owner.desktopDrag?.dragging) await this.releaseDesktopDrag(owner);
+            if (error instanceof Error && 'computerUseActionStarted' in error && error.computerUseActionStarted === false)
+              throw new Error(`No input was sent. Call get_desktop_screenshot before trying again. ${error.message}`);
+            throw new Error(`The desktop input may have executed, but its completion was not confirmed. Call get_desktop_screenshot before deciding whether to try again. ${error instanceof Error ? error.message : 'Computer Use failed'}`);
+          }
+          throw error;
+        } finally { this.deps.policy.release(lease); }
       }
       if (name === 'list_apps') {
         if (restricted) {
@@ -325,11 +518,25 @@ export class ComputerUseConnector {
     });
     owner.pending.add(task); this.pending.add(task); return task;
   }
+  /** Best-effort release of a held desktop drag; a failed cleanup closes the desktop input surface. */
+  private async releaseDesktopDrag(owner: Owner, budgetMs = 5000): Promise<void> {
+    const drag = owner.desktopDrag;
+    if (!drag?.dragging) return;
+    owner.desktopDrag = { dragging: false, x: drag.x, y: drag.y };
+    const budget = Number.isFinite(budgetMs) ? Math.max(500, Math.min(5000, budgetMs)) : 5000;
+    try {
+      await this.deps.backend.request({ resourceId: owner.resourceId, operationId: randomUUID(), generation: owner.generation,
+        sequence: ++owner.sequence, method: 'desktopAction', args: { name: 'mouse_up', x: drag.x, y: drag.y } }, AbortSignal.timeout(budget));
+    } catch { owner.desktopClosed = true; }
+  }
   async closeSession(sessionId: string, deadlineMs = 5000): Promise<{ complete: boolean }> {
     const owner = this.owners.get(sessionId); if (!owner) return { complete: true };
     owner.closing = true; owner.states.clear(); for (const controller of owner.controllers) controller.abort(new Error('Computer Use session closed'));
     const started = performance.now();
     const drained = await deadline(Promise.allSettled([...owner.pending]), deadlineMs);
+    // A button held across calls must not outlive its session; the release is
+    // best-effort and never blocks the close path.
+    await this.releaseDesktopDrag(owner, Math.max(0, deadlineMs - (performance.now() - started)));
     const policy = await this.deps.policy.detachSession(sessionId, Math.max(0, deadlineMs - (performance.now() - started)));
     const complete = drained && !owner.pending.size && policy.complete;
     if (complete && this.owners.get(sessionId) === owner) this.owners.delete(sessionId);

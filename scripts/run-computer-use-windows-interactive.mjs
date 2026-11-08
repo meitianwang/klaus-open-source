@@ -24,7 +24,7 @@ fs.writeFileSync(${JSON.stringify(sessionFile)}, session.stdout || 'unknown');
 if (!/^\\d+$/.test(session.stdout.trim()) || Number(session.stdout.trim()) === 0) throw new Error('The Computer Use fixture requires an interactive Windows session');
 const child = spawn(process.execPath, ${JSON.stringify(fixtureArgs)}, { stdio: ['ignore', log, log], env: { ...process.env, KLAUS_COMPUTER_USE_HELPER: ${JSON.stringify(helper)} } });
 if (child.pid) fs.writeFileSync(${JSON.stringify(childFile)}, String(child.pid));
-const timer = setTimeout(() => { if (child.pid) spawnSync('taskkill.exe', ['/PID', String(child.pid), '/T', '/F'], { stdio: ['ignore', log, log] }); }, 205000);
+const timer = setTimeout(() => { if (child.pid) spawnSync('taskkill.exe', ['/PID', String(child.pid), '/T', '/F'], { stdio: ['ignore', log, log] }); }, 275000);
 child.once('error', error => fs.writeSync(log, String(error)));
 child.once('close', code => { clearTimeout(timer); fs.closeSync(log); fs.writeFileSync(${JSON.stringify(exitFile)}, String(code ?? 1)); process.exitCode = code ?? 1; });
 `);
@@ -47,11 +47,11 @@ try {
   $definition.Principal.LogonType=3; $definition.Principal.RunLevel=0
   $definition.Settings.Enabled=$true; $definition.Settings.AllowDemandStart=$true
   $definition.Settings.DisallowStartIfOnBatteries=$false; $definition.Settings.StopIfGoingOnBatteries=$false
-  $definition.Settings.ExecutionTimeLimit='PT4M'
+  $definition.Settings.ExecutionTimeLimit='PT6M'
   $action=$definition.Actions.Create(0); $action.Path=${ps(process.execPath)}; $action.Arguments='"'+$launcher+'"'; $action.WorkingDirectory=${ps(state)}
   $task=$folder.RegisterTaskDefinition($name,$definition,2,$definition.Principal.UserId,$null,3); $created=$true
   Write-Output ('interactive_task='+$name+';logon=InteractiveToken;runLevel=LeastPrivilege;triggers='+$definition.Triggers.Count)
-  $instance=$task.Run($null); $end=[DateTime]::UtcNow.AddSeconds(210)
+  $instance=$task.Run($null); $end=[DateTime]::UtcNow.AddSeconds(280)
   while (-not (Test-Path -LiteralPath ${ps(exitFile)})) { if ([DateTime]::UtcNow -ge $end) { throw 'Interactive Computer Use fixture deadline exceeded' }; Start-Sleep -Milliseconds 500 }
   Write-Output ('interactiveSessionId='+(Get-Content -LiteralPath ${ps(sessionFile)} -Raw).Trim())
   Get-Content -LiteralPath ${ps(log)} -Encoding UTF8
@@ -77,7 +77,7 @@ if ($failed) { throw 'Interactive Computer Use fixture failed' }
 let cleanupConfirmed = false;
 try {
   const result = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(source, 'utf16le').toString('base64')], {
-    encoding: 'utf8', windowsHide: true, timeout: 230000, maxBuffer: 4 * 1024 * 1024,
+    encoding: 'utf8', windowsHide: true, timeout: 300000, maxBuffer: 4 * 1024 * 1024,
   });
   process.stdout.write(result.stdout ?? ''); process.stderr.write(result.stderr ?? '');
   cleanupConfirmed = result.stdout?.includes('interactive_task_cleanup=removed') && result.stdout?.includes('interactive_launcher_cleanup=removed');

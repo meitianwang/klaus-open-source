@@ -1,6 +1,6 @@
 # Computer Use application backend
 
-The TypeScript connector owns the fifteen existing MCP tool contracts, trusted
+The TypeScript connector owns the twenty-four existing MCP tool contracts, trusted
 session/turn identity, approval leases, element history, screenshot mapping and
 the desktop-operation queue. It does not register an HTTP server or expose a
 renderer bridge. The host owns the authenticated MCP transport and elicitation.
@@ -42,7 +42,7 @@ this surface under `_meta.klaus.computerUse`; choose one presentation hook to
 avoid publishing it twice. The optional hook must settle when its signal aborts.
 
 The native protocol has only `capabilities`, `listApps`, `resolve`, `activate`,
-`state`, `action` and the long-lived `recordAudio`. Every request and response carries `resourceId`,
+`state`, `action`, `desktopState`, `desktopAction` and the long-lived `recordAudio`. Every request and response carries `resourceId`,
 `operationId`, `generation` and `sequence`; the response must match all four.
 The helper has no engine, shell dispatch, network, configuration database,
 approval cache or session identifiers. Metadata resolution never activates an
@@ -114,6 +114,20 @@ covering an input point produce explicit errors. Windows cancellation uses a
 private newline-framed stdin control message before the 500 ms termination
 deadline so an entered drag can release its own mouse button. Process and stdio
 close remain the completion barrier.
+
+On Windows the helper also serves the full-desktop surface. `desktopState`
+stitches every visible display into one virtual-desktop frame with the same
+2560-pixel output edge and JPEG quality as the window capture, reports the
+foreground application identity when one is resolvable, and caps the stitched
+source at 32 million pixels. `desktopAction` drives global input at physical
+virtual-desktop coordinates: clicks of up to three counts, hover moves, wheel
+scrolls in 120-unit notches, multi-point left-button drags that release their
+button through the same cancellation cleanup, split press/move/release
+operations that hold the button across calls, Unicode typing, layout-aware
+chords against the foreground thread and clipboard-restoring pastes.
+Operations that begin input re-verify the pinned foreground identity; the held
+move and release of a split drag deliberately do not, and the release skips the
+presence guard so a held button always comes up.
 
 Limits are explicit: 256 session owners, eight pending calls per owner, 64 pending
 tool calls, 32 queued native requests, one helper child at a time, 500 tree nodes,

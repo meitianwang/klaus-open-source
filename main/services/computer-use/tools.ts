@@ -405,6 +405,287 @@ export const COMPUTER_USE_TOOLS = [
   {
     "annotations": {
       "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    },
+    "description": "Capture the entire desktop across all visible displays as one screenshot. Available only on Windows. Call once per assistant turn before sending desktop input; the desktop input tools use pixel coordinates from the latest desktop screenshot. Input goes to whichever application currently has focus, and no accessibility tree is provided.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {},
+      "type": "object"
+    },
+    "name": "get_desktop_screenshot"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false
+    },
+    "description": "Click at a pixel coordinate from the latest desktop screenshot. The click reaches whatever is under that point in the current foreground application. Returns no screenshot; call get_desktop_screenshot to observe the result.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "click_count": {
+          "description": "Number of clicks, from 1 to 3. Defaults to 1",
+          "type": "integer"
+        },
+        "mouse_button": {
+          "description": "Mouse button to click. Defaults to left.",
+          "enum": [
+            "left",
+            "right",
+            "middle",
+            "l",
+            "r",
+            "m"
+          ],
+          "type": "string"
+        },
+        "x": {
+          "description": "X coordinate in desktop screenshot pixel coordinates",
+          "type": "number"
+        },
+        "y": {
+          "description": "Y coordinate in desktop screenshot pixel coordinates",
+          "type": "number"
+        }
+      },
+      "required": [
+        "x",
+        "y"
+      ],
+      "type": "object"
+    },
+    "name": "desktop_click"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false
+    },
+    "description": "Drag the left mouse button through an ordered path of two to sixteen desktop screenshot points. The button is pressed at the first point, moved smoothly through the rest and released at the last point in one operation.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "description": "Ordered points from press to release, from 2 to 16 entries",
+          "items": {
+            "properties": {
+              "x": {
+                "description": "X coordinate in desktop screenshot pixel coordinates",
+                "type": "number"
+              },
+              "y": {
+                "description": "Y coordinate in desktop screenshot pixel coordinates",
+                "type": "number"
+              }
+            },
+            "required": [
+              "x",
+              "y"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "type": "object"
+    },
+    "name": "desktop_drag"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false
+    },
+    "description": "Hold the left mouse button across calls so the screen can be observed mid-drag. op start presses the button at x and y, move_to moves the held button to x and y, and end releases it at the last point. Take a desktop screenshot between steps to watch the drag effect; always end the drag when finished.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "op": {
+          "description": "start presses the button, move_to moves the held button, end releases it",
+          "enum": [
+            "start",
+            "move_to",
+            "end"
+          ],
+          "type": "string"
+        },
+        "x": {
+          "description": "X coordinate in desktop screenshot pixel coordinates; required for start and move_to",
+          "type": "number"
+        },
+        "y": {
+          "description": "Y coordinate in desktop screenshot pixel coordinates; required for start and move_to",
+          "type": "number"
+        }
+      },
+      "required": [
+        "op"
+      ],
+      "type": "object"
+    },
+    "name": "desktop_drag_handle"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false
+    },
+    "description": "Move the mouse cursor to a desktop screenshot point and leave it there, for example to trigger a hover effect. The cursor stays where this call puts it.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "x": {
+          "description": "X coordinate in desktop screenshot pixel coordinates",
+          "type": "number"
+        },
+        "y": {
+          "description": "Y coordinate in desktop screenshot pixel coordinates",
+          "type": "number"
+        }
+      },
+      "required": [
+        "x",
+        "y"
+      ],
+      "type": "object"
+    },
+    "name": "desktop_move"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false
+    },
+    "description": "Scroll the mouse wheel at a desktop screenshot point. delta_x and delta_y are wheel units where 120 is one notch; positive delta_y scrolls down and positive delta_x scrolls right. Provide at least one non-zero delta.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "delta_x": {
+          "description": "Horizontal wheel units; 120 is one notch and positive scrolls right",
+          "type": "integer"
+        },
+        "delta_y": {
+          "description": "Vertical wheel units; 120 is one notch and positive scrolls down",
+          "type": "integer"
+        },
+        "x": {
+          "description": "X coordinate in desktop screenshot pixel coordinates",
+          "type": "number"
+        },
+        "y": {
+          "description": "Y coordinate in desktop screenshot pixel coordinates",
+          "type": "number"
+        }
+      },
+      "required": [
+        "x",
+        "y"
+      ],
+      "type": "object"
+    },
+    "name": "desktop_scroll"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false
+    },
+    "description": "Type literal text into the currently focused control on the desktop. Newlines simulate Return and may submit a message or form. Call get_desktop_screenshot afterwards to confirm the result.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "text": {
+          "description": "Literal text to type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "type": "object"
+    },
+    "name": "desktop_type_text"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false
+    },
+    "description": "Press a key or '+'-separated chord in the currently focused desktop control using X Window keysym-style names. Whitespace around '+' is ignored. Examples: a, Return, Tab, ctrl+c, alt+F4, Page_Down, Down.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "duration": {
+          "description": "Seconds to hold the key before releasing it, from 0 to 30. The key is released even if the operation is cancelled.",
+          "type": "number"
+        },
+        "key": {
+          "description": "Key or key combination to press",
+          "type": "string"
+        }
+      },
+      "required": [
+        "key"
+      ],
+      "type": "object"
+    },
+    "name": "desktop_press_key"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false
+    },
+    "description": "Paste literal text into the currently focused desktop control through the system clipboard, then restore the user's clipboard. Newlines paste as-is and do not submit a message or form. format md or html additionally offers Markdown or HTML flavors to apps that accept them.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "format": {
+          "description": "Clipboard flavor to offer: text, md, or html. Defaults to text.",
+          "enum": [
+            "text",
+            "md",
+            "html"
+          ],
+          "type": "string"
+        },
+        "text": {
+          "description": "Literal text to paste",
+          "type": "string"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "type": "object"
+    },
+    "name": "desktop_paste"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
       "idempotentHint": false,
       "openWorldHint": false,
       "readOnlyHint": false

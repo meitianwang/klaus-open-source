@@ -125,7 +125,11 @@ export class NativeComputerUse implements ComputerUseBackend {
     if (item.signal.aborted) { item.reject(new Error('Computer Use operation was cancelled')); this.pump(); return; }
     const command = this.options.command;
     if (!command) { item.reject(new Error('Computer Use helper is missing')); this.pump(); return; }
-    const input = item.request.method === 'action' || (item.request.method === 'activate' && item.request.args.inputAction === true);
+    // A desktop button release must stay sendable during the interaction cooldown:
+    // it ends synthetic input instead of competing with the user.
+    const input = item.request.method === 'action'
+      || (item.request.method === 'desktopAction' && item.request.args.name !== 'mouse_up')
+      || (item.request.method === 'activate' && item.request.args.inputAction === true);
     if (input && Date.now() < this.cooldownUntil) {
       const app = object(item.request.args.app), label = typeof app.name === 'string' ? app.name : typeof app.input === 'string' ? app.input : 'this app';
       item.reject(new Error(`The user is still interacting with ${label}. Wait 2 seconds and retry.`)); this.pump(); return;
@@ -152,7 +156,7 @@ export class NativeComputerUse implements ComputerUseBackend {
     this.active = { child, cancel };
     const abort = () => cancel(new Error('Computer Use native operation was cancelled'));
     item.signal.addEventListener('abort', abort, { once: true });
-    const held = item.request.method === 'action' && typeof item.request.args.duration === 'number'
+    const held = (item.request.method === 'action' || item.request.method === 'desktopAction') && typeof item.request.args.duration === 'number'
       ? Math.max(0, Math.min(30, item.request.args.duration)) * 1000
         * (item.request.args.name === 'click' && typeof item.request.args.click_count === 'number' ? Math.max(1, Math.min(5, item.request.args.click_count)) : 1) : 0;
     const budget = item.request.method === 'promptLoginPassword' ? 185_000 : Math.max(120_000, 15_000 + held);

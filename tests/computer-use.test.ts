@@ -6,7 +6,7 @@ import { randomUUID } from 'node:crypto';
 import { Harness, waitFor } from './harness';
 import { ComputerUsePolicyService, type ComputerUsePolicyDependencies, type ComputerUseTaskScope } from '../main/services/computer-use/policy';
 import { withSettingsDb } from '../main/services/settings';
-import { ComputerUseConnector, COMPUTER_USE_TOOLS, snapshot, validateAction, type ComputerUseDependencies } from '../main/services/computer-use/connector';
+import { ComputerUseConnector, COMPUTER_USE_TOOLS, desktopSnapshot, snapshot, validateAction, validateDesktopAction, type ComputerUseDependencies } from '../main/services/computer-use/connector';
 import type { AppSnapshot, ComputerUseBackend, ComputerUseContext, NativeRequest } from '../main/services/computer-use/types';
 import { createComputerUseRuntime } from '../main/app/computer-use-runtime';
 import { ChannelRegistry } from '../main/ipc/registry';
@@ -25,7 +25,7 @@ const state = (): AppSnapshot => ({ app, windowId: 55, bounds: { x: -200, y: 10,
   screenshot: { data: jpeg, mimeType: 'image/jpeg', width: 1, height: 1 } });
 function deferred<T = void>() { let resolve!: (value: T) => void; const promise = new Promise<T>(yes => { resolve = yes; }); return { promise, resolve }; }
 const closing: Array<() => Promise<unknown>> = [];
-function fixture(override?: ComputerUseBackend['request'], hooks: Partial<Pick<ComputerUseDependencies, 'beginOperation' | 'approvedWindow' | 'guardInteraction' | 'saveScreenshot' | 'audio'>> = {}, policyOverrides: Partial<ComputerUsePolicyDependencies> = {}) {
+function fixture(override?: ComputerUseBackend['request'], hooks: Partial<Pick<ComputerUseDependencies, 'beginOperation' | 'approvedWindow' | 'guardInteraction' | 'saveScreenshot' | 'audio' | 'desktopAvailable'>> = {}, policyOverrides: Partial<ComputerUsePolicyDependencies> = {}) {
   const requests: NativeRequest[] = [], approvals: unknown[] = [], currentState = state();
   const backend: ComputerUseBackend = { availability: () => ({ available: true }), close: async () => ({ complete: true }),
     request: async (request, signal) => {
@@ -48,11 +48,11 @@ function fixture(override?: ComputerUseBackend['request'], hooks: Partial<Pick<C
   return { connector, policy, requests, approvals, currentState, context, configRoot,
     read: (ctx = context()) => connector.call('get_app_state', { app: app.input }, ctx) };
 }
-h.test('fifteen named tools preserve explicit read and write effect annotations', () => {
-  strict.equal(COMPUTER_USE_TOOLS.length, 15); strict.equal(new Set(COMPUTER_USE_TOOLS.map(tool => tool.name)).size, 15);
+h.test('twenty-four named tools preserve explicit read and write effect annotations', () => {
+  strict.equal(COMPUTER_USE_TOOLS.length, 24); strict.equal(new Set(COMPUTER_USE_TOOLS.map(tool => tool.name)).size, 24);
   for (const tool of COMPUTER_USE_TOOLS) {
     strict.equal(tool.inputSchema.additionalProperties, false);
-    strict.equal(tool.annotations.readOnlyHint, ['list_apps', 'get_app_state', 'get_computer_use_policy'].includes(tool.name));
+    strict.equal(tool.annotations.readOnlyHint, ['list_apps', 'get_app_state', 'get_computer_use_policy', 'get_desktop_screenshot'].includes(tool.name));
   }
 });
 h.test('app discovery retains the exact path, bundle identifier and running process for recovery', async () => {
@@ -314,6 +314,135 @@ h.test('system audio tools are session-scoped and never reach friend tasks', asy
     { taskScope: () => ({ active: true, apps: ['bundle:test.fixture'] }) });
   await strict.rejects(friend.connector.call('start_audio_recording', {}, friend.context()), /Friend tasks cannot record system audio/);
   await strict.rejects(friend.connector.call('stop_audio_recording', {}, friend.context()), /Friend tasks cannot record system audio/);
+});
+
+const desktopVector = JSON.parse(readFileSync(join(__dirname, '../../contracts/vectors/computer-use-observation-vectors.json'), 'utf8')).desktopSurface;
+const pinned = (text: string) => new RegExp(text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+/** One stitched 2x2 virtual desktop observation scaled to a 1x1 screenshot frame. */
+const desktopValue = (overrides: Record<string, unknown> = {}) => ({ app, screenshot: { data: jpeg, mimeType: 'image/jpeg', width: 1, height: 1 },
+  virtualBounds: { x: -100, y: 0, width: 2, height: 2 }, displays: [{ bounds: { x: -100, y: 0, width: 2, height: 2 }, width: 2, height: 2 }],
+  sourceWidth: 2, sourceHeight: 2, ...overrides });
+function desktopFixture(override?: ComputerUseBackend['request'], hooks: Partial<ComputerUseDependencies> = {}, policyOverrides: Partial<ComputerUsePolicyDependencies> = {}) {
+  return fixture(async (request, signal) => override ? override(request, signal)
+    : request.method === 'desktopState' ? desktopValue() : { applied: true }, { desktopAvailable: true, ...hooks }, policyOverrides);
+}
+h.test('desktop observation caches turn geometry, approves the foreground identity and maps input onto the virtual desktop', async () => {
+  const f = desktopFixture();
+  const result = await f.connector.call('get_desktop_screenshot', {}, f.context());
+  strict.deepEqual(result.content[1], { type: 'image', data: jpeg, mimeType: 'image/jpeg' });
+  strict.match(String(result.content[0]?.text), /Saved: /); strict.match(String(result.content[0]?.text), /Full desktop across 1 display\(s\): 2x2 physical pixels, screenshot 1x1/);
+  const meta = (result._meta?.klaus as { computerUse: { mapping: unknown; screenshotMode: string; app: unknown } }).computerUse;
+  strict.equal(meta.screenshotMode, desktopVector.screenshotMode); strict.deepEqual(meta.app, app);
+  strict.deepEqual(meta.mapping, { screenshotPixelWidth: 1, screenshotPixelHeight: 1, screenshotScreenX: -100, screenshotScreenY: 0, screenshotScreenWidth: 2, screenshotScreenHeight: 2 });
+  strict.equal(f.approvals.length, 1);
+  await f.connector.call('desktop_click', { x: 0.5, y: 0.25 }, f.context());
+  const action = f.requests.find(request => request.method === 'desktopAction')!;
+  strict.deepEqual({ name: action.args.name, x: action.args.x, y: action.args.y, click_count: action.args.click_count, mouse_button: action.args.mouse_button },
+    { name: 'click', x: -99, y: 0.5, click_count: 1, mouse_button: 'left' });
+  strict.deepEqual(action.args.app, app);
+  strict.match(String((await f.connector.call('desktop_move', { x: 0, y: 0 }, f.context())).content[0]?.text), /Applied desktop_move/);
+});
+h.test('desktop input needs a same-turn observation carrying a foreground identity', async () => {
+  const f = desktopFixture();
+  await strict.rejects(f.connector.call('desktop_click', { x: 0, y: 0 }, f.context()), pinned(desktopVector.errors.turnGate));
+  await f.connector.call('get_desktop_screenshot', {}, f.context());
+  await strict.rejects(f.connector.call('desktop_click', { x: 0, y: 0 }, f.context('b')), pinned(desktopVector.errors.turnGate));
+  await strict.rejects(f.connector.call('desktop_click', { x: 0, y: 0 }, f.context('a', 'turn2')), pinned(desktopVector.errors.turnGate));
+  strict.equal(f.requests.some(request => request.method === 'desktopAction'), false);
+  const g = desktopFixture(async request => request.method === 'desktopState' ? desktopValue({ app: null }) : { applied: true });
+  const observed = await g.connector.call('get_desktop_screenshot', {}, g.context());
+  strict.equal((observed._meta?.klaus as { computerUse: { app: unknown } }).computerUse.app, null);
+  strict.match(String(observed.content[0]?.text), /no foreground application identity/);
+  strict.equal(g.approvals.length, 0);
+  await strict.rejects(g.connector.call('desktop_type_text', { text: 'hi' }, g.context()), pinned(desktopVector.errors.identityRequired));
+  strict.equal(g.requests.some(request => request.method === 'desktopAction'), false);
+});
+h.test('the desktop surface is Windows-only and closed to friend tasks', async () => {
+  const f = fixture();
+  const platformArgs: Record<string, Record<string, unknown>> = { get_desktop_screenshot: {}, desktop_click: { x: 0, y: 0 },
+    desktop_drag: { path: [{ x: 0, y: 0 }, { x: 0.5, y: 0.5 }] }, desktop_drag_handle: { op: 'end' }, desktop_move: { x: 0, y: 0 },
+    desktop_scroll: { x: 0, y: 0, delta_y: 120 }, desktop_type_text: { text: 'x' }, desktop_press_key: { key: 'a' }, desktop_paste: { text: 'x' } };
+  for (const name of desktopVector.tools as string[]) await strict.rejects(f.connector.call(name, platformArgs[name], f.context()), pinned(desktopVector.platform), name);
+  const friend = desktopFixture(undefined, {}, { taskScope: () => ({ active: true, apps: ['bundle:test.fixture'] }) });
+  await strict.rejects(friend.connector.call('get_desktop_screenshot', {}, friend.context()), pinned(desktopVector.errors.friendTask));
+  await strict.rejects(friend.connector.call('desktop_click', { x: 0, y: 0 }, friend.context()), pinned(desktopVector.errors.friendTask));
+  strict.equal(friend.requests.length, 0);
+});
+h.test('the desktop drag handle holds the left button across calls with the pinned guard wording', async () => {
+  const f = desktopFixture();
+  await f.connector.call('get_desktop_screenshot', {}, f.context());
+  await strict.rejects(f.connector.call('desktop_drag_handle', { op: 'move_to', x: 0.5, y: 0.5 }, f.context()), pinned(desktopVector.errors.moveWithoutStart));
+  await strict.rejects(f.connector.call('desktop_drag_handle', { op: 'end' }, f.context()), pinned(desktopVector.errors.endWithoutStart));
+  await f.connector.call('desktop_drag_handle', { op: 'start', x: 0.25, y: 0.25 }, f.context());
+  await strict.rejects(f.connector.call('desktop_drag_handle', { op: 'start', x: 0.5, y: 0.5 }, f.context()), pinned(desktopVector.errors.startTwice));
+  // observing mid-drag is allowed and keeps the button held
+  await f.connector.call('get_desktop_screenshot', {}, f.context());
+  await f.connector.call('desktop_drag_handle', { op: 'move_to', x: 0.75, y: 0.5 }, f.context());
+  await f.connector.call('desktop_drag_handle', { op: 'end' }, f.context());
+  const actions = f.requests.filter(request => request.method === 'desktopAction').map(request => request.args);
+  strict.deepEqual(actions.map(args => [args.name, args.x, args.y]), [['mouse_down', -99.5, 0.5], ['mouse_move', -98.5, 1], ['mouse_up', -98.5, 1]]);
+  // held-move and release do not re-verify the pinned identity; the press does
+  strict.deepEqual(actions[0]!.app, app);
+  strict.equal('app' in actions[1]!, false); strict.equal('app' in actions[2]!, false);
+});
+h.test('a failed desktop input releases a held drag and a failed release closes the desktop surface', async () => {
+  let failMove = false, failRelease = false;
+  const f = desktopFixture(async request => {
+    if (request.method === 'desktopState') return desktopValue();
+    if (request.method === 'desktopAction') {
+      if (request.args.name === 'mouse_move' && failMove) throw new Error('fixture-move-failed');
+      if (request.args.name === 'mouse_up' && failRelease) throw new Error('fixture-release-failed');
+    }
+    return { applied: true };
+  });
+  await f.connector.call('get_desktop_screenshot', {}, f.context());
+  await f.connector.call('desktop_drag_handle', { op: 'start', x: 0.25, y: 0.25 }, f.context());
+  failMove = true;
+  await strict.rejects(f.connector.call('desktop_drag_handle', { op: 'move_to', x: 0.5, y: 0.5 }, f.context()), /may have executed/);
+  const releases = f.requests.filter(request => request.args.name === 'mouse_up');
+  strict.equal(releases.length, 1);
+  strict.deepEqual({ x: releases[0]!.args.x, y: releases[0]!.args.y }, { x: -99.5, y: 0.5 });
+  // the released handle starts again after a fresh observation in the same turn
+  await f.connector.call('get_desktop_screenshot', {}, f.context());
+  await f.connector.call('desktop_drag_handle', { op: 'start', x: 0.25, y: 0.25 }, f.context());
+  failRelease = true;
+  await strict.rejects(f.connector.call('desktop_drag_handle', { op: 'move_to', x: 0.5, y: 0.5 }, f.context()), /may have executed/);
+  await strict.rejects(f.connector.call('get_desktop_screenshot', {}, f.context()), pinned(desktopVector.errors.closed));
+  await strict.rejects(f.connector.call('desktop_click', { x: 0, y: 0 }, f.context()), pinned(desktopVector.errors.closed));
+});
+h.test('desktop drag maps the whole path into one native operation', async () => {
+  const f = desktopFixture();
+  await f.connector.call('get_desktop_screenshot', {}, f.context());
+  await f.connector.call('desktop_drag', { path: [{ x: 0, y: 0 }, { x: 0.5, y: 0.5 }, { x: 0.75, y: 0.75 }] }, f.context());
+  const drags = f.requests.filter(request => request.method === 'desktopAction');
+  strict.equal(drags.length, 1); strict.equal(drags[0]!.args.name, 'drag'); strict.deepEqual(drags[0]!.args.app, app);
+  strict.deepEqual(drags[0]!.args.path, [{ x: -100, y: 0 }, { x: -99, y: 1 }, { x: -98.5, y: 1.5 }]);
+  await strict.rejects(f.connector.call('desktop_drag', { path: [{ x: 0, y: 0 }] }, f.context()), /between 2 and 16/);
+});
+h.test('desktop schemas and validators pin the shipped surface', () => {
+  const schema = (name: string) => COMPUTER_USE_TOOLS.find(tool => tool.name === name)!.inputSchema as
+    { properties: Record<string, { type?: string; enum?: readonly string[] }>; required?: readonly string[] };
+  for (const name of desktopVector.tools as string[]) strict.equal(COMPUTER_USE_TOOLS.some(tool => tool.name === name), true, name);
+  strict.equal(COMPUTER_USE_TOOLS.filter(tool => (desktopVector.tools as string[]).includes(tool.name)).length, (desktopVector.tools as string[]).length);
+  strict.equal(COMPUTER_USE_TOOLS.find(tool => tool.name === 'get_desktop_screenshot')!.annotations.readOnlyHint, true);
+  strict.deepEqual(schema('desktop_drag_handle').properties.op!.enum, desktopVector.dragHandleOps);
+  strict.deepEqual(schema('desktop_click').properties.mouse_button!.enum, ['left', 'right', 'middle', 'l', 'r', 'm']);
+  strict.deepEqual(validateDesktopAction('desktop_click', { x: 1, y: 2 }), { x: 1, y: 2, click_count: desktopVector.clickCount[0], mouse_button: 'left' });
+  strict.deepEqual(validateDesktopAction('desktop_click', { x: 1, y: 2, mouse_button: 'R', click_count: desktopVector.clickCount[1] }), { x: 1, y: 2, click_count: 3, mouse_button: 'right' });
+  strict.throws(() => validateDesktopAction('desktop_click', { x: 1, y: 2, click_count: desktopVector.clickCount[1] + 1 }), /click_count/);
+  strict.throws(() => validateDesktopAction('desktop_drag', { path: [{ x: 0, y: 0 }] }), /between 2 and 16/);
+  strict.deepEqual(validateDesktopAction('desktop_scroll', { x: 0, y: 0, delta_y: 2 * desktopVector.scroll.notch }), { x: 0, y: 0, delta_y: 240 });
+  strict.throws(() => validateDesktopAction('desktop_scroll', { x: 0, y: 0 }), /non-zero delta/);
+  strict.throws(() => validateDesktopAction('desktop_scroll', { x: 0, y: 0, delta_x: 0, delta_y: 0 }), /non-zero delta/);
+  strict.throws(() => validateDesktopAction('desktop_scroll', { x: 0, y: 0, delta_y: desktopVector.scroll.deltaRange[1] + 1 }), /delta_y/);
+  strict.deepEqual(validateDesktopAction('desktop_press_key', { key: 'ArrowDown' }), { key: 'down' });
+  strict.deepEqual(validateDesktopAction('desktop_paste', { text: 'hi' }), { text: 'hi', format: 'text' });
+  strict.deepEqual(validateDesktopAction('desktop_drag_handle', { op: 'end' }), { op: 'end' });
+  strict.throws(() => validateDesktopAction('desktop_drag_handle', { op: 'start' }), /Invalid Computer Use x/);
+  strict.throws(() => desktopSnapshot({ ...desktopValue(), screenshot: { data: jpeg, mimeType: 'image/png', width: 1, height: 1 } }), /desktop screenshot is invalid/);
+  strict.throws(() => desktopSnapshot({ ...desktopValue(), sourceWidth: 6000, sourceHeight: 6000 }), /exceeds its limit/);
+  strict.throws(() => desktopSnapshot({ ...desktopValue(), displays: [] }), /display list/);
+  strict.deepEqual(desktopVector.nativeMethods, ['desktopState', 'desktopAction']);
 });
 
 const script = join(temporary, 'native-fixture.cjs');

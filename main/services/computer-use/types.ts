@@ -13,9 +13,18 @@ export interface AppSnapshot {
   treeTruncated?: boolean; loading?: boolean; observationChanged?: boolean;
   screenshot: { data: string; mimeType: 'image/jpeg'; width: number; height: number; bounds?: Bounds };
 }
+export interface DesktopSnapshot {
+  /** The foreground application at capture time; null when no identity is resolvable. */
+  app: AppIdentity | null;
+  screenshot: { data: string; mimeType: 'image/jpeg'; width: number; height: number };
+  /** Physical pixel rectangle spanned by all visible displays. */
+  virtualBounds: Bounds;
+  displays: Array<{ bounds: Bounds; width: number; height: number }>;
+  sourceWidth: number; sourceHeight: number;
+}
 export interface NativeRequest {
   resourceId: string; operationId: string; generation: number; sequence: number;
-  method: 'listApps' | 'resolve' | 'activate' | 'state' | 'action' | 'appshot'; args: Row;
+  method: 'listApps' | 'resolve' | 'activate' | 'state' | 'action' | 'appshot' | 'desktopState' | 'desktopAction'; args: Row;
 }
 export interface ComputerUseBackend {
   availability(): { available: boolean; error?: string };

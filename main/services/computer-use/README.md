@@ -2,8 +2,13 @@
 
 `ComputerUsePolicyService` owns standing app restrictions, durable enabled state
 and approvals scoped to a host-authenticated session. `ComputerUseConnector`
-registers the fifteen native app tools; `createComputerUseRuntime` connects their
+registers the twenty-four native app tools; `createComputerUseRuntime` connects their
 authenticated MCP transport to the native backend and recording lifecycle.
+The connector also owns the Windows-only full-desktop surface: one stitched
+observation per assistant turn gates every desktop input, screenshot pixels map
+onto the virtual-desktop bounds, the foreground identity is approved and pinned
+for the turn, a held cross-call drag is released after any failed input, and a
+failed release closes the desktop surface for the rest of the session.
 
 Construct it with `configRoot`, a real backend `availability()` function, and
 `enabledChanged(enabled, signal)`. Register
