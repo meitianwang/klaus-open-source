@@ -1,12 +1,13 @@
 // Agents 页（React 岛）——迁自 js/pages/agents.js。
 // 卡片栅格/分类 tabs/搜索/双弹窗；本地化查表（AGENT_TEXT_ZH 等）经 window
 // 桥消费（数据表仍住 settings.js，Batch 3 收尾时随 settings 一并迁 TS）。
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useT } from '../../i18n'
 import { PageHeader } from '../../components/PageHeader'
 import { ModalPortal } from '../../components/ModalPortal'
 import { AgentCreateModal, AgentEditorModal, defaultAgentMarkdown } from './modals'
 import { agentFieldsFromContent, type AgentFormFields } from './model-items'
+import { MarketCard, MarketGrid } from '../../components/Market'
 import { getAgentLogoSrc } from '../../icons/extension-logos'
 import { skillLogoBrickHtml } from '../skills/localize'
 import styles from './agents.module.css'
@@ -33,6 +34,21 @@ interface AgentDef {
   background?: boolean
 }
 interface FailedFile { path?: string; error?: string; editableId?: string }
+
+/** 子智能体广场的一行，形状由 main/agents-market/service.ts 的 row() 决定。 */
+interface MarketAgent {
+  slug: string
+  name?: string
+  description?: string
+  author?: string
+  model?: string
+  icon?: string
+  tags?: Record<string, string>
+  installed?: boolean
+  hasUpdate?: boolean
+  version?: string
+  latestVersion?: string
+}
 
 function classifyAgent(agent: AgentDef): string {
   const source = String(agent?.source || '').toLowerCase()
@@ -112,6 +128,43 @@ function getAgentSearchValues(agent: AgentDef, t: (k: string) => string): unknow
   ]
 }
 
+/**
+ * 广场卡片的安装/更新控件。装完就是一个普通的用户智能体文件，所以这里没有
+ * 卸载：删除仍走已安装档的删除按钮，只保留一种回收站行为。
+ */
+function AgentMarketControls({ item, onChanged }: { item: MarketAgent; onChanged: () => void }) {
+  const t = useT()
+  const [busy, setBusy] = useState(false)
+  const busyRef = useRef(false)
+
+  const install = async () => {
+    if (busyRef.current) return
+    busyRef.current = true
+    setBusy(true)
+    try {
+      const result = await w().klaus.agents.install(item.slug, item.latestVersion || undefined)
+      if (result?.ok) {
+        showToast(`${t(item.hasUpdate ? 'agents_market_updated_toast' : 'agents_market_installed_toast')}: ${result.id || item.slug}`)
+        onChanged()
+      } else {
+        showToast(t('toast_error_prefix') + (result?.error || t('toast_unknown')))
+      }
+    } catch (err: any) {
+      showToast(t('toast_error_prefix') + (err?.message || err || t('toast_unknown')))
+    } finally {
+      busyRef.current = false
+      setBusy(false)
+    }
+  }
+
+  if (item.installed && !item.hasUpdate) return <span className="sk-health-badge">{t('agents_market_installed')}</span>
+  return (
+    <button className="btn-xs" disabled={busy} onClick={() => { void install() }}>
+      {busy ? t('agents_market_installing') : item.hasUpdate ? t('agents_market_update') : t('agents_market_install')}
+    </button>
+  )
+}
+
 function insertAgentMention(name: string) {
   if (!name) return
   try { document.getElementById('btn-new-chat')?.click() } catch { /* welcome btn absent */ }
@@ -165,6 +218,39 @@ export function AgentsPage() {
   const [createModal, setCreateModal] = useState<{ existing: AgentFormFields | null } | null>(null)
   const [editorModal, setEditorModal] = useState<{ id: string | null; content: string } | null>(null)
   const [actionBusy, setActionBusy] = useState('')
+  // 广场与已安装是同一页的两档，与技能页同构：市场档发现、已安装档管理。
+  const [view, setView] = useState<'market' | 'installed'>('market')
+  const [market, setMarket] = useState<MarketAgent[] | null>(null)
+  const [marketError, setMarketError] = useState('')
+  const [marketLoading, setMarketLoading] = useState(false)
+  const marketSeq = useRef(0)
+
+  const loadMarket = useCallback(async () => {
+    const seq = ++marketSeq.current
+    setMarketLoading(true)
+    try {
+      const page = await w().klaus.agents.market()
+      if (seq !== marketSeq.current) return
+      setMarket(Array.isArray(page?.items) ? page.items : [])
+      setMarketError(page?.error ? String(page.error) : '')
+    } catch (err: any) {
+      if (seq !== marketSeq.current) return
+      setMarket(previous => previous ?? [])
+      setMarketError(String(err?.message || err))
+    } finally {
+      if (seq === marketSeq.current) setMarketLoading(false)
+    }
+  }, [])
+
+  useEffect(() => { void loadMarket() }, [loadMarket])
+
+  // 广场装完的智能体要立刻出现在已安装档；已安装档删掉的也要让广场卡片回到
+  // 「安装」态，所以两边任一变化都重拉广场列表。
+  useEffect(() => {
+    const onChanged = () => { void loadMarket() }
+    window.addEventListener('app:preferences-changed', onChanged)
+    return () => window.removeEventListener('app:preferences-changed', onChanged)
+  }, [loadMarket])
 
   const reload = useCallback(async () => {
     try {
@@ -229,10 +315,23 @@ export function AgentsPage() {
   // 分类 tabs 住在页头内部（bodyHtml，与旧版结构一致，随页头吸顶）；
   // 点击由外层容器委托处理。
   const esc = w().esc as (s: unknown) => string
-  const buildTabsBodyHtml = (tabs: { key: string; label: string; count: number }[], active: string) =>
-    `<div class="sk-category-tabs" role="tablist" aria-label="${esc(t('agents'))}">
+  const buildTabsBodyHtml = (tabs: { key: string; label: string; count: number }[], active: string) => {
+    // 一级视图切换（广场 / 已安装）与技能页同构：市场档发现、已安装档管理。
+    // 分类 tabs 只在已安装档出现——广场的分类属于目录自己，不混进本地来源分类。
+    const installedCount = tabs.find(tab => tab.key === 'all')?.count ?? 0
+    const views = [
+      { key: 'market', label: t('agents_tab_market'), count: market?.length ?? 0 },
+      { key: 'installed', label: t('agents_tab_installed'), count: installedCount },
+    ]
+    return `<div class="sk-tabbar">
+          <div class="sk-tabs" role="tablist" aria-label="${esc(t('agents'))}">
+            ${views.map(item => `<button class="sk-tab ${view === item.key ? 'active' : ''}" role="tab" aria-selected="${view === item.key}" tabindex="${view === item.key ? 0 : -1}" data-agent-view-tab="${esc(item.key)}">${esc(item.label)} <span class="sk-tab-count">${item.count}</span></button>`).join('')}
+          </div>
+        </div>
+        ${view === 'installed' ? `<div class="sk-category-tabs" role="tablist" aria-label="${esc(t('agents'))}">
           ${tabs.map(tab => `<button class="qc-scope-tab ${active === tab.key ? 'active' : ''}" role="tab" aria-selected="${active === tab.key}" data-agent-category-tab="${esc(tab.key)}">${esc(tab.label)} <span class="qc-scope-tab-count">${tab.count}</span></button>`).join('')}
-        </div>`
+        </div>` : ''}`
+  }
 
   const header = (bodyHtml?: string) => (
     <PageHeader
@@ -308,6 +407,13 @@ export function AgentsPage() {
     if (!query) return true
     return filterTextMatches(query, [file?.path, file?.error, t('agents_category_failed')])
   })
+  // 广场目录不分页（服务端一次返回全部已批准条目），所以搜索在本页过滤，
+  // 输入即生效，不需要远程搜索的防抖与游标续页。
+  const visibleMarket = (market ?? []).filter(item => {
+    if (!query) return true
+    return filterTextMatches(query, [item.slug, item.name, item.description, item.author,
+      item.model, item.tags ? Object.values(item.tags) : [], t('agents_tab_market')])
+  })
 
   const lineIcon = (name: string) => ({ __html: w().renderLineIcon(name) as string })
   // 卡片图标按 agent 类型差异化：字形与身份色都查表（market-tables 的
@@ -324,14 +430,55 @@ export function AgentsPage() {
     <div
       className="sk-section"
       onClick={(e) => {
-        // 分类 tab 住在页头工厂 HTML 里，点击由容器委托处理（同旧版事件结构）。
+        // 视图与分类 tab 都住在页头工厂 HTML 里，点击由容器委托处理（同旧版事件结构）。
+        const viewBtn = (e.target as Element).closest('[data-agent-view-tab]') as HTMLElement | null
+        if (viewBtn) {
+          const next = viewBtn.dataset.agentViewTab === 'installed' ? 'installed' : 'market'
+          if (next !== view) {
+            setView(next)
+            if (next === 'installed') void reload()
+            else void loadMarket()
+          }
+          return
+        }
         const tabBtn = (e.target as Element).closest('[data-agent-category-tab]') as HTMLElement | null
         if (tabBtn) setFilter(tabBtn.dataset.agentCategoryTab || 'all')
       }}
     >
       {header(buildTabsBodyHtml(categoryTabs, activeFilter))}
+      {view === 'market' && marketError && (
+        <div className={styles['sk-load-warning']} role="status">
+          <span>{marketError}</span>
+          <button type="button" className="btn-xs" onClick={() => { void loadMarket() }}>{t('auth_status_retry')}</button>
+        </div>
+      )}
       <div id="agents-results">
-        {visibleAgents.length + visibleFailed.length ? (
+        {view === 'market' ? (
+          market === null ? (
+            <div dangerouslySetInnerHTML={{ __html: w().klsLoading.render() }} />
+          ) : (
+            <MarketGrid empty={visibleMarket.length === 0} emptyText={t('agents_market_empty')}>
+              {visibleMarket.map(item => (
+                <MarketCard
+                  key={item.slug}
+                  datasets={{ slug: item.slug, search: [item.slug, item.name, item.description, item.author].join(' ') }}
+                  iconHtml={agentIcon(item.slug).__html}
+                  title={item.name || item.slug}
+                  subtitle={<span className={styles['sk-row-cmd']}>{`@agent-${item.slug}`}</span>}
+                  badge={(
+                    <>
+                      {item.model && item.model !== 'inherit' ? <span className="s-badge s-badge-gray">{item.model}</span> : null}
+                      {item.author ? <span className="s-badge s-badge-gray">{item.author}</span> : null}
+                      {item.hasUpdate ? <span className="s-badge s-badge-blue">{t('agents_market_update_available')}</span> : null}
+                    </>
+                  )}
+                  desc={item.description || item.slug}
+                  controls={<AgentMarketControls item={item} onChanged={() => { void loadMarket(); void reload() }} />}
+                />
+              ))}
+            </MarketGrid>
+          )
+        ) : visibleAgents.length + visibleFailed.length ? (
           <div className="sk-grid agent-grid">
             {visibleAgents.map(agent => {
               const name = String(agent?.agentType || '')

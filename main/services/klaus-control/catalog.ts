@@ -582,6 +582,13 @@ export const CONTROL_SURFACES: ControlSurface[] = [
         "args": "{ sessionId?: string, taskId: string }",
         "confirm": false,
         "currentSession": true
+      },
+      {
+        "action": "market",
+        "channel": "agents:market",
+        "args": "{ query?: string } — the sub-agent plaza: what the server publishes, each row carrying this machine's installed/hasUpdate state",
+        "confirm": false,
+        "currentSession": false
       }
     ],
     "writes": [
@@ -597,6 +604,13 @@ export const CONTROL_SURFACES: ControlSurface[] = [
         "channel": "agents:definitions:delete",
         "args": "{ id: string } — moves the file to the trash",
         "confirm": true,
+        "currentSession": false
+      },
+      {
+        "action": "install",
+        "channel": "agents:install",
+        "args": "{ slug: string, version?: string } — installs one plaza entry into ~/.klaus/agents/<slug>.md through the same writer as `save`; there is no plaza uninstall, removal is `delete`",
+        "confirm": false,
         "currentSession": false
       }
     ],
@@ -2105,7 +2119,7 @@ export const CONTROL_SURFACES: ControlSurface[] = [
         "currentSession": false
       }
     ],
-    "manualHeading": "图片、视频与语音生成",
+    "manualHeading": "图片、视频、语音与音乐生成",
     "panel": [
       "settings",
       "models"
@@ -2132,7 +2146,7 @@ export const CONTROL_SURFACES: ControlSurface[] = [
         "currentSession": false
       }
     ],
-    "manualHeading": "图片、视频与语音生成",
+    "manualHeading": "图片、视频、语音与音乐生成",
     "panel": [
       "settings",
       "multimodal"
@@ -2159,7 +2173,7 @@ export const CONTROL_SURFACES: ControlSurface[] = [
         "currentSession": false
       }
     ],
-    "manualHeading": "图片、视频与语音生成",
+    "manualHeading": "图片、视频、语音与音乐生成",
     "panel": [
       "settings",
       "multimodal"
@@ -2186,7 +2200,7 @@ export const CONTROL_SURFACES: ControlSurface[] = [
         "currentSession": false
       }
     ],
-    "manualHeading": "图片、视频与语音生成",
+    "manualHeading": "图片、视频、语音与音乐生成",
     "panel": [
       "settings",
       "models"
@@ -2213,7 +2227,7 @@ export const CONTROL_SURFACES: ControlSurface[] = [
         "currentSession": false
       }
     ],
-    "manualHeading": "图片、视频与语音生成",
+    "manualHeading": "图片、视频、语音与音乐生成",
     "panel": [
       "settings",
       "models"
@@ -2240,7 +2254,7 @@ export const CONTROL_SURFACES: ControlSurface[] = [
         "currentSession": false
       }
     ],
-    "manualHeading": "图片、视频与语音生成",
+    "manualHeading": "图片、视频、语音与音乐生成",
     "panel": [
       "settings",
       "models"
@@ -2267,7 +2281,7 @@ export const CONTROL_SURFACES: ControlSurface[] = [
         "currentSession": false
       }
     ],
-    "manualHeading": "图片、视频与语音生成",
+    "manualHeading": "图片、视频、语音与音乐生成",
     "panel": [
       "settings",
       "models"
@@ -2294,7 +2308,7 @@ export const CONTROL_SURFACES: ControlSurface[] = [
         "currentSession": false
       }
     ],
-    "manualHeading": "图片、视频与语音生成",
+    "manualHeading": "图片、视频、语音与音乐生成",
     "panel": [
       "settings",
       "models"

@@ -268,3 +268,37 @@
   padding: 14px 20px 18px;
   border-top: 1px solid var(--border);
 }
+
+/* 子智能体广场：市场档卡片副标（@agent-<slug>）与目录拉取失败的告警条。
+   两处形状与技能页同名类一致，但 CSS Modules 按文件哈希，跨页共用类名对不上，
+   所以各自持有一份，不引技能页的样式表。 */
+.sk-row-cmd {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg-quaternary);
+  font-family: var(--font-mono);
+  font-size: var(--text-caption);
+}
+
+.sk-load-warning {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--status-attn) 28%, var(--border-subtle));
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--warning-bg) 58%, transparent);
+  color: var(--fg-secondary);
+  font-size: var(--text-small);
+  line-height: var(--leading-settings-subtitle);
+}
+
+.sk-load-warning > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}

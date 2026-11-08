@@ -6,7 +6,7 @@
     "bridgeDir": "frontend/bridge"
   },
   "summary": {
-    "registeredInvoke": 758,
+    "registeredInvoke": 760,
     "registeredPush": 77,
     "roles": 11
   },
@@ -121,7 +121,9 @@
         "agents:definitions:read",
         "agents:definitions:save",
         "agents:history",
+        "agents:install",
         "agents:load-tasks",
+        "agents:market",
         "agents:save-tasks",
         "agents:snapshot",
         "agents:teammate-messages",

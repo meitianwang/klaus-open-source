@@ -1,6 +1,6 @@
 {
   "summary": {
-    "invokeDeclared": 758,
+    "invokeDeclared": 760,
     "pushDeclared": 77
   },
   "rows": [
@@ -29,7 +29,15 @@
       "kind": "invoke"
     },
     {
+      "channel": "agents:install",
+      "kind": "invoke"
+    },
+    {
       "channel": "agents:load-tasks",
+      "kind": "invoke"
+    },
+    {
+      "channel": "agents:market",
       "kind": "invoke"
     },
     {

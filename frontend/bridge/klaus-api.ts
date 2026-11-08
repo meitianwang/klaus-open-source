@@ -511,6 +511,10 @@ expose('klaus', {
       save: (id: string | null, content: string) => call('agents:definitions:save', { id, content }),
       delete: (id: string) => call('agents:definitions:delete', { id }),
     },
+    // 子智能体广场：服务端目录的浏览与安装。卸载不开新通道——装完就是普通的
+    // 用户智能体文件，删除仍走 definitions.delete，只保留一种回收站行为。
+    market: (opts?: { query?: string }) => call('agents:market', opts),
+    install: (slug: string, version?: string) => call('agents:install', { slug, version }),
   },
 
   // Engine introspection / control surfaces that don't fit chat or session.

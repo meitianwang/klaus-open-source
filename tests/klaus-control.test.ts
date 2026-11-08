@@ -260,7 +260,15 @@ void (async () => {
       // grown from 707 to 750 through other surfaces' channels (browser
       // profile/runtime settings and side-chat transports) without this gate
       // being re-run; the eight computer-history channels bring it to 758.
-      assert.equal(channels.size, 758);
+      // 760 adds the sub-agent plaza's two channels: `agents:market` (browse what
+      // the server publishes, each row carrying this machine's installed/hasUpdate
+      // state) and `agents:install` (write one entry into ~/.klaus/agents/ through
+      // the SAME writer as agents:definitions:save, so there is no second path into
+      // an agent file). Both are exposed on the existing `agents` surface — the
+      // plaza is a capability the agent may drive, not owner-only UI. There is
+      // deliberately no plaza uninstall: an installed agent is an ordinary user
+      // file, so removal stays `delete` and there is one trash behaviour.
+      assert.equal(channels.size, 760);
       const companionChannels = [...channels].filter(channel => channel.startsWith('desktop-pet:'));
       assert.equal(companionChannels.length, 58);
       for (const channel of companionChannels) {

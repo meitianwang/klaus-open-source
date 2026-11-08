@@ -220,6 +220,8 @@ import { SkillWatcher, type SkillWatchSubscription } from '../services/extension
 import { registerSkillHandlers } from '../ipc/handlers/skills';
 import { registerSkillMarketHandlers } from '../ipc/handlers/skills-market';
 import { SkillMarketService, resolveSkillMarketEndpoint } from '../skills-market/service';
+import { registerAgentMarketHandlers } from '../ipc/handlers/agents-market';
+import { AgentMarketService } from '../agents-market/service';
 import { registerPluginMarketplaceHandlers } from '../ipc/handlers/plugin-marketplaces';
 import { PluginMarketplaceService } from '../services/extensions/marketplaces';
 import { OfficialPluginsService } from '../services/extensions/official-plugins';
@@ -1626,6 +1628,17 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
   });
   registerSkillMarketHandlers(registry, skillMarket);
   early.add(() => skillMarket.close());
+  // The sub-agent plaza. Install delegates to the existing agent-file writer, so
+  // a plaza install and a hand-authored agent share one validation, one atomic
+  // write and one live-session invalidation path.
+  const agentMarket = new AgentMarketService({ configRoot,
+    saveAgent: payload => extensions.agentsSave(payload),
+    endpoint: () => { const token = object(readStoredAuth(configRoot))?.token;
+      const baseUrl = account.serverUrl.replace(/\/+$/, '');
+      return baseUrl ? { baseUrl, ...(typeof token === 'string' && token ? { token } : {}) } : undefined; },
+  });
+  registerAgentMarketHandlers(registry, agentMarket);
+  early.add(() => agentMarket.close());
   const mcpBuiltins = new McpBuiltinService({ configRoot, mcp,
     endpoint: () => { const token = object(readStoredAuth(configRoot))?.token;
       return resolveSkillMarketEndpoint({ serverUrl: account.serverUrl, token: typeof token === 'string' ? token : undefined, environment: process.env }); },
