@@ -227,6 +227,34 @@ h.test('cold history restores an actual shell result followed by a final Markdow
   media.close(); reopened.close();
 });
 
+h.test('an assistant image embed publishes an exact file outside the managed store', async () => {
+  const { root, outside } = await fixture();
+  const output = join(root, 'artifacts');
+  await mkdir(output);
+  const cover = join(outside, 'Klaus-03-横封面.png');
+  await writeFile(cover, Buffer.from(PNG_FIXTURE_BASE64, 'base64'));
+  const ledger = new SessionArtifactPaths({ canonicalize: realpathSync, publishedImageRoot: output });
+  recordArtifactPathsFromHistory(ledger, 's1', { messages: [
+    { role: 'assistant', text: `![横封面](<${cover}>)` },
+  ] });
+  assert(ledger.has('s1', cover), 'the reply names the exact image, wherever it was written');
+  assert(!ledger.has('s2', cover), 'another conversation does not inherit the publication');
+  const media = new MediaFiles(async (path, id) => ledger.has(id, path));
+  const response = await media.respond(new Request(`klaus-media://localhost/${Buffer.from(cover).toString('base64url')}?s=s1`));
+  assert(response.status === 200, 'the media route serves the published image');
+  await response.arrayBuffer();
+  media.close();
+});
+
+h.test('an outside publication resolves before the managed store exists', async () => {
+  const { root, outside } = await fixture();
+  const cover = join(outside, 'early.png');
+  await writeFile(cover, Buffer.from(PNG_FIXTURE_BASE64, 'base64'));
+  const ledger = new SessionArtifactPaths({ canonicalize: realpathSync, publishedImageRoot: join(root, 'artifacts-not-created') });
+  recordArtifactPathsFromHistory(ledger, 's1', { messages: [{ role: 'assistant', text: `![early](<${cover}>)` }] });
+  assert(ledger.has('s1', cover), 'an absent managed store does not suppress an outside publication');
+});
+
 h.test('a screenshot embedded inside a Markdown table publishes the exact file', async () => {
   const { ledger, file } = await publicationFixture();
   recordArtifactPathsFromHistory(ledger, 's1', { messages: [{ role: 'assistant', text:
@@ -241,7 +269,7 @@ h.test('an image-like token in a table code span is not a publication', async ()
   assert(!ledger.has('s1', file), 'inline code does not grant a media capability');
 });
 
-h.test('managed publications refuse prose, tool stdout, user images, code and arbitrary paths', async () => {
+h.test('managed publications refuse prose, tool stdout, user images and code', async () => {
   const { ledger, file, outside } = await publicationFixture();
   const other = join(outside, 'private.png');
   await writeFile(other, Buffer.from(PNG_FIXTURE_BASE64, 'base64'));
@@ -250,7 +278,8 @@ h.test('managed publications refuse prose, tool stdout, user images, code and ar
     { role: 'user', text: `![input](${file})` },
     { role: 'assistant', text: `Saved at ${file}\n\n\`\`\`markdown\n![example](${file})\n\`\`\`\n\n    ![indented](${file})\n\n\`![inline](${file})\`\n\n![outside](${other})` },
   ] });
-  assert(!ledger.has('s1', file) && !ledger.has('s1', other), 'only an explicit eligible assistant embed grants a file');
+  assert(!ledger.has('s1', file), 'prose, tool stdout, user messages and code grant nothing');
+  assert(ledger.has('s1', other), 'an explicit assistant embed publishes the exact file it names');
 });
 
 h.test('managed publications accept only the current nested output directory and contained real files', async () => {
@@ -432,6 +461,51 @@ h.test('command path tokens expand ~ and refuse relative text and non-shell tool
   assert(!paths.some(path => path.includes('rel.conf')), 'a relative flag value grants nothing');
   assert(shellToolInputPaths('read', { command: 'cat /tmp/out.mp3' }, home).length === 0, 'a non-shell tool input grants nothing');
   assert(shellToolInputPaths('bash', { description: '/tmp/out.mp3' }, home).length === 0, 'a prose argument key grants nothing');
+});
+
+h.test('a relative deliverable after cd is resolved against that directory, live and cold', async () => {
+  const { file, outside } = await fixture();
+  const cover = join(outside, 'Klaus-03-横封面.jpg');
+  await writeFile(cover, PNG_FIXTURE_BASE64, 'base64');
+  const command = `cd "${outside}" && cp "${file}" "Klaus-03-横封面.jpg" && sips -g pixelWidth "Klaus-03-横封面.jpg"`;
+  const live = new SessionArtifactPaths({ canonicalize: realpathSync });
+  recordArtifactPathsFromChatEvent(live, { type: 'tool_start', sessionId: 's1', toolName: 'Bash', toolCallId: 'c1', args: { command } });
+  assert(live.has('s1', cover), 'the relative destination is admitted through the effective directory');
+  assert(!live.has('s2', cover), 'another conversation does not inherit it');
+
+  const cold = new SessionArtifactPaths({ canonicalize: realpathSync });
+  recordArtifactPathsFromHistory(cold, 's1', { messages: [{ role: 'assistant', contentBlocks: [
+    { type: 'tool_use', id: 'c1', name: 'Bash', input: { command } },
+  ] }] });
+  assert(cold.has('s1', cover), 'a reopen restores the relative destination');
+  const media = new MediaFiles(async (path, id) => cold.has(id, path));
+  const response = await media.respond(new Request(`klaus-media://localhost/${Buffer.from(cover).toString('base64url')}?s=s1`));
+  assert(response.status === 200, 'the media route serves the command-written image');
+  await response.arrayBuffer();
+  media.close();
+});
+
+h.test('a shell cwd argument is the base for relative command paths', () => {
+  const home = '/Users/tester';
+  const paths = shellToolInputPaths('bash', { command: 'cp cover.png "Klaus-03-竖封面.jpg"', cwd: `${home}/Downloads` }, home);
+  assert(paths.includes(`${home}/Downloads/Klaus-03-竖封面.jpg`), 'the tool cwd resolves a relative destination');
+  assert(paths.includes(`${home}/Downloads/cover.png`), 'the relative source is resolved too');
+  assert(shellToolInputPaths('bash', { command: 'cp cover.png out.jpg' }, home).length === 0, 'no cwd and no cd means no relative grant');
+});
+
+h.test('a host upload input admits the exact files it reads', async () => {
+  const { file } = await fixture();
+  const ledger = new SessionArtifactPaths();
+  recordArtifactPathsFromChatEvent(ledger, { type: 'tool_start', sessionId: 's1', toolName: 'mcp__klaus-browser__file_upload',
+    toolCallId: 'c1', args: { files: [file, '/Users/tester/Pictures/other.png'], selector: 'input[type=file]' } });
+  assert(ledger.has('s1', file), 'an uploaded local file is admitted');
+  assert(ledger.has('s1', '/Users/tester/Pictures/other.png'), 'every absolute file in the upload is admitted');
+  assert(!ledger.has('s2', file), 'the upload grant stays with its conversation');
+  const history = new SessionArtifactPaths();
+  recordArtifactPathsFromHistory(history, 's1', { messages: [{ role: 'assistant', contentBlocks: [
+    { type: 'tool_use', id: 'c1', name: 'mcp__klaus-browser__file_upload', input: { files: [file] } },
+  ] }] });
+  assert(history.has('s1', file), 'a reopen restores the uploaded file');
 });
 
 const publications = JSON.parse(readFileSync(join(__dirname, '../../contracts/vectors/ui-screenshot-delivery.json'), 'utf8')).publicationCases as

@@ -1,8 +1,8 @@
 import { isAbsolute, resolve } from 'node:path';
 import type { Json } from '../ipc/contract';
 import { object } from './service-types';
-import { publishedImagePaths } from './published-image-paths';
-import { shellToolInputPaths, toolArtifactPaths } from './tool-artifact-paths';
+import { publishedMediaPaths } from './published-media-paths';
+import { shellToolInputPaths, toolArtifactPaths, toolInputFilePaths } from './tool-artifact-paths';
 
 /**
  * The paths a conversation touched, published from managed output, or selected in its file viewer.
@@ -16,12 +16,13 @@ import { shellToolInputPaths, toolArtifactPaths } from './tool-artifact-paths';
  * them, so the transcript rendered a blank image and the preview answered
  * "path outside preview scope".
  *
- * The ledger is that record. Assistant image embeds publish exact files from
- * managed output without relying on shell stdout. Engine events name touched files; the trusted main
- * file viewer can also authorize an exact canonical file selected by the user.
- * Shell command inputs name the files an approved execution reaches, which is
- * the only record a command-written deliverable outside the roots ever gets.
- * What it changes is that
+ * The ledger is that record. An assistant image embed publishes the exact file
+ * it names without relying on shell stdout; inside the managed output store the
+ * per-conversation ownership rule still applies. Engine events name touched
+ * files; the trusted main file viewer can also authorize an exact canonical
+ * file selected by the user. Shell command inputs name the files an approved
+ * execution reaches, which covers tool-card media that is never embedded in the
+ * reply. What it changes is that
  * the conversation can then SHOW the user a file the conversation itself
  * touched, through the same capability-URL channel that re-checks scope and the
  * extension whitelist on every request.
@@ -105,9 +106,9 @@ export class SessionArtifactPaths {
   }
 
   /** Publishing is host-observed assistant content, never renderer input or tool stdout. */
-  recordPublishedImages(sessionId: string, text: unknown): void {
+  recordPublishedMedia(sessionId: string, text: unknown): void {
     if (!this.publishedImageRoot || typeof text !== 'string' || !text.includes('![')) return;
-    this.recordMany(sessionId, publishedImagePaths(text, this.publishedImageRoot, sessionId));
+    this.recordMany(sessionId, publishedMediaPaths(text, this.publishedImageRoot, sessionId));
   }
 
   observeMessage(sessionId: string, row: Record<string, Json>, streamId = ''): void {
@@ -124,11 +125,11 @@ export class SessionArtifactPaths {
       this.messageText.set(key, { sessionId, messageId, text: text.length > 1024 * 1024 ? null : text });
       while (this.messageText.size > this.limits.sessions) this.messageText.delete(this.messageText.keys().next().value!);
       // Admission precedes forwarding the delta which completes the image embed.
-      if (text.length <= 1024 * 1024 && row.text.includes(')')) this.recordPublishedImages(sessionId, text);
+      if (text.length <= 1024 * 1024 && row.text.includes(')')) this.recordPublishedMedia(sessionId, text);
     } else if (row.type === 'message_complete') {
       const previous = this.messageText.get(key);
       if (previous && (!row.messageId || row.messageId === previous.messageId)) {
-        this.recordPublishedImages(sessionId, previous.text);
+        this.recordPublishedMedia(sessionId, previous.text);
         this.messageText.delete(key);
       }
     } else if (row.type === 'done' || row.type === 'interrupted') {
@@ -147,6 +148,7 @@ export class SessionArtifactPaths {
     if (row.type === 'tool_start') {
       if (toolCallId) this.toolArgs.set(JSON.stringify([sessionId, streamId, toolCallId]), { sessionId, toolName, text: null });
       this.recordMany(sessionId, shellToolInputPaths(toolName, row.args));
+      this.recordMany(sessionId, toolInputFilePaths(toolName, row.args));
       return;
     }
     if (!toolCallId) return;
@@ -261,7 +263,7 @@ export function recordArtifactPathsFromHistory(ledger: SessionArtifactPaths, ses
         : (Array.isArray(messageRow.contentBlocks) ? messageRow.contentBlocks : [])
           .map(block => object(block)).filter(block => block?.type === 'text')
           .map(block => typeof block?.text === 'string' ? block.text : '').join('');
-      ledger.recordPublishedImages(sessionId, text);
+      ledger.recordPublishedMedia(sessionId, text);
     }
     for (const block of Array.isArray(messageRow.contentBlocks) ? messageRow.contentBlocks : []) {
       const record = object(block);
@@ -269,6 +271,7 @@ export function recordArtifactPathsFromHistory(ledger: SessionArtifactPaths, ses
       if (record.type === 'image' || record.type === 'document') { ledger.record(sessionId, record.path); continue; }
       if (record.type !== 'tool_use') continue;
       ledger.recordMany(sessionId, shellToolInputPaths(typeof record.name === 'string' ? record.name : '', record.input));
+      ledger.recordMany(sessionId, toolInputFilePaths(typeof record.name === 'string' ? record.name : '', record.input));
       const result = object(record.__result as Json);
       if (!result) continue;
       if (result.is_error === true) continue;

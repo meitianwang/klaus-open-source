@@ -30,10 +30,22 @@ function imageHrefs(text: string): string[] {
   return hrefs;
 }
 
-/** Only explicit image embeds publish files from the managed output directory. */
-export function publishedImagePaths(text: string, root: string, sessionId: string): string[] {
+/**
+ * Explicit image embeds in an assistant-authored message publish the exact file
+ * they name.
+ *
+ * The message is the publication: the reply points the user at that image, and
+ * the renderer will ask the media channel for the same absolute path. Which
+ * command wrote the file, and whether it used an absolute, `~/` or relative
+ * spelling, no longer matters. Inside the managed output store the per-
+ * conversation ownership rule still applies; outside it, an existing regular
+ * image, audio or video file is enough. Code blocks, prose, links and user messages never
+ * publish anything.
+ */
+export function publishedMediaPaths(text: string, root: string, sessionId: string): string[] {
   if (!sessionId || !root || !isAbsolute(root)) return [];
   const paths = new Set<string>();
+  const managedRoot = resolve(root);
   for (const href of imageHrefs(text)) {
     let path = href;
     if (/^sandbox:/iu.test(path)) path = path.slice(8);
@@ -45,6 +57,7 @@ export function publishedImagePaths(text: string, root: string, sessionId: strin
       }
       if (!isAbsolute(path) || /[\u0000-\u001f\u007f]/u.test(path)) continue;
       path = resolve(path);
+      if (!/^(?:image|audio|video)\//u.test(mimeForExtension(extname(path).slice(1)) ?? '')) continue;
       const eligible = (candidate: string, directory: string): boolean => {
         if (!pathInside(candidate, directory)) return false;
         const parts = relative(directory, candidate).split(sep);
@@ -52,10 +65,23 @@ export function publishedImagePaths(text: string, root: string, sessionId: strin
         // confined to their owner; a reference never admits a sibling directory.
         return parts.length === 1 || parts[0] === sessionId;
       };
-      if (!eligible(path, resolve(root)) || !mimeForExtension(extname(path).slice(1))?.startsWith('image/')) continue;
-      const canonicalRoot = realpathSync(root), canonical = realpathSync(path);
-      if (canonicalRoot !== resolve(realpathSync(dirname(root)), basename(root)) || !eligible(canonical, canonicalRoot)
-        || !statSync(canonical).isFile()) continue;
+      const canonical = realpathSync(path);
+      if (!statSync(canonical).isFile()) continue;
+      const reportedInside = pathInside(path, managedRoot);
+      // The managed store is created on first publish; a conversation may show
+      // an existing file before that directory exists.
+      let canonicalRoot = '';
+      try { canonicalRoot = realpathSync(managedRoot); } catch { /* Not created yet. */ }
+      const canonicalInside = canonicalRoot !== '' && pathInside(canonical, canonicalRoot);
+      if (reportedInside || canonicalInside) {
+        if (!canonicalRoot || canonicalRoot !== resolve(realpathSync(dirname(managedRoot)), basename(managedRoot))) continue;
+        // A reported path inside the store must stay inside the store and
+        // belong to this conversation. A reported path outside may point into
+        // the store only when the canonical target belongs to this conversation.
+        if (reportedInside) {
+          if (!eligible(path, managedRoot) || !canonicalInside || !eligible(canonical, canonicalRoot)) continue;
+        } else if (!eligible(canonical, canonicalRoot)) continue;
+      }
       paths.add(path);
     } catch { /* Missing files and symlink escapes do not grant a capability. */ }
   }

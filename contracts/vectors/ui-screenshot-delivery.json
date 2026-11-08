@@ -5,7 +5,7 @@
     { "name": "owned nested screenshot", "source": "assistant-image", "path": "s1/UI shot.png", "allowed": true },
     { "name": "screenshot inside a Markdown table", "source": "assistant-table", "path": "s1/table.png", "allowed": true },
     { "name": "another conversation directory", "source": "assistant-image", "path": "s2/UI.png", "allowed": false },
-    { "name": "arbitrary local file", "source": "assistant-image", "path": "../outside.png", "allowed": false },
+    { "name": "assistant-embedded file outside the managed store", "source": "assistant-image", "path": "../outside.png", "allowed": true },
     { "name": "user image reference", "source": "user-image", "path": "input.png", "allowed": false },
     { "name": "command output reference", "source": "tool-output", "path": "output.png", "allowed": false },
     { "name": "fenced Markdown example", "source": "assistant-code", "path": "example.png", "allowed": false },
