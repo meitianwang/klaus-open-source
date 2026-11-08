@@ -9,6 +9,7 @@ import { withSettingsDb } from '../main/services/settings';
 import { ComputerUseConnector, COMPUTER_USE_TOOLS, ESCAPE_STOP_MESSAGES, LOCK_PAUSE_MESSAGES, desktopSnapshot, snapshot, validateAction, validateDesktopAction, type ComputerUseDependencies } from '../main/services/computer-use/connector';
 import { ComputerUseEscapeWatcher } from '../main/services/computer-use/escape-watch';
 import { ComputerUseLockedUseWatcher } from '../main/services/computer-use/locked-use-watch';
+import { COMPUTER_USE_TELEMETRY_FILE } from '../main/services/computer-use/telemetry';
 import { COMPUTER_USE_OVERLAY_COPY, computerUseOverlayHtml, overlayBannerBounds } from '../main/app/computer-use-overlay';
 import { appGuidanceFor, appGuidancePrefix, APP_GUIDANCE_BUNDLE_IDS } from '../main/services/computer-use/app-guides';
 import type { AppSnapshot, ComputerUseBackend, ComputerUseContext, NativeRequest } from '../main/services/computer-use/types';
@@ -62,6 +63,16 @@ h.test('twenty-four named tools preserve explicit read and write effect annotati
 h.test('app discovery retains the exact path, bundle identifier and running process for recovery', async () => {
   const f = fixture(); const result = await f.connector.call('list_apps', {}, f.context());
   strict.match(String(result.content[0]?.text), /Fixture \(\/Applications\/Fixture.app\).*bundle ID test.fixture, pid 123/);
+});
+h.test('app discovery never offers system safety surfaces', async () => {
+  const dock = { name: 'Dock', path: '/System/Library/CoreServices/Dock.app', bundleId: 'com.apple.dock', running: true, pid: 300 };
+  const helper = { name: 'Helper', path: '/Applications/Helper.app', bundleId: 'com.klaus.computer-use-helper', running: true, pid: 301 };
+  const f = fixture(async request => request.method === 'listApps' ? { apps: [{ ...app, running: true }, dock, helper] } : undefined);
+  const result = await f.connector.call('list_apps', {}, f.context());
+  const text = String(result.content[0]?.text);
+  strict.match(text, /Fixture/);
+  strict.equal(text.includes('Dock'), false);
+  strict.equal(text.includes('Helper'), false);
 });
 h.test('documented keysym names and punctuation retain their platform-independent meaning', () => {
   const vector = JSON.parse(readFileSync(join(__dirname, '../../contracts/vectors/computer-use-observation-vectors.json'), 'utf8'));
@@ -835,6 +846,15 @@ h.test('real host capability routing enables only scoped sessions while global a
   strict.equal(requests.some(row => row.args.autoUnlock === true), false);
   strict.equal(requests.some(row => 'friendTaskRestricted' in row.args), false);
   strict.equal(runtime.policy.get().enabled, false); strict.equal(runtime.policy.autoUnlockEnabled(), true);
+  // The local usage ledger recorded the server launch once and every scoped tool call.
+  const telemetryLines = readFileSync(join(root, COMPUTER_USE_TELEMETRY_FILE), 'utf8').trim().split('\n').map(row => JSON.parse(row));
+  strict.equal(telemetryLines.filter(row => row.event === 'computer_use_server_launched').length, 1);
+  strict.equal(telemetryLines.find(row => row.event === 'computer_use_server_launched').transport, 'http');
+  strict.equal(telemetryLines.some(row => row.event === 'computer_use_tool_called' && row.toolName === 'get_computer_use_policy'
+    && row.terminalStatus === 'completed' && row.errorPresent === false && typeof row.durationMs === 'number'
+    && row.sessionId === 'friend' && row.turnId === 'turn1'), true);
+  strict.equal(telemetryLines.some(row => row.event === 'computer_use_tool_called' && row.toolName === 'type_text' && row.app === app.input), true);
+  strict.equal(telemetryLines.every(row => typeof row.at === 'string'), true);
   scope = { active: false, apps: [] };
   strict.deepEqual(await runtime.hostCapabilities('friend'), { mcpServers: [], runtimeCapabilityRoots: [] });
 });

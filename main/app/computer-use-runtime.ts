@@ -1,6 +1,7 @@
 import { app, nativeImage, type BrowserWindow } from 'electron';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { performance } from 'node:perf_hooks';
 import { petAppshot } from '../pets/appshot';
 import type { Json } from '../ipc/contract';
 import type { ChannelRegistry } from '../ipc/registry';
@@ -8,15 +9,17 @@ import { registerComputerUseSettingsHandlers } from '../ipc/handlers/computer-us
 import { registerRecordingHandlers } from '../ipc/handlers/recording';
 import { NativeComputerUse, type ComputerUseHelperCommand } from '../native/computer-use';
 import { ComputerUseAudioRecorder } from '../services/computer-use/audio';
-import { ComputerUsePolicyService } from '../services/computer-use/policy';
+import { ComputerUsePolicyService, computerUseSafetyForbidden } from '../services/computer-use/policy';
 import { ComputerUseAppDetails } from '../services/computer-use/app-details';
+import { ManagedComputerUsePolicyReader } from '../services/computer-use/managed-policy';
+import { ComputerUseTelemetry, COMPUTER_USE_TELEMETRY_EVENTS } from '../services/computer-use/telemetry';
 import type { ComputerUseTaskScope } from '../services/computer-use/policy';
 import type { ComputerUseBackend } from '../services/computer-use/types';
 import { ComputerUseConnector, ESCAPE_STOP_MESSAGES, LOCK_PAUSE_MESSAGES } from '../services/computer-use/connector';
 import { ComputerUseEscapeWatcher } from '../services/computer-use/escape-watch';
 import { ComputerUseLockedUseWatcher } from '../services/computer-use/locked-use-watch';
 import { storeBytes } from '../services/media';
-import { HostMcpServer } from '../services/mcp/host-server';
+import { HostMcpServer, type HostMcpCallContext } from '../services/mcp/host-server';
 import { RecordingConnector, RECORDING_TOOLS } from '../services/recording/connector';
 import type { RecordingCommand } from '../services/recording/helper';
 import { RecordingService, type RecordingEnded } from '../services/recording/service';
@@ -69,8 +72,13 @@ export async function createComputerUseRuntime(registry: ChannelRegistry, deps: 
   };
   const owners = new Map<string, Owner>(), turns = new Map<string, string>(), background = new Set<Promise<unknown>>();
   let closing = false, shutdownFlight: Promise<{ complete: boolean }> | undefined;
+  // The local usage ledger and the admin-provisioned enterprise policy are both
+  // data on disk; neither contacts a network.
+  const telemetry = new ComputerUseTelemetry(deps.configRoot, { log: message => deps.log('computer-use-telemetry', message) });
+  const managedPolicy = new ManagedComputerUsePolicyReader();
+  let serverLaunchRecorded = false;
   const policy: ComputerUsePolicyService = new ComputerUsePolicyService({ configRoot: deps.configRoot, availability: () => backend.availability(),
-    loginPassword: native.loginPassword, taskScope: deps.taskScope,
+    loginPassword: native.loginPassword, taskScope: deps.taskScope, managedPolicy: () => managedPolicy.read(), telemetry,
     enabledChanged: async (enabled, signal) => {
       if (!enabled) await Promise.all([...owners.keys()].filter(id => policy.taskScope(id) === undefined).map(releaseSession));
       signal.throwIfAborted(); await deps.enabledChanged(signal);
@@ -153,23 +161,40 @@ export async function createComputerUseRuntime(registry: ChannelRegistry, deps: 
     },
     tools: () => [...connector.tools, ...RECORDING_TOOLS],
     call: async (name, args, context) => {
-      context.assertCurrent();
-      if (policy.taskScope(context.sessionId) !== undefined) {
-        policy.guardSession(context.sessionId);
-        if (recordingNames.has(name)) throw new Error('Friend tasks cannot record computer activity');
+      const started = performance.now();
+      let terminalStatus: 'completed' | 'error' | 'cancelled' = 'completed';
+      try {
+        const result = await dispatchToolCall(name, args, context);
+        return result;
+      } catch (error) {
+        terminalStatus = context.signal.aborted ? 'cancelled' : 'error';
+        throw error;
+      } finally {
+        const row = args && typeof args === 'object' && !Array.isArray(args) ? args as Record<string, unknown> : {};
+        telemetry.record({ event: COMPUTER_USE_TELEMETRY_EVENTS.toolCalled, toolName: name,
+          durationMs: Math.round(performance.now() - started), terminalStatus,
+          errorPresent: terminalStatus !== 'completed', sessionId: context.sessionId, turnId: context.turnId,
+          ...(typeof row.app === 'string' ? { app: row.app } : {}) });
       }
-      if (recordingNames.has(name)) return recordingConnector.call(name, args, context);
-      // The in-use banner and the physical-stop watch share the turn's lifetime; an
-      // Escape-stopped turn must not re-arm either.
-      if (!connector.turnStopped(context.sessionId, context.turnId)) {
-        escapeWatcher.ensure(context.sessionId, context.turnId);
-        overlayOwner = context.sessionId; overlay.show();
-      }
-      const result = await connector.call(name, args, context);
-      if (name === 'set_computer_use_policy') await recording.updatePolicy();
-      return result;
     },
   });
+  async function dispatchToolCall(name: string, args: Record<string, unknown>, context: HostMcpCallContext): Promise<unknown> {
+    context.assertCurrent();
+    if (policy.taskScope(context.sessionId) !== undefined) {
+      policy.guardSession(context.sessionId);
+      if (recordingNames.has(name)) throw new Error('Friend tasks cannot record computer activity');
+    }
+    if (recordingNames.has(name)) return recordingConnector.call(name, args, context);
+    // The in-use banner and the physical-stop watch share the turn's lifetime; an
+    // Escape-stopped turn must not re-arm either.
+    if (!connector.turnStopped(context.sessionId, context.turnId)) {
+      escapeWatcher.ensure(context.sessionId, context.turnId);
+      overlayOwner = context.sessionId; overlay.show();
+    }
+    const result = await connector.call(name, args, context);
+    if (name === 'set_computer_use_policy') await recording.updatePolicy();
+    return result;
+  }
   const bundleIcon = async (bundleRoot: string): Promise<string | undefined> => {
     const bundled = icnsIconDataUrl(bundleIconPathFromRoot(bundleRoot) ?? '');
     if (bundled) {
@@ -199,7 +224,12 @@ export async function createComputerUseRuntime(registry: ChannelRegistry, deps: 
     const raw = object(await metadataNative.request({ resourceId: 'settings-app-list', operationId: randomUUID(), generation: 1,
       sequence: 1, method: 'listApps', args: {} }, AbortSignal.timeout(3000)));
     if (!Array.isArray(raw.apps) || raw.apps.length > 80) throw new Error('Computer Use app list is invalid');
-    const result = { ...raw, apps: await Promise.all(raw.apps.map(async (item: unknown) => {
+    // System UI and authentication surfaces are never offered as saved-app candidates.
+    const visible = raw.apps.filter((item: unknown) => {
+      const row = object(item);
+      return !(typeof row.bundleId === 'string' && computerUseSafetyForbidden({ input: row.bundleId, bundleId: row.bundleId }));
+    });
+    const result = { ...raw, apps: await Promise.all(visible.map(async (item: unknown) => {
       const app = item && typeof item === 'object' && !Array.isArray(item) ? item as Record<string, unknown> : {};
       if (typeof app.path !== 'string') return app;
       const iconDataUrl = await bundleIcon(app.path);
@@ -259,6 +289,10 @@ export async function createComputerUseRuntime(registry: ChannelRegistry, deps: 
       if (!owner) { connector.attachSession(id); owner = { retiring: false }; owners.set(id, owner); }
       try {
         const capabilities = await mcp.hostCapabilities(id);
+        if (!serverLaunchRecorded) {
+          serverLaunchRecorded = true;
+          telemetry.record({ event: COMPUTER_USE_TELEMETRY_EVENTS.serverLaunched, transport: 'http' });
+        }
         policy.assertTaskScopeCurrent(id, initialScope);
         if (closing || owner.retiring || owners.get(id) !== owner) throw new Error('Computer Use task changed during capability startup');
         return capabilities;

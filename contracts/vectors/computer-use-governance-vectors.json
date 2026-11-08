@@ -1,0 +1,39 @@
+{
+  "_why": "Governance refusals are user- and model-visible contract wording, the managed enterprise policy is an admin-provisioned data surface, and the usage ledger is a local-only file. All three are pinned so neither the safety list, the organization-policy wording, nor the telemetry event surface can drift silently.",
+  "safetyForbiddenBundleIds": [
+    "com.klaus.computer-use-helper",
+    "com.apple.WindowManager",
+    "com.apple.controlcenter",
+    "com.apple.dock",
+    "com.apple.notificationcenterui",
+    "com.apple.UserNotificationCenter",
+    "com.apple.LocalAuthentication.UIAgent",
+    "com.apple.LocalAuthenticationRemoteService",
+    "com.apple.SecurityAgent"
+  ],
+  "messages": {
+    "organizationDisabled": "Computer Use is blocked by your organization's policy.",
+    "organizationBlockedApp": "Computer Use is blocked from using the app '{app}' by your organization's policy.",
+    "safetyForbiddenApp": "Computer Use is not allowed to use the app '{app}' for safety reasons.",
+    "managedUnreadable": "Computer Use managed policy is unreadable; it is blocked until the policy file is repaired."
+  },
+  "managedPolicy": {
+    "fileName": "managed-computer-use.json",
+    "schemaKeys": ["computerUseEnabled", "blockedApps"],
+    "darwinDirectory": "/Library/Application Support",
+    "windowsDirectoryEnv": "ProgramData",
+    "failClosed": true
+  },
+  "telemetry": {
+    "fileName": "computer-use-telemetry.jsonl",
+    "disableEnv": "KLAUS_COMPUTER_USE_DISABLE_TELEMETRY",
+    "maxBytes": 524288,
+    "networkUpload": false,
+    "events": {
+      "serverLaunched": "computer_use_server_launched",
+      "appApprovalRequested": "computer_use_app_approval_requested",
+      "appApprovalResolved": "computer_use_app_approval_resolved",
+      "toolCalled": "computer_use_tool_called"
+    }
+  }
+}

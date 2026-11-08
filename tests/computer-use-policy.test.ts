@@ -4,8 +4,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Harness, waitFor } from './harness';
 import { withSettingsDb } from '../main/services/settings';
-import { ComputerUsePolicyService, DEFAULT_COMPUTER_USE_ALLOWED_APP, computerUseAppMatches, computerUseSelfAppMatches, computerUseTaskAppMatches, type ComputerUseTaskScope, type ComputerUsePolicyDependencies,
+import { ComputerUsePolicyService, DEFAULT_COMPUTER_USE_ALLOWED_APP, COMPUTER_USE_SAFETY_FORBIDDEN_BUNDLE_IDS, COMPUTER_USE_GOVERNANCE_MESSAGES, computerUseAppMatches, computerUseSelfAppMatches, computerUseTaskAppMatches, type ComputerUseTaskScope, type ComputerUsePolicyDependencies,
   type ComputerUseApprovalContext, type ComputerUseApp } from '../main/services/computer-use/policy';
+import { MANAGED_COMPUTER_USE_UNREADABLE, type ManagedPolicySnapshot } from '../main/services/computer-use/managed-policy';
 import { registerComputerUseSettingsHandlers } from '../main/ipc/handlers/computer-use';
 import { ChannelRegistry } from '../main/ipc/registry';
 import { IpcRouter } from '../main/ipc/router';
@@ -444,6 +445,111 @@ h.test('a friend cannot self-authorize through Klaus or an alias of the host exe
   await strict.rejects(f.service.approve({ ...notes, pid: process.pid }, f.context()), /cannot operate Klaus/);
   await strict.rejects(f.service.approve({ input: 'Alias', name: 'Alias', path: application }, f.context()), /cannot operate Klaus/);
   strict.equal(f.prompts.length, 0);
+});
+
+h.test('governance vectors pin the safety list and the refusal wording', () => {
+  const vector = JSON.parse(readFileSync(join(__dirname, '../../contracts/vectors/computer-use-governance-vectors.json'), 'utf8'));
+  strict.deepEqual(vector.safetyForbiddenBundleIds, [...COMPUTER_USE_SAFETY_FORBIDDEN_BUNDLE_IDS]);
+  strict.equal(vector.messages.organizationDisabled, COMPUTER_USE_GOVERNANCE_MESSAGES.organizationDisabled);
+  strict.equal(vector.messages.organizationBlockedApp.replace('{app}', 'Notes'), COMPUTER_USE_GOVERNANCE_MESSAGES.organizationBlockedApp('Notes'));
+  strict.equal(vector.messages.safetyForbiddenApp.replace('{app}', 'Dock'), COMPUTER_USE_GOVERNANCE_MESSAGES.safetyForbiddenApp('Dock'));
+});
+
+h.test('system safety surfaces are refused everywhere and cannot be saved as allowed apps', async () => {
+  const f = fixture();
+  const dock = { input: 'Dock', name: 'Dock', bundleId: 'com.apple.dock', path: '/System/Library/CoreServices/Dock.app', pid: 300 };
+  strict.throws(() => f.service.guardInput('a', 'com.apple.dock'), /for safety reasons/);
+  strict.throws(() => f.service.guardInput('a', 'bundle:com.apple.dock'), /for safety reasons/);
+  await strict.rejects(f.service.approve(dock, f.context()), /not allowed to use the app 'Dock' for safety reasons/);
+  await strict.rejects(f.service.approve({ input: 'helper', bundleId: 'com.klaus.computer-use-helper' }, f.context()), /for safety reasons/);
+  strict.throws(() => f.service.addAllowedApp({ app: 'bundle:com.apple.dock' }), /for safety reasons/);
+  strict.throws(() => f.service.setAppPolicy({ always_allowed_apps: ['bundle:com.apple.controlcenter'] }), /for safety reasons/);
+  strict.equal(f.prompts.length, 0);
+  strict.equal(f.stored()['computer_use.allowed_apps'], '[]');
+});
+
+h.test('an organization policy blocks everything and cannot be overridden locally', async () => {
+  let snapshot: ManagedPolicySnapshot = { status: 'absent' };
+  const f = fixture({ managedPolicy: () => snapshot });
+  strict.equal(f.service.get().managedDisabled, false);
+  snapshot = { status: 'active', policy: { computerUseEnabled: false, blockedApps: [] } };
+  strict.equal(f.service.get().enabled, false);
+  strict.equal(f.service.get().managedDisabled, true);
+  strict.throws(() => f.service.guardSession('a'), /blocked by your organization's policy/);
+  await strict.rejects(f.service.approve(notes, f.context()), /organization's policy/);
+  strict.equal(f.prompts.length, 0);
+  const attempt = await f.service.setEnabled({ enabled: true });
+  strict.equal(attempt.ok, false); strict.match(String(attempt.error), /organization's policy/);
+  strict.equal(f.stored()['computer_use.enabled'], undefined, 'a refused enable never writes the preference');
+  strict.equal((await f.service.setEnabled({ enabled: false })).ok, true);
+  strict.match(await f.service.describePolicy(), /Organization policy: Computer Use is blocked by your organization's policy\./);
+});
+
+h.test('an organization app block wins over saved always-allowed entries and task grants', async () => {
+  const snapshot: ManagedPolicySnapshot = { status: 'active', policy: { computerUseEnabled: true, blockedApps: ['bundle:com.apple.Notes', 'Safari'] } };
+  const f = fixture({ managedPolicy: () => snapshot });
+  f.service.addAllowedApp({ app: 'Notes' });
+  await strict.rejects(f.service.approve(notes, f.context()), /blocked from using the app 'Notes' by your organization's policy/);
+  strict.throws(() => f.service.guardInput('a', 'Safari'), /blocked from using the app 'Safari' by your organization's policy/);
+  strict.equal(f.prompts.length, 0);
+  strict.match(await f.service.describePolicy(), /Organization-blocked apps \(never operated\): bundle:com\.apple\.Notes, Safari/);
+  const other = { input: 'Mail', name: 'Mail', bundleId: 'com.apple.Mail', path: '/Applications/Mail.app', pid: 43 };
+  const lease = await f.service.approve(other, f.context()); f.service.release(lease);
+  strict.equal(f.prompts.length, 1, 'unblocked apps keep the ordinary approval flow');
+});
+
+h.test('an unreadable organization policy fails closed until repaired', async () => {
+  let snapshot: ManagedPolicySnapshot = { status: 'unreadable', error: MANAGED_COMPUTER_USE_UNREADABLE };
+  const f = fixture({ managedPolicy: () => snapshot });
+  strict.equal(f.service.get().enabled, false);
+  strict.equal(f.service.get().managedDisabled, true);
+  strict.throws(() => f.service.guardSession('a'), /unreadable/);
+  const attempt = await f.service.setEnabled({ enabled: true });
+  strict.equal(attempt.ok, false); strict.match(String(attempt.error), /unreadable/);
+  snapshot = { status: 'absent' };
+  strict.equal(f.service.get().enabled, true);
+  strict.equal(f.service.get().managedDisabled, false);
+});
+
+h.test('friend task authorization cannot bypass an organization disable', () => {
+  const snapshot: ManagedPolicySnapshot = { status: 'active', policy: { computerUseEnabled: false, blockedApps: [] } };
+  const f = fixture({ managedPolicy: () => snapshot, taskScope: () => ({ active: true, apps: ['bundle:com.apple.Notes'] }) });
+  strict.equal(f.service.sessionSettings('a').enabled, false);
+  strict.equal(f.service.sessionSettings('a').managedDisabled, true);
+  strict.throws(() => f.service.guardSession('a'), /organization's policy/);
+});
+
+h.test('a mid-session organization change voids live leases', async () => {
+  let snapshot: ManagedPolicySnapshot = { status: 'absent' };
+  const f = fixture({ managedPolicy: () => snapshot });
+  const lease = await f.service.approve(notes, f.context());
+  snapshot = { status: 'active', policy: { computerUseEnabled: true, blockedApps: ['bundle:com.apple.Notes'] } };
+  strict.throws(() => f.service.assertCurrent(lease), /organization's policy/);
+  f.service.release(lease);
+});
+
+h.test('approval questions are recorded in the local usage ledger', async () => {
+  const events: Array<Record<string, unknown>> = [];
+  const f = fixture({ telemetry: { record: event => events.push(event) } });
+  const lease = await f.service.approve(notes, { ...f.context('a', async () => ({ action: 'accept' })), toolName: 'get_app_state' });
+  f.service.release(lease);
+  strict.deepEqual(events.map(event => event.event), ['computer_use_app_approval_requested', 'computer_use_app_approval_resolved']);
+  strict.equal(events[0]!.app, 'Notes'); strict.equal(events[0]!.bundleIdentifier, 'com.apple.Notes');
+  strict.equal(events[0]!.toolName, 'get_app_state'); strict.equal(events[0]!.sessionId, 'a');
+  strict.equal(events[1]!.approvalResult, 'accepted');
+  events.length = 0;
+  f.service.addAllowedApp({ app: 'Safari' });
+  const safari = { input: 'Safari', name: 'Safari', bundleId: 'com.apple.Safari', path: '/Applications/Safari.app', pid: 43 };
+  const saved = await f.service.approve(safari, { ...f.context(), toolName: 'click' }); f.service.release(saved);
+  strict.equal(events.length, 0, 'a saved app never asks, so nothing is recorded');
+  const mail = { input: 'Mail', name: 'Mail', bundleId: 'com.apple.Mail', path: '/Applications/Mail.app', pid: 44 };
+  events.length = 0;
+  await strict.rejects(f.service.approve(mail, { ...f.context('b', async () => ({ action: 'decline' })), toolName: 'type_text' }), /was decline/);
+  strict.deepEqual(events.map(event => event.event), ['computer_use_app_approval_requested', 'computer_use_app_approval_resolved']);
+  strict.equal(events[1]!.approvalResult, 'decline'); strict.equal(events[1]!.toolName, 'type_text');
+  events.length = 0;
+  await strict.rejects(f.service.approve({ ...mail, pid: 45 }, { ...f.context('b', async () => { throw new Error('gone'); }), toolName: 'click' }), /gone/);
+  strict.equal(events.at(-1)!.approvalResult, 'cancelled');
 });
 
 void h.finish(join(__dirname, 'computer-use-policy-results.json'), 'computer-use-policy').then(async code => {

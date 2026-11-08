@@ -6,6 +6,8 @@ import type { DatabaseSync } from 'node:sqlite';
 import { withSettingsDb } from '../settings';
 import { currentDesktopEdition, loadedDesktopEditions } from '../desktop-edition';
 import type { DesktopEdition } from '../../../shared/desktop-edition';
+import { MANAGED_COMPUTER_USE_UNREADABLE, type ManagedPolicySnapshot } from './managed-policy';
+import { COMPUTER_USE_TELEMETRY_EVENTS, type ComputerUseTelemetrySink } from './telemetry';
 
 const ENABLED = 'computer_use.enabled';
 const ALLOWED = 'computer_use.allowed_apps';
@@ -19,6 +21,8 @@ export interface ComputerUseSettings {
   availableOnThisPlatform: boolean;
   allowedApps: string[];
   deniedApps: string[];
+  /** True while an admin-provisioned managed policy blocks Computer Use entirely. */
+  managedDisabled: boolean;
 }
 export interface ComputerUseApp {
   input: string;
@@ -31,6 +35,8 @@ export interface ComputerUseApprovalContext {
   /** The host authenticates this identity before invoking a connector tool. */
   sessionId: string;
   signal: AbortSignal;
+  /** The tool whose call triggered the approval question; recorded in the usage ledger. */
+  toolName?: string;
   elicit(request: ObjectValue, signal: AbortSignal): Promise<unknown>;
 }
 export interface ComputerUseOperation {
@@ -49,6 +55,10 @@ export interface ComputerUsePolicyDependencies {
   enabledChanged(enabled: boolean, signal: AbortSignal): Promise<void>;
   loginPassword?: ComputerUsePasswordStore;
   taskScope?(sessionId: string): ComputerUseTaskScope | undefined;
+  /** Admin-provisioned enterprise policy; absent means no organization management. */
+  managedPolicy?(): ManagedPolicySnapshot;
+  /** Local usage ledger; approvals are recorded through this sink when present. */
+  telemetry?: ComputerUseTelemetrySink;
 }
 export interface ComputerUseTaskScope { active: boolean; apps: string[] }
 export interface ComputerUsePasswordStore {
@@ -76,6 +86,33 @@ interface LeaseState {
   dispose(): void;
 }
 
+/**
+ * System UI and authentication surfaces that are never operated, plus the
+ * native helper itself. These are platform facts about macOS system processes.
+ */
+export const COMPUTER_USE_SAFETY_FORBIDDEN_BUNDLE_IDS: readonly string[] = [
+  'com.klaus.computer-use-helper',
+  'com.apple.WindowManager',
+  'com.apple.controlcenter',
+  'com.apple.dock',
+  'com.apple.notificationcenterui',
+  'com.apple.UserNotificationCenter',
+  'com.apple.LocalAuthentication.UIAgent',
+  'com.apple.LocalAuthenticationRemoteService',
+  'com.apple.SecurityAgent',
+];
+/** Governance refusal wording; pinned by the governance contract vectors. */
+export const COMPUTER_USE_GOVERNANCE_MESSAGES = {
+  organizationDisabled: "Computer Use is blocked by your organization's policy.",
+  organizationBlockedApp: (app: string) => `Computer Use is blocked from using the app '${app}' by your organization's policy.`,
+  safetyForbiddenApp: (app: string) => `Computer Use is not allowed to use the app '${app}' for safety reasons.`,
+};
+/** Safety refusal matches bundle identities, including an explicit `bundle:` selector. */
+export function computerUseSafetyForbidden(app: { input: string; bundleId?: string }): boolean {
+  const targets = [app.bundleId, app.input.replace(/^bundle:/i, '')]
+    .filter((value): value is string => !!value).map(normalizeComputerUseApp);
+  return COMPUTER_USE_SAFETY_FORBIDDEN_BUNDLE_IDS.some(id => targets.includes(normalizeComputerUseApp(id)));
+}
 function record(value: unknown): ObjectValue {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Computer Use arguments must be an object');
   return value as ObjectValue;
@@ -170,7 +207,7 @@ function transaction<T>(db: DatabaseSync, operation: () => T): T {
   catch (error) { db.exec('ROLLBACK'); throw error; }
 }
 function policyIdentity(settings: ComputerUseSettings): string {
-  return JSON.stringify([settings.enabled, settings.allowedApps, settings.deniedApps]);
+  return JSON.stringify([settings.enabled, settings.allowedApps, settings.deniedApps, settings.managedDisabled]);
 }
 function identity(app: ComputerUseApp): string {
   if (app.bundleId) return `bundle:${normalizeComputerUseApp(app.bundleId)}`;
@@ -201,12 +238,27 @@ export class ComputerUsePolicyService {
   private closed = false;
   constructor(private readonly deps: ComputerUsePolicyDependencies) {}
 
+  private managed(): ManagedPolicySnapshot {
+    try { return this.deps.managedPolicy?.() ?? { status: 'absent' }; }
+    catch { return { status: 'unreadable', error: MANAGED_COMPUTER_USE_UNREADABLE }; }
+  }
+  private managedBlocksEverything(managed: ManagedPolicySnapshot): boolean {
+    return managed.status === 'unreadable' || (managed.status === 'active' && !managed.policy.computerUseEnabled);
+  }
+  /** The organization-policy refusal wording for the current managed snapshot, if it blocks. */
+  private managedRefusal(managed: ManagedPolicySnapshot): string | undefined {
+    if (managed.status === 'unreadable') return managed.error;
+    if (managed.status === 'active' && !managed.policy.computerUseEnabled) return COMPUTER_USE_GOVERNANCE_MESSAGES.organizationDisabled;
+    return undefined;
+  }
   private settings(db: DatabaseSync): ComputerUseSettings {
     const enabled = read(db, ENABLED);
     // Saved entries waive the app question; they never restrict other local apps.
     const allowedApps = readList(db, ALLOWED);
-    return { enabled: enabled !== '0', availableOnThisPlatform: this.deps.availability().available,
-      allowedApps, deniedApps: readList(db, DENIED) };
+    const managed = this.managed();
+    const managedDisabled = this.managedBlocksEverything(managed);
+    return { enabled: enabled !== '0' && !managedDisabled, availableOnThisPlatform: this.deps.availability().available,
+      allowedApps, deniedApps: readList(db, DENIED), managedDisabled };
   }
   get(): ComputerUseSettings { return withSettingsDb(this.deps.configRoot, db => this.settings(db)); }
   taskScope(sessionId: string): ComputerUseTaskScope | undefined {
@@ -237,8 +289,12 @@ export class ComputerUsePolicyService {
   sessionSettings(sessionId: string): ComputerUseSettings {
     const scope = this.taskScope(sessionId);
     if (!scope) return this.get();
-    return withSettingsDb(this.deps.configRoot, db => ({ enabled: scope.active && scope.apps.length > 0,
-      availableOnThisPlatform: this.deps.availability().available, allowedApps: scope.apps, deniedApps: readList(db, DENIED) }));
+    return withSettingsDb(this.deps.configRoot, db => {
+      const managedDisabled = this.managedBlocksEverything(this.managed());
+      return { enabled: scope.active && scope.apps.length > 0 && !managedDisabled,
+        availableOnThisPlatform: this.deps.availability().available, allowedApps: scope.apps,
+        deniedApps: readList(db, DENIED), managedDisabled };
+    });
   }
   guardSession(sessionId: string): ComputerUseSettings { this.owner(sessionId); return this.availableSettings(sessionId); }
   assertTaskScopeCurrent(sessionId: string, expected: string): void {
@@ -266,6 +322,9 @@ export class ComputerUsePolicyService {
     if (this.mutations.size >= 32) throw new Error('Computer Use settings update queue is full');
     const task = this.mutationQueue.then(async () => {
       if (this.closed) throw new Error('Computer Use policy service is closed');
+      // An organization policy wins over the local preference: enabling is refused outright.
+      const managed = this.managed(), refusal = enabled ? this.managedRefusal(managed) : undefined;
+      if (refusal) return { ok: false, settings: this.get(), error: refusal };
       const settings = withSettingsDb(this.deps.configRoot, db => transaction(db, () => {
         write(db, ENABLED, enabled ? '1' : '0'); return this.settings(db);
       }));
@@ -287,6 +346,7 @@ export class ComputerUsePolicyService {
   addAllowedApp(payload: unknown): { ok: true; settings: ComputerUseSettings } {
     if (this.closed) throw new Error('Computer Use policy service is closed');
     const app = appString(record(payload).app, 'app');
+    if (computerUseSafetyForbidden({ input: app })) throw new Error(COMPUTER_USE_GOVERNANCE_MESSAGES.safetyForbiddenApp(app));
     const settings = withSettingsDb(this.deps.configRoot, db => transaction(db, () => {
       const current = this.settings(db);
       if (!current.allowedApps.includes(app)) current.allowedApps.push(app);
@@ -319,6 +379,7 @@ export class ComputerUsePolicyService {
     // Accept the old wire member for in-flight sessions; saved entries now waive approval.
     const rawAllowed = value.always_allowed_apps ?? value.restricted_to_apps;
     const allowed = rawAllowed == null ? undefined : list(rawAllowed, 'always_allowed_apps');
+    if (allowed !== undefined) for (const entry of allowed) if (computerUseSafetyForbidden({ input: entry })) throw new Error(COMPUTER_USE_GOVERNANCE_MESSAGES.safetyForbiddenApp(entry));
     signal.throwIfAborted();
     if (this.mutations.size >= 32) throw new Error('Computer Use settings update queue is full');
     const revision = unlock === undefined ? undefined : ++this.passwordRevision;
@@ -377,11 +438,15 @@ export class ComputerUsePolicyService {
     return withSettingsDb(this.deps.configRoot, db => {
       const settings = this.settings(db);
       const armed = read(db, AUTO_UNLOCK) === '1';
+      const managed = this.managed();
+      const organization = managed.status === 'unreadable' ? `Organization policy: ${managed.error}`
+        : managed.status === 'active' && !managed.policy.computerUseEnabled ? `Organization policy: ${COMPUTER_USE_GOVERNANCE_MESSAGES.organizationDisabled}`
+          : managed.status === 'active' && managed.policy.blockedApps.length ? `Organization-blocked apps (never operated): ${managed.policy.blockedApps.join(', ')}` : '';
       const unlock = !store?.available() ? 'unavailable on this platform or with this native helper'
         : !armed ? 'off' : hasPassword === true ? 'armed, login password stored in the keychain'
           : hasPassword === false ? 'armed but no login password is stored, so a locked screen still asks the user'
             : 'armed but login password presence could not be confirmed, so a locked screen may still ask the user';
-      return `Blocked apps (never operated): ${settings.deniedApps.join(', ') || 'none'}\n` +
+      return `${organization ? `${organization}\n` : ''}Blocked apps (never operated): ${settings.deniedApps.join(', ') || 'none'}\n` +
         `Always-allowed apps (skip the app question): ${settings.allowedApps.join(', ') || 'none'}\n` +
         `Other local apps may be used after approval. Saved app entries do not restrict access to other apps.\n` +
         `Lock-screen auto-unlock: ${unlock}`;
@@ -411,6 +476,9 @@ export class ComputerUsePolicyService {
   guardInput(sessionId: string, input: string): void {
     this.owner(sessionId);
     const app = { input: appString(input, 'app') }, settings = this.availableSettings(sessionId);
+    if (computerUseSafetyForbidden(app)) throw new Error(COMPUTER_USE_GOVERNANCE_MESSAGES.safetyForbiddenApp(app.input));
+    const managed = this.managed();
+    if (managed.status === 'active' && computerUseAppMatches(app, managed.policy.blockedApps)) throw new Error(COMPUTER_USE_GOVERNANCE_MESSAGES.organizationBlockedApp(app.input));
     if (this.taskScope(sessionId) && isHostProductApp(app)) throw new Error('Friend tasks cannot operate Klaus or the host process');
     if (computerUseAppMatches(app, settings.deniedApps)) throw new Error(`Computer Use is blocked for app: ${app.input}`);
   }
@@ -421,12 +489,17 @@ export class ComputerUsePolicyService {
   }
   private availableSettings(sessionId: string): ComputerUseSettings {
     const settings = this.sessionSettings(sessionId);
+    const refusal = this.managedRefusal(this.managed());
+    if (refusal) throw new Error(refusal);
     if (!settings.enabled) throw new Error(this.taskScope(sessionId) ? 'Computer Use task authorization is inactive or has no approved applications' : 'Computer Use is disabled');
     if (!settings.availableOnThisPlatform) throw new Error(this.deps.availability().error ?? 'Computer Use is unavailable on this platform');
     return settings;
   }
   private enforce(app: ComputerUseApp, settings: ComputerUseSettings, sessionId: string): void {
     const label = app.name || app.input;
+    if (computerUseSafetyForbidden(app)) throw new Error(COMPUTER_USE_GOVERNANCE_MESSAGES.safetyForbiddenApp(label));
+    const managed = this.managed();
+    if (managed.status === 'active' && computerUseAppMatches(app, managed.policy.blockedApps)) throw new Error(COMPUTER_USE_GOVERNANCE_MESSAGES.organizationBlockedApp(label));
     if (computerUseAppMatches(app, settings.deniedApps)) throw new Error(`Computer Use is blocked for app: ${label}`);
     const scoped = this.taskScope(sessionId) !== undefined;
     if (scoped && isHostProductApp(app)) throw new Error('Friend tasks cannot operate Klaus or the host process');
@@ -454,12 +527,24 @@ export class ComputerUsePolicyService {
       let settings = check();
       const key = identity(app);
       if (!owner.taskRestricted && !owner.approvals.has(key) && !computerUseAppMatches(app, settings.allowedApps)) {
-        const response = record(await context.elicit({
-          _meta: { persist: ['always'], klaus: { computerUseApp: app.input } },
-          message: `Allow Klaus to use ${app.input}?`, requestedSchema: { properties: {}, type: 'object' },
-        }, controller.signal));
+        const approval = { app: app.input, ...(app.bundleId ? { bundleIdentifier: app.bundleId } : {}),
+          ...(context.toolName ? { toolName: context.toolName } : {}), sessionId: context.sessionId };
+        this.deps.telemetry?.record({ event: COMPUTER_USE_TELEMETRY_EVENTS.appApprovalRequested, ...approval });
+        let response: ObjectValue;
+        try {
+          response = record(await context.elicit({
+            _meta: { persist: ['always'], klaus: { computerUseApp: app.input } },
+            message: `Allow Klaus to use ${app.input}?`, requestedSchema: { properties: {}, type: 'object' },
+          }, controller.signal));
+        } catch (error) {
+          this.deps.telemetry?.record({ event: COMPUTER_USE_TELEMETRY_EVENTS.appApprovalResolved, approvalResult: 'cancelled', ...approval });
+          throw error;
+        }
+        const accepted = response.action === 'accept';
+        this.deps.telemetry?.record({ event: COMPUTER_USE_TELEMETRY_EVENTS.appApprovalResolved,
+          approvalResult: accepted ? 'accepted' : typeof response.action === 'string' && response.action ? response.action : 'declined', ...approval });
         settings = check();
-        if (response.action !== 'accept') throw new Error(`Computer Use access to ${app.input} was ${typeof response.action === 'string' ? response.action : 'cancelled'}`);
+        if (!accepted) throw new Error(`Computer Use access to ${app.input} was ${typeof response.action === 'string' ? response.action : 'cancelled'}`);
       }
       settings = check();
       owner.approvals.add(key);

@@ -1,6 +1,6 @@
 import { savedImageMarkdown } from '../media';
 import { randomUUID } from 'node:crypto';
-import { ComputerUsePolicyService, type ComputerUseOperation } from './policy';
+import { ComputerUsePolicyService, computerUseSafetyForbidden, type ComputerUseOperation } from './policy';
 import { appGuidanceFor, appGuidancePrefix } from './app-guides';
 import { actionLabel, stateText } from './format';
 import { COMPUTER_USE_TOOLS } from './tools';
@@ -380,7 +380,7 @@ export class ComputerUseConnector {
             let lease: ComputerUseOperation | undefined;
             try {
               if (state.app) {
-                lease = await this.deps.policy.approve(state.app, { ...context, signal: controller.signal });
+                lease = await this.deps.policy.approve(state.app, { ...context, toolName: name, signal: controller.signal });
                 this.deps.policy.assertCurrent(lease);
               }
               const mapping = { screenshotPixelWidth: state.screenshot.width, screenshotPixelHeight: state.screenshot.height,
@@ -406,7 +406,7 @@ export class ComputerUseConnector {
         if (!pinned || pinned.turnId !== turnId) throw new Error(DESKTOP_TURN_GATE);
         if (!pinned.app) throw new Error(DESKTOP_IDENTITY_REQUIRED);
         const app = pinned.app;
-        const lease = await this.deps.policy.approve(app, { ...context, signal: controller.signal });
+        const lease = await this.deps.policy.approve(app, { ...context, toolName: name, signal: controller.signal });
         let enteredNative = false, completed = false;
         try {
           const check = () => { current(); this.deps.policy.assertCurrent(lease); };
@@ -466,7 +466,12 @@ export class ComputerUseConnector {
         if (!settings.enabled || !settings.availableOnThisPlatform) throw new Error('Computer Use is unavailable or disabled');
         const result = object(await invoke('listApps', {}));
         if (!Array.isArray(result.apps) || result.apps.length > 80) throw new Error('Computer Use app list is invalid');
-        return text(result.apps.map(item => {
+        // System UI and authentication surfaces are never offered as targets.
+        const visible = result.apps.filter(item => {
+          const row = object(item);
+          return !(typeof row.bundleId === 'string' && computerUseSafetyForbidden({ input: row.bundleId, bundleId: row.bundleId }));
+        });
+        return text(visible.map(item => {
           const app = object(item); return `${string(app.name, 'app name')} (${string(app.path, 'app path')})${app.running === true ? ' [running]' : ''}${typeof app.bundleId === 'string' && app.bundleId ? `, bundle ID ${string(app.bundleId, 'bundle identifier')}` : ''}${typeof app.pid === 'number' ? `, pid ${number(app.pid, 'pid', 1, 0x7fffffff, true)}` : ''}${typeof app.lastUsed === 'string' ? `, last used ${string(app.lastUsed, 'last used', 128)}` : ''}${typeof app.useCount === 'number' ? `, uses ${number(app.useCount, 'use count', 0, Number.MAX_SAFE_INTEGER, true)}` : ''}`;
         }).join('\n') || 'No applications are available.');
       }
@@ -476,7 +481,7 @@ export class ComputerUseConnector {
       this.deps.policy.guardInput(context.sessionId, input);
       const epoch = this.deps.beginOperation?.(context.sessionId);
       const resolved = appIdentity(await invoke('resolve', { input }));
-      const lease = await this.deps.policy.approve(resolved, { ...context, signal: controller.signal });
+      const lease = await this.deps.policy.approve(resolved, { ...context, toolName: name, signal: controller.signal });
       let enteredAction = false, actionCompleted = false;
       try {
         const check = () => { current(); this.deps.policy.assertCurrent(lease); };

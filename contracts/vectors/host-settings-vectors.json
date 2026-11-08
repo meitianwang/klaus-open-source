@@ -5,31 +5,36 @@
         "enabled": true,
         "availableOnThisPlatform": true,
         "allowedApps": [],
-        "deniedApps": []
+        "deniedApps": [],
+      "managedDisabled": false
       },
       {
         "enabled": false,
         "availableOnThisPlatform": true,
         "allowedApps": [],
-        "deniedApps": []
+        "deniedApps": [],
+      "managedDisabled": false
       },
       {
         "enabled": true,
         "availableOnThisPlatform": true,
         "allowedApps": [],
-        "deniedApps": []
+        "deniedApps": [],
+      "managedDisabled": false
       },
       {
         "enabled": true,
         "availableOnThisPlatform": true,
         "allowedApps": [],
-        "deniedApps": []
+        "deniedApps": [],
+      "managedDisabled": false
       },
       {
         "enabled": true,
         "availableOnThisPlatform": true,
         "allowedApps": ["Notes", "Safari"],
-        "deniedApps": ["Terminal"]
+        "deniedApps": ["Terminal"],
+      "managedDisabled": false
       }
     ],
     "mutations": [
@@ -38,7 +43,8 @@
           "enabled": false,
           "availableOnThisPlatform": true,
           "allowedApps": [],
-          "deniedApps": []
+          "deniedApps": [],
+        "managedDisabled": false
         },
         "kv": {
           "computer_use.enabled": "0"
@@ -49,7 +55,8 @@
           "enabled": true,
           "availableOnThisPlatform": true,
           "allowedApps": [],
-          "deniedApps": []
+          "deniedApps": [],
+        "managedDisabled": false
         },
         "kv": {
           "computer_use.enabled": "1"
@@ -60,7 +67,8 @@
           "enabled": true,
           "availableOnThisPlatform": true,
           "allowedApps": ["Notes", "Mail"],
-          "deniedApps": ["Terminal"]
+          "deniedApps": ["Terminal"],
+        "managedDisabled": false
         },
         "kv": {
           "computer_use.allowed_apps": "[\"Notes\",\"Mail\"]",

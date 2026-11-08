@@ -160,3 +160,43 @@ Policy and host tests use isolated SQLite profiles and injected callbacks. Nativ
 selection tests post no input. The GUI fixture runs permission preflight and
 operates only its synthetic applications and windows. Its assertions cover real
 renderer accessibility, input, state invalidation, hold durations and cleanup.
+
+## Governance
+
+Two refusal tiers sit above the user-owned app lists, each with pinned wording
+(`contracts/vectors/computer-use-governance-vectors.json`):
+
+- Safety: system UI and authentication surfaces (the native helper itself plus
+  macOS system agents such as the Dock, Control Center, Window Server,
+  Notification Center and the local authentication / security agents) are never
+  operated and never offered by app discovery. Attempts are refused with
+  "not allowed ... for safety reasons" and cannot be saved as always-allowed.
+- Organization policy: an administrator can provision
+  `managed-computer-use.json` beside the product's system data directory
+  (`/Library/Application Support/<product>/` on macOS,
+  `%ProgramData%\<product>\` on Windows). The strict schema is
+  `{ computerUseEnabled?: boolean, blockedApps?: string[] }`; unknown keys or
+  malformed values make the policy unreadable, which fails closed until the
+  file is repaired. A managed disable wins over user settings (the enable
+  toggle is refused with the organization wording, and the settings payload
+  reports `managedDisabled`), managed `blockedApps` win over saved
+  always-allowed entries and friend task grants, and a mid-session change
+  voids approvals and live leases like any other policy change. Ordinary
+  users cannot write these locations, and nothing here branches on a
+  deployment identity: the path derives from edition data.
+
+## Usage ledger
+
+Computer Use records a local-only usage ledger at
+`<configRoot>/computer-use-telemetry.jsonl`: one JSON line per event with an
+`at` timestamp. The event surface is `computer_use_server_launched` (once, when
+a session first receives this server's capabilities), 
+`computer_use_app_approval_requested` / `computer_use_app_approval_resolved`
+(only when an approval question is actually shown; the resolution carries
+`accepted`, the card's own action, or `cancelled`), and
+`computer_use_tool_called` (`toolName`, `durationMs`, `terminalStatus`
+`completed|error|cancelled`, `errorPresent`, target `app` selector, session and
+turn identities). The ledger never contacts a network, is capped at 512 KB with
+a single `.previous` rotation generation, swallows every write failure without
+touching the tool path, and is skipped entirely when
+`KLAUS_COMPUTER_USE_DISABLE_TELEMETRY=1` is set.
