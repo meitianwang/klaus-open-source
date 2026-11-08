@@ -79,6 +79,18 @@ async function main(): Promise<number> {
     if (pathname === '/cross-redirect') {
       response.writeHead(302, { Location: `http://localhost:${port}/redirect-target` }); response.end(); return;
     }
+    if (pathname === '/ax-fixture') {
+      response.writeHead(200, { 'Content-Type': 'text/html' });
+      response.end(`<!doctype html><title>AX fixture</title>
+        <style>body{margin:20px;font:16px sans-serif}input,button{font:16px sans-serif;margin:6px;padding:6px}</style>
+        <h1>Accessibility fixture</h1>
+        <button id="ax-far" style="position:fixed;top:-200px">Offscreen</button>
+        <label for="ax-name">Name</label><input id="ax-name">
+        <label for="ax-secret">Secret</label><input id="ax-secret" type="password" value="s3cret">
+        <button id="ax-bump">Increment</button><span id="ax-count">0</span>
+        <script>document.querySelector('#ax-bump').addEventListener('click',()=>{const out=document.querySelector('#ax-count');out.textContent=String(Number(out.textContent)+1);});</script>`);
+      return;
+    }
     if (pathname === '/page.js') {
       response.writeHead(200, { 'Content-Type': 'text/javascript' });
       response.end("document.querySelector('#count').onclick=()=>{document.querySelector('#result').textContent=String(Number(document.querySelector('#result').textContent)+1)};document.querySelector('#popup').onclick=()=>{window.popupClicked=true;window.popupOpened=!!window.open('/popup')};console.log('fixture loaded');"); return;
@@ -914,6 +926,65 @@ async function main(): Promise<number> {
     await assertRejects(async()=>manager.download(firstPage,{waitOnly:true,downloadId:first.id!},100),'closed page download id refused');
     assertEqual((await manager.download(secondPage,{waitOnly:true,downloadId:second.id!},100)).path,second.path,'other task remains usable');
     manager.releaseConversation('download-B');
+  });
+
+  h.test('ax_state publishes indexed accessible text and ax_action drives real input', async () => {
+    const session = 'ax';
+    try {
+      response(await operations.execute(session, 'navigate', { url: `${base}/ax-fixture` }));
+      // The model-facing envelope: AX prose ships as the text block verbatim,
+      // metadata stays in structuredContent, and axText never leaks into both.
+      const first = await operations.execute(session, 'ax_state', {});
+      assert(first.isError !== true, `ax_state succeeds: ${JSON.stringify(first.error)}`);
+      const firstBlocks = (first.content ?? []) as Json[];
+      const firstText = String(object(firstBlocks[0]).text);
+      assertEqual(object(firstBlocks[0]).type, 'text', 'the state ships as one text block');
+      assertEqual(firstBlocks.length, 1, 'state mode attaches no capture');
+      assert(firstText.includes('Title: AX fixture'), 'the title header renders');
+      assert(firstText.includes(`URL: ${base}/ax-fixture`), 'the url header renders');
+      assert(/^\s*\[\d+\]/m.test(firstText), 'elements carry integer indices');
+      assert(/actions: Scroll to Visible/.test(firstText), 'the offscreen control exposes its secondary action');
+      assert(firstText.includes('password'), 'the secret field is marked as a password');
+      assert(!firstText.includes('s3cret'), 'a password value never renders');
+      const firstStructured = object(first.structuredContent);
+      assertEqual(firstStructured.axText, undefined, 'the envelope moves axText out of structuredContent');
+      const firstValue = object(firstStructured.value);
+      assertEqual(firstValue.state, 'full', 'the first capture of a document is full state');
+      assert(typeof firstValue.snapshotId === 'string' && firstValue.snapshotId !== '', 'the capture publishes a snapshot id');
+      const bumpRow = /^\s*\[(\d+)\] button "Increment"/m.exec(firstText);
+      const nameRow = /^\s*\[(\d+)\] textbox "Name"/m.exec(firstText);
+      assert(bumpRow && nameRow, 'the button and the labelled input have index rows');
+
+      const clicked = response(await operations.execute(session, 'ax_action', { action: 'click', elementIndex: Number(bumpRow![1]) }));
+      assertEqual(object(clicked.value).ok, true, 'the indexed click reports success');
+      assertEqual(response(await operations.execute(session, 'eval', { expression: `document.querySelector('#ax-count').textContent` })).value, '1', 'the click was real input: the counter advanced');
+
+      const second = response(await operations.execute(session, 'ax_state', {}));
+      const secondValue = object(second.value);
+      assert(Number(secondValue.changed) >= 1, 'the recapture reports the changed counter');
+      assert(String(secondValue.snapshotId) !== String(firstValue.snapshotId), 'every capture publishes a fresh snapshot id');
+
+      const stale = await operations.execute(session, 'ax_action', { action: 'click', elementIndex: Number(bumpRow![1]), snapshotId: 'stale' });
+      assertEqual(stale.isError, true, 'a foreign snapshot id is refused');
+      assertEqual(object(stale.error).code, 'stale_snapshot', 'the refusal names the stale snapshot');
+      assertEqual(response(await operations.execute(session, 'eval', { expression: `document.querySelector('#ax-count').textContent` })).value, '1', 'the refused click never reached the page');
+
+      const both = await operations.execute(session, 'ax_state', { mode: 'both', save: false });
+      assert(both.isError !== true, `mode both succeeds: ${JSON.stringify(both.error)}`);
+      const bothBlocks = (both.content ?? []) as Json[];
+      assert(bothBlocks.some(block => object(block).type === 'image' && String(object(block).data).length > 0), 'mode both attaches a real capture');
+      assert(String(object(bothBlocks[0]).text).includes('Title: AX fixture'), 'mode both keeps the state text');
+
+      const typed = response(await operations.execute(session, 'ax_action', { action: 'type_text', elementIndex: Number(nameRow![1]), text: 'typed-value' }));
+      assertEqual(object(typed.value).ok, true, 'the indexed type_text reports success');
+      assertEqual(response(await operations.execute(session, 'eval', { expression: `document.querySelector('#ax-name').value` })).value, 'typed-value', 'type_text drove real keystrokes into the indexed field');
+
+      const shot = response(await operations.execute(session, 'screenshot', { save: false }));
+      const scale = Number(object(shot.value).scale);
+      assert(Number.isFinite(scale) && scale > 0, `the screenshot reports its image scale (got ${JSON.stringify(object(shot.value).scale)})`);
+    } finally {
+      manager.releaseConversation(session);
+    }
   });
 
   registerAdvancedBrowserTests(h, { call: (kind, fields) => operations.execute('advanced', kind, fields), base: () => base, directory: profile!, nativeDownloads:true });
