@@ -344,7 +344,7 @@ static JsonObject ScaleAndEncode(const FrameBytes& frame) {
     Require(factory->CreateEncoder(GUID_ContainerFormatJpeg,nullptr,encoder.put()),"JPEG encoder is unavailable");Require(encoder->Initialize(stream.get(),WICBitmapEncoderNoCache),"JPEG initialization failed");
     com_ptr<IWICBitmapFrameEncode> image;com_ptr<IPropertyBag2> options;
     Require(encoder->CreateNewFrame(image.put(),options.put()),"JPEG frame creation failed");
-    PROPBAG2 qualityKey{};qualityKey.pstrName=const_cast<LPWSTR>(L"JpegCompressionQuality");
+    PROPBAG2 qualityKey{};qualityKey.pstrName=const_cast<LPWSTR>(L"ImageQuality");
     VARIANT quality;VariantInit(&quality);quality.vt=VT_R4;quality.fltVal=ObservationJpegQuality;
     Require(options->Write(1,&qualityKey,&quality),"JPEG quality option failed");
     Require(image->Initialize(options.get()),"JPEG frame initialization failed");
