@@ -1,6 +1,7 @@
 import { savedImageMarkdown } from '../media';
 import { randomUUID } from 'node:crypto';
 import { ComputerUsePolicyService, type ComputerUseOperation } from './policy';
+import { appGuidanceFor, appGuidancePrefix } from './app-guides';
 import { actionLabel, stateText } from './format';
 import { COMPUTER_USE_TOOLS } from './tools';
 import type { CapturedAudio } from './audio';
@@ -15,6 +16,8 @@ interface Owner {
   controllers: Set<AbortController>; pending: Set<Promise<unknown>>;
   states: Map<string, { turnId: string; snapshot: AppSnapshot }>;
   taskScope: string;
+  /** Bundle identifiers whose first-visit guidance this session already received. */
+  guidesSent: Set<string>;
   /** Single-slot cache of the latest full-desktop observation geometry and identity. */
   desktop?: { turnId: string; app: AppIdentity | null; screenshot: { width: number; height: number };
     virtualBounds: Bounds; source: { width: number; height: number } };
@@ -280,7 +283,7 @@ export class ComputerUseConnector {
     if (this.owners.size >= 256) throw new Error('Computer Use session capacity exceeded');
     this.deps.policy.attachSession(sessionId);
     this.owners.set(sessionId, { resourceId: randomUUID(), generation: ++this.generation, sequence: 0, closing: false,
-      controllers: new Set(), pending: new Set(), states: new Map(), taskScope: this.deps.policy.taskScopeIdentity(sessionId) });
+      controllers: new Set(), pending: new Set(), states: new Map(), guidesSent: new Set(), taskScope: this.deps.policy.taskScopeIdentity(sessionId) });
   }
   call(name: string, payload: unknown, context: ComputerUseContext): Promise<ComputerUseResult> {
     // A locked screen refuses new work before any tool state is touched, so a
@@ -498,7 +501,12 @@ export class ComputerUseConnector {
           // tree stays available on request, and an action diffs against its own
           // pre-action observation so the effect of the input stays visible.
           const previous = action || args.disable_diff !== true ? cached?.snapshot : undefined;
-          return { content: [{ type: 'text', text: `Saved: ${JSON.stringify(path)}\nEmbed: ${savedImageMarkdown(path)}\n${stateText(state, previous)}` }, { type: 'image', data: state.screenshot.data, mimeType: state.screenshot.mimeType }],
+          const observationText = `Saved: ${JSON.stringify(path)}\nEmbed: ${savedImageMarkdown(path)}\n${stateText(state, previous)}`;
+          // First-visit app guidance rides along with the observation text, once
+          // per app per session, so the know-how arrives with the first look.
+          const guidance = state.app.bundleId !== undefined && !owner.guidesSent.has(state.app.bundleId) ? appGuidanceFor(state.app) : undefined;
+          if (guidance !== undefined) owner.guidesSent.add(state.app.bundleId!);
+          return { content: [{ type: 'text', text: guidance === undefined ? observationText : appGuidancePrefix(guidance) + observationText }, { type: 'image', data: state.screenshot.data, mimeType: state.screenshot.mimeType }],
             structuredContent: { path, mimeType: state.screenshot.mimeType, saved: true },
             _meta: { klaus: { computerUse: { app: state.app, windowId: state.windowId, screenshotMode: 'alwaysInclude', elementCount: state.elements.length, mapping } } } };
         });

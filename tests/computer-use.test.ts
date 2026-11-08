@@ -7,6 +7,7 @@ import { Harness, waitFor } from './harness';
 import { ComputerUsePolicyService, type ComputerUsePolicyDependencies, type ComputerUseTaskScope } from '../main/services/computer-use/policy';
 import { withSettingsDb } from '../main/services/settings';
 import { ComputerUseConnector, COMPUTER_USE_TOOLS, desktopSnapshot, snapshot, validateAction, validateDesktopAction, type ComputerUseDependencies } from '../main/services/computer-use/connector';
+import { appGuidanceFor, appGuidancePrefix, APP_GUIDANCE_BUNDLE_IDS } from '../main/services/computer-use/app-guides';
 import type { AppSnapshot, ComputerUseBackend, ComputerUseContext, NativeRequest } from '../main/services/computer-use/types';
 import { createComputerUseRuntime } from '../main/app/computer-use-runtime';
 import { ChannelRegistry } from '../main/ipc/registry';
@@ -91,6 +92,41 @@ h.test('paste, audio and observation vectors pin the shipped schemas', () => {
   for (const name of ['paste', 'start_audio_recording', 'stop_audio_recording']) {
     strict.equal(COMPUTER_USE_TOOLS.find(tool => tool.name === name)!.annotations.readOnlyHint, false);
   }
+});
+h.test('app guidance ships per-app know-how for the pinned bundle identifiers', () => {
+  const vector = JSON.parse(readFileSync(join(__dirname, '../../contracts/vectors/computer-use-observation-vectors.json'), 'utf8')).appGuidance;
+  strict.deepEqual(vector.apps, [...APP_GUIDANCE_BUNDLE_IDS]);
+  strict.equal(vector.wireTag, 'app_specific_instructions');
+  strict.equal(vector.match, 'exact bundle identifier');
+  for (const bundleId of vector.apps as string[]) {
+    const guide = appGuidanceFor({ bundleId });
+    strict.equal(typeof guide, 'string', bundleId);
+    strict.ok((guide as string).length > 100, bundleId);
+  }
+  strict.equal(appGuidanceFor({ bundleId: 'com.apple.iWork.Numbers' }), undefined);
+  strict.equal(appGuidanceFor({}), undefined);
+  strict.equal(appGuidancePrefix('X'), `<${vector.wireTag}>\nX\n</${vector.wireTag}>\n`);
+});
+h.test('the first observation of a guided app carries its instructions once per session', async () => {
+  const guided = { ...app, input: 'Spotify', name: 'Spotify', path: '/Applications/Spotify.app', bundleId: 'com.spotify.client' };
+  const f = fixture(async request => {
+    if (request.method === 'resolve' || request.method === 'activate') return guided;
+    if (request.method === 'state') return { ...state(), app: guided };
+    return { applied: true };
+  });
+  const first = await f.connector.call('get_app_state', { app: 'Spotify' }, f.context());
+  strict.match(String(first.content[0]?.text), /^<app_specific_instructions>\n## Spotify\n/);
+  strict.match(String(first.content[0]?.text), /call get_app_state once more/);
+  const second = await f.connector.call('get_app_state', { app: 'Spotify' }, f.context());
+  strict.doesNotMatch(String(second.content[0]?.text), /app_specific_instructions/);
+  const acted = await f.connector.call('press_key', { app: 'Spotify', key: 'a' }, f.context());
+  strict.doesNotMatch(String(acted.content[0]?.text), /app_specific_instructions/);
+  // a different session observes the same app for the first time again
+  const other = await f.connector.call('get_app_state', { app: 'Spotify' }, f.context('b'));
+  strict.match(String(other.content[0]?.text), /^<app_specific_instructions>/);
+  const plain = fixture();
+  const result = await plain.read();
+  strict.doesNotMatch(String(result.content[0]?.text), /app_specific_instructions/);
 });
 h.test('observation text distinguishes accessibility changes, visible results and incomplete trees', () => {
   const before = state(), after = state(); after.elements[1]!.focused = true;

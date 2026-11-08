@@ -9,6 +9,9 @@ observation per assistant turn gates every desktop input, screenshot pixels map
 onto the virtual-desktop bounds, the foreground identity is approved and pinned
 for the turn, a held cross-call drag is released after any failed input, and a
 failed release closes the desktop surface for the rest of the session.
+First-visit app guidance (`app-guides.ts`) prefixes the observation text of a
+guided app the first time each session observes it, matched by exact bundle
+identifier and delivered at most once per app per session.
 
 Construct it with `configRoot`, a real backend `availability()` function, and
 `enabledChanged(enabled, signal)`. Register
