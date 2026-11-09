@@ -129,10 +129,14 @@ function getAgentSearchValues(agent: AgentDef, t: (k: string) => string): unknow
 }
 
 /**
- * 广场卡片的安装/更新控件。装完就是一个普通的用户智能体文件，所以这里没有
- * 卸载：删除仍走已安装档的删除按钮，只保留一种回收站行为。
+ * 广场卡片的态度控件。未安装只有安装钮；已安装则是已安装徽章（或有更新时的
+ * 更新钮）加编辑与卸载——装完就是普通用户智能体文件，编辑与卸载复用已安装
+ * 档的 openEdit/onDelete，即同一条表单编辑与回收站删除路径，广场不长出第二
+ * 种写/删行为。内置智能体不在广场出现，不可改的边界保持不变。
  */
-function AgentMarketControls({ item, onChanged }: { item: MarketAgent; onChanged: () => void }) {
+function AgentMarketControls({ item, onChanged, onEdit, onDelete }: {
+  item: MarketAgent; onChanged: () => void; onEdit: (id: string) => void; onDelete: (id: string) => void;
+}) {
   const t = useT()
   const [busy, setBusy] = useState(false)
   const busyRef = useRef(false)
@@ -157,12 +161,19 @@ function AgentMarketControls({ item, onChanged }: { item: MarketAgent; onChanged
     }
   }
 
-  if (item.installed && !item.hasUpdate) return <span className="sk-health-badge">{t('agents_market_installed')}</span>
-  return (
+  const installButton = (
     <button className="btn-xs" disabled={busy} onClick={() => { void install() }}>
       {busy ? t('agents_market_installing') : item.hasUpdate ? t('agents_market_update') : t('agents_market_install')}
     </button>
   )
+  if (item.installed) return (
+    <>
+      {item.installed && !item.hasUpdate ? <span className="sk-health-badge">{t('agents_market_installed')}</span> : installButton}
+      <button className="btn-xs" onClick={() => onEdit(item.slug)}>{t('agents_edit')}</button>
+      <button className="btn-xs btn-danger" onClick={() => onDelete(item.slug)}>{t('agents_market_uninstall')}</button>
+    </>
+  )
+  return installButton
 }
 
 function insertAgentMention(name: string) {
@@ -302,6 +313,8 @@ export function AgentsPage() {
       if (!result?.ok) throw new Error(result?.error || t('settings_failed'))
       showToast(t('settings_deleted'))
       await reload()
+      // 已安装档删掉的智能体要让广场卡片回到「安装」态，两边状态不能各说各话。
+      void loadMarket()
     } catch (err: any) {
       showToast(`${t('toast_error_prefix')}${err?.message || err || t('settings_failed')}`)
     } finally {
@@ -473,7 +486,8 @@ export function AgentsPage() {
                     </>
                   )}
                   desc={item.description || item.slug}
-                  controls={<AgentMarketControls item={item} onChanged={() => { void loadMarket(); void reload() }} />}
+                  onOpen={item.installed ? () => { void openEdit(item.slug) } : undefined}
+                  controls={<AgentMarketControls item={item} onChanged={() => { void loadMarket(); void reload() }} onEdit={id => { void openEdit(id) }} onDelete={id => { void onDelete(id) }} />}
                 />
               ))}
             </MarketGrid>

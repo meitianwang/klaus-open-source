@@ -80,4 +80,18 @@ describe('agents page plaza contract', () => {
     expect(page).toContain('item.hasUpdate ? t(\'agents_market_update\') : t(\'agents_market_install\')')
     expect(page).toContain("item.installed && !item.hasUpdate")
   })
+
+  test('an installed plaza card is manageable instead of a dead badge', () => {
+    // 已安装态必须给得起管理动作：卡体点开编辑，控件里有编辑与卸载；否则广场
+    // 装完的智能体既不能改模型档也不能移除，只能去已安装档找。
+    expect(page).toContain('onOpen={item.installed ? () => { void openEdit(item.slug) } : undefined}')
+    expect(page).toContain('onEdit={id => { void openEdit(id) }}')
+    expect(page).toContain('onDelete={id => { void onDelete(id) }}')
+    expect(page).toContain("t('agents_market_uninstall')")
+    // 卸载与编辑仍走已安装档的同一条路径：表单编辑器与回收站删除，不新增通道。
+    expect(page).toContain('w().klaus.agents.definitions.delete(editableId)')
+    expect(page).toContain('w().klaus.agents.definitions.read(editableId)')
+    // 删掉之后广场卡片要回到「安装」态，不能两边状态各说各话。
+    expect(page).toContain('void loadMarket()')
+  })
 })
