@@ -499,7 +499,7 @@ export const CONTROL_SURFACES: ControlSurface[] = [
   },
   {
     "key": "sideTask",
-    "about": "Side tasks: temporary threads that inherit a conversation's completed context, project, working directory, model and thinking level. Inherited messages are hidden from their own transcript. They can move between left and right panes, do not appear in the sidebar, and live until explicitly closed or the application exits.",
+    "about": "Side tasks: threads that inherit a conversation's completed context, project, working directory, model and thinking level. Inherited messages are hidden from their own transcript. They persist their own history and survive restarts, can be pinned or archived like other threads, and stay out of the sidebar conversation list unless pinned; the parent conversation's side panel lists them.",
     "reads": [
       {
         "action": "list",

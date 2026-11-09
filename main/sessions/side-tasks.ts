@@ -5,12 +5,14 @@ export interface SideTask {
   id: string; parentSessionId: string; title: string; createdAt: number; updatedAt: number;
   phase: 'starting' | 'active' | 'closing' | 'failed'; working: boolean; error?: string;
   initialTitleIndex: number | null; firstTurnAccepted: boolean;
+  archived: boolean; sidebarPinnedAt: number | null;
 }
 
 /** The durable shape of a side task: everything a host restart needs to rematerialize it. */
 export interface PersistedSideTask {
   id: string; parentSessionId: string; title: string; createdAt: number; updatedAt: number;
   phase: 'active' | 'failed'; initialTitleIndex: number | null; error?: string;
+  archived: boolean; sidebarPinnedAt: number | null;
 }
 
 export const SIDE_TASK_REGISTRY_KEY = 'klaus.sideTasks.registry';
@@ -20,7 +22,8 @@ export function persistableSideTask(task: SideTask): PersistedSideTask {
     id: task.id, parentSessionId: task.parentSessionId, title: task.title,
     createdAt: task.createdAt, updatedAt: task.updatedAt,
     phase: task.phase === 'failed' ? 'failed' : 'active',
-    initialTitleIndex: task.initialTitleIndex, ...(task.error ? { error: task.error } : {}),
+    initialTitleIndex: task.initialTitleIndex, archived: task.archived, sidebarPinnedAt: task.sidebarPinnedAt,
+    ...(task.error ? { error: task.error } : {}),
   };
 }
 
@@ -45,6 +48,7 @@ export function loadPersistedSideTasks(raw: string | null): SideTask[] {
       createdAt: candidate.createdAt, updatedAt: candidate.updatedAt, phase,
       working: false, error: typeof candidate.error === 'string' ? candidate.error : undefined,
       initialTitleIndex: candidate.initialTitleIndex as number | null, firstTurnAccepted: true,
+      archived: candidate.archived === true, sidebarPinnedAt: typeof candidate.sidebarPinnedAt === 'number' ? candidate.sidebarPinnedAt : null,
     });
   }
   return tasks;
@@ -63,7 +67,7 @@ export class SideTaskRegistry {
     const family = [...this.tasks.values()].filter(task => task.parentSessionId === parentSessionId);
     const ordinal = initialTitleIndex ?? family.length + 1;
     const time = this.now(), task: SideTask = { id: randomUUID(), parentSessionId, title: ordinal === 1 ? 'Side task' : `Side task ${ordinal}`,
-      initialTitleIndex: ordinal, firstTurnAccepted: false,
+      initialTitleIndex: ordinal, firstTurnAccepted: false, archived: false, sidebarPinnedAt: null,
       createdAt: time, updatedAt: time, phase: 'starting', working: false };
     this.tasks.set(task.id, task); return { ...task };
   }
@@ -99,6 +103,17 @@ export class SideTaskRegistry {
     return true;
   }
   beginClosing(id: string): void { const task = this.tasks.get(id); if (task) task.phase = 'closing'; }
+  setArchived(id: string, archived: boolean): boolean {
+    const task = this.tasks.get(id);
+    if (!task || task.phase === 'starting' || task.phase === 'closing') return false;
+    if (task.archived === archived) return true;
+    task.archived = archived; this.renew(task); this.persist(); return true;
+  }
+  setPinnedAt(id: string, pinnedAt: number | null): boolean {
+    const task = this.tasks.get(id);
+    if (!task || task.phase === 'starting' || task.phase === 'closing') return false;
+    task.sidebarPinnedAt = pinnedAt; this.renew(task); this.persist(); return true;
+  }
   closeFailed(id: string): void { const task = this.tasks.get(id); if (task?.phase === 'closing') task.phase = 'active'; }
   failed(id: string, error: string): void { const task = this.tasks.get(id); if (task) { task.phase = 'failed'; task.error = error; this.persist(); } }
   remove(id: string): void { this.tasks.delete(id); this.persist(); }

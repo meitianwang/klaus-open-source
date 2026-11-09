@@ -105,6 +105,7 @@ class Client extends EventEmitter implements EngineClientLike {
     const acknowledge: Record<string, [string, Json]> = {
       'session/updateThreadHostMetadata': ['hostMetadataUpdated', true], 'session/updateTitle': ['title', { threadId: params.threadId!, title: params.title ?? '' }],
       'session/deleteSession': ['deleted', { threadId: params.threadId!, deleted: true }],
+      'session/forkSession': ['session', { threadId: params.newThreadId ?? '', status: 'forked' }],
     };
     const ack = acknowledge[method];
     if (ack) { this.emit('event', { type: 'engineEvent', params: { submissionId: 'ack', [ack[0]]: ack[1] } }); return { submissionId: 'ack' }; }
@@ -833,18 +834,6 @@ h.test('side creation does not install an idle-expiry timer tied to the request 
   assertEqual(client.sent('session/close').length, 0, 'no expiry cleanup was scheduled');
 });
 
-h.test('promotion forks the live endpoint into a persistent identity while preserving the source', async () => {
-  const { service, client, state } = fixture(); const id = await create(service), before = state.liveSession(id);
-  const promoted = object(await service.forkSession(id))!, branch = String(promoted.id);
-  const request = client.sent('session/forkLive')[0]!;
-  assertEqual(request.sourceSessionId, before, 'fork source is the owned live endpoint');
-  assertEqual(object(request.init)?.threadId, branch, 'destination gets its own persistent thread identity');
-  assertEqual(client.sent('session/forkSession').length, 0, 'no disk fork against nonexistent ephemeral rollout');
-  assert(!service.isSideTask(branch), 'promoted destination is a normal conversation');
-  assertEqual(state.liveSession(id), before, 'source remains open with its original history');
-  assert(state.liveSession(branch) !== before, 'destination owns an independent endpoint');
-});
-
 h.test('parent deletion drains children first, and directory retirement cannot leave dead side-task rows', async () => {
   const { root, service, client, workspace } = fixture();
   const project = join(root, 'project'); mkdirSync(project); writeFileSync(join(project, 'keep'), 'keep');
@@ -934,6 +923,51 @@ h.test('a dropped live binding resumes the persisted side thread instead of refu
   const starts = client.sent('session/start');
   assertEqual(starts[starts.length - 1]?.resume, id, 'the resume targets the persisted side thread');
   assert(service.isSideTask(id), 'registry ownership retained');
+});
+
+h.test('pinning a side task surfaces it in the sidebar row set without un-hiding the panel list', async () => {
+  const { service } = fixture(); const id = await create(service);
+  const pinned = object(await service.setPinned(id, true))!;
+  assert(typeof pinned.sidebarPinnedAt === 'number' && Number(pinned.sidebarPinnedAt) > 0, 'pin acknowledges a timestamp');
+  assert((await service.listSessions()).some(row => object(row)?.id === id), 'a pinned side task reaches the sidebar row set');
+  assertEqual((await service.listSideTasks('parent')).length, 1, 'the panel still lists it');
+  await service.setPinned(id, false);
+  assert(!(await service.listSessions()).some(row => object(row)?.id === id), 'unpinning returns it to panel-only');
+});
+
+h.test('archiving a side task parks it out of the panel and into the archive view', async () => {
+  const { service, state } = fixture(); const id = await create(service);
+  const archived = object(await service.setArchived(id, true))!;
+  assertEqual(archived.ok, true, 'archive acknowledged');
+  assertEqual((await service.listSideTasks('parent')).length, 0, 'the panel hides archived side tasks');
+  assert((await service.listArchivedSessions()).some(row => object(row)?.id === id), 'the archive view lists it');
+  assertEqual(state.liveSession(id), undefined, 'archiving released the live endpoint');
+  const restored = object(await service.setArchived(id, false))!;
+  assertEqual(restored.status, 'restored', 'unarchive acknowledges restoration');
+  assertEqual((await service.listSideTasks('parent')).length, 1, 'the panel lists it again');
+  const resumed = await service.resolveLiveSession(id);
+  assert(resumed !== undefined, 'the unarchived side task resumes from its rollout');
+});
+
+h.test('forking a side task uses the durable disk fork and leaves the source live', async () => {
+  const { service, client } = fixture(); const id = await create(service);
+  const branch = object(await service.forkSession(id))!;
+  assertEqual(client.sent('session/forkSession').length, 1, 'the durable fork facade owns the branch');
+  assertEqual(client.sent('session/forkLive').length, 0, 'no live-endpoint fork remains');
+  assert(service.isSideTask(id), 'the source side task stays live');
+  assert(!service.isSideTask(String(branch.id)), 'the branch is an ordinary conversation');
+});
+
+h.test('pin and archive flags survive a host restart through the durable registry', async () => {
+  const first = fixture(); const id = await create(first.service);
+  await first.service.setPinned(id, true);
+  const reboot = fixture({}, first.root);
+  assert((await reboot.service.listSessions()).some(row => object(row)?.id === id), 'the pinned side task rematerializes pinned');
+  await reboot.service.setPinned(id, false);
+  await reboot.service.setArchived(id, true);
+  const reboot2 = fixture({}, first.root);
+  assert((await reboot2.service.listArchivedSessions()).some(row => object(row)?.id === id), 'the archived side task rematerializes archived');
+  assertEqual((await reboot2.service.listSideTasks('parent')).length, 0, 'and stays out of the panel');
 });
 
 void (async () => {

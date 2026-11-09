@@ -900,7 +900,8 @@ export class SessionService {
   private sideTaskRow(task: SideTask): Record<string, Json> {
     const model = readSessionModel(task.id, this.configRoot);
     return { id: task.id, title: task.title, initialTitleIndex: task.initialTitleIndex, createdAt: task.createdAt, updatedAt: task.updatedAt,
-      parentSessionId: task.parentSessionId, role: 'side_task', sideTaskStatus: task.phase, isWorking: task.working, archived: false,
+      parentSessionId: task.parentSessionId, role: 'side_task', sideTaskStatus: task.phase, isWorking: task.working,
+      archived: task.archived, ...(task.sidebarPinnedAt ? { sidebarPinnedAt: task.sidebarPinnedAt } : {}),
       workdir: this.deps.workspaces?.resolveSessionDirectory(task.id) ?? sessionWorkdir(task.id, this.configRoot) ?? join(this.configRoot, 'sessions', task.id),
       modelConfig: { mode: model.mode, source: model.source, thinkingLevel: readSessionThinkingLevel(task.id, this.configRoot) }, ...(task.error ? { error: task.error } : {}) };
   }
@@ -1178,7 +1179,7 @@ export class SessionService {
   }
   async listSideTasks(parentId: string): Promise<Json[]> {
     this.syncSideTaskActivity();
-    return this.sideTasks.all().filter(task => task.parentSessionId === parentId && task.phase !== 'starting').map(task => {
+    return this.sideTasks.all().filter(task => task.parentSessionId === parentId && task.phase !== 'starting' && !task.archived).map(task => {
       const row = this.sideTaskRow(task), engineId = this.deps.state.liveSession(task.id), owner = this.attached;
       if (engineId && owner && !owner.client.isClosed() && task.phase === 'active') {
         const cached = this.sideTaskUsage.get(task.id);
@@ -2879,11 +2880,11 @@ export class SessionService {
       ...(options.workspaceId ? this.deps.workspaces?.workspaceRoots(options.workspaceId) ?? [] : []),
     ], () => this.mutate(rendererId, () => this.createSession(rendererId, options)));
   }
-  private createSession(rendererId: string, options: NewSessionOptions, source?: { threadId: string; beforeMessageUuid?: string; sideTask?: boolean; liveEngineId?: string; inheritGoal?: boolean }): Promise<Json> {
+  private createSession(rendererId: string, options: NewSessionOptions, source?: { threadId: string; beforeMessageUuid?: string; sideTask?: boolean; inheritGoal?: boolean }): Promise<Json> {
     return this.trackSessionRecovery(rendererId, () => this.createSessionNow(rendererId, options, source));
   }
 
-  private async createSessionNow(rendererId: string, options: NewSessionOptions, source?: { threadId: string; beforeMessageUuid?: string; sideTask?: boolean; liveEngineId?: string; inheritGoal?: boolean }): Promise<Json> {
+  private async createSessionNow(rendererId: string, options: NewSessionOptions, source?: { threadId: string; beforeMessageUuid?: string; sideTask?: boolean; inheritGoal?: boolean }): Promise<Json> {
     const requested = typeof options.workdir === 'string' && options.workdir.trim().length > 0
       ? options.workdir.trim()
       : null;
@@ -2940,9 +2941,8 @@ export class SessionService {
     // reply still owns that endpoint, so rollback must not depend on receiving its identity.
     if (source?.sideTask) startedEngineId = rendererId;
     const started = (await client.requestWithTimeout(
-      source?.sideTask ? 'session/startSideTask' : source?.liveEngineId ? 'session/forkLive' : 'session/start',
+      source?.sideTask ? 'session/startSideTask' : 'session/start',
       source?.sideTask ? { init: built.init, parentThreadId: source.threadId, ...(liveParent ? { sourceSessionId: liveParent } : {}) }
-        : source?.liveEngineId ? { sourceSessionId: source.liveEngineId, init: built.init, ...(source.beforeMessageUuid ? { beforeMessageUuid: source.beforeMessageUuid } : {}), ...(source.inheritGoal ? { inheritGoal: true } : {}) }
         : { init: built.init, resume: null, fork: null },
       SESSION_START_TIMEOUT_MS,
       source?.sideTask ? { source: 'thread', conversationId: rendererId } : undefined,
@@ -2966,7 +2966,7 @@ export class SessionService {
     }
     if (requested && !this.deps.workspaces) bindSessionWorkdir(rendererId, requested, this.configRoot);
     // A fork must bind the fresh endpoint before any task/history snapshot materializes it.
-    if (source && !source.sideTask && !source.liveEngineId) {
+    if (source && !source.sideTask) {
       const method = 'session/forkSession';
       const params = { sessionId: engineId, threadId: source.threadId, newThreadId: rendererId,
         ...(source.beforeMessageUuid ? { beforeMessageUuid: source.beforeMessageUuid } : {}), ...(source.inheritGoal ? { inheritGoal: true } : {}) };
@@ -3209,10 +3209,8 @@ export class SessionService {
         const baseTitle = sourceTitle.replace(/\s*·\s*Branch$/i, '');
         const title = `${baseTitle} · Branch`;
         const forkedFrom = { sessionId: rendererId, threadId: rendererId, title: baseTitle };
-        const liveEngineId = this.isSideTask(rendererId) ? await this.resolveSessionNow(rendererId, false) : undefined;
         const row = object(await this.mutate(branchId, () => this.createSession(branchId,
-          { workdir, workspaceId, projectRoot, title, hostMetadata: { forkedFrom } }, { threadId: rendererId, beforeMessageUuid, inheritGoal,
-            ...(liveEngineId ? { liveEngineId } : {}) })))!;
+          { workdir, workspaceId, projectRoot, title, hostMetadata: { forkedFrom } }, { threadId: rendererId, beforeMessageUuid, inheritGoal })))!;
         return { ...row, archived: false, forkedFrom };
       }));
   }
@@ -3613,16 +3611,23 @@ export class SessionService {
     const titlesThrough = this.mentionTitles.capture();
     try {
       const rows = await this.listSessionPage(includeArchived);
+      // Pinned side tasks join the active row set so the sidebar pin section can
+      // show them; archived side tasks join the archive view so archiving stays
+      // reversible. Every other side thread stays panel-only.
+      const sideRows = this.sideTasks.all()
+        .filter(task => task.phase !== 'starting' && (includeArchived ? task.archived : !task.archived && task.sidebarPinnedAt !== null))
+        .map(task => this.sideTaskRow(task) as Json);
+      const withSides = sideRows.length ? [...rows, ...sideRows] : rows;
       if (current()) {
-        this.sessionSnapshots.set(scope, rows);
+        this.sessionSnapshots.set(scope, withSides);
         // A title written while this read was in flight stays newer than the
         // result. Titles that predate the read yield to the converged snapshot,
         // so a later external rename can win.
         if (scope === 'active') this.mentionTitles.prune(titlesThrough);
-        try { writeSessionListSnapshot(scope, rows, this.configRoot); }
+        try { writeSessionListSnapshot(scope, withSides, this.configRoot); }
         catch (error) { this.deps.log?.('session-list-cache-write-failed', sessionFailureMessage(error)); }
       }
-      return rows;
+      return withSides;
     } catch (error) {
       if (error instanceof IpcHandlerError && error.code === 'INVALID_ENGINE_RESPONSE') throw error;
       let cached = this.sessionSnapshots.get(scope);
@@ -5018,8 +5023,14 @@ export class SessionService {
     return this.mutate(id, async () => { await this.updateTitle(id, title); return null; });
   }
   setPinned(id: string, pinned: boolean): Promise<Json> {
-    if (this.isSideTask(id)) return Promise.reject(new IpcHandlerError('NOT_A_PERSISTENT_SESSION', 'Branch the side task into a conversation before pinning it'));
     return this.mutate(id, async () => {
+      if (this.isSideTask(id)) {
+        // A side thread is hidden from the engine catalog, so its pin lives in
+        // the durable side registry that feeds the sidebar pin section.
+        const sidebarPinnedAt = pinned ? Date.now() : null;
+        if (!this.sideTasks.setPinnedAt(id, sidebarPinnedAt)) throw new IpcHandlerError('SIDE_TASK_UNAVAILABLE', 'The side task is starting or closing');
+        return { ok: true, sessionId: id, sidebarPinnedAt };
+      }
       const row = await this.threadRow(id), hostMetadata = { ...(object(row.hostMetadata ?? row.host_metadata) ?? {}) };
       const sidebarPinnedAt = pinned ? Date.now() : null;
       if (sidebarPinnedAt === null) delete hostMetadata.sidebarPinnedAt; else hostMetadata.sidebarPinnedAt = sidebarPinnedAt;
@@ -5042,8 +5053,18 @@ export class SessionService {
     });
   }
   setArchived(id: string, archived: boolean, displayTitle?: string): Promise<Json> {
-    if (this.isSideTask(id)) return Promise.reject(new IpcHandlerError('NOT_A_PERSISTENT_SESSION', 'Branch the side task into a conversation before archiving it'));
     return this.closingMutation(id, async (): Promise<Json> => {
+      if (this.isSideTask(id)) {
+        // Archiving a side conversation parks its durable registry row: the panel
+        // hides it, the archive view lists it, and unarchiving lets the next touch
+        // resume its rollout. The engine catalog never listed side threads, so no
+        // engine archive move belongs to this path.
+        if (!archived) await this.deps.beforeUnarchive?.(id);
+        if (archived) await this.closeLiveSession(id);
+        if (!this.sideTasks.setArchived(id, archived)) throw new IpcHandlerError('SIDE_TASK_UNAVAILABLE', 'The side task is starting or closing');
+        this.deps.onThreadRow?.({ id, archived });
+        return { ok: true, sessionId: id, threadId: id, ...(archived ? {} : { status: 'restored' }) };
+      }
       try {
         if (!archived) await this.deps.beforeUnarchive?.(id);
         const archivedTitle = archived ? normalizeSessionTitle(displayTitle)

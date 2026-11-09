@@ -1806,11 +1806,6 @@ function buildContextItems(tab: Tab): CtxItem[] {
     const target = tab.placement === 'left' ? 'right' : 'left'
     items.push({ label: tt(target === 'left' ? 'side_task_move_left' : 'side_task_move_right'),
       separated: true, run: () => moveSideTask(tab, target) })
-    items.push({
-      label: tt('side_task_convert'),
-      separated: true,
-      run: () => w().KlausSideTasks?.convertToSession?.(tab.key),
-    })
   }
   return items
 }

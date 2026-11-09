@@ -693,24 +693,6 @@ document.addEventListener?.('visibilitychange', () => render())
     if (!task) return
     return close(task)
   },
-  // Promote a side task to a standalone session: fork its transcript, then
-  // discard the temporary task. The fork path surfaces its own error, so a
-  // failed conversion leaves the side task untouched instead of losing it.
-  convertToSession: async (sideId: string) => {
-    if (!tasks.has(sideId)) return
-    const forked = await w().klausForkSession?.(sideId)
-    if (!forked) return
-    const closed = await closeSideTask(sideId)
-    if (closed?.ok !== true) throw new Error(closed?.error || text('side_task_close_failed'))
-    tasks.delete(sideId)
-    placements.delete(sideId)
-    knownSideIds.delete(sideId)
-    unreadSideIds.delete(sideId)
-    if (activeSideId === sideId) activeSideId = null
-    if (leftSideId === sideId) { leftSideId = null; w().klausSideSurfaceShowParent?.() }
-    w().klausSideSurfaceRemove?.(sideId)
-    render()
-  },
   // Consulted synchronously by chat.js's restoreArtifactsPanelForChatView so
   // the panel keeps its side-chat mode across session switches instead of
   // snapping back to 'monitor' every time.
