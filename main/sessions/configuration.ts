@@ -13,7 +13,7 @@ import { loadSubagentModelOptions, resolveSubagentModelPolicy, type SubagentMode
 
 /** Settings rows that are pure UI chrome. Writing one must not mark a live
  *  session stale, because a stale binding forces `session/close` + rebuild on
- *  the next call (and a side task throws SIDE_TASK_CONFIGURATION_CHANGED).
+ *  the next call, side tasks included.
  *  `language` / the two shortcut keys were already exempt for the same reason;
  *  the sidebar collapse rows join them so folding a group never rebuilds a
  *  session.

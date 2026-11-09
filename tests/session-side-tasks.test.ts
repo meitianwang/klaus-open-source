@@ -111,8 +111,8 @@ class Client extends EventEmitter implements EngineClientLike {
     throw new Error(`Unexpected facade call: ${method}`);
   }
 }
-function fixture(overrides: Partial<SessionServiceDeps> = {}) {
-  const root = mkdtempSync(join(tmpdir(), 'klaus-side-tasks-')), client = new Client(), state = new HostState();
+function fixture(overrides: Partial<SessionServiceDeps> = {}, root = mkdtempSync(join(tmpdir(), 'klaus-side-tasks-'))) {
+  const client = new Client(), state = new HostState();
   let now = 100;
   assert(kvSet('auth_mode', 'custom', root), 'isolated BYO profile');
   const workspace = new WorkspaceStore({ configRoot: root, push: () => {}, onSessionWorkdirChanged: () => {}, pickDirectory: async () => null });
@@ -459,7 +459,7 @@ h.test('ephemeral admission inherits workspace, stays out of history, and closes
   assertEqual(state.liveSession(id), undefined, 'live binding drained');
   assertEqual(workspace.workspaceId(id), undefined, 'ephemeral work context removed');
   assertEqual(withSettingsDb(root, db => db.prepare('SELECT session_id FROM session_main_models WHERE session_id=?').get(id)), undefined, 'ephemeral model choice removed');
-  assertDeepEqual(client.sent('session/deleteSession'), [], 'no persisted-thread deletion against ephemeral identity');
+  assertDeepEqual(client.sent('session/deleteSession').map(params => params.threadId), [id], 'closing a side conversation deletes its persisted thread');
   assertEqual(readFileSync(join(project, 'user.txt'), 'utf8'), 'preserve', 'workspace user files untouched');
   await assertRejects(() => service.resolveLiveSession(id), 'closed ephemeral identity cannot resume');
   await assertRejects(() => service.pendingQuestions(id), 'closed ephemeral questions cannot reopen the side context');
@@ -835,9 +835,6 @@ h.test('side creation does not install an idle-expiry timer tied to the request 
 
 h.test('promotion forks the live endpoint into a persistent identity while preserving the source', async () => {
   const { service, client, state } = fixture(); const id = await create(service), before = state.liveSession(id);
-  state.markStale(id);
-  await assertRejects(() => service.send(id, { text: 'structural settings changed' }), 'cannot close and resume ephemeral context');
-  assertEqual(state.liveSession(id), before, 'structural invalidation preserves recoverable live history');
   const promoted = object(await service.forkSession(id))!, branch = String(promoted.id);
   const request = client.sent('session/forkLive')[0]!;
   assertEqual(request.sourceSessionId, before, 'fork source is the owned live endpoint');
@@ -863,14 +860,21 @@ h.test('parent deletion drains children first, and directory retirement cannot l
   assert(existsSync(join(project, 'keep')), 'host lifecycle does not remove user files');
 });
 
-h.test('connection loss destroys ephemeral ownership and cannot resume it as an ordinary conversation', async () => {
-  const { service, client, state, deleted } = fixture(); const id = await create(service);
-  client.closed = true; client.emit('event', { type: 'streamClosed' });
-  await waitFor(() => deleted.includes(id), 1000, 'profile cleanup completed');
-  assertEqual(state.liveSession(id), undefined, 'dead connection clears binding');
-  assert(!service.isSideTask(id), 'ephemeral role retired');
-  await assertRejects(() => service.resolveLiveSession(id), 'cannot recover ephemeral identity from disk');
-  assertEqual(client.sent('session/startSideTask').length, 1, 'no replacement session was started');
+h.test('connection loss keeps persisted side ownership and resumes it on the next connection', async () => {
+  const old = new Client(), replacement = new Client(); let current = old;
+  const { service, state } = fixture({ manager: {
+    attach: async () => ({ client: current, generation: current === old ? 1 : 2 }),
+    shutdownAll: async () => { old.closed = true; replacement.closed = true; },
+  } });
+  const id = await create(service);
+  old.closed = true; old.emit('event', { type: 'streamClosed' });
+  await waitFor(() => state.liveSession(id) === undefined, 1000, 'dead connection clears the binding');
+  assert(service.isSideTask(id), 'persisted side ownership survives the connection loss');
+  current = replacement;
+  const resumed = await service.resolveLiveSession(id);
+  assert(resumed !== undefined, 'the side task resumes on the replacement connection');
+  const starts = replacement.sent('session/start');
+  assertEqual(starts[starts.length - 1]?.resume, id, 'the resume targets the persisted side thread');
 });
 
 h.test('a late startup reply never closes its old endpoint identity on a replacement connection', async () => {
@@ -889,6 +893,47 @@ h.test('a late startup reply never closes its old endpoint identity on a replace
   assertEqual(state.bindings().length, 0, 'dead endpoint is not remembered as a new live resource');
   assertDeepEqual(await service.listSideTasks('parent'), [], 'old generation reservation is gone');
   await create(service);
+});
+
+h.test('a structural settings change rebuilds a live side task instead of refusing its next question', async () => {
+  const { service, client, state } = fixture();
+  const id = await create(service);
+  const first = state.liveSession(id);
+  assert(first !== undefined, 'the side task starts live');
+  state.markStale(id);
+  const rebuilt = await service.resolveLiveSession(id);
+  assert(rebuilt !== first, 'the stale endpoint was replaced by the rebuild');
+  assert(client.sent('session/close').some(params => params.sessionId === first), 'the old endpoint closed before the rebuild');
+  const starts = client.sent('session/start');
+  const start = starts[starts.length - 1]!;
+  assertEqual(start.resume, id, 'the rebuild resumes the persisted side-task thread');
+  assertEqual(state.isStale(id), false, 'the rebuilt binding is fresh');
+  assert(service.isSideTask(id), 'the registry row survives the rebuild');
+  assertEqual(client.sent('session/startSideTask').length, 1, 'only creation used the side facade');
+  await service.send(id, { text: 'Next question after the settings change' });
+  await waitFor(() => client.sent('turn/submit').length === 1, 2000, 'the rebuilt side task admits the next question');
+});
+
+h.test('a restarted host rematerializes persisted side tasks from their durable registry', async () => {
+  const first = fixture(); const id = await create(first.service);
+  const reboot = fixture({}, first.root);
+  const rows = await reboot.service.listSideTasks('parent');
+  assertEqual(rows.length, 1, 'the persisted side task returns after a restart');
+  assertEqual(object(rows[0])?.id, id, 'the same identity is rematerialized');
+  const resumed = await reboot.service.resolveLiveSession(id);
+  assert(resumed !== undefined, 'the rematerialized side task resumes from its rollout');
+  assert(reboot.service.isSideTask(id), 'rematerialized ownership is live');
+});
+
+h.test('a dropped live binding resumes the persisted side thread instead of refusing', async () => {
+  const { service, client, state } = fixture(); const id = await create(service);
+  const first = state.liveSession(id);
+  state.forgetSession(id, 'binding-lost');
+  const resumed = await service.resolveLiveSession(id);
+  assert(resumed !== first, 'the lost binding is replaced by a resume');
+  const starts = client.sent('session/start');
+  assertEqual(starts[starts.length - 1]?.resume, id, 'the resume targets the persisted side thread');
+  assert(service.isSideTask(id), 'registry ownership retained');
 });
 
 void (async () => {

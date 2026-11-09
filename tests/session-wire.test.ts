@@ -4736,8 +4736,8 @@ h.test('an unconfirmed effective search update prevents admission without rewrit
 h.test('folding a sidebar group or section never marks a live session stale', async () => {
   // A sidebar collapse write goes through settings:kv:set, which calls
   // configuration.settingsChanged(key). A non-exempt key marks every binding
-  // stale, so the next session call would session/close + rebuild, and a side
-  // task throws SIDE_TASK_CONFIGURATION_CHANGED. Both sidebar rows are pure UI
+  // stale, so the next session call would session/close + rebuild — side tasks
+  // included, whose open panel rebuilds in place. Both sidebar rows are pure UI
   // chrome and must stay exempt. The literals are asserted so the contract
   // cannot drift from contracts/sidebar-collapse.ts.
   const root = byoRoot(), client = modelChangeClient(), { service, state } = serviceWith(client, root);
@@ -4753,8 +4753,8 @@ h.test('acknowledging a feature-discovery hint never marks a live session stale'
   // The discovery ledger is written by ARRIVING at a screen, so this key moves on
   // exactly the click where the user is looking at a new feature. A non-exempt
   // write would mark every binding stale and rebuild the session on their next
-  // message (and a side task would throw SIDE_TASK_CONFIGURATION_CHANGED), which
-  // makes the hint cost the user their conversation. The literals are asserted so
+  // message — side tasks included — which makes the hint cost the user their
+  // conversation. The literals are asserted so
   // the exemption cannot drift from contracts/feature-onboarding.ts.
   const root = byoRoot(), client = modelChangeClient(), { service, state } = serviceWith(client, root);
   const configuration = new SessionConfiguration({ state, configRoot: root, request: (method, params) => service.request(method, params), log: () => {} });

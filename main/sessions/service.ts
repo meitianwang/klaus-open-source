@@ -80,13 +80,13 @@ import { resolveWebSearchAccess, sandboxWorkspaceWrite } from '../../contracts/r
 import { sessionRuntimePolicy } from '../services/session-store';
 import { runtimeConfigValues } from '../services/runtime-config-values';
 import { ModelUpdates, type ModelUpdateOrigin } from './model-updates';
-import { SideTaskRegistry, type SideTask } from './side-tasks';
+import { SideTaskRegistry, loadPersistedSideTasks, persistableSideTask, SIDE_TASK_REGISTRY_KEY, type SideTask } from './side-tasks';
 import { sideTaskTitle } from '../../contracts/side-task-titles';
 import { contextStats } from './context-stats';
 import { collectTurnReply } from './turn-reply';
 import { applySessionRecencyIn, recordCompletedSessionReply, recordInitialSessionRecency } from '../services/session-recency';
 import { SessionTitles, applySessionTitlesIn, normalizeSessionTitle, readSessionTitle } from '../services/session-titles';
-import { withSettingsDb, withSettingsTransaction } from '../services/settings';
+import { kvGet, kvSet, withSettingsDb, withSettingsTransaction } from '../services/settings';
 import { readSessionListSnapshot, writeSessionListSnapshot, type SessionListScope } from '../services/session-list-cache';
 import { queueSnapshotEvent } from './queue';
 import { FollowUps, type FollowUpReply } from './follow-ups';
@@ -482,7 +482,10 @@ export class SessionService {
   private readonly deferredClientQueues = new Map<string, NodeJS.Timeout>();
 
   constructor(private readonly deps: SessionServiceDeps) {
-    this.sideTasks = new SideTaskRegistry(deps.sideTaskClock);
+    const storedSideTasks = kvGet(SIDE_TASK_REGISTRY_KEY, this.configRoot);
+    this.sideTasks = new SideTaskRegistry(deps.sideTaskClock,
+      loadPersistedSideTasks(typeof storedSideTasks === 'string' ? storedSideTasks : null),
+      rows => { kvSet(SIDE_TASK_REGISTRY_KEY, JSON.stringify(rows.map(persistableSideTask)), this.configRoot); });
     this.modelUpdates = new ModelUpdates({
       state: deps.state,
       binding: id => {
@@ -916,6 +919,14 @@ export class SessionService {
     this.sideTasks.beginClosing(id);
     try {
       await this.closeLiveSession(id);
+      // A persisted side thread owns disk like any other thread: closing the side
+      // conversation deletes its rollout so no orphan history survives the close.
+      try {
+        const client = await this.client();
+        await client.requestWithTimeout('session/deleteSession', { threadId: id }, SESSION_CLOSE_TIMEOUT_MS);
+      } catch (error) {
+        if (!isUnknownLiveSessionError(error)) throw error;
+      }
       // Complete durable cleanup before forgetting the side conversation's identity.
       await this.clientQueue.discard(id);
       await this.forgetSideTask(id);
@@ -1521,12 +1532,9 @@ export class SessionService {
     this.sideTaskUsage.clear();
     this.sideTaskUsageReads.clear();
     const lost = this.deps.state.invalidateConnection();
-    for (const task of this.sideTasks.clear()) {
-      this.deleted.add(task.id);
-      const cleanup = this.forgetSideTask(task.id);
-      this.sideTaskCleanup.add(cleanup);
-      void cleanup.catch(error => this.deps.log?.('side-task-cleanup', String(error))).finally(() => this.sideTaskCleanup.delete(cleanup));
-    }
+    // Persisted side conversations outlive the connection: their rollouts resume
+    // on the next touch, so ownership stays instead of being destroyed with it.
+    for (const task of this.sideTasks.all()) this.sideTasks.working(task.id, false);
     this.deps.pushChatEvents([
       ...lost.pending.map(entry => cancelledEvent(entry.isApproval, entry.requestId, entry.sessionId)),
       ...lost.running.flatMap((sessionId): Json[] => [
@@ -1813,9 +1821,7 @@ export class SessionService {
    * targets, then the admission fallback joins the independent publication lane.
    * Called under the session mutation gate, immediately before admitting inference. */
   private async refreshInferenceNow(rendererId: string, client: EngineClientLike, engineId: string): Promise<void> {
-    const state = this.deps.state;
     await this.refreshModelTierTargetsIfNeeded(rendererId, client, engineId);
-    if (this.isSideTask(rendererId) && state.isStale(rendererId)) throw new IpcHandlerError('SIDE_TASK_CONFIGURATION_CHANGED', 'Session settings changed. Branch this side task into a conversation to apply them while keeping its context.');
     await this.modelUpdates.refresh(rendererId, { client, engineId });
   }
 
@@ -2740,10 +2746,14 @@ export class SessionService {
     }
     const sideTask = this.sideTasks.get(rendererId);
     if (sideTask) {
-      if (sideTask.phase !== 'active' || live === undefined) throw new IpcHandlerError('SIDE_TASK_UNAVAILABLE', sideTask.error ?? 'The side task is starting, closing or expired');
-      // Ephemeral history cannot be recovered by close/resume. Reads retain its
-      // live binding; structural changes are refused at inference admission.
-      state.touchSession(rendererId); return live;
+      if (sideTask.phase !== 'active') throw new IpcHandlerError('SIDE_TASK_UNAVAILABLE', sideTask.error ?? 'The side task is starting, closing or expired');
+      // A side task's transcript is persisted by the engine under its own thread
+      // id, so a stale or lost binding rebuilds it through the shared close/resume
+      // path below — the same transparent recovery an ordinary conversation gets —
+      // and the task keeps answering questions.
+      if (live !== undefined && (!state.isStale(rendererId) || state.isWorking(rendererId))) {
+        state.touchSession(rendererId); return live;
+      }
     }
     if (live !== undefined && (!state.isStale(rendererId) || state.isWorking(rendererId))) {
       state.touchSession(rendererId);
@@ -2813,7 +2823,7 @@ export class SessionService {
         threadId,
         hasProject: hasProject || sessionWorkdir(rendererId, this.configRoot) !== undefined,
         configRoot: this.configRoot,
-      });
+      }, this.isSideTask(rendererId));
       signal?.throwIfAborted();
       if (!built.ok) {
         // Show provider-resolution failures in the transcript before refusing startup.
@@ -2950,8 +2960,8 @@ export class SessionService {
     if (source?.sideTask) {
       const initialized = object(started.initialized);
       if (initialized?.threadId !== rendererId || initialized.accepted !== true || initialized.role !== 'side_task'
-        || initialized.ephemeral !== true || initialized.parentThreadId !== source.threadId) {
-        throw new IpcHandlerError('INVALID_ENGINE_RESPONSE', 'The engine did not initialize the requested ephemeral side task');
+        || initialized.parentThreadId !== source.threadId) {
+        throw new IpcHandlerError('INVALID_ENGINE_RESPONSE', 'The engine did not initialize the requested side task');
       }
     }
     if (requested && !this.deps.workspaces) bindSessionWorkdir(rendererId, requested, this.configRoot);
