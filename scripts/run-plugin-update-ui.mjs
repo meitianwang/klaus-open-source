@@ -58,6 +58,25 @@ try {
   assert.equal(await card(model).locator('.mcp-state-btn.is-off').count(), 1);
   assert.equal(await card(diagram).locator('.mcp-state-btn.is-on').count(), 1);
   assert.equal(await page.locator('#btn-plugins [data-plugin-update-count]').textContent(), '2');
+  const navBadges = () => page.evaluate(() => {
+    const group = document.querySelector('#btn-extensions [data-plugin-update-count]');
+    const child = document.querySelector('#btn-plugins [data-plugin-update-count]');
+    return { groupHidden: group?.hidden ?? null, groupText: group?.textContent ?? null, childHidden: child?.hidden ?? null, groupLabel: document.getElementById('btn-extensions')?.getAttribute('aria-label') ?? null };
+  });
+  let badges = await navBadges();
+  assert.equal(badges.groupHidden, false);
+  assert.equal(badges.groupText, '2');
+  assert.equal(badges.childHidden, false);
+  assert.match(badges.groupLabel, /可更新/);
+  await page.evaluate(() => document.getElementById('btn-extensions').setAttribute('aria-expanded', 'true'));
+  await page.waitForFunction(() => document.querySelector('#btn-extensions [data-plugin-update-count]').hidden === true);
+  badges = await navBadges();
+  assert.equal(badges.groupHidden, true);
+  assert.equal(badges.childHidden, false);
+  assert.ok(!/可更新/.test(badges.groupLabel), 'expanded group label drops the duplicate count');
+  await page.evaluate(() => document.getElementById('btn-extensions').setAttribute('aria-expanded', 'false'));
+  await page.waitForFunction(() => document.querySelector('#btn-extensions [data-plugin-update-count]').hidden === false);
+  pass('the extensions group badge yields to the child row while the group is expanded', await navBadges());
   assert.equal(await page.locator('#btn-plugins').getAttribute('title'), null);
   await capture('market-update-available');
   pass('market exposes versioned updates and a quiet navigation count', await snapshot());

@@ -17,13 +17,21 @@ export function initializePluginNavigation(): void {
         badge.setAttribute('aria-hidden', 'true')
         button.appendChild(badge)
       }
-      badge.hidden = !count
+      // The group row carries the count only while collapsed: once expanded,
+      // the child row's own badge is on screen and a second one on the group
+      // would report the same updates twice.
+      const expanded = button.getAttribute('aria-expanded') === 'true'
+      badge.hidden = !count || expanded
       badge.textContent = String(count)
-      button.setAttribute('aria-label', count ? `${t(label!)}, ${t('plugins_updates_count').replace('{count}', String(count))}` : t(label!))
+      button.setAttribute('aria-label', count > 0 && !expanded ? `${t(label!)}, ${t('plugins_updates_count').replace('{count}', String(count))}` : t(label!))
     }
   }
   pluginStore.subscribe(render)
   window.addEventListener('klaus:lang-change', render)
+  // Collapse/expand is owned by the sidebar shell; watch the group's expanded
+  // state so the badge can yield to the child row without a second owner.
+  const group = document.getElementById('btn-extensions')
+  if (group) new MutationObserver(() => render()).observe(group, { attributes: true, attributeFilter: ['aria-expanded'] })
   ;(window as any).klaus?.on?.appPreferencesChanged?.(({ key }: { key?: string }) => {
     if (key === 'plugins') void pluginStore.load()
   })
