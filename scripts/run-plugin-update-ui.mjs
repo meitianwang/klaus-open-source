@@ -141,11 +141,10 @@ try {
   await page.evaluate(() => window.pluginUpdateFixture.settle(true)); await idle();
   await page.waitForFunction(() => window.pluginUpdateFixture.snapshot().state.batch?.running === false);
   assert.match(await page.locator('[data-plugin-batch]').textContent(), /1.*失败/);
-  await page.locator('[data-plugin-tab="updates"]').click();
-  assert.equal(await card(diagram).count(), 0);
-  assert.equal(await card(model).count(), 1);
+  assert.equal(await update(diagram).count(), 0);
+  assert.equal(await update(model).count(), 1);
   await capture('batch-partial-failure');
-  pass('batch completes remaining items after a failure and keeps only outstanding releases in Updates', await snapshot());
+  pass('batch completes remaining items after a failure and leaves only outstanding releases actionable', await snapshot());
 
   await reset();
   await page.evaluate(() => window.pluginUpdateFixture.failCheck(true));
@@ -229,9 +228,22 @@ try {
 
   await reset();
   await page.evaluate(() => window.pluginUpdateFixture.language('en'));
-  await page.locator('[data-plugin-tab="updates"]').waitFor({ state: 'visible' });
-  assert.match(await page.locator('[data-plugin-tab="updates"]').textContent(), /Updates/);
+  await page.locator('[data-plugin-update-all]').waitFor({ state: 'visible' });
+  assert.match(await page.locator('[data-plugin-update-all]').textContent(), /Update all \(2\)/);
+  assert.equal(await page.locator('[data-plugin-tab="updates"]').count(), 0);
+  const tabRow = await page.evaluate(() => {
+    const tab = document.querySelector('[data-plugin-tab="market"]').getBoundingClientRect();
+    const button = document.querySelector('[data-plugin-update-all]').getBoundingClientRect();
+    const bar = document.querySelector('[data-plugin-tab="market"]').closest('.sk-tabbar').getBoundingClientRect();
+    return { tabCenter: (tab.top + tab.bottom) / 2, buttonCenter: (button.top + button.bottom) / 2, tabRight: tab.right, buttonLeft: button.left, buttonRight: button.right, barRight: bar.right, bodyText: document.body.textContent || '' };
+  });
+  assert.ok(Math.abs(tabRow.tabCenter - tabRow.buttonCenter) <= 6, 'update-all shares the tab row');
+  assert.ok(tabRow.buttonLeft > tabRow.tabRight, 'update-all sits after the tabs');
+  assert.ok(tabRow.buttonRight <= tabRow.barRight + 1, 'update-all stays inside the tab row');
+  assert.ok(!/Last checked|上次检查/.test(tabRow.bodyText), 'no checked-at strip on the page');
   await page.evaluate(() => window.pluginUpdateFixture.language('zh'));
+  await page.locator('[data-plugin-update-all]').waitFor({ state: 'visible' });
+  assert.match(await page.locator('[data-plugin-update-all]').textContent(), /全部更新（2）/);
   for (const width of [620, 400]) {
     await page.setViewportSize({ width, height: 850 });
     const layout = await page.evaluate(() => [...document.querySelectorAll('[data-plugin-update]')].map(button => {

@@ -35,7 +35,7 @@ export function PluginsPage() {
   const t = useT()
   const snapshot = useSyncExternalStore(pluginStore.subscribe, pluginStore.getSnapshot)
   const { data, operations, checking, batch } = snapshot
-  const [view, setView] = useState<'market' | 'installed' | 'updates'>('market')
+  const [view, setView] = useState<'market' | 'installed'>('market')
   const [category, setCategory] = useState('all')
   const [search, setSearch] = useState('')
   const [adding, setAdding] = useState(false)
@@ -141,7 +141,7 @@ export function PluginsPage() {
   const installedCount = all.filter(plugin => plugin.installed).length
   const updates = all.filter(plugin => plugin.installed && plugin.updateAvailable)
   const market = all.filter(p => p.id.endsWith('@builtin') || p.id.endsWith('@klaus-official'))
-  const inView = view === 'updates' ? updates : view === 'installed' ? all.filter(plugin => plugin.installed) : market
+  const inView = view === 'installed' ? all.filter(plugin => plugin.installed) : market
   const searched = inView.filter(plugin => w().filterTextMatches(search, w().getPluginSearchValues(plugin))).sort((a, b) => pluginName(a).localeCompare(pluginName(b)))
   const groups = new Map<string, PluginItem[]>()
   for (const plugin of searched) {
@@ -158,9 +158,14 @@ export function PluginsPage() {
   const tabs = [
     { key: 'market', label: t('plugins_tab_market'), count: market.length },
     { key: 'installed', label: t('plugins_tab_installed'), count: installedCount },
-    { key: 'updates', label: t('plugins_tab_updates'), count: updates.length },
   ]
-  const tabsBodyHtml = !data ? undefined : `<div class="sk-tabbar"><div class="sk-tabs" role="tablist" aria-label="${esc(t('plugins'))}">${tabs.map(tab => `<button type="button" class="sk-tab ${view === tab.key ? 'active' : ''}" role="tab" aria-selected="${view === tab.key}" tabindex="${view === tab.key ? '0' : '-1'}" data-plugin-tab="${tab.key}">${esc(tab.label)} <span class="sk-tab-count">${tab.count}</span></button>`).join('')}</div></div>${view === 'market' && categoryTabs.length > 2 ? `<div class="sk-category-tabs" role="tablist" aria-label="${esc(t('plugins'))}">${categoryTabs.map(tab => `<button type="button" class="qc-scope-tab ${activeCategory === tab.key ? 'active' : ''}" role="tab" aria-selected="${activeCategory === tab.key}" tabindex="${activeCategory === tab.key ? '0' : '-1'}" data-plugin-category-tab="${esc(tab.key)}">${esc(tab.label)} <span class="qc-scope-tab-count">${tab.count}</span></button>`).join('')}</div>` : ''}`
+  // The batch action rides the tab row: the transient checking indicator and
+  // the update-all button share its trailing slot, so no standalone status
+  // strip sits between the filters and the cards.
+  const checkingNow = checking || !!data?.updateCheck?.checking
+  const updateAllIdle = !(batch?.running || updates.every(plugin => operationPending(operations[plugin.id])))
+  const tabActionsHtml = checkingNow || updates.length > 0 ? `<div class="${styles['pl-tab-actions']}">${checkingNow ? `<span class="${styles['pl-tab-status']}" role="status"><span class="${styles['pl-spinner']}" aria-hidden="true"></span>${esc(t('plugins_checking_updates'))}</span>` : ''}${updates.length > 0 ? `<button type="button" class="btn-sm" data-plugin-update-all${updateAllIdle ? '' : ' disabled'}>${esc(t('plugins_update_all').replace('{count}', String(updates.length)))}</button>` : ''}</div>` : ''
+  const tabsBodyHtml = !data ? undefined : `<div class="sk-tabbar"><div class="sk-tabs" role="tablist" aria-label="${esc(t('plugins'))}">${tabs.map(tab => `<button type="button" class="sk-tab ${view === tab.key ? 'active' : ''}" role="tab" aria-selected="${view === tab.key}" tabindex="${view === tab.key ? '0' : '-1'}" data-plugin-tab="${tab.key}">${esc(tab.label)} <span class="sk-tab-count">${tab.count}</span></button>`).join('')}</div>${tabActionsHtml}</div>${view === 'market' && categoryTabs.length > 2 ? `<div class="sk-category-tabs" role="tablist" aria-label="${esc(t('plugins'))}">${categoryTabs.map(tab => `<button type="button" class="qc-scope-tab ${activeCategory === tab.key ? 'active' : ''}" role="tab" aria-selected="${activeCategory === tab.key}" tabindex="${activeCategory === tab.key ? '0' : '-1'}" data-plugin-category-tab="${esc(tab.key)}">${esc(tab.label)} <span class="qc-scope-tab-count">${tab.count}</span></button>`).join('')}</div>` : ''}`
   const header = <PageHeader titleKey="plugins" subtitleKey="plugins_subtitle" bodyHtml={tabsBodyHtml}
     refresh={{ id: 'pl-refresh', titleKey: 'plugins_check_updates', disabled: checking, onClick: () => pluginStore.check(true) }}
     search={{ id: 'pl-search-input', placeholderKey: 'search_placeholder', value: search, onInput: setSearch }}
@@ -185,11 +190,6 @@ export function PluginsPage() {
   }
   const detail = detailId ? all.find(plugin => plugin.id === detailId) : null
   const refreshError = snapshot.refreshError || data?.updateCheck?.error || data?.marketplaceError
-  const checkedAt = data?.updateCheck?.checkedAt
-  const checkStatus = <div className={styles['pl-update-toolbar']}>
-    <span role="status">{checking || data?.updateCheck?.checking ? <><span className={styles['pl-spinner']} aria-hidden="true" />{t('plugins_checking_updates')}</> : checkedAt ? t('plugins_checked_at').replace('{time}', new Date(checkedAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })) : t('plugins_check_description')}</span>
-    {updates.length > 0 && <button type="button" className="btn-sm" data-plugin-update-all disabled={batch?.running || updates.every(plugin => operationPending(operations[plugin.id]))} onClick={() => { void pluginStore.updateAll() }}>{t('plugins_update_all').replace('{count}', String(updates.length))}</button>}
-  </div>
 
   return <div className="sk-section" onKeyDown={event => {
     if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
@@ -205,9 +205,10 @@ export function PluginsPage() {
     tabs[next]?.click()
   }} onClick={event => {
     const target = event.target as Element
+    if (target.closest('[data-plugin-update-all]')) { void pluginStore.updateAll(); return }
     const tab = target.closest<HTMLElement>('[data-plugin-tab]')
     if (tab) {
-      setView(tab.dataset.pluginTab === 'installed' ? 'installed' : tab.dataset.pluginTab === 'updates' ? 'updates' : 'market')
+      setView(tab.dataset.pluginTab === 'installed' ? 'installed' : 'market')
       w().klsPageViews?.scrollViewToTop('plugins-view')
     }
     const category = target.closest<HTMLElement>('[data-plugin-category-tab]')
@@ -217,7 +218,6 @@ export function PluginsPage() {
       operation={operations[detail.id]} restartRequired={!!data?.restartRequired} onBack={closeDetail} onUpdate={() => { void update(detail) }} onInstall={() => { void install(detail) }}
       onToggle={enabled => { void pluginStore.toggle(detail, enabled) }} onUninstall={() => { void uninstall(detail) }} onTry={() => tryPlugin(detail)} /> : <>
       {header}
-      {data && checkStatus}
       {batch && <p className={styles['pl-batch-status']} role="status" data-plugin-batch>{t(batch.running ? 'plugins_batch_progress' : batch.failed ? 'plugins_batch_partial' : 'plugins_batch_success').replace('{completed}', String(batch.completed)).replace('{total}', String(batch.total)).replace('{failed}', String(batch.failed))}</p>}
       {!data && snapshot.loadError && <div className="mcp-empty" role="alert"><p>{t(pluginErrorKey(snapshot.loadError))}</p><button type="button" className="btn-sm" onClick={() => { void pluginStore.load() }}>{t('plugins_retry')}</button></div>}
       {!data && !snapshot.loadError && <div dangerouslySetInnerHTML={{ __html: w().klsLoading.render() }} />}
@@ -230,7 +230,7 @@ export function PluginsPage() {
                 disabled={operationPending(operation)} busy={operationPending(operation)} onClick={() => { if (plugin.installed || plugin.source === 'builtin') openPlugin(plugin); else void install(plugin) }} /></>} />
           </div>
         })}
-      </MarketGrid> : <EntryList empty={!visiblePlugins.length} emptyText={search ? t('plugins_search_empty') : view === 'updates' ? t('plugins_updates_empty') : t('plugins_empty')}>
+      </MarketGrid> : <EntryList empty={!visiblePlugins.length} emptyText={search ? t('plugins_search_empty') : t('plugins_empty')}>
         {visiblePlugins.map(plugin => <div key={plugin.id} className={styles['pl-row-wrap']}>
           <EntryCard cardKey={`plg:${plugin.id}`} datasets={{ 'plugin-id': plugin.id }} iconHtml={pluginGlyph(plugin)} title={pluginName(plugin)} desc={pluginDescription(plugin)} meta={<span className={styles['pl-version']}>{versionLabel(plugin)}</span>}
             dot={{ state: plugin.enabled ? 'ok' : 'idle', label: t(plugin.enabled ? 'plugins_state_enabled' : 'plugins_state_disabled') }} onOpen={() => openPlugin(plugin)} onToggleKey={() => { if (!operationPending(operations[plugin.id])) void pluginStore.toggle(plugin, !plugin.enabled) }}
