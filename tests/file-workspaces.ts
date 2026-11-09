@@ -418,14 +418,18 @@ export function registerFileWorkspaceTests(h: Harness, freshRoot: () => string):
       const path = join(f.dir, 'wide.txt'); await writeFile(path, Buffer.from('\ufeffHello 中', 'utf16le')); await chmod(path, 0o444);
       const wide = object(await invoke(f.registry, 'artifacts:read', { sessionId: 's', filePath: path }));
       assertEqual(wide.content, 'Hello 中', 'UTF-16 decoded'); assertEqual(wide.encoding, 'utf16le', 'encoding published');
-      assertEqual(wide.readonly, true, 'read-only file metadata'); assertEqual(wide.fileName, 'wide.txt', 'preview name');
+      assertEqual(wide.readonly, false, 'mode bits no longer gate the panel'); assertEqual(wide.fileName, 'wide.txt', 'preview name');
       assertEqual(wide.mtimeMs, (await stat(path)).mtimeMs, 'preview revision accompanies its content');
       const binary = join(f.dir, 'blob'); await writeFile(binary, Buffer.from([1, 0, 0, 2]));
       const blob = object(await invoke(f.registry, 'artifacts:read', { sessionId: 's', filePath: binary }));
       assertEqual(blob.binary, true, 'real binary detected'); assertEqual(blob.content, '', 'no binary mojibake');
-      const large = join(f.dir, 'large'); await writeFile(large, Buffer.alloc(1024 * 1024 + 9, 97));
+      const mid = join(f.dir, 'mid'); await writeFile(mid, Buffer.alloc(1024 * 1024 + 9, 97));
+      const midRead = object(await invoke(f.registry, 'artifacts:read', { sessionId: 's', filePath: mid }));
+      assertEqual(String(midRead.content).length, 1024 * 1024 + 9, 'text below the editor bound reads complete'); assertEqual(midRead.truncated, false, 'no truncation below the bound');
+      const large = join(f.dir, 'large'); await writeFile(large, Buffer.alloc(10 * 1024 * 1024 + 9, 97));
       const limited = object(await invoke(f.registry, 'artifacts:read', { sessionId: 's', filePath: large }));
-      assertEqual(String(limited.content).length, 1024 * 1024, 'one MiB bound'); assertEqual(limited.truncated, true, 'truncation published');
+      assertEqual(String(limited.content).length, 10 * 1024 * 1024, 'ten MiB bound'); assertEqual(limited.truncated, true, 'truncation published');
+      assertEqual(limited.readonly, true, 'oversized files open read-only');
     } finally { f.files.close(); }
   });
   h.test('file actions refuse traversal and symlink escape before invoking system actions', async () => {
@@ -458,8 +462,29 @@ export function registerFileWorkspaceTests(h: Harness, freshRoot: () => string):
       await writeFile(path, Buffer.from([0, 0, 1, 2]));
       assertEqual(object(await invoke(f.registry, 'workspace:write', { sessionId: 's', filePath: path, content: 'bad' })).error, 'file seems to be binary', 'binary refused');
       await writeFile(path, 'original');
-      assertEqual(object(await invoke(f.registry, 'workspace:write', { sessionId: 's', filePath: path, content: '中'.repeat(2 * 1024 * 1024) })).error, 'file too large', 'UTF-8 byte bound');
+      assertEqual(object(await invoke(f.registry, 'workspace:write', { sessionId: 's', filePath: path, content: '中'.repeat(4 * 1024 * 1024) })).error, 'file too large', 'UTF-8 byte bound');
       assertEqual(await readFile(path, 'utf8'), 'original', 'failed saves kept bytes');
+    } finally { f.files.close(); }
+  });
+  h.test('everything the panel opens as text is editable; only oversize stays read-only', async () => {
+    const root = freshRoot(); const f = await fixture(root, { producedBySession: (p: string) => basename(p) === 'artifact.md' });
+    try {
+      const uploads = join(root, 'uploads'); await mkdir(uploads, { recursive: true });
+      const resume = join(uploads, 'resume.md'); await writeFile(resume, '# draft');
+      const read = object(await invoke(f.registry, 'artifacts:read', { sessionId: 's', filePath: resume }));
+      assertEqual(read.readonly, false, 'uploads files are editable in the panel');
+      const saved = object(await invoke(f.registry, 'workspace:write', { sessionId: 's', filePath: resume, content: '# saved' }));
+      assertEqual(saved.ok, true, 'panel save commits: ' + JSON.stringify(saved));
+      assertEqual(await readFile(resume, 'utf8'), '# saved', 'saved bytes land on disk');
+      const artifact = join(root, 'artifact.md'); await writeFile(artifact, 'produced');
+      assertEqual(object(await invoke(f.registry, 'artifacts:read', { sessionId: 's', filePath: artifact })).readonly, false, 'session-produced files outside roots are editable');
+      assertEqual(object(await invoke(f.registry, 'workspace:write', { sessionId: 's', filePath: artifact, content: 'edited' })).ok, true, 'session-produced files commit');
+      const locked = join(f.dir, 'locked.md'); await writeFile(locked, 'x'); await chmod(locked, 0o444);
+      assertEqual(object(await invoke(f.registry, 'artifacts:read', { sessionId: 's', filePath: locked })).readonly, false, 'mode bits no longer decide read-only');
+      const lockedWrite = object(await invoke(f.registry, 'workspace:write', { sessionId: 's', filePath: locked, content: 'y' }));
+      assert(lockedWrite.ok !== true && typeof lockedWrite.error === 'string', 'unwritable mode fails at the OS instead: ' + JSON.stringify(lockedWrite));
+      const loose = join(root, 'loose.md'); await writeFile(loose, 'x');
+      assertEqual(object(await invoke(f.registry, 'workspace:write', { sessionId: 's', filePath: loose, content: 'y' })).error, 'path outside preview scope', 'write scope stays bounded to the preview scope');
     } finally { f.files.close(); }
   });
   const writeVectors = JSON.parse(readFileSync(join(__dirname, '../../contracts/vectors/workspace-file-write.json'), 'utf8')) as {

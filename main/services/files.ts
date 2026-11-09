@@ -20,7 +20,7 @@ export const BASE_WORKSPACE_EXCLUDES = [
   '**/.pytest_cache', '**/.pytest_cache/**', '**/target', '**/target/**',
 ] as const;
 const READONLY_EXTENSIONS = new Set('svg png jpg jpeg gif webp bmp ico avif pdf mp3 wav m4a aac flac ogg oga opus mp4 webm mov m4v ogv'.split(' '));
-const WRITE_LIMIT = 5 * 1024 * 1024, PREVIEW_LIMIT = 1024 * 1024;
+const WRITE_LIMIT = 10 * 1024 * 1024, PREVIEW_LIMIT = 10 * 1024 * 1024, REMOTE_PREVIEW_LIMIT = 1024 * 1024;
 class FileRefusal extends Error {}
 interface WorkspaceWatcher { close(): void; on(event: 'error', listener: (error: Error) => void): unknown }
 
@@ -166,8 +166,9 @@ export class FileService {
     let recordedOnly = false;
     const sharedMedia = preview && READONLY_EXTENSIONS.has(extname(path).slice(1).toLowerCase()) ? this.deps.mediaScope : undefined;
     // A file this conversation itself produced but outside its roots is still
-    // showable — see `producedBySession`. Preview only: listing, reading for
-    // edit and writing stay root-scoped.
+    // showable — see `producedBySession`. Listing stays root-scoped; reading
+    // and writing share the preview scope, so everything the panel can open
+    // as text is exactly what a save can commit.
     if (!allowed.length && preview && this.deps.producedBySession?.(resolve(path), sessionId)) {
       // The HTML preview is a DIRECTORY capability, so it needs a root to bound
       // the token; the file's own directory is the tightest honest one. This
@@ -256,7 +257,7 @@ export class FileService {
     const checked = await this.remoteChecked(remote, payload, true);
     const info = await this.deps.sshFiles!.stat(remote.senderId, remote.workdir, checked);
     if (!info?.isFile) return { error: 'not a file' };
-    const { content, size, complete } = await this.deps.sshFiles!.read(remote.senderId, remote.workdir, checked, 0, PREVIEW_LIMIT);
+    const { content, size, complete } = await this.deps.sshFiles!.read(remote.senderId, remote.workdir, checked, 0, REMOTE_PREVIEW_LIMIT);
     const preview = decodeWorkspacePreview(content);
     return { filePath: checked, fileName: basename(checked), size, mtimeMs: info.mtimeMs, truncated: !complete, readonly: false, remote: true, ...preview };
   }
@@ -533,7 +534,7 @@ export class FileService {
     return this.run(payload, async (): Promise<Json> => {
       const remote = this.remoteOf(payload);
       if (remote) return this.remoteWrite(remote, payload);
-      const checked = await this.checked(payload);
+      const checked = await this.checked(payload, true);
       if (typeof payload.content !== 'string') return { error: 'invalid content' };
       if (Buffer.byteLength(payload.content) > WRITE_LIMIT) return { error: 'file too large' };
       if (!(await stat(checked.realPath)).isFile()) return { error: 'not a file' };
@@ -590,10 +591,9 @@ export class FileService {
       if (remote) return this.remoteRead(remote, payload);
       const checked = await this.checked(payload, true), info = await stat(checked.realPath);
       if (!info.isFile()) return { error: 'not a file' };
-      const workspaceRoots = await Promise.all([checked.root, ...this.deps.workspaces.extraRoots(checked.sessionId)].map(root => realpath(root).catch(() => undefined)));
       const preview = decodeWorkspacePreview(await readHead(checked.realPath, Math.min(info.size, PREVIEW_LIMIT)));
       return { filePath: checked.path, fileName: basename(checked.path), size: info.size, mtimeMs: info.mtimeMs, truncated: info.size > PREVIEW_LIMIT,
-        readonly: (info.mode & 0o222) === 0 || !workspaceRoots.some(root => root !== undefined && pathInside(checked.realPath, root)), ...preview };
+        readonly: info.size > PREVIEW_LIMIT, ...preview };
     });
   }
   /** A selected file is a single-file read grant, independent of how it was created. */
@@ -620,7 +620,7 @@ export class FileService {
     const checked = await this.remoteChecked(remote, payload, true);
     const info = await this.deps.sshFiles!.stat(remote.senderId, remote.workdir, checked);
     if (!info?.isFile) return { error: 'not a file' };
-    if (info.size > PREVIEW_LIMIT) return { error: 'file too large to preview remotely' };
+    if (info.size > REMOTE_PREVIEW_LIMIT) return { error: 'file too large to preview remotely' };
     const { content } = await this.deps.sshFiles!.read(remote.senderId, remote.workdir, checked, 0, PREVIEW_LIMIT);
     const cacheRoot = join(this.deps.workspaces.configRoot, 'remote-previews', string(payload.sessionId).replace(/[^a-zA-Z0-9_-]/g, '_'));
     await mkdir(cacheRoot, { recursive: true, mode: 0o700 });
