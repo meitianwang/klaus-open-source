@@ -220,4 +220,55 @@ export function registerAdvancedBrowserTests(h: Harness, context: Context): void
   registerReadingTests(h,context);
   registerLocatorTests(h,context);
   registerFileUploadTests(h,context);
+
+  h.test('advanced: ax_state and ax_action observe and drive the page on this backend', async () => {
+    await call('navigate', { url: context.base() + '/advanced' });
+    // The model-facing envelope and the indexed actions run through the same
+    // host dispatcher on every backend, so each surface (built-in view and
+    // external Chrome relay) must produce the identical contract.
+    const first = await context.call('ax_state', {});
+    assert(first.isError !== true, `ax_state succeeds: ${JSON.stringify(first.error)}`);
+    const blocks = (first.content ?? []) as unknown as BrowserObject[];
+    const text = String(object(blocks[0]).text);
+    const firstStructured = object(first.structuredContent);
+    const firstValue = object(firstStructured.value);
+    assertEqual(object(blocks[0]).type, 'text', 'the state ships as one text block');
+    assertEqual(blocks.length, 1, 'state mode attaches no capture');
+    assert(text.includes('Title: Advanced fixture'), 'the title header renders');
+    assert(text.includes(`URL: ${context.base()}/advanced`), 'the url header renders');
+    assert(/^\s*\[\d+\]/m.test(text), `elements carry integer indices; value=${JSON.stringify(firstValue)} text=${JSON.stringify(text.slice(0, 500))}`);
+    assert(/\[\d+\] button "Offscreen action" actions: Scroll to Visible/.test(text), 'the offscreen control exposes its secondary action');
+    assertEqual(firstStructured.axText, undefined, 'the envelope moves axText out of structuredContent');
+    assertEqual(firstValue.state, 'full', 'the first capture of a document is full state');
+    assert(typeof firstValue.snapshotId === 'string' && firstValue.snapshotId !== '', 'the capture publishes a snapshot id');
+    const nameRow = /\[(\d+)\] textbox "Name"/.exec(text);
+    const submitRow = /\[(\d+)\] button "Submit"/.exec(text);
+    assert(nameRow && submitRow, 'the labelled input and the submit button have index rows');
+
+    const setValue = object((await call('ax_action', { action: 'set_value', elementIndex: Number(nameRow![1]), value: 'ax-aligned' })).value);
+    assertEqual(setValue.ok, true, 'indexed set_value succeeds');
+    assertEqual(await evaluate('document.querySelector("#name").value'), 'ax-aligned', 'set_value wrote the real input');
+    const second = object((await call('ax_state', {})).value);
+    assert(Number(second.changed) >= 1, 'the recapture reports the changed input value');
+    assert(String(second.snapshotId) !== String(firstValue.snapshotId), 'every capture publishes a fresh snapshot id');
+
+    const clicked = object((await call('ax_action', { action: 'click', elementIndex: Number(submitRow![1]) })).value);
+    assertEqual(clicked.ok, true, 'indexed click succeeds');
+    assertEqual(await evaluate('window.submitted'), true, 'the click was real backend input: the form submit handler ran');
+    await evaluate('window.submitted=false');
+    const stale = await context.call('ax_action', { action: 'click', elementIndex: Number(submitRow![1]), snapshotId: 'stale' });
+    assertEqual(stale.isError, true, 'a foreign snapshot id is refused');
+    assertEqual(object(stale.error).code, 'stale_snapshot', 'the refusal names the stale snapshot');
+    assertEqual(await evaluate('window.submitted'), false, 'the refused click never reached the page');
+
+    const both = await context.call('ax_state', { mode: 'both', save: false });
+    assert(both.isError !== true, `mode both succeeds: ${JSON.stringify(both.error)}`);
+    const bothBlocks = (both.content ?? []) as unknown as BrowserObject[];
+    assert(bothBlocks.some(block => object(block).type === 'image' && String(object(block).data).length > 0), 'mode both attaches a real capture from this backend');
+    assert(String(object(bothBlocks[0]).text).includes('Title: Advanced fixture'), 'mode both keeps the state text');
+
+    const shot = object((await call('screenshot', { save: false })).value);
+    const scale = Number(shot.scale);
+    assert(Number.isFinite(scale) && scale > 0, `the screenshot reports its image scale (got ${JSON.stringify(shot.scale)})`);
+  });
 }

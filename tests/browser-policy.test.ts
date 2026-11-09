@@ -10,6 +10,7 @@ import { validateLocator } from '../main/browser/locator-policy';
 import { integerTimestampMs } from '../main/browser/event-shapes';
 import { performPageOperation, type PageOperationContext } from '../main/browser/page-operations';
 import { navigateForRead, readUrls, type TemporaryPage } from '../main/browser/task-operations';
+import { answerEnvelope } from '../main/browser/page-capture';
 import { MAX_BROWSER_WAIT_MS, waitForPage } from '../main/browser/page-wait';
 import { captureScreenshot } from '../main/browser/page-capture';
 import { BROWSER_PANEL_OPEN_ACK_TIMEOUT_MS, browserOperationRequestsPanel } from '../main/browser/panel-contract';
@@ -652,6 +653,34 @@ h.test('youtube transcript export reports missing captions as a page problem', a
   const error = await assertRejects(() => performPageOperation(context, 'content_export', { format: 'youtube_transcript' }), 'a page without captions is refused');
   assertEqual((error as BrowserError).code, 'not_found', 'missing captions are a not-found page state');
   assert(String((error as BrowserError).message).includes('caption tracks'), 'the message names the gap');
+});
+
+h.test('the shared answer envelope ships accessibility prose verbatim on every backend', () => {
+  const response: BrowserObject = { url: 'https://example.page/x', title: 'T', axText: 'Title: T\nURL: https://example.page/x\n\n[0] button "Go"', value: { snapshotId: 's1', state: 'full' } };
+  const { content, structured } = answerEnvelope(response, undefined);
+  assertEqual(content.length, 1, 'one text block without a capture');
+  assertEqual(String(object(content[0]).text), String(response.axText), 'AX prose ships verbatim instead of a JSON encoding');
+  assertEqual(structured.axText, undefined, 'axText never duplicates into structuredContent');
+  assertEqual(object(structured.value).snapshotId, 's1', 'metadata stays structured');
+  assertEqual(typeof response.axText, 'string', 'the caller response object is not mutated');
+});
+
+h.test('the shared answer envelope appends the capture label and image block', () => {
+  const response: BrowserObject = { url: 'https://example.page/x', axText: 'AX TEXT', value: { state: 'full' } };
+  const screenshot: BrowserObject = { data: 'QUJD', mimeType: 'image/jpeg' };
+  const { content, structured } = answerEnvelope(response, screenshot);
+  assertEqual(content.length, 2, 'text plus image');
+  assertEqual(String(object(content[0]).text), 'AX TEXT\n\nhttps://example.page/x', 'an unsaved capture appends its context label');
+  assertEqual(object(content[1]).type, 'image', 'the image block rides the envelope');
+  assertEqual(object(content[1]).data, 'QUJD', 'image bytes pass through');
+  assertEqual(structured.axText, undefined, 'axText hoisted out');
+});
+
+h.test('the shared answer envelope keeps the JSON encoding for ordinary answers', () => {
+  const response: BrowserObject = { url: 'https://example.page/x', value: { ok: true } };
+  const { content, structured } = answerEnvelope(response, undefined);
+  assertEqual(String(object(content[0]).text), JSON.stringify(response), 'non-AX answers keep the established JSON text block');
+  assertEqual(structured, response, 'nothing to hoist: the response passes through untouched');
 });
 
 void h.finish(join(__dirname, 'browser-policy-result.json'), 'browser-policy').then(code => process.exit(code));

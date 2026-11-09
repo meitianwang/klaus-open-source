@@ -1,6 +1,5 @@
 import { BrowserManager, type BrowserPage } from './manager';
 import { BrowserError, json, message, object, string, type BrowserObject } from './types';
-import type { Json } from '../ipc/contract';
 import type { ChromeBrowserService } from './chrome-browser';
 import { performPageOperation } from './page-operations';
 import { join } from 'node:path';
@@ -9,7 +8,7 @@ import { normalizeOperation } from './wire';
 import { waitForPage } from './page-wait';
 import { browserInputSchema } from './tool-schemas';
 import { browserOperationRequestsPanel } from './panel-contract';
-import { captureResultText } from './page-capture';
+import { answerEnvelope } from './page-capture';
 import { parseBrowserTabMention } from '../../shared/browser-tab-mention';
 
 const ALL_OPERATIONS = [
@@ -153,21 +152,9 @@ export class BrowserOperations {
   }
 
   private answer(sessionId: string, response: BrowserObject, page?: BrowserPage, screenshot?: BrowserObject, browserId?: string): BrowserObject {
-    const captureText = captureResultText(screenshot, response.url);
-    // Accessibility state is model-facing prose: it ships as the text block
-    // verbatim instead of a JSON encoding; metadata stays in structuredContent.
-    const axText = typeof response.axText === 'string' ? String(response.axText) : undefined;
-    let structured = response;
-    let textBlock: string;
-    if (axText !== undefined) {
-      textBlock = screenshot ? `${axText}\n\n${captureText}` : axText;
-      structured = { ...response };
-      delete structured.axText;
-    } else {
-      textBlock = screenshot ? captureText : JSON.stringify(response);
-    }
-    const content: Json[] = [{ type: 'text', text: textBlock }];
-    if (screenshot) content.push({ type: 'image', data: screenshot.data ?? '', mimeType: screenshot.mimeType ?? 'image/png' });
+    // Accessibility state is model-facing prose: the shared envelope ships it
+    // as the text block verbatim; metadata stays in structuredContent.
+    const { content, structured } = answerEnvelope(response, screenshot);
     const surface = browserId && browserId !== 'iab'
       ? { kind: 'browserUse', backend: 'chrome', browserId, sessionId }
       : this.manager.surface(sessionId, page, screenshot ? { url: screenshot.dataUrl ?? '' } : undefined);

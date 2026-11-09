@@ -6,6 +6,7 @@ import { domScript, elementScript, namesElement, resolveElement } from './dom';
 import { BrowserError, object, type BrowserObject } from './types';
 import type { BrowserCdp } from './page-operations';
 import { frameCaptureRect } from './frame-capture';
+import type { Json } from '../ipc/contract';
 
 function finite(value: unknown, name: string, fallback?: number): number {
   if (value === undefined && fallback !== undefined) return fallback;
@@ -102,4 +103,28 @@ export function captureResultText(screenshot: BrowserObject | undefined, label: 
   const context = String(label ?? 'Screenshot');
   if (screenshot?.saved !== true || typeof screenshot.path !== 'string') return context;
   return `Saved: ${JSON.stringify(screenshot.path)}\nEmbed: ${savedImageMarkdown(screenshot.path)}\n${context}`;
+}
+
+/**
+ * The model-facing result envelope shared by every browser backend:
+ * accessibility state is prose and ships as the text block verbatim instead of
+ * a JSON encoding, a capture appends its embed text plus an image block, and
+ * metadata stays in structuredContent. One implementation so the built-in
+ * browser and the external Chrome relay cannot drift apart.
+ */
+export function answerEnvelope(response: BrowserObject, screenshot: BrowserObject | undefined): { content: Json[]; structured: BrowserObject } {
+  const captureText = captureResultText(screenshot, response.url);
+  const axText = typeof response.axText === 'string' ? String(response.axText) : undefined;
+  let structured = response;
+  let textBlock: string;
+  if (axText !== undefined) {
+    textBlock = screenshot ? `${axText}\n\n${captureText}` : axText;
+    structured = { ...response };
+    delete structured.axText;
+  } else {
+    textBlock = screenshot ? captureText : JSON.stringify(response);
+  }
+  const content: Json[] = [{ type: 'text', text: textBlock }];
+  if (screenshot) content.push({ type: 'image', data: screenshot.data ?? '', mimeType: screenshot.mimeType ?? 'image/png' });
+  return { content, structured };
 }

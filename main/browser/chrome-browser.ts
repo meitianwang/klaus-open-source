@@ -13,7 +13,7 @@ import { permissionCommand } from './page-advanced';
 import { batchResponse, navigateForRead, readUrls, runBatch } from './task-operations';
 import { normalizeOperation } from './wire';
 import { waitForPage } from './page-wait';
-import { captureResultText } from './page-capture';
+import { answerEnvelope } from './page-capture';
 import type { BrowserResource } from '../../contracts/browser-settings';
 
 export interface ChromeBrowserOptions {
@@ -240,10 +240,10 @@ export class ChromeBrowserService {
 
   private async answer(connection: Connection, sessionId: string, turnId: string, response: BrowserObject, page?: ChromePageDebugger, screenshot?: BrowserObject): Promise<BrowserObject> {
     const rows = await this.tabs(connection, sessionId, turnId);
-    const captureText = captureResultText(screenshot, response.url);
-    const content: Json[] = [{ type: 'text', text: screenshot ? captureText : JSON.stringify(response) }];
-    if (screenshot) content.push({ type: 'image', data: screenshot.data ?? '', mimeType: screenshot.mimeType ?? 'image/png' });
-    return { ...(response.partial === true && response.error ? { isError: true, error: response.error } : {}), content, structuredContent: response, _meta: { 'klaus/toolSurface': {
+    // The shared envelope keeps the model-facing contract identical to the
+    // built-in browser: AX prose ships verbatim, metadata stays structured.
+    const { content, structured } = answerEnvelope(response, screenshot);
+    return { ...(structured.partial === true && structured.error ? { isError: true, error: structured.error } : {}), content, structuredContent: structured, _meta: { 'klaus/toolSurface': {
       kind: 'browserUse', backend: 'chrome', browserId: connection.instance.id, sessionId,
       ...(page ? { tabId: String(page.tabId), targetId: page.targetId } : {}),
       ...(connection.active.has(sessionId) ? { activeTabId: String(connection.active.get(sessionId)) } : {}),
