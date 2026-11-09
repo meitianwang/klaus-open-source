@@ -795,6 +795,11 @@ test('an older history response cannot erase a later completed turn', async () =
   const sessionId = 'history-crosses-complete-turn'
   const releases: Array<(rows: any[]) => void> = []
   respond = () => new Promise(resolve => releases.push(resolve))
+  // Saved rows carry turn identity, the shape real history reads have: turn
+  // ownership is keyed on turnId, so identity-less rows could never take over
+  // the live units of the turn they settle.
+  const savedUser = (text: string) => ({ ...userRow(text), uuid: `u-${text}`, turnId: text })
+  const savedAssistant = (text: string) => ({ ...assistantRow(text), uuid: `a-${text}`, turnId: text })
   const run = (turnId: string) => {
     store.ingestLocalUserTurn(sessionId, { text: turnId })
     store.ingestChatEvent({ type: 'stream_mode', sessionId, mode: 'requesting', turnId })
@@ -804,12 +809,18 @@ test('an older history response cannot erase a later completed turn', async () =
   run('A')
   run('B')
   expect(releases).toHaveLength(1)
-  releases[0]([userRow('A'), assistantRow('A')])
+  releases[0]([savedUser('A'), savedAssistant('A')])
   await flush()
+  // The first read was issued before turn B streamed, so its response is
+  // invalidated wholesale — the live layer advanced while the read was in
+  // flight — and every live unit survives untouched. The older response
+  // cannot erase the later completed turn.
   expect(store.getSessionStream(sessionId).liveUnits.filter(unit => unit.type === 'live-text').map(unit => unit.text)).toEqual(['A', 'B'])
   expect(releases).toHaveLength(2)
-  releases[1]([userRow('A'), assistantRow('A'), userRow('B'), assistantRow('B')])
+  releases[1]([savedUser('A'), savedAssistant('A'), savedUser('B'), savedAssistant('B')])
   await flush()
+  // The covering follow-up takes over both turns: saved rows own their turn's
+  // live units by turnId, so the handoff leaves nothing to render twice.
   expect(store.getSessionStream(sessionId).liveUnits).toHaveLength(0)
   expect(store.getSessionStream(sessionId).history).toHaveLength(4)
 })

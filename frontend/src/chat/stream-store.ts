@@ -1,6 +1,6 @@
 import { forgetApprovalReviewSession, replaceApprovalReviewHistory, type DeniedApprovalReview } from './approval-review-state'
 import { ByteBudgetLru, retainedBytes } from './byte-budget'
-import { mergeSubmittedUserHistory } from './transcript-user-handoff'
+import { mergeSubmittedUserHistory, retainUnownedLiveUnits } from './transcript-user-handoff'
 import { retireMarkdownRuntime } from './markdown-async'
 import { approvalReview, approvalReviewEvent, type ApprovalReview } from '../../../contracts/approval-review'
 import { planningQuestionHistoryOwns } from './planning/question-history'
@@ -2494,6 +2494,10 @@ export function setTurnCollapsed(sessionId: string, turnId: string, collapsed: b
 const historyInFlight = new Map<string, Promise<void>>()
 const historyToolResults = new Map<string, Map<string, { turnId?: string; result: Record<string, unknown> }>>()
 
+function sameHistoryRows(previous: any[] | null | undefined, next: any[]): boolean {
+  return !!previous && previous.length === next.length && previous.every((row, index) => row === next[index])
+}
+
 function mergeHistoryToolResults(sessionId: string, messages: any[] | null, fromHost = false): any[] | null {
   const results = historyToolResults.get(sessionId)
   if (!results?.size || !messages) return messages
@@ -3006,19 +3010,60 @@ export function loadSessionHistory(sessionId: string, options: {
           ? prev.liveUnits.filter(unit => !pendingEdit.snapshot.droppedKeys.has(unit.key)) : prev.liveUnits
         const submittedHistory = savedReplacement && pendingEdit
           ? prev.history?.filter(message => !belongsToEditedTurn(message, pendingEdit.snapshot)) : prev.history
+        const turnStartClock = { ...prev.turnStartedAtMs, ...prev.turnWorkStartedAtMs }
         const settledHistory = options.reconcile ? reviewHandoff.history
-          : mergeSubmittedUserHistory(reviewHandoff.history, covers ? submittedUnits : [], submittedHistory || [])
+          : mergeSubmittedUserHistory(reviewHandoff.history, covers ? submittedUnits : [], submittedHistory || [], turnStartClock)
         if (covers && pendingEdit && (options.reconcile || editedTurnId
           && settledHistory.some(message => message.role === 'user' && message.turnId === editedTurnId))) {
           pendingEditedTurns.delete(sessionId)
         }
         const savedUserIds = new Set(settledHistory.filter(message => message.role === 'user' && message.uuid).map(message => message.uuid))
         if (!prev.running) historyToolResults.delete(sessionId)
+        // Turn-keyed takeover, the store-level half of the alignment: saved rows
+        // own their turn's live units the moment they land, and until then the
+        // live layer stays that turn's only source. The merge no longer
+        // fabricates history rows for local snapshots, so this retention is
+        // what keeps a lagging flush visible instead of duplicating it.
+        const historyCardsKept = (units: LiveUnit[]) => units.filter(unit => unit.type === 'live-planning-question' && unit.request.status === 'pending'
+          || 'req' in unit && unit.resolved === null
+          && (unit.type !== 'live-ask' || unit.req.responseChannel !== 'async-question'
+            || !settledHistory.some(message => message.contentBlocks?.some((block: any) => block.id === unit.req.toolCallId))))
+        const handoffBase = liveCut ? unitsBeforeRewind(reviewHandoff.liveUnits, liveCut) : reviewHandoff.liveUnits
+        let retainedUnowned = 0
+        let sweptLiveUnits: LiveUnit[] | null = null
+        if (covers) {
+          const kept = historyCardsKept(handoffBase)
+          const keptSet = new Set(kept)
+          // An authoritative read carries a verdict, not a lag: reconcile, a
+          // rewind cut or a proven-removed interrupted turn means a turn that
+          // is missing from saved history is gone on purpose. Retaining its
+          // live units there would redraw exactly what was removed, so the
+          // turn-keyed retention only guards ordinary flush reads — the ones
+          // that can race behind the writer.
+          const verdictRead = options.reconcile === true || !!liveCut || options.rewoundLiveTail === true
+          // A saved replacement row proves the edited turn's local units were
+          // superseded; they are retryable edit state, never retention fuel.
+          const supersededKeys = savedReplacement && pendingEdit ? pendingEdit.snapshot.droppedKeys : null
+          const retentionBase = handoffBase.filter(unit => !keptSet.has(unit) && !supersededKeys?.has(unit.key))
+          if (verdictRead) {
+            sweptLiveUnits = kept
+          } else {
+            const retention = retainUnownedLiveUnits(retentionBase,
+              settledHistory, turnStartClock, handoffBase.some(unit => unit.type === 'live-error'),
+              !sameHistoryRows(prev.history, reviewHandoff.history))
+            retainedUnowned = retention.retained
+            sweptLiveUnits = [...kept, ...retention.units]
+          }
+        }
+        const mergedHistory = mergeAgentTimeline(settledHistory, agentTimeline)
         return {
           agentTimeline,
           supportsSavedItemAnchors,
-          history: mergeAgentTimeline(settledHistory, agentTimeline),
-          historyStale: false,
+          // A retained live turn means this read lagged behind the flush. Keep
+          // the previous history reference so the stale flag arms exactly one
+          // retry instead of a read per commit.
+          history: retainedUnowned > 0 && sameHistoryRows(prev.history, mergedHistory) ? prev.history : mergedHistory,
+          historyStale: retainedUnowned > 0,
           historyLoading: false,
           historyLoadFailed: false,
           loadedRows: rows,
@@ -3041,10 +3086,7 @@ export function loadSessionHistory(sessionId: string, options: {
             : (restoredTurnId || ((covers && prev.activeTurnId) ? null : prev.activeTurnId)),
           // Approval cards have a separate host lifetime and are absent from
           // transcript history. A late history read must not erase a recovered card.
-          ...(covers || liveCut ? { liveUnits: withoutOpenStopRow((liveCut ? unitsBeforeRewind(reviewHandoff.liveUnits, liveCut) : reviewHandoff.liveUnits).filter(unit => !covers || unit.type === 'live-planning-question' && unit.request.status === 'pending'
-            || 'req' in unit && unit.resolved === null
-            && (unit.type !== 'live-ask' || unit.req.responseChannel !== 'async-question'
-              || !settledHistory.some(message => message.contentBlocks?.some((block: any) => block.id === unit.req.toolCallId)))), tailOpen),
+          ...(covers || liveCut ? { liveUnits: withoutOpenStopRow(sweptLiveUnits ?? handoffBase, tailOpen),
             tools: covers ? {} : prev.tools,
             liveTurnId: tailOpen && !(liveCut && (!prev.liveTurnId || liveCut.turnIds.includes(prev.liveTurnId)))
               ? (prev.liveTurnId || tailOpen)

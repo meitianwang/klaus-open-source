@@ -429,17 +429,30 @@ describe('stop interaction vectors: history handover', () => {
 
   test('the next Turn hands the interrupted Turn over to history', async () => {
     const sessionId = 'stop-history-handover'
-    runStoppedTurn(sessionId, 'text')
-    // A new user Turn releases the live layer's ownership.
-    store.ingestLocalUserTurn(sessionId, { text: 'keep going' })
-    store.ingestChatEvent({ type: 'stream_mode', sessionId, mode: 'requesting', turnId: 'turn-2' })
-    expect(store.getSessionStream(sessionId).interruptedLiveTurn).toBeNull()
-    store.ingestChatEvent({ type: 'text_delta', sessionId, text: 'ok' })
-    store.ingestChatEvent({ type: 'done', sessionId, turnId: 'turn-2' })
-    await flush()
-    const state = store.getSessionStream(sessionId)
-    expect(state.history).not.toBeNull()
-    expect(state.liveUnits.length).toBe(0)
+    const previous = (globalThis as any).window.klaus
+    // Handover is turn-keyed: saved rows take over a live turn only when they
+    // carry its identity, the shape every real history read has. An identity-less
+    // or empty read is a lagging flush and must keep the live layer instead.
+    ;(globalThis as any).window.klaus = { session: { history: async () => [
+      { uuid: 'u-1', role: 'user', text: 'go', turnId: 'turn-1' },
+      { uuid: 'a-1', role: 'assistant', text: 'partial answer', turnId: 'turn-1' },
+      { uuid: 'u-2', role: 'user', text: 'keep going', turnId: 'turn-2' },
+      { uuid: 'a-2', role: 'assistant', text: 'ok', turnId: 'turn-2' },
+    ] } }
+    try {
+      runStoppedTurn(sessionId, 'text')
+      // A new user Turn releases the live layer's ownership.
+      store.ingestLocalUserTurn(sessionId, { text: 'keep going' })
+      store.ingestChatEvent({ type: 'stream_mode', sessionId, mode: 'requesting', turnId: 'turn-2' })
+      expect(store.getSessionStream(sessionId).interruptedLiveTurn).toBeNull()
+      store.ingestChatEvent({ type: 'text_delta', sessionId, text: 'ok' })
+      store.ingestChatEvent({ type: 'done', sessionId, turnId: 'turn-2' })
+      await flush()
+      const state = store.getSessionStream(sessionId)
+      expect(state.history).not.toBeNull()
+      expect(state.liveUnits.length).toBe(0)
+      expect(state.historyStale).toBe(false)
+    } finally { (globalThis as any).window.klaus = previous }
   })
 })
 
