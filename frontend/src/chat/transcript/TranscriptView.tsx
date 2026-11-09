@@ -1,3 +1,4 @@
+import { friendlyErrorText } from '../friendly-errors'
 import { pendingSubmissionRecovery } from '../composer/pending-submission'
 import { InlineUserEditor, openInlineUserEdit, useInlineUserEdit } from './inline-user-edit'
 import { installUserMessageDisclosure, registerUserMessageCopy, userMessageCopyContent } from './user-message-disclosure'
@@ -2746,6 +2747,10 @@ export function providerErrorText(raw: string, kind: string | undefined, t: (key
   if (antigravity !== undefined) return antigravity
   const cursor = knownCursorErrorText(raw, t)
   if (cursor !== undefined) return cursor
+  // Host envelope failures carry transport jargon; show the problem and the
+  // remedy instead, and keep the raw envelope in host logs only.
+  const friendly = friendlyErrorText(raw, t)
+  if (friendly !== undefined) return friendly
   // Older saved turns may contain the terminal sentence without its auth kind.
   if ((!kind || kind === 'unknown') && raw === 'Authentication failed for the selected model provider.') return t('provider_auth')
   const fastModeCreditMessages = [raw, details?.message, details?.providerError?.message]
