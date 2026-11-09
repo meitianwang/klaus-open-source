@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { Icon } from '../../components/Icon'
 import { useT } from '../../i18n'
 import { chatStreamStore, resolveLiveApproval, saveQuestionDraft, updateAsyncQuestionUi, useChatStream } from '../stream-store'
-import { chooseQuestionOption, firstUnansweredQuestion, initialQuestionDraft, questionAnswers, questionAttachments, questionBatchReady, questionOptionLabel, recommendedQuestionDraft, resolvedQuestionPresentation, type QuestionAttachment, type QuestionDraft, type UserQuestion } from './question-state'
+import { chooseQuestionOption, displayQuestionAnswer, engineQuestionCopy, engineQuestionKind, firstUnansweredQuestion, initialQuestionDraft, questionAnswers, questionAttachments, questionBatchReady, questionOptionLabel, recommendedQuestionDraft, resolvedQuestionPresentation, type QuestionAttachment, type QuestionDraft, type UserQuestion } from './question-state'
 import { canAnswerAsyncQuestion, closeAsyncQuestionPanel, declineAsyncQuestion, editAsyncQuestion, navigateAsyncQuestion, questionCountdown, resetAsyncQuestionDeadline } from './async-question-state'
 import { submitAsyncQuestionPanel, declineAsyncQuestionRequest } from './async-question-controller'
 import { questionShortcutIntent } from './spec-questionnaire'
@@ -42,6 +42,9 @@ export function AskUserQuestionCard({ req, resolved, sessionId, composer, source
   const panelState = session?.asyncQuestions.panel
   const selectedItem = panelState?.items[panelState.selected]
   const questions: UserQuestion[] = req.toolInput?.questions || []
+  // Engine-authored cards (e.g. the reasoning-over-limit confirmation) ship their
+  // copy localized here; payload text stays the answer key and value.
+  const engineCopy = engineQuestionCopy(engineQuestionKind(req.toolInput?.metadata), questions, t)
   const saved = useChatStream(store => {
     if (adapter) return adapter.draft
     if (asynchronous) return store.sessions[sessionId]?.asyncQuestions.requests[req.requestId]?.draft
@@ -411,10 +414,10 @@ export function AskUserQuestionCard({ req, resolved, sessionId, composer, source
       </div>
       {summary.rows.map(row => <div className={styles['question-summary-row']} key={`${row.index}:${row.question}`}>
         <div className={styles['question-summary-question']}>
-          <span className={styles['question-summary-index']}>{row.index}.</span><span>{row.question}</span>
+          <span className={styles['question-summary-index']}>{row.index}.</span><span>{engineCopy && row.index === 1 ? engineCopy.title : row.question}</span>
         </div>
         <div className={`${styles['question-summary-answer']}${row.answer ? '' : ` ${styles['question-summary-skipped']}`}`}>
-          {row.answer || t('question_skipped')}
+          {displayQuestionAnswer(engineCopy, questions[row.index - 1], row.answer) || t('question_skipped')}
         </div>
       </div>)}
     </div>
@@ -428,7 +431,7 @@ export function AskUserQuestionCard({ req, resolved, sessionId, composer, source
     onDragOver={event => { if (Array.from(event.dataTransfer.types).includes('Files')) { event.preventDefault(); event.stopPropagation() } }}
     onDrop={event => { if (event.dataTransfer.files.length) { event.preventDefault(); event.stopPropagation(); if (!busy) void addAttachments(Array.from(event.dataTransfer.files)) } }}>
     <div className={styles['question-header']}>
-      <div className={styles['question-title']} id={`question-title-${req.requestId}`}>{asynchronous ? <><Icon name="chat-question" /><span>{t('question_header')}</span></> : q.question}</div>
+      <div className={styles['question-title']} id={`question-title-${req.requestId}`}>{asynchronous ? <><Icon name="chat-question" /><span>{t('question_header')}</span></> : engineCopy?.title ?? q.question}</div>
       <div className={styles['question-navigation']}>
         {panelLength > 1 && <>
           <button type="button" aria-label={t('question_previous')} disabled={panelIndex === 0 || busy} onClick={() => navigate(panelIndex - 1)}><span className={styles['question-back']}><Icon name="chevron-right" /></span></button>
@@ -439,16 +442,17 @@ export function AskUserQuestionCard({ req, resolved, sessionId, composer, source
       </div>
     </div>
     {asynchronous && <div className={styles['async-question-prompt']}>{q.question}</div>}
-    <div className={styles['question-options']} role={q.multiSelect ? 'group' : 'radiogroup'} aria-label={q.header || q.question}>
+    <div className={styles['question-options']} role={q.multiSelect ? 'group' : 'radiogroup'} aria-label={engineCopy ? engineCopy.header : q.header || q.question}>
       {q.options.map((option, index) => {
         const selected = answer.selected.includes(index)
-        const label = questionOptionLabel(option.label)
+        const copy = engineCopy?.options[index]
+        const label = copy ? copy.label : questionOptionLabel(option.label)
         return <button type="button" className={`${styles['question-option']}${selected ? ' is-selected' : ''}`}
           key={index} role={q.multiSelect ? 'checkbox' : 'radio'} aria-checked={selected} disabled={busy} onClick={() => select(index)}>
           <span className={`${styles['question-option-badge']}${q.multiSelect ? ` ${styles['question-checkbox']}` : ''}`} aria-hidden="true">{q.multiSelect && selected ? <Icon name="check" /> : index + 1}</span>
           <span className={styles['question-option-body']}>
-            <span className={styles['question-option-label']}>{label}{label !== option.label && <span className={styles['question-recommended']}>{t('question_recommended')}</span>}</span>
-            {option.description && <span className={styles['question-option-desc']}>{option.description}</span>}
+            <span className={styles['question-option-label']}>{label}{!copy && label !== option.label && <span className={styles['question-recommended']}>{t('question_recommended')}</span>}</span>
+            {(copy?.description ?? option.description) && <span className={styles['question-option-desc']}>{copy?.description ?? option.description}</span>}
             {option.preview && <span className={styles['question-option-preview']}>{option.preview}</span>}
           </span>
         </button>

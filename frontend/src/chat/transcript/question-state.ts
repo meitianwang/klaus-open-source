@@ -38,6 +38,59 @@ export function questionOptionLabel(label: string): string {
   return label.replace(/\s*[（(](?:Recommended|推荐)[）)]$/i, '')
 }
 
+/** Engine-authored elicitation whose copy ships localized in the frontend. */
+export const ENGINE_QUESTION_KIND_REASONING_OVER_LIMIT = 'reasoning_over_limit'
+
+export function engineQuestionKind(metadata: unknown): string | undefined {
+  const kind = typeof metadata === 'object' && metadata !== null
+    ? (metadata as Record<string, unknown>).kind : undefined
+  return typeof kind === 'string' ? kind : undefined
+}
+
+export interface EngineQuestionCopy {
+  title: string
+  header: string
+  options: Array<{ label: string; description?: string }>
+}
+
+/**
+ * Localized display copy for an engine-authored card. The payload text stays
+ * the answer key and value, so the engine's answer parsing is unaffected.
+ * Option order mirrors reasoning_over_limit_request in the engine turn loop.
+ */
+export function engineQuestionCopy(
+  kind: string | undefined,
+  questions: UserQuestion[],
+  translate: (key: string) => string,
+): EngineQuestionCopy | undefined {
+  if (kind !== ENGINE_QUESTION_KIND_REASONING_OVER_LIMIT) return undefined
+  const options = questions.length === 1 ? questions[0]!.options : []
+  if (options.length !== 2) return undefined
+  const option = (index: number, label: string, description: string) => ({
+    label: translate(label),
+    ...(options[index]!.description ? { description: translate(description) } : {}),
+  })
+  return {
+    title: translate('question_reasoning_over_limit_title'),
+    header: translate('question_reasoning_over_limit_header'),
+    options: [
+      option(0, 'question_reasoning_over_limit_retry', 'question_reasoning_over_limit_retry_desc'),
+      option(1, 'question_reasoning_over_limit_stop', 'question_reasoning_over_limit_stop_desc'),
+    ],
+  }
+}
+
+/** Map a payload answer onto localized copy when it exactly matches one option label. */
+export function displayQuestionAnswer(
+  copy: EngineQuestionCopy | undefined,
+  question: UserQuestion | undefined,
+  answer: string | undefined,
+): string | undefined {
+  if (!copy || !question || !answer) return answer
+  const index = question.options.findIndex(option => option.label === answer)
+  return index >= 0 ? copy.options[index]?.label ?? answer : answer
+}
+
 export function recommendedQuestionDraft(questions: UserQuestion[], draft?: QuestionDraft): QuestionDraft {
   return { index: Math.max(0, questions.length - 1), answers: questions.map((question, index) => {
     const recommended = question.options.flatMap((option, index) => questionOptionLabel(option.label) !== option.label ? [index] : [])
