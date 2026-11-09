@@ -108,7 +108,7 @@ export function frameCdp(cdp: BrowserCdp, frame?: string): BrowserCdp {
     captureScope: { root: cdp.captureScope?.root ?? cdp, frame },
     command: (method, params) => cdp.command(method, params, frame),
     evaluate: expression => cdp.evaluate(expression, frame),
-    screenshot: options => captureScreenshot(scoped, options ?? {}), frameTargets: () => [], console: cdp.console, network: cdp.network, events: cdp.events,
+    screenshot: options => captureScreenshot(scoped, options ?? {}), frameTargets: () => [], remoteFrameIds: () => [], frameParent: () => undefined, frameRouteKey: () => cdp.frameRouteKey(frame), rootFrameId: () => cdp.rootFrameId(), console: cdp.console, network: cdp.network, events: cdp.events,
     evicted: cdp.evicted,
     printToPDF: () => Promise.reject(new BrowserError('invalid_request', 'PDF export addresses the whole tab, not frameTargetId.')),
     onEvent: listener => cdp.onEvent((method, params, source) => { if(source === frame) listener(method, params, source); }),
@@ -149,7 +149,7 @@ export async function resolveElement(cdp: BrowserCdp, fields: BrowserObject, fra
   return { cdp: frameCdp(cdp, typeof selected.frameTargetId === 'string' ? selected.frameTargetId : frame), fields: resolved };
 }
 
-/** Search only this page, then its owned OOPIFs if the addressed document is empty. */
+/** Search only this page, then every frame that needs its own addressing if the addressed document is empty. */
 export async function searchElements(cdp: BrowserCdp, fields: BrowserObject, frame?: string, limit = 200, defaultTimeout = 5000, maximumTimeout = 30000, assertActive?: () => void): Promise<BrowserObject> {
   assertActive?.();
   fields = validateLocator(fields);
@@ -178,7 +178,7 @@ export async function searchElements(cdp: BrowserCdp, fields: BrowserObject, fra
         latest = await probeElements(cdp, fields, frame, limit, assertActive);
         assertActive?.();
         if (Number(latest.count) > 0) return latest;
-        if (!frame && fields.frames !== false) for (const child of cdp.frameTargets()) {
+        if (!frame && fields.frames !== false) for (const child of cdp.remoteFrameIds()) {
           assertActive?.();
           const found = await probeElements(cdp, fields, child, limit, assertActive);
           assertActive?.();

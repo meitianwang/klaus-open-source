@@ -43,12 +43,11 @@ async function childForOwner(cdp: BrowserCdp, ref: string): Promise<string> {
   let backendNodeId;
   try { backendNodeId = object((await cdp.command('DOM.describeNode', { objectId })).node).backendNodeId; }
   finally { await cdp.command('Runtime.releaseObject', { objectId }).catch(() => {}); }
-  for (const target of root.frameTargets()) {
+  for (const frameId of root.remoteFrameIds()) {
     try {
-      const tree = object((await root.command('Page.getFrameTree', {}, target)).frameTree);
-      const owner = await cdp.command('DOM.getFrameOwner', { frameId: object(tree.frame).id! });
-      if (backendNodeId !== undefined && owner.backendNodeId === backendNodeId) return target;
-    } catch { /* A candidate in a different renderer has no owner in this document. */ }
+      const owner = await cdp.command('DOM.getFrameOwner', { frameId });
+      if (backendNodeId !== undefined && owner.backendNodeId === backendNodeId) return frameId;
+    } catch { /* A candidate in a different document cannot resolve this owner. */ }
   }
   throw new BrowserError('stale_target', 'The probed frame has no proven live child target in this page.');
 }

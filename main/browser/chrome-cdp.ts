@@ -1,6 +1,7 @@
 import { captureScreenshot } from './page-capture';
 import { randomUUID } from 'node:crypto';
 import { ChromeRelay } from './chrome-relay';
+import { FrameRouteTracker, injectFrameRouteParams } from './frame-routes';
 import { BrowserError, object, type BrowserObject } from './types';
 import { navigationUrl } from './policy';
 import type { BrowserCdp } from './page-operations';
@@ -21,6 +22,8 @@ export class ChromePageDebugger implements BrowserCdp {
   targetId = '';
   dialog: BrowserObject | null = null;
   private readonly frames = new Map<string, string>();
+  /** Routing table for frames that share a process with an attached page or child target. */
+  private readonly tracker = new FrameRouteTracker();
   private readonly listeners = new Set<(method: string, params: BrowserObject, frame?: string) => void>();
   private ready: Promise<void> | undefined;
   private viewportOverride: BrowserObject | undefined;
@@ -49,6 +52,11 @@ export class ChromePageDebugger implements BrowserCdp {
         this.send('Network.enable', { maxTotalBufferSize: 8 * 1024 * 1024, maxResourceBufferSize: 256 * 1024, maxPostDataSize: 16 * 1024 }, targetId),
       ]);
       if (!this.closed && this.frames.get(targetId) === session) await this.send('Fetch.enable', { patterns: [{ resourceType: 'Document', requestStage: 'Request' }] }, targetId);
+      if (!this.closed && this.frames.get(targetId) === session) {
+        // Frames inside this child's process are only visible on its own session.
+        const childTree = object(await this.send('Page.getFrameTree', {}, targetId));
+        this.tracker.seedFrameTree(object(childTree.frameTree));
+      }
     } catch {
       if (this.frames.get(targetId) !== session) return;
       this.frames.delete(targetId);
@@ -67,6 +75,7 @@ export class ChromePageDebugger implements BrowserCdp {
     if (typeof source.sessionId === 'string' && !frame) {
       if (event.method === 'Target.detachedFromTarget') {
         for (const [target, session] of this.frames) if (session === params.sessionId) this.frames.delete(target);
+        if (typeof params.sessionId === 'string') this.tracker.clearSession(params.sessionId);
       }
       return;
     }
@@ -78,6 +87,7 @@ export class ChromePageDebugger implements BrowserCdp {
       void this.enableChild(id);
     } else if (event.method === 'Target.detachedFromTarget') {
       for (const [target, session] of this.frames) if (session === params.sessionId) this.frames.delete(target);
+      if (typeof params.sessionId === 'string') this.tracker.clearSession(params.sessionId);
     } else if (event.method === 'Fetch.requestPaused') {
       let allowed = this.allowed();
       try { this.navigationAllowed(object(params.request).url); } catch { allowed = false; }
@@ -119,6 +129,7 @@ export class ChromePageDebugger implements BrowserCdp {
       }
     } else if (event.method === 'Page.javascriptDialogOpening') this.dialog = { ...params, id: randomUUID(), tabId: this.tabId };
     else if (event.method === 'Page.javascriptDialogClosed') this.dialog = null;
+    this.tracker.onEvent(String(event.method), params, typeof source.sessionId === 'string' ? source.sessionId : undefined);
     for (const listener of this.listeners) listener(String(event.method), params, frame);
   }
 
@@ -129,21 +140,25 @@ export class ChromePageDebugger implements BrowserCdp {
     return this.relay.request(method, { ...params, tabId: this.tabId, session_id: this.sessionId, turn_id: this.turnId }).then(object);
   }
 
-  private send(method: string, params: BrowserObject = {}, frameTarget?: string): Promise<BrowserObject> {
+  private sendSession(method: string, params: BrowserObject = {}, sessionId?: string, topLevel = false): Promise<BrowserObject> {
     if (this.closed || !this.allowed()) return Promise.reject(new BrowserError('stale_tab', 'The external Chrome page connection is closed.'));
     return this.relay.request('executeCdp', {
       session_id: this.sessionId, turn_id: this.turnId, tabId: this.tabId,
-      ...(frameTarget ? { sessionId: this.frames.get(frameTarget) ?? '' } : {}), method, commandParams: params,
+      ...(sessionId ? { sessionId } : {}), method, commandParams: params,
     }).then(value => {
       // Chrome resets emulation when the per-operation debugger is detached.
       // Retain successful top-level settings for this task's next attachment.
-      if (!frameTarget) {
+      if (topLevel) {
         if (method === 'Emulation.setDeviceMetricsOverride') this.viewportOverride = { ...params };
         else if (method === 'Emulation.clearDeviceMetricsOverride') this.viewportOverride = undefined;
         else if (method === 'Emulation.setTouchEmulationEnabled') this.touchOverride = params.enabled === true ? { ...params } : undefined;
       }
       return object(value);
     });
+  }
+
+  private send(method: string, params: BrowserObject = {}, frameTarget?: string): Promise<BrowserObject> {
+    return this.sendSession(method, params, frameTarget ? this.frames.get(frameTarget) : undefined, frameTarget === undefined);
   }
 
   async initialize(): Promise<void> {
@@ -157,6 +172,11 @@ export class ChromePageDebugger implements BrowserCdp {
       for (const method of ['Page.enable', 'Runtime.enable', 'Log.enable']) await this.send(method);
       await this.send('Network.enable', { maxTotalBufferSize: 8 * 1024 * 1024, maxResourceBufferSize: 256 * 1024, maxPostDataSize: 16 * 1024 });
       await this.send('Target.setAutoAttach', { autoAttach: true, waitForDebuggerOnStart: false, flatten: true });
+      const tree = object(await this.send('Page.getFrameTree'));
+      const frameTree = object(tree.frameTree);
+      this.tracker.seedFrameTree(frameTree);
+      const rootFrameId = String(object(frameTree.frame).id ?? '');
+      if (rootFrameId) this.tracker.rootFrameId = rootFrameId;
       await this.send('Fetch.enable', { patterns: [{ resourceType: 'Document', requestStage: 'Request' }] });
       if (this.viewportOverride) await this.send('Emulation.setDeviceMetricsOverride', this.viewportOverride);
       if (this.touchOverride) await this.send('Emulation.setTouchEmulationEnabled', this.touchOverride);
@@ -170,8 +190,14 @@ export class ChromePageDebugger implements BrowserCdp {
 
   async command(method: string, params: BrowserObject = {}, frameTarget?: string): Promise<BrowserObject> {
     await this.initialize();
-    if (frameTarget && frameTarget !== this.targetId && !this.frames.has(frameTarget)) throw new BrowserError('stale_target', 'This iframe is not owned by the selected Chrome page. Refresh the snapshot.');
-    return this.send(method, params, frameTarget && frameTarget !== this.targetId ? frameTarget : undefined);
+    if (!frameTarget || frameTarget === this.targetId) return this.sendSession(method, params, undefined, true);
+    const session = this.frames.get(frameTarget);
+    if (session) return this.sendSession(method, params, session);
+    // A frame in this page's own process has no child target; its default
+    // context routes the call inside the owning session.
+    const route = this.tracker.contexts.get(frameTarget);
+    if (!route) throw new BrowserError('stale_target', 'This iframe is not owned by the selected Chrome page. Refresh the snapshot.');
+    return this.sendSession(method, injectFrameRouteParams(method, params, frameTarget, route.contextId), route.session);
   }
 
   async evaluate(expression: string, frameTarget?: string): Promise<unknown> {
@@ -200,9 +226,28 @@ export class ChromePageDebugger implements BrowserCdp {
   async detached(): Promise<void> {
     this.ready = undefined;
     this.frames.clear();
+    this.tracker.clear();
   }
 
   frameTargets(): string[] { return [...this.frames.keys()]; }
+
+  remoteFrameIds(): string[] {
+    const out = [...this.frames.keys()];
+    for (const frameId of this.tracker.contexts.keys()) {
+      if (frameId === this.tracker.rootFrameId || this.frames.has(frameId)) continue;
+      if (this.tracker.isRemoteFrame(frameId)) out.push(frameId);
+    }
+    return out;
+  }
+
+  frameParent(frameId: string): string | undefined { return this.tracker.parents.get(frameId); }
+
+  frameRouteKey(frameId: string): string {
+    const session = this.frames.get(frameId) ?? this.tracker.contexts.get(frameId)?.session;
+    return session ? `session:${session}` : 'main';
+  }
+
+  rootFrameId(): string { return this.tracker.rootFrameId || this.targetId; }
 
   printToPDF(): Promise<BrowserObject> { return this.command('Page.printToPDF', { printBackground: true, transferMode: 'ReturnAsBase64' }); }
 
@@ -212,6 +257,6 @@ export class ChromePageDebugger implements BrowserCdp {
     this.viewportOverride = undefined;
     this.touchOverride = undefined;
     this.listeners.clear();
-    this.frames.clear(); this.console.length = 0; this.network.length = 0; this.events.length = 0;
+    this.frames.clear(); this.tracker.clear(); this.console.length = 0; this.network.length = 0; this.events.length = 0;
   }
 }

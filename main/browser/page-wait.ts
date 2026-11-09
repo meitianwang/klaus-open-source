@@ -49,7 +49,7 @@ export async function waitForPage(cdp:BrowserCdp|undefined,fields:BrowserObject,
           if(loadState==='networkidle'?Date.now()-lastActivity>=500:loadState==='load'?ready==='complete':['interactive','complete'].includes(String(ready)))return {loadState,...(loadState==='networkidle'?{quietMs:500,note:'No observed request or data activity for 500 ms; an open but quiet connection may remain.'}:{})};
         }else{
           let elements=await browserAction(()=>locateElements(cdp,criteria),signal);
-          if(!elements.length&&fields.frames!==false)for(const frame of cdp.frameTargets())elements.push(...await browserAction(()=>locateElements(cdp,criteria,frame),signal));
+          if(!elements.length&&fields.frames!==false)for(const frame of cdp.remoteFrameIds())elements.push(...await browserAction(()=>locateElements(cdp,criteria,frame),signal));
           const found=elements.length>0,visible=elements.some(e=>e.visible===true),enabled=elements.some(e=>e.enabled===true&&e.visible===true),disabled=elements.some(e=>e.enabled===false);
           if(state==='attached'?found:state==='detached'?!found:state==='visible'?visible:state==='hidden'?!visible:state==='enabled'?enabled:disabled)return {state,elements,count:elements.length};
         }

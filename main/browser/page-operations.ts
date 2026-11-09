@@ -21,6 +21,14 @@ export interface BrowserCdp {
   screenshot(options?: BrowserObject): Promise<BrowserObject>;
   printToPDF(): Promise<BrowserObject>;
   frameTargets(): string[];
+  /** Frames that need their own addressing: cross-process targets and same-process cross-origin frames. */
+  remoteFrameIds(): string[];
+  /** The parent frame id of a known frame, when the transport tracks it. */
+  frameParent(frameId: string): string | undefined;
+  /** Stable key of the CDP session that owns a frame ('main' for the page's own session). */
+  frameRouteKey(frameId: string): string;
+  /** The frame id of this page's top-level document. */
+  rootFrameId(): string;
   readonly console: BrowserObject[];
   readonly network: BrowserObject[];
   readonly events: BrowserObject[];

@@ -3,6 +3,7 @@ import { BrowserError, object, type BrowserObject } from './types';
 import type { BrowserCdp } from './page-operations';
 import { domScript, frameCdp } from './dom';
 import { click, computerInput, typeText } from './page-input';
+import { frameDispatch } from './pointer-action';
 import { saveScreenshot } from './page-capture';
 import { readLimit } from './page-reading';
 import { locatorBudget } from './locator-policy';
@@ -195,25 +196,42 @@ async function captureAxTree(context: AxContext, store: AxTabStore, fields: Brow
   }
   const documentKey = await currentDocumentKey(root);
   const frames: AxFrameInput[] = [];
+  const metaByRoute = new Map<string, Map<number, AxNodeMeta>>();
   const pushFrame = async (frameTarget?: string): Promise<void> => {
     assertBrowserActionActive(signal);
     await root.command('Accessibility.enable', {}, frameTarget).catch(() => {});
     const tree = object(await root.command('Accessibility.getFullAXTree', {}, frameTarget));
+    // Frames sharing one CDP session also share one backend-node id space and
+    // one document snapshot, so each session's layout metadata is captured once.
+    const routeKey = frameTarget === undefined ? 'main' : root.frameRouteKey(frameTarget);
+    let meta = metaByRoute.get(routeKey);
+    if (!meta) {
+      meta = await snapshotMeta(root, frameTarget);
+      metaByRoute.set(routeKey, meta);
+    }
     frames.push({
       ...(frameTarget ? { frameTarget } : {}),
       nodes: wireNodes(tree.nodes),
-      meta: await snapshotMeta(root, frameTarget),
+      meta,
       viewport: await viewportOf(root, frameTarget),
     });
   };
   await pushFrame(undefined);
-  for (const frameTarget of root.frameTargets()) {
-    try { await pushFrame(frameTarget); } catch { assertBrowserActionActive(signal); /* a detached child frame contributes nothing */ }
+  for (const frameId of root.remoteFrameIds()) {
+    try { await pushFrame(frameId); } catch { assertBrowserActionActive(signal); /* a detached child frame contributes nothing */ }
   }
   const owners = new Map<string, number>();
+  const rootFrame = root.rootFrameId();
   for (const frame of frames) {
     if (!frame.frameTarget) continue;
-    for (const parent of [undefined, ...frames.filter(other => other !== frame && other.frameTarget !== undefined).map(other => other.frameTarget!)]) {
+    // The frame tree names the document that holds this frame's owner element;
+    // asking it first keeps grafting deterministic and cheap. The sweep over
+    // captured frames stays as a fallback for untracked parentage.
+    const directed = root.frameParent(frame.frameTarget);
+    const candidates: (string | undefined)[] = [];
+    if (directed !== undefined && directed !== frame.frameTarget) candidates.push(directed === rootFrame ? undefined : directed);
+    candidates.push(undefined, ...frames.filter(other => other !== frame && other.frameTarget !== undefined && other.frameTarget !== directed).map(other => other.frameTarget!));
+    for (const parent of candidates) {
       try {
         const owner = object(await root.command('DOM.getFrameOwner', { frameId: frame.frameTarget }, parent));
         if (typeof owner.backendNodeId === 'number') { owners.set(frame.frameTarget, owner.backendNodeId); break; }
@@ -773,7 +791,11 @@ async function dispatchAxAction(context: AxContext, root: BrowserCdp, store: AxT
       const deltaX = direction === 'left' ? -pages * width : direction === 'right' ? pages * width : 0;
       const deltaY = direction === 'up' ? -pages * height : direction === 'down' ? pages * height : 0;
       assertBrowserActionActive(signal);
-      await scoped.command('Input.dispatchMouseEvent', { type: 'mouseWheel', x, y, deltaX, deltaY, pointerType: 'mouse' });
+      // A frame without its own input session receives wheel events on the
+      // page session, which expects top-level coordinates.
+      const dispatch = await frameDispatch(scoped);
+      const at = dispatch.map ? await dispatch.map(x, y) : { x, y };
+      await dispatch.cdp.command('Input.dispatchMouseEvent', { type: 'mouseWheel', x: at.x, y: at.y, deltaX, deltaY, pointerType: 'mouse' });
       return { ok: true, action, direction, pages, deltaX, deltaY };
     }
     case 'select_text': {

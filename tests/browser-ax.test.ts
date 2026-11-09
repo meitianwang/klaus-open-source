@@ -216,6 +216,10 @@ function fakeCdp(): BrowserCdp {
     evaluate: async () => ({}),
     frames: async () => [],
     frameTargets: () => [],
+    remoteFrameIds: () => [],
+    frameParent: () => undefined,
+    frameRouteKey: () => 'main',
+    rootFrameId: () => '',
     screenshot: async () => ({ format: 'jpeg', data: '' }),
     console: [], network: [], evicted: { console: 0, network: 0 },
   };

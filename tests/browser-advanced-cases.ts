@@ -1,4 +1,5 @@
-import type { IncomingMessage, ServerResponse } from 'node:http';
+import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { object, type BrowserObject } from '../main/browser/types';
@@ -25,6 +26,18 @@ export function serveAdvancedFixture(request: IncomingMessage, response: ServerR
   if (request.url === '/advanced-frame') {
     response.writeHead(200, { 'Content-Type': 'text/html' });
     response.end('<label>Frame value<input id="frame-value"></label><button id="frame-click" onclick="this.textContent=\'clicked\'">Frame click</button><input id="frame-file" type="file">'); return true;
+  }
+  if (request.url.startsWith('/advanced-same-site')) {
+    // Parent page for the same-site cross-origin frame case: the child origin
+    // is a second loopback port, which shares the site but not the origin, so
+    // the frame renders inside the page's own process.
+    const childPort = new URL(request.url, 'http://fixture.invalid').searchParams.get('child') ?? '';
+    response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    response.end('<!doctype html><meta charset="utf-8"><title>Same-site parent</title>' +
+      '<style>body{margin:10px;font:16px sans-serif}iframe{border:0}</style>' +
+      '<h1>Same-site parent</h1><label>Parent field<input id="parent-field" aria-label="Parent field"></label>' +
+      `<iframe id="child-frame" src="http://127.0.0.1:${childPort}/child" style="position:absolute;left:40px;top:150px;width:420px;height:170px"></iframe>`);
+    return true;
   }
   if (request.url === '/advanced-slow') { response.writeHead(200, { 'Content-Type': 'text/html' }); response.write('<h1>Slow'); const timer = setInterval(() => response.write(' '),100); response.once('close',()=>clearInterval(timer)); return true; }
   response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Set-Cookie': 'advanced_cookie=yes; Path=/; SameSite=Lax' });
@@ -303,5 +316,79 @@ export function registerAdvancedBrowserTests(h: Harness, context: Context): void
     assert(openRow !== null, `expanded state exposes Collapse: ${afterExpandText.slice(0, 500)}`);
     await call('ax_action', { action: 'click', elementIndex: Number(openRow![1]), key: 'super' });
     assertEqual(await evaluate('window.__lastMetaClick'), true, 'modifier-only super click dispatches with metaKey');
+  });
+
+  h.test('advanced: same-site cross-origin frames stay observable and actionable', async () => {
+    // A second loopback port shares the fixture's site but not its origin, so
+    // Chromium renders the frame inside the page's own process: no child target
+    // is ever attached, and every observation must route through the frame id.
+    const child = createServer((_request, response) => {
+      response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      response.end('<!doctype html><meta charset="utf-8"><title>Child frame</title><body style="margin:8px;font:16px sans-serif">' +
+        '<label>Child name<input id="child-name" aria-label="Child name"></label>' +
+        '<button id="child-go" aria-label="Child go" onclick="this.textContent=\'clicked \'+(window.__childClicks=(window.__childClicks||0)+1)">Child go</button>' +
+        '<p>Child paragraph text</p></body>');
+    });
+    await new Promise<void>(resolve => child.listen(0, '127.0.0.1', resolve));
+    const childPort = (child.address() as AddressInfo).port;
+    try {
+      await call('navigate', { url: `${context.base()}/advanced-same-site?child=${childPort}` });
+
+      const found = object(await value('locator', { role: 'textbox', name: 'Child name', timeoutMs: 10000 }));
+      assertEqual(found.count, 1, 'locator finds the same-site cross-origin input');
+      const element = object((found.elements as BrowserObject[])[0]);
+      assert(typeof element.frameTargetId === 'string' && element.frameTargetId !== '', 'the match records its frame route');
+
+      const snap = object(await value('snapshot', {}));
+      assert(String(snap.text).includes('Child paragraph text'), 'snapshot text merges the frame document');
+      const snapNodes = (snap.elements as BrowserObject[]).filter(node => node.frameTargetId === element.frameTargetId);
+      assert(snapNodes.some(node => node.name === 'Child go'), 'snapshot elements carry frame-scoped controls');
+
+      const page = object(await value('read_page', { filter: 'interactive' }));
+      assert((page.elements as BrowserObject[]).some(node => node.frameTargetId === element.frameTargetId && node.name === 'Child name'), 'read_page merges frame controls');
+
+      const state = await context.call('ax_state', { disableDiffing: true });
+      assert(state.isError !== true, `ax_state succeeds: ${JSON.stringify(state.error)}`);
+      const stateText = String(object(((state.content ?? []) as unknown as BrowserObject[])[0]).text);
+      const childRow = /\[(\d+)\] textbox "Child name"/.exec(stateText);
+      const goRow = /\[(\d+)\] button "Child go"/.exec(stateText);
+      assert(childRow && goRow, `ax_state indexes the frame controls: ${stateText.slice(0, 400)}`);
+
+      const typed = object((await call('ax_action', { action: 'type_text', elementIndex: Number(childRow![1]), text: 'ax-typed' })).value);
+      assertEqual(typed.ok, true, 'indexed type_text succeeds');
+      assertEqual(object(await value('locator', { action: 'input_value', selector: '#child-name' })).value, 'ax-typed', 'type_text wrote the frame input');
+
+      const clicked = object((await call('ax_action', { action: 'click', elementIndex: Number(goRow![1]) })).value);
+      assertEqual(clicked.ok, true, 'indexed click succeeds');
+      const afterClick = object(await value('locator', { selector: '#child-go' }));
+      assertEqual(String(object((afterClick.elements as BrowserObject[])[0]).text), 'clicked 1', 'the indexed click landed on the frame button at mapped coordinates');
+
+      await call('click', { selector: '#child-go' });
+      const afterSecond = object(await value('locator', { selector: '#child-go' }));
+      assertEqual(String(object((afterSecond.elements as BrowserObject[])[0]).text), 'clicked 2', 'selector click reaches the frame button');
+
+      await call('click', { selector: '#child-name' });
+      await call('type', { text: ' and focus-typed' });
+      assertEqual(object(await value('locator', { action: 'input_value', selector: '#child-name' })).value, 'ax-typed and focus-typed', 'selector-less typing follows focus into the frame');
+
+      await call('form_input', { fields: [{ selector: '#child-name', value: 'form-filled', clear: true }] });
+      assertEqual(object(await value('locator', { action: 'input_value', selector: '#child-name' })).value, 'form-filled', 'form_input fills the frame field');
+
+      // element_info descends by coordinates: compose the top-level point from
+      // the frame owner's rect and the button's frame-local box (the child
+      // document is unreachable from the top world by design).
+      const goBox = object((object(await value('locator', { selector: '#child-go' })).elements as BrowserObject[])[0]!);
+      const frameBox = object(await evaluate(`(()=>{const r=document.querySelector('#child-frame').getBoundingClientRect();return {x:r.x,y:r.y}})()`) as BrowserObject);
+      const probed = object(await value('element_info', {
+        x: Number(frameBox.x) + Number(goBox.x) + Number(goBox.width) / 2,
+        y: Number(frameBox.y) + Number(goBox.y) + Number(goBox.height) / 2,
+      }));
+      assert(String(probed.url ?? '').includes(`127.0.0.1:${childPort}`), `element_info descends into the same-site frame (url=${String(probed.url ?? '')})`);
+    } finally {
+      // Leave the page before closing the child server so later reloads in
+      // this tab do not race a dead frame origin.
+      await call('navigate', { url: context.base() + '/advanced' }).catch(() => {});
+      await new Promise<void>(resolve => child.close(() => resolve()));
+    }
   });
 }

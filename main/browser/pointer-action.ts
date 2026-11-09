@@ -83,39 +83,44 @@ function preparation(fields: BrowserObject, alignment: string, force: boolean): 
   })();`);
 }
 
-/** Verify every cross-process owner in the page before dispatching local input. */
-async function checkFrameOwners(cdp: BrowserCdp, at: BrowserObject, alignment: string, force: boolean, until: number, budget: number, signal?: AbortSignal): Promise<void> {
+/** Verify every owner between a scoped frame and the page, mapping the point to top-level coordinates. */
+async function checkFrameOwners(cdp: BrowserCdp, at: BrowserObject, alignment: string, force: boolean, until: number, budget: number, signal?: AbortSignal): Promise<{ x: number; y: number } | undefined> {
   const active = (): void => {
     assertPointerActive(signal);
     if (budget > 0 && Date.now() >= until) throw new BrowserError('timeout', `The pointer action exceeded its ${budget} ms deadline.`);
   };
   const perform = async <T>(work: () => Promise<T>): Promise<T> => { active(); const result = await inBudget(work, until, budget, signal); active(); return result; };
   const root = cdp.captureScope?.root;
-  let current = cdp.captureScope?.frame;
-  if (!root || !current) return;
+  let current: string | undefined = cdp.captureScope?.frame;
+  if (!root || !current) return undefined;
+  const rootTarget = root.rootFrameId();
   let x = Number(at.x), y = Number(at.y);
   const visited = new Set<string>();
-  while (current) {
+  while (current && current !== rootTarget) {
     active();
     if (visited.has(current) || visited.size >= 8) throw new BrowserError('stale_target', 'The pointer frame owner chain changed.');
     visited.add(current);
-    const frame = current;
-    const tree = object((await perform(() => root.command('Page.getFrameTree', {}, frame))).frameTree);
-    const frameId = object(tree.frame).id;
-    const size = object(await perform(() => root.evaluate('({width:innerWidth,height:innerHeight})', frame)));
-    let owner: { parent?: string; id: number; quad: number[] } | undefined;
-    for (const parent of [undefined, ...root.frameTargets().filter(id => !visited.has(id))]) {
+    // Both surfaces address an attached frame by its frame id, so no frame-tree
+    // round trip is needed to name the frame this hop maps out of.
+    const frameId: string = current;
+    const size = object(await perform(() => root.evaluate('({width:innerWidth,height:innerHeight})', frameId)));
+    const directed = root.frameParent(frameId);
+    const candidates: (string | undefined)[] = [];
+    if (directed !== undefined && directed !== frameId && !visited.has(directed)) candidates.push(directed === rootTarget ? undefined : directed);
+    for (const route of [undefined, ...root.frameTargets().filter(id => !visited.has(id) && id !== directed)]) if (!candidates.some(seen => seen === (route === rootTarget ? undefined : route))) candidates.push(route === rootTarget ? undefined : route);
+    let owner: { route: string | undefined; id: number; quad: number[] } | undefined;
+    for (const route of candidates) {
       let objectId: string | undefined;
       try {
-        const node = await perform(() => root.command('DOM.getFrameOwner', { frameId: frameId! }, parent));
+        const node = await perform(() => root.command('DOM.getFrameOwner', { frameId }, route));
         if (typeof node.backendNodeId !== 'number') continue;
-        const resolved = await perform(() => root.command('DOM.resolveNode', { backendNodeId: node.backendNodeId! }, parent));
+        const resolved = await perform(() => root.command('DOM.resolveNode', { backendNodeId: node.backendNodeId! }, route));
         objectId = object(resolved.object).objectId as string | undefined;
         if (!objectId) continue;
-        const scrolled = await perform(() => root.command('Runtime.callFunctionOn', { objectId: objectId!, functionDeclaration: `function(){this.scrollIntoView({block:${JSON.stringify(alignment)},inline:${JSON.stringify(alignment)},behavior:'instant'});const r=this.getBoundingClientRect();return {connected:this.isConnected,x:r.x,y:r.y,width:r.width,height:r.height}}`, returnByValue: true }, parent));
+        const scrolled = await perform(() => root.command('Runtime.callFunctionOn', { objectId: objectId!, functionDeclaration: `function(){this.scrollIntoView({block:${JSON.stringify(alignment)},inline:${JSON.stringify(alignment)},behavior:'instant'});const r=this.getBoundingClientRect();return {connected:this.isConnected,x:r.x,y:r.y,width:r.width,height:r.height}}`, returnByValue: true }, route));
         const rect = object(object(scrolled.result).value);
         if (rect.connected !== true) continue;
-        const model = object((await perform(() => root.command('DOM.getBoxModel', { backendNodeId: node.backendNodeId! }, parent))).model);
+        const model = object((await perform(() => root.command('DOM.getBoxModel', { backendNodeId: node.backendNodeId! }, route))).model);
         const quad = model.content, border = model.border;
         if (Array.isArray(quad) && quad.length === 8 && quad.every(value => typeof value === 'number' && Number.isFinite(value)) && Array.isArray(border) && border.length === 8) {
           // CDP box models can use enclosing-document coordinates. Normalize the
@@ -124,10 +129,10 @@ async function checkFrameOwners(cdp: BrowserCdp, at: BrowserObject, alignment: s
           const left = Math.min(...xs), top = Math.min(...ys), width = Math.max(...xs) - left, height = Math.max(...ys) - top;
           if (!(width > 0 && height > 0 && Number(rect.width) > 0 && Number(rect.height) > 0)) continue;
           const local = quad.map((value, index) => index % 2 === 0 ? Number(rect.x) + (Number(value) - left) * Number(rect.width) / width : Number(rect.y) + (Number(value) - top) * Number(rect.height) / height);
-          owner = { parent, id: node.backendNodeId, quad: local }; break;
+          owner = { route, id: node.backendNodeId, quad: local }; break;
         }
       } catch { active(); /* Only the actual parent document can resolve its frame owner. */ }
-      finally { if (objectId) await root.command('Runtime.releaseObject', { objectId }, parent).catch(() => {}); }
+      finally { if (objectId) await root.command('Runtime.releaseObject', { objectId }, route).catch(() => {}); }
     }
     if (!owner) throw new BrowserError('stale_target', 'The pointer frame has no live owner in this page.');
     const width = Number(size.width), height = Number(size.height), q = owner.quad;
@@ -136,23 +141,96 @@ async function checkFrameOwners(cdp: BrowserCdp, at: BrowserObject, alignment: s
     x = (1-u)*(1-v)*q[0]! + u*(1-v)*q[2]! + u*v*q[4]! + (1-u)*v*q[6]!;
     y = (1-u)*(1-v)*q[1]! + u*(1-v)*q[3]! + u*v*q[5]! + (1-u)*v*q[7]!;
     if (!force) {
-      const parent = owner.parent, ownerId = owner.id;
-      const resolved = await perform(() => root.command('DOM.resolveNode', { backendNodeId: ownerId }, parent));
+      const route = owner.route, ownerId = owner.id;
+      const resolved = await perform(() => root.command('DOM.resolveNode', { backendNodeId: ownerId }, route));
       const objectId = object(resolved.object).objectId;
       if (typeof objectId !== 'string') throw new BrowserError('stale_target', 'The pointer frame owner was detached.');
       try {
-        const result = await perform(() => root.command('Runtime.callFunctionOn', { objectId, arguments: [{ value: { x, y } }], functionDeclaration: `function(at){const root=this.getRootNode();let hit=(root.elementFromPoint?root:this.ownerDocument).elementFromPoint(at.x,at.y);while(hit?.shadowRoot){const inner=hit.shadowRoot.elementFromPoint(at.x,at.y);if(!inner||inner===hit)break;hit=inner;}return {matched:hit===this||this.contains(hit),description:hit?'<'+hit.tagName.toLowerCase()+(hit.id?'#'+hit.id:'')+'>':'outside the viewport'}}`, returnByValue: true }, parent));
+        const result = await perform(() => root.command('Runtime.callFunctionOn', { objectId, arguments: [{ value: { x, y } }], functionDeclaration: `function(at){const root=this.getRootNode();let hit=(root.elementFromPoint?root:this.ownerDocument).elementFromPoint(at.x,at.y);while(hit?.shadowRoot){const inner=hit.shadowRoot.elementFromPoint(at.x,at.y);if(!inner||inner===hit)break;hit=inner;}return {matched:hit===this||this.contains(hit),description:hit?'<'+hit.tagName.toLowerCase()+(hit.id?'#'+hit.id:'')+'>':'outside the viewport'}}`, returnByValue: true }, route));
         const hit = object(object(result.result).value);
         if (result.exceptionDetails) throw new BrowserError('stale_target', 'The pointer frame owner changed during its hit test.');
         if (hit.matched !== true) throw new BrowserError('intercepted', `${String(hit.description ?? 'Another element')} intercepts pointer events over the frame owner.`);
-      } finally { await root.command('Runtime.releaseObject', { objectId }, parent).catch(() => {}); }
-      let hit: BrowserObject | undefined;
-      try { hit = await perform(() => root.command('DOM.getNodeForLocation', { x: Math.round(x), y: Math.round(y), includeUserAgentShadowDOM: true }, parent)); }
-      catch { active(); /* Some renderer attachments cannot expose a node for this point. */ }
-      if (hit && hit.backendNodeId !== owner.id && hit.frameId !== frameId) throw new BrowserError('intercepted', 'Another element intercepts pointer events over the frame owner.');
+      } finally { await root.command('Runtime.releaseObject', { objectId }, route).catch(() => {}); }
+      // The renderer-side location probe only reads coordinates in the space of
+      // the session's own main frame; an in-process parent document keeps the
+      // JavaScript hit test above as its interception check.
+      const sessionRootSpace = route === undefined || root.frameTargets().includes(route);
+      if (sessionRootSpace) {
+        let hit: BrowserObject | undefined;
+        try { hit = await perform(() => root.command('DOM.getNodeForLocation', { x: Math.round(x), y: Math.round(y), includeUserAgentShadowDOM: true }, route)); }
+        catch { active(); /* Some renderer attachments cannot expose a node for this point. */ }
+        if (hit && hit.backendNodeId !== owner.id && hit.frameId !== frameId) throw new BrowserError('intercepted', 'Another element intercepts pointer events over the frame owner.');
+      }
     }
-    current = owner.parent;
+    current = directed !== undefined && directed !== frameId ? directed : owner.route;
   }
+  return { x, y };
+}
+
+/**
+ * Map a point from an in-process frame's viewport into the page's top-level
+ * viewport through the CDP frame-owner chain. A frame that shares the page's
+ * process has no input session of its own, so its pointer events dispatch on
+ * the page session and must carry top-level coordinates.
+ */
+export async function framePointToRoot(root: BrowserCdp, frameId: string, x: number, y: number): Promise<{ x: number; y: number }> {
+  const rootTarget = root.rootFrameId();
+  let current: string | undefined = frameId;
+  let px = x, py = y;
+  const visited = new Set<string>();
+  while (current && current !== rootTarget) {
+    if (visited.has(current) || visited.size >= 8) throw new BrowserError('stale_target', 'The pointer frame owner chain changed.');
+    visited.add(current);
+    const frame: string = current;
+    const size = object(await root.evaluate('({width:innerWidth,height:innerHeight})', frame));
+    const directed = root.frameParent(frame);
+    const candidates: (string | undefined)[] = [];
+    if (directed !== undefined && directed !== frame && !visited.has(directed)) candidates.push(directed === rootTarget ? undefined : directed);
+    candidates.push(undefined);
+    let quad: number[] | undefined;
+    for (const route of candidates) {
+      let objectId: string | undefined;
+      try {
+        const node = await root.command('DOM.getFrameOwner', { frameId: frame }, route);
+        if (typeof node.backendNodeId !== 'number') continue;
+        const resolved = await root.command('DOM.resolveNode', { backendNodeId: node.backendNodeId! }, route);
+        objectId = object(resolved.object).objectId as string | undefined;
+        if (!objectId) continue;
+        const rectResult = await root.command('Runtime.callFunctionOn', { objectId, functionDeclaration: 'function(){const r=this.getBoundingClientRect();return {connected:this.isConnected,x:r.x,y:r.y,width:r.width,height:r.height}}', returnByValue: true }, route);
+        const rect = object(object(rectResult.result).value);
+        if (rectResult.exceptionDetails || rect.connected !== true) continue;
+        const model = object((await root.command('DOM.getBoxModel', { backendNodeId: node.backendNodeId! }, route)).model);
+        const content = model.content, border = model.border;
+        if (!Array.isArray(content) || content.length !== 8 || !Array.isArray(border) || border.length !== 8) continue;
+        const xs = border.filter((_, index) => index % 2 === 0).map(Number), ys = border.filter((_, index) => index % 2 === 1).map(Number);
+        const left = Math.min(...xs), top = Math.min(...ys), width = Math.max(...xs) - left, height = Math.max(...ys) - top;
+        if (!(width > 0 && height > 0 && Number(rect.width) > 0 && Number(rect.height) > 0)) continue;
+        quad = content.map((value, index) => index % 2 === 0 ? Number(rect.x) + (Number(value) - left) * Number(rect.width) / width : Number(rect.y) + (Number(value) - top) * Number(rect.height) / height);
+        break;
+      } catch { /* Only the actual parent document can resolve its frame owner. */ }
+      finally { if (objectId) await root.command('Runtime.releaseObject', { objectId }, route).catch(() => {}); }
+    }
+    if (!quad) throw new BrowserError('stale_target', 'The pointer frame has no live owner in this page.');
+    const width = Number(size.width), height = Number(size.height);
+    if (!(width > 0 && height > 0)) throw new BrowserError('not_visible', 'The pointer frame has no viewport.');
+    const u = px / width, v = py / height;
+    px = (1-u)*(1-v)*quad[0]! + u*(1-v)*quad[2]! + u*v*quad[4]! + (1-u)*v*quad[6]!;
+    py = (1-u)*(1-v)*quad[1]! + u*(1-v)*quad[3]! + u*v*quad[5]! + (1-u)*v*quad[7]!;
+    current = directed !== undefined && directed !== frame ? directed : undefined;
+  }
+  return { x: px, y: py };
+}
+
+/**
+ * The input surface for a scoped frame. A cross-process frame keeps its own
+ * session and local coordinates; a frame inside the page's process dispatches
+ * on the page session through a top-level coordinate mapping.
+ */
+export function frameDispatch(cdp: BrowserCdp): { cdp: BrowserCdp; map?: (x: number, y: number) => Promise<{ x: number; y: number }> } {
+  const root = cdp.captureScope?.root;
+  const frame = cdp.captureScope?.frame;
+  if (!root || !frame || root.frameTargets().includes(frame)) return { cdp };
+  return { cdp: root, map: (x, y) => framePointToRoot(root, frame, x, y) };
 }
 
 const RETRYABLE = new Set(['not_found', 'not_visible', 'not_enabled', 'not_stable', 'intercepted', 'stale_target']);
@@ -181,8 +259,13 @@ export async function pointerTarget(root: BrowserCdp, fields: BrowserObject, sig
         const result = object(await inBudget(() => resolved.cdp.evaluate(preparation(resolved.fields, alignment, fields.force === true)), until, budget, signal, expire));
         active();
         if (result.error) { const error = object(result.error); throw new BrowserError(String(error.code), String(error.message)); }
-        await inBudget(() => checkFrameOwners(resolved.cdp, result, alignment, fields.force === true, until, budget, signal), until, budget, signal, expire);
+        const mapped = await inBudget(() => checkFrameOwners(resolved.cdp, result, alignment, fields.force === true, until, budget, signal), until, budget, signal, expire);
         active();
+        // A frame inside the page's process has no input session of its own:
+        // its pointer events dispatch on the page session in top-level
+        // coordinates. A cross-process frame keeps its session-local point.
+        const scope = resolved.cdp.captureScope;
+        if (mapped && scope && !scope.root.frameTargets().includes(scope.frame)) return { cdp: scope.root, x: mapped.x, y: mapped.y };
         return { cdp: resolved.cdp, x: Number(result.x), y: Number(result.y) };
       } catch (error) {
         if (error instanceof BrowserError && error.code === 'timeout' && last instanceof Error) throw new BrowserError('timeout', `${error.message} Last actionability check: ${last.message}`);

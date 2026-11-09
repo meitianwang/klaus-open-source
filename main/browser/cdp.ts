@@ -1,5 +1,6 @@
 import { captureScreenshot } from './page-capture';
 import type { WebContents } from 'electron';
+import { FrameRouteTracker, injectFrameRouteParams } from './frame-routes';
 import { BrowserError, message, object, type BrowserObject } from './types';
 import { consoleArgumentsText, consoleLevel } from './event-shapes';
 
@@ -16,6 +17,8 @@ export class PageDebugger {
   private activityReady: Promise<void> | undefined;
   private previousThrottling = true;
   private readonly frames = new Map<string, string>();
+  /** Routing table for frames that share this page's process (no child target). */
+  private readonly tracker = new FrameRouteTracker();
   private readonly listeners = new Set<(method: string, params: BrowserObject, frame?: string) => void>();
   readonly console: BrowserObject[] = [];
   readonly network: BrowserObject[] = [];
@@ -36,6 +39,7 @@ export class PageDebugger {
   private readonly onDetach = (): void => {
     this.ready = undefined;
     this.frames.clear();
+    this.tracker.clear();
     // Registrations die with the debugger attachment; the desired scripts stay
     // and are re-applied by the next initialize.
     this.documentScriptIds.clear();
@@ -57,6 +61,10 @@ export class PageDebugger {
         this.send('Log.enable', {}, sessionId),
         this.send('Network.enable', { maxTotalBufferSize: 8 * 1024 * 1024, maxResourceBufferSize: 256 * 1024, maxPostDataSize: 16 * 1024 }, sessionId),
       ]);
+      if (this.disposed || this.frames.get(targetId) !== sessionId) return;
+      // Frames inside this child's process are only visible on its own session.
+      const childTree = object(await this.send('Page.getFrameTree', {}, sessionId));
+      this.tracker.seedFrameTree(object(childTree.frameTree), undefined);
       for (const [key, source] of this.documentScripts) await this.applyDocumentScriptOn(key, source, sessionId);
     } catch {
       if (this.frames.get(targetId) !== sessionId) return;
@@ -85,6 +93,7 @@ export class PageDebugger {
       void this.enableChild(targetId, childSession);
     } else if (method === 'Target.detachedFromTarget') {
       for (const [target, id] of this.frames) if (id === data.sessionId) this.frames.delete(target);
+      if (typeof data.sessionId === 'string') this.tracker.clearSession(data.sessionId);
     } else if (method === 'Runtime.consoleAPICalled') {
       this.console.push({ source: 'console', level: consoleLevel(data.type), text: consoleArgumentsText(data.args), args: data.args ?? [], timestamp: eventTime(data.timestamp), sessionId: sessionId ?? null, frameTargetId: frame ?? null });
       if (this.console.length > 500) { this.console.shift(); this.evicted.console += 1; }
@@ -107,6 +116,7 @@ export class PageDebugger {
         if (method === 'Network.loadingFailed') { row.error = data.errorText ?? 'Request failed'; row.canceled = data.canceled === true; }
       }
     }
+    this.tracker.onEvent(method, data, sessionId);
     for (const listener of this.listeners) listener(method, data, frame);
   };
 
@@ -125,6 +135,11 @@ export class PageDebugger {
       await this.send('Log.enable');
       await this.send('Network.enable', { maxTotalBufferSize: 8 * 1024 * 1024, maxResourceBufferSize: 256 * 1024, maxPostDataSize: 16 * 1024 });
       await this.send('Target.setAutoAttach', { autoAttach: true, waitForDebuggerOnStart: false, flatten: true });
+      const tree = object(await this.send('Page.getFrameTree'));
+      const frameTree = object(tree.frameTree);
+      this.tracker.seedFrameTree(frameTree);
+      const rootFrameId = String(object(frameTree.frame).id ?? '');
+      if (rootFrameId) this.tracker.rootFrameId = rootFrameId;
       for (const [key, source] of this.documentScripts) await this.applyDocumentScriptOn(key, source, undefined);
     })();
     this.ready = starting;
@@ -197,15 +212,21 @@ export class PageDebugger {
   async command(method: string, params: BrowserObject = {}, frameTarget?: string): Promise<BrowserObject> {
     await this.initialize();
     let sessionId: string | undefined;
+    let routed = params;
     if (frameTarget && frameTarget !== this.targetId) {
       sessionId = this.frames.get(frameTarget);
       if (!sessionId) {
-        // Only an iframe already reported as a child of this page may be addressed.
-        // Arbitrary Target.attachToTarget would cross the conversation boundary.
-        throw new BrowserError('stale_target', 'The iframe is not attached to this page. Refresh the page snapshot.');
+        // A frame in this page's own process has no child target; its default
+        // context routes the call. Anything else was never reported as part of
+        // this page, and an arbitrary Target.attachToTarget would cross the
+        // conversation boundary.
+        const route = this.tracker.contexts.get(frameTarget);
+        if (!route) throw new BrowserError('stale_target', 'The iframe is not attached to this page. Refresh the page snapshot.');
+        sessionId = route.session;
+        routed = injectFrameRouteParams(method, params, frameTarget, route.contextId);
       }
     }
-    return this.send(method, params, sessionId);
+    return this.send(method, routed, sessionId);
   }
 
   async evaluate(expression: string, frameTarget?: string): Promise<unknown> {
@@ -258,6 +279,24 @@ export class PageDebugger {
 
   frameTargets(): string[] { return [...this.frames.keys()]; }
 
+  remoteFrameIds(): string[] {
+    const out = [...this.frames.keys()];
+    for (const frameId of this.tracker.contexts.keys()) {
+      if (frameId === this.tracker.rootFrameId || this.frames.has(frameId)) continue;
+      if (this.tracker.isRemoteFrame(frameId)) out.push(frameId);
+    }
+    return out;
+  }
+
+  frameParent(frameId: string): string | undefined { return this.tracker.parents.get(frameId); }
+
+  frameRouteKey(frameId: string): string {
+    const session = this.frames.get(frameId) ?? this.tracker.contexts.get(frameId)?.session;
+    return session ? `session:${session}` : 'main';
+  }
+
+  rootFrameId(): string { return this.tracker.rootFrameId || this.targetId; }
+
   async printToPDF(): Promise<BrowserObject> {
     if (this.disposed || this.contents.isDestroyed()) throw new BrowserError('stale_tab', 'The browser page is closed.');
     const pdf = await this.contents.printToPDF({ printBackground: true });
@@ -276,6 +315,7 @@ export class PageDebugger {
       if (this.contents.debugger.isAttached()) this.contents.debugger.detach();
     }
     this.frames.clear();
+    this.tracker.clear();
     this.listeners.clear();
     this.console.length = 0;
     this.network.length = 0;

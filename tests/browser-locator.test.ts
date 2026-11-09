@@ -48,17 +48,17 @@ h.test('interrupted frame preparation cannot issue later scroll or input command
     const started = new Promise<void>(resolve => { frameStarted = resolve; });
     const frame = new Promise<BrowserObject>(resolve => { finishFrame = resolve; });
     const context = { frame: 'child', signal: controller.signal, cdp: {
-      evaluate: async (source: string) => source.includes('const all=locate(') ? { elements: [{ ref: 'e-target', visible: true, enabled: true }], count: 1, total: 1 } : { x: 10, y: 20 },
-      command: async (method: string) => { commands.push(method); if (method === 'Page.getFrameTree') { frameStarted(); return frame; } return {}; },
-      frameTargets: () => ['child'], onEvent: () => () => {},
+      evaluate: async (source: string) => source.includes('const all=locate(') ? { elements: [{ ref: 'e-target', visible: true, enabled: true }], count: 1, total: 1 } : { width: 100, height: 50 },
+      command: async (method: string) => { commands.push(method); if (method === 'DOM.getFrameOwner') { frameStarted(); return frame; } return {}; },
+      frameTargets: () => ['child'], remoteFrameIds: () => ['child'], frameParent: () => undefined, frameRouteKey: () => 'main', rootFrameId: () => 'root', onEvent: () => () => {},
     } } as unknown as PageOperationContext;
     const pending = performPageOperation(context, 'click', { selector: 'button', timeoutMs: cancel ? 1000 : 20 });
     await started;
     if (cancel) controller.abort();
     await assertRejects(() => pending, 'frame preparation stops at cancellation or deadline');
-    finishFrame({ frameTree: { frame: { id: 'child-document' } } });
+    finishFrame({});
     await new Promise(resolve => setImmediate(resolve));
-    assertEqual(JSON.stringify(commands), JSON.stringify(['Page.getFrameTree']), 'late CDP reply cannot start another operation');
+    assertEqual(JSON.stringify(commands), JSON.stringify(['DOM.getFrameOwner']), 'late CDP reply cannot start another operation');
   }
 });
 h.test('interrupted alternative and frame searches never evaluate a later document', async () => {
@@ -76,7 +76,7 @@ h.test('interrupted alternative and frame searches never evaluate a later docume
         if (scenario !== 'child-frame' || frame === 'child-a') { probeStarted(); return probe; }
         return empty;
       },
-      frameTargets: () => ['child-a', 'child-b'], onEvent: () => () => {}, command: async () => ({}),
+      frameTargets: () => ['child-a', 'child-b'], remoteFrameIds: () => ['child-a', 'child-b'], frameParent: () => undefined, frameRouteKey: () => 'main', rootFrameId: () => 'root', onEvent: () => () => {}, command: async () => ({}),
     } } as unknown as PageOperationContext;
     const fields: BrowserObject = scenario === 'alternatives' ? { any: [{ selector: '#first' }, { selector: '#second' }], frames: false } : { selector: 'button' };
     const pending = performPageOperation(context, 'click', { ...fields, timeoutMs: cancel ? 1000 : 20 });

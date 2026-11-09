@@ -1,7 +1,7 @@
-import { domScript, elementScript, namesElement } from './dom';
+import { domScript, elementScript, frameCdp, namesElement } from './dom';
 import { BrowserError, object, type BrowserObject } from './types';
 import type { BrowserCdp } from './page-operations';
-import { assertPointerActive, pointerTarget } from './pointer-action';
+import { assertPointerActive, frameDispatch, pointerTarget } from './pointer-action';
 import { assertBrowserActionActive, browserAction, pauseBrowserAction } from './action-cancellation';
 
 export function modifiers(value: unknown): number {
@@ -39,7 +39,14 @@ export async function click(cdp: BrowserCdp, fields: BrowserObject, signal?: Abo
   const holdMs = fields.holdMs;
   if (holdMs !== undefined && (typeof holdMs !== 'number' || !Number.isFinite(holdMs) || holdMs < 0 || holdMs > 30000)) throw new BrowserError('invalid_request', 'holdMs must be from 0 to 30000 milliseconds.');
   assertPointerActive(signal);
-  const target = namesElement(fields) || fields.text !== undefined ? await pointerTarget(cdp, fields, signal) : { cdp, ...point(fields.coordinate ?? fields) };
+  const named = namesElement(fields) || fields.text !== undefined;
+  let target = named ? await pointerTarget(cdp, fields, signal) : { cdp, ...point(fields.coordinate ?? fields) };
+  if (!named) {
+    // A raw coordinate inside an in-process frame is frame-local; the page
+    // session that dispatches the event expects top-level coordinates.
+    const dispatch = frameDispatch(cdp);
+    if (dispatch.map) { const mapped = await dispatch.map(target.x, target.y); target = { cdp: dispatch.cdp, x: mapped.x, y: mapped.y }; }
+  }
   cdp = target.cdp;
   const { x, y } = target;
   assertPointerActive(signal);
@@ -62,13 +69,41 @@ export async function click(cdp: BrowserCdp, fields: BrowserObject, signal?: Abo
   return { ok: true, via: 'pointer' };
 }
 
+/** Follow the focus chain across frame boundaries that page scripts cannot cross. */
+async function focusRoute(cdp: BrowserCdp, signal?: AbortSignal): Promise<BrowserCdp> {
+  const root = cdp.captureScope?.root ?? cdp;
+  let current = cdp;
+  for (let depth = 0; depth < 8; depth++) {
+    assertBrowserActionActive(signal);
+    let objectId: string | undefined;
+    let nextFrame: string | undefined;
+    try {
+      const active = object(await current.command('Runtime.evaluate', { expression: 'document.activeElement', returnByValue: false }));
+      objectId = object(active.result).objectId as string | undefined;
+      if (!objectId) break;
+      const node = object((await current.command('DOM.describeNode', { objectId })).node);
+      const tag = String(node.nodeName ?? '').toUpperCase();
+      if ((tag === 'IFRAME' || tag === 'FRAME') && typeof node.frameId === 'string' && node.frameId) nextFrame = node.frameId;
+    } catch { break; }
+    finally { if (objectId) await current.command('Runtime.releaseObject', { objectId }).catch(() => {}); }
+    if (!nextFrame || nextFrame === current.captureScope?.frame) break;
+    current = frameCdp(root, nextFrame);
+  }
+  return current;
+}
+
 export async function typeText(cdp: BrowserCdp, fields: BrowserObject, signal?: AbortSignal): Promise<void> {
   assertBrowserActionActive(signal);
   if (typeof fields.text !== 'string') throw new BrowserError('invalid_request', 'text must be a string.');
   const text = fields.text;
-  const selected = namesElement(fields) ? elementScript(fields) : 'active()';
-  await browserAction(() => cdp.evaluate(domScript(`const e=${selected}; if(!e||!e.isConnected)throw new Error('Element not found');if(e.disabled||e.readOnly||(!e.isContentEditable&&!e.matches('input:not([type=button]):not([type=checkbox]):not([type=radio]):not([type=submit]),textarea')))throw new Error('Element is not editable');e.focus();`)), signal);
-  if (fields.clear === true) { await pressKey(cdp, process.platform === 'darwin' ? 'Meta+A' : 'Control+A', signal); await pressKey(cdp, 'Backspace', signal); }
+  const named = namesElement(fields);
+  // Without a locator the keystrokes belong to the focused element, which may
+  // live inside a frame the current world cannot walk through the DOM. Track
+  // the focus through CDP so validation and input run in the focused world.
+  const target = named ? cdp : await focusRoute(cdp, signal);
+  const selected = named ? elementScript(fields) : 'active()';
+  await browserAction(() => target.evaluate(domScript(`const e=${selected}; if(!e||!e.isConnected)throw new Error('Element not found');if(e.disabled||e.readOnly||(!e.isContentEditable&&!e.matches('input:not([type=button]):not([type=checkbox]):not([type=radio]):not([type=submit]),textarea')))throw new Error('Element is not editable');e.focus();`)), signal);
+  if (fields.clear === true) { await pressKey(target, process.platform === 'darwin' ? 'Meta+A' : 'Control+A', signal); await pressKey(target, 'Backspace', signal); }
   const delay = fields.delayMs ?? fields.delay;
   if (delay !== undefined && (typeof delay !== 'number' || !Number.isFinite(delay) || delay < 0)) throw new BrowserError('invalid_request', 'delayMs must be a non-negative number.');
   if (Number(delay) > 0 && text) {
@@ -76,13 +111,13 @@ export async function typeText(cdp: BrowserCdp, fields: BrowserObject, signal?: 
       assertBrowserActionActive(signal);
       const event = { key: character, text: character, unmodifiedText: character };
       try {
-        await browserAction(() => cdp.command('Input.dispatchKeyEvent', { type: 'keyDown', ...event }), signal);
+        await browserAction(() => target.command('Input.dispatchKeyEvent', { type: 'keyDown', ...event }), signal);
       } finally {
-        await cdp.command('Input.dispatchKeyEvent', { type: 'keyUp', ...event });
+        await target.command('Input.dispatchKeyEvent', { type: 'keyUp', ...event });
       }
       await pauseBrowserAction(Math.min(Number(delay), 200), signal);
     }
-  } else await browserAction(() => cdp.command('Input.insertText', { text }), signal);
+  } else await browserAction(() => target.command('Input.insertText', { text }), signal);
   assertBrowserActionActive(signal);
 }
 
@@ -148,21 +183,26 @@ export async function computerInput(cdp: BrowserCdp, fields: BrowserObject, sign
     }
     const delta = point({ x: dx ?? 0, y: dy ?? 0 });
     assertBrowserActionActive(signal);
-    await cdp.command('Input.dispatchMouseEvent', { type: 'mouseWheel', x: at.x, y: at.y, deltaX: delta.x, deltaY: delta.y, pointerType: 'mouse' }); return;
+    const dispatch = frameDispatch(cdp);
+    const wheel = dispatch.map ? await dispatch.map(at.x, at.y) : at;
+    await dispatch.cdp.command('Input.dispatchMouseEvent', { type: 'mouseWheel', x: wheel.x, y: wheel.y, deltaX: delta.x, deltaY: delta.y, pointerType: 'mouse' }); return;
   }
   if (action === 'drag' || action === 'left_click_drag') {
     let path = Array.isArray(fields.path) ? fields.path.map(point) : [];
     if (path.length < 2) path = [path[0] ?? point(fields.startCoordinate), await location(cdp, fields)];
     if (path.length > 128) throw new BrowserError('invalid_request', 'A drag path may contain at most 128 points.');
     const held = modifiers(fields.modifiers ?? fields.keys);
+    const dispatch = frameDispatch(cdp);
+    if (dispatch.map) { const mapped: Array<{ x: number; y: number }> = []; for (const step of path) mapped.push(await dispatch.map(step.x, step.y)); path = mapped; }
+    const surface = dispatch.cdp;
     let at = path[0]!;
     assertPointerActive(signal);
-    await cdp.command('Input.dispatchMouseEvent', { type:'mouseMoved', ...at, modifiers:held });
+    await surface.command('Input.dispatchMouseEvent', { type:'mouseMoved', ...at, modifiers:held });
     try {
       assertPointerActive(signal);
-      await cdp.command('Input.dispatchMouseEvent', { type:'mousePressed', ...at, button:'left', buttons:1, clickCount:1, modifiers:held });
-      for (const to of path.slice(1)) { const from = at; for (let step=1; step<=10; step+=1) { assertPointerActive(signal); at = {x:from.x+(to.x-from.x)*step/10,y:from.y+(to.y-from.y)*step/10}; await cdp.command('Input.dispatchMouseEvent', { type:'mouseMoved', ...at, button:'left', buttons:1, modifiers:held }); } }
-    } finally { await cdp.command('Input.dispatchMouseEvent', { type:'mouseReleased', ...at, button:'left', buttons:0, clickCount:1, modifiers:held }); }
+      await surface.command('Input.dispatchMouseEvent', { type:'mousePressed', ...at, button:'left', buttons:1, clickCount:1, modifiers:held });
+      for (const to of path.slice(1)) { const from = at; for (let step=1; step<=10; step+=1) { assertPointerActive(signal); at = {x:from.x+(to.x-from.x)*step/10,y:from.y+(to.y-from.y)*step/10}; await surface.command('Input.dispatchMouseEvent', { type:'mouseMoved', ...at, button:'left', buttons:1, modifiers:held }); } }
+    } finally { await surface.command('Input.dispatchMouseEvent', { type:'mouseReleased', ...at, button:'left', buttons:0, clickCount:1, modifiers:held }); }
     return;
   }
   if (['click','left_click','mouse_click','right_click','middle_click','double_click','triple_click','mouse_move','hover'].includes(action)) {
