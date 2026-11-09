@@ -30,10 +30,12 @@
 }
 
 :is(:global(#main-model-select), :global(#side-model-select)) .main-model-trigger-text {
-  display: inline-flex;
+  display: flex;
   align-items: center;
   gap: 6px;
-  max-width: 164px;
+  min-width: 0;
+  max-width: min(164px, 100%);
+  overflow: hidden;
 }
 
 :is(:global(#main-model-select), :global(#side-model-select)) .main-model-trigger-model,
@@ -44,7 +46,12 @@
   white-space: nowrap;
 }
 
+:is(:global(#main-model-select), :global(#side-model-select)) .main-model-trigger-model {
+  flex: 1 1 auto;
+}
+
 :is(:global(#main-model-select), :global(#side-model-select)) .main-model-trigger-thinking {
+  flex: 0 0 auto;
   color: var(--fg-secondary);
 }
 

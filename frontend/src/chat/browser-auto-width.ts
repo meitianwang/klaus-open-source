@@ -21,6 +21,7 @@ const AUTO_WIDTH_MAX = 1400
 // keeps at least this much width.
 const AUTO_WIDTH_MIN_MAIN = 420
 const AUTO_WIDTH_MIN_PANEL = 260
+const DEFAULT_SIDEBAR_WIDTH = 300
 
 export interface AutoWidthReading {
   tabId?: string | null
@@ -35,6 +36,7 @@ export interface AutoWidthReading {
 let docKey: string | null = null
 let applied = false
 let baseWidth = 0
+let desiredWidth = 0
 // A manual drag is explicit intent: no automatic widening for this document.
 let manual = false
 
@@ -62,8 +64,10 @@ function revert(): void {
 function cap(): number {
   const app = document.getElementById('app')?.getBoundingClientRect().width || window.innerWidth
   const sidebar = document.getElementById('sidebar')
+  const rectWidth = sidebar ? sidebar.getBoundingClientRect().width : 0
+  const configuredWidth = parseFloat(document.documentElement.style.getPropertyValue('--sidebar-width')) || DEFAULT_SIDEBAR_WIDTH
   const sidebarWidth = sidebar && !sidebar.classList.contains('collapsed')
-    ? sidebar.getBoundingClientRect().width
+    ? (rectWidth > 0 ? rectWidth : configuredWidth)
     : 0
   return Math.max(AUTO_WIDTH_MIN_PANEL, Math.min(AUTO_WIDTH_MAX, app - sidebarWidth - AUTO_WIDTH_MIN_MAIN))
 }
@@ -78,7 +82,21 @@ export function resetBrowserAutoWidth(): void {
   docKey = null
   applied = false
   baseWidth = 0
+  desiredWidth = 0
   manual = false
+}
+
+/**
+ * Re-apply the active document's cap when the window or left sidebar changes
+ * the width available to the main chat column and right panel.
+ */
+export function reclampBrowserAutoWidth(panelVisible: boolean): boolean {
+  if (!panelVisible) return false
+  if (document.body.classList.contains('artifacts-maximized')) return false
+  if (!applied || manual || desiredWidth <= 0) return false
+  const target = Math.min(cap(), desiredWidth)
+  if (Math.abs(target - currentWidth()) > 0.5) setWidth(target)
+  return true
 }
 
 export function syncBrowserAutoWidth(state: AutoWidthReading, panelVisible: boolean): void {
@@ -88,6 +106,7 @@ export function syncBrowserAutoWidth(state: AutoWidthReading, panelVisible: bool
   if (state.loading || key !== docKey) {
     revert()
     manual = false
+    desiredWidth = 0
     docKey = key
     if (state.loading) return
   }
@@ -97,7 +116,8 @@ export function syncBrowserAutoWidth(state: AutoWidthReading, panelVisible: bool
   if (!(Number(state.contentRevision) || 0)) return
   const content = Math.round(Number(state.contentWidth) || 0)
   if (content <= 0) return
-  const target = Math.min(cap(), content + AUTO_WIDTH_PAD)
+  desiredWidth = content + AUTO_WIDTH_PAD
+  const target = Math.min(cap(), desiredWidth)
   if (!applied) {
     baseWidth = currentWidth()
     applied = true

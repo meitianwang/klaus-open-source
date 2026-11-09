@@ -395,11 +395,14 @@ body.panel-resizing {
 body.panel-resizing #sidebar,
 body.panel-resizing .artifacts-panel,
 body.panel-resizing .titlebar-session-title,
-body.panel-resizing .titlebar-right {
+body.panel-resizing .titlebar-right,
+body.panel-resizing .titlebar-activity-btn,
+body.panel-resizing .titlebar-search-btn {
   transition: none !important;
 }
 
-body:not(.artifacts-open) #artifacts-panel-resizer,
+body.sidebar-collapsed:not(.panel-resizing) #sidebar-resizer,
+body:not(.artifacts-open):not(.panel-resizing) #artifacts-panel-resizer,
 body.settings-open .panel-resizer {
   display: none;
 }
@@ -471,15 +474,14 @@ body.settings-open #slash-menu {
   top: 0;
   bottom: 0;
   left: calc(var(--sidebar-width) + 24px);
-  right: 360px;
-  display: flex;
-  align-items: center;
+  right: 56px;
+  display: block;
   min-width: 0;
   overflow: hidden;
   color: var(--fg);
   font-size: var(--text-body);
   font-weight: var(--weight-semibold);
-  line-height: 20px;
+  line-height: var(--titlebar-height);
   white-space: nowrap;
   text-overflow: ellipsis;
   pointer-events: none;
@@ -497,7 +499,7 @@ body.sidebar-collapsed .titlebar-session-title {
   left: 160px;
 }
 body.artifacts-open .titlebar-session-title {
-  right: calc(var(--artifacts-panel-width) + 360px);
+  right: calc(var(--artifacts-panel-width) + 16px);
 }
 .app-titlebar-controls button,
 .app-titlebar-controls [role="button"],
@@ -657,6 +659,8 @@ body.sidebar-collapsed .titlebar-activity-btn {
   align-items: center;
   gap: 8px;
   width: 100%;
+  min-width: 0;
+  overflow: hidden;
   min-height: calc(var(--text-body) * 1.5 + 8px);
   padding: 4px 8px;
   border: none;
@@ -668,6 +672,12 @@ body.sidebar-collapsed .titlebar-activity-btn {
   font-weight: var(--weight-regular);
   color: var(--fg-secondary);
   transition: background var(--transition), color var(--transition);
+}
+.sidebar-nav-item > [data-i18n] {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .sidebar-nav-item:hover {
   background: color-mix(in srgb, var(--fg) 8%, transparent);
@@ -1501,6 +1511,7 @@ beside the main chat. Its own tab row,
 
 /* ===== Welcome ===== */
 .welcome {
+  container-type: inline-size;
   flex: 1;
   min-height: 0;
   display: flex;
@@ -1609,6 +1620,10 @@ beside the main chat. Its own tab row,
 
   .welcome-composer-slot { margin-top: 24px; }
 }
+@container (max-width: 980px) {
+  .welcome-title { gap: 10px; }
+  .welcome-composer-slot { margin-top: 24px; }
+}
 
 @media (max-width: 640px) {
   .welcome { padding: var(--titlebar-height) 18px; overflow-y: auto; }
@@ -1619,6 +1634,12 @@ beside the main chat. Its own tab row,
 
   .welcome-chips { margin-top: 10px; }
 
+  .welcome-chip { padding: 4px 8px; }
+}
+@container (max-width: 640px) {
+  .welcome-title { gap: 8px; }
+  .welcome-composer-slot { margin-top: 22px; }
+  .welcome-chips { margin-top: 10px; }
   .welcome-chip { padding: 4px 8px; }
 }
 
@@ -2286,11 +2307,16 @@ The "Queue paused" header is separated from the rows under it. */
   flex-direction: column;
   align-items: flex-end;
   gap: 10px;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
 }
 .msg-group.user .sent-user-stack .msg.user {
   display: inline-block;
   max-width: min(100%, 520px);
   width: fit-content;
+  min-width: 0;
+  overflow: hidden;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
@@ -3268,12 +3294,20 @@ spinner (data-chat-timeline-scroll-generating): the affordance then
    the first send, so a non-editable row would just be dead chrome. */
 .composer-context-row[hidden] { display: none; }
 .composer-context-row {
+  container: composer-context / inline-size;
   display: flex;
   align-items: center;
   gap: 2px;
+  min-width: 0;
   min-height: 30px;
   margin: 0 2px 6px;
+  overflow: hidden;
   -webkit-app-region: no-drag;
+}
+@container composer-context (max-width: 440px) {
+  .composer-context-label {
+    display: none;
+  }
 }
 /* .kls-select's own display rule would defeat the UA [hidden] rule. */
 .composer-context-row [hidden] { display: none !important; }
@@ -3364,9 +3398,11 @@ spinner (data-chat-timeline-scroll-generating): the affordance then
 }
 
 .input-row {
+  container: composer-footer / inline-size;
   display: flex;
   gap: 6px;
   align-items: center;
+  min-width: 0;
   /* Pull the toolbar out of the surface's 16px side padding: the plus and
      send buttons read as floating too far from the card edges otherwise. */
   margin: 0 -8px;
@@ -3443,7 +3479,7 @@ spinner (data-chat-timeline-scroll-generating): the affordance then
   max-width: 180px;
   height: 30px;
   padding: 0 8px;
-  flex-shrink: 0;
+  flex: 0 1 auto;
   border-radius: var(--radius-xs);
   border: none;
   background: transparent;
@@ -4190,7 +4226,7 @@ spinner (data-chat-timeline-scroll-generating): the affordance then
     font-size: var(--text-title);
   }
   #workdir-btn {
-    min-width: 170px;
+    min-width: 0;
     max-width: 220px;
     height: 42px;
     padding: 0 14px;
@@ -5429,7 +5465,31 @@ spinner (data-chat-timeline-scroll-generating): the affordance then
   color: var(--fg-secondary);
 }
 :is(#main-model-select, :is(#side-model-select, #left-side-model-select), #friend-intent-select, :is(#side-friend-intent-select, #left-side-friend-intent-select)) .kls-select-text {
-  max-width: 132px;
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 164px;
+}
+@container composer-footer (max-width: 480px) {
+  :is(#permission-select, #side-permission-select, #left-side-permission-select) :is(.kls-select-text, .kls-select-caret) {
+    display: none;
+  }
+  :is(#permission-select, #side-permission-select, #left-side-permission-select) .kls-select-trigger {
+    padding: 0 7px;
+  }
+  #main-model-select .kls-select-trigger {
+    max-width: 156px;
+  }
+  #main-model-select .kls-select-text {
+    max-width: 132px;
+  }
+}
+@container composer-footer (max-width: 380px) {
+  #main-model-select .kls-select-trigger {
+    max-width: 128px;
+  }
+  #main-model-select .kls-select-text {
+    max-width: 100px;
+  }
 }
 :is(#main-model-select, :is(#side-model-select, #left-side-model-select), #permission-select, :is(#side-permission-select, #left-side-permission-select), #friend-intent-select, :is(#side-friend-intent-select, #left-side-friend-intent-select)) .kls-select-text {
   line-height: var(--leading-composer-control);
@@ -8698,6 +8758,14 @@ body.non-chat-view .side-rail {
   transition: width .2s ease;
   overflow: hidden;
 }
+.artifacts-panel > .artifacts-header,
+.artifacts-panel > .artifacts-body {
+  min-width: var(--artifacts-panel-width);
+}
+body.artifacts-maximized .artifacts-panel > .artifacts-header,
+body.artifacts-maximized .artifacts-panel > .artifacts-body {
+  min-width: 0;
+}
 /* Every tab shares this one width; the two-pane tabs (files/diff) lay out their
    fixed side column + viewer WITHIN it rather than forcing the panel wider, so
    switching tabs never changes the column width. */
@@ -9351,12 +9419,19 @@ body.non-chat-view .side-rail {
   flex-direction: column;
 }
 .browser-toolbar {
+  container: browser-toolbar / inline-size;
   display: grid;
   grid-template-columns: repeat(3, 28px) minmax(0, 1fr) repeat(2, 28px);
   align-items: center;
   gap: 6px;
   padding: 10px 12px;
   border-bottom: 1px solid var(--border-subtle);
+}
+@container browser-toolbar (max-width: 384px) {
+  .browser-toolbar {
+    gap: 4px;
+    padding: 8px;
+  }
 }
 .browser-tool-btn {
   width: 28px;
@@ -9383,6 +9458,8 @@ body.non-chat-view .side-rail {
 }
 .browser-url-input {
   width: 100%;
+  min-width: 0;
+  text-overflow: ellipsis;
   height: 28px;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);

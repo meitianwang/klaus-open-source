@@ -74,3 +74,8 @@
   .open { min-width: 70%; }
   .metric { margin-inline-start: 23px; margin-inline-end: auto; }
 }
+@container (max-width: 480px) {
+  .row { flex-wrap: wrap; }
+  .open { min-width: 70%; }
+  .metric { margin-inline-start: 23px; margin-inline-end: auto; }
+}

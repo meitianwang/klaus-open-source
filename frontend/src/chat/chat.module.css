@@ -31,6 +31,12 @@
       height: 32px;
     }
 }
+@container (max-width: 980px) {
+  .welcome-logo {
+    width: 32px;
+    height: 32px;
+  }
+}
 
 @media (max-width: 640px) {
   .welcome-logo {
@@ -39,6 +45,14 @@
       border-radius: var(--radius-xs);
     }
 
+  .welcome-greeting { font-size: var(--text-hero); }
+}
+@container (max-width: 640px) {
+  .welcome-logo {
+    width: 28px;
+    height: 28px;
+    border-radius: var(--radius-xs);
+  }
   .welcome-greeting { font-size: var(--text-hero); }
 }
 

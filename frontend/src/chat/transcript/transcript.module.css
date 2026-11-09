@@ -743,6 +743,7 @@
 }
 
 @media (max-width: 720px) { .turn-changes-file-note { display: none; } }
+@container (max-width: 720px) { .turn-changes-file-note { display: none; } }
 
 .turn-changes-file-stats {
   display: inline-flex;
@@ -1185,8 +1186,9 @@
 .async-question-chip svg { width: 16px; height: 16px; }
 .async-question-chip:focus-visible { outline: none; border-color: var(--input-focus); }
 .question-attach:focus-visible { outline: none; background: var(--bg-hover); box-shadow: none; }
+.question-reply { min-width: 0; max-width: 100%; }
 .question-reply + .question-reply { margin-top: 16px; }
-.question-reply-quote { opacity: .7; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-bottom: 6px; }
+.question-reply-quote { min-width: 0; max-width: 100%; opacity: .7; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-bottom: 6px; }
 .question-reply-answer p { margin: 0; }
 .question-reply-answer p + p { margin-top: 8px; }
 .question-summary {
@@ -1217,6 +1219,10 @@
 .question-summary-answer { display: flex; align-items: center; gap: 8px; padding: 6px 2px; color: var(--fg-secondary); font-size: var(--text-body-sm); white-space: pre-wrap; overflow-wrap: anywhere; }
 .question-summary-skipped { color: var(--fg-tertiary); }
 @media (max-width: 480px) {
+  .question-header { flex-wrap: wrap; }
+  .question-navigation { margin-left: auto; }
+}
+@container (max-width: 480px) {
   .question-header { flex-wrap: wrap; }
   .question-navigation { margin-left: auto; }
 }
@@ -2015,6 +2021,8 @@
   align-items: center;
   justify-content: flex-end;
   gap: 4px;
+  max-width: 100%;
+  min-width: 0;
   padding: 0 1px 2px;
   font-size: var(--text-caption);
   color: var(--fg-quaternary);
@@ -2022,6 +2030,7 @@
 }
 
 .delegation-label-row svg { width: 12px; height: 12px; flex-shrink: 0; }
+.delegation-label-row > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* A scheduled run's trigger message carries one small provenance line above the
  * bubble, mirroring the delegation label row: right-aligned caption on the
@@ -2031,6 +2040,8 @@
   align-items: center;
   justify-content: flex-end;
   gap: 4px;
+  max-width: 100%;
+  min-width: 0;
   padding: 0 1px 2px;
   font-size: var(--text-caption);
   color: var(--fg-quaternary);
@@ -2038,6 +2049,7 @@
 }
 
 .automation-source-row svg { width: 12px; height: 12px; flex-shrink: 0; }
+.automation-source-row > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .delegation-source-link {
   display: inline-flex;
   align-items: center;
@@ -2116,6 +2128,8 @@
 }
 .user-row-main {
   flex: 1 1 0;
+  width: 100%;
+  max-width: 100%;
   min-width: 0;
   display: flex;
   flex-direction: column;

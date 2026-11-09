@@ -164,7 +164,29 @@ import { bootFeatureOnboarding } from '../app/feature-onboarding'
 import { parseStoredOrder, reconcileOrder } from './sidebar/project-order'
 import { SessionPinning } from './sidebar/pinning'
 import { initTerminal, forgetTerminalGroup, syncTerminalPanelForCurrentSession, scheduleTerminalResize, setTerminalOpen, renderTerminalList } from './terminal'
-import { initBrowserPanel, isBrowserPanelMode, isBrowserPanelVisible, browserRuntimeVisible, hideBrowserRuntime, noteBrowserPanelManualResize, scheduleBrowserBoundsSync, showBrowserPanel, hideBrowserPanel } from './browser-panel'
+import { initBrowserPanel, isBrowserPanelMode, isBrowserPanelVisible, browserRuntimeVisible, hideBrowserRuntime, noteBrowserPanelManualResize, reclampBrowserAutoWidth, scheduleBrowserBoundsSync, showBrowserPanel, hideBrowserPanel } from './browser-panel'
+import {
+  SIDEBAR_MIN_WIDTH,
+  SIDEBAR_MAX_WIDTH,
+  SIDEBAR_DEFAULT_WIDTH,
+  RIGHT_PANEL_MIN_WIDTH,
+  RIGHT_PANEL_MAX_WIDTH,
+  RIGHT_PANEL_DEFAULT_WIDTH,
+  PANEL_MIN_MAIN_WIDTH,
+  clampSidebarWidth,
+  computeWorkspaceWidth,
+  rightPanelBounds,
+  clampRightPanelWidth,
+  rightPanelWidthToRatio,
+  rightPanelRatioToWidth,
+  resolveStoredRightPanelRatio,
+  defaultSplitRightPanelWidth,
+  evaluateSidebarDragStep,
+  evaluateRightPanelDragStep,
+  evaluateKeyboardResizeStep,
+  createResponsiveAutoCollapseState,
+  evaluateWindowResizeAutoCollapse,
+} from './panel-layout'
 import { initDigramPanel } from './digram/panel'
 import { initModel3DPanel } from './model3d/panel'
 import { initCanvasPanel, hideCanvasPanel, scheduleCanvasBoundsSync } from './canvas-panel'
@@ -737,42 +759,165 @@ initApprovals({
 
 let switchSeq = 0  // monotonic; each switchSession run captures this and bails out if a newer click superseded it mid-await
 let sidebarCollapsed = localStorage.getItem('klaus_sidebar_collapsed') === '1'
-const PANEL_RESIZE_MIN_MAIN_WIDTH = 420
-// Sidebar width is fixed by design (user request: no manual dragging); only
-// the artifacts panel stays resizable. panelResizeLimit() still references the
-// sidebar's live width when capping the artifacts panel, so it stays as-is.
+const PANEL_RESIZE_MIN_MAIN_WIDTH = PANEL_MIN_MAIN_WIDTH
+const SIDEBAR_WIDTH_STORAGE_KEY = windowStateKey('klaus_sidebar_width')
+const ARTIFACTS_PANEL_WIDTH_STORAGE_KEY = windowStateKey('klaus_artifacts_panel_width')
+const ARTIFACTS_PANEL_RATIO_STORAGE_KEY = windowStateKey('klaus_artifacts_panel_width_ratio')
+let sidebarTargetWidth = SIDEBAR_DEFAULT_WIDTH
+let rightPanelWidthRatio = 0
+let responsiveLayoutState = createResponsiveAutoCollapseState()
+
 const PANEL_RESIZE_CONFIGS = [
+  {
+    handleId: 'sidebar-resizer',
+    panelId: 'sidebar',
+    cssProperty: '--sidebar-width',
+    storageKey: SIDEBAR_WIDTH_STORAGE_KEY,
+    min: SIDEBAR_MIN_WIDTH,
+    max: SIDEBAR_MAX_WIDTH,
+    direction: 1,
+  },
   {
     handleId: 'artifacts-panel-resizer',
     panelId: 'artifacts-panel',
     cssProperty: '--artifacts-panel-width',
-    storageKey: windowStateKey('klaus_artifacts_panel_width'),
-    min: 260,
-    max: 900,
+    storageKey: ARTIFACTS_PANEL_WIDTH_STORAGE_KEY,
+    min: RIGHT_PANEL_MIN_WIDTH,
+    max: RIGHT_PANEL_MAX_WIDTH,
     direction: -1,
   },
 ]
 
+function currentShellWidth(): number {
+  return document.getElementById('app')?.getBoundingClientRect().width || window.innerWidth || 1280
+}
+
+function currentWorkspaceWidth(): number {
+  return computeWorkspaceWidth(currentShellWidth(), !sidebarCollapsed, sidebarTargetWidth)
+}
+
 function panelResizeLimit(panelId: string, min: number, max: number) {
-  const appWidth = document.getElementById('app')?.getBoundingClientRect().width || window.innerWidth
-  const otherPanelId = panelId === 'sidebar' ? 'artifacts-panel' : 'sidebar'
-  const otherPanel = document.getElementById(otherPanelId)
-  const otherPanelVisible = otherPanel
-    && !otherPanel.classList.contains('collapsed')
-  const otherWidth = otherPanelVisible ? otherPanel.getBoundingClientRect().width : 0
-  return Math.max(min, Math.min(max, appWidth - otherWidth - PANEL_RESIZE_MIN_MAIN_WIDTH))
+  const appWidth = currentShellWidth()
+  if (!(appWidth > 0)) return max
+  if (panelId === 'sidebar') {
+    return clampSidebarWidth(max, appWidth, min)
+  }
+  return rightPanelBounds(currentWorkspaceWidth(), min, max, PANEL_RESIZE_MIN_MAIN_WIDTH).maximum
+}
+
+function setSidebarWidthPx(px: number, options: { persist?: boolean } = {}): number {
+  const width = clampSidebarWidth(px, currentShellWidth())
+  sidebarTargetWidth = width
+  document.documentElement.style.setProperty('--sidebar-width', `${width}px`)
+  document.getElementById('sidebar-resizer')?.setAttribute('aria-valuenow', String(width))
+  if (options.persist) persistLocalValue(SIDEBAR_WIDTH_STORAGE_KEY, String(width))
+  return width
+}
+
+function setRightPanelWidthPx(px: number, options: { persist?: boolean; updateRatio?: boolean } = {}): number {
+  const wsWidth = currentWorkspaceWidth()
+  const width = clampRightPanelWidth(px, wsWidth)
+  if (options.updateRatio) {
+    rightPanelWidthRatio = rightPanelWidthToRatio(width, wsWidth)
+  }
+  document.documentElement.style.setProperty('--artifacts-panel-width', `${width}px`)
+  document.getElementById('artifacts-panel-resizer')?.setAttribute('aria-valuenow', String(width))
+  if (options.persist) {
+    persistLocalValue(ARTIFACTS_PANEL_WIDTH_STORAGE_KEY, String(width))
+    persistLocalValue(ARTIFACTS_PANEL_RATIO_STORAGE_KEY, String(rightPanelWidthRatio))
+  }
+  return width
+}
+
+function setArtifactsPanelMaximizedFromDrag(next: boolean): void {
+  const current = document.body.classList.contains('artifacts-maximized')
+  if (current === next) return
+  document.getElementById('artifacts-maximize-toggle')?.click()
+}
+
+function clampPanelWidthsToViewport() {
+  const shellWidth = currentShellWidth()
+  if (shellWidth > 0) {
+    const clampedSidebar = clampSidebarWidth(sidebarTargetWidth, shellWidth)
+    if (clampedSidebar !== sidebarTargetWidth) {
+      setSidebarWidthPx(clampedSidebar)
+    }
+  }
+  if (document.body.classList.contains('artifacts-maximized')) return
+  if (reclampBrowserAutoWidth(isBrowserPanelVisible())) {
+    if (typeof scheduleBrowserBoundsSync === 'function') scheduleBrowserBoundsSync()
+    return
+  }
+  const panel = document.getElementById('artifacts-panel')
+  if (!panel) return
+  const wsWidth = currentWorkspaceWidth()
+  if (!(wsWidth > 0)) return
+  const targetWidth = rightPanelRatioToWidth(rightPanelWidthRatio, wsWidth)
+  const raw = getComputedStyle(document.documentElement).getPropertyValue('--artifacts-panel-width')
+  const current = parseFloat(raw) || panel.getBoundingClientRect().width || RIGHT_PANEL_DEFAULT_WIDTH
+  if (Math.abs(current - targetWidth) > 0.5) {
+    document.documentElement.style.setProperty('--artifacts-panel-width', `${targetWidth}px`)
+    document.getElementById('artifacts-panel-resizer')?.setAttribute('aria-valuenow', String(targetWidth))
+    if (!panel.classList.contains('collapsed')) {
+      if (typeof scheduleTerminalResize === 'function') scheduleTerminalResize()
+      if (typeof scheduleBrowserBoundsSync === 'function') scheduleBrowserBoundsSync()
+    }
+  }
+}
+
+function handleWindowResizeLayout() {
+  const shellWidth = currentShellWidth()
+  const wsWidth = currentWorkspaceWidth()
+  const panel = document.getElementById('artifacts-panel')
+  const panelOpen = !!panel && !panel.classList.contains('collapsed')
+  const panelMaximized = document.body.classList.contains('artifacts-maximized')
+  const evaluation = evaluateWindowResizeAutoCollapse(responsiveLayoutState, {
+    shellWidth,
+    workspaceWidth: wsWidth,
+    sidebarOpen: !sidebarCollapsed,
+    panelOpen,
+    panelMaximized,
+  })
+  responsiveLayoutState = evaluation.state
+  if (evaluation.collapseSidebar && !sidebarCollapsed) {
+    sidebarCollapsed = true
+    updateSidebarToggleState()
+  } else if (evaluation.restoreSidebar && sidebarCollapsed) {
+    sidebarCollapsed = false
+    updateSidebarToggleState()
+  }
+  if (evaluation.collapsePanel && panel && !panel.classList.contains('collapsed')) {
+    panel.classList.add('collapsed')
+    syncArtifactsToggleVisibility()
+  } else if (evaluation.restorePanel && panel && panel.classList.contains('collapsed')) {
+    panel.classList.remove('collapsed')
+    syncArtifactsToggleVisibility()
+  }
+  clampPanelWidthsToViewport()
 }
 
 function applyStoredPanelWidths() {
-  for (const config of PANEL_RESIZE_CONFIGS) {
-    const rawStored = localStorage.getItem(config.storageKey)
-    if (rawStored === null) continue
-    const stored = Number(rawStored)
-    if (!Number.isFinite(stored)) continue
-    const width = Math.round(Math.min(config.max, Math.max(config.min, stored)))
-    document.documentElement.style.setProperty(config.cssProperty, `${width}px`)
-    document.getElementById(config.handleId)?.setAttribute('aria-valuenow', String(width))
-  }
+  const storedSidebarRaw = localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY) ?? localStorage.getItem('klaus_sidebar_width')
+  const parsedSidebar = storedSidebarRaw !== null ? Number(storedSidebarRaw) : SIDEBAR_DEFAULT_WIDTH
+  setSidebarWidthPx(Number.isFinite(parsedSidebar) && parsedSidebar > 0 ? parsedSidebar : SIDEBAR_DEFAULT_WIDTH)
+
+  const wsWidth = currentWorkspaceWidth()
+  const storedRatioRaw = localStorage.getItem(ARTIFACTS_PANEL_RATIO_STORAGE_KEY)
+  const storedPanelRaw = localStorage.getItem(ARTIFACTS_PANEL_WIDTH_STORAGE_KEY)
+  rightPanelWidthRatio = resolveStoredRightPanelRatio(storedRatioRaw, storedPanelRaw, wsWidth, RIGHT_PANEL_DEFAULT_WIDTH)
+  const panelWidth = rightPanelRatioToWidth(rightPanelWidthRatio, wsWidth)
+  document.documentElement.style.setProperty('--artifacts-panel-width', `${panelWidth}px`)
+  document.getElementById('artifacts-panel-resizer')?.setAttribute('aria-valuenow', String(panelWidth))
+
+  const panel = document.getElementById('artifacts-panel')
+  const panelOpen = !!panel && !panel.classList.contains('collapsed')
+  responsiveLayoutState = evaluateWindowResizeAutoCollapse(responsiveLayoutState, {
+    shellWidth: currentShellWidth(),
+    workspaceWidth: wsWidth,
+    sidebarOpen: !sidebarCollapsed,
+    panelOpen,
+    panelMaximized: document.body.classList.contains('artifacts-maximized'),
+  }).state
 }
 
 function bindPanelResizer(config: { handleId: string; panelId: string; cssProperty: string; storageKey: string; min: number; max: number; direction: number }) {
@@ -781,29 +926,65 @@ function bindPanelResizer(config: { handleId: string; panelId: string; cssProper
   if (!handle || !panel) return
 
   handle.addEventListener('pointerdown', (event: PointerEvent) => {
-    if (event.button !== 0) return
-    // Every tab shares one panel width, so the resizer works in every mode; the
-    // dragged width persists and stays put across tab switches.
+    if (event.button !== 0 || event.detail > 1) return
     event.preventDefault()
     const startX = event.clientX
-    const startWidth = panel.getBoundingClientRect().width
-    const maxWidth = panelResizeLimit(config.panelId, config.min, config.max)
+    const wasCollapsed = panel.classList.contains('collapsed')
+    const startWidth = wasCollapsed
+      ? 0
+      : (panel.getBoundingClientRect().width || (config.panelId === 'sidebar' ? sidebarTargetWidth : rightPanelRatioToWidth(rightPanelWidthRatio, currentWorkspaceWidth())))
+    let didMove = false
     handle.setPointerCapture(event.pointerId)
     handle.classList.add('is-resizing')
     document.body.classList.add('panel-resizing')
-    // A manual drag is explicit intent: automatic content-width widening
-    // yields to the dragged value for the rest of this document.
-    noteBrowserPanelManualResize()
+    if (config.panelId === 'artifacts-panel') {
+      noteBrowserPanelManualResize()
+    }
 
     const onPointerMove = (moveEvent: PointerEvent) => {
-      const width = Math.round(Math.min(maxWidth, Math.max(
-        config.min,
-        startWidth + ((moveEvent.clientX - startX) * config.direction),
-      )))
-      document.documentElement.style.setProperty(config.cssProperty, `${width}px`)
-      handle.setAttribute('aria-valuenow', String(width))
-      if (typeof scheduleTerminalResize === 'function') scheduleTerminalResize()
-      if (typeof scheduleBrowserBoundsSync === 'function') scheduleBrowserBoundsSync()
+      const delta = (moveEvent.clientX - startX) * config.direction
+      if (!didMove && Math.abs(delta) < 1) return
+      didMove = true
+      const rawWidth = startWidth + delta
+
+      if (config.panelId === 'sidebar') {
+        responsiveLayoutState.sidebarAutoCollapsible = false
+        responsiveLayoutState.autoCollapsedSidebar = false
+        const step = evaluateSidebarDragStep(rawWidth, currentShellWidth(), true)
+        if (step.open === sidebarCollapsed) {
+          sidebarCollapsed = !step.open
+          updateSidebarToggleState()
+        }
+        if (step.open) {
+          setSidebarWidthPx(step.width)
+          clampPanelWidthsToViewport()
+        }
+        return
+      }
+
+      responsiveLayoutState.autoClosedPanel = false
+      const wsWidth = currentWorkspaceWidth()
+      const step = evaluateRightPanelDragStep(rawWidth, wsWidth, true)
+      const currentlyCollapsed = panel.classList.contains('collapsed')
+      if (!step.open) {
+        if (!currentlyCollapsed) {
+          panel.classList.add('collapsed')
+          syncArtifactsToggleVisibility()
+        }
+        return
+      }
+      if (currentlyCollapsed) {
+        panel.classList.remove('collapsed')
+        syncArtifactsToggleVisibility()
+      }
+      setArtifactsPanelMaximizedFromDrag(step.fullWidth)
+      if (!step.fullWidth) {
+        rightPanelWidthRatio = step.ratio
+        document.documentElement.style.setProperty(config.cssProperty, `${step.width}px`)
+        handle.setAttribute('aria-valuenow', String(step.width))
+        if (typeof scheduleTerminalResize === 'function') scheduleTerminalResize()
+        if (typeof scheduleBrowserBoundsSync === 'function') scheduleBrowserBoundsSync()
+      }
     }
 
     const finishResize = () => {
@@ -813,8 +994,20 @@ function bindPanelResizer(config: { handleId: string; panelId: string; cssProper
       window.removeEventListener('blur', finishResize)
       handle.classList.remove('is-resizing')
       document.body.classList.remove('panel-resizing')
-      const width = Math.round(panel.getBoundingClientRect().width)
-      persistLocalValue(config.storageKey, String(width))
+      if (!didMove) return
+      if (config.panelId === 'sidebar') {
+        persistLocalValue('klaus_sidebar_collapsed', sidebarCollapsed ? '1' : '0')
+        if (!sidebarCollapsed) {
+          persistLocalValue(SIDEBAR_WIDTH_STORAGE_KEY, String(sidebarTargetWidth))
+        }
+        return
+      }
+      const isCollapsed = panel.classList.contains('collapsed')
+      persistLocalValue(windowStateKey('klaus_artifacts_collapsed'), isCollapsed ? '1' : '0')
+      if (!isCollapsed && !document.body.classList.contains('artifacts-maximized')) {
+        const width = Math.round(panel.getBoundingClientRect().width || rightPanelRatioToWidth(rightPanelWidthRatio, currentWorkspaceWidth()))
+        setRightPanelWidthPx(width, { persist: true, updateRatio: true })
+      }
     }
 
     window.addEventListener('pointermove', onPointerMove)
@@ -822,10 +1015,61 @@ function bindPanelResizer(config: { handleId: string; panelId: string; cssProper
     window.addEventListener('pointercancel', finishResize)
     window.addEventListener('blur', finishResize)
   })
+
+  handle.addEventListener('dblclick', (event: MouseEvent) => {
+    event.preventDefault()
+    if (config.panelId === 'sidebar') {
+      if (sidebarCollapsed) {
+        sidebarCollapsed = false
+        persistLocalValue('klaus_sidebar_collapsed', '0')
+      }
+      setSidebarWidthPx(SIDEBAR_DEFAULT_WIDTH, { persist: true })
+      updateSidebarToggleState()
+      return
+    }
+    noteBrowserPanelManualResize()
+    if (document.body.classList.contains('artifacts-maximized')) {
+      setArtifactsPanelMaximizedFromDrag(false)
+    }
+    const splitWidth = defaultSplitRightPanelWidth(currentWorkspaceWidth())
+    setRightPanelWidthPx(splitWidth, { persist: true, updateRatio: true })
+    if (typeof scheduleTerminalResize === 'function') scheduleTerminalResize()
+    if (typeof scheduleBrowserBoundsSync === 'function') scheduleBrowserBoundsSync()
+  })
+
+  handle.addEventListener('keydown', (event: KeyboardEvent) => {
+    const isSidebar = config.panelId === 'sidebar'
+    const minSize = isSidebar ? SIDEBAR_MIN_WIDTH : RIGHT_PANEL_MIN_WIDTH
+    const maxSize = panelResizeLimit(config.panelId, config.min, config.max)
+    const currentSize = isSidebar
+      ? sidebarTargetWidth
+      : (parseFloat(getComputedStyle(document.documentElement).getPropertyValue(config.cssProperty)) || panel.getBoundingClientRect().width || RIGHT_PANEL_DEFAULT_WIDTH)
+    const nextSize = evaluateKeyboardResizeStep({
+      currentSize,
+      key: event.key,
+      shiftKey: event.shiftKey,
+      edge: isSidebar ? 'right' : 'left',
+      minimumSize: minSize,
+      maximumSize: maxSize,
+    })
+    if (nextSize === null) return
+    event.preventDefault()
+    event.stopPropagation()
+    if (isSidebar) {
+      setSidebarWidthPx(nextSize, { persist: true })
+      clampPanelWidthsToViewport()
+      return
+    }
+    noteBrowserPanelManualResize()
+    setRightPanelWidthPx(nextSize, { persist: true, updateRatio: true })
+    if (typeof scheduleTerminalResize === 'function') scheduleTerminalResize()
+    if (typeof scheduleBrowserBoundsSync === 'function') scheduleBrowserBoundsSync()
+  })
 }
 
 applyStoredPanelWidths()
 PANEL_RESIZE_CONFIGS.forEach(bindPanelResizer)
+window.addEventListener('resize', handleWindowResizeLayout)
 const ACTIVE_PROJECT_WORKDIR_KEY = 'klaus_active_project_workdir'
 const PROJECT_THREAD_EXPANDED_KEY = 'klaus_project_thread_expanded'
 const PROJECTS_COLLAPSED_KEY = 'klaus_projects_collapsed'
@@ -4116,6 +4360,7 @@ function updateSidebarToggleState() {
   toggle?.setAttribute('aria-expanded', sidebarCollapsed ? 'false' : 'true')
   // Glyph swap (expanded vs collapsed) is pure CSS on body.sidebar-collapsed —
   // see .sidebar-toggle rules in styles.css.
+  clampPanelWidthsToViewport()
 }
 
 async function init() {
@@ -15737,6 +15982,8 @@ document.getElementById('btn-friends')?.addEventListener('click', () => {
 // Sidebar toggle
 document.getElementById('sidebar-toggle')?.addEventListener('click', () => {
   sidebarCollapsed = !sidebarCollapsed
+  responsiveLayoutState.sidebarAutoCollapsible = false
+  responsiveLayoutState.autoCollapsedSidebar = false
   persistLocalValue('klaus_sidebar_collapsed', sidebarCollapsed ? '1' : '0')
   updateSidebarToggleState()
 })
@@ -17768,6 +18015,7 @@ function syncArtifactsToggleVisibility() {
   // dated from when diff was a full-screen overlay; keeping it meant switching
   // from the Changes tab to any other tab blanked the whole panel.
   document.body.classList.toggle('artifacts-open', !collapsed)
+  if (!collapsed) clampPanelWidthsToViewport()
   if (artifactsToggleBtn) artifactsToggleBtn.style.display = collapsed ? '' : 'none'
   if (artifactsToggleBtnInner) artifactsToggleBtnInner.style.display = collapsed ? 'none' : ''
   artifactsToggleBtn?.classList.toggle('active', !collapsed && (mode === 'monitor' || mode === 'diff'))
@@ -17788,6 +18036,7 @@ function syncArtifactsToggleVisibility() {
 window.syncArtifactsToggleVisibility = syncArtifactsToggleVisibility
 function openArtifactsPanel(mode: string = 'monitor') {
   if (!artifactsPanel) return
+  responsiveLayoutState.autoClosedPanel = false
   const nextMode = normalizePanelMode(mode)
   setArtifactsPanelMode(nextMode)
   artifactsPanel.classList.remove('collapsed')
@@ -17805,6 +18054,7 @@ window.openArtifactsPanel = openArtifactsPanel
 window.closeArtifactsPanel = closeArtifactsPanel
 function closeArtifactsPanel() {
   if (!artifactsPanel) return
+  responsiveLayoutState.autoClosedPanel = false
   const mode = artifactsPanel.getAttribute('data-mode') || 'monitor'
   // Diff / workspace surfaces live inside the panel now: collapsing the
   // panel must exit the surface too, otherwise an active-but-invisible

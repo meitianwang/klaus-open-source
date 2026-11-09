@@ -12,6 +12,8 @@ describe('browser panel auto width', () => {
 
     let appWidth = 1000
     let maximized = false
+    let sidebarCollapsed = false
+    let sidebarRectWidth = 300
     const styleProps: Record<string, string> = {}
     const documentElement = {
       style: {
@@ -41,7 +43,10 @@ describe('browser panel auto width', () => {
           if (id === 'artifacts-panel') return panel
           if (id === 'browser-panel-host') return host
           if (id === 'app') return { getBoundingClientRect: () => ({ width: appWidth }) }
-          if (id === 'sidebar') return { classList: { contains: () => false }, getBoundingClientRect: () => ({ width: 300 }) }
+          if (id === 'sidebar') return {
+            classList: { contains: (name: string) => name === 'collapsed' && sidebarCollapsed },
+            getBoundingClientRect: () => ({ width: sidebarRectWidth }),
+          }
           if (id === 'artifacts-panel-resizer') return { setAttribute: (key: string, value: string) => { resizerAttrs[key] = value } }
           return null
         },
@@ -91,13 +96,37 @@ describe('browser panel auto width', () => {
       push(surface, { contentRevision: 5, contentWidth: 900 })
       expect(widthNow()).toBe(916)
 
+      // Opening the left sidebar on a tighter window reclamps the panel even
+      // after the page reported "fits" (contentWidth: 0) at the wider width,
+      // and even at frame 0 of the sidebar's expand transition (rect width 0).
+      appWidth = 1240
+      values.window.innerWidth = 1240
+      sidebarCollapsed = true
+      sidebarRectWidth = 0
+      push(surface, { contentRevision: 6, contentWidth: 980 })
+      expect(widthNow()).toBe(1240 - 420)
+      push(surface, { contentRevision: 7, contentWidth: 0 })
+      sidebarCollapsed = false
+      sidebarRectWidth = 0
+      expect(surface.reclampBrowserAutoWidth(true)).toBe(true)
+      expect(widthNow()).toBe(1240 - 300 - 420)
+      sidebarCollapsed = true
+      expect(surface.reclampBrowserAutoWidth(true)).toBe(true)
+      expect(widthNow()).toBe(1240 - 420)
+      sidebarCollapsed = false
+      sidebarRectWidth = 300
+      appWidth = 2000
+      values.window.innerWidth = 2000
+      expect(surface.reclampBrowserAutoWidth(true)).toBe(true)
+      expect(widthNow()).toBe(996)
+
       // A manual drag wins for the rest of the document…
       surface.noteBrowserPanelManualResize()
-      push(surface, { contentRevision: 6, contentWidth: 2000 })
-      expect(widthNow()).toBe(916)
+      push(surface, { contentRevision: 8, contentWidth: 2000 })
+      expect(widthNow()).toBe(996)
       // …and a reload lifts that deference again.
-      push(surface, { loading: true, contentRevision: 6, contentWidth: 2000 })
-      push(surface, { contentRevision: 7, contentWidth: 2000 })
+      push(surface, { loading: true, contentRevision: 8, contentWidth: 2000 })
+      push(surface, { contentRevision: 9, contentWidth: 2000 })
       expect(widthNow()).toBe(Math.min(1400, 2000 - 300 - 420))
     } finally {
       surface?.resetBrowserAutoWidth?.()

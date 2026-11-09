@@ -50,4 +50,30 @@ describe('transcript card alignment contract', () => {
     expect(authCard).toContain("boxSizing: 'border-box'")
     expect(authCard).not.toContain('marginInline')
   })
+
+  test('user bubble stack and question replies constrain width within narrow transcript columns', () => {
+    const styles = readFileSync(new URL('../../../css/styles.css', import.meta.url), 'utf8')
+    const userRowMain = ruleBody(transcript, '.user-row-main')
+    expect(userRowMain).toContain('width: 100%;')
+    expect(userRowMain).toContain('max-width: 100%;')
+    expect(userRowMain).toContain('min-width: 0;')
+
+    const stack = ruleBody(styles, '.msg-group.user .sent-user-stack')
+    expect(stack).toContain('width: 100%;')
+    expect(stack).toContain('max-width: 100%;')
+    expect(stack).toContain('min-width: 0;')
+
+    const bubble = ruleBody(styles, '.msg-group.user .sent-user-stack .msg.user')
+    expect(bubble).toContain('max-width: min(100%, 520px);')
+    expect(bubble).toContain('min-width: 0;')
+    expect(bubble).toContain('overflow: hidden;')
+
+    const reply = ruleBody(transcript, '.question-reply')
+    expect(reply).toContain('min-width: 0;')
+    expect(reply).toContain('max-width: 100%;')
+
+    const titlebar = ruleBody(styles, '.titlebar-session-title')
+    expect(titlebar).toContain('display: block;')
+    expect(titlebar).toContain('text-overflow: ellipsis;')
+  })
 })

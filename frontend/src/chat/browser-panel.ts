@@ -11,13 +11,13 @@ import { publishNativeOverlayInset } from './native-editor-panel'
 // Owner tag for the shared native-overlay inset registry (native-editor-panel).
 const BROWSER_INSET_OWNER = 'browser-panel'
 import { acceptBrowserViewState, invalidateBrowserFrames } from './browser-view'
-import { noteBrowserPanelManualResize, syncBrowserAutoWidth } from './browser-auto-width'
+import { noteBrowserPanelManualResize, reclampBrowserAutoWidth, syncBrowserAutoWidth } from './browser-auto-width'
 import type { BrowserUseOpenRequest } from '../../bridge/types'
 import { browserOpenGuard } from './browser-open-request'
 import { browserAddress } from '../../../contracts/browser-settings'
 import { openBrowserAnnotation, type BrowserAnnotationController } from './browser-annotation-controller'
 
-export { noteBrowserPanelManualResize }
+export { noteBrowserPanelManualResize, reclampBrowserAutoWidth }
 
 // ---- window.klaus 最小面（bridge 无导出类型，结构化声明本域用到的通道） ----
 interface BrowserBounds { x: number; y: number; width: number; height: number }
