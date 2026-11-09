@@ -1366,6 +1366,10 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
   });
   early.add(() => ppt.dispose());
   registerPptHandlers(registry, { service: ppt });
+  const publishAuthoringActivity = () => ppt.setAuthoringActivity(state.runningSessions());
+  const onTurnRunning = state.onTurnRunningChange;
+  state.onTurnRunningChange = () => { onTurnRunning?.(); publishAuthoringActivity(); };
+  publishAuthoringActivity();
   dynamicTools.register(canvas.toolSpec(), (args, engineId) => {
     const id = state.bindings().find(binding => binding.engineId === engineId)?.rendererId;
     if (!id) throw new IpcHandlerError('SESSION_UNAVAILABLE', 'The Canvas task is no longer active');

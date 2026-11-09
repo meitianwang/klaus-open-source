@@ -3,6 +3,7 @@ import { readFileSync, realpathSync, statSync } from 'node:fs';
 import { extname, join } from 'node:path';
 import type { MessagePortMain } from 'electron';
 import { inside, message, record, type Data } from '../visuals/data';
+import { enablePresentationCreationSequence } from './authoring-activity';
 import { verifyPptRuntime } from './package';
 import { PptStore, PPT_ASSET_LIMITS } from './store';
 
@@ -139,7 +140,7 @@ export class PptRuntime {
     const manifest = this.runtimeManifest;
     const preamble = { v: 1, cred: 'query', origins: [SHELL], capabilities: manifest.capabilities, transforms: manifest.transforms, comments: manifest.comments, translate: manifest.translate, ldx: manifest.ldx };
     const inject = `<script>window.__FRAME_PREAMBLE=${scriptJson(preamble)}</script><script src="/_runtime/${html(String(manifest.kernel))}"></script>`;
-    return this.source('dist/index.html').replace('<html lang="en"', `<html lang="${this.locale()}"`).replace('<!-- frame-runtime -->', `<!-- frame-runtime -->${inject}`);
+    return enablePresentationCreationSequence(this.source('dist/index.html').replace('<html lang="en"', `<html lang="${this.locale()}"`).replace('<!-- frame-runtime -->', `<!-- frame-runtime -->${inject}`));
   }
   private shellPage(owner: string, id: string): string {
     const nonce = randomBytes(18).toString('base64');

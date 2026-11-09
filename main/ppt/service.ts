@@ -13,6 +13,7 @@ import { inside, message, record, text, type Data } from '../visuals/data';
 import { PptStore, presentationContentType, type PptDocument, type PptFile, type PptValidationRecord } from './store';
 import { PptRuntime } from './runtime';
 import { pptTools } from './tools';
+import { presentationAuthoringActivityScript } from './authoring-activity';
 import { authoringResult, authoringValidator, type AuthoringCandidate, type AuthoringIssue, type AuthoringResult } from './authoring';
 
 const SHELL_ORIGIN = `${APP_SCHEME}://${APP_HOST}`;
@@ -58,6 +59,7 @@ export class PptService {
   private readonly active = new Map<number, Editor>();
   private readonly bounds = new Map<number, Data>();
   private readonly revisions = new Map<number, number>();
+  private authoringOwners = new Set<string>();
   private closed = false;
   private closing = false;
   constructor(readonly options: PptOptions) {
@@ -95,6 +97,7 @@ export class PptService {
         if (editor.view.webContents.isDestroyed()) return;
         const url = this.shellUrl(editor.id);
         editor.loading = editor.view.webContents.loadURL(url).catch(error => { editor.failure = message(error); throw error; });
+        void editor.loading.then(() => { void this.postAuthoringActivity(editor, this.authoringOwners.has(editor.owner)); }, () => {});
         editor.loading.catch(() => {});
       })();
     }
@@ -302,7 +305,21 @@ export class PptService {
     editor.window.contentView.addChildView(view);
     editor.loading = view.webContents.loadURL(url).catch(error => { editor.failure = message(error); throw error; });
     await editor.loading;
+    void this.postAuthoringActivity(editor, this.authoringOwners.has(owner));
     return editor;
+  }
+  /** Tell open editors whether their chat is still writing, so unpublished ordered slides can show a waiting page. */
+  setAuthoringActivity(runningOwners: readonly string[]): void {
+    this.authoringOwners = new Set(runningOwners);
+    for (const editor of this.editors.values()) void this.postAuthoringActivity(editor, this.authoringOwners.has(editor.owner));
+  }
+  private async postAuthoringActivity(editor: Editor, working: boolean): Promise<void> {
+    if (this.closed || editor.view.webContents.isDestroyed()) return;
+    try {
+      await editor.loading;
+      if (this.closed || editor.view.webContents.isDestroyed() || this.authoringOwners.has(editor.owner) !== working) return;
+      await editor.view.webContents.executeJavaScript(presentationAuthoringActivityScript(working), true);
+    } catch (error) { this.log('ppt-authoring-activity-skipped', { id: editor.id, error: message(error) }); }
   }
   private async download(editor: Editor, item: DownloadItem): Promise<void> {
     item.pause();
