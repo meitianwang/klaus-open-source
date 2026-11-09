@@ -42,6 +42,8 @@ export interface AxRenderEntry {
   frameTarget?: string;
   actions: string[];
   focused: boolean;
+  dialogControl?: 'accept' | 'dismiss' | 'prompt';
+  dialogId?: string;
 }
 
 export const AX_NO_CHANGE_TEXT = 'There has been no change in the accessibility tree.';
@@ -98,7 +100,8 @@ function propertiesOf(node: AxWireNode): Map<string, unknown> {
 const INTERACTIVE_ROLES = new Set([
   'button', 'link', 'textbox', 'searchbox', 'combobox', 'listbox', 'option', 'menuitem', 'menuitemcheckbox',
   'menuitemradio', 'checkbox', 'radio', 'switch', 'slider', 'spinbutton', 'tab', 'treeitem', 'disclosuretriangle',
-  'scrollbar', 'searchfield', 'input', 'popbutton', 'radiogroup', 'splitter', 'row', 'cell', 'gridcell', 'columnheader', 'rowheader',
+  'scrollbar', 'searchfield', 'input', 'popbutton', 'popUpButton', 'popupbutton', 'MenuListOption', 'menuListOption',
+  'MenuListPopup', 'radiogroup', 'splitter', 'row', 'cell', 'gridcell', 'columnheader', 'rowheader',
 ]);
 
 const STRUCTURAL_ROLES = new Set([
@@ -111,7 +114,8 @@ const STRUCTURAL_ROLES = new Set([
 
 /** Roles whose AX value carries user-meaningful content worth rendering. */
 const VALUE_ROLES = new Set([
-  'textbox', 'searchbox', 'combobox', 'spinbutton', 'slider', 'scrollbar', 'code', 'math', 'timer', 'text',
+  'textbox', 'searchbox', 'combobox', 'listbox', 'option', 'popUpButton', 'popupbutton', 'MenuListOption', 'menuListOption',
+  'spinbutton', 'slider', 'scrollbar', 'code', 'math', 'timer', 'text',
   'searchfield', 'progressbar', 'menuitemcheckbox', 'menuitemradio', 'checkbox', 'radio', 'switch', 'cell', 'gridcell',
 ]);
 
@@ -197,6 +201,8 @@ export function buildAxEntries(frames: AxFrameInput[], owners: Map<string, numbe
       const interactive = INTERACTIVE_ROLES.has(role);
       const interesting = Boolean(name) || Boolean(value) || states.length > 0 || interactive || role === 'text' || role === 'heading';
       const actions: string[] = [];
+      if (states.includes('collapsed')) actions.push('Expand');
+      else if (states.includes('expanded')) actions.push('Collapse');
       if (backendNodeId !== undefined && isOffscreen(meta, frame.viewport)) actions.push('Scroll to Visible');
 
       if (!interesting && (FLATTEN_ROLES.has(role) || !STRUCTURAL_ROLES.has(role))) {
@@ -242,6 +248,60 @@ export function buildAxEntries(frames: AxFrameInput[], owners: Map<string, numbe
     if (frame === primary || consumed.has(frame.frameTarget ?? '')) continue;
     renderFrame(frame, 0, new Set());
   }
+  return entries;
+}
+
+export interface AxDialogSnapshotInput {
+  id: string;
+  type: string;
+  message: string;
+  defaultValue?: string;
+  url?: string;
+  title?: string;
+}
+
+/** Synthesize accessibility entries for an active JavaScript dialog while the main thread is paused. */
+export function buildDialogAxEntries(dialog: AxDialogSnapshotInput): AxRenderEntry[] {
+  let host = 'This page';
+  try {
+    const parsed = new URL(String(dialog.url ?? ''));
+    if (parsed.host) host = parsed.host;
+  } catch { /* non-URL origins keep the default label */ }
+  const entries: AxRenderEntry[] = [];
+  const push = (
+    depth: number,
+    key: string,
+    role: string,
+    name: string,
+    value: string,
+    states: string[],
+    dialogControl?: 'accept' | 'dismiss' | 'prompt',
+  ): void => {
+    const index = entries.length;
+    const parts = [`[${index}]`, role];
+    if (name) parts.push(`"${quote(singleLine(name, NAME_LIMIT))}"`);
+    if (value) parts.push(`value="${quote(singleLine(value, VALUE_LIMIT))}"`);
+    parts.push(...states);
+    entries.push({
+      index,
+      identity: `javascript-dialog:${dialog.id}:${key}`,
+      depth,
+      line: `${'  '.repeat(depth)}${parts.join(' ')}`,
+      actions: [],
+      focused: states.includes('focused'),
+      ...(dialogControl ? { dialogControl, dialogId: dialog.id } : {}),
+    });
+  };
+  push(0, 'root', 'RootWebArea', dialog.title || 'Web page', '', []);
+  push(1, 'dialog', 'alertdialog', `${host} says`, '', ['modal']);
+  push(2, 'message', 'text', dialog.message || '', '', []);
+  if (dialog.type === 'prompt') {
+    push(2, 'prompt', 'textbox', 'Response', dialog.defaultValue ?? '', ['focused', 'editable'], 'prompt');
+  }
+  if (dialog.type !== 'alert') {
+    push(2, 'dismiss', 'button', dialog.type === 'beforeunload' ? 'Stay' : 'Cancel', '', [], 'dismiss');
+  }
+  push(2, 'accept', 'button', dialog.type === 'beforeunload' ? 'Leave' : 'OK', '', dialog.type === 'prompt' ? [] : ['focused'], 'accept');
   return entries;
 }
 
@@ -429,6 +489,37 @@ export function parseXdotoolKey(input: unknown): AxKeyCombo {
     ? (/[a-z]/iu.test(key) ? `Key${key.toUpperCase()}` : /[0-9]/u.test(key) ? `Digit${key}` : undefined)
     : (NAMED_KEY_CODES[key] !== undefined ? key : undefined);
   return { modifiers, key, ...(code ? { code } : {}), ...(virtualKeyCode !== undefined ? { virtualKeyCode } : {}), printable: Array.from(key).length === 1 };
+}
+
+/**
+ * Parse a click `key` expression: accepts modifier-only combinations (e.g.
+ * `super` or `ctrl+shift`) as well as modifier + one ordinary key (`shift+a`),
+ * and refuses held clipboard shortcuts.
+ */
+export function parseAxClickKey(input: unknown): AxKeyCombo {
+  if (typeof input !== 'string' || !input.trim()) throw new BrowserError('invalid_request', 'A key expression is required.');
+  const tokens = input.trim().split('+');
+  const modifiers: Array<'Meta' | 'Control' | 'Alt' | 'Shift'> = [];
+  let hasNonModifier = false;
+  for (const [position, rawToken] of tokens.entries()) {
+    const token = rawToken.trim();
+    const modifier = MODIFIER_TOKENS[token.toLowerCase()];
+    if (modifier && !( !token && position === tokens.length - 1 && tokens.length > 1 )) {
+      if (!modifiers.includes(modifier)) modifiers.push(modifier);
+    } else {
+      hasNonModifier = true;
+    }
+  }
+  if (!hasNonModifier && modifiers.length > 0) {
+    return { modifiers, key: '', printable: false };
+  }
+  const combo = parseXdotoolKey(input);
+  const hasAccelerator = combo.modifiers.includes(process.platform === 'darwin' ? 'Meta' : 'Control')
+    || combo.modifiers.includes('Meta') || combo.modifiers.includes('Control');
+  if (hasAccelerator && ['c', 'v', 'x'].includes(combo.key.toLowerCase())) {
+    throw new BrowserError('unavailable', 'Held clipboard shortcuts are unsupported.');
+  }
+  return combo;
 }
 
 /** Validate a hold duration in seconds (0 through 30) and return milliseconds. */

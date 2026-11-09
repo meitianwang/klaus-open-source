@@ -1,10 +1,10 @@
 import { join } from 'node:path';
 import {
   AX_DIFF_HEADER, AX_MOUSE_BUTTONS, AX_NO_CHANGE_TEXT, AX_REMOVED_PREFIX, AX_SELECTED_TEXT_NOTE, AX_SCROLL_DIRECTIONS,
-  buildAxEntries, holdDurationMs, parseXdotoolKey, removedIdRanges, renderAxStateText,
+  buildAxEntries, buildDialogAxEntries, holdDurationMs, parseAxClickKey, parseXdotoolKey, removedIdRanges, renderAxStateText,
   type AxFrameInput, type AxNodeMeta, type AxPreviousLine, type AxRenderEntry, type AxWireNode,
 } from '../main/browser/ax-serialize';
-import { performAxAction } from '../main/browser/ax';
+import { captureAxState, performAxAction } from '../main/browser/ax';
 import { click } from '../main/browser/page-input';
 import type { BrowserCdp } from '../main/browser/page-operations';
 import { browserTools, parseOperation } from '../main/browser/operations';
@@ -258,6 +258,74 @@ h.test('a null element index means the focused element, not element zero', async
     String((error as BrowserError).message).includes('needs an elementIndex or a point'),
     'null never resolves as element 0 against a missing snapshot',
   );
+});
+
+h.test('expandable elements expose Expand/Collapse actions and popUpButton renders its value', () => {
+  const entries = buildAxEntries([frameOf([
+    node({ nodeId: '1', role: v('button'), name: v('Accordion'), backendDOMNodeId: 10, properties: [{ name: 'expanded', value: { value: false } }] }),
+    node({ nodeId: '2', role: v('button'), name: v('Open panel'), backendDOMNodeId: 20, properties: [{ name: 'expanded', value: { value: true } }] }),
+    node({ nodeId: '3', role: v('popUpButton'), name: v('Country'), value: v('Canada'), backendDOMNodeId: 30 }),
+  ])], new Map());
+  assert(entries[0]!.actions.includes('Expand'), 'collapsed exposes Expand');
+  assert(entries[0]!.line.includes('collapsed actions: Expand'), `collapsed line: ${entries[0]!.line}`);
+  assert(entries[1]!.actions.includes('Collapse'), 'expanded exposes Collapse');
+  assert(entries[1]!.line.includes('expanded actions: Collapse'), `expanded line: ${entries[1]!.line}`);
+  assert(entries[2]!.line.includes('value="Canada"'), `popUpButton value renders: ${entries[2]!.line}`);
+});
+
+h.test('click key expressions accept modifier-only combinations and refuse clipboard shortcuts', async () => {
+  const solo = parseAxClickKey('super');
+  assertDeepEqual(solo.modifiers, ['Meta'], 'modifier-only super');
+  assertEqual(solo.key, '', 'no primary key');
+  const chord = parseAxClickKey('ctrl+shift');
+  assertDeepEqual(chord.modifiers, ['Control', 'Shift'], 'multiple modifiers alone');
+  const withKey = parseAxClickKey('shift+a');
+  assertDeepEqual(withKey.modifiers, ['Shift'], 'modifier with ordinary key');
+  assertEqual(withKey.key, 'a', 'ordinary key preserved');
+  const clipboard = await assertRejects(async () => parseAxClickKey('super+c'), 'held clipboard combo in click');
+  assertEqual((clipboard as BrowserError).code, 'unavailable', 'clipboard combo refused');
+});
+
+h.test('active JavaScript dialogs synthesize an alertdialog tree and accept indexed control actions', async () => {
+  const cdp = fakeCdp();
+  let active: BrowserObject | null = {
+    id: 'dlg-1', type: 'prompt', message: 'Enter your name', defaultValue: 'guest',
+    url: 'https://example.invalid/settings', title: 'Settings',
+  };
+  let answered: { accept: boolean; promptText?: string; id?: string } | undefined;
+  const dialog = {
+    get: () => active,
+    answer: (accept: boolean, promptText?: string, id?: string) => {
+      answered = { accept, promptText, id };
+      active = null;
+    },
+  };
+  const entries = buildDialogAxEntries({ id: 'dlg-1', type: 'prompt', message: 'Enter your name', defaultValue: 'guest', url: 'https://example.invalid/settings', title: 'Settings' });
+  assertEqual(entries.length, 6, 'root + alertdialog + message + prompt + cancel + ok');
+  assert(entries[1]!.line.includes('alertdialog "example.invalid says" modal'), `dialog row: ${entries[1]!.line}`);
+  assertEqual(entries[3]!.dialogControl, 'prompt', 'prompt textbox control');
+  assertEqual(entries[4]!.dialogControl, 'dismiss', 'cancel button control');
+  assertEqual(entries[5]!.dialogControl, 'accept', 'ok button control');
+
+  await assertRejects(
+    async () => captureAxState({ cdp, dialog }, { mode: 'screenshot' }),
+    'screenshot mode is unavailable while a dialog is open',
+  );
+  const captured = await captureAxState({ cdp, dialog }, { mode: 'state' });
+  assert(String(captured.typed.axText).includes('Enter your name'), 'dialog message renders in axText');
+
+  const held = await assertRejects(
+    async () => performAxAction({ cdp, dialog }, { action: 'click', elementIndex: 5, duration: 0.5 }),
+    'held input on dialog control is refused',
+  );
+  assert(String((held as BrowserError).message).includes('do not support held input'), 'held refusal message');
+
+  const updated = await performAxAction({ cdp, dialog }, { action: 'set_value', elementIndex: 3, value: 'Alice' });
+  assertEqual(updated.value, 'Alice', 'prompt text updated in store');
+
+  const accepted = await performAxAction({ cdp, dialog }, { action: 'click', elementIndex: 5 });
+  assertEqual(accepted.dialog, 'accept', 'clicking OK accepts the dialog');
+  assertDeepEqual(answered, { accept: true, promptText: 'Alice', id: 'dlg-1' }, 'dialog answer receives the updated prompt text');
 });
 
 void h.finish(join(__dirname, 'browser-ax-result.json'), 'browser-ax').then(code => process.exit(code));

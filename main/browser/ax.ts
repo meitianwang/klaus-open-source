@@ -8,8 +8,8 @@ import { readLimit } from './page-reading';
 import { locatorBudget } from './locator-policy';
 import { assertBrowserActionActive, pauseBrowserAction } from './action-cancellation';
 import {
-  AX_MOUSE_BUTTONS, AX_SCROLL_DIRECTIONS, buildAxEntries, holdDurationMs, parseXdotoolKey,
-  removedIdRanges, renderAxStateText,
+  AX_MOUSE_BUTTONS, AX_SCROLL_DIRECTIONS, buildAxEntries, buildDialogAxEntries, holdDurationMs,
+  parseAxClickKey, parseXdotoolKey, removedIdRanges, renderAxStateText,
   type AxFrameInput, type AxFrameViewport, type AxKeyCombo, type AxNodeMeta,
   type AxPreviousLine, type AxRenderEntry, type AxWireNode,
 } from './ax-serialize';
@@ -25,7 +25,12 @@ import {
  * when an interaction fails.
  */
 
-export interface AxContext { cdp: BrowserCdp; signal?: AbortSignal; artifactDirectory?: string }
+export interface AxDialogBridge {
+  get(): BrowserObject | null;
+  answer(accept: boolean, promptText?: string, id?: string): Promise<void> | void;
+}
+
+export interface AxContext { cdp: BrowserCdp; signal?: AbortSignal; artifactDirectory?: string; dialog?: AxDialogBridge }
 
 interface AxTabStore {
   documentKey?: string;
@@ -33,6 +38,9 @@ interface AxTabStore {
   entries?: AxRenderEntry[];
   byIdentity?: Map<string, AxPreviousLine>;
   lastAxUpdateMs: number;
+  pendingActionAtMs?: number;
+  dialogPromptId?: string;
+  dialogPromptText?: string;
   subscribed: boolean;
 }
 
@@ -41,7 +49,10 @@ const AX_QUIET_FAST_THRESHOLD_MS = 50;
 const AX_QUIET_CAP_MS = 750;
 const AX_QUIET_POLL_MS = 25;
 const AX_RECAPTURE_TEXT_LIMIT = 20_000;
-const AX_UPDATE_EVENTS = new Set(['Accessibility.loadComplete', 'Accessibility.nodesUpdated', 'Accessibility.update']);
+const AX_UPDATE_EVENTS = new Set([
+  'Accessibility.loadComplete', 'Accessibility.nodesUpdated', 'Accessibility.update',
+  'Page.frameStartedLoading', 'Page.frameNavigated', 'Page.domContentEventFired', 'Page.loadEventFired',
+]);
 const RECAPTURE_CODES = new Set(['not_found', 'not_visible', 'not_enabled', 'not_stable', 'intercepted', 'stale_target', 'timeout', 'stale_snapshot']);
 
 const axStores = new WeakMap<object, AxTabStore>();
@@ -66,8 +77,13 @@ function axStoreFor(cdp: BrowserCdp): AxTabStore {
 /** Let in-flight accessibility updates settle before reading the new state. */
 async function waitForAxQuiet(store: AxTabStore, fast: boolean, signal?: AbortSignal): Promise<void> {
   const threshold = fast ? AX_QUIET_FAST_THRESHOLD_MS : AX_QUIET_THRESHOLD_MS;
-  const deadline = Date.now() + AX_QUIET_CAP_MS;
-  while (store.lastAxUpdateMs > 0 && Date.now() - store.lastAxUpdateMs < threshold && Date.now() < deadline) {
+  const startedAt = Date.now();
+  const deadline = startedAt + AX_QUIET_CAP_MS;
+  const actionPending = store.pendingActionAtMs !== undefined;
+  store.pendingActionAtMs = undefined;
+  while (Date.now() < deadline) {
+    const baseline = actionPending ? Math.max(startedAt, store.lastAxUpdateMs) : store.lastAxUpdateMs;
+    if (baseline <= 0 || Date.now() - baseline >= threshold) break;
     await pauseBrowserAction(AX_QUIET_POLL_MS, signal);
   }
 }
@@ -141,6 +157,42 @@ async function captureAxTree(context: AxContext, store: AxTabStore, fields: Brow
   const root = rootCdp(context.cdp);
   const signal = context.signal;
   assertBrowserActionActive(signal);
+  const activeDialog = context.dialog?.get() ?? null;
+  if (activeDialog) {
+    const dialogId = String(activeDialog.id ?? 'dialog');
+    const dialogType = String(activeDialog.type ?? 'alert');
+    const defaultValue = store.dialogPromptId === dialogId && store.dialogPromptText !== undefined
+      ? store.dialogPromptText
+      : String(activeDialog.defaultValue ?? activeDialog.defaultPrompt ?? '');
+    const dialogUrl = String(activeDialog.url ?? activeDialog.origin ?? '');
+    const dialogTitle = String(activeDialog.title ?? '');
+    const documentKey = `javascript-dialog:${dialogId}`;
+    const previous = store.documentKey === documentKey ? store.byIdentity : undefined;
+    const entries = buildDialogAxEntries({
+      id: dialogId, type: dialogType, message: String(activeDialog.message ?? ''),
+      defaultValue, url: dialogUrl, title: dialogTitle,
+    });
+    const maxChars = readLimit(fields.maxChars ?? fields.maxCharacters, 60000, 200000, 'maxChars');
+    const rendered = renderAxStateText({
+      title: dialogTitle || 'JavaScript dialog',
+      url: dialogUrl,
+      entries,
+      previous,
+      disableDiffing: fields.disableDiffing === true || fields.full === true,
+      maxChars,
+    });
+    const snapshotId = randomUUID();
+    const byIdentity = new Map<string, AxPreviousLine>();
+    for (const entry of entries) byIdentity.set(entry.identity, { index: entry.index, line: entry.line });
+    store.documentKey = documentKey;
+    store.snapshotId = snapshotId;
+    store.entries = entries;
+    store.byIdentity = byIdentity;
+    return {
+      text: rendered.text, mode: rendered.mode, snapshotId, elementCount: rendered.total, shown: rendered.shown,
+      added: rendered.added, changed: rendered.changed, removedIds: rendered.removedIds, truncated: rendered.truncated,
+    };
+  }
   const documentKey = await currentDocumentKey(root);
   const frames: AxFrameInput[] = [];
   const pushFrame = async (frameTarget?: string): Promise<void> => {
@@ -202,24 +254,34 @@ export async function captureAxState(context: AxContext, fields: BrowserObject):
   if (!['state', 'screenshot', 'both'].includes(mode)) throw new BrowserError('invalid_request', 'ax_state mode must be state, screenshot or both.');
   const store = axStoreFor(root);
   await waitForAxQuiet(store, fields.fast === true, context.signal);
+  const activeDialog = context.dialog?.get() ?? null;
+  let dialogScreenshotNote: string | undefined;
+  if (activeDialog && mode !== 'state') {
+    const dialogType = String(activeDialog.type ?? 'alert');
+    dialogScreenshotNote = `Screenshot unavailable while a JavaScript ${dialogType} dialog is open. Use ax_state with mode "state" and ax_action click to interact with its controls.`;
+    if (mode === 'screenshot') throw new BrowserError('unavailable', dialogScreenshotNote);
+  }
+  const emitImage = fields.emitImage !== false;
   let screenshot: BrowserObject | undefined;
-  if (mode !== 'state') {
+  if (mode !== 'state' && !activeDialog) {
     screenshot = await root.screenshot(fields);
     if (fields.save !== false) screenshot = saveScreenshot(screenshot, context.artifactDirectory);
   }
   if (mode === 'screenshot') {
     const value: BrowserObject = { ...screenshot };
     delete value.data;
-    return { value, typed: {}, screenshot };
+    return { value, typed: {}, ...(emitImage && screenshot ? { screenshot } : {}) };
   }
   const captured = await captureAxTree(context, store, fields);
+  const text = dialogScreenshotNote ? `${captured.text}\n\n${dialogScreenshotNote}` : captured.text;
   const value: BrowserObject = {
     snapshotId: captured.snapshotId, state: captured.mode, elementCount: captured.elementCount, shown: captured.shown,
     added: captured.added, changed: captured.changed, removed: captured.removedIds.length,
     ...(captured.removedIds.length ? { removedIds: removedIdRanges(captured.removedIds) } : {}),
     truncated: captured.truncated,
+    ...(dialogScreenshotNote ? { screenshotUnavailable: dialogScreenshotNote } : {}),
   };
-  return { value, typed: { axText: captured.text }, ...(screenshot ? { screenshot } : {}) };
+  return { value, typed: { axText: text }, ...(emitImage && screenshot ? { screenshot } : {}) };
 }
 
 /** Re-read state after a failed action so the error carries fresh context. */
@@ -252,32 +314,63 @@ const SET_VALUE_SOURCE = `function (value) {
   const type = String(element.type || '').toLowerCase();
   const editable = element.isContentEditable === true;
   const role = String((element.getAttribute && element.getAttribute('role')) || '').toLowerCase();
-  const blocked = ['button', 'submit', 'reset', 'checkbox', 'radio', 'file', 'image', 'hidden', 'range', 'color'];
+  if (element.disabled === true || (element.getAttribute && element.getAttribute('aria-disabled') === 'true')) return { ok: false, reason: 'disabled' };
+  const text = String(value ?? '');
+  if (tag === 'input' && (type === 'checkbox' || type === 'radio')) {
+    const lower = text.trim().toLowerCase();
+    if (!['0', '1', 'false', 'true'].includes(lower)) return { ok: false, reason: 'invalid_boolean', control: type === 'radio' ? 'Radio button' : role === 'switch' ? 'Switch' : 'Checkbox' };
+    const checked = lower === '1' || lower === 'true';
+    const changed = element.checked !== checked || (type === 'checkbox' && element.indeterminate === true);
+    element.focus();
+    const desc = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'checked');
+    if (desc && desc.set) desc.set.call(element, checked); else element.checked = checked;
+    if (type === 'checkbox') {
+      const ind = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'indeterminate');
+      if (ind && ind.set) ind.set.call(element, false); else element.indeterminate = false;
+    }
+    if (changed) {
+      element.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+      element.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+    return { ok: true, tag, checked: element.checked };
+  }
+  if (role === 'tab') {
+    const lower = text.trim().toLowerCase();
+    if (!['1', 'true'].includes(lower)) return { ok: false, reason: 'invalid_tab' };
+    return element.getAttribute('aria-selected') === 'true' ? { ok: true, tag: 'tab' } : { ok: true, tag: 'tab', needsClick: true };
+  }
+  const blocked = ['button', 'submit', 'reset', 'file', 'image', 'hidden', 'range'];
   const settable = tag === 'select' || tag === 'textarea' || (tag === 'input' && !blocked.includes(type)) || editable
     || ['textbox', 'searchbox', 'combobox', 'spinbutton'].includes(role);
   if (!settable) return { ok: false, reason: 'not_settable', tag: tag || 'element' };
-  if (element.disabled === true) return { ok: false, reason: 'disabled' };
-  const text = String(value ?? '');
+  if ((tag === 'input' || tag === 'textarea') && element.readOnly === true) return { ok: false, reason: 'readonly' };
   if (tag === 'select') {
     const options = Array.from(element.options || []);
     const match = options.find(option => option.value === text)
       || options.find(option => String(option.label || option.textContent || '').trim() === text.trim());
     if (!match) return { ok: false, reason: 'missing_option', available: options.slice(0, 50).map(option => ({ value: option.value, label: String(option.label || option.textContent || '').trim() })) };
+    if (match.disabled) return { ok: false, reason: 'disabled' };
     match.selected = true;
-    element.dispatchEvent(new Event('input', { bubbles: true }));
+    element.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
     element.dispatchEvent(new Event('change', { bubbles: true }));
     return { ok: true, tag };
   }
   element.focus();
   if (editable) {
     element.textContent = text;
-    element.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: text }));
+    element.dispatchEvent(new InputEvent('input', { bubbles: true, composed: true, inputType: 'insertText', data: text }));
+    element.dispatchEvent(new Event('change', { bubbles: true }));
     return { ok: true, tag: 'contenteditable' };
+  }
+  let assigned = text;
+  if (tag === 'input' && type === 'color') {
+    if (!/^#[0-9a-f]{6}$/iu.test(text.trim())) return { ok: false, reason: 'invalid_color' };
+    assigned = text.trim().toLowerCase();
   }
   const proto = tag === 'textarea' ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
   const descriptor = Object.getOwnPropertyDescriptor(proto, 'value');
-  if (descriptor && descriptor.set) descriptor.set.call(element, text); else element.value = text;
-  element.dispatchEvent(new Event('input', { bubbles: true }));
+  if (descriptor && descriptor.set) descriptor.set.call(element, assigned); else element.value = assigned;
+  element.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
   element.dispatchEvent(new Event('change', { bubbles: true }));
   return { ok: true, tag, ...(type === 'password' ? {} : { value: element.value }) };
 }`;
@@ -396,7 +489,8 @@ async function writeVirtualClipboard(cdp: BrowserCdp, frameTarget: string | unde
 const AX_ACTIONS = new Set(['click', 'type_text', 'set_value', 'paste', 'press_key', 'scroll', 'select_text', 'secondary_action', 'drag']);
 
 function axPoint(fields: BrowserObject): { x: number; y: number } | undefined {
-  const raw = Array.isArray(fields.point) ? { x: fields.point[0], y: fields.point[1] } : fields;
+  const pointArray = Array.isArray(fields.point) ? fields.point : Array.isArray(fields.target) ? fields.target : Array.isArray(fields.from) ? fields.from : undefined;
+  const raw = pointArray ? { x: pointArray[0], y: pointArray[1] } : fields;
   if (raw.x === undefined || raw.y === undefined) return undefined;
   const x = Number(raw.x);
   const y = Number(raw.y);
@@ -412,15 +506,22 @@ function axPointFrom(value: unknown): { x: number; y: number } | undefined {
   return { x, y };
 }
 
-async function resolveAxEntry(root: BrowserCdp, store: AxTabStore, fields: BrowserObject): Promise<AxRenderEntry> {
+function rawAxIndex(fields: BrowserObject): unknown {
+  if (fields.elementIndex !== undefined) return fields.elementIndex;
+  if (fields.index !== undefined) return fields.index;
+  if (typeof fields.target === 'number') return fields.target;
+  return undefined;
+}
+
+async function resolveAxEntry(root: BrowserCdp, store: AxTabStore, fields: BrowserObject, activeDialogId?: string): Promise<AxRenderEntry> {
   if (!store.snapshotId || !store.entries) throw new BrowserError('invalid_request', 'No accessibility snapshot yet. Call ax_state first to obtain element indices.');
   if (fields.snapshotId !== undefined && String(fields.snapshotId) !== store.snapshotId) throw new BrowserError('stale_snapshot', 'The accessibility snapshot belongs to a previous capture. Call ax_state again for fresh element indices.');
-  const documentKey = await currentDocumentKey(root);
+  const documentKey = activeDialogId !== undefined ? `javascript-dialog:${activeDialogId}` : await currentDocumentKey(root);
   if (store.documentKey !== undefined && documentKey !== store.documentKey) throw new BrowserError('stale_snapshot', 'The accessibility snapshot belongs to a previous page. Call ax_state again.');
-  const index = Number(fields.elementIndex ?? fields.index);
+  const index = Number(rawAxIndex(fields));
   if (!Number.isSafeInteger(index) || index < 0 || index >= store.entries.length) throw new BrowserError('invalid_request', `elementIndex must be an integer from 0 to ${store.entries.length - 1} of the latest ax_state.`);
   const entry = store.entries[index]!;
-  if (entry.backendNodeId === undefined) throw new BrowserError('invalid_request', 'That element cannot be addressed by index.');
+  if (entry.backendNodeId === undefined && entry.dialogControl === undefined) throw new BrowserError('invalid_request', 'That element cannot be addressed by index.');
   return entry;
 }
 
@@ -461,25 +562,105 @@ async function focusAxElement(root: BrowserCdp, entry: AxRenderEntry): Promise<B
   return entry.frameTarget ? frameCdp(root, entry.frameTarget) : root;
 }
 
-/** Hold one ordinary key down across a click sequence, modifiers ride the mouse events. */
+/** Hold modifiers and an optional ordinary key down across a click sequence. */
 async function withHeldKey(cdp: BrowserCdp, combo: AxKeyCombo | undefined, signal: AbortSignal | undefined, work: () => Promise<void>): Promise<void> {
-  if (!combo || !combo.key) { await work(); return; }
+  if (!combo || (!combo.modifiers.length && !combo.key)) { await work(); return; }
   let mask = 0;
-  for (const modifier of combo.modifiers) mask |= MODIFIER_BITS[modifier]!;
-  const primary: BrowserObject = { key: combo.key, ...(combo.code ? { code: combo.code } : {}), windowsVirtualKeyCode: combo.virtualKeyCode ?? 0, modifiers: mask };
+  const pressed: Array<{ key: string; mask: number }> = [];
+  const primary: BrowserObject | undefined = combo.key
+    ? { key: combo.key, ...(combo.code ? { code: combo.code } : {}), windowsVirtualKeyCode: combo.virtualKeyCode ?? 0 }
+    : undefined;
+  let primaryPressed = false;
   try {
-    assertBrowserActionActive(signal);
-    await cdp.command('Input.dispatchKeyEvent', { ...primary, type: 'rawKeyDown' });
+    for (const modifier of combo.modifiers) {
+      mask |= MODIFIER_BITS[modifier]!;
+      assertBrowserActionActive(signal);
+      await cdp.command('Input.dispatchKeyEvent', { type: 'rawKeyDown', key: modifier, windowsVirtualKeyCode: MODIFIER_VIRTUAL_KEY_CODES[modifier]!, modifiers: mask });
+      pressed.push({ key: modifier, mask });
+    }
+    if (primary) {
+      assertBrowserActionActive(signal);
+      await cdp.command('Input.dispatchKeyEvent', { ...primary, type: 'rawKeyDown', modifiers: mask });
+      primaryPressed = true;
+    }
     await work();
   } finally {
-    await cdp.command('Input.dispatchKeyEvent', { ...primary, type: 'keyUp' }).catch(() => {});
+    const comboMask = mask;
+    if (primary && primaryPressed) {
+      await cdp.command('Input.dispatchKeyEvent', { ...primary, type: 'keyUp', modifiers: comboMask }).catch(() => {});
+    }
+    for (const entry of [...pressed].reverse()) {
+      await cdp.command('Input.dispatchKeyEvent', { type: 'keyUp', key: entry.key, windowsVirtualKeyCode: MODIFIER_VIRTUAL_KEY_CODES[entry.key]!, modifiers: entry.mask & ~MODIFIER_BITS[entry.key]! }).catch(() => {});
+    }
   }
 }
 
 const comboModifiers = (combo: AxKeyCombo | undefined): string[] | undefined => (combo ? combo.modifiers.map(modifier => modifier.toLowerCase()) : undefined);
 
+async function dispatchDialogAxAction(
+  context: AxContext,
+  root: BrowserCdp,
+  store: AxTabStore,
+  activeDialog: BrowserObject,
+  action: string,
+  fields: BrowserObject,
+): Promise<BrowserObject> {
+  const dialogId = String(activeDialog.id ?? 'dialog');
+  const dialogType = String(activeDialog.type ?? 'alert');
+  if ((action === 'click' || action === 'press_key') && ((holdDurationMs(fields.duration, 'duration') ?? 0) > 0 || (action === 'click' && (fields.key !== undefined || fields.keys !== undefined)))) {
+    throw new BrowserError('unavailable', 'JavaScript dialog controls do not support held input.');
+  }
+  if (action === 'click' && rawAxIndex(fields) === undefined) {
+    throw new BrowserError('invalid_request', 'JavaScript dialog controls have no viewport coordinates; use an accessibility element index.');
+  }
+  if (action === 'click' && fields.mouseButton !== undefined && !['left', 'l'].includes(String(fields.mouseButton).toLowerCase())) {
+    throw new BrowserError('invalid_request', 'JavaScript dialog controls only support left clicks.');
+  }
+  const hasIndex = rawAxIndex(fields) !== undefined;
+  let entry: AxRenderEntry | undefined;
+  if (hasIndex && ['click', 'set_value', 'paste', 'type_text', 'press_key'].includes(action)) {
+    entry = await resolveAxEntry(root, store, fields, dialogId);
+    if (!entry.dialogControl) throw new BrowserError('intercepted', 'A JavaScript dialog is blocking the requested page element.');
+    if (entry.dialogId !== dialogId) throw new BrowserError('stale_snapshot', 'JavaScript dialog is no longer active.');
+  }
+  if (action === 'set_value' && entry?.dialogControl === 'prompt') {
+    const raw = fields.value;
+    if (typeof raw !== 'string' && typeof raw !== 'number') throw new BrowserError('invalid_request', 'set_value needs a string or number value.');
+    store.dialogPromptId = dialogId;
+    store.dialogPromptText = String(raw);
+    return { ok: true, action, elementIndex: entry.index, value: store.dialogPromptText };
+  }
+  if ((action === 'type_text' || action === 'paste') && dialogType === 'prompt' && (!entry || entry.dialogControl === 'prompt')) {
+    if (typeof fields.text !== 'string') throw new BrowserError('invalid_request', `${action} needs text.`);
+    const current = store.dialogPromptId === dialogId && store.dialogPromptText !== undefined
+      ? store.dialogPromptText
+      : String(activeDialog.defaultValue ?? activeDialog.defaultPrompt ?? '');
+    store.dialogPromptId = dialogId;
+    store.dialogPromptText = current + fields.text;
+    return { ok: true, action, ...(entry ? { elementIndex: entry.index } : {}), value: store.dialogPromptText };
+  }
+  let decision: 'accept' | 'dismiss' | undefined;
+  if (action === 'click' && (entry?.dialogControl === 'accept' || entry?.dialogControl === 'dismiss')) {
+    decision = entry.dialogControl;
+  } else if (action === 'press_key') {
+    const key = String(fields.key ?? '').trim().toLowerCase();
+    if (key === 'return' || key === 'enter') decision = entry?.dialogControl === 'dismiss' ? 'dismiss' : 'accept';
+    else if (key === 'escape' || key === 'esc') decision = 'dismiss';
+  }
+  if (!decision) throw new BrowserError('invalid_request', 'A JavaScript dialog is active; interact with its controls first.');
+  const promptText = store.dialogPromptId === dialogId && store.dialogPromptText !== undefined
+    ? store.dialogPromptText
+    : String(activeDialog.defaultValue ?? activeDialog.defaultPrompt ?? '');
+  store.dialogPromptId = undefined;
+  store.dialogPromptText = undefined;
+  await context.dialog!.answer(decision === 'accept', promptText, typeof activeDialog.id === 'string' ? activeDialog.id : undefined);
+  return { ok: true, action, dialog: decision };
+}
+
 async function dispatchAxAction(context: AxContext, root: BrowserCdp, store: AxTabStore, action: string, fields: BrowserObject): Promise<BrowserObject> {
   const signal = context.signal;
+  const activeDialog = context.dialog?.get() ?? null;
+  if (activeDialog) return dispatchDialogAxAction(context, root, store, activeDialog, action, fields);
   switch (action) {
     case 'click': {
       const budget = locatorBudget(fields.timeoutMs, 30000, 60000, 'AX action timeoutMs');
@@ -488,9 +669,9 @@ async function dispatchAxAction(context: AxContext, root: BrowserCdp, store: AxT
       if (!button) throw new BrowserError('invalid_request', 'mouseButton must be left/l, right/r or middle/m.');
       const clickCount = Number(fields.clickCount ?? 1);
       if (![1, 2, 3].includes(clickCount)) throw new BrowserError('invalid_request', 'clickCount must be 1, 2 or 3.');
-      const combo = fields.key !== undefined || fields.keys !== undefined ? parseXdotoolKey(Array.isArray(fields.keys) ? fields.keys.join('+') : fields.key) : undefined;
+      const combo = fields.key !== undefined || fields.keys !== undefined ? parseAxClickKey(Array.isArray(fields.keys) ? fields.keys.join('+') : fields.key) : undefined;
       const modifiersList = comboModifiers(combo);
-      if (fields.elementIndex === undefined && fields.index === undefined) {
+      if (rawAxIndex(fields) === undefined) {
         const point = axPoint(fields);
         if (!point) throw new BrowserError('invalid_request', 'click needs an elementIndex or a point.');
         await withHeldKey(root, combo, signal, async () => {
@@ -507,7 +688,7 @@ async function dispatchAxAction(context: AxContext, root: BrowserCdp, store: AxT
     }
     case 'type_text': {
       if (typeof fields.text !== 'string') throw new BrowserError('invalid_request', 'type_text needs text.');
-      if (fields.elementIndex === undefined && fields.index === undefined) {
+      if (rawAxIndex(fields) === undefined) {
         await typeText(root, { text: fields.text }, signal);
         return { ok: true, action, via: 'focus' };
       }
@@ -518,17 +699,25 @@ async function dispatchAxAction(context: AxContext, root: BrowserCdp, store: AxT
     }
     case 'set_value': {
       const raw = fields.value;
-      if (typeof raw !== 'string' && typeof raw !== 'number') throw new BrowserError('invalid_request', 'set_value needs a string or number value.');
+      if (typeof raw !== 'string' && typeof raw !== 'number' && typeof raw !== 'boolean') throw new BrowserError('invalid_request', 'set_value needs a string, number or boolean value.');
       const entry = await resolveAxEntry(root, store, fields);
       const result = await callOnAxElement(root, entry, SET_VALUE_SOURCE, [{ value: String(raw) }]);
       if (result.ok !== true) {
         if (result.reason === 'gone') throw new BrowserError('not_found', 'The element is no longer in the page. Call ax_state again.');
         if (result.reason === 'disabled') throw new BrowserError('invalid_request', 'That control is disabled, so its value cannot be set.');
+        if (result.reason === 'readonly') throw new BrowserError('invalid_request', 'That control is read-only, so its value cannot be set.');
+        if (result.reason === 'invalid_boolean') throw new BrowserError('invalid_request', `${String(result.control ?? 'Checkbox')} value must be 0, 1, false, or true.`);
+        if (result.reason === 'invalid_color') throw new BrowserError('invalid_request', 'Color value must use #rrggbb.');
+        if (result.reason === 'invalid_tab') throw new BrowserError('invalid_request', 'Tab value must be 1 or true.');
         if (result.reason === 'not_settable') throw new BrowserError('invalid_request', `The value of that <${String(result.tag ?? 'element')}> cannot be set directly. Use click or type_text.`);
         if (result.reason === 'missing_option') throw new BrowserError('not_found', `No option matched. The select offers: ${JSON.stringify(result.available ?? [])}`);
         throw new BrowserError('host_error', `Setting the value failed: ${JSON.stringify(result)}`);
       }
-      return { ok: true, action, elementIndex: entry.index, ...(result.tag !== undefined ? { tag: result.tag } : {}), ...(result.value !== undefined ? { value: result.value } : {}) };
+      if (result.needsClick === true) {
+        const bridged = await bridgeAxRef(root, entry);
+        await click(bridged.scoped, { ref: bridged.ref, timeoutMs: locatorBudget(fields.timeoutMs, 30000, 60000, 'AX action timeoutMs') }, signal);
+      }
+      return { ok: true, action, elementIndex: entry.index, ...(result.tag !== undefined ? { tag: result.tag } : {}), ...(result.value !== undefined ? { value: result.value } : {}), ...(result.checked !== undefined ? { checked: result.checked } : {}) };
     }
     case 'paste': {
       if (typeof fields.text !== 'string') throw new BrowserError('invalid_request', 'paste needs text.');
@@ -536,7 +725,7 @@ async function dispatchAxAction(context: AxContext, root: BrowserCdp, store: AxT
       if (!['text', 'md', 'html'].includes(format)) throw new BrowserError('invalid_request', 'paste format must be text, md or html.');
       let scoped: BrowserCdp = root;
       let elementIndex: number | undefined;
-      if (fields.elementIndex !== undefined || fields.index !== undefined) {
+      if (rawAxIndex(fields) !== undefined) {
         const entry = await resolveAxEntry(root, store, fields);
         elementIndex = entry.index;
         scoped = await focusAxElement(root, entry);
@@ -549,7 +738,7 @@ async function dispatchAxAction(context: AxContext, root: BrowserCdp, store: AxT
       const combo = parseXdotoolKey(Array.isArray(fields.keys) ? fields.keys.join('+') : fields.key);
       const holdMs = holdDurationMs(fields.duration, 'duration');
       let scoped: BrowserCdp = root;
-      if (fields.elementIndex !== undefined || fields.index !== undefined) {
+      if (rawAxIndex(fields) !== undefined) {
         const entry = await resolveAxEntry(root, store, fields);
         scoped = await focusAxElement(root, entry);
       }
@@ -565,7 +754,7 @@ async function dispatchAxAction(context: AxContext, root: BrowserCdp, store: AxT
       let y: number;
       let basis: number | undefined;
       let scoped: BrowserCdp = root;
-      if (fields.elementIndex !== undefined || fields.index !== undefined) {
+      if (rawAxIndex(fields) !== undefined) {
         const entry = await resolveAxEntry(root, store, fields);
         const located = await callOnAxElement(root, entry, ELEMENT_POINT_SOURCE, []);
         x = Number(located.x);
@@ -589,7 +778,7 @@ async function dispatchAxAction(context: AxContext, root: BrowserCdp, store: AxT
     }
     case 'select_text': {
       if (typeof fields.text !== 'string' || !fields.text) throw new BrowserError('invalid_request', 'select_text needs the text to select.');
-      const selectionType = String(fields.selectionType ?? 'text');
+      const selectionType = String(fields.selectionType ?? fields.selection_type ?? 'text');
       if (!['text', 'cursor_before', 'cursor_after'].includes(selectionType)) throw new BrowserError('invalid_request', 'selectionType must be text, cursor_before or cursor_after.');
       const entry = await resolveAxEntry(root, store, fields);
       const result = await callOnAxElement(root, entry, SELECT_TEXT_SOURCE, [
@@ -614,7 +803,12 @@ async function dispatchAxAction(context: AxContext, root: BrowserCdp, store: AxT
       const entry = await resolveAxEntry(root, store, fields);
       if (!entry.actions.length) throw new BrowserError('invalid_request', 'This element exposes no secondary actions.');
       if (!entry.actions.includes(name)) throw new BrowserError('invalid_request', `Unknown action '${name}'. Exposed actions: ${entry.actions.join(', ')}. Do not guess action names.`);
-      await callOnAxElement(root, entry, 'function () { this.scrollIntoView({ block: \'center\', inline: \'center\', behavior: \'instant\' }); return { ok: true }; }', []);
+      if (name === 'Expand' || name === 'Collapse') {
+        const bridged = await bridgeAxRef(root, entry);
+        await click(bridged.scoped, { ref: bridged.ref, timeoutMs: locatorBudget(fields.timeoutMs, 30000, 60000, 'AX action timeoutMs') }, signal);
+      } else {
+        await callOnAxElement(root, entry, 'function () { this.scrollIntoView({ block: \'center\', inline: \'center\', behavior: \'instant\' }); return { ok: true }; }', []);
+      }
       return { ok: true, action, elementIndex: entry.index, secondaryAction: name };
     }
     case 'drag': {
@@ -633,19 +827,23 @@ async function dispatchAxAction(context: AxContext, root: BrowserCdp, store: AxT
 export async function performAxAction(context: AxContext, fields: BrowserObject): Promise<BrowserObject> {
   const root = rootCdp(context.cdp);
   const store = axStoreFor(root);
-  const action = String(fields.action ?? '');
+  const rawAction = String(fields.action ?? '');
+  const action = rawAction === 'perform_secondary_action' ? 'secondary_action' : rawAction;
   if (!AX_ACTIONS.has(action)) throw new BrowserError('invalid_request', `ax_action needs an action: ${[...AX_ACTIONS].join(', ')}.`);
   // An explicit null element index means "no element" (the focused-element
   // path), matching the documented index-or-null spelling; normalize it to
   // absent so dispatch never reads null as element zero.
-  if (fields.elementIndex === null || fields.index === null) {
+  if (fields.elementIndex === null || fields.index === null || fields.target === null) {
     fields = { ...fields };
     if (fields.elementIndex === null) delete fields.elementIndex;
     if (fields.index === null) delete fields.index;
+    if (fields.target === null) delete fields.target;
   }
   try {
     assertBrowserActionActive(context.signal);
-    return await dispatchAxAction(context, root, store, action, fields);
+    const result = await dispatchAxAction(context, root, store, action, fields);
+    store.pendingActionAtMs = Date.now();
+    return result;
   } catch (error) {
     if (error instanceof BrowserError && RECAPTURE_CODES.has(error.code) && store.snapshotId) {
       const fresh = await recaptureForError(context, store);

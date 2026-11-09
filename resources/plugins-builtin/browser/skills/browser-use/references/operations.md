@@ -76,8 +76,8 @@ value; never infer success merely because one expected wrapper is absent.
   up/down/left/right or u/d/l/r, `pages` 0-100), `select_text` (`text` with
   `prefix`/`suffix` disambiguation and `selectionType`
   text/cursor_before/cursor_after), `secondary_action` (`name` exactly as the
-  element exposes it, e.g. `Scroll to Visible` — never guess names) and `drag`
-  (`point` to `to`).
+  element exposes it, e.g. `Expand`, `Collapse` or `Scroll to Visible` — never
+  guess names) and `drag` (`point` to `to`).
 - A failing action re-reads the page and appends the fresh accessibility state
   to the error message. Indices are valid only for the `snapshotId` that
   returned them; passing a stale `snapshotId`, or acting after the document
@@ -89,15 +89,21 @@ The `REPL` tool binds every session tool — including the browser operations �
 as async functions (`await mcp__klaus_browser__ax_state({ ... })`; the bound
 name spells non-identifier characters as `_`). It also installs a hierarchical
 `browser` API over them: `browser.getState()`, `browser.screenshot()`,
-`browser.navigate(url)`, `browser.getTab(tabId)` with `tab.ax.getState()`,
-`tab.ax.click(index)`, `tab.ax.type(index, text)`, `tab.ax.key(combo)`,
-`tab.ax.scroll(...)`, `tab.content.text()`, `tab.content.youtubeTranscript()`,
-`tab.clipboard`, `tab.dev.console()/network()/cdp()` and
-`browser.tabs.list()/new(url)/select(id)/close()`. `browser.docs()` prints the
-full reference. Batch independent steps into one call, keep dependent steps
-sequential, and re-read the state after actions that change the page. When the
-browser tools are not bound in the session, every helper fails with an
-actionable message instead of a TypeError.
+`browser.navigate(url)` / `goto(url)`, `browser.getTab(tabId)` with
+`tab.ax.write(mode?, opts?)`, `tab.ax.get(mode?, opts?)` / `getState()`,
+`tab.ax.click(target, opts?)`, `tab.ax.typeText(index, text)` / `type()`,
+`tab.ax.pressKey(index, key, opts?)` / `key()`, `tab.ax.paste(index, text, opts?)`,
+`tab.ax.scroll(target, direction, pages?)`, `tab.ax.setValue(index, value)`,
+`tab.ax.selectText(index, text, opts?)`,
+`tab.ax.performSecondaryAction(index, name)` / `secondaryAction()`,
+`tab.content.text()`, `tab.content.youtubeTranscript()` /
+`exportYouTubeTranscript()`, `tab.content.exportGsuite(type)`,
+`tab.clipboard.readText()/writeText(text)`, `tab.dev.console()/logs()/network()/cdp()`
+and `browser.tabs.list()/new(url)/get(id)/select(id)/close()/content(opts)`.
+`browser.docs()` prints the full reference. Batch independent steps into one
+call, keep dependent steps sequential, and re-read the state after actions that
+change the page. When the browser tools are not bound in the session, every
+helper fails with an actionable message instead of a TypeError.
 
 ## Read and interact
 

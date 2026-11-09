@@ -270,5 +270,38 @@ export function registerAdvancedBrowserTests(h: Harness, context: Context): void
     const shot = object((await call('screenshot', { save: false })).value);
     const scale = Number(shot.scale);
     assert(Number.isFinite(scale) && scale > 0, `the screenshot reports its image scale (got ${JSON.stringify(shot.scale)})`);
+
+    await evaluate(`(() => {
+      const btn = document.createElement('button');
+      btn.id = 'ax-accordion';
+      btn.textContent = 'Accordion toggle';
+      btn.setAttribute('aria-expanded', 'false');
+      btn.addEventListener('click', (ev) => {
+        window.__lastMetaClick = ev.metaKey === true;
+        const next = btn.getAttribute('aria-expanded') === 'true' ? 'false' : 'true';
+        btn.setAttribute('aria-expanded', next);
+      });
+      document.body.prepend(btn);
+    })()`);
+    const expandedState = await context.call('ax_state', { disableDiffing: true });
+    const expandedText = String(object(((expandedState.content ?? []) as unknown as BrowserObject[])[0]).text);
+    const accRow = /\[(\d+)\] button "Accordion toggle"[^\n]*collapsed actions: Expand/.exec(expandedText);
+    const checkRow = /\[(\d+)\] checkbox "Agree"/.exec(expandedText);
+    assert(accRow && checkRow, `accordion and checkbox rows render: ${expandedText.slice(0, 500)}`);
+
+    const toggledCheck = object((await call('ax_action', { action: 'set_value', elementIndex: Number(checkRow![1]), value: 'false' })).value);
+    assertEqual(toggledCheck.ok, true, 'checkbox set_value false succeeds');
+    assertEqual(await evaluate('document.querySelector("#agree").checked'), false, 'checkbox unchecked via set_value');
+
+    const expandedAction = object((await call('ax_action', { action: 'secondary_action', elementIndex: Number(accRow![1]), name: 'Expand' })).value);
+    assertEqual(expandedAction.ok, true, 'Expand secondary_action succeeds');
+    assertEqual(await evaluate('document.querySelector("#ax-accordion").getAttribute("aria-expanded")'), 'true', 'Expand clicked the control and flipped aria-expanded');
+
+    const afterExpand = await context.call('ax_state', { disableDiffing: true });
+    const afterExpandText = String(object(((afterExpand.content ?? []) as unknown as BrowserObject[])[0]).text);
+    const openRow = /\[(\d+)\] button "Accordion toggle"[^\n]*expanded actions: Collapse/.exec(afterExpandText);
+    assert(openRow !== null, `expanded state exposes Collapse: ${afterExpandText.slice(0, 500)}`);
+    await call('ax_action', { action: 'click', elementIndex: Number(openRow![1]), key: 'super' });
+    assertEqual(await evaluate('window.__lastMetaClick'), true, 'modifier-only super click dispatches with metaKey');
   });
 }

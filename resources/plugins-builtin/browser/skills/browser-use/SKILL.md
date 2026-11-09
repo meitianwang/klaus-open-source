@@ -57,9 +57,10 @@ existing user tabs, or task cleanup.
   settle first — do not add sleeps around it.
 - `ax_action` is the primary interaction, addressing an `elementIndex` from the
   latest `ax_state` with real browser input: `click` (count, button, held key
-  combination, hold duration), `type_text`, `set_value`, `paste`, `press_key`
-  (xdotool-style keys such as `Return` or `super+c`), `scroll`, `select_text`,
-  `secondary_action` (only names the state exposes, such as `Scroll to Visible`)
+  or modifier combination such as `super` or `shift+a`, hold duration),
+  `type_text`, `set_value`, `paste`, `press_key` (xdotool-style keys such as
+  `Return` or `super+c`), `scroll`, `select_text`, `secondary_action` (only
+  names the state exposes, such as `Expand`, `Collapse` or `Scroll to Visible`)
   and `drag`.
 - Indices belong to the state that returned them. After any action or
   navigation, read `ax_state` again instead of reusing old indices. A failed
@@ -67,9 +68,12 @@ existing user tabs, or task cleanup.
   target from it instead of repeating the same action blindly.
 - Batch multi-step interactions in one `REPL` call. The REPL binds the browser
   tools as async functions and adds a hierarchical `browser` API:
-  `browser.getState()`, `browser.getTab(id)` with `tab.ax.click(index)`,
-  `tab.content.text()`, `tab.dev.console()` and more; `browser.docs()` prints
-  the full reference.
+  `browser.getState()`, `browser.getTab(id)` with `tab.ax.write()`,
+  `tab.ax.get()`, `tab.ax.click(target)`, `tab.ax.typeText(index, text)`,
+  `tab.ax.pressKey(index, key)`, `tab.ax.paste(index, text)`,
+  `tab.ax.scroll(target, direction, pages)`,
+  `tab.ax.performSecondaryAction(index, name)`, `tab.content.text()`,
+  `tab.dev.console()` and more; `browser.docs()` prints the full reference.
 - Use `snapshot`, `read_page`, `locator` and the named click, type, form,
   checkbox, select, upload and download operations for structured reads and
   stable criteria-based targeting; they complement the index workflow. A page

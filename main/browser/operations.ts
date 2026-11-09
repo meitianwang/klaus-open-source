@@ -122,14 +122,20 @@ export class BrowserOperations {
       : signal;
   }
 
+  private hasPendingDialog(sessionId: string): boolean {
+    try {
+      return this.manager.listPages(sessionId).some(page => this.manager.dialogs?.state(page) != null);
+    } catch { return false; }
+  }
+
   async execute(sessionId: string, name: string, args: unknown, signal?: AbortSignal): Promise<BrowserObject> {
-    // Dialog answers must unblock a synchronous page call even while that call
-    // occupies the ordinary operation queue.
+    // Dialog answers (and AX reads/actions while a synchronous dialog is open)
+    // must unblock a paused page call even while that call occupies the queue.
     let kind: string;
     try { kind = parseOperation(name, args).kind; } catch (error) { return browserFailure(error); }
     const control = this.controlSignal(signal);
     if (control?.aborted) return browserFailure(new BrowserError('cancelled', 'The browser operation was cancelled.'));
-    if (kind === 'dialog') {
+    if (kind === 'dialog' || ((kind === 'ax_state' || kind === 'ax_action') && this.hasPendingDialog(sessionId))) {
       try {
         this.assertActive(control);
         return await this.run(sessionId, name, args, control);
@@ -306,6 +312,10 @@ export class BrowserOperations {
         artifactDirectory: join(this.manager.configRoot, 'artifacts'),
         permission: fields => this.manager.setPermission(page, fields),
         nativeViewport: async () => { const bounds = page.view.getBounds(), zoom = page.view.webContents.getZoomFactor(); return { width: Math.round(bounds.width / zoom), height: Math.round(bounds.height / zoom) }; },
+        dialog: {
+          get: () => this.manager.dialogs?.state(page) ?? null,
+          answer: (accept, promptText, id) => this.manager.dialogs.answer(page, accept, promptText, id),
+        },
       }, kind, fields);
       this.assertActive(signal);
       this.manager.publish();

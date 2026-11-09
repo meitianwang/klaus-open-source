@@ -1,5 +1,5 @@
 import { checkRawCdp, timeoutMs } from './policy';
-import { captureAxState, performAxAction } from './ax';
+import { captureAxState, performAxAction, type AxDialogBridge } from './ax';
 import { BrowserError, json, object, string, type BrowserObject } from './types';
 import type { Json } from '../ipc/contract';
 import { domScript, elementInfoScript, elementScript, frameCdp, namesElement, resolveElement } from './dom';
@@ -39,6 +39,7 @@ export interface PageOperationContext {
   authorizeUpload?(documentUrl: string, signal?: AbortSignal): Promise<void>;
   permission?(fields: BrowserObject): Promise<BrowserObject>;
   nativeViewport?(): Promise<BrowserObject>;
+  dialog?: AxDialogBridge;
 }
 
 export async function performPageOperation(context: PageOperationContext, kind: string, fields: BrowserObject): Promise<{ value?: Json; screenshot?: BrowserObject; typed: BrowserObject }> {
@@ -131,11 +132,11 @@ export async function performPageOperation(context: PageOperationContext, kind: 
     case 'ax_state': {
       // The accessibility state always addresses the whole tab; its capture
       // merges every owned frame itself.
-      const ax = await captureAxState({ cdp: context.cdp, signal: context.signal, artifactDirectory: context.artifactDirectory }, fields);
+      const ax = await captureAxState({ cdp: context.cdp, signal: context.signal, artifactDirectory: context.artifactDirectory, dialog: context.dialog }, fields);
       value = ax.value; typed = ax.typed; screenshot = ax.screenshot;
       break;
     }
-    case 'ax_action': value = await performAxAction({ cdp: context.cdp, signal: context.signal }, fields); break;
+    case 'ax_action': value = await performAxAction({ cdp: context.cdp, signal: context.signal, dialog: context.dialog }, fields); break;
     case 'console': case 'network': {
       const action = fields.action ?? 'get';
       if (!['get', 'list', 'clear'].includes(String(action))) throw new BrowserError('unavailable', `${kind} action '${String(action)}' is not implemented.`);

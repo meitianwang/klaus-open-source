@@ -393,14 +393,18 @@ export class ChromeBrowserService {
         if (!['get','set'].includes(String(action))) throw new BrowserError('invalid_request', 'visibility action must be get or set.');
         return await answer({ value: { visible: true, browserId, ...(action === 'set' ? { reason: 'The user\'s own Chrome is already on their screen; Klaus did not open or focus it.' } : {}) } });
       }
-      const page = await this.page(connection, sessionId, turnId, handle, kind !== 'navigate', signal);
+      const existingId = handle ?? connection.active.get(sessionId);
+      const existingDialogPage = existingId === undefined ? undefined : connection.pages.get(existingId);
+      const page = existingDialogPage && existingDialogPage.sessionId === sessionId && existingDialogPage.dialog && (kind === 'ax_state' || kind === 'ax_action')
+        ? existingDialogPage
+        : await this.page(connection, sessionId, turnId, handle, kind !== 'navigate', signal);
       const currentUrl = this.pageUrls.get(page) ?? 'about:blank';
       if (kind === 'navigate') await this.options.authorize?.(sessionId, String(fields.url), 'browsing', signal);
       if (kind === 'download' && !['list', 'wait', 'cancel'].includes(String(fields.action)) && !fields.waitOnly)
         await this.options.authorize?.(sessionId, currentUrl, 'downloads', signal);
       if (kind === 'webmcp') await this.options.authorize?.(sessionId, currentUrl, 'siteTools', signal);
       if (kind === 'cdp') await this.options.authorize?.(sessionId, currentUrl, 'debug', signal);
-      await page.refreshFrames();
+      if (!page.dialog) await page.refreshFrames();
       const frame = typeof fields.frameTargetId === 'string' ? fields.frameTargetId : typeof target.frameTargetId === 'string' ? target.frameTargetId : undefined;
       if (frame && ['navigate','back','forward','reload','resize','permission'].includes(kind)) throw new BrowserError('invalid_request', 'This operation addresses the whole tab, not frameTargetId.');
       const perform = async (): Promise<BrowserObject> => {
@@ -408,16 +412,28 @@ export class ChromeBrowserService {
           authorizeUpload: (url, signal) => this.options.authorize?.(sessionId, url, 'uploads', signal) ?? Promise.resolve(),
           permission: fields => this.permission(connection, sessionId, turnId, page, fields),
           nativeViewport: async () => { const tab = (await this.tabs(connection, sessionId, turnId)).find(row => row.id === page.tabId); if (!tab || typeof tab.width !== 'number' || typeof tab.height !== 'number' || typeof tab.zoomFactor !== 'number' || tab.zoomFactor <= 0) throw new BrowserError('unavailable', 'Chrome did not return the native viewport. Reload the bundled extension.'); return { width: Math.round(tab.width / tab.zoomFactor), height: Math.round(tab.height / tab.zoomFactor) }; },
+          dialog: {
+            get: () => page.dialog,
+            answer: async (accept, promptText, id) => {
+              if (!page.dialog || (id !== undefined && id !== page.dialog.id)) throw new BrowserError('stale_dialog', 'The Chrome dialog is no longer pending.');
+              await page.command('Page.handleJavaScriptDialog', { accept, promptText: promptText ?? '' });
+              page.dialog = null;
+            },
+          },
         }, kind, fields);
         signal?.throwIfAborted();
-        const info = object(await page.evaluate('({url:location.href,title:document.title})'));
+        const info = page.dialog
+          ? { url: currentUrl, title: String(page.dialog.title ?? '') }
+          : object(await page.evaluate('({url:location.href,title:document.title})'));
         this.url(info.url);
         return await answer({ ...info, ...result.typed, ...(result.value === undefined ? {} : { value: result.value }) }, page, result.screenshot);
       };
-      return ['console', 'network', 'navigate', 'back', 'forward', 'reload'].includes(kind) ? await perform() : await page.activity(perform);
+      return ['console', 'network', 'navigate', 'back', 'forward', 'reload'].includes(kind) || page.dialog ? await perform() : await page.activity(perform);
     } finally {
       this.turns.delete(turnId);
-      if (kind !== 'dialog') {
+      const activeId = handle ?? connection.active.get(sessionId);
+      const activePage = activeId === undefined ? undefined : connection.pages.get(activeId);
+      if (kind !== 'dialog' && !activePage?.dialog) {
         await connection.relay.request('turnEnded', { session_id: sessionId, turn_id: turnId }, 1500).catch(() => {});
         for (const page of connection.pages.values()) if (page.sessionId === sessionId) await page.detached();
       }
