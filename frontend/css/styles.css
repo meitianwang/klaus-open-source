@@ -6579,14 +6579,18 @@ single repository — `disabled` + `disabledReason`). The row keeps its
 
 .toast-viewport {
   position: fixed;
-  inset: 0;
+  /* Native editor views (presentation, video, prototype, ...) composite above
+     every renderer layer, so a window-centered toast slides underneath them.
+     The panel controller publishes the covered width as this custom property;
+     inset the viewport by it so toasts center inside the uncovered region. */
+  inset: 0 var(--klaus-native-panel-inset-right, 0px) 0 0;
   z-index: 2100;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: flex-start;
   gap: 6px;
-  width: min(560px, calc(100vw - 24px));
+  width: min(560px, calc(100% - 24px));
   /* 锚在顶部 chrome 下方，不与拖拽区/标题栏控件重叠。 */
   margin: calc(var(--titlebar-height) + 10px) auto 0;
   padding-bottom: 20px;

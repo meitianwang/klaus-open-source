@@ -59,6 +59,16 @@ function restoreNativeTitle(el: HTMLElement | null) {
   }
 }
 
+// Native child views (presentation, video, browser panels) composite above
+// every renderer layer. The panel controllers publish the width they cover as
+// a custom property; clamp tips to the uncovered region so a tip never hides
+// underneath a native surface.
+function uncoveredRight(): number {
+  const raw = getComputedStyle(document.documentElement).getPropertyValue('--klaus-native-panel-inset-right')
+  const inset = Number.parseFloat(raw)
+  return window.innerWidth - (Number.isFinite(inset) ? inset : 0)
+}
+
 function preferredPlacement(el: HTMLElement) {
   const host = el.closest?.('[data-klaus-tip-placement]') as HTMLElement | null
   const value = el.dataset?.klausTipPlacement || host?.dataset?.klausTipPlacement || ''
@@ -83,10 +93,10 @@ function position(el: HTMLElement) {
   const preferred = preferredPlacement(el)
   if (preferred === 'left' || preferred === 'right') {
     const fitsLeft = rect.left - tipRect.width - margin >= 8
-    const fitsRight = rect.right + margin + tipRect.width <= window.innerWidth - 8
+    const fitsRight = rect.right + margin + tipRect.width <= uncoveredRight() - 8
     const placeLeft = preferred === 'left' ? fitsLeft || !fitsRight : !fitsRight && fitsLeft
     let x = placeLeft ? rect.left - tipRect.width - margin : rect.right + margin
-    x = Math.max(8, Math.min(window.innerWidth - tipRect.width - 8, x))
+    x = Math.max(8, Math.min(uncoveredRight() - tipRect.width - 8, x))
     let y = rect.top + rect.height / 2 - tipRect.height / 2
     y = Math.max(8, Math.min(window.innerHeight - tipRect.height - 8, y))
     t.style.left = x + 'px'

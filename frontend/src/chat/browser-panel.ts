@@ -6,6 +6,10 @@
 // 注入；workspace/artifacts 域拆出后改直接 import。
 import { tt } from '../app/i18n'
 import { showToast } from '../app/ui-shared'
+import { publishNativeOverlayInset } from './native-editor-panel'
+
+// Owner tag for the shared native-overlay inset registry (native-editor-panel).
+const BROWSER_INSET_OWNER = 'browser-panel'
 import { acceptBrowserViewState, invalidateBrowserFrames } from './browser-view'
 import { noteBrowserPanelManualResize, syncBrowserAutoWidth } from './browser-auto-width'
 import type { BrowserUseOpenRequest } from '../../bridge/types'
@@ -238,6 +242,7 @@ export async function hideBrowserRuntime(options: { ensureDetached?: boolean } =
   // the host at the display refresh rate.
   if (!options.ensureDetached && !browserRuntimeVisible()) return
   lastSyncedBounds = null
+  publishNativeOverlayInset(BROWSER_INSET_OWNER, null)
   // Hiding detaches the native view while retaining the page and its login state.
   invalidateBrowserFrames()
   await klausApi()?.browserUse?.hide?.().catch(() => {})
@@ -278,6 +283,7 @@ export function scheduleBrowserBoundsSync(): void {
     // perturb the host box, re-arming the ResizeObserver).
     if (sameBounds(bounds, lastSyncedBounds)) return
     lastSyncedBounds = bounds
+    publishNativeOverlayInset(BROWSER_INSET_OWNER, bounds)
     // The host positions its native view in this rectangle; no pixel stream or
     // input coordinate translation passes through the renderer.
     await klausApi()?.browserUse?.setBounds?.(bounds).catch(() => {})
@@ -350,6 +356,7 @@ async function performBrowserRuntimeShow(request: BrowserShowRequest): Promise<b
   }
   // Avoid a redundant native layout pass after the view has been attached.
   lastSyncedBounds = bounds
+  publishNativeOverlayInset(BROWSER_INSET_OWNER, bounds)
   updateBrowserPanelState(res.state || null)
   return true
 }

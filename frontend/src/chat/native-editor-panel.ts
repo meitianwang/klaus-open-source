@@ -1,6 +1,29 @@
 // Native editor views paint over a renderer-owned rectangle. This controller
 // serializes presentation requests and keeps ownership tied to the current chat.
 export interface NativeEditorBounds { x: number; y: number; width: number; height: number }
+
+// Native child views composite above every renderer layer, so renderer DOM
+// overlays (toasts, tips) that intersect the panel rectangle disappear behind
+// the native surface no matter how high their z-index is. Publish the covered
+// right inset as a custom property so those overlays can lay out inside the
+// uncovered region. Panels dock to the window's right edge, so the inset is
+// the distance from the panel's left edge to the window's right edge.
+const OVERLAY_INSET_PROPERTY = '--klaus-native-panel-inset-right'
+let insetOwner: string | null = null
+let insetSeq = 0
+export function publishNativeOverlayInset(owner: string, bounds: NativeEditorBounds | null): void {
+  if (bounds) insetOwner = owner
+  else if (insetOwner === owner) insetOwner = null
+  else return
+  if (typeof document === 'undefined' || !document.documentElement) return
+  const root = document.documentElement
+  if (!bounds) {
+    root.style.removeProperty(OVERLAY_INSET_PROPERTY)
+    return
+  }
+  const viewport = typeof window !== 'undefined' && Number.isFinite(window.innerWidth) ? window.innerWidth : 0
+  root.style.setProperty(OVERLAY_INSET_PROPERTY, `${Math.max(0, Math.round(viewport - bounds.x))}px`)
+}
 export interface NativeEditorOpenPayload { requestId?: string; id: string; title?: string; sessionId: string }
 export interface NativeEditorPanelApi {
   panelShow(id: string, sessionId: string, bounds: NativeEditorBounds): Promise<{ ok?: boolean; error?: string }>
@@ -24,6 +47,7 @@ export interface NativeEditorPanelEnvironment {
 export interface NativeEditorPanelLabels { title: string; openFailed: string; backgroundPending: string }
 
 export function createNativeEditorPanel(env: NativeEditorPanelEnvironment, labels: NativeEditorPanelLabels) {
+  const insetToken = `native-editor-${++insetSeq}`
   let activeId = '', activeSession = '', activeTitle = ''
   // The document each chat last held on screen. The host keeps every editor
   // alive while its chat is away, so returning to a chat can put its parked
@@ -61,6 +85,7 @@ export function createNativeEditorPanel(env: NativeEditorPanelEnvironment, label
         return false
       }
       lastBounds = bounds
+      publishNativeOverlayInset(insetToken, bounds)
       if (!same(bounds, env.bounds())) env.schedule()
       return true
     })()
@@ -85,6 +110,7 @@ export function createNativeEditorPanel(env: NativeEditorPanelEnvironment, label
   async function hide(): Promise<void> {
     epoch++
     lastBounds = null
+    publishNativeOverlayInset(insetToken, null)
     await enqueue(() => env.api()?.panelHide() ?? Promise.resolve()).catch(() => {})
   }
 
@@ -96,6 +122,7 @@ export function createNativeEditorPanel(env: NativeEditorPanelEnvironment, label
     epoch++
     activeId = activeSession = activeTitle = ''
     lastBounds = null
+    publishNativeOverlayInset(insetToken, null)
     await enqueue(() => env.api()?.panelClose() ?? Promise.resolve()).catch(() => {})
   }
 
@@ -107,7 +134,10 @@ export function createNativeEditorPanel(env: NativeEditorPanelEnvironment, label
     const result = await enqueue(() => current(token) && visible() && lastBounds
       ? env.api()?.panelSetBounds(next) ?? Promise.resolve({ ok: false })
       : Promise.resolve({ ok: false })).catch(() => ({ ok: false }))
-    if (result?.ok && current(token) && visible() && lastBounds) lastBounds = next
+    if (result?.ok && current(token) && visible() && lastBounds) {
+      lastBounds = next
+      publishNativeOverlayInset(insetToken, next)
+    }
   }
 
   async function suspend(): Promise<void> {
