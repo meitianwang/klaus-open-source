@@ -95,6 +95,21 @@ async function main(): Promise<number> {
       response.writeHead(200, { 'Content-Type': 'text/javascript' });
       response.end("document.querySelector('#count').onclick=()=>{document.querySelector('#result').textContent=String(Number(document.querySelector('#result').textContent)+1)};document.querySelector('#popup').onclick=()=>{window.popupClicked=true;window.popupOpened=!!window.open('/popup')};console.log('fixture loaded');"); return;
     }
+    if (pathname === '/storage-access-top') {
+      response.writeHead(200, { 'Content-Type': 'text/html', 'Content-Security-Policy': "default-src 'none'; script-src 'unsafe-inline'; frame-src http://localhost:*" });
+      response.end(`<!doctype html><title>Storage access top</title>
+        <iframe id="rsa-frame" src="http://localhost:${port}/storage-access-frame" style="width:300px;height:120px"></iframe>
+        <script>addEventListener('message', event => { const data = event.data || {}; if (data.frameReady) { window.frameReady = true; window.frameHasApi = data.hasApi; window.frameBtn = data.btn; } if (data.frameClicked) window.frameClicked = true; if (data.rsa) { window.storageAccessResult = data.rsa; window.rsaDetail = data.detail || null; } });</script>`);
+      return;
+    }
+    if (pathname === '/storage-access-frame') {
+      response.writeHead(200, { 'Content-Type': 'text/html', 'Content-Security-Policy': "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'" });
+      response.end(`<!doctype html><title>Storage access frame</title>
+        <style>body{margin:0}#rsa{position:fixed;top:10px;left:10px;width:120px;height:40px}</style>
+        <button id="rsa">Request</button>
+        <script>parent.postMessage({ frameReady: true, hasApi: typeof document.requestStorageAccess === 'function', btn: (() => { const r = document.querySelector('#rsa').getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height }; })() }, '*');document.querySelector('#rsa').addEventListener('click', () => { parent.postMessage({ frameClicked: true }, '*'); try { document.requestStorageAccess().then(() => parent.postMessage({ rsa: 'granted' }, '*'), error => parent.postMessage({ rsa: 'denied', detail: String(error && error.name) }, '*')); } catch (error) { parent.postMessage({ rsa: 'denied', detail: 'throw:' + String(error && error.name) }, '*'); } });</script>`);
+      return;
+    }
     response.writeHead(200, { 'Content-Type': 'text/html', 'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'unsafe-inline'; frame-src 'self' http://localhost:*;", 'Set-Cookie': 'browser_fixture=present; Path=/; SameSite=Lax' });
     response.end(`<!doctype html><title>${request.url}</title><style>body{margin:20px;background:#e4f0fb}input,button{font:20px sans-serif;margin:8px;padding:8px}iframe{width:300px;height:100px}</style><h1>${request.url}</h1><input id="input" aria-label="Fixture input"><button id="count">Increment</button><span id="result">0</span><button id="popup">Open popup</button><script src="/page.js"></script>${request.url === '/iframe' ? `<iframe src="http://localhost:${port}/frame"></iframe><iframe src="/same-frame"></iframe>` : ''}`);
     })().catch(error => { if (!response.headersSent) response.writeHead(500); if (!response.writableEnded) response.end(String(error)); });
@@ -1033,6 +1048,53 @@ async function main(): Promise<number> {
     await new Promise(resolveWait => setTimeout(resolveWait, 150));
     assertEqual((manager.history({ query: 'clear-all' }) as { items?: BrowserObject[] }).items?.length, 0, 'reload does not recreate cleared history');
     manager.releaseConversation(session);
+  });
+
+  h.test('storage access requests settle silently without the permission dialog', async () => {
+    const frameOrigin = `http://localhost:${port}`;
+    manager.setConversation('storage-access');
+    const page = await manager.createTab('storage-access', `${base}/storage-access-top`);
+    const promptCount = permissionRequests.length;
+    await manager.show();
+    await waitFor(async () => {
+      app.focus({ steal: true }); window.focus(); page.view.webContents.focus();
+      return await page.cdp.evaluate('document.visibilityState') === 'visible';
+    }, 3000, 'the storage access page is visible and focused');
+    const diag = async () => String(await page.cdp.evaluate(`JSON.stringify({ ready: window.frameReady === true, hasApi: window.frameHasApi === true, clicked: window.frameClicked === true, result: window.storageAccessResult ?? null, detail: window.rsaDetail ?? null, btn: window.frameBtn ?? null })`));
+    const waitDiag = async (condition: () => Promise<boolean>, label: string) => {
+      try { await waitFor(condition, 3000, label); } catch (error) { throw new Error(`${label}: ${await diag()}`); }
+    };
+    await waitDiag(async () => await page.cdp.evaluate('window.frameReady') === true, 'the cross-site frame is ready');
+    const button = await page.cdp.evaluate('window.frameBtn') as { x: number; y: number; w: number; h: number };
+    let frameTarget: string | undefined;
+    for (const target of page.cdp.frameTargets()) {
+      const href = String(await page.cdp.evaluate('location.href', target).catch(() => ''));
+      if (href.startsWith(frameOrigin)) frameTarget = target;
+    }
+    assert(frameTarget !== undefined, 'the cross-site frame owns its own CDP target');
+    const clickFrameButton = async () => {
+      const x = button.x + button.w / 2, y = button.y + button.h / 2;
+      await page.cdp.command('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y }, frameTarget);
+      await page.cdp.command('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', buttons: 1, clickCount: 1 }, frameTarget);
+      await page.cdp.command('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', buttons: 0, clickCount: 1 }, frameTarget);
+    };
+    const outcome = async () => await page.cdp.evaluate('window.storageAccessResult');
+    const clicked = async () => await page.cdp.evaluate('window.frameClicked') === true;
+    await clickFrameButton();
+    await waitDiag(clicked, 'the frame observes the first click');
+    await waitDiag(async () => ['denied', 'granted'].includes(String(await outcome())), 'the frame reports its first storage access outcome');
+    assertEqual(await outcome(), 'denied', `a storage access request settles denied without asking: ${await diag()}`);
+    assertEqual(permissionRequests.length, promptCount, 'storage access never opens the permission dialog');
+    sitePermissions.set(`${frameOrigin}\u0000storage-access`, 'granted');
+    await page.cdp.evaluate('window.storageAccessResult = undefined; window.frameClicked = false');
+    await clickFrameButton();
+    await waitDiag(clicked, 'the frame observes the second click');
+    await waitDiag(async () => ['denied', 'granted'].includes(String(await outcome())), 'the frame reports its second storage access outcome');
+    assertEqual(await outcome(), 'granted', `an explicit site grant overrides the silent default: ${await diag()}`);
+    assertEqual(permissionRequests.length, promptCount, 'an explicit grant never opens the dialog either');
+    sitePermissions.delete(`${frameOrigin}\u0000storage-access`);
+    manager.closeTab(page.owner, page.handle);
+    manager.setConversation('A');
   });
 
   h.test('shutdown closes all page webContents and revokes the MCP endpoint', async () => {

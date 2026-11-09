@@ -179,7 +179,7 @@ function useDebounced<T>(value: T, delay: number): T {
 
 const CLEAR_KINDS = BROWSER_CLEAR_KINDS
 const SITE_POLICY_PAGE_SIZE = 2
-const SITE_PERMISSIONS = ['notifications', 'geolocation', 'camera', 'microphone', 'clipboard-read', 'clipboard-write', 'fullscreen', 'midi', 'pointerLock', 'screen-wake-lock'] as const
+const SITE_PERMISSIONS = ['notifications', 'geolocation', 'camera', 'microphone', 'clipboard-read', 'clipboard-write', 'fullscreen', 'midi', 'pointerLock', 'screen-wake-lock', 'storage-access', 'top-level-storage-access'] as const
 
 function siteOrigin(input: string): string {
   const value = input.trim()

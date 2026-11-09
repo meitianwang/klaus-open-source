@@ -1062,6 +1062,13 @@ export class BrowserManager {
   }
 
   private installPermissions(): void {
+    // Storage Access requests ask Chromium to relax partitioned third-party
+    // storage: a browser-level tracking protection, not a page capability that
+    // reaches the user's device, attention or data. Pages are required to keep
+    // working in the partitioned default state, so these settle silently
+    // instead of opening the permission dialog; an explicit per-site row above
+    // still overrides the default in either direction.
+    const silentDenials = new Set(['storage-access', 'top-level-storage-access']);
     const namesFor = (permission: string, media: string[]): string[] => {
       if (permission !== 'media') return [permission];
       return media.length ? media.map(type => type === 'video' ? 'videoCapture' : type === 'audio' ? 'audioCapture' : 'media') : ['media'];
@@ -1074,6 +1081,7 @@ export class BrowserManager {
       const names = namesFor(permission, media);
       const policy = this.persistentPermission(requestingOrigin, names);
       if (policy !== undefined) return policy;
+      if (names.some(name => silentDenials.has(name))) return false;
       const keys = keysFor(contents, permission, requestingOrigin, media);
       return this.decisions.granted(keys, permission);
     });
@@ -1086,6 +1094,7 @@ export class BrowserManager {
       const names = namesFor(permission, mediaTypes);
       const policy = origin ? this.persistentPermission(origin, names) : undefined;
       if (policy !== undefined) { callback(policy); return; }
+      if (names.some(name => silentDenials.has(name))) { callback(false); return; }
       const key = this.permissionKey(contents, permission, requestedUrl);
       const page = [...this.pages.values()].find(entry => entry.view.webContents === contents);
       if (!key || !page) { callback(false); return; }

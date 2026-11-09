@@ -212,7 +212,7 @@ export class BrowserPreferences {
         browser.originRules = (browser.originRules as JsonObject[]).filter(rule => rule.pattern !== payload.pattern);
       } else if (action === 'set-site-permission') {
         const origin = typeof payload.origin === 'string' ? browserOrigin(payload.origin) : undefined;
-        const accepted = ['geolocation', 'notifications', 'audioCapture', 'videoCapture', 'clipboard-read', 'fullscreen', 'screen-wake-lock'];
+        const accepted = ['geolocation', 'notifications', 'audioCapture', 'videoCapture', 'clipboard-read', 'fullscreen', 'screen-wake-lock', 'storage-access', 'top-level-storage-access'];
         if (!origin || !accepted.includes(String(payload.permission)) || !['granted', 'denied', 'prompt'].includes(String(payload.setting))) throw new IpcHandlerError('BAD_REQUEST', 'Invalid site permission');
         browser.sitePermissions = [...(browser.sitePermissions as JsonObject[]).filter(row => row.origin !== origin || row.permission !== payload.permission),
           ...(payload.setting === 'prompt' ? [] : [{ origin, permission: payload.permission!, setting: payload.setting! }])];
