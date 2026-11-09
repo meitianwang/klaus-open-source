@@ -80,16 +80,21 @@ const locate = (input, root = document) => {
   if (typeof input.locator === 'string') f.selector = input.locator;
   delete f.locator;
   if (f.query !== undefined && f.text === undefined) f.text=f.query;
-  const alternatives=f.any??f.or;let candidates;
+  const alternatives=f.any??f.or;
+  const andSets=Array.isArray(f.and)&&f.and.length?f.and.map(sub=>new Set(locate(sub,root))):null;
+  const pureAnd=!!andSets&&f.selector===undefined&&f.ref===undefined&&f.refId===undefined&&f.text===undefined&&f.query===undefined&&f.role===undefined&&f.name===undefined&&f.label===undefined&&f.placeholder===undefined&&f.testId===undefined&&f.within===undefined;
+  let candidates;
   if(Array.isArray(alternatives)){
-    const shared=Object.fromEntries(['state','exact','within','visible','enabled'].filter(key=>f[key]!==undefined).map(key=>[key,f[key]]));
+    const shared=Object.fromEntries(['state','exact','within','visible','enabled','and'].filter(key=>f[key]!==undefined).map(key=>[key,f[key]]));
     candidates=alternatives.flatMap(one=>locate({...shared,...one},root));
   }
   else if (f.ref !== undefined || f.refId !== undefined) {const e=resolve(f); candidates=e?[e]:[];}
   else if (f.within) { const parents=typeof f.within==='string'?(refs[f.within]?.isConnected?[refs[f.within]]:f.within.startsWith('e-')?[]:query(f.within,root)):locate(f.within,root); const local={...f};for(const key of ['within','nth','first','last'])delete local[key]; candidates=parents.flatMap(p=>locate(local,p)); }
+  else if (pureAnd) candidates=[...andSets[0]];
   else candidates=query(f.selector || (f.text||f.hasText?SELECTABLE+','+TEXTUAL:SELECTABLE),root);
   let found=Array.from(new Set(candidates)).filter(e=>Array.isArray(alternatives)||matches(e,f));
-  if(!Array.isArray(alternatives)&&!f.selector&&f.ref===undefined&&f.refId===undefined){const matched=new Set(found),wrapped=new Set();for(const e of found)for(let at=e.parentNode;at;at=at.parentNode||at.host)if(matched.has(at))wrapped.add(at);found=found.filter(e=>!wrapped.has(e));}
+  if(andSets)found=found.filter(e=>andSets.every(s=>s.has(e)));
+  if(!Array.isArray(alternatives)&&!pureAnd&&!f.selector&&f.ref===undefined&&f.refId===undefined){const matched=new Set(found),wrapped=new Set();for(const e of found)for(let at=e.parentNode;at;at=at.parentNode||at.host)if(matched.has(at))wrapped.add(at);found=found.filter(e=>!wrapped.has(e));}
   if (f.nth !== undefined) { const n=Number(f.nth); found=Number.isInteger(n)?[found[n<0?found.length+n:n]].filter(Boolean):[]; }
   if (f.first===true)found=found.slice(0,1);if(f.last===true)found=found.slice(-1);
   return found;
@@ -99,7 +104,7 @@ const locate = (input, root = document) => {
 export function domScript(body: string): string { return `(() => { ${DOM_HELPERS}\n${body}\n})()`; }
 export function elementScript(fields: BrowserObject): string { return `resolve(${JSON.stringify(fields)})`; }
 export function elementInfoScript(fields: BrowserObject): string { return domScript(`return info(${elementScript(fields)});`); }
-export function namesElement(fields: BrowserObject): boolean { return ['selector', 'ref', 'refId', 'locator', 'role', 'name', 'label', 'placeholder', 'testId', 'within', 'query', 'has', 'hasNot', 'hasText', 'hasNotText', 'any', 'or'].some(key => fields[key] !== undefined); }
+export function namesElement(fields: BrowserObject): boolean { return ['selector', 'ref', 'refId', 'locator', 'role', 'name', 'label', 'placeholder', 'testId', 'within', 'query', 'has', 'hasNot', 'hasText', 'hasNotText', 'any', 'or', 'and'].some(key => fields[key] !== undefined); }
 
 /** A scoped adapter cannot address a sibling tab or a different frame. */
 export function frameCdp(cdp: BrowserCdp, frame?: string): BrowserCdp {
@@ -160,7 +165,7 @@ export async function searchElements(cdp: BrowserCdp, fields: BrowserObject, fra
     assertActive?.();
     try {
       if (Array.isArray(alternatives)) {
-        const shared = Object.fromEntries(['state', 'exact', 'within', 'visible', 'enabled', 'frames', 'attribute', 'textContent'].filter(key => fields[key] !== undefined).map(key => [key, fields[key]!])) as BrowserObject;
+        const shared = Object.fromEntries(['state', 'exact', 'within', 'visible', 'enabled', 'frames', 'attribute', 'textContent', 'and'].filter(key => fields[key] !== undefined).map(key => [key, fields[key]!])) as BrowserObject;
         const union: BrowserObject[] = []; const seen = new Set<string>(); let total = 0; let truncated = false;
         for (const alternative of alternatives) {
           assertActive?.();

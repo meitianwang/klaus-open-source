@@ -19,11 +19,11 @@ const ALL_OPERATIONS = [
   'file_upload', 'shortcuts_list', 'shortcuts_execute', 'switch_browser', 'list_connected_browsers',
   'select_browser', 'browser_for_url', 'capabilities', 'visibility', 'history', 'tabs_content',
   'read_urls', 'claim_tab', 'resolve_tab', 'content_export', 'download', 'clipboard', 'dialog', 'permission', 'mark_tab',
-  'ax_state', 'ax_action',
+  'ax_state', 'ax_action', 'management',
 ] as const;
 
 const UNAVAILABLE_OPERATIONS = new Set(['gif_creator', 'upload_image', 'shortcuts_list', 'shortcuts_execute']);
-const EXTERNAL_ONLY_OPERATIONS = new Set(['history', 'claim_tab', 'tabs_content', 'mark_tab']);
+const EXTERNAL_ONLY_OPERATIONS = new Set(['history', 'claim_tab', 'tabs_content', 'mark_tab', 'management']);
 
 const DESCRIPTIONS: Record<string, string> = {
   navigate: 'Navigate this task\'s tab to an http(s) URL or about:blank. This is the browser navigation path: never type a URL or browser shortcut into a web page. Optional numeric tabId.',
@@ -36,14 +36,14 @@ const DESCRIPTIONS: Record<string, string> = {
   eval: 'Evaluate expression/script on this page, or call a function expression with args. readOnly/isolated uses a separate page world and Chromium side-effect refusal with bounded results; operations whose effects cannot be excluded fail explicitly. Optional frameTargetId.',
   click: 'Click a named element using real Chromium pointer input. Resolve and wait for visibility, enabled state, stable bounds and an unobstructed hit target under one deadline (default 3000 ms). Multiple visible matches fail with diagnostics; narrow with within or nth. A click is never replaced by keyboard activation. Optional button and clickCount.',
   type: 'Type text using real Chromium input into selector/ref or the focused element. clear optionally replaces its current value.',
-  locator: 'Find elements by selector, exact role and case-insensitive partial name/text/label/placeholder/testId; exact:true requires full text. within/has/hasNot/nth narrow; any/or merges alternatives in caller order, deduplicates refs, and total counts before alternative deduplication. Default visible+enabled; state attached/visible/hidden/enabled/disabled changes it. limit (1..1000), timeoutMs (0..30000), raw textContent and attribute are honored. Owned OOPIF fallback runs only when the addressed document is empty; frames:false disables it.',
+  locator: 'Find elements by selector, exact role and case-insensitive partial name/text/label/placeholder/testId; exact:true requires full text. within/has/hasNot/nth narrow; any/or merges alternatives in caller order, deduplicates refs, and total counts before alternative deduplication; and intersects criteria, so every entry plus the base must match the same element. action evaluate runs script against exactly one match (element and arg in scope; ambiguous matches fail with diagnostics); evaluate_all passes every match as elements. Default visible+enabled; state attached/visible/hidden/enabled/disabled changes it. limit (1..1000), timeoutMs (0..30000), raw textContent and attribute are honored. Owned OOPIF fallback runs only when the addressed document is empty; frames:false disables it.',
   find: 'Find real DOM elements by what the page says: visible text, accessible name, label or a one-word role. It does not understand visual descriptions such as "the blue button at the bottom"; use locator for compound criteria.', element_info: 'Read selector/ref properties, or probe viewport x/y for a ranked stack of elements and selectors verified to identify each actual node. Descends shadow and owned frames by DOM owner identity. includeNonInteractable broadens the stack.',
-  wait_for: 'Wait for exactly one subject: ms/durationMs, URL substring/* pattern, loadState (load/domcontentloaded/networkidle), or an element state (attached/detached/visible/hidden/enabled/disabled). networkidle means 500 ms without observed network activity, including data; an open quiet connection may remain. Durations are capped at 120000 ms; zero probes once.',
+  wait_for: 'Wait for exactly one subject: ms/durationMs, URL substring/* pattern, loadState (load/domcontentloaded/networkidle), or an element state (attached/detached/visible/hidden/enabled/disabled). loadState may refine a url wait: the URL must match and the load state must settle. networkidle means 500 ms without observed network activity, including data; an open quiet connection may remain. Durations are capped at 120000 ms; zero probes once.',
   select_option: 'Select option values on a native select element addressed by selector/ref. Pass value or values; clicking an operating-system-drawn dropdown cannot choose its option, so use this tool.',
   set_checked: 'Set a checkbox/radio addressed by selector/ref to checked: true or false, using real input.',
   computer: 'Perform screenshots, zoom, clicks (including triple/right/middle), hover, type, key combinations, scrolling, scroll_to, drag paths or bounded waits on this task\'s page. Coordinates and named elements address the same real page. Prefer click/type with a locator whenever the target can be named; coordinates break when the page reflows.',
   cdp: 'Send a page-scoped CDP method with params, or read buffered page events. Prefer the named browser operations whenever one covers the task. Browser/Target/storage/credential/policy bypass commands are refused.',
-  console: 'Read page console/browser log/exception entries. Optional levels, limit, since and clear; report truncation and evicted history.',
+  console: 'Read page console/browser log/exception entries. Optional levels, a case-insensitive message filter substring, limit, since and clear; report truncation and evicted history.',
   network: 'Read observed requests with urlFilter, limit, includeBodies and clear. Unavailable/evicted response bodies are reported per request.',
   dialog: 'Read the pending page dialog (action: get) or answer it (action: accept/dismiss, optional promptText and dialogId). A page dialog blocks its other operations, so get its text before choosing how to answer.',
   download: 'Save a URL or original page media (locator/ref/coordinates, canvas, SVG, blob) to a completed local file; filename/saveAs is a basename. action:list returns page-owned handles; waitOnly/action:wait and downloadId wait without starting another download; action:cancel cancels that handle. Ambiguous URL matches require downloadId. IAB supports human click downloads; external Chrome can wait only for extension-owned handles. Page media is bounded to 256 MiB; timeoutMs to 60000.',
@@ -70,10 +70,21 @@ const DESCRIPTIONS: Record<string, string> = {
   mark_tab: 'Mark an external task tab deliverable or handoff, applied on close; name/title instead names its task tab group.',
   ax_state: 'Read the page as accessibility text with integer element indices; the primary observation for driving a page. Defaults to the diff from the previous state (~ changed, + added, removed ID ranges); disableDiffing returns the full tree. Title and URL are always included. Indices belong to the returned snapshot: after any action or navigation, re-read the state instead of reusing old indices. The runtime waits for the page to settle before capturing. mode screenshot or both attaches a capture.',
   ax_action: 'Act on an element index from the latest ax_state using real browser input: click (clickCount, mouseButton, held key combination, hold duration 0-30s), type_text, set_value, paste (format text/md/html), press_key (xdotool-style keys such as Return, super+c, KP_0; optional hold duration), scroll (element index or point, direction, pages), select_text (prefix/suffix, selectionType), secondary_action (exact exposed name such as Scroll to Visible), drag (start point to end point). A failed action returns a fresh accessibility state with the error; re-derive indices from it.',
+  management: 'Manage the connected external Chrome browser itself through the allowlisted extension backend: bookmarks, tabGroups, tabs and windows. action call runs one allowlisted method with positional args; action audit_trail returns the recorded change ledger (newest first). Mutations respect task ownership: shared tab groups are refused, windows stay normal and non-incognito, and bookmark URLs must be http(s).',
   gif_creator: 'NOT IMPLEMENTED in this client: no GIF or frame-recording capture exists. Take repeated screenshot calls instead and describe the sequence.',
   upload_image: 'NOT IMPLEMENTED in this client: browser-side image upload has no separate tool. Use file_upload on the page\'s file input or chooser.',
   shortcuts_list: 'NOT IMPLEMENTED in this client: browser shortcut discovery is unavailable. Drive the page directly with locator, click and type.',
   shortcuts_execute: 'NOT IMPLEMENTED in this client: browser shortcut execution is unavailable. Drive the page directly with locator, click and type.',
+};
+
+/** Klaus-authored capability documentation returned by capabilities get/documentation. */
+const CAPABILITY_DOCUMENTATION: Record<string, string> = {
+  visibility: 'visibility controls the built-in browser panel. {action:"get"} reports {visible}. {action:"set", visible:true} opens and focuses the panel for this conversation; visible:false hides it. Background tasks cannot change the panel. The user\'s external Chrome windows are never hidden.',
+  viewport: 'viewport covers emulated page metrics. resize sets width/height in CSS pixels plus optional deviceScaleFactor and isMobile; the override outlives the call, so resize {action:"reset"} restores the default before finishing. screenshot reports scale (image pixels per CSS pixel); divide image-measured coordinates by scale to click them.',
+  management: 'management operates the connected Chrome browser itself through the allowlisted extension backend, inside an active task turn. Namespaces and methods: bookmarks {create, get, getChildren, getSubTree, getTree, move, remove, search, update}; tabGroups {get, move, query, update}; tabs {get, group, move, query, remove, ungroup, update}; windows {create, get, getAll, getCurrent, getLastFocused, update}. Call shape: management {action:"call", namespace, method, args} where args is a positional JSON argument list. Mutating calls (create/move/remove/update/group/ungroup) are recorded in an audit ledger with before/after snapshots, kept for 72 hours up to 50 entries; management {action:"audit_trail"} returns {changes} newest first. Refusals: windows are always normal and non-incognito (locked-fullscreen state rejected, a moved tab cannot be pinned, url defaults to about:blank); tab groups shared with other tasks cannot be modified or absorbed; bookmark URLs must be http(s); every tab, window and group id must be an integer.',
+  cdp: 'cdp sends one allowlisted page-scoped CDP method with params, or reads buffered page events with {action:"events", methods, limit, afterSequence}. Browser-wide, target-discovery, storage, credential and policy-bypass domains are refused. Raw CDP access requires the developer setting.',
+  pageAssets: 'page_assets lists page-owned images, stylesheets, fonts and other assets; action bundle/export/save downloads selected kinds or assetIds through the page login and reports individual failures.',
+  webmcp: 'webmcp lists readable page-declared agent tools, or calls one by name with input. Opaque native registries are reported explicitly instead of guessed.',
 };
 
 export function browserTools(): BrowserObject[] {
@@ -238,12 +249,22 @@ export class BrowserOperations {
         if (!this.chrome) throw new BrowserError('unavailable', 'External Chrome is not connected.');
         await this.chrome.select(String(requested));
       }
+      const declarations = this.capabilityDeclarations(requested);
+      const action = String(fields.action ?? 'list');
+      if (action === 'get' || action === 'documentation') {
+        const id = typeof fields.id === 'string' ? fields.id : '';
+        const entry = [...declarations.browser, ...declarations.tab].find(row => String(row.id) === id);
+        if (!entry) throw new BrowserError('not_found', `Unknown capability id '${id}' for this browser. Call capabilities without action for the declared ids.`);
+        const documentation = CAPABILITY_DOCUMENTATION[id] ?? String(entry.description ?? '');
+        return this.answer(sessionId, { value: action === 'documentation' ? { id, documentation } : { ...entry, documentation } }, undefined, undefined, requested);
+      }
+      if (action !== 'list') throw new BrowserError('invalid_request', 'capabilities action must be list, get or documentation.');
       const supported = ALL_OPERATIONS.filter(operation => !UNAVAILABLE_OPERATIONS.has(operation) && (requested !== 'iab' || !EXTERNAL_ONLY_OPERATIONS.has(operation)));
-      return this.answer(sessionId, { value: { browserId: requested, selectedBrowserId: this.selected.get(sessionId) ?? 'iab', supported, unavailable: ALL_OPERATIONS.filter(operation => !(supported as readonly string[]).includes(operation)), modeLimits: {
+      return this.answer(sessionId, { value: { browserId: requested, selectedBrowserId: this.selected.get(sessionId) ?? 'iab', supported, unavailable: ALL_OPERATIONS.filter(operation => !(supported as readonly string[]).includes(operation)), capabilities: declarations, modeLimits: {
         screenshot: 'Cross-process frames are cropped inside their visible owner; fullPage addresses the top-level tab. Rotated cross-process frame crops are unavailable.',
         download: 'URL, filename, original media/canvas/SVG/blob, exact page-owned handles and wait/cancel. External Chrome cannot attribute arbitrary human downloads; use an extension-owned handle. Page media limit: 256 MiB.',
         permission: requested === 'iab' ? 'Task/origin grants require an attributable page; unknown-page checks are denied. OS permissions may still apply.' : 'Chrome profile content settings are read back; observed page state may differ because of browser/OS policy.',
-        locator: 'Explicit selector/role/name/label/placeholder/testId/text/ref and within/has/nth predicates; opaque/closed shadow roots are inaccessible.',
+        locator: 'Explicit selector/role/name/label/placeholder/testId/text/ref and within/has/nth/and predicates; opaque/closed shadow roots are inaccessible.',
       } } }, undefined, undefined, requested);
     }
     if (kind === 'browser_for_url') {
@@ -383,6 +404,24 @@ export class BrowserOperations {
       : (action === 'get' || action === 'selected') && page ? tabs.find(row => row.id === page?.handle) ?? null
       : tabs;
     return this.answer(sessionId, { value }, page);
+  }
+
+  /** Declared capability ids per surface; management additionally requires the extension to announce it. */
+  private capabilityDeclarations(browserId: string): { browser: BrowserObject[]; tab: BrowserObject[] } {
+    const tab: BrowserObject[] = [
+      { id: 'cdp', description: 'Allowlisted page-scoped CDP methods and buffered page events.' },
+      { id: 'pageAssets', description: 'Page-owned images, stylesheets, fonts and other assets; bundle/save through the page login.' },
+      { id: 'webmcp', description: 'Page-declared agent tools discovered and called through webmcp.' },
+    ];
+    if (browserId === 'iab') return { browser: [
+      { id: 'visibility', description: 'Show or hide the built-in browser panel programmatically.' },
+      { id: 'viewport', description: 'Emulated viewport size, device scale and mobile metrics through resize.' },
+    ], tab };
+    const browser: BrowserObject[] = [
+      { id: 'viewport', description: 'Emulated viewport size, device scale and mobile metrics through resize.' },
+    ];
+    if (this.chrome?.managementSupported(browserId)) browser.push({ id: 'management', description: 'Bookmarks, tab groups, tabs and windows through the extension management backend, with an audit trail.' });
+    return { browser, tab };
   }
 
   private async visibility(sessionId: string, fields: BrowserObject): Promise<BrowserObject> {

@@ -271,7 +271,7 @@ h.test('typed log timestamps retain valid integer milliseconds without inventing
 
 h.test('capability queries describe the requested browser without changing the selected browser', async () => {
   const manager = { isEnabled: () => true, beginOperation: () => () => {}, surface: (sessionId: string) => ({ kind: 'browserUse', backend: 'iab', browserId: 'iab', sessionId }) } as unknown as BrowserManager;
-  const chrome = { select: async () => {} } as unknown as ChromeBrowserService;
+  const chrome = { select: async () => {}, managementSupported: () => false } as unknown as ChromeBrowserService;
   const operations = new BrowserOperations(manager, chrome);
   const query = async (browserId: string) => {
     const result = await operations.execute('capability-task', 'capabilities', { browserId });

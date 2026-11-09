@@ -156,6 +156,12 @@ export function registerAdvancedBrowserTests(h: Harness, context: Context): void
     const entries=(logs.entries as BrowserObject[]).map(object);assertEqual(entries.length,2,'console level filter applied before limit');
     assert(entries.every(entry=>['warn','warning','error'].includes(String(entry.level))),'chatter excluded');
     assert(entries.every(entry=>Number.isSafeInteger(entry.timestampMs)&&Number(entry.timestampMs)>=0),'fractional CDP timestamps fit the typed response');
+    const filtered=await call('console',{filter:'CHAT'});
+    const filteredEntries=(filtered.entries as BrowserObject[]).map(object);
+    const probe=await call('console',{limit:50});
+    const probeRows=(probe.entries as BrowserObject[]).map(object).map(row=>({level:row.level,source:row.source,text:String(row.text).slice(0,60)}));
+    assertEqual(filteredEntries.length,1,`message substring filter narrows to the chatter line; all entries: ${JSON.stringify(probeRows)}`);
+    assert(String(object(filteredEntries[0]).text).includes('chatter'),'the kept entry is the chatter line');
     await evaluate('(async()=>{await fetch("/advanced-data").then(r=>r.text());await new Promise(r=>setTimeout(r,100));return true})()');
     const network=await call('network',{urlFilter:'/advanced-data',includeBodies:true});
     const requests=(network.requests as BrowserObject[]).map(object);assert(requests.length>0,'matching network request observed');

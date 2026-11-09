@@ -30,7 +30,7 @@ export function validateLocator(fields: BrowserObject, depth = 0): BrowserObject
     if (!nested || typeof nested !== 'object' || Array.isArray(nested)) throw new BrowserError('invalid_request', `${key} must be a nonempty selector, ref or criteria object.`);
     validateLocator(object(nested), depth + 1);
   }
-  for (const key of ['any', 'or']) {
+  for (const key of ['any', 'or', 'and']) {
     const alternatives = f[key];
     if (alternatives === undefined) continue;
     if (!Array.isArray(alternatives) || alternatives.length < 1 || alternatives.length > 32 || alternatives.some(row => !row || typeof row !== 'object' || Array.isArray(row))) throw new BrowserError('invalid_request', `${key} must contain from one to 32 criteria objects.`);

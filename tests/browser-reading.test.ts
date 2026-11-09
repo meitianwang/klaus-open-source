@@ -24,6 +24,14 @@ h.test('wait subjects reject mixed requests and duration does not require a page
   assertEqual(boundedWaitDuration(60_001),60_001,'released waits may exceed the retired 60 second ceiling');
   assertEqual(boundedWaitDuration(999_999_999),120_000,'released ceiling clamps without sleeping for two minutes');
 });
+h.test('a url wait may carry a loadState refinement and both must settle',async()=>{
+  assertEqual(waitSubject({url:'*/done',loadState:'networkidle'}),'url','loadState refines the url subject instead of counting twice');
+  await assertRejects(()=>waitForPage(undefined,{url:'*/done',loadState:'typo'}),'invalid loadState refinement refused');
+  const settled={evaluate:async(expression:string)=>expression==='location.href'?'https://example.test/done':'complete',onEvent:()=>()=>{}} as unknown as Parameters<typeof waitForPage>[0];
+  assertEqual(JSON.stringify(await waitForPage(settled,{url:'*/done',loadState:'load',timeoutMs:1000})),JSON.stringify({url:'https://example.test/done',loadState:'load'}),'combination resolves with both facts');
+  const loading={evaluate:async(expression:string)=>expression==='location.href'?'https://example.test/pending':'loading',onEvent:()=>()=>{}} as unknown as Parameters<typeof waitForPage>[0];
+  await assertRejects(()=>waitForPage(loading,{url:'*/pending',loadState:'load',timeoutMs:80}),'a url match alone does not settle a loadState refinement');
+});
 h.test('URL waits treat regex punctuation literally and wildcard positions deliberately',()=>{
   assert(waitedUrlMatches('https://example.test/done?x=1','/done'),'substring match');
   assert(waitedUrlMatches('https://example.test/a/done','*/done'),'wildcard match');

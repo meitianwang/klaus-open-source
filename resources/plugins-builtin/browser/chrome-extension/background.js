@@ -469,6 +469,12 @@ async function dispatch(method, params) {
     case 'getUserHistory':
       resolveSession(params)
       return getUserHistory(params)
+    case 'managementCall':
+      resolveSession(params)
+      return managementCall(params)
+    case 'managementAuditTrail':
+      resolveSession(params)
+      return managementAuditTrail()
     case 'download':
       return downloadForSession(params)
     case 'getDownload':
@@ -517,7 +523,7 @@ async function getInfo() {
       extensionInstanceId,
       extensionHostName: HOST_NAME,
       fileSchemeAccessAllowed: typeof chrome.extension?.isAllowedFileSchemeAccess === 'function' ? await chrome.extension.isAllowedFileSchemeAccess() : null,
-      capabilities: ['task_downloads', 'flat_cdp_sessions', 'tab_mentions_v1'],
+      capabilities: ['task_downloads', 'flat_cdp_sessions', 'tab_mentions_v1', 'browser_management'],
     },
   }
 }
@@ -1943,4 +1949,304 @@ function normalizeError(error) {
   if (error instanceof Error) return error.message
   if (error && typeof error === 'object' && typeof error.message === 'string') return error.message
   return String(error ?? 'Unknown error')
+}
+
+// Browser management: an allowlisted slice of chrome.bookmarks, chrome.tabGroups,
+// chrome.tabs and chrome.windows that an active task turn may call. Mutating calls
+// are recorded in a best-effort session audit ledger (bounded, time-windowed and
+// serialized); ledger or snapshot failures never block the call itself.
+const MANAGEMENT_ALLOWLIST = {
+  bookmarks: {
+    create: { audit: true, validate: validateManagementBookmarkUrl },
+    get: {},
+    getChildren: {},
+    getSubTree: {},
+    getTree: {},
+    move: { audit: true },
+    remove: { audit: true },
+    search: {},
+    update: { audit: true, validate: validateManagementBookmarkUrl },
+  },
+  tabGroups: {
+    get: {},
+    move: { audit: true, validate: validateManagementTabGroup },
+    query: {},
+    update: { audit: true, validate: validateManagementTabGroup },
+  },
+  tabs: {
+    get: {},
+    group: { audit: true },
+    move: { audit: true, validate: validateManagementTabsMove },
+    query: {},
+    remove: { audit: true, validate: validateManagementTabIds },
+    ungroup: { audit: true, validate: validateManagementTabIds },
+    update: { audit: true, validate: validateManagementTabsUpdate },
+  },
+  windows: {
+    create: { audit: true },
+    get: {},
+    getAll: {},
+    getCurrent: {},
+    getLastFocused: {},
+    update: { audit: true, validate: validateManagementWindowsUpdate },
+  },
+}
+const MANAGEMENT_TABS_UPDATE_PROPERTIES = new Set(['autoDiscardable', 'pinned'])
+const MANAGEMENT_TAB_GROUP_UPDATE_PROPERTIES = new Set(['collapsed', 'color', 'title'])
+const MANAGEMENT_WINDOWS_UPDATE_PROPERTIES = new Set(['focused', 'height', 'left', 'state', 'top', 'width'])
+const MANAGEMENT_WINDOWS_CREATE_PROPERTIES = new Set(['focused', 'height', 'left', 'state', 'tabId', 'top', 'type', 'width'])
+const MANAGEMENT_AUDIT_STORAGE_KEY = 'klausBrowserManagementAudit'
+const MANAGEMENT_AUDIT_LIMIT = 50
+const MANAGEMENT_AUDIT_WINDOW_MS = 72 * 60 * 60 * 1000
+let managementAuditQueue = Promise.resolve()
+
+async function managementCall(params) {
+  const namespace = String(params?.namespace ?? '')
+  const method = String(params?.method ?? '')
+  if (!Object.hasOwn(MANAGEMENT_ALLOWLIST, namespace)) throw new Error(`Chrome API chrome.${namespace}.${method} is not allowed`)
+  const allowedMethods = MANAGEMENT_ALLOWLIST[namespace]
+  if (!Object.hasOwn(allowedMethods, method)) throw new Error(`Chrome API chrome.${namespace}.${method} is not allowed`)
+  const entry = allowedMethods[method]
+  const call = { namespace, method, args: Array.isArray(params?.args) ? params.args : [] }
+  const invoke = async () => {
+    if (namespace === 'windows' && method === 'create') {
+      const options = await validateManagementWindowsCreate(call)
+      const create = { ...options, incognito: false }
+      if (!Object.hasOwn(options, 'tabId')) create.url = 'about:blank'
+      return chrome.windows.create(create)
+    }
+    await entry.validate?.(call)
+    const api = chrome[namespace]
+    if (api == null || !Object.hasOwn(api, method)) throw new Error(`Chrome API chrome.${namespace}.${method} is unavailable`)
+    const target = Reflect.get(api, method)
+    if (typeof target !== 'function') throw new Error(`Chrome API chrome.${namespace}.${method} is unavailable`)
+    const args = namespace === 'tabs' && method === 'group' ? [await normalizeManagementTabsGroup(call), ...call.args.slice(1)] : call.args
+    return Reflect.apply(target, api, args)
+  }
+  return entry.audit ? auditedManagementCall(call, invoke) : invoke()
+}
+
+async function managementAuditTrail() {
+  return withManagementAuditLock(async () => ({ changes: (await readManagementAuditLedger()).toReversed() }))
+}
+
+async function validateManagementWindowsCreate(call) {
+  if (call.args.length > 1) throw new Error('Chrome API windows.create accepts at most one argument')
+  const options = managementPlainOptions(call.args.length === 0 ? {} : call.args[0], MANAGEMENT_WINDOWS_CREATE_PROPERTIES, 'windows.create', true)
+  if (options.type !== undefined && options.type !== 'normal') throw new Error('Chrome API windows.create only supports normal windows')
+  managementRejectLockedFullscreen(options.state, 'windows.create')
+  if (!Object.hasOwn(options, 'tabId')) return options
+  const tab = await chrome.tabs.get(managementRequireId(options.tabId, 'tab ID'))
+  if (tab.pinned) throw new Error('Chrome API windows.create cannot move a pinned tab without changing its pinning')
+  await managementRequireNormalWindow(tab.windowId, 'windows.create')
+  await managementRejectSharedGroupsInWindows([tab.windowId])
+  return options
+}
+
+async function validateManagementWindowsUpdate(call) {
+  const windowId = managementRequireId(call.args[0], 'window ID')
+  const options = managementPlainOptions(call.args[1], MANAGEMENT_WINDOWS_UPDATE_PROPERTIES, 'windows.update')
+  managementRejectLockedFullscreen(options.state, 'windows.update')
+  await managementRequireNormalWindow(windowId, 'windows.update')
+}
+
+async function validateManagementTabGroup(call) {
+  const groupId = managementRequireId(call.args[0], 'group ID')
+  if (call.method === 'update') managementPlainOptions(call.args[1], MANAGEMENT_TAB_GROUP_UPDATE_PROPERTIES, 'tabGroups.update')
+  await managementRequireUnsharedGroup(groupId)
+}
+
+async function validateManagementTabsUpdate(call) {
+  const options = managementPlainOptions(call.args[1], MANAGEMENT_TABS_UPDATE_PROPERTIES, 'tabs.update')
+  const tabId = managementRequireId(call.args[0], 'tab ID')
+  if (options.pinned === true) await managementTabsRejectingSharedGroups([tabId])
+}
+
+async function validateManagementTabsMove(call) {
+  const tabIds = managementRequireTabIds(call.args[0])
+  const options = managementPlainObject(call.args[1], 'tabs.move')
+  const tabs = await Promise.all(tabIds.map(id => chrome.tabs.get(id)))
+  const windowIds = new Set(tabs.map(({ windowId }) => windowId))
+  if (Object.hasOwn(options, 'windowId')) windowIds.add(managementRequireId(options.windowId, 'window ID'))
+  await managementRejectSharedGroupsInWindows(windowIds)
+}
+
+async function validateManagementTabIds(call) {
+  await managementTabsRejectingSharedGroups(managementRequireTabIds(call.args[0]))
+}
+
+async function normalizeManagementTabsGroup(call) {
+  const options = managementPlainObject(call.args[0], 'tabs.group')
+  const tabs = await managementTabsRejectingSharedGroups(managementRequireTabIds(options.tabIds))
+  let createProperties
+  let windowId
+  if (Object.hasOwn(options, 'groupId')) {
+    windowId = (await managementRequireUnsharedGroup(managementRequireId(options.groupId, 'group ID'))).windowId
+  } else {
+    createProperties = options.createProperties === undefined ? {} : managementPlainObject(options.createProperties, 'tabs.group createProperties')
+    windowId = createProperties.windowId === undefined ? tabs[0].windowId : managementRequireId(createProperties.windowId, 'createProperties.windowId')
+  }
+  if (tabs.some(tab => tab.windowId !== windowId)) throw new Error('Chrome API tabs.group cannot move tabs between windows; group tabs separately by window. Use tabs.move only for user-requested transfers.')
+  return createProperties === undefined ? options : { ...options, createProperties: { ...createProperties, windowId } }
+}
+
+function validateManagementBookmarkUrl(call) {
+  const options = managementPlainObject(call.args[call.method === 'create' ? 0 : 1], `bookmarks.${call.method}`)
+  if (!Object.hasOwn(options, 'url')) return
+  try {
+    if (typeof options.url === 'string') {
+      const { protocol } = new URL(options.url)
+      if (protocol === 'http:' || protocol === 'https:') return
+    }
+  } catch {}
+  throw new Error(`Chrome API bookmarks.${call.method} requires a valid http or https URL`)
+}
+
+function managementPlainOptions(value, allowed, label, allowEmpty = false) {
+  const options = managementPlainObject(value, label)
+  const keys = Object.keys(options)
+  if ((!allowEmpty && keys.length === 0) || keys.some(key => !allowed.has(key))) throw new Error(`Chrome API ${label} contains an unsupported property`)
+  return options
+}
+
+function managementPlainObject(value, label) {
+  if (!managementIsPlainObject(value)) throw new Error(`Chrome API ${label} requires a plain options object`)
+  return value
+}
+
+function managementIsPlainObject(value) {
+  if (value == null || typeof value !== 'object') return false
+  const proto = Object.getPrototypeOf(value)
+  return proto === null || Object.getPrototypeOf(proto) === null
+}
+
+function managementRequireTabIds(value) {
+  const ids = Array.isArray(value) ? value : [value]
+  if (ids.length === 0) throw new Error('Chrome API requires at least one tab ID')
+  return ids.map(id => managementRequireId(id, 'tab ID'))
+}
+
+function managementRequireId(value, label) {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) throw new Error(`Chrome API requires an explicit valid ${label}`)
+  return value
+}
+
+async function managementRequireNormalWindow(windowId, label) {
+  const window = await chrome.windows.get(windowId)
+  if (window.type !== 'normal' || window.incognito) throw new Error(`Chrome API ${label} requires a normal non-incognito window`)
+}
+
+function managementRejectLockedFullscreen(state, label) {
+  if (state === 'locked-fullscreen') throw new Error(`Chrome API ${label} cannot lock a window in fullscreen`)
+}
+
+async function managementRejectSharedGroupsInWindows(windowIds) {
+  await managementRejectSharedGroupsForTabs((await Promise.all([...windowIds].map(windowId => chrome.tabs.query({ windowId })))).flat())
+}
+
+async function managementRequireUnsharedGroup(groupId) {
+  const group = await chrome.tabGroups.get(groupId)
+  if (group.shared) throw new Error(`Chrome API cannot modify shared tab group ${groupId} without permission to share`)
+  return group
+}
+
+async function managementTabsRejectingSharedGroups(tabIds) {
+  const tabs = await Promise.all([...new Set(tabIds)].map(id => chrome.tabs.get(id)))
+  await managementRejectSharedGroupsForTabs(tabs)
+  return tabs
+}
+
+async function managementRejectSharedGroupsForTabs(tabs) {
+  const groupIds = new Set(tabs.map(({ groupId }) => groupId))
+  groupIds.delete(-1)
+  await Promise.all([...groupIds].map(id => managementRequireUnsharedGroup(id)))
+}
+
+async function auditedManagementCall(call, invoke) {
+  return withManagementAuditLock(async () => {
+    const ledger = await readManagementAuditLedger().catch(() => {})
+    if (ledger == null) return await invoke()
+    const before = await managementBeforeSnapshot(call).catch(() => {})
+    if (before == null) return await invoke()
+    const result = await invoke()
+    if (!managementSnapshotIsRelevant(call, before)) return result
+    const entry = { args: call.args, before, createdAt: Date.now(), method: call.method, namespace: call.namespace }
+    if (typeof result === 'number') entry.result = result
+    else if (managementIsPlainObject(result) && typeof result.id === 'string') entry.result = { id: result.id }
+    else if (call.namespace === 'windows' && managementIsPlainObject(result) && typeof result.id === 'number') entry.result = result.id
+    ledger.push(entry)
+    await writeManagementAuditLedger(ledger).catch(() => {})
+    return result
+  })
+}
+
+async function managementBeforeSnapshot(call) {
+  switch (call.namespace) {
+    case 'bookmarks':
+      return await managementBookmarkSnapshot(call.args[0])
+    case 'tabs':
+      return await managementTabLayoutSnapshot(call.method === 'remove' ? (Array.isArray(call.args[0]) ? call.args[0] : [call.args[0]]) : [])
+    case 'tabGroups':
+      return await managementTabLayoutSnapshot()
+    case 'windows':
+      return await managementWindowsSnapshot(call)
+    default:
+      throw new Error(`Unhandled browser management namespace: ${call.namespace}`)
+  }
+}
+
+async function managementWindowsSnapshot(call) {
+  const snapshot = {
+    windows: (await chrome.windows.getAll({ windowTypes: ['normal'] }))
+      .filter(({ incognito }) => !incognito)
+      .flatMap(({ focused, height, id, left, state, top, width }) => id == null ? [] : [{ focused, height, id, left, state, top, width }]),
+  }
+  if (call.method === 'create' && managementIsPlainObject(call.args[0]) && Object.hasOwn(call.args[0], 'tabId')) snapshot.tabLayout = (await managementTabLayoutSnapshot()).tabLayout
+  return snapshot
+}
+
+async function managementBookmarkSnapshot(bookmarkId) {
+  if (typeof bookmarkId !== 'string') return {}
+  const [bookmark] = await chrome.bookmarks.get(bookmarkId)
+  if (bookmark == null) throw new Error(`Chrome bookmark ${bookmarkId} is unavailable`)
+  const { id, index, parentId, title, url } = bookmark
+  return { bookmarks: [{ id, index, parentId, title, url }] }
+}
+
+async function managementTabLayoutSnapshot(removeTabIds = []) {
+  const [tabs, groups] = await Promise.all([chrome.tabs.query({}), chrome.tabGroups?.query?.({}).catch(() => []) ?? []])
+  const scoped = tabs.filter(({ incognito }) => !incognito)
+  const referencedGroups = new Set(scoped.map(({ groupId }) => groupId))
+  return {
+    tabLayout: {
+      tabs: scoped.flatMap(({ autoDiscardable, groupId, id, index, pinned, url, windowId }) => id == null ? [] : [{ autoDiscardable, groupId, id, index, pinned, windowId, ...(removeTabIds.includes(id) ? { url } : {}) }]),
+      groups: groups.filter(({ id }) => referencedGroups.has(id)).map(({ collapsed, color, id, title, windowId }) => ({ collapsed, color, id, title, windowId })),
+    },
+  }
+}
+
+function managementSnapshotIsRelevant(call, before) {
+  if (call.namespace === 'bookmarks') return true
+  if (call.namespace === 'windows') return call.method === 'create' || (before.windows?.some(({ id }) => id === call.args[0]) ?? false)
+  const tabs = before.tabLayout?.tabs ?? []
+  if (call.namespace === 'tabGroups') return tabs.some(({ groupId }) => groupId === call.args[0])
+  const target = call.args[0]
+  const ids = managementIsPlainObject(target) ? target.tabIds : target
+  return (Array.isArray(ids) ? ids : [ids]).every(id => tabs.some(({ id: tabId }) => tabId === id))
+}
+
+async function readManagementAuditLedger() {
+  const stored = await chrome.storage.session.get(MANAGEMENT_AUDIT_STORAGE_KEY)
+  const oldest = Date.now() - MANAGEMENT_AUDIT_WINDOW_MS
+  return (stored[MANAGEMENT_AUDIT_STORAGE_KEY] ?? []).filter(({ createdAt }) => createdAt >= oldest).slice(-MANAGEMENT_AUDIT_LIMIT)
+}
+
+async function writeManagementAuditLedger(entries) {
+  await chrome.storage.session.set({ [MANAGEMENT_AUDIT_STORAGE_KEY]: entries.slice(-MANAGEMENT_AUDIT_LIMIT) })
+}
+
+function withManagementAuditLock(task) {
+  const run = managementAuditQueue.then(task)
+  managementAuditQueue = run.then(() => {}, () => {})
+  return run
 }

@@ -7,7 +7,9 @@ export function normalizeOperation(kind: string, input: BrowserObject): { kind: 
   alias('refId','ref');
   alias('targetId','frameTargetId');
   if (['capabilities','select_browser','switch_browser'].includes(kind)) alias('deviceId','browserId');
-  if (kind === 'capabilities') alias('id','browserId');
+  // Without an action, `id` is the legacy browser-choice spelling; with an
+  // action it names the queried capability and must not become a browserId.
+  if (kind === 'capabilities' && fields.action === undefined) alias('id','browserId');
   if (kind === 'computer') alias('direction','scrollDirection');
   if (kind === 'wait_for') alias('durationMs','ms');
   if (Array.isArray(fields.coordinate)) { if (fields.x === undefined) fields.x = fields.coordinate[0]!; if (fields.y === undefined) fields.y = fields.coordinate[1]!; }
@@ -35,7 +37,7 @@ export function normalizeOperation(kind: string, input: BrowserObject): { kind: 
       kind = 'type'; alias('value', action === 'press' ? 'key' : 'text'); if (action === 'fill' && fields.clear === undefined) fields.clear = true;
     } else if (['check','uncheck'].includes(action)) { kind = 'set_checked'; if (fields.checked === undefined) fields.checked = action === 'check'; }
     else if (['select_option','wait_for','screenshot'].includes(action)) kind = action;
-    else if (!['','list','get','count','text','text_content','all_text_contents','is_visible','is_enabled','get_attribute','input_value'].includes(action)) throw new BrowserError('unavailable','Unknown locator action: ' + action);
+    else if (!['','list','get','count','text','text_content','all_text_contents','is_visible','is_enabled','get_attribute','input_value','evaluate','evaluate_all'].includes(action)) throw new BrowserError('unavailable','Unknown locator action: ' + action);
   }
   return { kind, fields };
 }

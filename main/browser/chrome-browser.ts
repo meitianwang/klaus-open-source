@@ -168,6 +168,17 @@ export class ChromeBrowserService {
 
   async select(browserId: string): Promise<void> { await this.connect(browserId); }
 
+  /** True when the connected extension announces the browser-management backend. */
+  managementSupported(browserId: string): boolean {
+    const connection = this.connections.get(browserId);
+    return connection !== undefined && ChromeBrowserService.declaresCapability(connection, 'browser_management');
+  }
+
+  private static declaresCapability(connection: Connection, capability: string): boolean {
+    const capabilities = object(connection.instance.info.metadata).capabilities;
+    return Array.isArray(capabilities) && capabilities.some(feature => String(feature) === capability);
+  }
+
   private request(connection: Connection, sessionId: string, turnId: string, method: string, fields: BrowserObject = {}): Promise<Json> {
     this.requireEnabled();
     const turn = this.turns.get(turnId);
@@ -297,6 +308,19 @@ export class ChromeBrowserService {
         return await answer({ value: history, history, queries });
       }
       if (kind === 'tabs_content') return await answer({ value: await this.request(connection, sessionId, turnId, 'getUserTabs') });
+      if (kind === 'management') {
+        const action = String(fields.action ?? 'call');
+        if (action === 'audit_trail') return await answer({ value: await this.request(connection, sessionId, turnId, 'managementAuditTrail') });
+        if (action !== 'call') throw new BrowserError('invalid_request', 'management action must be call or audit_trail.');
+        if (!ChromeBrowserService.declaresCapability(connection, 'browser_management')) throw new BrowserError('unavailable', 'This connected Chrome runs a Klaus extension without browser management. Update the Klaus extension in that Chrome, then reconnect.');
+        const namespace = String(fields.namespace ?? '');
+        const method = String(fields.method ?? '');
+        if (!['bookmarks', 'tabGroups', 'tabs', 'windows'].includes(namespace)) throw new BrowserError('invalid_request', 'management namespace must be bookmarks, tabGroups, tabs or windows.');
+        if (!method.trim()) throw new BrowserError('invalid_request', 'management call requires a method name.');
+        const args = Array.isArray(fields.args) ? fields.args : fields.args === undefined ? [] : [fields.args];
+        const value = await this.request(connection, sessionId, turnId, 'managementCall', { namespace, method, args });
+        return await answer({ value });
+      }
       if (kind === 'mark_tab' || kind === 'tabs' && fields.action === 'name_session') {
         if (fields.status !== undefined) {
           if (!['deliverable','handoff'].includes(String(fields.status))) throw new BrowserError('invalid_request', 'mark_tab status must be deliverable or handoff.');

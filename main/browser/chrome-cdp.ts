@@ -19,6 +19,14 @@ export class ChromePageDebugger implements BrowserCdp {
   readonly events: BrowserObject[] = [];
   readonly evicted = { console: 0, network: 0, events: 0 };
   private eventSequence = 0;
+  /**
+   * Identity keys of console entries already buffered. The extension detaches
+   * the debugger at turn end; the next turn re-enables Runtime/Log and Chrome
+   * replays its cached console entries with their original timestamps, so the
+   * same event would otherwise accumulate once per turn. Genuinely repeated
+   * messages carry fresh timestamps and are kept.
+   */
+  private readonly consoleReplayKeys = new Set<string>();
   targetId = '';
   dialog: BrowserObject | null = null;
   private readonly frames = new Map<string, string>();
@@ -100,12 +108,10 @@ export class ChromePageDebugger implements BrowserCdp {
         await this.send(allowed ? 'Fetch.continueRequest' : 'Fetch.failRequest', { requestId: params.requestId ?? '', ...(allowed ? {} : { errorReason: 'BlockedByClient' }) }, frame);
       })().catch(() => {});
     } else if (event.method === 'Runtime.consoleAPICalled') {
-      this.console.push({ source: 'console', level: consoleLevel(params.type), text: consoleArgumentsText(params.args), args: params.args ?? [], timestamp: eventTime(params.timestamp), targetId: source.targetId ?? this.targetId, frameTargetId: frame ?? null });
-      if (this.console.length > 500) { this.console.shift(); this.evicted.console += 1; }
+      this.pushConsole({ source: 'console', level: consoleLevel(params.type), text: consoleArgumentsText(params.args), args: params.args ?? [], timestamp: eventTime(params.timestamp), targetId: source.targetId ?? this.targetId, frameTargetId: frame ?? null });
     } else if (event.method === 'Runtime.exceptionThrown' || event.method === 'Log.entryAdded') {
       const entry = object(params.entry ?? params.exceptionDetails);
-      this.console.push({ ...entry, source: event.method === 'Log.entryAdded' ? entry.source ?? 'browser' : 'exception', level: consoleLevel(event.method === 'Log.entryAdded' ? entry.level ?? 'info' : 'error'), text: entry.text ?? object(entry.exception).description ?? (event.method === 'Runtime.exceptionThrown' ? 'Uncaught exception' : ''), timestamp: eventTime(entry.timestamp ?? params.timestamp), frameTargetId: frame ?? null });
-      if (this.console.length > 500) { this.console.shift(); this.evicted.console += 1; }
+      this.pushConsole({ ...entry, source: event.method === 'Log.entryAdded' ? entry.source ?? 'browser' : 'exception', level: consoleLevel(event.method === 'Log.entryAdded' ? entry.level ?? 'info' : 'error'), text: entry.text ?? object(entry.exception).description ?? (event.method === 'Runtime.exceptionThrown' ? 'Uncaught exception' : ''), timestamp: eventTime(entry.timestamp ?? params.timestamp), frameTargetId: frame ?? null });
     } else if (event.method === 'Network.requestWillBeSent') {
       const id = params.requestId ?? '', scope = frame ?? null;
       const row = this.network.findLast(entry => entry.id === id && entry.frameTargetId === scope);
@@ -198,6 +204,19 @@ export class ChromePageDebugger implements BrowserCdp {
     const route = this.tracker.contexts.get(frameTarget);
     if (!route) throw new BrowserError('stale_target', 'This iframe is not owned by the selected Chrome page. Refresh the snapshot.');
     return this.sendSession(method, injectFrameRouteParams(method, params, frameTarget, route.contextId), route.session);
+  }
+
+  /** Buffer one console entry unless it is a replay of an already-buffered event. */
+  private pushConsole(entry: BrowserObject): void {
+    const key = `${String(entry.source)}:${String(entry.level)}:${String(entry.timestamp)}:${String(entry.text)}`;
+    if (this.consoleReplayKeys.has(key)) return;
+    this.consoleReplayKeys.add(key);
+    if (this.consoleReplayKeys.size > 1000) {
+      const oldest = this.consoleReplayKeys.values().next();
+      if (!oldest.done) this.consoleReplayKeys.delete(oldest.value);
+    }
+    this.console.push(entry);
+    if (this.console.length > 500) { this.console.shift(); this.evicted.console += 1; }
   }
 
   async evaluate(expression: string, frameTarget?: string): Promise<unknown> {

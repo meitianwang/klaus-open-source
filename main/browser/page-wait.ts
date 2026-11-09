@@ -14,9 +14,10 @@ export function waitSubject(fields:BrowserObject):'duration'|'url'|'load'|'eleme
   const subjects:Array<'duration'|'url'|'load'|'element'>=[];
   if(fields.ms!==undefined||fields.durationMs!==undefined)subjects.push('duration');
   if(fields.url!==undefined)subjects.push('url');
-  if(fields.loadState!==undefined)subjects.push('load');
+  // loadState refines a url wait (both must settle) instead of counting as a second subject.
+  if(fields.loadState!==undefined&&fields.url===undefined)subjects.push('load');
   if(namesElement(fields)||fields.text!==undefined||fields.query!==undefined)subjects.push('element');
-  if(subjects.length!==1)throw new BrowserError('invalid_request','wait_for needs exactly one subject: ms, url, loadState or an element.');
+  if(subjects.length!==1)throw new BrowserError('invalid_request','wait_for needs exactly one subject: ms, url, loadState or an element. loadState may refine a url wait.');
   return subjects[0]!;
 }
 
@@ -34,7 +35,7 @@ export async function waitForPage(cdp:BrowserCdp|undefined,fields:BrowserObject,
   if(subject==='url'&&(typeof fields.url!=='string'||!fields.url.trim()))throw new BrowserError('invalid_request','Wait URL must be a nonempty string or wildcard pattern.');
   const state=String(fields.state??'visible');const loadState=String(fields.loadState??'').toLowerCase();
   if(subject==='element'&&!['visible','hidden','attached','detached','enabled','disabled'].includes(state))throw new BrowserError('invalid_request','Unknown element wait state.');
-  if(subject==='load'&&!['load','domcontentloaded','networkidle'].includes(loadState))throw new BrowserError('invalid_request','loadState must be load, domcontentloaded or networkidle.');
+  if(fields.loadState!==undefined&&!['load','domcontentloaded','networkidle'].includes(loadState))throw new BrowserError('invalid_request','loadState must be load, domcontentloaded or networkidle.');
   let lastActivity=Date.now();const until=Date.now()+boundedDuration;
   const criteria:BrowserObject={...fields,visible:false};delete criteria.state;
   const activity=new Set(['Network.requestWillBeSent','Network.responseReceived','Network.dataReceived','Network.loadingFinished','Network.loadingFailed','Network.webSocketFrameReceived','Network.webSocketFrameSent','Network.eventSourceMessageReceived']);
@@ -43,7 +44,14 @@ export async function waitForPage(cdp:BrowserCdp|undefined,fields:BrowserObject,
     for(;;){
       assertBrowserActionActive(signal);
       try{
-        if(subject==='url'){const url=String(await browserAction(()=>cdp.evaluate('location.href'),signal));if(waitedUrlMatches(url,String(fields.url)))return {url};}
+        if(subject==='url'){
+          const url=String(await browserAction(()=>cdp.evaluate('location.href'),signal));
+          if(waitedUrlMatches(url,String(fields.url))){
+            if(fields.loadState===undefined)return {url};
+            const ready=await browserAction(()=>cdp.evaluate('document.readyState'),signal);
+            if(loadState==='networkidle'?Date.now()-lastActivity>=500:loadState==='load'?ready==='complete':['interactive','complete'].includes(String(ready)))return {url,loadState,...(loadState==='networkidle'?{quietMs:500,note:'No observed request or data activity for 500 ms; an open but quiet connection may remain.'}:{})};
+          }
+        }
         else if(subject==='load'){
           const ready=await browserAction(()=>cdp.evaluate('document.readyState'),signal);
           if(loadState==='networkidle'?Date.now()-lastActivity>=500:loadState==='load'?ready==='complete':['interactive','complete'].includes(String(ready)))return {loadState,...(loadState==='networkidle'?{quietMs:500,note:'No observed request or data activity for 500 ms; an open but quiet connection may remain.'}:{})};

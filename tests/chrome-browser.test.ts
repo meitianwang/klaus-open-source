@@ -523,6 +523,63 @@ h.test('mark_tab applies dispositions on close without confusing them with the g
   assert(!users.map(object).some(row => row.id === discarded.tabId), 'unmarked agent page is closed');
 });
 
+h.test('management drives real Chrome surfaces through the allowlisted extension backend', async () => {
+  assertEqual(service.managementSupported(browserId), true, 'the shipped extension announces browser management');
+  const capsValue = object(object((await advancedOperations.execute('mgmt-caps', 'capabilities', { browserId })).structuredContent).value);
+  const declared = object(capsValue.capabilities).browser as BrowserObject[];
+  assert(Array.isArray(declared) && declared.some(row => object(row).id === 'management'), 'the capability query declares management for external Chrome');
+  assert((capsValue.supported as string[]).includes('management'), 'external Chrome supports the management operation');
+
+  const denied = await assertRejects(() => call('mgmt', 'management', { action: 'call', namespace: 'tabs', method: 'discard', args: [1] }), 'a method outside the allowlist is refused');
+  assert(String(denied).includes('not allowed'), `the refusal names the allowlist: ${String(denied)}`);
+  const popup = await assertRejects(() => call('mgmt', 'management', { action: 'call', namespace: 'windows', method: 'create', args: [{ type: 'popup' }] }), 'popup windows are refused');
+  assert(String(popup).includes('only supports normal windows'), `the refusal explains the window policy: ${String(popup)}`);
+  const scripted = await assertRejects(() => call('mgmt', 'management', { action: 'call', namespace: 'bookmarks', method: 'create', args: [{ title: 'x', url: 'javascript:alert(1)' }] }), 'non-web bookmark URLs are refused');
+  assert(String(scripted).includes('valid http or https URL'), `the refusal explains the URL policy: ${String(scripted)}`);
+
+  const first = object(resultValue(await call('mgmt', 'new_tab', { url: base })));
+  const second = object(resultValue(await call('mgmt', 'new_tab', { url: base })));
+  const firstTabId = Number(first.tabId);
+  const secondTabId = Number(second.tabId);
+  assert(Number.isInteger(firstTabId) && Number.isInteger(secondTabId), 'the management task owns real tab handles');
+  const groupId = Number(resultValue(await call('mgmt', 'management', { action: 'call', namespace: 'tabs', method: 'group', args: [{ tabIds: [firstTabId, secondTabId], createProperties: {} }] })));
+  assert(Number.isInteger(groupId), 'tabs.group returns the real group id');
+  await call('mgmt', 'management', { action: 'call', namespace: 'tabGroups', method: 'update', args: [groupId, { title: 'Mgmt audit', color: 'blue' }] });
+  const group = object(resultValue(await call('mgmt', 'management', { action: 'call', namespace: 'tabGroups', method: 'get', args: [groupId] })));
+  assertEqual(group.title, 'Mgmt audit', 'the real Chrome group carries the requested title');
+  assertEqual(group.color, 'blue', 'the real Chrome group carries the requested color');
+  await call('mgmt', 'management', { action: 'call', namespace: 'tabGroups', method: 'update', args: [groupId, { collapsed: true }] });
+  const collapsed = object(resultValue(await call('mgmt', 'management', { action: 'call', namespace: 'tabGroups', method: 'get', args: [groupId] })));
+  assertEqual(collapsed.collapsed, true, 'the group update reached Chrome');
+  await call('mgmt', 'management', { action: 'call', namespace: 'tabs', method: 'ungroup', args: [[firstTabId, secondTabId]] });
+
+  const bookmark = object(resultValue(await call('mgmt', 'management', { action: 'call', namespace: 'bookmarks', method: 'create', args: [{ title: 'Mgmt fixture', url: `${base}/download` }] })));
+  assert(typeof bookmark.id === 'string', 'bookmarks.create returns the real node id');
+  const searched = resultValue(await call('mgmt', 'management', { action: 'call', namespace: 'bookmarks', method: 'search', args: ['Mgmt fixture'] })) as BrowserObject[];
+  assert(Array.isArray(searched) && searched.some(row => object(row).id === bookmark.id), 'bookmarks.search sees the created node');
+  await call('mgmt', 'management', { action: 'call', namespace: 'bookmarks', method: 'remove', args: [bookmark.id] });
+
+  const trail = object(resultValue(await call('mgmt', 'management', { action: 'audit_trail' })));
+  const changes = trail.changes as BrowserObject[];
+  assert(Array.isArray(changes) && changes.length >= 6, `the ledger recorded every mutating call: ${JSON.stringify(trail)}`);
+  const methods = changes.map(row => `${String(object(row).namespace)}.${String(object(row).method)}`);
+  assertEqual(methods[0], 'bookmarks.remove', 'the ledger is newest-first');
+  for (const audited of ['bookmarks.create', 'tabs.ungroup', 'tabGroups.update', 'tabs.group']) assert(methods.includes(audited), `the ledger audited ${audited}`);
+  const groupEntry = changes.find(row => object(row).namespace === 'tabs' && object(row).method === 'group');
+  assertEqual(object(groupEntry!).result, groupId, 'the audited result carries the created group id');
+  assert(object(object(groupEntry!).before).tabLayout !== undefined, 'the audited before snapshot carries the tab layout');
+
+  const created = object(resultValue(await call('mgmt', 'management', { action: 'call', namespace: 'windows', method: 'create', args: [{}] })));
+  assertEqual(created.type, 'normal', 'created windows stay normal');
+  assertEqual(created.incognito, false, 'created windows are never incognito');
+  const createdTabs = created.tabs as BrowserObject[];
+  assert(Array.isArray(createdTabs) && createdTabs.length === 1, 'a window without tabId opens a single tab');
+  // Chrome reports the not-yet-committed initial tab with an empty url.
+  assert(['about:blank', ''].includes(String(object(createdTabs[0]).url)), 'the created tab targets about:blank');
+
+  await call('mgmt', 'close');
+});
+
 h.test('task cleanup releases only its own tabs and application shutdown leaves Chrome alive', async () => {
   service.releaseSession('A');
   await waitFor(async () => {

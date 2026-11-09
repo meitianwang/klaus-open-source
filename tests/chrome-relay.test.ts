@@ -136,6 +136,20 @@ h.test('legacy extensions are listed as unavailable instead of ignoring task fra
   await service.shutdown(); test.host.close();
 });
 
+h.test('management requires the extension announcement and never reaches an unannouncing extension', async () => {
+  const plain = await fixture('no-mgmt', undefined, { capabilities: ['task_downloads', 'flat_cdp_sessions', 'tab_mentions_v1'] });
+  const announced = await fixture('with-mgmt', undefined, { capabilities: ['task_downloads', 'flat_cdp_sessions', 'browser_management'] });
+  const service = new ChromeBrowserService({ enabled: () => true, discoveryDirectory: directory });
+  await service.select('chrome:no-mgmt');
+  assertEqual(service.managementSupported('chrome:no-mgmt'), false, 'an extension without the announcement does not support management');
+  const error = await assertRejects(() => service.execute('mgmt-session', 'chrome:no-mgmt', 'management', { action: 'call', namespace: 'tabs', method: 'query', args: [{}] }, {}), 'management refuses the unannouncing extension');
+  assert(String(error).includes('Update the Klaus extension'), `the refusal names the extension recovery path: ${String(error)}`);
+  assert(!plain.received.some(request => request.method === 'managementCall'), 'no management request reaches an unannouncing extension');
+  await service.select('chrome:with-mgmt');
+  assertEqual(service.managementSupported('chrome:with-mgmt'), true, 'the announcing extension supports management');
+  await service.shutdown(); plain.host.close(); announced.host.close();
+});
+
 h.test('tab inventory keeps one exact browser connection and immediately publishes extension changes', async () => {
   const test = await fixture('mentions', undefined, { capabilities: ['task_downloads', 'flat_cdp_sessions', 'tab_mentions_v1'], tabs: [{ id: 17, title: 'Inbox', url: 'https://example.com/inbox' }] });
   let changes = 0;

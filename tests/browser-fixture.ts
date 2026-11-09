@@ -369,6 +369,28 @@ async function main(): Promise<number> {
     response(await operations.execute('A', 'type', { selector: '#input', text: 'replaced', clear: true }));
   });
 
+  h.test('locator intersection and scoped evaluation run against the real document', async () => {
+    const increment = response(await operations.execute('A', 'locator', { action: 'list', timeoutMs: 0, and: [{ role: 'button' }, { text: 'Increment' }] }));
+    const rows = object(increment.value).elements as Json[];
+    assertEqual(rows.length, 1, 'intersection narrows to the single Increment button');
+    assertEqual(object(rows[0]).text, 'Increment', 'the matched row is the Increment button');
+    const none = response(await operations.execute('A', 'locator', { action: 'list', timeoutMs: 0, and: [{ role: 'button' }, { text: 'No such control' }] }));
+    assertEqual((object(none.value).elements as Json[]).length, 0, 'an impossible intersection matches nothing');
+    const popup = response(await operations.execute('A', 'locator', { action: 'list', timeoutMs: 0, text: 'Open', and: [{ role: 'button' }] }));
+    assertEqual(object((object(popup.value).elements as Json[])[0]).text, 'Open popup', 'base criteria intersect with the and list');
+
+    const expected = await pageA.cdp.evaluate("document.querySelector('#result').textContent");
+    const single = response(await operations.execute('A', 'locator', { action: 'evaluate', selector: '#result', script: 'element.textContent' }));
+    assertEqual(object(single.value).value, expected, 'expression evaluates against the single match');
+    const withArg = response(await operations.execute('A', 'locator', { action: 'evaluate', selector: '#count', script: '(el, a) => el.id + a', scriptKind: 'function', arg: '-tagged' }));
+    assertEqual(object(withArg.value).value, 'count-tagged', 'function form receives element and JSON arg');
+    const ambiguous = await operations.execute('A', 'locator', { action: 'evaluate', role: 'button', script: '1' });
+    assertEqual(ambiguous.isError, true, 'an ambiguous evaluate fails');
+    assertEqual(object(ambiguous.error).code, 'ambiguous_locator', 'the failure names the ambiguity');
+    const all = response(await operations.execute('A', 'locator', { action: 'evaluate_all', role: 'button', script: 'elements.map(el => el.id).filter(Boolean)' }));
+    assertDeepEqual(object(all.value).value, ['count', 'popup'], 'evaluate_all sees every match in DOM order');
+  });
+
   h.test('stopping real browser typing releases the key and prevents later characters or Enter', async () => {
     const controller = new AbortController();
     const previousValue = await pageA.cdp.evaluate("document.querySelector('#input').value");

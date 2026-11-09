@@ -154,7 +154,9 @@ export async function performPageOperation(context: PageOperationContext, kind: 
       if (fields.sinceMs !== undefined && (typeof fields.sinceMs !== 'number' || !Number.isFinite(fields.sinceMs) || fields.sinceMs < 0)) throw new BrowserError('invalid_request', 'sinceMs must be a non-negative number.');
       const cutoff = typeof fields.since === 'number' ? fields.since : typeof fields.sinceMs === 'number' ? Date.now() - fields.sinceMs : undefined;
       const filter = typeof fields.urlFilter === 'string' ? fields.urlFilter.toLowerCase() : '';
-      const wanted = entries.filter(entry => (!frame || entry.frameTargetId === frame) && (kind !== 'console' || !levels.length || levels.includes(consoleLevel(entry.level))) && (kind !== 'network' || !filter || String(entry.url).toLowerCase().includes(filter)) && (cutoff === undefined || Number(entry.timestamp) >= cutoff));
+      // Case-insensitive substring filter over the rendered console message.
+      const messageFilter = typeof fields.filter === 'string' ? fields.filter.toLowerCase() : '';
+      const wanted = entries.filter(entry => (!frame || entry.frameTargetId === frame) && (kind !== 'console' || !levels.length || levels.includes(consoleLevel(entry.level))) && (kind !== 'console' || !messageFilter || String(entry.text ?? '').toLowerCase().includes(messageFilter)) && (kind !== 'network' || !filter || String(entry.url).toLowerCase().includes(filter)) && (cutoff === undefined || Number(entry.timestamp) >= cutoff));
       const limit = Math.max(1, Math.min(500, Number(fields.limit ?? fields.maxEntries ?? 50) || 50));
       const kept: BrowserObject[] = wanted.slice(-limit).reverse().map(entry => {
         const copy: BrowserObject = { ...entry };

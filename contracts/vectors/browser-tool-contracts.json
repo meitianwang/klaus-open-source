@@ -1,9 +1,9 @@
 {
-  "_why": "Pins browser-tool discovery and Electron input behavior. Typed locators encode an omitted selector as an empty string; decoding must preserve their accessible criteria while direct empty selectors remain invalid. Typed log timestamps use integer milliseconds while raw event timestamps retain source precision. Capability queries identify the requested backend without changing selection and never advertise unavailable operations as supported. Browser computer scroll uses a viewport-centered wheel event by default because a synthesized gesture at the top-left could stall on document editors.",
-  "browserTargetedOperations": ["navigate", "back", "forward", "reload", "click", "type", "locator", "snapshot", "read_page", "screenshot", "console", "network", "eval", "computer", "tabs", "new_tab", "close", "history", "tabs_content", "claim_tab", "mark_tab", "file_upload", "download", "batch", "visibility", "read_urls", "ax_state", "ax_action"],
+  "_why": "Pins browser-tool discovery and Electron input behavior. Typed locators encode an omitted selector as an empty string; decoding must preserve their accessible criteria while direct empty selectors remain invalid. Typed log timestamps use integer milliseconds while raw event timestamps retain source precision. Capability queries identify the requested backend without changing selection and never advertise unavailable operations as supported. Management stays an external-only operation routed through the extension's allowlisted backend with an audit trail, and capability answers declare per-surface capability ids alongside the operation lists. Browser computer scroll uses a viewport-centered wheel event by default because a synthesized gesture at the top-left could stall on document editors.",
+  "browserTargetedOperations": ["navigate", "back", "forward", "reload", "click", "type", "locator", "snapshot", "read_page", "screenshot", "console", "network", "eval", "computer", "tabs", "new_tab", "close", "history", "tabs_content", "claim_tab", "mark_tab", "file_upload", "download", "batch", "visibility", "read_urls", "ax_state", "ax_action", "management"],
   "capabilityQueries": {
     "unavailable": ["gif_creator", "upload_image", "shortcuts_list", "shortcuts_execute"],
-    "externalOnly": ["history", "claim_tab", "tabs_content", "mark_tab"],
+    "externalOnly": ["history", "claim_tab", "tabs_content", "mark_tab", "management"],
     "selection": "A query reports the requested browserId and the unchanged selectedBrowserId; tool metadata identifies the queried backend."
   },
   "browserInventory": {
@@ -46,7 +46,7 @@
     "tabs", "new_tab", "locator", "element_info", "wait_for", "page_text", "batch", "resize", "close", "gif_creator",
     "upload_image", "file_upload", "shortcuts_list", "shortcuts_execute", "switch_browser", "list_connected_browsers", "select_browser", "browser_for_url", "capabilities", "visibility",
     "history", "tabs_content", "read_urls", "claim_tab", "resolve_tab", "content_export", "download", "clipboard", "dialog", "permission", "mark_tab",
-    "ax_state", "ax_action"
+    "ax_state", "ax_action", "management"
   ],
   "mustDeclare": {
     "navigate": ["url", "waitUntil", "viewport", "tabId", "target"],
@@ -58,7 +58,7 @@
     "click": ["text", "role", "label", "placeholder", "ref", "exact", "selector", "x", "y", "targetId", "button", "clickCount", "force", "modifiers", "timeoutMs", "frames", "tabId"],
     "type": ["text", "label", "placeholder", "role", "ref", "selector", "clear", "key", "pressEnter", "delayMs", "timeoutMs", "frames", "tabId"],
     "eval": ["script", "args", "readOnly", "tabId"],
-    "console": ["limit", "sinceMs", "levels", "clear", "tabId"],
+    "console": ["limit", "sinceMs", "levels", "filter", "clear", "tabId"],
     "network": ["limit", "sinceMs", "urlFilter", "includeBodies", "clear", "tabId"],
     "read_page": ["includeText", "filter", "ref", "selector", "depth", "maxChars", "tabId"],
     "find": ["query", "limit", "tabId", "targetId"],
@@ -71,7 +71,7 @@
     "computer": ["action", "coordinate", "ref", "selector", "startCoordinate", "path", "keys", "text", "amount", "scrollX", "scrollY", "scrollDirection", "duration", "save", "timeoutMs", "frames", "tabId"],
     "tabs": [],
     "new_tab": ["url"],
-    "locator": ["text", "role", "label", "placeholder", "selector", "testId", "ref", "within", "has", "any", "hasText", "textContent", "hasNot", "hasNotText", "state", "attribute", "exact", "limit", "timeoutMs", "frames", "targetId", "tabId"],
+    "locator": ["text", "role", "label", "placeholder", "selector", "testId", "ref", "within", "has", "any", "and", "hasText", "textContent", "hasNot", "hasNotText", "state", "attribute", "exact", "script", "scriptKind", "arg", "limit", "timeoutMs", "frames", "targetId", "tabId"],
     "element_info": ["x", "y", "includeNonInteractable", "targetId", "tabId"],
     "wait_for": ["url", "loadState", "ms", "durationMs", "selector", "ref", "text", "role", "label", "placeholder", "testId", "state", "timeoutMs", "frames", "targetId", "tabId"],
     "page_text": ["includeText", "filter", "ref", "selector", "depth", "maxChars", "tabId"],
@@ -87,7 +87,7 @@
     "list_connected_browsers": ["tabs"],
     "select_browser": ["deviceId"],
     "browser_for_url": ["url"],
-    "capabilities": ["deviceId"],
+    "capabilities": ["deviceId", "action", "id"],
     "visibility": ["visible", "target"],
     "history": ["query", "queries", "limit", "from", "to"],
     "tabs_content": [],
@@ -101,7 +101,8 @@
     "permission": ["action", "origin", "permissions", "permission", "setting"],
     "mark_tab": ["status", "tabId", "name"],
     "ax_state": ["mode", "disableDiffing", "maxChars", "fast", "save", "fullPage", "format", "tabId"],
-    "ax_action": ["action", "elementIndex", "snapshotId", "point", "text", "value", "format", "key", "duration", "direction", "pages", "clickCount", "mouseButton", "prefix", "suffix", "selectionType", "name", "timeoutMs", "tabId"]
+    "ax_action": ["action", "elementIndex", "snapshotId", "point", "text", "value", "format", "key", "duration", "direction", "pages", "clickCount", "mouseButton", "prefix", "suffix", "selectionType", "name", "timeoutMs", "tabId"],
+    "management": ["action", "namespace", "method", "args", "browserId"]
   },
   "defaults": {
     "click.timeoutMs": 3000,
@@ -115,7 +116,8 @@
     "read_urls.contentType": "text",
     "read_urls.timeoutMs": 20000,
     "ax_state.mode": "state",
-    "ax_action.timeoutMs": 30000
+    "ax_action.timeoutMs": 30000,
+    "locator.scriptKind": "expression"
   },
   "computerScroll": {
     "default": { "method": "Input.dispatchMouseEvent", "params": { "type": "mouseWheel", "x": 320, "y": 240, "deltaX": 0, "deltaY": 200, "pointerType": "mouse" } },

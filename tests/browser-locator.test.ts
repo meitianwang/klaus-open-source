@@ -18,6 +18,16 @@ h.test('locator nesting is bounded while valid alternatives retain explicit shar
   let nested: BrowserObject={selector:'button'};for(let index=0;index<10;index++)nested={within:nested};
   await assertRejects(async()=>validateLocator(nested),'nested work limit enforced');
 });
+h.test('intersection criteria validate like alternatives and name an element', async () => {
+  const fields = validateLocator({ and: [{ role: 'button' }, { text: 'Go' }] });
+  assertEqual(Array.isArray(fields.and), true, 'intersection criteria are retained');
+  const shared = validateLocator({ state: 'hidden', and: [{ role: 'button' }] });
+  assertEqual(shared.state, 'hidden', 'explicit shared settings survive alongside intersection');
+  for (const invalid of [{ and: [] }, { and: [null] }, { and: 'button' }, { and: [{ state: 'typo' }] }]) {
+    await assertRejects(async () => validateLocator(invalid), 'invalid intersection rejected');
+  }
+  assertEqual(namesElement({ and: [{ text: 'Save' }] }), true, 'intersection does name an element');
+});
 h.test('an input text payload is distinct from explicit locator criteria', () => {
   assertEqual(namesElement({text:'typed payload'}),false,'type payload does not name an element');
   assertEqual(namesElement({any:[{text:'Save'}]}),true,'alternatives do name an element');
