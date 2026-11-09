@@ -123,8 +123,8 @@ const SKILL_TEXT_I18N = {
     zh: ['调试诊断', '启用并查看 Klaus 调试日志，用于诊断当前桌面端会话。'],
   },
   'digram': {
-    en: ['Diagrams', 'Draw flowcharts, architecture layers and data charts in an editable side panel; import Mermaid flowcharts and restyle the document with a brand theme.'],
-    zh: ['图表', '在可编辑侧栏中绘制流程图、架构层与数据图表；支持 Mermaid 流程图导入与文档级品牌主题换肤。'],
+    en: ['Diagrams', 'Draw flowcharts, architecture layers and data charts in an editable side panel; icon nodes pick from a curated IT/cloud glyph library; import Mermaid flowcharts and restyle the document with a brand theme.'],
+    zh: ['图表', '在可编辑侧栏中绘制流程图、架构层与数据图表；图标节点内置 IT/云精选图标库，按分类与常用别名检索；支持 Mermaid 流程图导入与文档级品牌主题换肤。'],
   },
   'deep-research': {
     en: ['Deep Research', 'Break a question apart, research the pieces in parallel, and synthesize a cited answer.'],
@@ -894,7 +894,7 @@ const PLUGIN_NAME_TOKEN_ZH = {
 
 const PLUGIN_DESCRIPTION_ZH_OVERRIDES = {
   'video-editing@klaus-official': '在原生工作面板中使用完整 Studio，代理与人共同编辑同一工程，共享版本、撤销和保存，保留完整 CLI、API、素材、字幕、历史与各类导出。',
-  'digram@klaus-official': '通过声明式文档创建并编辑图表；侧边栏支持绘制、缩放、拖动和导出 PNG/JPG/SVG。图表节点在同一文档内渲染数据图表（柱状、堆叠、折线、面积、饼图、环图、散点、热力、甘特、桑基）；Mermaid 流程图可导入为自动布局的图表；文档级品牌主题可整体替换色板、纸面与字体。',
+  'digram@klaus-official': '通过声明式文档创建并编辑图表；侧边栏支持绘制、缩放、拖动和导出 PNG/JPG/SVG。图表节点在同一文档内渲染数据图表（柱状、堆叠、折线、面积、饼图、环图、散点、热力、甘特、桑基）；图标节点内置 IT/云精选图标库，十大分类、常用别名即搜即得；Mermaid 流程图可导入为自动布局的图表；文档级品牌主题可整体替换色板、纸面与字体。',
   'model3d@klaus-official': '在可编辑的 3D 视图中建模与雕刻、展开 UV、绘制贴图、绑定骨骼、制作动画和路径追踪渲染，计算在本机完成。',
   'prototype-studio@klaus-official': '使用完整的本地可视化编辑器设计桌面、平板和手机界面，代理与面板共同编辑同一文档，支持原生设计格式、PNG、JPG、WebP、SVG、PDF 和 FIG 导出；首次使用需更新桌面端。',
   'reverse-engineering@klaus-official': '对已发布软件做无源码逆向分析，并用机器化对照验收重建版本：重建 JavaScript/Electron 应用图谱，读取 Mach-O 与 PE 结构，检查 .NET 程序集、Android 包、固件镜像、抓包、SQLite 快照、Go 与 WebAssembly 产物，深度原生反编译引擎随包内置，也可接入自有的 Hopper/Ghidra/IDA。重建验收提供感知图像相似度、网站逐宽度采集对照、控制台运行对照、UI 控件对照、机制数值表核验、--screenshot 与 --self-test 构建契约，以及判定重建何时足够好的轮次台账。分析全部在本机进行，每条结论附证据与未决项。',

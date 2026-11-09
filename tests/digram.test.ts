@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { DigramService, exportFilename } from '../main/digram/service';
 import { registerDigramHandlers } from '../main/ipc/handlers/digram';
@@ -23,6 +23,7 @@ let doc:DigramDocument;
 h.test('tool discovery declares the released defaults and page type',()=>{
   const tools=digramTools();const get=(name:string)=>record(tools.find(tool=>tool.name===name)?.inputSchema);const properties=(name:string)=>record(get(name).properties);
   assertEqual(record(properties('digram_icons_search').limit).default,40,'icon search default');
+  assert(String(record(properties('digram_icons_search').category).description).includes('Curated category id'),'icon search exposes the curated category parameter');
   assertEqual(record(properties('digram_export').format).default,'png','export format default');
   assertEqual(record(properties('digram_export').scale).default,2,'export scale default');
   const editOps=record(properties('digram_edit').ops);const item=record(editOps.items);const page=record(record(item.properties).page);
@@ -90,6 +91,31 @@ h.test('fixture catalog icons resolve through both tools and the existing render
   const result=value(await service.execute('A','digram_icons_search',{query:'cpu',limit:3}));assert((result.icons as Json[]).length>0,'catalog search returns catalog keys');
   const key=String(record((result.icons as Json[])[0]).key);const icon=value(await service.execute('A','digram_icon_get',{key}));
   assert(String(icon.path).length>10,'catalog path data');assertEqual(record((await invoke('digram:icons',{keys:[key]})).icons)[key],icon.path,'renderer gets the same catalog path');
+});
+h.test('curated icon collection ranks aliases, browses categories and degrades without curation',async()=>{
+  const byAlias=value(await service.execute('A','digram_icons_search',{query:'sql'}));
+  assertEqual(record((byAlias.icons as Json[])[0]).key,'phosphor:database','alias sql resolves to the database concept');
+  assertEqual(record((byAlias.icons as Json[])[0]).category,'data','curated hit carries its category');
+  const browse=value(await service.execute('A','digram_icons_search',{}));
+  assertDeepEqual((browse.categories as Json[]).map(item=>String(record(item).id)),['compute','data','security'],'category listing follows catalog order');
+  assertEqual((browse.icons as Json[]).length,0,'browse mode returns no icons');
+  const cat=value(await service.execute('A','digram_icons_search',{category:'compute'}));
+  assertDeepEqual((cat.icons as Json[]).map(item=>String(record(item).key)),['phosphor:cpu','phosphor:cloud'],'category browse lists its icons in catalog order');
+  assertEqual(record(cat.category).count,2,'category summary count');
+  assertEqual((await service.execute('A','digram_icons_search',{category:'nope'})).isError,true,'unknown category rejected');
+  const mixed=value(await service.execute('A','digram_icons_search',{query:'cloud'}));
+  assertEqual(record((mixed.icons as Json[])[0]).name,'cloud-host','curated alias outranks the raw key match');
+  const raw=value(await service.execute('A','digram_icons_search',{query:'globe'}));
+  assertEqual(record((raw.icons as Json[])[0]).key,'phosphor:globe','raw substring fallback still works');
+  assertEqual(record((raw.icons as Json[])[0]).category,undefined,'raw match carries no category');
+  const degradedRoot=join(root,'degraded-plugin');mkdirSync(join(degradedRoot,'icons'),{recursive:true});
+  writeFileSync(join(degradedRoot,'icons','index.json'),JSON.stringify({'phosphor:beta':'M0 0','phosphor:alpha':'M0 0'}));
+  const degraded=new DigramService({configRoot:join(root,'degraded-store'),pluginRoot:()=>degradedRoot,windowId:43,renderTimeoutMs:40,emit:()=>{}});
+  const legacy=value(await degraded.execute('A','digram_icons_search',{}));
+  assertDeepEqual((legacy.icons as Json[]).map(item=>String(record(item).key)),['phosphor:alpha','phosphor:beta'],'empty query without curation keeps the legacy sorted listing');
+  assertEqual(legacy.categories,undefined,'no category listing without curation');
+  assertEqual(record((value(await degraded.execute('A','digram_icons_search',{query:'alpha'})).icons as Json[])[0]).key,'phosphor:alpha','legacy substring search without curation');
+  await degraded.shutdown();
 });
 h.test('export replies are attributed to the requested renderer, format and task lifetime',async()=>{
   const exporting=service.execute('A','digram_export',{id:'alpha',format:'svg'});const request=events.at(-1)!.data;

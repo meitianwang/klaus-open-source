@@ -13,6 +13,9 @@ import { DigramStore } from './store';
 import { digramTools } from './tools';
 
 interface PendingRender { owner: string; format: string; resolve(bytes: Buffer): void; reject(error: Error): void; timer: ReturnType<typeof setTimeout> }
+interface CuratedEntry { key: string; name: string; aliases: string[]; category: string }
+interface CuratedCatalog { categories: string[]; labels: Map<string,string>; entries: CuratedEntry[]; byCategory: Map<string,CuratedEntry[]> }
+const emptyCurated = (): CuratedCatalog => ({ categories: [], labels: new Map(), entries: [], byCategory: new Map() });
 export interface DigramOptions {
   configRoot: string;
   /** Installed digram plugin directory from the ledger; undefined until the official marketplace install lands. */
@@ -46,6 +49,38 @@ export class DigramService {
     catch{this.icons=new Map();}
     this.iconsRoot=root;return this.icons;
   }
+  private curatedCache: CuratedCatalog | undefined;
+  private curatedRoot: string | undefined;
+  /** Curated IT/cloud concept layer shipped beside the glyph index; entries whose
+   * key is missing from the index are dropped so search can never surface a key
+   * the renderer would fail to resolve. A missing or malformed file simply leaves
+   * the collection empty and search degrades to plain key-substring matching. */
+  private async curated(): Promise<CuratedCatalog> {
+    const root=this.options.pluginRoot?.();
+    if(this.curatedCache&&this.curatedRoot===root)return this.curatedCache;
+    if(!root){this.curatedCache=emptyCurated();this.curatedRoot=root;return this.curatedCache;}
+    try{
+      const raw=record(JSON.parse(readBounded(join(root,'icons/curated.json'),4*1024*1024)));
+      const index=await this.catalog();const built=emptyCurated();const names=new Set<string>();
+      for(const item of Array.isArray(raw.categories)?raw.categories:[]){
+        const cat=record(item);const id=String(cat.id??'').trim().toLowerCase();
+        if(!id||built.categories.includes(id))continue;
+        const list:CuratedEntry[]=[];
+        for(const iconItem of Array.isArray(cat.icons)?cat.icons:[]){
+          const entry=record(iconItem);const key=String(entry.key??'');
+          if(!index.has(key))continue;
+          const name=String(entry.name??key.split(':').at(-1)!).trim().toLowerCase();
+          if(!name||names.has(name))continue;
+          names.add(name);
+          const aliases=(Array.isArray(entry.aliases)?entry.aliases:[]).map(alias=>String(alias).trim().toLowerCase()).filter((alias,position,self)=>Boolean(alias)&&self.indexOf(alias)===position);
+          list.push({key,name,aliases,category:id});
+        }
+        if(list.length){built.categories.push(id);built.labels.set(id,String(cat.label??id));built.byCategory.set(id,list);built.entries.push(...list);}
+      }
+      this.curatedCache=built;
+    }catch{this.curatedCache=emptyCurated();}
+    this.curatedRoot=root;return this.curatedCache;
+  }
   async icon(key: string): Promise<string | undefined> {return key.startsWith('path:')?key.slice(5):(await this.catalog()).get(key);}
   private changed(owner: string,doc: DigramDocument): void {this.options.emit('digram:changed',{id:doc.id,version:doc.version,sessionId:owner});}
   private success(value: Json,artifact?: Json): Data {return {content:[...(artifact?[{type:'text',text:JSON.stringify({artifact})}]:[]),{type:'text',text:JSON.stringify(value)}],structuredContent:value};}
@@ -64,8 +99,34 @@ export class DigramService {
         return this.success({id:doc.id,document:doc,artifact,warnings:parsed.warnings,stats},artifact);
       }
       if(name==='digram_icons_search'){
-        const query=String(fields.query??'').toLowerCase();const limit=Math.max(1,Math.min(200,Number(fields.limit??40)||40));
-        return this.success({icons:[...(await this.catalog()).keys()].sort().filter(key=>key.toLowerCase().includes(query)).slice(0,limit).map(key=>({key,name:key.split(':').at(-1)!}))});
+        const limit=Math.max(1,Math.min(200,Number(fields.limit??40)||40));
+        const query=String(fields.query??'').trim().toLowerCase().replace(/[\s_]+/g,'-');
+        const category=fields.category===undefined||fields.category===null?undefined:String(fields.category).trim().toLowerCase();
+        const curated=await this.curated();
+        const raw=async()=>[...(await this.catalog()).keys()].sort().filter(key=>key.toLowerCase().includes(query)).map(key=>({key,name:key.split(':').at(-1)!}));
+        if(category){
+          const list=curated.byCategory.get(category);
+          if(!list)throw new Error(`Unknown icon category: ${category}. Categories: ${curated.categories.join(', ')||'none'}.`);
+          return this.success({icons:list.filter(entry=>!query||entry.name.includes(query)||entry.aliases.some(alias=>alias.includes(query))).slice(0,limit).map(entry=>({key:entry.key,name:entry.name,category:entry.category})),category:{id:category,label:curated.labels.get(category)??category,count:list.length}});
+        }
+        if(!query){
+          if(!curated.categories.length)return this.success({icons:(await raw()).slice(0,limit)});
+          return this.success({icons:[],categories:curated.categories.map(id=>({id,label:curated.labels.get(id)??id,count:curated.byCategory.get(id)?.length??0}))});
+        }
+        // Curated concepts rank by match strength: exact name/alias, prefix, substring, category id.
+        const scored:{score:number;entry:CuratedEntry}[]=[];
+        for(const entry of curated.entries){
+          let score=-1;
+          if(entry.name===query||entry.aliases.includes(query))score=0;
+          else if(entry.name.startsWith(query)||entry.aliases.some(alias=>alias.startsWith(query)))score=1;
+          else if(entry.name.includes(query)||entry.aliases.some(alias=>alias.includes(query)))score=2;
+          else if(entry.category===query)score=3;
+          if(score>=0)scored.push({score,entry});
+        }
+        scored.sort((a,b)=>a.score-b.score||a.entry.name.localeCompare(b.entry.name));
+        const picked=scored.slice(0,limit);const icons:{key:string;name:string;category?:string}[]=picked.map(({entry})=>({key:entry.key,name:entry.name,category:entry.category}));
+        if(icons.length<limit){const taken=new Set(picked.map(item=>item.entry.key));for(const match of await raw()){if(icons.length>=limit)break;if(!taken.has(match.key))icons.push(match);}}
+        return this.success({icons});
       }
       if(name==='digram_icon_get'){const key=text(fields.key,'key');const path=await this.icon(key);if(path===undefined)throw new Error(`No such icon: ${key}`);return this.success({key,path});}
       if(!['digram_get','digram_edit','digram_inspect','digram_layout','digram_export','digram_history','digram_revert'].includes(name))throw new Error(`Unknown diagram tool: ${name}`);

@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "categories": [
+    {
+      "id": "compute",
+      "label": "Compute & AI",
+      "icons": [
+        { "key": "phosphor:cpu", "name": "cpu", "aliases": ["processor", "chip", "compute"] },
+        { "key": "phosphor:cloud", "name": "cloud-host", "aliases": ["cloud", "hosting", "saas"] }
+      ]
+    },
+    {
+      "id": "data",
+      "label": "Data & Storage",
+      "icons": [
+        { "key": "phosphor:database", "name": "database", "aliases": ["db", "sql", "storage"] },
+        { "key": "phosphor:file", "name": "file", "aliases": ["document", "asset"] }
+      ]
+    },
+    {
+      "id": "security",
+      "label": "Security & Identity",
+      "icons": [
+        { "key": "phosphor:lock", "name": "encryption", "aliases": ["tls", "ssl", "encrypted"] },
+        { "key": "phosphor:user", "name": "user", "aliases": ["account", "member", "client"] }
+      ]
+    }
+  ]
+}
