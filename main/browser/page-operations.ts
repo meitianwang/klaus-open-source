@@ -81,8 +81,10 @@ export async function performPageOperation(context: PageOperationContext, kind: 
       if (fields.action === 'events' || fields.method === undefined) {
         value = await readCdpEvents(cdp, fields, frame); break;
       }
-      const method = string(fields.method, 'method'); checkRawCdp(method);
-      value = await cdp.command(method, object(fields.params ?? fields.commandParams)); break;
+      const method = string(fields.method, 'method');
+      const params = object(fields.params ?? fields.commandParams);
+      checkRawCdp(method, params);
+      value = await cdp.command(method, params); break;
     }
     case 'snapshot': value=await snapshotPage(cdp,fields); break;
     case 'read_page': case 'page_text': value=await readPage(cdp,fields); break;

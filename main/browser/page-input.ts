@@ -1,7 +1,9 @@
+import { randomUUID } from 'node:crypto';
 import { domScript, elementScript, frameCdp, namesElement } from './dom';
 import { BrowserError, object, type BrowserObject } from './types';
 import type { BrowserCdp } from './page-operations';
-import { assertPointerActive, frameDispatch, pointerTarget } from './pointer-action';
+import { locatorBudget } from './locator-policy';
+import { assertPointerActive, frameDispatch, pointerTarget, type PointerTarget } from './pointer-action';
 import { assertBrowserActionActive, browserAction, pauseBrowserAction } from './action-cancellation';
 
 export function modifiers(value: unknown): number {
@@ -40,33 +42,58 @@ export async function click(cdp: BrowserCdp, fields: BrowserObject, signal?: Abo
   if (holdMs !== undefined && (typeof holdMs !== 'number' || !Number.isFinite(holdMs) || holdMs < 0 || holdMs > 30000)) throw new BrowserError('invalid_request', 'holdMs must be from 0 to 30000 milliseconds.');
   assertPointerActive(signal);
   const named = namesElement(fields) || fields.text !== undefined;
-  let target = named ? await pointerTarget(cdp, fields, signal) : { cdp, ...point(fields.coordinate ?? fields) };
+  const buttons = button === 'left' ? 1 : button === 'right' ? 2 : 4;
+  const dispatchPointer = async (target: PointerTarget): Promise<void> => {
+    const session = target.cdp;
+    const { x, y } = target;
+    assertPointerActive(signal);
+    await session.command('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y, modifiers: held });
+    assertPointerActive(signal);
+    if (fields.moveOnly === true) return;
+    try {
+      // A failed transport reply can arrive after Chromium accepted mousePressed.
+      // Release even when the press itself throws, or cancellation wins afterward.
+      await session.command('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button, buttons, clickCount, modifiers: held });
+      assertPointerActive(signal);
+      // A held press keeps the button down for the requested duration; the
+      // release below still runs when the hold is cancelled midway.
+      if (Number(holdMs) > 0) await pauseBrowserAction(Number(holdMs), signal);
+    } finally {
+      await session.command('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button, buttons: 0, clickCount, modifiers: held });
+    }
+    assertPointerActive(signal);
+  };
   if (!named) {
+    let target: PointerTarget = { cdp, ...point(fields.coordinate ?? fields) };
     // A raw coordinate inside an in-process frame is frame-local; the page
     // session that dispatches the event expects top-level coordinates.
     const dispatch = frameDispatch(cdp);
     if (dispatch.map) { const mapped = await dispatch.map(target.x, target.y); target = { cdp: dispatch.cdp, x: mapped.x, y: mapped.y }; }
+    await dispatchPointer(target);
+    return { ok: true, via: 'pointer' };
   }
-  cdp = target.cdp;
-  const { x, y } = target;
-  assertPointerActive(signal);
-  await cdp.command('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y, modifiers: held });
-  assertPointerActive(signal);
-  if (fields.moveOnly === true) return { ok: true, via: 'pointer' };
-  const buttons = button === 'left' ? 1 : button === 'right' ? 2 : 4;
-  try {
-    // A failed transport reply can arrive after Chromium accepted mousePressed.
-    // Release even when the press itself throws, or cancellation wins afterward.
-    await cdp.command('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button, buttons, clickCount, modifiers: held });
+  // A named click retries under one deadline: when the dispatch-time
+  // interceptor finds the page moved something else under the pointer, the
+  // events never reached the page and the whole attempt is resolved again.
+  const budget = locatorBudget(fields.timeoutMs, 3000, 60000, 'Pointer timeoutMs');
+  const until = Date.now() + budget;
+  let intercepted: string | undefined;
+  for (;;) {
     assertPointerActive(signal);
-    // A held press keeps the button down for the requested duration; the
-    // release below still runs when the hold is cancelled midway.
-    if (Number(holdMs) > 0) await pauseBrowserAction(Number(holdMs), signal);
-  } finally {
-    await cdp.command('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button, buttons: 0, clickCount, modifiers: held });
+    const target = await pointerTarget(cdp, { ...fields, timeoutMs: budget > 0 ? Math.max(0, until - Date.now()) : 0 }, signal);
+    try {
+      await dispatchPointer(target);
+      const verdict = target.guard ? await target.guard.stop() : 'done';
+      if (verdict === 'done') return { ok: true, via: 'pointer' };
+      intercepted = verdict;
+    } catch (error) {
+      target.guard?.abandon();
+      throw error;
+    }
+    if (budget <= 0) throw new BrowserError('intercepted', `Pointer events are intercepted by ${intercepted}.`);
+    if (Date.now() >= until) throw new BrowserError('timeout', `The pointer action did not reach the matched element within ${budget} ms: pointer events are intercepted by ${intercepted}.`);
+    await pauseBrowserAction(100, signal);
   }
-  assertPointerActive(signal);
-  return { ok: true, via: 'pointer' };
 }
 
 /** Follow the focus chain across frame boundaries that page scripts cannot cross. */
@@ -92,6 +119,47 @@ async function focusRoute(cdp: BrowserCdp, signal?: AbortSignal): Promise<Browse
   return current;
 }
 
+const TYPE_LOST = 'The type target changed or lost focus while typing.';
+
+/**
+ * Per-character guard for slow typing: the element must still carry the token
+ * this action stamped on it, and focus must still be on it (or inside its
+ * shadow tree) with every same-process frame owner still focused. A
+ * cross-origin frame owner cannot be inspected from the page; the host then
+ * re-walks the focus route through CDP to confirm the frame identity.
+ */
+async function assertTypeTargetHoldsFocus(target: BrowserCdp, selected: string, token: string, signal?: AbortSignal): Promise<void> {
+  let state: BrowserObject;
+  try {
+    state = object(await browserAction(() => target.evaluate(domScript(`
+      const e = ${selected};
+      if (!e || !e.isConnected) return { ok: false };
+      if (Object.getOwnPropertyDescriptor(e, '__klausTypeTargetToken')?.value !== ${JSON.stringify(token)}) return { ok: false };
+      const focused = el => { let at = el; for (;;) { const root = at.getRootNode?.(); if (!root || root.activeElement !== at) return false; if (!('host' in root)) return true; at = root.host; if (!at) return false; } };
+      if (!(e.matches(':focus') || focused(e))) return { ok: false };
+      let chain = 'ok';
+      try {
+        let view = e.ownerDocument.defaultView;
+        while (view && view !== view.top) {
+          const owner = view.frameElement;
+          if (!owner) { chain = 'unknown'; break; }
+          if (!focused(owner)) { chain = 'broken'; break; }
+          view = owner.ownerDocument.defaultView;
+        }
+      } catch { chain = 'unknown'; }
+      return { ok: true, chain };
+    `)), signal));
+  } catch (error) {
+    if (error instanceof BrowserError && /context.*destroyed|cannot find context|not connected|navigat/iu.test(error.message)) throw new BrowserError('stale_target', TYPE_LOST);
+    throw error;
+  }
+  if (state.ok !== true || state.chain === 'broken') throw new BrowserError('stale_target', TYPE_LOST);
+  if (state.chain === 'unknown' && target.captureScope?.frame) {
+    const routed = await focusRoute(target, signal);
+    if ((routed.captureScope?.frame ?? undefined) !== target.captureScope.frame) throw new BrowserError('stale_target', TYPE_LOST);
+  }
+}
+
 export async function typeText(cdp: BrowserCdp, fields: BrowserObject, signal?: AbortSignal): Promise<void> {
   assertBrowserActionActive(signal);
   if (typeof fields.text !== 'string') throw new BrowserError('invalid_request', 'text must be a string.');
@@ -107,15 +175,25 @@ export async function typeText(cdp: BrowserCdp, fields: BrowserObject, signal?: 
   const delay = fields.delayMs ?? fields.delay;
   if (delay !== undefined && (typeof delay !== 'number' || !Number.isFinite(delay) || delay < 0)) throw new BrowserError('invalid_request', 'delayMs must be a non-negative number.');
   if (Number(delay) > 0 && text) {
-    for (const character of [...text]) {
-      assertBrowserActionActive(signal);
-      const event = { key: character, text: character, unmodifiedText: character };
-      try {
-        await browserAction(() => target.command('Input.dispatchKeyEvent', { type: 'keyDown', ...event }), signal);
-      } finally {
-        await target.command('Input.dispatchKeyEvent', { type: 'keyUp', ...event });
+    // Sequential typing verifies before every character that the keystrokes
+    // still belong to the element this action focused; a page that steals
+    // focus mid-typing aborts instead of leaking the rest into another field.
+    const token = named ? randomUUID() : undefined;
+    if (named) await browserAction(() => target.evaluate(domScript(`const e=${selected};if(e&&e.isConnected)Object.defineProperty(e,'__klausTypeTargetToken',{value:${JSON.stringify(token)},configurable:true});`)), signal);
+    try {
+      for (const character of [...text]) {
+        assertBrowserActionActive(signal);
+        if (named) await assertTypeTargetHoldsFocus(target, selected, token!, signal);
+        const event = { key: character, text: character, unmodifiedText: character };
+        try {
+          await browserAction(() => target.command('Input.dispatchKeyEvent', { type: 'keyDown', ...event }), signal);
+        } finally {
+          await target.command('Input.dispatchKeyEvent', { type: 'keyUp', ...event });
+        }
+        await pauseBrowserAction(Math.min(Number(delay), 200), signal);
       }
-      await pauseBrowserAction(Math.min(Number(delay), 200), signal);
+    } finally {
+      if (named) await target.evaluate(domScript(`const e=${selected};if(e&&Object.getOwnPropertyDescriptor(e,'__klausTypeTargetToken')?.value===${JSON.stringify(token)})Reflect.deleteProperty(e,'__klausTypeTargetToken');`)).catch(() => {});
     }
   } else await browserAction(() => target.command('Input.insertText', { text }), signal);
   assertBrowserActionActive(signal);

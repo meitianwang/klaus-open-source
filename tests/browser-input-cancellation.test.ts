@@ -18,8 +18,8 @@ h.test('input cancellation vectors prevent submission and release pressed keys',
     if (vector.cancelAt === 'before') controller.abort();
     const context = { signal: controller.signal, cdp: {
       evaluate: async () => null,
-      command: async (_method: string, params: BrowserObject = {}) => {
-        events.push(`${String(params.type)}:${String(params.key)}`);
+      command: async (method: string, params: BrowserObject = {}) => {
+        events.push(params.type === undefined ? method : `${String(params.type)}:${String(params.key)}`);
         if (params.type === vector.cancelAt) controller.abort();
         return {};
       },
@@ -45,7 +45,7 @@ h.test('a cancelled focus reply cannot start typing or clearing later', async ()
   await cancelled(() => pending);
   finish(null);
   await new Promise(resolve => setImmediate(resolve));
-  assertDeepEqual(commands, [], 'a late focus acknowledgement causes no further input');
+  assertDeepEqual(commands, ['Runtime.evaluate'], 'only the focus probe precedes the cancelled editable check; no input follows');
 });
 
 h.test('a delayed key acknowledgement cannot keep a cancelled key pressed', async () => {
@@ -55,8 +55,8 @@ h.test('a delayed key acknowledgement cannot keep a cancelled key pressed', asyn
   const keyDown = new Promise<BrowserObject>(resolve => { finish = resolve; });
   const context = { signal: controller.signal, cdp: {
     evaluate: async () => null,
-    command: async (_method: string, params: BrowserObject = {}) => {
-      events.push(`${String(params.type)}:${String(params.key)}`);
+    command: async (method: string, params: BrowserObject = {}) => {
+      events.push(params.type === undefined ? method : `${String(params.type)}:${String(params.key)}`);
       if (params.type === 'keyDown') { started(); return keyDown; }
       return {};
     },
@@ -65,32 +65,32 @@ h.test('a delayed key acknowledgement cannot keep a cancelled key pressed', asyn
   await entered;
   controller.abort();
   await cancelled(() => pending);
-  assertDeepEqual(events, ['keyDown:a', 'keyUp:a'], 'release is submitted before the delayed press acknowledgement');
+  assertDeepEqual(events, ['Runtime.evaluate', 'keyDown:a', 'keyUp:a'], 'release is submitted before the delayed press acknowledgement');
   finish({});
   await new Promise(resolve => setImmediate(resolve));
-  assertEqual(events.length, 2, 'a late reply cannot type or submit again');
+  assertEqual(events.length, 3, 'a late reply cannot type or submit again');
 });
 
 h.test('cancellation during typing delay stops the next character', async () => {
   const controller = new AbortController(), events: string[] = [];
   const context = { signal: controller.signal, cdp: {
     evaluate: async () => null,
-    command: async (_method: string, params: BrowserObject = {}) => {
-      events.push(`${String(params.type)}:${String(params.key)}`);
+    command: async (method: string, params: BrowserObject = {}) => {
+      events.push(params.type === undefined ? method : `${String(params.type)}:${String(params.key)}`);
       if (params.type === 'keyUp') setTimeout(() => controller.abort(), 5);
       return {};
     },
   } } as unknown as PageOperationContext;
   await cancelled(() => performPageOperation(context, 'computer', { action: 'type', text: 'abc', delayMs: 200 }));
-  assertDeepEqual(events, ['keyDown:a', 'keyUp:a'], 'only the first character is delivered');
+  assertDeepEqual(events, ['Runtime.evaluate', 'keyDown:a', 'keyUp:a'], 'only the first character is delivered');
 });
 
 h.test('a rejected key press still releases its key without typing another character', async () => {
   const events: string[] = [];
   const context = { cdp: {
     evaluate: async () => null,
-    command: async (_method: string, params: BrowserObject = {}) => {
-      events.push(String(params.type));
+    command: async (method: string, params: BrowserObject = {}) => {
+      events.push(params.type === undefined ? method : String(params.type));
       if (params.type === 'keyDown') throw new Error('synthetic transport failure');
       return {};
     },
@@ -98,7 +98,7 @@ h.test('a rejected key press still releases its key without typing another chara
   let failed = false;
   try { await performPageOperation(context, 'type', { text: 'abc', delayMs: 1 }); } catch { failed = true; }
   assert(failed, 'the transport failure is retained');
-  assertDeepEqual(events, ['keyDown', 'keyUp'], 'the pressed key is released on failure');
+  assertDeepEqual(events, ['Runtime.evaluate', 'keyDown', 'keyUp'], 'the pressed key is released on failure');
 });
 
 h.test('fixed waits and computer waits release immediately on cancellation', async () => {

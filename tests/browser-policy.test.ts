@@ -56,6 +56,68 @@ h.test('raw CDP cannot create a target, read global cookies, upload files or byp
   checkRawCdp('DOM.getDocument');
 });
 
+h.test('raw CDP refuses guarded input, interception and tracing methods while diagnostic domains stay open', () => {
+  for (const method of [
+    'Input.dispatchKeyEvent', 'Input.setInterceptDrags', 'Input.dispatchDragEvent',
+    'Network.continueInterceptedRequest', 'Network.getCertificate', 'Network.replayXHR',
+    'Network.deleteDeviceBoundSession', 'Network.enableDeviceBoundSessions',
+    'Network.getResponseBodyForInterception', 'Network.takeResponseBodyForInterceptionAsStream',
+    'Network.setCookieControls', 'Network.setExtraHTTPHeaders',
+    'Page.disable', 'Page.getNavigationHistory', 'Page.resetNavigationHistory',
+    'Page.deleteCookie', 'Page.setAdBlockingEnabled', 'Page.setRPHRegistrationMode', 'Page.setSPCTransactionMode',
+    'Tracing.requestMemoryDump', 'Fetch.enable', 'Fetch.disable', 'Storage.getCookies', 'WebAuthn.enable',
+  ]) {
+    let refused = false;
+    try { checkRawCdp(method); } catch { refused = true; }
+    assert(refused, `${method} must be refused`);
+  }
+  for (const method of ['Console.enable', 'Audits.getEncodedResponse', 'Debugger.enable', 'IO.read', 'Inspector.enable', 'Profiler.enable', 'WebAudio.enable', 'Tracing.start', 'Animation.enable', 'LayerTree.enable', 'PerformanceTimeline.enable']) {
+    checkRawCdp(method);
+  }
+});
+
+h.test('raw CDP refuses escalation payloads even on allowed methods', () => {
+  const refused: Array<[string, BrowserObject]> = [
+    ['Page.createIsolatedWorld', { frameId: 'f', grantUniveralAccess: true }],
+    ['Page.reload', { scriptToEvaluateOnLoad: 'alert(1)' }],
+    ['Network.enable', { enableDurableMessages: true }],
+    ['Network.configureDurableMessages', { maxTotalBufferSize: 1024 }],
+    ['Tracing.start', { tracingBackend: 'system' }],
+    ['Tracing.start', { options: 'disabled-by-default-foo,enable-systrace' }],
+    ['Tracing.start', { traceConfig: { enableSystrace: true } }],
+    ['Tracing.start', { traceConfig: { memoryDumpConfig: {} } }],
+    ['Tracing.start', { perfettoConfig: {} }],
+    ['Fetch.continueResponse', { requestId: 'r', binaryResponseHeaders: [] }],
+    ['Fetch.fulfillRequest', { requestId: 'r', binaryResponseHeaders: [] }],
+  ];
+  for (const [method, params] of refused) {
+    let blocked = false;
+    try { checkRawCdp(method, params); } catch (error) { blocked = error instanceof BrowserError && error.code === 'refused_by_policy'; }
+    assert(blocked, `${method} with ${JSON.stringify(params)} must be refused`);
+  }
+  // The same methods stay available with benign payloads.
+  checkRawCdp('Page.createIsolatedWorld', { frameId: 'f', worldName: 'probe', grantUniveralAccess: false });
+  checkRawCdp('Page.reload', { ignoreCache: true });
+  checkRawCdp('Network.enable', { maxTotalBufferSize: 100 });
+  checkRawCdp('Tracing.start', { options: 'disabled-by-default-devtools.timeline' });
+  checkRawCdp('Tracing.start', { traceConfig: { recordMode: 'recordAsMuchAsPossible' } });
+});
+
+h.test('raw CDP refusals name the operation that replaces them', () => {
+  const read = (method: string): string => {
+    try { checkRawCdp(method); } catch (error) { return error instanceof Error ? error.message : String(error); }
+    return '';
+  };
+  assert(read('DOM.setFileInputFiles').includes('file_upload'), 'file input guidance');
+  assert(read('Input.dispatchKeyEvent').includes('type or press_key'), 'keyboard guidance');
+  assert(read('Page.navigate').includes('navigate operation'), 'navigation guidance');
+  assert(read('Page.getNavigationHistory').includes('back or forward'), 'history guidance');
+  assert(read('Page.handleJavaScriptDialog').includes('dialog operation'), 'dialog guidance');
+  assert(read('Page.setDownloadBehavior').includes('download operation'), 'download guidance');
+  assert(read('Network.getAllCookies').includes('host-managed'), 'cookie guidance');
+  assert(read('Page.setBypassCSP').includes('named browser operation'), 'generic fallback guidance');
+});
+
 h.test('named and facade requests keep their operation fields and task tab target', () => {
   const flat = parseOperation('navigate', { url: 'https://example.com/', target: { tabId: 2 } });
   assertEqual(flat.kind, 'navigate', 'named MCP operation');

@@ -2,6 +2,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { domScript } from './dom';
+import { isolatedWorldEvaluate, WEBMCP_WORLD } from './page-evaluate';
 import { timeoutMs } from './policy';
 import { BrowserError, json, object, type BrowserObject } from './types';
 import type { BrowserCdp, PageOperationContext } from './page-operations';
@@ -216,25 +217,69 @@ export async function pageAssets(context: PageOperationContext, fields: BrowserO
   return {directoryPath:directory,manifestPath,assets:saved,failures,summary};
 }
 
-export const WEBMCP_LIST = domScript(`const tools=[],surfaces=[];
+/** The form surface is enumerated in an isolated world: clean DOM prototypes a page cannot forge. */
+export const WEBMCP_FORMS = domScript(`const tools=[],surfaces=[];
 for(const form of query('form[tool-name]')){const name=norm(form.getAttribute('tool-name'));if(!name)continue;const properties={},required=[];for(const e of form.querySelectorAll('input[name],select[name],textarea[name]')){properties[e.name]={type:e.type==='checkbox'?'boolean':['number','range'].includes(e.type)?'number':'string',description:e.getAttribute('tool-param-description')||label(e)||null};if(e.required)required.push(e.name);}tools.push({name,via:'form',description:form.getAttribute('tool-description')||null,inputSchema:{type:'object',properties,required}});}
-if(tools.length)surfaces.push('form[tool-name]');const context=navigator.modelContext;let listed;
-if(context){surfaces.push('navigator.modelContext');for(const key of ['tools','_tools','registeredTools','toolRegistry']){const found=context[key];if(found){listed=Array.isArray(found)?found:found instanceof Map?Array.from(found.values()):typeof found==='object'?Object.values(found):null;if(listed)break;}}if(listed)for(const tool of listed)if(tool?.name)tools.push({name:tool.name,via:'script',description:tool.description||null,inputSchema:tool.inputSchema||null});else{}if(!listed)surfaces.push('navigator.modelContext:opaque');}
-return {tools,surfaces,available:tools.length>0,opaque:surfaces.includes('navigator.modelContext:opaque'),note:surfaces.includes('navigator.modelContext:opaque')?'The page registers tools in an opaque browser registry; this surface cannot enumerate or call them.':tools.length?null:'This page declares no agent tools.'};`);
+if(tools.length)surfaces.push('form[tool-name]');
+return {tools,surfaces,pageUrl:location.href};`);
+
+/** The modelContext surface is a page-world object; only the main world can read it. */
+export const WEBMCP_CONTEXT = domScript(`const tools=[],surfaces=[];let opaque=false;
+const context=navigator.modelContext;let listed;
+if(context){surfaces.push('navigator.modelContext');for(const key of ['tools','_tools','registeredTools','toolRegistry']){const found=context[key];if(found){listed=Array.isArray(found)?found:found instanceof Map?Array.from(found.values()):typeof found==='object'?Object.values(found):null;if(listed)break;}}if(listed)for(const tool of listed)if(tool?.name)tools.push({name:tool.name,via:'script',description:tool.description||null,inputSchema:tool.inputSchema||null});if(!listed){surfaces.push('navigator.modelContext:opaque');opaque=true;}}
+return {tools,surfaces,opaque,pageUrl:location.href};`);
+
+const WEBMCP_MAX_TOOLS = 100;
+const WEBMCP_MAX_DESCRIPTOR_BYTES = 65536;
+const WEBMCP_STALE = '__klausStalePageUrl';
+
+const rows = (value: unknown): BrowserObject[] => (Array.isArray(value) ? value : []).map(object);
+const texts = (value: unknown): string[] => (Array.isArray(value) ? value : []).map(item => String(item));
+
+/** Enumerate both readable surfaces and enforce the descriptor limits host-side, where a page cannot bypass them. */
+async function listPageTools(cdp: BrowserCdp): Promise<BrowserObject> {
+  const forms = object(await isolatedWorldEvaluate(cdp, WEBMCP_WORLD, WEBMCP_FORMS));
+  const script = object(await cdp.evaluate(WEBMCP_CONTEXT));
+  const tools = [...rows(forms.tools), ...rows(script.tools)];
+  if (tools.length > WEBMCP_MAX_TOOLS) throw new BrowserError('unavailable', `This page declares ${tools.length} agent tools, above the supported limit of ${WEBMCP_MAX_TOOLS}. The site must correct its configuration and reload the page to retry.`);
+  const bytes = Buffer.byteLength(JSON.stringify(tools));
+  if (bytes > WEBMCP_MAX_DESCRIPTOR_BYTES) throw new BrowserError('unavailable', `This page's agent tool descriptors total ${bytes} bytes, above the supported limit of ${WEBMCP_MAX_DESCRIPTOR_BYTES}. The site must correct its configuration and reload the page to retry.`);
+  const surfaces = [...new Set([...texts(forms.surfaces), ...texts(script.surfaces)])];
+  const opaque = script.opaque === true;
+  return {
+    tools, surfaces, available: tools.length > 0, opaque,
+    note: opaque ? 'The page registers tools in an opaque browser registry; this surface cannot enumerate or call them.' : tools.length ? null : 'This page declares no agent tools.',
+    pageUrl: typeof forms.pageUrl === 'string' ? forms.pageUrl : typeof script.pageUrl === 'string' ? script.pageUrl : null,
+  };
+}
+
+async function staleGuarded<T>(work: () => Promise<T>): Promise<T> {
+  try { return await work(); }
+  catch (error) {
+    if (error instanceof Error && error.message.includes(WEBMCP_STALE)) throw new BrowserError('stale_target', 'The page navigated while its agent tools were in use; list the page tools again.');
+    throw error;
+  }
+}
 
 export async function callPageTool(cdp: BrowserCdp, fields: BrowserObject, perform: (kind: string, fields: BrowserObject) => Promise<unknown>): Promise<BrowserObject> {
-  const found=object(await cdp.evaluate(WEBMCP_LIST)),wanted=fields.name??fields.tool;
-  if(wanted===undefined)return found;
-  if(typeof wanted!=='string'||!wanted)throw new BrowserError('invalid_request','A page tool name must be a non-empty string.');
-  const tools=(Array.isArray(found.tools)?found.tools:[]).map(object),tool=tools.find(row=>row.name===wanted);
-  if(!tool)throw new BrowserError('not_found',`This page declares no readable tool named '${wanted}'.`);
-  const input=object(fields.input??fields.arguments);
-  if(tool.via==='script') {
-    const value=await cdp.evaluate(`(async()=>{const context=navigator.modelContext;let listed;for(const key of ['tools','_tools','registeredTools','toolRegistry']){const found=context?.[key];if(found){listed=Array.isArray(found)?found:found instanceof Map?Array.from(found.values()):typeof found==='object'?Object.values(found):null;if(listed)break;}}const tool=(listed||[]).find(t=>t?.name===${JSON.stringify(wanted)}),run=tool&&(tool.execute||tool.handler||tool.call);if(typeof run!=='function')throw new Error('Page tool is gone or is not callable');return await run.call(tool,${JSON.stringify(input)});})()`);
-    return {called:wanted,via:'script',value:json(value)};
+  const found = await listPageTools(cdp), wanted = fields.name ?? fields.tool;
+  if (wanted === undefined) return found;
+  if (typeof wanted !== 'string' || !wanted) throw new BrowserError('invalid_request', 'A page tool name must be a non-empty string.');
+  const tools = rows(found.tools), tool = tools.find(row => row.name === wanted);
+  if (!tool) throw new BrowserError('not_found', `This page declares no readable tool named '${wanted}'.`);
+  const input = object(fields.input ?? fields.arguments);
+  // The document that declared the tool must survive until the call: a
+  // navigation in between invalidates the listing like a stale registration.
+  const pageUrl = typeof found.pageUrl === 'string' ? found.pageUrl : '';
+  const staleCheck = `if(${JSON.stringify(pageUrl)}&&location.href!==${JSON.stringify(pageUrl)})throw new Error(${JSON.stringify(WEBMCP_STALE)});`;
+  if (tool.via === 'script') {
+    const value = await staleGuarded(() => cdp.evaluate(`(async()=>{${staleCheck}const context=navigator.modelContext;let listed;for(const key of ['tools','_tools','registeredTools','toolRegistry']){const found=context?.[key];if(found){listed=Array.isArray(found)?found:found instanceof Map?Array.from(found.values()):typeof found==='object'?Object.values(found):null;if(listed)break;}}const tool=(listed||[]).find(t=>t?.name===${JSON.stringify(wanted)}),run=tool&&(tool.execute||tool.handler||tool.call);if(typeof run!=='function')throw new Error('Page tool is gone or is not callable');return await run.call(tool,${JSON.stringify(input)});})()`));
+    return { called: wanted, via: 'script', value: json(value) };
   }
-  const selector=`form[tool-name=${JSON.stringify(wanted)}]`;
-  if(Object.keys(input).length)await perform('form_input',{fields:Object.entries(input).map(([key,value])=>({selector:`${selector} [name=${JSON.stringify(key)}]`,value,clear:true}))});
-  const submitted=await cdp.evaluate(domScript(`const form=query(${JSON.stringify(selector)})[0];if(!form)throw new Error('Page form is gone');if(!form.reportValidity())throw new Error('Page rejected the form values');const button=form.querySelector('button[type=submit],input[type=submit],button:not([type])');if(button){button.click();return 'button';}if(typeof form.requestSubmit==='function'){form.requestSubmit();return 'requestSubmit';}throw new Error('Page form has no submit control');`));
-  return {called:wanted,via:'form',filled:Object.keys(input),submittedVia:json(submitted)};
+  const selector = `form[tool-name=${JSON.stringify(wanted)}]`;
+  if (Object.keys(input).length) await perform('form_input', { fields: Object.entries(input).map(([key, value]) => ({ selector: `${selector} [name=${JSON.stringify(key)}]`, value, clear: true })) });
+  const submitted = await staleGuarded(() => isolatedWorldEvaluate(cdp, WEBMCP_WORLD, domScript(`
+    ${staleCheck}
+    const form=query(${JSON.stringify(selector)})[0];if(!form)throw new Error('Page form is gone');if(!form.reportValidity())throw new Error('Page rejected the form values');const button=form.querySelector('button[type=submit],input[type=submit],button:not([type])');if(button){button.click();return 'button';}if(typeof form.requestSubmit==='function'){form.requestSubmit();return 'requestSubmit';}throw new Error('Page form has no submit control');`)));
+  return { called: wanted, via: 'form', filled: Object.keys(input), submittedVia: json(submitted) };
 }

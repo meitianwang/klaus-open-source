@@ -32,24 +32,98 @@ export function browserBounds(value: unknown): BrowserBounds {
   };
 }
 
+// Raw CDP is governed in three layers: an allowed-domain list, a refused-method
+// list, and parameter-level conditions. The Fetch, Storage, Target, WebAuthn,
+// CacheStorage and Database domains stay closed: the host owns Document
+// interception for managed navigation on the shared session, and a raw
+// Fetch.enable would replace that single per-session configuration.
 const CDP_DOMAINS = new Set([
-  'Accessibility', 'Animation', 'CSS', 'DOM', 'DOMDebugger', 'DOMSnapshot', 'Emulation',
-  'Input', 'LayerTree', 'Log', 'Network', 'Overlay', 'Page', 'Performance', 'PerformanceTimeline', 'Runtime',
+  'Accessibility', 'Animation', 'Audits', 'Console', 'CSS', 'Debugger', 'DOM', 'DOMDebugger', 'DOMSnapshot',
+  'Emulation', 'IO', 'Input', 'Inspector', 'LayerTree', 'Log', 'Network', 'Overlay', 'Page', 'Performance',
+  'PerformanceTimeline', 'Profiler', 'Runtime', 'Tracing', 'WebAudio',
 ]);
 const CDP_REFUSED = new Set([
-  'Network.getAllCookies', 'Network.getCookies', 'Page.getCookies', 'Network.setCookie',
+  // Cookie and cache storage is host-managed on this unprivileged surface.
+  'Network.getAllCookies', 'Network.getCookies', 'Page.getCookies', 'Page.deleteCookie', 'Network.setCookie',
   'Network.setCookies', 'Network.deleteCookies', 'Network.clearBrowserCookies', 'Network.clearBrowserCache',
-  'Page.navigate', 'Page.navigateToHistoryEntry', 'Page.setDownloadBehavior', 'DOM.setFileInputFiles',
-  'Page.setBypassCSP', 'Page.addScriptToEvaluateOnNewDocument', 'Network.setRequestInterception',
-  'Page.addScriptToEvaluateOnLoad', 'Network.loadNetworkResource', 'DOM.getFileInfo',
-  'Runtime.addBinding', 'Page.handleJavaScriptDialog', 'Page.setInterceptFileChooserDialog', 'Page.close', 'Page.crash',
+  // Navigation, downloads, dialogs and tabs have named operations that keep policy and leases.
+  'Page.navigate', 'Page.navigateToHistoryEntry', 'Page.getNavigationHistory', 'Page.resetNavigationHistory',
+  'Page.setDownloadBehavior', 'Page.setInterceptFileChooserDialog', 'Page.handleJavaScriptDialog', 'Page.close',
+  // Injection, interception and file payloads bypass the guarded named operations.
+  'DOM.setFileInputFiles', 'DOM.getFileInfo', 'Page.setBypassCSP', 'Page.addScriptToEvaluateOnNewDocument',
+  'Page.addScriptToEvaluateOnLoad', 'Network.setRequestInterception', 'Network.loadNetworkResource',
+  'Network.continueInterceptedRequest', 'Network.getResponseBodyForInterception',
+  'Network.takeResponseBodyForInterceptionAsStream', 'Runtime.addBinding',
+  // Keyboard input belongs to the type and press_key operations so focus and editability stay guarded.
+  'Input.dispatchKeyEvent', 'Input.setInterceptDrags', 'Input.dispatchDragEvent',
+  // Session-wide or device-bound network switches.
+  'Network.getCertificate', 'Network.deleteDeviceBoundSession', 'Network.enableDeviceBoundSessions',
+  'Network.setCookieControls', 'Network.setExtraHTTPHeaders', 'Network.replayXHR',
+  // Page and tracing switches that alter browser-wide behaviour.
+  'Page.crash', 'Page.disable', 'Page.setAdBlockingEnabled', 'Page.setRPHRegistrationMode',
+  'Page.setSPCTransactionMode', 'Tracing.requestMemoryDump',
 ]);
 
-export function checkRawCdp(method: string): void {
+/** Recovery guidance per refused method; everything else falls back to the named-operation hint. */
+const CDP_GUIDANCE = new Map([
+  ['DOM.setFileInputFiles', 'Use the file_upload operation to drive the file chooser instead.'],
+  ['Page.setInterceptFileChooserDialog', 'Use the file_upload operation to drive the file chooser instead.'],
+  ['Input.dispatchDragEvent', 'Use the file_upload operation for file payloads; drags run as real mouse input.'],
+  ['Input.dispatchKeyEvent', 'Use the type or press_key operations so focus and editability stay guarded.'],
+  ['Page.navigate', 'Use the navigate operation so URL policy and navigation leases apply.'],
+  ['Page.navigateToHistoryEntry', 'Use the back or forward operations instead.'],
+  ['Page.getNavigationHistory', 'Use the back or forward operations instead.'],
+  ['Page.reload', 'Use the reload operation; a load-time script is not supported.'],
+  ['Page.setDownloadBehavior', 'Downloads are host-managed; use the download operation.'],
+  ['Page.handleJavaScriptDialog', 'Dialogs are host-managed; answer them through the dialog operation.'],
+  ['Page.close', 'Use the tabs operation to close a tab.'],
+  ['Network.getAllCookies', 'Cookie storage is host-managed on this surface.'],
+  ['Network.getCookies', 'Cookie storage is host-managed on this surface.'],
+  ['Fetch.enable', 'Document interception is host-reserved for managed navigation.'],
+  ['Fetch.disable', 'Document interception is host-reserved for managed navigation.'],
+]);
+
+const present = (value: unknown): boolean => value !== undefined && value !== null;
+
+/** System-level tracing and memory-dump captures stay out of the unprivileged surface. */
+function tracingStartRefused(params: Record<string, unknown> | undefined): boolean {
+  const traceConfig = params?.traceConfig;
+  const plain = typeof traceConfig === 'object' && traceConfig !== null && !Array.isArray(traceConfig)
+    ? traceConfig as Record<string, unknown> : undefined;
+  return present(params?.perfettoConfig)
+    || params?.tracingBackend === 'system'
+    || (typeof params?.options === 'string' && params.options.split(',').some(part => part.trim() === 'enable-systrace'))
+    || (plain !== undefined && (plain.enableSystrace === true || present(plain.memoryDumpConfig)));
+}
+
+/** Parameter-level refusals: the method is allowed, this payload would escalate it. */
+function refusedCdpParams(method: string, params: Record<string, unknown> | undefined): boolean {
+  switch (method) {
+    case 'Fetch.continueResponse':
+    case 'Fetch.fulfillRequest':
+      return present(params?.binaryResponseHeaders);
+    case 'Network.configureDurableMessages':
+      return present(params?.maxTotalBufferSize);
+    case 'Network.enable':
+      return params?.enableDurableMessages === true;
+    case 'Page.createIsolatedWorld':
+      return params?.grantUniveralAccess === true;
+    case 'Page.reload':
+      return present(params?.scriptToEvaluateOnLoad);
+    case 'Tracing.start':
+      return tracingStartRefused(params);
+    default:
+      return false;
+  }
+}
+
+export function checkRawCdp(method: string, params?: unknown): void {
   const [domain, member, extra] = method.split('.');
   if (!domain || !member || extra) throw new BrowserError('invalid_request', 'A CDP method must be Domain.command.');
-  if (!CDP_DOMAINS.has(domain) || CDP_REFUSED.has(method)) {
-    throw new BrowserError('refused_by_policy', `${method} is not available through raw CDP. Use the named browser operation.`);
+  const fields = present(params) ? object(params) : undefined;
+  if (!CDP_DOMAINS.has(domain) || CDP_REFUSED.has(method) || refusedCdpParams(method, fields)) {
+    const guidance = CDP_GUIDANCE.get(method) ?? 'Use the named browser operation.';
+    throw new BrowserError('refused_by_policy', `${method} is not available through raw CDP. ${guidance}`);
   }
 }
 

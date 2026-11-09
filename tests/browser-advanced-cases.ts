@@ -40,6 +40,36 @@ export function serveAdvancedFixture(request: IncomingMessage, response: ServerR
     return true;
   }
   if (request.url === '/advanced-slow') { response.writeHead(200, { 'Content-Type': 'text/html' }); response.write('<h1>Slow'); const timer = setInterval(() => response.write(' '),100); response.once('close',()=>clearInterval(timer)); return true; }
+  if (request.url === '/advanced-guard') {
+    // The overlay appears on the first real mouse movement, after the click was
+    // already aimed: the page must never receive the misdirected press.
+    response.writeHead(200, { 'Content-Type': 'text/html' });
+    response.end('<!doctype html><meta charset="utf-8"><title>Guard fixture</title>' +
+      '<style>body{margin:0;font:16px sans-serif}#guard-overlay{position:absolute;left:0;top:0;width:400px;height:120px;background:rgba(0,0,0,0.02);display:none}</style>' +
+      '<button id="guard-target" style="position:absolute;left:20px;top:20px;width:120px;height:44px">Guarded</button>' +
+      '<button id="plain-target" style="position:absolute;left:20px;top:300px;width:120px;height:44px">Plain</button>' +
+      '<div id="guard-overlay"></div>' +
+      '<script>window.guardClicks=0;window.plainClicks=0;' +
+      'document.getElementById("guard-target").addEventListener("click",()=>{window.guardClicks=window.guardClicks+1});' +
+      'document.getElementById("plain-target").addEventListener("click",()=>{window.plainClicks=window.plainClicks+1});' +
+      'document.addEventListener("mousemove",()=>{document.getElementById("guard-overlay").style.display="block"},{once:true});' +
+      '</script>'); return true;
+  }
+  if (request.url === '/advanced-seq') {
+    // The first keystroke schedules a focus theft for the next macrotask, so
+    // the second character must never be dispatched at this field. The theft
+    // is switchable so the same page can also prove uninterrupted typing.
+    response.writeHead(200, { 'Content-Type': 'text/html' });
+    response.end('<!doctype html><meta charset="utf-8"><title>Sequential fixture</title>' +
+      '<input id="seq-field" aria-label="Sequence field" style="position:absolute;left:20px;top:20px;width:200px;height:30px">' +
+      '<input id="seq-other" aria-label="Other field" style="position:absolute;left:20px;top:80px;width:200px;height:30px">' +
+      '<script>document.getElementById("seq-field").addEventListener("keydown",()=>{if(window.stealFocus!==false)setTimeout(()=>document.getElementById("seq-other").focus(),0)},{once:true});</script>'); return true;
+  }
+  if (request.url === '/advanced-webmcp-flood') {
+    response.writeHead(200, { 'Content-Type': 'text/html' });
+    response.end('<!doctype html><meta charset="utf-8"><title>Flood fixture</title><body>' +
+      '<script>for(let i=0;i<101;i++){const form=document.createElement("form");form.setAttribute("tool-name","tool_"+i);form.innerHTML="<input name=arg>";document.body.appendChild(form)}</script></body>'); return true;
+  }
   response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Set-Cookie': 'advanced_cookie=yes; Path=/; SameSite=Lax' });
   response.end('<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><title>Advanced fixture</title>' +
     '<style>body{margin:10px;font:16px sans-serif}input,select,button{margin:4px}iframe{width:500px;height:75px;display:block}</style>' +
@@ -201,6 +231,42 @@ export function registerAdvancedBrowserTests(h: Harness, context: Context): void
     await rejects('webmcp',{name:'missing'});
     await evaluate('Object.defineProperty(navigator,"modelContext",{configurable:true,value:{registerTool(){}}})');
     const opaque=object(await value('webmcp'));assertEqual(opaque.opaque,true,'opaque native registry distinguished from empty');
+  });
+
+  h.test('advanced: a dispatch-time interceptor blocks clicks the page moved away from', async () => {
+    await call('navigate',{url:context.base()+'/advanced-guard'});
+    let error='';
+    try { await call('click',{selector:'#guard-target',timeoutMs:900}); } catch (caught) { error=String(caught instanceof Error?caught.message:caught); }
+    assert(error.includes('guard-overlay'),'the blocked click names the intercepting node: '+error);
+    assertEqual(await evaluate('window.guardClicks'),0,'the page never saw the misdirected click');
+    await call('click',{selector:'#plain-target'});
+    assertEqual(await evaluate('window.plainClicks'),1,'an unobstructed click still reaches the page');
+    assertEqual(await evaluate('globalThis.__klausHitGuard===undefined'),true,'the interceptor is removed after the action');
+  });
+
+  h.test('advanced: sequential typing aborts when the page steals focus mid-typing', async () => {
+    await call('navigate',{url:context.base()+'/advanced-seq'});
+    let error='';
+    try { await call('type',{selector:'#seq-field',text:'abcdef',delayMs:30}); } catch (caught) { error=String(caught instanceof Error?caught.message:caught); }
+    assert(error.includes('lost focus while typing'),'focus theft aborts sequential typing: '+error);
+    assertEqual(await evaluate('JSON.stringify([document.getElementById("seq-field").value,document.getElementById("seq-other").value])'),JSON.stringify(['a','']),'the remaining characters never reached any field');
+    await call('navigate',{url:context.base()+'/advanced-seq'});
+    await evaluate('window.stealFocus=false');
+    await call('type',{selector:'#seq-field',text:'hello',delayMs:5});
+    assertEqual(await evaluate('document.getElementById("seq-field").value'),'hello','uninterrupted sequential typing completes');
+    assertEqual(await evaluate('Object.getOwnPropertyDescriptor(document.getElementById("seq-field"),"__klausTypeTargetToken")===undefined'),true,'the typing token is cleaned up');
+  });
+
+  h.test('advanced: page tool listing enforces descriptor limits and survives main-world tampering', async () => {
+    await call('navigate',{url:context.base()+'/advanced-webmcp-flood'});
+    let error='';
+    try { await call('webmcp'); } catch (caught) { error=String(caught instanceof Error?caught.message:caught); }
+    assert(error.includes('limit'),'an oversized tool declaration is refused: '+error);
+    await call('navigate',{url:context.base()+'/advanced'});
+    await evaluate('(()=>{const original=Document.prototype.querySelectorAll;Document.prototype.querySelectorAll=function(selector){return String(selector).includes("tool-name")?[]:original.call(this,selector)};window.__restoreQuery=()=>{Document.prototype.querySelectorAll=original};})()');
+    const found=object(await value('webmcp'));
+    assert((found.tools as BrowserObject[]).some(tool=>tool.name==='save_profile'),'isolated-world enumeration survives main-world prototype tampering');
+    await evaluate('window.__restoreQuery()');
   });
 
   h.test('advanced: temporary URL reads preserve selection and close failed pages', async () => {

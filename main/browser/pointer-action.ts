@@ -3,8 +3,133 @@ import { locatorBudget } from './locator-policy';
 import { BrowserError, object, type BrowserObject } from './types';
 import type { BrowserCdp } from './page-operations';
 
-interface PointerTarget { cdp: BrowserCdp; x: number; y: number }
+export interface PointerTarget { cdp: BrowserCdp; x: number; y: number; guard?: HitGuard }
 const ALIGNMENTS = ['center', 'end', 'start'] as const;
+
+/**
+ * A dispatch-time hit-target interceptor closes the race between the
+ * actionability checks and actual event delivery: a capture-phase listener
+ * inspects the first trusted event of the action, and when the coordinates no
+ * longer hit the intended element the page never receives the event and the
+ * action reports what was in the way instead.
+ */
+export interface HitGuard {
+  /** Remove the interceptor and return 'done' or a description of the node that took the hit. */
+  stop(): Promise<string>;
+  /** Best-effort removal after a dispatch failure; the verdict is no longer needed. */
+  abandon(): void;
+}
+
+const HIT_GUARD_EVENTS: Record<'hover' | 'mouse', readonly string[]> = {
+  hover: ['mousemove'],
+  mouse: ['mousedown', 'mouseup', 'pointerdown', 'pointerup', 'click', 'auxclick', 'dblclick', 'contextmenu'],
+};
+
+const HIT_GUARD_HELPERS = `
+const parentUp = n => n.parentElement ?? (n.parentNode && n.parentNode.nodeType === 11 && n.parentNode.host ? n.parentNode.host : undefined);
+const rootOf = n => { let t = n; while (t.parentNode) t = t.parentNode; return t.nodeType === 11 || t.nodeType === 9 ? t : undefined; };
+const HIT_BOOLEAN = new Set(['allowfullscreen','async','autofocus','autoplay','checked','controls','default','defer','disabled','formnovalidate','hidden','inert','ismap','itemscope','loop','multiple','muted','nomodule','novalidate','open','playsinline','readonly','required','reversed','selected']);
+const HIT_AUTO_CLOSE = new Set(['area','base','br','col','embed','hr','img','input','link','meta','param','source','track','wbr']);
+const cut = (s, n) => s.length > n ? s.slice(0, n - 1) + '\\u2026' : s;
+const describeHit = n => {
+  if (!n) return 'the document';
+  if (n.nodeType === 3) return '#text=' + JSON.stringify(cut(n.nodeValue || '', 50));
+  if (n.nodeType !== 1) return '<' + n.nodeName.toLowerCase() + ' />';
+  const attrs = [];
+  for (let i = 0; i < n.attributes.length; i++) {
+    const name = n.attributes[i].name, value = n.attributes[i].value;
+    if (name === 'style') continue;
+    attrs.push(!value && HIT_BOOLEAN.has(name) ? ' ' + name : ' ' + name + '="' + value + '"');
+  }
+  attrs.sort((a, b) => a.length - b.length);
+  const attrText = cut(attrs.join(''), 500);
+  const tag = n.nodeName.toLowerCase();
+  if (HIT_AUTO_CLOSE.has(n.nodeName)) return '<' + tag + attrText + '/>';
+  const kids = n.childNodes;
+  let textOnly = kids.length <= 5;
+  for (let i = 0; textOnly && i < kids.length; i++) textOnly = kids[i].nodeType === 3;
+  const text = textOnly ? cut(n.textContent || '', 50) : kids.length ? '\\u2026' : '';
+  return '<' + tag + attrText + '>' + text + '</' + tag + '>';
+};
+const expectHitTarget = (point, goal, view) => {
+  const chain = [];
+  let node = goal;
+  for (;;) { const root = rootOf(node); if (!root) break; chain.push(root); if (root.nodeType === 9) break; node = root.host; if (!node) break; }
+  let hit;
+  for (let level = chain.length - 1; level >= 0; level--) {
+    const root = chain[level];
+    const all = root.elementsFromPoint(point.x, point.y);
+    const top = root.elementFromPoint(point.x, point.y);
+    if (top && all[0] && parentUp(top) === all[0]) { const style = view.getComputedStyle(top); if (style && style.display === 'contents') all.unshift(top); }
+    if (all[0] && all[0].shadowRoot === root && all[1] === top) all.shift();
+    const deepest = all[0];
+    if (!deepest) break;
+    hit = deepest;
+    if (level && deepest !== chain[level - 1].host) break;
+  }
+  const blockers = [];
+  let walk = hit;
+  for (; walk && walk !== goal;) { blockers.push(walk); walk = walk.assignedSlot ?? parentUp(walk); }
+  if (walk === goal) return 'done';
+  const first = describeHit(blockers[0] || document.documentElement);
+  let subtree, ancestor = goal;
+  for (; ancestor;) { const index = blockers.indexOf(ancestor); if (index !== -1) { if (index > 1) subtree = describeHit(blockers[index - 1]); break; } ancestor = parentUp(ancestor); }
+  return subtree ? first + ' from ' + subtree + ' subtree' : first;
+};`;
+
+function hitGuardInstallScript(fields: BrowserObject, events: readonly string[]): string {
+  return domScript(`
+    const e = ${elementScript(fields)};
+    let target = e && e.nodeType === 1 ? e : e?.parentElement ?? null;
+    if (target && !target.matches('input, textarea, select') && !target.isContentEditable) target = target.closest('button, [role=button], a, [role=link]') || target;
+    if (!target || !target.isConnected) return { error: { code: 'not_found', message: 'The matched element was detached.' } };
+    ${HIT_GUARD_HELPERS}
+    const view = target.ownerDocument.defaultView || window;
+    globalThis.__klausHitGuard?.remove?.();
+    const types = new Set(${JSON.stringify([...events])});
+    // The pre-flight point must be frame-local: getBoundingClientRect lives in
+    // the element's own viewport, unlike the mapped dispatch coordinates.
+    const rect = target.getBoundingClientRect();
+    const early = expectHitTarget({ x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 }, target, view);
+    if (early !== 'done') return { intercepted: early };
+    let verdict;
+    const listener = event => {
+      if (!types.has(event.type) || !event.isTrusted) return;
+      if (verdict === undefined) verdict = expectHitTarget({ x: event.clientX, y: event.clientY }, target, view);
+      if (verdict !== 'done' && verdict !== undefined) { event.preventDefault(); event.stopPropagation(); event.stopImmediatePropagation(); }
+    };
+    for (const type of types) view.addEventListener(type, listener, { capture: true, passive: false });
+    const guard = {
+      verdict: () => verdict,
+      remove() { for (const type of types) view.removeEventListener(type, listener, { capture: true }); if (globalThis.__klausHitGuard === guard) delete globalThis.__klausHitGuard; },
+    };
+    globalThis.__klausHitGuard = guard;
+    return { ok: true };
+  `);
+}
+
+const HIT_GUARD_STOP = domScript(`
+  const guard = globalThis.__klausHitGuard;
+  if (!guard) return 'done';
+  const verdict = guard.verdict();
+  guard.remove();
+  return verdict === undefined ? 'done' : verdict;
+`);
+
+async function installHitGuard(cdp: BrowserCdp, fields: BrowserObject, mode: 'hover' | 'mouse'): Promise<HitGuard> {
+  const installed = object(await cdp.evaluate(hitGuardInstallScript(fields, HIT_GUARD_EVENTS[mode])));
+  if (installed.error) { const error = object(installed.error); throw new BrowserError(String(error.code), String(error.message)); }
+  if (typeof installed.intercepted === 'string') throw new BrowserError('intercepted', `Pointer events are intercepted by ${installed.intercepted}.`);
+  return {
+    async stop() {
+      try {
+        const verdict = await cdp.evaluate(HIT_GUARD_STOP);
+        return typeof verdict === 'string' && verdict !== 'done' ? verdict : 'done';
+      } catch { return 'done'; }
+    },
+    abandon() { void cdp.evaluate(HIT_GUARD_STOP).catch(() => {}); },
+  };
+}
 
 export function assertPointerActive(signal?: AbortSignal): void {
   if (signal?.aborted) throw new BrowserError('cancelled', 'The browser pointer action was cancelled.');
@@ -261,12 +386,19 @@ export async function pointerTarget(root: BrowserCdp, fields: BrowserObject, sig
         if (result.error) { const error = object(result.error); throw new BrowserError(String(error.code), String(error.message)); }
         const mapped = await inBudget(() => checkFrameOwners(resolved.cdp, result, alignment, fields.force === true, until, budget, signal), until, budget, signal, expire);
         active();
+        // The dispatch-time interceptor closes the race between these checks
+        // and event delivery. It lives in the element's own frame and inspects
+        // the first trusted event; forced actions skip actionability entirely.
+        const guard = fields.force === true ? undefined : await inBudget(
+          () => installHitGuard(resolved.cdp, resolved.fields, fields.moveOnly === true ? 'hover' : 'mouse'),
+          until, budget, signal, expire);
+        active();
         // A frame inside the page's process has no input session of its own:
         // its pointer events dispatch on the page session in top-level
         // coordinates. A cross-process frame keeps its session-local point.
         const scope = resolved.cdp.captureScope;
-        if (mapped && scope && !scope.root.frameTargets().includes(scope.frame)) return { cdp: scope.root, x: mapped.x, y: mapped.y };
-        return { cdp: resolved.cdp, x: Number(result.x), y: Number(result.y) };
+        if (mapped && scope && !scope.root.frameTargets().includes(scope.frame)) return { cdp: scope.root, x: mapped.x, y: mapped.y, guard };
+        return { cdp: resolved.cdp, x: Number(result.x), y: Number(result.y), guard };
       } catch (error) {
         if (error instanceof BrowserError && error.code === 'timeout' && last instanceof Error) throw new BrowserError('timeout', `${error.message} Last actionability check: ${last.message}`);
         const transientContext = error instanceof BrowserError && ['cdp_error', 'evaluation_error'].includes(error.code) && /context.*destroyed|cannot find context|not connected/iu.test(error.message);
