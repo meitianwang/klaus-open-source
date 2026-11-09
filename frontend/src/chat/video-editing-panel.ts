@@ -50,6 +50,9 @@ export function createVideoEditingPanel(env: VideoEditingPanelEnvironment) {
         : Promise.resolve({ ok: false })).catch(error => ({ ok: false, error: error instanceof Error ? error.message : String(error) }))
       if (!current(token) || !visible()) return false
       if (!result?.ok) {
+        if (parked.get(session)?.id === id) parked.delete(session)
+        activeId = activeSession = activeTitle = ''
+        lastBounds = null
         env.toast(result?.error || env.text('video_editing_open_failed'))
         return false
       }

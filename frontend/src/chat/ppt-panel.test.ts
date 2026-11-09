@@ -60,6 +60,7 @@ function tabsFixture() {
     },
   })
   return { actions: window.KlausPanelTabs, snapshot: () => runtime.store.getState(), close: runtime.closePpt, calls,
+    window, storage,
     switchSession: (value: string) => { session = value }, hold: (promise: Promise<boolean>) => { held = promise }, languageChanged: () => listeners.get('klaus:lang-change')?.(),
     park: () => { active = '' } }
 }
@@ -160,3 +161,68 @@ test('session switches park the active presentation and resume it on return', as
   expect(surface.state().activeId).toBe('deck-a')
   expect(shown).toHaveLength(before)
 })
+
+test('failed presentation show clears active state and never parks a missing document', async () => {
+  let session = 'chat-a'
+  const toasts: string[] = []
+  const surface = createPptPanel({
+    api: () => ({
+      panelShow: async () => ({ ok: false, error: 'The presentation directory does not exist.' }),
+      panelSetBounds: async () => ({ ok: true }),
+      panelHide: async () => {},
+      panelClose: async () => {},
+      openResult: async () => {},
+    }),
+    currentSession: () => session,
+    visible: () => true,
+    bounds: () => ({ x: 1, y: 2, width: 300, height: 400 }),
+    layout: async () => {},
+    openMode() {},
+    openTab: payload => surface.activate(payload),
+    toast: message => toasts.push(message),
+    text: key => key,
+    schedule() {},
+  })
+  expect(await surface.activate({ id: 'missing-deck', title: 'Missing', sessionId: 'chat-a' })).toBe(false)
+  expect(toasts).toEqual(['The presentation directory does not exist.'])
+  expect(surface.state().activeId).toBe('')
+  session = 'chat-b'
+  await surface.sessionChanged('chat-b')
+  session = 'chat-a'
+  expect(surface.resumeId()).toBe('')
+})
+
+test('restoring a chat reconciles persisted PPT tabs against the host list and prunes foreign entries', async () => {
+  const f = tabsFixture()
+  expect(await f.actions.openPpt({ id: 'deck-a', title: 'Deck A', sessionId: 'chat-a' })).toBe(true)
+  // Saving under another chat id must not serialize chat-a's presentation tab.
+  f.actions.saveFor('chat-b')
+  expect(f.storage.get('klaus.panelTabs.chat-b')).toBeUndefined()
+
+  // Simulate a historically polluted localStorage entry containing a foreign PPT tab.
+  f.storage.set('klaus.panelTabs.chat-b', JSON.stringify({
+    version: 1,
+    tabs: [
+      { kind: 'ppt', key: 'foreign-deck', title: 'Leaked Deck' },
+      { kind: 'ppt', key: 'owned-deck', title: 'Old Title' },
+    ],
+  }))
+  f.window.klaus = {
+    ppt: {
+      list: async (sessionId: string) => ({
+        presentations: sessionId === 'chat-b' ? [{ id: 'owned-deck', title: 'Updated Title' }] : [],
+      }),
+    },
+  }
+  f.switchSession('chat-b')
+  f.actions.beginSessionSwitch('chat-a', 'chat-b')
+  for (let i = 0; i < 10; i++) await Promise.resolve()
+
+  const pptTabs = f.snapshot().tabs.filter((tab: any) => tab.kind === 'ppt')
+  expect(pptTabs).toHaveLength(1)
+  expect(pptTabs[0]).toMatchObject({ key: 'owned-deck', title: 'Updated Title', sessionId: 'chat-b' })
+  expect(JSON.parse(f.storage.get('klaus.panelTabs.chat-b')!).tabs).toEqual([
+    { kind: 'ppt', key: 'owned-deck', title: 'Updated Title' },
+  ])
+})
+

@@ -163,4 +163,19 @@ describe('draft-only new session layout', () => {
     expect(WORKSPACE_PANEL_TS).toContain("loadWorkspace(currentSessionId(), { promoteDraft: true })")
     expect(CHAT_TS).toContain('loadWorkspace(window.currentSessionId, { promoteDraft: true })')
   })
+
+  test('entering new-chat state snapshots outgoing panel state and clears instance tabs before resetting views', () => {
+    const enterNewChat = functionBody('function enterNewChatState(', '\nfunction newChat(')
+    const saveArtifacts = enterNewChat.indexOf('saveArtifactsStateFor(window.currentSessionId)')
+    const switchTabs = enterNewChat.indexOf('window.KlausPanelTabs?.beginSessionSwitch?.(')
+    const hideDiff = enterNewChat.indexOf('window.hideDiffView()')
+    const hideWorkspace = enterNewChat.indexOf('window.hideWorkspaceMainView()')
+    const restorePanel = enterNewChat.indexOf('restoreArtifactsPanelForChatView()')
+
+    expect(saveArtifacts).toBeGreaterThan(-1)
+    expect(switchTabs).toBeGreaterThan(saveArtifacts)
+    expect(hideDiff).toBeGreaterThan(switchTabs)
+    expect(hideWorkspace).toBeGreaterThan(switchTabs)
+    expect(restorePanel).toBeGreaterThan(switchTabs)
+  })
 })

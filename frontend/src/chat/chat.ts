@@ -7641,6 +7641,13 @@ function enterNewChatState(options: { workdir?: string | null; workspaceId?: str
   if (typeof window.hideChannelsView === 'function') window.hideChannelsView()
   if (typeof window.hideMemoryView === 'function') window.hideMemoryView()
   window.hideFriendsView?.()
+  if (window.currentSessionId && !options.discardLeavingDraft) {
+    saveArtifactsStateFor(window.currentSessionId)
+  }
+  window.KlausPanelTabs?.beginSessionSwitch?.(
+    options.discardLeavingDraft ? null : window.currentSessionId,
+    null,
+  )
   if (typeof window.hideDiffView === 'function') window.hideDiffView()
   if (typeof window.hideWorkspaceMainView === 'function') window.hideWorkspaceMainView()
   if (!options.retainSettings && document.getElementById('settings-view')?.classList.contains('active')) toggleSettings()
@@ -7875,6 +7882,10 @@ async function ensureSession(pending?: PendingComposerSubmission) {
         setDraft(info.id, composedInputDraft())
         setWelcomeDraft('')
       }
+      // Bind the panel-tab draft scope to the real session BEFORE the visible
+      // session id flips, so the strip the user built in the new-chat state is
+      // the strip this conversation keeps — nothing is recreated or lost.
+      window.KlausPanelTabs?.promoteDraftSession?.(info.id)
       window.currentSessionId = info.id
       // Keep the host-owned browser scope in lockstep with the visible task before
       // its first turn can invoke a browser tool. Existing-session navigation does
@@ -7928,6 +7939,7 @@ async function ensureSession(pending?: PendingComposerSubmission) {
         && goalInteractions.token(null) === pending.navigationToken) {
         setDraft(id, composedInputDraft())
         setWelcomeDraft('')
+        window.KlausPanelTabs?.promoteDraftSession?.(id)
         window.currentSessionId = id
         creatingGoalSessions.promote(null, id)
         preparingSubmissions.promote(null, id)
@@ -7964,6 +7976,7 @@ function forgetSessionLocalState(id: string, deleted = true) {
   backgroundAgentPoller.cancel(id)
   _agentMissingObservations.delete(id)
   window.KlausBackgroundProcessPanel?.forgetSession?.(id)
+  if (deleted) window.KlausPanelTabs?.forgetSession?.(id)
   // The durable rows belong to the host, which discards them when the session is
   // deleted; only this renderer's cache and in-flight mutation guards are local.
   clientQueueBySession.delete(id)
@@ -8050,7 +8063,7 @@ async function deleteSession(id: string, opts: { skipConfirm?: boolean } = {}) {
       sessionDeletionRevision++
       // 离开动作放在删除确认之后：请求失败时用户仍停留在原会话，
       // 可以直接重试，不需要重建会话状态。
-      if (window.currentSessionId === id) enterNewChatState({ workdir: targetWorkdir })
+      if (window.currentSessionId === id) enterNewChatState({ workdir: targetWorkdir, discardLeavingDraft: true })
       if (removeWorktree && targetWorkdir) {
         const res = await klausApi.worktree.remove(targetWorkdir)
           .catch((err: unknown) => ({ ok: false, error: String((err as Error | null)?.message || err) }))

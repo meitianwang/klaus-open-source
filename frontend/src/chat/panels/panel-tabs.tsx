@@ -49,6 +49,12 @@ const tt = (key: string): string => w().tt?.(key) || key
 const STORAGE_PREFIX = windowStateKey('klaus.panelTabs.')
 const SCHEMA_VERSION = 1
 const MAXIMIZED_KEY = windowStateKey('klaus_artifacts_maximized')
+const DRAFT_IDENTITIES_KEY = windowStateKey('klaus.panelTabs.draftIdentities.v1')
+const DRAFT_TABS_KEY = windowStateKey('klaus.panelTabs.draftTabs.v1')
+const CLIENT_BINDINGS_KEY = windowStateKey('klaus.panelTabs.clientBindings.v1')
+const MAX_RETAINED_SCOPES = 20
+const MAX_DRAFT_CHECKPOINTS = 100
+const MAX_CLIENT_BINDINGS = 1000
 
 const artifactsPanel = document.getElementById('artifacts-panel')
 const maximizeBtn = document.getElementById('artifacts-maximize-toggle')
@@ -114,7 +120,7 @@ const ICONS: Record<string, string> = {
   ppt: icon('canvas'),
 }
 
-// ── State（数据面，模块级） ────────────────────────────────────────────────
+// ── State（数据面，按会话/草稿作用域隔离 + LRU 驻留） ──────────────────────
 interface Tab {
   id: string
   kind: string
@@ -130,16 +136,50 @@ interface Tab {
   revision?: number
 }
 
-const tabs: Tab[] = []
-let activeId: string | null = null
-// Most-recently-activated first. Drives where focus lands when a tab closes.
-const mru: string[] = []
+interface StoredTabEntry {
+  kind: string
+  url?: string
+  key?: string
+  title?: string
+}
+
+interface StoredTopology {
+  activeTabId: string | null
+  open: boolean
+  tabIds: string[]
+  maximized?: boolean
+}
+
+interface StoredCheckpoint {
+  version: number
+  tabs: StoredTabEntry[]
+  topology?: StoredTopology
+}
+
+interface ThreadTabScope {
+  key: string
+  sessionId: string | null
+  tabs: Tab[]
+  activeId: string | null
+  leftActiveId: string | null
+  // Most-recently-activated first. Drives where focus lands when a tab closes.
+  mru: string[]
+  hydrated: boolean
+  lastStoredRaw: string | null
+  disconnectToken: symbol
+}
+
+const scopes = new Map<string, ThreadTabScope>()
+let draftSeq = 0
+let draftClientThreadId: string | null = null
+let cachedBindingsRaw: string | null = null
+let cachedBindings: Record<string, string> = {}
+
 // Bumped on every session switch. An in-flight restore compares its token
 // against this before touching the strip, so a fast A→B→A switch cannot let a
 // stale restore paint B's tabs over A's.
 let restoreToken = 0
 let activationToken = 0
-let leftActiveId: string | null = null
 let canvasOpenToken = 0
 let maximized = localStorage.getItem(MAXIMIZED_KEY) === '1'
 let draggingId: string | null = null
@@ -151,8 +191,6 @@ let closingTabId: string | null = null
 let langTick = 0
 
 const descriptorId = (kind: string, key: string) => (key ? `${kind}:${key}` : kind)
-const find = (kind: string, key: string) => tabs.find(tab => tab.id === descriptorId(kind, key)) || null
-const findById = (id: string) => tabs.find(tab => tab.id === id) || null
 const isFixed = (tab: Tab) => !!KINDS[tab.kind]?.fixed
 const panelOpen = () => !!artifactsPanel
   && !artifactsPanel.classList.contains('collapsed')
@@ -162,6 +200,301 @@ function defaultTitle(kind: string) {
   const key = KINDS[kind]?.labelKey
   return key ? tt(key) : kind
 }
+
+function readStorage(key: string): string | null {
+  try {
+    return localStorage.getItem(key)
+  } catch {
+    return null
+  }
+}
+
+function writeStorage(key: string, value: string): void {
+  try {
+    localStorage.setItem(key, value)
+  } catch {
+    // Storage full / disabled: the tab set is a convenience, never a gate.
+  }
+}
+
+function removeStorage(key: string): void {
+  try {
+    localStorage.removeItem(key)
+  } catch {
+    // Ignore storage removal errors.
+  }
+}
+
+function isClientDraftId(value: unknown): value is string {
+  return typeof value === 'string' && value.startsWith('draft:') && value.length > 6
+}
+
+function mintClientDraftId(): string {
+  return `draft:${++draftSeq}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+}
+
+function loadClientBindings(): Record<string, string> {
+  const raw = readStorage(CLIENT_BINDINGS_KEY)
+  if (raw === cachedBindingsRaw) return cachedBindings
+  cachedBindingsRaw = raw
+  if (!raw) {
+    cachedBindings = {}
+    return cachedBindings
+  }
+  try {
+    const parsed = JSON.parse(raw)
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      cachedBindings = {}
+      return cachedBindings
+    }
+    const next: Record<string, string> = {}
+    for (const [sessionId, clientId] of Object.entries(parsed)) {
+      if (sessionId && isClientDraftId(clientId)) next[sessionId] = clientId
+    }
+    cachedBindings = next
+    return cachedBindings
+  } catch {
+    cachedBindings = {}
+    return cachedBindings
+  }
+}
+
+function boundClientThreadId(sessionId: string): string | null {
+  if (!sessionId) return null
+  return loadClientBindings()[sessionId] ?? null
+}
+
+function persistDraftIdentity(clientId: string | null): void {
+  if (!clientId) {
+    removeStorage(DRAFT_IDENTITIES_KEY)
+    return
+  }
+  writeStorage(DRAFT_IDENTITIES_KEY, JSON.stringify({ 'new-conversation': clientId }))
+}
+
+function recordClientBinding(sessionId: string, clientId: string): void {
+  if (!sessionId || !isClientDraftId(clientId)) return
+  const current = loadClientBindings()
+  if (current[sessionId] !== clientId) {
+    const entries = Object.entries(current).filter(([key]) => key !== sessionId).slice(-(MAX_CLIENT_BINDINGS - 1))
+    entries.push([sessionId, clientId])
+    cachedBindings = Object.fromEntries(entries)
+    cachedBindingsRaw = JSON.stringify(cachedBindings)
+    writeStorage(CLIENT_BINDINGS_KEY, cachedBindingsRaw)
+  }
+  if (draftClientThreadId === clientId) {
+    draftClientThreadId = mintClientDraftId()
+    persistDraftIdentity(draftClientThreadId)
+  }
+}
+
+function forgetClientBinding(sessionId: string): string | null {
+  if (!sessionId) return null
+  const current = loadClientBindings()
+  const bound = current[sessionId] ?? null
+  if (!bound) return null
+  const next = Object.fromEntries(Object.entries(current).filter(([key]) => key !== sessionId))
+  cachedBindings = next
+  if (Object.keys(next).length === 0) {
+    cachedBindingsRaw = null
+    removeStorage(CLIENT_BINDINGS_KEY)
+  } else {
+    cachedBindingsRaw = JSON.stringify(next)
+    writeStorage(CLIENT_BINDINGS_KEY, cachedBindingsRaw)
+  }
+  return bound
+}
+
+function ensureDraftClientThreadId(): string {
+  const boundSet = new Set(Object.values(loadClientBindings()))
+  if (draftClientThreadId && !boundSet.has(draftClientThreadId)) return draftClientThreadId
+  const raw = readStorage(DRAFT_IDENTITIES_KEY)
+  if (raw) {
+    try {
+      const parsed = JSON.parse(raw)
+      const stored = parsed?.['new-conversation']
+      if (isClientDraftId(stored) && !boundSet.has(stored)) {
+        draftClientThreadId = stored
+        return stored
+      }
+    } catch {
+      // Ignore malformed draft identity.
+    }
+  }
+  draftClientThreadId = mintClientDraftId()
+  persistDraftIdentity(draftClientThreadId)
+  return draftClientThreadId
+}
+
+function rotateDraftClientThreadId(expectedClientId?: string): string {
+  if (expectedClientId && draftClientThreadId && draftClientThreadId !== expectedClientId) {
+    return draftClientThreadId
+  }
+  draftClientThreadId = mintClientDraftId()
+  persistDraftIdentity(draftClientThreadId)
+  return draftClientThreadId
+}
+
+function scopeKeyForSession(sessionId: string | null): string {
+  if (!sessionId) return ensureDraftClientThreadId()
+  return boundClientThreadId(sessionId) ?? `local:${sessionId}`
+}
+
+function rawWindowSessionId(): string | null {
+  const fn = w().getCurrentSessionId
+  if (typeof fn === 'function') return fn() || null
+  if (typeof w().currentSessionId === 'string' && w().currentSessionId) return w().currentSessionId
+  return null
+}
+
+let switchedSessionId: string | null = rawWindowSessionId()
+let switchedAtWindowSessionId: string | null = switchedSessionId
+
+function activeSessionId(): string | null {
+  const winId = rawWindowSessionId()
+  if (winId !== switchedAtWindowSessionId) {
+    switchedSessionId = winId
+    switchedAtWindowSessionId = winId
+  }
+  return switchedSessionId
+}
+
+function createScope(key: string, sessionId: string | null): ThreadTabScope {
+  const monitorTab: Tab = {
+    id: 'monitor',
+    kind: 'monitor',
+    key: '',
+    title: defaultTitle('monitor'),
+    badge: '',
+    url: '',
+    pending: false,
+    running: false,
+    unread: false,
+    placement: 'right',
+  }
+  return {
+    key,
+    sessionId,
+    tabs: [monitorTab],
+    activeId: 'monitor',
+    leftActiveId: null,
+    mru: ['monitor'],
+    hydrated: false,
+    lastStoredRaw: null,
+    disconnectToken: Symbol(),
+  }
+}
+
+function evictOverflowScopes(keepKey: string): void {
+  while (scopes.size > MAX_RETAINED_SCOPES) {
+    const oldestKey = scopes.keys().next().value as string | undefined
+    if (!oldestKey || oldestKey === keepKey) break
+    const evicted = scopes.get(oldestKey)
+    scopes.delete(oldestKey)
+    if (!evicted) continue
+    if (evicted === boundScope) {
+      flushViewToScope()
+      boundScope = null
+      pruneVolatileTabsOnLeave(evicted)
+    }
+    if (evicted.hydrated) {
+      if (evicted.sessionId) saveScopeForSession(evicted, evicted.sessionId)
+      else saveDraftScope(evicted)
+    }
+  }
+}
+
+function getOrCreateScope(sessionId: string | null, { hydrate = true } = {}): ThreadTabScope {
+  const key = scopeKeyForSession(sessionId)
+  let scope = scopes.get(key)
+  if (scope) {
+    scopes.delete(key)
+    scopes.set(key, scope)
+    if (sessionId && scope.sessionId !== sessionId) {
+      scope.sessionId = sessionId
+      for (const tab of scope.tabs) {
+        if (NATIVE_EDITOR_KINDS.includes(tab.kind) && !tab.sessionId) tab.sessionId = sessionId
+      }
+    }
+  } else {
+    scope = createScope(key, sessionId)
+    scopes.set(key, scope)
+    evictOverflowScopes(key)
+  }
+  bindScope(scope)
+  if (hydrate) ensureScopeHydrated(scope)
+  return scope
+}
+
+// ── Active-scope binding ────────────────────────────────────────────────────
+// The data plane below is written against one module-level tab set. Those
+// identifiers are the live view of the bound scope: `tabs` and `mru` alias the
+// scope's arrays by reference (in-place mutation lands in the scope directly),
+// and the two active-id primitives are written back whenever the binding moves
+// or the scope is checkpointed.
+let boundScope: ThreadTabScope | null = null
+let tabs: Tab[] = []
+let activeId: string | null = null
+let leftActiveId: string | null = null
+let mru: string[] = []
+
+function refreshViewFromScope(scope: ThreadTabScope): void {
+  tabs = scope.tabs
+  mru = scope.mru
+  activeId = scope.activeId
+  leftActiveId = scope.leftActiveId
+}
+
+function flushViewToScope(): void {
+  if (!boundScope) return
+  boundScope.tabs = tabs
+  boundScope.mru = mru
+  boundScope.activeId = activeId
+  boundScope.leftActiveId = leftActiveId
+}
+
+// Leaving a scope is the checkpoint moment: write the view back, prune the
+// surfaces that cannot survive the session leave, then persist what is durable.
+function leaveBoundScope(): void {
+  const leaving = boundScope
+  if (!leaving) return
+  flushViewToScope()
+  // Detach BEFORE pruning so the save below reads the pruned scope instead of
+  // flushing the stale view primitives back over it.
+  boundScope = null
+  pruneVolatileTabsOnLeave(leaving)
+  if (leaving.hydrated) {
+    if (leaving.sessionId) saveScopeForSession(leaving, leaving.sessionId)
+    else saveDraftScope(leaving)
+  }
+}
+
+function bindScope(scope: ThreadTabScope): void {
+  if (boundScope === scope) return
+  leaveBoundScope()
+  boundScope = scope
+  refreshViewFromScope(scope)
+}
+
+function activeScope(): ThreadTabScope {
+  const sid = activeSessionId()
+  const bound = boundScope
+  // Fast path: while the bound scope still owns the active session (or is the
+  // live draft), skip the key resolution and every storage read.
+  if (bound && (sid !== null
+    ? bound.sessionId === sid
+    : bound.sessionId === null && bound.key === draftClientThreadId)) {
+    return bound
+  }
+  return getOrCreateScope(sid)
+}
+
+const findInScope = (scope: ThreadTabScope, kind: string, key: string) =>
+  scope.tabs.find(tab => tab.id === descriptorId(kind, key)) || null
+const findByIdInScope = (scope: ThreadTabScope, id: string) =>
+  scope.tabs.find(tab => tab.id === id) || null
+const find = (kind: string, key: string) => findInScope(activeScope(), kind, key)
+const findById = (id: string) => findByIdInScope(activeScope(), id)
 
 // ── Render snapshot（渲染面唯一入口） ─────────────────────────────────────
 interface TabView extends Tab {
@@ -204,6 +537,7 @@ const store = createStore<StripSnapshot>(() => ({
 let pendingPublish = false
 
 function publish() {
+  activeScope()
   window.dispatchEvent(new CustomEvent('klaus:panel-tabs-change'))
   if (draggingId) {
     pendingPublish = true
@@ -236,9 +570,9 @@ function syncMaximizeBtn() {
 }
 
 // ── Registry mutation ─────────────────────────────────────────────────────
-function ensure(kind: string, key = '', patch: Partial<Tab> = {}) {
+function ensureInScope(scope: ThreadTabScope, kind: string, key = '', patch: Partial<Tab> = {}): Tab | null {
   if (!KINDS[kind]) return null
-  let tab = find(kind, key)
+  let tab = findInScope(scope, kind, key)
   if (!tab) {
     tab = {
       id: descriptorId(kind, key),
@@ -255,11 +589,11 @@ function ensure(kind: string, key = '', patch: Partial<Tab> = {}) {
     // Fixed tabs lead the strip in declaration order; instance tabs append in
     // creation order, which is what makes "close right" meaningful.
     if (isFixed(tab)) {
-      const firstInstance = tabs.findIndex(item => !isFixed(item))
-      if (firstInstance < 0) tabs.push(tab)
-      else tabs.splice(firstInstance, 0, tab)
+      const firstInstance = scope.tabs.findIndex(item => !isFixed(item))
+      if (firstInstance < 0) scope.tabs.push(tab)
+      else scope.tabs.splice(firstInstance, 0, tab)
     } else {
-      tabs.push(tab)
+      scope.tabs.push(tab)
     }
   } else {
     if (patch.title != null && (kind === 'side-task' || patch.title)) tab.title = patch.title
@@ -273,7 +607,12 @@ function ensure(kind: string, key = '', patch: Partial<Tab> = {}) {
   return tab
 }
 
+function ensure(kind: string, key = '', patch: Partial<Tab> = {}) {
+  return ensureInScope(activeScope(), kind, key, patch)
+}
+
 function remove(kind: string, key = '') {
+  activeScope()
   const index = tabs.findIndex(tab => tab.id === descriptorId(kind, key))
   if (index < 0) return null
   const [removed] = tabs.splice(index, 1)
@@ -282,24 +621,12 @@ function remove(kind: string, key = '') {
   return removed
 }
 
-// Forget every instance tab without touching the surfaces behind them. Used on
-// session switch, where chat.js has already torn down that session's pty group
-// and the engine owns the rest.
-function dropInstances() {
-  for (let i = tabs.length - 1; i >= 0; i--) {
-    if (!isFixed(tabs[i])) {
-      forgetMru(tabs[i].id)
-      tabs.splice(i, 1)
-    }
-  }
-  if (activeId && !tabs.some(tab => tab.id === activeId)) activeId = null
-}
-
 // ── Activation order ───────────────────────────────────────────────────
 // Closing a tab hands focus to the most recently used surviving tab, not to a
 // positional neighbour: after hopping between two terminals, closing one should
 // land back on the other rather than on whatever happens to sit beside it.
 function setActiveId(id: string | null) {
+  activeScope()
   activeId = id || null
   if (!activeId) return
   const at = mru.indexOf(activeId)
@@ -308,11 +635,13 @@ function setActiveId(id: string | null) {
 }
 
 function forgetMru(id: string) {
+  activeScope()
   const at = mru.indexOf(id)
   if (at >= 0) mru.splice(at, 1)
 }
 
 function mostRecentTab(excludeId: string) {
+  activeScope()
   for (const id of mru) {
     if (id === excludeId) continue
     const tab = tabs.find(item => item.id === id)
@@ -327,6 +656,7 @@ function mostRecentTab(excludeId: string) {
 // diverge.
 async function activateTab(tab: Tab | null, { reloadCanvas = false } = {}) {
   if (!tab) return false
+  activeScope()
   if (tab.kind === 'side-task' && tab.placement === 'left') {
     await w().KlausSideTasks?.activateById?.(tab.key)
     leftActiveId = tab.id
@@ -401,34 +731,37 @@ async function activateTab(tab: Tab | null, { reloadCanvas = false } = {}) {
         || w().klausActiveCanvasPath?.() !== tab.key) return false
       break
     }
-    case 'ppt': {
-      const token = restoreToken
-      const sessionId = w().getCurrentSessionId?.() ?? null
-      if (tab.sessionId !== sessionId) return false
-      const presented = await w().klausActivatePptPanel?.({ id: tab.key, title: tab.title, sessionId })
-      if (presented !== true || activation !== activationToken || token !== restoreToken || !tabs.includes(tab)
-        || sessionId !== (w().getCurrentSessionId?.() ?? null) || currentMode() !== 'ppt'
-        || w().klausActivePptId?.() !== tab.key) return false
-      break
-    }
-    case 'prototype': {
-      const token = restoreToken
-      const sessionId = w().getCurrentSessionId?.() ?? null
-      if (tab.sessionId !== sessionId) return false
-      const presented = await w().klausActivatePrototypePanel?.({ id: tab.key, title: tab.title, sessionId })
-      if (presented !== true || activation !== activationToken || token !== restoreToken || !tabs.includes(tab)
-        || sessionId !== (w().getCurrentSessionId?.() ?? null) || currentMode() !== 'prototype'
-        || w().klausActivePrototypeId?.() !== tab.key) return false
-      break
-    }
+    case 'ppt':
+    case 'prototype':
     case 'video-editing': {
       const token = restoreToken
       const sessionId = w().getCurrentSessionId?.() ?? null
       if (tab.sessionId !== sessionId) return false
-      const presented = await w().klausActivateVideoEditingPanel?.({ id: tab.key, title: tab.title, sessionId })
+      const activateHook = tab.kind === 'ppt'
+        ? w().klausActivatePptPanel
+        : tab.kind === 'prototype'
+          ? w().klausActivatePrototypePanel
+          : w().klausActivateVideoEditingPanel
+      const activeIdHook = tab.kind === 'ppt'
+        ? w().klausActivePptId
+        : tab.kind === 'prototype'
+          ? w().klausActivePrototypeId
+          : w().klausActiveVideoEditingId
+      const mode = KINDS[tab.kind].mode
+      const presented = await activateHook?.({ id: tab.key, title: tab.title, sessionId })
       if (presented !== true || activation !== activationToken || token !== restoreToken || !tabs.includes(tab)
-        || sessionId !== (w().getCurrentSessionId?.() ?? null) || currentMode() !== 'video-editing'
-        || w().klausActiveVideoEditingId?.() !== tab.key) return false
+        || sessionId !== (w().getCurrentSessionId?.() ?? null) || currentMode() !== mode
+        || activeIdHook?.() !== tab.key) {
+        if (presented !== true && activation === activationToken && token === restoreToken
+          && sessionId === (w().getCurrentSessionId?.() ?? null)) {
+          forgetMru(tab.id)
+          void reconcileNativeEditorTabs(tab.kind, sessionId, token)
+          if (currentMode() === mode || activeId === tab.id) {
+            await activateTab(mostRecentTab(tab.id) || find('monitor', ''))
+          }
+        }
+        return false
+      }
       break
     }
     default:
@@ -441,6 +774,7 @@ async function activateTab(tab: Tab | null, { reloadCanvas = false } = {}) {
 
 async function closeTab(tab: Tab | null) {
   if (!tab || isFixed(tab)) return
+  activeScope()
   if (tab.kind === 'canvas') { activationToken++; canvasOpenToken++ }
   if (tab.kind === 'prototype' || tab.kind === 'video-editing' || tab.kind === 'ppt') activationToken++
   const closingSessionToken = restoreToken
@@ -556,6 +890,7 @@ function firstInstanceIndex() {
 }
 
 function moveTab(fromId: string, toId: string, after: boolean) {
+  activeScope()
   const from = tabs.findIndex(tab => tab.id === fromId)
   if (from < 0 || isFixed(tabs[from])) return false
   const [moved] = tabs.splice(from, 1)
@@ -605,81 +940,340 @@ function isTransientLocalPage(url: string): boolean {
   }
 }
 
-function serialize() {
-  return tabs
+// ── Persistence: one checkpoint per scope ────────────────────────────────
+// A session's checkpoint lives under its own storage key; an unpromoted
+// draft's checkpoint lives under its client-side draft id inside the shared
+// draft map. A checkpoint records the durable tab routes plus the strip
+// topology (order and selection), so a cold scope rebuilds exactly what the
+// user last saw. Volatile surfaces are never written: a dead pty or an
+// expired side task cannot be faithfully recreated.
+function serializeScope(scope: ThreadTabScope): StoredTabEntry[] {
+  const sessionId = scope.sessionId
+  return scope.tabs
     .filter(tab => KINDS[tab.kind]?.persist && (tab.kind !== 'browser' || !isTransientLocalPage(tab.url)))
     .flatMap(tab => {
       if (tab.kind === 'browser') return [{ kind: 'browser', url: tab.url || '' }]
       // A native editor descriptor is meaningless without the document it
-      // points at, so the stored entry carries its key and display title.
-      if (NATIVE_EDITOR_KINDS.includes(tab.kind)) return tab.key ? [{ kind: tab.kind, key: tab.key, title: tab.title }] : []
+      // points at, so the stored entry carries its key and display title. A
+      // document owned by another chat never rides along in this checkpoint.
+      if (NATIVE_EDITOR_KINDS.includes(tab.kind)) {
+        if (!tab.key || (sessionId && tab.sessionId && tab.sessionId !== sessionId)) return []
+        return [{ kind: tab.kind, key: tab.key, title: tab.title }]
+      }
       return [{ kind: tab.kind }]
     })
 }
 
+function checkpointForScope(scope: ThreadTabScope): StoredCheckpoint | null {
+  const entries = serializeScope(scope)
+  if (entries.length === 0) return null
+  return {
+    version: SCHEMA_VERSION,
+    tabs: entries,
+    topology: {
+      activeTabId: scope.activeId,
+      // Panel openness and maximization are recorded for checkpoint
+      // completeness; chat.js owns restoring them per session (and maximize
+      // stays an app-wide preference), so hydration never applies these two.
+      open: panelOpen(),
+      tabIds: scope.tabs.map(tab => tab.id),
+      maximized,
+    },
+  }
+}
+
+function sanitizeTopology(value: any): StoredTopology | undefined {
+  if (!value || typeof value !== 'object') return undefined
+  return {
+    activeTabId: typeof value.activeTabId === 'string' ? value.activeTabId : null,
+    open: value.open === true,
+    tabIds: Array.isArray(value.tabIds) ? value.tabIds.filter((id: any): id is string => typeof id === 'string') : [],
+    maximized: value.maximized === true,
+  }
+}
+
+function sanitizeCheckpoint(value: any): StoredCheckpoint | null {
+  // A stored envelope from a different schema is discarded outright rather
+  // than half-read: a partially understood tab set is worse than none.
+  if (!value || value.version !== SCHEMA_VERSION) return null
+  const list = Array.isArray(value.tabs) ? value.tabs : []
+  return {
+    version: SCHEMA_VERSION,
+    tabs: list.filter((entry: any) => entry && KINDS[entry.kind]?.persist
+      && (!NATIVE_EDITOR_KINDS.includes(entry.kind) || (typeof entry.key === 'string' && entry.key))),
+    topology: sanitizeTopology(value.topology),
+  }
+}
+
+function parseStoredJson(raw: string | null): any {
+  if (!raw) return null
+  try {
+    return JSON.parse(raw)
+  } catch {
+    return null
+  }
+}
+
+function readSessionCheckpoint(sessionId: string): StoredCheckpoint | null {
+  const raw = readStorage(storageKey(sessionId))
+  if (!raw) return null
+  const checkpoint = sanitizeCheckpoint(parseStoredJson(raw))
+  if (!checkpoint) removeStorage(storageKey(sessionId))
+  return checkpoint
+}
+
+function readDraftCheckpoints(): Record<string, any> {
+  const parsed = parseStoredJson(readStorage(DRAFT_TABS_KEY))
+  return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {}
+}
+
+function readDraftCheckpoint(clientId: string): StoredCheckpoint | null {
+  return sanitizeCheckpoint(readDraftCheckpoints()[clientId] ?? null)
+}
+
+function writeDraftCheckpoint(clientId: string, checkpoint: StoredCheckpoint | null): void {
+  const map = readDraftCheckpoints()
+  delete map[clientId]
+  if (checkpoint) map[clientId] = checkpoint
+  // Re-inserting a key moves it to the newest slot; trim from the oldest so
+  // the draft store cannot grow without bound.
+  const keys = Object.keys(map)
+  while (keys.length > MAX_DRAFT_CHECKPOINTS) {
+    const oldest = keys.shift()
+    if (oldest !== undefined) delete map[oldest]
+  }
+  if (Object.keys(map).length === 0) removeStorage(DRAFT_TABS_KEY)
+  else writeStorage(DRAFT_TABS_KEY, JSON.stringify(map))
+}
+
+function forgetDraftCheckpoint(clientId: string): void {
+  writeDraftCheckpoint(clientId, null)
+}
+
+function saveScopeForSession(scope: ThreadTabScope, sessionId: string): void {
+  if (!sessionId) return
+  if (scope === boundScope) flushViewToScope()
+  const checkpoint = checkpointForScope(scope)
+  const raw = checkpoint ? JSON.stringify(checkpoint) : null
+  if (raw === scope.lastStoredRaw) return
+  scope.lastStoredRaw = raw
+  if (raw === null) removeStorage(storageKey(sessionId))
+  else writeStorage(storageKey(sessionId), raw)
+}
+
+function saveDraftScope(scope: ThreadTabScope): void {
+  if (scope.sessionId || !isClientDraftId(scope.key)) return
+  if (scope === boundScope) flushViewToScope()
+  const checkpoint = checkpointForScope(scope)
+  const raw = checkpoint ? JSON.stringify(checkpoint) : null
+  if (raw === scope.lastStoredRaw) return
+  scope.lastStoredRaw = raw
+  writeDraftCheckpoint(scope.key, checkpoint)
+}
+
+function persistScope(scope: ThreadTabScope): void {
+  if (!scope.hydrated) return
+  if (scope.sessionId) saveScopeForSession(scope, scope.sessionId)
+  else saveDraftScope(scope)
+}
+
+// Save the tab set of the given session's OWN scope — never the live view
+// under a foreign id. A session whose scope is not resident has no live state
+// to save, and its stored envelope is left untouched.
 function saveFor(sessionId: string) {
   if (!sessionId) return
-  try {
-    const entries = serialize()
-    if (entries.length === 0) {
-      localStorage.removeItem(storageKey(sessionId))
+  const scope = scopes.get(scopeKeyForSession(sessionId))
+  if (!scope || !scope.hydrated) return
+  saveScopeForSession(scope, sessionId)
+}
+
+function forgetSession(sessionId: string) {
+  if (!sessionId) return
+  const clientId = forgetClientBinding(sessionId)
+  if (clientId) forgetDraftCheckpoint(clientId)
+  const key = clientId ?? `local:${sessionId}`
+  const scope = scopes.get(key)
+  if (scope) {
+    scopes.delete(key)
+    if (scope === boundScope) {
+      // The visible conversation was deleted: detach WITHOUT checkpointing
+      // (its rows are being destroyed) and rebind the active session.
+      boundScope = null
+      removeStorage(storageKey(sessionId))
+      activeScope()
+      publish()
       return
     }
-    localStorage.setItem(storageKey(sessionId), JSON.stringify({
-      version: SCHEMA_VERSION,
-      tabs: entries,
-    }))
-  } catch {
-    // Storage full / disabled: the tab set is a convenience, never a gate.
   }
+  removeStorage(storageKey(sessionId))
 }
 
-function loadFor(sessionId: string): { tabs: Array<{ kind: string; url?: string; key?: string; title?: string }> } {
-  if (!sessionId) return { tabs: [] }
+async function listNativeEditorDocuments(kind: string, sessionId: string): Promise<Array<{ id: string; title: string }> | null> {
+  const klaus = w().klaus
+  if (kind === 'ppt' && typeof klaus?.ppt?.list === 'function') {
+    const res = await klaus.ppt.list(sessionId)
+    return Array.isArray(res?.presentations) ? res.presentations : null
+  }
+  if (kind === 'prototype' && typeof klaus?.prototype?.list === 'function') {
+    const res = await klaus.prototype.list(sessionId)
+    return Array.isArray(res?.prototypes) ? res.prototypes : null
+  }
+  if (kind === 'video-editing' && typeof klaus?.videoEditing?.list === 'function') {
+    const res = await klaus.videoEditing.list(sessionId)
+    return Array.isArray(res?.videos) ? res.videos : null
+  }
+  return null
+}
+
+async function reconcileNativeEditorTabs(kind: string, sessionId: string, token: number) {
+  let rows: Array<{ id: string; title: string }> | null = null
   try {
-    const raw = localStorage.getItem(storageKey(sessionId))
-    if (!raw) return { tabs: [] }
-    const parsed = JSON.parse(raw)
-    // A stored envelope from a different schema is discarded outright rather
-    // than half-read: a partially understood tab set is worse than none.
-    if (!parsed || parsed.version !== SCHEMA_VERSION) {
-      localStorage.removeItem(storageKey(sessionId))
-      return { tabs: [] }
-    }
-    const list = Array.isArray(parsed.tabs) ? parsed.tabs : []
-    return {
-      tabs: list.filter((entry: any) => entry && KINDS[entry.kind]?.persist
-        && (!NATIVE_EDITOR_KINDS.includes(entry.kind) || (typeof entry.key === 'string' && entry.key))),
-    }
+    rows = await listNativeEditorDocuments(kind, sessionId)
   } catch {
-    return { tabs: [] }
+    return
   }
+  if (!rows || token !== restoreToken) return
+  const currentSession = w().getCurrentSessionId?.()
+  if (currentSession !== undefined && currentSession !== sessionId) return
+  activeScope()
+  const live = new Map<string, string>()
+  for (const row of rows) {
+    const id = row?.id
+    const title = row?.title
+    if (typeof id === 'string' && id) {
+      live.set(id, typeof title === 'string' ? title : '')
+    }
+  }
+  let changed = false
+  let removedActiveId: string | null = null
+  for (const tab of [...tabs]) {
+    if (tab.kind !== kind || tab.sessionId !== sessionId) continue
+    if (!live.has(tab.key)) {
+      if (activeId === tab.id) removedActiveId = tab.id
+      remove(kind, tab.key)
+      changed = true
+    } else {
+      const liveTitle = live.get(tab.key)
+      if (liveTitle && tab.title !== liveTitle) {
+        tab.title = liveTitle
+        changed = true
+      }
+    }
+  }
+  if (!changed) return
+  saveFor(sessionId)
+  const mode = KINDS[kind]?.mode
+  if (removedActiveId || (mode && currentMode() === mode && !nativeEditorCandidate(kind))) {
+    await activateTab(mostRecentTab(removedActiveId || '') || find('monitor', ''))
+    return
+  }
+  publish()
 }
 
+// ── Hydration: cold scope → checkpoint ────────────────────────────────────
 // Restore is descriptor-only: a browser page comes back as a pending tab that
 // creates its webview when the user actually clicks it, so switching sessions
-// never spawns a pile of invisible webviews. Which tab ends up active is the
-// panel mode's call (chat.js restores that separately), not the stored set's.
-function restoreFor(sessionId: string, token: number) {
-  if (token !== restoreToken) return
-  const saved = loadFor(sessionId)
-  for (const entry of saved.tabs) {
+// never spawns a pile of invisible webviews. Which tab ends up active stays
+// the panel mode's call (chat.js restores that separately); the stored
+// topology only pre-selects the strip until then.
+function ensureScopeHydrated(scope: ThreadTabScope): void {
+  if (scope.hydrated) return
+  scope.hydrated = true
+  const checkpoint = scope.sessionId
+    ? readSessionCheckpoint(scope.sessionId)
+    : readDraftCheckpoint(scope.key)
+  if (checkpoint) applyCheckpoint(scope, checkpoint)
+  if (scope === boundScope) refreshViewFromScope(scope)
+}
+
+function restoredNativeKinds(scope: ThreadTabScope): Set<string> {
+  const kinds = new Set<string>()
+  for (const tab of scope.tabs) {
+    if (NATIVE_EDITOR_KINDS.includes(tab.kind)) kinds.add(tab.kind)
+  }
+  return kinds
+}
+
+function applyCheckpoint(scope: ThreadTabScope, checkpoint: StoredCheckpoint): void {
+  for (const entry of checkpoint.tabs) {
     if (entry.kind === 'browser') {
       const url = typeof entry.url === 'string' ? entry.url : ''
       if (isTransientLocalPage(url)) continue
-      ensure('browser', `restored:${url || 'blank'}`, { url, pending: true, title: browserTitleFor(url) })
+      ensureInScope(scope, 'browser', `restored:${url || 'blank'}`, { url, pending: true, title: browserTitleFor(url) })
     } else if (NATIVE_EDITOR_KINDS.includes(entry.kind)) {
       // The document itself lives on the host; the descriptor only points
       // back at it and remembers which chat owns the activation.
       const { key, title: storedTitle } = entry
       const title = typeof storedTitle === 'string' && storedTitle ? storedTitle : defaultTitle(entry.kind)
-      const tab = ensure(entry.kind, key || '', { title })
-      if (tab) tab.sessionId = sessionId
+      const tab = ensureInScope(scope, entry.kind, key || '', { title })
+      if (tab && scope.sessionId) tab.sessionId = scope.sessionId
     } else {
-      ensure(entry.kind, '')
+      ensureInScope(scope, entry.kind, '')
     }
   }
-  publish()
+  const topology = checkpoint.topology
+  if (!topology) return
+  if (topology.tabIds.length > 0) {
+    // Re-apply the stored strip order; ids the checkpoint does not list keep
+    // their creation order at the end (Array#sort is stable).
+    const order = new Map(topology.tabIds.map((id, index) => [id, index] as const))
+    const rank = (tab: Tab) => order.get(tab.id) ?? Number.MAX_SAFE_INTEGER
+    const fixed = scope.tabs.filter(isFixed)
+    const instances = scope.tabs.filter(tab => !isFixed(tab))
+    instances.sort((a, b) => rank(a) - rank(b))
+    scope.tabs.splice(0, scope.tabs.length, ...fixed, ...instances)
+  }
+  const restored = topology.activeTabId
+  if (restored && scope.tabs.some(tab => tab.id === restored)) {
+    scope.activeId = restored
+    const at = scope.mru.indexOf(restored)
+    if (at >= 0) scope.mru.splice(at, 1)
+    scope.mru.unshift(restored)
+  }
+}
+
+// Surfaces that cannot survive the session leave (shells are gone; engine
+// state belongs to that chat) drop out of the resident scope, and live browser
+// descriptors fold back into the same pending placeholders a cold restore
+// produces — so a warm scope reuse can never offer a webview the host already
+// tore down, and the strip a return visit shows matches the storage round-trip.
+function pruneVolatileTabsOnLeave(scope: ThreadTabScope): void {
+  const kept: Tab[] = []
+  const remap = new Map<string, string>()
+  for (const tab of scope.tabs) {
+    if (isFixed(tab)) { kept.push(tab); continue }
+    if (!KINDS[tab.kind]?.persist) continue
+    if (tab.kind === 'browser') {
+      const url = tab.url || ''
+      // Loopback preview servers may stop between visits; only live host tabs
+      // are restored, so a transient page does not survive the leave either.
+      if (isTransientLocalPage(url)) continue
+      if (tab.pending) {
+        if (!kept.some(item => item.id === tab.id)) kept.push(tab)
+        continue
+      }
+      const key = `restored:${url || 'blank'}`
+      const id = descriptorId('browser', key)
+      remap.set(tab.id, id)
+      if (!kept.some(item => item.id === id)) {
+        kept.push({ ...tab, id, key, pending: true, title: browserTitleFor(url, tab.title) })
+      }
+      continue
+    }
+    if (NATIVE_EDITOR_KINDS.includes(tab.kind) && scope.sessionId && tab.sessionId && tab.sessionId !== scope.sessionId) {
+      // A document owned by another chat never rides along with this scope.
+      continue
+    }
+    kept.push(tab)
+  }
+  scope.tabs.splice(0, scope.tabs.length, ...kept)
+  const surviving = new Set(scope.tabs.map(tab => tab.id))
+  const remapped = (id: string) => remap.get(id) ?? id
+  scope.mru = scope.mru
+    .map(remapped)
+    .filter((id, index, list) => surviving.has(id) && list.indexOf(id) === index)
+  scope.activeId = scope.activeId && surviving.has(remapped(scope.activeId)) ? remapped(scope.activeId) : null
+  scope.leftActiveId = scope.leftActiveId && surviving.has(scope.leftActiveId) ? scope.leftActiveId : null
 }
 
 function browserTitleFor(url: string, title = '') {
@@ -692,23 +1286,79 @@ function browserTitleFor(url: string, title = '') {
   }
 }
 
-// ── Session switch: capture → drop → restore, one transaction ────────────
+// ── Session switch: leave → bind → reconcile, one transaction ────────────
+// The outgoing scope is checkpointed and pruned inside the bind; the target
+// scope hydrates once (cold) or is reused as-is (resident). Every switch then
+// revalidates the native-editor descriptors against the host document lists,
+// so a document that disappeared while the chat was away self-heals instead of
+// surfacing a dead editor on click.
 function beginSessionSwitch(previousSessionId: string | null, nextSessionId: string | null) {
   activationToken++
   canvasOpenToken++
   const token = ++restoreToken
-  if (previousSessionId) saveFor(previousSessionId)
-  dropInstances()
+  // Pin the latch to the target before the window's current-session marker
+  // catches up, so every scope resolution inside this transaction (and any
+  // owner sync it kicks) already addresses the next conversation. The outgoing
+  // scope checkpoints under its own identity during the bind below.
+  void previousSessionId
+  switchedSessionId = nextSessionId
+  switchedAtWindowSessionId = rawWindowSessionId()
+  const scope = getOrCreateScope(nextSessionId)
   publish()
   if (!nextSessionId) return
-  restoreFor(nextSessionId, token)
+  for (const kind of restoredNativeKinds(scope)) {
+    void reconcileNativeEditorTabs(kind, nextSessionId, token)
+  }
 }
 
-// Write the live tab set for whichever session owns it right now — used after
+// Write the live tab set for whichever scope owns it right now — used after
 // an in-place change (drag reorder) that no session switch will capture.
 function persistCurrent() {
-  const sessionId = w().getCurrentSessionId?.()
-  if (sessionId) saveFor(sessionId)
+  persistScope(activeScope())
+}
+
+// ── Draft promotion ───────────────────────────────────────────────────────
+// A draft conversation materializes into a real session id IN PLACE: the scope
+// the user was already building tabs in is bound to the new id (nothing is
+// recreated or lost), its checkpoint moves to the session storage, and the
+// new-chat identity rotates so the next draft starts clean. Callers run this
+// BEFORE the window's current-session marker flips to the new id.
+function promoteDraftSession(sessionId: string) {
+  if (!sessionId) return
+  if (boundClientThreadId(sessionId)) return
+  const draft = boundScope && boundScope.sessionId === null && isClientDraftId(boundScope.key)
+    ? boundScope
+    : scopes.get(draftClientThreadId ?? '') ?? null
+  const clientId = draft?.key ?? ensureDraftClientThreadId()
+  const staleLocal = scopes.get(`local:${sessionId}`)
+  if (staleLocal && staleLocal !== draft) {
+    // A placeholder scope materialized before the binding existed; the
+    // promoted scope supersedes it.
+    scopes.delete(`local:${sessionId}`)
+    if (staleLocal === boundScope) boundScope = null
+  }
+  recordClientBinding(sessionId, clientId)
+  switchedSessionId = sessionId
+  switchedAtWindowSessionId = rawWindowSessionId()
+  if (draft) {
+    if (draft === boundScope) flushViewToScope()
+    draft.sessionId = sessionId
+    for (const tab of draft.tabs) {
+      if (NATIVE_EDITOR_KINDS.includes(tab.kind) && !tab.sessionId) tab.sessionId = sessionId
+    }
+    // The checkpoint moves to a different storage key, so the write-dedup
+    // cache (which is per key) must not suppress the session-side write.
+    draft.lastStoredRaw = null
+    saveScopeForSession(draft, sessionId)
+    forgetDraftCheckpoint(clientId)
+  } else {
+    // Cold promotion: migrate the stored draft checkpoint instead.
+    const checkpoint = readDraftCheckpoint(clientId)
+    if (checkpoint) {
+      writeStorage(storageKey(sessionId), JSON.stringify(checkpoint))
+      forgetDraftCheckpoint(clientId)
+    }
+  }
 }
 
 // ── Sync entry points used by the surface owners ──────────────────────────
@@ -737,6 +1387,7 @@ function syncTerminals(count = 0) {
 
 // Browser pages: one outer tab per host-side tab in the active conversation.
 function syncBrowserTabs(list: Array<{ id: string; url?: string; title?: string }> = [], activeTabId: string | null = null) {
+  activeScope()
   const live = Array.isArray(list) ? list : []
   const liveIds = new Set(live.map(item => item.id))
   const liveUrls = new Set(live.map(item => item.url || ''))
@@ -764,6 +1415,7 @@ function syncBrowserTabs(list: Array<{ id: string; url?: string; title?: string 
 
 // Side tasks publish their independent lifecycle and attention state.
 function syncSideTasks(list: Array<{ id: string; title?: string; badge?: string; running?: boolean; unread?: boolean; placement?: 'left' | 'right' }> = [], activeSideId: string | null = null, leftSideId: string | null = null) {
+  activeScope()
   leftActiveId = leftSideId ? descriptorId('side-task', leftSideId) : null
   const live = new Set(list.map(item => item.id))
   for (let i = tabs.length - 1; i >= 0; i--) {
@@ -791,6 +1443,7 @@ function syncSideTasks(list: Array<{ id: string; title?: string; badge?: string;
 }
 
 async function moveSideTask(tab: Tab, placement: 'left' | 'right') {
+  activeScope()
   const token = restoreToken
   if (await w().KlausSideTasks?.moveTo?.(tab.key, placement) === false || token !== restoreToken) return
   tab.placement = placement
@@ -818,6 +1471,7 @@ function dropSideTask(event: React.DragEvent | DragEvent, placement: 'left' | 'r
 }
 
 function sideTaskQuotePanels(): SideTaskQuotePanel[] {
+  activeScope()
   const active = activeId ? findById(activeId) : null
   return [{
     placement: 'right',
@@ -856,6 +1510,7 @@ async function openBackgroundProcess(shellId: string, title = '') {
 
 async function openSpec({ path, sessionId }: { path?: string; title?: string; sessionId?: string | null } = {}) {
   if (!path) return
+  activeScope()
   // Spec owns a document selector inside one surface. Switching documents must
   // not tear down the annotation drafts belonging to the previous document.
   const existing = tabs.find(tab => tab.kind === 'spec')
@@ -872,6 +1527,7 @@ async function openSpec({ path, sessionId }: { path?: string; title?: string; se
 }
 
 async function openPlanning({ sessionId, planId, revision }: { sessionId: string; planId: string; revision: number }) {
+  activeScope()
   const current = tabs.find(tab => tab.kind === 'planning')
   if (current && current.key !== `${planId}:${revision}`) {
     if (await w().klausClosePlanningPanel?.() === false) return false
@@ -891,6 +1547,7 @@ async function openGoal({ sessionId, goalId }: { sessionId: string; goalId: stri
   return activateTab(tab)
 }
 function closeGoal() {
+  activeScope()
   for (const tab of [...tabs]) if (tab.kind === 'goal') { w().klausCloseGoalPanel?.(); remove('goal', tab.key) }
   if (currentMode() === 'goal') void activateTab(find('monitor', ''))
 }
@@ -921,6 +1578,7 @@ async function closeCanvas(path: string) {
 }
 
 async function clearCanvases() {
+  activeScope()
   canvasOpenToken++
   activationToken++
   for (let i = tabs.length - 1; i >= 0; i--) {
@@ -942,6 +1600,7 @@ async function openPrototype({ id, title, sessionId }: { id: string; title?: str
 }
 
 function clearPrototypes() {
+  activeScope()
   activationToken++
   for (const tab of [...tabs]) if (tab.kind === 'prototype') remove('prototype', tab.key)
   publish()
@@ -964,18 +1623,21 @@ async function openPpt({ id, title, sessionId }: { id: string; title?: string; s
 }
 
 function clearVideoEditings() {
+  activeScope()
   activationToken++
   for (const tab of [...tabs]) if (tab.kind === 'video-editing') remove('video-editing', tab.key)
   publish()
 }
 
 function clearPresentations() {
+  activeScope()
   activationToken++
   for (const tab of [...tabs]) if (tab.kind === 'ppt') remove('ppt', tab.key)
   publish()
 }
 
 function clearSpecs() {
+  activeScope()
   for (let i = tabs.length - 1; i >= 0; i--) {
     if (!['spec', 'planning', 'goal'].includes(tabs[i].kind)) continue
     forgetMru(tabs[i].id)
@@ -986,6 +1648,7 @@ function clearSpecs() {
 }
 
 function clearBackgroundProcesses() {
+  activeScope()
   for (let i = tabs.length - 1; i >= 0; i--) {
     if (tabs[i].kind !== 'background-process') continue
     forgetMru(tabs[i].id)
@@ -996,6 +1659,7 @@ function clearBackgroundProcesses() {
 }
 
 function clearSubagents() {
+  activeScope()
   for (let i = tabs.length - 1; i >= 0; i--) {
     if (tabs[i].kind !== 'subagent') continue
     forgetMru(tabs[i].id)
@@ -1092,6 +1756,7 @@ interface CtxItem {
 
 // ── "More" menu: every tab reachable even when the strip is clipped ───────
 function buildMoreItems(): MenuItem[] {
+  activeScope()
   return tabs.map(tab => ({
     kind: tab.kind,
     label: tabPresentation(tab).title,
@@ -1126,6 +1791,7 @@ function buildNewItems(): MenuItem[] {
 
 // ── Context menu: close / close others / close right ─────────────────────
 function buildContextItems(tab: Tab): CtxItem[] {
+  activeScope()
   const index = tabs.findIndex(item => item.id === tab.id)
   const others = tabs.filter(item => item.id !== tab.id && !isFixed(item) && item.placement === tab.placement)
   const right = tabs.slice(index + 1).filter(item => !isFixed(item) && item.placement === tab.placement)
@@ -1598,6 +2264,7 @@ if (leftStripHost) {
 }
 
 window.addEventListener('klaus:lang-change', () => {
+  activeScope()
   for (const tab of tabs) {
     // Owner-titled kinds keep their own titles (browser page and side-task
     // title); fixed surfaces follow the UI language.
@@ -1615,8 +2282,9 @@ if (maximized) applyMaximized()
 // side-tasks (side-task family, which supplies the `+` menu's side-task
 // entry). Nothing else may render into the strip.
 ;(window as any).KlausPanelTabs = {
-  canStep: () => tabs.length > 1,
+  canStep: () => { activeScope(); return tabs.length > 1 },
   step: (delta: number) => {
+    activeScope()
     if (tabs.length < 2) return
     const index = tabs.findIndex(tab => tab.id === activeId)
     const tab = tabs[(Math.max(0, index) + delta + tabs.length) % tabs.length]
@@ -1625,7 +2293,9 @@ if (maximized) applyMaximized()
   remove,
   render: publish,
   beginSessionSwitch,
+  promoteDraftSession,
   saveFor,
+  forgetSession,
   syncTerminals,
   syncBrowserTabs,
   syncSideTasks,
