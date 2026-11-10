@@ -298,6 +298,20 @@
   line-height: var(--leading-settings-subtitle);
 }
 
+/* 整卡即打开对话框的入口，指针提示可点。 */
+.agent-card-clickable {
+  cursor: pointer;
+}
+
+/* 只读态的静态值槽：与输入框同外框，淡底表示不可编辑。 */
+.agent-view-value {
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  color: var(--fg-secondary);
+  background: var(--bg-subtle, rgba(26, 28, 31, 0.04));
+}
+
 .sk-load-warning > span {
   min-width: 0;
   overflow-wrap: anywhere;

@@ -1,11 +1,21 @@
 // Agents 页两个弹窗：表单创建/编辑（kls-modal）与原始 markdown 编辑器。
 // 迁自 js/pages/agents.js，类名/id/文案键逐一对应。
 import { useEffect, useRef, useState } from 'react'
+import { modelOptionHasValue, modelOptionIsSelectable, modelOptionsForValue } from '../../../../shared/cursor-model-catalog'
 import { useT, t } from '../../i18n'
 import { rawIconHtml } from '../../components/Icon'
+import type { GlobalModelTierMapping, GlobalModelTierOptions } from '../../../bridge/types'
+import {
+  KlsSelect as BoundSelect,
+  MODEL_TIERS,
+  ModelSourceSelect,
+  loadGlobalModelTierMappings,
+  loadGlobalModelTierOptions,
+  sourceLabel,
+} from '../settings/model-shared'
 import {
   buildAgentMarkdownFromForm,
-  buildAgentModelItems,
+  isConcreteAgentModel,
   normalizeAgentCreateName,
   type AgentFormFields,
   type SelectItem,
@@ -63,37 +73,70 @@ function KlsSelect({ id, items, value, hideSelected, handle }: {
   return <div id={id} className="kls-select kls-select-block" ref={host} />
 }
 
-export function AgentCreateModal({ existing, onClose, onSaved }: {
+export function AgentCreateModal({ existing, onClose, onSaved, readOnly = false }: {
   existing: AgentFormFields | null
   onClose: () => void
   onSaved: () => void
+  readOnly?: boolean
 }) {
   const t = useT()
   const isEdit = !!existing
-  const [modelItems, setModelItems] = useState<SelectItem[] | null>(null)
+  const [catalog, setCatalog] = useState<GlobalModelTierOptions | null>(null)
   const [modelError, setModelError] = useState('')
   const [modelReloadSequence, setModelReloadSequence] = useState(0)
   const [busy, setBusy] = useState(false)
+  // A role model is a source plus one of that source's models, the same shape
+  // the feature-model rows use; an empty source follows the chat's main model.
+  const [source, setSource] = useState('')
+  const [modelId, setModelId] = useState('')
+  // The stored model string until either picker moves: a role saved on a tier
+  // keeps following the global tier mapping until the user re-points it here.
+  const [modelPreset, setModelPreset] = useState<string | null>(null)
   const nameRef = useRef<HTMLInputElement>(null)
   const descRef = useRef<HTMLTextAreaElement>(null)
   const promptRef = useRef<HTMLTextAreaElement>(null)
   const maxTurnsRef = useRef<HTMLInputElement>(null)
   const backgroundRef = useRef<HTMLInputElement>(null)
   const toolsSelect = useRef<{ getValue: () => string } | null>(null)
-  const modelSelect = useRef<{ getValue: () => string } | null>(null)
   const isolationSelect = useRef<{ getValue: () => string } | null>(null)
 
   useEffect(() => {
     let active = true
-    setModelItems(null)
+    setCatalog(null)
     setModelError('')
-    void buildAgentModelItems().then(items => {
-      if (active) setModelItems(items)
+    Promise.all([
+      loadGlobalModelTierOptions(),
+      loadGlobalModelTierMappings().catch(() => null),
+    ]).then(([options, mapping]: [GlobalModelTierOptions, GlobalModelTierMapping | null]) => {
+      if (!active) return
+      const stored = existing?.model && existing.model !== 'inherit' ? existing.model : 'inherit'
+      const tier = MODEL_TIERS.find(row => row.tier === stored)
+      // A tier-stored role renders as the model its tier currently maps to; a
+      // mapping read failure would hide that target behind an empty source,
+      // so refuse to open the form instead of misshowing the stored pick.
+      if (tier && !mapping) {
+        setModelError(t('settings_section_load_failed'))
+        return
+      }
+      let nextSource = ''
+      let nextModelId = ''
+      if (tier && mapping) {
+        nextSource = mapping[tier.tier]?.source ?? ''
+        nextModelId = mapping[tier.tier]?.modelId ?? ''
+      } else if (isConcreteAgentModel(stored)) {
+        const at = stored.indexOf(':')
+        nextSource = stored.slice(0, at)
+        nextModelId = stored.slice(at + 1)
+      }
+      setSource(nextSource)
+      setModelId(nextModelId)
+      setModelPreset(stored)
+      setCatalog(options)
     }).catch((error: any) => {
       if (active) setModelError(error?.message || t('settings_section_load_failed'))
     })
     return () => { active = false }
-  }, [modelReloadSequence, t])
+  }, [modelReloadSequence, t, existing])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
@@ -102,15 +145,15 @@ export function AgentCreateModal({ existing, onClose, onSaved }: {
   }, [onClose])
 
   useEffect(() => {
-    if (modelItems) setTimeout(() => nameRef.current?.focus(), 20)
-  }, [modelItems])
+    if (catalog) setTimeout(() => nameRef.current?.focus(), 20)
+  }, [catalog])
 
-  if (!modelItems) {
+  if (!catalog) {
     return (
       <div className="kls-modal-overlay agent-create-modal" onClick={e => { if (e.target === e.currentTarget) onClose() }}>
         <div className={`kls-modal ${styles['agent-create-card']}`}>
           <div className="kls-modal-head">
-            <h3 className="kls-modal-title">{isEdit ? t('agents_edit') : t('agents_create_title')}</h3>
+            <h3 className="kls-modal-title">{readOnly ? t('agents_view') : isEdit ? t('agents_edit') : t('agents_create_title')}</h3>
             <button
               className="kls-modal-close"
               aria-label={t('cancel')}
@@ -131,7 +174,41 @@ export function AgentCreateModal({ existing, onClose, onSaved }: {
     )
   }
 
+  const sourceRows = catalog.sources ?? []
+  const sourceItems = [
+    { value: '', label: t('feature_model_follow_main') },
+    ...sourceRows.map(row => ({ value: row.source, label: sourceLabel(row.source) })),
+    // A stored source that left the catalog keeps its row so the pick stays
+    // visible and replaceable instead of snapping to another source.
+    ...(source && !sourceRows.some(row => row.source === source)
+      ? [{ value: source, label: sourceLabel(source) }] : []),
+  ]
+  const sourceRow = sourceRows.find(row => row.source === source)
+  const modelItems = [
+    { value: '', label: t('model_tiers_pick_model'), disabled: true },
+    ...(modelId && !(sourceRow?.options || []).some(option => modelOptionHasValue(option, modelId))
+      ? [{ value: modelId, label: modelId, disabled: true }] : []),
+    // Model rows carry the name only; the catalog description is provider copy
+    // that stretched the fixed-position panel across the whole window.
+    ...(modelOptionsForValue(sourceRow?.options || [], modelId) as any[]).map(option => ({
+      value: String(option.modelId ?? option.value ?? ''),
+      label: String(option.label ?? option.modelId ?? ''),
+      disabled: !modelOptionIsSelectable(option, source),
+    })),
+  ]
+  const changeSource = (next: string) => {
+    setModelPreset(null)
+    setSource(next)
+    const row = sourceRows.find(candidate => candidate.source === next)
+    setModelId(prev => (prev && (row?.options || []).some(option => modelOptionHasValue(option, prev)) ? prev : ''))
+  }
+  const changeModel = (next: string) => {
+    setModelPreset(null)
+    setModelId(next)
+  }
+
   const submit = async () => {
+    if (readOnly) return
     const name = normalizeAgentCreateName(nameRef.current?.value || '')
     const description = (descRef.current?.value || '').trim()
     const prompt = (promptRef.current?.value || '').trim()
@@ -150,13 +227,17 @@ export function AgentCreateModal({ existing, onClose, onSaved }: {
       maxTurns = parsed
     }
     const isolation = isolationSelect.current?.getValue() || 'none'
+    const model = modelPreset !== null
+      ? modelPreset
+      : source === '' ? 'inherit' : modelId ? `${source}:${modelId}` : null
+    if (model === null) { showToast(t('model_tiers_pick_model')); return }
     setBusy(true)
     try {
       const content = buildAgentMarkdownFromForm({
         name,
         description,
         toolsMode: toolsSelect.current?.getValue() || 'all',
-        model: modelSelect.current?.getValue() || 'inherit',
+        model,
         prompt,
         isolation: isolation === 'worktree' ? 'worktree' : undefined,
         maxTurns,
@@ -182,8 +263,8 @@ export function AgentCreateModal({ existing, onClose, onSaved }: {
       <div className={`kls-modal ${styles['agent-create-card']}`}>
         <div className="kls-modal-head">
           <div>
-            <h3 className="kls-modal-title">{isEdit ? t('agents_edit') : t('agents_create_title')}</h3>
-            <p className="kls-modal-subtitle">{t('agents_create_subtitle')}</p>
+            <h3 className="kls-modal-title">{readOnly ? t('agents_view') : isEdit ? t('agents_edit') : t('agents_create_title')}</h3>
+            <p className="kls-modal-subtitle">{readOnly ? t('agents_view_hint') : t('agents_create_subtitle')}</p>
           </div>
           <button
             className="kls-modal-close"
@@ -201,6 +282,7 @@ export function AgentCreateModal({ existing, onClose, onSaved }: {
               autoComplete="off" spellCheck={false}
               defaultValue={existing?.name ?? ''}
               readOnly={isEdit}
+              disabled={readOnly}
             />
             <div className="kls-field-hint">{t('agents_create_name_hint')}</div>
           </div>
@@ -210,42 +292,74 @@ export function AgentCreateModal({ existing, onClose, onSaved }: {
               className={`kls-input kls-input-area ${styles['agent-create-textarea']}`} id="agent-create-description" ref={descRef}
               rows={2} placeholder={t('agents_create_description_placeholder')}
               defaultValue={existing?.description ?? ''}
+              disabled={readOnly}
             />
           </div>
           <div className={styles['agent-create-grid']}>
             <div className="kls-field">
               <label className="kls-field-label">{t('agents_create_tools')}</label>
-              <KlsSelect
-                id="agent-create-tools" handle={toolsSelect}
-                items={[
-                  { value: 'all', i18nKey: 'agents_create_tools_all' },
-                  { value: 'read', i18nKey: 'agents_create_tools_read' },
-                  { value: 'none', i18nKey: 'agents_create_tools_none' },
-                ]}
-                value={existing?.toolsMode ?? 'all'}
-              />
+              {readOnly ? (
+                <div className={`kls-input ${styles['agent-view-value']}`}>{existing?.toolsSummary || t(`agents_create_tools_${existing?.toolsMode || 'all'}`)}</div>
+              ) : (
+                <KlsSelect
+                  id="agent-create-tools" handle={toolsSelect}
+                  items={[
+                    { value: 'all', i18nKey: 'agents_create_tools_all' },
+                    { value: 'read', i18nKey: 'agents_create_tools_read' },
+                    { value: 'none', i18nKey: 'agents_create_tools_none' },
+                  ]}
+                  value={existing?.toolsMode ?? 'all'}
+                />
+              )}
             </div>
             <div className="kls-field">
-              <label className="kls-field-label">{t('agents_create_model')}</label>
-              <KlsSelect
-                id="agent-create-model" handle={modelSelect}
-                items={modelItems} value={existing?.model ?? 'inherit'} hideSelected
+              <label className="kls-field-label" id="agent-create-source-label">{t('model_tiers_source')}</label>
+              <ModelSourceSelect
+                id="agent-create-source" className="kls-select kls-select-block"
+                ariaLabel={t('model_tiers_source')} labelId="agent-create-source-label"
+                items={sourceItems} value={source}
+                disabled={readOnly}
+                bindKey={`agent-source|${source}|${readOnly}|${sourceItems.map(item => item.value).join(',')}`}
+                onChange={changeSource}
               />
             </div>
           </div>
           <div className={styles['agent-create-grid']}>
             <div className="kls-field">
               <label className="kls-field-label">{t('agents_create_isolation')}</label>
-              <KlsSelect
-                id="agent-create-isolation" handle={isolationSelect}
-                items={[
-                  { value: 'none', i18nKey: 'agents_create_isolation_none' },
-                  { value: 'worktree', i18nKey: 'agents_create_isolation_worktree' },
-                ]}
-                value={existing?.isolation ?? 'none'}
-              />
-              <div className="kls-field-hint">{t('agents_create_isolation_hint')}</div>
+              {readOnly ? (
+                <div className={`kls-input ${styles['agent-view-value']}`}>{t(existing?.isolation === 'worktree' ? 'agents_create_isolation_worktree' : 'agents_create_isolation_none')}</div>
+              ) : (
+                <>
+                  <KlsSelect
+                    id="agent-create-isolation" handle={isolationSelect}
+                    items={[
+                      { value: 'none', i18nKey: 'agents_create_isolation_none' },
+                      { value: 'worktree', i18nKey: 'agents_create_isolation_worktree' },
+                    ]}
+                    value={existing?.isolation ?? 'none'}
+                  />
+                  <div className="kls-field-hint">{t('agents_create_isolation_hint')}</div>
+                </>
+              )}
             </div>
+            <div className="kls-field">
+              <label className="kls-field-label" id="agent-create-model-label">{t('model_tiers_model')}</label>
+              {source === '' ? (
+                <div className="kls-field-hint" id="agent-create-model-inherit">{t('model_mapping_follow_default')}</div>
+              ) : (
+                <BoundSelect
+                  id="agent-create-model" className="kls-select kls-select-block"
+                  ariaLabel={t('model_tiers_model')} labelId="agent-create-model-label"
+                  items={modelItems} value={modelId}
+                  disabled={readOnly || sourceRow?.status !== 'ready'}
+                  bindKey={JSON.stringify([source, modelId, readOnly, modelItems.map(item => `${item.value}:${item.disabled ? 0 : 1}`).join(',')])}
+                  onChange={changeModel}
+                />
+              )}
+            </div>
+          </div>
+          {readOnly && !Number.isInteger(existing?.maxTurns) ? null : (
             <div className="kls-field">
               <label className="kls-field-label">{t('agents_create_maxturns')}</label>
               <input
@@ -253,31 +367,43 @@ export function AgentCreateModal({ existing, onClose, onSaved }: {
                 type="number" min={1} step={1} inputMode="numeric"
                 placeholder={t('agents_create_maxturns_placeholder')}
                 autoComplete="off" defaultValue={existing?.maxTurns ?? ''}
+                disabled={readOnly}
               />
-              <div className="kls-field-hint">{t('agents_create_maxturns_hint')}</div>
+              {readOnly ? null : <div className="kls-field-hint">{t('agents_create_maxturns_hint')}</div>}
             </div>
-          </div>
-          <div className="kls-field">
-            <label className={styles['agent-create-check']}>
-              <input type="checkbox" id="agent-create-background" ref={backgroundRef} defaultChecked={existing?.background === true} />
-              <span>{t('agents_create_background')}</span>
-            </label>
-            <div className="kls-field-hint">{t('agents_create_background_hint')}</div>
-          </div>
-          <div className="kls-field">
-            <label className="kls-field-label">{t('agents_create_prompt')} <span className="kls-required">*</span></label>
-            <textarea
-              className={`kls-input kls-input-area ${styles['agent-create-prompt']}`} id="agent-create-prompt" ref={promptRef}
-              rows={6} placeholder={t('agents_create_prompt_placeholder')}
-              defaultValue={existing?.prompt ?? defaultAgentPrompt()}
-            />
-          </div>
+          )}
+          {readOnly && existing?.background !== true ? null : (
+            <div className="kls-field">
+              <label className={styles['agent-create-check']}>
+                <input type="checkbox" id="agent-create-background" ref={backgroundRef} defaultChecked={existing?.background === true} disabled={readOnly} />
+                <span>{t('agents_create_background')}</span>
+              </label>
+              {readOnly ? null : <div className="kls-field-hint">{t('agents_create_background_hint')}</div>}
+            </div>
+          )}
+          {readOnly && !existing?.prompt ? null : (
+            <div className="kls-field">
+              <label className="kls-field-label">{t('agents_create_prompt')} {readOnly ? null : <span className="kls-required">*</span>}</label>
+              <textarea
+                className={`kls-input kls-input-area ${styles['agent-create-prompt']}`} id="agent-create-prompt" ref={promptRef}
+                rows={6} placeholder={t('agents_create_prompt_placeholder')}
+                defaultValue={existing?.prompt ?? (readOnly ? '' : defaultAgentPrompt())}
+                disabled={readOnly}
+              />
+            </div>
+          )}
         </div>
         <div className={`kls-modal-foot ${styles['agent-create-foot']}`}>
-          <button className={`kls-submit-btn kls-submit-secondary ${styles['agent-create-cancel']}`} onClick={onClose}>{t('cancel')}</button>
-          <button className={`kls-submit-btn ${styles['agent-create-submit']}`} id="agent-create-submit" disabled={busy} onClick={submit}>
-            {isEdit ? t('save') : t('agents_create_submit')}
-          </button>
+          {readOnly ? (
+            <button className={`kls-submit-btn ${styles['agent-create-submit']}`} onClick={onClose}>{t('close')}</button>
+          ) : (
+            <>
+              <button className={`kls-submit-btn kls-submit-secondary ${styles['agent-create-cancel']}`} onClick={onClose}>{t('cancel')}</button>
+              <button className={`kls-submit-btn ${styles['agent-create-submit']}`} id="agent-create-submit" disabled={busy} onClick={submit}>
+                {isEdit ? t('save') : t('agents_create_submit')}
+              </button>
+            </>
+          )}
         </div>
       </div>
     </div>

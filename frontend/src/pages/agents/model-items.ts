@@ -38,6 +38,8 @@ export interface AgentFormFields {
   name: string
   description: string
   toolsMode: string
+  /** View-only rows (built-in roles) carry the rendered tool summary instead of an editable policy. */
+  toolsSummary?: string
   model: string
   isolation: string
   maxTurns?: number
@@ -102,6 +104,22 @@ function agentToolsModeFromFrontmatter(tools: unknown): string | null {
 const AGENT_FORM_KEYS = new Set(['name', 'description', 'tools', 'model', 'isolation', 'maxTurns', 'background'])
 const AGENT_FORM_MODELS = new Set(['inherit', 'high', 'medium', 'low'])
 
+// The create/edit form writes concrete model picks as `<source>:<modelId>`,
+// the same reference shape the engine resolves for a role definition when the
+// sub-agent spawns. Those definitions must open in the form again instead of
+// falling back to the raw markdown editor, so the parser accepts the reference
+// shape itself; whether the source still exists is a catalog question the form
+// answers while rendering, not a reason to lose the round-trip.
+export function isConcreteAgentModel(value: string): boolean {
+  const at = value.indexOf(':')
+  if (at <= 0 || at === value.length - 1) return false
+  const source = value.slice(0, at)
+  const modelId = value.slice(at + 1)
+  return /^[A-Za-z0-9_.-]+$/.test(source)
+    && modelId.trim() === modelId
+    && !/[\s\x00-\x1f\x7f]/.test(value)
+}
+
 // 把 agent markdown 反解析成新建表单的字段；只要有表单无法无损表达的东西
 // (自定义工具集/未知 model/额外 frontmatter 键/损坏)就返回 null，交回原始
 // 文本编辑器，避免保存时丢数据。
@@ -127,7 +145,7 @@ export function agentFieldsFromContent(content: string): Omit<AgentFormFields, '
   const toolsMode = agentToolsModeFromFrontmatter(fm.tools)
   if (toolsMode == null) return null
   const model = typeof fm.model === 'string' ? (unquoteYaml(fm.model).trim() || 'inherit') : 'inherit'
-  if (!AGENT_FORM_MODELS.has(model)) return null
+  if (!AGENT_FORM_MODELS.has(model) && !isConcreteAgentModel(model)) return null
   const maxTurns = Number.parseInt(fm.maxTurns as string, 10)
   return {
     name,

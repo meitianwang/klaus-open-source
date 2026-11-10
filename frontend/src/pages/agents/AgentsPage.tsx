@@ -129,13 +129,13 @@ function getAgentSearchValues(agent: AgentDef, t: (k: string) => string): unknow
 }
 
 /**
- * 广场卡片的态度控件。未安装只有安装钮；已安装则是已安装徽章（或有更新时的
- * 更新钮）加编辑与卸载——装完就是普通用户智能体文件，编辑与卸载复用已安装
- * 档的 openEdit/onDelete，即同一条表单编辑与回收站删除路径，广场不长出第二
- * 种写/删行为。内置智能体不在广场出现，不可改的边界保持不变。
+ * 广场卡片的管理控件。未安装只有安装钮；已安装保留已安装徽章（或有更新时的
+ * 更新钮）与卸载——编辑不住在控件里，卡体点击就是打开对话框的入口（与已安装
+ * 档同一条 openEdit 路径），广场不长出第二种写/删行为。内置智能体不在广场
+ * 出现，不可改的边界保持不变。
  */
-function AgentMarketControls({ item, onChanged, onEdit, onDelete }: {
-  item: MarketAgent; onChanged: () => void; onEdit: (id: string) => void; onDelete: (id: string) => void;
+function AgentMarketControls({ item, onChanged, onDelete }: {
+  item: MarketAgent; onChanged: () => void; onDelete: (id: string) => void;
 }) {
   const t = useT()
   const [busy, setBusy] = useState(false)
@@ -169,7 +169,6 @@ function AgentMarketControls({ item, onChanged, onEdit, onDelete }: {
   if (item.installed) return (
     <>
       {item.installed && !item.hasUpdate ? <span className="sk-health-badge">{t('agents_market_installed')}</span> : installButton}
-      <button className="btn-xs" onClick={() => onEdit(item.slug)}>{t('agents_edit')}</button>
       <button className="btn-xs btn-danger" onClick={() => onDelete(item.slug)}>{t('agents_market_uninstall')}</button>
     </>
   )
@@ -226,7 +225,7 @@ export function AgentsPage() {
   const [error, setError] = useState<string | null>(null)
   const [filter, setFilter] = useState('all')
   const [search, setSearch] = useState('')
-  const [createModal, setCreateModal] = useState<{ existing: AgentFormFields | null } | null>(null)
+  const [createModal, setCreateModal] = useState<{ existing: AgentFormFields | null; readOnly?: boolean } | null>(null)
   const [editorModal, setEditorModal] = useState<{ id: string | null; content: string } | null>(null)
   const [actionBusy, setActionBusy] = useState('')
   // 广场与已安装是同一页的两档，与技能页同构：市场档发现、已安装档管理。
@@ -301,6 +300,27 @@ export function AgentsPage() {
     } finally {
       setActionBusy('')
     }
+  }
+
+  // 内置等没有用户文件的角色没有可编辑的 markdown：对话框以只读态从列表行
+  // 打开，给得起查看但不给保存路径。
+  const openAgent = (agent: AgentDef) => {
+    const editable = agent?.editableId
+    if (editable) { void openEdit(editable); return }
+    setCreateModal({
+      existing: {
+        name: String(agent?.agentType || ''),
+        description: localizeAgentDescription(agent),
+        toolsMode: 'all',
+        toolsSummary: summarizeAgentTools(agent, t),
+        model: typeof agent?.model === 'string' && agent.model ? agent.model : 'inherit',
+        isolation: agent?.isolation === 'worktree' ? 'worktree' : 'none',
+        maxTurns: Number.isInteger(agent?.maxTurns) ? agent.maxTurns : undefined,
+        background: agent?.background === true,
+        prompt: '',
+      },
+      readOnly: true,
+    })
   }
 
   const onDelete = async (editableId: string) => {
@@ -487,7 +507,7 @@ export function AgentsPage() {
                   )}
                   desc={item.description || item.slug}
                   onOpen={item.installed ? () => { void openEdit(item.slug) } : undefined}
-                  controls={<AgentMarketControls item={item} onChanged={() => { void loadMarket(); void reload() }} onEdit={id => { void openEdit(id) }} onDelete={id => { void onDelete(id) }} />}
+                  controls={<AgentMarketControls item={item} onChanged={() => { void loadMarket(); void reload() }} onDelete={id => { void onDelete(id) }} />}
                 />
               ))}
             </MarketGrid>
@@ -504,7 +524,14 @@ export function AgentsPage() {
               const model = typeof agent?.model === 'string' && agent.model && agent.model !== 'inherit' ? agent.model : ''
               const editable = agent?.editableId
               return (
-                <div className={`sk-card ${styles['agent-card']}`} data-agent-name={name} data-agent-category={category} key={name || agent.filePath}>
+                <div
+                  className={`sk-card ${styles['agent-card']} ${styles['agent-card-clickable']}`}
+                  data-agent-name={name} data-agent-category={category} key={name || agent.filePath}
+                  onClick={(e) => {
+                    if ((e.target as Element).closest('button, a, input, textarea, select')) return
+                    void openAgent(agent)
+                  }}
+                >
                   <div className={styles['sk-card-head']}>
                     <div className={styles['sk-card-info']}>
                       <span className="kls-icon-host" dangerouslySetInnerHTML={agentIcon(name)} />
@@ -528,7 +555,6 @@ export function AgentsPage() {
                     </div>
                     <div className={styles['sk-card-actions']}>
                       <button className="btn-xs" onClick={() => insertAgentMention(name)}>{t('agents_use')}</button>
-                      {editable && <button className="btn-xs" disabled={Boolean(actionBusy)} onClick={() => { void openEdit(editable) }}>{t('agents_edit')}</button>}
                       {editable && <button className="btn-xs btn-danger" disabled={Boolean(actionBusy)} onClick={() => { void onDelete(editable) }}>{t('delete_title')}</button>}
                     </div>
                   </div>
@@ -539,7 +565,15 @@ export function AgentsPage() {
               const id = file?.editableId || ''
               const name = file?.path ? String(file.path).split('/').pop() : t('agents_parse_failed')
               return (
-                <div className={`sk-card ${styles['agent-card']} ${styles['agent-card-failed']}`} key={file.path || id}>
+                <div
+                  className={`sk-card ${styles['agent-card']} ${styles['agent-card-failed']} ${id ? styles['agent-card-clickable'] : ''}`}
+                  key={file.path || id}
+                  onClick={(e) => {
+                    if (!id) return
+                    if ((e.target as Element).closest('button, a, input, textarea, select')) return
+                    void openEdit(id)
+                  }}
+                >
                   <div className={styles['sk-card-head']}>
                     <div className={styles['sk-card-info']}>
                       <span className="kls-icon-host" dangerouslySetInnerHTML={lineIcon('shield')} />
@@ -555,9 +589,6 @@ export function AgentsPage() {
                     <div className={styles['slash-command-badges']}>
                       <span className="s-badge s-badge-red">{t('agents_category_failed')}</span>
                     </div>
-                    <div className={styles['sk-card-actions']}>
-                      {id && <button className="btn-xs" disabled={Boolean(actionBusy)} onClick={() => { void openEdit(id) }}>{t('agents_edit')}</button>}
-                    </div>
                   </div>
                 </div>
               )
@@ -571,6 +602,7 @@ export function AgentsPage() {
         <ModalPortal>
           <AgentCreateModal
             existing={createModal.existing}
+            readOnly={createModal.readOnly === true}
             onClose={() => setCreateModal(null)}
             onSaved={() => { void reload() }}
           />

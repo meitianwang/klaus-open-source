@@ -43,6 +43,19 @@ describe('agent form contract', () => {
     expect(normalizeAgentCreateName('  Review my change!  ')).toBe('Review-my-change')
   })
 
+  test('round-trips a concrete source:model reference written by the form', () => {
+    const markdown = buildAgentMarkdownFromForm({ ...base, model: 'qoder:fast', toolsMode: 'all' })
+    expect(markdown).toContain('model: qoder:fast')
+    expect(agentFieldsFromContent(markdown)?.model).toBe('qoder:fast')
+  })
+
+  test('model references the engine would reject fall back to the raw editor', () => {
+    for (const model of ['qoder:', ':fast', 'qoder :fast', 'qoder: fast', 'Qoder Fast', 'qoder:fa st']) {
+      const markdown = buildAgentMarkdownFromForm({ ...base, model, toolsMode: 'all' })
+      expect(agentFieldsFromContent(markdown)).toBeNull()
+    }
+  })
+
   for (const [source, sourceName, modelId] of [
     ['qwenwork', 'QwenWork', 'ultimate'],
     ['qoderwork', 'QoderWork', 'qwork-auto'],
