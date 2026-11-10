@@ -7,17 +7,16 @@ export const SIDEBAR_MAX_WIDTH = 520
 export const SIDEBAR_DEFAULT_WIDTH = 300
 export const SIDEBAR_COLLAPSE_THRESHOLD = 0.5 * SIDEBAR_MIN_WIDTH
 
-export const RIGHT_PANEL_MIN_WIDTH = 260
-export const RIGHT_PANEL_MAX_WIDTH = 1400
+export const RIGHT_PANEL_MIN_WIDTH = 320
 export const RIGHT_PANEL_DEFAULT_WIDTH = 460
 export const RIGHT_PANEL_COLLAPSE_THRESHOLD = 0.5 * RIGHT_PANEL_MIN_WIDTH
 
-export const PANEL_MIN_MAIN_WIDTH = 420
+export const PANEL_MIN_MAIN_WIDTH = 320
 export const MAIN_PANE_FULL_WIDTH_THRESHOLD = 160
 
 export const BOTH_PANELS_AUTO_COLLAPSE_WIDTH = 960
 export const NARROW_WINDOW_AUTO_COLLAPSE_WIDTH = 720
-export const RESIZER_KEYBOARD_STEP = 16
+export const RESIZER_KEYBOARD_STEP = 10
 
 export function clamp01(value: number): number {
   if (!Number.isFinite(value)) return 0
@@ -51,7 +50,7 @@ export function computeWorkspaceWidth(
 export function rightPanelBounds(
   workspaceWidth: number,
   minPanel = RIGHT_PANEL_MIN_WIDTH,
-  maxPanel = RIGHT_PANEL_MAX_WIDTH,
+  maxPanel = Number.POSITIVE_INFINITY,
   minMain = PANEL_MIN_MAIN_WIDTH,
 ): { minimum: number; maximum: number } {
   const available = Number.isFinite(workspaceWidth) && workspaceWidth > 0
@@ -68,7 +67,7 @@ export function clampRightPanelWidth(
   width: number,
   workspaceWidth: number,
   minPanel = RIGHT_PANEL_MIN_WIDTH,
-  maxPanel = RIGHT_PANEL_MAX_WIDTH,
+  maxPanel = Number.POSITIVE_INFINITY,
   minMain = PANEL_MIN_MAIN_WIDTH,
 ): number {
   const { minimum, maximum } = rightPanelBounds(workspaceWidth, minPanel, maxPanel, minMain)
@@ -80,7 +79,7 @@ export function rightPanelWidthToRatio(
   width: number,
   workspaceWidth: number,
   minPanel = RIGHT_PANEL_MIN_WIDTH,
-  maxPanel = RIGHT_PANEL_MAX_WIDTH,
+  maxPanel = Number.POSITIVE_INFINITY,
   minMain = PANEL_MIN_MAIN_WIDTH,
 ): number {
   const { minimum, maximum } = rightPanelBounds(workspaceWidth, minPanel, maxPanel, minMain)
@@ -94,7 +93,7 @@ export function rightPanelRatioToWidth(
   ratio: number,
   workspaceWidth: number,
   minPanel = RIGHT_PANEL_MIN_WIDTH,
-  maxPanel = RIGHT_PANEL_MAX_WIDTH,
+  maxPanel = Number.POSITIVE_INFINITY,
   minMain = PANEL_MIN_MAIN_WIDTH,
 ): number {
   const { minimum, maximum } = rightPanelBounds(workspaceWidth, minPanel, maxPanel, minMain)
@@ -165,12 +164,16 @@ export function evaluateRightPanelDragStep(
   if (!open) {
     return { open: false, fullWidth: false, width: RIGHT_PANEL_MIN_WIDTH, ratio: 0 }
   }
-  const maxAllowed = rightPanelRatioToWidth(1, workspaceWidth)
+  const { maximum } = rightPanelBounds(workspaceWidth)
   const fullWidth = allowFullWidth
     && workspaceWidth > 0
-    && rawWidth > maxAllowed
+    && rawWidth > maximum
     && workspaceWidth - rawWidth < MAIN_PANE_FULL_WIDTH_THRESHOLD
-  const width = clampRightPanelWidth(rawWidth, workspaceWidth)
+  // Pointer overflow: while a drag is in progress the pane keeps following
+  // the pointer past the ratio maximum (squeezing the main pane below its
+  // proportional floor) until the full-width trigger takes over; committed
+  // widths elsewhere still clamp into [minimum, maximum].
+  const width = fullWidth ? workspaceWidth : Math.max(0, Math.round(rawWidth))
   const ratio = rightPanelWidthToRatio(width, workspaceWidth)
   return { open: true, fullWidth, width, ratio }
 }
@@ -178,16 +181,15 @@ export function evaluateRightPanelDragStep(
 export function evaluateKeyboardResizeStep(options: {
   currentSize: number
   key: string
-  shiftKey?: boolean
   edge: 'left' | 'right'
   minimumSize: number
   maximumSize: number
   step?: number
 }): number | null {
-  const { currentSize, key, shiftKey, edge, minimumSize, maximumSize, step = RESIZER_KEYBOARD_STEP } = options
+  const { currentSize, key, edge, minimumSize, maximumSize, step = RESIZER_KEYBOARD_STEP } = options
   if (key === 'Home') return minimumSize
   if (key === 'End') return maximumSize
-  const deltaMagnitude = shiftKey ? step * 2 : step
+  const deltaMagnitude = step
   let delta: number | null = null
   if (key === 'ArrowLeft') {
     delta = edge === 'left' ? deltaMagnitude : -deltaMagnitude

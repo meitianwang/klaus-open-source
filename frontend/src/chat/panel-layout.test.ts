@@ -55,7 +55,7 @@ describe('panel and sidebar coordinated layout state machine', () => {
     expect(rightPanelRatioToWidth(ratio, wsCollapsed)).toBe(660)
 
     // 2. Sidebar expanded (300px): workspace shrinks to 1140px, right panel scales down proportionally
-    // while keeping main chat >= 420px
+    // while keeping main chat >= 320px
     const wsExpanded = computeWorkspaceWidth(shellWidth, true, 300)
     expect(wsExpanded).toBe(1140)
     const widthWithSidebar = rightPanelRatioToWidth(ratio, wsExpanded)
@@ -72,10 +72,12 @@ describe('panel and sidebar coordinated layout state machine', () => {
     expect(rightPanelRatioToWidth(ratio, wsCollapsed)).toBe(660)
   })
 
-  test('right panel drag handles collapse threshold (< 130px), full-width maximize (< 160px main), and 50/50 double-click reset', () => {
+  test('right panel drag follows the pointer past the ratio maximum, collapses below 160px, and maximizes below 160px main', () => {
     const wsWidth = 1140
+    const { maximum } = rightPanelBounds(wsWidth)
+    expect(maximum).toBe(wsWidth - PANEL_MIN_MAIN_WIDTH)
 
-    // Below 130px collapses the right panel
+    // Below 0.5 * 320 = 160px collapses the right panel
     expect(evaluateRightPanelDragStep(RIGHT_PANEL_COLLAPSE_THRESHOLD - 1, wsWidth)).toEqual({
       open: false,
       fullWidth: false,
@@ -83,17 +85,25 @@ describe('panel and sidebar coordinated layout state machine', () => {
       ratio: 0,
     })
 
-    // Normal split drag within bounds
+    // Normal split drag within bounds follows the pointer exactly
     const normal = evaluateRightPanelDragStep(520, wsWidth)
     expect(normal.open).toBe(true)
     expect(normal.fullWidth).toBe(false)
     expect(normal.width).toBe(520)
 
-    // Dragging past max so remaining main chat < 160px triggers full-width mode
+    // Pointer-overflow zone: past the ratio maximum the pane keeps following
+    // the pointer (main squeezed below its proportional floor), ratio saturates
+    const overflow = evaluateRightPanelDragStep(maximum + 80, wsWidth)
+    expect(overflow.open).toBe(true)
+    expect(overflow.fullWidth).toBe(false)
+    expect(overflow.width).toBe(maximum + 80)
+    expect(overflow.ratio).toBe(1)
+
+    // Dragging until remaining main chat < 160px triggers full-width mode
     const full = evaluateRightPanelDragStep(wsWidth - 120, wsWidth)
     expect(full.open).toBe(true)
     expect(full.fullWidth).toBe(true)
-    expect(full.width).toBe(wsWidth - PANEL_MIN_MAIN_WIDTH)
+    expect(full.width).toBe(wsWidth)
 
     // Double-click resets to 50/50 split clamped by bounds
     expect(defaultSplitRightPanelWidth(1140)).toBe(570)
@@ -108,41 +118,40 @@ describe('panel and sidebar coordinated layout state machine', () => {
     expect(rightPanelRatioToWidth(fallbackRatio, wsWidth)).toBe(RIGHT_PANEL_DEFAULT_WIDTH)
   })
 
-  test('keyboard resize steps respect edge direction, Shift multiplier, Home, and End', () => {
+  test('keyboard resize steps respect edge direction, fixed 10px step, Home, and End', () => {
     expect(evaluateKeyboardResizeStep({
       currentSize: 300,
       key: 'ArrowRight',
       edge: 'right',
       minimumSize: 240,
       maximumSize: 520,
-    })).toBe(316)
+    })).toBe(310)
     expect(evaluateKeyboardResizeStep({
       currentSize: 300,
       key: 'ArrowLeft',
-      shiftKey: true,
       edge: 'right',
       minimumSize: 240,
       maximumSize: 520,
-    })).toBe(268)
+    })).toBe(290)
     expect(evaluateKeyboardResizeStep({
       currentSize: 460,
       key: 'ArrowLeft',
       edge: 'left',
-      minimumSize: 260,
+      minimumSize: 320,
       maximumSize: 720,
-    })).toBe(476)
+    })).toBe(470)
     expect(evaluateKeyboardResizeStep({
       currentSize: 460,
       key: 'Home',
       edge: 'left',
-      minimumSize: 260,
+      minimumSize: 320,
       maximumSize: 720,
-    })).toBe(260)
+    })).toBe(320)
     expect(evaluateKeyboardResizeStep({
       currentSize: 460,
       key: 'End',
       edge: 'left',
-      minimumSize: 260,
+      minimumSize: 320,
       maximumSize: 720,
     })).toBe(720)
   })

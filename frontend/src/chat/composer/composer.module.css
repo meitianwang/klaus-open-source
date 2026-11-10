@@ -34,7 +34,6 @@
   align-items: center;
   gap: 6px;
   min-width: 0;
-  max-width: min(164px, 100%);
   overflow: hidden;
 }
 
@@ -53,6 +52,14 @@
 :is(:global(#main-model-select), :global(#side-model-select)) .main-model-trigger-thinking {
   flex: 0 0 auto;
   color: var(--fg-secondary);
+}
+
+/* Reasoning label is the first model-trigger part to give up: the model name
+   itself only truncates, it never disappears. */
+@container composer-footer (max-width: 475px) {
+  :is(:global(#main-model-select), :global(#side-model-select), :global(#left-side-model-select)) .main-model-trigger-thinking {
+    display: none;
+  }
 }
 
 /* 合一面板：模型列表固定高度内滚动，底部常驻「推理强度 当前值 ›」行，

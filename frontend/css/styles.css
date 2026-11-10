@@ -3407,16 +3407,15 @@ spinner (data-chat-timeline-scroll-generating): the affordance then
      send buttons read as floating too far from the card edges otherwise. */
   margin: 0 -8px;
 }
-/* Voice + send cluster on the right: the context pie docks first (its auto
-   margin pushes the trio right); when the pie is hidden the mic inherits the
-   auto margin so the cluster never falls left. */
-.input-row #ctx-usage-chip { margin-left: auto; }
-.input-row #ctx-usage-chip[hidden] + #voice-input-btn,
-.input-row :is(#side-ctx-usage-chip, #left-side-ctx-usage-chip)[hidden] + :is(#side-voice-input-btn, #left-side-voice-input-btn),
-/* Side composer hides :is(#side-ctx-usage-chip, #left-side-ctx-usage-chip) entirely (display:none via inline
-   style), which breaks the `[hidden] + sibling` selector — fall back to a
-   direct rule so the mic + send cluster still docks right. */
-.side-composer-host :is(#side-voice-input-btn, #left-side-voice-input-btn) { margin-left: auto; }
+/* Footer control order mirrors the narrow-width progression: plus and the
+   permission picker lead on the left, the source pill and model picker open
+   the right cluster (model, context pie, voice, send), docked by an auto
+   margin on the model picker so the cluster never falls left when the pie
+   is hidden. */
+.input-row :is(#composer-plus-btn, #side-composer-plus-btn, #left-side-composer-plus-btn) { order: -5; }
+.input-row :is(#permission-select, #side-permission-select, #left-side-permission-select) { order: -4; }
+.input-row #auth-mode-pill { order: -3; }
+.input-row :is(#main-model-select, #side-model-select, #left-side-model-select) { order: -2; margin-left: auto; }
 /* Narrow composer (welcome slot with the monitor panel open, small windows):
    the flexible pickers give up width first so the fixed mic/send buttons are
    never pushed out of the clipped composer surface. */
@@ -5478,7 +5477,6 @@ spinner (data-chat-timeline-scroll-generating): the affordance then
 :is(#main-model-select, :is(#side-model-select, #left-side-model-select), #friend-intent-select, :is(#side-friend-intent-select, #left-side-friend-intent-select)) .kls-select-text {
   flex: 1 1 auto;
   min-width: 0;
-  max-width: 164px;
 }
 @container composer-footer (max-width: 480px) {
   :is(#permission-select, #side-permission-select, #left-side-permission-select) :is(.kls-select-text, .kls-select-caret) {
@@ -5487,19 +5485,15 @@ spinner (data-chat-timeline-scroll-generating): the affordance then
   :is(#permission-select, #side-permission-select, #left-side-permission-select) .kls-select-trigger {
     padding: 0 7px;
   }
-  #main-model-select .kls-select-trigger {
-    max-width: 156px;
-  }
-  #main-model-select .kls-select-text {
-    max-width: 132px;
+}
+@container composer-footer (max-width: 420px) {
+  :is(#main-model-select, #side-model-select, #left-side-model-select) .kls-select-caret {
+    display: none;
   }
 }
-@container composer-footer (max-width: 380px) {
-  #main-model-select .kls-select-trigger {
-    max-width: 128px;
-  }
-  #main-model-select .kls-select-text {
-    max-width: 100px;
+@container composer-footer (max-width: 300px) {
+  :is(#permission-select, #side-permission-select, #left-side-permission-select) {
+    display: none;
   }
 }
 :is(#main-model-select, :is(#side-model-select, #left-side-model-select), #permission-select, :is(#side-permission-select, #left-side-permission-select), #friend-intent-select, :is(#side-friend-intent-select, #left-side-friend-intent-select)) .kls-select-text {
