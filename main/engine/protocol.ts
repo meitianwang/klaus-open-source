@@ -57,6 +57,10 @@ export type ClientEvent =
   | { type: 'engineEvent'; params: Json }
   | { type: 'turnCompleted'; params: Json }
   | { type: 'threadDeleted'; params: Json }
+  /** `session/closed`: the endpoint unloaded an idle session; re-activation rebuilds it. */
+  | { type: 'sessionClosed'; params: Json }
+  /** `session/statusChanged`: one session's lifecycle status, broadcast ungated. */
+  | { type: 'sessionStatusChanged'; params: Json }
   /** `thread/*`, `turn/started`, `item/*` and future methods (`rpc.rs:68-71`). */
   | { type: 'productEvent'; method: string; params: Json }
   /** `approval/request` or `elicitation/request`; answer via `respond`. */
@@ -201,6 +205,8 @@ export const SPECIAL_NOTIFICATIONS: readonly string[] = [
   'engine/event',
   'turn/completed',
   'thread/deleted',
+  'session/closed',
+  'session/statusChanged',
 ];
 
 /**
@@ -232,6 +238,10 @@ export function notificationToEvent(method: string, params: Json): ClientEvent {
       return { type: 'turnCompleted', params };
     case 'thread/deleted':
       return { type: 'threadDeleted', params };
+    case 'session/closed':
+      return { type: 'sessionClosed', params };
+    case 'session/statusChanged':
+      return { type: 'sessionStatusChanged', params };
     default:
       return { type: 'productEvent', method, params };
   }
@@ -252,4 +262,6 @@ export const SPECIAL_NOTIFICATION_EVENT_TYPES: Readonly<Record<string, string>> 
   'engine/event': 'engineEvent',
   'turn/completed': 'turnCompleted',
   'thread/deleted': 'threadDeleted',
+  'session/closed': 'sessionClosed',
+  'session/statusChanged': 'sessionStatusChanged',
 };

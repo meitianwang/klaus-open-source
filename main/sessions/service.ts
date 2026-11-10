@@ -132,6 +132,7 @@ const CURSOR_LOGIN_POLL_TIMEOUT_MS = 40_000;
 const SESSION_CLOSE_TIMEOUT_MS = 100_000;
 /** The engine's "no such live session" code (`wire.rs:28`, `UNKNOWN_SESSION`). */
 const ENGINE_UNKNOWN_SESSION_CODE = -32004;
+const ENGINE_INVALID_REQUEST_CODE = -32600;
 
 /**
  * Whether a rejected engine call means the engine no longer knows this live session.
@@ -147,6 +148,14 @@ function isUnknownLiveSessionError(error: unknown): boolean {
   if (error === null || typeof error !== 'object') return false;
   const record = error as Record<string, unknown>;
   return record.kind === 'server' && record.code === ENGINE_UNKNOWN_SESSION_CODE;
+}
+
+/** The endpoint's mid-unload refusal: transient by design, retry with backoff. */
+function isSessionClosingError(error: unknown): boolean {
+  if (error === null || typeof error !== 'object') return false;
+  const record = error as Record<string, unknown>;
+  return record.kind === 'server' && record.code === ENGINE_INVALID_REQUEST_CODE
+    && typeof record.message === 'string' && record.message.includes('is closing; retry');
 }
 
 /** Loggable form of a failure: bare `RpcError` records stringify to `[object Object]`. */
@@ -166,6 +175,13 @@ const LIVE_SESSION_LIMIT = 6;
 const LIVE_SESSION_IDLE_MS = 3 * 60 * 60_000;
 const RETIREMENT_RETRY_BASE_MS = 30_000;
 const RETIREMENT_RETRY_MAX_MS = 300_000;
+/** Quiet period before an unwatched, idle session's engine stream is released. */
+const INACTIVE_UNSUBSCRIBE_TTL_MS = 30 * 60_000;
+/** Cap on background sessions kept subscribed; the oldest ones are released first. */
+const MAX_INACTIVE_SUBSCRIBED_SESSIONS = 10;
+/** Backoff budget for the endpoint's "session is closing; retry" refusals. */
+const SESSION_CLOSING_RETRIES = 4;
+const SESSION_CLOSING_RETRY_BASE_MS = 750;
 interface NewSessionOptions {
   workdir?: string | null; workspaceId?: string | null; title?: string;
   /** Project the new conversation belongs to, locked at creation.
@@ -455,6 +471,13 @@ export class SessionService {
   private cancelIdleRetirementTimer?: () => void;
   private idleRetirementNextCheck?: number;
   private readonly viewInterests = new SessionViewInterests(id => this.sessionInterestChanged(id));
+  /** Engine-reported lifecycle status per engine session id; 'notLoaded' entries are dropped. */
+  private readonly engineSessionStatus = new Map<string, 'idle' | 'active'>();
+  /** When an unwatched, idle session became eligible for engine-stream release. */
+  private readonly inactiveUnsubscribeSince = new Map<string, number>();
+  private readonly unsubscribeTimers = new Map<string, NodeJS.Timeout>();
+  /** Engine sessions whose event stream this host released; re-subscribe on demand. */
+  private readonly unsubscribedEngineSessions = new Set<string>();
   private readonly retirementFailures = new Map<string, { client: EngineClientLike; engineId: string; attempts: number; retryAt: number }>();
   private readonly pendingSessionCloses = new Map<string, { client: EngineClientLike; engineId: string }>();
   private readonly sessionRecoveries = new Map<string, Promise<unknown>>();
@@ -1140,9 +1163,181 @@ export class SessionService {
     this.inactiveLiveSessions.delete(id);
     this.scheduleIdleRetirement();
     if (this.isSideTask(id)) { this.sideTasks.touch(id); }
+    const binding = this.deps.state.bindings().find(row => row.rendererId === id);
+    if (binding && this.viewInterests.has(id)) {
+      // A view came back: keep the engine stream and re-attach a released one.
+      this.clearInactiveUnsubscribe(binding.engineId);
+      if (this.unsubscribedEngineSessions.has(binding.engineId)) void this.resubscribeEngineSession(binding.engineId);
+      return;
+    }
+    this.evaluateInactiveUnsubscribes();
   }
 
   private hasContinuingGoal(id: string): boolean { return this.deps.state.workflows.goal(id)?.goal?.status === 'active' && this.deps.state.workflows.mode(id)?.mode !== 'plan'; }
+
+  /** Engine lifecycle status for one session changed; drive stream retention from it. */
+  private noteEngineSessionStatus(engineId: string, status: Json | undefined): void {
+    const type = object(status)?.type;
+    if (typeof type !== 'string') return;
+    if (type === 'notLoaded') {
+      this.engineSessionStatus.delete(engineId);
+      this.clearInactiveUnsubscribe(engineId);
+      return;
+    }
+    if (type !== 'idle' && type !== 'active') return;
+    this.engineSessionStatus.set(engineId, type);
+    if (type === 'active') {
+      this.clearInactiveUnsubscribe(engineId);
+      if (this.unsubscribedEngineSessions.has(engineId)) void this.resubscribeEngineSession(engineId);
+      return;
+    }
+    this.evaluateInactiveUnsubscribes();
+  }
+
+  /** The endpoint unloaded a session on its own: drop the binding so the next use rebuilds it. */
+  private handleEngineSessionClosed(engineId: string): void {
+    this.engineSessionStatus.delete(engineId);
+    this.unsubscribedEngineSessions.delete(engineId);
+    this.clearInactiveUnsubscribe(engineId);
+    const binding = this.deps.state.bindings().find(row => row.engineId === engineId);
+    if (!binding || this.deps.state.isStale(binding.rendererId)) return;
+    this.deps.log?.('session-unloaded-by-engine', JSON.stringify({ sessionId: binding.rendererId, engineId }));
+    this.deps.state.markStale(binding.rendererId);
+  }
+
+  private clearInactiveUnsubscribe(engineId: string): void {
+    this.inactiveUnsubscribeSince.delete(engineId);
+    const timer = this.unsubscribeTimers.get(engineId);
+    if (timer) { clearTimeout(timer); this.unsubscribeTimers.delete(engineId); }
+  }
+
+  /** True while a session must keep its engine event stream. Mirrors the retirement guards. */
+  private mustKeepEngineStream(binding: { rendererId: string; engineId: string }): boolean {
+    const id = binding.rendererId;
+    if (!id || id.startsWith('__') || this.deleted.has(id)) return true;
+    if (this.viewInterests.has(id)) return true;
+    if (this.unsubscribedEngineSessions.has(binding.engineId)) return true;
+    if (this.isSideTask(id) || this.deps.isPrivateThread?.(id)) return true;
+    if (this.deps.isSessionRetirementProtected?.(id)) return true;
+    if (this.deps.state.isWorking(id) || this.deps.state.inInterruptWindow(id)) return true;
+    if (this.hasContinuingGoal(id)) return true;
+    if (this.startingTurns.has(id) || this.hostedTurns.has(id) || this.pendingActivations.has(id)) return true;
+    if (this.closingSessions.has(id) || this.mutations.has(id)) return true;
+    if (this.sideQuestions.sessionIds().includes(id) || this.predictionQueries.has(id)) return true;
+    if (this.deps.state.pendingForSession(id).length) return true;
+    if (hasPendingMainTurn(this.deps.state.queueSnapshot(id))) return true;
+    if (this.clientQueue.peek(id)?.items.length) return true;
+    return false;
+  }
+
+  /** Track unwatched idle sessions and release their engine streams after the quiet period. */
+  private evaluateInactiveUnsubscribes(): void {
+    if (this.closing) return;
+    const client = this.attached?.client;
+    if (!client || client.isClosed()) return;
+    const now = this.retirementNow();
+    const bound = new Set<string>();
+    const candidates: Array<{ engineId: string; since: number }> = [];
+    for (const binding of this.deps.state.bindings()) {
+      if (!binding.engineId) continue;
+      bound.add(binding.engineId);
+      if (this.mustKeepEngineStream(binding) || this.engineSessionStatus.get(binding.engineId) !== 'idle') {
+        this.clearInactiveUnsubscribe(binding.engineId);
+        continue;
+      }
+      let since = this.inactiveUnsubscribeSince.get(binding.engineId);
+      if (since === undefined) { since = now; this.inactiveUnsubscribeSince.set(binding.engineId, since); }
+      candidates.push({ engineId: binding.engineId, since });
+    }
+    for (const engineId of [...this.inactiveUnsubscribeSince.keys()]) if (!bound.has(engineId)) this.clearInactiveUnsubscribe(engineId);
+    for (const engineId of [...this.unsubscribeTimers.keys()]) if (!bound.has(engineId)) this.clearInactiveUnsubscribe(engineId);
+    candidates.sort((left, right) => left.since - right.since || left.engineId.localeCompare(right.engineId));
+    const excess = Math.max(0, candidates.length - MAX_INACTIVE_SUBSCRIBED_SESSIONS);
+    candidates.forEach((candidate, index) => {
+      // Beyond the cap the oldest sessions are released without waiting out the TTL.
+      const dueAt = index < excess ? now : candidate.since + INACTIVE_UNSUBSCRIBE_TTL_MS;
+      const existing = this.unsubscribeTimers.get(candidate.engineId);
+      if (existing) clearTimeout(existing);
+      this.unsubscribeTimers.set(candidate.engineId, setTimeout(() => {
+        this.unsubscribeTimers.delete(candidate.engineId);
+        void this.doUnsubscribeEngineSession(candidate.engineId);
+      }, Math.max(0, dueAt - now)));
+    });
+  }
+
+  private async doUnsubscribeEngineSession(engineId: string): Promise<void> {
+    const client = this.attached?.client;
+    if (this.closing || !client || client.isClosed()) return;
+    const binding = this.deps.state.bindings().find(row => row.engineId === engineId);
+    // Re-check at fire time: anything that regained attention keeps its stream,
+    // and the engine-side idle audit (live subagents or shells) has the final say.
+    if (!binding || this.mustKeepEngineStream(binding) || this.engineSessionStatus.get(engineId) !== 'idle') return;
+    try {
+      if (await this.backgroundKeepsSession(binding.rendererId, { priority: 'background', source: 'thread' })) {
+        this.inactiveUnsubscribeSince.set(engineId, this.retirementNow());
+        this.evaluateInactiveUnsubscribes();
+        return;
+      }
+    } catch (error) {
+      this.deps.log?.('session-stream-release-keep-check-failed', JSON.stringify({ engineId, error: describeRetirementFailure(error) }));
+      this.inactiveUnsubscribeSince.set(engineId, this.retirementNow());
+      return;
+    }
+    if (this.closing || this.attached?.client !== client) return;
+    try {
+      await client.requestWithTimeout('session/unsubscribe', { sessionId: engineId }, READ_TIMEOUT_MS);
+      this.unsubscribedEngineSessions.add(engineId);
+      this.inactiveUnsubscribeSince.delete(engineId);
+      this.deps.log?.('session-stream-released', JSON.stringify({ sessionId: binding.rendererId, engineId }));
+    } catch (error) {
+      this.deps.log?.('session-stream-release-failed', JSON.stringify({ engineId, error: describeRetirementFailure(error) }));
+    }
+  }
+
+  /** Re-attach the engine stream for a released session, surviving a mid-unload race. */
+  private async resubscribeEngineSession(engineId: string): Promise<void> {
+    const client = this.attached?.client;
+    if (this.closing || !client || client.isClosed()) return;
+    for (let attempt = 0; ; attempt++) {
+      try {
+        const subscription = object(await client.requestWithTimeout('session/subscribe', { sessionId: engineId }, READ_TIMEOUT_MS));
+        if (subscription?.subscribed !== true) throw new IpcHandlerError('SESSION_SUBSCRIBE_FAILED', 'The engine did not enable session events');
+        this.unsubscribedEngineSessions.delete(engineId);
+        return;
+      } catch (error) {
+        if (isSessionClosingError(error) && attempt < SESSION_CLOSING_RETRIES) {
+          await new Promise(resolve => setTimeout(resolve, SESSION_CLOSING_RETRY_BASE_MS * 2 ** attempt));
+          if (this.closing || this.attached?.client !== client) return;
+          continue;
+        }
+        this.unsubscribedEngineSessions.delete(engineId);
+        if (isUnknownLiveSessionError(error)) {
+          const binding = this.deps.state.bindings().find(row => row.engineId === engineId);
+          if (binding && !this.deps.state.isStale(binding.rendererId)) {
+            this.deps.log?.('session-binding-stale-after-unload-race', JSON.stringify({ sessionId: binding.rendererId, engineId }));
+            this.deps.state.markStale(binding.rendererId);
+          }
+          return;
+        }
+        this.deps.log?.('session-stream-resubscribe-failed', JSON.stringify({ engineId, error: describeRetirementFailure(error) }));
+        return;
+      }
+    }
+  }
+
+  /** One facade request that survives racing the endpoint's idle unload of its target. */
+  private async startWithClosingRetry(client: EngineClientLike, method: string, params: Json, timeoutMs: number, options?: RpcRequestOptions, signal?: AbortSignal): Promise<unknown> {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await client.requestWithTimeout(method, params, timeoutMs, options);
+      } catch (error) {
+        if (!isSessionClosingError(error) || attempt >= SESSION_CLOSING_RETRIES) throw error;
+        await new Promise(resolve => setTimeout(resolve, SESSION_CLOSING_RETRY_BASE_MS * 2 ** attempt));
+        signal?.throwIfAborted();
+        this.ensureCurrentClient(client);
+      }
+    }
+  }
 
   /** Notification delivery reads existing ownership; it never activates or schedules a turn. */
   hasPendingNotificationWork(id: string, terminalId: string, activeChildren: Array<{ parentId: string; id: string }>): boolean {
@@ -1429,6 +1624,13 @@ export class SessionService {
       this.attached = engine;
       const receive = (event: ClientEvent): void => {
         if (this.attached !== engine) return;
+        if (event.type === 'sessionStatusChanged') {
+          const params = object(event.params);
+          if (typeof params?.sessionId === 'string') this.noteEngineSessionStatus(params.sessionId, params?.status);
+        } else if (event.type === 'sessionClosed') {
+          const params = object(event.params);
+          if (typeof params?.sessionId === 'string') this.handleEngineSessionClosed(params.sessionId);
+        }
         if (event.type === 'productEvent' && event.method === 'turn/started') {
           const params = object(event.params), detail = object(params?.detail);
           const binding = this.deps.state.bindings().find(row => row.engineId === params?.sessionId);
@@ -2543,8 +2745,19 @@ export class SessionService {
     await this.refreshModelTierTargetsIfNeeded(rendererId, client, engineId);
     if (capabilitiesRevision !== this.deps.hostCapabilitiesRevision?.()) await this.startupStep(rendererId, 'capabilities', () => this.reloadHostCapabilitiesNow(rendererId));
     await this.startupStep(rendererId, 'subscribe', async () => {
-      const subscription = object(await client.requestWithTimeout('session/subscribe', { sessionId: engineId }, READ_TIMEOUT_MS));
-      if (subscription?.subscribed !== true) throw new IpcHandlerError('SESSION_SUBSCRIBE_FAILED', 'The engine did not enable session events');
+      for (let attempt = 0; ; attempt++) {
+        try {
+          const subscription = object(await client.requestWithTimeout('session/subscribe', { sessionId: engineId }, READ_TIMEOUT_MS));
+          if (subscription?.subscribed !== true) throw new IpcHandlerError('SESSION_SUBSCRIBE_FAILED', 'The engine did not enable session events');
+          this.unsubscribedEngineSessions.delete(engineId);
+          this.clearInactiveUnsubscribe(engineId);
+          return;
+        } catch (error) {
+          if (!isSessionClosingError(error) || attempt >= SESSION_CLOSING_RETRIES) throw error;
+          await new Promise(resolve => setTimeout(resolve, SESSION_CLOSING_RETRY_BASE_MS * 2 ** attempt));
+          this.ensureCurrentClient(client);
+        }
+      }
     });
     const seeded = object(await this.startupStep(rendererId, 'queue-snapshot', () => this.request('session/queueSnapshot', { sessionId: engineId })));
     this.ensureCurrentClient(client);
@@ -2840,11 +3053,8 @@ export class SessionService {
       if (this.deps.hostCapabilities) built.init.hostCapabilities = await this.requestOwner.exit(() => this.deps.hostCapabilities!(rendererId, cwd, built.configValues));
       signal?.throwIfAborted();
       this.assertRequestOwner();
-      const started = wire(await client.requestWithTimeout(
-        'session/start',
-        { init: built.init, resume: rendererId, fork: null },
-        SESSION_START_TIMEOUT_MS,
-      )) as { sessionId?: Json };
+      const started = wire(await this.startWithClosingRetry(client, 'session/start',
+        { init: built.init, resume: rendererId, fork: null }, SESSION_START_TIMEOUT_MS, undefined, signal)) as { sessionId?: Json };
       const engineId = typeof started?.sessionId === 'string' ? started.sessionId : undefined;
       if (engineId === undefined) {
         throw new IpcHandlerError('SESSION_RESUME_FAILED', `resume ${rendererId}: no sessionId returned`);
@@ -2940,7 +3150,7 @@ export class SessionService {
     // The facade reserves init.threadId before materializing the side context. A timed-out
     // reply still owns that endpoint, so rollback must not depend on receiving its identity.
     if (source?.sideTask) startedEngineId = rendererId;
-    const started = (await client.requestWithTimeout(
+    const started = (await this.startWithClosingRetry(client,
       source?.sideTask ? 'session/startSideTask' : 'session/start',
       source?.sideTask ? { init: built.init, parentThreadId: source.threadId, ...(liveParent ? { sourceSessionId: liveParent } : {}) }
         : { init: built.init, resume: null, fork: null },
@@ -5129,6 +5339,9 @@ export class SessionService {
     this.closing = true;
     this.cancelIdleRetirementTimer?.(); this.cancelIdleRetirementTimer = undefined; this.idleRetirementNextCheck = undefined;
     this.inactiveLiveSessions.clear(); this.viewInterests.clear();
+    for (const timer of this.unsubscribeTimers.values()) clearTimeout(timer);
+    this.unsubscribeTimers.clear(); this.inactiveUnsubscribeSince.clear();
+    this.engineSessionStatus.clear(); this.unsubscribedEngineSessions.clear();
     this.cancelDeferredClientQueue();
     this.sideTaskUsage.clear();
     this.sideTaskUsageReads.clear();

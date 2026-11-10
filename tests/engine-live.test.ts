@@ -163,7 +163,7 @@ function registerLiveTests(binary: string): void {
       'the engine asks only the reverse requests this port knows how to answer',
     );
 
-    // The classification contract: `notificationToEvent` special-cases five names
+    // The classification contract: `notificationToEvent` special-cases the listed names
     // and folds everything else into a productEvent, exactly as `rpc.rs:405-421`
     // does. Assert the five the port names really are notifications the engine can
     // emit -- a name that was renamed engine-side would silently degrade to a

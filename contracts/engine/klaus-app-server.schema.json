@@ -23838,6 +23838,105 @@
         }
       }
     },
+    "session/closed": {
+      "params": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "title": "SessionClosedNotification",
+        "description": "`session/closed` notification: the endpoint unloaded an idle session. Its engine runtime and child processes are gone; opening the session again resumes it from stored history.",
+        "type": "object",
+        "required": [
+          "sessionId"
+        ],
+        "properties": {
+          "sessionId": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "session/statusChanged": {
+      "params": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "title": "SessionStatusChangedNotification",
+        "description": "`session/statusChanged` notification: broadcast on every lifecycle transition, including to clients that unsubscribed from the session's event stream, so list surfaces stay current while a session is unload-eligible.",
+        "type": "object",
+        "required": [
+          "sessionId",
+          "status"
+        ],
+        "properties": {
+          "sessionId": {
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/definitions/SessionStatus"
+          }
+        },
+        "definitions": {
+          "SessionActiveFlag": {
+            "description": "One reason a session counts as active: it is waiting for a client answer.",
+            "type": "string",
+            "enum": [
+              "waitingOnApproval",
+              "waitingOnUserInput"
+            ]
+          },
+          "SessionStatus": {
+            "description": "Lifecycle status of one session.",
+            "oneOf": [
+              {
+                "type": "object",
+                "required": [
+                  "type"
+                ],
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "notLoaded"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "type"
+                ],
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "idle"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "type"
+                ],
+                "properties": {
+                  "active_flags": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/definitions/SessionActiveFlag"
+                    }
+                  },
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "active"
+                    ]
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
     "thread/deleted": {
       "params": {
         "$schema": "http://json-schema.org/draft-07/schema#",

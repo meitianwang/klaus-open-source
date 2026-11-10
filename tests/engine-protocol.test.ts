@@ -879,11 +879,13 @@ h.test('classification: missing params become null, matching the Rust unwrap_or'
   );
 });
 
-h.test('notification mapping: the five named methods and the productEvent catch-all', async () => {
+h.test('notification mapping: the named methods and the productEvent catch-all', async () => {
   assertEqual(notificationToEvent('session/event', { a: 1 }).type, 'sessionEvent', 'session/event');
   assertEqual(notificationToEvent('session/rawEvent', {}).type, 'rawSessionEvent', 'session/rawEvent');
   assertEqual(notificationToEvent('turn/completed', {}).type, 'turnCompleted', 'turn/completed');
   assertEqual(notificationToEvent('thread/deleted', {}).type, 'threadDeleted', 'thread/deleted');
+  assertEqual(notificationToEvent('session/closed', {}).type, 'sessionClosed', 'session/closed');
+  assertEqual(notificationToEvent('session/statusChanged', {}).type, 'sessionStatusChanged', 'session/statusChanged');
   assertEqual(notificationToEvent('thread/started', {}).type, 'productEvent', 'thread/started');
   assertEqual(notificationToEvent('turn/started', {}).type, 'productEvent', 'turn/started');
   assertEqual(notificationToEvent('item/completed', {}).type, 'productEvent', 'item/completed');
@@ -901,7 +903,7 @@ h.test('the exported SPECIAL_NOTIFICATIONS list matches the actual switch behavi
   assertDeepEqual(
     [...SPECIAL_NOTIFICATIONS].sort(),
     Object.keys(SPECIAL_NOTIFICATION_EVENT_TYPES).sort(),
-    'the two exported lists name the same five methods',
+    'the two exported lists name the same methods',
   );
   for (const method of SPECIAL_NOTIFICATIONS) {
     const event = notificationToEvent(method, {});
