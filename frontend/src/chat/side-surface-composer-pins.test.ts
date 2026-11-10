@@ -35,3 +35,18 @@ test('voice-chat css still gates the send hide on the wrapper state only', () =>
   expect(css).toContain('#side-input-wrapper[data-voice-chat="active-empty"] #side-send')
   expect(css).toContain('#side-input-wrapper:is([data-voice-chat="active-empty"], [data-voice-chat="active-draft"]) #side-voice-input-btn { display: none !important; }')
 })
+
+test('side composer failures, drafts and surface removal keep user-visible parity', () => {
+  const chat = read('chat.ts')
+  // An unexpected escape from the submit net surfaces as an operational toast.
+  expect(chat).toContain("showToast(tt('chat_send_failed_prefix')")
+  // Side drafts persist across reloads through the shared local-value store.
+  expect(chat).toContain('const SIDE_DRAFTS_KEY = windowStateKey(')
+  expect(chat).toContain('persistSideDraft(sideDraftScope, outgoing)')
+  expect(chat).toContain('persistedSideDraft(scope)')
+  expect(chat).toContain('persistSideDraft(sid, null)')
+  // Surface removal never retires a stream that still owns retained work.
+  expect(chat).toContain('closingStream.running !== true && !closingStream.historyStale')
+  const messages = read('../i18n/messages.ts')
+  expect(messages.match(/chat_send_failed_prefix:/g)?.length).toBe(2)
+})

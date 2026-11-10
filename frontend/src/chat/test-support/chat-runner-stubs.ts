@@ -27,6 +27,11 @@ var composerReferenceEntries = function composerReferenceEntries() { return []; 
 // refused submit, so the inert stand-ins keep the VM context complete.
 var reviveSessionStream = function reviveSessionStream() { return false; };
 var isTurnInProgressRefusal = function isTurnInProgressRefusal() { return false; };
+// Round-7 side draft persistence adds module-level helpers that the extracted
+// composer code calls on bind, input and submit; the VM context needs them.
+var persistSideDraft = function persistSideDraft() {};
+var persistedSideDraft = function persistedSideDraft() { return null; };
+var loadPersistedSideDrafts = function loadPersistedSideDrafts() { return {}; };
 `
 
 /** Same stand-ins as an object spread for harnesses that build a VM context literally. */
@@ -46,4 +51,7 @@ export const chatRunnerStubContext = () => ({
   composerReferenceEntries: () => [],
   reviveSessionStream: () => false,
   isTurnInProgressRefusal: () => false,
+  persistSideDraft: () => {},
+  persistedSideDraft: () => null,
+  loadPersistedSideDrafts: () => ({}),
 })

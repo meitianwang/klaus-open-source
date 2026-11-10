@@ -1735,6 +1735,25 @@ type SideComposerRuntime = {
 const sidePaneRuntimes = new Map<SidePanePlacement, SideComposerRuntime>()
 const sidePanePlacement = createSidePanePlacement()
 const sideComposerDrafts = new Map<string, { value: string; files: PendingFileEntry[]; deferred: DeferredSendIntent | null; document?: ComposerDocumentSnapshot }>()
+// Side drafts outlive a reload the same way the primary composer's do: the
+// in-memory map only covers tab switches inside one window lifetime.
+const SIDE_DRAFTS_KEY = windowStateKey('klaus_side_composer_drafts')
+type PersistedSideDraft = { text: string; document?: ComposerDocumentSnapshot }
+function loadPersistedSideDrafts(): Record<string, PersistedSideDraft> {
+  try { return JSON.parse(localStorage.getItem(SIDE_DRAFTS_KEY) || '{}') || {} } catch { return {} }
+}
+function persistSideDraft(scope: string | null, draft: { value: string; document?: ComposerDocumentSnapshot | null } | null) {
+  if (!scope) return
+  try {
+    const all = loadPersistedSideDrafts()
+    if (draft && (draft.value.trim() || draft.document)) all[scope] = { text: draft.value, ...(draft.document ? { document: draft.document } : {}) }
+    else delete all[scope]
+    persistLocalValue(SIDE_DRAFTS_KEY, JSON.stringify(all))
+  } catch { /* quota or serialization failure: the draft stays memory-only */ }
+}
+function persistedSideDraft(scope: string): PersistedSideDraft | null {
+  return loadPersistedSideDrafts()[scope] || null
+}
 const sideComposerFriendContexts = new Map<string, FriendComposeContext>()
 const sideSurfaces = new Map<string, ReturnType<typeof createChatSurface>>()
 function sideRuntime(placement: SidePanePlacement = 'right'): SideComposerRuntime {
@@ -1853,7 +1872,11 @@ window.klausSideSurfaceRemove = sideId => {
   // every later event of the running turn is dropped, the transcript freezes
   // mid-flight, and the composer loses the running state that routes sends to
   // the follow-up channel.
-  if (!runningSessions.has(sideId) && getSessionStream(sideId).running !== true) retireSessionStream(sideId)
+  // An idle stream that still carries retained live units (a flush-lag window
+  // armed historyStale) must survive surface removal: retiring tombstones it
+  // and drops the not-yet-saved tail the retention gate just protected.
+  const closingStream = getSessionStream(sideId)
+  if (!runningSessions.has(sideId) && closingStream.running !== true && !closingStream.historyStale) retireSessionStream(sideId)
   sidePanePlacement.remove(sideId)
   for (const runtime of sidePaneRuntimes.values()) if (runtime.sessionId === sideId) {
     setSidePaneSession(runtime, null)
@@ -2553,7 +2576,15 @@ function initSideComposer(placement: SidePanePlacement = 'right') {
     if (scope === sideDraftScope) { void sideDiscovery?.refresh(); return }
     sideBindingRevision++
     sideHistoryBrowsingIndex = -1
-    if (sideDraftScope) sideDrafts.set(sideDraftScope, { value: sideInput?.value || '', files: sidePendingFiles, deferred: sidePendingSendAfterUpload, document: sideComposerControl?.snapshotDocument() })
+    if (sideDraftScope) {
+      const outgoing = { value: sideInput?.value || '', files: sidePendingFiles, deferred: sidePendingSendAfterUpload, document: sideComposerControl?.snapshotDocument() }
+      sideDrafts.set(sideDraftScope, outgoing)
+      persistSideDraft(sideDraftScope, outgoing)
+    }
+    if (scope && !sideDrafts.has(scope)) {
+      const restored = persistedSideDraft(scope)
+      if (restored && (restored.text.trim() || restored.document)) sideDrafts.set(scope, { value: restored.text, files: [], deferred: null, ...(restored.document ? { document: restored.document } : {}) })
+    }
     sideDraftScope = scope
     const queuedEdit = scope ? editedQueueReinsertBySession.get(scope) : null
     const saved = (scope ? sideDrafts.get(scope) : null) || (queuedEdit?.phase === 'editing' ? {
@@ -2590,6 +2621,7 @@ function initSideComposer(placement: SidePanePlacement = 'right') {
   ;(window as any).klausSideComposerPromote = async (draftId: string, sessionId: string, inheritModel = true) => {
     const draft = pendingSideDraft
     if (!draft || draft.id !== draftId) return
+    persistSideDraft(draftId, null)
     const pending = sideDraftScope === draftId
       ? { value: sideInput?.value || '', document: sideComposerControl?.snapshotDocument(), files: sidePendingFiles, deferred: sidePendingSendAfterUpload }
       : sideDrafts.get(draftId)
@@ -2887,17 +2919,26 @@ function initSideComposer(placement: SidePanePlacement = 'right') {
     sidePendingFiles = []
     sideRenderPreviews()
     sideSetComposerDraft('')
+    persistSideDraft(sid, null)
     sideAutoResize()
     updateSideSendButton()
     klausApi.session.touchSideTask?.(sid).catch(() => {})
     takeEditedQueueReinsert(sid)
-    try { await submitTurnPayload(sid, buildOutgoingPayload(value, files, historyDraft.slashCommand?.command || null, sid, references, draftDocument)) }
-    catch (err) { console.warn('[side-composer] send failed:', err) }
+    try {
+      await submitTurnPayload(sid, buildOutgoingPayload(value, files, historyDraft.slashCommand?.command || null, sid, references, draftDocument))
+    } catch (err) {
+      // submitTurnPayload owns the ordinary failure net (refusal re-route and
+      // the transcript error pill); an escape from it is an unexpected throw
+      // that must reach the user as an operational error instead of vanishing
+      // into the console.
+      showToast(tt('chat_send_failed_prefix') + ((err as Error | null)?.message || String(err)))
+    }
   }
   sideInput?.addEventListener('input', (rawEvent: Event) => {
     const event = rawEvent as InputEvent
     sideHistoryBrowsingIndex = -1
     const current = sideInput.value
+    persistSideDraft(sideDraftScope, { value: current, document: sideComposerControl?.snapshotDocument() })
     const completedReference = event.inputType === 'insertText' && /\s/.test(event.data || '')
       && normalizeComposerReferences(current, []).some(reference => reference.range.end === current.length - 1)
     if (completedReference) sideComposerControl?.refreshTokens()
