@@ -61,6 +61,7 @@ export interface FileDeps {
   sshOwner?: (sessionId: string) => number | null;
 }
 interface WatchEntry { root: string; watcher: WorkspaceWatcher; patterns: string[]; timer?: NodeJS.Timeout; changes: Map<string, string> }
+interface PreviewWatchEntry { watcher: WorkspaceWatcher; names: Map<string, string>; pending: Set<string>; timer?: NodeJS.Timeout }
 
 export function workspaceExcluded(path: string, patterns: readonly string[]): boolean {
   return patterns.some(pattern => {
@@ -109,10 +110,11 @@ export class FileService {
   private closed = false;
   private readonly searchSnapshots = new Map<string, { key: string; created: number; promise: Promise<{ hits: JsonObject[]; truncated: boolean }> }>();
   private readonly watchers = new Map<string, WatchEntry>();
+  private readonly previewWatches = new Map<string, Map<string, PreviewWatchEntry>>();
   private readonly pendingWrites = new Map<string, Promise<void>>();
   private readonly remoteWrites = new Map<string, Map<string, { added: number | null; removed: number | null }>>();
   private readonly unlisten: () => void;
-  constructor(private readonly deps: FileDeps) { this.unlisten = deps.workspaces.onInvalidated(id => this.stopWatching(id)); }
+  constructor(private readonly deps: FileDeps) { this.unlisten = deps.workspaces.onInvalidated(id => { this.stopWatching(id); this.stopPreviewWatches(id); }); }
   private async run(payload: JsonObject, operation: () => Promise<Json>): Promise<Json> {
     if (this.closed) throw new IpcHandlerError('SERVICE_CLOSED', 'The file service is closed');
     try {
@@ -592,9 +594,66 @@ export class FileService {
       const checked = await this.checked(payload, true), info = await stat(checked.realPath);
       if (!info.isFile()) return { error: 'not a file' };
       const preview = decodeWorkspacePreview(await readHead(checked.realPath, Math.min(info.size, PREVIEW_LIMIT)));
+      this.watchPreviewFile(checked.sessionId, checked.realPath, checked.path);
       return { filePath: checked.path, fileName: basename(checked.path), size: info.size, mtimeMs: info.mtimeMs, truncated: info.size > PREVIEW_LIMIT,
         readonly: info.size > PREVIEW_LIMIT, ...preview };
     });
+  }
+  /** Documents the panel has open outside the watched session root still need
+   *  external-change delivery: watch their directory and filter by name, so a
+   *  write from the engine (or anything else) refreshes the open document
+   *  instead of leaving the panel stale. */
+  private watchPreviewFile(sessionId: string, realPath: string, reportedPath: string): void {
+    if (this.closed || this.deps.watch === false) return
+    const dir = dirname(realPath), name = basename(realPath)
+    let dirs = this.previewWatches.get(sessionId)
+    if (!dirs) { dirs = new Map(); this.previewWatches.set(sessionId, dirs) }
+    const scope = dirs
+    const existing = scope.get(dir)
+    if (existing) { existing.names.set(name, reportedPath); return }
+    while (scope.size >= 32) this.stopPreviewDir(scope, scope.keys().next().value!)
+    try {
+      const create = this.deps.createWatcher ?? ((root: string, listener: (kind: string, file: string | Buffer | null) => void) => watch(root, { persistent: false }, listener))
+      let owned: PreviewWatchEntry | undefined
+      const watcher = create(dir, (_kind, file) => {
+        const self = owned
+        if (this.closed || !self || scope.get(dir) !== self) return
+        const names = file == null ? [...self.names.keys()] : [basename(String(file))]
+        for (const hit of names) {
+          const path = self.names.get(hit)
+          if (path) self.pending.add(path)
+        }
+        if (self.pending.size && !self.timer) {
+          self.timer = setTimeout(() => { self.timer = undefined; void this.flushPreviewChanges(sessionId, self) }, this.deps.watchDebounceMs ?? 75)
+          self.timer.unref()
+        }
+      })
+      watcher.on('error', () => { const self = owned; if (self && scope.get(dir) === self) this.stopPreviewDir(scope, dir) })
+      owned = { watcher, names: new Map([[name, reportedPath]]), pending: new Set(), timer: undefined }
+      scope.set(dir, owned)
+    } catch (error) { this.deps.log?.(`Preview watch unavailable for ${dir}: ${errorMessage(error)}`) }
+  }
+  private async flushPreviewChanges(sessionId: string, entry: PreviewWatchEntry): Promise<void> {
+    const pending = [...entry.pending]; entry.pending.clear()
+    const events: Json[] = []
+    for (const path of pending) {
+      try { events.push({ kind: 'change', path, isDir: (await stat(path)).isDirectory() }) }
+      catch { events.push({ kind: 'unlink', path, isDir: false }) }
+    }
+    if (events.length) this.changed(sessionId, events)
+  }
+  private stopPreviewDir(dirs: Map<string, PreviewWatchEntry>, dir: string): void {
+    const entry = dirs.get(dir)
+    if (!entry) return
+    dirs.delete(dir)
+    if (entry.timer) clearTimeout(entry.timer)
+    try { entry.watcher.close() } catch { /* already closed */ }
+  }
+  private stopPreviewWatches(sessionId: string): void {
+    const dirs = this.previewWatches.get(sessionId)
+    if (!dirs) return
+    this.previewWatches.delete(sessionId)
+    for (const dir of [...dirs.keys()]) this.stopPreviewDir(dirs, dir)
   }
   /** A selected file is a single-file read grant, independent of how it was created. */
   authorizeArtifactPreview(payload: JsonObject): Promise<Json> {
@@ -855,5 +914,5 @@ export class FileService {
     if (entry.timer) clearTimeout(entry.timer); entry.watcher.close(); this.watchers.delete(sessionId);
   }
   watcherCount(): number { return this.watchers.size; }
-  close(): void { this.closed = true; this.searchSnapshots.clear(); this.unlisten(); for (const id of this.watchers.keys()) this.stopWatching(id); }
+  close(): void { this.closed = true; this.searchSnapshots.clear(); this.unlisten(); for (const id of this.watchers.keys()) this.stopWatching(id); for (const id of [...this.previewWatches.keys()]) this.stopPreviewWatches(id); }
 }

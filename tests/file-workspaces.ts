@@ -487,6 +487,28 @@ export function registerFileWorkspaceTests(h: Harness, freshRoot: () => string):
       assertEqual(object(await invoke(f.registry, 'workspace:write', { sessionId: 's', filePath: loose, content: 'y' })).error, 'path outside preview scope', 'write scope stays bounded to the preview scope');
     } finally { f.files.close(); }
   });
+  h.test('open documents outside the watched root refresh when the disk changes', async () => {
+    const listeners = new Map<string, (kind: string, file: string | Buffer | null) => void>()
+    const root = freshRoot()
+    const f = await fixture(root, {
+      watch: true, watchDebounceMs: 5,
+      createWatcher: (dir, listener) => { listeners.set(dir, listener); return { close() {}, on: () => undefined } },
+    })
+    try {
+      const uploads = join(root, 'uploads'); await mkdir(uploads, { recursive: true })
+      const resume = join(uploads, 'resume.md'); await writeFile(resume, 'v1')
+      await invoke(f.registry, 'artifacts:read', { sessionId: 's', filePath: resume })
+      const dirKey = [...listeners.keys()].find(key => key.endsWith('uploads'))
+      assert(dirKey !== undefined, 'the open document directory is watched: ' + [...listeners.keys()].join(', '))
+      await writeFile(resume, 'v2 written elsewhere')
+      const fire = listeners.get(dirKey!)
+      assert(fire !== undefined, 'watcher listener registered for the open document directory')
+      fire('change', 'resume.md')
+      await sleep(40)
+      assert(f.pushes.some(payload => object(payload).type === 'workspace:changed'
+        && (object(payload).events as Json[]).some(event => object(event).path === resume && object(event).kind === 'change')), 'external change pushes workspace:changed')
+    } finally { f.files.close() }
+  });
   const writeVectors = JSON.parse(readFileSync(join(__dirname, '../../contracts/vectors/workspace-file-write.json'), 'utf8')) as {
     diskContent: string; diskMtimeMs: number; newContent: string;
     cases: Array<{ id: string; options: { expectedMtimeMs?: number | null; force?: boolean }; ok: boolean; conflict?: boolean; error?: string }>;
