@@ -95,7 +95,7 @@ function taskAt(tasks: Json | undefined, index: number, what: string): Record<st
 h.test('message phase projection matches the committed vector', () => {
   const vector = loadVector('message-phase-vectors.json');
   const rows = cases(vector, 'projectionCases');
-  assertEqual(rows.length, 6, 'all six projection cases are present');
+  assertEqual(rows.length, 8, 'all eight projection cases are present');
 
   for (const row of rows) {
     const method = row.method;
@@ -119,15 +119,16 @@ h.test('message phase replay blocks keep identity and phase intact', () => {
   // and the first final-answer delta can close the preceding activity. Legacy
   // notifications without metadata retain their existing shape."
   //
-  // So the third block deliberately carries NO messageId and NO phase: it is a legacy
+  // So the legacy block deliberately carries NO messageId and NO phase: it is a legacy
   // notification, and asserting that every block has them would assert the opposite of
   // what the vector exists to protect. What IS owed is that a block which DOES carry
-  // identity keeps it, that commentary and final_answer stay distinguishable, and that a
-  // block without metadata is passed through as-is rather than being given defaults.
+  // identity keeps it, that commentary, partial answers and final_answer stay
+  // distinguishable, and that a block without metadata is passed through as-is rather
+  // than being given defaults.
   const vector = loadVector('message-phase-vectors.json');
   const blocks = vector.replayBlocks;
   assert(Array.isArray(blocks), 'replayBlocks is an array');
-  assertEqual((blocks as Json[]).length, 3, 'all three blocks are present');
+  assertEqual((blocks as Json[]).length, 4, 'all four blocks are present');
 
   const typed = blocks as Array<Record<string, Json>>;
 
@@ -135,6 +136,7 @@ h.test('message phase replay blocks keep identity and phase intact', () => {
   // what stops commentary from collapsing prematurely.
   const phases = new Set(typed.map((block) => block.phase));
   assert(phases.has('commentary'), 'commentary phase present');
+  assert(phases.has('partial_answer'), 'partial_answer phase present');
   assert(phases.has('final_answer'), 'final_answer phase present');
 
   // Blocks that DO carry identity keep both fields.
@@ -145,7 +147,7 @@ h.test('message phase replay blocks keep identity and phase intact', () => {
   }
 
   // And the legacy block is untouched: no identity is invented for it.
-  const legacy = typed[2];
+  const legacy = typed[3];
   assert(legacy !== undefined, 'the legacy block exists');
   assertEqual(legacy.type, 'text', 'it is a text block');
   assertEqual(legacy.text, 'Legacy', 'with its text intact');

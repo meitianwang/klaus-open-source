@@ -75,7 +75,7 @@ type LiveUnitValue =
   | { type: 'live-compaction'; key: string; trigger: string; state: 'running' | 'completed' }
   // turnTail：done 时本轮最后一段 assistant text 挂操作栏（attachCopyToTurnTail）
   // 与 klaus 引擎的本回合用量/停止原因（appendTurnUsageMeta，无 usage 为 null）。
-  | { type: 'live-text'; key: string; text: string; streaming: boolean; messageId?: string; startedAtMs?: number; phase?: 'commentary' | 'final_answer'; inlineVis?: InlineVisFragment[]; turnTail?: { ts: number; meta: null | { turnTokens: number; usage: any; stopReason: string } }; aborted?: boolean }
+  | { type: 'live-text'; key: string; text: string; streaming: boolean; messageId?: string; startedAtMs?: number; phase?: 'commentary' | 'partial_answer' | 'final_answer'; inlineVis?: InlineVisFragment[]; turnTail?: { ts: number; meta: null | { turnTokens: number; usage: any; stopReason: string } }; aborted?: boolean }
   | { type: 'live-tools'; key: string; order: string[]; sealed: boolean }
   | { type: 'live-thinking-done'; key: string; text: string; elapsedSeconds: number }
   | { type: 'live-approval-review-notice'; key: string; kind: 'strictReviewRequired' | 'tooManyDenials'; startedAtMs: number }
@@ -1295,7 +1295,7 @@ export function ingestChatEvent(event: any, context: { userInterrupted?: boolean
         // trailing answer can settle the disclosure, but explicit commentary
         // and text followed by a tool remain process evidence.
         const childAnswerIndex = !finalMessageId && subagentHistorySources.has(sessionId)
-          && tail?.type === 'live-text' && tail.phase !== 'commentary' && tail.text.trim() ? tailIndex : -1
+          && tail?.type === 'live-text' && tail.phase !== 'commentary' && tail.phase !== 'partial_answer' && tail.text.trim() ? tailIndex : -1
         for (let i = units.length - 1; (finalMessageId || childAnswerIndex >= 0) && i >= 0; i--) {
           const u = units[i]
           if (u.type === 'live-text' && (finalMessageId ? u.messageId === finalMessageId : i === childAnswerIndex)) {
@@ -1489,7 +1489,7 @@ export function ingestChatEvent(event: any, context: { userInterrupted?: boolean
         const thinkingPatch = finalizeThinking(prev)
         const units = [...((thinkingPatch.liveUnits as LiveUnit[]) || prev.liveUnits)]
         const messageId = typeof event.messageId === 'string' && event.messageId ? event.messageId : undefined
-        const phase = event.phase === 'commentary' || event.phase === 'final_answer' ? event.phase : undefined
+        const phase = event.phase === 'commentary' || event.phase === 'partial_answer' || event.phase === 'final_answer' ? event.phase : undefined
         const inference = inferenceSnapshot(event.inference) || prev.currentInference || undefined
         const lastIndex = lastConversationUnitIndex(units)
         const last = units[lastIndex]
@@ -1790,7 +1790,7 @@ export function ingestChatEvent(event: any, context: { userInterrupted?: boolean
           if (units[index].type !== 'live-text') continue
           const unit = units[index] as Extract<LiveUnit, { type: 'live-text' }>
           if (unit.messageId && unit.messageId !== messageId) continue
-          const phase = event.phase === 'commentary' || event.phase === 'final_answer' ? event.phase : unit.phase
+          const phase = event.phase === 'commentary' || event.phase === 'partial_answer' || event.phase === 'final_answer' ? event.phase : unit.phase
           // The settle frame carries the page content the host read under the
           // visualization whitelist, so the mounted frame needs no second read.
           const inlineVis = Array.isArray(event.inlineVis) ? event.inlineVis as InlineVisFragment[] : unit.inlineVis

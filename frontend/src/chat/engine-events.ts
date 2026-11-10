@@ -34,7 +34,7 @@ export interface ProposedPlanEvent extends SessionScoped { type: 'proposed_plan'
 export interface ProposedPlanDeltaEvent extends SessionScoped { type: 'proposed_plan_delta'; planId: string; turnId: string; revision: number; delta: string }
 export interface ProgressPlanEvent extends SessionScoped { type: 'progress_plan'; progress: ProgressPlan }
 export interface GoalCompletionEvent extends SessionScoped { type: 'goal_completion'; goal: ThreadGoal }
-export interface TextDeltaEvent extends SessionScoped { type: 'text_delta'; text: string; messageId?: string; phase?: 'commentary' | 'final_answer' }
+export interface TextDeltaEvent extends SessionScoped { type: 'text_delta'; text: string; messageId?: string; phase?: 'commentary' | 'partial_answer' | 'final_answer' }
 export interface ThinkingDeltaEvent extends SessionScoped { type: 'thinking_delta'; thinking: string }
 export interface StreamModeEvent extends SessionScoped, GoalTurnMetadata { type: 'stream_mode'; mode: 'requesting' | 'responding' | 'thinking' | 'tool-use' | 'idle' | string; turnId?: string }
 // The engine turn lifecycle's own word for whether the
@@ -118,7 +118,7 @@ export interface ApiErrorEvent extends SessionScoped {
 }
 export interface ApiRetryEvent extends SessionScoped { type: 'api_retry'; attempt: number; maxRetries: number; kind?: string }
 export interface AuthRequiredEvent extends SessionScoped { type: 'auth_required'; reason: string }
-export interface MessageCompleteEvent extends SessionScoped { type: 'message_complete'; messageId?: string; phase?: 'commentary' | 'final_answer' }
+export interface MessageCompleteEvent extends SessionScoped { type: 'message_complete'; messageId?: string; phase?: 'commentary' | 'partial_answer' | 'final_answer' }
 export interface QueueSnapshotEvent extends SessionScoped {
   type: 'queue_snapshot'
   revision: number

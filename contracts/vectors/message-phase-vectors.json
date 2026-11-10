@@ -28,6 +28,29 @@
       "method": "item/agentMessage/delta",
       "params": {
         "sessionId": "s",
+        "messageId": "p1",
+        "phase": "partial_answer",
+        "delta": "Interim"
+      },
+      "expected": [
+        {
+          "type": "stream_mode",
+          "sessionId": "s",
+          "mode": "responding"
+        },
+        {
+          "type": "text_delta",
+          "sessionId": "s",
+          "messageId": "p1",
+          "phase": "partial_answer",
+          "text": "Interim"
+        }
+      ]
+    },
+    {
+      "method": "item/agentMessage/delta",
+      "params": {
+        "sessionId": "s",
         "delta": "Checking"
       },
       "expected": [
@@ -85,6 +108,26 @@
       ]
     },
     {
+      "method": "item/completed",
+      "params": {
+        "sessionId": "s",
+        "item": {
+          "type": "agent_message",
+          "id": "p1",
+          "phase": "partial_answer",
+          "text": "Interim"
+        }
+      },
+      "expected": [
+        {
+          "type": "message_complete",
+          "sessionId": "s",
+          "messageId": "p1",
+          "phase": "partial_answer"
+        }
+      ]
+    },
+    {
       "method": "item/updated",
       "params": {
         "sessionId": "s",
@@ -137,6 +180,12 @@
       "text": "Checking",
       "messageId": "commentary",
       "phase": "commentary"
+    },
+    {
+      "type": "text",
+      "text": "Interim",
+      "messageId": "partial",
+      "phase": "partial_answer"
     },
     {
       "type": "text",

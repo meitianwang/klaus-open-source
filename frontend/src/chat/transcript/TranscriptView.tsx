@@ -1204,7 +1204,7 @@ interface Segment {
   durationLabel?: string
   text?: string
   messageId?: string
-  phase?: 'commentary' | 'final_answer'
+  phase?: 'commentary' | 'partial_answer' | 'final_answer'
   /** The page content the host projected with this text, one entry per directive line. */
   inlineVis?: InlineVisFragment[]
   tools?: SegmentTool[]
@@ -1233,7 +1233,7 @@ export function segmentsFromBlocks(blocks: any[], thinkingDurationMs: number | u
   let thinkingDurationUsed = false
   let pendingText = ''
   let pendingMessageId: string | undefined
-  let pendingPhase: 'commentary' | 'final_answer' | undefined
+  let pendingPhase: 'commentary' | 'partial_answer' | 'final_answer' | undefined
   let pendingInlineVis: InlineVisFragment[] = []
   let currentTools: Segment | null = null
   const advisorResultsById = new Map<string, ReplayToolResult>()
@@ -1276,7 +1276,7 @@ export function segmentsFromBlocks(blocks: any[], thinkingDurationMs: number | u
       pendingThinking += (b.thinking ?? b.data ?? '')
     } else if (b.type === 'text' && typeof b.text === 'string') {
       flushThinking()
-      const phase = b.phase === 'commentary' || b.phase === 'final_answer' ? b.phase : undefined
+      const phase = b.phase === 'commentary' || b.phase === 'partial_answer' || b.phase === 'final_answer' ? b.phase : undefined
       const messageId = typeof b.messageId === 'string' ? b.messageId : undefined
       if (pendingText && (pendingMessageId !== messageId || pendingPhase !== phase)) flushText()
       pendingMessageId = messageId
@@ -1631,7 +1631,7 @@ export function unitsFromMessages(visible: any[], legacyCreator?: string): Unit[
     }
     units.push({
       type: 'text', key: base, segment: { kind: 'text', text: msg.text || '',
-        ...(msg.phase === 'commentary' || msg.phase === 'final_answer' ? { phase: msg.phase } : {}) },
+        ...(msg.phase === 'commentary' || msg.phase === 'partial_answer' || msg.phase === 'final_answer' ? { phase: msg.phase } : {}) },
       ts: msg.timestamp, turnId: tid, isFinalReply: (msg.isFinalReply === true || msg.phase === 'final_answer'),
     })
   })
@@ -1714,7 +1714,11 @@ function isPersistentTurnNode(node: RenderNode): boolean {
   return node.kind === 'unit' && !node.unit.friendReplyInProcess
     && !(node.unit.type === 'user' && node.unit.msg?.questionAnswer && node.unit.hasFollowingFinalAnswer)
     && (['user', 'delegation', 'workflow-record', 'proposed-plan', 'goal-completion', 'approval-review'].includes(node.unit.type)
-    || node.unit.type === 'ask-user' && !isSettledAskUserUnit(node.unit))
+    || node.unit.type === 'ask-user' && !isSettledAskUserUnit(node.unit)
+    // A partial answer is stable answer text that may be followed by more
+    // output or tool calls: it stays visible when the turn's process
+    // collapses, without taking the final-reply identity.
+    || node.unit.type === 'text' && node.unit.segment?.phase === 'partial_answer')
 }
 
 // 在途回合的身份。主转录必须按引擎给的 turn_id 认：history 层与 live 层同时
@@ -2087,7 +2091,7 @@ export function foldTurnGroups(
     const process = processByTurn.get(group.turnId)
     const tail = [...group.units].reverse().find(unit => unit.type !== 'agent-event')
     const hasFinal = group.units.some(unit => unit.type === 'text' && unit.isFinalReply && unit.segment?.text?.trim())
-      || tail?.type === 'text' && tail.segment?.phase !== 'commentary' && !!tail.segment?.text?.trim()
+      || tail?.type === 'text' && !tail.segment?.phase && !!tail.segment?.text?.trim()
     if (process && !hasFinal && (process.hasFinal || group.units.every(unit => unit.type === 'agent-event'))) {
       process.group.units.push(...group.units.filter(unit => unit.type === 'agent-event'))
       group.units = group.units.filter(unit => unit.type !== 'agent-event')
@@ -2217,7 +2221,7 @@ export function foldTurnGroups(
     // absent, but must never override an explicit final reply followed by tools.
     const finalUnit = [...group.units].reverse().find(unit => unit.type !== 'agent-event' && !unit.friendReplyInProcess)
     const explicitFinal = [...group.units].reverse().find(unit => unit.type === 'text' && unit.isFinalReply && unit.segment?.text?.trim()) || null
-    const lastText: Unit | null = explicitFinal || (!isTurnInProgress && finalUnit?.type === 'text' && finalUnit.segment?.text?.trim() && finalUnit.segment?.phase !== 'commentary' ? finalUnit : null)
+    const lastText: Unit | null = explicitFinal || (!isTurnInProgress && finalUnit?.type === 'text' && finalUnit.segment?.text?.trim() && !finalUnit.segment?.phase ? finalUnit : null)
     if (lastText) {
       lastText.hasActions = true
       lastText.goalCompletion = !isTurnInProgress && !isTurnCancelled && turnStatus !== 'failed' && (!turnId || ownsArtifacts)
@@ -4521,7 +4525,7 @@ function projectLiveTurn(
   const closingText = [...liveUnits].reverse().find(unit => unit.type !== 'live-agent-event')
   const final = [...liveUnits].reverse().find(unit => unit.type === 'live-text'
     && (unit.turnTail || unit.phase === 'final_answer' && unit.text.trim()))
-    || (!running && closingText?.type === 'live-text' && closingText.phase !== 'commentary'
+    || (!running && closingText?.type === 'live-text' && !closingText.phase
       && closingText.text.trim() ? closingText : undefined)
   const before: LiveUnit[] = []
   const after: LiveUnit[] = []
@@ -5119,7 +5123,7 @@ export function LiveTail({ sessionId, unitProps, scroll = 'none', container, tim
   const contextForTurn = (owner: string): Partial<LiveActivityRenderProps> => {
     const units = liveUnits.filter(unit => (unit.turnId || turnKey) === owner)
     const texts = units.filter((unit): unit is Extract<LiveUnit, { type: 'live-text' }> => unit.type === 'live-text')
-    const final = [...texts].reverse().find(unit => unit.phase === 'final_answer' || unit.turnTail) || ((!running || owner !== turnKey) ? texts.at(-1) : null) || null
+    const final = [...texts].reverse().find(unit => unit.phase === 'final_answer' || unit.turnTail) || ((!running || owner !== turnKey) ? texts.filter(unit => !unit.phase).at(-1) : null) || null
     // Ordered, not a Set: the turn-end block renders the images in the order the
     // tools produced them, so a turn that made three covers reads as a sequence.
     const produced: string[] = []

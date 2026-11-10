@@ -84,7 +84,7 @@ export function preservesViewport(mode: FollowMode): boolean {
 export function latestTurnPhase({ running, hasWork, texts }: {
   running: boolean
   hasWork: boolean
-  texts: readonly { phase?: 'commentary' | 'final_answer' }[]
+  texts: readonly { phase?: 'commentary' | 'partial_answer' | 'final_answer' }[]
 }): LatestTurnPhase {
   if (!running) return 'idle'
   let commentary = false
