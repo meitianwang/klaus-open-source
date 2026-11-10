@@ -201,16 +201,26 @@ export function retainUnownedLiveUnits<L extends { type: string; turnId?: string
   turnStarts: Record<string, number>,
   hasTerminalError: boolean,
   readAdvanced = true,
+  activeRunningTurnId: string | null = null,
+  laggingTurnIds: ReadonlySet<string> = new Set(),
 ): { units: Array<L & { turnId?: string }>; retained: number } {
   const owned = new Set<string>()
   for (const row of settledHistory) if (typeof row.turnId === 'string' && row.turnId) owned.add(row.turnId)
+  // A turn whose work has not flushed yet is not owned by saved history: its
+  // input row alone must not hand off the live tail.
+  const ownedTurn = (id: string) => owned.has(id) && !laggingTurnIds.has(id)
   const out: Array<L & { turnId?: string }> = []
   let retained = 0
   for (const unit of units) {
     if (!RETAINED_LIVE_UNIT_TYPES.has(unit.type)) continue
     const stamped = typeof unit.turnId === 'string' && unit.turnId ? unit.turnId : null
     if (stamped) {
-      if (!owned.has(stamped)) { out.push(unit); retained++ }
+      // A saved row of a still-running turn only proves its input flushed; the
+      // turn's work has not settled, so its live units stay with the live
+      // layer until the session leaves the running state. Dropping them on a
+      // lagging read blanks the streaming tail and, at turn end before the
+      // flush lands, the final answer with no stale retry armed.
+      if (!ownedTurn(stamped) || stamped === activeRunningTurnId) { out.push(unit); retained++ }
       continue
     }
     const sentAt = messageTime((unit.msg as { timestamp?: unknown } | undefined)?.timestamp) ?? messageTime(unit.startedAtMs)
@@ -218,7 +228,7 @@ export function retainUnownedLiveUnits<L extends { type: string; turnId?: string
       .filter(id => (turnStarts[id] ?? 0) >= sentAt - TURN_ATTRIBUTION_SLACK_MS)
       .sort((a, b) => (turnStarts[a] ?? 0) - (turnStarts[b] ?? 0))[0] ?? null
     if (attributed) {
-      if (!owned.has(attributed)) { out.push({ ...unit, turnId: attributed }); retained++ }
+      if (!ownedTurn(attributed) || attributed === activeRunningTurnId) { out.push({ ...unit, turnId: attributed }); retained++ }
       continue
     }
     // No turn can own this unit. A terminal word in the live layer means the

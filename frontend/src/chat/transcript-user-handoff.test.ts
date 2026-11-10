@@ -207,3 +207,30 @@ describe('submitted attachment reconciliation', () => {
     expect(mergeSubmittedAttachments([a], [a, b])).toEqual([a, b])
   })
 })
+
+describe('running turn retention', () => {
+  test('a running turn keeps its stamped live units after its input row flushes', () => {
+    const savedUserRow = { role: 'user', uuid: 'saved-user', turnId: 'turn-run', text: 'go', timestamp: 1000 }
+    const stamped = [{ type: 'live-text', key: 't1', turnId: 'turn-run', text: 'streaming' }]
+    // Settled: saved owns the whole turn, the live tail hands off.
+    expect(retainUnownedLiveUnits(stamped, [savedUserRow], {}, false, true, null).retained).toBe(0)
+    // Still running: the flushed input row proves nothing about the work.
+    expect(retainUnownedLiveUnits(stamped, [savedUserRow], {}, false, true, 'turn-run').retained).toBe(1)
+  })
+  test('an optimistic send whose turn already flushed its input row survives while running', () => {
+    const savedUserRow = { role: 'user', uuid: 'saved-user', turnId: 'turn-new', text: 'next', timestamp: 5000 }
+    const optimistic = [{ type: 'live-user', key: 'opt', msg: { role: 'user', uuid: 'opt', text: 'next', timestamp: 5000 } }]
+    const clock = { 'turn-new': 5000 }
+    expect(retainUnownedLiveUnits(optimistic, [savedUserRow], clock, false, true, null).retained).toBe(0)
+    expect(retainUnownedLiveUnits(optimistic, [savedUserRow], clock, false, true, 'turn-new').retained).toBe(1)
+  })
+})
+
+describe('flush-lag retention', () => {
+  test('a settled turn whose work has not flushed is not owned by its input row', () => {
+    const savedUserRow = { role: 'user', uuid: 'saved-user', turnId: 'turn-lag', text: 'go', timestamp: 1000 }
+    const stamped = [{ type: 'live-text', key: 't1', turnId: 'turn-lag', text: 'work' }]
+    expect(retainUnownedLiveUnits(stamped, [savedUserRow], {}, false, true, null, new Set(['turn-lag'])).retained).toBe(1)
+    expect(retainUnownedLiveUnits(stamped, [savedUserRow], {}, false, true, null, new Set()).retained).toBe(0)
+  })
+})

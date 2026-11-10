@@ -3021,7 +3021,24 @@ export function loadSessionHistory(sessionId: string, options: {
           ? prev.liveUnits.filter(unit => !pendingEdit.snapshot.droppedKeys.has(unit.key)) : prev.liveUnits
         const submittedHistory = savedReplacement && pendingEdit
           ? prev.history?.filter(message => !belongsToEditedTurn(message, pendingEdit.snapshot)) : prev.history
+        const activeRunningTurn = prev.running ? prev.activeTurnId || prev.liveTurnId || null : null
         const turnStartClock = { ...prev.turnStartedAtMs, ...prev.turnWorkStartedAtMs }
+        // Turns the live layer still carries can be missing from the clock
+        // (acknowledged but no work frame yet, or already terminal while the
+        // flush lags). Seed them from their live units (or the commit moment)
+        // so optimistic sends attribute instead of falling off the retention
+        // gate while a lagging flush read advances.
+        const clockSeeds = new Set<string>([activeRunningTurn, prev.liveTurnId,
+          ...Object.keys(prev.turnWorkCompletedAtMs).filter(id => prev.turnStatuses[id] === 'completed')]
+          .filter((id): id is string => !!id))
+        for (const seedId of clockSeeds) {
+          if (turnStartClock[seedId] != null) continue
+          const seeded = reviewHandoff.liveUnits
+            .filter(unit => unit.turnId === seedId && typeof (unit as { startedAtMs?: number }).startedAtMs === 'number')
+            .map(unit => (unit as { startedAtMs?: number }).startedAtMs as number)
+            .sort((a, b) => a - b)[0]
+          turnStartClock[seedId] = seeded ?? Date.now()
+        }
         const settledHistory = options.reconcile ? reviewHandoff.history
           : mergeSubmittedUserHistory(reviewHandoff.history, covers ? submittedUnits : [], submittedHistory || [], turnStartClock)
         if (covers && pendingEdit && (options.reconcile || editedTurnId
@@ -3059,9 +3076,15 @@ export function loadSessionHistory(sessionId: string, options: {
           if (verdictRead) {
             sweptLiveUnits = kept
           } else {
+            // A terminal turn whose work has not flushed yet is not owned by
+            // saved history: its user row alone must not hand off the live
+            // tail (that blanked finished turns and armed no stale retry).
+            const laggingTurns = new Set(Object.keys(prev.turnWorkCompletedAtMs)
+              .filter(id => prev.turnStatuses[id] === 'completed'
+                && !settledHistory.some(row => row.role === 'assistant' && row.turnId === id)))
             const retention = retainUnownedLiveUnits(retentionBase,
               settledHistory, turnStartClock, handoffBase.some(unit => unit.type === 'live-error'),
-              !sameHistoryRows(prev.history, reviewHandoff.history))
+              !sameHistoryRows(prev.history, reviewHandoff.history), activeRunningTurn, laggingTurns)
             retainedUnowned = retention.retained
             sweptLiveUnits = [...kept, ...retention.units]
           }

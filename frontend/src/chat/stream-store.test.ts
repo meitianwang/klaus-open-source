@@ -610,7 +610,7 @@ describe('history 层与 live 层不重叠', () => {
 
   test('中断的 partial 在下一轮结束时才移交给 history', async () => {
     const sessionId = 'sess-interrupted-handoff'
-    respond = async () => [userRow('q')]
+    respond = async () => [{ ...userRow('q'), turnId: 'turn-1' }]
     historyCalls.length = 0
     store.ingestLocalUserTurn(sessionId, { text: 'q' })
     store.ingestChatEvent({ type: 'text_delta', sessionId, text: 'partial…' })
@@ -619,7 +619,7 @@ describe('history 层与 live 层不重叠', () => {
     expect(store.getSessionStream(sessionId).liveUnits.some(unit => unit.type === 'live-text')).toBe(true)
 
     // 下一轮开始：中断的那一轮不再由 live 层抢着，回合结束时整体交给 history。
-    respond = async () => [userRow('q'), assistantRow('a'), userRow('q2'), assistantRow('a2')]
+    respond = async () => [{ ...userRow('q'), turnId: 'turn-1' }, { ...assistantRow('a'), turnId: 'turn-1' }, { ...userRow('q2'), turnId: 'turn-2' }, { ...assistantRow('a2'), turnId: 'turn-2' }]
     store.ingestLocalUserTurn(sessionId, { text: 'q2' })
     store.ingestChatEvent({ type: 'done', sessionId, turnId: 'turn-2' })
     await flush()
@@ -1231,4 +1231,30 @@ test('reviving a tombstoned stream resumes ingestion for a session that is still
   store.ingestChatEvent({ type: 'text_delta', sessionId, messageId: 'm3', text: 'after' })
   const texts = store.getSessionStream(sessionId).liveUnits.filter(unit => unit.type === 'live-text').map(unit => unit.text)
   expect(texts).toEqual(['after'])
+})
+
+test('a lagging flush read keeps a settled turn live tail until saved holds its work', async () => {
+  const sessionId = 'running-turn-retention'
+  respond = async () => [userRow('old-q'), assistantRow('old-a')]
+  await store.loadSessionHistory(sessionId)
+  store.ingestLocalUserTurn(sessionId, { text: 'next question', uuid: 'run-user-1' })
+  store.ingestChatEvent({ type: 'session_runtime_status', sessionId, status: 'active', turnId: 'run-turn-1' })
+  store.ingestChatEvent({ type: 'text_delta', sessionId, messageId: 'run-m1', turnId: 'run-turn-1', text: 'streaming work' })
+  expect(store.getSessionStream(sessionId).running).toBe(true)
+  store.ingestChatEvent({ type: 'done', sessionId, turnId: 'run-turn-1' })
+  expect(store.getSessionStream(sessionId).running).toBe(false)
+  // Saved history flushed the input row but not the turn's work: the read must
+  // keep the live tail and arm exactly one stale retry instead of blanking it.
+  respond = async () => [userRow('old-q'), assistantRow('old-a'), { ...userRow('next question'), uuid: 'run-user-1', turnId: 'run-turn-1' }]
+  await store.loadSessionHistory(sessionId)
+  const after = store.getSessionStream(sessionId)
+  expect(after.liveUnits.map(unit => unit.type)).toContain('live-text')
+  expect(after.liveUnits.some(unit => unit.type === 'live-user')).toBe(true)
+  expect(after.historyStale).toBe(true)
+  // Once saved holds the turn's work, the same read hands off.
+  respond = async () => [userRow('old-q'), assistantRow('old-a'), { ...userRow('next question'), uuid: 'run-user-1', turnId: 'run-turn-1' }, { ...assistantRow('final answer'), turnId: 'run-turn-1' }]
+  await store.loadSessionHistory(sessionId)
+  const settled = store.getSessionStream(sessionId)
+  expect(settled.liveUnits).toEqual([])
+  expect(settled.historyStale).toBe(false)
 })
