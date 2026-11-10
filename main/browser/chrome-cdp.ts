@@ -32,6 +32,15 @@ export class ChromePageDebugger implements BrowserCdp {
   private readonly frames = new Map<string, string>();
   /** Routing table for frames that share a process with an attached page or child target. */
   private readonly tracker = new FrameRouteTracker();
+  /**
+   * Raw Fetch patterns the task enabled, kept across debugger re-attachments
+   * so a paused-request workflow survives the per-operation attach cycle:
+   * the next attach re-applies them merged with the host-reserved Document
+   * pattern. Keyed by child target id; 'main' is the page's own session.
+   * Cleared by Fetch.enable with an empty patterns array, by a child target
+   * detaching, or by dispose.
+   */
+  private readonly rawFetchPatterns = new Map<string, BrowserObject[]>();
   private readonly listeners = new Set<(method: string, params: BrowserObject, frame?: string) => void>();
   private ready: Promise<void> | undefined;
   private viewportOverride: BrowserObject | undefined;
@@ -59,7 +68,7 @@ export class ChromePageDebugger implements BrowserCdp {
         this.send('Log.enable', {}, targetId),
         this.send('Network.enable', { maxTotalBufferSize: 8 * 1024 * 1024, maxResourceBufferSize: 256 * 1024, maxPostDataSize: 16 * 1024 }, targetId),
       ]);
-      if (!this.closed && this.frames.get(targetId) === session) await this.send('Fetch.enable', { patterns: [{ resourceType: 'Document', requestStage: 'Request' }] }, targetId);
+      if (!this.closed && this.frames.get(targetId) === session) await this.send('Fetch.enable', { patterns: this.hostFetchPatterns(targetId) }, targetId);
       if (!this.closed && this.frames.get(targetId) === session) {
         // Frames inside this child's process are only visible on its own session.
         const childTree = object(await this.send('Page.getFrameTree', {}, targetId));
@@ -72,6 +81,14 @@ export class ChromePageDebugger implements BrowserCdp {
     }
   }
 
+  /** The host-reserved Document pattern merged with any raw patterns stored for a session key. */
+  private hostFetchPatterns(key: string): BrowserObject[] {
+    return [{ resourceType: 'Document', requestStage: 'Request' }, ...(this.rawFetchPatterns.get(key) ?? [])];
+  }
+
+  /** True while the task holds raw Fetch interception on any session of this page. */
+  rawFetchActive(): boolean { return this.rawFetchPatterns.size > 0; }
+
   acceptNotification(notification: BrowserObject): void {
     if (this.closed) return;
     if (notification.method !== 'onCDPEvent') return;
@@ -82,7 +99,7 @@ export class ChromePageDebugger implements BrowserCdp {
     // Late events from a detached child must not be attributed to the root page.
     if (typeof source.sessionId === 'string' && !frame) {
       if (event.method === 'Target.detachedFromTarget') {
-        for (const [target, session] of this.frames) if (session === params.sessionId) this.frames.delete(target);
+        for (const [target, session] of this.frames) if (session === params.sessionId) { this.frames.delete(target); this.rawFetchPatterns.delete(target); }
         if (typeof params.sessionId === 'string') this.tracker.clearSession(params.sessionId);
       }
       return;
@@ -94,19 +111,32 @@ export class ChromePageDebugger implements BrowserCdp {
       this.frames.set(id, params.sessionId);
       void this.enableChild(id);
     } else if (event.method === 'Target.detachedFromTarget') {
-      for (const [target, session] of this.frames) if (session === params.sessionId) this.frames.delete(target);
+      for (const [target, session] of this.frames) if (session === params.sessionId) { this.frames.delete(target); this.rawFetchPatterns.delete(target); }
       if (typeof params.sessionId === 'string') this.tracker.clearSession(params.sessionId);
     } else if (event.method === 'Fetch.requestPaused') {
-      let allowed = this.allowed();
-      try { this.navigationAllowed(object(params.request).url); } catch { allowed = false; }
-      const frame = typeof source.sessionId === 'string' ? [...this.frames].find(([, session]) => session === source.sessionId)?.[0] : undefined;
-      void (async () => {
-        if (allowed) {
-          try { await this.authorizeNavigation?.(String(object(params.request).url)); } catch { allowed = false; }
+      if (params.resourceType !== 'Document') {
+        // Non-Document pauses belong to a task that enabled raw Fetch patterns
+        // on this session. The event is already buffered above; the task reads
+        // it through cdp events and answers with a raw Fetch.continueRequest,
+        // continueResponse or fulfillRequest call.
+        const sessionKey = frame ?? 'main';
+        if (!this.rawFetchPatterns.has(sessionKey)) {
+          // Defensive: no raw interception is active on this session, so
+          // nothing else will answer the pause. Continue it instead of
+          // stalling the request forever.
+          void this.send('Fetch.continueRequest', { requestId: params.requestId ?? '' }, frame).catch(() => {});
         }
-        allowed = allowed && this.allowed();
-        await this.send(allowed ? 'Fetch.continueRequest' : 'Fetch.failRequest', { requestId: params.requestId ?? '', ...(allowed ? {} : { errorReason: 'BlockedByClient' }) }, frame);
-      })().catch(() => {});
+      } else {
+        let allowed = this.allowed();
+        try { this.navigationAllowed(object(params.request).url); } catch { allowed = false; }
+        void (async () => {
+          if (allowed) {
+            try { await this.authorizeNavigation?.(String(object(params.request).url)); } catch { allowed = false; }
+          }
+          allowed = allowed && this.allowed();
+          await this.send(allowed ? 'Fetch.continueRequest' : 'Fetch.failRequest', { requestId: params.requestId ?? '', ...(allowed ? {} : { errorReason: 'BlockedByClient' }) }, frame);
+        })().catch(() => {});
+      }
     } else if (event.method === 'Runtime.consoleAPICalled') {
       this.pushConsole({ source: 'console', level: consoleLevel(params.type), text: consoleArgumentsText(params.args), args: params.args ?? [], timestamp: eventTime(params.timestamp), targetId: source.targetId ?? this.targetId, frameTargetId: frame ?? null });
     } else if (event.method === 'Runtime.exceptionThrown' || event.method === 'Log.entryAdded') {
@@ -183,7 +213,7 @@ export class ChromePageDebugger implements BrowserCdp {
       this.tracker.seedFrameTree(frameTree);
       const rootFrameId = String(object(frameTree.frame).id ?? '');
       if (rootFrameId) this.tracker.rootFrameId = rootFrameId;
-      await this.send('Fetch.enable', { patterns: [{ resourceType: 'Document', requestStage: 'Request' }] });
+      await this.send('Fetch.enable', { patterns: this.hostFetchPatterns('main') });
       if (this.viewportOverride) await this.send('Emulation.setDeviceMetricsOverride', this.viewportOverride);
       if (this.touchOverride) await this.send('Emulation.setTouchEmulationEnabled', this.touchOverride);
     })();
@@ -196,14 +226,42 @@ export class ChromePageDebugger implements BrowserCdp {
 
   async command(method: string, params: BrowserObject = {}, frameTarget?: string): Promise<BrowserObject> {
     await this.initialize();
-    if (!frameTarget || frameTarget === this.targetId) return this.sendSession(method, params, undefined, true);
+    if (!frameTarget || frameTarget === this.targetId) {
+      if (method === 'Fetch.enable') return this.enableRawFetch(params, 'main', undefined, true);
+      return this.sendSession(method, params, undefined, true);
+    }
     const session = this.frames.get(frameTarget);
-    if (session) return this.sendSession(method, params, session);
+    if (session) {
+      if (method === 'Fetch.enable') return this.enableRawFetch(params, frameTarget, session);
+      return this.sendSession(method, params, session);
+    }
     // A frame in this page's own process has no child target; its default
     // context routes the call inside the owning session.
     const route = this.tracker.contexts.get(frameTarget);
     if (!route) throw new BrowserError('stale_target', 'This iframe is not owned by the selected Chrome page. Refresh the snapshot.');
+    if (method === 'Fetch.enable') {
+      const owner = route.session ? [...this.frames].find(([, id]) => id === route.session)?.[0] ?? 'main' : 'main';
+      return this.enableRawFetch(params, owner, route.session);
+    }
     return this.sendSession(method, injectFrameRouteParams(method, params, frameTarget, route.contextId), route.session);
+  }
+
+  /**
+   * Merge a raw Fetch.enable with the host-reserved Document pattern instead
+   * of letting it replace the single per-session interception configuration,
+   * so managed navigation authorization keeps working while the task
+   * intercepts other resource types. Omitted patterns keep the
+   * intercept-everything meaning; an empty patterns array restores the
+   * host-only configuration and clears the stored raw patterns.
+   */
+  private async enableRawFetch(params: BrowserObject, key: string, sessionId: string | undefined, topLevel = false): Promise<BrowserObject> {
+    const userPatterns: BrowserObject[] = Array.isArray(params.patterns)
+      ? (params.patterns as BrowserObject[])
+      : [{ requestStage: 'Request' }];
+    const merged: BrowserObject[] = [{ resourceType: 'Document', requestStage: 'Request' }, ...userPatterns];
+    const result = await this.sendSession('Fetch.enable', { ...params, patterns: merged }, sessionId, topLevel);
+    if (userPatterns.length) this.rawFetchPatterns.set(key, userPatterns); else this.rawFetchPatterns.delete(key);
+    return result;
   }
 
   /** Buffer one console entry unless it is a replay of an already-buffered event. */
@@ -246,6 +304,7 @@ export class ChromePageDebugger implements BrowserCdp {
     this.ready = undefined;
     this.frames.clear();
     this.tracker.clear();
+    // rawFetchPatterns deliberately survives: the next attach re-applies them.
   }
 
   frameTargets(): string[] { return [...this.frames.keys()]; }
@@ -276,6 +335,6 @@ export class ChromePageDebugger implements BrowserCdp {
     this.viewportOverride = undefined;
     this.touchOverride = undefined;
     this.listeners.clear();
-    this.frames.clear(); this.tracker.clear(); this.console.length = 0; this.network.length = 0; this.events.length = 0;
+    this.frames.clear(); this.tracker.clear(); this.rawFetchPatterns.clear(); this.console.length = 0; this.network.length = 0; this.events.length = 0;
   }
 }

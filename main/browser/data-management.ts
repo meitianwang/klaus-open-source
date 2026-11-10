@@ -98,6 +98,7 @@ export class BrowserDataManagement {
       isPresented: contents => options.manager.presentsContents(contents),
       windowForContents: () => options.windowForOwner(options.manager.windowId) ?? null,
       enabled: () => !this.disposed && options.manager.isAvailable(),
+      cdpForContents: contents => options.manager.cdpForContents(contents),
       labels: {
         chooseCredential: zh ? '选择自动填充内容' : 'Choose an autofill entry', cancel: zh ? '取消' : 'Cancel',
         savePasswordTitle: zh ? '保存密码' : 'Save password',
@@ -105,6 +106,7 @@ export class BrowserDataManagement {
         save: zh ? '保存' : 'Save', dontSave: zh ? '暂不保存' : 'Not now',
       },
     });
+    options.manager.setCredentialGuard(() => this.autofill.hasInFlight());
   }
 
   start(): Promise<unknown> { return this.autofill.start(); }
@@ -185,6 +187,7 @@ export class BrowserDataManagement {
 
   async close(): Promise<void> {
     this.disposed = true;
+    this.options.manager.setCredentialGuard(undefined);
     this.autofill.dispose();
     await Promise.all([...this.owners].map(id => this.imports.disposeOwner(String(id))));
     this.extensions.dispose();

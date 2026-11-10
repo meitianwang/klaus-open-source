@@ -3,7 +3,7 @@ import { locatorBudget } from './locator-policy';
 import { BrowserError, object, type BrowserObject } from './types';
 import type { BrowserCdp } from './page-operations';
 
-export interface PointerTarget { cdp: BrowserCdp; x: number; y: number; guard?: HitGuard }
+export interface PointerTarget { cdp: BrowserCdp; x: number; y: number; guard?: HitGuard; elementCdp?: BrowserCdp }
 const ALIGNMENTS = ['center', 'end', 'start'] as const;
 
 /**
@@ -24,6 +24,9 @@ const HIT_GUARD_EVENTS: Record<'hover' | 'mouse', readonly string[]> = {
   hover: ['mousemove'],
   mouse: ['mousedown', 'mouseup', 'pointerdown', 'pointerup', 'click', 'auxclick', 'dblclick', 'contextmenu'],
 };
+
+/** The resident runtime listens for the union of every guarded mode plus touch events. */
+const HIT_GUARD_RUNTIME_EVENTS = [...new Set([...HIT_GUARD_EVENTS.hover, ...HIT_GUARD_EVENTS.mouse, 'touchstart', 'touchend', 'touchcancel'])];
 
 const HIT_GUARD_HELPERS = `
 const parentUp = n => n.parentElement ?? (n.parentNode && n.parentNode.nodeType === 11 && n.parentNode.host ? n.parentNode.host : undefined);
@@ -77,44 +80,147 @@ const expectHitTarget = (point, goal, view) => {
   return subtree ? first + ' from ' + subtree + ' subtree' : first;
 };`;
 
+/**
+ * Resident per-document hit-guard runtime, injected lazily by the first guard
+ * install or synthetic click after each navigation (a navigation wipes it, so
+ * every script re-checks and re-injects). It owns one capture-phase listener
+ * per guarded event type for the document's lifetime and delegates every
+ * trusted event to the currently acquired action target. When the document
+ * element is remounted, global listeners can be lost; a probe event verifies
+ * they still run and re-registers everything when they do not.
+ */
+const HIT_GUARD_RUNTIME = `(() => {
+  if (globalThis.__klausHitGuardRuntime) return;
+  ${HIT_GUARD_HELPERS}
+  const EVENTS = ${JSON.stringify(HIT_GUARD_RUNTIME_EVENTS)};
+  const PROBE = '__klausHitGuardProbe';
+  const runtime = { active: undefined, expectHitTarget, describeHit, parentUp };
+  const interceptor = event => {
+    const active = runtime.active;
+    if (!active || !active.types.has(event.type) || !event.isTrusted) return;
+    const at = event.type.startsWith('touch') ? (event.changedTouches && event.changedTouches[0]) || (event.touches && event.touches[0]) : event;
+    if (!at) return;
+    if (active.verdict === undefined) active.verdict = expectHitTarget({ x: at.clientX, y: at.clientY }, active.target, active.view);
+    if (active.verdict !== 'done' && active.verdict !== undefined) { event.preventDefault(); event.stopPropagation(); event.stopImmediatePropagation(); }
+  };
+  const registerListeners = () => { for (const type of EVENTS) window.addEventListener(type, interceptor, { capture: true, passive: false }); };
+  let sentinel = false;
+  const probeListener = () => { sentinel = true; };
+  window.addEventListener(PROBE, probeListener);
+  registerListeners();
+  const observer = new MutationObserver(mutations => {
+    for (const mutation of mutations) {
+      let replaced = false;
+      for (const node of mutation.addedNodes) if (node === document.documentElement) { replaced = true; break; }
+      if (!replaced) continue;
+      sentinel = false;
+      window.dispatchEvent(new CustomEvent(PROBE));
+      if (!sentinel) { window.addEventListener(PROBE, probeListener); registerListeners(); }
+      return;
+    }
+  });
+  observer.observe(document, { childList: true });
+  globalThis.__klausHitGuardRuntime = runtime;
+})()`;
+
 function hitGuardInstallScript(fields: BrowserObject, events: readonly string[]): string {
   return domScript(`
+    ${HIT_GUARD_RUNTIME};
+    const runtime = globalThis.__klausHitGuardRuntime;
     const e = ${elementScript(fields)};
     let target = e && e.nodeType === 1 ? e : e?.parentElement ?? null;
     if (target && !target.matches('input, textarea, select') && !target.isContentEditable) target = target.closest('button, [role=button], a, [role=link]') || target;
     if (!target || !target.isConnected) return { error: { code: 'not_found', message: 'The matched element was detached.' } };
-    ${HIT_GUARD_HELPERS}
     const view = target.ownerDocument.defaultView || window;
-    globalThis.__klausHitGuard?.remove?.();
+    // A previous action's acquisition must never leak into this one.
+    runtime.active = undefined;
     const types = new Set(${JSON.stringify([...events])});
     // The pre-flight point must be frame-local: getBoundingClientRect lives in
     // the element's own viewport, unlike the mapped dispatch coordinates.
     const rect = target.getBoundingClientRect();
-    const early = expectHitTarget({ x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 }, target, view);
+    const early = runtime.expectHitTarget({ x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 }, target, view);
     if (early !== 'done') return { intercepted: early };
-    let verdict;
-    const listener = event => {
-      if (!types.has(event.type) || !event.isTrusted) return;
-      if (verdict === undefined) verdict = expectHitTarget({ x: event.clientX, y: event.clientY }, target, view);
-      if (verdict !== 'done' && verdict !== undefined) { event.preventDefault(); event.stopPropagation(); event.stopImmediatePropagation(); }
-    };
-    for (const type of types) view.addEventListener(type, listener, { capture: true, passive: false });
-    const guard = {
-      verdict: () => verdict,
-      remove() { for (const type of types) view.removeEventListener(type, listener, { capture: true }); if (globalThis.__klausHitGuard === guard) delete globalThis.__klausHitGuard; },
-    };
-    globalThis.__klausHitGuard = guard;
+    runtime.active = { target, types, verdict: undefined, view };
     return { ok: true };
   `);
 }
 
-const HIT_GUARD_STOP = domScript(`
-  const guard = globalThis.__klausHitGuard;
-  if (!guard) return 'done';
-  const verdict = guard.verdict();
-  guard.remove();
+const HIT_GUARD_STOP = `(() => {
+  const runtime = globalThis.__klausHitGuardRuntime;
+  if (!runtime || !runtime.active) return 'done';
+  const verdict = runtime.active.verdict;
+  runtime.active = undefined;
   return verdict === undefined ? 'done' : verdict;
-`);
+})()`;
+
+/**
+ * Document-scoped synthetic click: the full pointer/mouse sequence is built
+ * and dispatched inside the element's own frame. Every event is preceded by a
+ * liveness check (document identity, connection, hit stability and an
+ * unobstructed hit path); a prevented pointerdown suppresses the
+ * compatibility mouse events, and mousedown walks the focus up from the hit
+ * element. Failures return structured errors; the caller never retries them.
+ */
+export function syntheticClickScript(fields: BrowserObject): string {
+  return domScript(`
+    ${HIT_GUARD_RUNTIME};
+    const runtime = globalThis.__klausHitGuardRuntime;
+    const parentUp = runtime.parentUp;
+    const left = { error: { code: 'stale_target', message: 'Click target left the selected document.' } };
+    const obscured = { error: { code: 'intercepted', message: 'Click target moved or became obscured.' } };
+    const e = ${elementScript(fields)};
+    if (!e || e.nodeType !== 1 || !e.isConnected) return left;
+    const doc = document;
+    const rootElement = doc.documentElement;
+    const view = doc.defaultView || window;
+    const rect = e.getBoundingClientRect();
+    if (!(rect.width > 0) || !(rect.height > 0)) return { error: { code: 'not_visible', message: 'The matched element has no clickable bounding box.' } };
+    const x = rect.x + rect.width / 2, y = rect.y + rect.height / 2;
+    const o = p => !!p && p.ownerDocument === doc && p.isConnected && p.getRootNode({ composed: true }) === doc;
+    const hitAt = () => { let hit = doc.elementFromPoint(x, y); for (;;) { const inner = hit && hit.shadowRoot ? hit.shadowRoot.elementFromPoint(x, y) : null; if (!inner || inner === hit) break; hit = inner; } return hit; };
+    const s = hitAt();
+    if (!o(e) || !o(s)) return left;
+    let failure = null;
+    const assertLive = () => {
+      if (doc.documentElement !== rootElement || !e.isConnected || !o(e) || !o(s)) { failure = left; throw left.error; }
+      if (hitAt() !== s || runtime.expectHitTarget({ x, y }, e, view) !== 'done') { failure = obscured; throw obscured.error; }
+    };
+    const focusFrom = () => {
+      const focusedHere = node => { let at = doc.activeElement; while (at) { if (at === node) return true; at = at.shadowRoot ? at.shadowRoot.activeElement : null; } return false; };
+      for (let node = s; node; node = parentUp(node)) {
+        if (node.nodeType !== 1) continue;
+        const tag = node.nodeName;
+        if (tag === 'IFRAME' || tag === 'OBJECT' || tag === 'EMBED') continue;
+        try { node.focus({ preventScroll: true }); } catch { continue; }
+        if (focusedHere(node)) return;
+      }
+      try { if (doc.activeElement && doc.activeElement.blur) doc.activeElement.blur(); } catch { /* nothing focusable to release */ }
+    };
+    const init = down => ({ bubbles: true, cancelable: true, composed: true, view, clientX: x, clientY: y, button: 0, buttons: down ? 1 : 0, detail: 1, pointerId: -1, pointerType: 'mouse', isPrimary: true });
+    let prevented = false;
+    try {
+      assertLive();
+      const pointerDown = new PointerEvent('pointerdown', init(true));
+      s.dispatchEvent(pointerDown);
+      prevented = pointerDown.defaultPrevented;
+      if (!prevented) {
+        assertLive();
+        s.dispatchEvent(new MouseEvent('mousedown', init(true)));
+        focusFrom();
+        assertLive();
+        s.dispatchEvent(new PointerEvent('pointerup', init(false)));
+        assertLive();
+        s.dispatchEvent(new MouseEvent('mouseup', init(false)));
+      }
+      assertLive();
+      s.dispatchEvent(new MouseEvent('click', init(false)));
+    } catch (problem) {
+      if (failure) return failure;
+      throw problem;
+    }
+    return { ok: true };
+  `);
+}
 
 async function installHitGuard(cdp: BrowserCdp, fields: BrowserObject, mode: 'hover' | 'mouse'): Promise<HitGuard> {
   const installed = object(await cdp.evaluate(hitGuardInstallScript(fields, HIT_GUARD_EVENTS[mode])));
@@ -388,8 +494,9 @@ export async function pointerTarget(root: BrowserCdp, fields: BrowserObject, sig
         active();
         // The dispatch-time interceptor closes the race between these checks
         // and event delivery. It lives in the element's own frame and inspects
-        // the first trusted event; forced actions skip actionability entirely.
-        const guard = fields.force === true ? undefined : await inBudget(
+        // the first trusted event; forced actions skip actionability entirely,
+        // and a synthetic dispatch re-validates its target before every event.
+        const guard = fields.force === true || fields.dispatch === 'synthetic' ? undefined : await inBudget(
           () => installHitGuard(resolved.cdp, resolved.fields, fields.moveOnly === true ? 'hover' : 'mouse'),
           until, budget, signal, expire);
         active();
@@ -397,8 +504,8 @@ export async function pointerTarget(root: BrowserCdp, fields: BrowserObject, sig
         // its pointer events dispatch on the page session in top-level
         // coordinates. A cross-process frame keeps its session-local point.
         const scope = resolved.cdp.captureScope;
-        if (mapped && scope && !scope.root.frameTargets().includes(scope.frame)) return { cdp: scope.root, x: mapped.x, y: mapped.y, guard };
-        return { cdp: resolved.cdp, x: Number(result.x), y: Number(result.y), guard };
+        if (mapped && scope && !scope.root.frameTargets().includes(scope.frame)) return { cdp: scope.root, x: mapped.x, y: mapped.y, guard, elementCdp: resolved.cdp };
+        return { cdp: resolved.cdp, x: Number(result.x), y: Number(result.y), guard, elementCdp: resolved.cdp };
       } catch (error) {
         if (error instanceof BrowserError && error.code === 'timeout' && last instanceof Error) throw new BrowserError('timeout', `${error.message} Last actionability check: ${last.message}`);
         const transientContext = error instanceof BrowserError && ['cdp_error', 'evaluation_error'].includes(error.code) && /context.*destroyed|cannot find context|not connected/iu.test(error.message);

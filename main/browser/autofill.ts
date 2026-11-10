@@ -111,6 +111,11 @@ export class BrowserAutofillController {
     this.submissionGeneration += 1;
   }
 
+  /** True while any frame has an in-flight credential submission. */
+  hasInFlight(): boolean {
+    return this.inFlight.size > 0;
+  }
+
   dispose(): void {
     this.disposed = true;
     this.cancelAllSubmissions();
@@ -173,6 +178,8 @@ export class BrowserAutofillController {
       if (!await this.stillCurrent(frame, generation, topGeneration, revocation)) {
         return { filled: false, reason: 'navigation' };
       }
+      const selectPasswordRefusal = await this.containerRefusal(frame, generation, topGeneration, revocation);
+      if (selectPasswordRefusal) return selectPasswordRefusal;
       return await this.send(frame, {
         type: 'browser-autofill:fill',
         documentId: frame.documentId,
@@ -189,6 +196,8 @@ export class BrowserAutofillController {
     if (!await this.stillCurrent(frame, generation, topGeneration, revocation)) {
       return { filled: false, reason: 'navigation' };
     }
+    const selectProfileRefusal = await this.containerRefusal(frame, generation, topGeneration, revocation);
+    if (selectProfileRefusal) return selectProfileRefusal;
     return await this.send(frame, {
       type: 'browser-autofill:fill',
       documentId: frame.documentId,
@@ -284,6 +293,8 @@ export class BrowserAutofillController {
     if (!await this.stillCurrent(frame, generation, topGeneration, revocation)) {
       return { filled: false, reason: 'navigation' };
     }
+    const fillPasswordRefusal = await this.containerRefusal(frame, generation, topGeneration, revocation);
+    if (fillPasswordRefusal) return fillPasswordRefusal;
     return await this.send(frame, {
       type: 'browser-autofill:fill',
       documentId: frame.documentId,
@@ -329,6 +340,8 @@ export class BrowserAutofillController {
     if (!await this.stillCurrent(frame, generation, topGeneration, revocation)) {
       return { filled: false, reason: 'navigation' };
     }
+    const fillProfileRefusal = await this.containerRefusal(frame, generation, topGeneration, revocation);
+    if (fillProfileRefusal) return fillProfileRefusal;
     return await this.send(frame, {
       type: 'browser-autofill:fill',
       documentId: frame.documentId,
@@ -390,6 +403,33 @@ export class BrowserAutofillController {
       && next.frameId === frame.frameId
       && next.documentId === frame.documentId
       && next.origin === frame.origin;
+  }
+
+  /**
+   * Verify that the frame still fully contains its document before credentials
+   * reach the renderer: matching origin, no child frames, no nested embeddable
+   * documents and no service worker that could observe the fill. Verification
+   * awaits, so a refusal rechecks currency first and reports navigation when
+   * the document moved meanwhile.
+   */
+  private async containerRefusal(
+    frame: BrowserAutofillFrame,
+    generation: number,
+    topGeneration: number,
+    revocation: number,
+  ): Promise<BrowserAutofillFillReceipt | null> {
+    if (!this.options.verifyContainer) return null;
+    let refusal: string | null;
+    try {
+      refusal = await this.options.verifyContainer(frame);
+    } catch {
+      refusal = 'verification_failed';
+    }
+    if (refusal === null) return null;
+    if (!await this.stillCurrent(frame, generation, topGeneration, revocation)) {
+      return { filled: false, reason: 'navigation' };
+    }
+    return { filled: false, reason: 'unsafe_document' };
   }
 
   private async send(frame: BrowserAutofillFrame, message: BrowserAutofillFillMessage): Promise<BrowserAutofillFillReceipt> {

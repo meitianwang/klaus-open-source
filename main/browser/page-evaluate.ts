@@ -7,7 +7,8 @@ interface ContextIdentity { id:number; frame:string; uniqueId:string; source?:st
 const worlds=new WeakMap<BrowserCdp,Map<string,ContextIdentity>>();
 const READ_ONLY_WORLD='klaus-read-only';
 export const WEBMCP_WORLD='klaus-webmcp';
-const KNOWN_WORLDS=new Set([READ_ONLY_WORLD,WEBMCP_WORLD]);
+export const AUTOFILL_CONTAINER_WORLD='klaus-autofill-container';
+const KNOWN_WORLDS=new Set([READ_ONLY_WORLD,WEBMCP_WORLD,AUTOFILL_CONTAINER_WORLD]);
 
 function worldIdentities(cdp:BrowserCdp):Map<string,ContextIdentity>{
   const root=cdp.captureScope?.root??cdp;let contexts=worlds.get(root);

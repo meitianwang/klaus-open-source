@@ -64,8 +64,8 @@ h.test('raw CDP refuses guarded input, interception and tracing methods while di
     'Network.getResponseBodyForInterception', 'Network.takeResponseBodyForInterceptionAsStream',
     'Network.setCookieControls', 'Network.setExtraHTTPHeaders',
     'Page.disable', 'Page.getNavigationHistory', 'Page.resetNavigationHistory',
-    'Page.deleteCookie', 'Page.setAdBlockingEnabled', 'Page.setRPHRegistrationMode', 'Page.setSPCTransactionMode',
-    'Tracing.requestMemoryDump', 'Fetch.enable', 'Fetch.disable', 'Storage.getCookies', 'WebAuthn.enable',
+    'Page.setAdBlockingEnabled', 'Page.setRPHRegistrationMode', 'Page.setSPCTransactionMode',
+    'Tracing.requestMemoryDump', 'Fetch.disable', 'Storage.getCookies', 'WebAuthn.enable',
   ]) {
     let refused = false;
     try { checkRawCdp(method); } catch { refused = true; }
@@ -74,6 +74,58 @@ h.test('raw CDP refuses guarded input, interception and tracing methods while di
   for (const method of ['Console.enable', 'Audits.getEncodedResponse', 'Debugger.enable', 'IO.read', 'Inspector.enable', 'Profiler.enable', 'WebAudio.enable', 'Tracing.start', 'Animation.enable', 'LayerTree.enable', 'PerformanceTimeline.enable']) {
     checkRawCdp(method);
   }
+});
+
+h.test('raw CDP opens the dialog, tab-close, binding, cache and per-origin cookie surface', () => {
+  // Methods a page-scoped task legitimately needs are allowed outright.
+  for (const method of ['Page.handleJavaScriptDialog', 'Page.close', 'Runtime.addBinding', 'Network.clearBrowserCache', 'Page.getCookies', 'Fetch.enable', 'Fetch.continueRequest', 'Fetch.getResponseBody', 'Fetch.failRequest']) {
+    checkRawCdp(method, method === 'Fetch.enable' ? { patterns: [] } : undefined);
+  }
+  // Cookie reads and writes stay bound to explicit URLs, and each URL is
+  // returned so the caller can authorize every affected origin.
+  assertDeepEqual(checkRawCdp('Network.getCookies', { urls: ['https://a.example/', 'https://b.example/'] }), ['https://a.example/', 'https://b.example/'], 'getCookies collects its URLs');
+  assertDeepEqual(checkRawCdp('Network.setCookie', { url: 'https://a.example/', name: 'sid', value: '1' }), ['https://a.example/'], 'setCookie collects its URL');
+  assertDeepEqual(checkRawCdp('Network.setCookies', { cookies: [{ url: 'https://a.example/', name: 'x', value: '1' }, { url: 'https://b.example/', name: 'y', value: '2' }] }), ['https://a.example/', 'https://b.example/'], 'setCookies collects every URL');
+  assertDeepEqual(checkRawCdp('Network.deleteCookies', { url: 'https://a.example/', name: 'sid' }), ['https://a.example/'], 'deleteCookies collects its URL');
+  assertDeepEqual(checkRawCdp('Page.deleteCookie', { url: 'https://a.example/', name: 'sid' }), ['https://a.example/'], 'Page.deleteCookie collects its URL');
+  assertDeepEqual(checkRawCdp('Network.getCookies', { urls: ['https://a.example/'] }), ['https://a.example/'], 'a single-URL read is authorized too');
+  assertDeepEqual(checkRawCdp('Runtime.evaluate', { expression: '1' }), [], 'an ordinary command affects no extra URL');
+});
+
+h.test('raw CDP condition validators refuse scope-widening payloads on both surfaces', () => {
+  const refused: Array<[string, BrowserObject | undefined, string]> = [
+    ['Network.getCookies', undefined, 'a cookie read without explicit URLs cannot stay origin-scoped'],
+    ['Network.getCookies', { urls: [] }, 'an empty URL list authorizes nothing'],
+    ['Network.getCookies', { urls: 'https://a.example/' }, 'urls must be an array'],
+    ['Network.setCookie', { name: 'sid', value: '1', domain: '.example' }, 'domain-scoped cookie writes stay closed'],
+    ['Network.setCookie', { name: 'sid', value: '1' }, 'a cookie write without url stays closed'],
+    ['Network.setCookie', { url: 'https://a.example/', name: 'sid', value: '1', sourcePort: 443 }, 'sourcePort-scoped writes stay closed'],
+    ['Network.setCookie', { url: 'https://a.example/', name: 'sid', value: '1', sourceScheme: 'https' }, 'sourceScheme-scoped writes stay closed'],
+    ['Network.setCookies', { cookies: [] }, 'an empty cookie list is refused'],
+    ['Network.setCookies', { cookies: [{ name: 'x', value: '1', domain: '.example' }] }, 'every cookie needs an explicit url'],
+    ['Network.deleteCookies', { name: 'sid', domain: '.example' }, 'domain-scoped cookie deletion stays closed'],
+    ['Page.deleteCookie', { name: 'sid' }, 'Page.deleteCookie needs an explicit url'],
+    ['Fetch.enable', { patterns: [{ resourceType: 'Document', requestStage: 'Request' }] }, 'Document interception is host-reserved'],
+    ['Fetch.enable', { patterns: [{ resourceType: 'Document' }] }, 'Document interception is host-reserved even without a stage'],
+    ['Fetch.enable', { patterns: 'all' }, 'patterns must be an array'],
+    ['Fetch.enable', { patterns: ['*'] }, 'every pattern must be an object'],
+    ['Fetch.continueRequest', { requestId: 'r', url: 42 }, 'a redirect URL must be a string'],
+    ['Fetch.continueResponse', { requestId: 'r', responseHeaders: { Location: 'https://x.example/' } }, 'responseHeaders must keep their list shape'],
+    ['Fetch.fulfillRequest', { requestId: 'r', responseHeaders: [{ name: 'Location' }] }, 'every header needs name and value'],
+  ];
+  for (const [method, params, why] of refused) {
+    let blocked = false;
+    try { checkRawCdp(method, params); } catch (error) { blocked = error instanceof BrowserError && error.code === 'refused_by_policy'; }
+    assert(blocked, `${method} with ${JSON.stringify(params)} must be refused: ${why}`);
+  }
+  // The same methods stay available with well-scoped payloads.
+  checkRawCdp('Fetch.enable', { patterns: [] });
+  checkRawCdp('Fetch.enable', { patterns: [{ resourceType: 'XHR', requestStage: 'Request' }, { urlPattern: 'https://api.example/*' }] });
+  checkRawCdp('Fetch.enable', {});
+  assertDeepEqual(checkRawCdp('Fetch.continueRequest', { requestId: 'r', url: 'https://next.example/x' }), ['https://next.example/x'], 'a continueRequest override URL is authorized');
+  assertDeepEqual(checkRawCdp('Fetch.continueRequest', { requestId: 'r' }), [], 'continuing without an override affects no extra URL');
+  assertDeepEqual(checkRawCdp('Fetch.continueResponse', { requestId: 'r', responseHeaders: [{ name: 'location', value: 'https://next.example/y' }] }), ['https://next.example/y'], 'a Location header names another URL to authorize');
+  assertDeepEqual(checkRawCdp('Fetch.fulfillRequest', { requestId: 'r', responseHeaders: [{ name: 'Content-Type', value: 'text/plain' }] }), [], 'ordinary headers collect nothing');
 });
 
 h.test('raw CDP refuses escalation payloads even on allowed methods', () => {
@@ -112,10 +164,161 @@ h.test('raw CDP refusals name the operation that replaces them', () => {
   assert(read('Input.dispatchKeyEvent').includes('type or press_key'), 'keyboard guidance');
   assert(read('Page.navigate').includes('navigate operation'), 'navigation guidance');
   assert(read('Page.getNavigationHistory').includes('back or forward'), 'history guidance');
-  assert(read('Page.handleJavaScriptDialog').includes('dialog operation'), 'dialog guidance');
   assert(read('Page.setDownloadBehavior').includes('download operation'), 'download guidance');
-  assert(read('Network.getAllCookies').includes('host-managed'), 'cookie guidance');
+  assert(read('Network.getAllCookies').includes('Network.getCookies with explicit URLs'), 'global cookie reads point at the per-origin method');
+  assert(read('Fetch.disable').includes('empty patterns array'), 'clearing raw interception keeps the host Document pattern');
   assert(read('Page.setBypassCSP').includes('named browser operation'), 'generic fallback guidance');
+});
+
+h.test('raw CDP dispatch authorizes affected URLs and closes network domains during a credential submission', async () => {
+  const authorized: string[] = [];
+  const commands: string[] = [];
+  let guardOn = false;
+  const context = {
+    cdp: {
+      console: [], network: [], events: [], evicted: { console: 0, network: 0, events: 0 },
+      command: async (method: string) => { commands.push(method); return {}; },
+      evaluate: async () => null, onEvent: () => () => {},
+    },
+    authorizeAffected: async (url: string) => { authorized.push(url); },
+    credentialGuardActive: () => guardOn,
+  } as unknown as PageOperationContext;
+  await performPageOperation(context, 'cdp', { method: 'Network.setCookie', params: { url: 'https://a.example/', name: 'sid', value: '1' } });
+  assertDeepEqual(authorized, ['https://a.example/'], 'the affected origin is authorized before dispatch');
+  assertDeepEqual(commands, ['Network.setCookie'], 'the command ran once');
+  guardOn = true;
+  for (const method of ['Network.getCookies', 'Fetch.enable', 'Target.createTarget']) {
+    const params: BrowserObject | undefined = method === 'Network.getCookies' ? { urls: ['https://a.example/'] } : method === 'Fetch.enable' ? { patterns: [] } : undefined;
+    const error = await assertRejects(() => performPageOperation(context, 'cdp', { method, ...(params ? { params } : {}) }), `${method} closes during a credential submission`);
+    assertEqual((error as BrowserError).code, 'refused_by_policy', `${method} refusal is policy-shaped`);
+    assert(String((error as BrowserError).message).includes('credential submission'), `${method} refusal names the credential window`);
+  }
+  // Non-network domains stay open while the credential submission is in flight.
+  await performPageOperation(context, 'cdp', { method: 'Runtime.evaluate', params: { expression: '1' } });
+  guardOn = false;
+  await performPageOperation(context, 'cdp', { method: 'Network.getCookies', params: { urls: ['https://a.example/'] } });
+  assertDeepEqual(authorized, ['https://a.example/', 'https://a.example/'], 'after the window closes the read is authorized and dispatched');
+});
+
+/** A minimal page transport whose frames answer the webMcp collection scripts. */
+function webMcpMockTransport(options: {
+  frames: Record<string, string>;
+  rootFrame: string;
+  nativeTools?: (frameKey: string) => BrowserObject[];
+  onEvaluate?: (frameKey: string) => void;
+}) {
+  const listeners: Array<(method: string, params: BrowserObject, frame?: string) => void> = [];
+  let contextSeq = 100;
+  const respondEvaluate = (frameKey: string, expression: string): unknown => {
+    if (expression === 'location.href') { options.onEvaluate?.(frameKey); return options.frames[frameKey]; }
+    if (expression.includes('__klausWebMcpState') && expression.includes('executeTool')) return { echo: 'ok' };
+    if (expression.includes('__klausWebMcpState')) return { tools: options.nativeTools ? options.nativeTools(frameKey) : [], native: true };
+    if (expression.includes('tool-name')) return { tools: [], surfaces: [], pageUrl: options.frames[frameKey] };
+    return { tools: [], surfaces: [], opaque: false, pageUrl: options.frames[frameKey] };
+  };
+  const root = {
+    captureScope: undefined,
+    console: [], network: [], events: [], evicted: { console: 0, network: 0, events: 0 },
+    frameTargets: () => [],
+    remoteFrameIds: () => [],
+    frameParent: () => undefined,
+    frameRouteKey: () => 'main',
+    rootFrameId: () => options.rootFrame,
+    onEvent: (listener: (method: string, params: BrowserObject, frame?: string) => void) => { listeners.push(listener); return () => { const index = listeners.indexOf(listener); if (index !== -1) listeners.splice(index, 1); }; },
+    evaluate: async (expression: string, frameTarget?: string) => respondEvaluate(frameTarget ?? options.rootFrame, expression),
+    command: async (method: string, params: BrowserObject = {}, frameTarget?: string) => {
+      if (method === 'Page.getFrameTree') {
+        const children = Object.keys(options.frames).filter(id => id !== options.rootFrame);
+        return { frameTree: { frame: { id: options.rootFrame, url: options.frames[options.rootFrame], securityOrigin: new URL(String(options.frames[options.rootFrame])).origin }, childFrames: children.map(id => ({ frame: { id, url: options.frames[id], securityOrigin: new URL(String(options.frames[id])).origin } })) } };
+      }
+      if (method === 'Page.createIsolatedWorld') {
+        const frameId = String(params.frameId ?? options.rootFrame);
+        const id = ++contextSeq;
+        queueMicrotask(() => emit('Runtime.executionContextCreated', { context: { id, uniqueId: `unique-${id}`, name: String(params.worldName ?? ''), origin: '', auxData: { frameId, isDefault: false } } }, frameId === options.rootFrame ? undefined : frameId));
+        return { executionContextId: id };
+      }
+      if (method === 'Runtime.evaluate') return { result: { value: respondEvaluate(frameTarget ?? options.rootFrame, String(params.expression ?? '')) } };
+      return {};
+    },
+    screenshot: async () => ({}), printToPDF: async () => ({}),
+  };
+  const emit = (method: string, params: BrowserObject, frame?: string): void => { for (const listener of [...listeners]) listener(method, params, frame); };
+  return { root, emit };
+}
+
+h.test('webmcp collection merges authorized frames, skips unauthorized origins and invalidates stale registrations', async () => {
+  let epoch = 0;
+  const issuedIds = new Map<string, string>();
+  const transport = webMcpMockTransport({
+    frames: { 'frame-main': 'https://main.example/page', 'frame-child': 'https://other.example/child' },
+    rootFrame: 'frame-main',
+    nativeTools: frameKey => {
+      let id = issuedIds.get(frameKey);
+      if (!id) { id = `reg-${frameKey}-${epoch}`; issuedIds.set(frameKey, id); }
+      return [{ name: `native_${frameKey}`, via: 'native', registration_id: id, call_name: `native_${frameKey}__${id}`, description: null, inputSchema: null }];
+    },
+  });
+  const authorizeCalls: string[] = [];
+  let allowChild = false;
+  const makeContext = (): PageOperationContext => ({
+    cdp: transport.root,
+    authorizeSiteTools: async (url: string) => { authorizeCalls.push(url); if (!allowChild && url.includes('other.example')) throw new BrowserError('refused_by_policy', 'The frame origin is not authorized.'); },
+    navigate: async () => {}, history: async () => {}, download: async () => ({}),
+  } as unknown as PageOperationContext);
+
+  // An unauthorized cross-origin frame is skipped, never failed.
+  let found = object((await performPageOperation(makeContext(), 'webmcp', {})).value);
+  assertDeepEqual((found.tools as BrowserObject[]).map(tool => String(object(tool).name)), ['native_frame-main'], 'an unauthorized frame contributes no tools');
+  assertDeepEqual(authorizeCalls, ['https://other.example/child'], 'the frame URL went through site-tools authorization');
+
+  // After authorization the same frame merges in with its own origin.
+  allowChild = true;
+  found = object((await performPageOperation(makeContext(), 'webmcp', {})).value);
+  const tools = (found.tools as BrowserObject[]).map(object);
+  assertEqual(tools.length, 2, 'both frames are listed');
+  const child = tools.find(tool => tool.name === 'native_frame-child');
+  assertEqual(child?.origin, 'https://other.example', 'the child tool carries its frame origin');
+
+  // Calling by registrationId invokes inside the registering frame.
+  const called = object((await performPageOperation(makeContext(), 'webmcp', { registrationId: String(child?.registration_id), input: {} })).value);
+  assertEqual(called.via, 'native', 'the registration path runs the native invoke');
+  assertEqual(called.origin, 'https://other.example', 'the answer names the frame origin');
+  assertEqual(JSON.stringify(called.value), JSON.stringify({ echo: 'ok' }), 'the invoke result reaches the caller');
+
+  // A main-frame navigation destroys the world state: the old id is gone.
+  transport.emit('Page.frameNavigated', { frame: { id: 'frame-main', url: 'https://main.example/page' } });
+  epoch += 1; issuedIds.clear();
+  const stale = await assertRejects(() => performPageOperation(makeContext(), 'webmcp', { registrationId: String(child?.registration_id), input: {} }), 'an invalidated registration is stale');
+  assertEqual((stale as BrowserError).code, 'not_found', 'the old registration id is no longer listed');
+});
+
+h.test('webmcp descriptor limits stick to the page and a main-frame navigation resets them', async () => {
+  let toolCount = 101;
+  let frameReads = 0;
+  const transport = webMcpMockTransport({
+    frames: { 'frame-main': 'https://main.example/page' },
+    rootFrame: 'frame-main',
+    onEvaluate: () => { frameReads += 1; },
+    nativeTools: () => Array.from({ length: toolCount }, (_, index) => ({ name: `limit_${index}`, via: 'native', registration_id: `reg-${index}`, call_name: `limit_${index}__reg-${index}`, description: null, inputSchema: null })),
+  });
+  const makeContext = (): PageOperationContext => ({
+    cdp: transport.root,
+    navigate: async () => {}, history: async () => {}, download: async () => ({}),
+  } as unknown as PageOperationContext);
+
+  const first = await assertRejects(() => performPageOperation(makeContext(), 'webmcp', {}), 'an oversized listing is refused');
+  assertEqual((first as BrowserError).code, 'unavailable', 'the limit is an unavailable surface');
+  assert(String((first as BrowserError).message).includes('disabled'), 'the refusal says the surface is disabled');
+  const readsAfterFirst = frameReads;
+  const second = await assertRejects(() => performPageOperation(makeContext(), 'webmcp', {}), 'the refusal is sticky');
+  assert(String((second as BrowserError).message).includes('disabled'), 'still disabled without a navigation');
+  assertEqual(frameReads, readsAfterFirst, 'a disabled page is refused before any frame read');
+
+  toolCount = 1;
+  transport.emit('Page.frameNavigated', { frame: { id: 'frame-main', url: 'https://main.example/page' } });
+  const recovered = object((await performPageOperation(makeContext(), 'webmcp', {})).value);
+  assertEqual(recovered.available, true, 'a main-frame navigation resets the sticky state');
+  assertEqual((recovered.tools as BrowserObject[]).length, 1, 'the corrected page lists again');
 });
 
 h.test('named and facade requests keep their operation fields and task tab target', () => {

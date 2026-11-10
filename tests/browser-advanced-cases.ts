@@ -70,6 +70,64 @@ export function serveAdvancedFixture(request: IncomingMessage, response: ServerR
     response.end('<!doctype html><meta charset="utf-8"><title>Flood fixture</title><body>' +
       '<script>for(let i=0;i<101;i++){const form=document.createElement("form");form.setAttribute("tool-name","tool_"+i);form.innerHTML="<input name=arg>";document.body.appendChild(form)}</script></body>'); return true;
   }
+  if (request.url === '/advanced-synthetic') {
+    // Synthetic-dispatch fixture: the page records every event that reaches the
+    // button so the case can verify the sequence, trustedness and focus walk.
+    response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    response.end('<!doctype html><meta charset="utf-8"><title>Synthetic fixture</title>' +
+      '<style>body{margin:0;font:16px sans-serif}#syn-overlay{position:fixed;left:0;top:0;width:100vw;height:100vh;background:rgba(0,0,0,0.02);display:none}</style>' +
+      '<button id="syn-target" style="position:absolute;left:20px;top:20px;width:160px;height:44px">Synthetic</button>' +
+      '<button id="syn-vanish" style="position:absolute;left:20px;top:150px;width:160px;height:44px" onpointerdown="this.remove()">Vanish</button>' +
+      '<button id="syn-occlude" style="position:absolute;left:20px;top:220px;width:160px;height:44px" onpointerdown="document.getElementById(\'syn-overlay\').style.display=\'block\'">Occlude</button>' +
+      '<div id="syn-overlay"></div>' +
+      '<script>window.synEvents=[];' +
+      '(function(){var target=document.getElementById("syn-target");' +
+      '["pointerdown","mousedown","pointerup","mouseup","click"].forEach(function(type){target.addEventListener(type,function(event){window.synEvents.push(type+":"+(event.isTrusted?"trusted":"untrusted"))})});' +
+      '})();</script>'); return true;
+  }
+  if (request.url === '/advanced-heal') {
+    // Self-healing fixture: inline handlers survive a documentElement remount,
+    // and the overlay appears on the first real mouse movement, so only a live
+    // capture interceptor can block the misdirected press.
+    response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    response.end('<!doctype html><meta charset="utf-8"><title>Heal fixture</title>' +
+      '<style>body{margin:0;font:16px sans-serif}#heal-overlay{position:absolute;left:0;top:0;width:400px;height:120px;background:rgba(0,0,0,0.02);display:none}</style>' +
+      '<body onmousemove="document.getElementById(\'heal-overlay\').style.display=\'block\'">' +
+      '<button id="heal-target" style="position:absolute;left:20px;top:20px;width:120px;height:44px" onclick="window.healTargetClicks=(window.healTargetClicks||0)+1">Guarded</button>' +
+      '<button id="heal-plain" style="position:absolute;left:20px;top:300px;width:120px;height:44px" onclick="window.healClicks=(window.healClicks||0)+1">Plain</button>' +
+      '<div id="heal-overlay"></div>' +
+      '</body>'); return true;
+  }
+  if (request.url === '/advanced-webmcp-parent') {
+    response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    response.end('<!doctype html><meta charset="utf-8"><title>WebMCP parent</title><body>' +
+      '<form tool-name="parent_tool" tool-description="Parent frame tool"><input name="tag"><button type="submit">Go</button></form>' +
+      '<iframe id="child-frame" src="/advanced-webmcp-child" style="width:420px;height:160px"></iframe>' +
+      '<script>document.querySelector("form[tool-name=parent_tool]").addEventListener("submit",function(event){event.preventDefault();window.__parentSubmitted=Object.fromEntries(new FormData(event.target))})</script>' +
+      '</body>'); return true;
+  }
+  if (request.url === '/advanced-webmcp-child') {
+    response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    response.end('<!doctype html><meta charset="utf-8"><title>WebMCP child</title><body>' +
+      '<form tool-name="child_tool" tool-description="Child frame tool"><input name="note"><button type="submit">Go</button></form>' +
+      '<script>document.querySelector("form[tool-name=child_tool]").addEventListener("submit",function(event){event.preventDefault();window.__childSubmitted=Object.fromEntries(new FormData(event.target))})</script>' +
+      '</body>'); return true;
+  }
+  if (request.url === '/advanced-churn') {
+    response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    response.end('<!doctype html><meta charset="utf-8"><title>Churn fixture</title><body></body>'); return true;
+  }
+  if (request.url === '/advanced-native-webmcp') {
+    // Registers one native agent tool when the browser exposes the document
+    // registry; the page records the outcome for feature detection.
+    response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    response.end('<!doctype html><meta charset="utf-8"><title>Native WebMCP fixture</title><body><script>' +
+      '(async function(){try{var context=document.modelContext;' +
+      'if(!context||typeof context.registerTool!=="function"){window.__nativeRegistered="unsupported";return}' +
+      'await context.registerTool({name:"native_echo",description:"Echo text back",inputSchema:{type:"object",properties:{text:{type:"string"}}},execute:async function(input){var parsed=typeof input==="string"?JSON.parse(input):input;return {echo:(parsed&&parsed.text)||null}}});' +
+      'window.__nativeRegistered=true}catch(error){window.__nativeRegistered="error:"+String(error&&error.message||error)}})();' +
+      '</script></body>'); return true;
+  }
   response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Set-Cookie': 'advanced_cookie=yes; Path=/; SameSite=Lax' });
   response.end('<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><title>Advanced fixture</title>' +
     '<style>body{margin:10px;font:16px sans-serif}input,select,button{margin:4px}iframe{width:500px;height:75px;display:block}</style>' +
@@ -241,7 +299,158 @@ export function registerAdvancedBrowserTests(h: Harness, context: Context): void
     assertEqual(await evaluate('window.guardClicks'),0,'the page never saw the misdirected click');
     await call('click',{selector:'#plain-target'});
     assertEqual(await evaluate('window.plainClicks'),1,'an unobstructed click still reaches the page');
-    assertEqual(await evaluate('globalThis.__klausHitGuard===undefined'),true,'the interceptor is removed after the action');
+    assertEqual(await evaluate('globalThis.__klausHitGuardRuntime?.active===undefined'),true,'the interceptor acquisition is released after the action');
+  });
+
+  h.test('advanced: the resident hit guard re-registers itself after the document element is remounted', async () => {
+    await call('navigate',{url:context.base()+'/advanced-heal'});
+    // Capture every window listener the host runtime registers from here on.
+    await evaluate(`(()=>{window.__stolen=[];const origAdd=window.addEventListener,origRemove=window.removeEventListener;window.addEventListener=function(type,fn,opts){window.__stolen.push([type,fn,opts]);return origAdd.call(window,type,fn,opts)};window.__dropAll=()=>{for(const entry of window.__stolen){try{origRemove.call(window,entry[0],entry[1],entry[2])}catch{}}window.__stolen=[]}})()`);
+    // The first click injects the resident runtime; its listeners are captured.
+    await call('click',{selector:'#heal-plain'});
+    assertEqual(await evaluate('window.healClicks'),1,'the unobstructed click reaches the page');
+    assert(Number(await evaluate('window.__stolen.length'))>0,'the runtime listeners were captured');
+    // Remove every host listener, then remount the document element. The
+    // observer-driven healing must notice the lost probe listener and put the
+    // capture interceptors back.
+    await evaluate('window.__dropAll()');
+    await evaluate('(()=>{const clone=document.documentElement.cloneNode(true);document.replaceChild(clone,document.documentElement)})()');
+    await new Promise(resolve=>setTimeout(resolve,150));
+    let error='';
+    try { await call('click',{selector:'#heal-target',timeoutMs:900}); } catch (caught) { error=String(caught instanceof Error?caught.message:caught); }
+    assert(error.includes('heal-overlay'),'the healed interceptor still blocks the misdirected click: '+error);
+    assertEqual(await evaluate('window.healTargetClicks??0'),0,'the page never saw the misdirected click');
+  });
+
+  h.test('advanced: synthetic dispatch builds document-scoped clicks with the full event sequence', async () => {
+    await call('navigate',{url:context.base()+'/advanced-synthetic'});
+    const clicked=object(await value('click',{selector:'#syn-target',dispatch:'synthetic'}));
+    assertEqual(clicked.via,'synthetic','the answer names the dispatch mode');
+    assertEqual(JSON.stringify(await evaluate('window.synEvents')),JSON.stringify(['pointerdown:untrusted','mousedown:untrusted','pointerup:untrusted','mouseup:untrusted','click:untrusted']),'the full sequence arrives as untrusted events');
+    assertEqual(await evaluate('document.activeElement===document.getElementById("syn-target")'),true,'the focus walk lands on the clicked button');
+    const refused=await context.call('click',{selector:'#syn-target',dispatch:'synthetic',button:'right'});
+    assert(refused.isError===true&&String(object(refused.error).message).includes('Document-scoped clicks support only unmodified left clicks without force.'),'the restriction names the supported shape');
+    for (const extra of [{ modifiers: ['shift'] }, { force: true }, { clickCount: 2 }] as BrowserObject[]) await rejects('click',{selector:'#syn-target',dispatch:'synthetic',...extra});
+    await rejects('click',{coordinate:[100,40],dispatch:'synthetic'});
+    let error='';
+    try { await call('click',{selector:'#syn-vanish',dispatch:'synthetic'}); } catch (caught) { error=String(caught instanceof Error?caught.message:caught); }
+    assert(error.includes('stale_target')&&error.includes('left the selected document'),'a target removed mid-sequence reports a stale target: '+error);
+    error='';
+    try { await call('click',{selector:'#syn-occlude',dispatch:'synthetic'}); } catch (caught) { error=String(caught instanceof Error?caught.message:caught); }
+    assert(error.includes('intercepted')&&error.includes('moved or became obscured'),'a target covered mid-sequence reports the occlusion: '+error);
+  });
+
+  h.test('advanced: raw CDP opens per-origin cookies and non-Document Fetch interception', async () => {
+    await call('navigate',{url:context.base()+'/advanced'});
+    // Cookie round-trip bound to explicit URLs.
+    await call('cdp',{method:'Network.setCookie',params:{url:context.base()+'/',name:'raw_probe',value:'v1'}});
+    const withCookie=object(await value('cdp',{method:'Network.getCookies',params:{urls:[context.base()+'/']}}));
+    assert((withCookie.cookies as BrowserObject[]).some(row=>row.name==='raw_probe'&&row.value==='v1'),'the cookie round-trips through explicit URLs');
+    await call('cdp',{method:'Network.deleteCookies',params:{url:context.base()+'/',name:'raw_probe'}});
+    const cleared=object(await value('cdp',{method:'Network.getCookies',params:{urls:[context.base()+'/']}}));
+    assert(!(cleared.cookies as BrowserObject[]).some(row=>row.name==='raw_probe'),'the deletion is visible');
+    // Scope-widening shapes stay refused.
+    await rejects('cdp',{method:'Network.getAllCookies'});
+    await rejects('cdp',{method:'Network.setCookie',params:{name:'x',value:'1',domain:new URL(context.base()).hostname}});
+    await rejects('cdp',{method:'Network.getCookies',params:{urls:[]}});
+    // Raw Fetch interception of a non-Document request: the paused event
+    // reaches the buffer and the task answers it with a raw continue.
+    await call('cdp',{method:'Fetch.enable',params:{patterns:[{urlPattern:'*advanced-data*',requestStage:'Request'}]}});
+    // Scan events after everything already buffered: the shared buffer holds
+    // up to 1000 events accumulated across the whole suite.
+    const beforeEvents=object(await value('cdp',{action:'events',limit:1}));
+    const afterSequence=Number(beforeEvents.newestSequence??beforeEvents.newest??0);
+    await evaluate(`(()=>{window.__rawDone=false;fetch('/advanced-data',{cache:'no-store'}).then(r=>r.json()).then(body=>{window.__rawBody=body;window.__rawDone=true}).catch(()=>{window.__rawDone='failed'});return null})()`);
+    let requestId='';
+    const seenMethods=new Set<string>();
+    let rawState:unknown=false;
+    for (let attempt=0;attempt<20&&!requestId;attempt++){
+      const events=object(await value('cdp',{action:'events',afterSequence,timeoutMs:500,limit:100}));
+      for (const row of (events.events as BrowserObject[]).map(object)){
+        seenMethods.add(String(row.method));
+        if (row.method!=='Fetch.requestPaused') continue;
+        const params=object(row.params);
+        if (String(object(params.request).url).includes('advanced-data')&&params.resourceType!=='Document'){requestId=String(params.requestId);break}
+      }
+      rawState=await evaluate('window.__rawDone').catch(()=>undefined);
+    }
+    assert(requestId,`the paused non-Document request reaches the event buffer after sequence ${afterSequence}; saw methods [${[...seenMethods].join(' ')}]; rawDone=${String(rawState)}`);
+    await call('cdp',{method:'Fetch.continueRequest',params:{requestId}});
+    let done:unknown=false;
+    for (let attempt=0;attempt<30&&done!==true;attempt++){done=await evaluate('window.__rawDone');if(done!==true)await new Promise(resolve=>setTimeout(resolve,100))}
+    assertEqual(done,true,'the continued request completes in the page');
+    assertEqual(JSON.stringify(await evaluate('window.__rawBody')),JSON.stringify({fixtureBody:'observed response'}),'the page received the real response body');
+    // Clearing raw interception keeps working; Document interception and
+    // disabling the domain stay host-reserved.
+    await call('cdp',{method:'Fetch.enable',params:{patterns:[]}});
+    await rejects('cdp',{method:'Fetch.disable'});
+    await rejects('cdp',{method:'Fetch.enable',params:{patterns:[{resourceType:'Document',requestStage:'Request'}]}});
+    await call('navigate',{url:context.base()+'/advanced-frame'});
+    assertEqual(await evaluate('document.getElementById("frame-value")!==null'),true,'managed navigation still works after the raw interception lifecycle');
+  });
+
+  h.test('advanced: page tools are collected across frames with their origins', async () => {
+    await call('navigate',{url:context.base()+'/advanced-webmcp-parent'});
+    const found=object(await value('webmcp'));
+    const tools=(found.tools as BrowserObject[]).map(object);
+    const parent=tools.find(tool=>tool.name==='parent_tool');
+    const child=tools.find(tool=>tool.name==='child_tool');
+    assert(parent&&child,'both the parent and the same-origin child frame tools are listed');
+    assertEqual(parent?.origin,new URL(context.base()).origin,'the parent tool carries its frame origin');
+    assertEqual(child?.origin,new URL(context.base()).origin,'the same-origin child tool carries the same origin');
+    assertEqual(tools.filter(tool=>tool.name==='child_tool').length,1,'the child tool is listed exactly once');
+    const called=object(await value('webmcp',{name:'child_tool',input:{note:'from-agent'}}));
+    assertEqual(called.via,'form','the child frame form tool submits through the form surface');
+    assertEqual(await evaluate('JSON.stringify(document.getElementById("child-frame").contentWindow.__childSubmitted)'),JSON.stringify({note:'from-agent'}),'the child form received the typed value');
+    await call('webmcp',{name:'parent_tool',input:{tag:'parent-value'}});
+    assertEqual(await evaluate('JSON.stringify(window.__parentSubmitted)'),JSON.stringify({tag:'parent-value'}),'the parent form tool still works beside frames');
+  });
+
+  h.test('advanced: repeated registration churn disables the tool surface until a navigation', async () => {
+    await call('navigate',{url:context.base()+'/advanced-churn'});
+    for (let round=1;round<=12;round++){
+      await evaluate(`(()=>{const form=document.createElement('form');form.setAttribute('tool-name','churn_${round}');form.innerHTML='<input name=arg>';document.body.appendChild(form)})()`);
+      let error='';
+      try { await call('webmcp'); } catch (caught) { error=String(caught instanceof Error?caught.message:caught); }
+      if (round<=11) assert(!error,`round ${round} still lists tools`);
+      else assert(error.includes('disabled'),`round ${round} disables the surface: ${error}`);
+    }
+    await call('navigate',{url:context.base()+'/advanced-churn'});
+    const recovered=object(await value('webmcp'));
+    assertEqual(recovered.available,false,'a main-frame navigation resets the churn budget and lists the fresh page');
+  });
+
+  h.test('advanced: the native agent-tool registry is enumerated when the browser supports it', async () => {
+    // A listing that races a registry event is stale; like a model, retry it.
+    const listWithRetry = async (fields: BrowserObject = {}): Promise<BrowserObject> => {
+      for (let attempt = 0; ; attempt++) {
+        try { return object(await value('webmcp', fields)); }
+        catch (caught) {
+          const message = String(caught instanceof Error ? caught.message : caught);
+          if (attempt >= 2 || !message.includes('stale_target')) throw caught instanceof Error ? caught : new Error(message);
+          await new Promise(resolve => setTimeout(resolve, 200));
+        }
+      }
+    };
+    await call('navigate',{url:context.base()+'/advanced-native-webmcp'});
+    const registered=await evaluate('window.__nativeRegistered');
+    const found=await listWithRetry();
+    const tools=(found.tools as BrowserObject[]).map(object);
+    if (registered!==true){
+      assert(!tools.some(tool=>tool.name==='native_echo'),'an unregistered native tool is not listed');
+      return;
+    }
+    const surfaces=(found.surfaces as unknown[]).map(String);
+    assert(surfaces.includes('document.modelContext.getTools'),'the native surface is enumerated');
+    const native=tools.find(tool=>tool.name==='native_echo');
+    assert(native&&native.via==='native','the registered native tool is listed');
+    assert(typeof native?.registration_id==='string'&&String(native?.registration_id).length>0,'the native tool carries a registration id');
+    assertEqual(native?.call_name,'native_echo__'+String(native?.registration_id),'the call name embeds the registration id');
+    assertEqual(native?.origin,new URL(context.base()).origin,'the native tool carries its frame origin');
+    const called=await listWithRetry({name:'native_echo',registrationId:String(native?.registration_id),input:{text:'ping'}});
+    assertEqual(called.via,'native','the call runs through the native registry');
+    assertEqual(String(called.value),JSON.stringify({echo:'ping'}),'the native tool result reaches the caller');
+    await rejects('webmcp',{registrationId:'missing-registration'});
   });
 
   h.test('advanced: sequential typing aborts when the page steals focus mid-typing', async () => {
@@ -262,6 +471,9 @@ export function registerAdvancedBrowserTests(h: Harness, context: Context): void
     let error='';
     try { await call('webmcp'); } catch (caught) { error=String(caught instanceof Error?caught.message:caught); }
     assert(error.includes('limit'),'an oversized tool declaration is refused: '+error);
+    let sticky='';
+    try { await call('webmcp'); } catch (caught) { sticky=String(caught instanceof Error?caught.message:caught); }
+    assert(sticky.includes('disabled'),'the refusal sticks to the page until a navigation: '+sticky);
     await call('navigate',{url:context.base()+'/advanced'});
     await evaluate('(()=>{const original=Document.prototype.querySelectorAll;Document.prototype.querySelectorAll=function(selector){return String(selector).includes("tool-name")?[]:original.call(this,selector)};window.__restoreQuery=()=>{Document.prototype.querySelectorAll=original};})()');
     const found=object(await value('webmcp'));

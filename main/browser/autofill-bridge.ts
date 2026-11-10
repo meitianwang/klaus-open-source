@@ -27,6 +27,10 @@ import {
 } from '../../contracts/browser-credentials';
 import { AUTOFILL_PRELOAD_SOURCE } from './autofill-preload';
 import { BrowserAutofillController } from './autofill';
+import { frameCdp } from './dom';
+import { AUTOFILL_CONTAINER_WORLD, isolatedWorldEvaluate } from './page-evaluate';
+import type { BrowserCdp } from './page-operations';
+import { object, type BrowserObject } from './types';
 import type { BrowserCredentialsStore } from './credentials-store';
 
 export interface BrowserAutofillBridgeLabels {
@@ -48,6 +52,8 @@ export interface BrowserAutofillBridgeOptions {
   preloadDirectory?: string;
   ackTimeoutMs?: number;
   enabled?: () => boolean;
+  /** Page transport lookup so the container scan can run in an isolated world. */
+  cdpForContents?: (contents: WebContents) => BrowserCdp | undefined;
   /** Test seam; production omits this and uses Menu.popup. */
   chooseCredential?: (
     candidates: BrowserAutofillCandidate[],
@@ -104,6 +110,15 @@ function ackKey(frameId: string, documentId: string, intentId: string): string {
 }
 
 /**
+ * Container scan for one credential frame. Reports 'nested_document' when the
+ * document embeds another navigable document (iframe, frame, object or embed
+ * in any shadow root or nested document), 'service_workers' when a worker
+ * controls or is registered for the frame, and null when the frame is fully
+ * self-contained.
+ */
+const CONTAINER_SCAN_SCRIPT = `(async()=>{const embedded=new Set(['IFRAME','FRAME','OBJECT','EMBED']);const walkChildren=parent=>{for(const child of parent.children??[])if(walkNode(child))return true;return false;};const walkNode=node=>{if(!node||node.nodeType!==1)return false;if(embedded.has(node.tagName))return true;if(node.shadowRoot&&walkChildren(node.shadowRoot))return true;const content='contentDocument'in node?node.contentDocument:null;if(content&&walkChildren(content))return true;return false;};if(walkChildren(document))return 'nested_document';try{const serviceWorker=navigator.serviceWorker;if(serviceWorker){if(serviceWorker.controller)return 'service_workers';if((await serviceWorker.getRegistrations()).length)return 'service_workers';}}catch{}return null;})()`;
+
+/**
  * Host glue for the autofill controller.
  *
  * Every authorization decision is made from the IPC sender's WebContents and
@@ -137,7 +152,73 @@ export class BrowserAutofillBridge {
       ackTimeoutMs: options.ackTimeoutMs,
       enabled: () => !this.disposed && (options.enabled ? options.enabled() : true),
       isSubmissionAlive: submission => this.isSubmissionAlive(submission),
+      verifyContainer: frame => this.verifyContainer(frame),
     });
+  }
+
+  /** True while any frame has an in-flight credential submission. */
+  hasInFlight(): boolean {
+    return this.controller.hasInFlight();
+  }
+
+  /**
+   * Container integrity check for one credential frame. Host-side facts come
+   * first (live identity, exact origin, child frames); the document scan and
+   * the service-worker probe then run in an isolated world through the page's
+   * CDP transport when it can address this frame uniquely, so page scripts
+   * cannot forge the verdict. Otherwise the scan falls back to evaluating on
+   * the frame handle itself. Returns null when the frame fully contains its
+   * document, otherwise a refusal reason code.
+   */
+  private async verifyContainer(frame: BrowserAutofillFrame): Promise<string | null> {
+    const record = this.frames.get(frame.frameId);
+    if (!record || record.contents.isDestroyed() || record.frame.isDestroyed()) return 'unknown_frame';
+    if (record.documentId !== frame.documentId) return 'unknown_frame';
+    if (record.origin !== frame.origin || frameOrigin(record.frame) !== frame.origin) return 'frame_origin';
+    let children: number;
+    try {
+      children = record.frame.frames.length;
+    } catch {
+      return 'verification_failed';
+    }
+    if (children > 0) return 'child_frames';
+    try {
+      const cdp = this.options.cdpForContents?.(record.contents);
+      const scoped = cdp ? await this.containerFrameTransport(cdp, record, frame) : undefined;
+      const verdict = scoped
+        ? await isolatedWorldEvaluate(scoped, AUTOFILL_CONTAINER_WORLD, CONTAINER_SCAN_SCRIPT)
+        : await record.frame.executeJavaScript(CONTAINER_SCAN_SCRIPT);
+      return typeof verdict === 'string' && verdict ? verdict : null;
+    } catch {
+      return 'verification_failed';
+    }
+  }
+
+  /**
+   * Address the page transport at this exact frame: the root page for the main
+   * frame, otherwise the frame tree entry whose URL and origin match this
+   * frame uniquely. An ambiguous or failed match returns undefined so the
+   * caller falls back to the frame handle.
+   */
+  private async containerFrameTransport(cdp: BrowserCdp, record: FrameRecord, frame: BrowserAutofillFrame): Promise<BrowserCdp | undefined> {
+    try {
+      if (record.frame === record.contents.mainFrame) return cdp;
+      const url = record.frame.url;
+      const tree = object(await cdp.command('Page.getFrameTree'));
+      const matches: string[] = [];
+      const walk = (node: BrowserObject): void => {
+        const info = object(node.frame);
+        const id = typeof info.id === 'string' ? info.id : '';
+        const securityOrigin = typeof info.securityOrigin === 'string' ? info.securityOrigin : '';
+        if (id && info.url === url && (!securityOrigin || securityOrigin === frame.origin)) matches.push(id);
+        for (const child of Array.isArray(node.childFrames) ? node.childFrames : []) walk(object(child));
+      };
+      walk(object(tree.frameTree));
+      if (matches.length !== 1) return undefined;
+      return frameCdp(cdp, matches[0]);
+    } catch {
+      return undefined;
+    }
   }
 
   async start(): Promise<{ preloadPath: string; preloadScriptId: string }> {

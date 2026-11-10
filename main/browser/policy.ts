@@ -33,27 +33,32 @@ export function browserBounds(value: unknown): BrowserBounds {
 }
 
 // Raw CDP is governed in three layers: an allowed-domain list, a refused-method
-// list, and parameter-level conditions. The Fetch, Storage, Target, WebAuthn,
-// CacheStorage and Database domains stay closed: the host owns Document
-// interception for managed navigation on the shared session, and a raw
-// Fetch.enable would replace that single per-session configuration.
+// list, and parameter-level conditions. Conditions that name other origins
+// (cookie URLs, redirect locations) collect those URLs so the caller can put
+// each one through the same authorization as the current page before the
+// command runs. The Storage, Target, WebAuthn, CacheStorage and Database
+// domains stay closed. Document interception stays host-reserved for managed
+// navigation: a raw Fetch.enable is merged with the host's Document pattern
+// instead of replacing it, and Fetch.disable is refused in favour of enabling
+// with an empty patterns array.
 const CDP_DOMAINS = new Set([
   'Accessibility', 'Animation', 'Audits', 'Console', 'CSS', 'Debugger', 'DOM', 'DOMDebugger', 'DOMSnapshot',
-  'Emulation', 'IO', 'Input', 'Inspector', 'LayerTree', 'Log', 'Network', 'Overlay', 'Page', 'Performance',
-  'PerformanceTimeline', 'Profiler', 'Runtime', 'Tracing', 'WebAudio',
+  'Emulation', 'Fetch', 'IO', 'Input', 'Inspector', 'LayerTree', 'Log', 'Network', 'Overlay', 'Page',
+  'Performance', 'PerformanceTimeline', 'Profiler', 'Runtime', 'Tracing', 'WebAudio',
 ]);
 const CDP_REFUSED = new Set([
-  // Cookie and cache storage is host-managed on this unprivileged surface.
-  'Network.getAllCookies', 'Network.getCookies', 'Page.getCookies', 'Page.deleteCookie', 'Network.setCookie',
-  'Network.setCookies', 'Network.deleteCookies', 'Network.clearBrowserCookies', 'Network.clearBrowserCache',
-  // Navigation, downloads, dialogs and tabs have named operations that keep policy and leases.
+  // Cookie views that skip per-origin authorization, and browser-wide cookie resets.
+  'Network.getAllCookies', 'Network.clearBrowserCookies',
+  // Navigation, downloads and tabs have named operations that keep policy and leases.
   'Page.navigate', 'Page.navigateToHistoryEntry', 'Page.getNavigationHistory', 'Page.resetNavigationHistory',
-  'Page.setDownloadBehavior', 'Page.setInterceptFileChooserDialog', 'Page.handleJavaScriptDialog', 'Page.close',
+  'Page.setDownloadBehavior', 'Page.setInterceptFileChooserDialog',
+  // Clearing raw interception goes through Fetch.enable with an empty patterns array.
+  'Fetch.disable',
   // Injection, interception and file payloads bypass the guarded named operations.
   'DOM.setFileInputFiles', 'DOM.getFileInfo', 'Page.setBypassCSP', 'Page.addScriptToEvaluateOnNewDocument',
   'Page.addScriptToEvaluateOnLoad', 'Network.setRequestInterception', 'Network.loadNetworkResource',
   'Network.continueInterceptedRequest', 'Network.getResponseBodyForInterception',
-  'Network.takeResponseBodyForInterceptionAsStream', 'Runtime.addBinding',
+  'Network.takeResponseBodyForInterceptionAsStream',
   // Keyboard input belongs to the type and press_key operations so focus and editability stay guarded.
   'Input.dispatchKeyEvent', 'Input.setInterceptDrags', 'Input.dispatchDragEvent',
   // Session-wide or device-bound network switches.
@@ -75,12 +80,8 @@ const CDP_GUIDANCE = new Map([
   ['Page.getNavigationHistory', 'Use the back or forward operations instead.'],
   ['Page.reload', 'Use the reload operation; a load-time script is not supported.'],
   ['Page.setDownloadBehavior', 'Downloads are host-managed; use the download operation.'],
-  ['Page.handleJavaScriptDialog', 'Dialogs are host-managed; answer them through the dialog operation.'],
-  ['Page.close', 'Use the tabs operation to close a tab.'],
-  ['Network.getAllCookies', 'Cookie storage is host-managed on this surface.'],
-  ['Network.getCookies', 'Cookie storage is host-managed on this surface.'],
-  ['Fetch.enable', 'Document interception is host-reserved for managed navigation.'],
-  ['Fetch.disable', 'Document interception is host-reserved for managed navigation.'],
+  ['Network.getAllCookies', 'Use Network.getCookies with explicit URLs instead.'],
+  ['Fetch.disable', 'Use Fetch.enable with an empty patterns array to clear raw interception.'],
 ]);
 
 const present = (value: unknown): boolean => value !== undefined && value !== null;
@@ -117,7 +118,102 @@ function refusedCdpParams(method: string, params: Record<string, unknown> | unde
   }
 }
 
-export function checkRawCdp(method: string, params?: unknown): void {
+function refuse(message: string): never { throw new BrowserError('refused_by_policy', message); }
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value);
+
+/** Cookie writes stay bound to one explicit URL each so the affected origin can be authorized. */
+function cookieEntryUrl(method: string, entry: Record<string, unknown>): string {
+  if (present(entry.domain) || present(entry.sourcePort) || present(entry.sourceScheme)) {
+    refuse(`${method} does not accept domain, sourcePort or sourceScheme; bind the cookie to an explicit url.`);
+  }
+  if (typeof entry.url !== 'string' || entry.url === '') {
+    refuse(`${method} requires an explicit url so the affected origin stays authorized.`);
+  }
+  return entry.url;
+}
+
+/** Response headers keep their {name, value} shape; a Location header names another URL to authorize. */
+function locationHeaderUrls(params: Record<string, unknown> | undefined): string[] {
+  const headers = params?.responseHeaders;
+  if (headers === undefined) return [];
+  if (!Array.isArray(headers)) refuse('Fetch responseHeaders must be an array of { name, value } objects.');
+  const collected: string[] = [];
+  for (const header of headers) {
+    if (!isRecord(header) || typeof header.name !== 'string' || typeof header.value !== 'string') {
+      refuse('Fetch responseHeaders must be an array of { name, value } objects.');
+    }
+    if (header.name.toLowerCase() === 'location') collected.push(header.value);
+  }
+  return collected;
+}
+
+/**
+ * Parameter-level conditions for otherwise-allowed methods. Returns every URL
+ * the command touches beyond the current page so the caller can authorize each
+ * one before dispatch; violations throw instead of silently narrowing scope.
+ */
+function validateCdpParams(method: string, params: Record<string, unknown> | undefined): string[] {
+  switch (method) {
+    case 'Network.getCookies': {
+      const urls = params?.urls;
+      if (!Array.isArray(urls) || !urls.length || urls.some(url => typeof url !== 'string' || url === '')) {
+        refuse('Network.getCookies requires a non-empty urls array so every affected origin stays authorized.');
+      }
+      return [...urls] as string[];
+    }
+    case 'Network.setCookie':
+      return [cookieEntryUrl(method, params ?? {})];
+    case 'Network.setCookies': {
+      const cookies = params?.cookies;
+      if (!Array.isArray(cookies) || !cookies.length || cookies.some(cookie => !isRecord(cookie))) {
+        refuse('Network.setCookies requires a non-empty cookies array of objects.');
+      }
+      return cookies.map(cookie => cookieEntryUrl(method, cookie as Record<string, unknown>));
+    }
+    case 'Network.deleteCookies':
+      return [cookieEntryUrl(method, params ?? {})];
+    case 'Page.deleteCookie': {
+      const url = params?.url;
+      if (typeof url !== 'string' || url === '') {
+        refuse('Page.deleteCookie requires an explicit url so the affected origin stays authorized.');
+      }
+      return [url];
+    }
+    case 'Fetch.enable': {
+      const patterns = params?.patterns;
+      if (patterns === undefined) return [];
+      if (!Array.isArray(patterns) || patterns.some(pattern => !isRecord(pattern))) {
+        refuse('Fetch.enable patterns must be an array of request pattern objects.');
+      }
+      for (const pattern of patterns) {
+        const resourceType = (pattern as Record<string, unknown>).resourceType;
+        if (present(resourceType) && (typeof resourceType !== 'string' || resourceType === 'Document')) {
+          refuse('Fetch.enable cannot intercept Document requests; Document interception is host-reserved for managed navigation.');
+        }
+      }
+      return [];
+    }
+    case 'Fetch.continueRequest': {
+      const url = params?.url;
+      if (url === undefined) return [];
+      if (typeof url !== 'string' || url === '') refuse('Fetch.continueRequest url must be a non-empty string.');
+      return [url];
+    }
+    case 'Fetch.continueResponse':
+    case 'Fetch.fulfillRequest':
+      return locationHeaderUrls(params);
+    default:
+      return [];
+  }
+}
+
+/**
+ * Gate a raw CDP command. Returns the URLs the command affects beyond the
+ * current page; the caller authorizes each one before dispatch.
+ */
+export function checkRawCdp(method: string, params?: unknown): string[] {
   const [domain, member, extra] = method.split('.');
   if (!domain || !member || extra) throw new BrowserError('invalid_request', 'A CDP method must be Domain.command.');
   const fields = present(params) ? object(params) : undefined;
@@ -125,6 +221,7 @@ export function checkRawCdp(method: string, params?: unknown): void {
     const guidance = CDP_GUIDANCE.get(method) ?? 'Use the named browser operation.';
     throw new BrowserError('refused_by_policy', `${method} is not available through raw CDP. ${guidance}`);
   }
+  return validateCdpParams(method, fields);
 }
 
 export function timeoutMs(input: unknown, fallback = 15_000): number {

@@ -3,7 +3,7 @@ import { domScript, elementScript, frameCdp, namesElement } from './dom';
 import { BrowserError, object, type BrowserObject } from './types';
 import type { BrowserCdp } from './page-operations';
 import { locatorBudget } from './locator-policy';
-import { assertPointerActive, frameDispatch, pointerTarget, type PointerTarget } from './pointer-action';
+import { assertPointerActive, frameDispatch, pointerTarget, syntheticClickScript, type PointerTarget } from './pointer-action';
 import { assertBrowserActionActive, browserAction, pauseBrowserAction } from './action-cancellation';
 
 export function modifiers(value: unknown): number {
@@ -42,6 +42,18 @@ export async function click(cdp: BrowserCdp, fields: BrowserObject, signal?: Abo
   if (holdMs !== undefined && (typeof holdMs !== 'number' || !Number.isFinite(holdMs) || holdMs < 0 || holdMs > 30000)) throw new BrowserError('invalid_request', 'holdMs must be from 0 to 30000 milliseconds.');
   assertPointerActive(signal);
   const named = namesElement(fields) || fields.text !== undefined;
+  if (fields.dispatch === 'synthetic') {
+    // Document-scoped dispatch supports exactly one shape of click; every
+    // other combination keeps its real-input semantics and is refused here.
+    if (!named || String(button) !== 'left' || held !== 0 || fields.force === true || Number(clickCount) !== 1 || fields.moveOnly === true || Number(holdMs) > 0) {
+      throw new BrowserError('invalid_request', 'Document-scoped clicks support only unmodified left clicks without force.');
+    }
+    const target = await pointerTarget(cdp, fields, signal);
+    const session = target.elementCdp ?? target.cdp;
+    const result = object(await session.evaluate(syntheticClickScript(fields)));
+    if (result.error) { const error = object(result.error); throw new BrowserError(String(error.code), String(error.message)); }
+    return { ok: true, via: 'synthetic' };
+  }
   const buttons = button === 'left' ? 1 : button === 'right' ? 2 : 4;
   const dispatchPointer = async (target: PointerTarget): Promise<void> => {
     const session = target.cdp;

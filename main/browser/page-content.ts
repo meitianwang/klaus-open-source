@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { domScript } from './dom';
+import { domScript, frameCdp } from './dom';
 import { isolatedWorldEvaluate, WEBMCP_WORLD } from './page-evaluate';
 import { timeoutMs } from './policy';
 import { BrowserError, json, object, type BrowserObject } from './types';
@@ -231,55 +231,312 @@ return {tools,surfaces,opaque,pageUrl:location.href};`);
 
 const WEBMCP_MAX_TOOLS = 100;
 const WEBMCP_MAX_DESCRIPTOR_BYTES = 65536;
+const WEBMCP_MAX_REGISTRATION_CHANGES = 10;
 const WEBMCP_STALE = '__klausStalePageUrl';
+const WEBMCP_STALE_NATIVE = '__klausStaleWebMcp';
+const WEBMCP_DISABLED = 'WebMCP is disabled for this page because the site\'s agent tool configuration exceeds supported limits. After correcting the configuration, reload the browser tab to retry.';
 
 const rows = (value: unknown): BrowserObject[] => (Array.isArray(value) ? value : []).map(object);
 const texts = (value: unknown): string[] => (Array.isArray(value) ? value : []).map(item => String(item));
 
-/** Enumerate both readable surfaces and enforce the descriptor limits host-side, where a page cannot bypass them. */
-async function listPageTools(cdp: BrowserCdp): Promise<BrowserObject> {
-  const forms = object(await isolatedWorldEvaluate(cdp, WEBMCP_WORLD, WEBMCP_FORMS));
-  const script = object(await cdp.evaluate(WEBMCP_CONTEXT));
-  const tools = [...rows(forms.tools), ...rows(script.tools)];
-  if (tools.length > WEBMCP_MAX_TOOLS) throw new BrowserError('unavailable', `This page declares ${tools.length} agent tools, above the supported limit of ${WEBMCP_MAX_TOOLS}. The site must correct its configuration and reload the page to retry.`);
+interface WebMcpRegistration { frameUrl: string; origin: string; generation: number; name: string }
+interface WebMcpRootState {
+  generation: number;
+  snapshot: string | undefined;
+  registrationChanges: number;
+  disabled: boolean;
+  registrations: Map<string, WebMcpRegistration>;
+  /** Targets whose WebMCP observation is already enabled; re-enabling could replay registry events mid-collection. */
+  enabledTargets: Set<string>;
+}
+const webMcpStates = new WeakMap<BrowserCdp, WebMcpRootState>();
+
+/**
+ * Per-root invalidation ledger for the agent-tool surface. Registration churn
+ * and context loss bump the generation, which invalidates every outstanding
+ * registration id; a main-frame navigation additionally resets the sticky
+ * limits so a corrected page can recover without a new task.
+ */
+function webMcpState(root: BrowserCdp): WebMcpRootState {
+  const existing = webMcpStates.get(root);
+  if (existing) return existing;
+  const state: WebMcpRootState = { generation: 0, snapshot: undefined, registrationChanges: 0, disabled: false, registrations: new Map(), enabledTargets: new Set() };
+  webMcpStates.set(root, state);
+  root.onEvent((method, params) => {
+    const invalidate = (): void => { state.generation += 1; state.registrations.clear(); };
+    const reset = (): void => { invalidate(); state.snapshot = undefined; state.registrationChanges = 0; state.disabled = false; };
+    if (['WebMCP.toolsAdded', 'WebMCP.toolsRemoved', 'Runtime.executionContextsCleared', 'Page.frameAttached', 'Target.detachedFromTarget'].includes(method)) {
+      invalidate();
+      if (method === 'Target.detachedFromTarget') {
+        const info = object(params.targetInfo ?? {});
+        if (typeof info.targetId === 'string') state.enabledTargets.delete(info.targetId);
+      }
+    } else if (method === 'Page.documentOpened') reset();
+    else if (method === 'Page.frameNavigated') {
+      const frame = object(params.frame ?? {});
+      if (typeof frame.parentId === 'string' && frame.parentId) invalidate(); else reset();
+    }
+  });
+  return state;
+}
+
+const uuidSource = `(crypto.randomUUID?crypto.randomUUID():'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g,c=>{const r=Math.random()*16|0;return (c==='x'?r:(r&0x3|0x8)).toString(16);}))`;
+
+/**
+ * Native registry reader for one frame's isolated world. It keeps a per-world
+ * state block: stable registration ids per tool name (invalidated when the
+ * descriptor changes), a generation stamp so a stale world cannot serve old
+ * handles, and a toolchange listener that drops the cache when the registry
+ * mutates in place.
+ */
+function webMcpNativeReadScript(frameUrl: string, generation: number): string {
+  return `(async()=>{
+    if(location.href!==${JSON.stringify(frameUrl)})throw new Error(${JSON.stringify(WEBMCP_STALE_NATIVE)});
+    const context=document.modelContext;
+    if(!context||typeof context.getTools!=='function')return {tools:[],native:false};
+    let state=globalThis.__klausWebMcpState;
+    if(!state||state.generation!==${generation})state=globalThis.__klausWebMcpState={handles:new Map(),registrationIds:new Map(),generation:${generation},listening:false};
+    let listed;
+    try{listed=await context.getTools();}
+    catch(error){if(error&&(error.name==='NotAllowedError'||error.name==='SecurityError'))return {tools:[],native:true};throw error;}
+    const descriptorOf=tool=>JSON.stringify({name:String(tool.name),description:tool.description??null,inputSchema:tool.inputSchema??null});
+    const tools=[];
+    for(const tool of Array.isArray(listed)?listed:[]){
+      if(!tool||!tool.name)continue;
+      const name=String(tool.name),descriptor=descriptorOf(tool);
+      let id=state.registrationIds.get(name);
+      if(id){const known=state.handles.get(id);if(!known||known.descriptor!==descriptor){state.handles.delete(id);state.registrationIds.delete(name);id=undefined;}}
+      if(!id){id=${uuidSource};state.registrationIds.set(name,id);}
+      state.handles.set(id,{name,descriptor,tool});
+      tools.push({name,description:tool.description??null,inputSchema:tool.inputSchema??null,via:'native',registration_id:id,call_name:name+'__'+id});
+    }
+    if(!state.listening){
+      try{
+        if(typeof context.addEventListener==='function'){
+          context.addEventListener('toolchange',()=>{const s=globalThis.__klausWebMcpState;if(s){s.handles.clear();s.registrationIds.clear();}});
+          state.listening=true;
+        }
+      }catch{}
+    }
+    return {tools,native:true};
+  })()`;
+}
+
+/**
+ * Native invocation inside the registering frame's isolated world. The
+ * generation, the frame URL and the descriptor are all re-verified against a
+ * fresh getTools() read before the tool runs, so a mutated or replaced
+ * registration can never be called through a stale id.
+ */
+function webMcpNativeInvokeScript(frameUrl: string, generation: number, registrationId: string, input: unknown, invokeTimeout: number): string {
+  return `(async()=>{
+    const stale=()=>{throw new Error(${JSON.stringify(WEBMCP_STALE_NATIVE)})};
+    const state=globalThis.__klausWebMcpState;
+    if(!state||state.generation!==${generation})stale();
+    if(location.href!==${JSON.stringify(frameUrl)})stale();
+    if(location.origin==='null')throw new Error('The tool frame has an opaque origin.');
+    const entry=state.handles.get(${JSON.stringify(registrationId)});
+    if(!entry)stale();
+    const context=document.modelContext;
+    if(!context||typeof context.getTools!=='function')stale();
+    if(typeof context.executeTool!=='function')stale();
+    const listed=await context.getTools();
+    const fresh=(Array.isArray(listed)?listed:[]).find(tool=>tool&&String(tool.name)===entry.name);
+    if(!fresh)stale();
+    const descriptor=JSON.stringify({name:String(fresh.name),description:fresh.description??null,inputSchema:fresh.inputSchema??null});
+    if(descriptor!==entry.descriptor)stale();
+    const input=${JSON.stringify(input ?? {})};
+    const value=await context.executeTool(fresh,context.executeTool.length===2?JSON.stringify(input):input,{signal:AbortSignal.timeout(${invokeTimeout})});
+    state.handles.set(${JSON.stringify(registrationId)},{name:entry.name,descriptor,tool:fresh});
+    return value===undefined?null:value;
+  })()`;
+}
+
+const isWebMcpStale = (error: unknown): boolean => error instanceof Error && (error.message.includes(WEBMCP_STALE) || error.message.includes(WEBMCP_STALE_NATIVE));
+const webMcpStaleError = (): BrowserError => new BrowserError('stale_target', 'The page navigated while its agent tools were in use; list the page tools again.');
+
+/**
+ * Enumerate the page's frame scopes: the addressed frame first, then every
+ * frame the transport can route. The frame tree covers same-process frames
+ * (addressed through the owning session) and cross-process frames alike;
+ * attached child targets the tree did not report are appended.
+ */
+async function webMcpScopes(context: PageOperationContext, root: BrowserCdp): Promise<BrowserCdp[]> {
+  const scopes: BrowserCdp[] = [context.cdp];
+  const seenFrames = new Set<string>();
+  const scopedFrame = context.cdp.captureScope?.frame;
+  if (scopedFrame) seenFrames.add(scopedFrame);
+  const rootFrame = root.rootFrameId();
+  if (rootFrame && !scopedFrame) seenFrames.add(rootFrame);
+  try {
+    const tree = object(await root.command('Page.getFrameTree'));
+    const walk = (node: BrowserObject): void => {
+      const info = object(node.frame);
+      const id = typeof info.id === 'string' ? info.id : '';
+      if (id && !seenFrames.has(id)) { seenFrames.add(id); scopes.push(frameCdp(root, id)); }
+      for (const child of Array.isArray(node.childFrames) ? node.childFrames : []) walk(object(child));
+    };
+    walk(object(tree.frameTree));
+  } catch { /* a transport without a frame tree keeps the scopes it has */ }
+  for (const target of root.frameTargets()) if (!seenFrames.has(target)) { seenFrames.add(target); scopes.push(frameCdp(root, target)); }
+  return scopes;
+}
+
+/** Enumerate every readable surface across the page and its authorized frames; the descriptor limits are enforced host-side, where a page cannot bypass them. */
+async function listPageTools(context: PageOperationContext): Promise<BrowserObject> {
+  const root = context.cdp.captureScope?.root ?? context.cdp;
+  const state = webMcpState(root);
+  if (state.disabled) throw new BrowserError('unavailable', WEBMCP_DISABLED);
+  const scopes = await webMcpScopes(context, root);
+  // Observation is opt-in per target and enabled exactly once per target: a
+  // re-enable can replay registry events and churn the generation while this
+  // collection is running. A browser without the domain errors and the
+  // readable surfaces below still apply.
+  for (const scope of scopes) {
+    const key = scope.captureScope?.frame ?? 'main';
+    if (state.enabledTargets.has(key)) continue;
+    try { await scope.command('WebMCP.enable'); state.enabledTargets.add(key); } catch { /* observation unavailable on this target */ }
+  }
+  const generation = state.generation;
+  const pageUrlBefore = String(await root.evaluate('location.href').catch(() => '') ?? '');
+  let mainOrigin: string | null = null;
+  try { mainOrigin = new URL(pageUrlBefore).origin; } catch { mainOrigin = null; }
+  const authorization = new Map<string, boolean>();
+  const tools: BrowserObject[] = [];
+  const seenTools = new Set<string>();
+  // A same-origin child frame is reachable both from the parent's descent and
+  // as its own scope; one listing per (surface, origin, name, registration).
+  const addTool = (tool: BrowserObject, origin: string): void => {
+    const key = `${String(tool.via ?? '')}|${origin}|${String(tool.name ?? '')}|${String(tool.registration_id ?? '')}`;
+    if (seenTools.has(key)) return;
+    seenTools.add(key);
+    tools.push({ ...tool, origin });
+  };
+  const surfaces = new Set<string>();
+  let opaque = false;
+  for (const scope of scopes) {
+    let frameUrl = '';
+    try { frameUrl = String(await scope.evaluate('location.href') ?? ''); } catch { continue; }
+    let origin: string;
+    try { origin = new URL(frameUrl).origin; } catch { continue; }
+    if (origin === 'null') continue;
+    if (mainOrigin !== null && origin !== mainOrigin) {
+      // Every cross-origin frame needs its own site-tools authorization; one
+      // decision per origin covers same-origin sibling frames. Unauthorized
+      // frames are skipped, never failed.
+      let allowed = authorization.get(origin);
+      if (allowed === undefined) {
+        try { await context.authorizeSiteTools?.(frameUrl); allowed = true; } catch { allowed = false; }
+        authorization.set(origin, allowed);
+      }
+      if (!allowed) continue;
+    }
+    const nativeNames = new Set<string>();
+    try {
+      const native = object(await isolatedWorldEvaluate(scope, WEBMCP_WORLD, webMcpNativeReadScript(frameUrl, generation)));
+      for (const tool of rows(native.tools)) {
+        const registrationId = typeof tool.registration_id === 'string' ? tool.registration_id : '';
+        if (registrationId) state.registrations.set(registrationId, { frameUrl, origin, generation, name: String(tool.name ?? '') });
+        nativeNames.add(String(tool.name ?? ''));
+        addTool(tool, origin);
+      }
+      if (native.native === true) surfaces.add('document.modelContext.getTools');
+    } catch (error) {
+      if (isWebMcpStale(error)) throw webMcpStaleError();
+    }
+    const forms = object(await isolatedWorldEvaluate(scope, WEBMCP_WORLD, WEBMCP_FORMS));
+    for (const tool of rows(forms.tools)) addTool(tool, origin);
+    for (const surface of texts(forms.surfaces)) surfaces.add(surface);
+    const script = object(await scope.evaluate(WEBMCP_CONTEXT));
+    // When the native registry answered, it already listed the same tools; the
+    // main-world key probe then only adds registrations the native surface
+    // does not know, and still contributes opacity evidence.
+    for (const tool of rows(script.tools)) if (!nativeNames.has(String(tool.name ?? ''))) addTool(tool, origin);
+    for (const surface of texts(script.surfaces)) surfaces.add(surface);
+    if (script.opaque === true) opaque = true;
+  }
+  // The main document must survive the whole collection: a navigation in
+  // between invalidates every registration like a stale listing.
+  const pageUrlAfter = String(await root.evaluate('location.href').catch(() => '') ?? '');
+  if (pageUrlBefore !== pageUrlAfter || state.generation !== generation) throw webMcpStaleError();
+  if (tools.length > WEBMCP_MAX_TOOLS) { state.disabled = true; throw new BrowserError('unavailable', WEBMCP_DISABLED); }
   const bytes = Buffer.byteLength(JSON.stringify(tools));
-  if (bytes > WEBMCP_MAX_DESCRIPTOR_BYTES) throw new BrowserError('unavailable', `This page's agent tool descriptors total ${bytes} bytes, above the supported limit of ${WEBMCP_MAX_DESCRIPTOR_BYTES}. The site must correct its configuration and reload the page to retry.`);
-  const surfaces = [...new Set([...texts(forms.surfaces), ...texts(script.surfaces)])];
-  const opaque = script.opaque === true;
+  if (bytes > WEBMCP_MAX_DESCRIPTOR_BYTES) { state.disabled = true; throw new BrowserError('unavailable', WEBMCP_DISABLED); }
+  const snapshot = JSON.stringify(tools.map(tool => [tool.name ?? null, tool.via ?? null, tool.origin ?? null, tool.description ?? null, tool.inputSchema ?? null]));
+  if (state.snapshot !== undefined && state.snapshot !== snapshot) state.registrationChanges += 1;
+  state.snapshot = snapshot;
+  if (state.registrationChanges > WEBMCP_MAX_REGISTRATION_CHANGES) { state.disabled = true; throw new BrowserError('unavailable', WEBMCP_DISABLED); }
   return {
-    tools, surfaces, available: tools.length > 0, opaque,
+    tools, surfaces: [...surfaces], available: tools.length > 0, opaque,
     note: opaque ? 'The page registers tools in an opaque browser registry; this surface cannot enumerate or call them.' : tools.length ? null : 'This page declares no agent tools.',
-    pageUrl: typeof forms.pageUrl === 'string' ? forms.pageUrl : typeof script.pageUrl === 'string' ? script.pageUrl : null,
+    pageUrl: pageUrlBefore || null,
   };
 }
 
 async function staleGuarded<T>(work: () => Promise<T>): Promise<T> {
   try { return await work(); }
   catch (error) {
-    if (error instanceof Error && error.message.includes(WEBMCP_STALE)) throw new BrowserError('stale_target', 'The page navigated while its agent tools were in use; list the page tools again.');
+    if (isWebMcpStale(error)) throw webMcpStaleError();
     throw error;
   }
 }
 
-export async function callPageTool(cdp: BrowserCdp, fields: BrowserObject, perform: (kind: string, fields: BrowserObject) => Promise<unknown>): Promise<BrowserObject> {
-  const found = await listPageTools(cdp), wanted = fields.name ?? fields.tool;
-  if (wanted === undefined) return found;
-  if (typeof wanted !== 'string' || !wanted) throw new BrowserError('invalid_request', 'A page tool name must be a non-empty string.');
-  const tools = rows(found.tools), tool = tools.find(row => row.name === wanted);
-  if (!tool) throw new BrowserError('not_found', `This page declares no readable tool named '${wanted}'.`);
+export async function callPageTool(context: PageOperationContext, fields: BrowserObject, perform: (kind: string, fields: BrowserObject) => Promise<unknown>): Promise<BrowserObject> {
+  const found = await listPageTools(context);
+  const registrationId = fields.registrationId;
+  const wanted = fields.name ?? fields.tool;
+  if (wanted === undefined && registrationId === undefined) return found;
+  const tools = rows(found.tools);
   const input = object(fields.input ?? fields.arguments);
+  const root = context.cdp.captureScope?.root ?? context.cdp;
+  const state = webMcpState(root);
+  let tool: BrowserObject | undefined;
+  if (registrationId !== undefined) {
+    if (typeof registrationId !== 'string' || !registrationId) throw new BrowserError('invalid_request', 'registrationId must be a non-empty string.');
+    tool = tools.find(row => row.registration_id === registrationId);
+    if (!tool || tool.via !== 'native') throw new BrowserError('not_found', `This page lists no native tool registration '${registrationId}'. List the page tools again.`);
+  } else {
+    if (typeof wanted !== 'string' || !wanted) throw new BrowserError('invalid_request', 'A page tool name must be a non-empty string.');
+    tool = tools.find(row => row.name === wanted);
+    if (!tool) throw new BrowserError('not_found', `This page declares no readable tool named '${wanted}'.`);
+  }
+  const toolName = String(tool.name ?? '');
+  if (tool.via === 'native') {
+    const id = String(tool.registration_id ?? '');
+    const registration = state.registrations.get(id);
+    if (!registration || registration.generation !== state.generation) throw new BrowserError('stale_target', 'The tool registration is no longer current; list the page tools again.');
+    if (state.disabled) throw new BrowserError('unavailable', WEBMCP_DISABLED);
+    for (const scope of await webMcpScopes(context, root)) {
+      let frameUrl = '';
+      try { frameUrl = String(await scope.evaluate('location.href') ?? ''); } catch { continue; }
+      if (frameUrl !== registration.frameUrl) continue;
+      const value = await staleGuarded(() => isolatedWorldEvaluate(scope, WEBMCP_WORLD, webMcpNativeInvokeScript(registration.frameUrl, state.generation, id, input, timeoutMs(fields.timeoutMs, 15_000))));
+      return { called: toolName, via: 'native', registrationId: id, origin: registration.origin, value: json(value) };
+    }
+    throw new BrowserError('stale_target', 'The frame that registered this tool is gone; list the page tools again.');
+  }
+  // A readable tool lives in the frame whose origin was listed; the main
+  // frame keeps the historical direct-path behaviour.
+  const locateFrame = async (): Promise<BrowserCdp> => {
+    const origin = typeof tool?.origin === 'string' ? tool.origin : '';
+    for (const scope of await webMcpScopes(context, root)) {
+      try { if (new URL(String(await scope.evaluate('location.href') ?? '')).origin === origin) return scope; } catch { continue; }
+    }
+    return context.cdp;
+  };
+  const scope = await locateFrame();
   // The document that declared the tool must survive until the call: a
   // navigation in between invalidates the listing like a stale registration.
   const pageUrl = typeof found.pageUrl === 'string' ? found.pageUrl : '';
   const staleCheck = `if(${JSON.stringify(pageUrl)}&&location.href!==${JSON.stringify(pageUrl)})throw new Error(${JSON.stringify(WEBMCP_STALE)});`;
   if (tool.via === 'script') {
-    const value = await staleGuarded(() => cdp.evaluate(`(async()=>{${staleCheck}const context=navigator.modelContext;let listed;for(const key of ['tools','_tools','registeredTools','toolRegistry']){const found=context?.[key];if(found){listed=Array.isArray(found)?found:found instanceof Map?Array.from(found.values()):typeof found==='object'?Object.values(found):null;if(listed)break;}}const tool=(listed||[]).find(t=>t?.name===${JSON.stringify(wanted)}),run=tool&&(tool.execute||tool.handler||tool.call);if(typeof run!=='function')throw new Error('Page tool is gone or is not callable');return await run.call(tool,${JSON.stringify(input)});})()`));
-    return { called: wanted, via: 'script', value: json(value) };
+    const value = await staleGuarded(() => scope.evaluate(`(async()=>{${staleCheck}const context=navigator.modelContext;let listed;for(const key of ['tools','_tools','registeredTools','toolRegistry']){const found=context?.[key];if(found){listed=Array.isArray(found)?found:found instanceof Map?Array.from(found.values()):typeof found==='object'?Object.values(found):null;if(listed)break;}}const tool=(listed||[]).find(t=>t?.name===${JSON.stringify(toolName)}),run=tool&&(tool.execute||tool.handler||tool.call);if(typeof run!=='function')throw new Error('Page tool is gone or is not callable');return await run.call(tool,${JSON.stringify(input)});})()`));
+    return { called: toolName, via: 'script', value: json(value) };
   }
-  const selector = `form[tool-name=${JSON.stringify(wanted)}]`;
+  const selector = `form[tool-name=${JSON.stringify(toolName)}]`;
   if (Object.keys(input).length) await perform('form_input', { fields: Object.entries(input).map(([key, value]) => ({ selector: `${selector} [name=${JSON.stringify(key)}]`, value, clear: true })) });
-  const submitted = await staleGuarded(() => isolatedWorldEvaluate(cdp, WEBMCP_WORLD, domScript(`
+  const submitted = await staleGuarded(() => isolatedWorldEvaluate(scope, WEBMCP_WORLD, domScript(`
     ${staleCheck}
     const form=query(${JSON.stringify(selector)})[0];if(!form)throw new Error('Page form is gone');if(!form.reportValidity())throw new Error('Page rejected the form values');const button=form.querySelector('button[type=submit],input[type=submit],button:not([type])');if(button){button.click();return 'button';}if(typeof form.requestSubmit==='function'){form.requestSubmit();return 'requestSubmit';}throw new Error('Page form has no submit control');`)));
-  return { called: wanted, via: 'form', filled: Object.keys(input), submittedVia: json(submitted) };
+  return { called: toolName, via: 'form', filled: Object.keys(input), submittedVia: json(submitted) };
 }

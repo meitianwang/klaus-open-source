@@ -41,7 +41,7 @@ export async function performAdvancedPageOperation(context: PageOperationContext
     return { value, ...(typeof value.content === 'string' ? { typed: { text: value.content } } : {}) };
   }
   if (kind === 'page_assets') return { value: await pageAssets(context, fields) };
-  if (kind === 'webmcp') return { value: await callPageTool(cdp, fields, perform) };
+  if (kind === 'webmcp') return { value: await callPageTool({ ...context, cdp }, fields, perform) };
   if (kind === 'clipboard') {
     const value = await clipboard(cdp, fields);
     return { value, ...(typeof value.text === 'string' ? { typed: { text: value.text } } : {}) };

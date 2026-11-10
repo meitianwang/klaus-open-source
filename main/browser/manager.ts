@@ -109,6 +109,8 @@ export class BrowserManager {
   private readonly parking: BaseWindow;
   private readonly dialogPreloadId: string;
   private readonly pages = new Map<number, BrowserPage>();
+  /** Credential-submission exclusivity query, registered by the data-management owner. */
+  private credentialGuard: (() => boolean) | undefined;
   private readonly conversations = new Map<string, Conversation>();
   private readonly decisions = new BrowserPermissionDecisions();
   private readonly activeOperations = new Map<string, { turnId: string; source: string; initiator: string }>();
@@ -1193,6 +1195,18 @@ export class BrowserManager {
   presentsContents(contents: WebContents): boolean {
     return !!this.shown && this.alive(this.shown) && this.shown.view.webContents === contents && this.state().visible;
   }
+
+  /** The page transport that owns a WebContents, when a managed page owns it. */
+  cdpForContents(contents: WebContents): BrowserCdp | undefined {
+    const page = [...this.pages.values()].find(entry => entry.contentsId === contents.id);
+    return page && this.alive(page) ? page.cdp : undefined;
+  }
+
+  /** Register the credential-submission exclusivity query; the autofill bridge owns in-flight fills. */
+  setCredentialGuard(guard: (() => boolean) | undefined): void { this.credentialGuard = guard; }
+
+  /** True while a credential submission is in flight; raw CDP stays closed during that window. */
+  credentialGuardActive(): boolean { return this.credentialGuard?.() === true; }
 
   importHistory(sourceKey: string, rows: readonly import('../../contracts/browser-import').BrowserImportHistoryEntry[], signal?: AbortSignal): Promise<{ applied: number; skipped: number }> {
     return this.data.importVisits(sourceKey, rows, signal);

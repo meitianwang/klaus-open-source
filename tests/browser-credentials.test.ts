@@ -473,6 +473,80 @@ h.test('a second intent for the same frame is rejected while the first chooser i
   assertDeepEqual(await first, { filled: true }, 'first intent still completes');
 });
 
+h.test('container verification refuses fills when the frame cannot contain the document', async () => {
+  const { store } = fixture();
+  const saved = await store.savePassword({ originUrl: 'https://example.test/login', username: 'alice', password: 'secret' });
+  const profile = await store.saveAutofillProfile({ kind: 'address', label: 'Home', fields: { fullName: 'Alice Example' } });
+  let current = frame();
+  const sent: BrowserAutofillFillMessage[] = [];
+  let verdict: string | null = null;
+  let verifyCalls = 0;
+  const controller = new BrowserAutofillController({
+    store,
+    resolveFrame: async frameId => frameId === current.frameId ? current : null,
+    chooseCredential: async candidates => ({ candidateId: candidates[0]?.id ?? saved.id }),
+    confirmSave: async () => false,
+    sendToFrame: (_frameId, message) => { sent.push(message); return { documentId: message.documentId, intentId: message.intentId, filled: true }; },
+    verifyContainer: async () => { verifyCalls += 1; return verdict; },
+  });
+
+  const filled = await controller.trustedInput({ frameId: 'frame-1', kind: 'password', intentId: 'intent-clean', trusted: true });
+  assertDeepEqual(filled, { filled: true }, 'a self-contained frame fills');
+  assertEqual(verifyCalls, 1, 'the container is verified once before the send');
+  assertEqual(sent.length, 1, 'the fill reached the frame');
+
+  verdict = 'nested_document';
+  const refused = await controller.trustedInput({ frameId: 'frame-1', kind: 'password', intentId: 'intent-nested', trusted: true });
+  assertDeepEqual(refused, { filled: false, reason: 'unsafe_document' }, 'an unsafe container refuses the fill');
+  assertEqual(sent.length, 1, 'nothing new reached the frame');
+  assertEqual(controller.hasInFlight(), false, 'no submission stays in flight after the refusal');
+
+  verdict = 'child_frames';
+  const profileRefused = await controller.trustedInput({ frameId: 'frame-1', kind: 'address', intentId: 'intent-profile', trusted: true });
+  assertEqual(profileRefused.reason, 'unsafe_document', 'profile fills enforce the same container check');
+  assert(profile.id.length > 0, 'the profile fixture is real');
+});
+
+h.test('a container verification failure closes the fill the same way as a refusal', async () => {
+  const { store } = fixture();
+  const saved = await store.savePassword({ originUrl: 'https://example.test/login', username: 'alice', password: 'secret' });
+  const controller = new BrowserAutofillController({
+    store,
+    resolveFrame: async frameId => frameId === 'frame-1' ? frame() : null,
+    chooseCredential: async () => ({ candidateId: saved.id }),
+    confirmSave: async () => false,
+    sendToFrame: (_frameId, message) => ({ documentId: message.documentId, intentId: message.intentId, filled: true }),
+    verifyContainer: async () => { throw new Error('transport gone'); },
+  });
+  const result = await controller.trustedInput({ frameId: 'frame-1', kind: 'password', intentId: 'intent-throw', trusted: true });
+  assertDeepEqual(result, { filled: false, reason: 'unsafe_document' }, 'a broken verification never fills');
+});
+
+h.test('navigation during container verification reports navigation and hasInFlight tracks the window', async () => {
+  const { store } = fixture();
+  const saved = await store.savePassword({ originUrl: 'https://example.test/login', username: 'alice', password: 'secret' });
+  let current = frame();
+  let releaseVerify!: () => void;
+  const gate = new Promise<void>(resolve => { releaseVerify = resolve; });
+  const controller = new BrowserAutofillController({
+    store,
+    resolveFrame: async frameId => frameId === current.frameId ? current : null,
+    chooseCredential: async () => ({ candidateId: saved.id }),
+    confirmSave: async () => false,
+    sendToFrame: (_frameId, message) => ({ documentId: message.documentId, intentId: message.intentId, filled: true }),
+    verifyContainer: async () => { await gate; return 'child_frames'; },
+  });
+  const pending = controller.trustedInput({ frameId: 'frame-1', kind: 'password', intentId: 'intent-race', trusted: true });
+  await new Promise(resolve => setTimeout(resolve, 20));
+  assertEqual(controller.hasInFlight(), true, 'the submission owns the frame while verification runs');
+  current = frame({ documentId: 'document-2' });
+  controller.noteNavigation('frame-1', current);
+  releaseVerify();
+  const raced = await pending;
+  assertDeepEqual(raced, { filled: false, reason: 'navigation' }, 'a document that moved during verification reports navigation');
+  assertEqual(controller.hasInFlight(), false, 'the window closes with the submission');
+});
+
 h.test('the autofill preload is self-contained and never exposes a page bridge', () => {
   assert(AUTOFILL_PRELOAD_SOURCE.includes("require('electron')"), 'preload uses the sandbox-provided electron module');
   assert(AUTOFILL_PRELOAD_SOURCE.includes("ipcRenderer.on"), 'preload listens for host messages');

@@ -11,17 +11,24 @@ export interface NativeEditorBounds { x: number; y: number; width: number; heigh
 const OVERLAY_INSET_PROPERTY = '--klaus-native-panel-inset-right'
 let insetOwner: string | null = null
 let insetSeq = 0
+// Preload bridges import this module's types, so it is also type-checked inside
+// the host program, which does not load the DOM library. Reach the renderer
+// globals through a structural view of globalThis so the module compiles in
+// both programs without widening either tsconfig; the runtime guards below
+// keep the behaviour identical when no DOM is present.
+interface NativeInsetStyle { setProperty(name: string, value: string): void; removeProperty(name: string): void }
+const insetGlobal = globalThis as { document?: { documentElement?: { style: NativeInsetStyle } | null }; innerWidth?: number }
 export function publishNativeOverlayInset(owner: string, bounds: NativeEditorBounds | null): void {
   if (bounds) insetOwner = owner
   else if (insetOwner === owner) insetOwner = null
   else return
-  if (typeof document === 'undefined' || !document.documentElement) return
-  const root = document.documentElement
+  const root = insetGlobal.document?.documentElement
+  if (!root) return
   if (!bounds) {
     root.style.removeProperty(OVERLAY_INSET_PROPERTY)
     return
   }
-  const viewport = typeof window !== 'undefined' && Number.isFinite(window.innerWidth) ? window.innerWidth : 0
+  const viewport = Number.isFinite(insetGlobal.innerWidth) ? Number(insetGlobal.innerWidth) : 0
   root.style.setProperty(OVERLAY_INSET_PROPERTY, `${Math.max(0, Math.round(viewport - bounds.x))}px`)
 }
 export interface NativeEditorOpenPayload { requestId?: string; id: string; title?: string; sessionId: string }

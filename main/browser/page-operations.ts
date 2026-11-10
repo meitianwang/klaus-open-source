@@ -45,6 +45,12 @@ export interface PageOperationContext {
   download(fields: BrowserObject, timeout: number, cdp: BrowserCdp): Promise<BrowserObject>;
   artifactDirectory?: string;
   authorizeUpload?(documentUrl: string, signal?: AbortSignal): Promise<void>;
+  /** Authorize an extra URL a raw CDP command touches beyond the current page. */
+  authorizeAffected?(url: string): Promise<void>;
+  /** Authorize site-tool collection (WebMCP) for a frame's URL. */
+  authorizeSiteTools?(url: string): Promise<void>;
+  /** True while a credential submission owns the shared network stack. */
+  credentialGuardActive?(): boolean;
   permission?(fields: BrowserObject): Promise<BrowserObject>;
   nativeViewport?(): Promise<BrowserObject>;
   dialog?: AxDialogBridge;
@@ -83,7 +89,19 @@ export async function performPageOperation(context: PageOperationContext, kind: 
       }
       const method = string(fields.method, 'method');
       const params = object(fields.params ?? fields.commandParams);
-      checkRawCdp(method, params);
+      // The protected-state check runs before method validation: while a
+      // credential submission owns the shared network stack, every raw network
+      // domain answer is the credential window, whatever the method is.
+      const guardBlocked = (): boolean => Boolean(context.credentialGuardActive?.()) && /^(?:Fetch|Network|Target)\./.test(method);
+      if (guardBlocked()) {
+        throw new BrowserError('refused_by_policy', 'Raw CDP is unavailable while a credential submission is in flight.');
+      }
+      const affectedUrls = checkRawCdp(method, params);
+      for (const url of affectedUrls) await context.authorizeAffected?.(url);
+      // Re-check right before dispatch: the credential guard can flip while authorization runs.
+      if (guardBlocked()) {
+        throw new BrowserError('refused_by_policy', 'Raw CDP is unavailable while a credential submission is in flight.');
+      }
       value = await cdp.command(method, params); break;
     }
     case 'snapshot': value=await snapshotPage(cdp,fields); break;

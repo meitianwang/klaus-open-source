@@ -434,6 +434,8 @@ export class ChromeBrowserService {
       const perform = async (): Promise<BrowserObject> => {
         const result = await performPageOperation({ cdp: page, frame, signal, navigate: (url, fields) => this.navigate(page, url, fields, signal), history: action => this.history(page, action, signal), download: (fields, timeout, transport) => this.download(page, fields, timeout, transport, signal), artifactDirectory: this.options.artifactDirectory,
           authorizeUpload: (url, signal) => this.options.authorize?.(sessionId, url, 'uploads', signal) ?? Promise.resolve(),
+          authorizeAffected: url => this.options.authorize?.(sessionId, url, 'debug', signal) ?? Promise.resolve(),
+          authorizeSiteTools: url => this.options.authorize?.(sessionId, url, 'siteTools', signal) ?? Promise.resolve(),
           permission: fields => this.permission(connection, sessionId, turnId, page, fields),
           nativeViewport: async () => { const tab = (await this.tabs(connection, sessionId, turnId)).find(row => row.id === page.tabId); if (!tab || typeof tab.width !== 'number' || typeof tab.height !== 'number' || typeof tab.zoomFactor !== 'number' || tab.zoomFactor <= 0) throw new BrowserError('unavailable', 'Chrome did not return the native viewport. Reload the bundled extension.'); return { width: Math.round(tab.width / tab.zoomFactor), height: Math.round(tab.height / tab.zoomFactor) }; },
           dialog: {
@@ -457,7 +459,11 @@ export class ChromeBrowserService {
       this.turns.delete(turnId);
       const activeId = handle ?? connection.active.get(sessionId);
       const activePage = activeId === undefined ? undefined : connection.pages.get(activeId);
-      if (kind !== 'dialog' && !activePage?.dialog) {
+      // While a page holds raw Fetch interception, keep the debugger attached:
+      // detaching would kill paused requests and wipe the interception config,
+      // breaking a continue that arrives in a later operation.
+      const holdingRawFetch = [...connection.pages.values()].some(page => page.sessionId === sessionId && page.rawFetchActive());
+      if (kind !== 'dialog' && !activePage?.dialog && !holdingRawFetch) {
         await connection.relay.request('turnEnded', { session_id: sessionId, turn_id: turnId }, 1500).catch(() => {});
         for (const page of connection.pages.values()) if (page.sessionId === sessionId) await page.detached();
       }

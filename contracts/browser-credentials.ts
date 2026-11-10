@@ -192,7 +192,7 @@ export interface BrowserAutofillSaveReceipt {
 
 export interface BrowserAutofillFillReceipt {
   filled: boolean;
-  reason?: 'cancelled' | 'navigation' | 'untrusted' | 'origin_mismatch' | 'not_found' | 'disabled' | 'busy' | 'timeout' | 'no_target';
+  reason?: 'cancelled' | 'navigation' | 'untrusted' | 'origin_mismatch' | 'not_found' | 'disabled' | 'busy' | 'timeout' | 'no_target' | 'unsafe_document';
 }
 
 /** Injected encryption boundary. Production wraps Electron safeStorage. */
@@ -240,6 +240,12 @@ export interface BrowserAutofillOptions {
   ackTimeoutMs?: number;
   /** Parent-owned kill switch for autofill; a disabled controller never sends. */
   enabled?: () => boolean;
+  /**
+   * Container integrity check run immediately before a fill lands. Returns
+   * null when the frame fully contains its document, or a refusal reason code
+   * when credentials must not reach it.
+   */
+  verifyContainer?(frame: BrowserAutofillFrame): Promise<string | null>;
 }
 
 export interface BrowserCredentialsApi {
