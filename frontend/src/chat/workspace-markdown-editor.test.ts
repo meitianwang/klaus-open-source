@@ -19,7 +19,20 @@ describe('live Markdown presentation', () => {
     const active = planMarkdownPresentation(source, [{ from: strong + 3, to: strong + 3 }])
     expect(active.some(spec => spec.kind === 'hide' && spec.from === strong)).toBe(false)
     expect(active.some(spec => spec.kind === 'hide' && spec.from === soft)).toBe(true)
-    expect(planMarkdownPresentation(source, [{ from: 4, to: 4 }]).some(spec => spec.kind === 'hide' && spec.from === 0)).toBe(false)
+    expect(planMarkdownPresentation(source, [{ from: 4, to: 4 }]).some(spec => spec.kind === 'hide' && spec.from === 0)).toBe(true)
+    expect(planMarkdownPresentation(source, [{ from: 1, to: 1 }]).some(spec => spec.kind === 'hide' && spec.from === 0)).toBe(false)
+  })
+
+  test('block syntax marks stay concealed while the caret edits their text', () => {
+    const source = '## Section\n\n- item\n\n> quote\n'
+    const caretIn = (needle: string, offset = 0) => { const from = source.indexOf(needle) + offset; return { from, to: from } }
+    const headingFrom = source.indexOf('## Section'), listFrom = source.indexOf('- item'), quoteFrom = source.indexOf('> quote')
+    const editing = planMarkdownPresentation(source, [caretIn('Section', 2), caretIn('item', 1), caretIn('quote', 1)])
+    expect(editing.some(spec => spec.kind === 'hide' && spec.from === headingFrom && spec.to === headingFrom + 3)).toBe(true)
+    expect(editing.some(spec => spec.kind === 'mark' && spec.from === listFrom && spec.to === listFrom + 2)).toBe(true)
+    expect(editing.some(spec => spec.kind === 'hide' && spec.from === quoteFrom && spec.to === quoteFrom + 2)).toBe(true)
+    const inMarks = planMarkdownPresentation(source, [caretIn('## Section', 1)])
+    expect(inMarks.some(spec => spec.kind === 'hide' && spec.from === headingFrom)).toBe(false)
   })
 
   test('resolves reference links and images without changing their source', () => {

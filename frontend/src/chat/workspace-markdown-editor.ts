@@ -179,7 +179,6 @@ export function planMarkdownPresentation(source: string, selections: readonly So
     const range = rangeOf(node)
     const raw = source.slice(range.from, range.to)
     const active = intersects(range, selections)
-    const activeLine = intersects(lineRange(source, range), selections)
     const children = node.children ?? []
     if (node.type === 'code') {
       const fenced = /^([ \t]*)(`{3,}|~{3,})([^\n]*)\n/.exec(raw)
@@ -215,16 +214,17 @@ export function planMarkdownPresentation(source: string, selections: readonly So
     }
     if (node.type === 'heading') {
       decorateLines(range, `${styles.headingLine} ${styles['heading' + node.depth] ?? ''}`, node.depth)
-      if (!activeLine) {
-        const leading = /^#{1,6}\s+/.exec(raw)
-        if (leading) {
-          hide(range.from, range.from + leading[0].length)
-          const trailing = /\s+#+\s*$/.exec(raw)
-          if (trailing && trailing.index >= leading[0].length) hide(range.from + trailing.index, range.to)
-        } else {
-          const underline = /\n[ \t]*(?:=+|-+)[ \t]*$/.exec(raw)
-          if (underline) hide(range.from + underline.index, range.to)
-        }
+      // Concealment is gated on the mark tokens themselves: a caret editing the
+      // heading text keeps the rendered line clean, while a caret inside the
+      // marks exposes exactly the span being edited.
+      const leading = /^#{1,6}\s+/.exec(raw)
+      if (leading) {
+        if (!intersects({ from: range.from, to: range.from + leading[0].length }, selections)) hide(range.from, range.from + leading[0].length)
+        const trailing = /\s+#+\s*$/.exec(raw)
+        if (trailing && trailing.index >= leading[0].length && !intersects({ from: range.from + trailing.index, to: range.to }, selections)) hide(range.from + trailing.index, range.to)
+      } else {
+        const underline = /\n[ \t]*(?:=+|-+)[ \t]*$/.exec(raw)
+        if (underline && !intersects({ from: range.from + underline.index, to: range.to }, selections)) hide(range.from + underline.index, range.to)
       }
     } else if (node.type === 'strong' || node.type === 'emphasis' || node.type === 'delete' || node.type === 'inlineCode') {
       const className = node.type === 'strong' ? styles.strong : node.type === 'emphasis' ? styles.emphasis : node.type === 'delete' ? styles.strike : styles.inlineCode
@@ -256,13 +256,13 @@ export function planMarkdownPresentation(source: string, selections: readonly So
       let from = range.from
       for (const line of lines) {
         const prefix = /^(?:[ \t]*>[ \t]?)+/.exec(line)
-        if (prefix && !intersects({ from, to: from + line.length }, selections)) hide(from, from + prefix[0].length)
+        if (prefix && !intersects({ from, to: from + prefix[0].length }, selections)) hide(from, from + prefix[0].length)
         from += line.length + 1
       }
     } else if (node.type === 'listItem') {
       decorateLines(range, styles.listLine)
       const marker = /^(?:[-+*]|\d+[.)])\s+/.exec(raw)
-      if (marker && !activeLine && !parent?.ordered) {
+      if (marker && !parent?.ordered && !intersects({ from: range.from, to: range.from + marker[0].length }, selections)) {
         add({ kind: 'mark', from: range.from, to: range.from + marker[0].length, className: styles.bulletMarker })
       }
       if (node.checked !== null && node.checked !== undefined && marker) {
