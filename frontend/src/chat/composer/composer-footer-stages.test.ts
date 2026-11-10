@@ -1,11 +1,12 @@
 import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 
-// Pins the composer footer's narrow-width progression: the footer row is its
-// own inline-size container, controls carry explicit visual order so the
-// permission picker leads and the model picker opens the docked right
-// cluster, and each collapse stage hides exactly one tier of labels while
-// the model name only ever truncates (never disappears).
+// Pins the composer footer's layout and narrow-width progression: the footer
+// row is its own inline-size container, left controls stay in DOM order
+// (plus -> auth pill -> model picker -> permission picker) while the right
+// cluster (context pie -> voice -> send) docks via auto margin, and each
+// collapse stage hides one tier of labels while the model name only truncates.
+const indexHtml = readFileSync(new URL('../../../index.html', import.meta.url), 'utf8')
 const styles = readFileSync(new URL('../../../css/styles.css', import.meta.url), 'utf8')
 const composerModule = readFileSync(new URL('./composer.module.css', import.meta.url), 'utf8')
 
@@ -29,16 +30,33 @@ const PERMISSIONS = ':is(#permission-select, #side-permission-select, #left-side
 const MODELS = ':is(#main-model-select, #side-model-select, #left-side-model-select)'
 
 describe('composer footer narrow-width progression', () => {
-  test('the footer row is an inline-size container with ordered control groups', () => {
+  test('the footer row is an inline-size container keeping left controls in DOM order and docking the right cluster', () => {
     const row = block(styles, '.input-row {')
     expect(row).toContain('container: composer-footer / inline-size')
 
-    expect(block(styles, '.input-row :is(#composer-plus-btn')).toContain('order: -5')
-    expect(block(styles, `.input-row ${PERMISSIONS} { order:`)).toContain('order: -4')
-    expect(block(styles, '.input-row #auth-mode-pill {')).toContain('order: -3')
-    const model = block(styles, `.input-row ${MODELS} { order:`)
-    expect(model).toContain('order: -2')
-    expect(model).toContain('margin-left: auto')
+    const rowStart = indexHtml.indexOf('<div class="input-row">')
+    const rowEnd = indexHtml.indexOf('</div>\n        </div>', rowStart)
+    const inputRowMarkup = indexHtml.slice(rowStart, rowEnd)
+    const plusIdx = inputRowMarkup.indexOf('id="composer-plus-btn"')
+    const authIdx = inputRowMarkup.indexOf('id="auth-mode-pill-host"')
+    const modelIdx = inputRowMarkup.indexOf('id="main-model-select"')
+    const permIdx = inputRowMarkup.indexOf('id="permission-select"')
+    const ctxIdx = inputRowMarkup.indexOf('id="ctx-usage-chip"')
+    const voiceIdx = inputRowMarkup.indexOf('id="voice-input-btn"')
+    const sendIdx = inputRowMarkup.indexOf('id="send"')
+    expect(plusIdx).toBeGreaterThanOrEqual(0)
+    expect(plusIdx).toBeLessThan(authIdx)
+    expect(authIdx).toBeLessThan(modelIdx)
+    expect(modelIdx).toBeLessThan(permIdx)
+    expect(permIdx).toBeLessThan(ctxIdx)
+    expect(ctxIdx).toBeLessThan(voiceIdx)
+    expect(voiceIdx).toBeLessThan(sendIdx)
+
+    expect(block(styles, '.input-row #ctx-usage-chip {')).toContain('margin-left: auto')
+    expect(block(styles, '.input-row #ctx-usage-chip[hidden] + #voice-input-btn,')).toContain('margin-left: auto')
+    expect(styles).not.toContain('.input-row #auth-mode-pill { order:')
+    expect(styles).not.toContain(`.input-row ${PERMISSIONS} { order:`)
+    expect(styles).not.toContain(`.input-row ${MODELS} { order:`)
   })
 
   test('stage 480px drops the permission label and caret but keeps the model label', () => {
