@@ -30,6 +30,10 @@ export class PageDebugger {
   /** Registered script identifiers per key and session ('' is the root). */
   private readonly documentScriptIds = new Map<string, Map<string, string>>();
   targetId = '';
+  /** Top-level device-metrics override applied through this debugger; a user takeover of the page drops it. */
+  private viewportOverride: BrowserObject | undefined;
+  /** Top-level touch emulation applied through this debugger; a user takeover of the page drops it. */
+  private touchOverride: BrowserObject | undefined;
 
   constructor(readonly contents: WebContents) {
     contents.debugger.on('message', this.onMessage);
@@ -226,7 +230,45 @@ export class PageDebugger {
         routed = injectFrameRouteParams(method, params, frameTarget, route.contextId);
       }
     }
-    return this.send(method, routed, sessionId);
+    const result = await this.send(method, routed, sessionId);
+    // Top-level emulation settings outlive the call inside the renderer. Track
+    // the successful ones so a user takeover of the page can restore its
+    // natural scale; frame-scoped settings stay the frame's own state.
+    if (!sessionId) this.trackEmulation(method, params);
+    return result;
+  }
+
+  private trackEmulation(method: string, params: BrowserObject): void {
+    if (method === 'Emulation.setDeviceMetricsOverride') this.viewportOverride = { ...params };
+    else if (method === 'Emulation.clearDeviceMetricsOverride') this.viewportOverride = undefined;
+    else if (method === 'Emulation.setTouchEmulationEnabled') this.touchOverride = params.enabled === true ? { ...params } : undefined;
+  }
+
+  /** True while a device-metrics or touch override applied through this debugger is still in effect. */
+  get hasEmulationOverride(): boolean { return this.viewportOverride !== undefined || this.touchOverride !== undefined; }
+
+  /**
+   * Restore the page's natural scale: drop any device-metrics and touch
+   * overrides operations applied through this debugger. The records go first
+   * so a failed clear cannot keep the page claimed as emulated; the commands
+   * are best effort and bounded so a stalled renderer cannot hang the
+   * caller's navigation.
+   */
+  async clearEmulationOverrides(): Promise<void> {
+    const hadViewport = this.viewportOverride !== undefined;
+    const hadTouch = this.touchOverride !== undefined;
+    this.viewportOverride = undefined;
+    this.touchOverride = undefined;
+    if ((!hadViewport && !hadTouch) || this.disposed || this.contents.isDestroyed()) return;
+    try {
+      await this.initialize();
+      const clears: Array<Promise<unknown>> = [];
+      if (hadViewport) clears.push(this.send('Emulation.clearDeviceMetricsOverride').catch(() => {}));
+      if (hadTouch) clears.push(this.send('Emulation.setTouchEmulationEnabled', { enabled: false, maxTouchPoints: 1 }).catch(() => {}));
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      await Promise.race([Promise.all(clears), new Promise<void>(resolve => { timer = setTimeout(resolve, 2_500); })]);
+      clearTimeout(timer);
+    } catch { /* the page left or the debugger refused; the records are already dropped */ }
   }
 
   async evaluate(expression: string, frameTarget?: string): Promise<unknown> {

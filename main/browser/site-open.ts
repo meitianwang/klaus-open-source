@@ -215,6 +215,9 @@ export class SiteOpener {
       // A user's explicit click can open a saved conversation's own page set.
       this.browser.setConversation(sessionId);
       const page = await this.browser.ensurePage(sessionId);
+      // The click is a user takeover of the page: drop any emulated viewport
+      // an operation left applied so the site lays out at its natural scale.
+      await page.cdp.clearEmulationOverrides();
       await this.browser.navigate(page, url);
       if (!await this.browser.requestPanel(sessionId, page)) throw new BrowserError('unavailable', 'The browser panel could not be opened.');
     } else if (target === 'chrome') {

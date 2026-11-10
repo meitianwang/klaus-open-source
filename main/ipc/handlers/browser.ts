@@ -114,6 +114,9 @@ export function registerBrowserHandlers(registry: ChannelRegistry, deps: Browser
   register('browser-use:navigate', async fields => {
     const owner = manager.conversationId;
     const page = await manager.ensurePage(owner);
+    // The user driving the page is a takeover: drop any emulated viewport an
+    // operation left applied so the document lays out at its natural scale.
+    await page.cdp.clearEmulationOverrides();
     await manager.navigate(page, fields.url);
     return manager.ok(owner);
   });
@@ -122,7 +125,12 @@ export function registerBrowserHandlers(registry: ChannelRegistry, deps: Browser
     const page = await manager.ensurePage(owner);
     const contents = page.view.webContents;
     if (action === 'stop') contents.stop();
-    else await manager.historyAction(page, action as 'back' | 'forward' | 'reload');
+    else {
+      // Same takeover rule as the address bar: a user history action restores
+      // the natural scale before the document loads.
+      await page.cdp.clearEmulationOverrides();
+      await manager.historyAction(page, action as 'back' | 'forward' | 'reload');
+    }
     return manager.ok(owner);
   });
   register('browser-use:screenshot', async fields => {

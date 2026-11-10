@@ -24,7 +24,7 @@ function fixture() {
   const configRoot = join(root, String(++fixtureId));
   const calls: unknown[][] = [];
   let installed = true, panelOpened = true, failChrome = false, failExternal = false;
-  const page = { owner: 'saved-session', id: 'iab-1' } as BrowserPage;
+  const page = { owner: 'saved-session', id: 'iab-1', cdp: { clearEmulationOverrides: async () => { calls.push(['clear-emulation']); } } } as unknown as BrowserPage;
   const browser = {
     windowId: 9, isEnabled: () => true,
     setConversation: (sessionId: string) => { calls.push(['conversation', sessionId]); return {}; },
@@ -80,7 +80,7 @@ h.test('target discovery refreshes installation state without writing settings',
 h.test('a user click opens a saved session page and persists after the panel is actually shown', async () => {
   const f = fixture();
   assert.deepEqual(await f.sites.open({ sessionId: 'saved-session', url: 'https://example.com', target: 'in-app' }), { ok: true, target: 'in-app' });
-  assert.deepEqual(f.calls, [['conversation', 'saved-session'], ['page', 'saved-session'], ['navigate', 'https://example.com/'], ['panel', 'saved-session']]);
+  assert.deepEqual(f.calls, [['conversation', 'saved-session'], ['page', 'saved-session'], ['clear-emulation'], ['navigate', 'https://example.com/'], ['panel', 'saved-session']]);
   assert.equal(kvGet(SITE_OPEN_TARGET_SETTING, f.configRoot), 'in-app');
 });
 
