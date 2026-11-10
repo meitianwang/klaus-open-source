@@ -4,6 +4,7 @@ const ANTIGRAVITY_ERROR_KEYS = new Set([
   'antigravity_model_unlisted',
   'antigravity_quota_exhausted',
   'antigravity_request_rejected',
+  'antigravity_region_unsupported',
   'antigravity_auth_required',
   'antigravity_rate_limited',
   'antigravity_service_unavailable',
