@@ -1,6 +1,6 @@
 import { join } from 'node:path';
 import type { Json } from '../main/ipc/contract';
-import { allowsVoiceMedia, voiceModelAccess, voiceProviderError, type VoiceEngineConnection } from '../main/app/voice-runtime';
+import { allowsTrustedFullscreen, allowsVoiceMedia, voiceModelAccess, voiceProviderError, type VoiceEngineConnection } from '../main/app/voice-runtime';
 import { Harness, assert, assertEqual, assertRejects } from './harness';
 
 const h = new Harness();
@@ -13,6 +13,12 @@ h.test('only an attached trusted main frame can request audio and camera remains
   assertEqual(allowsVoiceMedia(owner, attached, { ...details, isMainFrame: false }, ['audio']), false, 'subframe');
   assertEqual(allowsVoiceMedia(owner, attached, { ...details, requestingUrl: 'https://example.com' }, ['audio']), false, 'remote requester');
   assertEqual(allowsVoiceMedia({ ...owner, getURL: () => 'https://example.com' }, attached, details, ['audio']), false, 'navigated owner');
+  assert(allowsTrustedFullscreen(owner, details), 'trusted main frame can enter fullscreen');
+  assert(allowsTrustedFullscreen(owner, { isMainFrame: true }, 'klaus-app://app/'), 'origin fallback for permission check');
+  assertEqual(allowsTrustedFullscreen(owner, { ...details, isMainFrame: false }), false, 'subframe fullscreen denied');
+  assertEqual(allowsTrustedFullscreen(owner, { ...details, requestingUrl: 'https://example.com' }), false, 'remote fullscreen denied');
+  assertEqual(allowsTrustedFullscreen({ ...owner, getURL: () => 'https://example.com' }, details), false, 'navigated owner fullscreen denied');
+  assertEqual(allowsTrustedFullscreen({ ...owner, isDestroyed: () => true }, details), false, 'destroyed owner fullscreen denied');
 });
 h.test('voice model access keeps source metadata and reads a key only through its named facade', async () => {
   const calls: string[] = [];

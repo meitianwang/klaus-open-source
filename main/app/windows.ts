@@ -241,7 +241,10 @@ export function createArtifactWindow(productName = 'Klaus'): BrowserWindow {
     titleBarStyle: 'hidden',
     titleBarOverlay: process.platform === 'win32' ? { color: '#ffffff', symbolColor: '#1a1c1f', height: 42 } : false,
     trafficLightPosition: { x: 16, y: 16 },
-    webPreferences: securePreferences('artifact'),
+    webPreferences: {
+      ...securePreferences('artifact'),
+      ...(process.platform === 'darwin' ? { disableHtmlFullscreenWindowResize: true } : {}),
+    },
   });
 }
 

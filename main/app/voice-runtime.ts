@@ -201,6 +201,12 @@ export function allowsVoiceMedia(contents: Pick<WebContents, 'id' | 'isDestroyed
     && details.isMainFrame && isTrustedAppUrl(details.requestingUrl ?? '') && media.length > 0 && media.every(kind => kind === 'audio');
 }
 
+export function allowsTrustedFullscreen(contents: Pick<WebContents, 'isDestroyed' | 'getURL'> | null,
+  details: { isMainFrame?: boolean; requestingUrl?: string }, requestingOrigin?: string): boolean {
+  return !!contents && !contents.isDestroyed() && isTrustedAppUrl(contents.getURL())
+    && details.isMainFrame === true && isTrustedAppUrl(details.requestingUrl || requestingOrigin || '');
+}
+
 /** One voice owner per trusted renderer, drained before another document can reuse it. */
 export function createVoiceRuntime(window: BrowserWindow, registry: ChannelRegistry, deps: {
   configRoot: string; models: VoiceModels;
@@ -249,10 +255,12 @@ export function createVoiceRuntime(window: BrowserWindow, registry: ChannelRegis
     return !!contents && !contents.isDestroyed() && deps.cameraLeaseHeld?.(contents.id) === true
       && isTrustedAppUrl(contents.getURL()) && details.isMainFrame && isTrustedAppUrl(details.requestingUrl ?? '');
   };
-  partition.setPermissionCheckHandler((contents, requested, _origin, details) => requested === 'media'
-    && mediaAllowed(contents, details, [details.mediaType ?? 'unknown']));
-  partition.setPermissionRequestHandler((contents, requested, callback, details) => callback(requested === 'media'
-    && mediaAllowed(contents, details, 'mediaTypes' in details ? details.mediaTypes ?? [] : [])));
+  partition.setPermissionCheckHandler((contents, requested, origin, details) =>
+    (requested === 'media' && mediaAllowed(contents, details, [details.mediaType ?? 'unknown']))
+    || (requested === 'fullscreen' && allowsTrustedFullscreen(contents, details, origin)));
+  partition.setPermissionRequestHandler((contents, requested, callback, details) => callback(
+    (requested === 'media' && mediaAllowed(contents, details, 'mediaTypes' in details ? details.mediaTypes ?? [] : []))
+    || (requested === 'fullscreen' && allowsTrustedFullscreen(contents, details))));
   const windowOwners = new Set<number>();
   const attachWindow = (owner: BrowserWindow): void => {
     const id = owner.webContents.id;
