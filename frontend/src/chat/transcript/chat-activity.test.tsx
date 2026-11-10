@@ -332,12 +332,11 @@ describe('streaming and replay interactions', () => {
     expect(hasActiveChatActivitySummary([...units, { type: 'live-text', key: 'reply', text: 'Done', streaming: true }], tools, true)).toBe(false)
   })
 
-  test('a single completed or failed read folds into an activity summary once its slice closes', () => {
+  test('a single completed or failed read stays a standalone row once its slice closes', () => {
     for (const status of ['ok', 'error'] as const) {
       const tool = card('read_thread', status)
       const nodes = groupLiveActivityUnits([toolsUnit([tool.toolCallId])], { [tool.toolCallId]: tool }, false, false)
-      expect(nodes.map(node => node.kind)).toEqual(['activity'])
-      expect(nodes[0].kind === 'activity' && nodes[0].mode).toBe('summary')
+      expect(nodes.map(node => node.kind)).toEqual(['unit'])
     }
   })
 
@@ -376,22 +375,22 @@ describe('streaming and replay interactions', () => {
     expect(activitySummaryLabel(translate('en'), group)).toBe('Listed chats, couldn’t read chat')
   })
 
-  test('commentary separates completed reads into independently expandable rows', () => {
+  test('commentary separates completed reads into independent rows', () => {
     const tools = { a: card('read_thread', 'ok', 'a'), b: card('read_thread', 'ok', 'b') }
     const units: LiveUnit[] = [toolsUnit(['a']), { type: 'live-text', key: 'commentary', text: 'Checking another chat', streaming: false }, { ...toolsUnit(['b']), key: 'tools-2' }]
-    expect(groupLiveActivityUnits(units, tools, false, false).map(node => node.kind)).toEqual(['activity', 'unit', 'activity'])
+    expect(groupLiveActivityUnits(units, tools, false, false).map(node => node.kind)).toEqual(['unit', 'unit', 'unit'])
     const replay = unitsFromMessages([{ role: 'assistant', uuid: 'a', contentBlocks: [
       { type: 'tool_use', name: 'read_thread', id: 'a', input: { threadId: 'chat-a' }, __result: { text: '{}' } },
       { type: 'text', text: 'Checking another chat' },
       { type: 'tool_use', name: 'read_thread', id: 'b', input: { threadId: 'chat-b' }, __result: { text: '{}' } },
     ] }])
-    expect(foldUnits(replay, null, {}, {}).map(node => node.kind)).toEqual(['activity-fold', 'unit', 'activity-fold'])
+    expect(foldUnits(replay, null, {}, {}).map(node => node.kind)).toEqual(['unit', 'unit', 'unit'])
   })
 
   test('reasoning neither creates a group nor separates adjacent reads', () => {
     const tools = { a: card('read_thread', 'ok', 'a'), b: card('read_thread', 'ok', 'b') }
     const thinking: LiveUnit = { type: 'live-thinking-done', key: 'thinking', text: 'Check a chat', elapsedSeconds: 1 }
-    expect(groupLiveActivityUnits([thinking, toolsUnit(['a'])], tools, false, false).map(node => node.kind)).toEqual(['activity'])
+    expect(groupLiveActivityUnits([thinking, toolsUnit(['a'])], tools, false, false).map(node => node.kind)).toEqual(['unit'])
     const grouped = groupLiveActivityUnits([toolsUnit(['a']), thinking, { ...toolsUnit(['b']), key: 'tools-2' }], tools, false, false)
     expect(grouped.map(node => node.kind)).toEqual(['activity'])
     expect(liveSummary(grouped[0])).toBe('Read chat')
@@ -419,9 +418,9 @@ describe('streaming and replay interactions', () => {
     expect(activitySummaryLabel(translate('en'), group)).toBe('Reading chat')
     for (const status of ['completed', 'failed', 'interrupted']) {
       const finished = foldUnits(unitsFromMessages(messages), null, { 'turn-active': status }, {})
-      const group = finished.find(node => node.kind === 'activity-fold')
-      if (group?.kind !== 'activity-fold') throw new Error('Expected a settled activity summary')
-      const toolUnit = group.items.find((item): item is Extract<typeof item, { kind: 'unit' }> => item.kind === 'unit' && item.unit.type === 'tools')
+      // A settled lone read is its own row, not a one-child disclosure.
+      expect(finished.some(node => node.kind === 'activity-fold')).toBe(false)
+      const toolUnit = finished.find((node): node is Extract<(typeof finished)[number], { kind: 'unit' }> => node.kind === 'unit' && node.unit.type === 'tools')
       expect(toolUnit?.unit.segment?.tools?.[0].state).not.toBe('running')
     }
   })

@@ -28,7 +28,7 @@ describe('committed activity contract', () => {
     ]
     expect(summarizeActivity(entries)).toMatchObject({ reads: 1, edits: 2 })
     expect(projectActivity(entries, false)[0].kind).toBe('group')
-    expect(projectActivity(entries.slice(2), false)[0].kind).toBe('group')
+    expect(projectActivity(entries.slice(2), false)[0].kind).toBe('item')
   })
   test('counts every viewed image without also claiming a file read', () => {
     const entries = [
@@ -38,7 +38,7 @@ describe('committed activity contract', () => {
     ]
     expect(summarizeActivity(entries)).toMatchObject({ images: 4, reads: 0 })
     expect(projectActivity(entries, false)[0]).toMatchObject({ kind: 'group', summary: { images: 4 } })
-    expect(projectActivity(entries.slice(0, 1), false)[0].kind).toBe('group')
+    expect(projectActivity(entries.slice(0, 1), false)[0].kind).toBe('item')
   })
   test('compound shell programs never become misleading read-only summaries', () => {
     for (const command of ['cat a; rm b', 'ls && echo done', 'cat $(build)', 'rg x | head']) {

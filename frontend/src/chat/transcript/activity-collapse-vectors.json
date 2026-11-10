@@ -1,5 +1,5 @@
 {
-  "reason": "A process disclosure is available from its first work item and stays open by default while the turn runs. Final assistant text freezes the work clock but remains outside the disclosure. Terminal completion collapses the process unless a user choice or unsettled child requires it to remain open. Tool details retain their independent state.",
+  "reason": "A process disclosure is available from its first work item and stays open by default while the turn runs. Final assistant text freezes the work clock but remains outside the disclosure. Terminal completion collapses the process unless a user choice or unsettled child requires it to remain open. Tool details retain their independent state. A single settled action renders as its own row: a one-child disclosure would only repeat the row label behind a chevron.",
   "rules": {
     "outerRequiresFinal": false,
     "interruptedOuterFold": true,
@@ -12,7 +12,7 @@
     "commentaryIsInnerBoundary": true,
     "differentEditPathsAreInnerBoundary": false,
     "unknownToolsGroupable": true,
-    "singleCompletedToolStandalone": false,
+    "singleCompletedToolStandalone": true,
     "singleActiveToolGrouped": true,
     "runningActivityRowsVisible": true,
     "liveTailStaysExpandedBetweenTools": true,

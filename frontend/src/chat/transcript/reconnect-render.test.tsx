@@ -67,11 +67,10 @@ describe('reconnect render contract', () => {
     const html = render(units, 'zh', { tools: { read: { toolCallId: 'read', toolName: 'read', args: { path: '/project.ts' },
       status: 'ok', argsDelta: '', progress: [], agent: false, bgTask: false } } })
     expect(html).toContain('Keep this notice')
-    // The lone read now folds behind a summary, so the stable marker is the
-    // activity disclosure rather than the hidden tool card.
-    expect(html).toContain('data-activity-toggle="activity"')
+    // The lone read is a standalone row, so its tool card is the stable marker.
+    expect(html).toContain('data-tool-call-id="read"')
     expect(reconnectRows(html)).toEqual([vectors.labels.zh.networkWait])
-    expect(html.indexOf(vectors.labels.zh.networkWait)).toBeLessThan(html.indexOf('data-activity-toggle="activity"'))
+    expect(html.indexOf(vectors.labels.zh.networkWait)).toBeLessThan(html.indexOf('data-tool-call-id="read"'))
   })
 
   test('separate turns keep independent reconnect rows', () => {

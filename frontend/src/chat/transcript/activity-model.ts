@@ -151,10 +151,11 @@ export function projectActivity<T>(entries: ActivityEntry<T>[], active: boolean,
     // A tool result ends one call, not the sequence. Keep the live tail open
     // through model requests until visible content or a final/turn boundary.
     const mode = activeAction ? 'active' : active && tail && !tailClosed ? 'thinking' : 'summary'
-    // Every contiguous groupable block becomes a one-line
-    // activity summary, even when it contains a single completed action. A lone
-    // running item is still surfaced so the user sees what is currently active.
-    if (mode === 'summary' && items.length === 1 && items[0].action?.running) {
+    // A lone action is already a one-line record: wrapping it in a disclosure
+    // would only repeat the row label behind a chevron, so a single settled
+    // item stays standalone. Blocks of two or more collapse into a summary
+    // that condenses what the rows spell out.
+    if (mode === 'summary' && items.length === 1) {
       nodes.push({ kind: 'item', entry: items[0] })
     } else {
       nodes.push({ kind: 'group', key: items[0].key, entries: items, summary: summarizeActivity(items), mode, activeAction })
