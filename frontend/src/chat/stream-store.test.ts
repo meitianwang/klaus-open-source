@@ -1218,3 +1218,17 @@ test('the observed turn order outlives the live units history takes over', () =>
   expect(store.getSessionStream(sessionId).liveUnits).toEqual([])
   expect(store.getSessionStream(sessionId).turnSequence).toEqual(['ledger-stopped', 'ledger-continued'])
 })
+
+test('reviving a tombstoned stream resumes ingestion for a session that is still alive', () => {
+  const sessionId = 'revive-after-retire'
+  store.ingestChatEvent({ type: 'text_delta', sessionId, messageId: 'm1', text: 'before' })
+  store.retireSessionStream(sessionId)
+  expect(store.isSessionStreamRetired(sessionId)).toBe(true)
+  store.ingestChatEvent({ type: 'text_delta', sessionId, messageId: 'm2', text: 'dropped' })
+  expect(store.getSessionStream(sessionId).liveUnits).toHaveLength(0)
+  expect(store.reviveSessionStream(sessionId)).toBe(true)
+  expect(store.reviveSessionStream(sessionId)).toBe(false)
+  store.ingestChatEvent({ type: 'text_delta', sessionId, messageId: 'm3', text: 'after' })
+  const texts = store.getSessionStream(sessionId).liveUnits.filter(unit => unit.type === 'live-text').map(unit => unit.text)
+  expect(texts).toEqual(['after'])
+})

@@ -491,6 +491,17 @@ export function isSessionStreamRetired(sessionId: string): boolean {
   return false
 }
 
+/**
+ * Clear a retirement tombstone so a session the host still considers alive can
+ * flow again. Surface removal and idle sweeps tombstone streams to reject the
+ * delayed traffic of closed sessions; a session that is still working when its
+ * surface returns must not stay sealed, or its running turn freezes on screen.
+ * Returns true when a tombstone existed and was cleared.
+ */
+export function reviveSessionStream(sessionId: string): boolean {
+  return retiredStreams.delete(sessionId)
+}
+
 function streamFamily(sessionId: string): Set<string> {
   const family = new Set([sessionId])
   let added = true

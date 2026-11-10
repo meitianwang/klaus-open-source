@@ -39,7 +39,8 @@ import type { PetMainCapture } from '../../../contracts/desktop-pet-appshot'
 import { appshotContextText } from '../../../contracts/appshot-context'
 const klausApi = window.klaus
 // 流式状态 store（Batch 4）：chatEvent 全事件镜像入 store，功能域随迁移逐个改为订阅。
-import { ingestPlanningQuestion, ingestGoalCompletion, ingestTaskGoalSnapshot, ingestPlanningSnapshot, ingestChatEvent, ingestChatFrameEvent, isStoppedTurnFrame, retireSessionStream, isSessionStreamRetired, registerSessionRetentionParticipant, trimSessionStreamCache, ingestEngineStatus, ingestLiveApproval, requestTurnInterrupt, clearTurnInterruptRequest, canContinueTurn, getSessionStream, ingestLocalUserTurn, retractLocalUserTurn, observeEditedUserTurn, commitEditedUserTurn, noteOnScreenCollapseStats, resolveLiveApproval, chatStreamStore, loadSessionHistory, reconcileSessionWorking, prepareSubagentStream, seedSubagentTasks, subagentOwnerStreamId, updateAsyncQuestionUi, reopenAsyncQuestionsForSession } from './stream-store'
+import { ingestPlanningQuestion, ingestGoalCompletion, ingestTaskGoalSnapshot, ingestPlanningSnapshot, ingestChatEvent, ingestChatFrameEvent, isStoppedTurnFrame, retireSessionStream, reviveSessionStream, isSessionStreamRetired, registerSessionRetentionParticipant, trimSessionStreamCache, ingestEngineStatus, ingestLiveApproval, requestTurnInterrupt, clearTurnInterruptRequest, canContinueTurn, getSessionStream, ingestLocalUserTurn, retractLocalUserTurn, observeEditedUserTurn, commitEditedUserTurn, noteOnScreenCollapseStats, resolveLiveApproval, chatStreamStore, loadSessionHistory, reconcileSessionWorking, prepareSubagentStream, seedSubagentTasks, subagentOwnerStreamId, updateAsyncQuestionUi, reopenAsyncQuestionsForSession } from './stream-store'
+import { isTurnInProgressRefusal } from './send-refusal'
 import type { EditedUserTurnSnapshot } from './stream-store'
 import { createSidePanePlacement, identifySidePaneComposer, sidePaneDocument, sidePaneElementId, sidePanePlacements, sidePaneWindow, type SidePanePlacement } from './panels/side-pane-placement'
 import type { ChatEvent, FollowUpStatusEvent, SessionInfo, FollowUpQueueItem, ClientQueueRow, ClientQueueSnapshot, ClientQueueWireRow, QueuedFollowUpDispatchedEvent, AgentTask, SlashCommandInfo, PendingFileEntry, CronTask, ModelOption, OutgoingPayload, FeedbackAttachment, FeedbackEmailStatus, FeedbackSubmitResult } from './engine-events'
@@ -170,7 +171,6 @@ import {
   SIDEBAR_MAX_WIDTH,
   SIDEBAR_DEFAULT_WIDTH,
   RIGHT_PANEL_MIN_WIDTH,
-  RIGHT_PANEL_MAX_WIDTH,
   RIGHT_PANEL_DEFAULT_WIDTH,
   PANEL_MIN_MAIN_WIDTH,
   clampSidebarWidth,
@@ -731,7 +731,12 @@ function dropPendingFilesForSession(sessionId: string) {
   if (active) { pendingFiles = []; pendingSendAfterUpload = null }
 }
 
-window.isSessionRunning = (sessionId?: string | null) => !!sessionId && runningSessions.has(sessionId)
+// Union of the host-pushed running set and the stream store's own lifecycle:
+// a rebuilt or re-registered side session can lag the pushed set by one audit
+// round, and the store's running flag is the closer truth for branching sends
+// between the new-turn and follow-up channels.
+window.isSessionRunning = (sessionId?: string | null) => !!sessionId
+  && (runningSessions.has(sessionId) || getSessionStream(sessionId).running === true)
 // sessionId → PermissionRequest[]: permission asks that arrived while the user
 // was looking at a different session (cron-run sessions trigger these in the
 // background). switchSession() drains the list when the user opens that session
@@ -783,7 +788,7 @@ const PANEL_RESIZE_CONFIGS = [
     cssProperty: '--artifacts-panel-width',
     storageKey: ARTIFACTS_PANEL_WIDTH_STORAGE_KEY,
     min: RIGHT_PANEL_MIN_WIDTH,
-    max: RIGHT_PANEL_MAX_WIDTH,
+    max: Number.POSITIVE_INFINITY,
     direction: -1,
   },
 ]
@@ -814,16 +819,20 @@ function setSidebarWidthPx(px: number, options: { persist?: boolean } = {}): num
   return width
 }
 
-function setRightPanelWidthPx(px: number, options: { persist?: boolean; updateRatio?: boolean } = {}): number {
+function setRightPanelWidthPx(px: number, options: { persist?: boolean; updateRatio?: boolean; clamp?: boolean } = {}): number {
   const wsWidth = currentWorkspaceWidth()
-  const width = clampRightPanelWidth(px, wsWidth)
+  const bounds = rightPanelBounds(wsWidth)
+  const width = options.clamp === false ? Math.max(0, Math.round(px)) : clampRightPanelWidth(px, wsWidth)
   if (options.updateRatio) {
     rightPanelWidthRatio = rightPanelWidthToRatio(width, wsWidth)
   }
   document.documentElement.style.setProperty('--artifacts-panel-width', `${width}px`)
-  document.getElementById('artifacts-panel-resizer')?.setAttribute('aria-valuenow', String(width))
+  const resizer = document.getElementById('artifacts-panel-resizer')
+  resizer?.setAttribute('aria-valuenow', String(width))
+  resizer?.setAttribute('aria-valuemin', String(bounds.minimum))
+  if (Number.isFinite(bounds.maximum)) resizer?.setAttribute('aria-valuemax', String(bounds.maximum))
   if (options.persist) {
-    persistLocalValue(ARTIFACTS_PANEL_WIDTH_STORAGE_KEY, String(width))
+    persistLocalValue(ARTIFACTS_PANEL_WIDTH_STORAGE_KEY, String(clampRightPanelWidth(width, wsWidth)))
     persistLocalValue(ARTIFACTS_PANEL_RATIO_STORAGE_KEY, String(rightPanelWidthRatio))
   }
   return width
@@ -1006,7 +1015,9 @@ function bindPanelResizer(config: { handleId: string; panelId: string; cssProper
       persistLocalValue(windowStateKey('klaus_artifacts_collapsed'), isCollapsed ? '1' : '0')
       if (!isCollapsed && !document.body.classList.contains('artifacts-maximized')) {
         const width = Math.round(panel.getBoundingClientRect().width || rightPanelRatioToWidth(rightPanelWidthRatio, currentWorkspaceWidth()))
-        setRightPanelWidthPx(width, { persist: true, updateRatio: true })
+        // Release keeps the dragged width on screen (pointer-overflow zone
+        // included); only the persisted ratio/legacy width clamp back.
+        setRightPanelWidthPx(width, { persist: true, updateRatio: true, clamp: false })
       }
     }
 
@@ -1047,7 +1058,6 @@ function bindPanelResizer(config: { handleId: string; panelId: string; cssProper
     const nextSize = evaluateKeyboardResizeStep({
       currentSize,
       key: event.key,
-      shiftKey: event.shiftKey,
       edge: isSidebar ? 'right' : 'left',
       minimumSize: minSize,
       maximumSize: maxSize,
@@ -1784,6 +1794,10 @@ function getOrCreateSideSurface(sideId: string, placement: SidePanePlacement = '
 window.klausSideSurfaceActivate = async (sideId, placement: SidePanePlacement = 'right') => {
   if (!sideId) return
   prepareEphemeralSessionStream(sideId)
+  // A surface can return for a session whose stream was tombstoned while the
+  // turn kept running (idle sweep, scope switch). Unseal it and repaint from
+  // saved history before the live tail resumes.
+  if (reviveSessionStream(sideId)) void loadSessionHistory(sideId)
   const runtime = sideRuntime(placement)
   const source = sideRuntimeForSession(sideId)
   if (source && source !== runtime) {
@@ -1832,7 +1846,14 @@ window.klausSideSurfaceRemove = sideId => {
     sideSurfaces.delete(sideId)
   }
   surfacesBySession.delete(sideId)
-  retireSessionStream(sideId)
+  // Removing a surface is view lifecycle, not session end. A turn still running
+  // behind a closed tab keeps its live transcript in the stream cache (the
+  // eviction guard protects running streams) and repaints from history plus
+  // live tail when the surface returns. Retiring here tombstones the session:
+  // every later event of the running turn is dropped, the transcript freezes
+  // mid-flight, and the composer loses the running state that routes sends to
+  // the follow-up channel.
+  if (!runningSessions.has(sideId) && getSessionStream(sideId).running !== true) retireSessionStream(sideId)
   sidePanePlacement.remove(sideId)
   for (const runtime of sidePaneRuntimes.values()) if (runtime.sessionId === sideId) {
     setSidePaneSession(runtime, null)
@@ -9186,6 +9207,10 @@ chatStreamStore.subscribe((state, previousState) => {
   for (const change of sessionRunningChanges(previousState.sessions, state.sessions)) {
     if (state.sessions[change.sessionId]?.provisional || previousState.sessions[change.sessionId]?.provisional) continue
     setSessionRunning(change.sessionId, change.running)
+    // A working session whose stream was tombstoned (surface removed mid-turn)
+    // revives here even without a remount: the lifecycle frame proves the host
+    // still owns the conversation.
+    if (change.running && reviveSessionStream(change.sessionId)) void loadSessionHistory(change.sessionId)
     if (sideRuntimeForSession(change.sessionId)) (window as any).klausUpdateSideSendButton?.()
     // Session state is also a reconciliation trigger for the task source. A
     // detached agent keeps its own activity state while the parent row settles.
@@ -9251,8 +9276,18 @@ async function submitTurnPayload(targetSessionId: string, payload: OutgoingPaylo
       sentUserDisplayMetadata(payload),
     )
   } catch (err) {
-    await reconcileSessionWorking(targetSessionId, false)
     const message = (err as Error | null)?.message || String(err)
+    if (isTurnInProgressRefusal(err)) {
+      // The host admits no second turn while one runs: the refusal is a routing
+      // instruction, not a provider failure. Re-route the payload through the
+      // follow-up channel (steer first, queue as fallback). The optimistic row
+      // already on screen becomes the steer/queue row, so nothing paints twice
+      // and the refusal never surfaces as a transcript row.
+      if (await rerouteRefusedSendAsFollowUp(targetSessionId, payload)) return null
+      if (!options.quietError) window.showToast?.(tt('follow_up_failed'), { duration: 4000 })
+      return message
+    }
+    await reconcileSessionWorking(targetSessionId, false)
     // quietError 供队列派发/Retry 用：失败由行进入 paused 等 Retry，
     // 不再另弹错误气泡；普通发送路径保留 live-error 气泡。
     if (!options.quietError) {
@@ -9265,6 +9300,13 @@ async function submitTurnPayload(targetSessionId: string, payload: OutgoingPaylo
   // conversation as content-bearing even while the rollout flush lags.
   submittedTurnSessionIds.add(targetSessionId)
   return null
+}
+
+/** Re-route a send the host refused as TURN_IN_PROGRESS into the follow-up channel. */
+async function rerouteRefusedSendAsFollowUp(targetSessionId: string, payload: OutgoingPayload | FollowUpQueueItem): Promise<boolean> {
+  if (await steerFollowUp(targetSessionId, payload, { quietError: true })) return true
+  const queued = await queueFollowUp(targetSessionId, payload)
+  return queued.status !== 'refused'
 }
 
 /** Rows of the host-owned queue for one session, or none when nothing is queued. */
