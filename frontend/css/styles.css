@@ -10609,6 +10609,14 @@ body.artifacts-maximized .artifacts-panel > .artifacts-body {
   .msg-group.user [data-owner-sender-col] { display: none; }
 }
 
+/* The side task transcript renders the same owner and incoming rows, but its
+   panel hands each row the full panel width: there is no 720px column and no
+   gutter for the hanging sender columns, so they would clip at the panel edge
+   instead of reading as margin decoration. Keep the faces off that surface. */
+.side-messages-slot [data-external-sender-col],
+.side-messages-slot [data-agent-sender-col],
+.side-messages-slot [data-owner-sender-col] { display: none; }
+
 /* The Changes surface owns both review columns below the shared panel tabs. */
 .artifacts-panel[data-mode="diff"] #diff-view.active {
   display: flex;

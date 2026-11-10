@@ -22,6 +22,11 @@ var buildMainModelItems = async function buildMainModelItems(source) {
   return mainModelCatalogCache.get(source) || [];
 };
 var composerReferenceEntries = function composerReferenceEntries() { return []; };
+// Round-4 side-surface self-heal and refusal net import these from stream-store
+// and send-refusal; extracted composer code touches them on activate and on a
+// refused submit, so the inert stand-ins keep the VM context complete.
+var reviveSessionStream = function reviveSessionStream() { return false; };
+var isTurnInProgressRefusal = function isTurnInProgressRefusal() { return false; };
 `
 
 /** Same stand-ins as an object spread for harnesses that build a VM context literally. */
@@ -39,4 +44,6 @@ export const chatRunnerStubContext = () => ({
     return cache?.get(source) || []
   },
   composerReferenceEntries: () => [],
+  reviveSessionStream: () => false,
+  isTurnInProgressRefusal: () => false,
 })

@@ -2112,10 +2112,11 @@ function initSideComposer(placement: SidePanePlacement = 'right') {
       currentSession: () => sideSurfaceSessionId,
       ensureSession: async () => sideSurfaceSessionId,
       hasDraft: () => !!sideComposedInputText().trim() || sidePendingFiles.length > 0,
-      canStart: () => !!sideSurfaceSessionId && !window.isSessionRunning?.(sideSurfaceSessionId)
-        && !stoppingSessions.has(sideSurfaceSessionId) && !sessionContinueMode(sideSurfaceSessionId)
-        && !sideInput.disabled && sideInput.getAttribute('contenteditable') !== 'false'
-        && (sideVoiceBtn?.dataset.voiceState || 'idle') === 'idle',
+      // The side composer keeps its send affordance at all times: a background
+      // task panel offers no real-time voice conversation, so the voice entry
+      // must never take over the send slot here (the launch presentation hides
+      // #side-send while the composer is empty and idle).
+      canStart: () => false,
       commandActive: () => clone.contains(document.activeElement),
       inChat: () => !!sideSurfaceSessionId && panel.dataset.mode === 'side-chat' && !panel.classList.contains('collapsed'),
       feedback: () => { void submitDebugReport('') },
