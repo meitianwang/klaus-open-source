@@ -8,6 +8,7 @@ import { useT } from '../../i18n'
 import { rawIconHtml } from '../../components/Icon'
 import { RawHtml } from '../../components/RawHtml'
 import { activateModelSource } from '../../pages/settings/model-shared'
+import { authErrorTextForMode } from '../../pages/settings/subscription-card'
 import { authCardCopy } from './auth-card-copy'
 import styles from '../chat.module.css'
 
@@ -123,7 +124,7 @@ export function AuthRequiredCard({ reason, mode }: { reason?: string; mode?: str
       setStatus(newMode === 'subscription' ? t('auth_mode_switched_sub') : t('auth_mode_switched_custom'))
       setPrimaryDisabled(true)
     } catch (err: any) {
-      setStatus(t('auth_switch_failed_prefix') + (err?.message || String(err)))
+      setStatus(t('auth_switch_failed_prefix') + authErrorTextForMode(newMode, err?.message || String(err)))
     }
   }
 

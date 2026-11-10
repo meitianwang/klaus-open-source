@@ -11,6 +11,7 @@ import {
   activateModelSource,
   effectiveModelSource,
 } from '../pages/settings/model-shared'
+import { authErrorTextForMode } from '../pages/settings/subscription-card'
 import { openModelSettings } from '../pages/settings/shell'
 import { claimOverlay, overlayIdForElement, registerOverlay } from '../app/overlay-registry'
 import { AuthMenuRequests, type AuthMenuState } from './auth-menu-state'
@@ -177,7 +178,7 @@ function AuthModeMenu({ anchor, state, requests, onClose }: { anchor: HTMLElemen
       await activateModelSource(nextMode, state.sessionId)
       if (state.sessionId === (w().currentSessionId ?? null)) w().showToast(authModeSwitchText(nextMode))
     } catch (err: any) {
-      if (state.sessionId === (w().currentSessionId ?? null)) w().showToast(t('auth_switch_failed_prefix') + (err?.message || String(err)))
+      if (state.sessionId === (w().currentSessionId ?? null)) w().showToast(t('auth_switch_failed_prefix') + authErrorTextForMode(nextMode, err?.message || String(err)))
     }
   }
 

@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { I18N } from '../../i18n/messages'
 import { AUTH_MODE_ORDER, isSourceNotSignedIn, normalizeAuthMode, sourceLabel } from './model-shared'
-import { authErrorText, loginThroughDeviceFlow, SUBSCRIPTION_SOURCES } from './subscription-card'
+import { authErrorText, authErrorTextForMode, loginThroughDeviceFlow, SUBSCRIPTION_SOURCES } from './subscription-card'
 
 // The engine answers per-source model catalog requests for a source with no
 // stored login with a human sentence, not an error code. The settings page
@@ -99,6 +99,35 @@ describe('QoderWork subscription presentation', () => {
           expect(I18N.zh[key]).toBeTypeOf('string')
           expect(authErrorText(source, error)).toBe(I18N[language][key].replace(/\{name\}/g, 'QoderWork'))
         }
+      } finally {
+        ;(globalThis as any).window = previous
+      }
+    })
+  }
+})
+
+// Switching the main model from the composer or the transcript auth card fails
+// through the host channel wrapper, so the renderer receives transport noise
+// around the stable verdict code. The mapping must peel that wrapper or the
+// toast leaks machine text like "app-server rpc error -32000".
+describe('wrapped engine verdicts stay readable', () => {
+  const wrapped = (code: string) => `channel 'session:set-main-model' failed: app-server rpc error -32000: ${code}`
+
+  for (const language of ['en', 'zh'] as const) {
+    test(`maps wrapped not-signed-in verdicts to ${language} copy`, () => {
+      const previous = (globalThis as any).window
+      ;(globalThis as any).window = { currentLang: language }
+      try {
+        const antigravity = authErrorText(SUBSCRIPTION_SOURCES.antigravity, wrapped('antigravity_not_signed_in'))
+        expect(antigravity).toBe(I18N[language].antigravity_not_signed_in)
+        expect(antigravity).not.toContain('rpc error')
+        expect(authErrorTextForMode('antigravity', wrapped('antigravity_not_signed_in'))).toBe(antigravity)
+        const qoderwork = authErrorText(SUBSCRIPTION_SOURCES.qoderwork, wrapped('qoderwork_local_not_signed_in'))
+        expect(qoderwork).toBe(I18N[language].auth_err_qoderwork_not_signed_in.replace(/\{name\}/g, 'QoderWork'))
+        const trae = authErrorText(SUBSCRIPTION_SOURCES.trae, wrapped('trae_not_signed_in'))
+        expect(trae).toBe(I18N[language].trae_not_logged_in)
+        // Human-readable prose keeps passing through untouched.
+        expect(authErrorText(SUBSCRIPTION_SOURCES.antigravity, 'Usage request timed out. Please try again.')).toBe('Usage request timed out. Please try again.')
       } finally {
         ;(globalThis as any).window = previous
       }

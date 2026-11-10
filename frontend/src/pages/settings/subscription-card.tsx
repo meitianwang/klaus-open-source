@@ -4,6 +4,7 @@ import { useT, t as tGlobal } from '../../i18n'
 import { cursorErrorText } from '../../app/cursor-errors'
 import { knownTraeAuthErrorText } from '../../app/trae-errors'
 import { knownKiroAuthErrorText } from '../../app/kiro-errors'
+import { knownAntigravityErrorText } from '../../app/antigravity-errors'
 import { activateModelSource, KlsSelect } from './model-shared'
 import styles from './settings.module.css'
 import { settingsErrorText } from './settings-error-text'
@@ -546,7 +547,6 @@ const AUTH_ERROR_KEYS: Record<string, string> = {
   antigravity_auth_method_unsupported: 'antigravity_auth_method_unsupported',
   antigravity_login_expired: 'antigravity_login_expired',
   antigravity_refresh_unavailable: 'antigravity_refresh_unavailable',
-  antigravity_not_signed_in: 'antigravity_not_logged_in',
   antigravity_login_invalid_flow: 'antigravity_browser_login_expired',
   antigravity_login_cancelled: 'antigravity_login_cancelled',
   antigravity_login_denied: 'antigravity_login_denied',
@@ -659,35 +659,65 @@ const AUTH_ERROR_KEYS: Record<string, string> = {
   credential_store_delete_failed: 'auth_err_store_delete',
 }
 
-export function authErrorText(source: SubscriptionSource, error: unknown): string {
-  if (source.mode === 'kiro') {
-    const known = knownKiroAuthErrorText(error, tGlobal)
+// The host wraps engine verdicts in transport noise before the renderer sees
+// them ("channel 'session:set-main-model' failed: app-server rpc error -32000:
+// <code>"); the trailing stable code is the part the tables below understand,
+// so peel the wrapper before falling back to the generic failure sentence.
+function embeddedAuthCode(raw: string): string | undefined {
+  const match = /(?:app-server rpc error -?\d+:\s*|failed:\s*)([a-z][a-z0-9_]*_[a-z0-9_]+)\s*$/u.exec(raw)
+  return match ? match[1] : undefined
+}
+
+function authCodeText(mode: string, code: string, name: string): string | undefined {
+  if (mode === 'kiro') {
+    const known = knownKiroAuthErrorText(code, tGlobal)
     if (known) return known
   }
-  if (source.mode === 'trae') {
-    const known = knownTraeAuthErrorText(error, tGlobal)
+  if (mode === 'trae') {
+    const known = knownTraeAuthErrorText(code, tGlobal)
     if (known) return known
   }
+  if (mode === 'cursor') {
+    const message = cursorErrorText(code, tGlobal)
+    if (message !== code) return message
+  }
+  const antigravity = knownAntigravityErrorText(code, tGlobal)
+  if (antigravity) return antigravity
+  const key = AUTH_ERROR_KEYS[code]
+  if (key) return tGlobal(key).replace(/\{name\}/g, name)
+  return undefined
+}
+
+/** Stable host/service codes become user-facing sentences; the mode only names the source for {name} copy. */
+export function authErrorTextForMode(mode: string, error: unknown): string {
   const raw = typeof error === 'string' ? error.trim() : ''
   if (!raw) return tGlobal('auth_unknown_error')
+  const name = tGlobal(SUBSCRIPTION_SOURCES[mode]?.label ?? `auth_${mode}`)
   // A seats/license refusal carries the gateway's own sentence after the code, so
   // it is matched by prefix and the server's wording is kept: "retry" would be the
   // wrong advice for a seat limit, and the reason is only known server-side.
   const license = /^workbuddy_license_rejected:\d+:(.*)$/u.exec(raw)
   if (license) return `${tGlobal('auth_err_workbuddy_license')} ${license[1]}`.trim()
-  if (source.mode === 'cursor') {
-    const message = cursorErrorText(raw, tGlobal)
-    if (message !== raw) return message
+  const direct = authCodeText(mode, raw, name)
+  if (direct) return direct
+  const embedded = embeddedAuthCode(raw)
+  if (embedded) {
+    const mapped = authCodeText(mode, embedded, name)
+    if (mapped) return mapped
   }
-  const key = AUTH_ERROR_KEYS[raw]
-  if (key) return tGlobal(key).replace(/\{name\}/g, tGlobal(source.label))
-  // 不在表里的 snake_case 是宿主的内部码，用户读不懂，只能报一句通用失败；原码留到
-  // 控制台，不然排查时就无迹可寻。带空格标点的是写给人看的消息（HTTP 报错之类），原样透出。
+  // A snake_case string absent from the tables is a host-internal code a user
+  // cannot read, so report a generic failure and keep the code in the console
+  // for diagnosis. Spaced and punctuated text is already written for humans
+  // (HTTP failures and the like), so it passes through untouched.
   if (/^[a-z0-9_]+$/.test(raw)) {
     console.warn('[Settings] unmapped auth error code:', raw)
     return tGlobal('auth_unknown_error')
   }
   return raw
+}
+
+export function authErrorText(source: SubscriptionSource, error: unknown): string {
+  return authErrorTextForMode(source.mode, error)
 }
 
 export async function readSubscriptionStatus(source: SubscriptionSource): Promise<any> {
