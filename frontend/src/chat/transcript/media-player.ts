@@ -23,7 +23,8 @@ let activeMenu: { button: HTMLButtonElement; close: (restoreFocus?: boolean) => 
 const w = () => window as any
 
 function text(key: string, fallback: string, vars?: Record<string, string>): string {
-  let value = String(w().tt?.(key) || fallback)
+  const translated = w().tt?.(key)
+  let value = String(translated && translated !== key ? translated : fallback)
   for (const [name, replacement] of Object.entries(vars || {})) value = value.split(`{${name}}`).join(replacement)
   return value
 }

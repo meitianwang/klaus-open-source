@@ -7,7 +7,10 @@ import { writeClipboardText } from '../clipboard'
 document.documentElement.classList.add(/win/i.test(navigator.platform) ? 'platform-win32' : 'platform-darwin')
 
 const klausApi = (window as any).klaus
-const text = (key: string, fallback: string): string => (window as any).tt?.(key) || fallback
+const text = (key: string, fallback: string): string => {
+  const translated = (window as any).tt?.(key)
+  return translated && translated !== key ? translated : fallback
+}
 const preferencesReady = Promise.resolve((window as any).loadPreferences?.()).catch(() => {})
 
 const params = new URLSearchParams(window.location.search)

@@ -31,7 +31,9 @@ export function classifySlashCommand(command: SlashCommand | null | undefined): 
 // 页面自身已不展示扩展命令，但这个映射不能删。
 export function slashCommandTypeLabel(type: string | null | undefined): string {
   const key = String(type || 'unknown').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '')
-  return t(`slash_commands_type_${key}`) || type || t('unknown')
+  const i18nKey = `slash_commands_type_${key}`
+  const translated = t(i18nKey)
+  return (translated && translated !== i18nKey ? translated : '') || type || t('slash_commands_type_unknown')
 }
 
 // 内置 compact 命令是 CLI 面（`klaus ... compact` 子命令）的入口：桌面端另有
