@@ -33,7 +33,7 @@ const renderer = runInNewContext(`${code}\n({ renderUsageBarRow, renderUsageWind
   renderUsageBarRow(label: string, value: string, usedPercent: number): string
   renderUsageWindows(data: { windows: Array<{ usedPercent?: number; remaining?: number; disabled?: boolean; description?: string }> }): string
   renderUsageCredits(label: string, credits: { usedPercent?: number; used?: number; total?: number; remaining?: number; unit?: string; pools?: Array<{ creditType?: string; creditAmount: string; minimumCreditAmountForUsage?: string }> }): string
-  renderAntigravityUsageWindows(data: { windows: Array<{ id?: string; usedPercent?: number; remaining?: number | string; total?: number | string; expiresAt?: number; resetsAt?: number; unlimited?: boolean; disabled?: boolean; description?: string; groupLabel?: string; windowKind?: string; windowToken?: string }> }, showLimits?: boolean): string
+  renderAntigravityUsageWindows(data: { windows: Array<{ id?: string; usedPercent?: number; remaining?: number | string; total?: number | string; expiresAt?: number; resetsAt?: number; unlimited?: boolean; disabled?: boolean; description?: string; groupLabel?: string; windowKind?: string; windowToken?: string; resetNotice?: boolean }> }, showLimits?: boolean): string
   renderAntigravityUsageCredits(label: string, credits: { usedPercent?: number; used?: number | string; total?: number | string; remaining?: number | string; unit?: string; pools?: Array<{ creditType?: string; creditAmount: string; minimumCreditAmountForUsage?: string }> }, showAmounts?: boolean): string
 }
 
@@ -152,9 +152,10 @@ test('ordinary quota windows and credits keep their established missing-value fo
 test('shared quota pools render one header per group with a row per window', () => {
   const now = Date.now()
   const html = renderer.renderAntigravityUsageWindows({ windows: [
-    { id: 'pool_weekly', groupLabel: 'Gemini Models', windowKind: 'weekly', usedPercent: 92, resetsAt: now + ((4 * 24 + 23) * 60 + 30) * 60000 },
-    { id: 'pool_duration_5h', groupLabel: 'Gemini Models', windowKind: 'duration', windowToken: '5h', usedPercent: 0, resetsAt: now + 5 * 3600000 },
-    { id: 'pool_weekly', groupLabel: 'Claude and GPT models', windowKind: 'weekly', usedPercent: 80, resetsAt: now + (5 * 24 + 4) * 60 * 60000 },
+    { id: 'pool_weekly', groupLabel: 'Gemini Models', windowKind: 'weekly', usedPercent: 92, resetsAt: now + ((4 * 24 + 23) * 60 + 30) * 60000, resetNotice: true },
+    { id: 'pool_duration_5h', groupLabel: 'Gemini Models', windowKind: 'duration', windowToken: '5h', usedPercent: 0, resetsAt: now + 5 * 3600000, resetNotice: true },
+    { id: 'pool_weekly', groupLabel: 'Claude and GPT models', windowKind: 'weekly', usedPercent: 80, resetsAt: now + (5 * 24 + 4) * 60 * 60000, resetNotice: true },
+    { id: 'pool_duration_5h', groupLabel: 'Claude and GPT models', windowKind: 'duration', windowToken: '5h', usedPercent: 40, resetsAt: now + 3 * 3600000 },
   ] })
   expect(html.match(/usage-group-head/g)).toHaveLength(2)
   expect(html).toContain('Gemini Models')
@@ -163,8 +164,11 @@ test('shared quota pools render one header per group with a row per window', () 
   expect(html).toContain('5h limit')
   expect(html).toContain('Resets in 4d 23h')
   expect(html).toContain('Resets in 5d 4h')
-  // an untouched window reports no countdown, so only the drawn-on rows carry one
-  expect(html.match(/Resets in/g)).toHaveLength(2)
+  // the service's reset notice gates the countdown: an untouched window with a
+  // notice still counts down, a drawn-on window without one stays silent
+  expect(html).toContain('Resets in 5h')
+  expect(html.match(/Resets in/g)).toHaveLength(3)
+  expect(html).not.toContain('Resets in 3h')
   expect(html).toContain('8% remaining')
   expect(html).toContain('20% remaining')
   expect(html).toContain('usage-bar-fill high')

@@ -321,6 +321,9 @@ function selectAntigravityGroupWindows(rawWindows: unknown[]): JsonObject[] | un
     if (used !== undefined) entry.row.usedPercent = entry.row.usedPercent === undefined ? used : Math.max(Number(entry.row.usedPercent), used);
     if (remaining !== undefined && remaining >= 0) entry.row.remaining = entry.row.remaining === undefined ? remaining : Math.min(Number(entry.row.remaining), remaining);
     if (reset !== undefined) entry.row.resetsAt = entry.row.resetsAt === undefined ? reset : Math.min(Number(entry.row.resetsAt), reset);
+    // The service attaches a reset notice only to windows it wants the refresh
+    // countdown surfaced for; an untouched window may still carry one.
+    if (typeof raw.description === 'string' && raw.description.trim()) entry.row.resetNotice = true;
     if (raw.disabled === true) entry.row.disabled = true; else entry.allDisabled = false;
   }
   if (!groups.length) return undefined;

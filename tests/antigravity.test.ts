@@ -165,8 +165,8 @@ h.test('shared quota pools keep their service group titles and one row per windo
       groupDescription: 'Models within this group: Claude Opus, Claude Sonnet, GPT-OSS', description: 'A different weekly reset explanation' },
   ] });
   assert.deepEqual(answer, { state: 'ok', windows: [
-    { id: 'pool_weekly', groupLabel: 'Gemini Models', windowKind: 'weekly', usedPercent: 17, resetsAt: reset },
-    { id: 'pool_weekly', groupLabel: 'Claude and GPT models', windowKind: 'weekly', usedPercent: 68, resetsAt: reset + 1000 },
+    { id: 'pool_weekly', groupLabel: 'Gemini Models', windowKind: 'weekly', usedPercent: 17, resetsAt: reset, resetNotice: true },
+    { id: 'pool_weekly', groupLabel: 'Claude and GPT models', windowKind: 'weekly', usedPercent: 68, resetsAt: reset + 1000, resetNotice: true },
   ] });
 });
 
