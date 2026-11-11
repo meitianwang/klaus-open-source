@@ -534,14 +534,18 @@ export function registerServiceHandlerTests(h: Harness, freshRoot: () => string)
     const root = freshRoot(), registry = new ChannelRegistry();
     registerComposerHandlers(registry, { configRoot: root, push: () => {}, onSessionConfigChanged: () => {},
       request: async () => ({ models: [
-        { alias: 'opus', label: 'Opus 5.5', tier: 'high', effortLevels: ['low', 'medium', 'high', 'xhigh', 'max'] },
+        { alias: 'fable', label: 'Fable 5.2', fastMode: true, fastBilling: 'extraCredits', effortLevels: ['low', 'medium', 'high', 'xhigh', 'max'] },
+        { alias: 'opus', label: 'Opus 5.5', tier: 'high', fastMode: true, fastBilling: 'extraCredits', effortLevels: ['low', 'medium', 'high', 'xhigh', 'max'] },
         { alias: 'haiku', label: 'Haiku 5.5', tier: 'low', effortLevels: ['low', 'medium', 'high', 'xhigh', 'max'] },
         { alias: 'legacy-small', label: 'Legacy small', effortLevels: [] },
       ] }) });
     const options = object(await invoke(registry, 'session:get-main-model-options', { source: 'subscription' })).options;
     const rows = Array.isArray(options) ? options.map(row => object(row)) : [];
-    const [opus, haiku, legacy] = rows;
-    assertDeepEqual(rows.map(row => row.value), ['subscription:opus', 'subscription:haiku', 'subscription:legacy-small'], 'all aliases are offered');
+    const [fable, opus, haiku, legacy] = rows;
+    assertDeepEqual(rows.map(row => row.value), ['subscription:fable', 'subscription:opus', 'subscription:haiku', 'subscription:legacy-small'], 'all aliases are offered');
+    assertEqual(object(fable).label, 'Fable 5.2', 'current Fable is labeled');
+    assertEqual(object(fable).supportsFastMode, true, 'Fable 5.2 advertises Fast mode');
+    assertDeepEqual(object(fable).supportedThinkingLevels, ['low', 'medium', 'high', 'xhigh', 'max'], 'Fable effort levels are projected');
     assertDeepEqual(object(opus).supportedThinkingLevels, ['low', 'medium', 'high', 'xhigh', 'max'], 'a declared ladder is projected');
     assertEqual(object(haiku).label, 'Haiku 5.5', 'current Haiku is labeled');
     assertDeepEqual(object(haiku).supportedThinkingLevels, ['low', 'medium', 'high', 'xhigh', 'max'], 'Haiku effort levels are projected');
