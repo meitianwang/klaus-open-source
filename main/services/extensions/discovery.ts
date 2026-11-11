@@ -67,6 +67,7 @@ export function skillFromMarkdown(raw: string, path: string, fallbackName: strin
   const { data, body } = frontmatter(raw);
   if (data.context !== undefined && data.context !== 'inline' && data.context !== 'fork') return undefined;
   const skill: JsonObject = { name: fmString(data.name) ?? fallbackName, description: scalar(data.description)?.trim() || description(body, 'Skill') };
+  assign(skill, 'shortDescription', fmString(data.short_description) ?? fmString(data['short-description']));
   assign(skill, 'whenToUse', fmString(data.when_to_use) ?? fmString(data['when-to-use']));
   assign(skill, 'argumentHint', fmString(data['argument-hint'])); assign(skill, 'allowedTools', toolList(data['allowed-tools']));
   const model = fmString(data.model); if (model !== 'inherit') assign(skill, 'model', model);
