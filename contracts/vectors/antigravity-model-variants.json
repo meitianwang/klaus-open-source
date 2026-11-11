@@ -11,6 +11,7 @@
     {
       "key": "gemini-3.8-flash-high",
       "display_name": "Gemini 3.8 Flash (High)",
+      "inRecommendedSort": true,
       "isDefault": true,
       "providerMetadata": {
         "thinkingBudget": -1,
@@ -30,6 +31,7 @@
     {
       "key": "gemini-3.8-flash-medium",
       "display_name": "Gemini 3.8 Flash (Medium)",
+      "inRecommendedSort": true,
       "isDefault": false,
       "providerMetadata": {
         "thinkingBudget": 4000,
@@ -49,6 +51,7 @@
     {
       "key": "gemini-3.8-flash-low",
       "display_name": "Gemini 3.8 Flash (Low)",
+      "inRecommendedSort": true,
       "isDefault": false,
       "providerMetadata": {
         "thinkingBudget": 1000,

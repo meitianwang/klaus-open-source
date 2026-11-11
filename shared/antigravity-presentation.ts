@@ -43,19 +43,12 @@ export function latestAntigravityFamilyIds(families: AntigravityPresentationFami
   return new Set([...latest.values()].map(family => family.id));
 }
 
-/** Filter the visible menu only; callers retain the complete catalog for saved selections. */
-export function visibleAntigravityModelOptions<T extends { value: string; label?: string; antigravityFamilyId?: string }>(options: T[]): T[] {
-  const families = options.filter(row => row.value.startsWith('antigravity:'))
-    .map(row => antigravityPresentationFamily(row.label || row.value)).filter((family): family is AntigravityPresentationFamily => !!family);
-  const ids = latestAntigravityFamilyIds(families);
-  const representatives = new Map<string, T>();
-  for (const row of options) {
-    if (!row.value.startsWith('antigravity:')) continue;
-    const family = antigravityPresentationFamily(row.label || row.value);
-    if (!family || !ids.has(family.id)) continue;
-    const previous = representatives.get(family.id);
-    // Prefer the full reasoning family over an automatic routing alias.
-    if (!previous || row.antigravityFamilyId === family.id && previous.antigravityFamilyId !== family.id) representatives.set(family.id, row);
-  }
-  return options.filter(row => !row.value.startsWith('antigravity:') || [...representatives.values()].includes(row));
+/** Filter the visible menu only; callers retain the complete catalog for saved
+ *  selections. The menu mirrors the service-curated inventory: once any row
+ *  carries the recommended-sort curation flag, uncategorized rows stay out of
+ *  the menu. A payload without curation data keeps every delivered row. */
+export function visibleAntigravityModelOptions<T extends { value: string; inRecommendedSort?: boolean }>(options: T[]): T[] {
+  const curated = options.some(row => row.value.startsWith('antigravity:') && row.inRecommendedSort === true);
+  if (!curated) return options;
+  return options.filter(row => !row.value.startsWith('antigravity:') || row.inRecommendedSort === true);
 }

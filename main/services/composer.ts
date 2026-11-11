@@ -644,6 +644,7 @@ export class ComposerService {
         ...(isRequestFastSource(source) ? nativeFastModeMetadata(entry, source) : {}) };
       if (source === 'antigravity' || source === 'trae' || source === 'kiro') {
         row.available = entry.disabled !== true && entry.unavailable !== true && entry.available !== false;
+        if (source === 'antigravity' && entry.inRecommendedSort === true) row.inRecommendedSort = true;
         const reason = string(entry.reason) || string(entry.unavailableReason);
         if (reason) row.reason = reason;
         const mimeTypes = object(entry.capabilities).mediaInputMimeTypes ?? entry.mediaInputMimeTypes;

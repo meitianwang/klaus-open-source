@@ -3,6 +3,13 @@ import { object, string, type JsonObject } from './service-types';
 
 interface Member { family: string; label: string; level: string; budget?: number; nativeLevel?: number; toggle?: boolean }
 
+// Families absent from the tables above still declare their effort in the
+// label suffix; grouping by the stripped base keeps newly offered models
+// menu-ready without a code change. Unknown suffix tokens fall through and
+// stay visible as plain rows.
+const EFFORT_SUFFIX = /\s*\((extra\s+low|extra\s+high|low|medium|high|xhigh|max)(?:\s+thinking)?\)\s*$/i;
+const SUFFIX_LEVELS: Record<string, string> = { 'extra low': 'low', low: 'low', medium: 'medium', high: 'high', 'extra high': 'xhigh', xhigh: 'xhigh', max: 'max' };
+
 /** Protocol identities declare these variants; suffixes do not define effort. */
 function member(key: string, entry: JsonObject, row: JsonObject): Member | undefined {
   const fixed: Record<string, Member> = {
@@ -30,6 +37,19 @@ function member(key: string, entry: JsonObject, row: JsonObject): Member | undef
     const index = levels.findIndex(level => key === `${family}-${level}`);
     if (index >= 0) return { family, label, level: levels[index]!, nativeLevel: levels[index] === 'max' ? 200 : index + 1 };
   }
+  const label = string(row.label) || string(entry.display_name) || string(entry.displayName);
+  const suffix = label ? EFFORT_SUFFIX.exec(label) : null;
+  if (suffix) {
+    const base = label.slice(0, suffix.index).trim();
+    const level = SUFFIX_LEVELS[suffix[1]!.toLowerCase().replace(/\s+/g, ' ')];
+    if (base && level) {
+      const nativeLevel = object(entry.providerMetadata).thinkingLevel ?? entry.thinkingLevel;
+      const budget = object(entry.providerMetadata).thinkingBudget ?? entry.thinkingBudget;
+      return { family: base.toLowerCase().replace(/\s+/g, '-'), label: base, level,
+        ...(typeof nativeLevel === 'number' ? { nativeLevel } : {}),
+        ...(typeof budget === 'number' ? { budget } : {}) };
+    }
+  }
   const native = object(entry.providerMetadata).thinkingLevel ?? entry.thinkingLevel;
   const levels: Record<number, string> = { 1: 'low', 2: 'medium', 3: 'high', 4: 'low', 5: 'xhigh', 6: 'max', 200: 'max' };
   if (typeof native === 'number' && levels[native]) return { family: key, label: string(row.label), level: levels[native]!, nativeLevel: native };
@@ -39,7 +59,7 @@ function member(key: string, entry: JsonObject, row: JsonObject): Member | undef
 function matches(entry: JsonObject, definition: Member): boolean {
   const details = { ...object(entry.providerMetadata), ...entry };
   const label = string(entry.display_name) || string(entry.displayName);
-  if (label && label !== definition.label && label.replace(/\s+\((?:Low|Medium|High|Extra High|Max|Thinking)\)$/, '') !== definition.label) return false;
+  if (label && label !== definition.label && label.replace(/\s+\((?:Extra Low|Extra High|Low|Medium|High|Xhigh|Max|Thinking)\)$/, '') !== definition.label) return false;
   if (details.supportsThinking === false) return false;
   const provider = string(details.modelProvider);
   if (provider && (definition.family.startsWith('claude-') ? provider !== 'MODEL_PROVIDER_ANTHROPIC'
@@ -78,13 +98,16 @@ export function antigravityModelOptions(entries: JsonObject[], options: JsonObje
   return order.map(item => {
     if ('row' in item) return item.row;
     const family = families.get(item.family)!;
+    // A lone declared variant is the model itself; keep its service label.
+    if (family.members.length === 1 && !family.definition.toggle) return family.rows[0]!;
     const representative = family.members.find(variant => variant.isDefault && variant.available)
       ?? family.members.find(variant => variant.available) ?? family.members[0]!;
     const row = family.rows.find(row => row.value === representative.value)!;
     const grouped: JsonObject = { ...row, label: family.definition.label,
       ...(row.description === row.label ? { description: family.definition.label } : {}),
       antigravityFamilyId: item.family, antigravityVariants: family.members as unknown as JsonObject[],
-      ...(family.definition.toggle ? { antigravityThinkingToggle: true } : {}) };
+      ...(family.definition.toggle ? { antigravityThinkingToggle: true } : {}),
+      ...(family.rows.some(member => member.inRecommendedSort === true) ? { inRecommendedSort: true } : {}) };
     return antigravityModelOptionForValue(grouped, representative.value)!;
   });
 }

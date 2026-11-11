@@ -49,7 +49,11 @@ export function registerAntigravityModelVariantTests(h: Harness): void {
         assert.equal(selected.label, 'Gemini 3.8 Flash');
         assert(modelOptionHasValue(family[0], model(level).slice('antigravity:'.length)));
       }
-      assert(!rows.some(row => /\((?:High|Medium|Low|Thinking)\)$/.test(String(row.label))));
+      // Grouped families strip the effort suffix; a lone declared variant keeps
+      // the service label, and the curation flag rides the grouped row.
+      assert(!rows.some(row => Array.isArray(row.antigravityVariants) && /\((?:High|Medium|Low|Thinking)\)$/.test(String(row.label))));
+      assert(rows.some(row => String(row.label) === 'GPT-OSS 120B (Medium)' && !row.antigravityVariants));
+      assert.equal(family[0]!.inRecommendedSort, true);
       assert(!rows.some(row => ['antigravity:chat_20706', 'antigravity:gemini-3.1-flash-image', 'antigravity:gemini-3.5-flash-lite'].includes(String(row.value))));
       const lite = rows.filter(row => row.label === 'Gemini 3.5 Flash Lite');
       assert.equal(lite.length, 1);
