@@ -26,6 +26,9 @@ var composerReferenceEntries = function composerReferenceEntries() { return []; 
 // and send-refusal; extracted composer code touches them on activate and on a
 // refused submit, so the inert stand-ins keep the VM context complete.
 var reviveSessionStream = function reviveSessionStream() { return false; };
+// Round-8 side-surface repaint loads saved history on every activation, so the
+// extracted activate body now references loadSessionHistory unconditionally.
+var loadSessionHistory = function loadSessionHistory() { return Promise.resolve(); };
 var isTurnInProgressRefusal = function isTurnInProgressRefusal() { return false; };
 // Round-7 side draft persistence adds module-level helpers that the extracted
 // composer code calls on bind, input and submit; the VM context needs them.
@@ -50,6 +53,7 @@ export const chatRunnerStubContext = () => ({
   },
   composerReferenceEntries: () => [],
   reviveSessionStream: () => false,
+  loadSessionHistory: () => Promise.resolve(),
   isTurnInProgressRefusal: () => false,
   persistSideDraft: () => {},
   persistedSideDraft: () => null,

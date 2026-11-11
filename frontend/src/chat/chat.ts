@@ -1815,9 +1815,15 @@ window.klausSideSurfaceActivate = async (sideId, placement: SidePanePlacement = 
   if (!sideId) return
   prepareEphemeralSessionStream(sideId)
   // A surface can return for a session whose stream was tombstoned while the
-  // turn kept running (idle sweep, scope switch). Unseal it and repaint from
-  // saved history before the live tail resumes.
-  if (reviveSessionStream(sideId)) void loadSessionHistory(sideId)
+  // turn kept running (idle sweep, scope switch). Unseal it first so the
+  // repaint below is not rejected by the tombstone.
+  reviveSessionStream(sideId)
+  // Prepare invalidates pagination and shells, and turns can complete while
+  // the slot is hidden, so every activation owes the slot a fresh read.
+  // Loading only on the tombstoned path left non-retired streams painting the
+  // history they had when the surface went away: whole completed turns never
+  // appeared until an unrelated trigger re-read them.
+  void loadSessionHistory(sideId)
   const runtime = sideRuntime(placement)
   const source = sideRuntimeForSession(sideId)
   if (source && source !== runtime) {
@@ -1866,18 +1872,18 @@ window.klausSideSurfaceRemove = sideId => {
     sideSurfaces.delete(sideId)
   }
   surfacesBySession.delete(sideId)
-  // Removing a surface is view lifecycle, not session end. A turn still running
-  // behind a closed tab keeps its live transcript in the stream cache (the
-  // eviction guard protects running streams) and repaints from history plus
-  // live tail when the surface returns. Retiring here tombstones the session:
-  // every later event of the running turn is dropped, the transcript freezes
-  // mid-flight, and the composer loses the running state that routes sends to
-  // the follow-up channel.
-  // An idle stream that still carries retained live units (a flush-lag window
-  // armed historyStale) must survive surface removal: retiring tombstones it
-  // and drops the not-yet-saved tail the retention gate just protected.
-  const closingStream = getSessionStream(sideId)
-  if (!runningSessions.has(sideId) && closingStream.running !== true && !closingStream.historyStale) retireSessionStream(sideId)
+  // Surface removal is view lifecycle, not session end: never tombstone here.
+  // A turn still running behind a closed tab keeps its live transcript in the
+  // stream cache and repaints from history plus live tail when the surface
+  // returns; a tombstone would drop every later event of that turn, freeze it
+  // mid-flight and cost the composer the running state that routes sends to
+  // the follow-up channel. A tombstone on an idle stream is just as bad: it
+  // drops the late frames of a just-settled turn (flush lag) and the
+  // historyStale tail the retention gate just protected, and the next
+  // activation repaints from disk anyway. Idle streams are reclaimed by the
+  // byte-capped eviction (trimSessionStreamCache), which removes them without
+  // sealing the session; tombstones stay reserved for deleted sessions
+  // (forgetSessionLocalState) whose late traffic must be rejected.
   sidePanePlacement.remove(sideId)
   for (const runtime of sidePaneRuntimes.values()) if (runtime.sessionId === sideId) {
     setSidePaneSession(runtime, null)
@@ -16286,52 +16292,16 @@ function usageFormatTime(ms: number | undefined) {
   } catch { return '' }
 }
 
-/** Localize a service window token such as `5h` into the label's own unit words. */
-function usageLocalizedDuration(token: string | undefined) {
-  const parsed = /^(\d+)([smhd])$/.exec(token || '')
-  if (!parsed) return token || ''
-  const zh = window.currentLang === 'zh'
-  const units: Record<string, [string, string]> = { s: ['s', '秒'], m: ['m', '分钟'], h: ['h', '小时'], d: ['d', '天'] }
-  const unit = units[parsed[2]!]!
-  return zh ? `${parsed[1]} ${unit[1]}` : `${parsed[1]}${unit[0]}`
-}
-
-/** Countdown to a window reset, floored to whole minutes and capped at two units. */
-function usageFormatCountdown(ms: number | undefined, now = Date.now()) {
-  if (ms === undefined || !Number.isFinite(ms)) return ''
-  const total = Math.floor(Math.max(0, ms - now) / 60000)
-  const days = Math.floor(total / 1440), hours = Math.floor((total % 1440) / 60), mins = total % 60
-  const zh = window.currentLang === 'zh'
-  const unit = (value: number, en: string, zhUnit: string) => zh ? `${value} ${zhUnit}` : `${value}${en}`
-  const text = days > 0 && hours > 0 ? `${unit(days, 'd', '天')} ${unit(hours, 'h', '小时')}`
-    : days > 0 ? unit(days, 'd', '天')
-      : hours > 0 && mins > 0 ? `${unit(hours, 'h', '小时')} ${unit(mins, 'm', '分钟')}`
-        : hours > 0 ? unit(hours, 'h', '小时')
-          : mins > 0 ? unit(mins, 'm', '分钟') : ''
-  if (!text) return tt('usage_resets_lt_minute')
-  return tt('usage_resets_in').replace('{duration}', text)
-}
-
-/** Shared-pool windows name their window kind; anything else keeps its reported label. */
-function antigravityWindowLabel(win: { windowKind?: string; windowToken?: string; label?: string; id?: string; usedPercent?: number }) {
-  if (win.windowKind === 'weekly') return tt('usage_window_weekly_limit')
-  if (win.windowKind === 'daily') return tt('usage_window_daily_limit')
-  if (win.windowKind === 'duration') return tt('usage_window_duration_limit').replace('{duration}', usageLocalizedDuration(win.windowToken))
-  return usageWindowLabel(win)
-}
-
-function renderUsageBarRow(label: string, valueText: string, usedPercent: number, options?: { fillClass?: string; labelSub?: string }) {
+function renderUsageBarRow(label: string, valueText: string, usedPercent: number) {
   const usedPct = Math.min(100, Math.max(0, Number(usedPercent) || 0))
   const remainingPct = 100 - usedPct
-  const fillClass = options?.fillClass !== undefined ? options.fillClass : (usedPct >= 90 ? 'high' : '')
-  const sub = options?.labelSub ? `<span class="usage-row-sub">${escapeHtml(options.labelSub)}</span>` : ''
   return `
     <div class="usage-row">
       <div class="usage-row-top">
-        <span class="usage-row-label">${escapeHtml(label)}${sub}</span>
+        <span class="usage-row-label">${escapeHtml(label)}</span>
         <span class="usage-row-value">${escapeHtml(valueText)}</span>
       </div>
-      <div class="usage-bar"><div class="usage-bar-fill${fillClass ? ` ${fillClass}` : ''}" style="width:${remainingPct}%"></div></div>
+      <div class="usage-bar"><div class="usage-bar-fill${usedPct >= 90 ? ' high' : ''}" style="width:${remainingPct}%"></div></div>
     </div>`
 }
 
@@ -16360,18 +16330,10 @@ function renderUsageCredits(labelKey: string, credits: { used?: number; total?: 
 }
 
 
-function renderAntigravityUsageWindows(data: { windows?: Array<{ usedPercent?: number; remaining?: number | string; total?: number | string; used?: number | string; unit?: string; expiresAt?: number; resetsAt?: number; label?: string; id?: string; disabled?: boolean; unlimited?: boolean; description?: string; groupDescription?: string; groupLabel?: string; windowKind?: string; windowToken?: string }> }, showLimits = false) {
+function renderAntigravityUsageWindows(data: { windows?: Array<{ usedPercent?: number; remaining?: number | string; total?: number | string; used?: number | string; unit?: string; expiresAt?: number; resetsAt?: number; label?: string; id?: string; disabled?: boolean; unlimited?: boolean; description?: string; groupDescription?: string }> }, showLimits = false) {
   const windows = Array.isArray(data.windows) ? data.windows : []
   if (!windows.length) return `<div class="usage-empty">${escapeHtml(tt('usage_no_windows'))}</div>`
-  let html = ''
-  let lastGroup: string | undefined
-  for (const win of windows) {
-    const group = typeof win.groupLabel === 'string' && win.groupLabel.trim() ? win.groupLabel.trim() : undefined
-    if (group !== lastGroup) {
-      if (group !== undefined) html += `<div class="usage-group-head">${escapeHtml(group)}</div>`
-      lastGroup = group
-    }
-    const pooled = win.windowKind !== undefined
+  return windows.map(win => {
     const usedPct = typeof win.usedPercent === 'number' && Number.isFinite(win.usedPercent) ? Math.min(100, Math.max(0, win.usedPercent)) : undefined
     // The bar fill is remaining allowance, so the number beside it must say
     // remaining too; mixing the two readings in one row is what confused users.
@@ -16386,20 +16348,13 @@ function renderAntigravityUsageWindows(data: { windows?: Array<{ usedPercent?: n
     if (showLimits && formatAmount(win.total) !== undefined) parts.push(`${tt('trae_usage_limit')}: ${formatAmount(win.total)} ${win.unit || ''}`.trim())
     const expiry = showLimits ? usageFormatTime(win.expiresAt) : ''
     if (expiry) parts.push(`${tt('usage_expires')} ${expiry}`)
-    // A pooled window carries its reset as a countdown under the title; a window
-    // nothing has drawn on yet has no countdown worth showing.
-    const countdown = pooled && usedPct !== undefined && usedPct > 0 && win.disabled !== true ? usageFormatCountdown(win.resetsAt) : ''
-    const reset = pooled ? '' : usageFormatTime(win.resetsAt)
+    const reset = usageFormatTime(win.resetsAt)
     if (reset) parts.push(`${tt('usage_resets')} ${reset}`)
-    const label = pooled ? antigravityWindowLabel(win) : usageWindowLabel(win)
-    const remainingPct = usedPct !== undefined ? 100 - usedPct : undefined
-    const fillClass = pooled && remainingPct !== undefined ? (remainingPct < 10 ? 'high' : remainingPct < 25 ? 'warn' : '') : undefined
-    const row = usedPct !== undefined && win.disabled !== true && !(showLimits && win.unlimited === true) ? renderUsageBarRow(label, parts.join(' · '), usedPct, { fillClass, labelSub: countdown || undefined })
-      : `<div class="usage-row"><div class="usage-row-top"><span class="usage-row-label">${escapeHtml(label)}</span><span class="usage-row-value">${escapeHtml(parts.join(' · '))}</span></div></div>`
+    const row = usedPct !== undefined && win.disabled !== true && !(showLimits && win.unlimited === true) ? renderUsageBarRow(usageWindowLabel(win), parts.join(' · '), usedPct)
+      : `<div class="usage-row"><div class="usage-row-top"><span class="usage-row-label">${escapeHtml(usageWindowLabel(win))}</span><span class="usage-row-value">${escapeHtml(parts.join(' · '))}</span></div></div>`
     const description = [win.groupDescription, win.description].filter(Boolean).join(' · ')
-    html += row + (description ? `<div class="usage-meta">${escapeHtml(description)}</div>` : '')
-  }
-  return html
+    return row + (description ? `<div class="usage-meta">${escapeHtml(description)}</div>` : '')
+  }).join('')
 }
 
 function renderAntigravityUsageCredits(labelKey: string, credits: { used?: number | string; total?: number | string; remaining?: number | string; unit?: string; usedPercent?: number; pools?: Array<{ creditType?: string; creditAmount: string; minimumCreditAmountForUsage?: string }> } | null | undefined, showAmounts = false) {

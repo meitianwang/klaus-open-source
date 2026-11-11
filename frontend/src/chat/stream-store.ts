@@ -3089,11 +3089,26 @@ export function loadSessionHistory(sessionId: string, options: {
             const laggingTurns = new Set(Object.keys(prev.turnWorkCompletedAtMs)
               .filter(id => prev.turnStatuses[id] === 'completed'
                 && !settledHistory.some(row => row.role === 'assistant' && row.turnId === id)))
-            const retention = retainUnownedLiveUnits(retentionBase,
+            // An optimistic row the engine has not adopted yet (no turn id,
+            // uuid absent from saved history) exists only in the live layer.
+            // A lagging covers read must not sweep it: that is exactly how a
+            // fresh side send lost its bubble mid-flight while the submission
+            // was still queued or steering on the engine.
+            // Only while the session is still running: once the turn settles,
+            // saved history is the verdict on the submission (adopted rows
+            // carry the client uuid; a refused send retracts its own row), so
+            // holding past the terminal would pin a ghost bubble.
+            const optimisticHeld = prev.running
+              ? handoffBase.filter(unit => unit.type === 'live-user' && !unit.turnId
+                && !supersededKeys?.has(unit.key)
+                && !savedUserIds.has(typeof unit.msg?.uuid === 'string' ? unit.msg.uuid : ''))
+              : []
+            const heldSet = new Set(optimisticHeld)
+            const retention = retainUnownedLiveUnits(retentionBase.filter(unit => !heldSet.has(unit)),
               settledHistory, turnStartClock, handoffBase.some(unit => unit.type === 'live-error'),
               !sameHistoryRows(prev.history, reviewHandoff.history), activeRunningTurn, laggingTurns)
             retainedUnowned = retention.retained
-            sweptLiveUnits = [...kept, ...retention.units]
+            sweptLiveUnits = [...kept, ...optimisticHeld, ...retention.units]
           }
         }
         const mergedHistory = mergeAgentTimeline(settledHistory, agentTimeline)
