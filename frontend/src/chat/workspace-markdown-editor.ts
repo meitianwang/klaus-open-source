@@ -78,7 +78,7 @@ export interface MarkdownPresentation {
 const externalContent = Annotation.define<boolean>()
 const focusEffect = StateEffect.define<boolean>()
 const presentationRefresh = StateEffect.define<null>()
-const AST_OPTIONS = { extensions: [gfm()], mdastExtensions: [gfmFromMarkdown()] }
+const AST_OPTIONS = { extensions: [gfm({ singleTilde: false })], mdastExtensions: [gfmFromMarkdown()] }
 
 /** Map external edits narrowly so unaffected selections and undo entries survive. */
 export function markdownExternalChanges(state: EditorState, content: string) {

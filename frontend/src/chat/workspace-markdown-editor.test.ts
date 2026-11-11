@@ -75,11 +75,12 @@ describe('live Markdown presentation', () => {
   })
 
   test('supports setext headings, quotes, strike-through, lists and thematic breaks', () => {
-    const source = 'Heading\n=======\n\n> Quote with ~~deleted~~ text\n\n- Item\n\n---'
+    const source = 'Heading\n=======\n\n> Quote with ~~deleted~~ text and 11~16 KB to 3~5 KB\n\n- Item\n\n---'
     const specs = planMarkdownPresentation(source)
     expect(specs.some(spec => spec.kind === 'hide' && source.slice(spec.from, spec.to) === '\n=======')).toBe(true)
     expect(specs.some(spec => spec.kind === 'hide' && source.slice(spec.from, spec.to) === '> ')).toBe(true)
     expect(specs.some(spec => spec.kind === 'hide' && source.slice(spec.from, spec.to) === '~~')).toBe(true)
+    expect(specs.some(spec => spec.kind === 'hide' && source.slice(spec.from, spec.to) === '~')).toBe(false)
     expect(specs.some(spec => spec.kind === 'rule')).toBe(true)
   })
 

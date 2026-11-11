@@ -65,11 +65,27 @@ function createRenderer(markedApi: any) {
   return renderer
 }
 
+const DOUBLE_TILDE_STRIKETHROUGH = /^(~~)(?=[^\s~])((?:\\.|[^\\])*?(?:\\.|[^\s~\\]))\1(?=[^~]|$)/
+
 export function render(markedApi: any, markdown: unknown): string {
   if (typeof markedApi?.parse !== 'function') throw new Error('Marked parser is unavailable')
-  return String(markedApi.parse(String(markdown ?? ''), {
+  const source = String(markdown ?? '')
+  const renderer = createRenderer(markedApi)
+  const tokenizer = {
+    del(this: any, src: string) {
+      const cap = DOUBLE_TILDE_STRIKETHROUGH.exec(src)
+      if (!cap) return undefined
+      return { type: 'del', raw: cap[0], text: cap[2], tokens: this.lexer.inlineTokens(cap[2]) }
+    },
+  }
+  if (typeof markedApi.Marked === 'function') {
+    const instance = new markedApi.Marked({ gfm: true, renderer, tokenizer })
+    return String(instance.parse(source) ?? '')
+  }
+  return String(markedApi.parse(source, {
     gfm: true,
-    renderer: createRenderer(markedApi),
+    renderer,
+    tokenizer,
   }) ?? '')
 }
 

@@ -17,7 +17,7 @@ interface MarkdownNode {
 function imageHrefs(text: string): string[] {
   let root: MarkdownNode;
   try {
-    root = fromMarkdown(text, { extensions: [gfm()], mdastExtensions: [gfmFromMarkdown()] }) as MarkdownNode;
+    root = fromMarkdown(text, { extensions: [gfm({ singleTilde: false })], mdastExtensions: [gfmFromMarkdown()] }) as MarkdownNode;
   } catch {
     return [];
   }

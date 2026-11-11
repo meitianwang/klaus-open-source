@@ -12,7 +12,7 @@ export interface PlanTableCell { from: number; to: number; content: string }
 
 /** Cell edits splice only authored content, retaining delimiters and surrounding padding. */
 export function planTableCells(source: string, offset = 0, tableFrom?: number): PlanTableCell[][] {
-  const root = fromMarkdown(source, { extensions: [gfm()], mdastExtensions: [gfmFromMarkdown()] }) as Node
+  const root = fromMarkdown(source, { extensions: [gfm({ singleTilde: false })], mdastExtensions: [gfmFromMarkdown()] }) as Node
   const find = (node: Node): Node | undefined => node.type === 'table' && (tableFrom === undefined || node.position?.start.offset === tableFrom) ? node : node.children?.map(find).find(Boolean)
   const table = find(root)
   return table?.children?.map(row => row.children?.map(cell => {

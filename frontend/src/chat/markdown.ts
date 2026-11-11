@@ -16,7 +16,17 @@ export { normalizeImageHrefToPath, resolveImageSrc } from './markdown-media'
 
 // 三个函数共用同一套 markdown 图 token 解析（覆盖 file://、尖括号、title 写法）。
 // `hrefRaw` 是括号里的原样内容，尖括号写法要先脱壳。
-const imageLexer = new Marked({ gfm: true })
+const DOUBLE_TILDE_STRIKETHROUGH = /^(~~)(?=[^\s~])((?:\\.|[^\\])*?(?:\\.|[^\s~\\]))\1(?=[^~]|$)/
+const imageLexer = new Marked({
+  gfm: true,
+  tokenizer: {
+    del(src: string) {
+      const cap = DOUBLE_TILDE_STRIKETHROUGH.exec(src)
+      if (!cap) return undefined
+      return { type: 'del', raw: cap[0], text: cap[2], tokens: this.lexer.inlineTokens(cap[2]) } as any
+    },
+  },
+})
 type ImageToken = { raw: string; href: string; text: string; title?: string | null }
 
 // Use Markdown tokens so reference images work and examples inside code remain

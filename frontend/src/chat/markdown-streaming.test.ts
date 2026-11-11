@@ -100,4 +100,10 @@ describe('streaming document correctness', () => {
     expect(renderer.stats().parsedChars).toBeLessThan(fullWork / 5)
     expect(renderer.render('# Replacement', 'reuse', 'message')).toBe(buildPipeline('reuse')('# Replacement'))
   })
+
+  test('renders strikethrough only for double tildes and preserves single-tilde numeric ranges', () => {
+    const render = buildPipeline('strikethrough')
+    expect(render('把每篇 11~16 KB 的详尽规范缩写成了 3~5 KB 的大纲摘要')).toBe('<p>把每篇 11~16 KB 的详尽规范缩写成了 3~5 KB 的大纲摘要</p>\n')
+    expect(render('Keep ~single~ and ~~~triple~~~ literal, strike ~~double~~.')).toBe('<p>Keep ~single~ and ~~~triple~~~ literal, strike <del>double</del>.</p>\n')
+  })
 })

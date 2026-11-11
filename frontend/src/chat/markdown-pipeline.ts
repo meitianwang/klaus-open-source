@@ -32,6 +32,19 @@ function fileCitationHtml(citation: FileCitation, label: string, sessionId: stri
     + `<span class="md-file-citation-label">${escapeHtml(label)}${suffix ? `<span class="md-file-citation-line">${suffix}</span>` : ''}</span></button>`
 }
 
+const DOUBLE_TILDE_STRIKETHROUGH = /^(~~)(?=[^\s~])((?:\\.|[^\\])*?(?:\\.|[^\s~\\]))\1(?=[^~]|$)/
+
+function doubleTildeStrikethrough(this: { lexer: { inlineTokens(src: string): unknown[] } }, src: string) {
+  const cap = DOUBLE_TILDE_STRIKETHROUGH.exec(src)
+  if (!cap) return undefined
+  return {
+    type: 'del',
+    raw: cap[0],
+    text: cap[2],
+    tokens: this.lexer.inlineTokens(cap[2]),
+  }
+}
+
 export function createMarkdownPipeline(sessionId: string, { resolveImageSrc, fileIconSvg, highlightCode = true }: MarkdownPipelineEnvironment) {
   const renderer = new Renderer()
   // Security: escape raw HTML
@@ -98,7 +111,7 @@ export function createMarkdownPipeline(sessionId: string, { resolveImageSrc, fil
     return `<pre><code class="${classes.join(' ')}">${highlighted}</code></pre>`
   } as any
 
-  const instance = new Marked({ breaks: true, gfm: true, renderer })
+  const instance = new Marked({ breaks: true, gfm: true, renderer, tokenizer: { del: doubleTildeStrikethrough as any } })
 
   const renderTex = (tex: string, display: boolean) => {
     try {
