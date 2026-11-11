@@ -1,4 +1,5 @@
 import { friendlyErrorText } from '../friendly-errors'
+import { noticeI18nKey } from '../notice-codes'
 import { pendingSubmissionRecovery } from '../composer/pending-submission'
 import { InlineUserEditor, openInlineUserEdit, useInlineUserEdit } from './inline-user-edit'
 import { installUserMessageDisclosure, registerUserMessageCopy, userMessageCopyContent } from './user-message-disclosure'
@@ -4377,10 +4378,12 @@ function LiveUnitView({ unit, tools, sessionId, unitProps, mediaPaths, mediaAlia
     )
   }
   if (unit.type === 'live-notice') {
-    const multiline = unit.text.includes('\n')
+    const key = noticeI18nKey(unit.code)
+    const text = key ? t(key) || unit.text : unit.text
+    const multiline = text.includes('\n')
     return (
       <div className={`msg-group ${styles['notice']}${multiline ? ' multiline' : ''}`}>
-        <div className={`msg ${styles['notice']}${multiline ? ' multiline' : ''}`}>{unit.text}</div>
+        <div className={`msg ${styles['notice']}${multiline ? ' multiline' : ''}`}>{text}</div>
       </div>
     )
   }

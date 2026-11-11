@@ -217,6 +217,7 @@ import { openImagePreview, configureImagePreview, type ImagePreviewOptions } fro
 import sidebarStyles from './sidebar/sidebar.module.css'
 import { renderMarkdownHtml } from './markdown'
 import { renderErrorNoticeHtml } from './error-notice'
+import { noticeI18nKey } from './notice-codes'
 import { tt, ttCount, setLanguage } from '../app/i18n'
 import { syncTruncatedTip } from '../app/truncated-tip'
 import { claimOverlay, registerOverlay, unregisterOverlay } from '../app/overlay-registry'
@@ -15760,7 +15761,10 @@ function requestTurnStop(sessionId: string) {
     updateSendBtn()
   }
   void klausApi.chat.interrupt(sessionId, expectedTurnId).then((result: any) => {
-    if (result?.interruptionError) showToast(String(result.interruptionError))
+    if (result?.interruptionError) {
+      const interruptNoticeKey = noticeI18nKey(result.interruptionCode)
+      showToast(interruptNoticeKey ? tt(interruptNoticeKey) || String(result.interruptionError) : String(result.interruptionError))
+    }
     if (result?.goalPauseError) showToast(String(result.goalPauseError))
     if (result?.accepted) {
       // The host distinguishes the engine's cancellation verdict from dispatch

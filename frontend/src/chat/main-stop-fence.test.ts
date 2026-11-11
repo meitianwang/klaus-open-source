@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs'
 import { runInNewContext } from 'node:vm'
 import { createSourceFile, isFunctionDeclaration, ScriptKind, ScriptTarget, transpileModule } from 'typescript'
 import { GoalInteractionClock } from './goals/draft-review'
+import { noticeI18nKey } from './notice-codes'
 
 ;(globalThis as any).window = {
   addEventListener() {}, currentLang: 'en', klaus: { session: { history: async () => [] } },
@@ -45,7 +46,7 @@ function fixture(turnId: string | null = 'captured-turn') {
     goalInteractions: new GoalInteractionClock(), clearStopEscArm() {}, getSessionStream: store.getSessionStream,
     requestTurnInterrupt: store.requestTurnInterrupt,
     clearTurnInterruptRequest(id: string) { clears++; store.clearTurnInterruptRequest(id) },
-    updateSendBtn() { renders++ }, showToast(message: string) { toasts.push(message) },
+    updateSendBtn() { renders++ }, showToast(message: string) { toasts.push(message) }, noticeI18nKey,
     clientQueueBySession, pendingQueueAdditions,
     window: { currentSessionId: sessionId, setTimeout(callback: () => void) { timers.push(callback) } },
     isSessionStreamRetired: () => false, isRunActivityEvent: () => false,

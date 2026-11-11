@@ -80,7 +80,7 @@ type LiveUnitValue =
   | { type: 'live-thinking-done'; key: string; text: string; elapsedSeconds: number }
   | { type: 'live-approval-review-notice'; key: string; kind: 'strictReviewRequired' | 'tooManyDenials'; startedAtMs: number }
   | { type: 'live-approval-review'; key: string; review: ApprovalReview; rawReview?: Record<string, unknown>; rawReviewAuthoritative?: boolean }
-  | { type: 'live-notice'; key: string; text: string }
+  | { type: 'live-notice'; key: string; text: string; code?: string; noticeId?: string }
   | { type: 'live-retry'; key: string; attempt: number; maxRetries: number; phase?: string }
   | { type: 'live-congestion'; key: string; kind: string }
   | { type: 'live-error'; key: string; text: string; submissionUuid?: string; kind?: string; retryAfterMs?: number; errorDetails?: ProviderErrorDetails }
@@ -1713,7 +1713,14 @@ export function ingestChatEvent(event: any, context: { userInterrupted?: boolean
     }
     case 'notice':
       patchSession(sessionId, prev => ({
-        liveUnits: [...sealTail(prev.liveUnits), { type: 'live-notice', key: nextKey('nt'), text: String(event.content ?? '') }],
+        liveUnits: [...sealTail(prev.liveUnits), { type: 'live-notice', key: nextKey('nt'), text: String(event.content ?? ''),
+          ...(typeof event.code === 'string' ? { code: event.code } : {}), ...(typeof event.noticeId === 'string' ? { noticeId: event.noticeId } : {}) }],
+      }))
+      break
+    case 'notice_retract':
+      // A late accepted interruption outcome retracts the false-alarm notice its deadline left.
+      patchSession(sessionId, prev => ({
+        liveUnits: prev.liveUnits.filter(unit => !(unit.type === 'live-notice' && unit.noticeId === event.noticeId)),
       }))
       break
     case 'api_retry':

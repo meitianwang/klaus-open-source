@@ -1258,3 +1258,22 @@ test('a lagging flush read keeps a settled turn live tail until saved holds its 
   expect(settled.liveUnits).toEqual([])
   expect(settled.historyStale).toBe(false)
 })
+
+// A stop whose engine confirmation outlived the host's control deadline first renders a
+// false-alarm notice; the late accepted outcome arrives as notice_retract and must remove
+// exactly that notice row, leaving unrelated notices and units untouched.
+test('notice_retract removes only the keyed false-alarm interrupt notice', () => {
+  const sessionId = 'interrupt-notice-retract'
+  store.ingestChatEvent({ type: 'notice', sessionId, content: 'unrelated notice' })
+  store.ingestChatEvent({ type: 'notice', sessionId, content: 'The engine did not confirm the interruption before its control deadline', code: 'TURN_INTERRUPT_UNCONFIRMED', noticeId: 'interrupt-unconfirmed:turn-1' })
+  const withNotice = store.getSessionStream(sessionId).liveUnits.filter(unit => unit.type === 'live-notice')
+  expect(withNotice).toHaveLength(2)
+  expect(withNotice[1]).toMatchObject({ code: 'TURN_INTERRUPT_UNCONFIRMED', noticeId: 'interrupt-unconfirmed:turn-1' })
+  store.ingestChatEvent({ type: 'notice_retract', sessionId, noticeId: 'interrupt-unconfirmed:turn-1' })
+  const left = store.getSessionStream(sessionId).liveUnits.filter(unit => unit.type === 'live-notice')
+  expect(left).toHaveLength(1)
+  expect(left[0].type === 'live-notice' && left[0].text).toBe('unrelated notice')
+  // An unknown key is a no-op: the surviving notice stays.
+  store.ingestChatEvent({ type: 'notice_retract', sessionId, noticeId: 'interrupt-unconfirmed:turn-2' })
+  expect(store.getSessionStream(sessionId).liveUnits.filter(unit => unit.type === 'live-notice')).toHaveLength(1)
+})

@@ -696,6 +696,9 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
     onQoderWorkAuthFailed: () => qoderworkReadopt?.(),
     onWorkBuddyAuthFailed: () => workbuddyReadopt?.(),
     onCursorAuthFailed: () => cursorReadopt?.(),
+    // Late interruption confirmations reach this pump after the stop's own deadline gave up;
+    // the service retracts the false-alarm notice they invalidate.
+    interruptOutcome: (sessionId, outcome) => sessions.settleLateInterrupt(sessionId, outcome),
     // Capability reloads defer while a turn runs; settle them when the session
     // goes idle so credentials installed mid-turn reach the live engine without
     // waiting for the next session activation.

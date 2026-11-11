@@ -61,7 +61,8 @@ export interface ProgressEvent extends SessionScoped { type: 'progress'; toolNam
 export interface ApprovalReviewStrictRequiredEvent extends SessionScoped { type: 'approval_review_strict_required'; turnId: string; startedAtMs: number }
 export interface ApprovalReviewWarningEvent extends SessionScoped { type: 'approval_review_warning'; message: string; kind?: string }
 export interface ApprovalReviewEvent extends SessionScoped { type: 'approval_review'; review: ApprovalReview; rawReview?: Record<string, unknown> }
-export interface NoticeEvent extends SessionScoped { type: 'notice'; content: string }
+export interface NoticeEvent extends SessionScoped { type: 'notice'; content: string; code?: string; noticeId?: string }
+export interface NoticeRetractEvent extends SessionScoped { type: 'notice_retract'; noticeId: string }
 // One edit, in the shape the engine measured it in. Line counts are null when
 // the engine had no baseline to measure against, and must stay null: folding
 // them to 0 reports a volume nothing stands behind.
@@ -277,6 +278,7 @@ export type ChatEvent =
   | ToolEndEvent
   | ProgressEvent
   | NoticeEvent
+  | NoticeRetractEvent
   | ApprovalReviewEvent
   | ApprovalReviewStrictRequiredEvent
   | ApprovalReviewWarningEvent
