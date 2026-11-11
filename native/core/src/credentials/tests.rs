@@ -495,6 +495,24 @@ fn local_import_prefers_the_existing_file_then_service_only_keychain() {
     assert_eq!(store.read_qwenwork_credential(), json!({"present":false}));
 }
 
+#[test]
+fn antigravity_keychain_secret_reads_the_login_keychain_entry() {
+    let (_dir, store, keychain) = setup(Platform::MacOs);
+    assert_eq!(store.read_antigravity_keychain_secret(), json!({"present": false}));
+    keychain
+        .write("gemini", "antigravity", b"go-keyring-base64:eyJ0b2tlbiI6e319")
+        .unwrap();
+    assert_eq!(
+        store.read_antigravity_keychain_secret(),
+        json!({"present": true, "raw": "go-keyring-base64:eyJ0b2tlbiI6e319"})
+    );
+    keychain.write("gemini", "antigravity", &[0xff]).unwrap();
+    assert_eq!(
+        store.read_antigravity_keychain_secret(),
+        json!({"present": true, "error": "antigravity_local_unreadable"})
+    );
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn worker_keeps_write_logout_order_and_seals_its_resource() {
     let (_dir, store, _) = setup(Platform::MacOs);

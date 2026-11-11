@@ -23,6 +23,7 @@ export interface SubscriptionCredentials {
   readLocalClaudeCredential(): Promise<{ present: boolean; raw?: string; error?: string }>;
   readCursorCredential(): Promise<LocalCursorCredential>;
   readQoderIdeCredential(): Promise<{ present: boolean; userInfo?: Json; error?: string }>;
+  readAntigravityKeychainSecret(): Promise<{ present: boolean; raw?: string; error?: string }>;
   readQwenWorkCredential(): Promise<{ present: boolean; userInfo?: Json; machineId?: string; error?: string }>;
   readQoderWorkCredential(): Promise<{ present: boolean; userInfo?: Json; machineId?: string; error?: string }>;
   readWorkBuddyCredential(region?: 'cn' | 'intl'): Promise<{ present: boolean; userInfo?: Json; machineId?: string; error?: string }>;
@@ -951,7 +952,8 @@ export class SubscriptionAuthService {
       try {
         if (previousFlow) await this.deps.request('antigravity/loginCancel', { flow: { flowId: previousFlow.flowId } });
         if (stale()) throw new Error('Account operation cancelled');
-        const credential = await readAntigravityCredential(this.deps.homeDir);
+        const credentials = this.deps.credentials;
+        const credential = await readAntigravityCredential(this.deps.homeDir, credentials ? () => credentials.readAntigravityKeychainSecret() : undefined);
         if (stale()) throw new Error('Account operation cancelled');
         const imported = object(await this.deps.request('antigravity/adoptCredential', { credential }));
         if (stale()) {

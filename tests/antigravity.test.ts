@@ -57,6 +57,21 @@ h.test('malformed, oversized and non-consumer local credentials fail without sou
   } finally { await f.close(); }
 });
 
+h.test('keychain store feeds local adoption and its refusals stay actionable', async () => {
+  const envelope = `go-keyring-base64:${Buffer.from(JSON.stringify({ auth_method: 'consumer', token: { access_token: 'keychain-access', refresh_token: 'keychain-refresh', expiry: '2026-11-19T01:00:00Z' }, id_token_email: 'keychain@example.invalid' })).toString('base64')}`;
+  const read = (result: { present: boolean; raw?: string; error?: string }) => async () => result;
+  const f = await fixture();
+  try {
+    await rm(f.path);
+    assert.deepEqual(await readAntigravityCredential(f.root, read({ present: true, raw: envelope })), { accessToken: 'keychain-access', refreshToken: 'keychain-refresh', expiresAt: Date.parse('2026-11-19T01:00:00Z'), account: 'keychain@example.invalid', authMethod: 'consumer' });
+    await assert.rejects(readAntigravityCredential(f.root, read({ present: true, raw: 'go-keyring-base64:not-base64!!' })), { message: 'antigravity_local_unreadable' });
+    await assert.rejects(readAntigravityCredential(f.root, read({ present: true, error: 'antigravity_local_keychain_denied' })), { message: 'antigravity_local_keychain_denied' });
+    await assert.rejects(readAntigravityCredential(f.root, read({ present: false })), { message: 'antigravity_local_not_found' });
+    await writeFile(f.path, JSON.stringify(document));
+    assert.deepEqual(await readAntigravityCredential(f.root, read({ present: true, error: 'antigravity_local_keychain_denied' })), { accessToken: 'fixture-access', refreshToken: 'fixture-refresh', expiresAt: Date.parse(document.token.expiry), account: 'user@example.invalid', authMethod: 'consumer' });
+  } finally { await f.close(); }
+});
+
 h.test('logout fences in-flight adoption and leaves the external login unchanged', async () => {
   const f = await fixture(), calls: string[] = [];
   let release!: (value: unknown) => void;

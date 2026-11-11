@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test'
 import { AUTH_MODE_ORDER, normalizeAuthMode, sourceLabel } from './model-shared'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { authErrorText, cancelAntigravityLogin, cancelCursorLogin, importLocalSubscription, loginThroughDeviceFlow, SUBSCRIPTION_SOURCES, SubscriptionCardBody } from './subscription-card'
+import { authErrorText, authErrorTextForMode, cancelAntigravityLogin, cancelCursorLogin, importLocalSubscription, loginThroughDeviceFlow, SUBSCRIPTION_SOURCES, SubscriptionCardBody } from './subscription-card'
 import { IMAGE_GENERATION_SOURCES, VIDEO_GENERATION_SOURCES, AUDIO_GENERATION_SOURCES } from './generation-sources'
 import { resolveWebSearchSettings } from '../../../../contracts/web-search-settings'
 import { I18N } from '../../i18n/messages'
@@ -169,7 +169,7 @@ test('account-only login and reuse leave conversation preferences intact', async
 })
 
 test('account and search copy is available in both interface languages', () => {
-  for (const language of ['en', 'zh'] as const) for (const key of ['auth_antigravity', 'voice_source_antigravity', 'antigravity_login', 'antigravity_login_opening', 'antigravity_browser_login_expired', 'antigravity_import_confirm', 'antigravity_import_success', 'antigravity_import_failed_prefix', 'antigravity_reuse_login', 'antigravity_login_expired', 'antigravity_refresh_unavailable', 'klaus_websearch_source_antigravity']) expect(I18N[language][key]).toBeTruthy()
+  for (const language of ['en', 'zh'] as const) for (const key of ['auth_antigravity', 'voice_source_antigravity', 'antigravity_login', 'antigravity_login_opening', 'antigravity_browser_login_expired', 'antigravity_import_confirm', 'antigravity_import_success', 'antigravity_import_failed_prefix', 'antigravity_reuse_login', 'antigravity_login_expired', 'antigravity_refresh_unavailable', 'antigravity_local_keychain_denied', 'klaus_websearch_source_antigravity']) expect(I18N[language][key]).toBeTruthy()
 })
 
 for (const language of ['en', 'zh'] as const) {
@@ -232,4 +232,21 @@ test('native browser replacement cancels only its prior flow without inheriting 
     poll: (flow: string) => { const index = flow === 'native-1' ? 0 : 1; entered[index].resolve(); return polls[index].promise },
     cancel: async (flow: string) => { cancelled.push(flow); return { ok: true } },
   })
+})
+
+test('local Antigravity reuse failures keep their dedicated wording instead of the generic request-failed sentence', () => {
+  const target = globalThis as any
+  const previousWindow = target.window
+  try {
+    for (const language of ['en', 'zh'] as const) {
+      target.window = { currentLang: language }
+      for (const code of ['antigravity_local_not_found', 'antigravity_local_unreadable', 'antigravity_auth_method_unsupported', 'antigravity_local_keychain_denied']) {
+        expect(authErrorTextForMode('antigravity', code)).toBe(I18N[language][code])
+        expect(authErrorTextForMode('antigravity', `channel 'antigravity-auth:import-local' failed: app-server rpc error -32000: ${code}`)).toBe(I18N[language][code])
+      }
+      // Engine service verdicts and unknown service tags keep their previous mapping.
+      expect(authErrorTextForMode('antigravity', 'antigravity_quota_exhausted')).toBe(I18N[language].antigravity_quota_exhausted)
+      expect(authErrorTextForMode('antigravity', 'antigravity_brand_new_service_tag')).toBe(I18N[language].antigravity_error_generic)
+    }
+  } finally { target.window = previousWindow }
 })

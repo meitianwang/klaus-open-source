@@ -545,6 +545,7 @@ const AUTH_ERROR_KEYS: Record<string, string> = {
   antigravity_local_not_found: 'antigravity_local_not_found',
   antigravity_local_unreadable: 'antigravity_local_unreadable',
   antigravity_auth_method_unsupported: 'antigravity_auth_method_unsupported',
+  antigravity_local_keychain_denied: 'antigravity_local_keychain_denied',
   antigravity_login_expired: 'antigravity_login_expired',
   antigravity_refresh_unavailable: 'antigravity_refresh_unavailable',
   antigravity_login_invalid_flow: 'antigravity_browser_login_expired',
@@ -681,10 +682,15 @@ function authCodeText(mode: string, code: string, name: string): string | undefi
     const message = cursorErrorText(code, tGlobal)
     if (message !== code) return message
   }
+  // Host-stable codes carry dedicated copy in AUTH_ERROR_KEYS and must win here:
+  // the Antigravity catch-all below maps every other `antigravity_*` tag to the
+  // generic request-failed sentence, which would hide a missing local login file
+  // or an unsupported login type behind "retry shortly" advice. The host also
+  // wraps verdicts in transport noise, so consult the embedded stable code too.
+  const key = AUTH_ERROR_KEYS[code] ?? AUTH_ERROR_KEYS[embeddedAuthCode(code) ?? '']
+  if (key) return tGlobal(key).replace(/\{name\}/g, name)
   const antigravity = knownAntigravityErrorText(code, tGlobal)
   if (antigravity) return antigravity
-  const key = AUTH_ERROR_KEYS[code]
-  if (key) return tGlobal(key).replace(/\{name\}/g, name)
   return undefined
 }
 

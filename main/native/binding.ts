@@ -73,6 +73,7 @@ export interface NativeCredentialsBinding {
   readLocalClaudeCredential(operationId: string, deadlineMs: number): Promise<string>;
   readCursorCredential(operationId: string, deadlineMs: number): Promise<string>;
   readQoderIdeCredential(operationId: string, deadlineMs: number): Promise<string>;
+  readAntigravityKeychainSecret(operationId: string, deadlineMs: number): Promise<string>;
   readQwenworkCredential(operationId: string, deadlineMs: number): Promise<string>;
   readQoderworkCredential(operationId: string, deadlineMs: number): Promise<string>;
   readWorkbuddyCredential(operationId: string, deadlineMs: number, region?: 'cn' | 'intl'): Promise<string>;

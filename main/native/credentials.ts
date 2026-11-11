@@ -198,6 +198,16 @@ export class NativeSubscriptionCredentials {
     } catch (error) { return { present: true, error: errorCode(error) }; }
   }
 
+  async readAntigravityKeychainSecret(): Promise<{ present: boolean; raw?: string; error?: string }> {
+    try {
+      const result = object(await this.run(id => this.binding.readAntigravityKeychainSecret(id, this.deadlineMs)));
+      if (typeof result.present !== 'boolean'
+        || (result.raw !== undefined && typeof result.raw !== 'string')
+        || (result.error !== undefined && typeof result.error !== 'string')) throw new Error('INVALID_CREDENTIAL_RESULT');
+      return result as { present: boolean; raw?: string; error?: string };
+    } catch (error) { return { present: true, error: errorCode(error) }; }
+  }
+
   async readQwenWorkCredential(): Promise<{ present: boolean; userInfo?: Json; machineId?: string; error?: string }> {
     try {
       const result = object(await this.run(id => this.binding.readQwenworkCredential(id, this.deadlineMs)));

@@ -1,5 +1,6 @@
 //! Narrow credential storage and local import capabilities. Authentication belongs to TypeScript.
 
+mod antigravity;
 mod cursor;
 mod mcp;
 mod qoder;
@@ -415,6 +416,10 @@ impl CredentialStore {
             self.config.platform,
             self.keychain.as_ref(),
         )
+    }
+
+    pub fn read_antigravity_keychain_secret(&self) -> Value {
+        antigravity::read_secret(self.keychain.as_ref())
     }
 
     pub fn read_cursor_credential(&self) -> Value {
