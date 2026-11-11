@@ -141,7 +141,7 @@ h.test('quota restrictions and amount-only windows survive host projection witho
   });
 });
 
-h.test('quota group titles replace descriptive footnotes while balances and resets stay independent', () => {
+h.test('shared quota pools keep their service group titles and one row per window kind', () => {
   const reset = Date.parse('2026-10-26T00:00:00Z');
   const answer = antigravityUsage({ signedIn: true, windows: [
     { id: 'gemini', label: 'Weekly Limit Remaining', groupLabel: 'Gemini Models', usedPercent: 17, resetsAt: reset,
@@ -150,19 +150,22 @@ h.test('quota group titles replace descriptive footnotes while balances and rese
       groupDescription: 'Models within this group: Claude Opus, Claude Sonnet, GPT-OSS', description: 'A different weekly reset explanation' },
   ] });
   assert.deepEqual(answer, { state: 'ok', windows: [
-    { id: 'gemini', label: 'Gemini', usedPercent: 17, resetsAt: reset },
-    { id: 'claude', label: 'Claude / GPT', usedPercent: 68, resetsAt: reset + 1000 },
+    { id: 'pool_weekly', groupLabel: 'Gemini Models', windowKind: 'weekly', usedPercent: 17, resetsAt: reset },
+    { id: 'pool_weekly', groupLabel: 'Claude and GPT models', windowKind: 'weekly', usedPercent: 68, resetsAt: reset + 1000 },
   ] });
 });
 
-h.test('quota groups with the same short title keep distinct stable names', () => {
+h.test('unknown pool windows keep their service order and identity inside one group', () => {
   const windows = [{ id: 'z', groupLabel: 'Gemini Models', usedPercent: 10 }, { id: 'a', groupLabel: 'Gemini Models', usedPercent: 70 }];
-  const names = (input: JsonObject[]) => Object.fromEntries((antigravityUsage({ signedIn: true, windows: input }).windows as JsonObject[]).map(row => [row.id, row.label]));
-  assert.deepEqual(names(windows), { a: 'Gemini 1', z: 'Gemini 2' });
-  assert.deepEqual(names([...windows].reverse()), names(windows));
+  const rows = (input: JsonObject[]) => antigravityUsage({ signedIn: true, windows: input }).windows as JsonObject[];
+  assert.deepEqual(rows(windows), [
+    { id: 'z', groupLabel: 'Gemini Models', usedPercent: 10 },
+    { id: 'a', groupLabel: 'Gemini Models', usedPercent: 70 },
+  ]);
+  assert.deepEqual(rows([...windows].reverse()), rows(windows).reverse());
 });
 
-h.test('quota windows surface only the latest Opus, Sonnet and Gemini families', () => {
+h.test('shared quota pools replace per-model family rows when the service reports groups', () => {
   const opusReset = Date.parse('2026-11-04T10:40:50Z');
   const geminiReset = Date.parse('2026-11-04T10:47:53Z');
   const projected = antigravityUsage({
@@ -196,10 +199,10 @@ h.test('quota windows surface only the latest Opus, Sonnet and Gemini families',
     state: 'ok',
     plan: 'Google AI Ultra',
     windows: [
-      { id: 'claude-opus-5-5', label: 'Claude Opus 5.5', usedPercent: 70, resetsAt: opusReset },
-      { id: 'claude-sonnet-5-5', label: 'Claude Sonnet 5.5', usedPercent: 70, resetsAt: opusReset },
-      { id: 'gemini-4-argon', label: 'Gemini 4 Argon', usedPercent: 3, resetsAt: geminiReset },
-      { id: 'gemini-3.8-flash', label: 'Gemini 3.8 Flash', usedPercent: 3, resetsAt: geminiReset },
+      { id: 'pool_duration_5h', groupLabel: 'Claude and GPT models', windowKind: 'duration', windowToken: '5h', usedPercent: 70, resetsAt: opusReset },
+      { id: 'pool_weekly', groupLabel: 'Claude and GPT models', windowKind: 'weekly', usedPercent: 78, resetsAt: opusReset + 86400_000 },
+      { id: 'pool_duration_5h', groupLabel: 'Gemini Models', windowKind: 'duration', windowToken: '5h', usedPercent: 3, resetsAt: geminiReset },
+      { id: 'pool_weekly', groupLabel: 'Gemini Models', windowKind: 'weekly', usedPercent: 2, resetsAt: geminiReset + 86400_000 },
     ],
   });
   // Accounts without Argon still surface the latest available Gemini family.

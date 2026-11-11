@@ -268,9 +268,82 @@ function selectLatestAntigravityModelWindows(rawWindows: unknown[]): JsonObject[
   return selected.length ? selected : undefined;
 }
 
+/** Window kinds a shared allowance pool reports, mirroring the service's own window tokens. */
+function antigravityWindowKind(raw: JsonObject): { kind: 'weekly' | 'daily' | 'duration'; token?: string } | undefined {
+  const window = string(raw.window).trim().toLowerCase();
+  if (window === 'weekly' || window === 'p7d') return { kind: 'weekly' };
+  if (window === 'daily' || window === 'p1d') return { kind: 'daily' };
+  const duration = /^(\d{1,4})([smhd])$/u.exec(window);
+  if (duration) return { kind: 'duration', token: `${duration[1]}${duration[2]}` };
+  if (window === 'five_hour' || window === 'pt5h') return { kind: 'duration', token: '5h' };
+  const bucket = string(raw.bucketId).toLowerCase();
+  const label = string(raw.label).toLowerCase();
+  if (bucket.includes('week') || label.includes('weekly')) return { kind: 'weekly' };
+  if (bucket.includes('daily') || label.includes('daily')) return { kind: 'daily' };
+  const bucketDuration = /(?:^|[-_])(\d{1,4})([smhd])(?:$|[-_])/u.exec(bucket);
+  if (bucketDuration) return { kind: 'duration', token: `${bucketDuration[1]}${bucketDuration[2]}` };
+  if (bucket.includes('five') || bucket.includes('5h') || label.includes('five hour') || label.includes('5-hour') || label.includes('5h')) return { kind: 'duration', token: '5h' };
+  return undefined;
+}
+
+/**
+ * Shared allowance pools: the service already aggregates every model of a pool
+ * into one group, so each group renders once with one row per reported window
+ * instead of one row per model family drawing the same balance twice.
+ */
+function selectAntigravityGroupWindows(rawWindows: unknown[]): JsonObject[] | undefined {
+  const groups: Array<{ label: string; rows: JsonObject[]; merged: Map<string, { row: JsonObject; allDisabled: boolean }> }> = [];
+  for (const value of rawWindows) {
+    const raw = object(value);
+    const groupLabel = string(raw.groupLabel).trim();
+    if (!groupLabel || string(raw.source) === 'quota') continue;
+    const used = clampPercent(raw.usedPercent);
+    const remaining = finite(raw.remainingAmount) ?? finite(raw.remaining);
+    const reset = epochMs(raw.resetsAt);
+    const hasDisabled = typeof raw.disabled === 'boolean';
+    if (used === undefined && remaining === undefined && reset === undefined && !hasDisabled) continue;
+    let group = groups.find(entry => entry.label === groupLabel);
+    if (!group) { group = { label: groupLabel, rows: [], merged: new Map() }; groups.push(group); }
+    const kind = antigravityWindowKind(raw);
+    const key = kind ? `${kind.kind}:${kind.token ?? ''}` : `raw:${group.rows.length}`;
+    let entry = group.merged.get(key);
+    if (!entry) {
+      const row: JsonObject = {
+        id: kind ? `pool_${kind.kind}${kind.token !== undefined ? `_${kind.token}` : ''}` : (string(raw.id) || `window-${group.rows.length + 1}`).slice(0, 256),
+        groupLabel,
+      };
+      if (kind) { row.windowKind = kind.kind; if (kind.token !== undefined) row.windowToken = kind.token; }
+      else if (string(raw.label)) row.label = string(raw.label).slice(0, 256);
+      entry = { row, allDisabled: true };
+      group.merged.set(key, entry);
+      group.rows.push(row);
+    }
+    if (used !== undefined) entry.row.usedPercent = entry.row.usedPercent === undefined ? used : Math.max(Number(entry.row.usedPercent), used);
+    if (remaining !== undefined && remaining >= 0) entry.row.remaining = entry.row.remaining === undefined ? remaining : Math.min(Number(entry.row.remaining), remaining);
+    if (reset !== undefined) entry.row.resetsAt = entry.row.resetsAt === undefined ? reset : Math.min(Number(entry.row.resetsAt), reset);
+    if (raw.disabled === true) entry.row.disabled = true; else entry.allDisabled = false;
+  }
+  if (!groups.length) return undefined;
+  const selected: JsonObject[] = [];
+  for (const group of groups) {
+    for (const entry of group.merged.values()) {
+      if (entry.row.disabled === true && !entry.allDisabled) delete entry.row.disabled;
+      selected.push(entry.row);
+    }
+  }
+  return selected.length ? selected : undefined;
+}
+
 export function antigravityUsage(value: unknown): JsonObject {
   const answer = object(value);
   if (answer.signedIn === true && Array.isArray(answer.windows)) {
+    const pools = selectAntigravityGroupWindows(answer.windows);
+    if (pools) {
+      const projected = subscriptionAllowanceUsage({ ...answer, windows: [] }, antigravityQuotaGroupLabel);
+      delete projected.quotaAvailable;
+      projected.windows = pools;
+      return projected;
+    }
     const latest = selectLatestAntigravityModelWindows(answer.windows);
     if (latest) {
       const projected = subscriptionAllowanceUsage({ ...answer, windows: [] }, antigravityQuotaGroupLabel);

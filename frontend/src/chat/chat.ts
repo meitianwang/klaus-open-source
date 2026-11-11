@@ -16286,16 +16286,52 @@ function usageFormatTime(ms: number | undefined) {
   } catch { return '' }
 }
 
-function renderUsageBarRow(label: string, valueText: string, usedPercent: number) {
+/** Localize a service window token such as `5h` into the label's own unit words. */
+function usageLocalizedDuration(token: string | undefined) {
+  const parsed = /^(\d+)([smhd])$/.exec(token || '')
+  if (!parsed) return token || ''
+  const zh = window.currentLang === 'zh'
+  const units: Record<string, [string, string]> = { s: ['s', '秒'], m: ['m', '分钟'], h: ['h', '小时'], d: ['d', '天'] }
+  const unit = units[parsed[2]!]!
+  return zh ? `${parsed[1]} ${unit[1]}` : `${parsed[1]}${unit[0]}`
+}
+
+/** Countdown to a window reset, floored to whole minutes and capped at two units. */
+function usageFormatCountdown(ms: number | undefined, now = Date.now()) {
+  if (ms === undefined || !Number.isFinite(ms)) return ''
+  const total = Math.floor(Math.max(0, ms - now) / 60000)
+  const days = Math.floor(total / 1440), hours = Math.floor((total % 1440) / 60), mins = total % 60
+  const zh = window.currentLang === 'zh'
+  const unit = (value: number, en: string, zhUnit: string) => zh ? `${value} ${zhUnit}` : `${value}${en}`
+  const text = days > 0 && hours > 0 ? `${unit(days, 'd', '天')} ${unit(hours, 'h', '小时')}`
+    : days > 0 ? unit(days, 'd', '天')
+      : hours > 0 && mins > 0 ? `${unit(hours, 'h', '小时')} ${unit(mins, 'm', '分钟')}`
+        : hours > 0 ? unit(hours, 'h', '小时')
+          : mins > 0 ? unit(mins, 'm', '分钟') : ''
+  if (!text) return tt('usage_resets_lt_minute')
+  return tt('usage_resets_in').replace('{duration}', text)
+}
+
+/** Shared-pool windows name their window kind; anything else keeps its reported label. */
+function antigravityWindowLabel(win: { windowKind?: string; windowToken?: string; label?: string; id?: string; usedPercent?: number }) {
+  if (win.windowKind === 'weekly') return tt('usage_window_weekly_limit')
+  if (win.windowKind === 'daily') return tt('usage_window_daily_limit')
+  if (win.windowKind === 'duration') return tt('usage_window_duration_limit').replace('{duration}', usageLocalizedDuration(win.windowToken))
+  return usageWindowLabel(win)
+}
+
+function renderUsageBarRow(label: string, valueText: string, usedPercent: number, options?: { fillClass?: string; labelSub?: string }) {
   const usedPct = Math.min(100, Math.max(0, Number(usedPercent) || 0))
   const remainingPct = 100 - usedPct
+  const fillClass = options?.fillClass !== undefined ? options.fillClass : (usedPct >= 90 ? 'high' : '')
+  const sub = options?.labelSub ? `<span class="usage-row-sub">${escapeHtml(options.labelSub)}</span>` : ''
   return `
     <div class="usage-row">
       <div class="usage-row-top">
-        <span class="usage-row-label">${escapeHtml(label)}</span>
+        <span class="usage-row-label">${escapeHtml(label)}${sub}</span>
         <span class="usage-row-value">${escapeHtml(valueText)}</span>
       </div>
-      <div class="usage-bar"><div class="usage-bar-fill${usedPct >= 90 ? ' high' : ''}" style="width:${remainingPct}%"></div></div>
+      <div class="usage-bar"><div class="usage-bar-fill${fillClass ? ` ${fillClass}` : ''}" style="width:${remainingPct}%"></div></div>
     </div>`
 }
 
@@ -16324,10 +16360,18 @@ function renderUsageCredits(labelKey: string, credits: { used?: number; total?: 
 }
 
 
-function renderAntigravityUsageWindows(data: { windows?: Array<{ usedPercent?: number; remaining?: number | string; total?: number | string; used?: number | string; unit?: string; expiresAt?: number; resetsAt?: number; label?: string; id?: string; disabled?: boolean; unlimited?: boolean; description?: string; groupDescription?: string }> }, showLimits = false) {
+function renderAntigravityUsageWindows(data: { windows?: Array<{ usedPercent?: number; remaining?: number | string; total?: number | string; used?: number | string; unit?: string; expiresAt?: number; resetsAt?: number; label?: string; id?: string; disabled?: boolean; unlimited?: boolean; description?: string; groupDescription?: string; groupLabel?: string; windowKind?: string; windowToken?: string }> }, showLimits = false) {
   const windows = Array.isArray(data.windows) ? data.windows : []
   if (!windows.length) return `<div class="usage-empty">${escapeHtml(tt('usage_no_windows'))}</div>`
-  return windows.map(win => {
+  let html = ''
+  let lastGroup: string | undefined
+  for (const win of windows) {
+    const group = typeof win.groupLabel === 'string' && win.groupLabel.trim() ? win.groupLabel.trim() : undefined
+    if (group !== lastGroup) {
+      if (group !== undefined) html += `<div class="usage-group-head">${escapeHtml(group)}</div>`
+      lastGroup = group
+    }
+    const pooled = win.windowKind !== undefined
     const usedPct = typeof win.usedPercent === 'number' && Number.isFinite(win.usedPercent) ? Math.min(100, Math.max(0, win.usedPercent)) : undefined
     // The bar fill is remaining allowance, so the number beside it must say
     // remaining too; mixing the two readings in one row is what confused users.
@@ -16342,13 +16386,20 @@ function renderAntigravityUsageWindows(data: { windows?: Array<{ usedPercent?: n
     if (showLimits && formatAmount(win.total) !== undefined) parts.push(`${tt('trae_usage_limit')}: ${formatAmount(win.total)} ${win.unit || ''}`.trim())
     const expiry = showLimits ? usageFormatTime(win.expiresAt) : ''
     if (expiry) parts.push(`${tt('usage_expires')} ${expiry}`)
-    const reset = usageFormatTime(win.resetsAt)
+    // A pooled window carries its reset as a countdown under the title; a window
+    // nothing has drawn on yet has no countdown worth showing.
+    const countdown = pooled && usedPct !== undefined && usedPct > 0 && win.disabled !== true ? usageFormatCountdown(win.resetsAt) : ''
+    const reset = pooled ? '' : usageFormatTime(win.resetsAt)
     if (reset) parts.push(`${tt('usage_resets')} ${reset}`)
-    const row = usedPct !== undefined && win.disabled !== true && !(showLimits && win.unlimited === true) ? renderUsageBarRow(usageWindowLabel(win), parts.join(' · '), usedPct)
-      : `<div class="usage-row"><div class="usage-row-top"><span class="usage-row-label">${escapeHtml(usageWindowLabel(win))}</span><span class="usage-row-value">${escapeHtml(parts.join(' · '))}</span></div></div>`
+    const label = pooled ? antigravityWindowLabel(win) : usageWindowLabel(win)
+    const remainingPct = usedPct !== undefined ? 100 - usedPct : undefined
+    const fillClass = pooled && remainingPct !== undefined ? (remainingPct < 10 ? 'high' : remainingPct < 25 ? 'warn' : '') : undefined
+    const row = usedPct !== undefined && win.disabled !== true && !(showLimits && win.unlimited === true) ? renderUsageBarRow(label, parts.join(' · '), usedPct, { fillClass, labelSub: countdown || undefined })
+      : `<div class="usage-row"><div class="usage-row-top"><span class="usage-row-label">${escapeHtml(label)}</span><span class="usage-row-value">${escapeHtml(parts.join(' · '))}</span></div></div>`
     const description = [win.groupDescription, win.description].filter(Boolean).join(' · ')
-    return row + (description ? `<div class="usage-meta">${escapeHtml(description)}</div>` : '')
-  }).join('')
+    html += row + (description ? `<div class="usage-meta">${escapeHtml(description)}</div>` : '')
+  }
+  return html
 }
 
 function renderAntigravityUsageCredits(labelKey: string, credits: { used?: number | string; total?: number | string; remaining?: number | string; unit?: string; usedPercent?: number; pools?: Array<{ creditType?: string; creditAmount: string; minimumCreditAmountForUsage?: string }> } | null | undefined, showAmounts = false) {

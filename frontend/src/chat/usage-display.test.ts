@@ -8,7 +8,7 @@ const vectors = JSON.parse(readFileSync(new URL('../../../contracts/vectors/usag
 }
 const source = ts.createSourceFile('chat.ts', readFileSync(new URL('./chat.ts', import.meta.url), 'utf8'), ts.ScriptTarget.Latest, true)
 const code = ts.transpileModule(
-  ['renderUsageBarRow', 'renderUsageWindows', 'renderUsageCredits', 'renderAntigravityUsageWindows', 'renderAntigravityUsageCredits', 'renderTraeUsageCredits'].map(name => {
+  ['renderUsageBarRow', 'renderUsageWindows', 'renderUsageCredits', 'renderAntigravityUsageWindows', 'renderAntigravityUsageCredits', 'renderTraeUsageCredits', 'usageFormatCountdown', 'usageLocalizedDuration', 'antigravityWindowLabel'].map(name => {
     const node = source.statements.find((statement): statement is ts.FunctionDeclaration =>
       ts.isFunctionDeclaration(statement) && statement.name?.text === name)
     if (!node) throw new Error(`The production usage renderer must be identifiable: ${name}`)
@@ -21,13 +21,19 @@ const renderer = runInNewContext(`${code}\n({ renderUsageBarRow, renderUsageWind
   escapeHtml: (text: string) => text,
   usageWindowLabel: () => 'Weekly window',
   usageFormatTime: (value?: number) => value === undefined ? '' : `date-${value}`,
-  tt: (key: string) => ({ usage_used: 'used', usage_remaining: 'remaining', usage_resets: 'resets' } as Record<string, string>)[key] || key,
+  window: { currentLang: 'en' },
+  tt: (key: string) => ({
+    usage_used: 'used', usage_remaining: 'remaining', usage_resets: 'resets',
+    usage_window_weekly_limit: 'Weekly limit', usage_window_daily_limit: 'Daily limit',
+    usage_window_duration_limit: '{duration} limit', usage_resets_in: 'Resets in {duration}',
+    usage_resets_lt_minute: 'Resets in <1m',
+  } as Record<string, string>)[key] || key,
 }) as {
   renderTraeUsageCredits(credits: { remaining?: number | string; unlimited?: boolean } | null | undefined): string
   renderUsageBarRow(label: string, value: string, usedPercent: number): string
   renderUsageWindows(data: { windows: Array<{ usedPercent?: number; remaining?: number; disabled?: boolean; description?: string }> }): string
   renderUsageCredits(label: string, credits: { usedPercent?: number; used?: number; total?: number; remaining?: number; unit?: string; pools?: Array<{ creditType?: string; creditAmount: string; minimumCreditAmountForUsage?: string }> }): string
-  renderAntigravityUsageWindows(data: { windows: Array<{ usedPercent?: number; remaining?: number | string; total?: number | string; expiresAt?: number; resetsAt?: number; unlimited?: boolean; disabled?: boolean; description?: string }> }, showLimits?: boolean): string
+  renderAntigravityUsageWindows(data: { windows: Array<{ id?: string; usedPercent?: number; remaining?: number | string; total?: number | string; expiresAt?: number; resetsAt?: number; unlimited?: boolean; disabled?: boolean; description?: string; groupLabel?: string; windowKind?: string; windowToken?: string }> }, showLimits?: boolean): string
   renderAntigravityUsageCredits(label: string, credits: { usedPercent?: number; used?: number | string; total?: number | string; remaining?: number | string; unit?: string; pools?: Array<{ creditType?: string; creditAmount: string; minimumCreditAmountForUsage?: string }> }, showAmounts?: boolean): string
 }
 
@@ -141,4 +147,26 @@ test('ordinary quota windows and credits keep their established missing-value fo
   expect(credits).toContain('0 / 0')
   expect(credits).toContain('100% remaining')
   expect(renderer.renderAntigravityUsageCredits('credits', { remaining: 42 })).not.toContain('%')
+})
+
+test('shared quota pools render one header per group with a row per window', () => {
+  const now = Date.now()
+  const html = renderer.renderAntigravityUsageWindows({ windows: [
+    { id: 'pool_weekly', groupLabel: 'Gemini Models', windowKind: 'weekly', usedPercent: 92, resetsAt: now + ((4 * 24 + 23) * 60 + 30) * 60000 },
+    { id: 'pool_duration_5h', groupLabel: 'Gemini Models', windowKind: 'duration', windowToken: '5h', usedPercent: 0, resetsAt: now + 5 * 3600000 },
+    { id: 'pool_weekly', groupLabel: 'Claude and GPT models', windowKind: 'weekly', usedPercent: 80, resetsAt: now + (5 * 24 + 4) * 60 * 60000 },
+  ] })
+  expect(html.match(/usage-group-head/g)).toHaveLength(2)
+  expect(html).toContain('Gemini Models')
+  expect(html).toContain('Claude and GPT models')
+  expect(html).toContain('Weekly limit')
+  expect(html).toContain('5h limit')
+  expect(html).toContain('Resets in 4d 23h')
+  expect(html).toContain('Resets in 5d 4h')
+  // an untouched window reports no countdown, so only the drawn-on rows carry one
+  expect(html.match(/Resets in/g)).toHaveLength(2)
+  expect(html).toContain('8% remaining')
+  expect(html).toContain('20% remaining')
+  expect(html).toContain('usage-bar-fill high')
+  expect(html).toContain('usage-bar-fill warn')
 })
