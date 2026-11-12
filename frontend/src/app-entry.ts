@@ -45,6 +45,10 @@ import './chat'
 // evaluated.
 import { bootKeybindings } from './app/keybindings/boot'
 import { bootPowerSavePolicy } from './app/power-save'
+import { mountUpdateNotices } from './app/update/mount'
 
 bootKeybindings()
 bootPowerSavePolicy()
+// One store owns every update surface, so the sidebar card and the modal
+// surfaces always describe the same transfer.
+mountUpdateNotices()

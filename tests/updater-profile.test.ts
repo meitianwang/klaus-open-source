@@ -48,7 +48,12 @@ if (['darwin', 'win32'].includes(process.platform)) h.test('the packaged updater
     writeFileSync(join(root, 'electron-update.json'), '{}');
     service = await createDesktopUpdater({ app, autoUpdater: native, resourcesRoot: root, configRoot,
       emit: forbidden, log: message => logs.push(message), prepareToQuit: async () => forbidden(), installationFailedAfterPrepare: forbidden });
-    assert.deepEqual(service.snapshot(), { supported: false, state: 'error', currentVersion: '0.4.0', availableVersion: null, error: CUSTOM_PROFILE_UPDATE_MESSAGE });
+    // A displaced profile is genuinely unsupported, so it carries that failure
+    // kind rather than a check or transfer failure.
+    assert.deepEqual(service.snapshot(), {
+      supported: false, state: 'error', currentVersion: '0.4.0', availableVersion: null,
+      error: CUSTOM_PROFILE_UPDATE_MESSAGE, errorKind: 'unsupported', explicit: false, progress: null,
+    });
     service.start();
     assert.deepEqual(await service.check(), service.snapshot());
     assert.deepEqual(await service.install(), { ok: false, error: CUSTOM_PROFILE_UPDATE_MESSAGE });

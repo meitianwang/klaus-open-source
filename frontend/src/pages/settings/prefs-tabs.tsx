@@ -82,6 +82,9 @@ interface PrefsData {
   defaultOutputStyle: string
   currentOutputStyle: string
   wsExcludes: string
+  // Diagnostics aid for problem reports; it belongs with the other application
+  // preferences, not on the page where a person decides whether to update.
+  providerTrace: boolean
 }
 
 export function PreferencesTab() {
@@ -110,7 +113,7 @@ export function PreferencesTab() {
       try {
         const settingsApi = w().settingsApi
         const followUpModeHelper = w().KlausFollowUp
-        const [keepAwakeConfig, loginItemConfig, notifyDesktopRaw, notifySoundRaw, notifyFriendToastRaw, followUpRaw, outputStyleData, excludes, predictionsRaw] = await Promise.all([
+        const [keepAwakeConfig, loginItemConfig, notifyDesktopRaw, notifySoundRaw, notifyFriendToastRaw, followUpRaw, outputStyleData, excludes, predictionsRaw, providerTraceRaw] = await Promise.all([
           w().klaus.powerSave.snapshot(),
           w().klaus.app.loginItem.get(),
           settingsApi.kv.get('notification.desktop'),
@@ -120,6 +123,7 @@ export function PreferencesTab() {
           settingsApi.outputStyles?.list ? settingsApi.outputStyles.list() : Promise.resolve(null),
           w().klaus.workspace.getExcludes(),
           settingsApi.kv.get('composer_predictions_enabled'),
+          settingsApi.kv.get('klaus.providerTrace'),
         ])
         const failed = [keepAwakeConfig, loginItemConfig, outputStyleData, excludes]
           .find((value: any) => value?.ok === false || value?.error)
@@ -152,6 +156,7 @@ export function PreferencesTab() {
           defaultOutputStyle,
           currentOutputStyle,
           wsExcludes: ((excludes?.patterns || []) as string[]).join('\n'),
+          providerTrace: providerTraceRaw === 'on',
         })
       } catch (error: any) {
         if (!cancelled) setLoadError(settingsErrorText('prefs-load', error, 'preferences_load_failed'))
@@ -296,6 +301,18 @@ export function PreferencesTab() {
             } catch (error: any) {
               setData(prev => prev && { ...prev, loginItem: !checked })
               w().showToast(settingsErrorText('prefs', error, 'settings_failed'))
+            } finally {
+              setBusyKey('')
+            }
+          })}
+          {toggleRow('klaus-provider-trace', t('klaus_provider_trace'), t('klaus_provider_trace_desc'), data.providerTrace, async (checked) => {
+            if (busyKey) return
+            setBusyKey('provider-trace')
+            setData(prev => prev && { ...prev, providerTrace: checked })
+            try {
+              if (!await kvSet('klaus.providerTrace', checked ? 'on' : 'off')) {
+                setData(prev => prev && { ...prev, providerTrace: !checked })
+              }
             } finally {
               setBusyKey('')
             }

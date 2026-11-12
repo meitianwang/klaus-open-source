@@ -1,4 +1,5 @@
 import { deepEqual, equal, ok, rejects } from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { chmod, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
 import { createServer, type ServerResponse } from 'node:http';
 import { tmpdir } from 'node:os';
@@ -41,20 +42,126 @@ async function setup(options: { slow?: boolean; badBytes?: boolean; redirect?: b
 }
 
 void (async () => {
-  await h.test('three existing IPC channels preserve five status fields and verified download pushes', async () => {
+  await h.test('three existing IPC channels carry the full status and verified download pushes', async () => {
     const f = await setup();
     try {
       const registry = new ChannelRegistry(); registerUpdaterHandlers(registry, f.service);
       deepEqual(registry.channels(), [...UPDATER_CHANNELS].sort());
-      const call = (channel: string) => registry.lookup(channel)!({ channel, role: 'main', senderId: 1, args: [] });
-      deepEqual(await call('updater:status'), { supported: true, state: 'idle', currentVersion: '1.0.0', availableVersion: null, error: null });
-      equal((await call('updater:check') as { state: string }).state, 'downloading');
+      const call = (channel: string, args: unknown[] = []) => registry.lookup(channel)!({ channel, role: 'main', senderId: 1, args: args as never });
+      deepEqual(await call('updater:status'), {
+        supported: true, state: 'idle', currentVersion: '1.0.0', availableVersion: null,
+        error: null, errorKind: null, explicit: false, progress: null,
+      });
+      equal((await call('updater:check', [{ explicit: true }]) as { state: string }).state, 'downloading');
       await f.wait('downloaded');
-      deepEqual(f.transitions.map(value => value.state), ['checking', 'downloading', 'downloaded']);
+      // The download announces its total before the first byte and its finished
+      // transfer once; the terminal push clears the counters again.
+      deepEqual(f.transitions.map(value => value.state), ['checking', 'downloading', 'downloading', 'downloaded']);
+      equal(f.transitions[1]!.explicit, true);
+      deepEqual(f.transitions[1]!.progress, { percent: 0, bytesPerSecond: 0, transferred: 0, total: f.f.artifact.length, installing: false });
+      equal(f.transitions.at(-1)!.progress, null);
       equal(f.installs.length, 0);
       deepEqual(await call('updater:install'), { ok: true, started: true });
       equal(f.checks, 2); equal(f.installs.length, 1);
       equal((await f.service.install()).ok, false);
+    } finally { await f.close(); }
+  });
+  await h.test('transfer progress is throttled, smoothed and spans the download share of the bar', async () => {
+    const f = updateFixture(), directory = await mkdtemp(join(tmpdir(), 'klaus-updater-progress-'));
+    const pushes: UpdateStatus[] = [];
+    // Many small chunks with a clock that advances per reading: the cadence, not
+    // the chunk count, must decide how many events reach the renderer. The bytes
+    // are really signed so the transfer completes through verification.
+    const chunk = 1024, chunks = 64, total = chunk * chunks;
+    const bytes = Buffer.alloc(total, 7);
+    const base = f.release();
+    const release = { ...base, artifact: { ...base.artifact, size: total, sha256: createHash('sha256').update(bytes).digest('hex'), sha512: createHash('sha512').update(bytes).digest('base64'), signature: f.signed(bytes) } };
+    let clock = 1_000;
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (let index = 0; index < chunks; index++) controller.enqueue(new Uint8Array(bytes.subarray(index * chunk, (index + 1) * chunk)));
+        controller.close();
+      },
+    });
+    const service = new UpdateService({
+      currentVersion: '1.0.0', cacheRoot: join(directory, 'cache'), policy: f.policy,
+      now: () => (clock += 40), progressIntervalMs: 200, emit: value => pushes.push(value),
+      fetch: async (input) => {
+        const url = String(input);
+        if (url === f.policy.feedUrl) return new Response(JSON.stringify(f.envelope(release)), { status: 200 });
+        return new Response(body, { status: 200, headers: { 'content-length': String(total) } });
+      },
+      installer: { install: async () => {}, dispose: async () => {} },
+    });
+    try {
+      await service.check();
+      const deadline = Date.now() + 5_000;
+      while (service.snapshot().state !== 'downloaded') {
+        if (Date.now() > deadline) throw new Error(`stalled: ${JSON.stringify(service.snapshot())}`);
+        await new Promise(resolveWait => setTimeout(resolveWait, 1));
+      }
+      const progress = pushes.filter(value => value.state === 'downloading' && value.progress);
+      ok(progress.length >= 3, `expected several throttled progress pushes, got ${progress.length}`);
+      ok(progress.length < chunks, `a chunk-per-event flood must not reach the renderer, got ${progress.length} for ${chunks} chunks`);
+      const last = progress.at(-1)!.progress!;
+      equal(last.transferred, total); equal(last.total, total);
+      equal(last.percent, 60, 'a finished download owns 0-60 of the bar, leaving the rest to installation');
+      ok(progress.every(value => value.progress!.percent <= 60), 'no download push may claim the installation range');
+      ok(progress.every((value, index) => index === 0 || value.progress!.transferred >= progress[index - 1]!.progress!.transferred), 'transferred never goes backwards');
+      ok(last.bytesPerSecond > 0, 'a moving transfer reports a smoothed speed');
+      // 1 KiB per 40 ms is 25 KiB/s; smoothing must stay in that neighbourhood
+      // rather than reporting either zero or an unbounded instantaneous spike.
+      ok(last.bytesPerSecond > 20_000 && last.bytesPerSecond < 32_000, `smoothed speed out of range: ${last.bytesPerSecond}`);
+      equal(pushes.at(-1)!.progress, null, 'the terminal push clears the transfer counters');
+    } finally { await service.dispose(); await rm(directory, { recursive: true, force: true }); }
+  });
+  await h.test('installation reports its own phases inside the upper share of the bar', async () => {
+    const f = await setup({ prepare: async () => { await new Promise(resolveWait => setTimeout(resolveWait, 5)); } });
+    try {
+      const registry = new ChannelRegistry(); registerUpdaterHandlers(registry, f.service);
+      await f.service.check(); await f.wait('downloaded');
+      const before = f.transitions.length;
+      const result = await f.service.install();
+      equal(result.ok, true);
+      const installing = f.transitions.slice(before).filter(value => value.state === 'installing');
+      ok(installing.length >= 1, 'installation publishes at least its preparing phase');
+      ok(installing.every(value => value.progress!.installing === true), 'installation pushes are marked as installing');
+      ok(installing.every(value => value.progress!.percent > 60 && value.progress!.percent < 100), 'installation stays inside its own range and never claims completion');
+      ok(installing.every(value => value.explicit === true), 'installation is always a person-initiated attempt');
+    } finally { await f.close(); }
+  });
+  await h.test('failures keep the phase that produced them instead of reading as unsupported', async () => {
+    const rejected = await setup({ badBytes: true });
+    try {
+      await rejected.service.check(); await rejected.wait('error');
+      equal(rejected.service.snapshot().errorKind, 'download-failed');
+      ok(/checksum/.test(rejected.service.snapshot().error ?? ''), 'the real diagnostic is preserved for logs');
+    } finally { await rejected.close(); }
+    const unreachable = await setup();
+    try {
+      unreachable.current = { ...unreachable.current, version: '0.0.1' };
+      await unreachable.service.check(); await unreachable.wait('error');
+      equal(unreachable.service.snapshot().errorKind, 'check-rejected', 'a feed that answered but failed its checks is a rejected offer');
+    } finally { await unreachable.close(); }
+    const failedInstall = await setup({ installError: 'fixture native installation failure' });
+    try {
+      await failedInstall.service.check(); await failedInstall.wait('downloaded');
+      await failedInstall.service.install();
+      equal(failedInstall.service.snapshot().errorKind, 'install-failed');
+    } finally { await failedInstall.close(); }
+    const unsupported = new UpdateService({ currentVersion: '1.0.0', cacheRoot: 'unused', unavailableReason: 'development build', emit: () => {}, installer: { install: async () => {}, dispose: async () => {} } });
+    equal(unsupported.snapshot().errorKind, 'unsupported');
+    await unsupported.dispose();
+  });
+  await h.test('only a person-initiated check is marked explicit', async () => {
+    const f = await setup();
+    try {
+      await f.service.check(); await f.wait('downloaded');
+      equal(f.transitions.every(value => value.explicit === false), true, 'the background cadence stays silent');
+      f.withdraw();
+      await f.service.check({ explicit: true });
+      equal(f.service.snapshot().explicit, true);
+      equal(f.service.snapshot().state, 'idle');
     } finally { await f.close(); }
   });
   await h.test('a control update receipt completes before installation drains its own dynamic caller', async () => {

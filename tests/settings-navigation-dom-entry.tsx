@@ -111,7 +111,7 @@ async function run() {
     { name: 'runtime', node: <runtimeView.RuntimeSettingsTab />, selector: '#runtime-approval' },
     { name: 'mobile', node: <capabilities.MobileBridgeSettingsTab />, selector: '#mobile-bridge-enabled' },
     { name: 'hooks', node: <hooks.HooksSettingsTab />, selector: '[data-hook-source="global"]' },
-    { name: 'about', node: <about.AboutTab />, selector: '#klaus-provider-trace' },
+    { name: 'about', node: <about.AboutTab />, selector: '#about-open-changelog' },
     { name: 'pets', node: <pets.PetsSettingsTab />, selector: '.pet-settings-button' },
     { name: 'archived', node: <archived.ArchivedSessionsTab />, selector: '[data-session-id="archived-1"]' },
     { name: 'profile', node: <profile.ProfilePage embedded />, selector: 'dd' },

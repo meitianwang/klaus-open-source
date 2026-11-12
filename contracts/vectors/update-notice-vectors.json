@@ -1,0 +1,355 @@
+{
+  "schemaVersion": 1,
+  "reason": "One update transfer has four presentations. These cases pin which surface owns each phase, how a person's two different choices (collapse the detail vs postpone the offer) change that ownership, and which attempts are allowed to produce a visible result notice. Without them a progress tick could reopen a collapsed dialog, a postponed offer could keep nagging, or a background failure could interrupt the user. The completion dialog also requires a transfer this session actually watched, so an offer already cached at launch does not raise a modal on every start.",
+  "delayGateMs": 500,
+  "dismissTtlMs": 43200000,
+  "downloadBarCeiling": 60,
+  "surfaceCases": [
+    {
+      "name": "idle shows nothing",
+      "state": "idle",
+      "collapsed": false,
+      "postponed": false,
+      "expect": {
+        "progressDialog": false,
+        "banner": false,
+        "readyDialog": false,
+        "installingOverlay": false
+      },
+      "observedTransfer": false
+    },
+    {
+      "name": "checking shows no transfer surface",
+      "state": "checking",
+      "collapsed": false,
+      "postponed": false,
+      "expect": {
+        "progressDialog": false,
+        "banner": false,
+        "readyDialog": false,
+        "installingOverlay": false
+      },
+      "observedTransfer": false
+    },
+    {
+      "name": "a running transfer owns the detail and the card",
+      "state": "downloading",
+      "collapsed": false,
+      "postponed": false,
+      "expect": {
+        "progressDialog": true,
+        "banner": true,
+        "readyDialog": false,
+        "installingOverlay": false
+      },
+      "observedTransfer": true
+    },
+    {
+      "name": "collapsing keeps the card and the running transfer",
+      "state": "downloading",
+      "collapsed": true,
+      "postponed": false,
+      "expect": {
+        "progressDialog": false,
+        "banner": true,
+        "readyDialog": false,
+        "installingOverlay": false
+      },
+      "observedTransfer": true
+    },
+    {
+      "name": "a finished transfer asks before restarting",
+      "state": "downloaded",
+      "collapsed": false,
+      "postponed": false,
+      "expect": {
+        "progressDialog": false,
+        "banner": true,
+        "readyDialog": true,
+        "installingOverlay": false
+      },
+      "observedTransfer": true
+    },
+    {
+      "name": "collapsing the decision leaves the card as the install entry",
+      "state": "downloaded",
+      "collapsed": true,
+      "postponed": false,
+      "expect": {
+        "progressDialog": false,
+        "banner": true,
+        "readyDialog": false,
+        "installingOverlay": false
+      },
+      "observedTransfer": true
+    },
+    {
+      "name": "postponing silences the whole notice",
+      "state": "downloaded",
+      "collapsed": false,
+      "postponed": true,
+      "expect": {
+        "progressDialog": false,
+        "banner": false,
+        "readyDialog": false,
+        "installingOverlay": false
+      },
+      "observedTransfer": true
+    },
+    {
+      "name": "postponing also silences a running transfer notice",
+      "state": "downloading",
+      "collapsed": false,
+      "postponed": true,
+      "expect": {
+        "progressDialog": false,
+        "banner": false,
+        "readyDialog": false,
+        "installingOverlay": false
+      },
+      "observedTransfer": true
+    },
+    {
+      "name": "installation owns the screen and cannot be collapsed",
+      "state": "installing",
+      "collapsed": true,
+      "postponed": false,
+      "expect": {
+        "progressDialog": false,
+        "banner": false,
+        "readyDialog": false,
+        "installingOverlay": true
+      },
+      "observedTransfer": true
+    },
+    {
+      "name": "installation cannot be postponed away",
+      "state": "installing",
+      "collapsed": true,
+      "postponed": true,
+      "expect": {
+        "progressDialog": false,
+        "banner": false,
+        "readyDialog": false,
+        "installingOverlay": true
+      },
+      "observedTransfer": true
+    },
+    {
+      "name": "an unsupported installation shows no notice",
+      "state": "downloaded",
+      "supported": false,
+      "collapsed": false,
+      "postponed": false,
+      "expect": {
+        "progressDialog": false,
+        "banner": false,
+        "readyDialog": false,
+        "installingOverlay": false
+      },
+      "observedTransfer": true
+    },
+    {
+      "name": "a downloaded state without a version is not an offer",
+      "state": "downloaded",
+      "version": null,
+      "collapsed": false,
+      "postponed": false,
+      "expect": {
+        "progressDialog": false,
+        "banner": false,
+        "readyDialog": false,
+        "installingOverlay": false
+      },
+      "observedTransfer": true
+    },
+    {
+      "name": "an offer already cached at launch gets the card, not a modal",
+      "state": "downloaded",
+      "collapsed": false,
+      "postponed": false,
+      "observedTransfer": false,
+      "expect": {
+        "progressDialog": false,
+        "banner": true,
+        "readyDialog": false,
+        "installingOverlay": false
+      }
+    }
+  ],
+  "noticeCases": [
+    {
+      "name": "a manual check that finds nothing reports success",
+      "state": "idle",
+      "explicit": true,
+      "expect": "up-to-date"
+    },
+    {
+      "name": "a background check that finds nothing stays silent",
+      "state": "idle",
+      "explicit": false,
+      "expect": null
+    },
+    {
+      "name": "a manual failure names its own phase",
+      "state": "error",
+      "explicit": true,
+      "errorKind": "check-rejected",
+      "expect": "failure"
+    },
+    {
+      "name": "a background failure stays silent",
+      "state": "error",
+      "explicit": false,
+      "errorKind": "download-failed",
+      "expect": null
+    },
+    {
+      "name": "a running transfer produces no result notice",
+      "state": "downloading",
+      "explicit": true,
+      "expect": null
+    }
+  ],
+  "settingsActionCases": [
+    {
+      "name": "idle offers a check",
+      "state": "idle",
+      "expect": "check"
+    },
+    {
+      "name": "checking names checking",
+      "state": "checking",
+      "expect": "checking"
+    },
+    {
+      "name": "downloading names downloading, never checking",
+      "state": "downloading",
+      "expect": "downloading"
+    },
+    {
+      "name": "a finished offer offers installation",
+      "state": "downloaded",
+      "expect": "install"
+    },
+    {
+      "name": "installation names installing",
+      "state": "installing",
+      "expect": "installing"
+    }
+  ],
+  "settingsHintCases": [
+    {
+      "name": "idle explains the update model",
+      "state": "idle",
+      "expect": "action"
+    },
+    {
+      "name": "an unreachable service keeps its own reason",
+      "state": "error",
+      "errorKind": "check-unavailable",
+      "expect": "check-unavailable"
+    },
+    {
+      "name": "a rejected offer keeps its own reason",
+      "state": "error",
+      "errorKind": "check-rejected",
+      "expect": "check-rejected"
+    },
+    {
+      "name": "a failed transfer keeps its own reason",
+      "state": "error",
+      "errorKind": "download-failed",
+      "expect": "download-failed"
+    },
+    {
+      "name": "a failed installation keeps its own reason",
+      "state": "error",
+      "errorKind": "install-failed",
+      "expect": "install-failed"
+    },
+    {
+      "name": "only a genuinely unsupported installation says so",
+      "state": "error",
+      "errorKind": "unsupported",
+      "expect": "unsupported"
+    },
+    {
+      "name": "an unsupported installation outranks the phase",
+      "state": "downloading",
+      "supported": false,
+      "expect": "unsupported"
+    }
+  ],
+  "remainingTimeCases": [
+    {
+      "name": "an unknown speed is calculating, not a fabricated number",
+      "speed": 0,
+      "transferred": 10,
+      "total": 100,
+      "expect": {
+        "kind": "calculating"
+      }
+    },
+    {
+      "name": "seconds below a minute",
+      "speed": 10,
+      "transferred": 100,
+      "total": 400,
+      "expect": {
+        "kind": "seconds",
+        "count": 30
+      }
+    },
+    {
+      "name": "minutes below an hour",
+      "speed": 10,
+      "transferred": 0,
+      "total": 6000,
+      "expect": {
+        "kind": "minutes",
+        "count": 10
+      }
+    },
+    {
+      "name": "hours and minutes above an hour",
+      "speed": 1,
+      "transferred": 0,
+      "total": 7300,
+      "expect": {
+        "kind": "hoursMinutes",
+        "hours": 2,
+        "minutes": 2
+      }
+    },
+    {
+      "name": "a finished transfer reads zero, never negative",
+      "speed": 10,
+      "transferred": 500,
+      "total": 100,
+      "expect": {
+        "kind": "seconds",
+        "count": 0
+      }
+    }
+  ],
+  "byteCases": [
+    {
+      "bytes": 0,
+      "expect": "0 B"
+    },
+    {
+      "bytes": 1024,
+      "expect": "1 KB"
+    },
+    {
+      "bytes": 18758041,
+      "expect": "17.89 MB"
+    },
+    {
+      "bytes": 170184704,
+      "expect": "162.3 MB"
+    }
+  ],
+  "_change": "Initial pin for the four update surfaces, the collapse/postpone distinction, explicit-only result notices, per-phase failure reasons and the shared 0-60 / 60-100 progress bar."
+}

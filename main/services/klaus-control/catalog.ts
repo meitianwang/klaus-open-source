@@ -36,7 +36,7 @@ export const CONTROL_SURFACES: ControlSurface[] = [
   },
   {
     "key": "app",
-    "about": "The application itself: build edition and public service address, version and runtime capabilities, launch-at-login (the switch is on Settings → Preferences), opening external http/https/mailto URLs, a screenshot of the Klaus window, and restarting. The version, the bundled changelog and manual update controls live on Settings → About.",
+    "about": "The application itself: build edition and public service address, version and runtime capabilities, launch-at-login (the switch is on Settings → Preferences), opening external http/https/mailto URLs, a screenshot of the Klaus window, and restarting. The version, the release-notes entry and manual update controls live on Settings → App update.",
     "reads": [
       {
         "action": "distribution",
@@ -174,7 +174,7 @@ export const CONTROL_SURFACES: ControlSurface[] = [
   },
   {
     "key": "updater",
-    "about": "Automatic updates: current state, checking, installing. The app checks a few seconds after launch and then every 15 minutes, and downloads a found update on its own; a status pill in the title bar and a Restart to update button at the bottom of the sidebar then appear, and `install` restarts into it. Self-built and development builds report updates as unsupported.",
+    "about": "Automatic updates: current state, transfer progress, checking, installing. The app checks a few seconds after launch and then every 15 minutes, and downloads a found update on its own, reporting percent, speed and remaining time while it transfers. A progress dialog can be minimized to a persistent card above the sidebar footer; a finished download asks before restarting, and `install` restarts into it. `check` accepts { explicit: true } for a person-initiated attempt, which is the only kind that shows a result notice. Self-built and development builds report updates as unsupported.",
     "reads": [
       {
         "action": "status",
@@ -3545,7 +3545,7 @@ export const CONTROL_SURFACES: ControlSurface[] = [
   },
   {
     "key": "setting",
-    "about": "The raw settings store, addressed by storage row and NOT validated. `preference` covers the settings users actually ask about and checks what it writes — go there first; come here for a row it does not carry (an engine config row such as klaus.taskBudgetTokens; klaus.providerTrace 'on'/'off', the 'Developer debug log' switch on Settings → About; or something this machine stored that no panel shows). `list` shows what this machine has actually stored, and reading a value first tells you its shape.",
+    "about": "The raw settings store, addressed by storage row and NOT validated. `preference` covers the settings users actually ask about and checks what it writes — go there first; come here for a row it does not carry (an engine config row such as klaus.taskBudgetTokens; klaus.providerTrace 'on'/'off', the 'Developer debug log' switch on Settings → Preferences; or something this machine stored that no panel shows). `list` shows what this machine has actually stored, and reading a value first tells you its shape.",
     "reads": [
       {
         "action": "list",

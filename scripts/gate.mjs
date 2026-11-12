@@ -31,6 +31,7 @@ await gate.run('workspace-file-browser', process.execPath, ['scripts/run-workspa
 await gate.run('diagram-layout-worker', process.execPath, ['scripts/run-diagram-layout-test.mjs']);
 await gate.run('editor-dependency-assets', process.execPath, ['scripts/run-editor-assets-test.mjs']);
 await gate.run('hooks-settings', process.execPath, ['scripts/run-hooks-settings-test.mjs']);
+await gate.run('update-surfaces', process.execPath, ['scripts/run-update-surfaces-test.mjs']);
 // The native gate owns Cargo sequentially. Do not run an engine Cargo gate in
 // parallel with this aggregate on the same machine.
 await gate.run('native-tests', process.execPath, ['scripts/test-native.mjs']);

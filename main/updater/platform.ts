@@ -5,7 +5,7 @@ import { createReadStream } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import { dirname, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
-import type { PendingUpdate, UpdateInstaller } from './service';
+import type { PendingUpdate, UpdateInstallPhase, UpdateInstaller } from './service';
 import { UPDATE_APPLICATION } from './policy';
 
 const execute = promisify(execFile);
@@ -109,7 +109,7 @@ export class PlatformUpdateInstaller implements UpdateInstaller {
     options.app.once('quit', () => options.autoUpdater.removeListener('error', logError));
   }
 
-  async install(update: PendingUpdate, signal: AbortSignal): Promise<void> {
+  async install(update: PendingUpdate, signal: AbortSignal, onPhase?: (phase: UpdateInstallPhase) => void): Promise<void> {
     if (this.abort || this.handingOff) throw new Error('A platform update is already running');
     const abort = new AbortController(); this.abort = abort;
     const combined = AbortSignal.any([signal, abort.signal, AbortSignal.timeout(this.options.timeoutMs ?? 5 * 60_000)]);
@@ -125,9 +125,11 @@ export class PlatformUpdateInstaller implements UpdateInstaller {
         if (update.proof.release.artifact.kind !== 'nsis') throw new Error('Windows update is not a full NSIS installer');
         await this.system.verifySignature(update.file, identity, combined);
         combined.throwIfAborted();
+        onPhase?.('installing');
         preparing = true;
         await this.options.prepareToQuit();
         combined.throwIfAborted();
+        onPhase?.('restarting');
         // NSIS reads /D as the unquoted remainder of the command line. Keep it last
         // and preserve its literal spaces instead of applying Windows argv quoting.
         // It targets this Electron install
@@ -151,9 +153,12 @@ export class PlatformUpdateInstaller implements UpdateInstaller {
           if (combined.aborted) { onAbort(); return; }
           try { native.setFeedURL({ url: this.bridge!.url }); native.checkForUpdates(); } catch (error) { cleanup(); reject(error); }
         });
-        staged = true; preparing = true;
+        staged = true;
+        onPhase?.('installing');
+        preparing = true;
         await this.options.prepareToQuit();
         combined.throwIfAborted();
+        onPhase?.('restarting');
         this.handingOff = true;
         // Native update-downloaded means Squirrel accepted the downloaded app's code
         // signature against this app's signing requirement, before a bundle swap.

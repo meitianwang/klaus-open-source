@@ -7,53 +7,75 @@ const readFrontendFile = (relative: string) =>
 
 const index = readFrontendFile('index.html')
 const styles = readFrontendFile('css/styles.css')
-const source = readFrontendFile('src/chat/auth-screen.ts')
+const authScreen = readFrontendFile('src/chat/auth-screen.ts')
 const icons = readFrontendFile('src/icons/library.ts')
+const mount = readFrontendFile('src/app/update/mount.tsx')
+const components = readFrontendFile('src/app/update/components.tsx')
+const store = readFrontendFile('src/app/update/store.ts')
+const moduleStyles = readFrontendFile('src/app/update/update.module.css')
 
 describe('desktop update control', () => {
-  test('the persistent action uses the sidebar footer slot', () => {
-    const footer = index.slice(index.indexOf('<div class="sidebar-footer">'), index.indexOf('<!-- Sidebar width is fixed'))
-    const update = footer.indexOf('id="sidebar-update-restart"')
-    expect(update).toBeGreaterThan(footer.indexOf('class="sidebar-user-info"'))
-    expect(update).toBeLessThan(footer.indexOf('id="sidebar-user-usage"'))
-    expect(footer).toContain('data-kls-icon="sidebar-user-update"')
-    expect(footer).toContain('data-kls-icon="s-lead-spinner-track"')
+  test('the persistent card owns a slot above the sidebar footer', () => {
+    const card = index.indexOf('id="sidebar-update-card"')
+    expect(card).toBeGreaterThan(index.indexOf('id="sidebar-scroll"'))
+    expect(card).toBeLessThan(index.indexOf('<div class="sidebar-footer">'))
+    expect(mount).toContain("getElementById('sidebar-update-card')")
     expect(icons).toContain("'sidebar-user-update': shell(downloadSimpleSvg")
-    expect(footer).not.toContain('title=')
-    expect(footer).not.toContain('data-klaus-tip')
   })
 
-  test('the footer action has the compact pill and busy-state contracts', () => {
-    expect(styles).toContain('.sidebar-update-restart {')
-    expect(styles).toContain('grid-template-columns: minmax(0, 0fr);')
-    expect(styles).toContain('height: 20px;')
-    expect(styles).toContain('width: 12px;')
-    expect(styles).toContain('background: #339cff;')
-    expect(styles).toContain('font-size: 10px;')
-    expect(styles).toContain('flex-shrink: 0;')
-    expect(styles).toContain('.sidebar-update-restart[hidden] { display: none; }')
-    expect(styles).toContain('.sidebar-update-restart[aria-busy="true"] .sidebar-update-icon-busy')
-    expect(source).toContain("updateRestartBtn.setAttribute('aria-busy', 'true')")
-    expect(source).toContain("updateRestartBtn.removeAttribute('aria-busy')")
-    expect(source).toContain('updateRestartLabel.textContent = updateInstallInFlight')
-    expect(source).toContain("tt('update_preparing')")
-  })
-
-  test('only a verified downloaded offer is shown and the old floating banner is gone', () => {
-    expect(source).toContain("status.state !== 'downloaded'")
-    expect(source).toContain('updateRestartBtn.hidden = true')
-    expect(source).toContain('updateRestartBtn.hidden = false')
-    expect(source).not.toContain('update-banner')
-    expect(index).not.toContain('id="update-banner"')
-  })
-
-  test('the titlebar no longer duplicates the update state', () => {
-    // The sidebar footer control is the single update surface; the titlebar
-    // pill was removed because it repeated the same state.
+  test('one store owns every surface, and the retired footer pill is gone', () => {
+    // A second owner of update state is how the sidebar and the settings page
+    // previously disagreed about the same transfer.
+    expect(authScreen).not.toContain('updaterStatus')
+    expect(authScreen).not.toContain('showUpdateControl')
+    expect(index).not.toContain('sidebar-update-restart')
+    expect(styles).not.toContain('.sidebar-update-restart')
     expect(index).not.toContain('titlebar-update-status')
     expect(styles).not.toContain('.titlebar-update-status')
-    expect(source).not.toContain('showTitlebarUpdate')
-    expect(source).not.toContain('update_ready_install')
+    expect(index).not.toContain('id="update-banner"')
+    for (const surface of ['UpdateProgressDialog', 'UpdateReadyDialog', 'UpdateInstallingOverlay', 'UpdateBanner']) {
+      expect(components).toContain(`export function ${surface}`)
+    }
+    expect(components).toContain('useSyncExternalStore(subscribeUpdate, updateSnapshot, updateSnapshot)')
+  })
+
+  test('the transfer detail reports size, speed and remaining time, and can be collapsed', () => {
+    expect(components).toContain("t('update_speed')")
+    expect(components).toContain("t('update_remaining')")
+    expect(components).toContain('formatBytes(progress?.transferred ?? 0)')
+    expect(components).toContain('remainingLabel(progress, t)')
+    expect(components).toContain('data-action="update-minimize"')
+    expect(components).toContain('onClick={hideUpdateProgress}')
+    // The card is the way back, so collapsing never loses the transfer.
+    expect(components).toContain('data-action="update-show-progress"')
+    expect(components).toContain('onClick={showUpdateProgress}')
+  })
+
+  test('a finished transfer asks before restarting and offers a postpone', () => {
+    expect(components).toContain("t('update_ready_title')")
+    expect(components).toContain('data-action="update-later"')
+    expect(components).toContain('onClick={deferUpdate}')
+    expect(store).toContain('DISMISS_STORAGE_KEY')
+    // Postponing is recorded per version, and asking again clears it.
+    expect(store).toContain('writeDismiss({ version, timestamp: Date.now() })')
+    expect(store).toContain('writeDismiss(null)')
+  })
+
+  test('installation explains the wait and offers no way out', () => {
+    expect(components).toContain("t('update_installing_body')")
+    expect(components).toContain("INSTALL_STEPS = ['preparing', 'installing', 'restarting']")
+    const overlay = components.slice(components.indexOf('export function UpdateInstallingOverlay'), components.indexOf('export function UpdateBanner'))
+    expect(overlay).not.toContain('deferUpdate')
+    expect(overlay).not.toContain('hideUpdateProgress')
+    expect(overlay).toContain('useDialogFocus()')
+  })
+
+  test('every dialog traps focus and exposes itself to assistive technology', () => {
+    expect(components).toContain('role="dialog" aria-modal="true"')
+    expect(components).toContain("event.key === 'Escape'")
+    expect(components).toContain("event.key !== 'Tab'")
+    expect(components).toContain('role="progressbar" aria-valuemin={0} aria-valuemax={100}')
+    expect(moduleStyles).toContain('@media (prefers-reduced-motion: reduce)')
   })
 
   test('unsupported installs surface their reason next to the settings version', () => {
@@ -64,6 +86,19 @@ describe('desktop update control', () => {
     expect(module).toContain('.settings-version-unavailable')
   })
 
+  test('the settings page carries two equal cards and no diagnostics switch', () => {
+    const about = readFrontendFile('src/pages/settings/about-tab.tsx')
+    const prefs = readFrontendFile('src/pages/settings/prefs-tabs.tsx')
+    expect(about).toContain("t('update_current_version')")
+    expect(about).toContain("t('update_changelog_hint')")
+    expect(about).toContain('id="about-open-changelog"')
+    expect(about).not.toContain('klaus-provider-trace')
+    expect(prefs).toContain("'klaus-provider-trace'")
+    // The action label comes from the phase, never from a neighbouring one.
+    expect(about).toContain('settingsActionFor(status, checking, installRequested)')
+    expect(about).toContain('settingsHintFor(status, checkFailed)')
+  })
+
   test('the menu contract declares the Check for Updates states and the service checks every 15 minutes', () => {
     const labels = readFrontendFile('../main/app/native-menu-labels.ts')
     const service = readFrontendFile('../main/updater/service.ts')
@@ -72,5 +107,16 @@ describe('desktop update control', () => {
     // One immediate startup check, then every 15 minutes.
     expect(service).toContain('15 * 60_000')
     expect(service).not.toContain('4 * 60 * 60_000')
+  })
+
+  test('transfer progress is throttled in the host, not by the renderer', () => {
+    const service = readFrontendFile('../main/updater/service.ts')
+    const runtime = readFrontendFile('../main/app/runtime.ts')
+    expect(service).toContain('PROGRESS_INTERVAL_MS = 200')
+    expect(service).toContain('SPEED_SMOOTHING_ALPHA = 0.3')
+    expect(service).toContain('DOWNLOAD_PROGRESS_CEILING = 60')
+    expect(service).toContain('this.publishDownloadProgress(transferred, total)')
+    // A progress tick must not rebuild the native menu several times a second.
+    expect(runtime).toContain('if (menuState !== updaterMenuState)')
   })
 })

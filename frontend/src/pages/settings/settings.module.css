@@ -1426,37 +1426,6 @@
 .about-status[data-state='error'] {
   color: var(--danger);
 }
-/* The changelog lives on the web /updates page; this row is the only entry
-   from the About tab, styled like a quiet text link with an external glyph. */
-.about-changelog-link {
-  align-self: flex-start;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  margin: 0;
-  padding: 0;
-  border: 0;
-  background: none;
-  font: inherit;
-  font-size: var(--text-small);
-  color: var(--fg-secondary);
-  cursor: pointer;
-}
-.about-changelog-link:hover {
-  color: var(--fg);
-  text-decoration: underline;
-}
-.about-changelog-link:focus-visible {
-  outline: 2px solid var(--input-focus);
-  outline-offset: 2px;
-  border-radius: 4px;
-}
-.about-changelog-link-icon {
-  width: 12px;
-  height: 12px;
-  flex: 0 0 auto;
-}
-
 /* The Kimi card's pasted-credential block: a key field and an optional base URL
    above the ordinary card actions, because Kimi's documented third-party route is
    a console key rather than an account login. The device-flow button stays below

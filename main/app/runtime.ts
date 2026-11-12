@@ -471,12 +471,19 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
     else broadcaster.emit(channel, value);
   };
   early.add(() => chat.close());
-  // Menu items live outside the status payload, so the application menu must
-  // rebuild on every updater push: the Check-for-Updates item is disabled
-  // during a running operation, the way a macOS menu should behave.
+  // Menu items live outside the status payload, so the application menu rebuilds
+  // when the Check-for-Updates item changes label or enabled state. Transfer
+  // progress arrives several times a second and never changes either, so only a
+  // state transition rebuilds the menu; every push still reaches the renderer.
   const updaterStatusForMenu: UpdateStatus[] = [];
+  let updaterMenuState = '';
   const updater = await createDesktopUpdater({ app, autoUpdater, resourcesRoot: resourceRoot(), configRoot, edition,
-    emit: status => { updaterStatusForMenu[0] = status; refreshMenus(); push('updater:status', { ...status }); },
+    emit: status => {
+      updaterStatusForMenu[0] = status;
+      const menuState = `${status.supported ? '1' : '0'}:${status.state}`;
+      if (menuState !== updaterMenuState) { updaterMenuState = menuState; refreshMenus(); }
+      push('updater:status', { ...status });
+    },
     log: message => log.write('updater', message),
     prepareToQuit: () => prepareUpdate(),
     installationFailedAfterPrepare: (error, staged) => {

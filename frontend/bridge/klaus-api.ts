@@ -1679,7 +1679,9 @@ expose('klaus', {
   // 桌面端自动更新（feed 指向 Klaus 云端 release 服务）
   updater: {
     status: () => call('updater:status'),
-    check: () => call('updater:check'),
+    // A person-initiated check is the only attempt that shows a result notice;
+    // the background cadence runs in the host without this flag.
+    check: (args?: { explicit?: boolean }) => call('updater:check', args ?? {}),
     install: () => call('updater:install'),
   },
 

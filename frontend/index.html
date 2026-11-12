@@ -225,6 +225,10 @@
         <div class="session-list" id="session-list"></div>
       </div>
 
+      <!-- A running or finished update keeps one persistent card here: the
+           transfer detail can be minimized without losing the way back to it. -->
+      <div id="sidebar-update-card"></div>
+
       <div class="sidebar-footer">
         <div id="user-menu" class="user-menu">
           <button class="user-menu-item" id="menu-settings">
@@ -284,11 +288,7 @@
             <div class="sidebar-username">User</div>
           </div>
           </button>
-          <button class="sidebar-update-restart" id="sidebar-update-restart" type="button" aria-label="Restart to update" aria-live="polite" hidden>
-            <span class="sidebar-update-icon-ready" aria-hidden="true"><span data-kls-icon="sidebar-user-update"></span></span>
-            <span class="sidebar-update-icon-busy" aria-hidden="true"><span data-kls-icon="s-lead-spinner-track"></span></span>
-            <span class="sidebar-update-restart-label">Restart to update</span>
-          </button>
+
           <button class="sidebar-user-settings" id="sidebar-user-usage" aria-label="Usage" aria-haspopup="dialog" aria-expanded="false">
             <!-- Gauge：lucide circle-gauge——缺口圆环 + 圆头指针 + 轴心。 -->
             <span data-kls-icon="sidebar-user-usage"></span>

@@ -67,6 +67,7 @@
     "test:diagram-layout": "node scripts/run-diagram-layout-test.mjs",
     "test:composer-predictions": "node scripts/run-composer-prediction-host-test.mjs && node scripts/run-composer-prediction-test.mjs && node scripts/run-composer-prediction-settings-test.mjs",
     "test:hooks-settings": "node scripts/run-hooks-settings-test.mjs",
+    "test:update-surfaces": "node scripts/run-update-surfaces-test.mjs",
     "test:follow-up-queue": "node scripts/run-follow-up-queue-test.mjs",
     "test:planning-goals": "node scripts/run-planning-goals-test.mjs",
     "test:offscreen-turn": "node scripts/run-offscreen-turn-test.mjs"
