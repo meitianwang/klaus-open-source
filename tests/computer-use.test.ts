@@ -550,6 +550,92 @@ h.test('unsupported platforms and a missing Windows helper report explicit unava
   await strict.rejects(windows.request(request(), new AbortController().signal), /helper is missing/); await windows.close();
 });
 const audioScript = join(temporary, 'audio-fixture.cjs');
+function fakeAudio() {
+  const starts: string[] = [], stops: string[] = [];
+  const audio: NonNullable<ComputerUseDependencies['audio']> = {
+    start: async sessionId => { starts.push(sessionId); },
+    stop: async sessionId => {
+      stops.push(sessionId);
+      return { data: Buffer.alloc(44), recording: { path: 'fixture.wav', durationMs: 10,
+        sampleRate: 24000, channels: 2, bytes: 44, limitReached: false } };
+    },
+  };
+  return { audio, starts, stops };
+}
+h.test('system audio requests its own session-only confirmation before capture', async () => {
+  const a = fakeAudio(), f = fixture(undefined, { audio: a.audio });
+  await f.read();
+  const vector = JSON.parse(readFileSync(join(__dirname, '../../contracts/vectors/computer-use-observation-vectors.json'), 'utf8')).audioRecording;
+  await f.connector.call('start_audio_recording', {}, f.context());
+  strict.equal(f.approvals.length, 2, 'application access does not grant audio capture');
+  strict.deepEqual(f.approvals[1], { message: 'Allow Klaus to record computer audio?',
+    requestedSchema: { type: 'object', properties: {} },
+    _meta: { persist: vector.approval.persist } });
+  strict.deepEqual(a.starts, ['a']);
+  const stopped = await f.connector.call('stop_audio_recording', {}, f.context('a', 'turn2'));
+  strict.equal(stopped.content[1]!.type, 'audio');
+  await f.connector.call('start_audio_recording', {}, f.context('a', 'turn3'));
+  strict.equal(f.approvals.length, 2, 'later captures reuse this session grant');
+  await f.connector.call('start_audio_recording', {}, f.context('b'));
+  strict.equal(f.approvals.length, 3, 'another session needs its own grant');
+  strict.deepEqual(a.stops, ['a']);
+});
+h.test('audio capture never starts after declined, cancelled or malformed confirmation', async () => {
+  for (const action of ['decline', 'cancel', 'unknown']) {
+    const a = fakeAudio(), f = fixture(undefined, { audio: a.audio });
+    await strict.rejects(f.connector.call('start_audio_recording', {}, f.context('a', 'turn1',
+      async () => ({ action }))), new RegExp(`audio recording was ${action}`));
+    strict.deepEqual(a.starts, []);
+    await f.connector.call('start_audio_recording', {}, f.context());
+    strict.deepEqual(a.starts, ['a'], 'a refused confirmation is not cached as approval');
+  }
+});
+h.test('concurrent audio starts share one pending confirmation and wait before capture', async () => {
+  const a = fakeAudio(), f = fixture(undefined, { audio: a.audio }), gate = deferred<unknown>();
+  let prompts = 0;
+  const elicit = async () => { prompts++; return gate.promise; };
+  const first = f.connector.call('start_audio_recording', {}, f.context('a', 'turn1', elicit));
+  const second = f.connector.call('start_audio_recording', {}, f.context('a', 'turn1', elicit));
+  await waitFor(() => prompts === 1, 1000, 'audio approval is pending');
+  strict.deepEqual(a.starts, []);
+  gate.resolve({ action: 'accept' });
+  await Promise.all([first, second]);
+  strict.equal(prompts, 1); strict.deepEqual(a.starts, ['a', 'a']);
+});
+h.test('cancelled audio approval and a late accept cannot start or cache capture permission', async () => {
+  const a = fakeAudio(), f = fixture(undefined, { audio: a.audio }), gate = deferred<unknown>();
+  const cancel = new AbortController(); let prompts = 0;
+  const operation = f.connector.call('start_audio_recording', {}, {
+    ...f.context('a', 'turn1', async () => { prompts++; return gate.promise; }), signal: cancel.signal,
+  });
+  const rejected = strict.rejects(operation, /cancel|Abort/i);
+  await waitFor(() => prompts === 1, 1000, 'audio approval is pending'); cancel.abort();
+  await rejected;
+  strict.deepEqual(a.starts, []);
+  gate.resolve({ action: 'accept' });
+  await new Promise<void>(resolve => setImmediate(resolve));
+  await f.connector.call('start_audio_recording', {}, f.context());
+  strict.equal(f.approvals.length, 1, 'a late cancelled accept does not grant later capture');
+  strict.deepEqual(a.starts, ['a']);
+});
+h.test('audio approval rechecks disabled state and task scope before starting capture', async () => {
+  const a = fakeAudio(), gate = deferred<unknown>();
+  let scope: ComputerUseTaskScope | undefined, prompted = false;
+  const f = fixture(undefined, { audio: a.audio }, { taskScope: () => scope });
+  const operation = f.connector.call('start_audio_recording', {}, f.context('a', 'turn1',
+    async () => { prompted = true; return gate.promise; }));
+  const rejected = strict.rejects(operation, /authorization|scope|changed/i);
+  await waitFor(() => prompted, 1000, 'audio approval is pending');
+  scope = { active: true, apps: [`path:${app.path}`] };
+  gate.resolve({ action: 'accept' }); await rejected;
+  strict.deepEqual(a.starts, []);
+  await strict.rejects(f.connector.call('start_audio_recording', {}, f.context()), /Friend tasks cannot record/);
+  const b = fakeAudio(), disabled = fixture(undefined, { audio: b.audio });
+  await disabled.connector.call('start_audio_recording', {}, disabled.context());
+  await disabled.policy.setEnabled({ enabled: false });
+  await strict.rejects(disabled.connector.call('start_audio_recording', {}, disabled.context()), /disabled/);
+  strict.deepEqual(b.starts, ['a']);
+});
 writeFileSync(audioScript, `const fs=require('node:fs');let text='',rec=null;
 const finish=()=>{if(!rec||rec.done)return;rec.done=true;const path=rec.frame.args.path;
  const out={resourceId:rec.frame.resourceId,operationId:rec.frame.operationId,generation:1,sequence:1,ok:true,postedAt:0,actionStarted:false,

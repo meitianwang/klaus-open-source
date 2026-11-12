@@ -16,6 +16,9 @@ interface Owner {
   controllers: Set<AbortController>; pending: Set<Promise<unknown>>;
   states: Map<string, { turnId: string; snapshot: AppSnapshot }>;
   taskScope: string;
+  /** System audio permission belongs to this session, independently of app access. */
+  audioApproved?: boolean;
+  audioApproval?: Promise<void>;
   /** Bundle identifiers whose first-visit guidance this session already received. */
   guidesSent: Set<string>;
   /** Single-slot cache of the latest full-desktop observation geometry and identity. */
@@ -323,7 +326,9 @@ export class ComputerUseConnector {
     let taskScope: string, restricted: boolean;
     try { taskScope = this.deps.policy.taskScopeIdentity(context.sessionId); restricted = this.deps.policy.taskScope(context.sessionId) !== undefined; }
     catch (error) { owner.states.clear(); for (const active of owner.controllers) active.abort(error); return Promise.reject(error); }
-    if (owner.taskScope !== taskScope) { owner.states.clear(); owner.taskScope = taskScope; }
+    if (owner.taskScope !== taskScope) {
+      owner.states.clear(); owner.audioApproved = false; owner.audioApproval = undefined; owner.taskScope = taskScope;
+    }
     const controller = new AbortController(), abort = () => controller.abort(context.signal.reason);
     context.signal.addEventListener('abort', abort, { once: true }); if (context.signal.aborted) abort(); owner.controllers.add(controller);
     const current = () => {
@@ -358,6 +363,35 @@ export class ComputerUseConnector {
         if (!audio) throw new Error('System audio recording is unavailable on this computer');
         if (name === 'start_audio_recording') {
           const limit = args.max_duration_ms === undefined ? 60000 : number(args.max_duration_ms, 'max_duration_ms', 100, 300000, true);
+          this.deps.policy.guardSession(context.sessionId);
+          if (!owner.audioApproved) {
+            if (!owner.audioApproval) {
+              const approval = (async () => {
+                const response = object(await context.elicit({
+                  message: 'Allow Klaus to record computer audio?',
+                  requestedSchema: { type: 'object', properties: {} },
+                  _meta: { persist: ['session'] },
+                }, controller.signal));
+                current(); this.deps.policy.guardSession(context.sessionId);
+                if (response.action !== 'accept') {
+                  throw new Error(`Computer Use audio recording was ${typeof response.action === 'string' ? response.action : 'cancelled'}`);
+                }
+                owner.audioApproved = true;
+              })();
+              owner.audioApproval = approval;
+              const settled = () => { if (owner.audioApproval === approval) owner.audioApproval = undefined; };
+              void approval.then(settled, settled);
+            }
+            let abort: () => void = () => {};
+            try {
+              await Promise.race([owner.audioApproval, new Promise<never>((_resolve, reject) => {
+                abort = () => reject(controller.signal.reason ?? new Error('Computer Use audio approval was cancelled'));
+                controller.signal.addEventListener('abort', abort, { once: true });
+                if (controller.signal.aborted) abort();
+              })]);
+            } finally { controller.signal.removeEventListener('abort', abort); }
+          }
+          current(); this.deps.policy.guardSession(context.sessionId);
           await audio.start(context.sessionId, limit, controller.signal); current();
           return text(`Recording system audio. Capture stops automatically after ${limit} ms; call stop_audio_recording to retrieve the recording.`);
         }

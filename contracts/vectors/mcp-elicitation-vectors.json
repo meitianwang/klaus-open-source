@@ -1,4 +1,17 @@
 {
+  "permissionRouting": {
+    "reason": "An active full-access root turn confirms empty standard forms automatically and collects real answers for ordinary input forms after initialization; internal turns, URL flows, approval forms, and child connections do not gain input authority.",
+    "cases": [
+      { "approvalPolicy": "never", "sandboxMode": "danger-full-access", "mode": "form", "properties": {}, "activeQuery": true, "owner": "root", "action": "accept", "content": {}, "presentsCard": false },
+      { "approvalPolicy": "never", "sandboxMode": "workspace-write", "mode": "form", "properties": {}, "activeQuery": true, "owner": "root", "action": "decline", "presentsCard": false },
+      { "approvalPolicy": "never", "sandboxMode": "danger-full-access", "mode": "url", "activeQuery": true, "owner": "root", "action": "decline", "presentsCard": false },
+      { "approvalPolicy": "never", "sandboxMode": "danger-full-access", "mode": "form", "properties": {}, "activeQuery": false, "owner": "root", "action": "decline", "presentsCard": false },
+      { "approvalPolicy": "never", "sandboxMode": "danger-full-access", "mode": "form", "properties": {}, "activeQuery": true, "owner": "child-without-sandbox-binding", "action": "decline", "presentsCard": false },
+      { "approvalPolicy": "never", "sandboxMode": "danger-full-access", "mode": "form", "properties": { "label": { "type": "string" } }, "activeQuery": true, "owner": "root", "initializedInputTurn": true, "action": "collect-user-input", "presentsCard": true, "answer": { "label": "user supplied value" }, "response": { "action": "accept", "content": { "label": "user supplied value" } } },
+      { "approvalPolicy": "never", "sandboxMode": "danger-full-access", "mode": "form", "properties": { "label": { "type": "string" } }, "activeQuery": true, "owner": "root", "initializedInputTurn": false, "action": "decline", "presentsCard": false },
+      { "approvalPolicy": "never", "sandboxMode": "danger-full-access", "mode": "form", "properties": { "label": { "type": "string" } }, "activeQuery": true, "owner": "root", "initializedInputTurn": true, "meta": { "persist": ["session"] }, "action": "decline", "presentsCard": false }
+    ]
+  },
   "request": {
     "requestId": "mcp-form",
     "serverName": "computer-use",
