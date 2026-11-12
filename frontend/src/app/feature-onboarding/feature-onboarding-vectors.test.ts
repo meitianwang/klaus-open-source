@@ -9,7 +9,6 @@ import {
   GUIDE_SEEN_KEY,
   READING_MODE_KEY,
   TOUR_DONE_PREFIX,
-  defaultGuideId,
   guideContentAvailable,
   guideDue,
   isTourDone,
@@ -43,10 +42,9 @@ const storage = vectors.storage as unknown as {
   uiOnlyKeys: string[]
 }
 const guideVectors = vectors.guide as unknown as {
-  defaultId: Array<{ family: string | null; id: string | null }>
-  due: Array<{ _why?: string; enable: boolean; guideId: string | null; seen: string[]; shownThisSession: boolean; due: boolean }>
+  due: Array<{ _why?: string; enable: boolean; guideId: string | null; revision: number; seen: Array<[string, number]>; shownThisSession: boolean; due: boolean }>
   seenMapParse: Array<{ _why?: string; raw: unknown; parsed: string[] }>
-  seenMapAppend: Array<{ _why?: string; map: string[]; id: string; result: string[] }>
+  seenMapAppend: Array<{ _why?: string; map: Array<[string, number]>; id: string; revision: number; result: Array<[string, number]> }>
   readingMode: Array<{ raw: unknown; parsed: string | null }>
   config: Array<{ _why?: string; payload: unknown; accepted: boolean; enable?: boolean; guideId?: string | null; pageCount?: number }>
 }
@@ -133,16 +131,10 @@ describe('seen ledger', () => {
 })
 
 describe('guide identity and due-ness', () => {
-  for (const { family, id } of guideVectors.defaultId) {
-    test(`defaultGuideId(${JSON.stringify(family)}) → ${id}`, () => {
-      expect(defaultGuideId(family)).toBe(id)
-    })
-  }
-
-  for (const { _why, enable, guideId, seen, shownThisSession, due } of guideVectors.due) {
-    test(`due: ${_why ?? JSON.stringify({ enable, guideId, seen })}`, () => {
-      const map = Object.fromEntries(seen.map(id => [id, true as const]))
-      expect(guideDue({ enable, guideId, seen: map, shownThisSession })).toBe(due)
+  for (const { _why, enable, guideId, revision, seen, shownThisSession, due } of guideVectors.due) {
+    test(`due: ${_why ?? JSON.stringify({ enable, guideId, revision, seen })}`, () => {
+      const map = Object.fromEntries(seen)
+      expect(guideDue({ enable, guideId, revision, seen: map, shownThisSession })).toBe(due)
     })
   }
 
@@ -152,11 +144,11 @@ describe('guide identity and due-ness', () => {
     })
   }
 
-  for (const { _why, map, id, result } of guideVectors.seenMapAppend) {
-    test(`seen map mark: ${_why ?? `${map} + ${id}`}`, () => {
-      const before = { ...Object.fromEntries(map.map(key => [key, true as const])) }
-      expect(Object.keys(withGuideSeen(before, id)).sort()).toEqual([...result].sort())
-      expect(Object.keys(before).sort()).toEqual([...map].sort())
+  for (const { _why, map, id, revision, result } of guideVectors.seenMapAppend) {
+    test(`seen map mark: ${_why ?? `${map} + ${id}@${revision}`}`, () => {
+      const before = Object.fromEntries(map)
+      expect(withGuideSeen(before, id, revision)).toEqual(Object.fromEntries(result))
+      expect(before).toEqual(Object.fromEntries(map))
     })
   }
 
@@ -184,7 +176,7 @@ describe('guide content availability', () => {
 })
 
 describe('guide config validation', () => {
-  for (const { _why, payload, accepted, enable, guideId, pageCount } of guideVectors.config) {
+  for (const { _why, payload, accepted, enable, guideId, pageCount, revision } of guideVectors.config as Array<Record<string, any>>) {
     test(`config: ${_why ?? JSON.stringify(payload).slice(0, 60)}`, () => {
       const parsed = parseGuideConfig(payload)
       if (!accepted) {
@@ -194,6 +186,7 @@ describe('guide config validation', () => {
       expect(parsed).not.toBeNull()
       if (enable !== undefined) expect(parsed!.enable).toBe(enable)
       if (guideId !== undefined) expect(parsed!.data?.guideId ?? null).toBe(guideId)
+      if (revision !== undefined) expect(parsed!.data?.revision).toBe(revision)
       if (pageCount !== undefined) expect(parsed!.data?.zh?.features?.length ?? 0).toBe(pageCount)
     })
   }

@@ -26,7 +26,6 @@ import {
   FEATURE_SEEN_LEDGER_KEY,
   GUIDE_SEEN_KEY,
   READING_MODE_KEY,
-  defaultGuideId,
   parseGuideSeenMap,
   parseMirror,
   parseReadingMode,
@@ -48,8 +47,8 @@ const w = () => window as any
 interface OnboardingState {
   /** Acknowledged ids: arrived features plus `tour:` completion markers. */
   ledger: string[]
-  /** Guides already shown, by guide id. */
-  guideSeen: Record<string, true>
+  /** Guides already closed, by guide id → the revision closed at. */
+  guideSeen: Record<string, number>
   /** The control plane's current guide config. Null until the host answers,
    *  which reads as "no guide": the guide is fail-closed. */
   guideConfig: GuideConfig | null
@@ -262,7 +261,7 @@ export async function applyRemoteGuideState(): Promise<void> {
   const seen = seenRaw == null ? state.guideSeen : parseGuideSeenMap(seenRaw)
   const readingMode = readingRaw == null ? state.readingMode : parseReadingMode(readingRaw)
   const sameSeen = Object.keys(seen).length === Object.keys(state.guideSeen).length
-    && Object.keys(seen).every(id => state.guideSeen[id])
+    && Object.keys(seen).every(id => state.guideSeen[id] === seen[id])
   if (sameSeen && readingMode === state.readingMode) return
   state = { ...state, guideSeen: seen, readingMode }
   emit()
@@ -279,14 +278,19 @@ export function setGuideConfig(config: GuideConfig | null): void {
   emit()
 }
 
-/** The guide id this launch would announce, if any. The control plane may name
- *  one; otherwise the running release family supplies the default, so a new
- *  minor gets a fresh id without a server change while a patch never does. */
+/** The guide id the control plane published, if any. The client never derives
+ *  one from its own version: which release gets an announcement is an ops
+ *  decision, expressed by publishing a config. */
 export function currentGuideId(): string | null {
   const config = state.guideConfig
   if (!config?.enable) return null
-  const named = config.data?.guideId?.trim() || null
-  return named || defaultGuideId(runningFamily)
+  return config.data?.guideId?.trim() || null
+}
+
+/** The revision of the published guide. Absent reads as 0. */
+export function currentGuideRevision(): number {
+  const revision = state.guideConfig?.data?.revision
+  return typeof revision === 'number' && Number.isFinite(revision) ? Math.floor(revision) : 0
 }
 
 /** Whether the guide should be on screen right now. */
@@ -295,7 +299,7 @@ export function shouldShowGuide(): boolean {
   const guideId = currentGuideId()
   if (!guideId) return false
   if (state.guideOnScreen === guideId) return true
-  return !state.guideSeen[guideId]
+  return state.guideSeen[guideId] !== currentGuideRevision()
 }
 
 /** The guide is on screen in this window. Recorded before the surface paints so
@@ -312,9 +316,10 @@ export function setGuideOnScreen(guideId: string | null): void {
  *  silently consuming the announcement. */
 export function dismissGuide(): void {
   const guideId = state.guideOnScreen ?? currentGuideId()
+  const revision = currentGuideRevision()
   state = { ...state, guideOnScreen: null }
-  if (!guideId || state.guideSeen[guideId]) { emit(); return }
-  const seen = withGuideSeen(state.guideSeen, guideId)
+  if (!guideId || state.guideSeen[guideId] === revision) { emit(); return }
+  const seen = withGuideSeen(state.guideSeen, guideId, revision)
   state = { ...state, guideSeen: seen }
   emit()
   enqueueWrite(() => kvSet(GUIDE_SEEN_KEY, JSON.stringify(seen)))
@@ -324,7 +329,8 @@ export function dismissGuide(): void {
  *  the choice in one pass. */
 export function finishGuide(readingMode: ReadingMode): void {
   const guideId = state.guideOnScreen ?? currentGuideId()
-  const seen = guideId && !state.guideSeen[guideId] ? withGuideSeen(state.guideSeen, guideId) : state.guideSeen
+  const revision = currentGuideRevision()
+  const seen = guideId && state.guideSeen[guideId] !== revision ? withGuideSeen(state.guideSeen, guideId, revision) : state.guideSeen
   state = { ...state, guideOnScreen: null, guideSeen: seen, readingMode }
   emit()
   enqueueWrite(async () => {

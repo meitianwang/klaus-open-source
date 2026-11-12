@@ -17,11 +17,12 @@
 //     A feature is new exactly when its id is absent from the array, so adding
 //     a feature to the registry needs no migration and a retired feature leaves
 //     a harmless orphan string behind.
-//   - The guide is remembered by GUIDE ID, never by a version string. A guide
-//     id names one published introduction: re-publishing corrected copy under
-//     the same id stays dismissed, publishing a new id announces again. The
-//     version only enters as the default id (`release-<family>`), so a new
-//     minor gets a fresh id for free while a patch never re-announces.
+//   - The guide is remembered by GUIDE ID plus REVISION, both named by the
+//     control plane. The client never derives either from its own version:
+//     which release gets an announcement, including a patch release, is an
+//     ops decision expressed by publishing a config. Same id and revision
+//     stays closed once dismissed; bumping the revision re-shows it; a new id
+//     always shows.
 //   - The guide is fail-closed: it appears only while the control plane says
 //     `enable: true`. A client that cannot reach the server stays quiet, like
 //     the feature gates, because a half-delivered introduction is worse than
@@ -135,10 +136,11 @@ export function unionLedger(base: readonly string[], other: readonly string[]): 
 
 // --- guide seen map ---
 
-/** Parse the persisted guide seen-map. Anything that is not an object marking
- *  ids with `true` degrades to an empty map (every guide reads as unseen)
- *  rather than throwing: a corrupt row must never block boot. */
-export function parseGuideSeenMap(raw: unknown): Record<string, true> {
+/** Parse the persisted guide seen-map: guide id → the revision the user last
+ *  closed. Anything that is not an object of non-negative integer marks
+ *  degrades to an empty map (every guide reads as unseen) rather than
+ *  throwing: a corrupt row must never block boot. */
+export function parseGuideSeenMap(raw: unknown): Record<string, number> {
   let value: unknown = raw
   if (typeof raw === 'string') {
     const text = raw.trim()
@@ -146,18 +148,19 @@ export function parseGuideSeenMap(raw: unknown): Record<string, true> {
     try { value = JSON.parse(text) } catch { return {} }
   }
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return {}
-  const seen: Record<string, true> = {}
+  const seen: Record<string, number> = {}
   for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
-    if (key && entry === true) seen[key] = true
+    if (key && typeof entry === 'number' && Number.isInteger(entry) && entry >= 0) seen[key] = entry
   }
   return seen
 }
 
-/** Return a new map with `guideId` marked. Already-marked ids are a no-op, so
- *  re-acknowledging never grows the row. Never mutates the input. */
-export function withGuideSeen(map: Readonly<Record<string, true>>, guideId: string): Record<string, true> {
-  if (!guideId || map[guideId]) return { ...map }
-  return { ...map, [guideId]: true }
+/** Return a new map recording that `guideId` was closed at `revision`. Writing
+ *  the same revision again is a no-op, so re-acknowledging never grows the row.
+ *  Never mutates the input. */
+export function withGuideSeen(map: Readonly<Record<string, number>>, guideId: string, revision: number): Record<string, number> {
+  if (!guideId || map[guideId] === revision) return { ...map }
+  return { ...map, [guideId]: revision }
 }
 
 // --- post-upgrade guide content ---
@@ -215,7 +218,13 @@ export interface GuideLocaleContent {
 }
 
 export interface GuideData {
+  /** Names this publication. Ops chooses it freely — per release, per patch,
+   *  per campaign — and the client never derives one from its own version. */
   guideId?: string
+  /** Ops bumps this to re-show a guide the audience already closed. Same id
+   *  and same revision stays closed; same id with a higher revision shows
+   *  again; a new id always shows. */
+  revision?: number
   initialReadingMode?: ReadingMode
   zh?: GuideLocaleContent
   en?: GuideLocaleContent
@@ -251,29 +260,29 @@ export function guideContentAvailable(input: {
   return input.shippedFamily !== null && input.family === input.shippedFamily
 }
 
-/** Guide id used when the control plane enables the guide without naming one.
- *  Tied to the running release family so the next minor announces a fresh id
- *  while a corrected re-publish of the same family can reuse it. */
-export function defaultGuideId(currentFamily: string | null): string | null {
-  return currentFamily ? `release-${currentFamily}` : null
-}
-
 /** Whether the guide should be on screen now.
  *
- *  Three inputs must agree: the control plane switched the guide on, the guide
- *  has an id to be remembered by, and that id is not in the seen map.
+ *  The control plane owns every part of this decision: it switches the guide
+ *  on, names the publication, and numbers it. The client contributes nothing
+ *  but the record of which revision the user last closed — due means "on,
+ *  named, and not yet closed at THIS revision". A patch release shows exactly
+ *  when ops publishes for it; a corrected re-publish shows again the moment
+ *  ops bumps the revision.
+ *
  *  `shownThisSession` keeps a guide the user is currently reading on screen
  *  across re-renders — a config refresh or a language switch must not unmount
  *  the page they are on — without re-consulting the seen map, which only gains
- *  the id once they dismiss or finish. */
+ *  the revision once they dismiss or finish. */
 export function guideDue(input: {
   enable: boolean
   guideId: string | null
-  seen: Readonly<Record<string, true>>
+  revision: number
+  seen: Readonly<Record<string, number>>
   shownThisSession: boolean
 }): boolean {
   if (!input.enable || !input.guideId) return false
-  return input.shownThisSession || !input.seen[input.guideId]
+  if (input.shownThisSession) return true
+  return input.seen[input.guideId] !== input.revision
 }
 
 // --- guide config validation ---
@@ -347,6 +356,11 @@ export function parseGuideConfig(value: unknown): GuideConfig | null {
   const data: GuideData = {}
   const guideId = nonEmptyString(value.data.guideId)
   if (guideId) data.guideId = guideId
+  if (value.data.revision !== undefined) {
+    const revision = value.data.revision
+    if (typeof revision !== 'number' || !Number.isFinite(revision) || revision < 0 || Math.floor(revision) !== revision) return null
+    data.revision = revision
+  }
   if (value.data.initialReadingMode !== undefined) {
     if (value.data.initialReadingMode !== 'comfortable' && value.data.initialReadingMode !== 'efficient') return null
     data.initialReadingMode = value.data.initialReadingMode

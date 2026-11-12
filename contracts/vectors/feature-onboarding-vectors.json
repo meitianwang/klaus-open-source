@@ -233,73 +233,87 @@
     ]
   },
   "guide": {
-    "_why": "The guide is remembered by guide id, never by version string: re-publishing corrected copy under the same id stays dismissed while a new id announces again. The version only enters as the default id, so a new minor gets a fresh id for free and a patch never re-announces.",
-    "defaultId": [
-      {
-        "family": "0.7",
-        "id": "release-0.7"
-      },
-      {
-        "family": "0.10",
-        "id": "release-0.10"
-      },
-      {
-        "_why": "an unparseable version has no id and therefore no guide",
-        "family": null,
-        "id": null
-      }
-    ],
+    "_why": "The guide is remembered by guide id plus revision, both named by the control plane: which release gets an announcement (patch included) and whether a corrected re-publish shows again are ops decisions, never client version arithmetic. Re-publishing the same id and revision stays dismissed; bumping the revision re-shows it; a new id always shows.",
     "due": [
       {
         "_why": "fail-closed: no server answer means no guide",
         "enable": false,
-        "guideId": "release-0.7",
+        "guideId": "spring",
+        "revision": 0,
         "seen": [],
         "shownThisSession": false,
         "due": false
       },
       {
-        "_why": "enabled but no id: nothing to remember the dismissal by",
+        "_why": "enabled but unnamed: ops did not publish a publication",
         "enable": true,
         "guideId": null,
+        "revision": 0,
         "seen": [],
         "shownThisSession": false,
         "due": false
       },
       {
-        "_why": "enabled, named and unseen: the guide is owed",
+        "_why": "enabled, named and never closed: due on any release, patch included",
         "enable": true,
-        "guideId": "release-0.7",
+        "guideId": "patch-hotfix",
+        "revision": 0,
         "seen": [],
         "shownThisSession": false,
         "due": true
       },
       {
-        "_why": "already acknowledged: it stays dismissed",
+        "_why": "closed at this revision: stays closed",
         "enable": true,
-        "guideId": "release-0.7",
+        "guideId": "spring",
+        "revision": 1,
         "seen": [
-          "release-0.7"
+          [
+            "spring",
+            1
+          ]
         ],
         "shownThisSession": false,
         "due": false
       },
       {
-        "_why": "on screen right now: a config refresh or language switch must not unmount the page being read",
+        "_why": "ops bumped the revision: it shows again to everyone who closed the old one",
         "enable": true,
-        "guideId": "release-0.7",
+        "guideId": "spring",
+        "revision": 2,
         "seen": [
-          "release-0.7"
+          [
+            "spring",
+            1
+          ]
+        ],
+        "shownThisSession": false,
+        "due": true
+      },
+      {
+        "_why": "on screen right now: a refresh must not unmount the page being read",
+        "enable": true,
+        "guideId": "spring",
+        "revision": 1,
+        "seen": [
+          [
+            "spring",
+            1
+          ]
         ],
         "shownThisSession": true,
         "due": true
       },
       {
-        "_why": "a different acknowledged id does not suppress a new one",
+        "_why": "a different id is unaffected by another guide's mark",
         "enable": true,
-        "guideId": "release-0.8",
+        "guideId": "summer",
+        "revision": 0,
         "seen": [
-          "release-0.7"
+          [
+            "spring",
+            3
+          ]
         ],
         "shownThisSession": false,
         "due": true
@@ -327,45 +341,81 @@
         "parsed": []
       },
       {
-        "_why": "only true-marked ids count; false and junk drop",
-        "raw": "{\"a\":true,\"b\":false,\"c\":1}",
+        "_why": "only integer marks count; booleans and junk drop",
+        "raw": "{\"a\":true,\"b\":false,\"c\":1.5}",
+        "parsed": []
+      },
+      {
+        "raw": "{\"release-0.7\":0}",
         "parsed": [
-          "a"
+          "release-0.7"
         ]
       },
       {
-        "raw": "{\"release-0.7\":true}",
+        "_why": "a closed revision is recorded as a number",
+        "raw": "{\"spring\":2}",
         "parsed": [
-          "release-0.7"
+          "spring"
         ]
       }
     ],
     "seenMapAppend": [
       {
-        "_why": "marking a new id adds it",
+        "_why": "closing at a revision records it",
         "map": [
-          "a"
+          [
+            "a",
+            0
+          ]
         ],
-        "id": "b",
+        "id": "a",
+        "revision": 1,
         "result": [
-          "a",
-          "b"
+          [
+            "a",
+            1
+          ]
         ]
       },
       {
-        "_why": "re-marking is a no-op so the row never grows",
+        "_why": "closing the same revision again is a no-op",
         "map": [
-          "a"
+          [
+            "a",
+            1
+          ]
         ],
         "id": "a",
+        "revision": 1,
         "result": [
-          "a"
+          [
+            "a",
+            1
+          ]
+        ]
+      },
+      {
+        "_why": "ops bumped the revision: the new mark replaces the old",
+        "map": [
+          [
+            "a",
+            1
+          ]
+        ],
+        "id": "a",
+        "revision": 2,
+        "result": [
+          [
+            "a",
+            2
+          ]
         ]
       },
       {
         "_why": "an empty id is refused",
         "map": [],
         "id": "",
+        "revision": 0,
         "result": []
       }
     ],
@@ -701,6 +751,42 @@
       {
         "_why": "a non-object payload is refused",
         "payload": "guide",
+        "accepted": false
+      },
+      {
+        "_why": "a named guide with an explicit revision survives parsing",
+        "payload": {
+          "schemaVersion": 1,
+          "enable": true,
+          "data": {
+            "guideId": "spring",
+            "revision": 2
+          }
+        },
+        "accepted": true,
+        "guideId": "spring",
+        "revision": 2
+      },
+      {
+        "_why": "a fractional revision is refused",
+        "payload": {
+          "schemaVersion": 1,
+          "enable": true,
+          "data": {
+            "revision": 1.5
+          }
+        },
+        "accepted": false
+      },
+      {
+        "_why": "a negative revision is refused",
+        "payload": {
+          "schemaVersion": 1,
+          "enable": true,
+          "data": {
+            "revision": -1
+          }
+        },
         "accepted": false
       }
     ],
