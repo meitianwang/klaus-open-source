@@ -40,6 +40,7 @@ export function questionOptionLabel(label: string): string {
 
 /** Engine-authored elicitation whose copy ships localized in the frontend. */
 export const ENGINE_QUESTION_KIND_REASONING_OVER_LIMIT = 'reasoning_over_limit'
+export const ENGINE_QUESTION_KIND_EMPTY_CLOSING = 'empty_closing'
 
 export function engineQuestionKind(metadata: unknown): string | undefined {
   const kind = typeof metadata === 'object' && metadata !== null
@@ -56,14 +57,20 @@ export interface EngineQuestionCopy {
 /**
  * Localized display copy for an engine-authored card. The payload text stays
  * the answer key and value, so the engine's answer parsing is unaffected.
- * Option order mirrors reasoning_over_limit_request in the engine turn loop.
+ * Option order mirrors the engine turn loop's request builders
+ * (reasoning_over_limit_request and empty_closing_request).
  */
 export function engineQuestionCopy(
   kind: string | undefined,
   questions: UserQuestion[],
   translate: (key: string) => string,
 ): EngineQuestionCopy | undefined {
-  if (kind !== ENGINE_QUESTION_KIND_REASONING_OVER_LIMIT) return undefined
+  const prefix = kind === ENGINE_QUESTION_KIND_REASONING_OVER_LIMIT
+    ? 'question_reasoning_over_limit'
+    : kind === ENGINE_QUESTION_KIND_EMPTY_CLOSING
+      ? 'question_empty_closing'
+      : undefined
+  if (!prefix) return undefined
   const options = questions.length === 1 ? questions[0]!.options : []
   if (options.length !== 2) return undefined
   const option = (index: number, label: string, description: string) => ({
@@ -71,11 +78,11 @@ export function engineQuestionCopy(
     ...(options[index]!.description ? { description: translate(description) } : {}),
   })
   return {
-    title: translate('question_reasoning_over_limit_title'),
-    header: translate('question_reasoning_over_limit_header'),
+    title: translate(`${prefix}_title`),
+    header: translate(`${prefix}_header`),
     options: [
-      option(0, 'question_reasoning_over_limit_retry', 'question_reasoning_over_limit_retry_desc'),
-      option(1, 'question_reasoning_over_limit_stop', 'question_reasoning_over_limit_stop_desc'),
+      option(0, `${prefix}_retry`, `${prefix}_retry_desc`),
+      option(1, `${prefix}_stop`, `${prefix}_stop_desc`),
     ],
   }
 }

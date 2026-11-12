@@ -45,6 +45,31 @@ test('the engine reasoning-over-limit card follows the UI language while answers
   }
 })
 
+test('the engine empty-closing card follows the UI language while answers stay payload-stable', () => {
+  const previous = (globalThis as any).window.currentLang
+  ;(globalThis as any).window.currentLang = 'zh'
+  try {
+    const question = 'The model did visible work but never wrote a closing answer, and stayed empty after a retry. Keep retrying, or stop?'
+    const req = { requestId: 'ec-1', responseChannel: 'elicit', toolInput: { metadata: { kind: 'empty_closing' }, questions: [
+      { question, options: [
+        { label: 'Keep retrying', description: 'Ask the model again to write the closing answer or continue with tool calls.' },
+        { label: 'Stop', description: 'End this turn as failed. The work done so far stays visible.' },
+      ] },
+    ] } }
+    const html = renderToStaticMarkup(<AskUserQuestionCard req={req} resolved={null} sessionId="session-1" />)
+    expect(html).toContain(t('question_empty_closing_title'))
+    expect(html).toContain(t('question_empty_closing_retry'))
+    expect(html).toContain(t('question_empty_closing_stop_desc'))
+    expect(html).not.toContain('Keep retrying')
+    const resolvedHtml = renderToStaticMarkup(<AskUserQuestionCard req={req} resolved={{ mode: 'submitted', answers: { [question]: 'Keep retrying' } }} sessionId="session-1" />)
+    expect(resolvedHtml).toContain(t('question_empty_closing_title'))
+    expect(resolvedHtml).toContain(t('question_empty_closing_retry'))
+    expect(resolvedHtml).not.toContain('Keep retrying')
+  } finally {
+    ;(globalThis as any).window.currentLang = previous
+  }
+})
+
 test('old engines expose an explicit attachment limitation rather than silently dropping files', () => {
   const html = renderToStaticMarkup(<AskUserQuestionCard req={{ requestId: 'old-engine', responseChannel: 'elicit', toolInput: { questions: [
     { question: 'Input?', options: [{ label: 'File' }, { label: 'Stream' }] },
