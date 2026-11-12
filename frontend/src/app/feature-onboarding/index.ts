@@ -40,6 +40,7 @@ import {
 } from './ledger'
 import { startArrivalObserver } from './arrivals'
 import { blockingOverlayPresent, mountOverlay, unmountOverlay } from './overlay'
+import { guideHasContent } from './guide-content'
 import { applyReadingMode, PostUpgradeGuide } from './guide'
 
 /** Overlay slot id for the guide. */
@@ -69,7 +70,11 @@ let guideRetryTimer: number | null = null
 /** Paint or unpaint the guide to match the ledger and the control plane. */
 function syncGuide(): void {
   if (guideRetryTimer !== null) { clearTimeout(guideRetryTimer); guideRetryTimer = null }
-  if (!shouldShowGuide()) {
+  // Nothing to show when the guide is off, unseen-but-unpublishable, or when
+  // the only content available speaks for another release family: the
+  // in-package pages are written for one family, and showing them under a
+  // newer family's id would spend the announcement on stale copy.
+  if (!shouldShowGuide() || !guideHasContent()) {
     unmountOverlay(GUIDE_OVERLAY_ID)
     setGuideOnScreen(null)
     return

@@ -10,6 +10,7 @@ import {
   READING_MODE_KEY,
   TOUR_DONE_PREFIX,
   defaultGuideId,
+  guideContentAvailable,
   guideDue,
   isTourDone,
   parseGuideConfig,
@@ -162,6 +163,22 @@ describe('guide identity and due-ness', () => {
   for (const { raw, parsed } of guideVectors.readingMode) {
     test(`reading mode parse: ${JSON.stringify(raw)} → ${parsed}`, () => {
       expect(parseReadingMode(raw)).toBe(parsed)
+    })
+  }
+})
+
+describe('guide content availability', () => {
+  const availability = (vectors.guide as unknown as { contentAvailability: {
+    shippedFamily: string
+    cases: Array<{ _why?: string; family: string | null; hasRemoteFeatures: boolean; available: boolean }>
+  } }).contentAvailability
+  for (const { _why, family, hasRemoteFeatures, available } of availability.cases) {
+    test(`availability: ${_why ?? JSON.stringify({ family, hasRemoteFeatures })}`, () => {
+      expect(guideContentAvailable({
+        family,
+        shippedFamily: availability.shippedFamily,
+        hasRemoteFeatures,
+      })).toBe(available)
     })
   }
 })

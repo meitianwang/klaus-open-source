@@ -95,6 +95,11 @@ export function setRunningVersion(version: string | null): void {
   runningFamily = releaseFamily(version)
 }
 
+/** The running build's release family, for content-availability decisions. */
+export function currentReleaseFamily(): string | null {
+  return runningFamily
+}
+
 function safeLocalStorage(key: string): string | null {
   try { return localStorage.getItem(key) } catch { return null }
 }

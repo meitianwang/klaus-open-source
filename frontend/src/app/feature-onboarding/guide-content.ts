@@ -14,10 +14,30 @@
 import { t } from '../../i18n'
 import {
   GUIDE_SCENES,
+  SHIPPED_GUIDE_FAMILY,
+  guideContentAvailable,
   type GuideLabels,
   type GuidePage,
 } from '../../../../contracts/feature-onboarding'
-import { guideContentFor } from './ledger'
+import { currentReleaseFamily, guideContentFor } from './ledger'
+
+/** The locale the guide renders in. The surface remounts on language change,
+ *  so reading it once per mount is correct. */
+export function guideLocale(): 'zh' | 'en' {
+  return w().currentLang === 'zh' ? 'zh' : 'en'
+}
+
+const w = () => window as any
+
+/** Whether there is content to show for the running build and locale: remote
+ *  pages for any family, the in-package pages only for their own family. */
+export function guideHasContent(locale: 'zh' | 'en' = guideLocale()): boolean {
+  return guideContentAvailable({
+    family: currentReleaseFamily(),
+    shippedFamily: SHIPPED_GUIDE_FAMILY,
+    hasRemoteFeatures: Boolean(guideContentFor(locale)?.features),
+  })
+}
 
 /** Artwork timeline per scene, in page order. Later pages carry denser copy
  *  and get a longer look; the timeline drives illustration and progress only. */

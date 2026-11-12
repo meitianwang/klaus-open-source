@@ -26,17 +26,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { t } from '../../i18n'
 import type { ReadingMode } from '../../../../contracts/feature-onboarding'
 import { guideInitialReadingMode } from './ledger'
-import { resolveGuideContent } from './guide-content'
+import { guideLocale, resolveGuideContent } from './guide-content'
 import { applyReadingMode } from './reading-mode'
 import styles from './feature-onboarding.module.css'
 
 export { applyReadingMode }
-
-const w = () => window as any
-
-function currentLocale(): 'zh' | 'en' {
-  return w().currentLang === 'zh' ? 'zh' : 'en'
-}
 
 /** Format a page index as the counter reads: `01 / 04`. */
 function counterText(index: number, total: number): string {
@@ -48,7 +42,7 @@ export function PostUpgradeGuide({ onFinish, onDismiss }: {
   onFinish: (mode: ReadingMode) => void
   onDismiss: () => void
 }) {
-  const locale = currentLocale()
+  const locale = guideLocale()
   const content = useMemo(() => resolveGuideContent(locale), [locale])
   const pages = content.pages
   const labels = content.labels

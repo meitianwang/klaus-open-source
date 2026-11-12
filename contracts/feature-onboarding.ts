@@ -230,6 +230,27 @@ export interface GuideConfig {
   data?: GuideData | null
 }
 
+/** The release family the in-package guide pages describe. guide-content.ts
+ *  owns the copy; this names the family it speaks for, so the decision layer
+ *  can refuse to show last release's pages under this release's guide id. */
+export const SHIPPED_GUIDE_FAMILY = '0.7'
+
+/** Whether the guide has anything truthful to show for the running build.
+ *
+ *  Remote pages speak for any family: ops publishes them per release without a
+ *  client build. The in-package pages speak only for the family they were
+ *  written for — on a later family with no remote content there is nothing
+ *  accurate to show, and showing the previous release's copy under a fresh
+ *  guide id would spend the announcement on stale text and mark it seen. */
+export function guideContentAvailable(input: {
+  family: string | null
+  shippedFamily: string | null
+  hasRemoteFeatures: boolean
+}): boolean {
+  if (input.hasRemoteFeatures) return true
+  return input.shippedFamily !== null && input.family === input.shippedFamily
+}
+
 /** Guide id used when the control plane enables the guide without naming one.
  *  Tied to the running release family so the next minor announces a fresh id
  *  while a corrected re-publish of the same family can reuse it. */

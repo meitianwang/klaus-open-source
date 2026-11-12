@@ -703,7 +703,37 @@
         "payload": "guide",
         "accepted": false
       }
-    ]
+    ],
+    "contentAvailability": {
+      "_why": "The in-package pages speak for one release family. On a later family with no remote content there is nothing accurate to show, and showing stale copy under a fresh guide id would spend the announcement and mark it seen.",
+      "shippedFamily": "0.7",
+      "cases": [
+        {
+          "_why": "remote pages speak for any family",
+          "family": "0.9",
+          "hasRemoteFeatures": true,
+          "available": true
+        },
+        {
+          "_why": "in-package pages serve their own family",
+          "family": "0.7",
+          "hasRemoteFeatures": false,
+          "available": true
+        },
+        {
+          "_why": "a newer family with no remote content shows nothing",
+          "family": "0.8",
+          "hasRemoteFeatures": false,
+          "available": false
+        },
+        {
+          "_why": "an unparseable version has no family and therefore no in-package content",
+          "family": null,
+          "hasRemoteFeatures": false,
+          "available": false
+        }
+      ]
+    }
   },
   "tour": {
     "doneIdPrefix": "tour:",
