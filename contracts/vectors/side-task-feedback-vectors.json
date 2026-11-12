@@ -10,6 +10,6 @@
   "main": { "preparationUi": false, "transcriptPreparationUi": true, "runningFollowUpReserved": false },
   "close": { "emptyConfirms": 0, "submittedConfirms": 1, "cancelCloses": 0, "rememberOnlyConfirmed": true, "duplicateDialogs": 1 },
   "attention": { "runningIcon": "spinner", "unreadResponse": "dot", "runningPrecedesUnread": true, "visibleClearsUnread": true, "expiryBadge": "" },
-  "placement": { "targets": ["left", "right"], "preserveSessionId": true, "independentActiveTabs": true, "parentRouteUnchanged": true },
+  "placement": { "targets": ["left", "right"], "preserveSessionId": true, "independentActiveTabs": true, "parentRouteUnchanged": true, "reason": "Both selections are restored as one family snapshot. An interrupted family load or late surface activation must not overwrite another navigation generation." },
   "lifetime": { "idleExpiryMs": null, "end": ["explicit-close", "parent-deletion", "application-exit"] }
 }

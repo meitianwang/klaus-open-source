@@ -3,10 +3,10 @@ import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 
 /** A bounded loopback endpoint with a response barrier independent of tools. */
-export async function startComposerLifecycleProvider() {
+export async function startComposerLifecycleProvider(options: { responseText?: string } = {}) {
   const requests: Array<Record<string, unknown>> = [];
   const pending = new Set<() => void>();
-  let holdNext = false, entered = 0;
+  let holdNext = false, holdBeforeText = false, entered = 0;
   const release = () => { for (const finish of [...pending]) finish(); };
   const server = createServer((request, response) => {
     if (request.method !== 'POST') { response.writeHead(404); response.end(); return; }
@@ -32,9 +32,11 @@ export async function startComposerLifecycleProvider() {
         }
         response.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' });
         const send = (type: string, fields: Record<string, unknown>) => response.write(`event: ${type}\ndata: ${JSON.stringify({ type, ...fields })}\n\n`);
+        let deferredText: (() => void) | undefined;
         const finish = () => {
           pending.delete(finish);
           if (response.destroyed || response.writableEnded) return;
+          deferredText?.();
           send('content_block_stop', { index: 0 });
           send('message_delta', { delta: { stop_reason: 'end_turn', stop_sequence: null }, usage: { output_tokens: 12 } });
           send('message_stop', {}); response.end();
@@ -55,9 +57,12 @@ export async function startComposerLifecycleProvider() {
           send('message_stop', {}); response.end(); return;
         }
         send('content_block_start', { index: 0, content_block: { type: 'text', text: '' } });
-        send('content_block_delta', { index: 0, delta: { type: 'text_delta', text: 'COMPOSER_FIXTURE_RESPONSE' } });
+        const emitText = () => send('content_block_delta', { index: 0, delta: { type: 'text_delta', text: options.responseText ?? 'COMPOSER_FIXTURE_RESPONSE' } });
         // Only the normal agent response owns a hold; title requests also stream.
-        if (holdNext && tools.some(row => row.name === 'Bash')) { holdNext = false; entered++; pending.add(finish); }
+        const held = holdNext && tools.some(row => row.name === 'Bash');
+        if (held && holdBeforeText) deferredText = emitText;
+        else emitText();
+        if (held) { holdNext = false; holdBeforeText = false; entered++; pending.add(finish); }
         else finish();
       } catch (error) { response.destroy(error as Error); }
     });
@@ -65,7 +70,7 @@ export async function startComposerLifecycleProvider() {
   await new Promise<void>((done, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', done); });
   return {
     url: `http://127.0.0.1:${(server.address() as AddressInfo).port}`, requests, release,
-    holdNext: () => { holdNext = true; }, entered: () => entered,
+    holdNext: (beforeText = false) => { holdNext = true; holdBeforeText = beforeText; }, entered: () => entered,
     close: () => new Promise<void>((done, reject) => { release(); server.closeAllConnections(); server.close(error => error ? reject(error) : done()); }),
   };
 }

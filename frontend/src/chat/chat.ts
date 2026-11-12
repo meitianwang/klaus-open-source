@@ -2097,6 +2097,7 @@ function initSideComposer(placement: SidePanePlacement = 'right') {
     sideScrollController = new TranscriptScrollController({
       scrollEl: sideScrollEl,
       floatButton: clone.querySelector<HTMLElement>('#side-scroll-to-bottom'),
+      responseSpacer: true,
     })
     registerTranscriptScrollController(sideScrollController)
   }

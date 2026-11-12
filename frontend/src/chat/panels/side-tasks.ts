@@ -316,10 +316,17 @@ function exitPanel() {
 
 async function setActive(sideId: string) {
   if (placements.get(sideId) === 'left') {
+    const navigation = navigationRevision
+    const owner = currentId()
     leftSideId = sideId
-    await w().klausSideSurfaceActivate?.(sideId, 'left')
+    try { await w().klausSideSurfaceActivate?.(sideId, 'left') }
+    catch (error) {
+      if (navigation === navigationRevision && leftSideId === sideId) throw error
+      return
+    }
+    if (navigation !== navigationRevision || leftSideId !== sideId) return
     render()
-    saveStateFor(currentId())
+    saveStateFor(owner)
     return
   }
   const revision = ++activationRevision
@@ -500,11 +507,12 @@ async function refreshFamily(sessionId: string | null) {
   if (!Array.isArray(listed)) throw new Error(text('side_task_load_failed'))
   if (sequence !== refreshSequence) return
   const nextParent = listed.find(task => task.id === sessionId)?.parentSessionId || listed[0]?.parentSessionId || (knownTask ? listParent : sessionId)
-  const prevParent = parentId
   // Eligibility is monotonic after the first user message. Reuse the transcript
   // store before asking the host for a complete history solely for this gate.
   const ready = await parentHasUserMessage(nextParent)
   if (sequence !== refreshSequence) return
+  const familyChanged = nextParent !== parentId || familyNavigationRevision !== navigationRevision
+  const saved = familyChanged ? stateBySession.get(sessionId) : undefined
   tasks.clear()
   for (const task of listed) {
     const updated = titleUpdates.get(task.id)
@@ -514,9 +522,15 @@ async function refreshFamily(sessionId: string | null) {
   }
   for (const id of titleUpdates.keys()) if (!tasks.has(id)) titleUpdates.delete(id)
   parentId = nextParent
-  familyNavigationRevision = navigationRevision
   parentReady = ready || readyParents.has(nextParent)
-  if (parentId !== prevParent) {
+  if (familyChanged) {
+    // Restore both selections before publishing the new family generation. A
+    // navigation during async surface activation must save a complete snapshot.
+    if (!pendingPanel() && saved?.activeSideId && tasks.has(saved.activeSideId)) activeSideId = saved.activeSideId
+    leftSideId = saved?.leftSideId && tasks.has(saved.leftSideId) ? saved.leftSideId : null
+  }
+  familyNavigationRevision = navigationRevision
+  if (familyChanged) {
     // The main session (family) changed — the previously-open side task belongs
     // to the old family; reset to the new family instead of mistaking the
     // switch for an expiry.
@@ -529,7 +543,6 @@ async function refreshFamily(sessionId: string | null) {
     // restoreArtifactsPanelForChatView (in chat.js) already put the panel
     // back in side-chat mode; here we activate the remembered tab so its
     // transcript actually paints.
-    const saved = stateBySession.get(sessionId)
     if (!pendingPanel() && saved?.activeSideId && tasks.has(saved.activeSideId)) {
       void setActive(saved.activeSideId).catch(showError)
     }
@@ -557,7 +570,7 @@ window.addEventListener('klaus:session-change', (event) => {
   // Snapshot the outgoing session's state so switching back later can
   // restore the same side tab / panel visibility. Must run BEFORE refresh
   // resets activeSideId / tasks for the new family.
-  if (parentId) saveStateFor(parentId)
+  if (parentId && familyNavigationRevision === navigationRevision) saveStateFor(parentId)
   const revision = ++navigationRevision
   const sessionId = (event as CustomEvent).detail?.sessionId ?? null
   cancelPending()

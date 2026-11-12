@@ -163,6 +163,56 @@ test('moving side tabs preserves independent left and right selections and quote
   expect(moves).toEqual([['one', 'left'], ['one', 'right']])
 })
 
+test('returning before an intervening family loads restores both side selections', async () => {
+  const f = fixture({ loaded: true, tasks: [task('one'), task('two')] })
+  f.window.klausSideSurfaceMove = async () => {}
+  await f.actions.openFromRail()
+  await f.actions.moveTo('one', 'left')
+  expect(f.actions.getActiveSideId('left')).toBe('one')
+  expect(f.actions.getActiveSideId('right')).toBe('two')
+  const pending = deferred<any[]>()
+  f.api.session.listSideTasks = async (id: string) => id === 'other' ? pending.promise : [task('one'), task('two')]
+  f.switchTo('other')
+  f.switchTo('main')
+  await settle()
+  expect(f.actions.getActiveSideId('left')).toBe('one')
+  expect(f.actions.getActiveSideId('right')).toBe('two')
+  pending.resolve([])
+  await settle()
+  expect(f.actions.getActiveSideId('left')).toBe('one')
+  expect(f.actions.getActiveSideId('right')).toBe('two')
+})
+
+test('navigation during left restoration preserves the complete family snapshot', async () => {
+  const f = fixture({ loaded: true, tasks: [task('one'), task('two')] })
+  f.window.klausSideSurfaceMove = async () => {}
+  await f.actions.openFromRail()
+  await f.actions.moveTo('one', 'left')
+  const activation = deferred<void>()
+  let held = false
+  f.window.klausSideSurfaceActivate = async (_id: string, placement: string) => {
+    if (placement === 'left') { held = true; await activation.promise }
+  }
+  f.api.session.listSideTasks = async (id: string) => id === 'main' ? [task('one'), task('two')] : []
+  f.switchTo('other')
+  await settle()
+  f.switchTo('main')
+  await settle()
+  expect(held).toBe(true)
+  expect(f.actions.getActiveSideId('left')).toBe('one')
+  expect(f.actions.getActiveSideId('right')).toBe('two')
+  f.switchTo('other')
+  await settle()
+  activation.resolve()
+  await settle()
+  expect(f.actions.getActiveSideId('left')).toBeNull()
+  expect(f.actions.getActiveSideId('right')).toBeNull()
+  f.switchTo('main')
+  await settle()
+  expect(f.actions.getActiveSideId('left')).toBe('one')
+  expect(f.actions.getActiveSideId('right')).toBe('two')
+})
+
 test('a delayed pane move cannot activate an old family after navigation', async () => {
   const f = fixture({ loaded: true, tasks: [task('moving')] })
   await f.actions.openFromRail()

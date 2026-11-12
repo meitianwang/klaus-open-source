@@ -68,7 +68,7 @@
     }
   ],
   "scrollBehavior": {
-    "_why": "Only directional user input changes following. Stable turn identities and bottom-relative geometry preserve the reading position across window changes, prepends and measurements; a sent message reserves consumable space for the response.",
+    "_why": "The main transcript and both side panes share placement, response spacing and following. Only directional user input changes following. Stable turn identities and bottom-relative geometry preserve the reading position across window changes, prepends and measurements; a sent message near the latest content reserves consumable space for the response rather than leaving the submitted bubble below the viewport.",
     "placementCases": [
       {
         "name": "at latest content",
