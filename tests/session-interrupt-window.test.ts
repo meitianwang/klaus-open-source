@@ -16,6 +16,7 @@ import { join } from 'node:path';
 import { EventEmitter } from 'node:events';
 
 import { assert, assertEqual, Harness } from './harness';
+import { object } from '../main/ipc/arguments';
 import { HostState } from '../main/services/host-state';
 import { SessionService, type EngineClientLike, type SessionServiceDeps } from '../main/sessions/service';
 import { kvSet } from '../main/services/settings';
@@ -79,6 +80,15 @@ class FakeClient extends EventEmitter implements EngineClientLike {
       const saved = params as { source: string; selection: string };
       return { source: saved.source, selection: saved.selection === 'auto' ? `${saved.source}:fixture-default` : saved.selection };
     }
+    if (method === 'turn/submit') {
+      // The real engine echoes the submission id it admitted, and a started
+      // turn's id is that submission id; a static reply would fail the host's
+      // acknowledgement checks instead of simulating them.
+      const scripted = object(this.replies.get(method)) ?? {};
+      const requested = object(params)?.submissionId;
+      const submissionId = typeof requested === 'string' && requested ? requested : scripted.submissionId;
+      return { ...scripted, submissionId, ...(scripted.status === 'started' ? { turnId: submissionId } : {}) };
+    }
     if (!this.replies.has(method)) throw new Error(`fake client: no reply scripted for ${method}`);
     return this.replies.get(method);
   }
@@ -114,12 +124,14 @@ h.test('a stale binding is not rebuilt while a stopped turn is still winding dow
   await built.service.send('thread', { text: 'q' });
   assertEqual(client.sent('session/start').length, 1, 'the send started the session once');
   // The event pump registers the running turn from the engine's stream frames;
-  // the fake has no pump, so the registry is set the way the pump would.
-  built.state.markTurnRunning('thread', 'turn-1');
+  // the fake has no pump, so the registry is set the way the pump would, with
+  // the turn id the engine admitted (the echoed submission id).
+  const admitted = String(object(client.sent('turn/submit')[0] ?? {})?.submissionId ?? '');
+  built.state.markTurnRunning('thread', admitted);
 
   // The user stop: the registry settles synchronously and the interrupt leg
   // runs in the background.
-  const stopped = await built.service.interrupt('thread', 'turn-1');
+  const stopped = await built.service.interrupt('thread', admitted);
   assertEqual((stopped as { accepted?: boolean }).accepted, true, 'the stop was accepted');
   assertEqual(built.state.isWorking('thread'), false, 'the optimistic settlement cleared the running flag');
   assertEqual(built.state.inInterruptWindow('thread'), true, 'the window is open until the engine terminal event');
@@ -151,8 +163,9 @@ h.test('an explicit close inside the window interrupts the dying turn first', as
     .replyAcknowledged('session/deleteSession', { deleted: { threadId: 'thread', deleted: true } });
   const built = serviceWith(client, root);
   await built.service.send('thread', { text: 'q' });
-  built.state.markTurnRunning('thread', 'turn-1');
-  const stopped = await built.service.interrupt('thread', 'turn-1');
+  const admitted = String(object(client.sent('turn/submit')[0] ?? {})?.submissionId ?? '');
+  built.state.markTurnRunning('thread', admitted);
+  const stopped = await built.service.interrupt('thread', admitted);
   assertEqual((stopped as { accepted?: boolean }).accepted, true, 'the stop was accepted');
 
   // A delete is an explicit teardown: it still closes the session, but the
