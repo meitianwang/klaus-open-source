@@ -4765,7 +4765,7 @@ h.test('acknowledging a feature-discovery hint never marks a live session stale'
   assertEqual(client.sent('session/close').length, 0, 'no teardown was scheduled by a UI-only key');
   // Deep comparison: assertEqual is referential, and two arrays holding the same
   // row names are still different objects.
-  assertDeepEqual([...FEATURE_ONBOARDING_UI_STATE_KEYS], ['onboarding.feature_seen', 'onboarding.last_seen_release_family'], 'the exempt rows are the ones the renderer writes');
+  assertDeepEqual([...FEATURE_ONBOARDING_UI_STATE_KEYS], ['onboarding.feature_seen', 'onboarding.guide_seen', 'appearance.reading_mode'], 'the exempt rows are the ones the renderer writes');
 });
 
 h.test('retired model sources cannot replace a live BYO session or its saved preference', async () => {

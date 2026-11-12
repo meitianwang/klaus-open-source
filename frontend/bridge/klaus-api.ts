@@ -121,6 +121,16 @@ expose('klaus', {
     onUpdated: (handler: (payload: { features: Record<string, boolean> }) => void): Unsubscribe =>
       subscribe('feature-gates:updated', handler),
   },
+  // Control-plane guide config. `snapshot` reads the host's last accepted
+  // payload (null when the server published nothing usable); `onUpdated` fires
+  // whenever a refresh or an account change moves it, including to null, so a
+  // withdrawn guide disappears while the app runs. The guide is fail-closed:
+  // no answer means no guide.
+  onboardingGuide: {
+    snapshot: (): Promise<unknown> => call('onboardingGuide:snapshot'),
+    onUpdated: (handler: (payload: { config: unknown }) => void): Unsubscribe =>
+      subscribe('onboarding-guide:updated', handler),
+  },
   // Chat
   chat: {
     send: (sessionId: string, text: string, media?: any[], displayMetadata?: any) => {

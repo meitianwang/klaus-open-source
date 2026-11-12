@@ -1,7 +1,7 @@
 {
   "summary": {
-    "invokeDeclared": 760,
-    "pushDeclared": 77
+    "invokeDeclared": 761,
+    "pushDeclared": 78
   },
   "rows": [
     {
@@ -1606,6 +1606,10 @@
     },
     {
       "channel": "model3d:render-result",
+      "kind": "invoke"
+    },
+    {
+      "channel": "onboardingGuide:snapshot",
       "kind": "invoke"
     },
     {
@@ -3238,6 +3242,10 @@
     },
     {
       "channel": "notify:sound",
+      "kind": "push"
+    },
+    {
+      "channel": "onboarding-guide:updated",
       "kind": "push"
     },
     {

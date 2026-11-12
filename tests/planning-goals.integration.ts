@@ -4,7 +4,7 @@ import { basename, join } from 'node:path';
 import { createDesktopRuntime, type DesktopRuntime } from '../main/app/runtime';
 import { registerAppScheme } from '../main/app/protocol';
 import { kvSet } from '../main/services/settings';
-import { FEATURE_BASELINE_KEY, releaseFamily } from '../contracts/feature-onboarding';
+import { GUIDE_SEEN_KEY } from '../contracts/feature-onboarding';
 import type { Json } from '../main/ipc/contract';
 import type { PlanDocumentReply, PlanningReply, ProposedPlan } from '../contracts/planning-goals';
 import { assert, assertEqual, Harness, waitFor } from './harness';
@@ -490,7 +490,7 @@ void (async () => {
       auth_mode: 'custom', 'composer.main_model': `custom:${providerId}`, 'composer.thinking_level': 'off',
       global_shortcut: 'off', quick_input_shortcut: 'off', 'notification.desktop': 'off', 'notification.sound': 'off',
       composer_predictions_enabled: 'off',
-      'mobile_bridge.enabled': '0', language: 'en', [FEATURE_BASELINE_KEY]: releaseFamily(app.getVersion()) || '',
+      'mobile_bridge.enabled': '0', language: 'en', [GUIDE_SEEN_KEY]: '{}',
     })) kvSet(key, value, profile);
     writeFileSync(join(profile, 'klaus-guest-mode'), '1', { mode: 0o600 });
     provider = await startWorkflowProvider();

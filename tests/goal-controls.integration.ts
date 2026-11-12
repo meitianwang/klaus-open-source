@@ -8,7 +8,7 @@ import { kvSet } from '../main/services/settings';
 import { object } from '../main/services/service-types';
 import type { Json } from '../main/ipc/contract';
 import type { GoalSnapshot, PlanningReply, PreparedGoalObjective, ThreadGoal } from '../contracts/planning-goals';
-import { FEATURE_BASELINE_KEY, releaseFamily } from '../contracts/feature-onboarding';
+import { GUIDE_SEEN_KEY } from '../contracts/feature-onboarding';
 import { assert, assertDeepEqual, assertEqual, Harness, waitFor } from './harness';
 import { PNG_FIXTURE_BASE64 } from './fixtures/media';
 import { startGoalControlsProvider } from './fixtures/goal-controls-provider';
@@ -262,7 +262,7 @@ void (async () => {
     for (const [key, value] of Object.entries({ auth_mode: 'custom', 'composer.main_model': `custom:${providerId}`, 'composer.thinking_level': 'off',
       global_shortcut: 'off', quick_input_shortcut: 'off', 'notification.desktop': 'off', 'notification.sound': 'off', 'mobile_bridge.enabled': '0',
       composer_predictions_enabled: 'off',
-      language: 'en', [FEATURE_BASELINE_KEY]: releaseFamily(app.getVersion()) || '' })) kvSet(key, value, profile);
+      language: 'en', [GUIDE_SEEN_KEY]: '{}' })) kvSet(key, value, profile);
     writeFileSync(join(profile, 'klaus-guest-mode'), '1', { mode: 0o600 });
     provider = await startGoalControlsProvider();
     process.env.KLAUS_SERVER_URL = provider.url;

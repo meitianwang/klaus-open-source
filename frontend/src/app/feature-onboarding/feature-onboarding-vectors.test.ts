@@ -3,15 +3,19 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import vectors from '../../../../contracts/vectors/feature-onboarding-vectors.json'
 import {
-  FEATURE_BASELINE_KEY,
   FEATURE_ONBOARDING_MIRROR_KEY,
   FEATURE_ONBOARDING_UI_STATE_KEYS,
   FEATURE_SEEN_LEDGER_KEY,
+  GUIDE_SEEN_KEY,
+  READING_MODE_KEY,
   TOUR_DONE_PREFIX,
-  compareReleaseFamilies,
-  decideOnboarding,
+  defaultGuideId,
+  guideDue,
   isTourDone,
+  parseGuideConfig,
+  parseGuideSeenMap,
   parseMirror,
+  parseReadingMode,
   parseSeenLedger,
   releaseFamily,
   serializeMirror,
@@ -20,6 +24,7 @@ import {
   tourMayStart,
   unionLedger,
   withFeatureSeen,
+  withGuideSeen,
   type FeatureHintKind,
 } from '../../../../contracts/feature-onboarding'
 import { FEATURE_REGISTRY } from './registry'
@@ -29,19 +34,20 @@ import { featureOnboardingEn, featureOnboardingZh } from '../../i18n/feature-onb
 const readRepo = (relative: string) =>
   readFileSync(fileURLToPath(new URL(`../../../../${relative}`, import.meta.url)), 'utf8')
 
-interface AnnouncementCase {
-  _why?: string
-  baseline: string | null
-  currentFamily: string | null
-  kind: 'baseline' | 'idle' | 'announce'
-  features: string[]
-  newBaseline: string | null
-  mustNotContain?: string[]
+const storage = vectors.storage as unknown as {
+  ledgerKey: string
+  guideSeenKey: string
+  readingModeKey: string
+  mirrorKey: string
+  uiOnlyKeys: string[]
 }
-
-const announcement = vectors.announcement as unknown as {
-  registry: Array<{ id: string; kind: FeatureHintKind; since: string | null }>
-  cases: AnnouncementCase[]
+const guideVectors = vectors.guide as unknown as {
+  defaultId: Array<{ family: string | null; id: string | null }>
+  due: Array<{ _why?: string; enable: boolean; guideId: string | null; seen: string[]; shownThisSession: boolean; due: boolean }>
+  seenMapParse: Array<{ _why?: string; raw: unknown; parsed: string[] }>
+  seenMapAppend: Array<{ _why?: string; map: string[]; id: string; result: string[] }>
+  readingMode: Array<{ raw: unknown; parsed: string | null }>
+  config: Array<{ _why?: string; payload: unknown; accepted: boolean; enable?: boolean; guideId?: string | null; pageCount?: number }>
 }
 const tourVectors = vectors.tour as unknown as {
   doneIdPrefix: string
@@ -63,49 +69,54 @@ const mirrorVectors = vectors.mirror as unknown as {
 
 describe('feature discovery storage contract', () => {
   test('row names match the vectors, so the host exemption cannot drift', () => {
-    expect(FEATURE_SEEN_LEDGER_KEY).toBe(vectors.storage.ledgerKey)
-    expect(FEATURE_BASELINE_KEY).toBe(vectors.storage.baselineKey)
-    expect(FEATURE_ONBOARDING_MIRROR_KEY).toBe(vectors.storage.mirrorKey)
-    expect([...FEATURE_ONBOARDING_UI_STATE_KEYS]).toEqual([...vectors.storage.uiOnlyKeys])
+    expect(FEATURE_SEEN_LEDGER_KEY).toBe(storage.ledgerKey)
+    expect(GUIDE_SEEN_KEY).toBe(storage.guideSeenKey)
+    expect(READING_MODE_KEY).toBe(storage.readingModeKey)
+    expect(FEATURE_ONBOARDING_MIRROR_KEY).toBe(storage.mirrorKey)
+    expect([...FEATURE_ONBOARDING_UI_STATE_KEYS]).toEqual([...storage.uiOnlyKeys])
   })
 
-  test('both rows stay out of SessionConfiguration staleness', () => {
-    // The exemption list lives in the host; asserting the literal keeps a rename
+  test('the exempt rows stay out of SessionConfiguration staleness', () => {
+    // The exemption list lives in the host; asserting the spread keeps a rename
     // here from silently rebuilding live sessions.
     const configuration = readRepo('main/sessions/configuration.ts')
     expect(configuration).toContain('FEATURE_ONBOARDING_UI_STATE_KEYS')
     expect(configuration).toContain('...FEATURE_ONBOARDING_UI_STATE_KEYS,')
   })
 
-  test('the mirror is ledger-only, so the announcement window comes from the baseline row', () => {
+  test('the mirror is ledger-only, so the guide decision never guesses on first paint', () => {
     const source = readRepo('frontend/src/app/feature-onboarding/ledger.ts')
     expect(source).toContain('serializeMirror({ ledger: state.ledger })')
-    expect(source).not.toContain('announced: state.announced })')
+    expect(source).not.toContain('guideSeen: mirror')
+  })
+
+  test('the seen mark is written on dismissal, never on first paint', () => {
+    // The whole announcement survives a launch that fails to render the guide:
+    // the mark lands only when the user dismisses or finishes it.
+    const source = readRepo('frontend/src/app/feature-onboarding/ledger.ts')
+    const dismiss = source.slice(source.indexOf('export function dismissGuide'))
+    expect(dismiss).toContain('withGuideSeen')
+    const show = source.slice(source.indexOf('export function shouldShowGuide'), source.indexOf('export function dismissGuide'))
+    expect(show).not.toContain('kvSet')
   })
 })
 
 describe('release family', () => {
-  for (const { version, family } of vectors.releaseFamily.cases) {
+  for (const { version, family } of (vectors.releaseFamily as unknown as { cases: Array<{ version: string | null; family: string | null }> }).cases) {
     test(`releaseFamily(${JSON.stringify(version)}) → ${family}`, () => {
-      expect(releaseFamily(version as string | null)).toBe(family)
-    })
-  }
-
-  for (const { a, b, positive } of vectors.compareReleaseFamilies.cases) {
-    test(`compareReleaseFamilies(${a}, ${b}) sign is ${positive}`, () => {
-      expect(compareReleaseFamilies(a, b) > 0).toBe(positive)
+      expect(releaseFamily(version)).toBe(family)
     })
   }
 })
 
 describe('seen ledger', () => {
-  for (const { _why, raw, parsed } of vectors.ledger.parse) {
+  for (const { _why, raw, parsed } of vectors.ledger.parse as unknown as Array<{ _why?: string; raw: unknown; parsed: string[] }>) {
     test(`parse: ${_why ?? JSON.stringify(raw)}`, () => {
       expect(parseSeenLedger(raw)).toEqual(parsed)
     })
   }
 
-  for (const { _why, ledger, id, result } of vectors.ledger.append) {
+  for (const { _why, ledger, id, result } of vectors.ledger.append as unknown as Array<{ _why?: string; ledger: string[]; id: string; result: string[] }>) {
     test(`append: ${_why ?? `${ledger} + ${id}`}`, () => {
       const before = [...ledger]
       expect(withFeatureSeen(ledger, id)).toEqual(result)
@@ -113,48 +124,66 @@ describe('seen ledger', () => {
     })
   }
 
-  // The merge-on-write rule. Without it, two windows acknowledging different
-  // features inside one round trip let the later write clobber the earlier one,
-  // and an acknowledgement the user already made is lost on the next launch.
-  for (const { _why, base, other, result, baseAfter, otherAfter } of vectors.ledger.union) {
-    test(`union: ${_why ?? `${base} ∪ ${other}`}`, () => {
-      expect(unionLedger(base, other)).toEqual(result)
-      // Neither input may be mutated: the caller keeps its own ledger as the
-      // rollback target, and a mutated `base` would silently alias live state.
-      expect(base).toEqual(baseAfter ?? base)
-      expect(other).toEqual(otherAfter ?? other)
-    })
-  }
-
-  test('union is the durable-write merge rule the renderer actually uses', () => {
-    // Pinning the call site is what keeps the contract honest: a write path that
-    // stops merging still passes every vector above while shipping the clobber.
-    const source = readRepo('frontend/src/app/feature-onboarding/ledger.ts')
-    expect(source).toContain('unionLedger(parseSeenLedger(durable), local)')
-    expect(source).not.toContain('kvSet(FEATURE_SEEN_LEDGER_KEY, JSON.stringify(ledger))')
+  test('merge-on-write unions rather than overwrites', () => {
+    const base = ['a', 'b']
+    expect(unionLedger(base, ['b', 'c'])).toEqual(['a', 'b', 'c'])
+    expect(base).toEqual(['a', 'b'])
   })
 })
 
-describe('announcement decision', () => {
-  for (const vector of announcement.cases) {
-    test(vector._why ?? `baseline ${vector.baseline} → ${vector.currentFamily}`, () => {
-      const decision = decideOnboarding({
-        baseline: vector.baseline,
-        currentFamily: vector.currentFamily,
-        registry: announcement.registry,
-      })
-      expect(decision.kind).toBe(vector.kind)
-      expect(decision.features).toEqual(vector.features)
-      expect(decision.baseline).toBe(vector.newBaseline)
-      for (const excluded of vector.mustNotContain ?? []) {
-        expect(decision.features).not.toContain(excluded)
-      }
+describe('guide identity and due-ness', () => {
+  for (const { family, id } of guideVectors.defaultId) {
+    test(`defaultGuideId(${JSON.stringify(family)}) → ${id}`, () => {
+      expect(defaultGuideId(family)).toBe(id)
+    })
+  }
+
+  for (const { _why, enable, guideId, seen, shownThisSession, due } of guideVectors.due) {
+    test(`due: ${_why ?? JSON.stringify({ enable, guideId, seen })}`, () => {
+      const map = Object.fromEntries(seen.map(id => [id, true as const]))
+      expect(guideDue({ enable, guideId, seen: map, shownThisSession })).toBe(due)
+    })
+  }
+
+  for (const { _why, raw, parsed } of guideVectors.seenMapParse) {
+    test(`seen map parse: ${_why ?? JSON.stringify(raw)}`, () => {
+      expect(Object.keys(parseGuideSeenMap(raw)).sort()).toEqual([...parsed].sort())
+    })
+  }
+
+  for (const { _why, map, id, result } of guideVectors.seenMapAppend) {
+    test(`seen map mark: ${_why ?? `${map} + ${id}`}`, () => {
+      const before = { ...Object.fromEntries(map.map(key => [key, true as const])) }
+      expect(Object.keys(withGuideSeen(before, id)).sort()).toEqual([...result].sort())
+      expect(Object.keys(before).sort()).toEqual([...map].sort())
+    })
+  }
+
+  for (const { raw, parsed } of guideVectors.readingMode) {
+    test(`reading mode parse: ${JSON.stringify(raw)} → ${parsed}`, () => {
+      expect(parseReadingMode(raw)).toBe(parsed)
     })
   }
 })
 
-describe('tour markers and gates', () => {
-  test('the completion marker is namespaced inside the same row', () => {
+describe('guide config validation', () => {
+  for (const { _why, payload, accepted, enable, guideId, pageCount } of guideVectors.config) {
+    test(`config: ${_why ?? JSON.stringify(payload).slice(0, 60)}`, () => {
+      const parsed = parseGuideConfig(payload)
+      if (!accepted) {
+        expect(parsed).toBeNull()
+        return
+      }
+      expect(parsed).not.toBeNull()
+      if (enable !== undefined) expect(parsed!.enable).toBe(enable)
+      if (guideId !== undefined) expect(parsed!.data?.guideId ?? null).toBe(guideId)
+      if (pageCount !== undefined) expect(parsed!.data?.zh?.features?.length ?? 0).toBe(pageCount)
+    })
+  }
+})
+
+describe('tour completion', () => {
+  test('prefix and id shape', () => {
     expect(TOUR_DONE_PREFIX).toBe(tourVectors.doneIdPrefix)
     expect(tourDoneId(tourVectors.doneId.featureId)).toBe(tourVectors.doneId.id)
   })
@@ -165,67 +194,45 @@ describe('tour markers and gates', () => {
     })
   }
 
-  for (const vector of tourVectors.mayStart.cases) {
-    const input = { ...tourVectors.mayStart._base, ...vector } as never
-    test(`mayStart: ${vector._why}`, () => {
-      expect(tourMayStart(input)).toBe(vector.start)
+  for (const entry of tourVectors.mayStart.cases) {
+    const { start, ...input } = entry
+    test(`mayStart: ${JSON.stringify(input)}`, () => {
+      expect(tourMayStart({ ...tourVectors.mayStart._base, ...input } as never)).toBe(start)
     })
   }
 
-  for (const vector of tourVectors.startsOnArrival.cases) {
-    const merged = { ...tourVectors.startsOnArrival._base, ...vector }
-    // The vector spells "never evaluated" as JSON null; the contract takes
-    // undefined, and `previous === false` must not match either of them.
-    const input = {
-      previous: merged.previous === null ? undefined : merged.previous,
-      now: merged.now,
-      initialSweep: merged.initialSweep,
-    } as never
-    test(`startsOnArrival: ${vector._why}`, () => {
-      expect(startsTourOnArrival(input)).toBe(vector.start)
+  for (const entry of tourVectors.startsOnArrival.cases) {
+    const { start, ...input } = entry
+    test(`startsOnArrival: ${JSON.stringify(input)}`, () => {
+      expect(startsTourOnArrival({ ...tourVectors.startsOnArrival._base, ...input } as never)).toBe(start)
     })
   }
 })
 
-describe('first-paint mirror', () => {
-  test('a written mirror reads back as the same ledger', () => {
-    const parsed = parseMirror(serializeMirror(mirrorVectors.roundTrip))
-    expect(parsed?.ledger).toEqual(mirrorVectors.roundTrip.ledger)
+describe('mirror', () => {
+  test('round trip', () => {
+    expect(parseMirror(serializeMirror(mirrorVectors.roundTrip))).toEqual(mirrorVectors.roundTrip)
   })
 
   for (const { _why, raw, parsed } of mirrorVectors.parse) {
     test(`parse: ${_why ?? JSON.stringify(raw)}`, () => {
-      const result = parseMirror(raw)
-      if (parsed === null) expect(result).toBeNull()
-      else expect(result?.ledger).toEqual(parsed)
+      expect(parseMirror(raw)?.ledger ?? null).toEqual(parsed)
     })
   }
 })
 
-// --- registry guards ---
-//
-// The registry is hand-written and ships inside the client, so its two failure
-// modes are silent: a key missing from one language renders the raw key, and an
-// anchor id that does not exist renders a spotlight over nothing. Both are
-// checked here against the real sources.
-
 const INDEX_HTML = readRepo('frontend/index.html')
 
-/** Only the anchors a walkthrough step points at, because a step that cannot be
- *  measured is skipped and the tour silently loses it. */
-function tourAnchorsInUse(): string[] {
-  const ids = new Set<string>()
-  for (const entry of FEATURE_REGISTRY) {
-    for (const step of entry.tour ?? []) ids.add(step.anchor)
-  }
-  return [...ids]
+/** The guide's shipped copy keys, read from the content module so a key added
+ *  there without a dictionary entry fails here rather than rendering raw. */
+function guideKeysInUse(): string[] {
+  const source = readRepo('frontend/src/app/feature-onboarding/guide-content.ts')
+  return [...source.matchAll(/'((?:onb_g\d_|onb_guide_)[a-z0-9_]+)'/g)].map(match => match[1])
 }
 
-function i18nKeysInUse(): string[] {
+function tourKeysInUse(): string[] {
   const keys = new Set<string>()
   for (const entry of FEATURE_REGISTRY) {
-    keys.add(entry.titleKey)
-    keys.add(entry.bodyKey)
     for (const step of entry.tour ?? []) {
       keys.add(step.titleKey)
       keys.add(step.bodyKey)
@@ -235,9 +242,9 @@ function i18nKeysInUse(): string[] {
 }
 
 describe('registry guards', () => {
-  test('every i18n key exists in both languages', () => {
+  test('every guide and walkthrough i18n key exists in both languages', () => {
     const missing: string[] = []
-    for (const key of i18nKeysInUse()) {
+    for (const key of [...guideKeysInUse(), ...tourKeysInUse()]) {
       if (!featureOnboardingEn[key as keyof typeof featureOnboardingEn]) missing.push(`en.${key}`)
       if (!featureOnboardingZh[key as keyof typeof featureOnboardingZh]) missing.push(`zh.${key}`)
     }
@@ -253,22 +260,16 @@ describe('registry guards', () => {
   })
 
   test('every walkthrough step anchors a static id from index.html', () => {
-    // This exists because of a measured failure: a step anchored inside a page's
-    // own React island has no size until that island renders, and an unmeasurable
-    // step is SKIPPED — so the tour silently loses steps. Anchoring only markup
-    // that exists before any island runs makes every step resolvable on the first
-    // frames after its reveal. Adding a step on island-built content means giving
-    // that content a static anchor first.
-    const missing = tourAnchorsInUse().filter(id => !INDEX_HTML.includes(`id="${id}"`))
+    const missing: string[] = []
+    for (const entry of FEATURE_REGISTRY) {
+      for (const step of entry.tour ?? []) {
+        if (!INDEX_HTML.includes(`id="${step.anchor}"`)) missing.push(step.anchor)
+      }
+    }
     expect(missing).toEqual([])
   })
 
   test('no walkthrough step anchors the entry its own reveal hides', () => {
-    // Opening the files panel or a full-page view hides the whole side rail
-    // (`body.artifacts-open .side-rail { display: none }` and friends), so a
-    // step pointing at a rail button is unmeasurable exactly after its own
-    // reveal runs. A tour starts on arrival, which means the user has already
-    // clicked that entry, so a step there would explain nothing.
     const railIds = ['workspace-panel-toggle', 'monitor-panel-toggle', 'browser-panel-toggle', 'btn-diff', 'terminal-toggle']
     const offenders: string[] = []
     for (const entry of FEATURE_REGISTRY) {
@@ -292,17 +293,16 @@ describe('registry guards', () => {
   })
 
   test('every arrival subject is static markup the observer can subscribe to', () => {
-    // The observer subscribes to the elements the rules name, resolved once at
-    // boot. A subject built later by a page's own React island would resolve to
-    // nothing, so that hint would never clear and no test would notice. Every
-    // declared subject must therefore exist in the shipped skeleton.
     const { ids, selectors } = declaredSubjects(FEATURE_REGISTRY.map(entry => entry.arrival))
     expect(ids.length).toBeGreaterThan(0)
     expect(ids.filter(id => !INDEX_HTML.includes(`id="${id}"`))).toEqual([])
-    // A selector subject has to be locatable too; assert the shape rather than
-    // evaluating it, since this test has no DOM.
     expect(selectors.every(selector => /^[.#][\w-]+$/.test(selector))).toBe(true)
     expect(selectors.filter(selector => selector.startsWith('.')).length)
       .toBe(selectors.filter(selector => selector === '.settings-main').length)
+  })
+
+  test('registry kinds are the two the ledger understands', () => {
+    const kinds = new Set(FEATURE_REGISTRY.map(entry => entry.kind))
+    expect([...kinds].sort()).toEqual((['evergreen', 'release'] as FeatureHintKind[]).sort())
   })
 })

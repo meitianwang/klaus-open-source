@@ -83,6 +83,8 @@ import { bindSessionWorkdir, readSessionModel } from '../services/session-store'
 import { registerTeamCollaborationHandlers } from '../ipc/handlers/team-collaboration';
 import { FeatureGatesService } from '../services/feature-gates';
 import { registerFeatureGateHandlers } from '../ipc/handlers/feature-gates';
+import { OnboardingGuideService } from '../services/onboarding-guide';
+import { registerOnboardingGuideHandlers } from '../ipc/handlers/onboarding-guide';
 import type { TeamCollaborationService } from '../services/team-collaboration';
 import { bindCollaborationModel } from '../services/team-collaboration/model';
 import { registerExternalAgentImportHandlers } from '../ipc/handlers/external-agent-import';
@@ -425,6 +427,7 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
   let cronRuntime: CronRuntime | undefined;
   let teamCollaboration: TeamCollaborationService | undefined;
   let featureGates: FeatureGatesService | undefined;
+  let onboardingGuide: OnboardingGuideService | undefined;
   let cronMetadataBackfill: Promise<void> = Promise.resolve();
   let pip: ReturnType<typeof createPipRuntime> | undefined;
   let computerUse: Awaited<ReturnType<typeof createComputerUseRuntime>> | undefined;
@@ -1942,6 +1945,9 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
       teamCollaboration?.refreshAccount();
       // The server resolves gates per user, so a login/logout changes answers.
       void featureGates?.accountChanged();
+      // The guide rides the same payload: a sign-out must not leave the
+      // previous account's introduction on screen.
+      void onboardingGuide?.accountChanged();
       // A sign-out removes the credential live sessions were using; their
       // background re-preparation then fails by design and must not surface
       // as a model error the user caused.
@@ -2000,6 +2006,21 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
   early.add(() => { featureGates?.close(); });
   registerFeatureGateHandlers(registry, featureGates);
   featureGates.start();
+  // The post-upgrade guide rides the same control-plane payload as the gates,
+  // but is fail-closed without a disk cache: a withdrawn guide must not replay
+  // from a stale file after the server pulled it.
+  onboardingGuide = new OnboardingGuideService({
+    clientConfig: () => account.clientConfig(),
+    accountId: () => {
+      const user = object(object(readStoredAuth(configRoot))?.user);
+      return typeof user?.id === 'string' ? user.id : null;
+    },
+    push: config => emit('onboarding-guide:updated', { config: config as unknown as Json }),
+    log: message => log.write('onboarding-guide', message),
+  });
+  early.add(() => { onboardingGuide?.close(); });
+  registerOnboardingGuideHandlers(registry, onboardingGuide);
+  onboardingGuide.start();
   teamCollaboration = registerTeamCollaborationHandlers(registry, {
     configRoot, serverUrl: account.serverUrl, sessions,
     // Fail-closed: until the server resolves the gate for this account, the

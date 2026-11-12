@@ -10684,3 +10684,38 @@ html[data-theme="dark"] .klaus-inline-vis-expanded { border-color: rgba(255, 255
 .left-side-chat-panel { flex: 1 1 auto; min-height: 0; height: auto; }
 #main[data-left-side-session] > :not(#left-side-tabs):not(#left-side-chat-panel) { display: none !important; }
 #left-side-chat-panel .side-composer-host { flex: 0 0 auto; }
+
+/* ===== Reading density (post-upgrade guide choice) =====
+   `efficient` widens the conversation column and tightens its vertical rhythm
+   so more of a long reply fits one screen. The attribute is set by the guide's
+   closing page (app/feature-onboarding/reading-mode.ts) and re-applied at boot;
+   its absence is the shipped comfortable layout, so the base rules stay the
+   single source of the default geometry. */
+html[data-reading-mode="efficient"] .msg-group,
+html[data-reading-mode="efficient"] .msg-group.teammate,
+html[data-reading-mode="efficient"] .transcript-skeleton,
+html[data-reading-mode="efficient"] .thinking-done,
+html[data-reading-mode="efficient"] .capability-group,
+html[data-reading-mode="efficient"] .subagent-loading,
+html[data-reading-mode="efficient"] .subagent-empty {
+  max-width: min(960px, 100%);
+}
+
+html[data-reading-mode="efficient"] .permission-card,
+html[data-reading-mode="efficient"] .question-summary {
+  max-width: min(960px, 100%);
+}
+
+html[data-reading-mode="efficient"] .welcome-inner,
+html[data-reading-mode="efficient"] .btw-panel {
+  width: min(960px, calc(100% - 32px));
+  max-width: min(960px, 100%);
+}
+
+html[data-reading-mode="efficient"] #input-wrapper,
+html[data-reading-mode="efficient"] :is(#side-input-wrapper, #left-side-input-wrapper) {
+  max-width: 992px;
+}
+
+html[data-reading-mode="efficient"] .msg-group.user { padding: 8px 0 2px; }
+html[data-reading-mode="efficient"] .msg-group.assistant { padding: 2px 0; }

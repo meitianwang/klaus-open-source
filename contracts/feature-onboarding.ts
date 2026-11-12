@@ -3,7 +3,9 @@
 // Two surfaces share one ledger, and the host must agree with the renderer on
 // the row names so that acknowledging a hint can never rebuild a live session:
 //
-//   1. a "what changed in this release" card shown once after an upgrade;
+//   1. a full-screen post-upgrade guide: a short page sequence introducing the
+//      release, closed by a reading-density choice. Its copy ships in the
+//      client and may be overridden by the control plane;
 //   2. an optional multi-step spotlight tour for the features that need one.
 //
 // Everything is I/O free here so the rules are unit-testable and pinned by
@@ -15,22 +17,37 @@
 //     A feature is new exactly when its id is absent from the array, so adding
 //     a feature to the registry needs no migration and a retired feature leaves
 //     a harmless orphan string behind.
-//   - The version baseline is a RELEASE FAMILY (`major.minor`), never the full
-//     version string. Comparing full strings would re-announce on every patch
-//     release; comparing families announces once per minor and stays quiet for
-//     `0.5.0 → 0.5.3`.
-//   - The localStorage mirror carries the ledger ONLY. The announcement window
-//     is derived from the baseline row, which lives in settings.db, so a mirror
-//     that also cached the window would announce a release the user has already
-//     seen until the KV read landed.
+//   - The guide is remembered by GUIDE ID, never by a version string. A guide
+//     id names one published introduction: re-publishing corrected copy under
+//     the same id stays dismissed, publishing a new id announces again. The
+//     version only enters as the default id (`release-<family>`), so a new
+//     minor gets a fresh id for free while a patch never re-announces.
+//   - The guide is fail-closed: it appears only while the control plane says
+//     `enable: true`. A client that cannot reach the server stays quiet, like
+//     the feature gates, because a half-delivered introduction is worse than
+//     none.
+//   - The seen mark is written when the user DISMISSES or FINISHES the guide,
+//     not when it first paints. Writing it on paint would let a launch that
+//     failed to render the surface silently consume the announcement.
+//   - The localStorage mirror carries the ledger ONLY. The guide decision also
+//     needs the control-plane config, which arrives asynchronously, so a mirror
+//     cannot meaningfully guess it and must not try.
 
 /** settings.db KV row holding the JSON seen-ledger: `string[]` of feature ids. */
 export const FEATURE_SEEN_LEDGER_KEY = 'onboarding.feature_seen'
 
-/** settings.db KV row holding the last announced release family, e.g. `"0.5"`. */
-export const FEATURE_BASELINE_KEY = 'onboarding.last_seen_release_family'
+/** settings.db KV row holding the guides already shown, as a JSON object
+ *  mapping guide id to `true`. Keyed by guide rather than by version so a
+ *  corrected re-publish under the same id stays dismissed while a new id
+ *  announces again. */
+export const GUIDE_SEEN_KEY = 'onboarding.guide_seen'
 
-/** localStorage mirror of both rows, available on the first frame instead of
+/** settings.db KV row holding the reading density the guide's closing page
+ *  wrote: `"comfortable"` or `"efficient"`. Absent means the user never chose,
+ *  which reads as comfortable. */
+export const READING_MODE_KEY = 'appearance.reading_mode'
+
+/** localStorage mirror of the ledger, available on the first frame instead of
  *  after the KV round trip. The mirror is never authoritative: the KV read
  *  reconciles it and wins. */
 export const FEATURE_ONBOARDING_MIRROR_KEY = 'klaus_onboarding_mirror'
@@ -41,8 +58,19 @@ export const FEATURE_ONBOARDING_MIRROR_KEY = 'klaus_onboarding_mirror'
  *  (main/sessions/configuration.ts). */
 export const FEATURE_ONBOARDING_UI_STATE_KEYS: readonly string[] = [
   FEATURE_SEEN_LEDGER_KEY,
-  FEATURE_BASELINE_KEY,
+  GUIDE_SEEN_KEY,
+  READING_MODE_KEY,
 ]
+
+// --- hint kinds ---
+
+/** What a discovery hint is for.
+ *
+ *  - `release` — tied to a release family. It may appear in the guide's copy
+ *    for users who upgraded across that family.
+ *  - `evergreen` — no version tie. It may carry a walkthrough that runs when the
+ *    user first reaches the surface, regardless of when it shipped. */
+export type FeatureHintKind = 'release' | 'evergreen'
 
 // --- release family ---
 
@@ -55,18 +83,6 @@ export function releaseFamily(version: string | null | undefined): string | null
   const match = /^\s*(\d+)\.(\d+)/.exec(version)
   if (!match) return null
   return `${Number(match[1])}.${Number(match[2])}`
-}
-
-/** Numeric family ordering. Both sides must already be normalized by
- *  `releaseFamily`; a non-family input compares as 0 rather than throwing. */
-export function compareReleaseFamilies(a: string, b: string): number {
-  const parse = (family: string): [number, number] => {
-    const [major, minor] = family.split('.')
-    return [Number(major) || 0, Number(minor) || 0]
-  }
-  const [aMajor, aMinor] = parse(a)
-  const [bMajor, bMinor] = parse(b)
-  return aMajor - bMajor || aMinor - bMinor
 }
 
 // --- seen ledger ---
@@ -117,6 +133,220 @@ export function unionLedger(base: readonly string[], other: readonly string[]): 
   return merged
 }
 
+// --- guide seen map ---
+
+/** Parse the persisted guide seen-map. Anything that is not an object marking
+ *  ids with `true` degrades to an empty map (every guide reads as unseen)
+ *  rather than throwing: a corrupt row must never block boot. */
+export function parseGuideSeenMap(raw: unknown): Record<string, true> {
+  let value: unknown = raw
+  if (typeof raw === 'string') {
+    const text = raw.trim()
+    if (!text) return {}
+    try { value = JSON.parse(text) } catch { return {} }
+  }
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return {}
+  const seen: Record<string, true> = {}
+  for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+    if (key && entry === true) seen[key] = true
+  }
+  return seen
+}
+
+/** Return a new map with `guideId` marked. Already-marked ids are a no-op, so
+ *  re-acknowledging never grows the row. Never mutates the input. */
+export function withGuideSeen(map: Readonly<Record<string, true>>, guideId: string): Record<string, true> {
+  if (!guideId || map[guideId]) return { ...map }
+  return { ...map, [guideId]: true }
+}
+
+// --- post-upgrade guide content ---
+
+/** The four scenes a guide page may draw, in the only order they appear. The
+ *  sequence is part of the content contract: a page list is accepted whole or
+ *  not at all, so a partially overridden guide can never show two pages that
+ *  assume a third. */
+export const GUIDE_SCENES = ['overview', 'collaboration', 'cocreation', 'automation'] as const
+export type GuideScene = (typeof GUIDE_SCENES)[number]
+
+/** Reading density the guide's closing page offers. `comfortable` is the
+ *  shipped default; `efficient` widens the transcript column and tightens its
+ *  vertical rhythm so more of a long reply fits one screen. */
+export type ReadingMode = 'comfortable' | 'efficient'
+
+export interface GuidePage {
+  scene: GuideScene
+  eyebrow: string
+  /** One entry per rendered line. The emphasis is matched against line text. */
+  title: string[]
+  /** Substring of one title line, drawn in the accent colour with a sweep. */
+  emphasis?: string
+  description: string
+  /** How long this page's artwork timeline runs, in milliseconds. The timeline
+   *  drives the page illustration and its progress only; turning a page always
+   *  takes user input. */
+  durationMs: number
+}
+
+export interface GuideLabels {
+  next: string
+  previous: string
+  skip: string
+  chooseReading: string
+  start: string
+  comfortable: string
+  efficient: string
+  comfortableHint: string
+  efficientHint: string
+  startTitle: string
+  readingDescriptionComfortable: string
+  readingDescriptionEfficient: string
+}
+
+export const GUIDE_LABEL_FIELDS = [
+  'next', 'previous', 'skip', 'chooseReading', 'start', 'comfortable', 'efficient',
+  'comfortableHint', 'efficientHint', 'startTitle',
+  'readingDescriptionComfortable', 'readingDescriptionEfficient',
+] as const satisfies readonly (keyof GuideLabels)[]
+
+export interface GuideLocaleContent {
+  features?: GuidePage[]
+  labels?: Partial<GuideLabels>
+}
+
+export interface GuideData {
+  guideId?: string
+  initialReadingMode?: ReadingMode
+  zh?: GuideLocaleContent
+  en?: GuideLocaleContent
+}
+
+/** What the control plane may publish. `enable` is the switch: absent or false
+ *  means no guide, so a shipped client stays quiet until the server says
+ *  otherwise (fail-closed, like the feature gates). */
+export interface GuideConfig {
+  schemaVersion: 1
+  enable: boolean
+  data?: GuideData | null
+}
+
+/** Guide id used when the control plane enables the guide without naming one.
+ *  Tied to the running release family so the next minor announces a fresh id
+ *  while a corrected re-publish of the same family can reuse it. */
+export function defaultGuideId(currentFamily: string | null): string | null {
+  return currentFamily ? `release-${currentFamily}` : null
+}
+
+/** Whether the guide should be on screen now.
+ *
+ *  Three inputs must agree: the control plane switched the guide on, the guide
+ *  has an id to be remembered by, and that id is not in the seen map.
+ *  `shownThisSession` keeps a guide the user is currently reading on screen
+ *  across re-renders — a config refresh or a language switch must not unmount
+ *  the page they are on — without re-consulting the seen map, which only gains
+ *  the id once they dismiss or finish. */
+export function guideDue(input: {
+  enable: boolean
+  guideId: string | null
+  seen: Readonly<Record<string, true>>
+  shownThisSession: boolean
+}): boolean {
+  if (!input.enable || !input.guideId) return false
+  return input.shownThisSession || !input.seen[input.guideId]
+}
+
+// --- guide config validation ---
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function nonEmptyString(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value : null
+}
+
+function readPage(value: unknown, index: number): GuidePage | null {
+  if (!isRecord(value)) return null
+  // Position fixes the scene: the sequence is the contract, so a list whose
+  // nth entry names another scene is refused rather than reordered.
+  const scene: GuideScene | undefined = GUIDE_SCENES[index]
+  if (!scene || value.scene !== scene) return null
+  const eyebrow = nonEmptyString(value.eyebrow)
+  const description = nonEmptyString(value.description)
+  if (!eyebrow || !description) return null
+  if (!Array.isArray(value.title) || value.title.length === 0) return null
+  const title: string[] = []
+  for (const line of value.title) {
+    const text = nonEmptyString(line)
+    if (!text) return null
+    title.push(text)
+  }
+  const emphasis = nonEmptyString(value.emphasis) ?? undefined
+  const durationMs = value.durationMs
+  if (typeof durationMs !== 'number' || !Number.isFinite(durationMs) || durationMs <= 0) return null
+  return { scene, eyebrow, title, emphasis, description, durationMs }
+}
+
+function readLocaleContent(value: unknown): GuideLocaleContent | null {
+  if (!isRecord(value)) return null
+  const out: GuideLocaleContent = {}
+  if (value.features !== undefined) {
+    if (!Array.isArray(value.features) || value.features.length !== GUIDE_SCENES.length) return null
+    const pages: GuidePage[] = []
+    for (let index = 0; index < GUIDE_SCENES.length; index++) {
+      const page = readPage(value.features[index], index)
+      if (!page) return null
+      pages.push(page)
+    }
+    out.features = pages
+  }
+  if (value.labels !== undefined) {
+    if (!isRecord(value.labels)) return null
+    const labels: Partial<GuideLabels> = {}
+    for (const key of GUIDE_LABEL_FIELDS) {
+      const text = nonEmptyString(value.labels[key])
+      if (text) labels[key] = text
+    }
+    out.labels = labels
+  }
+  return out
+}
+
+/** Validate one control-plane payload into a guide config, or null when it
+ *  does not match the contract. Null means "drop it": a half-parsed guide
+ *  would show pages that assume copy which never arrived, so the whole payload
+ *  is refused rather than partially applied. */
+export function parseGuideConfig(value: unknown): GuideConfig | null {
+  if (!isRecord(value)) return null
+  if (value.schemaVersion !== 1) return null
+  if (typeof value.enable !== 'boolean') return null
+  const config: GuideConfig = { schemaVersion: 1, enable: value.enable }
+  if (value.data === undefined || value.data === null) return config
+  if (!isRecord(value.data)) return null
+  const data: GuideData = {}
+  const guideId = nonEmptyString(value.data.guideId)
+  if (guideId) data.guideId = guideId
+  if (value.data.initialReadingMode !== undefined) {
+    if (value.data.initialReadingMode !== 'comfortable' && value.data.initialReadingMode !== 'efficient') return null
+    data.initialReadingMode = value.data.initialReadingMode
+  }
+  for (const locale of ['zh', 'en'] as const) {
+    if (value.data[locale] === undefined) continue
+    const content = readLocaleContent(value.data[locale])
+    if (!content) return null
+    data[locale] = content
+  }
+  config.data = data
+  return config
+}
+
+/** Parse the persisted reading mode. Absent or unknown values read as null,
+ *  which callers treat as "never chose" (comfortable). */
+export function parseReadingMode(raw: unknown): ReadingMode | null {
+  const text = typeof raw === 'string' ? raw.trim() : ''
+  return text === 'comfortable' || text === 'efficient' ? text : null
+}
+
 // --- arrival rules ---
 
 /** What counts as "the user reached this feature".
@@ -135,7 +365,7 @@ export type ArrivalRule =
   | { kind: 'panel-mode'; panelId: string; mode: string }
   /** A toggle button reports its own pressed state. */
   | { kind: 'aria-pressed'; id: string }
-  /** Card-only: there is no surface to arrive at. */
+  /** There is no surface to arrive at; the hint is guide copy only. */
   | { kind: 'never' }
 
 /** The settings overlay root and the panel that names the open tab. Neither has
@@ -211,11 +441,11 @@ export function tourMayStart(input: {
   ledger: readonly string[]
   featureId: string
   hasTour: boolean
-  cardVisible: boolean
+  guideVisible: boolean
   tourActive: boolean
 }): boolean {
-  const { ledger, featureId, hasTour, cardVisible, tourActive } = input
-  if (!hasTour || cardVisible || tourActive) return false
+  const { ledger, featureId, hasTour, guideVisible, tourActive } = input
+  if (!hasTour || guideVisible || tourActive) return false
   return !isTourDone(ledger, featureId)
 }
 
@@ -226,10 +456,10 @@ export function tourMayStart(input: {
  *  - A surface already open when the sweep first ran (restored window state, a
  *    deep link) is not an arrival the user just made. Launching a walkthrough
  *    over their first frame greets every such launch with a modal.
- *  - A tour deferred because the upgrade card was up must not fire later on some
- *    unrelated mutation while the user is still sitting on that page. The card
- *    already told them about the feature; a modal appearing minutes later, for no
- *    action they just took, is an interruption with no cause.
+ *  - A tour deferred because the guide was up must not fire later on some
+ *    unrelated mutation while the user is still sitting on that page. The guide
+ *    already told them about the feature; a modal appearing minutes later, for
+ *    no action they just took, is an interruption with no cause.
  *
  *  `previous === undefined` means the entry was never evaluated, which only
  *  happens on the first sweep — and the first sweep records arrivals without
@@ -242,93 +472,11 @@ export function startsTourOnArrival(input: {
   return !input.initialSweep && input.previous === false && input.now
 }
 
-// --- announcement decision ---
-
-/** Minimal shape the decision needs from the registry; the renderer's full
- *  entry type extends this. */
-export interface FeatureVersionRecord {
-  id: string
-  kind: FeatureHintKind
-  /** Release family the feature first shipped in, e.g. `"0.5"`. Null for
-   *  evergreen hints, which are not tied to any release and therefore never
-   *  enter an announcement window. */
-  since: string | null
-}
-
-export type OnboardingDecisionKind = 'baseline' | 'idle' | 'announce'
-
-export interface OnboardingDecision {
-  kind: OnboardingDecisionKind
-  /** Feature ids inside the announcement window, in registry order. Empty
-   *  unless `kind === 'announce'`. */
-  features: string[]
-  /** The family to persist as the new baseline. Null means "do not write",
-   *  which is the case when the running version could not be parsed. */
-  baseline: string | null
-}
-
-/** Decide what a launch should show.
- *
- *  - `idle` — the running family is not newer than the baseline, or the running
- *    version could not be parsed. Patch releases and downgrades land here.
- *  - `announce` — either an upgrade across at least one minor (window
- *    `(baseline, current]`), or a missing baseline with features in the running
- *    family. A user who skipped two releases catches up on both; a feature
- *    shipped before their baseline never resurfaces.
- *  - `baseline` — a missing baseline with nothing to announce. Record the
- *    running family and stay quiet.
- *
- *  A missing baseline covers both a first install and an upgrade performed
- *  before this system existed; the two are indistinguishable from stored state.
- *  Announcing the running family serves both: the upgrading user learns what
- *  they just got, and a first-time user gets one orientation card for the
- *  release they installed. Staying silent instead would permanently hide the
- *  introducing release from every existing installation, which is the larger
- *  loss. */
-export function decideOnboarding(input: {
-  baseline: string | null
-  currentFamily: string | null
-  registry: readonly FeatureVersionRecord[]
-}): OnboardingDecision {
-  const { baseline, currentFamily, registry } = input
-  if (!currentFamily) return { kind: 'idle', features: [], baseline: null }
-  const releasable = registry.filter(entry => entry.kind === 'release' && releaseFamily(entry.since))
-  if (!baseline) {
-    const features = releasable
-      .filter(entry => releaseFamily(entry.since) === currentFamily)
-      .map(entry => entry.id)
-    return features.length
-      ? { kind: 'announce', features, baseline: currentFamily }
-      : { kind: 'baseline', features: [], baseline: currentFamily }
-  }
-  if (compareReleaseFamilies(currentFamily, baseline) <= 0) {
-    return { kind: 'idle', features: [], baseline: null }
-  }
-  const features: string[] = []
-  for (const entry of releasable) {
-    const family = releaseFamily(entry.since)!
-    if (compareReleaseFamilies(family, baseline) > 0 && compareReleaseFamilies(family, currentFamily) <= 0) {
-      features.push(entry.id)
-    }
-  }
-  return { kind: 'announce', features, baseline: currentFamily }
-}
-
-// --- hint kinds ---
-
-/** What a discovery hint is for.
- *
- *  - `release` — tied to a release family. It is listed on the "what changed"
- *    card for users who upgraded across that family.
- *  - `evergreen` — no version tie. It may carry a walkthrough that runs when the
- *    user first reaches the surface, regardless of when it shipped. */
-export type FeatureHintKind = 'release' | 'evergreen'
-
 // --- mirror ---
 
-/** The first-paint mirror. Holds the ledger and nothing else: every fact it
- *  could carry beyond that is either derivable (the announcement window, from
- *  the baseline) or must not be guessed (whether a card was dismissed). */
+/** The first-paint mirror. Holds the ledger and nothing else: the guide
+ *  decision also needs the control-plane config, which arrives asynchronously
+ *  and must not be guessed on the first frame. */
 export interface OnboardingMirror {
   ledger: string[]
 }

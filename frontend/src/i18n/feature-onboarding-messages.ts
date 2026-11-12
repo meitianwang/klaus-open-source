@@ -1,21 +1,62 @@
-// Feature-discovery copy (upgrade card and walkthroughs).
+// Feature-discovery copy (post-upgrade guide and walkthroughs).
 //
 // Kept in its own module and spread into I18N rather than written into
 // messages.ts inline: that dictionary is edited by many features at once, and a
 // block of ~40 keys sitting at the end of it is a merge magnet. Every key here
 // exists in both languages, which the registry test asserts.
 //
-// Voice: these strings explain a control the user has not found yet. They say
-// what the thing does and where it is, in one sentence. They do not congratulate
-// the user on discovering it and do not describe the feature as new for longer
-// than the release that shipped it.
+// Voice: the guide introduces what the release changed and where it lives, one
+// page per theme. Pages say what the thing does and where to find it; they do
+// not congratulate the user and do not call a feature new for longer than the
+// release that shipped it. Walkthrough strings explain a control the user has
+// not found yet, in one sentence.
 
 export const featureOnboardingEn = {
-  // --- upgrade card ---
-  onb_card_eyebrow: 'New in this release',
-  onb_card_eyebrow_version: 'New in {version}',
-  onb_card_title: 'What changed',
-  onb_card_dismiss: 'Got it',
+  // --- post-upgrade guide: page 1 (overview) ---
+  onb_g1_eyebrow: 'New in 0.7',
+  onb_g1_title_1: 'Long tasks answer',
+  onb_g1_title_2: 'while they still run',
+  onb_g1_emphasis: 'while they still run',
+  onb_g1_desc: 'A long task now shows the reply it has already written, live in the conversation, instead of waiting for one final block. If the stream drops, it resumes from the break — what was generated stays.',
+
+  // --- page 2 (collaboration) ---
+  onb_g2_eyebrow: 'Sub-agent square',
+  onb_g2_title_1: 'Browse official sub-agents',
+  onb_g2_title_2: 'and delegate in one click',
+  onb_g2_emphasis: 'delegate in one click',
+  onb_g2_desc: 'The Agents page gained a sub-agent square: official sub-agents ship with the release, install in one click, and can be delegated inside a task. Their progress and result come back to the conversation that asked.',
+
+  // --- page 3 (cocreation) ---
+  onb_g3_eyebrow: 'Interface prototypes',
+  onb_g3_title_1: 'You and the agent edit',
+  onb_g3_title_2: 'the same design',
+  onb_g3_emphasis: 'the same design',
+  onb_g3_desc: 'A prototype generated in chat opens as a full editor tab in the right panel, with versions, branches, undo and exports. Both sides edit one file, and it survives an app restart.',
+
+  // --- page 4 (automation) ---
+  onb_g4_eyebrow: 'Layout and windows',
+  onb_g4_title_1: 'Drag the sidebar to width;',
+  onb_g4_title_2: 'the chat keeps its room',
+  onb_g4_emphasis: 'keeps its room',
+  onb_g4_desc: 'The left sidebar drags to any width and double-click resets it; the work panel scales with the window. With both open the conversation keeps a readable column, and a narrowing window folds panels instead of squeezing the chat.',
+
+  // --- guide chrome ---
+  onb_guide_dialog_title: "What's new in this release",
+  onb_guide_next: 'Next',
+  onb_guide_previous: 'Previous',
+  onb_guide_skip: 'Skip',
+  onb_guide_choose_reading: 'Choose how you read',
+  onb_guide_start: 'Start using Klaus',
+  onb_guide_comfortable: 'Comfortable',
+  onb_guide_efficient: 'Compact',
+  onb_guide_comfortable_hint: 'Default column and rhythm, easy on long reads',
+  onb_guide_efficient_hint: 'Wider conversation column, more of a reply per screen',
+  onb_guide_start_title: 'Start using Klaus',
+  onb_guide_reading_desc_comfortable: 'Comfortable keeps the shipped column width and spacing.',
+  onb_guide_reading_desc_efficient: 'Compact widens the conversation column and tightens its vertical rhythm.',
+  onb_guide_page_announce: '{i} of {n}: {label}',
+  onb_guide_play: 'Play the page animation',
+  onb_guide_pause: 'Pause the page animation',
 
   // --- walkthrough chrome ---
   onb_tour_step: 'Step {i} of {n}',
@@ -31,51 +72,49 @@ export const featureOnboardingEn = {
   onb_tour_ws_tree_body: 'Every folder in the project, local or over SSH. Type to filter by name, use the arrow keys to move, and F2 to rename.',
   onb_tour_ws_preview_title: 'Quick preview',
   onb_tour_ws_preview_body: 'One click previews a file without opening a tab. Double-click pins it, and Markdown, images and PDFs render here.',
-
-  // --- release 0.5 ---
-  onb_pets_title: 'Desktop companions',
-  onb_pets_body: 'Nine characters that sit on your desktop, show task progress, let you read replies and answer approvals, and take voice input. Configure them in Settings → Pets.',
-  onb_file_tree_title: 'Upgraded file tree',
-  onb_file_tree_body: 'Filter by name, navigate with the keyboard and rename in place, for local and remote projects alike. Click to preview, double-click to pin a tab, and drag the edge to resize.',
-  onb_queue_title: 'Queued messages',
-  onb_queue_body: 'Read a queued message in full, drag to reorder, send it now, or move it into a side conversation. Edits keep their images, files and quotes.',
-  onb_prediction_title: 'Message prediction',
-  onb_prediction_body: 'With a model that supports it, the input box suggests your next message and Tab accepts it. Turn it off in Settings → Preferences.',
-  onb_pdf_title: 'PDF skill',
-  onb_pdf_body: 'Extract text, inspect pages and build documents, then split, merge or rotate them. The environment it needs is prepared on first use.',
-  onb_skills_reload_title: 'Skills update live',
-  onb_skills_reload_body: 'Installing, editing or removing a skill takes effect in the current conversation and menu right away, with no restart.',
-  onb_hooks_title: 'Hooks manager',
-  onb_hooks_body: 'Hooks grouped by user, plugin and project, with their events and commands in one place. Settings → Hooks.',
-  onb_power_save_title: 'Keep-awake settings',
-  onb_power_save_body: 'Keep the machine awake while a task runs in Settings → Preferences, and while plugged in with remote access enabled in Settings → Remote Control.',
-
-  // --- release 0.6 ---
-  onb_prototype_title: 'Prototype design panel',
-  onb_prototype_body: 'Interface prototypes generated in chat open in a full editor tab in the right panel. You and the agent edit the same design, with versions, branches, undo/redo and exports, and the design survives app restarts.',
-  onb_runtime_config_title: 'Configuration in Preferences',
-  onb_runtime_config_body: 'Settings → Preferences → Configuration sets the approval policy, sandbox, network access and reply style for new chats, globally or per project. Auto-review status and rejection reasons appear in chat, with a one-time retry for recently rejected actions.',
-  onb_profile_title: 'Profile page',
-  onb_profile_body: 'Click your avatar in the sidebar for real usage stats — total tokens, peak usage, longest task and streaks — plus a token activity chart in daily, weekly and cumulative views. Edit your name and avatar there too.',
-  onb_multi_window_title: 'Multiple windows and Find',
-  onb_multi_window_body: 'Open additional main windows from the menu, each keeping its own drafts and panel layout. Find covers chat, files, changes and browser pages, with match counts, case sensitivity and next/previous navigation.',
-  onb_workbuddy_title: 'WorkBuddy editions',
-  onb_workbuddy_body: 'The WorkBuddy card under Settings → Model Sources signs in to the domestic or international edition, and can reuse a WorkBuddy sign-in already on this machine. Web sign-in and local import both follow the selected edition.',
-  onb_media_events_title: 'Media generation progress',
-  onb_media_events_body: 'Image, video, audio and music generation each show a status row in chat with its own icon, from awaiting approval to success, failure or stop. Several generations in one message are grouped together.',
-  onb_talking_head_title: 'Talking-head video skill',
-  onb_talking_head_body: 'New in the skill marketplace: cut talking-head footage into a video with subtitles, b-roll and a circular picture-in-picture, starting from an existing video, audio plus photos, a script or just an idea. Delivers an editable project and an MP4.',
-  onb_pets_voice_title: 'Pet voice upgrades',
-  onb_pets_voice_body: "A pet's live voice follows the conversation selected in the main window, and the pet input box gains a dictation mic using your configured voice input source — transcripts land in the draft for editing before sending.",
-  onb_settings_search_title: 'Settings search',
-  onb_settings_search_body: 'A search box at the top of the settings sidebar jumps to any settings page by name. Switching pages keeps loaded content, autosave stays silent, and voice and music defaults are configured separately.',
 } as const
 
 export const featureOnboardingZh = {
-  onb_card_eyebrow: '本次更新',
-  onb_card_eyebrow_version: '{version} 更新',
-  onb_card_title: '有哪些变化',
-  onb_card_dismiss: '知道了',
+  onb_g1_eyebrow: '0.7 全新上线',
+  onb_g1_title_1: '长任务的阶段性答复',
+  onb_g1_title_2: '执行中途就能读',
+  onb_g1_emphasis: '执行中途就能读',
+  onb_g1_desc: '长任务执行时，模型已经写出的内容会实时显示在会话里，不必等整段最终回复；流式回复遇到网络故障时从断点继续，已生成的部分不再重来。',
+
+  onb_g2_eyebrow: '子智能体广场',
+  onb_g2_title_1: '浏览官方子智能体',
+  onb_g2_title_2: '一键安装即可委派',
+  onb_g2_emphasis: '一键安装即可委派',
+  onb_g2_desc: '智能体页新增「子智能体广场」标签，官方子智能体随版本上架，一键安装后即可在任务中委派使用，进度与结果回到发起的会话。',
+
+  onb_g3_eyebrow: '界面原型',
+  onb_g3_title_1: '和智能体编辑',
+  onb_g3_title_2: '同一份设计',
+  onb_g3_emphasis: '同一份设计',
+  onb_g3_desc: '聊天里生成的界面原型会在右侧面板打开完整编辑器，版本、分支、撤销重做与导出齐备；你和智能体改的是同一份文件，关闭应用后也不会丢失。',
+
+  onb_g4_eyebrow: '布局与窗口',
+  onb_g4_title_1: '侧栏宽度随手拖',
+  onb_g4_title_2: '对话区不再被挤窄',
+  onb_g4_emphasis: '不再被挤窄',
+  onb_g4_desc: '左侧栏可拖拽调宽、双击复位，右侧工作面板随窗口等比缩放；双栏同开时主会话保持可读宽度，窗口变窄自动收敛面板，而不是挤压对话。',
+
+  onb_guide_dialog_title: '本次更新',
+  onb_guide_next: '下一页',
+  onb_guide_previous: '上一页',
+  onb_guide_skip: '跳过',
+  onb_guide_choose_reading: '选择阅读方式',
+  onb_guide_start: '开始使用',
+  onb_guide_comfortable: '舒适',
+  onb_guide_efficient: '高效',
+  onb_guide_comfortable_hint: '默认列宽与行距，长文阅读轻松',
+  onb_guide_efficient_hint: '更宽的对话列，一屏看到更多回复',
+  onb_guide_start_title: '开始使用 Klaus',
+  onb_guide_reading_desc_comfortable: '舒适模式保持默认的列宽与行距。',
+  onb_guide_reading_desc_efficient: '高效模式加宽对话列并收紧行距。',
+  onb_guide_page_announce: '第 {i} 页，共 {n} 页：{label}',
+  onb_guide_play: '播放本页动画',
+  onb_guide_pause: '暂停本页动画',
 
   onb_tour_step: '第 {i} 步，共 {n} 步',
   onb_tour_prev: '上一步',
@@ -89,40 +128,4 @@ export const featureOnboardingZh = {
   onb_tour_ws_tree_body: '项目里的全部文件夹，本地和 SSH 远程都可以。输入名称即可筛选，方向键移动，F2 重命名。',
   onb_tour_ws_preview_title: '快速预览',
   onb_tour_ws_preview_body: '单击就能预览文件，不占用标签页；双击固定为标签。Markdown、图片和 PDF 都在这里直接渲染。',
-
-  onb_pets_title: '桌面伙伴',
-  onb_pets_body: '九款角色待在桌面上，可以看到任务进度、阅读回复、处理审批与提问，也能语音对话。在设置 → 桌宠里配置。',
-  onb_file_tree_title: '文件树升级',
-  onb_file_tree_body: '支持按名称筛选、键盘导航和就地重命名，本地与远程项目都可以。单击预览，双击固定标签，拖动边缘调整宽度。',
-  onb_queue_title: '排队消息',
-  onb_queue_body: '排队消息可以看完整原文、拖动排序、立即发送，或转到侧对话继续。编辑会保留图片、文件与引用。',
-  onb_prediction_title: '消息预测',
-  onb_prediction_body: '使用支持的模型时，输入框会预测下一条消息，按 Tab 接受。可以在设置 → 偏好设置里关闭。',
-  onb_pdf_title: 'PDF 技能',
-  onb_pdf_body: '提取文本、查看页面、生成文档，并做拆分、合并和旋转。首次使用时会自动准备所需环境。',
-  onb_skills_reload_title: '技能变更即时生效',
-  onb_skills_reload_body: '安装、修改或删除技能后，当前会话与技能菜单立刻使用最新内容，不需要重启应用。',
-  onb_hooks_title: '钩子管理',
-  onb_hooks_body: '钩子按用户、插件和项目分组，事件与命令集中在一处查看和管理。设置 → 钩子。',
-  onb_power_save_title: '防休眠设置',
-  onb_power_save_body: '任务执行期间保持电脑唤醒在设置 → 偏好设置；接通电源并开启远程访问时保持唤醒在设置 → 远程控制。',
-
-  onb_prototype_title: '界面原型设计面板',
-  onb_prototype_body: '聊天里生成的界面原型会在右侧面板的「原型」标签打开完整编辑器：你和智能体编辑同一份设计，支持版本、分支、撤销重做与导出，关闭应用后设计也不会丢失。',
-  onb_runtime_config_title: '偏好设置中的配置',
-  onb_runtime_config_body: '设置 → 偏好设置 → 配置：为新聊天统一设置批准策略、沙盒、联网与回复风格，支持全局与项目两个范围。自动审批的审核状态与被拒原因在聊天里可见，可对最近被拒的操作批准一次重试。',
-  onb_profile_title: '个人资料页',
-  onb_profile_body: '点击侧栏头像打开个人资料页，查看累计 Token 数、使用峰值、最长任务与连续天数等真实统计，以及每天 / 每周 / 累计三种视图的 Token 活动图；头像与名称也能在这里编辑。',
-  onb_multi_window_title: '多窗口与查找',
-  onb_multi_window_body: '通过菜单「新建窗口」打开多个独立主窗口，各自保留草稿与面板布局；「查找」覆盖聊天、文件、更改和浏览器页面，支持匹配计数、大小写与前后导航。',
-  onb_workbuddy_title: 'WorkBuddy 双版本登录',
-  onb_workbuddy_body: '设置 → 模型来源里的 WorkBuddy 账户卡支持国内版与国际版登录，还可一键复用本机已登录的凭证；网页登录和本机导入都跟随所选版本。',
-  onb_media_events_title: '媒体生成进度展示',
-  onb_media_events_body: '生成图片、视频、音频和音乐时，聊天里显示带专属图标的状态行，从等待批准到成功、失败或停止一目了然；一条消息里的多次生成会合并为一组。',
-  onb_talking_head_title: '口播视频剪辑技能',
-  onb_talking_head_body: '技能市场新技能「口播视频剪辑」：把口播素材剪成带字幕、讲解画面和圆形画中画的视频，可从已有视频、音频加照片、文稿或一个想法开始，交付可编辑工程文件与 MP4。',
-  onb_pets_voice_title: '桌宠语音升级',
-  onb_pets_voice_body: '桌宠的实时语音自动跟随主窗口当前选中的会话；输入框新增听写麦克风，复用你配置的语音输入来源，识别结果先写入草稿，改好再发送。',
-  onb_settings_search_title: '设置页搜索',
-  onb_settings_search_body: '设置侧栏顶部新增「搜索设置」框，按名称直达任意设置页；切换页面保留已加载内容，自动保存静默完成，语音与音乐的默认模型和偏好分开独立配置。',
 } as const

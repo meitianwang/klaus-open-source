@@ -1,27 +1,35 @@
-// The discovery ledger: what the user has already arrived at, which release they
-// last saw announced, and which walkthroughs they finished.
+// The discovery ledger: what the user has already arrived at, which guides they
+// have been shown, and which walkthroughs they finished.
 //
 // Storage follows the pattern the sidebar already uses — settings.db is
-// authoritative for the ledger and the announced baseline, localStorage only
-// exists so the ledger is available on the first frame instead of after the KV
-// round trip, and `app:preferences-changed` carries an acknowledgement to the
-// other windows.
+// authoritative for the ledger, the guide seen-map and the reading mode,
+// localStorage only exists so the ledger is available on the first frame
+// instead of after the KV round trip, and `app:preferences-changed` carries an
+// acknowledgement to the other windows.
 //
 // Two lifetimes share one row, separated by the `tour:` prefix
 // (contracts/feature-onboarding.ts): a feature id is recorded on arrival, while
 // a walkthrough replays only if its own marker is absent, so arriving twice never
 // starts a tour twice.
 //
-// Both rows are in FEATURE_ONBOARDING_UI_STATE_KEYS, which the host exempts from
-// marking a session stale. Without that exemption, acknowledging onboarding state
-// would force `session/close` + rebuild on the user's next message.
+// The guide seen-map is a separate row on purpose: it is keyed by guide id and
+// overwritten whole on acknowledgement, while the ledger is append-only and
+// merged. Mixing an overwrite-whole map into the merge-written row would let a
+// concurrent window revive a guide the user just dismissed.
+//
+// All three rows are in FEATURE_ONBOARDING_UI_STATE_KEYS, which the host exempts
+// from marking a session stale. Without that exemption, acknowledging onboarding
+// state would force `session/close` + rebuild on the user's next message.
 
 import {
-  FEATURE_BASELINE_KEY,
   FEATURE_ONBOARDING_MIRROR_KEY,
   FEATURE_SEEN_LEDGER_KEY,
-  decideOnboarding,
+  GUIDE_SEEN_KEY,
+  READING_MODE_KEY,
+  defaultGuideId,
+  parseGuideSeenMap,
   parseMirror,
+  parseReadingMode,
   parseSeenLedger,
   releaseFamily,
   serializeMirror,
@@ -29,37 +37,44 @@ import {
   tourMayStart,
   unionLedger,
   withFeatureSeen,
+  withGuideSeen,
+  type GuideConfig,
+  type ReadingMode,
 } from '../../../../contracts/feature-onboarding'
-import { FEATURE_REGISTRY, featureById, type FeatureEntry } from './registry'
+import type { FeatureEntry } from './registry'
 
 const w = () => window as any
 
 interface OnboardingState {
   /** Acknowledged ids: arrived features plus `tour:` completion markers. */
   ledger: string[]
-  /** Release features inside the current announcement window. Survives the card
-   *  being dismissed, because dismissing the card is not the same as reading
-   *  every entry on it. */
-  announced: string[]
-  /** Family already announced. Written when the card is dismissed, not when the
-   *  decision is made, so a launch that fails to render the card retries. */
-  baseline: string | null
-  /** Family awaiting dismissal; the card shows once per launch. */
-  pendingBaseline: string | null
-  cardVisible: boolean
-  cardDismissed: boolean
+  /** Guides already shown, by guide id. */
+  guideSeen: Record<string, true>
+  /** The control plane's current guide config. Null until the host answers,
+   *  which reads as "no guide": the guide is fail-closed. */
+  guideConfig: GuideConfig | null
+  /** Guide id on screen in this window. Keeps the page the user is reading
+   *  mounted across config refreshes and language switches, which must not
+   *  re-decide against the seen map (it only gains the id on dismissal). */
+  guideOnScreen: string | null
+  /** Reading density persisted by the guide's closing page. Null means the
+   *  user never chose, which reads as comfortable. */
+  readingMode: ReadingMode | null
   tourActive: boolean
 }
 
 let state: OnboardingState = {
   ledger: [],
-  announced: [],
-  baseline: null,
-  pendingBaseline: null,
-  cardVisible: false,
-  cardDismissed: false,
+  guideSeen: {},
+  guideConfig: null,
+  guideOnScreen: null,
+  readingMode: null,
   tourActive: false,
 }
+
+/** Release family of the running build, injected at boot. The guide's default
+ *  id derives from it, so the ledger never reads a second version source. */
+let runningFamily: string | null = null
 
 let mirrorHydrated = false
 const listeners = new Set<() => void>()
@@ -74,6 +89,12 @@ export function subscribeOnboarding(listener: () => void): () => void {
   return () => { listeners.delete(listener) }
 }
 
+/** Record the running build's family. Called once at boot, before any guide
+ *  decision, so a config push that lands early still resolves a default id. */
+export function setRunningVersion(version: string | null): void {
+  runningFamily = releaseFamily(version)
+}
+
 function safeLocalStorage(key: string): string | null {
   try { return localStorage.getItem(key) } catch { return null }
 }
@@ -86,10 +107,8 @@ function writeMirror(): void {
 
 /** Read the mirror synchronously, before the first paint, so the ledger state is
  *  available immediately instead of after the KV read. The mirror carries the
- *  ledger only: the announcement window comes from the baseline row, which lives
- *  in settings.db, and guessing it here would announce a release the user has
- *  already seen until the KV read landed. `hydrateOnboarding` reconciles the
- *  ledger against the authoritative row. */
+ *  ledger only: whether a guide is owed also needs the control-plane config,
+ *  which arrives asynchronously and must not be guessed on the first frame. */
 export function hydrateFromMirror(): void {
   if (mirrorHydrated) return
   const mirror = parseMirror(safeLocalStorage(FEATURE_ONBOARDING_MIRROR_KEY))
@@ -101,9 +120,9 @@ export function hydrateFromMirror(): void {
 /** A row read that keeps "absent" and "unreadable" apart.
  *
  *  Collapsing them into one null is what makes a transient IPC failure look
- *  like a first install, and a first install is the branch that announces — so
- *  one failed read would replay the upgrade card the user had already dismissed.
- *  `absent` is the only answer that may drive an announcement. */
+ *  like a first install, and a first install is the branch that shows a guide —
+ *  so one failed read would replay a guide the user had already dismissed.
+ *  `absent` is the only answer that may drive a first show. */
 type RowRead = { status: 'value'; value: string } | { status: 'absent' } | { status: 'failed' }
 
 async function kvRead(key: string): Promise<RowRead> {
@@ -156,7 +175,7 @@ function appendLedger(...ids: string[]): void {
   enqueueWrite(() => mergeAndWriteLedger(ledger))
 }
 
-/** Adopt a ledger into state, dropping any announcement it satisfies.
+/** Adopt a ledger into state.
  *
  *  Shared by the cross-window broadcast and by the merge-on-write path below, so
  *  both agree on what adopting someone else's ledger means. Returns whether
@@ -164,7 +183,7 @@ function appendLedger(...ids: string[]): void {
 function adoptLedger(ledger: readonly string[]): boolean {
   const current = state.ledger
   if (ledger.length === current.length && ledger.every(id => current.includes(id))) return false
-  state = { ...state, ledger: [...ledger], announced: state.announced.filter(id => !ledger.includes(id)) }
+  state = { ...state, ledger: [...ledger] }
   writeMirror()
   emit()
   return true
@@ -190,57 +209,32 @@ async function mergeAndWriteLedger(local: readonly string[]): Promise<void> {
   adoptLedger(merged)
 }
 
-export async function hydrateOnboarding(currentVersion: string | null): Promise<void> {
+/** Load the durable onboarding rows. A failed read leaves the mirror-derived
+ *  state in place, which is the same as "show what we last knew"; only an
+ *  ABSENT row may drive a first-show decision, and the guide is fail-closed on
+ *  top of that. */
+export async function hydrateOnboarding(): Promise<void> {
   hydrateFromMirror()
-  const [ledgerRead, baselineRead] = await Promise.all([
+  const [ledgerRead, guideRead, readingRead] = await Promise.all([
     kvRead(FEATURE_SEEN_LEDGER_KEY),
-    kvRead(FEATURE_BASELINE_KEY),
+    kvRead(GUIDE_SEEN_KEY),
+    kvRead(READING_MODE_KEY),
   ])
-  // A failed baseline read cannot be decided, so this launch announces nothing
-  // and writes nothing. The row still holds the old family, which makes the next
-  // launch announce normally — self-healing, where guessing "absent" would replay
-  // a card the user already dismissed. The mirror-derived ledger still loads.
-  if (baselineRead.status === 'failed') {
-    if (ledgerRead.status === 'value') state = { ...state, ledger: parseSeenLedger(ledgerRead.value) }
-    writeMirror()
-    emit()
-    return
-  }
-  // The KV row wins whenever it exists; an absent ledger row keeps the mirror's
-  // guess so the first paint still has something to show.
   const ledger = ledgerRead.status === 'value' ? parseSeenLedger(ledgerRead.value) : state.ledger
-  // An absent baseline row genuinely means "never announced", which is the input
-  // that decides a first-install announcement. Falling back to the in-memory
-  // value here would make a cleared row read as the previous family and swallow
-  // the announcement.
-  const baseline = baselineRead.status === 'value' ? (baselineRead.value.trim() || null) : null
-  const decision = decideOnboarding({
-    baseline,
-    currentFamily: releaseFamily(currentVersion),
-    registry: FEATURE_REGISTRY.map(entry => ({ id: entry.id, kind: entry.kind, since: entry.since })),
-  })
-  state = {
-    ...state,
-    ledger,
-    // The window derives from the baseline, so it comes from the decision alone:
-    // a stale mirror must not resurrect a previous release's announcement.
-    announced: decision.kind === 'announce' ? decision.features : [],
-    baseline,
-    pendingBaseline: decision.kind === 'announce' ? decision.baseline : null,
-  }
+  // An absent seen-map genuinely means "no guide acknowledged yet". A failed
+  // read keeps the in-memory map, which on a cold boot is empty — the same
+  // answer, and the control plane still has to switch the guide on.
+  const guideSeen = guideRead.status === 'value' ? parseGuideSeenMap(guideRead.value) : state.guideSeen
+  const readingMode = readingRead.status === 'value' ? parseReadingMode(readingRead.value) : state.readingMode
+  state = { ...state, ledger, guideSeen, readingMode }
   writeMirror()
   emit()
 }
 
-/** Acknowledge a feature: it leaves the card's list. */
+/** Acknowledge a feature: it leaves the arrival-driven ledger. */
 export function markFeatureSeen(id: string): void {
   if (!id) return
   appendLedger(id)
-  if (state.announced.includes(id)) {
-    state = { ...state, announced: state.announced.filter(entry => entry !== id) }
-    writeMirror()
-    emit()
-  }
 }
 
 /** Record a finished or skipped walkthrough. */
@@ -256,20 +250,95 @@ export async function applyRemoteLedger(): Promise<void> {
   adoptLedger(parseSeenLedger(raw))
 }
 
-export function setCardVisible(visible: boolean): void {
-  if (state.cardVisible === visible) return
-  state = { ...state, cardVisible: visible }
+/** Adopt a guide seen-map or reading mode written by another window. The
+ *  broadcast carries only the key, so this re-reads both authoritative rows. */
+export async function applyRemoteGuideState(): Promise<void> {
+  const [seenRaw, readingRaw] = await Promise.all([kvGet(GUIDE_SEEN_KEY), kvGet(READING_MODE_KEY)])
+  const seen = seenRaw == null ? state.guideSeen : parseGuideSeenMap(seenRaw)
+  const readingMode = readingRaw == null ? state.readingMode : parseReadingMode(readingRaw)
+  const sameSeen = Object.keys(seen).length === Object.keys(state.guideSeen).length
+    && Object.keys(seen).every(id => state.guideSeen[id])
+  if (sameSeen && readingMode === state.readingMode) return
+  state = { ...state, guideSeen: seen, readingMode }
   emit()
 }
 
-/** Dismiss the upgrade card. This is the moment the baseline advances: writing
- *  it earlier would let a launch that failed to render the card silently consume
- *  the announcement. */
-export function dismissCard(): void {
-  const { pendingBaseline } = state
-  state = { ...state, cardVisible: false, cardDismissed: true, pendingBaseline: null }
-  if (pendingBaseline) enqueueWrite(() => kvSet(FEATURE_BASELINE_KEY, pendingBaseline))
+// --- guide state ---
+
+/** Adopt the control plane's guide config. Called by the boot snapshot and by
+ *  every push; null means "no answer yet" or "the server switched it off", both
+ *  of which read as no guide. */
+export function setGuideConfig(config: GuideConfig | null): void {
+  if (JSON.stringify(config ?? null) === JSON.stringify(state.guideConfig ?? null)) return
+  state = { ...state, guideConfig: config }
   emit()
+}
+
+/** The guide id this launch would announce, if any. The control plane may name
+ *  one; otherwise the running release family supplies the default, so a new
+ *  minor gets a fresh id without a server change while a patch never does. */
+export function currentGuideId(): string | null {
+  const config = state.guideConfig
+  if (!config?.enable) return null
+  const named = config.data?.guideId?.trim() || null
+  return named || defaultGuideId(runningFamily)
+}
+
+/** Whether the guide should be on screen right now. */
+export function shouldShowGuide(): boolean {
+  if (!state.guideConfig?.enable) return false
+  const guideId = currentGuideId()
+  if (!guideId) return false
+  if (state.guideOnScreen === guideId) return true
+  return !state.guideSeen[guideId]
+}
+
+/** The guide is on screen in this window. Recorded before the surface paints so
+ *  a re-render during its own mount cannot re-decide against the seen map. */
+export function setGuideOnScreen(guideId: string | null): void {
+  if (state.guideOnScreen === guideId) return
+  state = { ...state, guideOnScreen: guideId }
+  emit()
+}
+
+/** Acknowledge the guide: it will not return for this id. This is the moment the
+ *  seen mark is written — on dismissal or completion, never on first paint — so
+ *  a launch that failed to render the surface retries on the next one instead of
+ *  silently consuming the announcement. */
+export function dismissGuide(): void {
+  const guideId = state.guideOnScreen ?? currentGuideId()
+  state = { ...state, guideOnScreen: null }
+  if (!guideId || state.guideSeen[guideId]) { emit(); return }
+  const seen = withGuideSeen(state.guideSeen, guideId)
+  state = { ...state, guideSeen: seen }
+  emit()
+  enqueueWrite(() => kvSet(GUIDE_SEEN_KEY, JSON.stringify(seen)))
+}
+
+/** Finish the guide with a reading-density choice: acknowledge it and persist
+ *  the choice in one pass. */
+export function finishGuide(readingMode: ReadingMode): void {
+  const guideId = state.guideOnScreen ?? currentGuideId()
+  const seen = guideId && !state.guideSeen[guideId] ? withGuideSeen(state.guideSeen, guideId) : state.guideSeen
+  state = { ...state, guideOnScreen: null, guideSeen: seen, readingMode }
+  emit()
+  enqueueWrite(async () => {
+    await kvSet(READING_MODE_KEY, readingMode)
+    if (guideId) await kvSet(GUIDE_SEEN_KEY, JSON.stringify(seen))
+  })
+}
+
+export function currentReadingMode(): ReadingMode | null {
+  return state.readingMode
+}
+
+/** The control plane's content override for one locale, if any. */
+export function guideContentFor(locale: 'zh' | 'en') {
+  return state.guideConfig?.data?.[locale] ?? null
+}
+
+export function guideInitialReadingMode(): ReadingMode | null {
+  return state.guideConfig?.data?.initialReadingMode ?? null
 }
 
 export function setTourActive(active: boolean): void {
@@ -278,7 +347,7 @@ export function setTourActive(active: boolean): void {
   emit()
 }
 
-/** Whether a feature's walkthrough may start now. A card still owed counts as
+/** Whether a feature's walkthrough may start now. A guide still owed counts as
  *  holding attention even before it renders, so a tour cannot slip in first.
  *
  *  This answers "is anything else on screen"; whether this particular arrival is
@@ -286,31 +355,11 @@ export function setTourActive(active: boolean): void {
  *  open — is `startsTourOnArrival`, decided by the arrival sweep that can see the
  *  previous verdict. */
 export function mayStartTour(entry: FeatureEntry): boolean {
-  const cardPending = state.pendingBaseline !== null && !state.cardDismissed
   return tourMayStart({
     ledger: state.ledger,
     featureId: entry.id,
     hasTour: Boolean(entry.tour?.length),
-    cardVisible: state.cardVisible || cardPending,
+    guideVisible: shouldShowGuide(),
     tourActive: state.tourActive,
   })
-}
-
-// --- derived views ---
-
-/** Release features still unacknowledged, for the card's list. */
-export function cardFeatures(): FeatureEntry[] {
-  return state.announced
-    .map(id => featureById(id))
-    .filter((entry): entry is FeatureEntry => Boolean(entry))
-}
-
-/** Whether the upgrade card should be on screen. */
-export function shouldShowCard(): boolean {
-  return cardOwed() && state.announced.length > 0
-}
-
-/** Whether an announcement is still owed this launch, rendered or not. */
-function cardOwed(): boolean {
-  return !state.cardDismissed && state.pendingBaseline !== null
 }

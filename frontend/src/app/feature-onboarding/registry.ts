@@ -43,8 +43,6 @@ export interface FeatureEntry {
   kind: FeatureHintKind
   /** Release family for `release` rows; null for evergreen ones. */
   since: string | null
-  titleKey: string
-  bodyKey: string
   /** The DOM state that satisfies this hint. Declared, not a closure, so the
    *  arrival observer can watch exactly the elements it reads. */
   arrival: ArrivalRule
@@ -73,8 +71,6 @@ export const FEATURE_REGISTRY: readonly FeatureEntry[] = [
     id: 'workspace-files',
     kind: 'evergreen',
     since: null,
-    titleKey: 'onb_workspace_title',
-    bodyKey: 'onb_workspace_body',
     arrival: WORKSPACE_MODE,
     // No step on the entry button itself. A tour starts on ARRIVAL, so the user
     // has just clicked it — and opening the panel hides the whole side rail
@@ -112,24 +108,18 @@ export const FEATURE_REGISTRY: readonly FeatureEntry[] = [
     id: 'desktop-pets',
     kind: 'release',
     since: '0.5',
-    titleKey: 'onb_pets_title',
-    bodyKey: 'onb_pets_body',
     arrival: { kind: 'settings-tab', stab: 'pets' },
   },
   {
     id: 'workspace-file-tree',
     kind: 'release',
     since: '0.5',
-    titleKey: 'onb_file_tree_title',
-    bodyKey: 'onb_file_tree_body',
     arrival: WORKSPACE_MODE,
   },
   {
     id: 'queued-messages',
     kind: 'release',
     since: '0.5',
-    titleKey: 'onb_queue_title',
-    bodyKey: 'onb_queue_body',
     // Behaviour inside the composer, with no surface of its own to arrive at.
     arrival: { kind: 'never' },
   },
@@ -137,40 +127,30 @@ export const FEATURE_REGISTRY: readonly FeatureEntry[] = [
     id: 'message-prediction',
     kind: 'release',
     since: '0.5',
-    titleKey: 'onb_prediction_title',
-    bodyKey: 'onb_prediction_body',
     arrival: { kind: 'never' },
   },
   {
     id: 'pdf-skill',
     kind: 'release',
     since: '0.5',
-    titleKey: 'onb_pdf_title',
-    bodyKey: 'onb_pdf_body',
     arrival: { kind: 'never' },
   },
   {
     id: 'skills-live-reload',
     kind: 'release',
     since: '0.5',
-    titleKey: 'onb_skills_reload_title',
-    bodyKey: 'onb_skills_reload_body',
     arrival: { kind: 'view-active', viewId: 'skills-view' },
   },
   {
     id: 'hooks-manager',
     kind: 'release',
     since: '0.5',
-    titleKey: 'onb_hooks_title',
-    bodyKey: 'onb_hooks_body',
     arrival: { kind: 'settings-tab', stab: 'hooks' },
   },
   {
     id: 'power-save',
     kind: 'release',
     since: '0.5',
-    titleKey: 'onb_power_save_title',
-    bodyKey: 'onb_power_save_body',
     arrival: { kind: 'settings-tab', stab: 'preferences' },
   },
 
@@ -181,32 +161,24 @@ export const FEATURE_REGISTRY: readonly FeatureEntry[] = [
     id: 'prototype-panel',
     kind: 'release',
     since: '0.6',
-    titleKey: 'onb_prototype_title',
-    bodyKey: 'onb_prototype_body',
     arrival: { kind: 'panel-mode', panelId: ARTIFACTS_PANEL_ID, mode: 'prototype' },
   },
   {
     id: 'runtime-config',
     kind: 'release',
     since: '0.6',
-    titleKey: 'onb_runtime_config_title',
-    bodyKey: 'onb_runtime_config_body',
     arrival: { kind: 'settings-tab', stab: 'preferences' },
   },
   {
     id: 'profile-page',
     kind: 'release',
     since: '0.6',
-    titleKey: 'onb_profile_title',
-    bodyKey: 'onb_profile_body',
     arrival: { kind: 'settings-tab', stab: 'profile' },
   },
   {
     id: 'multi-window',
     kind: 'release',
     since: '0.6',
-    titleKey: 'onb_multi_window_title',
-    bodyKey: 'onb_multi_window_body',
     // Window and menu chrome lives outside the renderer skeleton; there is no
     // in-page surface to arrive at, so this stays card-only.
     arrival: { kind: 'never' },
@@ -215,16 +187,12 @@ export const FEATURE_REGISTRY: readonly FeatureEntry[] = [
     id: 'workbuddy-editions',
     kind: 'release',
     since: '0.6',
-    titleKey: 'onb_workbuddy_title',
-    bodyKey: 'onb_workbuddy_body',
     arrival: { kind: 'settings-tab', stab: 'models' },
   },
   {
     id: 'media-generation-events',
     kind: 'release',
     since: '0.6',
-    titleKey: 'onb_media_events_title',
-    bodyKey: 'onb_media_events_body',
     // A transcript behaviour with no page of its own.
     arrival: { kind: 'never' },
   },
@@ -232,8 +200,6 @@ export const FEATURE_REGISTRY: readonly FeatureEntry[] = [
     id: 'talking-head-skill',
     kind: 'release',
     since: '0.6',
-    titleKey: 'onb_talking_head_title',
-    bodyKey: 'onb_talking_head_body',
     // Marketplace content: installing it happens in the skills page, which the
     // Extensions entry already leads to; this row only announces it.
     arrival: { kind: 'never' },
@@ -242,8 +208,6 @@ export const FEATURE_REGISTRY: readonly FeatureEntry[] = [
     id: 'pets-voice-follow',
     kind: 'release',
     since: '0.6',
-    titleKey: 'onb_pets_voice_title',
-    bodyKey: 'onb_pets_voice_body',
     // The behaviour lives on the floating pet window, which the main-window
     // arrival observer cannot see.
     arrival: { kind: 'never' },
@@ -252,16 +216,9 @@ export const FEATURE_REGISTRY: readonly FeatureEntry[] = [
     id: 'settings-search',
     kind: 'release',
     since: '0.6',
-    titleKey: 'onb_settings_search_title',
-    bodyKey: 'onb_settings_search_body',
     // The search box is part of the settings chrome every tab shows; singling
     // out one tab as its arrival would misreport where it lives.
     arrival: { kind: 'never' },
   },
 ]
 
-const byId = new Map(FEATURE_REGISTRY.map(entry => [entry.id, entry]))
-
-export function featureById(id: string): FeatureEntry | undefined {
-  return byId.get(id)
-}

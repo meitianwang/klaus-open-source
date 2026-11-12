@@ -6,8 +6,8 @@
     "bridgeDir": "frontend/bridge"
   },
   "summary": {
-    "registeredInvoke": 760,
-    "registeredPush": 77,
+    "registeredInvoke": 761,
+    "registeredPush": 78,
     "roles": 11
   },
   "pushChannels": [
@@ -60,6 +60,7 @@
     "model3d:changed",
     "model3d:render-request",
     "notify:sound",
+    "onboarding-guide:updated",
     "permission:request",
     "planning-input:requested",
     "planning-input:resolved",
@@ -513,6 +514,7 @@
         "model3d:list",
         "model3d:mesh",
         "model3d:render-result",
+        "onboardingGuide:snapshot",
         "permission:pending",
         "permission:respond",
         "permission:rules:add",
@@ -913,6 +915,7 @@
         "model3d:changed",
         "model3d:render-request",
         "notify:sound",
+        "onboarding-guide:updated",
         "permission:request",
         "planning-input:requested",
         "planning-input:resolved",
