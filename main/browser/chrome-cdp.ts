@@ -156,8 +156,8 @@ export class ChromePageDebugger implements BrowserCdp {
         row.endedAtMs = Date.now();
         if (event.method === 'Network.loadingFailed') { row.error = params.errorText ?? 'Request failed'; row.canceled = params.canceled === true; }
         else {
-          // Capture bounded bodies before turnEnded detaches the debugger and
-          // evicts its response buffer. Each task retains at most 500 * 16 KiB.
+          // Capture bounded bodies before a turn boundary detaches the
+          // debugger and evicts its response buffer. Each task retains at most 500 * 16 KiB.
           void this.send('Network.getResponseBody', { requestId: params.requestId! }, frame).then(body => {
             if (this.closed) return; const text = String(body.body ?? ''); row.body = text.slice(0,4000); row.base64Encoded = body.base64Encoded ?? false; row.bodyTruncated = text.length > 4000;
           }).catch(error => { if (!this.closed) row.bodyError = String(error); });
@@ -178,18 +178,28 @@ export class ChromePageDebugger implements BrowserCdp {
 
   private sendSession(method: string, params: BrowserObject = {}, sessionId?: string, topLevel = false): Promise<BrowserObject> {
     if (this.closed || !this.allowed()) return Promise.reject(new BrowserError('stale_tab', 'The external Chrome page connection is closed.'));
-    return this.relay.request('executeCdp', {
+    const send = (): Promise<BrowserObject> => this.relay.request('executeCdp', {
       session_id: this.sessionId, turn_id: this.turnId, tabId: this.tabId,
       ...(sessionId ? { sessionId } : {}), method, commandParams: params,
     }).then(value => {
-      // Chrome resets emulation when the per-operation debugger is detached.
-      // Retain successful top-level settings for this task's next attachment.
+      // Chrome resets emulation whenever the debugger detaches at a turn
+      // boundary. Retain successful top-level settings for the next attach.
       if (topLevel) {
         if (method === 'Emulation.setDeviceMetricsOverride') this.viewportOverride = { ...params };
         else if (method === 'Emulation.clearDeviceMetricsOverride') this.viewportOverride = undefined;
         else if (method === 'Emulation.setTouchEmulationEnabled') this.touchOverride = params.enabled === true ? { ...params } : undefined;
       }
       return object(value);
+    });
+    return send().catch(async error => {
+      // A CDP command that timed out releases the tab on the extension side;
+      // re-attach once instead of failing the caller on the stale attachment.
+      if (!this.closed && error instanceof Error && error.message.includes('Debugger unattached')) {
+        this.ready = undefined; this.frames.clear(); this.tracker.clear();
+        await this.initialize();
+        return send();
+      }
+      throw error;
     });
   }
 

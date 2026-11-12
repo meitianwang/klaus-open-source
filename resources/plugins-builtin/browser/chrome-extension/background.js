@@ -904,8 +904,19 @@ async function executeCdp(params) {
     if (method === 'DOM.setFileInputFiles' && uploadAccessDenied(error)) {
       throw new Error(`To enable file upload, open chrome://extensions/?id=${chrome.runtime.id} in Chrome, select Details for Klaus, and enable "Allow access to file URLs." Then retry the upload.`)
     }
+    // A command that never came back releases the tab: holding a debugger
+    // whose last command timed out would leave the page paused and the
+    // debugging notice up until the turn ends.
+    if (Number.isInteger(target.tabId) && params.preserveDebuggerOnTimeout !== true && isCdpCommandTimeout(error)) {
+      await detachDebugger(target).catch(() => {})
+    }
     throw error
   }
+}
+
+function isCdpCommandTimeout(error) {
+  const message = typeof error === 'string' ? error : error && typeof error === 'object' ? error.message : undefined
+  return typeof message === 'string' && message.startsWith('Timed out after ') && message.includes(' waiting for CDP command ')
 }
 
 function uploadAccessDenied(error) {

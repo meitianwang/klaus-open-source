@@ -890,6 +890,8 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
       await agentTasks?.remove(id);
     },
     onClosed: async id => { await ppt.releaseSession(id); dream?.forget(id); memorySnapshots?.forget(id); pip?.service.removeSession(id, false); await computerUse?.releaseSession(id); await connectors?.releaseSession(id); await mediaGeneration?.releaseSession(id); events.agentTasks.forget(id); files?.stopWatching(id); media.revokeSession(id); digram.releaseSession(id); model3d.releaseSession(id); runPreview?.releaseSession(id); widgets.releaseSession(id); await browserMcp.releaseSession(id); },
+    browserTurnStarted: (id, turnId) => browserMcp.chrome.turnStarted(id, turnId),
+    browserTurnEnded: id => browserMcp.chrome.turnEnded(id),
     onClosing: async (id, engineId, generation) => { state.markModelChanged(id); await Promise.all([mcpRuntime?.retire(id, engineId, generation), computerUse?.releaseSession(id), connectors?.releaseSession(id), mediaGeneration?.releaseSession(id)]); },
     beginClosing: async (id, engineId, generation) => {
       await chatRealtime?.releaseSession(id);

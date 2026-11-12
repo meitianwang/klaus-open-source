@@ -33,6 +33,10 @@ export class ChromeBrowserService {
   private readonly connections = new Map<string, Connection>();
   private readonly connecting = new Map<string, Promise<Connection>>();
   private readonly turns = new Map<string, { sessionId: string; generation: number }>();
+  // One debugger lease per session turn: the extension attaches lazily on the
+  // first page use and holds the attachment across operations until the turn
+  // ends, is superseded by a new turn, or the session releases.
+  private readonly leases = new Map<string, { turnId: string; generation: number }>();
   private readonly inFlight = new Map<string, Set<Promise<BrowserObject>>>();
   private readonly releases = new Set<Promise<void>>();
   private readonly generations = new Map<string, number>();
@@ -277,197 +281,182 @@ export class ChromeBrowserService {
     const connection = await this.connect(browserId);
     if (generation !== (this.generations.get(sessionId) ?? 0)) throw new BrowserError('unavailable', 'The Chrome task capability was released.');
     connection.sessions.add(sessionId);
-    const turnId = randomUUID();
-    this.turns.set(turnId, { sessionId, generation });
+    const turnId = this.leaseFor(sessionId, generation);
     const handle = fields.tabId === undefined ? undefined : Number(fields.tabId);
-    if (handle !== undefined && (!Number.isSafeInteger(handle) || handle < 0)) { this.turns.delete(turnId); throw new BrowserError('invalid_request', 'tabId must be a numeric Chrome tab handle.'); }
+    if (handle !== undefined && (!Number.isSafeInteger(handle) || handle < 0)) throw new BrowserError('invalid_request', 'tabId must be a numeric Chrome tab handle.');
     const answer = (response: BrowserObject, page?: ChromePageDebugger, screenshot?: BrowserObject): Promise<BrowserObject> => this.answer(connection, sessionId, turnId, response, page, screenshot);
-    try {
-      if(kind==='wait_for'&&fields.ms!==undefined)return await answer({value:await waitForPage(undefined,fields,signal)});
-      if (kind === 'batch') return await answer(batchResponse(await runBatch(fields, (operation, step) => {
-        if (generation !== (this.generations.get(sessionId) ?? 0)) throw new BrowserError('unavailable', 'The Chrome task capability was released.');
-        return this.execute(sessionId, browserId, operation, step, target, signal);
-      })));
-      if (kind === 'history') {
-        const queries: string[] = [];
-        if (Array.isArray(fields.queries)) for (const entry of fields.queries) if (typeof entry === 'string' && entry.trim() && !queries.includes(entry.trim())) queries.push(entry.trim());
-        if (typeof fields.query === 'string' && fields.query.trim() && !queries.includes(fields.query.trim())) queries.push(fields.query.trim());
-        queries.splice(8); if (!queries.length) queries.push('');
-        const merged: BrowserObject[] = [], seen = new Set<string>();
-        for (const query of queries) {
-          const found = await this.request(connection, sessionId, turnId, 'getUserHistory', { query, limit: fields.limit ?? 100, ...(fields.from === undefined ? {} : { from: fields.from }), ...(fields.to === undefined ? {} : { to: fields.to }) });
-          for (const raw of Array.isArray(found) ? found : []) {
-            const entry = object(raw), url = String(entry.url ?? '');
-            if (!url || seen.has(url)) continue;
-            seen.add(url); merged.push(entry);
-          }
+    if(kind==='wait_for'&&fields.ms!==undefined)return await answer({value:await waitForPage(undefined,fields,signal)});
+    if (kind === 'batch') return await answer(batchResponse(await runBatch(fields, (operation, step) => {
+      if (generation !== (this.generations.get(sessionId) ?? 0)) throw new BrowserError('unavailable', 'The Chrome task capability was released.');
+      return this.execute(sessionId, browserId, operation, step, target, signal);
+    })));
+    if (kind === 'history') {
+      const queries: string[] = [];
+      if (Array.isArray(fields.queries)) for (const entry of fields.queries) if (typeof entry === 'string' && entry.trim() && !queries.includes(entry.trim())) queries.push(entry.trim());
+      if (typeof fields.query === 'string' && fields.query.trim() && !queries.includes(fields.query.trim())) queries.push(fields.query.trim());
+      queries.splice(8); if (!queries.length) queries.push('');
+      const merged: BrowserObject[] = [], seen = new Set<string>();
+      for (const query of queries) {
+        const found = await this.request(connection, sessionId, turnId, 'getUserHistory', { query, limit: fields.limit ?? 100, ...(fields.from === undefined ? {} : { from: fields.from }), ...(fields.to === undefined ? {} : { to: fields.to }) });
+        for (const raw of Array.isArray(found) ? found : []) {
+          const entry = object(raw), url = String(entry.url ?? '');
+          if (!url || seen.has(url)) continue;
+          seen.add(url); merged.push(entry);
         }
-        merged.sort((left, right) => String(right.dateVisited ?? '').localeCompare(String(left.dateVisited ?? '')));
-        const limit = fields.limit === undefined ? merged.length : Math.max(1, Number(fields.limit) || 1);
-        const history = merged.slice(0, limit);
-        return await answer({ value: history, history, queries });
       }
-      if (kind === 'tabs_content') return await answer({ value: await this.request(connection, sessionId, turnId, 'getUserTabs') });
-      if (kind === 'management') {
-        const action = String(fields.action ?? 'call');
-        if (action === 'audit_trail') return await answer({ value: await this.request(connection, sessionId, turnId, 'managementAuditTrail') });
-        if (action !== 'call') throw new BrowserError('invalid_request', 'management action must be call or audit_trail.');
-        if (!ChromeBrowserService.declaresCapability(connection, 'browser_management')) throw new BrowserError('unavailable', 'This connected Chrome runs a Klaus extension without browser management. Update the Klaus extension in that Chrome, then reconnect.');
-        const namespace = String(fields.namespace ?? '');
-        const method = String(fields.method ?? '');
-        if (!['bookmarks', 'tabGroups', 'tabs', 'windows'].includes(namespace)) throw new BrowserError('invalid_request', 'management namespace must be bookmarks, tabGroups, tabs or windows.');
-        if (!method.trim()) throw new BrowserError('invalid_request', 'management call requires a method name.');
-        const args = Array.isArray(fields.args) ? fields.args : fields.args === undefined ? [] : [fields.args];
-        const value = await this.request(connection, sessionId, turnId, 'managementCall', { namespace, method, args });
-        return await answer({ value });
+      merged.sort((left, right) => String(right.dateVisited ?? '').localeCompare(String(left.dateVisited ?? '')));
+      const limit = fields.limit === undefined ? merged.length : Math.max(1, Number(fields.limit) || 1);
+      const history = merged.slice(0, limit);
+      return await answer({ value: history, history, queries });
+    }
+    if (kind === 'tabs_content') return await answer({ value: await this.request(connection, sessionId, turnId, 'getUserTabs') });
+    if (kind === 'management') {
+      const action = String(fields.action ?? 'call');
+      if (action === 'audit_trail') return await answer({ value: await this.request(connection, sessionId, turnId, 'managementAuditTrail') });
+      if (action !== 'call') throw new BrowserError('invalid_request', 'management action must be call or audit_trail.');
+      if (!ChromeBrowserService.declaresCapability(connection, 'browser_management')) throw new BrowserError('unavailable', 'This connected Chrome runs a Klaus extension without browser management. Update the Klaus extension in that Chrome, then reconnect.');
+      const namespace = String(fields.namespace ?? '');
+      const method = String(fields.method ?? '');
+      if (!['bookmarks', 'tabGroups', 'tabs', 'windows'].includes(namespace)) throw new BrowserError('invalid_request', 'management namespace must be bookmarks, tabGroups, tabs or windows.');
+      if (!method.trim()) throw new BrowserError('invalid_request', 'management call requires a method name.');
+      const args = Array.isArray(fields.args) ? fields.args : fields.args === undefined ? [] : [fields.args];
+      const value = await this.request(connection, sessionId, turnId, 'managementCall', { namespace, method, args });
+      return await answer({ value });
+    }
+    if (kind === 'mark_tab' || kind === 'tabs' && fields.action === 'name_session') {
+      if (fields.status !== undefined) {
+        if (!['deliverable','handoff'].includes(String(fields.status))) throw new BrowserError('invalid_request', 'mark_tab status must be deliverable or handoff.');
+        const page = await this.page(connection, sessionId, turnId, handle); connection.dispositions.set(page.tabId, String(fields.status));
+        return await answer({ value: { marked: fields.status, tabId: page.tabId, appliedOn: 'close' } }, page);
       }
-      if (kind === 'mark_tab' || kind === 'tabs' && fields.action === 'name_session') {
-        if (fields.status !== undefined) {
-          if (!['deliverable','handoff'].includes(String(fields.status))) throw new BrowserError('invalid_request', 'mark_tab status must be deliverable or handoff.');
-          const page = await this.page(connection, sessionId, turnId, handle); connection.dispositions.set(page.tabId, String(fields.status));
-          return await answer({ value: { marked: fields.status, tabId: page.tabId, appliedOn: 'close' } }, page);
-        }
-        const name = fields.name ?? fields.title;
-        if (typeof name !== 'string' || !name.trim()) throw new BrowserError('invalid_request', 'Naming a task browser group needs name or title.');
-        await this.request(connection, sessionId, turnId, 'nameSession', { name }); return await answer({ value: { name } });
-      }
-      if (kind === 'read_urls') {
-        await this.tabs(connection, sessionId, turnId);
-        const value = await readUrls({
-          create: async () => { const { page } = await this.createPage(connection, sessionId, turnId, signal); return { id: page.tabId, cdp: page }; },
-          navigate: async (page, url, fields, signal) => {
-            const owned = connection.pages.get(page.id); if (!owned) throw new BrowserError('stale_tab', 'Temporary Chrome tab closed.');
-            await this.options.authorize?.(sessionId, url, 'browsing', signal);
-            await this.navigate(owned, url, fields, signal);
-          },
-          close: async page => this.discardCreatedPage(connection, sessionId, turnId, page.id),
-          tabs: async () => (await this.tabs(connection, sessionId, turnId)).map(row => Number(row.id)),
-          selected: () => connection.active.get(sessionId),
-          restore: id => { if (id === undefined) connection.active.delete(sessionId); else connection.active.set(sessionId, id); },
-        }, fields, signal);
-        return await answer({ value });
-      }
-      if (kind === 'claim_tab') {
-        if (fields.expectedUrl !== undefined) this.requireTabMentions(connection);
-        if (handle === undefined) throw new BrowserError('invalid_request', 'claim_tab requires a tabId from user tabs.');
-        const users = await this.request(connection, sessionId, turnId, 'getUserTabs', { tabId: handle });
-        const row = (Array.isArray(users) ? users : []).map(object).find(tab => tab.id === handle);
-        if (!row) throw new BrowserError('stale_tab', 'The user Chrome tab no longer exists.');
-        if (fields.expectedUrl !== undefined && (row.url !== fields.expectedUrl || String(row.title || row.url) !== fields.expectedTitle)) {
-          throw new BrowserError('stale_tab', 'The referenced Chrome tab changed since it was mentioned. Select it again.');
-        }
-        this.url(row.url);
-        await this.options.authorize?.(sessionId, String(row.url), 'browsing', signal);
-        const value = await this.request(connection, sessionId, turnId, 'claimUserTab', { tabId: handle,
-          ...(fields.expectedUrl !== undefined ? { expectedTitle: fields.expectedTitle!, expectedUrl: fields.expectedUrl } : {}) });
-        return await answer({ value }, await this.page(connection, sessionId, turnId, handle));
-      }
-      if (kind === 'tabs' || kind === 'new_tab' || kind === 'close') {
-        const closeTarget = String(fields.target ?? 'session');
-        if (kind === 'close' && !['tab','session','all'].includes(closeTarget)) throw new BrowserError('invalid_request', 'close target must be tab, session or all.');
-        const action = kind === 'new_tab' ? 'new' : kind === 'close' ? closeTarget === 'tab' ? 'close' : 'finalize' : fields.action ?? 'list';
-        if (action === 'user' || action === 'all') return await answer({ value: await this.request(connection, sessionId, turnId, 'getUserTabs') });
-        if (action === 'new') {
-          const url = this.url(fields.url ?? 'about:blank');
+      const name = fields.name ?? fields.title;
+      if (typeof name !== 'string' || !name.trim()) throw new BrowserError('invalid_request', 'Naming a task browser group needs name or title.');
+      await this.request(connection, sessionId, turnId, 'nameSession', { name }); return await answer({ value: { name } });
+    }
+    if (kind === 'read_urls') {
+      await this.tabs(connection, sessionId, turnId);
+      const value = await readUrls({
+        create: async () => { const { page } = await this.createPage(connection, sessionId, turnId, signal); return { id: page.tabId, cdp: page }; },
+        navigate: async (page, url, fields, signal) => {
+          const owned = connection.pages.get(page.id); if (!owned) throw new BrowserError('stale_tab', 'Temporary Chrome tab closed.');
           await this.options.authorize?.(sessionId, url, 'browsing', signal);
-          const { created, page } = await this.createPage(connection, sessionId, turnId, signal);
-          try {
-            if (url !== 'about:blank') await this.navigate(page, url, undefined, signal);
-            signal?.throwIfAborted();
-            return await answer({ value: { ...created, tabId: page.tabId, url } }, page);
-          } catch (error) {
-            await this.discardCreatedPage(connection, sessionId, turnId, page.tabId);
-            throw error;
-          }
+          await this.navigate(owned, url, fields, signal);
+        },
+        close: async page => this.discardCreatedPage(connection, sessionId, turnId, page.id),
+        tabs: async () => (await this.tabs(connection, sessionId, turnId)).map(row => Number(row.id)),
+        selected: () => connection.active.get(sessionId),
+        restore: id => { if (id === undefined) connection.active.delete(sessionId); else connection.active.set(sessionId, id); },
+      }, fields, signal);
+      return await answer({ value });
+    }
+    if (kind === 'claim_tab') {
+      if (fields.expectedUrl !== undefined) this.requireTabMentions(connection);
+      if (handle === undefined) throw new BrowserError('invalid_request', 'claim_tab requires a tabId from user tabs.');
+      const users = await this.request(connection, sessionId, turnId, 'getUserTabs', { tabId: handle });
+      const row = (Array.isArray(users) ? users : []).map(object).find(tab => tab.id === handle);
+      if (!row) throw new BrowserError('stale_tab', 'The user Chrome tab no longer exists.');
+      if (fields.expectedUrl !== undefined && (row.url !== fields.expectedUrl || String(row.title || row.url) !== fields.expectedTitle)) {
+        throw new BrowserError('stale_tab', 'The referenced Chrome tab changed since it was mentioned. Select it again.');
+      }
+      this.url(row.url);
+      await this.options.authorize?.(sessionId, String(row.url), 'browsing', signal);
+      const value = await this.request(connection, sessionId, turnId, 'claimUserTab', { tabId: handle,
+        ...(fields.expectedUrl !== undefined ? { expectedTitle: fields.expectedTitle!, expectedUrl: fields.expectedUrl } : {}) });
+      return await answer({ value }, await this.page(connection, sessionId, turnId, handle));
+    }
+    if (kind === 'tabs' || kind === 'new_tab' || kind === 'close') {
+      const closeTarget = String(fields.target ?? 'session');
+      if (kind === 'close' && !['tab','session','all'].includes(closeTarget)) throw new BrowserError('invalid_request', 'close target must be tab, session or all.');
+      const action = kind === 'new_tab' ? 'new' : kind === 'close' ? closeTarget === 'tab' ? 'close' : 'finalize' : fields.action ?? 'list';
+      if (action === 'user' || action === 'all') return await answer({ value: await this.request(connection, sessionId, turnId, 'getUserTabs') });
+      if (action === 'new') {
+        const url = this.url(fields.url ?? 'about:blank');
+        await this.options.authorize?.(sessionId, url, 'browsing', signal);
+        const { created, page } = await this.createPage(connection, sessionId, turnId, signal);
+        try {
+          if (url !== 'about:blank') await this.navigate(page, url, undefined, signal);
+          signal?.throwIfAborted();
+          return await answer({ value: { ...created, tabId: page.tabId, url } }, page);
+        } catch (error) {
+          await this.discardCreatedPage(connection, sessionId, turnId, page.tabId);
+          throw error;
         }
-        if (action === 'close' || action === 'finalize') {
-          const rows = await this.tabs(connection, sessionId, turnId);
-          if (handle !== undefined && !rows.some(row => row.id === handle)) throw new BrowserError('stale_tab', 'Chrome tab does not belong to this task.');
-          const closing = handle ?? connection.active.get(sessionId);
-          if (action === 'close' && closing === undefined) throw new BrowserError('not_found', 'This task has no Chrome tab to close.');
-          const keep = action === 'finalize' && Array.isArray(fields.keep) ? fields.keep
-            : action === 'finalize' ? rows.filter(row => connection.dispositions.has(Number(row.id))).map(row => ({ tabId: row.id!, status: connection.dispositions.get(Number(row.id))! }))
-            : rows.filter(row => row.id !== closing).map(row => ({ tabId: row.id ?? null, status: 'handoff' }));
-          await this.request(connection, sessionId, turnId, 'finalizeTabs', { keep });
-          return await answer({ value: await this.tabs(connection, sessionId, turnId) });
-        }
-        if (action === 'select' || action === 'get' || action === 'selected') {
-          if (action === 'select' && handle === undefined) throw new BrowserError('invalid_request', 'Selecting a tab requires tabId.');
-          const page = await this.page(connection, sessionId, turnId, handle);
-          return await answer({ value: (await this.tabs(connection, sessionId, turnId)).find(row => row.id === page.tabId) ?? null }, page);
-        }
-        if (action !== 'list') throw new BrowserError('invalid_request', `Unknown Chrome tabs action: ${String(action)}`);
+      }
+      if (action === 'close' || action === 'finalize') {
+        const rows = await this.tabs(connection, sessionId, turnId);
+        if (handle !== undefined && !rows.some(row => row.id === handle)) throw new BrowserError('stale_tab', 'Chrome tab does not belong to this task.');
+        const closing = handle ?? connection.active.get(sessionId);
+        if (action === 'close' && closing === undefined) throw new BrowserError('not_found', 'This task has no Chrome tab to close.');
+        const keep = action === 'finalize' && Array.isArray(fields.keep) ? fields.keep
+          : action === 'finalize' ? rows.filter(row => connection.dispositions.has(Number(row.id))).map(row => ({ tabId: row.id!, status: connection.dispositions.get(Number(row.id))! }))
+          : rows.filter(row => row.id !== closing).map(row => ({ tabId: row.id ?? null, status: 'handoff' }));
+        await this.request(connection, sessionId, turnId, 'finalizeTabs', { keep });
         return await answer({ value: await this.tabs(connection, sessionId, turnId) });
       }
-      // A dialog answer cannot wait behind a paused Runtime.evaluate, or refresh
-      // the page's frame tree while JavaScript is blocked by that same dialog.
-      if (kind === 'dialog') {
-        const id = handle ?? connection.active.get(sessionId); const page = id === undefined ? undefined : connection.pages.get(id);
-        if (!page || page.sessionId !== sessionId) throw new BrowserError('stale_tab', 'This task has no attached Chrome page.');
-        const action = fields.action ?? 'get';
-        if (action === 'get') return await answer({ value: page.dialog }, page);
-        if (!['accept', 'dismiss'].includes(String(action))) throw new BrowserError('invalid_request', 'Dialog action must be get, accept or dismiss.');
-        if (!page.dialog || (fields.dialogId !== undefined && fields.dialogId !== page.dialog.id)) throw new BrowserError('stale_dialog', 'The Chrome dialog is no longer pending.');
-        await page.command('Page.handleJavaScriptDialog', { accept: action === 'accept', promptText: typeof fields.promptText === 'string' ? fields.promptText : '' });
-        return await answer({ value: { accepted: action === 'accept' } }, page);
+      if (action === 'select' || action === 'get' || action === 'selected') {
+        if (action === 'select' && handle === undefined) throw new BrowserError('invalid_request', 'Selecting a tab requires tabId.');
+        const page = await this.page(connection, sessionId, turnId, handle);
+        return await answer({ value: (await this.tabs(connection, sessionId, turnId)).find(row => row.id === page.tabId) ?? null }, page);
       }
-      if (kind === 'visibility') {
-        const action = fields.action ?? 'get';
-        if (action === 'set' && fields.visible !== true) throw new BrowserError('unavailable', 'Klaus cannot hide the user\'s own Chrome window.');
-        if (!['get','set'].includes(String(action))) throw new BrowserError('invalid_request', 'visibility action must be get or set.');
-        return await answer({ value: { visible: true, browserId, ...(action === 'set' ? { reason: 'The user\'s own Chrome is already on their screen; Klaus did not open or focus it.' } : {}) } });
-      }
-      const existingId = handle ?? connection.active.get(sessionId);
-      const existingDialogPage = existingId === undefined ? undefined : connection.pages.get(existingId);
-      const page = existingDialogPage && existingDialogPage.sessionId === sessionId && existingDialogPage.dialog && (kind === 'ax_state' || kind === 'ax_action')
-        ? existingDialogPage
-        : await this.page(connection, sessionId, turnId, handle, kind !== 'navigate', signal);
-      const currentUrl = this.pageUrls.get(page) ?? 'about:blank';
-      if (kind === 'navigate') await this.options.authorize?.(sessionId, String(fields.url), 'browsing', signal);
-      if (kind === 'download' && !['list', 'wait', 'cancel'].includes(String(fields.action)) && !fields.waitOnly)
-        await this.options.authorize?.(sessionId, currentUrl, 'downloads', signal);
-      if (kind === 'webmcp') await this.options.authorize?.(sessionId, currentUrl, 'siteTools', signal);
-      if (kind === 'cdp') await this.options.authorize?.(sessionId, currentUrl, 'debug', signal);
-      if (!page.dialog) await page.refreshFrames();
-      const frame = typeof fields.frameTargetId === 'string' ? fields.frameTargetId : typeof target.frameTargetId === 'string' ? target.frameTargetId : undefined;
-      if (frame && ['navigate','back','forward','reload','resize','permission'].includes(kind)) throw new BrowserError('invalid_request', 'This operation addresses the whole tab, not frameTargetId.');
-      const perform = async (): Promise<BrowserObject> => {
-        const result = await performPageOperation({ cdp: page, frame, signal, navigate: (url, fields) => this.navigate(page, url, fields, signal), history: action => this.history(page, action, signal), download: (fields, timeout, transport) => this.download(page, fields, timeout, transport, signal), artifactDirectory: this.options.artifactDirectory,
-          authorizeUpload: (url, signal) => this.options.authorize?.(sessionId, url, 'uploads', signal) ?? Promise.resolve(),
-          authorizeAffected: url => this.options.authorize?.(sessionId, url, 'debug', signal) ?? Promise.resolve(),
-          authorizeSiteTools: url => this.options.authorize?.(sessionId, url, 'siteTools', signal) ?? Promise.resolve(),
-          permission: fields => this.permission(connection, sessionId, turnId, page, fields),
-          nativeViewport: async () => { const tab = (await this.tabs(connection, sessionId, turnId)).find(row => row.id === page.tabId); if (!tab || typeof tab.width !== 'number' || typeof tab.height !== 'number' || typeof tab.zoomFactor !== 'number' || tab.zoomFactor <= 0) throw new BrowserError('unavailable', 'Chrome did not return the native viewport. Reload the bundled extension.'); return { width: Math.round(tab.width / tab.zoomFactor), height: Math.round(tab.height / tab.zoomFactor) }; },
-          dialog: {
-            get: () => page.dialog,
-            answer: async (accept, promptText, id) => {
-              if (!page.dialog || (id !== undefined && id !== page.dialog.id)) throw new BrowserError('stale_dialog', 'The Chrome dialog is no longer pending.');
-              await page.command('Page.handleJavaScriptDialog', { accept, promptText: promptText ?? '' });
-              page.dialog = null;
-            },
-          },
-        }, kind, fields);
-        signal?.throwIfAborted();
-        const info = page.dialog
-          ? { url: currentUrl, title: String(page.dialog.title ?? '') }
-          : object(await page.evaluate('({url:location.href,title:document.title})'));
-        this.url(info.url);
-        return await answer({ ...info, ...result.typed, ...(result.value === undefined ? {} : { value: result.value }) }, page, result.screenshot);
-      };
-      return ['console', 'network', 'navigate', 'back', 'forward', 'reload'].includes(kind) || page.dialog ? await perform() : await page.activity(perform);
-    } finally {
-      this.turns.delete(turnId);
-      const activeId = handle ?? connection.active.get(sessionId);
-      const activePage = activeId === undefined ? undefined : connection.pages.get(activeId);
-      // While a page holds raw Fetch interception, keep the debugger attached:
-      // detaching would kill paused requests and wipe the interception config,
-      // breaking a continue that arrives in a later operation.
-      const holdingRawFetch = [...connection.pages.values()].some(page => page.sessionId === sessionId && page.rawFetchActive());
-      if (kind !== 'dialog' && !activePage?.dialog && !holdingRawFetch) {
-        await connection.relay.request('turnEnded', { session_id: sessionId, turn_id: turnId }, 1500).catch(() => {});
-        for (const page of connection.pages.values()) if (page.sessionId === sessionId) await page.detached();
-      }
+      if (action !== 'list') throw new BrowserError('invalid_request', `Unknown Chrome tabs action: ${String(action)}`);
+      return await answer({ value: await this.tabs(connection, sessionId, turnId) });
     }
+    // A dialog answer cannot wait behind a paused Runtime.evaluate, or refresh
+    // the page's frame tree while JavaScript is blocked by that same dialog.
+    if (kind === 'dialog') {
+      const id = handle ?? connection.active.get(sessionId); const page = id === undefined ? undefined : connection.pages.get(id);
+      if (!page || page.sessionId !== sessionId) throw new BrowserError('stale_tab', 'This task has no attached Chrome page.');
+      const action = fields.action ?? 'get';
+      if (action === 'get') return await answer({ value: page.dialog }, page);
+      if (!['accept', 'dismiss'].includes(String(action))) throw new BrowserError('invalid_request', 'Dialog action must be get, accept or dismiss.');
+      if (!page.dialog || (fields.dialogId !== undefined && fields.dialogId !== page.dialog.id)) throw new BrowserError('stale_dialog', 'The Chrome dialog is no longer pending.');
+      await page.command('Page.handleJavaScriptDialog', { accept: action === 'accept', promptText: typeof fields.promptText === 'string' ? fields.promptText : '' });
+      return await answer({ value: { accepted: action === 'accept' } }, page);
+    }
+    if (kind === 'visibility') {
+      const action = fields.action ?? 'get';
+      if (action === 'set' && fields.visible !== true) throw new BrowserError('unavailable', 'Klaus cannot hide the user\'s own Chrome window.');
+      if (!['get','set'].includes(String(action))) throw new BrowserError('invalid_request', 'visibility action must be get or set.');
+      return await answer({ value: { visible: true, browserId, ...(action === 'set' ? { reason: 'The user\'s own Chrome is already on their screen; Klaus did not open or focus it.' } : {}) } });
+    }
+    const existingId = handle ?? connection.active.get(sessionId);
+    const existingDialogPage = existingId === undefined ? undefined : connection.pages.get(existingId);
+    const page = existingDialogPage && existingDialogPage.sessionId === sessionId && existingDialogPage.dialog && (kind === 'ax_state' || kind === 'ax_action')
+      ? existingDialogPage
+      : await this.page(connection, sessionId, turnId, handle, kind !== 'navigate', signal);
+    const currentUrl = this.pageUrls.get(page) ?? 'about:blank';
+    if (kind === 'navigate') await this.options.authorize?.(sessionId, String(fields.url), 'browsing', signal);
+    if (kind === 'download' && !['list', 'wait', 'cancel'].includes(String(fields.action)) && !fields.waitOnly)
+      await this.options.authorize?.(sessionId, currentUrl, 'downloads', signal);
+    if (kind === 'webmcp') await this.options.authorize?.(sessionId, currentUrl, 'siteTools', signal);
+    if (kind === 'cdp') await this.options.authorize?.(sessionId, currentUrl, 'debug', signal);
+    if (!page.dialog) await page.refreshFrames();
+    const frame = typeof fields.frameTargetId === 'string' ? fields.frameTargetId : typeof target.frameTargetId === 'string' ? target.frameTargetId : undefined;
+    if (frame && ['navigate','back','forward','reload','resize','permission'].includes(kind)) throw new BrowserError('invalid_request', 'This operation addresses the whole tab, not frameTargetId.');
+    const perform = async (): Promise<BrowserObject> => {
+      const result = await performPageOperation({ cdp: page, frame, signal, navigate: (url, fields) => this.navigate(page, url, fields, signal), history: action => this.history(page, action, signal), download: (fields, timeout, transport) => this.download(page, fields, timeout, transport, signal), artifactDirectory: this.options.artifactDirectory,
+        authorizeUpload: (url, signal) => this.options.authorize?.(sessionId, url, 'uploads', signal) ?? Promise.resolve(),
+        authorizeAffected: url => this.options.authorize?.(sessionId, url, 'debug', signal) ?? Promise.resolve(),
+        authorizeSiteTools: url => this.options.authorize?.(sessionId, url, 'siteTools', signal) ?? Promise.resolve(),
+        permission: fields => this.permission(connection, sessionId, turnId, page, fields),
+        nativeViewport: async () => { const tab = (await this.tabs(connection, sessionId, turnId)).find(row => row.id === page.tabId); if (!tab || typeof tab.width !== 'number' || typeof tab.height !== 'number' || typeof tab.zoomFactor !== 'number' || tab.zoomFactor <= 0) throw new BrowserError('unavailable', 'Chrome did not return the native viewport. Reload the bundled extension.'); return { width: Math.round(tab.width / tab.zoomFactor), height: Math.round(tab.height / tab.zoomFactor) }; },
+        dialog: {
+          get: () => page.dialog,
+          answer: async (accept, promptText, id) => {
+            if (!page.dialog || (id !== undefined && id !== page.dialog.id)) throw new BrowserError('stale_dialog', 'The Chrome dialog is no longer pending.');
+            await page.command('Page.handleJavaScriptDialog', { accept, promptText: promptText ?? '' });
+            page.dialog = null;
+          },
+        },
+      }, kind, fields);
+      signal?.throwIfAborted();
+      const info = page.dialog
+        ? { url: currentUrl, title: String(page.dialog.title ?? '') }
+        : object(await page.evaluate('({url:location.href,title:document.title})'));
+      this.url(info.url);
+      return await answer({ ...info, ...result.typed, ...(result.value === undefined ? {} : { value: result.value }) }, page, result.screenshot);
+    };
+    return ['console', 'network', 'navigate', 'back', 'forward', 'reload'].includes(kind) || page.dialog ? await perform() : await page.activity(perform);
   }
 
   private async permission(connection: Connection, sessionId: string, turnId: string, page: ChromePageDebugger, fields: BrowserObject): Promise<BrowserObject> {
@@ -627,8 +616,46 @@ export class ChromeBrowserService {
     }
   }
 
+  /** The turn lease keeps one debugger attachment alive across operations. */
+  private leaseFor(sessionId: string, generation: number): string {
+    const open = this.leases.get(sessionId);
+    if (open) return open.turnId;
+    const turnId = randomUUID();
+    this.leases.set(sessionId, { turnId, generation });
+    this.turns.set(turnId, { sessionId, generation });
+    return turnId;
+  }
+
+  private async closeLease(sessionId: string): Promise<void> {
+    const lease = this.leases.get(sessionId);
+    if (!lease) return;
+    this.leases.delete(sessionId);
+    this.turns.delete(lease.turnId);
+    for (const connection of this.connections.values()) {
+      if (!connection.sessions.has(sessionId)) continue;
+      await connection.relay.request('turnEnded', { session_id: sessionId, turn_id: lease.turnId }, 1500).catch(() => {});
+      for (const page of connection.pages.values()) if (page.sessionId === sessionId) await page.detached();
+    }
+  }
+
+  /** A started turn supersedes any lease a missed turn end left open. */
+  turnStarted(sessionId: string, turnId: string): void {
+    if (!turnId) return;
+    if (this.leases.has(sessionId)) void this.closeLease(sessionId);
+    const generation = this.generations.get(sessionId) ?? 0;
+    this.leases.set(sessionId, { turnId, generation });
+    this.turns.set(turnId, { sessionId, generation });
+  }
+
+  /** Turn completion, interruption and subagent stop release the debugger. */
+  turnEnded(sessionId: string): void { void this.closeLease(sessionId); }
+
+  sessionEnded(sessionId: string): void { void this.closeLease(sessionId); }
+
   releaseSession(sessionId: string): void {
     this.generations.set(sessionId, (this.generations.get(sessionId) ?? 0) + 1);
+    const lease = this.leases.get(sessionId);
+    if (lease) { this.leases.delete(sessionId); this.turns.delete(lease.turnId); }
     for(const connection of this.connections.values())for(const page of connection.pages.values())if(page.sessionId===sessionId){const owner=this.mediaOwners.get(page);if(owner)this.mediaDownloads?.release(owner);}
     const cleanup = (async () => {
       await Promise.allSettled(this.connecting.values());
@@ -665,6 +692,6 @@ export class ChromeBrowserService {
       await Promise.race([Promise.allSettled(this.releases), new Promise<void>(resolve => { timer = setTimeout(() => { this.options.reportDiagnostic?.('Chrome cleanup exceeded the shutdown deadline; its native connections will close.'); resolve(); }, 7000); })]);
     } finally { clearTimeout(timer); }
     for (const connection of this.connections.values()) connection.relay.close();
-    this.connections.clear(); this.connecting.clear(); this.generations.clear(); this.turns.clear();
+    this.connections.clear(); this.connecting.clear(); this.generations.clear(); this.turns.clear(); this.leases.clear();
   }
 }

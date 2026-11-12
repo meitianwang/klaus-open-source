@@ -30,6 +30,12 @@ export class ChromeRelay extends EventEmitter {
     socket.on('data', chunk => {
       try {
         for (const message of this.decoder.push(chunk)) {
+          if (typeof message.id === 'number' && message.method === 'ping') {
+            // The extension's liveness heartbeat reaches the app through the
+            // native host; answering here is what proves the controller lives.
+            this.socket.write(chromeFrame({ jsonrpc: '2.0', id: message.id, result: 'pong' }));
+            continue;
+          }
           if (typeof message.id === 'number' && message.method === undefined) {
             const pending = this.requests.get(message.id);
             if (!pending) continue;

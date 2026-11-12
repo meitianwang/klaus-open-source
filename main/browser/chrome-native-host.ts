@@ -59,6 +59,7 @@ export class ChromeNativeHost {
   private readonly clients = new Set<Socket>();
   private readonly sockets = new Set<Socket>();
   private readonly pending = new Map<number, Pending>();
+  private readonly pendingFromBrowser = new Map<number, { originalId: number; timer: ReturnType<typeof setTimeout> }>();
   private readonly token = randomBytes(32).toString('hex');
   private readonly server: Server;
   private nextId = 1;
@@ -131,7 +132,20 @@ export class ChromeNativeHost {
   }
 
   private fromBrowser(message: BrowserObject): void {
-    if (typeof message.id === 'number' && message.method === 'ping') { this.sendBrowser({ jsonrpc: '2.0', id: message.id, result: 'pong' }); return; }
+    if (typeof message.id === 'number' && message.method === 'ping') {
+      // The extension's liveness heartbeat must reach the controlling app:
+      // answering it locally would keep debuggers attached after the app dies.
+      if (this.clients.size === 0) { this.sendBrowser({ jsonrpc: '2.0', id: message.id, error: { code: 1, message: 'No Klaus client is connected to the Chrome relay.' } }); return; }
+      if (this.pendingFromBrowser.size >= 1024) { this.sendBrowser({ jsonrpc: '2.0', id: message.id, error: { code: 1, message: 'Chrome relay has too many pending browser requests.' } }); return; }
+      const id = this.nextId++;
+      const originalId = message.id;
+      this.pendingFromBrowser.set(id, { originalId, timer: setTimeout(() => {
+        if (!this.pendingFromBrowser.delete(id)) return;
+        this.sendBrowser({ jsonrpc: '2.0', id: originalId, error: { code: 1, message: 'Chrome relay liveness ping timed out.' } });
+      }, 5_000) });
+      for (const client of this.clients) this.sendClient(client, { ...message, id });
+      return;
+    }
     if (typeof message.id === 'number' && message.method === undefined) {
       const pending = this.pending.get(message.id);
       if (!pending) return;
@@ -169,6 +183,14 @@ export class ChromeNativeHost {
   }
 
   private fromClient(client: Socket, message: BrowserObject): void {
+    if (typeof message.id === 'number' && message.method === undefined) {
+      const browserPending = this.pendingFromBrowser.get(message.id);
+      if (browserPending) {
+        clearTimeout(browserPending.timer); this.pendingFromBrowser.delete(message.id);
+        this.sendBrowser({ ...message, id: browserPending.originalId });
+        return;
+      }
+    }
     if (typeof message.method !== 'string') return;
     if (message.method === 'host/browser') {
       if (typeof message.id === 'number') this.sendClient(client, { jsonrpc: '2.0', id: message.id, result: { executable: this.options.parentExecutable ?? null, pid: process.pid } });

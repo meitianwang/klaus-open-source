@@ -362,6 +362,9 @@ export interface SessionServiceDeps {
   projectHistory?: (history: Json, rendererId: string, scope?: {kind:'page'|'items';cursor?:string;turns?:Json[];hasMore?:boolean;nextCursor?:string}) => Json;
   hostCapabilities?: (rendererId: string, cwd: string, configValues?: Record<string, Json>) => Promise<Json>;
   hostCapabilitiesRevision?: () => number;
+  /** Browser debugger leases follow the engine turn lifecycle. */
+  browserTurnStarted?: (rendererId: string, turnId: string) => void;
+  browserTurnEnded?: (rendererId: string, turnId: string) => void;
   runtimePolicyProjection?: RuntimePolicyProjection;
   productContextNote?: (rendererId: string) => string;
   providers?: Omit<SessionProviderDeps, 'request' | 'configRoot'>;
@@ -1629,7 +1632,11 @@ export class SessionService {
           if (typeof params?.sessionId === 'string') this.noteEngineSessionStatus(params.sessionId, params?.status);
         } else if (event.type === 'sessionClosed') {
           const params = object(event.params);
-          if (typeof params?.sessionId === 'string') this.handleEngineSessionClosed(params.sessionId);
+          if (typeof params?.sessionId === 'string') {
+            this.handleEngineSessionClosed(params.sessionId);
+            const binding = this.deps.state.bindings().find(row => row.engineId === params.sessionId);
+            if (binding) this.deps.browserTurnEnded?.(binding.rendererId, '');
+          }
         }
         if (event.type === 'productEvent' && event.method === 'turn/started') {
           const params = object(event.params), detail = object(params?.detail);
@@ -1638,6 +1645,7 @@ export class SessionService {
             this.notificationStartingTurns.set(binding.rendererId, { facadeId: params.submissionId,
               aliases: new Set([params.submissionId, detail?.turnId].filter((value): value is string => typeof value === 'string' && !!value)) });
           }
+          if (binding && typeof detail?.turnId === 'string') this.deps.browserTurnStarted?.(binding.rendererId, detail.turnId);
         }
         this.recordReplyRecency(event, engine.generation);
         if (event.type === 'turnCompleted' || (event.type === 'productEvent' && event.method === 'turn/failed')) {
@@ -1658,6 +1666,12 @@ export class SessionService {
             const currentTurn = !!binding && this.deps.state.runningSubmissionId(binding.rendererId) === turnId;
             void this.followUps.turnEnded(engine.client, engineSessionId, turnId,
               result?.stopReason === 'aborted' ? 'interrupted' : 'turn_failed', currentTurn);
+          }
+          // The debugger lease releases on every terminal turn state, including
+          // a clean stop that the follow-up path deliberately ignores.
+          if (engineSessionId) {
+            const binding = this.deps.state.bindings().find(item => item.engineId === engineSessionId);
+            if (binding) this.deps.browserTurnEnded?.(binding.rendererId, turnId ?? '');
           }
         }
         const continued = this.requestOwner.exit(() => this.pendingTurns.receive(event, engine.generation));
