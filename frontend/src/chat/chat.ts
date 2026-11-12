@@ -14331,6 +14331,9 @@ async function buildSessionMainModelItems(source?: string) {
           ...pickKiroModelMetadata(option),
           ...(typeof option.available === 'boolean' ? { available: option.available } : {}),
           ...(typeof option.reason === 'string' ? { reason: option.reason } : {}),
+          // The curation marker decides menu visibility; this explicit pick
+          // list would otherwise drop it while hydrating the picker rows.
+          ...(option.inRecommendedSort === true ? { inRecommendedSort: true } : {}),
           // Catalog rows carry the gateway's credit multiplier; dropping it here
           // left the picker unable to show the official consumption figure.
           ...(typeof option.priceFactor === 'number' && Number.isFinite(option.priceFactor) ? { priceFactor: option.priceFactor } : {}),

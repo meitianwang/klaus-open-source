@@ -10,6 +10,7 @@ test('account restrictions and exact media MIME metadata survive the model menu 
     { value: 'antigravity:ready', label: 'Ready model', available: true, mediaInputMimeTypes: ['audio/webm;codecs=opus'],
       antigravityFamilyId: 'ready', antigravityVariants: [{ value: 'antigravity:ready', thinkingLevel: 'medium', available: true }] },
     { value: 'qoder:fast', label: 'Fast', priceFactor: 0.8 },
+    { value: 'antigravity:curated', label: 'Curated model', available: true, inRecommendedSort: true },
   ]
   const ast = createSourceFile('chat.ts', readFileSync(new URL('../chat.ts', import.meta.url), 'utf8'), ScriptTarget.ESNext, true)
   const declaration = ast.statements.find(node => isFunctionDeclaration(node) && node.name?.text === 'buildSessionMainModelItems')!
@@ -29,4 +30,8 @@ test('account restrictions and exact media MIME metadata survive the model menu 
   expect(rows[1].antigravityFamilyId).toBe('ready')
   expect(rows[1].antigravityVariants).toEqual(options[1].antigravityVariants)
   expect(rows[2].priceFactor).toBe(0.8)
+  // The curation marker must survive hydration or the menu falls back to the
+  // complete inventory.
+  expect(rows.find((row: { value?: string; inRecommendedSort?: boolean }) => row.value === 'antigravity:curated')?.inRecommendedSort).toBe(true)
+  expect(rows[1].inRecommendedSort).toBeUndefined()
 })
