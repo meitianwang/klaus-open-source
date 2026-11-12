@@ -45,9 +45,12 @@ function record(text: string): RecordValue {
   return value as RecordValue;
 }
 function removeKeys(value: RecordValue): boolean {
-  const changed = 'claudeAiOauth' in value || 'tokens' in value;
+  // The account queue is the current login shape; the historical token keys
+  // stay logout targets for records older builds wrote.
+  const changed = 'claudeAiOauth' in value || 'tokens' in value || 'accounts' in value;
   delete value.claudeAiOauth;
   delete value.tokens;
+  delete value.accounts;
   return changed;
 }
 function claudeOAuth(value: RecordValue | null): Json | null {

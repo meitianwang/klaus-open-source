@@ -432,6 +432,48 @@ fn a_legacy_plaintext_login_reads_then_migrates_on_the_next_write() {
     assert_eq!(copy["pluginSecrets"]["keep"], json!("me"));
 }
 
+/// A logout clears the current account queue as well as the historical token
+/// keys: a copy holding only the queue is removed outright, and unrelated
+/// keys beside the queue survive.
+#[test]
+fn logout_removes_an_accounts_queue() {
+    let (_dir, store, _) = setup(Platform::MacOs);
+    let path = store.config.subscription_path();
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    fs::write(
+        &path,
+        json!({"accounts": [{"id": "a1", "tokens": {"accessToken": "at"}}]}).to_string(),
+    )
+    .unwrap();
+    assert_eq!(
+        store.read_claude_accounts()["accounts"]
+            .as_array()
+            .expect("the queue reads back")
+            .len(),
+        1
+    );
+    assert!(store.remove_claude_oauth());
+    assert!(!path.exists(), "an emptied copy leaves no file behind");
+    assert!(!store.remove_claude_oauth());
+
+    let (_dir, store, _) = setup(Platform::MacOs);
+    let path = store.config.subscription_path();
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    fs::write(
+        &path,
+        json!({
+            "pluginSecrets": {"keep": "me"},
+            "accounts": [{"id": "a1", "tokens": {"accessToken": "at"}}]
+        })
+        .to_string(),
+    )
+    .unwrap();
+    assert!(store.remove_claude_oauth());
+    let record = read_record_file(&path).unwrap().unwrap();
+    assert_eq!(record["pluginSecrets"]["keep"], json!("me"));
+    assert!(record.get("accounts").is_none());
+}
+
 /// A corrupted copy is an explicit error, never a silent signed-out, and never
 /// silently replaced by a write.
 #[test]

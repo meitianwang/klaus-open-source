@@ -458,7 +458,11 @@ pub(super) fn error(code: &'static str) -> NativeError {
 fn prune_oauth(record: &mut Map<String, Value>) -> bool {
     let a = record.remove("claudeAiOauth").is_some();
     let b = record.remove("tokens").is_some();
-    a || b
+    // The account queue is the current login shape; pruning only the
+    // historical token keys left an accounts-only record signed in and made
+    // the logout report that nothing was removed.
+    let c = record.remove("accounts").is_some();
+    a || b || c
 }
 
 /// Project a stored Claude record onto its account queue, head first. The
