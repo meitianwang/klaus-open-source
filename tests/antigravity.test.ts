@@ -156,6 +156,23 @@ h.test('quota restrictions and amount-only windows survive host projection witho
   });
 });
 
+h.test('quota failures retain source verdicts instead of blaming every account refusal on the network', async () => {
+  for (const code of ['antigravity_account_disabled', 'antigravity_account_restricted', 'antigravity_permission_denied',
+    'antigravity_auth_required', 'antigravity_login_expired', 'antigravity_transport_unavailable', 'antigravity_refresh_unavailable']) {
+    for (const error of [new Error(code), new Error(`app-server rpc error -32000: ${code}: private response`),
+      { code: -32000, message: code }]) {
+      const service = new UsageService({ authMode: () => 'antigravity', models: () => [], codexAccessToken: async () => undefined,
+        keepAliveEnabled: false, request: async () => { throw error; },
+      });
+      try {
+        const result = object(object(object(await service.query()).snapshot).provider);
+        assert.equal(result.state, 'error');
+        assert.equal(result.error, code);
+      } finally { await service.close(); }
+    }
+  }
+});
+
 h.test('shared quota pools keep their service group titles and one row per window kind', () => {
   const reset = Date.parse('2026-10-26T00:00:00Z');
   const answer = antigravityUsage({ signedIn: true, windows: [

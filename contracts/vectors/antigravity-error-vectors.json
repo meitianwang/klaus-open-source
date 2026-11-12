@@ -1,6 +1,6 @@
 {
-  "version": 2,
-  "reason": "Service rejections remain specific localized turn failures; model access denial must not be presented as expired sign-in or a picker restriction; a NOT_FOUND verdict for a model the refreshed account catalog no longer lists reports the account offering; an identity the live catalog never carried reports a stale selection to re-resolve, not an account limitation. Every turn-error tag the engine can emit keeps a localized sentence, and a tag this build does not know yet falls back to a generic localized Antigravity failure instead of leaking the machine code into the conversation.",
+  "version": 3,
+  "reason": "Service rejections remain specific localized turn failures. Explicit account suspension, eligibility restrictions and unexplained permission denial must not be confused with expired credentials or network failures. Model access denial must not be presented as expired sign-in or a picker restriction; a NOT_FOUND verdict for a model the refreshed account catalog no longer lists reports the account offering; an identity the live catalog never carried reports a stale selection to re-resolve, not an account limitation. Unknown source tags fall back to a generic localized failure.",
   "cases": [
     { "code": "antigravity_model_access_denied", "expectedKey": "antigravity_model_access_denied" },
     { "code": "antigravity_model_not_offered", "expectedKey": "antigravity_model_not_offered" },
@@ -8,7 +8,12 @@
     { "code": "antigravity_quota_exhausted", "expectedKey": "antigravity_quota_exhausted" },
     { "code": "antigravity_request_rejected", "expectedKey": "antigravity_request_rejected" },
     { "code": "antigravity_region_unsupported", "expectedKey": "antigravity_region_unsupported" },
+    { "code": "antigravity_account_disabled", "expectedKey": "antigravity_account_disabled" },
+    { "code": "antigravity_account_restricted", "expectedKey": "antigravity_account_restricted" },
+    { "code": "antigravity_permission_denied", "expectedKey": "antigravity_permission_denied" },
     { "code": "antigravity_auth_required", "expectedKey": "antigravity_auth_required" },
+    { "code": "antigravity_login_expired", "expectedKey": "antigravity_login_expired" },
+    { "code": "antigravity_refresh_unavailable", "expectedKey": "antigravity_refresh_unavailable" },
     { "code": "antigravity_rate_limited", "expectedKey": "antigravity_rate_limited" },
     { "code": "antigravity_service_unavailable", "expectedKey": "antigravity_service_unavailable" },
     { "code": "model_context_window_exceeded", "expectedKey": "model_context_window_exceeded" },

@@ -74,7 +74,9 @@ test('browser completion preserves its originating session and retires cancellat
     expect(calls).toEqual([['set', 'auto', 'chat-one', 'antigravity'], 'klaus:auth-mode-changed'])
     expect(requests).toEqual(['reload'])
     const html = renderToStaticMarkup(createElement(SubscriptionCardBody, { mode: 'antigravity', reloadSeq: 0, reload: () => {} }))
-    expect(html).toContain(I18N.en.auth_logged_in)
+    expect(html).toContain(I18N.en[loginVectors.accountCard.savedStatusKey])
+    expect(html).toContain(I18N.en[loginVectors.accountCard.savedHintKey])
+    expect(html).not.toContain(`>${I18N.en.auth_logged_in}<`)
     for (const action of loginVectors.accountCard.signedInActions) {
       expect(html).toContain(`id="antigravity-auth-${action}-btn"`)
     }

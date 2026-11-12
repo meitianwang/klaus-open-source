@@ -1208,7 +1208,7 @@ export function SubscriptionCardBody({ mode, reloadSeq, reload, activateModelOnL
             // repeating the head email up here would show one address twice,
             // so a queued login headlines its account count instead.
             ? <><strong>{t('sub_accounts_count').replace('{count}', String(accounts.length))}</strong><span className="badge">{t('auth_logged_in')}</span></>
-            : <><strong>{status.account || t(source.accountFallback)}</strong><span className="badge">{t('auth_logged_in')}</span></>
+            : <><strong>{status.account || t(source.accountFallback)}</strong><span className="badge">{t(mode === 'antigravity' ? 'antigravity_credential_saved' : 'auth_logged_in')}</span></>
           : <strong>{t(source.notLoggedIn)}</strong>}
         {mode === 'workbuddy' && status.loggedIn && (status.region === 'cn' || status.region === 'intl')
           ? <span className="badge">{t(`workbuddy_region_${status.region}`)}</span> : null}
@@ -1216,6 +1216,7 @@ export function SubscriptionCardBody({ mode, reloadSeq, reload, activateModelOnL
           ? <span className="badge">{t('bailian_subscription_expired_badge')}</span> : null}
       </div>
       {mode === 'antigravity' && status.needsLogin === true ? <p role="alert" className="card-meta">{t('antigravity_login_expired')}</p> : null}
+      {mode === 'antigravity' && signedIn ? <p className="card-meta">{t('antigravity_credential_saved_hint')}</p> : null}
       {mode === 'trae' && status.needsLogin === true ? <p role="alert" className="card-meta">{t('trae_login_expired')}</p> : null}
       {mode === 'bailian' && signedIn && status.subscriptionState === 'expired'
         ? <p role="alert" className="card-meta">{t('bailian_subscription_expired')}</p> : null}

@@ -27,6 +27,7 @@ import { pickTraeModelMetadata, traeThinkingLevels, traeThinkingLevel } from '..
 import { pickKiroModelMetadata, kiroThinkingLevels, kiroThinkingLevel, isKiroRoutingAlias } from '../../../shared/kiro-model-catalog'
 import { isAutomaticCursorSelection } from './composer/model-selection-values'
 import { knownKiroAuthErrorText } from '../app/kiro-errors'
+import { knownAntigravityErrorText } from '../app/antigravity-errors'
 //
 // 渲染域已全部绞杀进同目录的 React 组件树（transcript/composer/sidebar/panels），
 // 本文件是剩余的数据面：会话生命周期、chatEvent 分发、IPC 管线、终端/浏览器/
@@ -16541,6 +16542,7 @@ function renderUsageSnapshot(snapshot: { mode: string; provider?: { state?: stri
   let data = mode === 'cursor' && provider.error ? { ...provider, error: cursorErrorText(provider.error, tt) } : provider
   if (mode === 'subscription' && data.error) data = { ...data, error: claudeUsageErrorText(data.error) }
   if (mode === 'kiro' && data.error) data = { ...data, error: knownKiroAuthErrorText(data.error, tt) || data.error }
+  if (mode === 'antigravity' && data.error) data = { ...data, error: knownAntigravityErrorText(data.error, tt) || data.error }
   if (mode === 'qwenwork' && data.error) {
     const key = ({
       qwenwork_login_expired: 'usage_qwenwork_login_required',

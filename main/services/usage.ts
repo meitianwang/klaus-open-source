@@ -730,6 +730,8 @@ export class UsageService {
     if (error instanceof Error && /^Ark console (?:login needs renewal; sign in again|allowance request failed(?: \(HTTP \d{3}\)|; check your network and retry)|token refresh failed \(HTTP \d{3}\)|returned (?:invalid credentials|an invalid allowance response)|credential could not be saved|login changed; refresh the allowance again|usage endpoint is invalid)$/u.test(error.message)) return error.message;
     if (error instanceof Error && (/^Codex login needs renewal;/u.test(error.message) || /^Codex token refresh failed \(HTTP (?:400|401|403)\)/u.test(error.message))) return 'Codex login needs renewal; reuse the local login or sign in again';
     if (error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError' && !this.abort.signal.aborted)) return 'Usage request timed out; check your network or proxy';
+    const antigravity = /\b(antigravity_[a-z0-9_]+|model_context_window_exceeded)\b/u.exec(message)?.[1];
+    if (antigravity) return antigravity;
     return 'Usage request failed; check your network connection and retry';
   }
   private async claude(): Promise<JsonObject> {

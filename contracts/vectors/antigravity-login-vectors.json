@@ -1,6 +1,6 @@
 {
-  "version": 1,
-  "reason": "Browser authorization and local credential reuse have independent entrypoints. Completed authorization preserves credential ownership while cancellation fences stale replies. Connected accounts expose sign-out with confirmation.",
+  "version": 2,
+  "reason": "Browser authorization and local credential reuse have independent entrypoints. Completed authorization preserves credential ownership while cancellation fences stale replies. Connected accounts expose sign-out with confirmation and describe saved credentials without claiming verified service access.",
   "start": {
     "ok": true,
     "flowId": "fixture-flow-one",
@@ -23,6 +23,8 @@
     "cancelled": true
   },
   "accountCard": {
+    "savedStatusKey": "antigravity_credential_saved",
+    "savedHintKey": "antigravity_credential_saved_hint",
     "signedOutActions": [
       "start",
       "importLocal"
