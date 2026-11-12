@@ -371,6 +371,7 @@ export class EngineSettings {
 
 function integer(value: Json | undefined, fallback: number): number { return typeof value === 'number' && Number.isInteger(value) ? value : fallback; }
 const MODEL_METADATA_KEYS = [
+  'nativeDeferredTools',
   'autoReviewModelOverride', 'requiresSandboxedReview', 'nodeReplAutoReviewRequired', 'guardian', 'guardianV2', 'modelMessages', 'compHash',
   'supportsReasoningSummaryParameter', 'defaultReasoningSummary', 'supportedReasoningEfforts', 'defaultReasoningEffort', 'multiAgentReasoningEffort',
   'effectiveContextWindowPercent', 'autoCompactTokenLimit', 'usedFallbackModelMetadata', 'modelSpecialty', 'supportsImageDetailOriginal',

@@ -110,7 +110,7 @@ h.test('a friend conversation starts from its grant instead of the global full-a
   assert.equal(initial.preset, 'default', 'the friend grant supplies the initial request-approval preset');
   assert.equal(object(initial.policy).approvalPolicy, 'on-request');
   assert.equal(object(initial.policy).sandboxMode, 'workspace-write', 'the friend resource cap applies to the displayed effective policy');
-  assert.equal(initialSaved, undefined, 'reading the initial preset does not freeze the global default into the friend conversation');
+  assert.deepEqual(initialSaved, { policy: presetRuntimePolicy('default') }, 'the saved initial policy is the friend grant, never the global full-access default');
   await composer.setPermission({ sessionId: 'friend-thread', mode: 'bypassPermissions' });
   assert.equal(object(await composer.getPermission('friend-thread')).preset, 'bypassPermissions', 'a later in-session choice wins');
   assert.deepEqual(object(sessionRuntimePolicy('friend-thread', f.root)).policy, presetRuntimePolicy('bypassPermissions'), 'the override belongs only to this conversation');
@@ -359,8 +359,17 @@ h.test('granular session policy survives startup, frozen reload, fork and live p
   assert.deepEqual(object(await composer.getPermission('thread')).policy, presetRuntimePolicy('auto'));
   assert.equal(f.requests.filter(row => row.method === 'session/setRuntimePolicy').at(-1)!.params.approvalPolicy, 'on-request');
 });
+h.test('native deferred tool capability vectors preserve explicit false across model edits', async () => {
+  const vectors = JSON.parse(readFileSync(join(__dirname, '../../contracts/vectors/native-deferred-tools-vectors.json'), 'utf8')) as { cases: Array<{ name: string; capabilities: JsonObject; present: boolean; value?: boolean }> };
+  for (const vector of vectors.cases) {
+    const entry = modelEntry({ provider: 'openai', model: 'fixture-model', capabilities: vector.capabilities });
+    const edited = modelEntry(modelRow('fixture', entry));
+    assert.equal(Object.hasOwn(object(edited.capabilities), 'nativeDeferredTools'), vector.present, vector.name);
+    assert.equal(object(edited.capabilities).nativeDeferredTools, vector.value, vector.name);
+  }
+});
 h.test('editing a custom model preserves declared review and context metadata across inference replacement', async () => {
-  const metadata: JsonObject = {autoReviewModelOverride:'review-model',requiresSandboxedReview:true,nodeReplAutoReviewRequired:true,
+  const metadata: JsonObject = {nativeDeferredTools:false,autoReviewModelOverride:'review-model',requiresSandboxedReview:true,nodeReplAutoReviewRequired:true,
     guardian:{mode:'score'},guardianV2:{mode:'async'},modelMessages:{guardian:'Policy with Unicode \ud800'},compHash:'model-hash',
     supportsReasoningSummaryParameter:true,defaultReasoningSummary:'none',supportedReasoningEfforts:['low','max'],defaultReasoningEffort:'low',multiAgentReasoningEffort:'max',
     effectiveContextWindowPercent:95,autoCompactTokenLimit:175000,usedFallbackModelMetadata:false,modelSpecialty:'reviewer',supportsImageDetailOriginal:true};

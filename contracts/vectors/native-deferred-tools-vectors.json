@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "reason": "Native deferred tool support is exact model metadata. Explicit false must survive settings edits and inference replacement instead of becoming an absent capability.",
+  "cases": [
+    { "name": "enabled", "capabilities": { "nativeDeferredTools": true }, "present": true, "value": true },
+    { "name": "disabled", "capabilities": { "nativeDeferredTools": false }, "present": true, "value": false },
+    { "name": "undeclared", "capabilities": {}, "present": false }
+  ]
+}
