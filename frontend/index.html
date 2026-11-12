@@ -36,7 +36,13 @@
        silently blocked <img>, i.e. a blank thumbnail. -->
   <!-- `https://img.alicdn.com` is the QwenWork gateway's model-glyph CDN: the
        qwenwork catalog ships a per-model icon URL and picker rows render it. -->
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' klaus-pet: data: blob: file: klaus-media: http://klaus-media.localhost https://klaus-ai.cn https://img.alicdn.com; media-src 'self' blob: file: klaus-media: http://klaus-media.localhost; frame-src 'self' klaus-media: blob: file:; style-src 'self' 'unsafe-inline'; font-src 'self'; script-src 'self' 'unsafe-inline'; connect-src 'self' klaus-media: ipc: http://ipc.localhost;">
+  <!-- The post-upgrade guide may publish a screenshot or demo loop per page
+       (contracts/feature-onboarding.ts GUIDE_MEDIA_HOSTS). Those assets load
+       over https from the same allowlisted origins, so img-src and media-src
+       must carry each host the validator accepts; a host missing here is a
+       silently blocked asset, which the guide then falls back from to its
+       built-in line art. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' klaus-pet: data: blob: file: klaus-media: http://klaus-media.localhost https://klaus-ai.cn https://klaus-ai.site https://img.alicdn.com; media-src 'self' blob: file: klaus-media: http://klaus-media.localhost https://klaus-ai.cn https://klaus-ai.site https://img.alicdn.com; frame-src 'self' klaus-media: blob: file:; style-src 'self' 'unsafe-inline'; font-src 'self'; script-src 'self' 'unsafe-inline'; connect-src 'self' klaus-media: ipc: http://ipc.localhost;">
   <title>Klaus</title>
   <link rel="stylesheet" href="css/styles.css">
   <link rel="stylesheet" href="css/motion.css">

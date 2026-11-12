@@ -24,7 +24,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { t } from '../../i18n'
-import type { ReadingMode } from '../../../../contracts/feature-onboarding'
+import type { GuidePage, ReadingMode } from '../../../../contracts/feature-onboarding'
 import { guideInitialReadingMode } from './ledger'
 import { guideLocale, resolveGuideContent } from './guide-content'
 import { applyReadingMode } from './reading-mode'
@@ -275,8 +275,8 @@ export function PostUpgradeGuide({ onFinish, onDismiss }: {
                 />
               </div>
             </div>
-            <div className={styles['guide-visual']} data-scene={active.scene} aria-hidden="true">
-              <SceneArt scene={active.scene} />
+            <div className={styles['guide-visual']} data-scene={active.scene} aria-hidden={active.media ? undefined : 'true'}>
+              <PageVisual page={active} />
             </div>
           </>
         ) : (
@@ -329,6 +329,38 @@ function splitEmphasis(line: string, emphasis: string) {
       <span className={styles['guide-emphasis']} data-text={emphasis}>{emphasis}</span>
       {after}
     </>
+  )
+}
+
+/** The visual half of a page: the published screenshot or demo loop when the
+ *  config carries one, the built-in line art otherwise. A media asset that
+ *  fails to load falls back to the line art rather than leaving a hole, so a
+ *  dead URL costs the illustration, not the page. */
+function PageVisual({ page }: { page: GuidePage }) {
+  const [mediaFailed, setMediaFailed] = useState(false)
+  const media = page.media
+  if (!media || mediaFailed) return <SceneArt scene={page.scene} />
+  if (media.kind === 'video') {
+    return (
+      <video
+        className={styles['guide-media']}
+        src={media.url}
+        autoPlay
+        muted
+        loop
+        playsInline
+        onError={() => setMediaFailed(true)}
+        aria-label={media.alt}
+      />
+    )
+  }
+  return (
+    <img
+      className={styles['guide-media']}
+      src={media.url}
+      alt={media.alt ?? ''}
+      onError={() => setMediaFailed(true)}
+    />
   )
 }
 

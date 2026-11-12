@@ -788,6 +788,277 @@
           }
         },
         "accepted": false
+      },
+      {
+        "_why": "an https image on an allowlisted host is accepted",
+        "payload": {
+          "schemaVersion": 1,
+          "enable": true,
+          "data": {
+            "zh": {
+              "features": [
+                {
+                  "scene": "overview",
+                  "eyebrow": "e",
+                  "title": [
+                    "a"
+                  ],
+                  "description": "d",
+                  "durationMs": 6000,
+                  "media": {
+                    "kind": "image",
+                    "url": "https://klaus-ai.cn/g/shot.png",
+                    "alt": "chat"
+                  }
+                },
+                {
+                  "scene": "collaboration",
+                  "eyebrow": "e",
+                  "title": [
+                    "a"
+                  ],
+                  "description": "d",
+                  "durationMs": 6000
+                },
+                {
+                  "scene": "cocreation",
+                  "eyebrow": "e",
+                  "title": [
+                    "a"
+                  ],
+                  "description": "d",
+                  "durationMs": 6000
+                },
+                {
+                  "scene": "automation",
+                  "eyebrow": "e",
+                  "title": [
+                    "a"
+                  ],
+                  "description": "d",
+                  "durationMs": 6000
+                }
+              ]
+            }
+          }
+        },
+        "accepted": true
+      },
+      {
+        "_why": "a demo loop on an allowlisted host is accepted",
+        "payload": {
+          "schemaVersion": 1,
+          "enable": true,
+          "data": {
+            "zh": {
+              "features": [
+                {
+                  "scene": "overview",
+                  "eyebrow": "e",
+                  "title": [
+                    "a"
+                  ],
+                  "description": "d",
+                  "durationMs": 6000,
+                  "media": {
+                    "kind": "video",
+                    "url": "https://img.alicdn.com/g/loop.mp4"
+                  }
+                },
+                {
+                  "scene": "collaboration",
+                  "eyebrow": "e",
+                  "title": [
+                    "a"
+                  ],
+                  "description": "d",
+                  "durationMs": 6000
+                },
+                {
+                  "scene": "cocreation",
+                  "eyebrow": "e",
+                  "title": [
+                    "a"
+                  ],
+                  "description": "d",
+                  "durationMs": 6000
+                },
+                {
+                  "scene": "automation",
+                  "eyebrow": "e",
+                  "title": [
+                    "a"
+                  ],
+                  "description": "d",
+                  "durationMs": 6000
+                }
+              ]
+            }
+          }
+        },
+        "accepted": true
+      },
+      {
+        "_why": "http is refused: the CSP and the validator agree on https only",
+        "payload": {
+          "schemaVersion": 1,
+          "enable": true,
+          "data": {
+            "zh": {
+              "features": [
+                {
+                  "scene": "overview",
+                  "eyebrow": "e",
+                  "title": [
+                    "a"
+                  ],
+                  "description": "d",
+                  "durationMs": 6000,
+                  "media": {
+                    "kind": "image",
+                    "url": "http://klaus-ai.cn/g/shot.png"
+                  }
+                },
+                {
+                  "scene": "collaboration",
+                  "eyebrow": "e",
+                  "title": [
+                    "a"
+                  ],
+                  "description": "d",
+                  "durationMs": 6000
+                },
+                {
+                  "scene": "cocreation",
+                  "eyebrow": "e",
+                  "title": [
+                    "a"
+                  ],
+                  "description": "d",
+                  "durationMs": 6000
+                },
+                {
+                  "scene": "automation",
+                  "eyebrow": "e",
+                  "title": [
+                    "a"
+                  ],
+                  "description": "d",
+                  "durationMs": 6000
+                }
+              ]
+            }
+          }
+        },
+        "accepted": false
+      },
+      {
+        "_why": "an origin outside the allowlist is refused rather than blocked later by the browser",
+        "payload": {
+          "schemaVersion": 1,
+          "enable": true,
+          "data": {
+            "zh": {
+              "features": [
+                {
+                  "scene": "overview",
+                  "eyebrow": "e",
+                  "title": [
+                    "a"
+                  ],
+                  "description": "d",
+                  "durationMs": 6000,
+                  "media": {
+                    "kind": "image",
+                    "url": "https://example.com/shot.png"
+                  }
+                },
+                {
+                  "scene": "collaboration",
+                  "eyebrow": "e",
+                  "title": [
+                    "a"
+                  ],
+                  "description": "d",
+                  "durationMs": 6000
+                },
+                {
+                  "scene": "cocreation",
+                  "eyebrow": "e",
+                  "title": [
+                    "a"
+                  ],
+                  "description": "d",
+                  "durationMs": 6000
+                },
+                {
+                  "scene": "automation",
+                  "eyebrow": "e",
+                  "title": [
+                    "a"
+                  ],
+                  "description": "d",
+                  "durationMs": 6000
+                }
+              ]
+            }
+          }
+        },
+        "accepted": false
+      },
+      {
+        "_why": "an unknown media kind is refused",
+        "payload": {
+          "schemaVersion": 1,
+          "enable": true,
+          "data": {
+            "zh": {
+              "features": [
+                {
+                  "scene": "overview",
+                  "eyebrow": "e",
+                  "title": [
+                    "a"
+                  ],
+                  "description": "d",
+                  "durationMs": 6000,
+                  "media": {
+                    "kind": "iframe",
+                    "url": "https://klaus-ai.cn/x"
+                  }
+                },
+                {
+                  "scene": "collaboration",
+                  "eyebrow": "e",
+                  "title": [
+                    "a"
+                  ],
+                  "description": "d",
+                  "durationMs": 6000
+                },
+                {
+                  "scene": "cocreation",
+                  "eyebrow": "e",
+                  "title": [
+                    "a"
+                  ],
+                  "description": "d",
+                  "durationMs": 6000
+                },
+                {
+                  "scene": "automation",
+                  "eyebrow": "e",
+                  "title": [
+                    "a"
+                  ],
+                  "description": "d",
+                  "durationMs": 6000
+                }
+              ]
+            }
+          }
+        },
+        "accepted": false
       }
     ],
     "contentAvailability": {

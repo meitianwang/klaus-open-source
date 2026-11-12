@@ -464,3 +464,14 @@
 }
 
 .tour-pip[data-current='1'] { background: var(--status-error); }
+
+/* Published screenshot or demo loop. Contained so a wide capture never crops
+   the copy column's visual rhythm; the line art it replaces is sized the same. */
+.guide-media {
+  width: min(88%, 560px);
+  max-height: 82%;
+  object-fit: contain;
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  background: var(--bg-elevated);
+}

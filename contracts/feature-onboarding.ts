@@ -177,6 +177,24 @@ export type GuideScene = (typeof GUIDE_SCENES)[number]
  *  vertical rhythm so more of a long reply fits one screen. */
 export type ReadingMode = 'comfortable' | 'efficient'
 
+/** One remote asset a page may show instead of the built-in line art.
+ *
+ *  Screenshots and demo loops are too heavy and too changeable to ship in the
+ *  package, so they live wherever ops hosts them — but only on origins this
+ *  client already trusts for media: the renderer's CSP carries the same list,
+ *  and an origin outside it would be blocked by the browser anyway. */
+export interface GuideMedia {
+  kind: 'image' | 'video'
+  url: string
+  /** Spoken description for assistive tech. Absent reads as decorative. */
+  alt?: string
+}
+
+/** Origins guide media may load from. Kept in one place so the config
+ *  validator and the renderer CSP cannot drift: index.html's img-src and
+ *  media-src must carry each of these over https. */
+export const GUIDE_MEDIA_HOSTS = ['klaus-ai.cn', 'klaus-ai.site', 'img.alicdn.com'] as const
+
 export interface GuidePage {
   scene: GuideScene
   eyebrow: string
@@ -189,6 +207,10 @@ export interface GuidePage {
    *  drives the page illustration and its progress only; turning a page always
    *  takes user input. */
   durationMs: number
+  /** Optional screenshot or demo loop for the visual half. A page without one
+   *  draws the built-in line art; one whose asset fails to load falls back to
+   *  it as well, so a dead URL degrades to art rather than to a hole. */
+  media?: GuideMedia
 }
 
 export interface GuideLabels {
@@ -314,7 +336,29 @@ function readPage(value: unknown, index: number): GuidePage | null {
   const emphasis = nonEmptyString(value.emphasis) ?? undefined
   const durationMs = value.durationMs
   if (typeof durationMs !== 'number' || !Number.isFinite(durationMs) || durationMs <= 0) return null
-  return { scene, eyebrow, title, emphasis, description, durationMs }
+  let media: GuideMedia | undefined
+  if (value.media !== undefined) {
+    const parsed = readMedia(value.media)
+    if (!parsed) return null
+    media = parsed
+  }
+  return { scene, eyebrow, title, emphasis, description, durationMs, media }
+}
+
+/** Validate one media entry. https on an allowlisted origin only: the renderer
+ *  CSP allows exactly these hosts for img-src/media-src, so anything else would
+ *  be blocked by the browser after we had already accepted it. */
+function readMedia(value: unknown): GuideMedia | null {
+  if (!isRecord(value)) return null
+  if (value.kind !== 'image' && value.kind !== 'video') return null
+  const url = nonEmptyString(value.url)
+  if (!url) return null
+  let parsed: URL
+  try { parsed = new URL(url) } catch { return null }
+  if (parsed.protocol !== 'https:') return null
+  if (!(GUIDE_MEDIA_HOSTS as readonly string[]).includes(parsed.hostname)) return null
+  const alt = nonEmptyString(value.alt) ?? undefined
+  return { kind: value.kind, url, alt }
 }
 
 function readLocaleContent(value: unknown): GuideLocaleContent | null {
