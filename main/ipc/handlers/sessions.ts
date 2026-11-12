@@ -40,7 +40,7 @@ export function registerSessionHandlers(registry: ChannelRegistry, deps: {
         ...(typeof value.limit === 'number' ? { limit: value.limit } : {}),
       }) as unknown as Promise<Json>;
     },
-    'session:runtime-state': () => ({ workingSessionIds: state.runningSessions().filter(id => sessions.isCatalogVisible(id)) }),
+    'session:runtime-state': () => ({ workingSessionIds: state.runningSessions().filter(id => sessions.isRuntimeVisible(id)) }),
     'session:list-archived': () => sessions.listArchivedSessions(),
     'session:view-retain': context => {
       context.assertCurrent?.();

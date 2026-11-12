@@ -6,7 +6,7 @@ import vectors from '../../../contracts/vectors/session-runtime-state-vectors.js
 
 const source = readFileSync(new URL('./chat.ts', import.meta.url), 'utf8')
 const ast = createSourceFile('chat.ts', source, ScriptTarget.ESNext, true, ScriptKind.TS)
-const idle = () => ({ provisional: false, running: false, activeTurnId: null as string | null, liveTurnId: null as string | null, turnStartedAt: 0, lastTerminalStatus: null as string | null })
+const idle = () => ({ provisional: false, running: false, historySource: 'saved' as 'saved' | 'ephemeral', activeTurnId: null as string | null, liveTurnId: null as string | null, turnStartedAt: 0, lastTerminalStatus: null as string | null })
 const live = (id = 'turn-one') => ({ ...idle(), running: true, activeTurnId: id, liveTurnId: id, turnStartedAt: 1 })
 function deferred<T>() {
   let resolve!: (value: T) => void, reject!: (error: Error) => void
@@ -58,6 +58,19 @@ test('runtime recovery handles a large historical catalog without reading it', a
   expect(f.context.streams[id]?.running).toBe(true)
   expect(f.calls.catalog).toBe(vectors.expectedCatalogReadsDuringAudit)
   expect(f.context.sessions[1]?.title).toBe('Title 1')
+})
+
+test('active side conversations survive repeated audits without entering the ordinary catalog', async () => {
+  const f = fixture(), id = 'side-task'
+  f.context.streams[id] = { ...live('side-turn'), historySource: 'ephemeral' }
+  f.context.readRuntime = async () => ({ workingSessionIds: [id] })
+  f.actions.setSessionRunning(id, true)
+  for (let index = 0; index < 3; index++) await f.actions.auditSessionRuntimeState()
+  expect(f.context.runningSessions.has(id)).toBe(true)
+  expect(f.context.streams[id]?.running).toBe(true)
+  expect(f.context.streams[id]?.activeTurnId).toBe('side-turn')
+  expect(f.context.sessionRuntimeIdleObservations.size).toBe(0)
+  expect(f.calls.catalog).toBe(0)
 })
 
 test('unchanged runtime snapshots preserve the catalog and skip sidebar rendering', async () => {

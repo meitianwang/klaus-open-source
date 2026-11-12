@@ -1504,7 +1504,8 @@ async function auditSessionRuntimeState() {
     if (statusChanged) renderSessionList()
     // A missed start can reveal a conversation created outside this renderer.
     // Discover its metadata once; ordinary status recovery never scans storage.
-    if (snapshot.some(row => row.isWorking && !sessions.some(known => known.id === row.id))) void updateSessionInList()
+    if (snapshot.some(row => row.isWorking && getSessionStream(row.id).historySource !== 'ephemeral'
+      && !sessions.some(known => known.id === row.id))) void updateSessionInList()
   } catch {
     // A failed audit is not evidence that a Turn ended. The next interval retries.
   } finally {

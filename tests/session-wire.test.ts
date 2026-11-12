@@ -842,9 +842,13 @@ const runtimeStateVector = JSON.parse(readFileSync(vectorPath('session-runtime-s
 
 h.test('runtime state reads only the host registry and filters hidden conversations', async () => {
   const root = freshRoot(), client = new FakeClient();
+  kvSet('klaus.sideTasks.registry', JSON.stringify([{ id: 'side-task', parentSessionId: 'running-chat',
+    title: 'Side task', createdAt: 1, updatedAt: 1, phase: 'active', initialTitleIndex: 1 }]), root);
   const { service, state } = serviceWith(client, root, undefined, {
     isPrivateThread: id => runtimeStateVector.excludedSessionIds.includes(id),
   });
+  assertEqual(service.isSideTask('side-task'), true, 'the test owns a real side-task registry entry');
+  assertEqual(service.isCatalogVisible('side-task'), false, 'side conversations stay out of the ordinary catalog');
   for (const id of [...runtimeStateVector.workingSessionIds, ...runtimeStateVector.excludedSessionIds, '__internal']) state.markTurnRunning(id);
   const registry = new ChannelRegistry();
   registerSessionHandlers(registry, { sessions: service, state, events: {} as SessionEventPump,

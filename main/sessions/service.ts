@@ -3799,9 +3799,14 @@ export class SessionService {
     this.mentionTitles.set(id, value);
   }
 
+  /** Runtime status includes side conversations even though the catalog omits them. */
+  isRuntimeVisible(id: string): boolean {
+    return Boolean(id) && !id.startsWith('__') && !this.deleted.has(id) && !this.deps.isPrivateThread?.(id);
+  }
+
   /** Cached catalog entries recheck current ownership without reading settings.db. */
   isCatalogVisible(id: string): boolean {
-    return Boolean(id) && !id.startsWith('__') && !this.deleted.has(id) && !this.isSideTask(id) && !this.deps.isPrivateThread?.(id);
+    return this.isRuntimeVisible(id) && !this.isSideTask(id);
   }
 
   /** A targeted catalog refresh never opens a transcript or enumerates other tasks. */

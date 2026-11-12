@@ -117,6 +117,8 @@ export function createSidePaneComposerFixture() {
     requestTurnStop: (id: string) => calls.stops.push(id), requestTurnContinue: (id: string) => calls.submissions.push({ id, payload: [] }),
     sessionContinueMode: () => false, clientQueueFor: () => [], editedQueueReinsertBySession: new Map(),
     getSessionStream: () => ({}), prepareEphemeralSessionStream() {}, retireSessionStream() {}, findKnownSession: () => undefined,
+    reviveSessionStream: () => false, loadSessionHistory: async () => {},
+    persistSideDraft() {}, persistedSideDraft: () => null,
     createChatSurface: (options: any) => ({ messagesEl: options.messagesEl, sessionId: options.getSessionId() }),
     captureTranscriptViewport() {}, activateTranscriptViewport() {}, transcriptViewportState: () => ({ distanceFromBottomPx: 0 }),
     mountReactTranscript: (id: string, element: any) => { element.textContent = `Transcript ${id}`; calls.transcriptMounts.push(id) },

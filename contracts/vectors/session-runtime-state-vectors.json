@@ -1,8 +1,8 @@
 {
-  "reason": "Runtime recovery reads the host working registry without enumerating stored conversations. Concurrent catalog readers share one complete scan per scope.",
+  "reason": "Runtime recovery includes ordinary and side conversations from the host working registry without enumerating storage. Catalog visibility must not turn an active side conversation into a false idle verdict. Private and internal sessions remain excluded.",
   "channel": "session:runtime-state",
-  "workingSessionIds": ["running-chat", "background-chat"],
-  "excludedSessionIds": ["private-chat", "side-task"],
+  "workingSessionIds": ["running-chat", "background-chat", "side-task"],
+  "excludedSessionIds": ["private-chat"],
   "idleConfirmations": 2,
   "historicalRows": 5000,
   "expectedCatalogReadsDuringAudit": 0,
