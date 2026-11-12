@@ -268,7 +268,18 @@ void (async () => {
       // plaza is a capability the agent may drive, not owner-only UI. There is
       // deliberately no plaza uninstall: an installed agent is an ordinary user
       // file, so removal stays `delete` and there is one trash behaviour.
-      assert.equal(channels.size, 760);
+      // 761 adds `onboardingGuide:snapshot`, the upgrade guide's renderer
+      // read: the guide's content and visibility are decided owner-side, so it
+      // joins CONTROL_EXCLUSIONS. The same reconciliation backfills explicit
+      // exclusions for the channel families that had accumulated in the
+      // regenerated table without a disposition: the PPT and video-editing
+      // panel transports (agents drive those documents through the plugins'
+      // own tools, so none of them is a second door into a control
+      // capability), the browser annotation overlay, the browser settings tab
+      // (passwords and autofill included) and the two renderer session reads.
+      // No channel changes its actual reachability; the coverage loop below
+      // just gets the disposition it has always required.
+      assert.equal(channels.size, 761);
       const companionChannels = [...channels].filter(channel => channel.startsWith('desktop-pet:'));
       assert.equal(companionChannels.length, 58);
       for (const channel of companionChannels) {
@@ -578,6 +589,32 @@ void (async () => {
         'no confirm gate on a feature toggle');
       const dispatched = f.calls.find(call => call.payload.key === 'thread_tools.enabled');
       assert.ok(dispatched, 'the set routed to the row threadToolsEnabled reads');
+      assert.equal(dispatched!.payload.value, 'off');
+      assert.equal(dispatched!.channel, 'settings:kv:set');
+    });
+    await h.test('the friends switch defaults on, needs no agreement, and reports when it takes effect', async () => {
+      const pref = PREFERENCES.find(entry => entry.name === 'friends');
+      assert.ok(pref, 'the preference is registered');
+      assert.equal(pref!.row, 'friends.enabled', 'the row the host reads through friendsEnabled');
+      // Default ON: friend tools shipped unconditionally registered, so an
+      // absent row must keep the released behavior. Turning it OFF withdraws
+      // the family and declines inbound friend traffic.
+      assert.equal(pref!.unset, 'on');
+      assert.equal(pref!.values.kind, 'switch');
+      // Tool specs are injected at session start, so the effect timing matches
+      // the thread-tools switch rather than the generic next-turn wording.
+      const wording = takesEffect(pref!.row);
+      assert.match(wording, /New conversations/i);
+      assert.match(wording, /already-open ones keep the tools/);
+      assert.equal(normalizePreference(pref!, 'on'), 'on');
+      assert.equal(normalizePreference(pref!, 'off'), 'off');
+      assert.throws(() => normalizePreference(pref!, 'maybe'), /friends accepts/);
+
+      const f = fixture();
+      assert.equal(object(await f.action('preference', 'set', { name: 'friends', value: 'off' })).success, true,
+        'no confirm gate on a feature toggle');
+      const dispatched = f.calls.find(call => call.payload.key === 'friends.enabled');
+      assert.ok(dispatched, 'the set routed to the row friendsEnabled reads');
       assert.equal(dispatched!.payload.value, 'off');
       assert.equal(dispatched!.channel, 'settings:kv:set');
     });

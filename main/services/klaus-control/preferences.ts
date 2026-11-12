@@ -38,6 +38,7 @@ export const PREFERENCES: Preference[] = [
   pref('budgetUsd', 'klaus.engine.maxBudgetUsd', { kind: 'amount' }, 'no ceiling', 'no settings page', 'The session spending ceiling in US dollars.'),
   pref('checkpoints', 'klaus.checkpointing', switchValue, 'off', 'no settings page', 'Record automatic workspace checkpoints.'),
   pref('threadTools', 'thread_tools.enabled', switchValue, 'on', 'no settings page', 'Let a conversation list, read, create, fork, wait on and message other conversations.'),
+  pref('friends', 'friends.enabled', switchValue, 'on', 'friends settings page', 'Let conversations list, message and reply to Klaus friends and run the tasks friends send. Turning it off withdraws the friend tools and the friend context note and declines inbound friend traffic.'),
 ];
 function onOff(raw: string): boolean | undefined {
   if (['on', '1', 'true', 'yes', 'enable', 'enabled'].includes(raw.toLowerCase())) return true;
@@ -83,6 +84,6 @@ export function takesEffect(row: string): string {
   // keeps the specs it was given; the change reaches the NEXT conversation. This
   // is deliberately not the `klaus.*` "next turn" wording, which would be false
   // for tools that are registered once per conversation, not re-read per turn.
-  if (row === 'thread_tools.enabled') return 'New conversations pick this up; already-open ones keep the tools they started with.';
+  if (row === 'thread_tools.enabled' || row === 'friends.enabled') return 'New conversations pick this up; already-open ones keep the tools they started with.';
   return 'This applies the next time the feature runs.';
 }

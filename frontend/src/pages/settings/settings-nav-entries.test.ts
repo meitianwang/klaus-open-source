@@ -95,7 +95,14 @@ describe('settings nav platform trimming', () => {
   })
 
   test('changes nothing else off macOS', () => {
-    expect(stabs(false)).toEqual(stabs(true).filter(stab => stab !== 'systemAuth'))
+    // The mac-only set is derived from NAV_ENTRIES and pinned explicitly: today
+    // it is systemAuth (per-app TCC grants exist only on macOS) and
+    // computerHistory (the local observation timeline ships macOS-only). A new
+    // mac-only entry must update this pin deliberately, and everything else on
+    // the two platforms must stay identical.
+    const macOnly = new Set(NAV_ENTRIES.filter(entry => entry.kind === 'tab' && entry.macOnly === true).map(entry => entry.stab))
+    expect(macOnly).toEqual(new Set(['systemAuth', 'computerHistory']))
+    expect(stabs(false)).toEqual(stabs(true).filter(stab => !macOnly.has(stab)))
   })
 
   test('never leaves a group header without a tab under it', () => {

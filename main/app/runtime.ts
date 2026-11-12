@@ -100,8 +100,8 @@ import { IpcRouter } from '../ipc/router';
 import { PushBroadcaster, RendererReadyLatch, pushEventName, pushPayload } from '../ipc/push';
 import { HOST_CHANNELS, WindowRoleRegistry, WebContentsPushTransport, handleWindowOp, attributeCaller, type WindowOp } from '../ipc/binding';
 import { acquireRuntimeInvoke } from '../ipc/runtime-dispatcher';
-import { FriendsService, FRIEND_TOOL_SPECS, FRIEND_TASK_ONLY_TOOL_NAMES, FRIEND_OWNER_WAIT_MS } from '../services/friends';
-import { friendSessionScope, forgetFriendSession } from '../services/friend-session-scope';
+import { FriendsService, FRIEND_TOOL_SPECS, FRIEND_TASK_ONLY_TOOL_NAMES, FRIEND_OWNER_WAIT_MS, withFriendToolsGate } from '../services/friends';
+import { friendSessionScope, forgetFriendSession, friendsEnabled } from '../services/friend-session-scope';
 import { registerFriendsHandlers } from '../ipc/handlers/friends';
 import { registerSessionHandlers } from '../ipc/handlers/sessions';
 import { registerSessionQueryHandlers } from '../ipc/handlers/session-queries';
@@ -786,10 +786,14 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
       const remoteScoped = rendererId ? workspaces.remoteBinding(rendererId) : null;
       const scoped = gated.filter(spec => string(object(spec)?.name).startsWith('remote_') === (remoteScoped !== null));
       // Friend conversations use the ordinary host tool catalog. Only their
-      // task-only reply and access-request tools are added to it.
-      return rendererId && friendSessionScope(configRoot, rendererId)
+      // task-only reply and access-request tools are added to it. The friends
+      // feature switch withdraws the whole family from every catalog; like the
+      // gates above it is read per session init, and FriendsService also guards
+      // at execution time for conversations already open.
+      const friendScoped = rendererId && friendSessionScope(configRoot, rendererId)
         ? scoped
         : scoped.filter(spec => !FRIEND_TASK_ONLY_TOOL_NAMES.has(string(object(spec)?.name)));
+      return withFriendToolsGate(friendScoped, friendsEnabled(configRoot));
     },
     productContextNote: rendererId => [productContextNote(), runningSummaryContextNote(runningSummaryAvailable(desktopPet?.snapshot())),
       !workspaces.remoteBinding(rendererId) ? workspaceDependencyNote() : '',

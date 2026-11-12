@@ -1,9 +1,32 @@
 import { presetRuntimePolicy, type RuntimePolicy } from '../../contracts/runtime-settings';
-import { withSettingsDb, withSettingsTransaction } from './settings';
+import { configRootFrom } from './config-root';
+import { isFailure, kvGet, withSettingsDb, withSettingsTransaction } from './settings';
 import type { DatabaseSync } from 'node:sqlite';
-import { friendExecutionPreset, type FriendExecutionPreset, type FriendTaskGrant } from '../../shared/friends';
+import { friendExecutionPreset, FRIENDS_ENABLED_KEY, type FriendExecutionPreset, type FriendTaskGrant } from '../../shared/friends';
 import { forgetFriendConversationGroupIn } from './friend-conversation-groups';
 import { sessionRuntimePolicy } from './session-store';
+
+/** Settings row backing {@link friendsEnabled}; defined in shared so the settings UI reads the same constant. */
+export { FRIENDS_ENABLED_KEY };
+
+/**
+ * Whether the friends feature is on: the friend tool family, the per-turn
+ * friend context note, friend task conversations and inbound friend traffic
+ * all read this one row.
+ *
+ * Default ON — the friend tools shipped unconditionally registered, so an
+ * absent row must keep the released behavior. Turning it OFF withdraws the
+ * whole family from the NEXT conversation's tool catalog, refuses calls in
+ * already-open conversations, stops the per-turn friend note, and declines
+ * inbound friend messages, so no friend-related prompt reaches the model.
+ * Read from the host's own settings row, like `thread_tools.enabled`.
+ */
+export function friendsEnabled(configRoot: string = configRootFrom()): boolean {
+  const value = kvGet(FRIENDS_ENABLED_KEY, configRoot);
+  const raw = value === null || isFailure(value) ? undefined : value.trim().toLowerCase();
+  if (raw === undefined || raw === '') return true;
+  return !['off', '0', 'false', 'no', 'disable', 'disabled'].includes(raw);
+}
 
 export interface FriendSessionScope {
   accountId: string; friendshipId: string; friendUserId: string;

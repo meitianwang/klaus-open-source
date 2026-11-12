@@ -5,11 +5,11 @@ import { join } from 'node:path';
 import type { Json } from '../main/ipc/contract';
 import { IpcHandlerError } from '../main/ipc/registry';
 import { MobileError } from '../main/services/mobile/protocol';
-import { FriendsService, FRIEND_TOOL_SPECS, type FriendsDeps } from '../main/services/friends';
+import { FriendsService, FRIEND_TOOL_SPECS, FRIEND_TOOL_NAMES, withFriendToolsGate, type FriendsDeps } from '../main/services/friends';
 import { FriendMessageStore } from '../main/services/friend-message-store';
 import { FriendTaskStore } from '../main/services/friend-task-store';
 import { WorkspaceStore } from '../main/services/workspaces';
-import { bindFriendSession, friendConversationGrant, friendSessionScope, deactivateAllFriendSessions } from '../main/services/friend-session-scope';
+import { bindFriendSession, friendConversationGrant, friendSessionScope, deactivateAllFriendSessions, friendsEnabled, FRIENDS_ENABLED_KEY } from '../main/services/friend-session-scope';
 import { validateFriendGrant, revalidateFriendGrant } from '../main/services/friend-grants';
 import { parseDeepLink } from '../main/app/deep-links';
 import { FRIEND_LOCAL_ASSIST_KEY, parseFriendInvite, type FriendMessage, FriendSummary, FriendTaskGrant, FriendTaskStatus, FriendExecutionTargets } from '../shared/friends';
@@ -1565,5 +1565,35 @@ h.test('direct friend references bypass legacy local assistance preferences',asy
     assert.equal(await f.service.dispatchComposer(text,metadata,'original-local-thread'),true);assert.equal(f.turns.length,0);
     assert.equal(f.calls.find(row=>row.body.type==='send')!.body.prompt,'Please review');
   }finally{await f.close();}
+});
+h.test('the friends.enabled switch withdraws tools, the per-turn note and inbound traffic', async () => {
+  const f = fixture(); try {
+    // Absent row keeps the released behavior: the family is complete.
+    assert.equal(friendsEnabled(f.root), true);
+    assert.equal(withFriendToolsGate(FRIEND_TOOL_SPECS, true).length, FRIEND_TOOL_SPECS.length);
+    assert.equal(FRIEND_TOOL_NAMES.size, FRIEND_TOOL_SPECS.length, 'the gate covers every spec in the family');
+
+    kvSet(FRIENDS_ENABLED_KEY, 'off', f.root);
+    assert.equal(friendsEnabled(f.root), false);
+    // Tool catalog: the whole family is withheld by name, foreign tools untouched.
+    const gated = withFriendToolsGate([...FRIEND_TOOL_SPECS, { name: 'web_search' } as unknown as Json], false);
+    assert.deepEqual(gated.map(spec => String(object(spec).name)), ['web_search']);
+    // Already-open conversations keep their specs but every call is refused.
+    const refused = await f.tool('any-session', 'list_friends', {}) as JsonObject;
+    assert.equal(refused.success, false);
+    assert.match(String(object((refused.contentItems as Json[])[0]).text), /friends feature off/u);
+    // The per-turn friend note stops immediately.
+    assert.equal(await f.service.composerContext('hi', {}, 'any-session'), '');
+    // Inbound friend traffic is declined without opening a conversation.
+    await assert.rejects(f.service.receive(f.incoming(), freshSignal()), /friends feature is turned off/u);
+    assert.equal(f.created.length, 0, 'a declined request parks no conversation');
+    // Owner composer sends that carry a friend reference are declined too.
+    const mention = '@friend-' + vector.friendId;
+    const metadata: JsonObject = { displayText: mention + ' Please review', friendIntent: 'request', composerReferences: [{ kind: 'friend', id: vector.friendId, value: mention, range: { start: 0, end: mention.length } }] };
+    await assert.rejects(f.service.dispatchComposer(mention + ' Please review', metadata, 'any-session'), /friends feature is turned off/u);
+
+    kvSet(FRIENDS_ENABLED_KEY, 'on', f.root);
+    assert.equal(friendsEnabled(f.root), true);
+  } finally { await f.close(); }
 });
 void h.finish(join(__dirname, 'friends-result.json'), 'friends').then(code => { clearTimeout(deadline); process.exitCode = code; });

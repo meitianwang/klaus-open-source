@@ -347,10 +347,19 @@ describe('browser settings React lifecycle', () => {
     expect(confirm.disabled).toBe(true)
     const input = dialog.querySelector('input') as any
     await act(async () => {
+      // The full browser typing sequence (focus, key, native value write,
+      // input + change, key up) — the same simulation setInputValue uses in
+      // browser-data-settings.test.tsx. The bare input event alone does not
+      // reliably reach React's onChange under happy-dom.
+      input.focus?.()
+      input.dispatchEvent(new happyWindow.Event('focusin', { bubbles: true }))
+      input.dispatchEvent(new happyWindow.KeyboardEvent('keydown', { key: 'a', bubbles: true }))
       const setter = Object.getOwnPropertyDescriptor(happyWindow.HTMLInputElement.prototype, 'value')?.set
       if (setter) setter.call(input, 'example.com')
       else input.value = 'example.com'
       input.dispatchEvent(new happyWindow.InputEvent('input', { bubbles: true, data: 'example.com', inputType: 'insertText' }))
+      input.dispatchEvent(new happyWindow.Event('change', { bubbles: true }))
+      input.dispatchEvent(new happyWindow.KeyboardEvent('keyup', { key: 'a', bubbles: true }))
     })
     expect(confirm.disabled).toBe(false)
     await choose('browser-site-rule-browsing', 'allow')

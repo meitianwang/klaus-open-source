@@ -8,7 +8,7 @@ import { FRIEND_ID_PATTERN, type FriendReplyStatus, friendMentionValue, parseFri
   type FriendTaskGrant, type FriendsRuntimeSnapshot, type FriendReceiverSnapshot, type FriendAppsSnapshot, type FriendExecutionTargets, type FriendReceiveReceipt,
   type FriendAccessRequest } from '../../shared/friends';
 import { qrPngDataUrl } from './channels/qr-code';
-import { friendSessionScope, friendConversationGrant, friendConversationDeclined, declineFriendConversation, bindFriendSession, deactivateAllFriendSessions, deactivateFriendSession } from './friend-session-scope';
+import { friendSessionScope, friendConversationGrant, friendConversationDeclined, declineFriendConversation, bindFriendSession, deactivateAllFriendSessions, deactivateFriendSession, friendsEnabled } from './friend-session-scope';
 import { kvGet, withSettingsDb, withSettingsTransaction } from './settings';
 import { FriendTaskStore, type StoredFriendTask } from './friend-task-store';
 import { ensureFriendFilesDir, friendFilesRoot } from './friend-directory';
@@ -176,6 +176,8 @@ export class FriendsService {
     if (account) for (const task of this.tasks.list(account.userId)) if (task.replyError && !PERMANENT_REPLY_FAILURE.test(task.replyError)) this.armReplyRetry(task, 0);
     this.messages = new FriendMessageStore(deps.configRoot);
     this.inboxTimer = setInterval(() => {
+      // The friends switch pauses every background drain; queued state resumes when it returns.
+      if (!friendsEnabled(this.deps.configRoot)) return;
       void this.syncInbox(); void this.drainFollowUps(); void this.drainSupplements(); void this.flushReplyOutbox(); void this.drainApprovedRequests();
       const account = this.deps.account(); if (account) this.resumeAutoHandoffs(account.userId);
     }, 5000);
@@ -1437,6 +1439,7 @@ export class FriendsService {
       found.add(friendId);ranges.push({start:Number(range.start),end:Number(range.end)});
     }
     if(!found.size)return {handled:false,accepted:false};
+    if(!friendsEnabled(this.deps.configRoot))failure('FRIENDS_DISABLED','The friends feature is turned off on this computer');
     if(!accountId)failure('ACCOUNT_REQUIRED','Sign in to send a friend message');
     await this.deps.sessions.threadRow(sessionId);
     if(this.deps.account()?.userId!==accountId)failure('ACCOUNT_CHANGED','The signed-in account changed');
@@ -1485,6 +1488,7 @@ export class FriendsService {
   /** Model-facing context appended to every turn of a conversation with friend
    *  traffic: the friend rules and the collaborations still open in it. */
   async composerContext(_text:string,_metadata:JsonObject,sessionId:string):Promise<string>{
+    if (!friendsEnabled(this.deps.configRoot)) return '';
     const scope=friendSessionScope(this.deps.configRoot,sessionId);
     if(scope&&scope.accountId!==this.deps.account()?.userId)failure('ACCOUNT_CHANGED','The friend conversation belongs to another account');
     const account=this.deps.account();
@@ -1516,6 +1520,7 @@ export class FriendsService {
     return work;
   }
   private async receiveNow(message: FriendMessage, context: Context): Promise<FriendReceiveReceipt> {
+    if (!friendsEnabled(this.deps.configRoot)) failure('FRIENDS_DISABLED', 'The friends feature is turned off on this computer');
     if (message.protocolVersion !== 3 || !['task', 'reply', 'cancel'].includes(message.kind)) failure('FRIEND_PROTOCOL_UNSUPPORTED', 'Update both computers to use the current friend messaging protocol');
     if (message.kind === 'task' && !['request','notice'].includes(message.intent ?? '')) failure('FRIEND_PROTOCOL_UNSUPPORTED', 'A friend message needs an explicit purpose');
     id(message.requestId, 'requestId'); id(message.friendshipId, 'friendshipId'); id(message.senderUserId, 'senderUserId');
@@ -1752,6 +1757,9 @@ export class FriendsService {
 
   async execute(name: string, args: JsonObject, context: ThreadToolContext & { toolCallId?: string }, requestId?: string): Promise<Json> {
     context.assertCurrent();
+    if (!friendsEnabled(this.deps.configRoot)) {
+      return toolText('Friend tools are disabled for this app. The user turned the friends feature off, so no friend can be listed, messaged or replied to until they turn it back on.', false);
+    }
     if (name === 'list_friends') {
       const snapshot = await this.list(context.signal), scope = friendSessionScope(this.deps.configRoot, context.sessionId);
       if (scope && scope.accountId !== snapshot.selfUserId) failure('ACCOUNT_CHANGED', 'The friend conversation belongs to another account');
@@ -2088,3 +2096,17 @@ export const FRIEND_TOOL_SPECS: JsonObject[] = [
 ];
 /** Tools that only make sense inside a scoped friend task; ordinary conversations never see them. */
 export const FRIEND_TASK_ONLY_TOOL_NAMES: ReadonlySet<string> = new Set(['ask_friend_for_information', 'request_directory_access']);
+/** Every tool name in the friend family, built from the specs so additions are covered automatically. */
+export const FRIEND_TOOL_NAMES: ReadonlySet<string> = new Set(FRIEND_TOOL_SPECS.map(spec => String(spec.name)));
+
+/**
+ * The `friends.enabled` feature gate: when off, the whole friend family is
+ * withheld from a session's tool catalog. Already-open sessions keep the specs
+ * they were given — {@link FriendsService.execute} refuses the calls, the same
+ * two-layer shape the conversation-tools gate uses. Filters by NAME, so
+ * non-family tools are untouched.
+ */
+export function withFriendToolsGate(definitions: Json[], enabled: boolean): Json[] {
+  if (enabled) return definitions;
+  return definitions.filter(spec => !FRIEND_TOOL_NAMES.has(String(object(spec).name ?? '')));
+}

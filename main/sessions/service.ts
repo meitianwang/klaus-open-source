@@ -27,7 +27,7 @@ import { recoveryWait } from './recovery-wait';
 import { queryPrediction } from './prediction-query';
 import { initialDelegationMetadata } from '../../contracts/thread-delegation';
 import type { PredictionContext } from '../services/composer-predictions';
-import { friendPolicySeed, friendConversationGrant, bindFriendSession, deactivateFriendSession, friendSessionScope, friendSessionScopes, type FriendSessionScope } from '../services/friend-session-scope';
+import { friendPolicySeed, friendConversationGrant, bindFriendSession, deactivateFriendSession, friendSessionScope, friendSessionScopes, friendsEnabled, type FriendSessionScope } from '../services/friend-session-scope';
 import { bindFriendConversationGroup, friendConversationGroups, type FriendConversationGroup } from '../services/friend-conversation-groups';
 import type { FriendContinuationAssociation } from '../services/friend-message-store';
 import { friendFilesRoots } from '../services/friend-directory';
@@ -1877,7 +1877,7 @@ export class SessionService {
       if (typeof styles.selectedOutputStyle === 'string') built.init.selectedOutputStyle = styles.selectedOutputStyle;
     }
     if (built.ok) applySessionAgent(built.init, sessionAgent(this.configRoot, options.rendererId));
-    if (built.ok && friendSessionScope(this.configRoot, options.rendererId)) {
+    if (built.ok && friendsEnabled(this.configRoot) && friendSessionScope(this.configRoot, options.rendererId)) {
       const grant = scoped?.active === true ? scoped.grant : undefined;
       // A friend conversation uses the ordinary sandbox and permission path.
       // Its shared folder and owner-granted writable directories are the initial
