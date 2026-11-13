@@ -1,5 +1,5 @@
 /** Native request Fast preferences are independent for each model source. */
-export const REQUEST_FAST_SOURCES = ['codex', 'subscription', 'qoder', 'qoderwork'] as const;
+export const REQUEST_FAST_SOURCES = ['codex', 'subscription', 'qoder'] as const;
 export type RequestFastSource = typeof REQUEST_FAST_SOURCES[number];
 export interface FastModeMetadata {
   supportsFastMode?: boolean;

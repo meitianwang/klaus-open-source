@@ -1551,14 +1551,6 @@ expose('klaus', {
     importLocal: () => call('qwenwork-auth:import-local'),
     models: () => call('qwenwork-auth:models'),
   },
-  qoderworkAuth: {
-    status: () => call('qoderwork-auth:status'),
-    start: () => call('qoderwork-auth:start'),
-    poll: (flowId: string) => call('qoderwork-auth:poll', { flowId }),
-    logout: () => call('qoderwork-auth:logout'),
-    importLocal: () => call('qoderwork-auth:import-local'),
-    models: () => call('qoderwork-auth:models'),
-  },
 
   // Auth (WorkBuddy subscription). The engine owns the external-link login and the
   // catalog; the shell only opens the returned browser URL. Importing reuses a

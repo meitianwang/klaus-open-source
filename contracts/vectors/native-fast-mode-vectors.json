@@ -20,14 +20,6 @@
       "supported": false
     },
     {
-      "source": "qoderwork",
-      "supported": true
-    },
-    {
-      "source": "qoderwork",
-      "supported": false
-    },
-    {
       "name": "qoder raw feature_switches declares a reversible native Fast switch",
       "source": "qoder",
       "supported": true,
@@ -64,57 +56,6 @@
     {
       "name": "qoder raw function_switches declares a reversible native Fast switch",
       "source": "qoder",
-      "supported": true,
-      "metadata": {
-        "function_switches": [
-          {
-            "key": "highspeed",
-            "type": "bool",
-            "options": [
-              "false",
-              "true"
-            ]
-          }
-        ]
-      }
-    },
-    {
-      "name": "qoderwork raw feature_switches declares a reversible native Fast switch",
-      "source": "qoderwork",
-      "supported": true,
-      "metadata": {
-        "feature_switches": [
-          {
-            "key": "highspeed",
-            "type": "bool",
-            "options": [
-              "false",
-              "true"
-            ]
-          }
-        ]
-      }
-    },
-    {
-      "name": "qoderwork raw functionSwitches declares a reversible native Fast switch",
-      "source": "qoderwork",
-      "supported": true,
-      "metadata": {
-        "functionSwitches": [
-          {
-            "key": "highspeed",
-            "type": "bool",
-            "options": [
-              "false",
-              "true"
-            ]
-          }
-        ]
-      }
-    },
-    {
-      "name": "qoderwork raw function_switches declares a reversible native Fast switch",
-      "source": "qoderwork",
       "supported": true,
       "metadata": {
         "function_switches": [
@@ -175,53 +116,6 @@
             "options": [
               "true"
             ]
-          }
-        ]
-      }
-    },
-    {
-      "name": "qoderwork boolean option values cannot enable Fast",
-      "source": "qoderwork",
-      "supported": false,
-      "metadata": {
-        "feature_switches": [
-          {
-            "key": "highspeed",
-            "type": "bool",
-            "options": [
-              true,
-              false
-            ]
-          }
-        ]
-      }
-    },
-    {
-      "name": "qoderwork a string option list cannot enable Fast",
-      "source": "qoderwork",
-      "supported": false,
-      "metadata": {
-        "functionSwitches": [
-          {
-            "key": "highspeed",
-            "type": "bool",
-            "options": "true,false"
-          }
-        ]
-      }
-    },
-    {
-      "name": "qoderwork malformed switch values cannot enable Fast",
-      "source": "qoderwork",
-      "supported": false,
-      "metadata": {
-        "function_switches": [
-          null,
-          "highspeed",
-          {
-            "key": "highspeed",
-            "type": "bool",
-            "options": []
           }
         ]
       }

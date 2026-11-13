@@ -34,7 +34,7 @@ async function resolveMainProvider(sessionId: string, deps: SessionProviderDeps)
       pinSessionModel(root, sessionId, selection);
       saved.mode = selection;
     }
-    if (saved.source === 'qoder' || saved.source === 'qwenwork' || saved.source === 'qoderwork') {
+    if (saved.source === 'qoder' || saved.source === 'qwenwork') {
       // This provider takes the reasoning level as side-channel state, so it has to
       // be pushed per conversation. Reading the global default here would push one
       // conversation's pick into another's provider session.

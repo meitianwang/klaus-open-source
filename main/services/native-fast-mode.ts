@@ -13,7 +13,7 @@ function hasNativeFastSwitch(entry: JsonObject): boolean {
 /** Eligibility is supplied by the selected model's engine catalog entry. */
 export function nativeFastModeMetadata(entry: JsonObject, source: string): FastModeMetadata {
   const supported = entry.fastMode === true || object(entry.capabilities).fastMode === true
-    || ((source === 'qoder' || source === 'qoderwork') && hasNativeFastSwitch(entry));
+    || (source === 'qoder' && hasNativeFastSwitch(entry));
   return { supportsFastMode: supported,
     ...(supported && entry.fastBilling === 'extraCredits' ? { fastBilling: 'extraCredits' } : {}) };
 }

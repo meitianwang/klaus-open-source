@@ -397,7 +397,7 @@ export const CONTROL_SURFACES: ControlSurface[] = [
       {
         "action": "setMainModel",
         "channel": "session:set-main-model",
-        "args": "{ mode: string (an id from mainModelOptions, or 'auto'), source?: 'custom'|'codex'|'cursor'|'subscription'|'qoder'|'qwenwork'|'qoderwork'|'workbuddy'|'antigravity'|'trae'|'kiro'|'kimi'|'bailian'|'minimax'|'zhipu'|'ark', sessionId?: string } — changes the model and source of one conversation atomically and updates the default for future conversations; omit sessionId to change only that default",
+        "args": "{ mode: string (an id from mainModelOptions, or 'auto'), source?: 'custom'|'codex'|'cursor'|'subscription'|'qoder'|'qwenwork'|'workbuddy'|'antigravity'|'trae'|'kiro'|'kimi'|'bailian'|'minimax'|'zhipu'|'ark', sessionId?: string } — changes the model and source of one conversation atomically and updates the default for future conversations; omit sessionId to change only that default",
         "confirm": false,
         "currentSession": true
       },
@@ -2134,7 +2134,7 @@ export const CONTROL_SURFACES: ControlSurface[] = [
   },
   {
     "key": "imageSelection",
-    "about": "The global image backend for generate_image in every chat (Settings → Multimodal Models → image model): a signed-in subscription's own image API (Codex, Cursor, Qoder, QwenWork, QoderWork, WorkBuddy) or the global custom endpoint (imageGen). Independent of the chat's language source. Qoder and QoderWork are text-to-image only. QwenWork and WorkBuddy support declared native editing models and reference images. The set handler rejects a choice whose sign-in or custom API key is missing; a selected source that later fails returns an error with no fallback to another backend.",
+    "about": "The global image backend for generate_image in every chat (Settings → Multimodal Models → image model): a signed-in subscription's own image API (Codex, Cursor, Qoder, QwenWork, WorkBuddy) or the global custom endpoint (imageGen). Independent of the chat's language source. Qoder is text-to-image only. QwenWork and WorkBuddy support declared native editing models and reference images. The set handler rejects a choice whose sign-in or custom API key is missing; a selected source that later fails returns an error with no fallback to another backend.",
     "reads": [
       {
         "action": "selection",
@@ -2148,7 +2148,7 @@ export const CONTROL_SURFACES: ControlSurface[] = [
       {
         "action": "setSelection",
         "channel": "settings:image-selection:set",
-        "args": "{ selection: 'codex'|'cursor'|'qoder'|'qwenwork'|'qoderwork'|'workbuddy'|'antigravity'|'trae'|'custom', model?: string } — the optional concrete image model is validated and saved atomically with the source; generation and editing use that same model, and editing requires that model to support references",
+        "args": "{ selection: 'codex'|'cursor'|'qoder'|'qwenwork'|'workbuddy'|'antigravity'|'trae'|'custom', model?: string } — the optional concrete image model is validated and saved atomically with the source; generation and editing use that same model, and editing requires that model to support references",
         "confirm": false,
         "currentSession": false
       }
@@ -2750,61 +2750,6 @@ export const CONTROL_SURFACES: ControlSurface[] = [
       {
         "action": "logout",
         "channel": "qwenwork-auth:logout",
-        "args": "",
-        "confirm": true,
-        "currentSession": false
-      }
-    ],
-    "manualHeading": "模型来源",
-    "panel": [
-      "settings",
-      "models"
-    ]
-  },
-  {
-    "key": "qoderworkAuth",
-    "about": "QoderWork subscription sign-in: browser login (start/poll) or adopting the signed-in official client on this computer. A signed-in QoderWork subscription also backs the QoderWork image backend (text-to-image only) and the QoderWork web-search source.",
-    "reads": [
-      {
-        "action": "status",
-        "channel": "qoderwork-auth:status",
-        "args": "",
-        "confirm": false,
-        "currentSession": false
-      },
-      {
-        "action": "models",
-        "channel": "qoderwork-auth:models",
-        "args": "",
-        "confirm": false,
-        "currentSession": false
-      }
-    ],
-    "writes": [
-      {
-        "action": "start",
-        "channel": "qoderwork-auth:start",
-        "args": "",
-        "confirm": false,
-        "currentSession": false
-      },
-      {
-        "action": "poll",
-        "channel": "qoderwork-auth:poll",
-        "args": "{ flowId: string (from qoderworkAuth.start) }",
-        "confirm": false,
-        "currentSession": false
-      },
-      {
-        "action": "importLocal",
-        "channel": "qoderwork-auth:import-local",
-        "args": "",
-        "confirm": false,
-        "currentSession": false
-      },
-      {
-        "action": "logout",
-        "channel": "qoderwork-auth:logout",
         "args": "",
         "confirm": true,
         "currentSession": false
@@ -3435,7 +3380,7 @@ export const CONTROL_SURFACES: ControlSurface[] = [
       {
         "action": "set",
         "channel": "settings:advisor:set",
-        "args": "{ enabled?: boolean (omitted keeps the current flag), model?: string } — model is an explicit source:modelId selection, e.g. 'codex:<modelId>', where source is one of subscription|custom|codex|cursor|qoder|qwenwork|qoderwork|workbuddy|antigravity|trae|kiro|kimi|bailian|minimax|zhipu|ark; an empty string clears the pick. Omitting model preserves the saved pick, including when disabling. Enabling without a saved or supplied model is accepted and stays inert, exactly like a disabled advisor, until a model is chosen. Changes apply on the next turn.",
+        "args": "{ enabled?: boolean (omitted keeps the current flag), model?: string } — model is an explicit source:modelId selection, e.g. 'codex:<modelId>', where source is one of subscription|custom|codex|cursor|qoder|qwenwork|workbuddy|antigravity|trae|kiro|kimi|bailian|minimax|zhipu|ark; an empty string clears the pick. Omitting model preserves the saved pick, including when disabling. Enabling without a saved or supplied model is accepted and stays inert, exactly like a disabled advisor, until a model is chosen. Changes apply on the next turn.",
         "confirm": false,
         "currentSession": false
       }
@@ -3462,7 +3407,7 @@ export const CONTROL_SURFACES: ControlSurface[] = [
       {
         "action": "set",
         "channel": "settings:feature-models:set",
-        "args": "{ title?: string, prediction?: string, memory?: string, voiceRefinement?: string } — a partial patch; each supplied value is '' (follow the chat's main model) or 'source:modelId' where source is one of subscription|custom|codex|cursor|qoder|qwenwork|qoderwork|workbuddy|antigravity|trae|kiro|kimi|bailian|minimax|zhipu|ark and modelId names a model of that source. An invalid reference rejects the whole patch with feature_model_invalid. Changes to title/prediction/memory republish running sessions and apply from the next call; voiceRefinement applies at the next dictation refinement without a republish.",
+        "args": "{ title?: string, prediction?: string, memory?: string, voiceRefinement?: string } — a partial patch; each supplied value is '' (follow the chat's main model) or 'source:modelId' where source is one of subscription|custom|codex|cursor|qoder|qwenwork|workbuddy|antigravity|trae|kiro|kimi|bailian|minimax|zhipu|ark and modelId names a model of that source. An invalid reference rejects the whole patch with feature_model_invalid. Changes to title/prediction/memory republish running sessions and apply from the next call; voiceRefinement applies at the next dictation refinement without a republish.",
         "confirm": false,
         "currentSession": false
       }

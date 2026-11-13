@@ -688,7 +688,6 @@ export class UsageService {
         case 'qoder': provider = qoderUsage(await this.deps.request('qoder/usage', {}, this.abort.signal)); break;
         case 'cursor': provider = cursorUsage(await this.deps.request('cursor/usage', {}, this.abort.signal)); break;
         case 'qwenwork': provider = qoderUsage(await this.qwenworkUsage()); break;
-        case 'qoderwork': provider = qoderUsage(await this.deps.request('qoderwork/usage', {}, this.abort.signal)); break;
         // WorkBuddy's billing answers with the same credit-pool shape, so the one
         // projection serves them all; the engine normalizes its packages and the
         // enterprise `limit_num`/`used_num` pair into that shape.

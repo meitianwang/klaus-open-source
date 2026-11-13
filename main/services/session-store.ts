@@ -9,7 +9,7 @@ import { fastModePreferenceKey, isRequestFastSource } from '../../shared/model-f
 
 export interface SessionModelPreference { mode: string; source: string }
 
-export const MODEL_SOURCES = ['subscription', 'custom', 'codex', 'cursor', 'qoder', 'qwenwork', 'qoderwork', 'workbuddy', 'antigravity', 'trae', 'kiro', 'kimi', 'bailian', 'minimax', 'zhipu', 'ark'];
+export const MODEL_SOURCES = ['subscription', 'custom', 'codex', 'cursor', 'qoder', 'qwenwork', 'workbuddy', 'antigravity', 'trae', 'kiro', 'kimi', 'bailian', 'minimax', 'zhipu', 'ark'];
 
 /**
  * The local reasoning and orchestration choices, kept here rather than in
@@ -233,6 +233,40 @@ function ensureTables(db: DatabaseSync, configRoot: string): void {
       } catch { /* a corrupt row is left for the reader to reject */ }
     }
     put(db, 'migrated.composer_retired_sources_v1', '1');
+  }
+  if (!get(db, 'migrated.composer_retired_sources_v2')) {
+    // The QoderWork subscription source was retired when the service stopped
+    // operating. Rows still naming it would fail every later read once the
+    // source list no longer knows it, so old conversations would throw instead
+    // of opening at "model unavailable". Rewriting them to the remembered
+    // default keeps the conversation openable; the picker then reports the
+    // pick as unavailable.
+    const fallback = authModeIn(db);
+    const staleDefault = get(db, 'composer.main_model');
+    if (typeof staleDefault === 'string' && staleDefault.startsWith('qoderwork:')) {
+      db.prepare('DELETE FROM settings WHERE key = ?').run('composer.main_model');
+    }
+    const storedAuth = get(db, 'auth_mode');
+    if (storedAuth === 'qoderwork') put(db, 'auth_mode', fallback);
+    const defaultMode = get(db, 'composer.main_model') ?? 'auto';
+    const stale = db.prepare("SELECT session_id FROM session_main_models WHERE source = 'qoderwork'").all();
+    const update = db.prepare('UPDATE session_main_models SET mode = ?, source = ?, updated_at = ? WHERE session_id = ?');
+    for (const row of stale) update.run(defaultMode, fallback, Date.now(), String(row.session_id));
+    // Global tier mappings can still reference the retired source; a dangling
+    // reference would fail tier resolution for every conversation.
+    const mappingRaw = get(db, 'model_tiers:global');
+    if (mappingRaw) {
+      try {
+        const mapping: Record<string, unknown> = JSON.parse(mappingRaw);
+        let changed = false;
+        for (const tier of ['high', 'medium', 'low']) {
+          const ref = mapping[tier] as { source?: string } | null | undefined;
+          if (ref && ref.source === 'qoderwork') { mapping[tier] = null; changed = true; }
+        }
+        if (changed) put(db, 'model_tiers:global', JSON.stringify(mapping));
+      } catch { /* a corrupt row is left for the reader to reject */ }
+    }
+    put(db, 'migrated.composer_retired_sources_v2', '1');
   }
   if (!get(db, 'migrated.composer_session_fast_v1')) {
     // Existing conversations start in Standard mode, including unopened history.

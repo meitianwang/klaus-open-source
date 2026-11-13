@@ -46,7 +46,6 @@ export async function mediaFixture(options: { respond?: (request: Request, respo
     subscriptions: { codexAccessToken: async () => undefined },
     qoder: { status: async () => ({ loggedIn: false }), generate: async () => { throw new Error('Fixture has no Qoder account.'); } },
     qwenwork: { status: async () => ({ loggedIn: false }), capabilities: async () => ({}), image: async () => { throw new Error('Fixture has no QwenWork account.'); }, video: async () => { throw new Error('Fixture has no QwenWork account.'); }, audio: async () => { throw new Error('Fixture has no QwenWork account.'); } },
-    qoderwork: { status: async () => ({ loggedIn: false }), generate: async () => { throw new Error('Fixture has no QoderWork account.'); } },
     fetch: async (input, init) => { if (!String(input).startsWith(origin + '/')) throw new Error('Fixture refused a non-loopback request.'); return fetch(input, init); },
     onPublished: (sessionId, paths) => generated.push({ sessionId, paths }), providerOptions: { pollMs: 1, videoPolls: 8 },
     ...options.deps,

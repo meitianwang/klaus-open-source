@@ -151,17 +151,6 @@
       }
     },
     {
-      "name": "explicit qoderwork remains qoderwork on the client wire",
-      "input": {
-        "source": "qoderwork"
-      },
-      "expected": {
-        "source": "qoderwork",
-        "enabled": true,
-        "mode": "client"
-      }
-    },
-    {
       "name": "explicit bailian remains bailian on the client wire",
       "input": {
         "source": "bailian"
@@ -592,21 +581,6 @@
       "enabled": "on"
     },
     {
-      "name": "desktop qoderwork source survives disabled wire mode",
-      "values": {
-        "desktop": {
-          "webSearch": {
-            "source": "qoderwork"
-          }
-        },
-        "webSearch": {
-          "mode": "off"
-        }
-      },
-      "source": "qoderwork",
-      "enabled": "off"
-    },
-    {
       "name": "Cursor search source survives engine config reads",
       "values": {
         "webSearch": {
@@ -918,27 +892,6 @@
         "webSearch": {
           "mode": "client",
           "source": "qoder"
-        }
-      }
-    },
-    {
-      "name": "select qoderwork keeps the client wire and names the source",
-      "initial": {},
-      "writes": [
-        {
-          "key": "klaus.webSearch.source",
-          "value": "qoderwork"
-        }
-      ],
-      "expected": {
-        "desktop": {
-          "webSearch": {
-            "source": "qoderwork"
-          }
-        },
-        "webSearch": {
-          "mode": "client",
-          "source": "qoderwork"
         }
       }
     },

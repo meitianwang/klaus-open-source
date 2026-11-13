@@ -79,7 +79,7 @@ w.KlausRendererProductContracts = { createArchivedLifecycleController: () => ({ 
 w.KlausFollowUp = { normalizeMode: (value: string) => value === 'steer' ? 'steer' : 'queue' }
 const account = { status: () => delayed({ loggedIn: false }) }
 w.klaus = {
-  settings, auth: account, codexAuth: account, qoderAuth: account, qoderworkAuth: account, workbuddyAuth: account, qwenworkAuth: account,
+  settings, auth: account, codexAuth: account, qoderAuth: account, workbuddyAuth: account, qwenworkAuth: account,
   projects: { list: () => delayed({ roots: ['/fixture/project'], labels: {} }) }, workspaces: { list: () => delayed({ workspaces: [] }) }, plugins: { market: () => delayed([]) },
   powerSave: { snapshot: () => delayed(power), subscribe: (listener: any) => { powerListeners.add(listener); return () => powerListeners.delete(listener) } },
   app: { loginItem: { get: () => delayed({ enabled: false }) } }, workspace: { getExcludes: () => delayed({ patterns: workspaceExcludes }), setExcludes: async (patterns: string[]) => { workspaceExcludes = patterns; return { ok: true } } }, composerPredictions: { availability: () => delayed({ available: true }) },
@@ -209,7 +209,7 @@ async function run() {
   const searchValue = () => (find('#klaus-ws-source') as any).__klsSelect.getValue()
   const searchIdle = () => document.querySelector('[data-function-search-source]')?.getAttribute('aria-busy') === 'false'
   find<HTMLButtonElement>('#klaus-ws-source .kls-select-trigger').click()
-  assert([searchValue(), ...Array.from(document.querySelectorAll('#klaus-ws-source [data-value]')).map(item => item.getAttribute('data-value'))].sort().join(',') === ['builtin', 'subscription', 'codex', 'cursor', 'qoder', 'qoderwork', 'qwenwork', 'workbuddy', 'antigravity', 'kimi', 'bailian', 'minimax', 'zhipu'].sort().join(','), 'search lists every verified subscription plus a legacy stored source, independent of credentials')
+  assert([searchValue(), ...Array.from(document.querySelectorAll('#klaus-ws-source [data-value]')).map(item => item.getAttribute('data-value'))].sort().join(',') === ['builtin', 'subscription', 'codex', 'cursor', 'qoder', 'qwenwork', 'workbuddy', 'antigravity', 'kimi', 'bailian', 'minimax', 'zhipu'].sort().join(','), 'search lists every verified subscription plus a legacy stored source, independent of credentials')
   find<HTMLButtonElement>('#klaus-ws-source .kls-select-trigger').click()
   writeDelay = 300
   chooseSearch('codex'); await sleep(30)

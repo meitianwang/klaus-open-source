@@ -17,11 +17,6 @@
       "source": "qwenwork"
     },
     {
-      "sessionId": "existing-qoderwork",
-      "mode": "auto",
-      "source": "qoderwork"
-    },
-    {
       "sessionId": "existing-workbuddy",
       "mode": "auto",
       "source": "workbuddy"
@@ -74,10 +69,6 @@
     {
       "sessionId": "existing-qwenwork",
       "expectedMode": "qwenwork"
-    },
-    {
-      "sessionId": "existing-qoderwork",
-      "expectedMode": "qoderwork"
     },
     {
       "sessionId": "existing-workbuddy",

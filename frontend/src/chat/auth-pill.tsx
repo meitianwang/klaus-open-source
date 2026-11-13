@@ -18,7 +18,7 @@ import { AuthMenuRequests, type AuthMenuState } from './auth-menu-state'
 
 const w = () => window as any
 
-const CHAT_AUTH_MODE_ORDER = ['subscription', 'codex', 'cursor', 'qoder', 'qwenwork', 'qoderwork', 'workbuddy', 'antigravity', 'trae', 'kiro', 'kimi', 'bailian', 'minimax', 'zhipu', 'ark', 'custom']
+const CHAT_AUTH_MODE_ORDER = ['subscription', 'codex', 'cursor', 'qoder', 'qwenwork', 'workbuddy', 'antigravity', 'trae', 'kiro', 'kimi', 'bailian', 'minimax', 'zhipu', 'ark', 'custom']
 
 // Qoder 的官方标志是白绿双色字符，单独拿出来在浅色面上会丢白色部分，
 // 因此沿用官方圆角底板版本（同 kimi 先例）。codex 同为官方位图。
@@ -35,11 +35,6 @@ function AuthModeIcon({ mode }: { mode: string }) {
   }
   if (mode === 'qwenwork') {
     return <span className={`${styles['auth-mode-icon']} auth-mode-icon-qwenwork`} aria-hidden="true"><img src="qwenwork-logo.png" alt="" /></span>
-  }
-  if (mode === 'qoderwork') {
-    // This source's brand mark is a green rounded tile with a white mascot, a
-    // different bitmap from the black tile beside it, so it gets its own asset.
-    return <span className={`${styles['auth-mode-icon']} auth-mode-icon-qoderwork`} aria-hidden="true"><img src="qoderwork-logo.png" alt="" /></span>
   }
   if (mode === 'workbuddy') {
     // Same official mark the external-session importer uses: a rounded tile, so it
@@ -98,7 +93,6 @@ function authModeLabel(mode: string): string {
   if (mode === 'cursor') return tGlobal('auth_cursor')
   if (mode === 'qoder') return tGlobal('auth_qoder')
   if (mode === 'qwenwork') return tGlobal('auth_qwenwork')
-  if (mode === 'qoderwork') return tGlobal('auth_qoderwork')
   if (mode === 'workbuddy') return tGlobal('auth_workbuddy')
   if (mode === 'antigravity') return tGlobal('auth_antigravity')
   if (mode === 'trae') return tGlobal('auth_trae')

@@ -47,7 +47,7 @@ h.test('a provider changed before or during credential access cannot receive the
   await assertRejects(() => access.listModels(cancelled.signal), 'cancelled discovery');
 });
 h.test('OAuth transcription uses named provider methods and a matching cancellation without reading custom credentials', async () => {
-  for (const source of ['claude', 'codex', 'workbuddy', 'qoder', 'qoderwork', 'qwenwork'] as const) {
+  for (const source of ['claude', 'codex', 'workbuddy', 'qoder', 'qwenwork'] as const) {
     const calls: Array<{ method: string; params: Json }> = [];
     let release!: (value: Json) => void;
     const pending = new Promise<Json>(resolve => { release = resolve; });
@@ -118,7 +118,7 @@ h.test('native transcript validation and safe error projection reject transport 
   assertEqual(voiceProviderError('codex', { message: 'codex_transcription_rate_limited' }), 'codex_transcription_rate_limited', 'provider limit stays actionable');
   assertEqual(voiceProviderError('codex', { message: 'codex_transcription_network_challenge' }), 'codex_transcription_network_challenge', 'network challenge remains distinct from account admission');
   assertEqual(voiceProviderError('codex', { message: 'codex_transcription_permission_denied' }), 'codex_transcription_permission_denied', 'account admission retains its safe code');
-  for (const source of ['qoder', 'qoderwork', 'qwenwork'] as const) {
+  for (const source of ['qoder', 'qwenwork'] as const) {
     for (const suffix of ['signed_out', 'not_signed_in', 'transcription_login_expired', 'transcription_authentication_failed']) {
       assertEqual(voiceProviderError(source, { message: `${source}_${suffix}` }), `${source}_transcription_authentication_required`, 'account recovery keeps the selected source');
     }

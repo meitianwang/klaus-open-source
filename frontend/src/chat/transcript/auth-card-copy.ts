@@ -69,15 +69,6 @@ export function authCardCopy(mode?: string, reason?: string): AuthCardCopy {
         action: 'open-settings',
         switchTo: 'subscription',
       }
-    case 'qoderwork':
-      return {
-        titleKey: 'auth_card_qoderwork_title',
-        hintKey: 'auth_card_qoderwork_hint',
-        primaryKey: 'auth_primary_qoderwork',
-        secondaryKey: 'auth_secondary_custom',
-        action: 'open-settings',
-        switchTo: 'subscription',
-      }
     case 'workbuddy':
       return {
         titleKey: 'auth_card_workbuddy_title',

@@ -104,13 +104,6 @@
       "expectedSource": "qwenwork"
     },
     {
-      "name": "QoderWork conversation retains its source",
-      "defaultSource": "qwenwork",
-      "sessionId": "qoderwork-thread",
-      "savedSource": "qoderwork",
-      "expectedSource": "qoderwork"
-    },
-    {
       "name": "WorkBuddy conversation retains its source",
       "defaultSource": "qwenwork",
       "sessionId": "workbuddy-thread",

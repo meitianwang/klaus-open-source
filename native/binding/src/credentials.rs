@@ -174,21 +174,6 @@ impl NativeCredentials {
     }
 
     #[napi]
-    pub fn read_qoderwork_credential<'env>(
-        &self,
-        env: &'env Env,
-        operation_id: String,
-        deadline_ms: u32,
-    ) -> Result<PromiseRaw<'env, String>> {
-        self.submit(
-            env,
-            operation_id,
-            Action::ReadQoderWorkCredential,
-            deadline_ms,
-        )
-    }
-
-    #[napi]
     pub fn read_qwenwork_credential<'env>(
         &self,
         env: &'env Env,

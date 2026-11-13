@@ -123,20 +123,6 @@
     "lateRepliesAreDiscarded": true,
     "remoteCancellation": false
   },
-  "qoderworkRpc": {
-    "reason": "QoderWork signs the same synchronous image route as the rest of its gateway family, so its facade carries the Qoder cancellation contract rather than a submit-then-poll task route.",
-    "status": {
-      "method": "qoderwork/status",
-      "timeoutMs": 15000
-    },
-    "generate": {
-      "method": "qoderwork/generateImage",
-      "timeoutMs": 300000
-    },
-    "cancellationReleasesSession": true,
-    "lateRepliesAreDiscarded": true,
-    "remoteCancellation": false
-  },
   "antigravityImage": {
     "reason": "The account image route uses one concrete model for generation and reference-image edits. Every generated file must pass bounded collection and MIME validation before publication; unsupported output kinds remain excluded.",
     "maximumResults": 8,
@@ -162,7 +148,6 @@
       "cursor",
       "qoder",
       "qwenwork",
-      "qoderwork",
       "workbuddy",
       "antigravity",
       "trae",
@@ -227,7 +212,6 @@
         "subscription",
         "qoder",
         "qwenwork",
-        "qoderwork",
         "workbuddy",
         "codex"
       ],
@@ -237,7 +221,6 @@
         "subscription",
         "qoder",
         "qwenwork",
-        "qoderwork",
         "workbuddy",
         "kimi",
         "bailian"

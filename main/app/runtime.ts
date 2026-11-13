@@ -45,7 +45,6 @@ import { createCursorMediaFacade } from '../services/media-generation/cursor-fac
 import { createQoderMediaFacade } from '../services/media-generation/qoder-facade';
 import { createMinimaxMediaFacade } from '../services/media-generation/minimax-facade';
 import { createBailianMediaFacade } from '../services/media-generation/bailian-facade';
-import { createQoderworkMediaFacade } from '../services/media-generation/qoderwork-facade';
 import { KLAUS_CONTROL_CHANNELS, KlausControlService, productContextNote, registerKlausControlTools } from '../services/klaus-control';
 import { registerChannelHandlers } from '../ipc/handlers/channels';
 import { registerWechatPairingHandlers } from '../ipc/handlers/wechat-pairing';
@@ -685,9 +684,6 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
   // Assigned once the account service exists (it owns the official store's
   // decryption); the pump fires it when a qwenwork turn dies on auth.
   let qwenworkReadopt: (() => Promise<boolean>) | null = null;
-  // The same late binding for QoderWork: the engine can reread the official CLI
-  // cache itself, but only this service can decrypt the desktop app's own store.
-  let qoderworkReadopt: (() => Promise<boolean>) | null = null;
   // The same late binding for WorkBuddy, whose only recovery is also a re-read of
   // the other client's store.
   let workbuddyReadopt: (() => Promise<boolean>) | null = null;
@@ -704,7 +700,6 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
     currentGeneration: () => sessions.engine()?.generation,
     log: (kind, detail) => log.write(kind, detail),
     onQwenWorkAuthFailed: () => qwenworkReadopt?.(),
-    onQoderWorkAuthFailed: () => qoderworkReadopt?.(),
     onWorkBuddyAuthFailed: () => workbuddyReadopt?.(),
     onCursorAuthFailed: () => cursorReadopt?.(),
     // Late interruption confirmations reach this pump after the stop's own deadline gave up;
@@ -2084,14 +2079,12 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
   early.add(() => teamCollaboration?.close());
   teamCollaboration.start();
   qwenworkReadopt = () => account.subscriptions.qwenworkReadopt();
-  qoderworkReadopt = () => account.subscriptions.qoderworkReadopt();
   workbuddyReadopt = () => account.subscriptions.workbuddyReadopt();
   cursorReadopt = () => account.subscriptions.cursorReadopt();
   mediaGeneration = new MediaGenerationService({
     features: new ModelFeatureSettings(configRoot), workspaces,
     subscriptions: account.subscriptions, qoder: createQoderMediaFacade(() => sessions.engine()),
     qwenwork: createQwenworkNativeMediaFacade(() => sessions.engine()),
-    qoderwork: createQoderworkMediaFacade(() => sessions.engine()),
     cursor: createCursorMediaFacade(() => sessions.engine()),
     workbuddy: createWorkbuddyMediaFacade(() => sessions.engine()),
     antigravity: createAntigravityMediaFacade(() => sessions.engine()),

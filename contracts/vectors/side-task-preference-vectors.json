@@ -36,23 +36,6 @@
       "stored": "auto"
     },
     {
-      "name": "auto selection retains the parent's QoderWork source",
-      "parent": {
-        "mode": "auto",
-        "source": "qoderwork",
-        "thinking": "high",
-        "fast": false
-      },
-      "default": {
-        "mode": "qwenwork:fixture",
-        "source": "qwenwork",
-        "thinking": "medium",
-        "fast": false
-      },
-      "resolved": "qoderwork:fixture",
-      "stored": "auto"
-    },
-    {
       "name": "tier selection inherits Codex Fast mode",
       "parent": {
         "mode": "high",

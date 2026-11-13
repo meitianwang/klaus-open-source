@@ -10,7 +10,7 @@ const { values } = parseArgs({ options: {
   engine: { type: 'string' }, account: { type: 'string' }, pcm: { type: 'string' }, output: { type: 'string' }, source: { type: 'string' }, refinement: { type: 'boolean', default: false },
 } });
 for (const key of ['engine', 'account', 'pcm', 'output']) if (!values[key] || !isAbsolute(values[key])) throw new Error(`--${key} requires an explicit absolute path`);
-if (!['antigravity', 'qoder', 'qoderwork', 'qwenwork'].includes(values.source)) throw new Error('--source must select a supported streaming provider');
+if (!['antigravity', 'qoder', 'qwenwork'].includes(values.source)) throw new Error('--source must select a supported streaming provider');
 assertElectronGuiAvailable();
 const desktop = fileURLToPath(new URL('..', import.meta.url));
 const require = createRequire(import.meta.url);

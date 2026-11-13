@@ -7314,7 +7314,7 @@
       "params": {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "title": "QoderParams",
-        "description": "`qoder/*`, `qwenwork/*` and `qoderwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
+        "description": "`qoder/*` and `qwenwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
         "type": "object",
         "properties": {
           "submissionId": {
@@ -7331,7 +7331,7 @@
       "params": {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "title": "QoderParams",
-        "description": "`qoder/*`, `qwenwork/*` and `qoderwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
+        "description": "`qoder/*` and `qwenwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
         "type": "object",
         "properties": {
           "submissionId": {
@@ -7348,7 +7348,7 @@
       "params": {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "title": "QoderPollParams",
-        "description": "`qoder/loginPoll`, `qwenwork/loginPoll` and `qoderwork/loginPoll` params: the flow handle the corresponding `loginStart` call answered with, passed back verbatim so the shape stays the login flow's own business.",
+        "description": "`qoder/loginPoll` and `qwenwork/loginPoll` params: the flow handle the corresponding `loginStart` call answered with, passed back verbatim so the shape stays the login flow's own business.",
         "type": "object",
         "required": [
           "flow"
@@ -7369,7 +7369,7 @@
       "params": {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "title": "QoderParams",
-        "description": "`qoder/*`, `qwenwork/*` and `qoderwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
+        "description": "`qoder/*` and `qwenwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
         "type": "object",
         "properties": {
           "submissionId": {
@@ -7386,7 +7386,7 @@
       "params": {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "title": "QoderParams",
-        "description": "`qoder/*`, `qwenwork/*` and `qoderwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
+        "description": "`qoder/*` and `qwenwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
         "type": "object",
         "properties": {
           "submissionId": {
@@ -7403,7 +7403,7 @@
       "params": {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "title": "QoderAdoptParams",
-        "description": "`qoder/adoptCredential`, `qwenwork/adoptCredential` and `qoderwork/adoptCredential` params: a profile the HOST read out of a store the engine deliberately cannot open. QwenWork and QoderWork also carry the device id that their safeStorage token was issued under.",
+        "description": "`qoder/adoptCredential` and `qwenwork/adoptCredential` params: a profile the HOST read out of a store the engine deliberately cannot open. QwenWork also carries the device id that its safeStorage token was issued under.",
         "type": "object",
         "required": [
           "userInfo"
@@ -7430,7 +7430,7 @@
       "params": {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "title": "QoderModelsParams",
-        "description": "`qoder/models`, `qwenwork/models` and `qoderwork/models` params.",
+        "description": "`qoder/models` and `qwenwork/models` params.",
         "type": "object",
         "properties": {
           "read": {
@@ -7450,7 +7450,7 @@
         },
         "definitions": {
           "QoderCatalogRead": {
-            "description": "Which catalog read `qoder/models`, `qwenwork/models` or `qoderwork/models` performs. The reads are not interchangeable, so the caller states which one it needs rather than getting a cache-freshness knob and hoping.",
+            "description": "Which catalog read `qoder/models` or `qwenwork/models` performs. The reads are not interchangeable, so the caller states which one it needs rather than getting a cache-freshness knob and hoping.",
             "oneOf": [
               {
                 "description": "A picker's read (the default). Signed out is an ERROR, so the picker paints EMPTY and agrees with the settings pane's \"not signed in\" instead of fabricating options from a weeks-old file on disk; a cold start waits briefly for the live catalog for the same reason.",
@@ -7476,7 +7476,7 @@
       "params": {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "title": "QoderParams",
-        "description": "`qoder/*`, `qwenwork/*` and `qoderwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
+        "description": "`qoder/*` and `qwenwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
         "type": "object",
         "properties": {
           "submissionId": {
@@ -7583,7 +7583,7 @@
       "params": {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "title": "QoderImageParams",
-        "description": "`qoder/generateImage` and `qoderwork/generateImage` params.",
+        "description": "`qoder/generateImage` params.",
         "type": "object",
         "required": [
           "prompt",
@@ -7616,7 +7616,7 @@
       "params": {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "title": "QoderThinkingParams",
-        "description": "`qoder/setThinkingLevel`, `qwenwork/setThinkingLevel` and `qoderwork/setThinkingLevel` params. Absent means \"no tier\", which the bridge maps onto whatever the selected model advertises as its default.",
+        "description": "`qoder/setThinkingLevel` and `qwenwork/setThinkingLevel` params. Absent means \"no tier\", which the bridge maps onto whatever the selected model advertises as its default.",
         "type": "object",
         "properties": {
           "level": {
@@ -7639,7 +7639,7 @@
       "params": {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "title": "QoderParams",
-        "description": "`qoder/*`, `qwenwork/*` and `qoderwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
+        "description": "`qoder/*` and `qwenwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
         "type": "object",
         "properties": {
           "submissionId": {
@@ -7656,7 +7656,7 @@
       "params": {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "title": "QoderParams",
-        "description": "`qoder/*`, `qwenwork/*` and `qoderwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
+        "description": "`qoder/*` and `qwenwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
         "type": "object",
         "properties": {
           "submissionId": {
@@ -7673,7 +7673,7 @@
       "params": {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "title": "QoderPollParams",
-        "description": "`qoder/loginPoll`, `qwenwork/loginPoll` and `qoderwork/loginPoll` params: the flow handle the corresponding `loginStart` call answered with, passed back verbatim so the shape stays the login flow's own business.",
+        "description": "`qoder/loginPoll` and `qwenwork/loginPoll` params: the flow handle the corresponding `loginStart` call answered with, passed back verbatim so the shape stays the login flow's own business.",
         "type": "object",
         "required": [
           "flow"
@@ -7694,7 +7694,7 @@
       "params": {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "title": "QoderParams",
-        "description": "`qoder/*`, `qwenwork/*` and `qoderwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
+        "description": "`qoder/*` and `qwenwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
         "type": "object",
         "properties": {
           "submissionId": {
@@ -7711,7 +7711,7 @@
       "params": {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "title": "QoderParams",
-        "description": "`qoder/*`, `qwenwork/*` and `qoderwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
+        "description": "`qoder/*` and `qwenwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
         "type": "object",
         "properties": {
           "submissionId": {
@@ -7728,7 +7728,7 @@
       "params": {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "title": "QoderAdoptParams",
-        "description": "`qoder/adoptCredential`, `qwenwork/adoptCredential` and `qoderwork/adoptCredential` params: a profile the HOST read out of a store the engine deliberately cannot open. QwenWork and QoderWork also carry the device id that their safeStorage token was issued under.",
+        "description": "`qoder/adoptCredential` and `qwenwork/adoptCredential` params: a profile the HOST read out of a store the engine deliberately cannot open. QwenWork also carries the device id that its safeStorage token was issued under.",
         "type": "object",
         "required": [
           "userInfo"
@@ -7755,7 +7755,7 @@
       "params": {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "title": "QoderModelsParams",
-        "description": "`qoder/models`, `qwenwork/models` and `qoderwork/models` params.",
+        "description": "`qoder/models` and `qwenwork/models` params.",
         "type": "object",
         "properties": {
           "read": {
@@ -7775,7 +7775,7 @@
         },
         "definitions": {
           "QoderCatalogRead": {
-            "description": "Which catalog read `qoder/models`, `qwenwork/models` or `qoderwork/models` performs. The reads are not interchangeable, so the caller states which one it needs rather than getting a cache-freshness knob and hoping.",
+            "description": "Which catalog read `qoder/models` or `qwenwork/models` performs. The reads are not interchangeable, so the caller states which one it needs rather than getting a cache-freshness knob and hoping.",
             "oneOf": [
               {
                 "description": "A picker's read (the default). Signed out is an ERROR, so the picker paints EMPTY and agrees with the settings pane's \"not signed in\" instead of fabricating options from a weeks-old file on disk; a cold start waits briefly for the live catalog for the same reason.",
@@ -7801,7 +7801,7 @@
       "params": {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "title": "QoderParams",
-        "description": "`qoder/*`, `qwenwork/*` and `qoderwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
+        "description": "`qoder/*` and `qwenwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
         "type": "object",
         "properties": {
           "submissionId": {
@@ -7818,7 +7818,7 @@
       "params": {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "title": "QoderParams",
-        "description": "`qoder/*`, `qwenwork/*` and `qoderwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
+        "description": "`qoder/*` and `qwenwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
         "type": "object",
         "properties": {
           "submissionId": {
@@ -8143,332 +8143,7 @@
       "params": {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "title": "QoderThinkingParams",
-        "description": "`qoder/setThinkingLevel`, `qwenwork/setThinkingLevel` and `qoderwork/setThinkingLevel` params. Absent means \"no tier\", which the bridge maps onto whatever the selected model advertises as its default.",
-        "type": "object",
-        "properties": {
-          "level": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "submissionId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          }
-        }
-      },
-      "result": true
-    },
-    "qoderwork/status": {
-      "params": {
-        "$schema": "http://json-schema.org/draft-07/schema#",
-        "title": "QoderParams",
-        "description": "`qoder/*`, `qwenwork/*` and `qoderwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
-        "type": "object",
-        "properties": {
-          "submissionId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          }
-        }
-      },
-      "result": true
-    },
-    "qoderwork/loginStart": {
-      "params": {
-        "$schema": "http://json-schema.org/draft-07/schema#",
-        "title": "QoderParams",
-        "description": "`qoder/*`, `qwenwork/*` and `qoderwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
-        "type": "object",
-        "properties": {
-          "submissionId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          }
-        }
-      },
-      "result": true
-    },
-    "qoderwork/loginPoll": {
-      "params": {
-        "$schema": "http://json-schema.org/draft-07/schema#",
-        "title": "QoderPollParams",
-        "description": "`qoder/loginPoll`, `qwenwork/loginPoll` and `qoderwork/loginPoll` params: the flow handle the corresponding `loginStart` call answered with, passed back verbatim so the shape stays the login flow's own business.",
-        "type": "object",
-        "required": [
-          "flow"
-        ],
-        "properties": {
-          "flow": true,
-          "submissionId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          }
-        }
-      },
-      "result": true
-    },
-    "qoderwork/logout": {
-      "params": {
-        "$schema": "http://json-schema.org/draft-07/schema#",
-        "title": "QoderParams",
-        "description": "`qoder/*`, `qwenwork/*` and `qoderwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
-        "type": "object",
-        "properties": {
-          "submissionId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          }
-        }
-      },
-      "result": true
-    },
-    "qoderwork/importLocal": {
-      "params": {
-        "$schema": "http://json-schema.org/draft-07/schema#",
-        "title": "QoderParams",
-        "description": "`qoder/*`, `qwenwork/*` and `qoderwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
-        "type": "object",
-        "properties": {
-          "submissionId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          }
-        }
-      },
-      "result": true
-    },
-    "qoderwork/adoptCredential": {
-      "params": {
-        "$schema": "http://json-schema.org/draft-07/schema#",
-        "title": "QoderAdoptParams",
-        "description": "`qoder/adoptCredential`, `qwenwork/adoptCredential` and `qoderwork/adoptCredential` params: a profile the HOST read out of a store the engine deliberately cannot open. QwenWork and QoderWork also carry the device id that their safeStorage token was issued under.",
-        "type": "object",
-        "required": [
-          "userInfo"
-        ],
-        "properties": {
-          "machineId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "submissionId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "userInfo": true
-        }
-      },
-      "result": true
-    },
-    "qoderwork/models": {
-      "params": {
-        "$schema": "http://json-schema.org/draft-07/schema#",
-        "title": "QoderModelsParams",
-        "description": "`qoder/models`, `qwenwork/models` and `qoderwork/models` params.",
-        "type": "object",
-        "properties": {
-          "read": {
-            "default": "warm",
-            "allOf": [
-              {
-                "$ref": "#/definitions/QoderCatalogRead"
-              }
-            ]
-          },
-          "submissionId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          }
-        },
-        "definitions": {
-          "QoderCatalogRead": {
-            "description": "Which catalog read `qoder/models`, `qwenwork/models` or `qoderwork/models` performs. The reads are not interchangeable, so the caller states which one it needs rather than getting a cache-freshness knob and hoping.",
-            "oneOf": [
-              {
-                "description": "A picker's read (the default). Signed out is an ERROR, so the picker paints EMPTY and agrees with the settings pane's \"not signed in\" instead of fabricating options from a weeks-old file on disk; a cold start waits briefly for the live catalog for the same reason.",
-                "type": "string",
-                "enum": [
-                  "warm"
-                ]
-              },
-              {
-                "description": "A settings page's read: stale-while-revalidate, falling back to whatever catalog is at hand so the pane paints at once and refreshes behind itself.",
-                "type": "string",
-                "enum": [
-                  "cached"
-                ]
-              }
-            ]
-          }
-        }
-      },
-      "result": true
-    },
-    "qoderwork/usage": {
-      "params": {
-        "$schema": "http://json-schema.org/draft-07/schema#",
-        "title": "QoderParams",
-        "description": "`qoder/*`, `qwenwork/*` and `qoderwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
-        "type": "object",
-        "properties": {
-          "submissionId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          }
-        }
-      },
-      "result": true
-    },
-    "qoderwork/transcribeAudio": {
-      "params": {
-        "$schema": "http://json-schema.org/draft-07/schema#",
-        "title": "SubscriptionTranscribeParams",
-        "description": "Audio bytes stay inside this request and are never included in diagnostics.",
-        "type": "object",
-        "required": [
-          "audioBase64"
-        ],
-        "properties": {
-          "audioBase64": {
-            "type": "string"
-          },
-          "expectedCredentialGeneration": {
-            "description": "Keep retained-audio recovery on the credential that opened dictation.",
-            "default": null,
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "language": {
-            "default": null,
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "mimeType": {
-            "default": null,
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "operationId": {
-            "default": null,
-            "type": [
-              "string",
-              "null"
-            ]
-          }
-        },
-        "additionalProperties": false
-      },
-      "result": {
-        "$schema": "http://json-schema.org/draft-07/schema#",
-        "title": "SubscriptionTranscriptResult",
-        "type": "object",
-        "required": [
-          "text"
-        ],
-        "properties": {
-          "text": {
-            "type": "string"
-          }
-        },
-        "additionalProperties": false
-      }
-    },
-    "qoderwork/cancelTranscription": {
-      "params": {
-        "$schema": "http://json-schema.org/draft-07/schema#",
-        "title": "SubscriptionCancelTranscriptionParams",
-        "type": "object",
-        "required": [
-          "operationId"
-        ],
-        "properties": {
-          "operationId": {
-            "type": "string"
-          }
-        },
-        "additionalProperties": false
-      },
-      "result": {
-        "$schema": "http://json-schema.org/draft-07/schema#",
-        "title": "SubscriptionCancelTranscriptionResult",
-        "type": "object",
-        "required": [
-          "cancelled"
-        ],
-        "properties": {
-          "cancelled": {
-            "type": "boolean"
-          }
-        },
-        "additionalProperties": false
-      }
-    },
-    "qoderwork/generateImage": {
-      "params": {
-        "$schema": "http://json-schema.org/draft-07/schema#",
-        "title": "QoderImageParams",
-        "description": "`qoder/generateImage` and `qoderwork/generateImage` params.",
-        "type": "object",
-        "required": [
-          "prompt",
-          "sessionId"
-        ],
-        "properties": {
-          "prompt": {
-            "type": "string"
-          },
-          "sessionId": {
-            "type": "string"
-          },
-          "size": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "submissionId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          }
-        }
-      },
-      "result": true
-    },
-    "qoderwork/setThinkingLevel": {
-      "params": {
-        "$schema": "http://json-schema.org/draft-07/schema#",
-        "title": "QoderThinkingParams",
-        "description": "`qoder/setThinkingLevel`, `qwenwork/setThinkingLevel` and `qoderwork/setThinkingLevel` params. Absent means \"no tier\", which the bridge maps onto whatever the selected model advertises as its default.",
+        "description": "`qoder/setThinkingLevel` and `qwenwork/setThinkingLevel` params. Absent means \"no tier\", which the bridge maps onto whatever the selected model advertises as its default.",
         "type": "object",
         "properties": {
           "level": {
@@ -8491,7 +8166,7 @@
       "params": {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "title": "QoderParams",
-        "description": "`qoder/*`, `qwenwork/*` and `qoderwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
+        "description": "`qoder/*` and `qwenwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
         "type": "object",
         "properties": {
           "submissionId": {
@@ -8665,7 +8340,7 @@
         "additionalProperties": false,
         "definitions": {
           "QoderCatalogRead": {
-            "description": "Which catalog read `qoder/models`, `qwenwork/models` or `qoderwork/models` performs. The reads are not interchangeable, so the caller states which one it needs rather than getting a cache-freshness knob and hoping.",
+            "description": "Which catalog read `qoder/models` or `qwenwork/models` performs. The reads are not interchangeable, so the caller states which one it needs rather than getting a cache-freshness knob and hoping.",
             "oneOf": [
               {
                 "description": "A picker's read (the default). Signed out is an ERROR, so the picker paints EMPTY and agrees with the settings pane's \"not signed in\" instead of fabricating options from a weeks-old file on disk; a cold start waits briefly for the live catalog for the same reason.",
@@ -8691,7 +8366,7 @@
       "params": {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "title": "QoderParams",
-        "description": "`qoder/*`, `qwenwork/*` and `qoderwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
+        "description": "`qoder/*` and `qwenwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
         "type": "object",
         "properties": {
           "submissionId": {
@@ -8906,7 +8581,7 @@
       "params": {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "title": "QoderParams",
-        "description": "`qoder/*`, `qwenwork/*` and `qoderwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
+        "description": "`qoder/*` and `qwenwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
         "type": "object",
         "properties": {
           "submissionId": {
@@ -8960,7 +8635,7 @@
       "params": {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "title": "QoderPollParams",
-        "description": "`qoder/loginPoll`, `qwenwork/loginPoll` and `qoderwork/loginPoll` params: the flow handle the corresponding `loginStart` call answered with, passed back verbatim so the shape stays the login flow's own business.",
+        "description": "`qoder/loginPoll` and `qwenwork/loginPoll` params: the flow handle the corresponding `loginStart` call answered with, passed back verbatim so the shape stays the login flow's own business.",
         "type": "object",
         "required": [
           "flow"
@@ -8981,7 +8656,7 @@
       "params": {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "title": "QoderParams",
-        "description": "`qoder/*`, `qwenwork/*` and `qoderwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
+        "description": "`qoder/*` and `qwenwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
         "type": "object",
         "properties": {
           "submissionId": {
@@ -8998,7 +8673,7 @@
       "params": {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "title": "QoderParams",
-        "description": "`qoder/*`, `qwenwork/*` and `qoderwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
+        "description": "`qoder/*` and `qwenwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
         "type": "object",
         "properties": {
           "submissionId": {
@@ -9015,7 +8690,7 @@
       "params": {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "title": "QoderAdoptParams",
-        "description": "`qoder/adoptCredential`, `qwenwork/adoptCredential` and `qoderwork/adoptCredential` params: a profile the HOST read out of a store the engine deliberately cannot open. QwenWork and QoderWork also carry the device id that their safeStorage token was issued under.",
+        "description": "`qoder/adoptCredential` and `qwenwork/adoptCredential` params: a profile the HOST read out of a store the engine deliberately cannot open. QwenWork also carries the device id that its safeStorage token was issued under.",
         "type": "object",
         "required": [
           "userInfo"
@@ -9042,7 +8717,7 @@
       "params": {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "title": "QoderModelsParams",
-        "description": "`qoder/models`, `qwenwork/models` and `qoderwork/models` params.",
+        "description": "`qoder/models` and `qwenwork/models` params.",
         "type": "object",
         "properties": {
           "read": {
@@ -9062,7 +8737,7 @@
         },
         "definitions": {
           "QoderCatalogRead": {
-            "description": "Which catalog read `qoder/models`, `qwenwork/models` or `qoderwork/models` performs. The reads are not interchangeable, so the caller states which one it needs rather than getting a cache-freshness knob and hoping.",
+            "description": "Which catalog read `qoder/models` or `qwenwork/models` performs. The reads are not interchangeable, so the caller states which one it needs rather than getting a cache-freshness knob and hoping.",
             "oneOf": [
               {
                 "description": "A picker's read (the default). Signed out is an ERROR, so the picker paints EMPTY and agrees with the settings pane's \"not signed in\" instead of fabricating options from a weeks-old file on disk; a cold start waits briefly for the live catalog for the same reason.",
@@ -9088,7 +8763,7 @@
       "params": {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "title": "QoderParams",
-        "description": "`qoder/*`, `qwenwork/*` and `qoderwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
+        "description": "`qoder/*` and `qwenwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
         "type": "object",
         "properties": {
           "submissionId": {
@@ -9105,7 +8780,7 @@
       "params": {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "title": "QoderParams",
-        "description": "`qoder/*`, `qwenwork/*` and `qoderwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
+        "description": "`qoder/*` and `qwenwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
         "type": "object",
         "properties": {
           "submissionId": {
@@ -9481,7 +9156,7 @@
       "params": {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "title": "QoderParams",
-        "description": "`qoder/*`, `qwenwork/*` and `qoderwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
+        "description": "`qoder/*` and `qwenwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
         "type": "object",
         "properties": {
           "submissionId": {
@@ -9528,7 +9203,7 @@
       "params": {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "title": "QoderParams",
-        "description": "`qoder/*`, `qwenwork/*` and `qoderwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
+        "description": "`qoder/*` and `qwenwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
         "type": "object",
         "properties": {
           "submissionId": {
@@ -9545,7 +9220,7 @@
       "params": {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "title": "QoderPollParams",
-        "description": "`qoder/loginPoll`, `qwenwork/loginPoll` and `qoderwork/loginPoll` params: the flow handle the corresponding `loginStart` call answered with, passed back verbatim so the shape stays the login flow's own business.",
+        "description": "`qoder/loginPoll` and `qwenwork/loginPoll` params: the flow handle the corresponding `loginStart` call answered with, passed back verbatim so the shape stays the login flow's own business.",
         "type": "object",
         "required": [
           "flow"
@@ -9566,7 +9241,7 @@
       "params": {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "title": "QoderParams",
-        "description": "`qoder/*`, `qwenwork/*` and `qoderwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
+        "description": "`qoder/*` and `qwenwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
         "type": "object",
         "properties": {
           "submissionId": {
@@ -9583,7 +9258,7 @@
       "params": {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "title": "QoderParams",
-        "description": "`qoder/*`, `qwenwork/*` and `qoderwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
+        "description": "`qoder/*` and `qwenwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
         "type": "object",
         "properties": {
           "submissionId": {
@@ -9600,7 +9275,7 @@
       "params": {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "title": "QoderModelsParams",
-        "description": "`qoder/models`, `qwenwork/models` and `qoderwork/models` params.",
+        "description": "`qoder/models` and `qwenwork/models` params.",
         "type": "object",
         "properties": {
           "read": {
@@ -9620,7 +9295,7 @@
         },
         "definitions": {
           "QoderCatalogRead": {
-            "description": "Which catalog read `qoder/models`, `qwenwork/models` or `qoderwork/models` performs. The reads are not interchangeable, so the caller states which one it needs rather than getting a cache-freshness knob and hoping.",
+            "description": "Which catalog read `qoder/models` or `qwenwork/models` performs. The reads are not interchangeable, so the caller states which one it needs rather than getting a cache-freshness knob and hoping.",
             "oneOf": [
               {
                 "description": "A picker's read (the default). Signed out is an ERROR, so the picker paints EMPTY and agrees with the settings pane's \"not signed in\" instead of fabricating options from a weeks-old file on disk; a cold start waits briefly for the live catalog for the same reason.",
@@ -9646,7 +9321,7 @@
       "params": {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "title": "QoderParams",
-        "description": "`qoder/*`, `qwenwork/*` and `qoderwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
+        "description": "`qoder/*` and `qwenwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
         "type": "object",
         "properties": {
           "submissionId": {
@@ -9663,7 +9338,7 @@
       "params": {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "title": "QoderParams",
-        "description": "`qoder/*`, `qwenwork/*` and `qoderwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
+        "description": "`qoder/*` and `qwenwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
         "type": "object",
         "properties": {
           "submissionId": {
@@ -9710,7 +9385,7 @@
       "params": {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "title": "QoderParams",
-        "description": "`qoder/*`, `qwenwork/*` and `qoderwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
+        "description": "`qoder/*` and `qwenwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
         "type": "object",
         "properties": {
           "submissionId": {
@@ -9727,7 +9402,7 @@
       "params": {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "title": "QoderModelsParams",
-        "description": "`qoder/models`, `qwenwork/models` and `qoderwork/models` params.",
+        "description": "`qoder/models` and `qwenwork/models` params.",
         "type": "object",
         "properties": {
           "read": {
@@ -9747,7 +9422,7 @@
         },
         "definitions": {
           "QoderCatalogRead": {
-            "description": "Which catalog read `qoder/models`, `qwenwork/models` or `qoderwork/models` performs. The reads are not interchangeable, so the caller states which one it needs rather than getting a cache-freshness knob and hoping.",
+            "description": "Which catalog read `qoder/models` or `qwenwork/models` performs. The reads are not interchangeable, so the caller states which one it needs rather than getting a cache-freshness knob and hoping.",
             "oneOf": [
               {
                 "description": "A picker's read (the default). Signed out is an ERROR, so the picker paints EMPTY and agrees with the settings pane's \"not signed in\" instead of fabricating options from a weeks-old file on disk; a cold start waits briefly for the live catalog for the same reason.",
@@ -9773,7 +9448,7 @@
       "params": {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "title": "QoderParams",
-        "description": "`qoder/*`, `qwenwork/*` and `qoderwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
+        "description": "`qoder/*` and `qwenwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
         "type": "object",
         "properties": {
           "submissionId": {
@@ -9790,7 +9465,7 @@
       "params": {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "title": "QoderParams",
-        "description": "`qoder/*`, `qwenwork/*` and `qoderwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
+        "description": "`qoder/*` and `qwenwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
         "type": "object",
         "properties": {
           "submissionId": {
@@ -9807,7 +9482,7 @@
       "params": {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "title": "QoderParams",
-        "description": "`qoder/*`, `qwenwork/*` and `qoderwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
+        "description": "`qoder/*` and `qwenwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
         "type": "object",
         "properties": {
           "submissionId": {
@@ -9824,7 +9499,7 @@
       "params": {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "title": "QoderParams",
-        "description": "`qoder/*`, `qwenwork/*` and `qoderwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
+        "description": "`qoder/*` and `qwenwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
         "type": "object",
         "properties": {
           "submissionId": {
@@ -9841,7 +9516,7 @@
       "params": {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "title": "QoderParams",
-        "description": "`qoder/*`, `qwenwork/*` and `qoderwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
+        "description": "`qoder/*` and `qwenwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
         "type": "object",
         "properties": {
           "submissionId": {
@@ -9888,7 +9563,7 @@
       "params": {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "title": "QoderParams",
-        "description": "`qoder/*`, `qwenwork/*` and `qoderwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
+        "description": "`qoder/*` and `qwenwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
         "type": "object",
         "properties": {
           "submissionId": {
@@ -9905,7 +9580,7 @@
       "params": {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "title": "QoderModelsParams",
-        "description": "`qoder/models`, `qwenwork/models` and `qoderwork/models` params.",
+        "description": "`qoder/models` and `qwenwork/models` params.",
         "type": "object",
         "properties": {
           "read": {
@@ -9925,7 +9600,7 @@
         },
         "definitions": {
           "QoderCatalogRead": {
-            "description": "Which catalog read `qoder/models`, `qwenwork/models` or `qoderwork/models` performs. The reads are not interchangeable, so the caller states which one it needs rather than getting a cache-freshness knob and hoping.",
+            "description": "Which catalog read `qoder/models` or `qwenwork/models` performs. The reads are not interchangeable, so the caller states which one it needs rather than getting a cache-freshness knob and hoping.",
             "oneOf": [
               {
                 "description": "A picker's read (the default). Signed out is an ERROR, so the picker paints EMPTY and agrees with the settings pane's \"not signed in\" instead of fabricating options from a weeks-old file on disk; a cold start waits briefly for the live catalog for the same reason.",
@@ -9951,7 +9626,7 @@
       "params": {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "title": "QoderParams",
-        "description": "`qoder/*`, `qwenwork/*` and `qoderwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
+        "description": "`qoder/*` and `qwenwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
         "type": "object",
         "properties": {
           "submissionId": {
@@ -9968,7 +9643,7 @@
       "params": {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "title": "QoderParams",
-        "description": "`qoder/*`, `qwenwork/*` and `qoderwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
+        "description": "`qoder/*` and `qwenwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
         "type": "object",
         "properties": {
           "submissionId": {
@@ -9985,7 +9660,7 @@
       "params": {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "title": "QoderParams",
-        "description": "`qoder/*`, `qwenwork/*` and `qoderwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
+        "description": "`qoder/*` and `qwenwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
         "type": "object",
         "properties": {
           "submissionId": {
@@ -10002,7 +9677,7 @@
       "params": {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "title": "QoderParams",
-        "description": "`qoder/*`, `qwenwork/*` and `qoderwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
+        "description": "`qoder/*` and `qwenwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
         "type": "object",
         "properties": {
           "submissionId": {
@@ -10049,7 +9724,7 @@
       "params": {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "title": "QoderParams",
-        "description": "`qoder/*`, `qwenwork/*` and `qoderwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
+        "description": "`qoder/*` and `qwenwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
         "type": "object",
         "properties": {
           "submissionId": {
@@ -10066,7 +9741,7 @@
       "params": {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "title": "QoderModelsParams",
-        "description": "`qoder/models`, `qwenwork/models` and `qoderwork/models` params.",
+        "description": "`qoder/models` and `qwenwork/models` params.",
         "type": "object",
         "properties": {
           "read": {
@@ -10086,7 +9761,7 @@
         },
         "definitions": {
           "QoderCatalogRead": {
-            "description": "Which catalog read `qoder/models`, `qwenwork/models` or `qoderwork/models` performs. The reads are not interchangeable, so the caller states which one it needs rather than getting a cache-freshness knob and hoping.",
+            "description": "Which catalog read `qoder/models` or `qwenwork/models` performs. The reads are not interchangeable, so the caller states which one it needs rather than getting a cache-freshness knob and hoping.",
             "oneOf": [
               {
                 "description": "A picker's read (the default). Signed out is an ERROR, so the picker paints EMPTY and agrees with the settings pane's \"not signed in\" instead of fabricating options from a weeks-old file on disk; a cold start waits briefly for the live catalog for the same reason.",
@@ -10112,7 +9787,7 @@
       "params": {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "title": "QoderParams",
-        "description": "`qoder/*`, `qwenwork/*` and `qoderwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
+        "description": "`qoder/*` and `qwenwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
         "type": "object",
         "properties": {
           "submissionId": {
@@ -10129,7 +9804,7 @@
       "params": {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "title": "QoderParams",
-        "description": "`qoder/*`, `qwenwork/*` and `qoderwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
+        "description": "`qoder/*` and `qwenwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
         "type": "object",
         "properties": {
           "submissionId": {
@@ -10176,7 +9851,7 @@
       "params": {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "title": "QoderParams",
-        "description": "`qoder/*`, `qwenwork/*` and `qoderwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
+        "description": "`qoder/*` and `qwenwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
         "type": "object",
         "properties": {
           "submissionId": {
@@ -10193,7 +9868,7 @@
       "params": {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "title": "QoderModelsParams",
-        "description": "`qoder/models`, `qwenwork/models` and `qoderwork/models` params.",
+        "description": "`qoder/models` and `qwenwork/models` params.",
         "type": "object",
         "properties": {
           "read": {
@@ -10213,7 +9888,7 @@
         },
         "definitions": {
           "QoderCatalogRead": {
-            "description": "Which catalog read `qoder/models`, `qwenwork/models` or `qoderwork/models` performs. The reads are not interchangeable, so the caller states which one it needs rather than getting a cache-freshness knob and hoping.",
+            "description": "Which catalog read `qoder/models` or `qwenwork/models` performs. The reads are not interchangeable, so the caller states which one it needs rather than getting a cache-freshness knob and hoping.",
             "oneOf": [
               {
                 "description": "A picker's read (the default). Signed out is an ERROR, so the picker paints EMPTY and agrees with the settings pane's \"not signed in\" instead of fabricating options from a weeks-old file on disk; a cold start waits briefly for the live catalog for the same reason.",
@@ -10239,7 +9914,7 @@
       "params": {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "title": "QoderParams",
-        "description": "`qoder/*`, `qwenwork/*` and `qoderwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
+        "description": "`qoder/*` and `qwenwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
         "type": "object",
         "properties": {
           "submissionId": {
@@ -10256,7 +9931,7 @@
       "params": {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "title": "QoderParams",
-        "description": "`qoder/*`, `qwenwork/*` and `qoderwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
+        "description": "`qoder/*` and `qwenwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
         "type": "object",
         "properties": {
           "submissionId": {
@@ -10273,7 +9948,7 @@
       "params": {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "title": "QoderParams",
-        "description": "`qoder/*`, `qwenwork/*` and `qoderwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
+        "description": "`qoder/*` and `qwenwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
         "type": "object",
         "properties": {
           "submissionId": {
@@ -10290,7 +9965,7 @@
       "params": {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "title": "QoderParams",
-        "description": "`qoder/*`, `qwenwork/*` and `qoderwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
+        "description": "`qoder/*` and `qwenwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
         "type": "object",
         "properties": {
           "submissionId": {
@@ -10328,7 +10003,7 @@
         },
         "definitions": {
           "QoderCatalogRead": {
-            "description": "Which catalog read `qoder/models`, `qwenwork/models` or `qoderwork/models` performs. The reads are not interchangeable, so the caller states which one it needs rather than getting a cache-freshness knob and hoping.",
+            "description": "Which catalog read `qoder/models` or `qwenwork/models` performs. The reads are not interchangeable, so the caller states which one it needs rather than getting a cache-freshness knob and hoping.",
             "oneOf": [
               {
                 "description": "A picker's read (the default). Signed out is an ERROR, so the picker paints EMPTY and agrees with the settings pane's \"not signed in\" instead of fabricating options from a weeks-old file on disk; a cold start waits briefly for the live catalog for the same reason.",
@@ -10534,7 +10209,7 @@
       "params": {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "title": "QoderParams",
-        "description": "`qoder/*`, `qwenwork/*` and `qoderwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
+        "description": "`qoder/*` and `qwenwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
         "type": "object",
         "properties": {
           "submissionId": {
@@ -10551,7 +10226,7 @@
       "params": {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "title": "QoderParams",
-        "description": "`qoder/*`, `qwenwork/*` and `qoderwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
+        "description": "`qoder/*` and `qwenwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
         "type": "object",
         "properties": {
           "submissionId": {
@@ -10722,7 +10397,7 @@
       "params": {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "title": "QoderParams",
-        "description": "`qoder/*`, `qwenwork/*` and `qoderwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
+        "description": "`qoder/*` and `qwenwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
         "type": "object",
         "properties": {
           "submissionId": {
@@ -10739,7 +10414,7 @@
       "params": {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "title": "QoderModelsParams",
-        "description": "`qoder/models`, `qwenwork/models` and `qoderwork/models` params.",
+        "description": "`qoder/models` and `qwenwork/models` params.",
         "type": "object",
         "properties": {
           "read": {
@@ -10759,7 +10434,7 @@
         },
         "definitions": {
           "QoderCatalogRead": {
-            "description": "Which catalog read `qoder/models`, `qwenwork/models` or `qoderwork/models` performs. The reads are not interchangeable, so the caller states which one it needs rather than getting a cache-freshness knob and hoping.",
+            "description": "Which catalog read `qoder/models` or `qwenwork/models` performs. The reads are not interchangeable, so the caller states which one it needs rather than getting a cache-freshness knob and hoping.",
             "oneOf": [
               {
                 "description": "A picker's read (the default). Signed out is an ERROR, so the picker paints EMPTY and agrees with the settings pane's \"not signed in\" instead of fabricating options from a weeks-old file on disk; a cold start waits briefly for the live catalog for the same reason.",
@@ -10785,7 +10460,7 @@
       "params": {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "title": "QoderParams",
-        "description": "`qoder/*`, `qwenwork/*` and `qoderwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
+        "description": "`qoder/*` and `qwenwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
         "type": "object",
         "properties": {
           "submissionId": {
@@ -10802,7 +10477,7 @@
       "params": {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "title": "QoderParams",
-        "description": "`qoder/*`, `qwenwork/*` and `qoderwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
+        "description": "`qoder/*` and `qwenwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
         "type": "object",
         "properties": {
           "submissionId": {
@@ -10904,7 +10579,7 @@
       "params": {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "title": "QoderParams",
-        "description": "`qoder/*`, `qwenwork/*` and `qoderwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
+        "description": "`qoder/*` and `qwenwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
         "type": "object",
         "properties": {
           "submissionId": {
@@ -11130,7 +10805,7 @@
       "params": {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "title": "QoderParams",
-        "description": "`qoder/*`, `qwenwork/*` and `qoderwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
+        "description": "`qoder/*` and `qwenwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
         "type": "object",
         "properties": {
           "submissionId": {
@@ -11147,7 +10822,7 @@
       "params": {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "title": "QoderModelsParams",
-        "description": "`qoder/models`, `qwenwork/models` and `qoderwork/models` params.",
+        "description": "`qoder/models` and `qwenwork/models` params.",
         "type": "object",
         "properties": {
           "read": {
@@ -11167,7 +10842,7 @@
         },
         "definitions": {
           "QoderCatalogRead": {
-            "description": "Which catalog read `qoder/models`, `qwenwork/models` or `qoderwork/models` performs. The reads are not interchangeable, so the caller states which one it needs rather than getting a cache-freshness knob and hoping.",
+            "description": "Which catalog read `qoder/models` or `qwenwork/models` performs. The reads are not interchangeable, so the caller states which one it needs rather than getting a cache-freshness knob and hoping.",
             "oneOf": [
               {
                 "description": "A picker's read (the default). Signed out is an ERROR, so the picker paints EMPTY and agrees with the settings pane's \"not signed in\" instead of fabricating options from a weeks-old file on disk; a cold start waits briefly for the live catalog for the same reason.",
@@ -11193,7 +10868,7 @@
       "params": {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "title": "QoderParams",
-        "description": "`qoder/*`, `qwenwork/*` and `qoderwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
+        "description": "`qoder/*` and `qwenwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
         "type": "object",
         "properties": {
           "submissionId": {
@@ -11210,7 +10885,7 @@
       "params": {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "title": "QoderParams",
-        "description": "`qoder/*`, `qwenwork/*` and `qoderwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
+        "description": "`qoder/*` and `qwenwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
         "type": "object",
         "properties": {
           "submissionId": {
@@ -11515,7 +11190,7 @@
       "params": {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "title": "QoderParams",
-        "description": "`qoder/*`, `qwenwork/*` and `qoderwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
+        "description": "`qoder/*` and `qwenwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
         "type": "object",
         "properties": {
           "submissionId": {
@@ -11675,7 +11350,7 @@
       "params": {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "title": "QoderParams",
-        "description": "`qoder/*`, `qwenwork/*` and `qoderwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
+        "description": "`qoder/*` and `qwenwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
         "type": "object",
         "properties": {
           "submissionId": {
@@ -11692,7 +11367,7 @@
       "params": {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "title": "QoderModelsParams",
-        "description": "`qoder/models`, `qwenwork/models` and `qoderwork/models` params.",
+        "description": "`qoder/models` and `qwenwork/models` params.",
         "type": "object",
         "properties": {
           "read": {
@@ -11712,7 +11387,7 @@
         },
         "definitions": {
           "QoderCatalogRead": {
-            "description": "Which catalog read `qoder/models`, `qwenwork/models` or `qoderwork/models` performs. The reads are not interchangeable, so the caller states which one it needs rather than getting a cache-freshness knob and hoping.",
+            "description": "Which catalog read `qoder/models` or `qwenwork/models` performs. The reads are not interchangeable, so the caller states which one it needs rather than getting a cache-freshness knob and hoping.",
             "oneOf": [
               {
                 "description": "A picker's read (the default). Signed out is an ERROR, so the picker paints EMPTY and agrees with the settings pane's \"not signed in\" instead of fabricating options from a weeks-old file on disk; a cold start waits briefly for the live catalog for the same reason.",
@@ -11738,7 +11413,7 @@
       "params": {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "title": "QoderParams",
-        "description": "`qoder/*`, `qwenwork/*` and `qoderwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
+        "description": "`qoder/*` and `qwenwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
         "type": "object",
         "properties": {
           "submissionId": {
@@ -11755,7 +11430,7 @@
       "params": {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "title": "QoderParams",
-        "description": "`qoder/*`, `qwenwork/*` and `qoderwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
+        "description": "`qoder/*` and `qwenwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
         "type": "object",
         "properties": {
           "submissionId": {
@@ -11978,7 +11653,7 @@
       "params": {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "title": "QoderParams",
-        "description": "`qoder/*`, `qwenwork/*` and `qoderwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
+        "description": "`qoder/*` and `qwenwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
         "type": "object",
         "properties": {
           "submissionId": {
@@ -23345,6 +23020,21 @@
               "elevated",
               "unelevated"
             ]
+          }
+        }
+      }
+    },
+    "model/catalogChanged": {
+      "params": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "title": "ModelCatalogChangedNotification",
+        "type": "object",
+        "required": [
+          "source"
+        ],
+        "properties": {
+          "source": {
+            "type": "string"
           }
         }
       }

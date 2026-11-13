@@ -533,7 +533,6 @@ fn local_import_prefers_the_existing_file_then_service_only_keychain() {
     );
     assert_eq!(fs::read(local).unwrap(), b"file-fixture-raw");
     assert_eq!(store.read_qoder_ide_credential(), json!({"present":false}));
-    assert_eq!(store.read_qoderwork_credential(), json!({"present":false}));
     assert_eq!(store.read_qwenwork_credential(), json!({"present":false}));
 }
 

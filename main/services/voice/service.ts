@@ -187,7 +187,7 @@ export class VoiceService {
       const onFailure = (code: string) => this.queueEvent(recognition, { type: 'error', code }, context);
       const helper: SpeechBackend = source !== 'system'
         ? this.options.streaming!.create(sid, source, abort.signal, onEvent, onFailure,
-          ['qoder', 'qoderwork', 'qwenwork'].includes(source) ? { refinement: recordingRefinement(this.store, context) } : undefined)
+          ['qoder', 'qwenwork'].includes(source) ? { refinement: recordingRefinement(this.store, context) } : undefined)
         : new SpeechHelper({ command: this.command!, locale, hotwords: this.store.hotwords().filter(row => row.enabled).map(row => row.text),
           readyTimeoutMs: this.options.helperReadyTimeoutMs, onEvent, onFailure });
       recognition = { chatSessionId, sourcePreference: preference, source, realtime, audioBytes: 0, id: sid, owner, helper, abort, seq: 0, final: false, started: Date.now(),

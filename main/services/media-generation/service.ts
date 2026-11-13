@@ -37,8 +37,6 @@ export interface MediaGenerationDeps {
   qoder: { status(signal: AbortSignal): Promise<Json>; generate(params: JsonObject, signal: AbortSignal): Promise<Json> };
   /** QwenWork native media uses account-owned named methods with cancellation. */
   qwenwork: NativeMediaConnection;
-  /** The QoderWork route uses qoderwork/status and qoderwork/generateImage. */
-  qoderwork: { status(signal: AbortSignal): Promise<Json>; generate(params: JsonObject, signal: AbortSignal): Promise<Json> };
   /** Cursor native media operations keep their credentials inside the engine. */
   cursor?: { status(signal: AbortSignal): Promise<Json>; image(params: JsonObject, signal: AbortSignal): Promise<Json>; audio(params: JsonObject, signal: AbortSignal): Promise<Json> };
   /** WorkBuddy media operations use account-owned, cancellable named engine methods. */
@@ -124,7 +122,7 @@ export class MediaGenerationService {
       // Reject an unavailable backend before reading source bytes. The image
       // backend is the global selection; a subscription choice must still be
       // signed in at call time.
-      let codex: { accessToken: string; accountId: string } | undefined, qoder = false, qoderwork = false;
+      let codex: { accessToken: string; accountId: string } | undefined, qoder = false;
       if (nativeSource) {
         if (!native) throw new MediaGenerationError(`The media generation connection is unavailable.`);
         const status = object(await native.status(combined)); current();
@@ -154,11 +152,8 @@ export class MediaGenerationService {
       } else if (kind === 'image' && selection === 'qoder') {
         try { qoder = object(await this.deps.qoder.status(combined)).loggedIn === true; } catch { current(); }
         current();
-      } else if (kind === 'image' && selection === 'qoderwork') {
-        try { qoderwork = object(await this.deps.qoderwork.status(combined)).loggedIn === true; } catch { current(); }
-        current();
       }
-      if (kind === 'image' && !cursor && !nativeSource && selection !== MINIMAX_MEDIA_SOURCE && selection !== BAILIAN_AUDIO_SOURCE && !string(config.provider) && !codex?.accessToken && !qoder && !qoderwork) throw new MediaGenerationError(`Image generation is not configured. Open Settings → Multimodal Models and check the image settings.`);
+      if (kind === 'image' && !cursor && !nativeSource && selection !== MINIMAX_MEDIA_SOURCE && selection !== BAILIAN_AUDIO_SOURCE && !string(config.provider) && !codex?.accessToken && !qoder) throw new MediaGenerationError(`Image generation is not configured. Open Settings → Multimodal Models and check the image settings.`);
       // The MiniMax audio and video routes spend the plan's own subscription, so their
       // credential comes from the engine rather than from any stored endpoint row. The
       // global selection IS the explicit choice here — the user picked the MiniMax
@@ -195,7 +190,7 @@ export class MediaGenerationService {
           ...(string(config.model) ? { model: string(config.model) } : {}), ...(string(config.voice) ? { voice: string(config.voice) } : {}) };
       }
       if (kind === 'audio' && !cursor && !nativeSource && !string(config.provider)) throw new MediaGenerationError(`Audio generation is not configured. Open Settings → Multimodal Models and check the speech settings.`);
-      if (args.paths.length && (qoder || qoderwork || kind === 'image' && (selection === BAILIAN_AUDIO_SOURCE || selection === MINIMAX_MEDIA_SOURCE))) throw new MediaGenerationError('This provider is text-to-image only; source images are not supported.');
+      if (args.paths.length && (qoder || kind === 'image' && (selection === BAILIAN_AUDIO_SOURCE || selection === MINIMAX_MEDIA_SOURCE))) throw new MediaGenerationError('This provider is text-to-image only; source images are not supported.');
       if (kind === 'video' && args.paths.length && !nativeSource) throw new MediaGenerationError('The selected video backend does not support reference images.');
       input.sources = await this.sources(args.paths, current); current();
       if ((cursor || nativeSource === 'qwenwork') && (input.sources.some(source => source.bytes.length > 4 * 1024 * 1024) || input.sources.reduce((total, source) => total + source.bytes.length, 0) > 8 * 1024 * 1024)) {
@@ -263,12 +258,6 @@ export class MediaGenerationService {
         files = await providers.qoderImage(input, context.sessionId, combined, async (params, callSignal) => {
           current();
           try { const result = await this.deps.qoder.generate(params, callSignal); current(); return result; }
-          catch { current(); throw new MediaGenerationError('Image generation failed.'); }
-        });
-      } else if (qoderwork) {
-        files = await providers.qoderImage(input, context.sessionId, combined, async (params, callSignal) => {
-          current();
-          try { const result = await this.deps.qoderwork.generate(params, callSignal); current(); return result; }
           catch { current(); throw new MediaGenerationError('Image generation failed.'); }
         });
       } else if (string(config.provider) === 'bailian') files = await providers.bailianImage(config, input, combined);

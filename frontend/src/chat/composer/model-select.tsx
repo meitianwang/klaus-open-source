@@ -66,7 +66,7 @@ export function isMainModelValue(value: unknown): boolean {
   if (typeof value !== 'string' || isAutomaticCursorSelection(value)
     || value.startsWith('kiro:') && isKiroRoutingAlias(value)) return false
   if (['auto', 'high', 'medium', 'low'].includes(value)) return true
-  return ['subscription:', 'custom:', 'codex:', 'cursor:', 'kimi:', 'bailian:', 'minimax:', 'zhipu:', 'ark:', 'deepseek:', 'qoder:', 'qwenwork:', 'qoderwork:', 'workbuddy:', 'antigravity:', 'trae:', 'kiro:']
+  return ['subscription:', 'custom:', 'codex:', 'cursor:', 'kimi:', 'bailian:', 'minimax:', 'zhipu:', 'ark:', 'deepseek:', 'qoder:', 'qwenwork:', 'workbuddy:', 'antigravity:', 'trae:', 'kiro:']
     .some(prefix => value.startsWith(prefix) && value.length > prefix.length)
 }
 

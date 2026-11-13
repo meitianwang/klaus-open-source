@@ -175,7 +175,7 @@ export class ComposerService {
   // NOT be here: the remap would then also hijack an explicit pick of that row's
   // old alias and display the head instead of what the user chose.
   private async displaySelection(saved: SessionModelPreference, resolved: string): Promise<string> {
-    // Kimi, Bailian, Zhipu and QoderWork now resolve a bare default to a concrete
+    // Kimi, Bailian and Zhipu now resolve a bare default to a concrete
     // catalog row, so they are deliberately absent here. The remaining entries are
     // synthetic aliases: qoder/qwenwork's cold-cache `auto`, workbuddy's service
     // `default-model`, minimax's flagship (which is also the catalog head, so its
@@ -593,8 +593,6 @@ export class ComposerService {
         ? 'codex/models'
         : source === 'qwenwork'
           ? 'qwenwork/models'
-          : source === 'qoderwork'
-            ? 'qoderwork/models'
             : source === 'workbuddy'
               ? 'workbuddy/models'
               : source === 'kimi'

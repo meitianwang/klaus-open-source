@@ -136,18 +136,18 @@ describe('model selector trigger', () => {
     expect(isMainModelValue('local:')).toBe(false)
   })
 
-  test('accepts scoped QoderWork models and keeps the QwenWork catalog separate', () => {
-    expect(isMainModelValue('qoderwork:qwork-auto')).toBe(true)
+  test('accepts scoped Qoder models and keeps the QwenWork catalog separate', () => {
+    expect(isMainModelValue('qoder:qwork-auto')).toBe(true)
     expect(isMainModelValue('qwenwork:qwork-auto')).toBe(true)
-    expect(isMainModelValue('qoderwork:')).toBe(false)
-    expect(isMainModelValue('qoderwork')).toBe(false)
+    expect(isMainModelValue('qoder:')).toBe(false)
+    expect(isMainModelValue('qoder')).toBe(false)
     const items = [
       { value: 'qwenwork:qwork-auto', label: 'QwenWork Auto' },
-      { value: 'qoderwork:qwork-auto', label: 'QoderWork Auto' },
+      { value: 'qoder:qwork-auto', label: 'Qoder Auto' },
     ]
-    const selected = mainModelMenuValue(items, 'qoderwork:qwork-auto')
-    expect(selected).toBe('qoderwork:qwork-auto')
-    expect(mainModelSelectionLabel(items, selected, translate('zh'))).toBe('QoderWork Auto')
+    const selected = mainModelMenuValue(items, 'qoder:qwork-auto')
+    expect(selected).toBe('qoder:qwork-auto')
+    expect(mainModelSelectionLabel(items, selected, translate('zh'))).toBe('Qoder Auto')
   })
 
   test('routes an empty model list to configuration', () => {

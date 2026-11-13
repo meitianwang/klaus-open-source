@@ -293,13 +293,13 @@ h.test('scheduler coalesces identical reads but never duplicate mutations or dis
 
 h.test('scheduler coalesces concurrent picker catalog reads and selection resolution', async () => {
   const f = fakeEngine();
-  const main = f.client.request('qoderwork/models', { read: 'warm' });
-  const side = f.client.request('qoderwork/models', { read: 'warm' });
+  const main = f.client.request('qwenwork/models', { read: 'warm' });
+  const side = f.client.request('qwenwork/models', { read: 'warm' });
   const otherSource = f.client.request('zhipu/models', { read: 'warm' });
-  const resolve1 = f.client.request('model/selection/resolve', { source: 'qoderwork', selection: 'qwork-auto' });
-  const resolve2 = f.client.request('model/selection/resolve', { source: 'qoderwork', selection: 'qwork-auto' });
+  const resolve1 = f.client.request('model/selection/resolve', { source: 'qwenwork', selection: 'qwork-auto' });
+  const resolve2 = f.client.request('model/selection/resolve', { source: 'qwenwork', selection: 'qwork-auto' });
   assertEqual(requests(f).length, 3, 'same-source catalog reads and same-parameter resolutions share one wire request each');
-  for (const frame of requests(f)) f.reply(frame.id, { models: [], selection: 'qwork-auto', source: 'qoderwork' });
+  for (const frame of requests(f)) f.reply(frame.id, { models: [], selection: 'qwork-auto', source: 'qwenwork' });
   assertDeepEqual(await main, await side, 'both picker refreshes see the one catalog reply');
   assertDeepEqual(await resolve1, await resolve2, 'both resolutions see the one reply');
   await otherSource;
@@ -313,7 +313,7 @@ h.test('scheduler caps concurrent critical work so a reconfiguration storm canno
     pending.push(f.client.request('session/reconfigureModel', { sessionId: `chat-${index}` }).catch(error => error));
   }
   assertEqual(requests(f).length, schedulerVector.critical, 'the storm enters only up to the critical cap');
-  pending.push(f.client.request('qoderwork/models', { read: 'warm' }).catch(error => error));
+  pending.push(f.client.request('qwenwork/models', { read: 'warm' }).catch(error => error));
   assertEqual(requests(f).length, schedulerVector.critical + 1, 'an interactive catalog read still gets an ordinary slot');
   for (const frame of requests(f)) f.reply(frame.id, {});
   await waitFor(() => requests(f).length === schedulerVector.critical + 3, 1000, 'queued critical work resumes as slots free');

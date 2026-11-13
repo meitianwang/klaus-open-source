@@ -6,7 +6,7 @@
     "bridgeDir": "frontend/bridge"
   },
   "summary": {
-    "registeredInvoke": 762,
+    "registeredInvoke": 756,
     "registeredPush": 79,
     "roles": 11
   },
@@ -570,12 +570,6 @@
         "qoder-auth:poll",
         "qoder-auth:start",
         "qoder-auth:status",
-        "qoderwork-auth:import-local",
-        "qoderwork-auth:logout",
-        "qoderwork-auth:models",
-        "qoderwork-auth:poll",
-        "qoderwork-auth:start",
-        "qoderwork-auth:status",
         "question:answer",
         "question:pending",
         "quick-input:submit",

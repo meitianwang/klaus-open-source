@@ -13,7 +13,7 @@ struct Candidate {
 }
 
 pub(super) fn read(home: &Path, platform: Platform, keychain: &dyn Keychain) -> Value {
-    // QoderWork is an independent source read by qoderwork.rs, not a QwenWork fallback.
+    // The retired QoderWork store is never a QwenWork fallback location.
     let candidates = [Candidate {
         path: home.join("Library/Application Support/QwenWorkCN/auth-v2.dat"),
         service: "QwenWorkCN Safe Storage",

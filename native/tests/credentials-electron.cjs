@@ -191,54 +191,6 @@ async function run() {
     assert.deepEqual(result.userInfo.organization_tags, ['enterprise']);
     assert.equal(result.userInfo.refresh_strategy, 'device');
     assert.deepEqual(fs.readFileSync(file), before);
-    assert.deepEqual(JSON.parse(await f.binding.readQoderworkCredential('qoderwork-absent', 2000)), {
-      resourceId: f.resourceId, operationId: 'qoderwork-absent', result: { present: false },
-    });
-    await close(f);
-  });
-
-  await test('QoderWork safeStorage import keeps its source separate and returns a device-bound credential', async () => {
-    const f = fixture('darwin', [{ service: 'QoderWork Safe Storage', account: 'QoderWork Key', raw: 'fixture-safe-storage-key' }]);
-    const stored = {
-      schemaVersion: 2,
-      token: 'fake-qoderwork-token',
-      refreshToken: 'fake-refresh',
-      expiresAt: '2027-01-15T08:00:00Z',
-      refreshTokenExpiresAt: '2027-02-15T08:00:00Z',
-      user: { id: 'fixture-user', name: 'Fixture User', orgId: 'fixture-org', orgTags: ['enterprise'], isBiz: true, dataPolicyAgreed: false },
-      loginMethod: 'device',
-      refreshStrategy: 'device',
-      loginDeviceId: '01234567-89ab-cdef-0123-456789abcdef',
-      oauthClientId: 'fixture-client-id',
-      oauthRedirectUri: 'fixture-work://',
-      openApiBase: 'https://example.test/api',
-      loginTimestamp: 1800000000000,
-    };
-    const cipher = createCipheriv('aes-128-cbc', pbkdf2Sync('fixture-safe-storage-key', 'saltysalt', 1003, 16, 'sha1'), Buffer.alloc(16, 32));
-    const blob = Buffer.concat([Buffer.from('v10'), cipher.update(JSON.stringify(stored)), cipher.final()]);
-    const file = path.join(f.options.userHome, 'Library/Application Support/QoderWork/auth-v2.dat');
-    fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.writeFileSync(file, blob);
-    const before = fs.readFileSync(file);
-    const envelope = JSON.parse(await f.binding.readQoderworkCredential('qoderwork-import', 2000));
-    assert.deepEqual(envelope, {
-      resourceId: f.resourceId,
-      operationId: 'qoderwork-import',
-      result: {
-        present: true,
-        machineId: stored.loginDeviceId,
-        userInfo: {
-          uid: 'fixture-user', security_oauth_token: 'fake-qoderwork-token', access_token: 'fake-qoderwork-token',
-          refresh_token: 'fake-refresh', expire_time: 1800000000, refresh_token_expire_time: 1802678400,
-          name: 'Fixture User', organization_id: 'fixture-org', organization_tags: ['enterprise'], is_biz: true,
-          data_policy_agreed: false, login_method: 'device', refresh_strategy: 'device',
-          oauth_client_id: 'fixture-client-id', oauth_redirect_uri: 'fixture-work://',
-          open_api_base: 'https://example.test/api', login_timestamp: 1800000000,
-        },
-      },
-    });
-    assert.deepEqual(await f.adapter.readQwenWorkCredential(), { present: false });
-    assert.deepEqual(fs.readFileSync(file), before);
     await close(f);
   });
 

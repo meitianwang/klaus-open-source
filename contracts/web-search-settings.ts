@@ -1,11 +1,11 @@
 /** The stored builtin source now searches Bing through the engine browser. */
-export const WEB_SEARCH_SOURCES = ['builtin', 'native', 'subscription', 'codex', 'cursor', 'qoder', 'qoderwork', 'qwenwork', 'workbuddy', 'antigravity', 'trae', 'kiro', 'kimi', 'bailian', 'minimax', 'zhipu'] as const;
+export const WEB_SEARCH_SOURCES = ['builtin', 'native', 'subscription', 'codex', 'cursor', 'qoder', 'qwenwork', 'workbuddy', 'antigravity', 'trae', 'kiro', 'kimi', 'bailian', 'minimax', 'zhipu'] as const;
 export type WebSearchSource = typeof WEB_SEARCH_SOURCES[number];
 export const DEFAULT_WEB_SEARCH_SOURCE: WebSearchSource = 'builtin';
 
 /** Verified subscription search services. The catalog is independent of account
  *  state; missing credentials are reported after selection and at execution. */
-export const SUBSCRIPTION_WEB_SEARCH_SOURCES = ['subscription', 'codex', 'cursor', 'qoder', 'qoderwork', 'qwenwork', 'workbuddy', 'antigravity', 'trae', 'kiro', 'kimi', 'bailian', 'minimax', 'zhipu'] as const;
+export const SUBSCRIPTION_WEB_SEARCH_SOURCES = ['subscription', 'codex', 'cursor', 'qoder', 'qwenwork', 'workbuddy', 'antigravity', 'trae', 'kiro', 'kimi', 'bailian', 'minimax', 'zhipu'] as const;
 export type SubscriptionWebSearchSource = typeof SUBSCRIPTION_WEB_SEARCH_SOURCES[number];
 export function isSubscriptionWebSearchSource(value: unknown): value is SubscriptionWebSearchSource {
   return typeof value === 'string' && (SUBSCRIPTION_WEB_SEARCH_SOURCES as readonly string[]).includes(value);

@@ -9,7 +9,7 @@ describe('auth card copy', () => {
   test('every BYO source keeps its own recovery', () => {
     expect(authCardCopy('subscription').action).toBe('login')
     expect(authCardCopy('codex').action).toBe('device-flow')
-    for (const mode of ['qoder', 'cursor', 'qwenwork', 'qoderwork', 'workbuddy', 'kimi', 'bailian', 'minimax', 'zhipu', 'ark']) {
+    for (const mode of ['qoder', 'cursor', 'qwenwork', 'workbuddy', 'kimi', 'bailian', 'minimax', 'zhipu', 'ark']) {
       expect(authCardCopy(mode).action).toBe('open-settings')
     }
   })
@@ -27,7 +27,7 @@ describe('auth card copy', () => {
   test('every branch names all five copy keys and a switch target', () => {
     // A missing key would render as the literal key string via t(), so the shape is part
     // of the contract, not just the values.
-    const modes = ['subscription', 'codex', 'cursor', 'qoder', 'qwenwork', 'qoderwork', 'workbuddy', 'kimi', 'bailian', 'minimax', 'zhipu', 'ark', 'custom', undefined]
+    const modes = ['subscription', 'codex', 'cursor', 'qoder', 'qwenwork', 'workbuddy', 'kimi', 'bailian', 'minimax', 'zhipu', 'ark', 'custom', undefined]
     for (const mode of modes) {
       const copy = authCardCopy(mode)
       for (const key of ['titleKey', 'hintKey', 'primaryKey', 'secondaryKey'] as const) {
@@ -41,7 +41,7 @@ describe('auth card copy', () => {
     expect(authCardCopy('subscription').switchTo).toBe('custom')
     expect(authCardCopy('codex').switchTo).toBe('custom')
     expect(authCardCopy('cursor').switchTo).toBe('custom')
-    for (const mode of ['qoder', 'qwenwork', 'qoderwork', 'workbuddy', 'kimi', 'bailian', 'minimax', 'zhipu', 'ark', 'custom', undefined]) {
+    for (const mode of ['qoder', 'qwenwork', 'workbuddy', 'kimi', 'bailian', 'minimax', 'zhipu', 'ark', 'custom', undefined]) {
       expect(authCardCopy(mode).switchTo).toBe('subscription')
     }
   })
@@ -50,7 +50,7 @@ describe('auth card copy', () => {
     // A key named here but missing from the table renders as the literal key string via
     // t(), so the mapping and the i18n table cannot be allowed to drift apart. This also
     // catches the easy mistake of adding a branch with a typo'd key.
-    const modes = ['subscription', 'codex', 'cursor', 'qoder', 'qwenwork', 'qoderwork', 'workbuddy', 'kimi', 'bailian', 'minimax', 'zhipu', 'ark', 'custom', undefined]
+    const modes = ['subscription', 'codex', 'cursor', 'qoder', 'qwenwork', 'workbuddy', 'kimi', 'bailian', 'minimax', 'zhipu', 'ark', 'custom', undefined]
     for (const mode of modes) {
       const copy = authCardCopy(mode)
       for (const key of [copy.titleKey, copy.hintKey, copy.primaryKey, copy.secondaryKey]) {
@@ -60,16 +60,6 @@ describe('auth card copy', () => {
     }
   })
 
-  test('the QoderWork source has its own copy and settings recovery', () => {
-    expect(authCardCopy('qoderwork')).toEqual({
-      titleKey: 'auth_card_qoderwork_title',
-      hintKey: 'auth_card_qoderwork_hint',
-      primaryKey: 'auth_primary_qoderwork',
-      secondaryKey: 'auth_secondary_custom',
-      action: 'open-settings',
-      switchTo: 'subscription',
-    })
-  })
 })
 
 

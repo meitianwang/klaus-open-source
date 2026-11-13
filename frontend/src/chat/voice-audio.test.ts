@@ -13,10 +13,10 @@ describe('voice input source and audio contracts', () => {
     expect(VOICE_INPUT_SOURCES).toContain('custom')
     expect(VOICE_SELECTABLE_SOURCES).not.toContain('custom')
     expect(vector.localeOverrideSources).toEqual([])
-    for (const source of ['workbuddy', 'qoder', 'qoderwork', 'qwenwork', 'trae'] as const) expect(voiceAudioMaxBytes(source)).toBe(vector.providerAudioMaxBytes[source])
+    for (const source of ['workbuddy', 'qoder', 'qwenwork', 'trae'] as const) expect(voiceAudioMaxBytes(source)).toBe(vector.providerAudioMaxBytes[source])
     // Container policy: PCM-pinned subscription wires keep 16 kHz mono WAV;
     // the remaining HTTP sources upload compact Ogg/Opus with WAV fallback.
-    expect(vector.pcm16Mono16000Wav).toEqual(['claude', 'qoder', 'qoderwork', 'qwenwork', 'antigravity', 'trae'])
+    expect(vector.pcm16Mono16000Wav).toEqual(['claude', 'qoder', 'qwenwork', 'antigravity', 'trae'])
     expect(vector.uploadContainers.webmOpus32k).toEqual(['custom', 'codex', 'workbuddy'])
     for (const source of VOICE_INPUT_SOURCES) expect(voiceUploadContainer(source)).toBe(vector.uploadContainers.webmOpus32k.includes(source) ? 'webm' : 'wav')
     expect(vector.transcriptionTimeoutMs.partial).toBe(20000)
@@ -40,7 +40,7 @@ describe('voice input source and audio contracts', () => {
     expect(visibleVoiceInputSources({}, '')).not.toContain('custom')
     expect(visibleVoiceInputSources({}, 'custom')).toContain('custom')
     expect(voiceInputSource('unknown', true)).toBeUndefined()
-    expect(voiceAudioMaxBytes('workbuddy')).toBe(16 * 1024 * 1024); expect(voiceAudioMaxBytes('qoderwork')).toBe(12 * 1024 * 1024)
+    expect(voiceAudioMaxBytes('workbuddy')).toBe(16 * 1024 * 1024); expect(voiceAudioMaxBytes('qwenwork')).toBe(12 * 1024 * 1024)
     for (const source of VOICE_INPUT_SOURCES) expect(voiceInputSource(source, false)).toBe(source)
   })
   test('pcm16Wav wraps captured frames in a canonical 16 kHz mono WAV container', () => {

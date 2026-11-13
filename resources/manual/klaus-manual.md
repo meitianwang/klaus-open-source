@@ -62,7 +62,7 @@ Klaus 是一款 AI 智能体应用，搭配自研引擎，有桌面应用 Klaus�
 **记忆与模型**
 
 - [记忆与梦](/docs/desktop/memory)：每轮自动记录，以及把近期会话整理成册的「梦」——两个开关都默认关着。
-- [模型](/docs/desktop/models)：自带订阅（Claude Code / Codex / Qoder / 千问办公 / QoderWork / WorkBuddy / Kimi）、套餐（百炼 / MiniMax / 智谱 / 方舟）与自定义 API Key，以及 Ultra 并行协作模式、Claude 多账号轮换和额度查看。
+- [模型](/docs/desktop/models)：自带订阅（Claude Code / Codex / Qoder / 千问办公 / WorkBuddy / Kimi）、套餐（百炼 / MiniMax / 智谱 / 方舟）与自定义 API Key，以及 Ultra 并行协作模式、Claude 多账号轮换和额度查看。
 - [联网搜索](/docs/desktop/web-search)：默认走 Bing 浏览器搜索，也可改用模型自带、模型订阅自带的搜索或 Brave。
 - [图片、视频与语音生成](/docs/desktop/media-generation)、[回答风格](/docs/desktop/output-styles)：生成工具一直在，能不能用是每次调用时判的；换风格只改表达方式。
 
@@ -189,7 +189,7 @@ Klaus Cli 在 Windows 上同样可用，装到 `%LOCALAPPDATA%\Klaus\bin`，见 
 - 直接进入：应用启动即进入工作台，不需要登录。所有模型来源（自带订阅、自定义 API Key）都不要求 Klaus 账号。
 - Klaus 账号：用于[好友协作](/docs/desktop/friends)、团队协作、跨设备会话、手机配对与反馈这些需要跨设备身份的功能。在左下角用户菜单里选择「登录」，走浏览器授权后回到应用；未登录时这些功能不可用，其余功能不受影响。
 - 个人资料页：点击侧栏头像打开，展示累计 Token 数、Token 使用峰值、最长任务用时、最长连续天数与当前连续天数五项真实统计，下方是「Token 活动」图，支持每天 / 每周 / 累计总量三种视图；「编辑个人资料」可以修改姓名、用户名并拖动裁剪头像。设置里的「个人资料」页打开的是同一个页面。
-- 第三方订阅登录：如果你已经有 Claude、ChatGPT/Codex、Cursor、Qoder、千问办公、QoderWork、WorkBuddy、Antigravity、TRAE 国内版、Kiro、Kimi 的订阅，或百炼 Token Plan、MiniMax M Plan、智谱 Coding Plan、方舟 Coding Plan 的套餐，可以直接把它们接成模型来源，把已付过钱的额度用在 Klaus 里。本机已装过对应官方客户端时，Claude、Codex、Cursor、Qoder、千问办公、QoderWork、WorkBuddy、Antigravity、TRAE 和 Kiro 还可以直接复用本机的登录态，不必重新走一遍登录；Kimi 和几种套餐填控制台的 Key 即可。各来源怎么接入见[模型](/docs/desktop/models)。这些来源的流量和额度仍属于对应服务商账号。
+- 第三方订阅登录：如果你已经有 Claude、ChatGPT/Codex、Cursor、Qoder、千问办公、WorkBuddy、Antigravity、TRAE 国内版、Kiro、Kimi 的订阅，或百炼 Token Plan、MiniMax M Plan、智谱 Coding Plan、方舟 Coding Plan 的套餐，可以直接把它们接成模型来源，把已付过钱的额度用在 Klaus 里。本机已装过对应官方客户端时，Claude、Codex、Cursor、Qoder、千问办公、WorkBuddy、Antigravity、TRAE 和 Kiro 还可以直接复用本机的登录态，不必重新走一遍登录；Kimi 和几种套餐填控制台的 Key 即可。各来源怎么接入见[模型](/docs/desktop/models)。这些来源的流量和额度仍属于对应服务商账号。
 - 这几套登录相互独立：退出 Klaus 账号不会退出 Claude，反之也一样。退出 Klaus 账号只影响上面那些需要账号的功能，不会删除第三方订阅凭据或自定义 API 配置。
 
 凭据只存在本机，也不会交给模型：在对话里问「我的 API Key 是什么」，它只会告诉你配了没配，不会把密钥念出来。
@@ -429,7 +429,7 @@ Klaus 不售卖模型，也不需要会员：所有来源都使用你自己的�
 | Claude Code | 浏览器授权登录，或复用本机 Claude 登录态；可以保存多个账号，见下文 |
 | Codex | 浏览器授权（设备码），或复用本机 Codex 登录态 |
 | Cursor | 浏览器登录（需要本机装有 Cursor），或复用本机 Cursor 登录态；部分模型需要对应的 Max 档位 |
-| Qoder、千问办公、QoderWork | 浏览器授权，或复用本机已登录的官方客户端凭据 |
+| Qoder、千问办公 | 浏览器授权，或复用本机已登录的官方客户端凭据 |
 | WorkBuddy | 先选「账号版本」（国内版 / 国际版），再浏览器授权登录，或复用本机对应版本已登录的凭证；两种登录都跟随所选版本 |
 | Antigravity | 用个人 Google 账号在浏览器登录，或复用本机 Antigravity 登录态 |
 | TRAE 国内版 | 浏览器登录，或复用本机 TRAE 登录态；只接受国内版账号，额度以可用积分显示 |
@@ -512,7 +512,7 @@ Claude Code 来源可以保存多个账号。已登录后，「登录 Claude 账
 
 - **Bing**（默认）：后台浏览器搜 Bing，无需 Key。连接失败或撞上验证页面时**明确报错**，不会静默换一家——这是有意的，悄悄回退会让你以为搜到的就是全部结果。
 - **模型自带**：由服务商在服务端搜。需要模型本身支持（Anthropic、OpenAI 的官方模型支持）；走第三方网关或自定义 baseUrl 的不支持，这种情况会自动回退到 Bing 浏览器搜索。选这一档时客户端的搜索工具会从模型眼前撤掉，让它只看到一个搜索面。
-- **订阅自带的搜索**：Claude 订阅、Codex、Cursor、Qoder、QoderWork、千问办公、WorkBuddy、Antigravity、TRAE 国内版、Kiro、Kimi、百炼 Token Plan、MiniMax M Plan、智谱 Coding Plan 都可以用各自账号自带的搜索服务回答搜索，不占用当前会话的模型，也不要求会话本身用的是这个来源。这些来源复用「设置 → 模型来源」里的登录凭据；没连接的来源选中时会提示先连接，用的时候凭据失效会明确报错。
+- **订阅自带的搜索**：Claude 订阅、Codex、Cursor、Qoder、千问办公、WorkBuddy、Antigravity、TRAE 国内版、Kiro、Kimi、百炼 Token Plan、MiniMax M Plan、智谱 Coding Plan 都可以用各自账号自带的搜索服务回答搜索，不占用当前会话的模型，也不要求会话本身用的是这个来源。这些来源复用「设置 → 模型来源」里的登录凭据；没连接的来源选中时会提示先连接，用的时候凭据失效会明确报错。
 - **Brave 和自定义接口已退役**：不再提供这两项的配置入口。早期版本已经配好且正在生效的旧配置会继续保留显示，但不能再被重新选择。
 
 另外两个旋钮：**屏蔽域名**（逗号分隔，把这些域名的结果排除掉）和**最大次数**（限制每回合搜几次，防止它无限搜下去）。只允许哪些域名的白名单没有界面入口，要用的话改引擎配置。
@@ -537,14 +537,14 @@ Claude Code 来源可以保存多个账号。已登录后，「登录 Claude 账
 
 ### 各能力可选的来源
 
-- **生图**：Codex、Cursor、Qoder、千问办公、QoderWork、WorkBuddy、Antigravity、TRAE 国内版、百炼 Token Plan、MiniMax M Plan。
+- **生图**：Codex、Cursor、Qoder、千问办公、WorkBuddy、Antigravity、TRAE 国内版、百炼 Token Plan、MiniMax M Plan。
 - **语音**：Cursor、MiniMax M Plan、百炼 Token Plan、WorkBuddy。
 - **音乐**：千问办公，可以附上歌词。
 - **生视频**：MiniMax M Plan、WorkBuddy、千问办公、TRAE 国内版。
 
 ### 各来源的限制
 
-- **参考图（改图）**：Codex、Cursor、Antigravity、TRAE、WorkBuddy、千问办公支持带参考图；Qoder、QoderWork、百炼、MiniMax 只支持文生图，不接受参考图。参考图每张上限 4 MiB，一次合计上限 8 MiB。千问办公的生图提示词上限 2500 字。
+- **参考图（改图）**：Codex、Cursor、Antigravity、TRAE、WorkBuddy、千问办公支持带参考图；Qoder、百炼、MiniMax 只支持文生图，不接受参考图。参考图每张上限 4 MiB，一次合计上限 8 MiB。千问办公的生图提示词上限 2500 字。
 - **MiniMax 视频**需要 Explore 或 Build 档位，Go 档不支持；视频模型名保留你已设置的，但接口地址和凭据始终来自 MiniMax 订阅。
 - **百炼语音**走套餐网关自己的语音合成路由，花的是套餐额度，只接受 qwen-audio-3.0 系列模型，返回一个 24 小时有效的下载链接。智谱 Coding Plan 和方舟 Coding Plan 不作为语音来源。
 - **MiniMax** 的文本、图片、语音和视频共用同一份订阅额度。
@@ -1019,7 +1019,7 @@ MCP 服务器有三个作用域：全局（所有会话可用）、项目（写�
 - 工作区：文件树的排除规则，见[工作区、Git 与改动](/docs/desktop/workspace-git)。
 - 后续消息行为：运行中发出去的消息默认「排队」（等这一轮结束再发），也可以改成「引导」（不打断模型，直接注入当前这一轮）。这只是默认值，每条消息在输入区还能单独选（⌘/Ctrl+回车取反，见[输入框与键盘](/docs/desktop/keyboard)）。
 - 语音输入：识别语言默认跟随系统，转写润色和语音学习默认都开。
-- 联网：搜索默认开，来源默认是 **Bing**——用后台浏览器搜，不需要 API Key，但要求浏览器插件是开的。也可以改成「模型自带」（由服务商在服务端搜，需要模型本身支持）、Codex / Qoder / QoderWork / 百炼 Token Plan 订阅自带的搜索，或 Brave，见[联网搜索](/docs/desktop/web-search)。关掉搜索不等于断网——你直接给网址它照样能抓。Brave 的 API Key 只能你自己填。搜索失败或撞上验证页是**明确报错**，不会静默换一家。
+- 联网：搜索默认开，来源默认是 **Bing**——用后台浏览器搜，不需要 API Key，但要求浏览器插件是开的。也可以改成「模型自带」（由服务商在服务端搜，需要模型本身支持）、Codex / Qoder / 百炼 Token Plan 订阅自带的搜索，或 Brave，见[联网搜索](/docs/desktop/web-search)。关掉搜索不等于断网——你直接给网址它照样能抓。Brave 的 API Key 只能你自己填。搜索失败或撞上验证页是**明确报错**，不会静默换一家。
 - 引擎运行参数：设置里已经没有单独的「运行时」页。开发调试用的 provider 痕迹开关移到了「设置 → 关于」，叫「开发调试日志」（默认关，开了之后反馈报告会带上痕迹日志路径）；最大工具并发（默认 10）没有界面，可以让 Klaus 改。主会话没有固定的模型轮数上限；子 Agent 和内部维护任务各自按任务类型设置限制。其余引擎数值不上设置面：对绝大多数人只有一个好值，就是引擎自己的默认值，而那个值会随引擎升级变化。真要调的走 `~/.klaus/config.toml`。
 - 执行权限：「设置 → 偏好设置 → 配置」分别设置批准策略与沙箱模式。沙箱有「只读」「工作区写入」「完整访问权限」三种模式；工作区写入的额外可写目录、联网和临时目录规则通过 `config.toml` 中的 `sandbox_workspace_write` 配置。
 - 记忆：「设置 → 梦」里的自动记录**默认关**，定期整理也默认关，详见[记忆与梦](/docs/desktop/memory)。

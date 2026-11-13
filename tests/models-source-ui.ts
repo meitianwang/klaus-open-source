@@ -361,7 +361,7 @@ void (async () => {
       await waitFor(() => evaluate<boolean>("Boolean(document.querySelector('[data-source-tabs=\"model-sources\"]'))"), 20_000, 'the fixture restores the source page for subsequent account checks');
     });
 
-    await h.test('the models page lists every subscription source and the QoderWork card offers its own login', async () => {
+    await h.test('the models page lists every subscription source', async () => {
       desktop.window.setContentSize(1280, 900);
       await evaluate("window.openSettings('models'); true");
       await waitFor(() => evaluate<boolean>("Boolean(document.querySelector('[data-source-tabs=\"model-sources\"]'))"), 20_000, 'the models page paints its source tabs');
@@ -370,69 +370,10 @@ void (async () => {
           document.querySelectorAll('[data-source-tabs="model-sources"] [data-source-tab]')
         ).map(element => element.getAttribute('data-source-tab'))`);
       // Order is the contract the composer picker and the phone both read, so it is
-      // asserted whole rather than as "contains qoderwork".
-      assertDeepEqual(tabs, ['subscription', 'codex', 'cursor', 'qoder', 'qwenwork', 'qoderwork', 'workbuddy', 'antigravity', 'trae', 'kimi', 'bailian', 'minimax', 'zhipu', 'ark', 'custom'],
-        'every source has a tab, QoderWork directly after QwenWork');
+      // asserted whole rather than as "contains".
+      assertDeepEqual(tabs, ['subscription', 'codex', 'cursor', 'qoder', 'qwenwork', 'workbuddy', 'antigravity', 'trae', 'kimi', 'bailian', 'minimax', 'zhipu', 'ark', 'custom'],
+        'every source has a tab');
 
-      // A real click on the real tab, not a state poke: the card only mounts through
-      // the page's own navigation.
-      await evaluate("document.querySelector('[data-source-tab=\"qoderwork\"]').click(); true");
-      await waitFor(() => evaluate<boolean>("Boolean(document.getElementById('qoderwork-auth-login-btn'))"), 20_000, 'the QoderWork card mounts its controls');
-
-      const card = await evaluate<{
-        activeTab: string | null; tabLabel: string; header: string; loginLabel: string;
-        importLabel: string; status: string; controls: number; unnamed: number;
-        scrollWidth: number; clientWidth: number;
-      }>(`(() => {
-        const root = document.getElementById('settings-content');
-        const visible = element => {
-          const style = getComputedStyle(element), rect = element.getBoundingClientRect();
-          return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 0 && rect.height > 0;
-        };
-        const controls = Array.from(root.querySelectorAll('button, input, select, textarea')).filter(visible);
-        const named = controls.filter(element => element.getAttribute('aria-label') || element.textContent?.trim()
-          || (element.id && document.querySelector('label[for="' + CSS.escape(element.id) + '"]')));
-        const main = document.querySelector('.settings-main');
-        return {
-          activeTab: document.querySelector('[data-source-tab="qoderwork"]')?.getAttribute('aria-selected'),
-          tabLabel: document.querySelector('[data-source-tab="qoderwork"]')?.textContent?.trim() || '',
-          header: root.querySelector('.card-header')?.textContent?.trim() || '',
-          loginLabel: document.getElementById('qoderwork-auth-login-btn')?.textContent?.trim() || '',
-          importLabel: document.getElementById('qoderwork-auth-import-btn')?.textContent?.trim() || '',
-          status: document.getElementById('qoderwork-auth-login-status')?.textContent?.trim() || '',
-          controls: controls.length,
-          unnamed: controls.length - named.length,
-          scrollWidth: main.scrollWidth, clientWidth: main.clientWidth,
-        };
-      })()`);
-      assertEqual(card.activeTab, 'true', 'the QoderWork tab is selected');
-      assertEqual(card.tabLabel, 'QoderWork', 'the tab carries the product name');
-      assertEqual(card.header, 'Not signed in', 'a signed-out card says so plainly');
-      assertEqual(card.loginLabel, 'Sign in to QoderWork', 'the device-flow login button names the source');
-      assertEqual(card.importLabel, 'Use local QoderWork login', 'the local-import button names the source');
-      assertEqual(card.status, '', 'a simply signed-out source reports no error');
-      assert(card.controls > 0, 'the card renders real controls');
-      assertEqual(card.unnamed, 0, 'no visible control lacks a name');
-      assert(card.scrollWidth <= card.clientWidth + 1, 'the card does not clip horizontally');
-
-      await capture('models-qoderwork-card.png');
-      writeFileSync(join(root, 'models-qoderwork-state.json'),
-        `${JSON.stringify({ tabs, card }, null, 2)}\n`);
-
-      // The login button must reach the real host handler and come back with the
-      // engine's own authorization URL — that is the whole point of the card, and
-      // it is the one path a static render cannot prove.
-      const started = await evaluate<{ ok: boolean; authUrl?: string; error?: string }>(
-        "window.klaus.qoderworkAuth.start().then(value => value, error => ({ ok: false, error: String(error && error.message || error) }))");
-      assertEqual(started.ok, true, `the login start reaches the engine: ${JSON.stringify(started)}`);
-      const url = new URL(String(started.authUrl));
-      assertEqual(url.origin, 'https://qoder.com', 'the authorization page is the portal that serves the account picker');
-      assertEqual(url.pathname, '/device/selectAccounts', 'the device-flow entry');
-      assertEqual(url.searchParams.get('client_id'), '1c5e33e1-364d-4ce6-b02c-acaa81274a5c', "the device flow uses this source's own OAuth client");
-      assertEqual(url.searchParams.get('redirect_uri'), 'qoder-work://', 'and returns to the QoderWork deep link');
-      assertEqual(url.searchParams.get('challenge_method'), 'S256', 'PKCE challenge method');
-      assertEqual(url.searchParams.size, 6, `exactly the six device-flow parameters: ${url.search}`);
-      writeFileSync(join(root, 'models-qoderwork-login-url.json'), `${JSON.stringify(started, null, 2)}\n`);
     });
 
     await h.test('Cursor settings offer browser sign-in and independent local login reuse', async () => {
@@ -463,90 +404,6 @@ void (async () => {
       await capture('models-cursor-signed-out.png');
     });
 
-    await h.test('the composer source menu offers QoderWork directly after QwenWork', async () => {
-      await evaluate('window.closeSettings(); true');
-      // Closing removes the `active` class rather than the node, so wait on the
-      // page's own visibility flag.
-      await waitFor(() => evaluate<boolean>("window.settingsVisible === false"), 20_000, 'settings closed');
-      // The menu is a React portal rendered after the click settles, so it is
-      // opened with a real mouse event and then waited on rather than read in the
-      // same tick that dispatched it.
-      const point = await evaluate<{ x: number; y: number }>(`(() => {
-        const pill = document.getElementById('auth-mode-pill');
-        if (!pill) throw new Error('the composer source pill is not mounted');
-        pill.scrollIntoView({ block: 'center' });
-        const rect = pill.getBoundingClientRect();
-        return { x: Math.round(rect.x + rect.width / 2), y: Math.round(rect.y + rect.height / 2) };
-      })()`);
-      // The debugger is already attached for the off-screen captures above, so the
-      // menu click reuses it rather than attaching a second time (which the target
-      // refuses) or detaching it out from under the later screenshots.
-      for (const type of ['mousePressed', 'mouseReleased']) {
-        await desktop.window.webContents.debugger.sendCommand('Input.dispatchMouseEvent',
-          { type, x: point.x, y: point.y, button: 'left', clickCount: 1 });
-      }
-      await waitFor(() => evaluate<boolean>("Boolean(document.querySelector('[data-auth-mode-choice]'))"),
-        20_000, 'the source menu opens');
-      // The portal starts off-screen at -9999px and is repositioned by a layout
-      // effect, so the row existing in the DOM does not yet mean a user sees it.
-      // Require the QoderWork row to land inside the viewport, then let the
-      // compositor paint, so the capture below is this menu rather than a stale
-      // or off-screen frame.
-      await waitFor(() => evaluate<boolean>(`(() => {
-        const item = document.querySelector('[data-auth-mode-choice="qoderwork"]');
-        if (!item) return false;
-        const rect = item.getBoundingClientRect();
-        return rect.width > 0 && rect.height > 0 && rect.top >= 0 && rect.left >= 0
-          && rect.bottom <= innerHeight && rect.right <= innerWidth;
-      })()`), 20_000, 'the source menu is positioned inside the viewport');
-      const menu = await evaluate<string[]>(`Array.from(document.querySelectorAll('[data-auth-mode-choice]'))
-          .map(element => element.getAttribute('data-auth-mode-choice'))`);
-      assert(menu.includes('qoderwork'), `the source menu offers QoderWork: ${JSON.stringify(menu)}`);
-      assertEqual(menu.indexOf('cursor'), menu.indexOf('codex') + 1, 'Cursor follows Codex in the source menu');
-      assertEqual(menu.indexOf('qoderwork'), menu.indexOf('qwenwork') + 1, 'directly after QwenWork');
-      const row = await evaluate<{ label: string; disabled: string }>(`(() => {
-        const item = document.querySelector('[data-auth-mode-choice="qoderwork"]');
-        return { label: item?.querySelector('[class*="auth-mode-menu-label"]')?.textContent?.trim() || '',
-                 disabled: item?.getAttribute('aria-disabled') || '' };
-      })()`);
-      assertEqual(row.label, 'QoderWork', 'the menu row carries the product name');
-      assertEqual(row.disabled, 'true', 'an unconnected source is offered but marked unavailable');
-      await evaluate("document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })); true");
-    });
-
-    await h.test('the Chinese UI renders the same source without falling back to a key', async () => {
-      await evaluate("window.openSettings('models'); true");
-      await waitFor(() => evaluate<boolean>("Boolean(document.querySelector('[data-source-tabs=\"model-sources\"]'))"), 20_000, 'the models page reopens');
-      await evaluate("document.querySelector('[data-source-tab=\"qoderwork\"]').click(); true");
-      const previous = await evaluate<string>('window.currentLang');
-      await evaluate("window.setLanguage('zh'); true");
-      await waitFor(() => evaluate<boolean>("Boolean(document.getElementById('qoderwork-auth-login-btn'))"), 20_000, 'the card repaints in Chinese');
-      const zh = await evaluate<{ tabLabel: string; header: string; loginLabel: string; importLabel: string }>(`(() => {
-        const root = document.getElementById('settings-content');
-        return {
-          tabLabel: document.querySelector('[data-source-tab="qoderwork"]')?.textContent?.trim() || '',
-          header: root.querySelector('.card-header')?.textContent?.trim() || '',
-          loginLabel: document.getElementById('qoderwork-auth-login-btn')?.textContent?.trim() || '',
-          importLabel: document.getElementById('qoderwork-auth-import-btn')?.textContent?.trim() || '',
-        };
-      })()`);
-      assertEqual(zh.tabLabel, 'QoderWork', 'the product name is not translated');
-      assertEqual(zh.header, '未登录', 'the signed-out copy is Chinese');
-      assertEqual(zh.loginLabel, '登录 QoderWork', 'the login button is Chinese');
-      assertEqual(zh.importLabel, '复用本机 QoderWork 登录态', 'the import button is Chinese');
-      for (const [name, value] of Object.entries(zh)) {
-        assert(!value.includes('_') || value.includes('QoderWork'), `${name} is copy, not an untranslated key: ${value}`);
-      }
-      // No screenshot here on purpose. This test reopens the models page and then
-      // re-renders the whole tree for the language switch, and the off-screen layer
-      // can lag that much churn by a frame, producing a capture of the page from
-      // before the switch. The Chinese copy is what this test actually pins, and
-      // the four DOM assertions above read it straight from the live document; the
-      // English card screenshot in the first test already proves the QoderWork card
-      // renders, using the same capture path.
-      await evaluate(`window.setLanguage(${JSON.stringify(previous)}); true`);
-      await evaluate('window.closeSettings(); true');
-    });
   } catch (error) {
     // The harness records a thrown assertion per test; anything escaping here is a
     // startup failure, so it is reported as one rather than swallowed into a pass.
@@ -556,7 +413,7 @@ void (async () => {
     try { if (runtime?.window.webContents.debugger.isAttached()) runtime.window.webContents.debugger.detach(); } catch { /* detach is best-effort */ }
     try { await runtime?.shutdown(); } catch { /* shutdown is best-effort in a fixture */ }
     try { await provider?.close(); } catch { /* the fixture server is disposable */ }
-    const code = await h.finish(join(root, 'models-qoderwork-ui-result.json'), 'models-qoderwork-ui');
+    const code = await h.finish(join(root, 'models-source-ui-result.json'), 'models-source-ui');
     app.exit(startupFailed || code !== 0 ? 1 : 0);
   }
 })();

@@ -58,7 +58,6 @@ describe('agent form contract', () => {
 
   for (const [source, sourceName, modelId] of [
     ['qwenwork', 'QwenWork', 'ultimate'],
-    ['qoderwork', 'QoderWork', 'qwork-auto'],
   ] as const) {
   test(`reads the shared mapping for ${source} and keeps all four menu entries`, async () => {
     const previous = (globalThis as any).window

@@ -4,7 +4,6 @@ mod antigravity;
 mod cursor;
 mod mcp;
 mod qoder;
-mod qoderwork;
 mod qwenwork;
 mod service;
 mod workbuddy;
@@ -424,14 +423,6 @@ impl CredentialStore {
 
     pub fn read_cursor_credential(&self) -> Value {
         cursor::read(&self.config.user_home, self.config.platform)
-    }
-
-    pub fn read_qoderwork_credential(&self) -> Value {
-        qoderwork::read(
-            &self.config.user_home,
-            self.config.platform,
-            self.keychain.as_ref(),
-        )
     }
 
     pub fn read_qwenwork_credential(&self) -> Value {

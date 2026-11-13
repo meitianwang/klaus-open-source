@@ -12,7 +12,6 @@ const SOURCE_ROWS = [
   ['subscription', 'Claude Subscription', 'auth:status'], ['codex', 'Codex', 'codex-auth:status'],
   ['cursor', 'Cursor', 'cursor-auth:status'],
   ['qoder', 'Qoder', 'qoder-auth:status'], ['qwenwork', 'QwenWork', 'qwenwork-auth:status'],
-  ['qoderwork', 'QoderWork', 'qoderwork-auth:status'],
   ['workbuddy', 'WorkBuddy', 'workbuddy-auth:status'], ['antigravity', 'Antigravity', 'antigravity-auth:status'], ['trae', 'TRAE CN', 'trae-auth:status'], ['kiro', 'Kiro', 'kiro-auth:status'], ['kimi', 'Kimi', 'kimi-auth:status'],
   ['bailian', 'Bailian Token Plan', 'bailian-auth:status'], ['minimax', 'MiniMax M Plan', 'minimax-auth:status'],
   ['zhipu', 'Zhipu Coding Plan', 'zhipu-auth:status'], ['ark', 'Ark Coding Plan', 'ark-auth:status'], ['custom', 'Custom', 'settings:models:list'],

@@ -109,7 +109,7 @@ export async function mobileFixture(options: Pick<MobileBridgeDeps, 'sessionInte
         case 'session:get-custom-main-model-options': return { options: [{ value: 'custom:fixture', label: 'Custom' }] };
         case 'settings:output-styles:list': return { current: style, defaultStyle: 'default', styles: [{ id: 'plugin-style', source: 'plugin' }, { id: 'Learning', name: 'Learning', source: 'builtin' }, { id: 'default', name: 'Default', isDefault: true }] };
         case 'session:set-main-model': model = string(payload.mode); if (payload.source) authMode = string(payload.source); if (payload.thinkingLevel) level = string(payload.thinkingLevel); return { ok: true };
-        case 'auth:status': case 'codex-auth:status': case 'qoder-auth:status': case 'qwenwork-auth:status': case 'qoderwork-auth:status': case 'workbuddy-auth:status': case 'kimi-auth:status': case 'bailian-auth:status': case 'minimax-auth:status': case 'zhipu-auth:status': case 'ark-auth:status': return { loggedIn: true };
+        case 'auth:status': case 'codex-auth:status': case 'qoder-auth:status': case 'qwenwork-auth:status': case 'workbuddy-auth:status': case 'kimi-auth:status': case 'bailian-auth:status': case 'minimax-auth:status': case 'zhipu-auth:status': case 'ark-auth:status': return { loggedIn: true };
         case 'settings:models:list': return [{ id: 'fixture', name: 'Custom fixture' }];
         case 'session:set-thinking-level': level = string(payload.level); return { ok: true };
         case 'settings:output-styles:set': style = string(payload.style); return { ok: true };

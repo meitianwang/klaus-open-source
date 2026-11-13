@@ -110,10 +110,10 @@ h.test('every source reports one timing entry with its own split', async () => {
   const logs: string[] = [];
   const events: string[] = [];
   await modelTierCatalog(mapping(), deps(logs, events));
-  assertEqual(logs.length, 16, 'one timing entry per source');
+  assertEqual(logs.length, 15, 'one timing entry per source');
   const rows = logs.map(detail => JSON.parse(detail) as JsonObject);
   const sources = rows.map(row => String(row.source)).sort();
-  assertEqual(sources.join(','), 'antigravity,ark,bailian,codex,cursor,custom,kimi,kiro,minimax,qoder,qoderwork,qwenwork,subscription,trae,workbuddy,zhipu', 'every source reported');
+  assertEqual(sources.join(','), 'antigravity,ark,bailian,codex,cursor,custom,kimi,kiro,minimax,qoder,qwenwork,subscription,trae,workbuddy,zhipu', 'every source reported');
   for (const row of rows) {
     for (const key of ['totalMs', 'optionsMs', 'statusMs']) {
       assertEqual(typeof row[key], 'number', `${String(row.source)} reports ${key}`);

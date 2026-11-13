@@ -175,7 +175,7 @@ const AUDIO_CONFIG_KEY = 'audio_generation.model_config';
 // Migration order: the first source holding a saved custom configuration wins
 // the global slot; with none saved, the first source whose own image API could
 // be followed wins the selection.
-const IMAGE_MIGRATION_ORDER = ['custom', 'subscription', 'qoder', 'qwenwork', 'qoderwork', 'workbuddy', 'codex'] as const;
+const IMAGE_MIGRATION_ORDER = ['custom', 'subscription', 'qoder', 'qwenwork', 'workbuddy', 'codex'] as const;
 function media(db: DatabaseSync, kind: MediaKind): JsonObject {
   if (kind === 'music') return nativeMedia(db, kind, 'qwenwork');
   // Custom endpoint configuration is global and never contains native model preferences.
@@ -308,7 +308,7 @@ function migrateMusicConfig(db: DatabaseSync): void {
 // evidence while the selection moves to the disabled state, because video no
 // longer offers a configurable endpoint source. The legacy per-source rows stay
 // in place; reads never consult them again.
-const VIDEO_MIGRATION_ORDER = ['custom', 'minimax', 'subscription', 'qoder', 'qwenwork', 'qoderwork', 'workbuddy', 'kimi', 'bailian'] as const;
+const VIDEO_MIGRATION_ORDER = ['custom', 'minimax', 'subscription', 'qoder', 'qwenwork', 'workbuddy', 'kimi', 'bailian'] as const;
 function migrateVideoConfig(db: DatabaseSync): void {
   if (get(db, VIDEO_SELECTION_KEY) !== undefined) return;
   // The selection follows whichever per-source row wins the fold, because that row

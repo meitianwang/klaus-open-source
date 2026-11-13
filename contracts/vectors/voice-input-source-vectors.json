@@ -21,7 +21,7 @@
   "voicePreferences": {
     "automaticRefinement": true,
     "textRefinementRouting": { "preference": "current model_tiers:global.low read for each request", "unset": "follow the dictating chat main model; standalone dictation uses its remembered default", "sources": "selected subscription or custom source through the engine provider resolver", "legacySourceRows": "migration evidence only; never a live voice model preference", "methods": ["engine/completeText", "engine/cancelTextCompletion"], "credentials": "remain in engine", "updates": "next request captures the new target; in-flight work retains its original model and cancellation owner" },
-    "nativeRefinementSources": ["qoder", "qoderwork", "qwenwork"],
+    "nativeRefinementSources": ["qoder", "qwenwork"],
     "refinementCompletion": "wait for a complete result; a delayed backup races complete refinement without committing raw text or cancelling the pending primary",
     "recordingTimer": "freeze when stop is requested",
     "recognitionLanguageControl": false,
@@ -35,7 +35,7 @@
     "key": "voice.input.experience",
     "default": "realtime",
     "choices": ["realtime", "compatibility"],
-    "realtimeSources": ["system", "claude", "codex", "workbuddy", "antigravity", "trae", "qoder", "qoderwork", "qwenwork"],
+    "realtimeSources": ["system", "claude", "codex", "workbuddy", "antigravity", "trae", "qoder", "qwenwork"],
     "selection": "use the saved voice.input.source in both modes; never substitute another provider; an absent preference retains the platform default",
     "unavailable": "show recovery guidance; file transcription requires an explicit compatibility choice"
   },
@@ -65,7 +65,6 @@
     "antigravity",
     "trae",
     "qoder",
-    "qoderwork",
     "qwenwork"
   ],
   "absentPreference": {
@@ -78,7 +77,6 @@
   "pcm16Mono16000Wav": [
     "claude",
     "qoder",
-    "qoderwork",
     "qwenwork",
     "antigravity",
       "trae"
@@ -92,7 +90,6 @@
     "pcm16Mono16000Wav": [
       "claude",
       "qoder",
-      "qoderwork",
       "qwenwork",
       "antigravity",
       "trae"
@@ -142,7 +139,6 @@
   "providerAudioMaxBytes": {
     "workbuddy": 16777216,
     "qoder": 12582912,
-    "qoderwork": 12582912,
     "qwenwork": 12582912,
     "antigravity": 12582912,
     "trae": 12582912

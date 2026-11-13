@@ -172,13 +172,6 @@ void (async () => {
       // read the card polls, and its logout. They are exposed on the existing
       // `bailianAuth` surface, because the allowance they unlock is the same
       // account fact the surface already reports.
-      // 494 adds the six `qoderwork-auth:*` channels behind the QoderWork
-      // subscription card: status, the external-link login start/poll pair, the
-      // catalog read, the local-login import and the logout. They are the same
-      // shape as the `qwenwork-auth:*` six — two sibling products on one gateway
-      // family, each with its own credential — and are exposed as the
-      // `qoderworkAuth` surface (60) so an agent can sign a conversation in and
-      // read its allowance the way it already can for the other sources.
       // The four `zhipu-auth:*` channels are exposed on a `zhipuAuth` surface
       // entry: reading the plan's status and model list, plus the confirm-gated
       // key write and logout beside it. This number tracks the derived contract,
@@ -281,7 +274,9 @@ void (async () => {
       // just gets the disposition it has always required.
       // 762 adds `plugins:cancel`, exposed on the existing `plugin` surface so a
       // queued or running plugin download can be cancelled cleanly before commit.
-      assert.equal(channels.size, 762);
+      // Retiring the QoderWork subscription removes its six `qoderwork-auth:*`
+      // channels and the `qoderworkAuth` control surface.
+      assert.equal(channels.size, 756);
       const companionChannels = [...channels].filter(channel => channel.startsWith('desktop-pet:'));
       assert.equal(companionChannels.length, 58);
       for (const channel of companionChannels) {
@@ -317,9 +312,8 @@ void (async () => {
       }
       // The global image backend adds its own surface (58) beside imageGen:
       // selecting which backend runs generate_image is a distinct operation
-      // from configuring the custom endpoint. The QoderWork subscription card
-      // adds `qoderworkAuth` (60), Coding Plan adds `zhipuAuth` (61), and the
-      // global video backend adds `videoSelection` (62) beside videoGen.
+      // from configuring the custom endpoint. Coding Plan adds `zhipuAuth`, and
+      // the global video backend adds `videoSelection` beside videoGen.
       // Volcengine Ark plan adds `arkAuth` (63) — the same channel shape: status
       // and model-list reads beside the confirm-gated key write and logout, plus
       // the console-session trio that unlocks the allowance figures. The global
@@ -329,7 +323,7 @@ void (async () => {
       // Music adds independent selection and native model preference surfaces (68).
       // Each new account source owns its explicit authentication surface.
       // Auxiliary task model picks add `featureModels` (72) beside the advisor.
-      assert.equal(new Set(CONTROL_SURFACES.map(surface => surface.key)).size, 72);
+      assert.equal(new Set(CONTROL_SURFACES.map(surface => surface.key)).size, 71);
     });
     await h.test('model control cannot grant itself preview access or acquire the owner activity projection', async () => {
       const preview = JSON.parse(await readFile(join(root, 'contracts/vectors/artifact-preview-access-vectors.json'), 'utf8')).controlAccess;

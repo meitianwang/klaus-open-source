@@ -721,7 +721,6 @@ export function registerServiceHandlerTests(h: Harness, freshRoot: () => string)
         readQoderIdeCredential: async () => ({ present: false }),
         readAntigravityKeychainSecret: async () => ({ present: false }),
         readQwenWorkCredential: async () => ({ present: false }),
-        readQoderWorkCredential: async () => ({ present: false }),
         readWorkBuddyCredential: async () => ({ ...credentials }),
       },
       request: async (method, params) => {

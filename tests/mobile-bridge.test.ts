@@ -334,7 +334,7 @@ void (async () => {
       await f.enable(); f.bridge.noteRendererSession([{ sessionId: 's1' }]);
       const before = f.calls.length; assert.equal((await f.request('POST', '/api/mobile/runtime-config', { mainModel: 'high', authMode: 'removed-source' })).status, 400);
       assert(!f.calls.slice(before).some(row => row.channel.startsWith('session:set')));
-      for (const source of ['qoder', 'qwenwork', 'qoderwork', 'workbuddy', 'kimi', 'bailian', 'minimax', 'zhipu', 'ark']) {
+      for (const source of ['qoder', 'qwenwork', 'workbuddy', 'kimi', 'bailian', 'minimax', 'zhipu', 'ark']) {
         const allowed = await f.request('POST', '/api/mobile/runtime-config', { sessionId: 's1', mainModel: source + ':fixture', authMode: source });
         assert.equal(allowed.status, 202); assert.equal(object(allowed.body.runtimeConfig).authMode, source);
       }

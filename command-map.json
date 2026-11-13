@@ -1,6 +1,6 @@
 {
   "summary": {
-    "invokeDeclared": 762,
+    "invokeDeclared": 756,
     "pushDeclared": 79
   },
   "rows": [
@@ -1838,30 +1838,6 @@
     },
     {
       "channel": "qoder-auth:status",
-      "kind": "invoke"
-    },
-    {
-      "channel": "qoderwork-auth:import-local",
-      "kind": "invoke"
-    },
-    {
-      "channel": "qoderwork-auth:logout",
-      "kind": "invoke"
-    },
-    {
-      "channel": "qoderwork-auth:models",
-      "kind": "invoke"
-    },
-    {
-      "channel": "qoderwork-auth:poll",
-      "kind": "invoke"
-    },
-    {
-      "channel": "qoderwork-auth:start",
-      "kind": "invoke"
-    },
-    {
-      "channel": "qoderwork-auth:status",
       "kind": "invoke"
     },
     {

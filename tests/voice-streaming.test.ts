@@ -132,7 +132,7 @@ for (const scenario of ['unavailable', 'probe-failed', 'file-only'] as const) h.
   } finally { await service.shutdown(); }
 });
 
-for (const source of ['claude', 'codex', 'workbuddy', 'antigravity', 'trae', 'qoder', 'qoderwork', 'qwenwork'] as const) h.test(`selected native dictation publishes PCM previews before stop without file requests: ${source}`, async () => {
+for (const source of ['claude', 'codex', 'workbuddy', 'antigravity', 'trae', 'qoder', 'qwenwork'] as const) h.test(`selected native dictation publishes PCM previews before stop without file requests: ${source}`, async () => {
   const peer = new Peer(), events: Row[] = [];
   let fileCalls = 0, accountReads = 0;
   peer.requestWithTimeout = async (method, params) => {
@@ -167,7 +167,7 @@ for (const source of ['claude', 'codex', 'workbuddy', 'antigravity', 'trae', 'qo
     await waitFor(() => events.some(event => event.type === 'final'), 1000, 'native source completion');
     const startParams = peer.calls.find(call => call.method === 'engine/dictationStart')?.params;
     assert.equal(startParams?.operationId, 'native-source'); assert.equal(startParams?.source, source);
-    if (['qoder', 'qoderwork', 'qwenwork'].includes(source)) assert.deepEqual(object(startParams?.refinement).messages, []);
+    if (['qoder', 'qwenwork'].includes(source)) assert.deepEqual(object(startParams?.refinement).messages, []);
     else assert.equal(startParams?.refinement, undefined);
     assert.deepEqual(peer.calls.find(call => call.method === 'engine/dictationAppendAudio')?.params,
       { operationId: 'native-source', seq: 1, audioBase64: 'AQA=' });
@@ -379,7 +379,7 @@ for (const locale of ['zh-CN', 'en-US']) h.test(`native speech captures the curr
   }
 });
 
-for (const source of ['claude', 'codex', 'workbuddy', 'antigravity', 'trae', 'qoder', 'qoderwork', 'qwenwork']) for (const scenario of ['same-account', 'changed-account', 'missing-generation']) {
+for (const source of ['claude', 'codex', 'workbuddy', 'antigravity', 'trae', 'qoder', 'qwenwork']) for (const scenario of ['same-account', 'changed-account', 'missing-generation']) {
   h.test(`retained audio recovery preserves the original account generation: ${source}, ${scenario}`, async () => {
     const peer = new Peer(), events: Row[] = [], failures: string[] = [];
     const recoveryRequests: Row[] = [];

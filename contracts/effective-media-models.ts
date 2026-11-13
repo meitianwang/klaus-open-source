@@ -12,7 +12,7 @@ export interface EffectiveMediaModelCatalog {
 export const SUBSCRIPTION_MEDIA_MODELS = {
   image: {
     codex: ['gpt-image-2'], cursor: [''], qoder: [''],
-    qwenwork: ['open-image-2', 'banana-image-2'], qoderwork: [''],
+    qwenwork: ['open-image-2', 'banana-image-2'],
     workbuddy: ['gpt-image-2.5-sunburst'], antigravity: [''], trae: [''],
     bailian: ['qwen-image-3.0-pro'], minimax: ['image-01'],
   },
@@ -22,7 +22,7 @@ export const SUBSCRIPTION_MEDIA_MODELS = {
 } as const;
 
 /** Verified product routes stay selectable independently of account connection. */
-export const SUBSCRIPTION_IMAGE_SOURCES = ['codex', 'cursor', 'qoder', 'qwenwork', 'qoderwork', 'workbuddy', 'antigravity', 'trae', 'bailian', 'minimax'] as const;
+export const SUBSCRIPTION_IMAGE_SOURCES = ['codex', 'cursor', 'qoder', 'qwenwork', 'workbuddy', 'antigravity', 'trae', 'bailian', 'minimax'] as const;
 
 /** Verified subscription video routes stay selectable independently of account connection. */
 export const SUBSCRIPTION_VIDEO_SOURCES = ['minimax', 'workbuddy', 'qwenwork', 'trae'] as const;
@@ -35,7 +35,7 @@ export function configuredMediaModel(kind: MediaModelKind, source: string, confi
   if (source === 'none' || source === 'cursor' || source === 'workbuddy' || source === 'antigravity' || source === 'trae') return '';
   if (kind === 'image' && source === 'codex') return 'gpt-image-2';
   // These account services own their image model and do not accept a model argument.
-  if (kind === 'image' && (source === 'qoder' || source === 'qoderwork')) return '';
+  if (kind === 'image' && source === 'qoder') return '';
   if (config.provider === 'local') return typeof config.localModel === 'string' ? config.localModel.trim() : '';
   const saved = typeof config.model === 'string' ? config.model.trim() : '';
   if (saved) return saved;

@@ -59,7 +59,7 @@ h.test('source preferences and inherited conversations never share Fast defaults
   kvSet('composer.codex_fast_mode', 'true', root);
   setSessionModel('parent', 'codex:fixture', 'codex', root);
   assertEqual(readSessionFastMode('parent', root), true, 'legacy Codex default retained');
-  for (const source of ['subscription', 'qoder', 'qoderwork']) {
+  for (const source of ['subscription', 'qoder']) {
     setSessionModel('parent', `${source}:fixture`, source, root);
     assertEqual(readSessionFastMode('parent', root), false, 'new source starts independently');
     setSessionFastMode('parent', true, root, source);

@@ -84,7 +84,7 @@ export const MOBILE_DISPATCH_CHANNELS = [
   'chat:interrupt', 'permission:respond', 'session:set-main-model', 'session:set-thinking-level', 'session:set-ultra-mode', 'session:set-fast-mode', 'settings:kv:set', 'settings:output-styles:set', 'chat:send', 'chat:upload',
   'permission:pending', 'elicit:pending', 'elicit:respond', 'question:pending', 'question:answer', 'agents:snapshot', 'agents:history', 'artifacts:read',
   'session:background-processes', 'session:stop-background-process',
-  'auth:status', 'codex-auth:status', 'cursor-auth:status', 'qoder-auth:status', 'qwenwork-auth:status', 'qoderwork-auth:status', 'workbuddy-auth:status', 'antigravity-auth:status', 'trae-auth:status', 'kiro-auth:status', 'kimi-auth:status', 'bailian-auth:status', 'minimax-auth:status', 'zhipu-auth:status', 'ark-auth:status', 'settings:models:list',
+  'auth:status', 'codex-auth:status', 'cursor-auth:status', 'qoder-auth:status', 'qwenwork-auth:status', 'workbuddy-auth:status', 'antigravity-auth:status', 'trae-auth:status', 'kiro-auth:status', 'kimi-auth:status', 'bailian-auth:status', 'minimax-auth:status', 'zhipu-auth:status', 'ark-auth:status', 'settings:models:list',
   'git:branches', 'git:uncommitted', 'git:checkout', 'git:commit-paths', 'worktree:create-from-workdir', 'worktree:remove',
 ] as const;
 

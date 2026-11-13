@@ -73,14 +73,6 @@ export interface SessionEventDeps {
    */
   onQwenWorkAuthFailed?: () => unknown;
   /**
-   * The same recovery for a `qoderwork` turn. The engine can reread the official
-   * CLI cache itself, but only the host can decrypt the desktop app's own store,
-   * so this hook gives the retry the freshest token that exists on the machine.
-   * There is no refresh-token fallback behind it: this gateway exposes no refresh
-   * method, so a reread that finds nothing reads as "sign in again".
-   */
-  onQoderWorkAuthFailed?: () => unknown;
-  /**
    * The same recovery for a `workbuddy` turn. Re-import is the ONLY recovery an
    * adopted login gets — see `workbuddyReadopt` — so a turn that died on auth
    * rereads WorkBuddy's own store in the background for the retry.
@@ -326,9 +318,6 @@ export class SessionEventPump {
       if (alias && rawTurnId === alias.submissionId) chat.turnId = alias.engineTurnId;
       if (chat.type === 'auth_required' && chat.mode === 'qwenwork' && this.deps.onQwenWorkAuthFailed) {
         void Promise.resolve(this.deps.onQwenWorkAuthFailed()).catch(() => {});
-      }
-      if (chat.type === 'auth_required' && chat.mode === 'qoderwork' && this.deps.onQoderWorkAuthFailed) {
-        void Promise.resolve(this.deps.onQoderWorkAuthFailed()).catch(() => {});
       }
       if (chat.type === 'auth_required' && chat.mode === 'workbuddy' && this.deps.onWorkBuddyAuthFailed) {
         void Promise.resolve(this.deps.onWorkBuddyAuthFailed()).catch(() => {});

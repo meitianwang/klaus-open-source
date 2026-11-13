@@ -2,7 +2,7 @@ import { ChannelRegistry, IpcHandlerError } from '../registry';
 import type { Json } from '../contract';
 import { decodeBinary } from '../binary';
 import { AccountService, type AccountDeps } from '../../services/account-service';
-import { isQwenWorkRecoverable, isWorkBuddyLoginExpired, isQoderWorkLoginExpired, needsCursorReadoption } from '../../services/subscription-auth';
+import { isQwenWorkRecoverable, isWorkBuddyLoginExpired, needsCursorReadoption } from '../../services/subscription-auth';
 import { object, string, requiredString, errorMessage, type JsonObject } from '../../services/service-types';
 
 export const AUTH_CHANNELS = [
@@ -18,7 +18,6 @@ export const AUTH_CHANNELS = [
   'cursor-auth:status', 'cursor-auth:models', 'cursor-auth:start', 'cursor-auth:poll', 'cursor-auth:cancel', 'cursor-auth:import-local', 'cursor-auth:logout',
   'qoder-auth:status', 'qoder-auth:start', 'qoder-auth:poll', 'qoder-auth:logout', 'qoder-auth:models',
   'qwenwork-auth:status', 'qwenwork-auth:start', 'qwenwork-auth:poll', 'qwenwork-auth:logout', 'qwenwork-auth:import-local', 'qwenwork-auth:models',
-  'qoderwork-auth:status', 'qoderwork-auth:start', 'qoderwork-auth:poll', 'qoderwork-auth:logout', 'qoderwork-auth:import-local', 'qoderwork-auth:models',
   'workbuddy-auth:status', 'workbuddy-auth:start', 'workbuddy-auth:poll', 'workbuddy-auth:logout', 'workbuddy-auth:import-local', 'workbuddy-auth:models',
   'kimi-auth:status', 'kimi-auth:set-api-key', 'kimi-auth:start', 'kimi-auth:poll', 'kimi-auth:logout', 'kimi-auth:models',
   'bailian-auth:status', 'bailian-auth:set-api-key', 'bailian-auth:logout', 'bailian-auth:models',
@@ -89,7 +88,6 @@ export function registerAuthHandlers(registry: ChannelRegistry, deps: AccountDep
   registry.register('codex-auth:import-local', () => service.subscriptions.codexImportLocal(), 'auth');
   registry.register('qoder-auth:import-local', () => service.subscriptions.qoderImportLocal(), 'auth');
   registry.register('qwenwork-auth:import-local', () => service.subscriptions.qwenworkImportLocal(), 'auth');
-  registry.register('qoderwork-auth:import-local', () => service.subscriptions.qoderworkImportLocal(), 'auth');
   registry.register('workbuddy-auth:import-local', ctx => {
     const region = object(ctx.args[0]).region;
     if (region !== undefined && region !== 'cn' && region !== 'intl') throw new Error('WorkBuddy import region must be cn or intl');
@@ -204,43 +202,6 @@ export function registerAuthHandlers(registry: ChannelRegistry, deps: AccountDep
       }
       await deps.request('qwenwork/refreshToken', {});
       return { ok: true, models: project(object(await deps.request('qwenwork/models', { read: 'cached' }))) };
-    } catch (error) { return { ok: false, error: errorMessage(error), models: [] }; }
-  }, 'auth');
-  registry.register('qoderwork-auth:status', async () => object(await deps.request('qoderwork/status', {})), 'auth');
-  registry.register('qoderwork-auth:start', async () => {
-    const result = object(await deps.request('qoderwork/loginStart', {}));
-    if (typeof result.authUrl === 'string') {
-      try {
-        const url = new URL(result.authUrl);
-        if (url.protocol === 'https:' || url.protocol === 'http:') await deps.openExternal(url.href);
-      } catch { /* The settings card keeps the flow active if browser handoff fails. */ }
-    }
-    return result;
-  }, 'auth');
-  registry.register('qoderwork-auth:poll', async ctx => {
-    const flowId = requiredString(object(ctx.args[0]).flowId, 'flowId');
-    return object(await deps.request('qoderwork/loginPoll', { flow: { flowId } }));
-  }, 'auth');
-  registry.register('qoderwork-auth:logout', () => service.subscriptions.qoderworkLogout(), 'auth');
-  registry.register('qoderwork-auth:models', async (): Promise<Json> => {
-    const project = (result: JsonObject) => (Array.isArray(result.models) ? result.models : []).map(value => {
-      const row = object(value), key = string(row.key), label = string(row.display_name) || key;
-      return { ...row, id: key, name: label, description: string(row.description) || label };
-    });
-    // A dead copied token is recovered by rereading the official store, which
-    // costs nothing. There is deliberately no refresh-token fallback behind it:
-    // this gateway exposes no refreshToken method, so a reread that finds nothing
-    // reports the login as dead rather than invalidating the official client's copy.
-    try {
-      return { ok: true, models: project(object(await deps.request('qoderwork/models', { read: 'cached' }))) };
-    } catch (error) {
-      if (!isQoderWorkLoginExpired(error)) return { ok: false, error: errorMessage(error), models: [] };
-    }
-    try {
-      if (await service.subscriptions.qoderworkReadopt()) {
-        return { ok: true, models: project(object(await deps.request('qoderwork/models', { read: 'cached' }))) };
-      }
-      return { ok: false, error: 'qoderwork_login_expired', models: [] };
     } catch (error) { return { ok: false, error: errorMessage(error), models: [] }; }
   }, 'auth');
   registry.register('workbuddy-auth:status', async () => object(await deps.request('workbuddy/status', {})), 'auth');

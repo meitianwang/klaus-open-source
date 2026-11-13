@@ -62,7 +62,7 @@ h.test('committed vectors pin fixed tool declarations and bounded generation con
   for (const [key, value] of Object.entries(object(vector.limits))) equal((LIMITS as Record<string, number>)[key], value, key);
   const selection = object(vector.selection);
   equal(selection.globalForImage, true); equal(selection.globalForVideo, true); equal(selection.globalForAudio, true);
-  deepEqual(selection.imageChoices, ['none', 'codex', 'cursor', 'qoder', 'qwenwork', 'qoderwork', 'workbuddy', 'antigravity', 'trae', 'bailian', 'minimax']);
+  deepEqual(selection.imageChoices, ['none', 'codex', 'cursor', 'qoder', 'qwenwork', 'workbuddy', 'antigravity', 'trae', 'bailian', 'minimax']);
   deepEqual(selection.videoChoices, ['none', 'minimax', 'workbuddy', 'qwenwork', 'trae']);
   deepEqual(selection.audioChoices, ['none', 'cursor', 'minimax', 'bailian', 'workbuddy']);
   deepEqual(selection.musicChoices, ['none', 'qwenwork']);
@@ -191,11 +191,10 @@ h.test('Codex selection uses subscription credentials and a saved custom endpoin
   } finally { await f.close(); }
 });
 h.test('subscription selections ignore custom endpoints and reject unsupported references before reading', async () => {
-  const qoderCalls: JsonObject[] = [], qwenworkCalls: JsonObject[] = [], qoderworkCalls: JsonObject[] = [];
+  const qoderCalls: JsonObject[] = [], qwenworkCalls: JsonObject[] = [];
   const f = await mediaFixture({ deps: {
     qoder: { status: async () => ({ loggedIn: true }), generate: async params => { qoderCalls.push(params); return { imageBase64: png.toString('base64') }; } },
     qwenwork: { status: async () => ({ loggedIn: true }), capabilities: async () => ({ image: { available: true, models: ['image-one'], defaultModel: 'image-one' } }), image: async params => { qwenworkCalls.push(params); return { imageBase64: png.toString('base64'), mimeType: 'image/png' }; }, video: async () => ({}), audio: async () => ({}) },
-    qoderwork: { status: async () => ({ loggedIn: true }), generate: async params => { qoderworkCalls.push(params); return { imageBase64: png.toString('base64') }; } },
   } });
   try {
     f.config('custom', 'image', { model: 'unselected-image' });
@@ -208,10 +207,6 @@ h.test('subscription selections ignore custom endpoints and reject unsupported r
     output(await f.service.execute('generate_image', { prompt: 'Blue' }, f.context('custom', 'qwenwork-thread')));
     deepEqual(qwenworkCalls, [{ prompt: 'Blue', model: 'image-one' }]);
     match(failure(await f.service.execute('generate_image', { prompt: 'Blue', source_images: ['/never-read'] }, f.context('custom'))), /currently unavailable/); equal(qwenworkCalls.length, 1);
-    f.select('qoderwork');
-    output(await f.service.execute('generate_image', { prompt: 'Blue' }, f.context('custom', 'qoderwork-thread')));
-    deepEqual(qoderworkCalls, [{ prompt: 'Blue', sessionId: 'qoderwork-thread' }]);
-    match(failure(await f.service.execute('generate_image', { prompt: 'Blue', source_images: ['/never-read'] }, f.context('custom'))), /text-to-image only/); equal(qoderworkCalls.length, 1);
     equal(f.requests.length, 0); deepEqual(f.features.getMedia('image'), saved);
   } finally { await f.close(); }
 });
@@ -220,7 +215,7 @@ h.test('a signed-out image subscription never falls back to a configured custom 
   try {
     f.config('custom', 'image', { model: 'available-custom-image' });
     const saved = f.features.getMedia('image');
-    for (const selection of ['codex', 'qoder', 'qwenwork', 'qoderwork']) {
+    for (const selection of ['codex', 'qoder', 'qwenwork']) {
       f.select(selection);
       match(failure(await f.service.execute('generate_image', { prompt: 'Blue', source_images: ['/not/read'] }, f.context())), selection === 'qwenwork' ? /Reconnect the generation account/ : /not configured/);
     }
@@ -242,7 +237,7 @@ h.test('a selected image subscription failure does not retry on a saved custom e
   } finally { await f.close(); }
 });
 h.test('image credential, status and generation failures never invoke an unselected custom endpoint', async () => {
-  for (const selection of ['codex', 'qoder', 'qwenwork', 'qoderwork'] as const) {
+  for (const selection of ['codex', 'qoder', 'qwenwork'] as const) {
     for (const phase of selection === 'codex' ? ['credential'] : ['status', 'generate', 'result']) {
       const backend = {
         status: async () => { if (phase === 'status') throw new Error('Fixture status failed.'); return { loggedIn: true }; },

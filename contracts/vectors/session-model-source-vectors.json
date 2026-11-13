@@ -206,10 +206,10 @@
       "defaultSource": "workbuddy"
     },
     {
-      "name": "Sixth conversation chooses QoderWork beside a QwenWork sibling",
+      "name": "Sixth conversation chooses Kimi beside the others",
       "set": {
         "sessionId": "six",
-        "mode": "qoderwork:qwork-auto"
+        "mode": "kimi:fixture"
       },
       "sources": {
         "one": "qoder",
@@ -217,9 +217,9 @@
         "three": "codex",
         "four": "qwenwork",
         "five": "workbuddy",
-        "six": "qoderwork"
+        "six": "kimi"
       },
-      "defaultSource": "qoderwork"
+      "defaultSource": "kimi"
     },
     {
       "name": "Seventh conversation chooses a concrete Cursor variant",
@@ -233,7 +233,7 @@
         "three": "codex",
         "four": "qwenwork",
         "five": "workbuddy",
-        "six": "qoderwork",
+        "six": "kimi",
         "seven": "cursor"
       },
       "defaultSource": "cursor"
@@ -247,7 +247,7 @@
         "three": "codex",
         "four": "qwenwork",
         "five": "workbuddy",
-        "six": "qoderwork",
+        "six": "kimi",
         "seven": "cursor",
         "eight": "cursor"
       },
@@ -265,7 +265,7 @@
         "three": "codex",
         "four": "qwenwork",
         "five": "workbuddy",
-        "six": "qoderwork",
+        "six": "kimi",
         "seven": "cursor",
         "eight": "cursor"
       },

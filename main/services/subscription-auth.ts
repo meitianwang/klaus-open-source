@@ -25,7 +25,6 @@ export interface SubscriptionCredentials {
   readQoderIdeCredential(): Promise<{ present: boolean; userInfo?: Json; error?: string }>;
   readAntigravityKeychainSecret(): Promise<{ present: boolean; raw?: string; error?: string }>;
   readQwenWorkCredential(): Promise<{ present: boolean; userInfo?: Json; machineId?: string; error?: string }>;
-  readQoderWorkCredential(): Promise<{ present: boolean; userInfo?: Json; machineId?: string; error?: string }>;
   readWorkBuddyCredential(region?: 'cn' | 'intl'): Promise<{ present: boolean; userInfo?: Json; machineId?: string; error?: string }>;
 }
 export interface SubscriptionAuthDeps {
@@ -85,15 +84,6 @@ export function isQwenWorkRecoverable(error: unknown): boolean {
 /** The same stable code for a dead WorkBuddy login. */
 export function isWorkBuddyLoginExpired(error: unknown): boolean {
   return errorMessage(error).includes('workbuddy_login_expired');
-}
-
-/**
- * The same stable code for a dead QoderWork login. The recovery behind it is a
- * reread of the official store only — this gateway has no refresh-token method,
- * so there is nothing to fall back to once the reread finds nothing.
- */
-export function isQoderWorkLoginExpired(error: unknown): boolean {
-  return errorMessage(error).includes('qoderwork_login_expired');
 }
 
 export function needsCursorReadoption(error: unknown): boolean {
@@ -177,7 +167,6 @@ export class SubscriptionAuthService {
   private codexEpoch = 0;
   private qoderEpoch = 0;
   private qwenworkEpoch = 0;
-  private qoderworkEpoch = 0;
   private workbuddyEpoch = 0;
   private antigravityEpoch = 0;
   private antigravityLoginFlow?: { flowId: string; epoch: number };
@@ -196,7 +185,7 @@ export class SubscriptionAuthService {
     this.fetcher = deps.fetch ?? fetch;
   }
   close(): Promise<void> {
-    this.closed = true; this.claudeEpoch++; this.codexEpoch++; this.qoderEpoch++; this.qwenworkEpoch++; this.qoderworkEpoch++; this.workbuddyEpoch++; this.antigravityEpoch++; this.traeEpoch++; this.kiroEpoch++; this.cursorEpoch++; this.devices.clear();
+    this.closed = true; this.claudeEpoch++; this.codexEpoch++; this.qoderEpoch++; this.qwenworkEpoch++; this.workbuddyEpoch++; this.antigravityEpoch++; this.traeEpoch++; this.kiroEpoch++; this.cursorEpoch++; this.devices.clear();
     this.claudeController?.abort();
     for (const controller of this.pending) controller.abort();
     const cursorFlow = this.cursorLoginFlow;
@@ -1217,75 +1206,6 @@ export class SubscriptionAuthService {
       if (result.ok === true) this.cursorSnapshotHash = undefined;
       await this.deps.onAuthChanged({ signedOut: true });
       return result;
-    });
-  }
-
-  async qoderworkImportLocal(): Promise<Json> {
-    const epoch = ++this.qoderworkEpoch;
-    return this.writes.run(async (): Promise<Json> => {
-      try {
-        if (this.closed || epoch !== this.qoderworkEpoch) throw new Error('Account operation cancelled');
-        const local = await this.credentials().readQoderWorkCredential();
-        if (this.closed || epoch !== this.qoderworkEpoch) throw new Error('Account operation cancelled');
-        const imported = local.userInfo !== undefined
-          ? object(await this.deps.request('qoderwork/adoptCredential', {
-              userInfo: local.userInfo,
-              ...(local.machineId ? { machineId: local.machineId } : {}),
-            }))
-          : object(await this.deps.request('qoderwork/importLocal', {}));
-        if (this.closed || epoch !== this.qoderworkEpoch) {
-          await this.deps.request('qoderwork/logout', {}); throw new Error('Account operation cancelled');
-        }
-        if (imported.ok === true) { await this.deps.onAuthChanged(); return imported; }
-        if (local.userInfo !== undefined || !local.present) return imported;
-        return { ok: false, error: local.error ?? 'qoderwork_local_credentials_unavailable' };
-      } catch (error) { return { ok: false, error: errorMessage(error) }; }
-    });
-  }
-  /**
-   * Recover a dead QoderWork login without spending a refresh token: reread the
-   * official client's own store (the desktop safeStorage blob this process can
-   * decrypt, then the CLI cache the engine reads itself) and adopt whatever is
-   * freshest. Returns whether the adoption landed. Unlike the QwenWork recovery
-   * there is no refresh-token fallback behind this: the Qoder family's gateway has
-   * no `refreshToken` facade method, so a reread that fails reads as "sign in
-   * again" rather than as a spent one-time token.
-   *
-   * This runs in the background, off any user action, so it takes the same
-   * cancellation the explicit import does: the epoch is read on entry and checked
-   * around every await, and the write goes through the serial queue. Without that
-   * a logout that lands mid-read is undone — signing out keeps the official
-   * client's login on disk, so the pending read still succeeds and would
-   * re-adopt an account the user just left.
-   */
-  async qoderworkReadopt(): Promise<boolean> {
-    const epoch = this.qoderworkEpoch;
-    const stale = (): boolean => this.closed || epoch !== this.qoderworkEpoch;
-    return this.writes.run(async (): Promise<boolean> => {
-      try {
-        if (stale()) return false;
-        const local = await this.credentials().readQoderWorkCredential();
-        if (stale()) return false;
-        const adopted = local.userInfo !== undefined
-          ? object(await this.deps.request('qoderwork/adoptCredential', {
-            userInfo: local.userInfo,
-            ...(local.machineId ? { machineId: local.machineId } : {}),
-          }))
-          : object(await this.deps.request('qoderwork/importLocal', {}));
-        if (stale()) return false;
-        if (adopted.ok === true) { await this.deps.onAuthChanged(); return true; }
-        return false;
-      } catch {
-        return false;
-      }
-    });
-  }
-
-  async qoderworkLogout(): Promise<Json> {
-    ++this.qoderworkEpoch;
-    return this.writes.run(async (): Promise<Json> => {
-      const result = object(await this.deps.request('qoderwork/logout', {}));
-      await this.deps.onAuthChanged({ signedOut: true }); return result;
     });
   }
 

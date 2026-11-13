@@ -23,7 +23,7 @@ const speech = process.env.KLAUS_VOICE_LIVE_PCM;
 const output = process.env.KLAUS_VOICE_LIVE_OUTPUT;
 const source = process.env.KLAUS_VOICE_LIVE_SOURCE;
 const refinement = process.env.KLAUS_VOICE_LIVE_REFINEMENT === '1';
-if (!['antigravity', 'qoder', 'qoderwork', 'qwenwork'].includes(source)) throw new Error('An explicit streaming source is required');
+if (!['antigravity', 'qoder', 'qwenwork'].includes(source)) throw new Error('An explicit streaming source is required');
 if (![root, engineBinary, accountRoot, speech, output].every(value => value && path.isAbsolute(value))) throw new Error('Explicit isolated profile, engine, account, synthetic speech and output paths are required');
 app.setPath('userData', path.join(root, 'electron'));
 app.disableHardwareAcceleration(); app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
@@ -63,7 +63,7 @@ async function until(code, ms = 15000) {
     try { result = await request(method, ...args); }
     catch (error) {
       const message = error?.message || String(error);
-      (report.rpcFailures ??= []).push({ method, code: message.match(/(?:qwenwork|qoderwork|qoder|antigravity|dictation)[a-z_-]+/i)?.[0] || 'request-failed' });
+      (report.rpcFailures ??= []).push({ method, code: message.match(/(?:qwenwork|qoder|antigravity|dictation)[a-z_-]+/i)?.[0] || 'request-failed' });
       throw error;
     }
     if (method === 'engine/dictationEnd') stage('engine_end_acknowledged', { elapsedMs: Math.round(performance.now() - startedAt) });
@@ -165,7 +165,7 @@ async function until(code, ms = 15000) {
   }
   assert.equal(report.accountGenerationBound, true, 'retained audio recovery must stay bound to the account that opened dictation');
   assert.equal(report.rpcCounts[`${source}/transcribeAudio`] || 0, 0, 'healthy real-time capture must not use file transcription');
-  assert.equal(Object.keys(report.rpcCounts).some(method => /^(antigravity|qoder|qoderwork|qwenwork)\//.test(method) && !method.startsWith(`${source}/`)), false, 'dictation must never discover or use a different provider');
+  assert.equal(Object.keys(report.rpcCounts).some(method => /^(antigravity|qoder|qwenwork)\//.test(method) && !method.startsWith(`${source}/`)), false, 'dictation must never discover or use a different provider');
   assert.ok(report.rpcCounts['engine/dictationAppendAudio'] > 20, 'audio must travel as live PCM frames');
   assert.equal(service.store.history(10).length, 1);
   await until('window.voiceFixture.state() === "idle" && !window.voiceFixture.surface().visible');

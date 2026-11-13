@@ -26,7 +26,7 @@ export const MODEL_TIERS: ModelTier[] = [
 ]
 
 // 自带订阅与自定义源：官方云端与端侧来源已退役，默认落在自定义源。
-export const AUTH_MODE_ORDER = ['subscription', 'codex', 'cursor', 'qoder', 'qwenwork', 'qoderwork', 'workbuddy', 'antigravity', 'trae', 'kiro', 'kimi', 'bailian', 'minimax', 'zhipu', 'ark', 'custom']
+export const AUTH_MODE_ORDER = ['subscription', 'codex', 'cursor', 'qoder', 'qwenwork', 'workbuddy', 'antigravity', 'trae', 'kiro', 'kimi', 'bailian', 'minimax', 'zhipu', 'ark', 'custom']
 
 export function normalizeAuthMode(mode: string): string {
   return AUTH_MODE_ORDER.includes(mode) ? mode : 'custom'
@@ -74,7 +74,6 @@ export function sourceLabel(source: string, translate: (key: string) => string =
   if (source === 'cursor') return translate('auth_cursor')
   if (source === 'qoder') return translate('auth_qoder')
   if (source === 'qwenwork') return translate('auth_qwenwork')
-  if (source === 'qoderwork') return translate('auth_qoderwork')
   if (source === 'workbuddy') return translate('auth_workbuddy')
   if (source === 'antigravity') return translate('auth_antigravity')
   if (source === 'trae') return translate('auth_trae')
@@ -98,7 +97,6 @@ const SOURCE_LOGO_FILES: Record<string, string> = {
   cursor: 'cursor-logo.png',
   qoder: 'qoder-logo.png',
   qwenwork: 'qwenwork-logo.png',
-  qoderwork: 'qoderwork-logo.png',
   workbuddy: 'import-workbuddy-logo.svg',
   antigravity: 'antigravity-logo.svg',
   trae: 'trae-logo.svg',

@@ -16743,7 +16743,6 @@ const USAGE_MODE_PROVIDER_KEYS = {
   cursor: 'usage_provider_cursor',
   qoder: 'usage_provider_qoder',
   qwenwork: 'usage_provider_qwenwork',
-  qoderwork: 'usage_provider_qoderwork',
   workbuddy: 'usage_provider_workbuddy',
   antigravity: 'usage_provider_antigravity',
   trae: 'usage_provider_trae',
@@ -16812,7 +16811,7 @@ function renderUsageSnapshot(snapshot: { mode: string; provider?: { state?: stri
       } else if (mode === 'minimax') {
         body += `<div class="usage-meta">${escapeHtml(tt('minimax_usage_console_hint'))}</div>`
       }
-    } else if (mode === 'qoder' || mode === 'qwenwork' || mode === 'qoderwork' || mode === 'workbuddy') {
+    } else if (mode === 'qoder' || mode === 'qwenwork' || mode === 'workbuddy') {
       body = renderUsageCredits('usage_qoder_personal', data.credits)
         + renderUsageCredits('usage_qoder_org', (data as { orgCredits?: { used?: number; total?: number; unit?: string; usedPercent?: number } }).orgCredits)
       // An enterprise account with no limit reports the plan and no pool: drawing

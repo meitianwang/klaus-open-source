@@ -64,7 +64,7 @@ if (preflight.error || preflight.status !== 0) throw preflight.error || new Erro
 prepareTestEngine(repo, { logFile: log });
 
 const profile = mkdtempSync(join(output, 'profile-'));
-const command = [join(desktop, 'scripts/run-electron-test.mjs'), join(desktop, 'dist/tests/models-qoderwork-ui.js')];
+const command = [join(desktop, 'scripts/run-electron-test.mjs'), join(desktop, 'dist/tests/models-source-ui.js')];
 appendFileSync(log, `COMMAND: ${JSON.stringify([process.execPath, ...command])}\nPROFILE: ${profile}\n`);
 const child = spawn(process.execPath, command, { cwd: desktop, env: { ...process.env, KLAUS_MODELS_UI_PROFILE: profile }, stdio: ['ignore', 'pipe', 'pipe'] });
 for (const stream of [child.stdout, child.stderr]) stream.on('data', chunk => { appendFileSync(log, chunk); process.stdout.write(chunk); });

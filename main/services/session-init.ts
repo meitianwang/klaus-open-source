@@ -83,7 +83,6 @@ export function mainModelSource(mode: string): string | undefined {
     ['cursor:', 'cursor'],
     ['qoder:', 'qoder'],
     ['qwenwork:', 'qwenwork'],
-    ['qoderwork:', 'qoderwork'],
     ['workbuddy:', 'workbuddy'],
     ['antigravity:', 'antigravity'],
     ['trae:', 'trae'],

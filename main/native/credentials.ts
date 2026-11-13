@@ -218,16 +218,6 @@ export class NativeSubscriptionCredentials {
     } catch (error) { return { present: true, error: errorCode(error) }; }
   }
 
-  async readQoderWorkCredential(): Promise<{ present: boolean; userInfo?: Json; machineId?: string; error?: string }> {
-    try {
-      const result = object(await this.run(id => this.binding.readQoderworkCredential(id, this.deadlineMs)));
-      if (typeof result.present !== 'boolean'
-        || (result.machineId !== undefined && typeof result.machineId !== 'string')
-        || (result.error !== undefined && typeof result.error !== 'string')) throw new Error('INVALID_CREDENTIAL_RESULT');
-      return result as { present: boolean; userInfo?: Json; machineId?: string; error?: string };
-    } catch (error) { return { present: true, error: errorCode(error) }; }
-  }
-
   /**
    * A login WorkBuddy AI already holds on this machine.
    *

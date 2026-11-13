@@ -1,5 +1,5 @@
 /** Model sources supported by account settings and engine selection. */
-export const AUTH_MODES = ['custom', 'codex', 'subscription', 'cursor', 'qoder', 'qwenwork', 'qoderwork', 'workbuddy', 'antigravity', 'trae', 'kiro', 'kimi', 'bailian', 'minimax', 'zhipu', 'ark'] as const;
+export const AUTH_MODES = ['custom', 'codex', 'subscription', 'cursor', 'qoder', 'qwenwork', 'workbuddy', 'antigravity', 'trae', 'kiro', 'kimi', 'bailian', 'minimax', 'zhipu', 'ark'] as const;
 
 export const DEFAULT_AUTH_MODE = 'custom';
 

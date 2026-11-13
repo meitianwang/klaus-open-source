@@ -8,7 +8,6 @@
     { "name": "Custom OpenAI model", "source": "custom", "modelValue": "custom:gpt-6.1-sol", "enabled": true, "visible": false, "effective": false, "indicatorIcon": null },
     { "name": "Qoder", "source": "qoder", "modelValue": "qoder:ultimate", "enabled": true, "visible": false, "effective": false, "indicatorIcon": null },
     { "name": "QwenWork", "source": "qwenwork", "modelValue": "qwenwork:model", "enabled": true, "visible": false, "effective": false, "indicatorIcon": null },
-    { "name": "QoderWork", "source": "qoderwork", "modelValue": "qoderwork:qwork-auto", "enabled": true, "visible": false, "effective": false, "indicatorIcon": null },
     { "name": "WorkBuddy", "source": "workbuddy", "modelValue": "workbuddy:model", "enabled": true, "visible": false, "effective": false, "indicatorIcon": null },
     { "name": "Kimi", "source": "kimi", "modelValue": "kimi:model", "enabled": true, "visible": false, "effective": false, "indicatorIcon": null },
     { "name": "Bailian", "source": "bailian", "modelValue": "bailian:model", "enabled": true, "visible": false, "effective": false, "indicatorIcon": null },

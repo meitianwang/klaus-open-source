@@ -371,7 +371,7 @@ h.test('capability discovery uses the capture operation id and cannot publish a 
   assert.equal(service.store.setting('voice.input.source'), 'workbuddy'); await close(service);
 });
 h.test('OAuth sources use their selected engine credentials without custom key resolution and retain voice history', async () => {
-  for (const source of ['claude', 'codex', 'workbuddy', 'qoder', 'qoderwork', 'qwenwork'] as const) {
+  for (const source of ['claude', 'codex', 'workbuddy', 'qoder', 'qwenwork'] as const) {
     let calls = 0, reads = 0;
     const { service, configRoot } = make('normal', { listModels: async () => { reads++; return []; },
       transcribeAudio: async (actual, audio, signal) => {

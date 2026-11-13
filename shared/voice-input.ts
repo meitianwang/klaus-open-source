@@ -1,10 +1,10 @@
 /** Voice input selection is independent of the conversation model source. */
-export const VOICE_INPUT_SOURCES = ['system', 'custom', 'claude', 'codex', 'workbuddy', 'antigravity', 'trae', 'qoder', 'qoderwork', 'qwenwork'] as const;
+export const VOICE_INPUT_SOURCES = ['system', 'custom', 'claude', 'codex', 'workbuddy', 'antigravity', 'trae', 'qoder', 'qwenwork'] as const;
 export type VoiceInputSource = typeof VOICE_INPUT_SOURCES[number];
 /** The settings menu no longer offers the retired custom transcription route; a saved choice stays listed until replaced. */
 export const VOICE_SELECTABLE_SOURCES = VOICE_INPUT_SOURCES.filter(source => source !== 'custom');
 export type VoiceOAuthSource = Exclude<VoiceInputSource, 'system' | 'custom'>;
-export const VOICE_NATIVE_STREAMING_SOURCES = ['claude', 'codex', 'workbuddy', 'antigravity', 'trae', 'qoder', 'qoderwork', 'qwenwork'] as const;
+export const VOICE_NATIVE_STREAMING_SOURCES = ['claude', 'codex', 'workbuddy', 'antigravity', 'trae', 'qoder', 'qwenwork'] as const;
 export const VOICE_INPUT_SOURCE_KEY = 'voice.input.source';
 export const VOICE_DICTIONARY_TERM_MAX_LENGTH = 100;
 export const VOICE_AUDIO_MAX_BYTES = 25 * 1024 * 1024;
@@ -29,7 +29,7 @@ export function voiceUploadContainer(source: VoiceInputSource): 'wav' | 'webm' {
   return source === 'custom' || source === 'codex' || source === 'workbuddy' ? 'webm' : 'wav';
 }
 export function voiceAudioMaxBytes(source: VoiceInputSource): number {
-  return source === 'workbuddy' ? 16 * 1024 * 1024 : source === 'antigravity' || source === 'trae' || source === 'qoder' || source === 'qoderwork' || source === 'qwenwork' ? 12 * 1024 * 1024 : VOICE_AUDIO_MAX_BYTES;
+  return source === 'workbuddy' ? 16 * 1024 * 1024 : source === 'antigravity' || source === 'trae' || source === 'qoder' || source === 'qwenwork' ? 12 * 1024 * 1024 : VOICE_AUDIO_MAX_BYTES;
 }
 /** Paced dictation includes the complete recording and a bounded provider drain. */
 export function voiceTranscriptionTimeoutMs(source?: VoiceOAuthSource): number {

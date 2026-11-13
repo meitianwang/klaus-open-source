@@ -33,7 +33,7 @@ w.klaus = { voice: {
     if (failCapabilities) throw Error('Fixture capability failed')
     const experience = stored.get('voice.input.experience') || 'realtime'
     const source = stored.get('voice.input.source') || 'system'
-    const streaming = experience === 'realtime' && ['system', 'qoder', 'qoderwork', 'qwenwork', 'antigravity'].includes(source)
+    const streaming = experience === 'realtime' && ['system', 'qoder', 'qwenwork', 'antigravity'].includes(source)
     return { ok: true, experience, source, streaming, nativeStreaming: streaming && source !== 'system', systemAsr: true, availability: { workbuddy: workbuddyAvailable } }
   },
   hotwords: {

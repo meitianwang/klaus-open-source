@@ -22,7 +22,6 @@
     "cursor",
     "qoder",
     "qwenwork",
-    "qoderwork",
     "workbuddy",
     "antigravity",
     "trae",
@@ -139,12 +138,6 @@
       {
         "value": "qwenwork",
         "label": "QwenWork",
-        "available": false,
-        "reason": "Sign in to this source on this device."
-      },
-      {
-        "value": "qoderwork",
-        "label": "QoderWork",
         "available": false,
         "reason": "Sign in to this source on this device."
       },
@@ -271,12 +264,6 @@
       {
         "value": "qwenwork",
         "label": "QwenWork",
-        "available": false,
-        "reason": "Sign in to this source on this device."
-      },
-      {
-        "value": "qoderwork",
-        "label": "QoderWork",
         "available": false,
         "reason": "Sign in to this source on this device."
       },
@@ -410,12 +397,6 @@
         {
           "value": "qwenwork",
           "label": "QwenWork",
-          "available": false,
-          "reason": "Sign in to this source on this device."
-        },
-        {
-          "value": "qoderwork",
-          "label": "QoderWork",
           "available": false,
           "reason": "Sign in to this source on this device."
         },

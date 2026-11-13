@@ -204,35 +204,6 @@
       ]
     },
     {
-      "name": "QoderWork subscription",
-      "source": "qoderwork",
-      "rawAuth": [
-        {
-          "type": "auth_required",
-          "sessionId": "engine-session",
-          "reason": "token_invalid",
-          "mode": "qoderwork"
-        },
-        {
-          "type": "interrupted",
-          "sessionId": "engine-session"
-        }
-      ],
-      "typedAuth": [
-        {
-          "type": "auth_required",
-          "sessionId": "engine-session",
-          "reason": "Session credential expired",
-          "mode": "qoderwork"
-        },
-        {
-          "type": "interrupted",
-          "sessionId": "engine-session",
-          "turnId": "turn-1"
-        }
-      ]
-    },
-    {
       "name": "WorkBuddy subscription",
       "source": "workbuddy",
       "rawAuth": [

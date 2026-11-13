@@ -75,7 +75,6 @@ export interface NativeCredentialsBinding {
   readQoderIdeCredential(operationId: string, deadlineMs: number): Promise<string>;
   readAntigravityKeychainSecret(operationId: string, deadlineMs: number): Promise<string>;
   readQwenworkCredential(operationId: string, deadlineMs: number): Promise<string>;
-  readQoderworkCredential(operationId: string, deadlineMs: number): Promise<string>;
   readWorkbuddyCredential(operationId: string, deadlineMs: number, region?: 'cn' | 'intl'): Promise<string>;
   readMcpOAuthRecord(operationId: string, serverKey: string, part: string, deadlineMs: number): Promise<string>;
   writeMcpOAuthRecord(operationId: string, serverKey: string, part: string, valueJson: string, deadlineMs: number): Promise<string>;
