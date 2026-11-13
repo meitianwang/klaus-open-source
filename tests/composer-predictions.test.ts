@@ -384,15 +384,40 @@ void (async () => {
       gate.resolve(f.state.context); assert.equal((await prediction).reason, 'cancelled'); assert.equal(f.calls.length, 0); await f.service.close();
     }
   });
-  await h.test('a model or source change during inference suppresses the result and a later request gets a fresh run', async () => {
-    for (const change of [{ model: 'model-b' }, { source: 'custom' }, { provider: 'anthropic' }] as const) {
+  await h.test('a model or source change preserves settled and in-flight suggestions for the same turn', async () => {
+    for (const change of [{ model: 'model-b' }, { source: 'custom' }, { provider: 'anthropic' }, { model: '', source: 'custom' }] as const) {
       const gate = deferred<{ suggestion: string | null }>(); let runs = 0;
-      const f = bundled({ run: async () => { runs++; return runs === 1 ? gate.promise : { suggestion: 'current source' }; } });
+      const f = bundled({ run: async () => { runs++; return runs === 1 ? gate.promise : { suggestion: 'regenerated' }; } });
       const prediction = f.predict(); await flush(); Object.assign(f.state.context, change);
-      gate.resolve({ suggestion: 'old source' });
-      assert.equal((await prediction).reason, 'stale_turn');
-      assert.deepEqual(await f.predict(), { suggestion: 'current source' }); assert.equal(runs, 2); await f.service.close();
+      gate.resolve({ suggestion: 'Keep this next step.' });
+      assert.deepEqual(await prediction, { suggestion: 'Keep this next step.' });
+      assert.deepEqual(await f.predict(), { suggestion: 'Keep this next step.' });
+      assert.equal(runs, 1); await f.service.close();
     }
+  });
+  await h.test('a model or source change retries model-dependent failures once while keeping null and sampled-out results', async () => {
+    let failedRuns = 0;
+    const failed = bundled({ run: async () => { if (++failedRuns === 1) throw new Error('provider error'); return { suggestion: 'Recovered after model switch.' }; } });
+    assert.equal((await failed.predict()).reason, 'prediction_failed');
+    assert.equal((await failed.predict()).reason, 'prediction_failed'); assert.equal(failedRuns, 1);
+    failed.state.context.model = 'model-b';
+    assert.deepEqual(await failed.predict(), { suggestion: 'Recovered after model switch.' }); assert.equal(failedRuns, 2);
+    failed.state.context.source = 'subscription';
+    assert.deepEqual(await failed.predict(), { suggestion: 'Recovered after model switch.' }); assert.equal(failedRuns, 2);
+    await failed.service.close();
+
+    const blocked = fixture(); Object.assign(blocked.state.config, { unsupported_models: ['model-a'] });
+    assert.equal((await blocked.predict()).reason, 'unsupported_model'); assert.equal(blocked.calls.length, 0);
+    blocked.state.context.model = 'model-b';
+    assert.deepEqual(await blocked.predict(), { suggestion: 'Continue with the next step.' }); assert.equal(blocked.calls.length, 1);
+    await blocked.service.close();
+
+    let nullRuns = 0;
+    const none = bundled({ run: async () => { nullRuns++; return { suggestion: null }; } });
+    assert.deepEqual(await none.predict(), { suggestion: null });
+    none.state.context.model = 'model-b';
+    assert.deepEqual(await none.predict(), { suggestion: null }); assert.equal(nullRuns, 1);
+    await none.service.close();
   });
   await h.test('signing a covered subscription in mid-flight retires the bundled request instead of landing it', async () => {
     const gate = deferred<{ suggestion: string | null }>(); let runs = 0;
@@ -406,11 +431,12 @@ void (async () => {
     assert.equal(f.requests.length, 1, 'the second run reads provider configuration');
     await f.service.close();
   });
-  await h.test('a source change while configuration loads prevents stale inference admission', async () => {
+  await h.test('a model change while configuration loads checks the current model against the blacklist', async () => {
     const gate = deferred<Response>(); const f = fixture({ fetch: (async () => gate.promise) as typeof fetch });
+    Object.assign(f.state.config, { unsupported_models: ['model-b'] });
     const prediction = f.predict(); await flush(); f.state.context.model = 'model-b';
     gate.resolve(new Response(JSON.stringify(f.state.config)));
-    assert.equal((await prediction).reason, 'stale_turn'); assert.equal(f.calls.length, 0); await f.service.close();
+    assert.equal((await prediction).reason, 'unsupported_model'); assert.equal(f.calls.length, 0); await f.service.close();
   });
   await h.test('an inference timeout waits for cancellation settlement and is cached without retries', async () => {
     const f = bundled({ timeoutMs: 5, run: async (_session, _turn, _prompt, _effort, signal) => {

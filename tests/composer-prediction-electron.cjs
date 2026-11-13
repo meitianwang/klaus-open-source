@@ -12,7 +12,7 @@ app.whenReady().then(async () => {
   win.webContents.on('console-message', event => { if (event.level === 'error') console.error(event.message) });
   await win.loadFile(path.join(root, 'fixture/index.html'));
   const reply = await win.webContents.executeJavaScript('predictionFixture.run()', true);
-  assert.equal(reply.count, 15); assert.equal(reply.draft, '');
+  assert.equal(reply.count, 17); assert.equal(reply.draft, '');
   fs.writeFileSync(path.join(root, 'editor-results.json'), JSON.stringify(reply, null, 2));
   fs.writeFileSync(path.join(root, 'editor.png'), (await win.webContents.capturePage()).toPNG());
   for (const result of reply.results) console.log(`PASS ${result}`);

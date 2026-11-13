@@ -4672,7 +4672,7 @@ async function init() {
 // pill 自行订阅 auth-mode-changed / models-changed / 语言切换重渲。
 // 设置页切了 auth_mode / 登录 / 登出后触发这两个事件刷新输入区模型选择。
 window.addEventListener('klaus:auth-mode-changed', () => {
-  composerPredictions?.invalidate()
+  composerPredictions?.recheck?.()
   invalidateComposerPreferenceReads()
   void refreshComposerPreferences()
   void refreshAllSideComposerModels()
@@ -4680,7 +4680,7 @@ window.addEventListener('klaus:auth-mode-changed', () => {
 let revalidatingCatalogEvent = false
 window.addEventListener('klaus:models-changed', () => {
   if (revalidatingCatalogEvent) return
-  composerPredictions?.invalidate()
+  composerPredictions?.recheck?.()
   invalidateComposerPreferenceReads()
   void refreshComposerPreferences()
   void refreshAllSideComposerModels()
@@ -12130,7 +12130,8 @@ function applyPlanningUpdated({ sessionId, planning }: { sessionId: string; plan
       if (typeof clearWorkModesForPlan === 'function') clearWorkModesForPlan()
     }
     updateSpecBadge()
-    composerPredictions?.invalidate(sessionId)
+    if (composerSpecEnabled) composerPredictions?.suspend?.(sessionId)
+    else void composerPredictions?.refresh?.()
   }
 }
 window.addEventListener('klaus:planning-snapshot', ((event: CustomEvent<{ sessionId: string; planning: PlanningSnapshot }>) => applyPlanningUpdated(event.detail)) as EventListener)
@@ -14944,7 +14945,7 @@ function invalidateComposerPreferenceReads() {
 }
 async function refreshCatalogSource(source: string) {
   if (!source) return
-  composerPredictions?.invalidate()
+  composerPredictions?.recheck?.()
   composerModelReadinessCache.invalidate()
   const refreshing = mainModelCatalogCache.revalidate(source)
   void refreshComposerPreferences()
@@ -14970,12 +14971,11 @@ const composerModelReadinessCache = createModelReadinessCache({
 
 function applyComposerPreferences(snapshot: ComposerPreferencesSnapshot) {
   if (snapshot.sessionId) {
-    const signature = JSON.stringify([snapshot.source, snapshot.mode, snapshot.thinkingLevel, snapshot.ultraMode, snapshot.fastMode, snapshot.permissionMode])
+    const signature = JSON.stringify([snapshot.source, snapshot.mode])
     const previous = predictionModelSelections.get(snapshot.sessionId)
     predictionModelSelections.set(snapshot.sessionId, signature)
     if (previous !== undefined && previous !== signature) {
-      composerPredictions?.invalidate(snapshot.sessionId)
-      void composerPredictions?.refresh()
+      composerPredictions?.recheck?.(snapshot.sessionId)
     }
   }
   mainModelApi?.setItems(snapshot.items, {
@@ -15144,6 +15144,7 @@ const COMPOSER_PREFERENCE_KEYS = new Set([
   'composer.main_model',
   'composer.thinking_level',
   'composer.ultra_mode',
+  'composer.orchestration_mode',
   'composer.codex_fast_mode',
   'composer.permission_mode',
   'klaus.approvalPolicy',
@@ -15163,8 +15164,8 @@ klausApi.on.appPreferencesChanged?.(({ key }: { key?: string }) => {
     void refreshCatalogSource(key.slice('model_catalog:'.length))
     return
   }
-  if (key && (COMPOSER_PREFERENCE_KEYS.has(key) || isFastModePreferenceKey(key) || key === 'modelProviders' || key === 'auth_mode' || key.startsWith('model_tiers:'))) {
-    composerPredictions?.invalidate()
+  if (key && (COMPOSER_PREFERENCE_KEYS.has(key) || isFastModePreferenceKey(key) || key === 'modelProviders' || key === 'auth_mode' || key === 'feature_models' || key.startsWith('model_tiers:'))) {
+    if (key === 'composer.main_model' || key === 'modelProviders' || key === 'auth_mode' || key === 'feature_models') composerPredictions?.recheck?.()
     invalidateComposerPreferenceReads()
     void refreshComposerPreferences()
     void refreshAllSideComposerModels()

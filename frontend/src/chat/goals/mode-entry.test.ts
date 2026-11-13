@@ -89,7 +89,7 @@ function actualEntryFixture(permission: string, refuseChange = false) {
       setPermissionMode: rejectPreferenceMutation,
       setMainModel: rejectPreferenceMutation, setThinkingLevel: rejectPreferenceMutation, setFastMode: rejectPreferenceMutation,
     } },
-    receivePlanningSnapshot: () => true, ingestPlanningSnapshot() {}, composerPredictions: { invalidate() {} },
+    receivePlanningSnapshot: () => true, ingestPlanningSnapshot() {}, composerPredictions: { invalidate() {}, suspend() {}, refresh: async () => {} },
     updateSpecBadge() {}, setComposerGoalEnabled: (enabled: boolean) => { context.composerGoalEnabled = enabled },
     showToast: (message: string) => { notices.push(message) }, tt: (key: string) => key,
   }

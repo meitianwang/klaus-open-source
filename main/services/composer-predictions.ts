@@ -87,8 +87,8 @@ interface SourceRead {
   sessionId: string; ownerId: number; controller: AbortController; promise: Promise<unknown>;
 }
 interface PredictionJob {
-  key: string; sessionId: string; source: Source; controller: AbortController; owners: Set<number>;
-  promise: Promise<PredictionResult>; settled: boolean;
+  key: string; sessionId: string; source: Source; modelKey: string; controller: AbortController; owners: Set<number>;
+  promise: Promise<PredictionResult>; settled: boolean; result?: PredictionResult;
 }
 const empty = (reason: PredictionReason): PredictionResult => ({ suggestion: null, reason });
 const record = (value: unknown): Record<string, unknown> | null => value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;
@@ -157,14 +157,23 @@ export function parsePredictionConfig(value: unknown): PredictionConfig | null {
 }
 
 /**
- * A stale source must never deliver a suggestion. The fingerprint covers every
- * inference identity a conversation can change under a running prediction, plus the
- * account the subscription path is scoped to, so signing a covered account in or out
- * retires in-flight work instead of letting it land on the other path's terms.
+ * A stale source must never deliver a suggestion. The fingerprint covers the
+ * anchor turn and the account the subscription path is scoped to, so signing a
+ * covered account in or out retires in-flight work instead of letting it land on
+ * the other path's terms, while switching models or model sources preserves any
+ * suggestion already grounded in the same turn.
  */
 function fingerprintOf(context: PredictionContext, principal: string): string {
-  return JSON.stringify([context.turnId, context.model, context.provider, context.source ?? '', principal]);
+  return JSON.stringify([context.turnId, principal]);
 }
+
+function modelKeyOf(context: PredictionContext): string {
+  return JSON.stringify([context.model, context.provider, context.source ?? '']);
+}
+
+const retryableModelFailureReasons = new Set<PredictionReason>([
+  'unavailable', 'unsupported_model', 'prediction_failed', 'timeout', 'invalid_response',
+]);
 
 /** Own background requests independently of the parent turn and every renderer. */
 export class ComposerPredictions {
@@ -219,7 +228,10 @@ export class ComposerPredictions {
     if (this.retiringOwners.has(ownerId)) return empty('cancelled');
     const revision = this.revision, sessionRevision = this.sessionRevisions.get(sessionId) ?? 0, ownerRevision = this.ownerRevisions.get(ownerId) ?? 0;
     const callerKey = JSON.stringify([sessionId, ownerId]), callerRevision = this.callerRevisions.get(callerKey) ?? 0;
-    const source = await this.readCallerSource(sessionId, turnId, ownerId);
+    const key = JSON.stringify([sessionId, turnId]);
+    const existing = this.jobs.get(key);
+    const hasSettledSuggestion = Boolean(existing?.settled && existing.result?.suggestion);
+    const source = await this.readCallerSource(sessionId, turnId, ownerId, !hasSettledSuggestion);
     if (this.closed) return empty('closed');
     if (revision !== this.revision || sessionRevision !== (this.sessionRevisions.get(sessionId) ?? 0) || ownerRevision !== (this.ownerRevisions.get(ownerId) ?? 0) || callerRevision !== (this.callerRevisions.get(callerKey) ?? 0)) return empty('cancelled');
     if ('suggestion' in source) return source;
@@ -227,13 +239,21 @@ export class ComposerPredictions {
     if (previousSource !== undefined && previousSource !== source.fingerprint) await this.invalidateSession(sessionId);
     if (this.closed || revision !== this.revision || ownerRevision !== (this.ownerRevisions.get(ownerId) ?? 0) || callerRevision !== (this.callerRevisions.get(callerKey) ?? 0)) return empty('cancelled');
     this.sessionSources.set(sessionId, source.fingerprint);
-    const key = JSON.stringify([sessionId, turnId]);
+    const modelKey = modelKeyOf(source.context);
     let job = this.jobs.get(key);
+    if (job?.settled && !job.result?.suggestion && job.result?.reason && retryableModelFailureReasons.has(job.result.reason) && job.modelKey !== modelKey) {
+      this.jobs.delete(key);
+      job = undefined;
+    }
     if (!job) {
-      job = { key, sessionId, source, controller: new AbortController(), owners: new Set(), settled: false, promise: Promise.resolve(empty('unavailable')) };
+      if (!source.context.model) return empty('unavailable');
+      job = { key, sessionId, source, modelKey, controller: new AbortController(), owners: new Set(), settled: false, promise: Promise.resolve(empty('unavailable')) };
       this.jobs.set(key, job); this.running.add(job);
       const current = job;
-      current.promise = Promise.resolve().then(() => this.generate(current, trigger)).catch(() => empty('prediction_failed')).finally(() => {
+      current.promise = Promise.resolve().then(() => this.generate(current, trigger)).catch(() => empty('prediction_failed')).then(outcome => {
+        current.result = outcome;
+        return outcome;
+      }).finally(() => {
         current.settled = true; this.running.delete(current);
       });
     }
@@ -241,7 +261,7 @@ export class ComposerPredictions {
     const result = await job.promise;
     if (this.closed) return empty('closed');
     if (ownerRevision !== (this.ownerRevisions.get(ownerId) ?? 0) || callerRevision !== (this.callerRevisions.get(callerKey) ?? 0) || !job.owners.has(ownerId) || job.controller.signal.aborted || this.jobs.get(key) !== job) return empty('cancelled');
-    const current = await this.readCallerSource(sessionId, turnId, ownerId);
+    const current = await this.readCallerSource(sessionId, turnId, ownerId, !result.suggestion);
     if (job.controller.signal.aborted || this.jobs.get(key) !== job || ownerRevision !== (this.ownerRevisions.get(ownerId) ?? 0) || callerRevision !== (this.callerRevisions.get(callerKey) ?? 0)) return empty('cancelled');
     return 'suggestion' in current ? current : current.fingerprint === job.source.fingerprint ? result : empty('stale_turn');
   }
@@ -317,8 +337,8 @@ export class ComposerPredictions {
     return promise;
   }
 
-  private readCallerSource(sessionId: string, turnId: string, ownerId: number): Promise<Source | PredictionResult> {
-    return this.readForCaller(sessionId, ownerId, signal => this.readSource(sessionId, turnId, signal));
+  private readCallerSource(sessionId: string, turnId: string, ownerId: number, requireModel = true): Promise<Source | PredictionResult> {
+    return this.readForCaller(sessionId, ownerId, signal => this.readSource(sessionId, turnId, signal, requireModel));
   }
 
   /**
@@ -328,7 +348,7 @@ export class ComposerPredictions {
    * only caller that needs the resolved plan. A turn this reports is still subject to
    * the plan's own gates when the prediction is requested.
    */
-  private async readContext(sessionId: string, turnId: string | null, signal?: AbortSignal): Promise<PredictionContext | PredictionResult> {
+  private async readContext(sessionId: string, turnId: string | null, signal?: AbortSignal, requireModel = true): Promise<PredictionContext | PredictionResult> {
     try {
       if (!(await readUntilCancelled(() => this.enabled(), signal))) return empty('disabled');
       if (this.deps.supported && !(await readUntilCancelled(() => this.deps.supported!(), signal))) return empty('engine_unavailable');
@@ -339,7 +359,7 @@ export class ComposerPredictions {
       if (turnId !== null && context.turnId !== turnId) return empty('stale_turn');
       if (context.running) return empty('running');
       if (context.planMode) return empty('plan_mode');
-      if (!context.model) return empty('unavailable');
+      if (requireModel && !context.model) return empty('unavailable');
       return context;
     } catch { return empty(signal?.aborted ? 'cancelled' : 'unavailable'); }
   }
@@ -349,9 +369,9 @@ export class ComposerPredictions {
    * caller agrees on the plan and the fingerprint. The plan turns only on the stored
    * credential and its tier, never on the model source this conversation uses.
    */
-  private async readSource(sessionId: string, turnId: string | null, signal?: AbortSignal): Promise<Source | PredictionResult> {
+  private async readSource(sessionId: string, turnId: string | null, signal?: AbortSignal, requireModel = true): Promise<Source | PredictionResult> {
     try {
-      const context = await this.readContext(sessionId, turnId, signal);
+      const context = await this.readContext(sessionId, turnId, signal, requireModel);
       if ('suggestion' in context) return context;
       const credentials = await readUntilCancelled(() => this.deps.codexAccessToken(), signal);
       if (this.coversPredictions(credentials)) {
@@ -384,16 +404,13 @@ export class ComposerPredictions {
 
   private async generate(job: PredictionJob, trigger: PredictionTrigger): Promise<PredictionResult> {
     if (job.controller.signal.aborted || this.closed) return empty('cancelled');
-    let prompt: string, effort: string | null;
+    let prompt: string, effort: string | null, config: PredictionConfig | null = null;
     if (job.source.plan === 'subscription') {
       const covered: SubscriptionSource = job.source;
-      const config = await readUntilCancelled(() => this.getConfig(covered), job.controller.signal);
+      config = await readUntilCancelled(() => this.getConfig(covered), job.controller.signal);
       if (job.controller.signal.aborted) return empty('cancelled');
       if (!config) return empty('configuration_unavailable');
       if (!config.is_enabled) return empty('disabled');
-      if (config.unsupported_models?.includes(job.source.context.model)) return empty('unsupported_model');
-      const rate = (trigger === 'live' ? config.live_sample_rate : config.catch_up_sample_rate) ?? config.sample_rate ?? 1;
-      if (rate < 1 && (this.deps.random?.() ?? Math.random()) >= rate) return empty('sampled_out');
       prompt = withSchema(config.prompt);
       effort = config.prediction_reasoning_effort;
     } else {
@@ -404,6 +421,13 @@ export class ComposerPredictions {
     if (job.controller.signal.aborted) return empty('cancelled');
     if ('suggestion' in current) return current;
     if (current.fingerprint !== job.source.fingerprint) return empty('stale_turn');
+    job.source = current;
+    job.modelKey = modelKeyOf(current.context);
+    if (config) {
+      if (config.unsupported_models?.includes(current.context.model)) return empty('unsupported_model');
+      const rate = (trigger === 'live' ? config.live_sample_rate : config.catch_up_sample_rate) ?? config.sample_rate ?? 1;
+      if (rate < 1 && (this.deps.random?.() ?? Math.random()) >= rate) return empty('sampled_out');
+    }
     let timedOut = false;
     const request = new AbortController();
     const abort = () => request.abort();

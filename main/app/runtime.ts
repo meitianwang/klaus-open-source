@@ -1872,7 +1872,7 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
     log: (kind, detail) => log.write(kind, detail),
     sourceStatus: modelSourceStatus,
     onSettingsChanged: async (key, scope) => {
-      if (key === COMPOSER_PREDICTIONS_ENABLED_KEY || key === 'modelProviders' || key.startsWith('composer.') || key === 'auth_mode') await composerPredictions?.invalidateAll();
+      if (key === COMPOSER_PREDICTIONS_ENABLED_KEY) await composerPredictions?.invalidateAll();
       await configuration.settingsChanged(key, scope);
       if (key === 'language') {
         const language = kvGet('language', configRoot);
@@ -1933,7 +1933,6 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
     sessionCwd: id => sessions.directory(id),
     beforeSessionModelChange: id => sessions.prepareModelChange(id),
     onSessionConfigChanged: async change => {
-      if (change.sessionId) await composerPredictions?.invalidateSession(change.sessionId); else await composerPredictions?.invalidateAll();
       await configuration.composerChanged(change);
       void petRealtime?.refreshAvailability().catch(error => log.write('pet-realtime-availability', String(error)));
       void chatRealtime?.refreshAvailability().catch(error => log.write('voice-chat-availability', String(error)));

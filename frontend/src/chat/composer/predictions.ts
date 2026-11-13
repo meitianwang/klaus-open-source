@@ -54,6 +54,15 @@ interface PredictionSourceScope extends PredictionSession {
 }
 interface ResolvedPredictionSource { target: PredictionTarget; scope: PredictionSourceScope }
 const retryableSourceReasons = new Set(['unavailable', 'engine_unavailable', 'cancelled'])
+const retryableModelReasons = new Set([
+  'unavailable', 'engine_unavailable', 'configuration_unavailable',
+  'unsupported_model', 'prediction_failed', 'cancelled', 'stale_turn',
+  'timeout', 'invalid_response',
+])
+
+export function recheckComposerPredictionState(reply: PredictionReply): 'keep' | 'retry' {
+  return !reply.suggestion && retryableModelReasons.has(reply.reason ?? '') ? 'retry' : 'keep'
+}
 
 /** Resolve terminal identity on the host; renderer revisions only invalidate reads. */
 export function createPredictionSourceResolver(deps: {
@@ -105,6 +114,15 @@ export function createPredictionSourceResolver(deps: {
       captured.retryable = false
       return true
     },
+    /** Re-read an unresolved turn after model configuration changes without dropping a resolved anchor. */
+    retryUnresolved(sessionId?: string): boolean {
+      const captured = current()
+      if (!captured || captured.target || captured.pending || !captured.settled) return false
+      if (sessionId && captured.sessionId !== sessionId) return false
+      captured.settled = false
+      captured.retryable = false
+      return true
+    },
     takeTrigger(resolved: ResolvedPredictionSource): PredictionTrigger | null {
       if (!isCurrent(resolved)) return null
       const liveTurnId = liveRequests.get(resolved.target.sessionId)
@@ -149,7 +167,7 @@ export function mountComposerPredictions(deps: {
   ghost.append(suggestion, hint)
   root.after(ghost)
   const candidates = new Map<string, PredictionReply>()
-  const pending = new Map<string, { sessionId: string; valid: boolean; promise: Promise<void> }>()
+  const pending = new Map<string, { sessionId: string; valid: boolean; retryOnFailure: boolean; promise: Promise<void> }>()
   const dismissed = new Set<string>()
   const submittedSessions = new Set<string>()
   const sourceReads = new Map<string, number>()
@@ -199,20 +217,30 @@ export function mountComposerPredictions(deps: {
     if (candidates.has(key) || dismissed.has(key) || submittedSessions.has(target.sessionId)) { paint(); return }
     let job = pending.get(key)
     if (!job) {
-      job = { sessionId: target.sessionId, valid: true, promise: Promise.resolve() }
+      job = { sessionId: target.sessionId, valid: true, retryOnFailure: false, promise: Promise.resolve() }
       pending.set(key, job)
       const captured = job
       captured.promise = (async () => {
+        let shouldRetry = false
         try {
           if (disposed || !captured.valid) return
           const reply = await deps.predict(target, generationTrigger ?? 'catch_up')
-          if (!disposed && captured.valid) candidates.set(key, reply)
+          if (!disposed && captured.valid) {
+            if (captured.retryOnFailure && recheckComposerPredictionState(reply) === 'retry') shouldRetry = true
+            else candidates.set(key, reply)
+          }
         } catch {
           // A failed attempt remains settled for its actual turn, including offscreen.
-          if (!disposed && captured.valid) candidates.set(key, { suggestion: null, reason: 'unavailable' })
+          if (!disposed && captured.valid) {
+            if (captured.retryOnFailure) shouldRetry = true
+            else candidates.set(key, { suggestion: null, reason: 'unavailable' })
+          }
         } finally {
           if (pending.get(key) === captured) pending.delete(key)
-          if (!disposed) paint()
+          if (!disposed) {
+            paint()
+            if (shouldRetry) void refresh('catch_up')
+          }
         }
       })()
     }
@@ -257,6 +285,33 @@ export function mountComposerPredictions(deps: {
     paint()
   }
 
+  /** Keep settled suggestions across model and mode changes while letting failed lookups recover. */
+  function recheck(sessionId?: string) {
+    for (const [key, reply] of candidates) {
+      if (sessionId && JSON.parse(key)[0] !== sessionId) continue
+      if (recheckComposerPredictionState(reply) === 'retry') candidates.delete(key)
+    }
+    for (const job of pending.values()) {
+      if (!sessionId || job.sessionId === sessionId) job.retryOnFailure = true
+    }
+    sources.retryUnresolved(sessionId)
+    void refresh()
+  }
+
+  /** Pause in-flight work when entering a mode that suppresses suggestions without discarding settled candidates. */
+  function suspend(sessionId?: string) {
+    const ids = new Set<string>()
+    for (const id of sourceReads.keys()) if (!sessionId || id === sessionId) ids.add(id)
+    for (const [key, job] of pending) if (!sessionId || job.sessionId === sessionId) {
+      job.valid = false
+      ids.add(job.sessionId)
+      pending.delete(key)
+    }
+    sources.invalidate(sessionId)
+    for (const id of ids) void deps.cancel(id).catch(() => {})
+    paint()
+  }
+
   const onKeyDown = (event: KeyboardEvent) => {
     if (event.isComposing || event.keyCode === 229) { composing = true; paint(); return }
     paint()
@@ -291,7 +346,7 @@ export function mountComposerPredictions(deps: {
   observer.observe(root, { childList: true, characterData: true, subtree: true })
   void reloadSettings()
   return {
-    refresh, paint, invalidate, reloadSettings,
+    refresh, paint, invalidate, recheck, suspend, reloadSettings,
     submitted() {
       const sessionId = sources.sessionId()
       if (sessionId) submittedSessions.add(sessionId)

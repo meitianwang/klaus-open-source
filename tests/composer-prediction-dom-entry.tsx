@@ -200,6 +200,32 @@ async function run() {
     check(f.key('Tab').defaultPrevented && f.input.value === 'Continue after recovery.' && f.sends() === 0, 'A recovered suggestion must adopt as an editable draft')
     results.push(`${failure}: focus recovers a transient source once and Tab adopts without sending`)
   }
+  {
+    const f = fixture(); await frame()
+    f.calls[0]!.resolve({ suggestion: 'Keep across model switches.' }); await frame()
+    const initialSources = f.sources.length; f.cancelled.length = 0
+    f.controller.recheck('session-a'); f.controller.recheck(); await frame()
+    check(!f.ghost().hidden && f.ghost().textContent?.includes('Keep across model switches.'), 'Model and mode switches must preserve a settled suggestion without hiding it')
+    check(f.sources.length === initialSources && f.calls.length === 1 && f.cancelled.length === 0, 'Preserving a settled suggestion must not re-query source or inference')
+    f.target(null); f.controller.suspend('session-a'); await frame()
+    check(f.ghost().hidden, 'Entering Plan mode must hide the suggestion while suppressed')
+    f.target({ sessionId: 'session-a', turnId: 'turn-a' }); await f.controller.refresh(); await frame()
+    check(!f.ghost().hidden && f.ghost().textContent?.includes('Keep across model switches.') && f.calls.length === 1, 'Leaving Plan mode must restore the preserved suggestion without regenerating')
+    results.push('model, mode and Plan transitions preserve settled suggestions')
+  }
+  {
+    const f = fixture(); await frame()
+    f.calls[0]!.resolve({ suggestion: null, reason: 'unsupported_model' }); await frame()
+    check(f.ghost().hidden && f.calls.length === 1, 'An unsupported model suppresses generation until the model changes')
+    f.controller.recheck('session-a'); await frame()
+    check(f.calls.length === 2, 'Switching models must retry a model-dependent failure')
+    f.controller.recheck('session-a'); await frame()
+    f.calls[1]!.resolve({ suggestion: null, reason: 'prediction_failed' }); await frame()
+    check(f.calls.length === 3, 'A model switch during an in-flight failure must retry once against the new selection')
+    f.calls[2]!.resolve({ suggestion: 'Recovered after model switch.' }); await frame()
+    check(!f.ghost().hidden && f.ghost().textContent?.includes('Recovered after model switch.'), 'Recovered suggestion must display')
+    results.push('model switches recover unsupported and in-flight failed predictions')
+  }
   const f = fixture(); await frame(); f.calls[0]!.resolve({ suggestion: 'Add regression coverage for the new behavior.' }); await frame()
   return { results, count: results.length, ghost: f.ghost().textContent, draft: f.input.value }
 }

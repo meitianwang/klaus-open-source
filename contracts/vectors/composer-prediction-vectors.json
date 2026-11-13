@@ -48,7 +48,8 @@
       "empty model",
       "no terminal source turn"
     ],
-    "fingerprint": "turn, model, provider, session source, and the resolved account principal, so signing a covered account in or out retires in-flight work"
+    "fingerprint": "turn and the resolved account principal, so signing a covered account in or out retires in-flight work while model and model-source switches keep suggestions grounded in the same turn",
+    "modelSwitch": "preserve settled and in-flight suggestions for the same turn; retry only model-dependent failures when the model or source changes"
   },
   "generation": {
     "context": "full parent conversation",

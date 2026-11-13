@@ -38,6 +38,7 @@ function fixture() {
   const running = new Set<string>()
   const catalog = [{ value: 'codex:gpt-5.1', label: '5.1' }, { value: 'codex:gpt-6.1', label: '6.1' }]
   const storedModel = { value: 'codex:gpt-6.1' }
+  const predictionCalls: string[] = []
   const context: any = {
     window: { currentSessionId: 'codex-chat', isSessionRunning: (id?: string | null) => !!id && running.has(id), dispatchEvent() { return true } },
     Event: globalThis.Event,
@@ -50,8 +51,12 @@ function fixture() {
     mainModelApi: { setItems(items: any[], opts: Record<string, unknown>) { sets.push({ items, opts }) }, setValue() {}, setRuntime() {}, refresh() {}, close() {} },
     permissionSelectApi: { setValue() {}, setUnavailable() {}, refresh() {}, close() {} },
     predictionModelSelections: new Map(),
-    composerPredictions: { invalidate() {}, refresh: async () => {} },
-    mainModelCatalogCache: { get: (requested: string) => requested === 'codex' ? catalog : null, invalidate() {} },
+    composerPredictions: {
+      invalidate(id?: string) { predictionCalls.push(`invalidate:${id ?? '*'}`) },
+      recheck(id?: string) { predictionCalls.push(`recheck:${id ?? '*'}`) },
+      refresh: async () => { predictionCalls.push('refresh') },
+    },
+    mainModelCatalogCache: { get: (requested: string) => requested === 'codex' ? catalog : null, invalidate() {}, revalidate: async () => catalog },
     composerModelReadinessCache: { remember() {}, invalidate() {} },
     buildMainModelItems: async (requested: string) => requested === 'codex' ? catalog : [],
     syncComposerInferenceStatus() {},
@@ -80,7 +85,7 @@ function fixture() {
   }
   const api = runInNewContext(script, context) as Record<string, (...args: any[]) => any>
   return {
-    api, context, sets, reads, writes, running, storedModel, catalog,
+    api, context, sets, reads, writes, running, storedModel, catalog, predictionCalls,
     setSession(sessionId: string | null) { context.window.currentSessionId = sessionId },
     setSnapshot(snapshot: any) { context.composerPreferencesSnapshot = snapshot },
     snapshot() { return context.composerPreferencesSnapshot },
@@ -179,4 +184,17 @@ test('a background catalog notification replaces baseline items without flashing
   await new Promise(resolve => setTimeout(resolve, 0))
   expect(f.sets.some(call => call.opts.loading === true)).toBe(false)
   expect(f.snapshot()?.items.map((item: { label: string }) => item.label)).toEqual(['Gemini 4 Carbon', 'Gemini 4 Argon'])
+})
+
+test('switching models, model sources or composer modes never invalidates settled predictions', async () => {
+  const f = fixture()
+  f.api.applyComposerPreferences(codexSnapshot('codex-chat', 'codex:gpt-5.1'))
+  expect(f.predictionCalls).toEqual([])
+  f.api.applyComposerPreferences({ ...codexSnapshot('codex-chat', 'codex:gpt-5.1'), thinkingLevel: 'high', ultraMode: true, fastMode: true, permissionMode: 'auto' })
+  expect(f.predictionCalls).toEqual([])
+  f.api.applyComposerPreferences(codexSnapshot('codex-chat', 'codex:gpt-6.1'))
+  f.api.applyComposerPreferences({ ...codexSnapshot('codex-chat', 'claude-sonnet'), source: 'subscription' })
+  await f.api.refreshCatalogSource('codex')
+  expect(f.predictionCalls.some(call => call.startsWith('invalidate:'))).toBe(false)
+  expect(f.predictionCalls).toEqual(['recheck:codex-chat', 'recheck:codex-chat', 'recheck:*'])
 })
