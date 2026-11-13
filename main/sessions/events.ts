@@ -14,7 +14,7 @@ import { eventInference } from './event-context';
 import { asyncQuestionRequest, asyncQuestionResolution, questionAnswerMetadata, questionWire } from './async-questions';
 import type { AsyncQuestionRequest } from '../../contracts/async-questions';
 import { projectSessionHistory } from './history';
-import type { GoalSnapshot, PlanningInputRequest, TurnInterruptOutcome } from '../../contracts/planning-goals';
+import type { GoalSnapshot, PlanningInputRequest } from '../../contracts/planning-goals';
 import { planningInputRequest, planningInputWire } from './planning-input';
 import { goalSnapshot, goalTurnMetadata, planningSnapshot } from './workflow-snapshots';
 import { needsCursorReadoption } from '../services/subscription-auth';
@@ -89,11 +89,6 @@ export interface SessionEventDeps {
    * moment the session goes idle. The id is the renderer session identity.
    */
   onTurnSettled?: (rendererSessionId: string) => unknown;
-  /**
-   * Final interruption outcomes, including ones that arrive after the interrupting caller's
-   * control deadline already gave up. The service uses this to retract false-alarm notices.
-   */
-  interruptOutcome?: (sessionId: string, outcome: TurnInterruptOutcome) => void;
   resolveMcpElicitation?: (engineSessionId: string, generation: number, requestId: string, response: Record<string, Json>) => Promise<void>;
 }
 
@@ -217,7 +212,6 @@ export class SessionEventPump {
         else {
           this.deps.log('turn-interrupt-outcome', JSON.stringify({ sessionId, submissionId: envelope.submissionId, ...outcome }));
           if (outcome.goalPauseError) this.deps.forwarder.enqueue([{ type: 'notice', sessionId, content: outcome.goalPauseError }]);
-          this.deps.interruptOutcome?.(sessionId, outcome);
         }
       }
       if (workflowId && !workflowId.startsWith('__') && !this.deps.isPrivateThread?.(workflowId)) {

@@ -1,5 +1,4 @@
 import type { TurnInterruptOrigin, TurnInterruptOutcome } from '../../contracts/planning-goals';
-import type { ClientEvent } from '../engine/protocol';
 import { object } from '../ipc/arguments';
 import { IpcHandlerError } from '../ipc/registry';
 import type { EngineClientLike } from './service';
@@ -23,44 +22,21 @@ export function requireInterruptConfirmation(value: unknown): void {
   if (typeof result?.goalPauseError === 'string' && result.goalPauseError) throw new IpcHandlerError('GOAL_PAUSE_FAILED', result.goalPauseError);
 }
 
-/** A dispatch acknowledgement does not confirm the engine's atomic pause and cancellation. */
+/**
+ * The engine's `turn/interrupt` reply is the settled interruption outcome itself: it
+ * arrives only once cancellation has landed, or at once with `accepted:false` when
+ * nothing was running, so awaiting the reply is the confirmation. The bounded ceiling
+ * keeps a stuck engine from parking callers forever; breaching it surfaces to the
+ * caller as an unconfirmed result, never as a transcript notice.
+ */
 export async function interruptTurn(options: {
   client: EngineClientLike; sessionId: string; rendererId: string; origin: TurnInterruptOrigin; expectedTurnId?: string;
   outcomeTimeoutMs?: number;
 }): Promise<TurnInterruptOutcome> {
   const { client, sessionId, rendererId, origin, expectedTurnId } = options;
-  const controller = new AbortController(), early = new Map<string, TurnInterruptOutcome | IpcHandlerError>();
-  let correlation: string | undefined, timer: NodeJS.Timeout | undefined;
-  let resolve!: (outcome: TurnInterruptOutcome) => void, reject!: (error: unknown) => void;
-  const completion = new Promise<TurnInterruptOutcome>((yes, no) => { resolve = yes; reject = no; });
-  const deliver = (outcome: TurnInterruptOutcome | IpcHandlerError): void => {
-    if (outcome instanceof IpcHandlerError) reject(outcome); else resolve(outcome);
-  };
-  const receive = (event: ClientEvent): void => {
-    if (event.type === 'streamClosed') { reject(new IpcHandlerError('ENGINE_DISCONNECTED', 'The engine disconnected before confirming the interruption')); return; }
-    if (event.type !== 'rawSessionEvent' && event.type !== 'sessionEvent' && event.type !== 'engineEvent') return;
-    const params = object(event.params), envelope = object(params?.event) ?? params;
-    if (params?.sessionId !== sessionId || !envelope || typeof envelope.submissionId !== 'string' || !envelope.submissionId || envelope.turnInterrupt === undefined) return;
-    const outcome = turnInterruptOutcome(envelope.turnInterrupt) ?? new IpcHandlerError('INVALID_ENGINE_RESPONSE', 'The engine returned an invalid final interruption outcome');
-    if (correlation !== undefined) { if (envelope.submissionId === correlation) deliver(outcome); return; }
-    early.set(envelope.submissionId, outcome);
-    while (early.size > 32) early.delete(early.keys().next().value!);
-  };
-  client.on('event', receive);
-  try {
-    timer = setTimeout(() => reject(new IpcHandlerError('TURN_INTERRUPT_UNCONFIRMED', 'The engine did not confirm the interruption before its control deadline')), options.outcomeTimeoutMs ?? 30_000);
-    const dispatch = async (): Promise<TurnInterruptOutcome> => {
-      const ack = object(await client.requestWithTimeout('turn/interrupt', { sessionId, origin, ...(expectedTurnId ? { expectedTurnId } : {}) },
-        origin === 'user-stop' ? 500 : 15_000, { priority: origin === 'user-stop' ? 'critical' : 'interactive', conversationId: rendererId, signal: controller.signal }));
-      if (!ack || typeof ack.submissionId !== 'string' || !ack.submissionId) throw new IpcHandlerError('INVALID_ENGINE_RESPONSE', 'The engine did not acknowledge the interruption request');
-      correlation = ack.submissionId;
-      const outcome = early.get(correlation); early.clear();
-      if (outcome) deliver(outcome);
-      return completion;
-    };
-    return await Promise.race([dispatch(), completion]);
-  } finally {
-    if (timer) clearTimeout(timer);
-    controller.abort(); client.off('event', receive); early.clear();
-  }
+  const response = await client.requestWithTimeout('turn/interrupt', { sessionId, origin, ...(expectedTurnId ? { expectedTurnId } : {}) },
+    options.outcomeTimeoutMs ?? 30_000, { priority: origin === 'user-stop' ? 'critical' : 'interactive', conversationId: rendererId });
+  const outcome = turnInterruptOutcome(response);
+  if (!outcome) throw new IpcHandlerError('INVALID_ENGINE_RESPONSE', 'The engine returned an invalid final interruption outcome');
+  return outcome;
 }

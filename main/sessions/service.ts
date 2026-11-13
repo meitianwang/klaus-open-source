@@ -100,7 +100,7 @@ import { setupLifecycleNotices } from './setup-lifecycle';
 import { planningAnswers, planningInputRequests, planningInputWire } from './planning-input';
 import { pendingQuestionRequests, questionWire, stringAnswers } from './async-questions';
 import type { AsyncQuestionAnswerReply, AsyncQuestionRequest } from '../../contracts/async-questions';
-import type { GoalSnapshot, TurnInterruptOrigin, TurnInterruptOutcome } from '../../contracts/planning-goals';
+import type { GoalSnapshot, TurnInterruptOrigin } from '../../contracts/planning-goals';
 import { interruptTurn } from './turn-interrupt';
 import { hasActiveNotificationDescendant, notificationQueuePending } from '../services/notification-pending';
 import { coherentPlanningCapture } from './planning';
@@ -2251,23 +2251,6 @@ export class SessionService {
   notice(rendererId: string, content: string, options?: { code?: string; noticeId?: string }): void {
     this.deps.pushChatEvents([{ type: 'notice', sessionId: rendererId, content,
       ...(options?.code ? { code: options.code } : {}), ...(options?.noticeId ? { noticeId: options.noticeId } : {}) }]);
-  }
-
-  /**
-   * Stops whose engine confirmation outlived the control deadline. The notice their timeout
-   * produced is a false alarm once the engine still confirms, so the entry keeps it retractable.
-   */
-  private readonly unconfirmedInterrupts = new Map<string, { turnId: string; noticeId: string; timer: NodeJS.Timeout }>();
-
-  /** A late accepted interruption outcome proves the stop landed: retract its unconfirmed notice. */
-  settleLateInterrupt(rendererId: string, outcome: TurnInterruptOutcome): void {
-    const entry = this.unconfirmedInterrupts.get(rendererId);
-    if (!entry || !outcome.accepted) return;
-    if (outcome.interruptedTurnId && outcome.interruptedTurnId !== entry.turnId) return;
-    clearTimeout(entry.timer);
-    this.unconfirmedInterrupts.delete(rendererId);
-    this.deps.log?.('turn-interrupt-late-confirmed', JSON.stringify({ sessionId: rendererId, turnId: entry.turnId, noticeId: entry.noticeId }));
-    this.deps.pushChatEvents([{ type: 'notice_retract', sessionId: rendererId, noticeId: entry.noticeId }]);
   }
 
   /**
@@ -5191,22 +5174,18 @@ export class SessionService {
       const message = errorMessage(error);
       const code = error instanceof IpcHandlerError ? error.code : undefined;
       this.deps.log?.('turn-interrupt-unconfirmed', JSON.stringify({ sessionId: rendererId, engineId, origin, error: message }));
-      // A starved machine can push the engine's confirmation past the control deadline even
-      // though the stop itself lands. Keep the notice retractable for a bounded window so a
-      // late accepted outcome removes the false alarm instead of stranding it in the transcript.
-      const noticeId = `interrupt-unconfirmed:${active}`;
-      const previous = this.unconfirmedInterrupts.get(rendererId);
-      if (previous) clearTimeout(previous.timer);
-      const timer = setTimeout(() => this.unconfirmedInterrupts.delete(rendererId), 180_000);
-      timer.unref();
-      this.unconfirmedInterrupts.set(rendererId, { turnId: active, noticeId, timer });
-      this.notice(rendererId, message, { ...(code ? { code } : {}), noticeId });
       return { ok: true, accepted: true, confirmed: false, interruptedTurnId: active, interruptionError: message,
         ...(code ? { interruptionCode: code } : {}) };
     }
   }
 
   private async interruptForSystemClose(client: EngineClientLike, rendererId: string, sessionId: string): Promise<void> {
+    // An idle session has nothing to cancel: a control it can only refuse would park
+    // the close behind a reply nobody needs.
+    if (!this.deps.state.runningTurnId(rendererId)) {
+      this.deps.log?.('system-interrupt-skipped-idle', JSON.stringify({ sessionId: rendererId }));
+      return;
+    }
     try {
       const outcome = await interruptTurn({ client, sessionId, rendererId, origin: 'system' });
       if (!outcome.accepted) throw new Error('The engine did not accept the system interruption');
@@ -5215,9 +5194,9 @@ export class SessionService {
         this.notice(rendererId, outcome.goalPauseError);
       }
     } catch (error) {
-      const message = errorMessage(error);
-      this.deps.log?.('system-interrupt-unconfirmed', JSON.stringify({ sessionId: rendererId, error: message }));
-      this.notice(rendererId, message);
+      // Close proceeds regardless: binding teardown owns final settlement, and a
+      // transcript notice here would only strand a false alarm in the conversation.
+      this.deps.log?.('system-interrupt-unconfirmed', JSON.stringify({ sessionId: rendererId, error: errorMessage(error) }));
     }
   }
 

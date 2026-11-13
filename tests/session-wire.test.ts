@@ -268,8 +268,7 @@ class FakeClient extends EventEmitter implements EngineClientLike {
     if (method.startsWith('thread/queue/')) return this.queue.request(method, params);
     if (method === 'turn/interrupt') {
       const scripted = object(this.replies.get(method)), submissionId = typeof scripted?.submissionId === 'string' ? scripted.submissionId : 'fixture-interrupt';
-      this.emit('event', { type: 'rawSessionEvent', params: { sessionId: object(params)?.sessionId, event: { submissionId, turnInterrupt: { accepted: true } } } });
-      return { submissionId };
+      return { accepted: true, ...(scripted ?? {}), submissionId };
     }
     const outcome = this.outcomes.get(method);
     if (outcome) this.emit('event', { type: 'engineEvent', params: { submissionId: 'fixture-submission', ...outcome } });

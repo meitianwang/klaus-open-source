@@ -99,8 +99,7 @@ class Client extends EventEmitter implements EngineClientLike {
       return { generatedTitle: { threadId: 'parent', title: { title: this.generatedTitle, persisted: false } } };
     }
     if (method === 'turn/interrupt') {
-      this.emit('event', { type: 'rawSessionEvent', params: { sessionId: params.sessionId, event: { submissionId: 'fixture-interrupt', turnInterrupt: { accepted: true } } } });
-      return { submissionId: 'fixture-interrupt' };
+      return { submissionId: 'fixture-interrupt', accepted: true };
     }
     const acknowledge: Record<string, [string, Json]> = {
       'session/updateThreadHostMetadata': ['hostMetadataUpdated', true], 'session/updateTitle': ['title', { threadId: params.threadId!, title: params.title ?? '' }],

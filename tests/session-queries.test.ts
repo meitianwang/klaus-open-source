@@ -207,7 +207,7 @@ h.test('a cancelled prediction context queued behind a mutation cannot resume a 
   bindFriendSession(f.root, 'renderer-id', { accountId: 'account', friendshipId: 'friend', friendUserId: 'user' });
   f.client.respond = (method): Json | Promise<Json> => {
     if (method === 'session/contextSnapshot') { entered.resolve(); return release.promise; }
-    if (method === 'turn/interrupt') { f.client.emit('event', { type: 'rawSessionEvent', params: { sessionId: 'engine-id', event: { submissionId: 'close-control', turnInterrupt: { accepted: true } } } }); return { submissionId: 'close-control' }; }
+    if (method === 'turn/interrupt') { return { submissionId: 'close-control', accepted: true }; }
     if (method === 'session/close') return {};
     throw new Error(`A cancelled context read admitted ${method}`);
   };
@@ -222,7 +222,7 @@ h.test('a cancelled prediction context queued behind a mutation cannot resume a 
     error => assertEqual(error.name, 'AbortError', 'the queued operation keeps its cancellation'),
   );
   release.resolve({}); await mutation; await cancellation;
-  assertDeepEqual(f.client.calls.map(call => call.method), ['session/contextSnapshot', 'turn/interrupt', 'session/close'], 'only ordinary system teardown follows cancellation, without delayed resume or context reads');
+  assertDeepEqual(f.client.calls.map(call => call.method), ['session/contextSnapshot', 'session/close'], 'an idle binding closes without a control it can only refuse');
   await f.service.shutdown(); f.forwarder.close();
 });
 
