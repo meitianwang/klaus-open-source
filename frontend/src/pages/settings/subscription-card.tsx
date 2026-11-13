@@ -5,6 +5,7 @@ import { cursorErrorText } from '../../app/cursor-errors'
 import { knownTraeAuthErrorText } from '../../app/trae-errors'
 import { knownKiroAuthErrorText } from '../../app/kiro-errors'
 import { knownAntigravityErrorText } from '../../app/antigravity-errors'
+import { knownEngineSourceProseErrorText } from '../../app/model-source-errors'
 import { activateModelSource, KlsSelect } from './model-shared'
 import styles from './settings.module.css'
 import { settingsErrorText } from './settings-error-text'
@@ -674,6 +675,8 @@ export function authErrorTextForMode(mode: string, error: unknown): string {
   // wrong advice for a seat limit, and the reason is only known server-side.
   const license = /^workbuddy_license_rejected:\d+:(.*)$/u.exec(raw)
   if (license) return `${tGlobal('auth_err_workbuddy_license')} ${license[1]}`.trim()
+  const prose = knownEngineSourceProseErrorText(raw, tGlobal, mode)
+  if (prose) return prose
   const direct = authCodeText(mode, raw, name)
   if (direct) return direct
   const embedded = embeddedAuthCode(raw)

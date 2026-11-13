@@ -266,6 +266,25 @@ describe('model failure notices are transient toast text', () => {
     expect(preferenceSaveFailureText('write denied', translate('zh'))).toBe('模型偏好保存失败。 write denied')
     expect(preferenceSaveFailureText('', translate('zh'))).toBe('模型偏好保存失败。')
   })
+
+  test('maps engine model-source sign-in and configuration verdicts to localized desktop copy without CLI commands', () => {
+    expect(modelUpdateFailureText({ error: 'not signed in to a Qoder subscription — run `klaus login qoder`' }, translate('zh')))
+      .toBe('模型准备失败。 尚未登录 Qoder，请先在「设置 → 模型来源」中登录。')
+    expect(modelUpdateFailureText({ error: 'not signed in to a Qoder subscription — run `klaus login qoder`' }, translate('en')))
+      .toBe('Model preparation failed. Not signed in to Qoder. Sign in in Settings → Model Sources first.')
+    expect(modelUpdateFailureText({ error: 'not signed in to a Claude subscription — run `klaus login claude`' }, translate('zh')))
+      .toBe('模型准备失败。 尚未登录 Claude Code，请先在「设置 → 模型来源」中登录。')
+    expect(modelUpdateFailureText({ error: 'not signed in to a ChatGPT/Codex subscription (/tmp/auth.json is missing) — run `klaus login codex`' }, translate('zh')))
+      .toBe('模型准备失败。 尚未登录 Codex，请先在「设置 → 模型来源」中登录。')
+    expect(modelUpdateFailureText({ error: 'not signed in to a QwenWork subscription' }, translate('zh')))
+      .toBe('模型准备失败。 尚未登录 千问办公，请先在「设置 → 模型来源」中登录。')
+    expect(modelUpdateFailureText({ error: 'the Claude subscription credential has expired and cannot be renewed — run `klaus login claude`' }, translate('zh')))
+      .toBe('模型准备失败。 Claude Code 登录已过期，请前往「设置 → 模型来源」重新登录。')
+    expect(modelUpdateFailureText({ error: 'app-server rpc error -32000: antigravity_not_signed_in' }, translate('zh')))
+      .toBe('模型准备失败。 Antigravity 未登录，请登录后重试。')
+    expect(modelUpdateFailureText({ error: 'app-server rpc error -32602: cannot resolve model auto: no models are configured in [modelProviders]' }, translate('zh')))
+      .toBe('模型准备失败。 自定义模式需要先在设置中添加一个含 API Key 的模型。')
+  })
 })
 
 

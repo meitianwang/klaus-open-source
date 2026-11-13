@@ -17,6 +17,7 @@ import { knownCursorErrorText } from '../../app/cursor-errors'
 import { knownAntigravityErrorText } from '../../app/antigravity-errors'
 import { knownTraeErrorText } from '../../app/trae-errors'
 import { knownKiroErrorText } from '../../app/kiro-errors'
+import { knownEngineSourceProseErrorText } from '../../app/model-source-errors'
 import { imagePreviewOptionsFromElement, bindImageContextMenu, imageFailureText } from '../image-preview'
 import { parsePastedReferenceSection } from '../composer/pasted-text'
 import { asyncQuestionReceipt, isQuestionTool, questionResolution } from './question-state'
@@ -2752,6 +2753,8 @@ export function providerErrorText(raw: string, kind: string | undefined, t: (key
   if (antigravity !== undefined) return antigravity
   const cursor = knownCursorErrorText(raw, t)
   if (cursor !== undefined) return cursor
+  const sourceProse = knownEngineSourceProseErrorText(raw, t)
+  if (sourceProse !== undefined) return sourceProse
   // Host envelope failures carry transport jargon; show the problem and the
   // remedy instead, and keep the raw envelope in host logs only.
   const friendly = friendlyErrorText(raw, t)

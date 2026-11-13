@@ -4,6 +4,8 @@
 // instead of the wire jargon. Bare engine strings keep their existing
 // kind-based wording, so only envelope-wrapped host failures are remapped.
 
+import { knownModelSourceErrorText } from '../app/model-source-errors'
+
 export interface HostEnvelope {
   channel?: string
   inner: string
@@ -42,6 +44,8 @@ const STARTUP_CHANNEL = /^session:(?:new|start)$|^session\/prepare$/
 export function friendlyErrorText(raw: string, t: (key: string) => string): string | undefined {
   const { channel, inner, enveloped } = parseHostEnvelope(raw)
   if (!enveloped) return undefined
+  const sourceError = knownModelSourceErrorText(inner, t)
+  if (sourceError !== undefined) return sourceError
   if (AUTH_FAILURE.test(inner)) return t('error_auth_expired')
   if (NETWORK_FAILURE.test(inner)) return t('error_network_unreachable')
   if (channel && STARTUP_CHANNEL.test(channel) && inner) {

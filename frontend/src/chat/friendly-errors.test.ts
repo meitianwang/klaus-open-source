@@ -57,4 +57,7 @@ const { providerErrorText } = await import('./transcript/TranscriptView')
 test('providerErrorText routes envelope auth failures through the friendly copy', () => {
   const translate = (key: string) => I18N.en[key]
   expect(providerErrorText(ENVELOPE_AUTH, 'unknown', translate)).toBe(translate('error_auth_expired'))
+  const qoderUnsigned = "channel 'session:new' failed: app-server rpc error -32602: not signed in to a Qoder subscription — run `klaus login qoder`"
+  expect(providerErrorText(qoderUnsigned, 'unknown', key => I18N.zh[key]))
+    .toBe(I18N.zh.auth_err_source_not_signed_in.replace(/\{name\}/g, I18N.zh.auth_qoder))
 })

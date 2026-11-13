@@ -17,6 +17,7 @@ import { createStore, type StoreApi } from 'zustand/vanilla'
 import { useStore } from 'zustand'
 import { Icon, rawIconHtml } from '../../components/Icon'
 import { claimOverlay, overlayIdForElement, registerOverlay } from '../../app/overlay-registry'
+import { knownModelSourceErrorText } from '../../app/model-source-errors'
 import { showToast } from '../../app/ui-shared'
 import { escapeHtml } from '../transcript/factories'
 import {
@@ -332,12 +333,15 @@ export function modelUpdateAnnounceable(update: { status?: string; quiet?: boole
  * claiming a pick that never landed.
  */
 export function modelUpdateFailureText(update: { error?: string } | null | undefined, translate: (key: string) => string = tt): string {
-  const detail = update?.error?.trim() ? update.error.trim() : translate('model_update_failed_unknown')
+  const raw = update?.error?.trim() ?? ''
+  const detail = raw ? (knownModelSourceErrorText(raw, translate) ?? raw) : translate('model_update_failed_unknown')
   return `${translate('model_update_failed')} ${detail}`
 }
 
 export function preferenceSaveFailureText(message: string, translate: (key: string) => string = tt): string {
-  const detail = message.trim() ? ` ${message}` : ''
+  const raw = message.trim()
+  const resolved = raw ? (knownModelSourceErrorText(raw, translate) ?? raw) : ''
+  const detail = resolved ? ` ${resolved}` : ''
   return `${translate('model_preference_save_failed')}${detail}`
 }
 

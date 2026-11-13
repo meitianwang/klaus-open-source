@@ -60,6 +60,9 @@ describe('wrapped engine verdicts stay readable', () => {
         expect(authErrorTextForMode('antigravity', wrapped('antigravity_not_signed_in'))).toBe(antigravity)
         const trae = authErrorText(SUBSCRIPTION_SOURCES.trae, wrapped('trae_not_signed_in'))
         expect(trae).toBe(I18N[language].trae_not_logged_in)
+        const qoder = authErrorTextForMode('qoder', 'not signed in to a Qoder subscription — run `klaus login qoder`')
+        expect(qoder).toBe(I18N[language].auth_err_source_not_signed_in.replace(/\{name\}/g, I18N[language].auth_qoder))
+        expect(qoder).not.toContain('klaus login')
         // Human-readable prose keeps passing through untouched.
         expect(authErrorText(SUBSCRIPTION_SOURCES.antigravity, 'Usage request timed out. Please try again.')).toBe('Usage request timed out. Please try again.')
       } finally {
