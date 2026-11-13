@@ -225,6 +225,9 @@ export async function registerMobileModelConfigTests(h: Harness): Promise<void> 
       assert.equal(config.thinkingLevel, 'xhigh'); assert.equal(config.source, 'codex');
       await sleep(30);
       assert(second.messages.filter(row => row.type === 'model_config_changed' && object(row.modelConfig).sessionId === 's2').length <= 2, 'Refresh notifications coalesce rather than growing an edit queue');
+      const countBeforeCatalog = first.messages.filter(row => row.type === 'model_config_changed').length;
+      f.bridge.notePreferencesChanged('model_catalog:antigravity');
+      await waitFor(() => first.messages.filter(row => row.type === 'model_config_changed').length > countBeforeCatalog, 3000, 'Background catalog refresh updates paired mobile clients');
       f.bridge.publishEngineEvent({ type: 'model_update', sessionId: 's2', status: 'preparing', changeId: 'switch', preferenceRevision: 2 }, f.owner());
       await waitFor(() => second.messages.some(row => row.type === 'task_patch' && (row.patches as JsonObject[]).some(patch => object(patch.value).type === 'engine_event' && object(object(patch.value).event).type === 'model_update')), 3000, 'Inference publication event is retained');
     } finally { await f.close(); }

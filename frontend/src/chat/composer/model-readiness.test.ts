@@ -180,3 +180,22 @@ test('per-session readiness retains source isolation while a source catalog is s
   expect((await readiness.read('main')).source).toBe('custom')
   expect((await readiness.read('side')).source).toBe('codex')
 })
+
+test('revalidate retains the previous catalog synchronously while replacing it with the live answer', async () => {
+  const live = deferred<Array<{ value: string }>>()
+  let reads = 0
+  const catalog = createModelCatalogCache(async () => ++reads === 1
+    ? [{ value: 'antigravity:gemini-4-argon-medium' }]
+    : live.promise)
+  expect(await catalog.load('antigravity')).toEqual([{ value: 'antigravity:gemini-4-argon-medium' }])
+  const refreshing = catalog.revalidate('antigravity')
+  // The picker continues to read the baseline synchronously so the menu does not flash empty.
+  expect(catalog.get('antigravity')).toEqual([{ value: 'antigravity:gemini-4-argon-medium' }])
+  // Concurrent load() callers join the in-flight revalidation instead of getting the stale list.
+  const follower = catalog.load('antigravity')
+  live.resolve([{ value: 'antigravity:gemini-4-carbon-medium' }, { value: 'antigravity:gemini-4-argon-medium' }])
+  expect(await refreshing).toEqual([{ value: 'antigravity:gemini-4-carbon-medium' }, { value: 'antigravity:gemini-4-argon-medium' }])
+  expect(await follower).toEqual([{ value: 'antigravity:gemini-4-carbon-medium' }, { value: 'antigravity:gemini-4-argon-medium' }])
+  expect(catalog.get('antigravity')).toEqual([{ value: 'antigravity:gemini-4-carbon-medium' }, { value: 'antigravity:gemini-4-argon-medium' }])
+  expect(reads).toBe(2)
+})

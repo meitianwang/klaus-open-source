@@ -945,7 +945,7 @@ export class MobileBridgeService {
       if (run) for (const peer of run.peers) if (peer.ready) this.scheduleComposer(run, peer);
       return;
     }
-    if (!['composer.main_model', 'composer.thinking_level', 'composer.ultra_mode', 'modelProviders', 'auth_mode'].includes(key) && !isFastModePreferenceKey(key) && !key.startsWith('model_tiers:')) return;
+    if (!['composer.main_model', 'composer.thinking_level', 'composer.ultra_mode', 'modelProviders', 'auth_mode'].includes(key) && !isFastModePreferenceKey(key) && !key.startsWith('model_tiers:') && !key.startsWith('model_catalog:')) return;
     const run = this.run, owner = this.deps.engineOwner();
     if (run) run.modelRevision = (run.modelRevision ?? 0) + 1;
     if (run && owner) this.scheduleModelConfigs(run, owner);

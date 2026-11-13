@@ -7,6 +7,7 @@ const { catalogNeedsLoading, isThinkingLevelForModel, mainModelMenuValue } = awa
 const { modelOptionForValue } = await import('../../../../shared/cursor-model-catalog')
 const { isAutomaticCursorSelection } = await import('./model-selection-values')
 const { isKiroRoutingAlias } = await import('../../../../shared/kiro-model-catalog')
+const { createModelCatalogCache } = await import('./model-readiness')
 
 // The composer model picker is scoped to the open conversation. Switching to a
 // conversation reuses the state already resolved for it, holds the pending
@@ -16,6 +17,7 @@ const source = createSourceFile('chat.ts', readFileSync(new URL('../chat.ts', im
 const names = [
   'applyComposerPreferences',
   'refreshComposerPreferences',
+  'refreshCatalogSource',
   'resetComposerPreferencesForSessionChange',
   'applyCachedComposerPreferences',
   'cacheComposerPreferences',
@@ -37,7 +39,10 @@ function fixture() {
   const catalog = [{ value: 'codex:gpt-5.1', label: '5.1' }, { value: 'codex:gpt-6.1', label: '6.1' }]
   const storedModel = { value: 'codex:gpt-6.1' }
   const context: any = {
-    window: { currentSessionId: 'codex-chat', isSessionRunning: (id?: string | null) => !!id && running.has(id) },
+    window: { currentSessionId: 'codex-chat', isSessionRunning: (id?: string | null) => !!id && running.has(id), dispatchEvent() { return true } },
+    Event: globalThis.Event,
+    revalidatingCatalogEvent: false,
+    refreshAllSideComposerModels: async () => {},
     composerPreferencesRevision: 0,
     sideComposerModelRevision: 0,
     composerPreferencesSnapshot: null,
@@ -150,4 +155,28 @@ test('a stored model still in the catalog is not rewritten', async () => {
   f.storedModel.value = 'codex:gpt-5.1'
   await f.api.refreshComposerPreferences()
   expect(f.writes).toEqual([])
+})
+
+test('a background catalog notification replaces baseline items without flashing the loading state', async () => {
+  const f = fixture()
+  let live = false
+  const cache = createModelCatalogCache(async () => live
+    ? [{ value: 'antigravity:gemini-4-carbon-medium', label: 'Gemini 4 Carbon' }, { value: 'antigravity:gemini-4-argon-medium', label: 'Gemini 4 Argon' }]
+    : [{ value: 'antigravity:gemini-4-argon-medium', label: 'Gemini 4 Argon' }])
+  f.context.mainModelCatalogCache = cache
+  f.context.buildMainModelItems = (requested: string) => cache.load(requested)
+  f.context.klausApi.session.getMainModel = async (_sessionId: string, opts?: { resolve?: boolean }) => opts?.resolve === false
+    ? { source: 'antigravity', mode: 'antigravity:gemini-4-argon-medium' }
+    : { source: 'antigravity', mode: 'antigravity:gemini-4-argon-medium', resolvedMode: 'antigravity:gemini-4-argon-medium' }
+
+  await f.api.refreshComposerPreferences()
+  expect(f.snapshot()?.items.map((item: { label: string }) => item.label)).toEqual(['Gemini 4 Argon'])
+
+  f.sets.length = 0
+  live = true
+  await f.api.refreshCatalogSource('antigravity')
+  // Wait for the concurrent refreshComposerPreferences microtasks to settle.
+  await new Promise(resolve => setTimeout(resolve, 0))
+  expect(f.sets.some(call => call.opts.loading === true)).toBe(false)
+  expect(f.snapshot()?.items.map((item: { label: string }) => item.label)).toEqual(['Gemini 4 Carbon', 'Gemini 4 Argon'])
 })

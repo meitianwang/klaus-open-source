@@ -511,6 +511,7 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
   early.add(() => resumeLedger.flush());
   const resourceDirs = [resourceRoot()];
   let sessions: SessionService;
+  let composer: ReturnType<typeof registerComposerHandlers> | undefined;
   let composerPredictions: ComposerPredictions | undefined;
   const predictionRunningSessions = new Set<string>();
   let channels: ChannelService;
@@ -755,7 +756,7 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
     log: (kind, message) => log.write(kind, message),
     sessionStyles: (cwd, extraRoots, configValues) => hooksStyles.sessionExtensions(cwd, configValues, extraRoots ?? []),
     messageInput: (text, media, types) => attachments.input(text, media, types),
-    mediaInputMimeTypes: sessionId => composer.mediaInputMimeTypes(sessionId),
+    mediaInputMimeTypes: sessionId => composer ? composer.mediaInputMimeTypes(sessionId) : Promise.resolve([]),
     answerAttachments: groups => attachments.answerAttachments(groups),
     deviceContext: async (addresses) => {
       const discovered = await remoteThreads?.discover(AbortSignal.timeout(10_000)).catch(() => null) ?? null;
@@ -805,6 +806,10 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
     onEvent: (event, generation) => {
       windowsSandboxSetup.receive(event, generation);
       mcpRuntime?.receive(event, generation);
+      const current = sessions.engine();
+      if (current && !current.client.isClosed() && current.generation === generation && composer?.receiveEngineEvent(event)) {
+        setImmediate(() => { if (!closing) void configuration.refreshSubagentModelCatalog().catch(error => log.write('subagent-model-catalog', String(error))); });
+      }
       if (event.type === 'streamClosed') {
         computerUse?.connectionLost();
         void connectors?.connectionLost().catch(error => log.write('connector-disconnected', String(error)));
@@ -1925,7 +1930,7 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
   const petVoiceReleases = petVoiceOwners.releases;
   const attachPetVoice = (id: number): Promise<void> => petVoiceOwners.attach(id);
   const releasePetVoice = (id: number): void => { void petVoiceOwners.release(id).catch(error => log.write('pet-voice-cleanup', String(error))); };
-  const composer = registerComposerHandlers(registry, {
+  const composerService = registerComposerHandlers(registry, {
     configRoot, request, engineSettings, push: emit, runtimePolicyProjection,
     sessionCwd: id => sessions.directory(id),
     beforeSessionModelChange: id => sessions.prepareModelChange(id),
@@ -1936,6 +1941,7 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
       void chatRealtime?.refreshAvailability().catch(error => log.write('voice-chat-availability', String(error)));
     },
   });
+  composer = composerService;
   let invalidateClaudeUsage = (): void => {};
   const account = registerAuthHandlers(registry, {
     homeDir: options.externalAuthHomeDir,
@@ -2058,7 +2064,7 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
       bindSessionWorkdir(sessionId, directory, configRoot);
       configuration.markChanged(sessionId);
     },
-    modelOptions: source => composer.options(source),
+    modelOptions: source => composerService.options(source),
     agentDefinitions: () => extensions.discovery.agents(),
     configureSessionModel: (sessionId, model) => {
       bindCollaborationModel(configRoot, sessionId, model);

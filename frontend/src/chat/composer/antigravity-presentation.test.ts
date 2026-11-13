@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test'
-import { visibleAntigravityModelOptions } from '../../../../shared/antigravity-presentation'
+import { antigravityPresentationFamily, latestAntigravityFamilyIds, visibleAntigravityModelOptions } from '../../../../shared/antigravity-presentation'
 import { antigravityModelOptions } from '../../../../main/services/antigravity-model-options'
 import { antigravityThinkingLevels, antigravityVariantForThinking, pickAntigravityModelMetadata } from '../../../../shared/antigravity-model-catalog'
 import { modelOptionForValue } from '../../../../shared/cursor-model-catalog'
@@ -77,4 +77,34 @@ test('native levels and legacy budgets both group Flash reasoning into one model
       expect(invalid.some(item => item.value === options[0]!.value && !item.antigravityVariants)).toBe(true)
     }
   }
+})
+
+test('Carbon and Hydrogen families parse and group XHigh reasoning without leaving stray rows', () => {
+  expect(antigravityPresentationFamily('antigravity:gemini-4-carbon-medium')).toEqual({
+    category: 'gemini', id: 'gemini-4-carbon', label: 'Gemini 4 Carbon', version: [4, 0],
+  })
+  expect(antigravityPresentationFamily('Gemini 4 Hydrogen (XHigh)')).toEqual({
+    category: 'gemini', id: 'gemini-4-hydrogen', label: 'Gemini 4 Hydrogen', version: [4, 0],
+  })
+  const families = [
+    antigravityPresentationFamily('gemini-4-hydrogen-high')!,
+    antigravityPresentationFamily('gemini-4-argon-medium')!,
+    antigravityPresentationFamily('gemini-4-carbon-medium')!,
+    antigravityPresentationFamily('gemini-3.8-flash-high')!,
+  ]
+  expect([...latestAntigravityFamilyIds(families)]).toEqual(['gemini-4-carbon', 'gemini-3.8-flash'])
+
+  const hydrogenEntries: JsonObject[] = [
+    { key: 'gemini-4-hydrogen-low', display_name: 'Gemini 4 Hydrogen (Low)', providerMetadata: { supportsThinking: true, modelProvider: 'MODEL_PROVIDER_GOOGLE', thinkingLevel: 1 } },
+    { key: 'gemini-4-hydrogen-medium', display_name: 'Gemini 4 Hydrogen (Medium)', providerMetadata: { supportsThinking: true, modelProvider: 'MODEL_PROVIDER_GOOGLE', thinkingLevel: 2 } },
+    { key: 'gemini-4-hydrogen-high', display_name: 'Gemini 4 Hydrogen (High)', providerMetadata: { supportsThinking: true, modelProvider: 'MODEL_PROVIDER_GOOGLE', thinkingLevel: 3 } },
+    { key: 'gemini-4-hydrogen-xhigh', display_name: 'Gemini 4 Hydrogen (XHigh)', providerMetadata: { supportsThinking: true, modelProvider: 'MODEL_PROVIDER_GOOGLE', thinkingLevel: 100 } },
+  ]
+  const options = hydrogenEntries.map(entry => ({ value: `antigravity:${entry.key}`, label: entry.display_name, available: true }))
+  const grouped = antigravityModelOptions(hydrogenEntries, options)
+  expect(grouped).toHaveLength(1)
+  expect(grouped[0]!.label).toBe('Gemini 4 Hydrogen')
+  const metadata = pickAntigravityModelMetadata(grouped[0])
+  expect(antigravityThinkingLevels(metadata, options[0]!.value)).toEqual(['low', 'medium', 'high', 'xhigh'])
+  expect(antigravityVariantForThinking(metadata, options[0]!.value, 'xhigh')?.value).toBe('antigravity:gemini-4-hydrogen-xhigh')
 })

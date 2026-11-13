@@ -51,7 +51,7 @@ function member(key: string, entry: JsonObject, row: JsonObject): Member | undef
     }
   }
   const native = object(entry.providerMetadata).thinkingLevel ?? entry.thinkingLevel;
-  const levels: Record<number, string> = { 1: 'low', 2: 'medium', 3: 'high', 4: 'low', 5: 'xhigh', 6: 'max', 200: 'max' };
+  const levels: Record<number, string> = { 1: 'low', 2: 'medium', 3: 'high', 4: 'low', 5: 'xhigh', 6: 'max', 100: 'xhigh', 200: 'max' };
   if (typeof native === 'number' && levels[native]) return { family: key, label: string(row.label), level: levels[native]!, nativeLevel: native };
   return undefined;
 }
@@ -59,7 +59,7 @@ function member(key: string, entry: JsonObject, row: JsonObject): Member | undef
 function matches(entry: JsonObject, definition: Member): boolean {
   const details = { ...object(entry.providerMetadata), ...entry };
   const label = string(entry.display_name) || string(entry.displayName);
-  if (label && label !== definition.label && label.replace(/\s+\((?:Extra Low|Extra High|Low|Medium|High|Xhigh|Max|Thinking)\)$/, '') !== definition.label) return false;
+  if (label && label !== definition.label && label.replace(/\s+\((?:Extra Low|Extra High|Low|Medium|High|Xhigh|Max|Thinking)\)$/i, '') !== definition.label) return false;
   if (details.supportsThinking === false) return false;
   const provider = string(details.modelProvider);
   if (provider && (definition.family.startsWith('claude-') ? provider !== 'MODEL_PROVIDER_ANTHROPIC'

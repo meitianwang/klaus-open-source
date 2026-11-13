@@ -4520,7 +4520,9 @@ window.addEventListener('klaus:auth-mode-changed', () => {
   void refreshComposerPreferences()
   void refreshAllSideComposerModels()
 })
+let revalidatingCatalogEvent = false
 window.addEventListener('klaus:models-changed', () => {
+  if (revalidatingCatalogEvent) return
   composerPredictions?.invalidate()
   invalidateComposerPreferenceReads()
   void refreshComposerPreferences()
@@ -14431,6 +14433,20 @@ function invalidateComposerPreferenceReads() {
   mainModelCatalogCache.invalidate()
   composerModelReadinessCache.invalidate()
 }
+async function refreshCatalogSource(source: string) {
+  if (!source) return
+  composerPredictions?.invalidate()
+  composerModelReadinessCache.invalidate()
+  const refreshing = mainModelCatalogCache.revalidate(source)
+  void refreshComposerPreferences()
+  void refreshAllSideComposerModels()
+  await refreshing.catch(error => {
+    console.warn('[composer-preferences] background catalog refresh failed:', error)
+  })
+  revalidatingCatalogEvent = true
+  try { window.dispatchEvent(new Event('klaus:models-changed')) }
+  finally { revalidatingCatalogEvent = false }
+}
 function syncComposerInferenceStatus() {
   const mainId = window.currentSessionId
   mainModelApi?.setRuntime(mainId ? getSessionStream(mainId) : null)
@@ -14632,6 +14648,10 @@ const SIDEBAR_COLLAPSE_KEYS = new Set([SIDEBAR_PROJECT_EXPANDED_KEY, SIDEBAR_SEC
 klausApi.on.appPreferencesChanged?.(({ key }: { key?: string }) => {
   if (key === PREDICTIONS_ENABLED_KEY || key === PREDICTIONS_ACCEPTED_KEY) void composerPredictions?.reloadSettings()
   if (key === followUpModeHelper.FOLLOW_UP_QUEUE_MODE_KEY) void loadFollowUpQueueMode()
+  if (key?.startsWith('model_catalog:')) {
+    void refreshCatalogSource(key.slice('model_catalog:'.length))
+    return
+  }
   if (key && (COMPOSER_PREFERENCE_KEYS.has(key) || isFastModePreferenceKey(key) || key === 'modelProviders' || key === 'auth_mode' || key.startsWith('model_tiers:'))) {
     composerPredictions?.invalidate()
     invalidateComposerPreferenceReads()

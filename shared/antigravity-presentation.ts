@@ -6,9 +6,18 @@ export interface AntigravityPresentationFamily {
   version: number[];
 }
 
+const GEMINI_TIER_RANK: Record<string, number> = {
+  ultra: 5,
+  pro: 4,
+  carbon: 3,
+  argon: 2,
+  hydrogen: 1,
+  flash: 0,
+};
+
 export function antigravityPresentationFamily(value: string): AntigravityPresentationFamily | undefined {
   const text = value.trim().replace(/^antigravity:/i, '').toLowerCase()
-    .replace(/\s*\((?:extra low|low|medium|high|extra high|max|thinking)\)$/, '')
+    .replace(/\s*\((?:extra low|low|medium|high|extra high|xhigh|max|thinking)\)$/, '')
     .replace(/\s+/g, '-');
   const claude = /^claude-(opus|sonnet)-(\d+)(?:[.-](\d+))?(?:-(?:thinking|low|medium|high|xhigh|max))?$/.exec(text);
   if (claude) {
@@ -18,7 +27,7 @@ export function antigravityPresentationFamily(value: string): AntigravityPresent
     return { category, id: `claude-${category}-${release.replace('.', '-')}`,
       label: `Claude ${category === 'opus' ? 'Opus' : 'Sonnet'} ${release}`, version };
   }
-  const gemini = /^gemini-(\d+)(?:\.(\d+))?-(argon|pro|ultra|flash)(?:-(?:low|medium|high|xhigh|max|thinking|tiered|preview|agent))?$/.exec(text);
+  const gemini = /^gemini-(\d+)(?:\.(\d+))?-(carbon|argon|hydrogen|pro|ultra|flash)(?:-(?:low|medium|high|xhigh|max|thinking|tiered|preview|agent))?$/.exec(text);
   if (!gemini) return undefined;
   const release = gemini[2] === undefined ? gemini[1]! : `${gemini[1]}.${gemini[2]}`;
   const tier = gemini[3]!;
@@ -27,8 +36,16 @@ export function antigravityPresentationFamily(value: string): AntigravityPresent
     version: [Number(gemini[1]), Number(gemini[2] ?? 0)] };
 }
 
+function geminiTierRank(id: string): number {
+  const tier = /^gemini-\d+(?:\.\d+)?-([a-z]+)$/.exec(id)?.[1];
+  return tier ? (GEMINI_TIER_RANK[tier] ?? 0) : 0;
+}
+
 export function compareAntigravityVersions(left: AntigravityPresentationFamily, right: AntigravityPresentationFamily): number {
-  return left.version[0]! - right.version[0]! || left.version[1]! - right.version[1]! || left.id.localeCompare(right.id);
+  return left.version[0]! - right.version[0]!
+    || left.version[1]! - right.version[1]!
+    || geminiTierRank(left.id) - geminiTierRank(right.id)
+    || left.id.localeCompare(right.id);
 }
 
 /** Keep the newest release in each main family, including the fast Gemini line. */

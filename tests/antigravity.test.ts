@@ -330,4 +330,39 @@ h.test('native image output publishes every validated image and rejects a malfor
 
 registerAntigravityModelVariantTests(h);
 registerAntigravityLoginTests(h);
+
+h.test('engine catalog notifications broadcast source invalidation and quota windows recognize Carbon and Hydrogen', () => {
+  const pushed: Array<{ channel: string; payload: JsonObject }> = [];
+  const composer = new ComposerService({
+    configRoot: join(tmpdir(), 'klaus-antigravity-notify-unused'),
+    engineSettings: { providers: async () => ({}) } as unknown as EngineSettings,
+    request: async () => ({}),
+    push: (channel, payload) => { pushed.push({ channel, payload: object(payload) }); },
+    onSessionConfigChanged: () => {},
+  });
+  assert.equal(composer.receiveEngineEvent({ type: 'productEvent', method: 'model/catalogChanged', params: { source: 'antigravity' } }), true);
+  assert.equal(composer.receiveEngineEvent({ type: 'productEvent', method: 'model/catalogChanged', params: { source: 'unknown-source' } }), false);
+  assert.equal(composer.receiveEngineEvent({ type: 'productEvent', method: 'other/event', params: { source: 'antigravity' } }), false);
+  assert.deepEqual(pushed, [{ channel: 'app:preferences-changed', payload: { key: 'model_catalog:antigravity' } }]);
+
+  const projected = antigravityUsage({
+    signedIn: true,
+    plan: 'Google AI Ultra',
+    windows: [
+      { id: 'quota:gemini-4-hydrogen-high', label: 'gemini-4-hydrogen-high', modelId: 'gemini-4-hydrogen-high', source: 'quota', usedPercent: 5, resetsAt: 1793789273000 },
+      { id: 'quota:gemini-4-argon-medium', label: 'gemini-4-argon-medium', modelId: 'gemini-4-argon-medium', source: 'quota', usedPercent: 8, resetsAt: 1793789273000 },
+      { id: 'quota:gemini-4-carbon-medium', label: 'gemini-4-carbon-medium', modelId: 'gemini-4-carbon-medium', source: 'quota', usedPercent: 12, resetsAt: 1793789273000 },
+      { id: 'quota:gemini-3.8-flash-high', label: 'gemini-3.8-flash-high', modelId: 'gemini-3.8-flash-high', source: 'quota', usedPercent: 3, resetsAt: 1793789273000 },
+    ],
+  });
+  assert.deepEqual(projected, {
+    state: 'ok',
+    plan: 'Google AI Ultra',
+    windows: [
+      { id: 'gemini-4-carbon', label: 'Gemini 4 Carbon', usedPercent: 12, resetsAt: 1793789273000 },
+      { id: 'gemini-3.8-flash', label: 'Gemini 3.8 Flash', usedPercent: 3, resetsAt: 1793789273000 },
+    ],
+  });
+});
+
 void h.finish(join(__dirname, 'antigravity-result.json'), 'antigravity').then(code => { process.exitCode = code; });

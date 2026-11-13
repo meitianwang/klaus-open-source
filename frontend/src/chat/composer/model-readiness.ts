@@ -7,27 +7,38 @@ export interface SourceReadiness { source: string; readiness: ModelReadiness }
 /** Share successful catalogs without holding on to transport failures or empty setup. */
 export function createModelCatalogCache<T extends { value: string }>(load: (source: string) => Promise<T[]>) {
   let revision = 0
+  const sourceRevisions = new Map<string, number>()
   const values = new Map<string, T[]>()
   const pending = new Map<string, Promise<T[]>>()
+  const token = (source: string) => `${revision}:${sourceRevisions.get(source) ?? 0}`
+  const fetchSource = (source: string): Promise<T[]> => {
+    const startedAt = token(source)
+    const request = Promise.resolve().then(() => load(source)).then(items => {
+      if (token(source) !== startedAt) return cache.load(source)
+      if (hasConfiguredModel(items)) values.set(source, items)
+      else values.delete(source)
+      return items
+    }, error => {
+      if (token(source) !== startedAt) return cache.load(source)
+      throw error
+    }).finally(() => { if (pending.get(source) === request) pending.delete(source) })
+    pending.set(source, request)
+    return request
+  }
   const cache = {
     get: (source: string) => values.get(source),
-    invalidate() { revision++; values.clear(); pending.clear() },
+    invalidate() { revision++; sourceRevisions.clear(); values.clear(); pending.clear() },
+    revalidate(source: string): Promise<T[]> {
+      sourceRevisions.set(source, (sourceRevisions.get(source) ?? 0) + 1)
+      pending.delete(source)
+      return fetchSource(source)
+    },
     load(source: string): Promise<T[]> {
-      const saved = values.get(source)
-      if (saved) return Promise.resolve(saved)
       const existing = pending.get(source)
       if (existing) return existing
-      const startedAt = revision
-      const request = Promise.resolve().then(() => load(source)).then(items => {
-        if (revision !== startedAt) return cache.load(source)
-        if (hasConfiguredModel(items)) values.set(source, items)
-        return items
-      }, error => {
-        if (revision !== startedAt) return cache.load(source)
-        throw error
-      }).finally(() => { if (pending.get(source) === request) pending.delete(source) })
-      pending.set(source, request)
-      return request
+      const saved = values.get(source)
+      if (saved) return Promise.resolve(saved)
+      return fetchSource(source)
     },
   }
   return cache

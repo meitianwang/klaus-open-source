@@ -2,6 +2,7 @@ import { antigravityModelOptions } from './antigravity-model-options';
 import { antigravityThinkingLevel, antigravityVariantForThinking, pickAntigravityModelMetadata, type AntigravityModelMetadata } from '../../shared/antigravity-model-catalog';
 import { isTraeNativeEffort, pickTraeModelMetadata, traeThinkingLevel, traeThinkingLevels, traeVariantForThinking, traeModelOptionForValue, type TraeModelMetadata } from '../../shared/trae-model-catalog';
 import { isKiroNativeEffort, isKiroRoutingAlias, pickKiroModelMetadata, kiroThinkingLevel, kiroThinkingLevels, kiroVariantForThinking, kiroModelOptionForValue, type KiroModelMetadata } from '../../shared/kiro-model-catalog';
+import type { ClientEvent } from '../engine/protocol';
 import type { Json } from '../ipc/contract';
 import { IpcHandlerError } from '../ipc/registry';
 import { configRootFrom } from './config-root';
@@ -78,6 +79,13 @@ export class ComposerService {
   constructor(private readonly deps: ComposerDeps) {
     this.configRoot = deps.configRoot ?? configRootFrom();
     this.engine = deps.engineSettings ?? new EngineSettings(deps.request);
+  }
+  receiveEngineEvent(event: ClientEvent): boolean {
+    if (event.type !== 'productEvent' || event.method !== 'model/catalogChanged') return false;
+    const source = string(object(event.params).source);
+    if (!MODEL_SOURCES.includes(source)) return false;
+    this.deps.push('app:preferences-changed', { key: `model_catalog:${source}` });
+    return true;
   }
   async resolveSelection(sessionId: string): Promise<string> {
     return this.resolvePreference(readSessionModel(sessionId, this.configRoot));
