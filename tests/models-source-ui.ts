@@ -371,7 +371,7 @@ void (async () => {
         ).map(element => element.getAttribute('data-source-tab'))`);
       // Order is the contract the composer picker and the phone both read, so it is
       // asserted whole rather than as "contains".
-      assertDeepEqual(tabs, ['subscription', 'codex', 'cursor', 'qoder', 'qwenwork', 'workbuddy', 'antigravity', 'trae', 'kimi', 'bailian', 'minimax', 'zhipu', 'ark', 'custom'],
+      assertDeepEqual(tabs, ['subscription', 'codex', 'cursor', 'qoder', 'qwenwork', 'workbuddy', 'antigravity', 'trae', 'kiro', 'kimi', 'bailian', 'minimax', 'zhipu', 'ark', 'custom'],
         'every source has a tab');
 
     });
