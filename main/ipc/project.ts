@@ -184,6 +184,7 @@ export function failureKind(error: Json): string {
       case 'prompt_too_long':
       case 'auth':
       case 'max_output':
+      case 'withheld':
         return kind;
       default:
         break;

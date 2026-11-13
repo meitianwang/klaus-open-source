@@ -2740,6 +2740,7 @@ const PROVIDER_KIND_MESSAGE_KEYS: Record<string, string> = {
   network: 'provider_network',
   quota: 'provider_quota',
   max_output: 'provider_max_output',
+  withheld: 'provider_withheld',
   auth: 'provider_auth',
   timeout: 'provider_timeout',
 }

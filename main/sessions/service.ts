@@ -518,7 +518,7 @@ export class SessionService {
       state: deps.state,
       binding: id => {
         const engineId = deps.state.liveSession(id), client = this.attached?.client;
-        return engineId && client && !client.isClosed() && !this.isSideTask(id) ? { engineId, client } : undefined;
+        return engineId && client && !client.isClosed() && !this.isSideTask(id) && !this.isSessionClosing(id) ? { engineId, client } : undefined;
       },
       ensure: (id, binding) => {
         this.ensureCurrentClient(binding.client as EngineClientLike);
@@ -1077,7 +1077,7 @@ export class SessionService {
             || this.deps.isSessionRetirementProtected?.(candidate.rendererId)
             || this.deps.state.isWorking(candidate.rendererId) || this.deps.state.inInterruptWindow(candidate.rendererId) || this.hasContinuingGoal(candidate.rendererId)
             || this.startingTurns.has(candidate.rendererId) || this.hostedTurns.has(candidate.rendererId)
-            || this.pendingActivations.has(candidate.rendererId)
+            || this.pendingActivations.has(candidate.rendererId) || this.deps.state.inferencePending(candidate.rendererId)
             || this.closingSessions.has(candidate.rendererId) || this.sideQuestions.sessionIds().includes(candidate.rendererId) || this.predictionQueries.has(candidate.rendererId)
             || this.deps.state.pendingForSession(candidate.rendererId).length > 0
             || hasPendingMainTurn(this.deps.state.queueSnapshot(candidate.rendererId))
@@ -1097,7 +1097,7 @@ export class SessionService {
             || this.deps.state.isWorking(candidate.rendererId) || this.deps.state.inInterruptWindow(candidate.rendererId) || this.hasContinuingGoal(candidate.rendererId) || this.startingTurns.has(candidate.rendererId)
             || this.hostedTurns.has(candidate.rendererId) || this.idleRetirementKeeps.has(candidate.rendererId) || this.viewInterests.has(candidate.rendererId)
             || this.deps.isSessionRetirementProtected?.(candidate.rendererId)
-            || this.pendingActivations.has(candidate.rendererId)
+            || this.pendingActivations.has(candidate.rendererId) || this.deps.state.inferencePending(candidate.rendererId)
             || this.closingSessions.has(candidate.rendererId) || this.sideQuestions.sessionIds().includes(candidate.rendererId) || this.predictionQueries.has(candidate.rendererId)
             || this.deps.state.pendingForSession(candidate.rendererId).length
             || hasPendingMainTurn(this.deps.state.queueSnapshot(candidate.rendererId))

@@ -49,6 +49,8 @@ const validRevision = (value: unknown): value is number => typeof value === 'num
 const messageOf = (error: unknown): string => error instanceof Error ? error.message
   : typeof object(error)?.message === 'string' ? String(object(error)!.message) : 'The engine did not confirm the model change';
 const conflict = (error: unknown): boolean => object(error)?.kind === 'server' && object(error)?.message === 'model reconfiguration revision conflict';
+const sessionClosed = (error: unknown): boolean => (error instanceof IpcHandlerError && error.code === 'SESSION_UNAVAILABLE')
+  || (object(error)?.kind === 'server' && object(error)?.code === -32004);
 
 /** Model publication has its own singleflight lane: never wait behind tools or title inference. */
 export class ModelUpdates {
@@ -62,10 +64,20 @@ export class ModelUpdates {
     const binding = this.deps.binding(id);
     if (!binding) return;
     const change = this.begin(id, binding, false, origin);
-    void this.work(id).catch(error => this.deps.log?.('model-update-failed', messageOf(error)));
-    await change.fenced;
-    const latest = this.changes.get(id);
-    if (latest && latest !== change) await latest.fenced;
+    void this.work(id).catch(error => {
+      if (!sessionClosed(error)) this.deps.log?.('model-update-failed', messageOf(error));
+    });
+    try {
+      await change.fenced;
+      const latest = this.changes.get(id);
+      if (latest && latest !== change) await latest.fenced;
+    } catch (error) {
+      if (!sessionClosed(error)) throw error;
+      const next = this.deps.binding(id);
+      if (next && next.engineId !== binding.engineId && this.deps.state.inferencePending(id)) {
+        await this.changed(id, origin);
+      }
+    }
   }
 
   /** Admission joins preparation and confirmation; it never silently uses the cached provider. */
@@ -119,6 +131,11 @@ export class ModelUpdates {
       }
     }).catch(error => {
       change.failed = true;
+      if (sessionClosed(error)) {
+        change.uncertain = false;
+        if (this.changes.get(id) === change) this.changes.delete(id);
+        throw error instanceof IpcHandlerError ? error : new IpcHandlerError('SESSION_UNAVAILABLE', messageOf(error));
+      }
       change.uncertain = object(error)?.kind !== 'server';
       if (this.changes.get(id) === change) {
         this.deps.state.setInferenceUncertain(id, binding.engineId, change.uncertain);
@@ -193,6 +210,13 @@ export class ModelUpdates {
         if (!this.deps.state.inferencePending(id)) return;
         if (this.changes.get(id) === change) this.begin(id, change.binding, true);
       } catch (error) {
+        if (sessionClosed(error)) {
+          if (!change.publishing) this.deps.release(id, change.id);
+          change.failed = true;
+          change.uncertain = false;
+          if (this.changes.get(id) === change) this.changes.delete(id);
+          throw error instanceof IpcHandlerError ? error : new IpcHandlerError('SESSION_UNAVAILABLE', messageOf(error));
+        }
         if (!change.publishing && this.changes.get(id) === change
           && this.deps.state.modelPreferenceRevision(id) !== change.preferenceRevision) {
           this.deps.release(id, change.id);

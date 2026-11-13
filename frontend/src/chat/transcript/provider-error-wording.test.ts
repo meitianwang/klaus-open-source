@@ -86,6 +86,11 @@ describe('provider error wording', () => {
     expect(providerErrorText('', 'max_output', t)).toBe(t('provider_max_output'))
   })
 
+  test('a policy refusal reads as the localized withheld explanation rather than generic empty output', () => {
+    expect(providerErrorText('the model declined to respond to this request', 'withheld', t)).toBe(t('provider_withheld'))
+    expect(providerErrorText('', 'withheld', t)).toBe(t('provider_withheld'))
+  })
+
   test('unmapped kinds keep the raw message and an empty raw still localizes', () => {
     expect(providerErrorText('boom', 'unknown', t)).toBe('boom')
     expect(providerErrorText('boom', undefined, t)).toBe('boom')

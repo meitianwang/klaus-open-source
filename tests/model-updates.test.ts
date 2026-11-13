@@ -7,7 +7,7 @@ import { HostState } from '../main/services/host-state';
 import { ModelUpdates, type ModelCandidate } from '../main/sessions/model-updates';
 import { SessionConfiguration } from '../main/sessions/configuration';
 import { eventInference } from '../main/sessions/event-context';
-import { projectEngineEvent } from '../main/ipc/project';
+import { failureKind, projectEngineEvent } from '../main/ipc/project';
 import { ChatEventForwarder, SessionEventPump } from '../main/sessions/events';
 import { projectSessionHistory } from '../main/sessions/history';
 import { assert, assertDeepEqual, assertEqual, assertRejects, Harness, waitFor } from './harness';
@@ -291,6 +291,65 @@ h.test('a user selection after a quiet sign-out failure announces its own failur
   await waitFor(() => f.pushed.filter(row => object(row)?.status === 'failed').length === 2, 1000, 'the later failure settles');
   const failure = object(f.pushed.at(-1))!;
   assertEqual(failure.quiet, undefined, 'a user-driven failure keeps its announcement');
+});
+
+h.test('closing a live conversation during model preparation settles without pushing a false preparation-failed toast', async () => {
+  const f = fixture(), logs: string[] = [], prepared = deferred<ModelCandidate>();
+  const updates = new ModelUpdates({
+    state: f.state,
+    binding: id => f.state.liveSession(id) ? f.binding : undefined,
+    ensure: (id, current) => {
+      if (f.state.liveSession(id) !== current.engineId) {
+        throw new IpcHandlerError('SESSION_UNAVAILABLE', 'The conversation closed before its model changed');
+      }
+    },
+    prepare: () => prepared.promise,
+    release: (_id, id) => f.released.push(id),
+    push: frames => f.pushed.push(...frames),
+    log: kind => logs.push(kind),
+  });
+  f.state.markModelChanged('thread');
+  await updates.changed('thread');
+  f.state.forgetSession('thread', 'session-closed');
+  prepared.resolve({
+    init: { modelSelection: 'custom:b', modelSource: { source: 'custom', modelId: 'b' } },
+    provider: { source: 'custom', selection: 'custom:b' },
+    preferenceRevision: 1,
+  });
+  await new Promise(resolve => setTimeout(resolve, 10));
+  assert(!f.pushed.some(row => object(row)?.status === 'failed'), 'unloaded session does not emit a false model preparation failure');
+  assertDeepEqual(logs, [], 'expected unload logs no model-update-failed fault');
+});
+
+h.test('closing a live conversation before fence confirmation resolves changed cleanly and projects withheld failure kind', async () => {
+  const f = fixture(), logs: string[] = [];
+  let closing = false;
+  const updates = new ModelUpdates({
+    state: f.state,
+    binding: id => f.state.liveSession(id) ? f.binding : undefined,
+    ensure: () => {
+      if (closing) throw new IpcHandlerError('SESSION_UNAVAILABLE', 'The conversation closed before its model changed');
+    },
+    prepare: async () => ({
+      init: { modelSelection: 'custom:b', modelSource: { source: 'custom', modelId: 'b' } },
+      provider: { source: 'custom', selection: 'custom:b' },
+      preferenceRevision: 1,
+    }),
+    release: (_id, id) => f.released.push(id),
+    push: frames => f.pushed.push(...frames),
+    log: kind => logs.push(kind),
+  });
+  closing = true;
+  f.state.markModelChanged('thread');
+  await updates.changed('thread');
+  assert(!f.pushed.some(row => object(row)?.status === 'failed'), 'mid-close fence abort does not push a false failure toast');
+  assertDeepEqual(logs, [], 'mid-close fence abort logs no failure');
+
+  assertEqual(failureKind({
+    code: 'provider_error',
+    message: 'the model declined to respond to this request',
+    kind: 'withheld',
+  }), 'withheld', 'host preserves withheld provider error kind');
 });
 
 void h.finish(join(__dirname, 'model-updates-results.json'), 'model-updates').then(code => { process.exitCode = code; });
