@@ -6,8 +6,8 @@
     "bridgeDir": "frontend/bridge"
   },
   "summary": {
-    "registeredInvoke": 761,
-    "registeredPush": 78,
+    "registeredInvoke": 762,
+    "registeredPush": 79,
     "roles": 11
   },
   "pushChannels": [
@@ -65,6 +65,7 @@
     "planning-input:requested",
     "planning-input:resolved",
     "planning:updated",
+    "plugins:progress",
     "power:context",
     "ppt:chat-request",
     "ppt:open-panel",
@@ -528,6 +529,7 @@
         "plan:save-document",
         "planning-input:answer",
         "planning-input:pending",
+        "plugins:cancel",
         "plugins:install",
         "plugins:list",
         "plugins:market",
@@ -920,6 +922,7 @@
         "planning-input:requested",
         "planning-input:resolved",
         "planning:updated",
+        "plugins:progress",
         "power:context",
         "ppt:chat-request",
         "ppt:open-panel",

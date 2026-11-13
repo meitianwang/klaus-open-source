@@ -162,4 +162,48 @@ describe('plugin operation lifecycle', () => {
     pending.resolve({ plugins: [row('a@local'), row('b@local')] }); await oldRead
     expect(f.store.getSnapshot().data?.plugins[0]?.installedVersion).toBe('2.0.0')
   })
+
+  test('attaches live progress only to running operations and drops stale post-settle pushes', async () => {
+    let listener: ((event: any) => void) | undefined
+    const f = fixture()
+    const store = new PluginStore({
+      api: () => f.api,
+      onProgress: cb => { listener = cb; return () => { listener = undefined } },
+    })
+    await store.load()
+    const op = store.update(f.rows[0]!); await tick()
+    listener?.({ id: 'a@local', action: 'update', stage: 'downloading', percent: 41, transferred: 50, total: 100, bytesPerSecond: 25, cancellable: true })
+    expect(store.getSnapshot().operations['a@local']?.progress?.percent).toBe(41)
+    f.pending.shift()!.resolve({ ok: true, version: '2.0.0' })
+    expect(await op).toBe(true)
+    listener?.({ id: 'a@local', action: 'update', stage: 'extracting', percent: 92, transferred: 100, total: 100, bytesPerSecond: 0, cancellable: true })
+    expect(store.getSnapshot().operations['a@local']?.progress).toBeUndefined()
+  })
+
+  test('cancelling a queued item skips IPC and cancelling a running item clears without a failure receipt', async () => {
+    const cancelledCalls: string[] = []
+    const f = fixture()
+    const store = new PluginStore({
+      api: () => ({
+        ...f.api,
+        cancel: async (id: string) => { cancelledCalls.push(id); return { ok: true, cancelled: true } },
+      }),
+    })
+    await store.load()
+    const first = store.update(f.rows[0]!)
+    const second = store.update(f.rows[1]!)
+    await tick()
+    expect(store.getSnapshot().operations['b@local']?.phase).toBe('queued')
+    expect(await store.cancel('b@local')).toBe(true)
+    expect(store.getSnapshot().operations['b@local']).toBeUndefined()
+
+    expect(await store.cancel('a@local')).toBe(true)
+    expect(store.getSnapshot().operations['a@local']?.cancelling).toBe(true)
+    expect(cancelledCalls).toEqual(['a@local'])
+    f.pending.shift()!.resolve({ ok: false, cancelled: true })
+    expect(await first).toBe(false)
+    expect(await second).toBe(false)
+    expect(f.calls).toEqual(['a@local'])
+    expect(store.getSnapshot().operations['a@local']).toBeUndefined()
+  })
 })

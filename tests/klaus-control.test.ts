@@ -279,7 +279,9 @@ void (async () => {
       // (passwords and autofill included) and the two renderer session reads.
       // No channel changes its actual reachability; the coverage loop below
       // just gets the disposition it has always required.
-      assert.equal(channels.size, 761);
+      // 762 adds `plugins:cancel`, exposed on the existing `plugin` surface so a
+      // queued or running plugin download can be cancelled cleanly before commit.
+      assert.equal(channels.size, 762);
       const companionChannels = [...channels].filter(channel => channel.startsWith('desktop-pet:'));
       assert.equal(companionChannels.length, 58);
       for (const channel of companionChannels) {

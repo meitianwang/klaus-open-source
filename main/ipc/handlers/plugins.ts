@@ -3,7 +3,7 @@ import { object } from '../../services/service-types';
 import { PluginService, type PluginDeps } from '../../services/extensions/plugins';
 import { RuntimeViewService, type RuntimeViewDeps } from '../../services/extensions/runtime-view';
 
-export const PLUGIN_CHANNELS = ['plugins:market', 'plugins:list', 'plugins:runtime', 'plugins:install', 'plugins:update', 'plugins:toggle', 'plugins:uninstall'] as const;
+export const PLUGIN_CHANNELS = ['plugins:market', 'plugins:list', 'plugins:runtime', 'plugins:install', 'plugins:update', 'plugins:cancel', 'plugins:toggle', 'plugins:uninstall'] as const;
 export const RUNTIME_VIEW_CHANNELS = ['runtime:capabilities', 'runtime:extensions'] as const;
 export function registerPluginHandlers(registry: ChannelRegistry, deps: PluginDeps & { plugins?: PluginService }): PluginService {
   const plugins = deps.plugins ?? new PluginService(deps);
@@ -12,6 +12,7 @@ export function registerPluginHandlers(registry: ChannelRegistry, deps: PluginDe
   registry.register('plugins:runtime', ctx => plugins.runtimeView(object(ctx.args[0])), 'plugins');
   registry.register('plugins:install', ctx => plugins.install(object(ctx.args[0])), 'plugins');
   registry.register('plugins:update', ctx => plugins.update(object(ctx.args[0])), 'plugins');
+  registry.register('plugins:cancel', ctx => plugins.cancel(object(ctx.args[0])), 'plugins');
   registry.register('plugins:toggle', ctx => plugins.toggle(object(ctx.args[0])), 'plugins');
   registry.register('plugins:uninstall', ctx => plugins.uninstall(object(ctx.args[0])), 'plugins');
   return plugins;

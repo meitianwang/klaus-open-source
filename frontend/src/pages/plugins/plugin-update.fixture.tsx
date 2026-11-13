@@ -23,6 +23,7 @@ const dialogCalls: unknown[] = []
 const FAILURE_LOG = '/tmp/klaus-plugin-fixture-failure.log'
 const calls: Array<{ method: string; id?: string; options?: unknown }> = [], toasts: string[] = []
 const listeners = new Set<(payload: { key: string }) => void>()
+const progressListeners = new Set<(payload: unknown) => void>()
 let invalidations = 0, checkCalls = 0, readFailure = false, checkFailure = false, checkedAt = 0
 const esc = (value: unknown): string => String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;')
 
@@ -59,9 +60,26 @@ Object.assign(window, {
         if (pendingInstall) return Promise.reject(new Error('A fixture install is already pending'))
         return new Promise(resolve => { pendingInstall = { id, resolve } })
       },
+      cancel: async (id: string) => {
+        calls.push({ method: 'cancel', id })
+        if (pending && pending.id === id) {
+          const tx = pending; pending = null
+          tx.resolve({ ok: false, cancelled: true })
+          return { ok: true, cancelled: true }
+        }
+        if (pendingInstall && pendingInstall.id === id) {
+          const tx = pendingInstall; pendingInstall = null
+          tx.resolve({ ok: false, cancelled: true })
+          return { ok: true, cancelled: true }
+        }
+        return { ok: false, cancelled: false }
+      },
       refresh: async () => { checkCalls++; checkedAt = Date.now(); if (checkFailure) throw new Error('Network connection failed'); return { ok: true } }, addMarketplace: async () => ({ ok: true }),
     },
-    on: { appPreferencesChanged: (callback: (payload: { key: string }) => void) => { listeners.add(callback); return () => listeners.delete(callback) } },
+    on: {
+      appPreferencesChanged: (callback: (payload: { key: string }) => void) => { listeners.add(callback); return () => listeners.delete(callback) },
+      pluginProgress: (callback: (payload: unknown) => void) => { progressListeners.add(callback); return () => progressListeners.delete(callback) },
+    },
     systemPermissions: { restartApp: async () => { calls.push({ method: 'restart' }) } },
   },
 })
@@ -89,6 +107,7 @@ const fixtureApi = {
     transaction.resolve(ok ? { ok: true, version: row.installedVersion, activationScope: 'next_turn' } : { ok: false, error: 'Network connection failed', diagnosticLog: FAILURE_LOG })
   },
   gateInstall: (gate: boolean) => { installGate = gate },
+  emitProgress: (event: unknown) => { for (const cb of progressListeners) cb(event) },
   dialog: () => dialogCalls.slice(),
   setDialogAnswer: (answer: boolean) => { dialogAnswer = answer },
   reset: async () => { if (pending) throw new Error('Cannot reset a pending fixture'); if (pendingInstall) throw new Error('Cannot reset a pending install'); installGate = false; dialogAnswer = true; dialogCalls.length = 0; rows = originalRows(); restartRequired = false; calls.length = 0; toasts.length = 0; invalidations = 0; readFailure = false; checkFailure = false; for (const row of rows) pluginStore.dismiss(row.id); await pluginStore.load() },

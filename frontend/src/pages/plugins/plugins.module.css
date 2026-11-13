@@ -5,17 +5,59 @@
 .pl-tab-actions { display: inline-flex; align-items: center; gap: 12px; margin-left: auto; }
 .pl-tab-status { display: inline-flex; align-items: center; gap: 8px; color: var(--fg-tertiary); font-size: var(--text-small); }
 .pl-batch-status { margin: 0 0 16px; font-size: var(--text-small); color: var(--fg-secondary); }
-.pl-card-wrap { min-width: 0; display: flex; flex-direction: column; }
+.pl-card-wrap { min-width: 0; display: flex; flex-direction: column; position: relative; }
 .pl-card-wrap > :global(.kls-market-card) { flex: 1; }
 .pl-card-wrap :global(.kls-market-controls) { flex-wrap: wrap; justify-content: flex-end; }
-.pl-row-wrap { min-width: 0; }
+.pl-row-wrap { min-width: 0; position: relative; }
+.pl-transfer-inline-meta { color: var(--fg-secondary); font-size: var(--text-caption); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 320px; display: inline-block; vertical-align: bottom; }
+.pl-inline-track { position: absolute; left: 10px; right: 10px; bottom: 1px; height: 2.5px; overflow: hidden; border-radius: 999px; background: var(--bg-hover); pointer-events: none; }
+.pl-inline-fill { height: 100%; border-radius: 999px; background: var(--text-accent); transition: width 180ms ease-out; }
+.pl-transfer-banner { display: flex; flex-direction: column; gap: 10px; margin: 0 0 16px; padding: 12px 16px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--bg-elevated); }
+.pl-transfer-banner-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.pl-transfer-banner-open { flex: 1; min-width: 200px; display: flex; align-items: center; gap: 12px; padding: 0; border: 0; background: transparent; text-align: left; cursor: pointer; color: inherit; }
+.pl-transfer-banner-icon { width: 32px; height: 32px; border-radius: var(--radius-sm); background: var(--bg-hover); display: grid; place-items: center; flex-shrink: 0; overflow: hidden; }
+.pl-transfer-banner-icon img { max-width: 24px; max-height: 24px; object-fit: contain; }
+.pl-transfer-banner-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.pl-transfer-banner-title-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.pl-transfer-banner-name { font-size: var(--text-body-sm); font-weight: var(--weight-semibold); color: var(--fg); }
+.pl-transfer-banner-stage { font-size: var(--text-small); color: var(--fg-secondary); }
+.pl-transfer-banner-meta { font-size: var(--text-caption); color: var(--fg-tertiary); font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pl-transfer-banner-actions { display: inline-flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.pl-transfer-panel { margin: 20px 0 8px; padding: 16px 18px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--bg-elevated); }
+.pl-transfer-panel-top { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 10px; flex-wrap: wrap; }
+.pl-transfer-panel-stage { display: inline-flex; align-items: center; font-size: var(--text-body-sm); font-weight: var(--weight-medium); color: var(--fg); }
+.pl-transfer-panel-numbers { display: inline-flex; align-items: baseline; gap: 10px; font-variant-numeric: tabular-nums; }
+.pl-transfer-percent { font-size: var(--text-emphasis); font-weight: var(--weight-semibold); color: var(--fg); }
+.pl-transfer-size { font-size: var(--text-caption); color: var(--fg-tertiary); }
+.pl-transfer-track { height: 6px; overflow: hidden; border-radius: 999px; background: var(--bg-hover); }
+.pl-transfer-fill { height: 100%; border-radius: 999px; background: var(--text-accent); transition: width 180ms ease-out; }
+.pl-fill-indeterminate { width: 35%; animation: plugin-transfer-slide 1.2s ease-in-out infinite; }
+@keyframes plugin-transfer-slide {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(300%); }
+}
+.pl-transfer-metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 14px; }
+.pl-transfer-metric-label { margin-bottom: 2px; font-size: var(--text-badge); font-weight: var(--weight-semibold); letter-spacing: 0.04em; color: var(--fg-tertiary); }
+.pl-transfer-metric-value { font-size: var(--text-body-sm); font-weight: var(--weight-medium); color: var(--fg); font-variant-numeric: tabular-nums; }
+.pl-transfer-steps { display: flex; gap: 8px; margin-top: 14px; }
+.pl-transfer-step { flex: 1; min-width: 0; text-align: center; }
+.pl-step-track { height: 4px; margin-bottom: 6px; overflow: hidden; border-radius: 999px; background: var(--bg-hover); }
+.pl-step-fill { height: 100%; width: 0; border-radius: 999px; background: var(--text-accent); transition: width 240ms ease-out; }
+.pl-step-done .pl-step-fill { width: 100%; }
+.pl-step-active .pl-step-fill { width: 55%; }
+.pl-step-label { font-size: var(--text-badge); color: var(--fg-tertiary); }
+.pl-step-done .pl-step-label, .pl-step-active .pl-step-label { color: var(--fg-secondary); font-weight: var(--weight-medium); }
+.pl-transfer-hint { margin: 12px 0 0; font-size: var(--text-caption); color: var(--fg-tertiary); line-height: 1.5; }
 .pl-note-error { border: 1px solid color-mix(in srgb, var(--danger) 22%, transparent); }
 .pl-error-details { flex-basis: 100%; min-width: 0; font-size: var(--text-caption); color: var(--fg-tertiary); }
 .pl-error-details summary { cursor: pointer; }
 .pl-error-details p { white-space: pre-wrap; overflow-wrap: anywhere; margin: 8px 0 0; }
 .pl-spinner { display: inline-block; width: 12px; height: 12px; flex-shrink: 0; border: 1.5px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: plugin-spin .8s linear infinite; vertical-align: -2px; margin-right: 6px; }
 @keyframes plugin-spin { to { transform: rotate(360deg); } }
-@media (prefers-reduced-motion: reduce) { .pl-spinner { animation: none; } }
+@media (prefers-reduced-motion: reduce) {
+  .pl-spinner, .pl-fill-indeterminate { animation: none; }
+  .pl-inline-fill, .pl-transfer-fill, .pl-step-fill { transition: none; }
+}
 .pl-detail { max-width: 920px; margin: 0 auto; padding: 8px 0 36px; }
 .pl-detail-nav { display: flex; align-items: center; gap: 12px; margin-bottom: 36px; color: var(--fg-tertiary); font-size: var(--text-small); }
 .pl-detail-heading { display: flex; gap: 18px; align-items: flex-start; flex-wrap: wrap; }

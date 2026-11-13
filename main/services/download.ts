@@ -105,6 +105,7 @@ export async function download(urls: string[], target: string, signal: AbortSign
       const handle = await open(partial, constants.O_WRONLY | constants.O_CREAT | (response.status === 206 ? constants.O_APPEND : constants.O_TRUNC) | (constants.O_NOFOLLOW ?? 0), 0o600);
       try {
         const info = await handle.stat(); if (!info.isFile() || info.nlink !== 1) throw new Error('Partial download is not an owned regular file');
+        options.progress({ receivedBytes: received, totalBytes: total });
         reader = response.body.getReader();
         for (;;) {
           checkCancelled(signal); arm(options.idleTimeoutMs ?? 30_000);

@@ -1,14 +1,16 @@
 import { createHash } from 'node:crypto';
 import { copyFile, mkdir, mkdtemp, readdir, realpath, rm, stat } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { checkCancelled } from '../download';
 import { GitProcess, gitError, type GitProcessOptions } from '../git-process';
 import { object, string, type JsonObject } from '../service-types';
 import { pathInside } from '../workspaces';
+import { MAX_EXTRACT_BYTES } from './acquisition';
 import { managedPath } from './file-store';
 import { localPluginSource, pluginManifest } from './plugin-catalog';
 
 export interface StagedPlugin { sourceDir: string; version: string; cleanup: () => Promise<void> }
-export interface PluginStageOptions { excludedPaths?: readonly string[] }
+export interface PluginStageOptions { excludedPaths?: readonly string[]; signal?: AbortSignal }
 export interface PluginSourceDeps { configRoot: string; gitOptions?: GitProcessOptions; environment?: NodeJS.ProcessEnv }
 const repoName = (value: string) => /^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/.test(value);
 function gitUrl(value: string, env: NodeJS.ProcessEnv, shorthand = false): string {
@@ -42,7 +44,8 @@ export class PluginSources {
     const root = await realpath(source), ancestors = new Set<string>(), excluded = new Set(options.excludedPaths); let bytes = 0, entries = 0;
     if (pathInside(join(await realpath(dirname(target)), basename(target)), root)) throw new Error('Plugin source contains its acquisition directory');
     const visit = async (from: string, to: string): Promise<void> => {
-      this.check(); const canonical = await realpath(from), info = await stat(canonical);
+      this.check(); if (options.signal) checkCancelled(options.signal);
+      const canonical = await realpath(from), info = await stat(canonical);
       if (!pathInside(canonical, root)) throw new Error('Plugin source contains a symlink outside its package');
       if (++entries > 25_000) throw new Error('Plugin source contains too many files');
       if (info.isDirectory()) {
@@ -56,7 +59,7 @@ export class PluginSources {
         }
         finally { ancestors.delete(canonical); }
       } else if (info.isFile()) {
-        bytes += info.size; if (bytes > 256 * 1024 * 1024) throw new Error('Plugin source exceeds the 256 MiB acquisition limit');
+        bytes += info.size; if (bytes > MAX_EXTRACT_BYTES) throw new Error('Plugin source exceeds the extraction size limit');
         await copyFile(canonical, to);
       } else throw new Error('Plugin source contains an unsupported special file');
     };

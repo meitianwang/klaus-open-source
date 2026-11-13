@@ -6,12 +6,12 @@ import { pipeline } from 'node:stream/promises';
 import { Transform } from 'node:stream';
 import { crc32 } from 'node:zlib';
 import * as yauzl from 'yauzl';
-import { checkCancelled, download } from '../download';
+import { checkCancelled, download, type DownloadProgress } from '../download';
 import { pathInside } from '../workspaces';
 import { managedPath, missing } from './file-store';
 
-export const MAX_ARCHIVE_BYTES = 256 * 1024 ** 2;
-export const MAX_EXTRACT_BYTES = 512 * 1024 ** 2;
+export const MAX_ARCHIVE_BYTES = 512 * 1024 ** 2;
+export const MAX_EXTRACT_BYTES = 1024 * 1024 ** 2;
 export class SavedExtensionError extends Error {
   constructor(message: string) { super(message); this.name = 'SavedExtensionError'; }
 }
@@ -47,7 +47,14 @@ function httpUrl(raw: string): URL {
   if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password) throw new Error('An HTTP(S) URL without embedded credentials is required');
   return url;
 }
-export interface AcquisitionHttpOptions { fetch?: typeof fetch; token?: string; timeoutMs?: number; maxBytes?: number }
+export interface AcquisitionHttpOptions {
+  fetch?: typeof fetch;
+  token?: string;
+  timeoutMs?: number;
+  maxBytes?: number;
+  attempts?: number;
+  onProgress?: (progress: DownloadProgress) => void;
+}
 function guardedFetch(options: AcquisitionHttpOptions): typeof fetch {
   return async (input, init) => {
     let url = httpUrl(String(input));
@@ -98,10 +105,14 @@ export async function fetchExtensionText(url: string, signal: AbortSignal, optio
 }
 export async function downloadExtension(url: string, target: string, signal: AbortSignal, options: AcquisitionHttpOptions = {}): Promise<void> {
   const maxBytes = options.maxBytes ?? MAX_ARCHIVE_BYTES;
-  await deadline(signal, options.timeoutMs ?? 120_000, async requestSignal => {
-    await download([url], target, requestSignal, { fetch: guardedFetch({ ...options, maxBytes }), attempts: 1,
-      progress: progress => { if (progress.receivedBytes > maxBytes || progress.totalBytes > maxBytes) throw new Error('Extension archive exceeds its download limit'); } });
-  });
+  // No wall-clock budget. A package may take as long as bytes keep arriving;
+  // timeoutMs only bounds text requests. The caller signal and a stalled socket still stop the transfer.
+  checkCancelled(signal);
+  await download([url], target, signal, { fetch: guardedFetch({ ...options, maxBytes }), attempts: options.attempts ?? 3,
+    progress: progress => {
+      if (progress.receivedBytes > maxBytes || progress.totalBytes > maxBytes) throw new Error('Extension archive exceeds its download limit');
+      options.onProgress?.(progress);
+    } });
 }
 
 function archiveName(raw: string): string {

@@ -273,6 +273,69 @@ try {
     pass('responsive controls remain readable at width ' + width, layout);
   }
   await capture('market-update-narrow');
+
+  await page.setViewportSize({ width: 1100, height: 800 });
+  await reset();
+  await page.evaluate(() => window.pluginUpdateFixture.gateInstall(true));
+  await card(studio).locator('.mcp-state-btn.is-install').click();
+  await page.waitForFunction(id => window.pluginUpdateFixture.operation(id)?.phase === 'running', studio);
+  await page.evaluate(id => window.pluginUpdateFixture.emitProgress({
+    id,
+    action: 'install',
+    stage: 'downloading',
+    percent: 41,
+    transferred: 108 * 1024 * 1024,
+    total: 216 * 1024 * 1024,
+    bytesPerSecond: 2 * 1024 * 1024,
+    cancellable: true,
+  }), studio);
+  await page.locator(`[data-plugin-transfer-meta="${studio}"]`).waitFor({ state: 'visible' });
+  assert.equal(await page.locator(`[data-plugin-transfer-banner="${studio}"]`).count(), 0);
+  assert.match(await page.locator(`[data-plugin-transfer-meta="${studio}"]`).textContent(), /41%.*108 MB \/ 216 MB.*2 MB\/s/);
+  assert.equal(await wrapper(studio).locator('[data-plugin-inline-bar="downloading"]').count(), 1);
+  await capture('market-card-downloading');
+  // Switching to Installed tab (where an uninstalled plugin has no row) surfaces the transfer banner.
+  await page.locator('[data-plugin-tab="installed"]').click();
+  await page.locator(`[data-plugin-transfer-banner="${studio}"]`).waitFor({ state: 'visible' });
+  await capture('transfer-banner-across-tabs');
+  // Opening detail from the banner reveals the 3-step transfer pipeline, speed and ETA.
+  await page.locator(`[data-transfer-detail="${studio}"]`).click();
+  await detail().locator(`[data-plugin-detail-transfer="${studio}"]`).waitFor({ state: 'visible' });
+  assert.equal(await detail().locator('[data-transfer-step="download"]').getAttribute('data-step-state'), 'active');
+  assert.match(await detail().locator('[data-transfer-speed]').textContent(), /2 MB\/s/);
+  assert.match(await detail().locator('[data-transfer-eta]').textContent(), /54 秒/);
+  await capture('detail-transfer-downloading');
+  // Advance to verifying -> extracting -> installing (cancellable becomes false on commit).
+  await page.evaluate(id => window.pluginUpdateFixture.emitProgress({
+    id, action: 'install', stage: 'extracting', percent: 92, transferred: 216 * 1024 * 1024, total: 216 * 1024 * 1024, bytesPerSecond: 0, cancellable: true,
+  }), studio);
+  await page.waitForFunction(() => document.querySelector('[data-transfer-step="unpack"]')?.getAttribute('data-step-state') === 'active');
+  assert.equal(await detail().locator('[data-transfer-step="download"]').getAttribute('data-step-state'), 'done');
+  await page.evaluate(id => window.pluginUpdateFixture.emitProgress({
+    id, action: 'install', stage: 'installing', percent: 97, transferred: 216 * 1024 * 1024, total: 216 * 1024 * 1024, bytesPerSecond: 0, cancellable: false,
+  }), studio);
+  await page.waitForFunction(() => document.querySelector('[data-transfer-step="activate"]')?.getAttribute('data-step-state') === 'active');
+  assert.equal(await detail().locator('[data-detail-action="cancel"]').count(), 0);
+  await capture('detail-transfer-installing');
+  await page.evaluate(() => window.pluginUpdateFixture.settleInstall(true));
+  await page.waitForFunction(id => window.pluginUpdateFixture.operation(id)?.phase === 'success', studio);
+  assert.equal(await detail().locator(`[data-plugin-detail-transfer="${studio}"]`).count(), 0);
+  pass('live download progress updates card bar, cross-tab banner and 3-step detail pipeline cleanly through completion', await snapshot());
+
+  await reset();
+  await page.evaluate(() => window.pluginUpdateFixture.gateInstall(true));
+  await card(studio).locator('.mcp-state-btn.is-install').click();
+  await page.waitForFunction(id => window.pluginUpdateFixture.operation(id)?.phase === 'running', studio);
+  await page.evaluate(id => window.pluginUpdateFixture.emitProgress({
+    id, action: 'install', stage: 'downloading', percent: 20, transferred: 50 * 1024 * 1024, total: 216 * 1024 * 1024, bytesPerSecond: 1.9 * 1024 * 1024, cancellable: true,
+  }), studio);
+  await wrapper(studio).locator(`[data-plugin-cancel="${studio}"]`).click();
+  await page.waitForFunction(id => window.pluginUpdateFixture.operation(id) === undefined, studio);
+  assert.equal((await snapshot()).toasts.some(toast => /已取消/.test(toast)), true);
+  assert.equal((await page.evaluate(() => window.pluginUpdateFixture.dialog())).length, 0);
+  assert.equal(await card(studio).locator('.mcp-state-btn.is-install').isEnabled(), true);
+  pass('cancelling an active download restores the install control with a cancel toast and no failure dialog', await snapshot());
+
   assert.deepEqual(result.pageErrors, []); assert.deepEqual(result.consoleErrors, []);
   result.passed = true;
   log('PASS', { cases: result.cases.length, pageErrors: result.pageErrors, consoleErrors: result.consoleErrors, screenshots: result.screenshots });

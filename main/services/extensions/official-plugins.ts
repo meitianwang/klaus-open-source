@@ -1,8 +1,7 @@
-import { createHash } from 'node:crypto';
-import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, relative } from 'node:path';
 import type { Json } from '../../ipc/contract';
-import { checkCancelled } from '../download';
+import { checkCancelled, fileHash } from '../download';
 import { errorMessage, object, string, type JsonObject, type EngineRequest } from '../service-types';
 import { downloadExtension, extractExtensionZip, fetchExtensionText, PendingAcquisitions, replaceExtensionDirectory, SavedExtensionError } from './acquisition';
 import { atomicDocument, managedPath, optionalDocument } from './file-store';
@@ -10,6 +9,8 @@ import type { SkillMarketEndpoint } from '../../skills-market/service';
 import { pluginIconDataUrl } from './plugin-icons';
 
 export const OFFICIAL_MARKETPLACE = 'klaus-official';
+export type OfficialPackageStage = 'downloading' | 'verifying' | 'extracting';
+export type OfficialPackageProgress = { stage: OfficialPackageStage; transferred: number; total: number };
 
 /** Where the catalog scanner looks for the marketplace manifest. */
 const MANIFEST_RELATIVE = '.claude-plugin/marketplace.json';
@@ -50,7 +51,6 @@ export interface OfficialPluginsDeps {
   onChanged: () => void | Promise<void>;
   fetch?: typeof fetch;
   requestTimeoutMs?: number;
-  downloadTimeoutMs?: number;
   diagnostic?: (message: string) => void;
 }
 
@@ -115,7 +115,7 @@ export class OfficialPluginsService {
    * sha256 or they are discarded. A package already on disk at that hash is left
    * alone, so installing twice does not re-download.
    */
-  async ensureDownloaded(name: string, signal: AbortSignal): Promise<boolean> {
+  async ensureDownloaded(name: string, signal: AbortSignal, onProgress?: (progress: OfficialPackageProgress) => void): Promise<boolean> {
     return this.pending.run(async ownedSignal => {
       const requestSignal = AbortSignal.any([signal, ownedSignal]);
       checkCancelled(requestSignal);
@@ -135,15 +135,30 @@ export class OfficialPluginsService {
       const endpoint = await this.deps.endpoint(); checkCancelled(requestSignal);
       if (!endpoint) return false;
       const base = endpoint.baseUrl.replace(/\/+$/, '') + (endpoint.direct ? '/api/v1' : '/api/market') + '/plugins/';
+      const downloadsDir = await managedPath(this.deps.configRoot, 'plugins/downloads', true);
+      await mkdir(downloadsDir, { recursive: true, mode: 0o700 });
+      const archive = await managedPath(downloadsDir, `${name}-${expectedSha}.zip`, true);
       const temporary = await this.stage(), directory = join(temporary, 'content'); await mkdir(directory, { mode: 0o700 });
+      let totalBytes = 0;
       try {
-        const archive = join(temporary, 'plugin.zip');
-        await downloadExtension(base + packageFile, archive, requestSignal, { fetch: this.deps.fetch, token: endpoint.token, timeoutMs: this.deps.downloadTimeoutMs ?? 60_000 });
-        const hash = createHash('sha256').update(await readFile(archive)).digest('hex');
+        await downloadExtension(base + packageFile, archive, requestSignal, {
+          fetch: this.deps.fetch,
+          token: endpoint.token,
+          onProgress: ({ receivedBytes, totalBytes: declared }) => {
+            totalBytes = declared || receivedBytes;
+            onProgress?.({ stage: 'downloading', transferred: receivedBytes, total: declared });
+          },
+        });
+        onProgress?.({ stage: 'verifying', transferred: totalBytes, total: totalBytes });
+        const hash = await fileHash(archive, requestSignal);
         // The catalog named the hash this package must have; bytes that do not
         // match are discarded rather than installed, so a truncated or swapped
         // download cannot become a plugin the manifest vouches for.
-        if (hash !== expectedSha) throw new SavedExtensionError(`Official plugin package does not match its catalog hash: ${name}`);
+        if (hash !== expectedSha) {
+          await rm(archive, { force: true });
+          throw new SavedExtensionError(`Official plugin package does not match its catalog hash: ${name}`);
+        }
+        onProgress?.({ stage: 'extracting', transferred: totalBytes, total: totalBytes });
         // The package is rooted at the plugin's own directory, so it extracts
         // straight into `plugins/<name>/` with no prefix to strip.
         await extractExtensionZip(archive, directory, requestSignal, '');
@@ -156,6 +171,7 @@ export class OfficialPluginsService {
         await mkdir(dirname(target), { recursive: true });
         await rename(directory, target);
         await this.writeCatalogState({ ...state, downloaded: { ...state.downloaded, [name]: expectedSha } });
+        await rm(archive, { force: true });
         return true;
       } finally { await rm(temporary, { recursive: true, force: true }); }
     });
@@ -304,7 +320,7 @@ export class OfficialPluginsService {
     const temporary = await this.stage(), directory = join(temporary, 'content'); await mkdir(directory, { mode: 0o700 });
     try {
       const archive = join(temporary, 'official.zip');
-      await downloadExtension(base + latest + '.zip', archive, requestSignal, { fetch: this.deps.fetch, token: endpoint.token, timeoutMs: this.deps.downloadTimeoutMs ?? 60_000 });
+      await downloadExtension(base + latest + '.zip', archive, requestSignal, { fetch: this.deps.fetch, token: endpoint.token });
       // The archive carries the marketplace cache prefix; strip it so the
       // mirror lands as the marketplace directory itself.
       await extractExtensionZip(archive, directory, requestSignal, 'marketplaces/' + OFFICIAL_MARKETPLACE + '/');

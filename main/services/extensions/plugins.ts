@@ -1,11 +1,40 @@
 import { valid } from 'semver';
 import type { Json } from '../../ipc/contract';
 import { IpcHandlerError } from '../../ipc/registry';
+import { Cancelled, checkCancelled } from '../download';
 import { errorMessage, object, requiredString, SerialMutations, string, type JsonObject } from '../service-types';
-import { OFFICIAL_MARKETPLACE } from './official-plugins';
+import { OFFICIAL_MARKETPLACE, type OfficialPackageProgress } from './official-plugins';
 import { newerPluginVersion, pluginManifest, PluginCatalog, type PluginCatalogDeps, type PluginCatalogSnapshot } from './plugin-catalog';
 import { PluginSources, type PluginSourceDeps } from './plugin-sources';
 import { RuntimeViewService, type DesiredPlugin, type RuntimeViewDeps } from './runtime-view';
+
+export type PluginInstallStage = 'downloading' | 'verifying' | 'extracting' | 'installing';
+export type PluginProgressEvent = {
+  id: string;
+  action: 'install' | 'update';
+  stage: PluginInstallStage;
+  percent: number;
+  transferred: number;
+  total: number;
+  bytesPerSecond: number;
+  cancellable: boolean;
+};
+
+const PROGRESS_INTERVAL_MS = 150;
+const SPEED_SMOOTHING_ALPHA = 0.3;
+const DOWNLOAD_PROGRESS_CEILING = 82;
+const STAGE_PERCENT: Record<Exclude<PluginInstallStage, 'downloading'>, number> = {
+  verifying: 86,
+  extracting: 92,
+  installing: 97,
+};
+
+interface ActiveAcquisition {
+  id: string;
+  controller: AbortController;
+  cancellable: boolean;
+  cancelledByUser: boolean;
+}
 
 export interface PluginDeps extends PluginCatalogDeps, PluginSourceDeps, RuntimeViewDeps {
   /** Returns the named terminal field, not the submission ACK. */
@@ -18,7 +47,10 @@ export interface PluginDeps extends PluginCatalogDeps, PluginSourceDeps, Runtime
    * demand, so the manifest can name a plugin whose bytes are not on disk yet.
    * Returns false when the name is not one this host downloads.
    */
-  ensurePackage?: (name: string, signal: AbortSignal) => Promise<boolean>;
+  ensurePackage?: (name: string, signal: AbortSignal, onProgress?: (progress: OfficialPackageProgress) => void) => Promise<boolean>;
+  onProgress?: (event: PluginProgressEvent) => void;
+  progressIntervalMs?: number;
+  now?: () => number;
   /**
    * Persist one machine-readable failure record so a later conversation can
    * diagnose it. Returns the log path to echo in the failure receipt.
@@ -40,6 +72,7 @@ export class PluginService {
   private readonly mutations = new SerialMutations();
   private closed = false;
   private readonly pending = new Set<Promise<unknown>>();
+  private readonly acquisitions = new Set<ActiveAcquisition>();
   constructor(private readonly deps: PluginDeps) { this.catalog = new PluginCatalog(deps); this.sources = new PluginSources(deps); this.runtime = new RuntimeViewService(deps); }
   private check(): void { if (this.closed) throw new IpcHandlerError('SERVICE_CLOSED', 'The plugin service is closed'); }
   /**
@@ -173,13 +206,82 @@ export class PluginService {
   update(payload: JsonObject): Promise<Json> {
     return this.acquire(payload, true);
   }
+  cancel(payload: JsonObject): Json {
+    this.check();
+    const id = requiredString(payload.id, 'id');
+    const matching = [...this.acquisitions].filter(entry => entry.id === id);
+    const cancellable = matching.filter(entry => entry.cancellable);
+    for (const entry of cancellable) {
+      entry.cancelledByUser = true;
+      entry.controller.abort();
+    }
+    return { ok: cancellable.length > 0, id, cancelled: cancellable.length > 0, active: matching.length > 0 };
+  }
   private acquire(payload: JsonObject, updating: boolean): Promise<Json> {
+    let targetId = typeof payload.id === 'string' ? payload.id.trim() : '';
+    const active: ActiveAcquisition = { id: targetId, controller: new AbortController(), cancellable: true, cancelledByUser: false };
+    this.acquisitions.add(active);
+    const action: 'install' | 'update' = updating ? 'update' : 'install';
+    const clock = this.deps.now ?? (() => Date.now());
+    const interval = this.deps.progressIntervalMs ?? PROGRESS_INTERVAL_MS;
+    let lastSampleAt: number | undefined;
+    let lastSampleBytes: number | undefined;
+    let smoothedSpeed: number | undefined;
+    let lastEmittedAt: number | undefined;
+    let knownTotal = 0;
+    const emitProgress = (stage: PluginInstallStage, transferred: number, total: number, cancellable: boolean): void => {
+      if (this.closed || !active.id || active.cancelledByUser) return;
+      if (total > 0) knownTotal = total;
+      if (stage === 'downloading') {
+        const at = clock();
+        if (lastSampleAt !== undefined && lastSampleBytes !== undefined) {
+          const elapsed = at - lastSampleAt, delta = transferred - lastSampleBytes;
+          if (delta < 0) {
+            smoothedSpeed = undefined;
+          } else if (elapsed > 0 && delta > 0) {
+            const instant = (delta / elapsed) * 1000;
+            smoothedSpeed = smoothedSpeed === undefined ? instant : smoothedSpeed * (1 - SPEED_SMOOTHING_ALPHA) + instant * SPEED_SMOOTHING_ALPHA;
+          }
+        }
+        lastSampleAt = at;
+        lastSampleBytes = transferred;
+        const ratio = total > 0 ? Math.max(0, Math.min(1, transferred / total)) : 0;
+        const complete = total > 0 && transferred >= total;
+        if (!complete && lastEmittedAt !== undefined && at - lastEmittedAt < interval) return;
+        lastEmittedAt = at;
+        this.deps.onProgress?.({
+          id: active.id,
+          action,
+          stage,
+          percent: ratio * DOWNLOAD_PROGRESS_CEILING,
+          transferred,
+          total,
+          bytesPerSecond: smoothedSpeed ?? 0,
+          cancellable,
+        });
+        return;
+      }
+      this.deps.onProgress?.({
+        id: active.id,
+        action,
+        stage,
+        percent: STAGE_PERCENT[stage],
+        transferred: knownTotal || transferred,
+        total: knownTotal || total,
+        bytesPerSecond: 0,
+        cancellable,
+      });
+    };
     return this.mutate(async () => {
       const id = requiredString(payload.id, 'id'), at = id.lastIndexOf('@'), name = id.slice(0, at), marketplace = id.slice(at + 1);
+      targetId = id;
+      active.id = id;
+      if (active.cancelledByUser) return { ok: false, name: name || id, cancelled: true };
       const state = await this.catalog.snapshot(), market = state.marketplaces.find(item => item.name === marketplace);
       const entry = at > 0 ? market?.entries.find(item => item.name === name) : undefined;
-      if (!entry || !market?.installLocation) return this.failureReceipt(updating ? 'update' : 'install', id, id, 'Plugin not found');
+      if (!entry || !market?.installLocation) return this.failureReceipt(action, id, id, 'Plugin not found');
       try {
+        checkCancelled(active.controller.signal);
         const record = state.installed[id], installedVersion = string(object(record).version);
         const target = state.rows.find(row => row.id === id), availableVersion = string(target?.availableVersion);
         if (updating) {
@@ -191,11 +293,16 @@ export class PluginService {
         // An official plugin whose package has not been fetched yet exists in
         // the manifest but not on disk, so staging it would fail with a missing
         // source. Fetch first, and only for a marketplace that publishes this way.
+        let reportedPackageProgress = false;
         if (marketplace === OFFICIAL_MARKETPLACE && this.deps.ensurePackage) {
-          const downloaded = await this.deps.ensurePackage(name, new AbortController().signal);
+          const downloaded = await this.deps.ensurePackage(name, active.controller.signal, progress => {
+            reportedPackageProgress = true;
+            emitProgress(progress.stage, progress.transferred, progress.total, true);
+          });
           if (!downloaded) throw new Error('Plugin package is not available for download: ' + name);
         }
-        const staged = await this.sources.stage(entry, market.installLocation);
+        if (!reportedPackageProgress) emitProgress('extracting', 0, 0, true);
+        const staged = await this.sources.stage(entry, market.installLocation, { signal: active.controller.signal });
         let outcome: JsonObject | undefined;
         try {
           if (updating) {
@@ -203,6 +310,9 @@ export class PluginService {
             const current = (await this.catalog.snapshot()).installed[id];
             if (!current || string(object(current).version) !== installedVersion || object(current).enabled !== object(record).enabled) throw new Error('Installed plugin changed; refresh the marketplace before updating');
           }
+          checkCancelled(active.controller.signal);
+          active.cancellable = false;
+          emitProgress('installing', knownTotal, knownTotal, false);
           const params: JsonObject = { marketplace, sourceDir: staged.sourceDir, version: staged.version };
           if (updating) params.expectedInstalledVersion = installedVersion;
           this.check(); const result = await this.mutation('session/installPlugin', params, name, id);
@@ -219,10 +329,20 @@ export class PluginService {
           }
         }
       } catch (error) {
-        return this.failureReceipt(updating ? 'update' : 'install', name, id, error,
+        if (active.cancelledByUser && (error instanceof Cancelled || active.controller.signal.aborted)) {
+          return { ok: false, name, cancelled: true };
+        }
+        return this.failureReceipt(action, name, id, error,
           ...(typeof payload.version === 'string' ? [{ requestedVersion: payload.version }] : []));
       }
+    }).finally(() => {
+      this.acquisitions.delete(active);
     });
   }
-  async close(): Promise<void> { this.closed = true; await this.sources.close(); await Promise.allSettled([...this.pending]); }
+  async close(): Promise<void> {
+    this.closed = true;
+    for (const active of this.acquisitions) active.controller.abort();
+    await this.sources.close();
+    await Promise.allSettled([...this.pending]);
+  }
 }

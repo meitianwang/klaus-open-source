@@ -350,4 +350,91 @@ h.test('catalog detail metadata remains bounded and belongs to the selected rele
   } finally { await f.clean(); }
 });
 
+h.test('official package progress is throttled, speed-smoothed, monotonic across stages, and cancellable without a failure log', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'klaus-plugin-progress-'));
+  const market = join(root, 'market'), source = join(market, 'plugins/heavy');
+  await document(join(market, '.claude-plugin/marketplace.json'), {
+    name: 'klaus-official',
+    plugins: [{ name: 'heavy', version: '1.3.2', description: 'Heavy runtime plugin', source: './plugins/heavy' }],
+  });
+  await document(join(source, 'plugin.json'), { name: 'heavy', version: '1.3.2', description: 'Heavy runtime plugin' });
+  const values: JsonObject = { marketplaces: { 'klaus-official': { installLocation: market } } };
+  const events: Array<Record<string, unknown>> = [];
+  const failureLogs: JsonObject[] = [];
+  let clock = 1000;
+  let releaseDownload: (() => void) | undefined;
+  let observedSignal: AbortSignal | undefined;
+  const registry = new ChannelRegistry();
+  const service = registerPluginHandlers(registry, {
+    configRoot: root,
+    now: () => clock,
+    progressIntervalMs: 150,
+    failureLog: info => { failureLogs.push(info); return join(root, 'failure.log'); },
+    onProgress: event => { events.push({ ...event }); },
+    ensurePackage: async (_name, signal, onProgress) => {
+      observedSignal = signal;
+      const total = 1000 * 1024;
+      onProgress?.({ stage: 'downloading', transferred: 0, total });
+      for (let i = 1; i <= 10; i++) {
+        clock += 50;
+        onProgress?.({ stage: 'downloading', transferred: i * 100 * 1024, total });
+      }
+      if (releaseDownload) {
+        await new Promise<void>((resolve, reject) => {
+          releaseDownload = resolve;
+          signal.addEventListener('abort', () => reject(new Error('cancelled')), { once: true });
+        });
+      }
+      onProgress?.({ stage: 'verifying', transferred: total, total });
+      onProgress?.({ stage: 'extracting', transferred: total, total });
+      return true;
+    },
+    request: async method => {
+      if (method === 'config/read') return { values: structuredClone(values), version: 'v1' };
+      if (method === 'session/installedPlugins') return { installedPlugins: { version: 1, plugins: {} } };
+      throw new Error('Unexpected method: ' + method);
+    },
+    requestAcknowledged: async method => {
+      if (method === 'session/pluginCatalog') return { entries: [] };
+      assertEqual(method, 'session/installPlugin', 'Installs through engine facade');
+      // Cancel attempted during engine commit must be refused because cancellable is false.
+      const lateCancel = object(service.cancel({ id: 'heavy@klaus-official' }));
+      assertEqual(lateCancel.ok, false, 'Commit phase is non-cancellable');
+      assertEqual(lateCancel.active, true, 'Acquisition is still active during commit');
+      return { persisted: true, restartRequired: false, activationScope: 'next_turn', appliedToCurrentSession: false };
+    },
+    binding: () => undefined,
+    resolveSession: async () => { throw new Error('Install must not create a session'); },
+    onChanged: () => {},
+  });
+  try {
+    const installed = object(await service.install({ id: 'heavy@klaus-official' }));
+    assertEqual(installed.ok, true, 'Install completes across all stages');
+    const dlEvents = events.filter(e => e.stage === 'downloading');
+    assert(dlEvents.length < 11 && dlEvents.length >= 3, 'Chunk bursts are throttled while retaining start and completion');
+    assert(Number(dlEvents.at(-1)?.bytesPerSecond) > 1_500_000, 'Smoothed speed reflects ~2 MiB/s throughput');
+    const stages = events.map(e => e.stage);
+    assert(stages.includes('verifying') && stages.includes('extracting') && stages.includes('installing'), 'All lifecycle stages are reported');
+    const percents = events.map(e => Number(e.percent));
+    for (let i = 1; i < percents.length; i++) assert(percents[i]! >= percents[i - 1]!, 'Progress percent never moves backward');
+    assertEqual(events.at(-1)?.cancellable, false, 'Final installing stage marks cancellable=false');
+
+    // Now test user cancellation mid-download: must return cancelled:true and write NO failureLog.
+    events.length = 0;
+    releaseDownload = () => {};
+    const pendingInstall = service.install({ id: 'heavy@klaus-official' });
+    await waitFor(() => Boolean(observedSignal) && events.some(e => e.stage === 'downloading'), 2000, 'Download started');
+    const cancelReply = object(service.cancel({ id: 'heavy@klaus-official' }));
+    assertEqual(cancelReply.ok, true, 'User cancellation accepted');
+    assertEqual(cancelReply.cancelled, true, 'Cancelled flag returned');
+    const cancelledOutcome = object(await pendingInstall);
+    assertEqual(cancelledOutcome.ok, false, 'Cancelled install does not report ok:true');
+    assertEqual(cancelledOutcome.cancelled, true, 'Cancelled install identifies user cancellation');
+    assertEqual(failureLogs.length, 0, 'User cancellation writes no failure diagnostic log');
+  } finally {
+    await service.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 void h.finish(join(evidence, 'result.json'), 'plugin-updates').then(code => { process.exitCode = code; });

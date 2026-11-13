@@ -21,7 +21,6 @@ export interface SkillMarketDeps {
   environment?: NodeJS.ProcessEnv;
   fetch?: typeof fetch;
   requestTimeoutMs?: number;
-  downloadTimeoutMs?: number;
 }
 /**
  * Credential lookup belongs to the existing account owner; this helper never
@@ -196,7 +195,7 @@ export class SkillMarketService {
     const stage = await this.staging();
     try {
       const archive = join(stage, 'skill.zip'), extracted = join(stage, 'content'); await mkdir(extracted, { mode: 0o700 });
-      await downloadExtension(url, archive, signal, { fetch: this.deps.fetch, token: endpoint?.token, timeoutMs: this.deps.downloadTimeoutMs });
+      await downloadExtension(url, archive, signal, { fetch: this.deps.fetch, token: endpoint?.token });
       await extractExtensionZip(archive, extracted, signal);
       let root = extracted;
       if (await optionalDocument(join(root, 'SKILL.md')) === undefined) {

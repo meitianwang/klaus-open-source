@@ -1,3 +1,5 @@
+import { canCancelPluginOperation, type PluginTransferProgress } from './plugin-transfer'
+
 export interface PluginContributions {
   skills?: string[]
   agents?: string[]
@@ -43,6 +45,7 @@ export interface PluginData {
 export type PluginAction = 'update' | 'install' | 'toggle' | 'uninstall'
 export interface MutationResult {
   ok?: boolean
+  cancelled?: boolean
   error?: string
   version?: string
   name?: string
@@ -58,6 +61,8 @@ export interface MutationResult {
 export interface PluginOperation {
   action: PluginAction
   phase: 'queued' | 'running' | 'success' | 'error'
+  cancelling?: boolean
+  progress?: PluginTransferProgress
   error?: string
   version?: string
   result?: MutationResult
@@ -80,10 +85,16 @@ interface PluginApi {
   refresh(options?: { ifStale?: boolean }): Promise<unknown>
   update(id: string, options: { version: string; installedVersion?: string }): Promise<MutationResult>
   install(id: string, options?: { sessionId?: string }): Promise<MutationResult>
+  cancel?(id: string): Promise<{ ok?: boolean; cancelled?: boolean; active?: boolean }>
   toggle(id: string, enabled: boolean, sessionId?: string): Promise<MutationResult>
   uninstall(id: string, sessionId?: string): Promise<MutationResult>
 }
-interface StoreDeps { api: () => PluginApi; sessionId?: () => string | undefined; invalidate?: () => void }
+interface StoreDeps {
+  api: () => PluginApi
+  sessionId?: () => string | undefined
+  invalidate?: () => void
+  onProgress?: (listener: (progress: PluginTransferProgress) => void) => (() => void) | undefined
+}
 
 export const operationPending = (operation?: PluginOperation): boolean => operation?.phase === 'queued' || operation?.phase === 'running'
 const message = (error: unknown): string => error instanceof Error ? error.message : String(error || 'Unknown plugin error')
@@ -97,15 +108,37 @@ export class PluginStore {
   private checkPromise: Promise<void> | null = null
   private queue: Promise<unknown> = Promise.resolve()
   private pending = new Map<string, Promise<boolean>>()
+  private tokens = new Map<string, { cancelled: boolean }>()
+  private progressUnsubscribe: (() => void) | null = null
   private active = false
   constructor(private deps: StoreDeps) {}
+  private ensureProgressSubscription(): void {
+    if (this.progressUnsubscribe) return
+    this.progressUnsubscribe = this.deps.onProgress?.(progress => this.applyProgress(progress)) ?? null
+  }
   getSnapshot = (): PluginSnapshot => this.snapshot
-  subscribe = (listener: () => void): (() => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener) } }
+  subscribe = (listener: () => void): (() => void) => {
+    this.ensureProgressSubscription()
+    this.listeners.add(listener)
+    return () => { this.listeners.delete(listener) }
+  }
   private patch(patch: Partial<PluginSnapshot>): void {
     this.snapshot = { ...this.snapshot, ...patch }
     for (const listener of this.listeners) listener()
   }
   private operation(id: string, value: PluginOperation): void { this.patch({ operations: { ...this.snapshot.operations, [id]: value } }) }
+  private clearOperation(id: string): void {
+    if (!(id in this.snapshot.operations)) return
+    const operations = { ...this.snapshot.operations }
+    delete operations[id]
+    this.patch({ operations })
+  }
+  applyProgress = (event: PluginTransferProgress): void => {
+    if (!event || typeof event.id !== 'string') return
+    const current = this.snapshot.operations[event.id]
+    if (!current || current.phase !== 'running') return
+    this.operation(event.id, { ...current, progress: event })
+  }
   async load(): Promise<void> {
     const sequence = ++this.loadSequence
     try {
@@ -155,18 +188,28 @@ export class PluginStore {
     this.patch({ operations })
   }
   private enqueue(plugin: PluginItem, action: PluginAction, enabled?: boolean): Promise<boolean> {
+    this.ensureProgressSubscription()
     const existing = this.pending.get(plugin.id)
     if (existing) return existing
     if (this.snapshot.batch && !this.snapshot.batch.running) this.patch({ batch: null })
+    const token = { cancelled: false }
+    this.tokens.set(plugin.id, token)
     this.operation(plugin.id, { action, phase: this.active || this.pending.size ? 'queued' : 'running' })
     const run = async (): Promise<boolean> => {
+      if (token.cancelled) return false
       this.active = true
-      this.operation(plugin.id, { action, phase: 'running' })
+      const current = this.snapshot.operations[plugin.id]
+      this.operation(plugin.id, { action, phase: 'running', ...(current?.cancelling ? { cancelling: true } : {}) })
       try {
         const api = this.deps.api(), sessionId = this.deps.sessionId?.()
         const result = action === 'update' ? await api.update(plugin.id, { version: plugin.availableVersion!, installedVersion: plugin.installedVersion })
           : action === 'install' ? await api.install(plugin.id, { sessionId })
             : action === 'toggle' ? await api.toggle(plugin.id, enabled!, sessionId) : await api.uninstall(plugin.id, sessionId)
+        if (result?.cancelled === true || (token.cancelled && result?.ok !== true)) {
+          token.cancelled = true
+          if (this.tokens.get(plugin.id) === token) this.clearOperation(plugin.id)
+          return false
+        }
         if (result?.ok !== true) {
           // The receipt carries the user-facing message and the diagnostic log
           // path; the page surfaces them as a toast-sized dialog, not a strip.
@@ -180,14 +223,41 @@ export class PluginStore {
         void this.load()
         return true
       } catch (error) {
+        if (token.cancelled && /cancel/i.test(message(error))) {
+          if (this.tokens.get(plugin.id) === token) this.clearOperation(plugin.id)
+          return false
+        }
         this.operation(plugin.id, { action, phase: 'error', error: message(error), failedAt: Date.now() })
         return false
-      } finally { this.active = false; this.pending.delete(plugin.id) }
+      } finally {
+        this.active = false
+        if (this.pending.get(plugin.id) === promise) this.pending.delete(plugin.id)
+        if (this.tokens.get(plugin.id) === token) this.tokens.delete(plugin.id)
+      }
     }
     const promise = this.queue.then(run, run)
     this.pending.set(plugin.id, promise)
     this.queue = promise.catch(() => {})
     return promise
+  }
+  cancel = async (id: string): Promise<boolean> => {
+    const current = this.snapshot.operations[id]
+    if (!canCancelPluginOperation(current)) return false
+    const token = this.tokens.get(id)
+    if (token) token.cancelled = true
+    if (current!.phase === 'queued') {
+      this.pending.delete(id)
+      this.tokens.delete(id)
+      this.clearOperation(id)
+      return true
+    }
+    this.operation(id, { ...current!, cancelling: true })
+    try {
+      const reply = await this.deps.api().cancel?.(id)
+      return reply?.cancelled !== false
+    } catch {
+      return false
+    }
   }
   update = (plugin: PluginItem): Promise<boolean> => plugin.updateAvailable && plugin.availableVersion ? this.enqueue(plugin, 'update') : Promise.resolve(false)
   install = (plugin: PluginItem): Promise<boolean> => this.enqueue(plugin, 'install')
@@ -200,8 +270,9 @@ export class PluginStore {
     this.patch({ batch: { total: plugins.length, completed: 0, failed: 0, running: true } })
     await Promise.all(plugins.map(async plugin => {
       const ok = await this.update(plugin)
+      const wasFailed = this.snapshot.operations[plugin.id]?.phase === 'error'
       const batch = this.snapshot.batch!
-      this.patch({ batch: { ...batch, completed: batch.completed + 1, failed: batch.failed + (ok ? 0 : 1) } })
+      this.patch({ batch: { ...batch, completed: batch.completed + 1, failed: batch.failed + (!ok && wasFailed ? 1 : 0) } })
     }))
     this.patch({ batch: { ...this.snapshot.batch!, running: false } })
   }
@@ -212,6 +283,7 @@ export const pluginStore = new PluginStore({
   api: () => browserWindow().klaus.plugins,
   sessionId: () => browserWindow().currentSessionId,
   invalidate: () => browserWindow().invalidatePluginMentionCache?.(),
+  onProgress: listener => browserWindow().klaus?.on?.pluginProgress?.(listener),
 })
 
 /** The primary error stays readable; diagnostic text is available on demand. */

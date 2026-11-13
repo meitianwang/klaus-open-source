@@ -215,7 +215,7 @@ export class PluginMarketplaceService {
     const temporary = await this.stage(), directory = join(temporary, 'content'); await mkdir(directory, { mode: 0o700 });
     try {
       const archive = join(temporary, 'marketplace.zip');
-      await downloadExtension(base + '/' + sha + '.zip', archive, signal, { fetch: this.deps.fetch, timeoutMs: this.deps.requestTimeoutMs ?? 60_000 });
+      await downloadExtension(base + '/' + sha + '.zip', archive, signal, { fetch: this.deps.fetch });
       await extractExtensionZip(archive, directory, signal, PREFIX);
       if (await this.name(directory) !== OFFICIAL) throw new Error('Official marketplace archive has a mismatched name');
       await writeFile(join(directory, '.gcs-sha'), sha, { mode: 0o600 });

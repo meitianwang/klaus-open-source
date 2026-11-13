@@ -8,6 +8,7 @@ import { approvalReviewEn, approvalReviewZh } from './approval-review-messages'
 import { featureOnboardingEn, featureOnboardingZh } from './feature-onboarding-messages'
 import { planningEn, planningZh } from './planning-messages'
 import { updateEn, updateZh } from './update-messages'
+import { pluginTransferEn, pluginTransferZh } from './plugin-transfer-messages'
 import { profileEn, profileZh } from './profile-messages'
 import { antigravityEn, antigravityZh } from './antigravity-messages'
 import { traeEn, traeZh } from './trae-messages'
@@ -23,6 +24,7 @@ export const I18N: { en: Record<string, string>; zh: Record<string, string> } = 
     ...featureOnboardingEn,
     ...planningEn,
     ...updateEn,
+    ...pluginTransferEn,
     ...profileEn,
     ...antigravityEn,
     ...traeEn,
@@ -4372,6 +4374,7 @@ browser_ext_connected: 'Extension connected',
     ...featureOnboardingZh,
     ...planningZh,
     ...updateZh,
+    ...pluginTransferZh,
     ...profileZh,
     ...antigravityZh,
     ...traeZh,

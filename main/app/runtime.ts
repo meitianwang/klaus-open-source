@@ -232,7 +232,7 @@ import { HooksTrustState } from '../services/extensions/hooks-state';
 import type { HookStyleService } from '../services/extensions/hooks-styles';
 import { inheritedEnv } from '../engine/spawn';
 import { registerPluginHandlers, registerRuntimeViewHandlers } from '../ipc/handlers/plugins';
-import type { PluginService } from '../services/extensions/plugins';
+import type { PluginProgressEvent, PluginService } from '../services/extensions/plugins';
 import { requestAcknowledged } from '../engine/acknowledged';
 import { AttachmentService } from '../services/attachments';
 import { PastedTextService } from '../services/pasted-text';
@@ -1140,7 +1140,7 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
   // packages are fetched on demand, and the install path needs the service that
   // can fetch them — but that service is constructed after this deps object, so
   // the hook closes over a holder rather than the instance.
-  let officialPluginPackages: { ensureDownloaded(name: string, signal: AbortSignal): Promise<boolean> } | undefined;
+  let officialPluginPackages: { ensureDownloaded: OfficialPluginsService['ensureDownloaded'] } | undefined;
   let pluginUpdateCheck: (() => Record<string, Json>) | undefined;
   const pluginDeps = {
     configRoot, seedDir: join(resourceDirs[0]!, 'plugins-seed'),
@@ -1156,7 +1156,9 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
     // Fetch an official plugin's package if the manifest names one that is not on
     // disk yet. Returning false leaves the install to fail with its own message
     // rather than silently staging an empty directory.
-    ensurePackage: (name: string, signal: AbortSignal) => officialPluginPackages?.ensureDownloaded(name, signal) ?? Promise.resolve(false),
+    ensurePackage: (name: string, signal: AbortSignal, onProgress?: Parameters<OfficialPluginsService['ensureDownloaded']>[2]) =>
+      officialPluginPackages?.ensureDownloaded(name, signal, onProgress) ?? Promise.resolve(false),
+    onProgress: (progress: PluginProgressEvent) => { push('plugins:progress', { ...progress }); },
     onChanged: async ({ mutation }: { mutation: Record<string, Json> }) => {
       if (mutation.restartRequired === true || mutation.activationScope === 'endpoint_restart') pluginRestartRequired = true;
       configuration.markChanged();

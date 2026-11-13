@@ -10,6 +10,8 @@ import { pluginCategoryLabel, skillLogoImgHtml } from '../skills/localize'
 import { getPluginLogoSrc } from '../../icons/extension-logos'
 import { resourceReference } from '../../chat/composer/resource-reference'
 import { PluginDetail } from './PluginDetail'
+import { PluginInlineProgressBar, PluginTransferBanner } from './PluginTransfer'
+import { canCancelPluginOperation, compactTransferSummary, stageLabelKey, transferDisplayPercent } from './plugin-transfer'
 import { operationPending, pluginErrorKey, pluginStore, type PluginItem, type PluginOperation } from './plugin-store'
 import { pluginActivationNote } from './activation-note'
 import styles from './plugins.module.css'
@@ -71,6 +73,11 @@ export function PluginsPage() {
   const install = async (plugin: PluginItem) => {
     if (operationPending(operations[plugin.id])) return
     if (await pluginStore.install(plugin)) showToast(completionToast(t('plugins_installed_named').replace('{name}', pluginName(plugin)), plugin))
+  }
+  const cancel = async (plugin: PluginItem) => {
+    if (await pluginStore.cancel(plugin.id)) {
+      showToast(t('plugins_cancelled_named').replace('{name}', pluginName(plugin)))
+    }
   }
   const diagnoseWithKlaus = (operation: PluginOperation, name: string) => {
     const composer = w().klausComposer
@@ -171,7 +178,38 @@ export function PluginsPage() {
     search={{ id: 'pl-search-input', placeholderKey: 'search_placeholder', value: search, onInput: setSearch }}
     create={{ btnId: 'pl-add-btn', menuId: 'pl-add-menu', disabled: adding, items: [{ action: 'marketplace', labelKey: 'plugins_add_marketplace', iconHtml: w().klsTopbar.icons.install }], onAction: () => { void addMarketplace() } }} />
   const versionLabel = (plugin: PluginItem) => plugin.updateAvailable ? `${plugin.installedVersion} → ${plugin.availableVersion}` : plugin.installedVersion || plugin.availableVersion || plugin.version || ''
-  const busyLabel = (operation?: PluginOperation) => operation?.phase === 'queued' ? t('plugins_queued') : operation?.action === 'install' ? t('plugins_installing') : operation?.action === 'update' ? t('plugins_updating') : t('plugins_busy')
+  const busyLabel = (operation?: PluginOperation) => {
+    if (operation?.cancelling) return t('plugins_cancelling')
+    if (operation?.phase === 'queued') return t('plugins_queued')
+    if (operation?.progress) {
+      const stageText = t(stageLabelKey(operation.progress.stage))
+      return operation.progress.total > 0 || operation.progress.stage !== 'downloading'
+        ? `${stageText} ${transferDisplayPercent(operation.progress)}%`
+        : stageText
+    }
+    return operation?.action === 'install' ? t('plugins_installing') : operation?.action === 'update' ? t('plugins_updating') : t('plugins_busy')
+  }
+  const subtitleSlot = (plugin: PluginItem, operation?: PluginOperation) => {
+    const summary = compactTransferSummary(operation, t)
+    return summary
+      ? <span className={styles['pl-transfer-inline-meta']} data-plugin-transfer-meta={plugin.id}>{summary}</span>
+      : <span className={styles['pl-version']}>{versionLabel(plugin)}</span>
+  }
+  const cancelControl = (plugin: PluginItem, operation?: PluginOperation) => {
+    const cancellable = canCancelPluginOperation(operation)
+    if (!cancellable && !operation?.cancelling) return null
+    return (
+      <button
+        type="button"
+        className="btn-sm"
+        data-plugin-cancel={plugin.id}
+        disabled={!cancellable}
+        onClick={event => { event.stopPropagation(); void cancel(plugin) }}
+      >
+        {t(operation?.cancelling ? 'plugins_cancelling' : 'plugins_cancel')}
+      </button>
+    )
+  }
   const updateButton = (plugin: PluginItem) => plugin.updateAvailable && !operationPending(operations[plugin.id]) && <button type="button" className="btn-sm" data-plugin-update={plugin.id}
     onClick={event => { event.stopPropagation(); void update(plugin) }}>
     {t('plugins_update_to').replace('{version}', plugin.availableVersion || '')}
@@ -189,6 +227,13 @@ export function PluginsPage() {
     </button>
   }
   const detail = detailId ? all.find(plugin => plugin.id === detailId) : null
+  const activeTransferId = Object.keys(operations).find(id => {
+    const op = operations[id]
+    return op?.phase === 'running' && (op.action === 'install' || op.action === 'update') && Boolean(op.progress)
+  })
+  const activeTransferPlugin = activeTransferId ? all.find(plugin => plugin.id === activeTransferId) : null
+  const showTransferBanner = Boolean(activeTransferPlugin && !visiblePlugins.some(plugin => plugin.id === activeTransferPlugin.id))
+  const queuedCount = Object.values(operations).filter(op => op?.phase === 'queued' && (op.action === 'install' || op.action === 'update')).length
   const refreshError = snapshot.refreshError || data?.updateCheck?.error || data?.marketplaceError
 
   return <div className="sk-section" onKeyDown={event => {
@@ -215,28 +260,44 @@ export function PluginsPage() {
     if (category) setCategory(category.dataset.pluginCategoryTab || 'all')
   }}>
     {detail ? <PluginDetail plugin={detail} name={pluginName(detail)} description={pluginDescription(detail)} iconHtml={pluginGlyph(detail, 32)} category={pluginCategoryLabel(pluginCategory(detail))}
-      operation={operations[detail.id]} restartRequired={!!data?.restartRequired} onBack={closeDetail} onUpdate={() => { void update(detail) }} onInstall={() => { void install(detail) }}
+      operation={operations[detail.id]} restartRequired={!!data?.restartRequired} onBack={closeDetail} onUpdate={() => { void update(detail) }} onInstall={() => { void install(detail) }} onCancel={() => { void cancel(detail) }}
       onToggle={enabled => { void pluginStore.toggle(detail, enabled) }} onUninstall={() => { void uninstall(detail) }} onTry={() => tryPlugin(detail)} /> : <>
       {header}
       {batch && <p className={styles['pl-batch-status']} role="status" data-plugin-batch>{t(batch.running ? 'plugins_batch_progress' : batch.failed ? 'plugins_batch_partial' : 'plugins_batch_success').replace('{completed}', String(batch.completed)).replace('{total}', String(batch.total)).replace('{failed}', String(batch.failed))}</p>}
+      {showTransferBanner && activeTransferPlugin && operations[activeTransferPlugin.id] && (
+        <PluginTransferBanner
+          plugin={activeTransferPlugin}
+          name={pluginName(activeTransferPlugin)}
+          iconHtml={pluginGlyph(activeTransferPlugin, 20)}
+          operation={operations[activeTransferPlugin.id]!}
+          queuedCount={queuedCount}
+          onOpen={() => openPlugin(activeTransferPlugin)}
+          onCancel={() => { void cancel(activeTransferPlugin) }}
+        />
+      )}
       {!data && snapshot.loadError && <div className="mcp-empty" role="alert"><p>{t(pluginErrorKey(snapshot.loadError))}</p><button type="button" className="btn-sm" onClick={() => { void pluginStore.load() }}>{t('plugins_retry')}</button></div>}
       {!data && !snapshot.loadError && <div dangerouslySetInnerHTML={{ __html: w().klsLoading.render() }} />}
       {data && (view === 'market' ? <MarketGrid empty={!visiblePlugins.length} emptyText={search ? t('plugins_search_empty') : t('plugins_empty')}>
         {visiblePlugins.map(plugin => {
           const operation = operations[plugin.id]
           return <div key={plugin.id} className={styles['pl-card-wrap']}>
-            <MarketCard cardKey={`plg:${plugin.id}`} datasets={{ 'plugin-id': plugin.id, 'plugin-state': pluginState(plugin) }} iconHtml={pluginGlyph(plugin)} title={pluginName(plugin)} desc={pluginDescription(plugin)} subtitle={<span className={styles['pl-version']}>{versionLabel(plugin)}</span>}
-              onOpen={() => openPlugin(plugin)} controls={<>{updateButton(plugin)}<StateIconButton state={pluginState(plugin)} label={busyLabel(operation)}
+            <MarketCard cardKey={`plg:${plugin.id}`} datasets={{ 'plugin-id': plugin.id, 'plugin-state': pluginState(plugin) }} iconHtml={pluginGlyph(plugin)} title={pluginName(plugin)} desc={pluginDescription(plugin)} subtitle={subtitleSlot(plugin, operation)}
+              onOpen={() => openPlugin(plugin)} controls={<>{updateButton(plugin)}{cancelControl(plugin, operation)}<StateIconButton state={pluginState(plugin)} label={busyLabel(operation)}
                 disabled={operationPending(operation)} busy={operationPending(operation)} onClick={() => { if (plugin.installed || plugin.source === 'builtin') openPlugin(plugin); else void install(plugin) }} /></>} />
+            <PluginInlineProgressBar operation={operation} label={`${pluginName(plugin)} ${busyLabel(operation)}`} />
           </div>
         })}
       </MarketGrid> : <EntryList empty={!visiblePlugins.length} emptyText={search ? t('plugins_search_empty') : t('plugins_empty')}>
-        {visiblePlugins.map(plugin => <div key={plugin.id} className={styles['pl-row-wrap']}>
-          <EntryCard cardKey={`plg:${plugin.id}`} datasets={{ 'plugin-id': plugin.id }} iconHtml={pluginGlyph(plugin)} title={pluginName(plugin)} desc={pluginDescription(plugin)} meta={<span className={styles['pl-version']}>{versionLabel(plugin)}</span>}
-            dot={{ state: plugin.enabled ? 'ok' : 'idle', label: t(plugin.enabled ? 'plugins_state_enabled' : 'plugins_state_disabled') }} onOpen={() => openPlugin(plugin)} onToggleKey={() => { if (!operationPending(operations[plugin.id])) void pluginStore.toggle(plugin, !plugin.enabled) }}
-            controls={<>{updateListButton(plugin)}<EntryToggle checked={!!plugin.enabled} title={t(plugin.enabled ? 'plugins_state_enabled' : 'plugins_state_disabled')} disabled={operationPending(operations[plugin.id])} onChange={enabled => { void pluginStore.toggle(plugin, enabled) }} />
-              {plugin.source !== 'builtin' && <EntryIconButton iconName="trash" title={t('settings_skills_uninstall')} disabled={operationPending(operations[plugin.id])} onClick={() => { void uninstall(plugin) }} />}</>} />
-        </div>)}
+        {visiblePlugins.map(plugin => {
+          const operation = operations[plugin.id]
+          return <div key={plugin.id} className={styles['pl-row-wrap']}>
+            <EntryCard cardKey={`plg:${plugin.id}`} datasets={{ 'plugin-id': plugin.id }} iconHtml={pluginGlyph(plugin)} title={pluginName(plugin)} desc={pluginDescription(plugin)} meta={subtitleSlot(plugin, operation)}
+              dot={{ state: plugin.enabled ? 'ok' : 'idle', label: t(plugin.enabled ? 'plugins_state_enabled' : 'plugins_state_disabled') }} onOpen={() => openPlugin(plugin)} onToggleKey={() => { if (!operationPending(operation)) void pluginStore.toggle(plugin, !plugin.enabled) }}
+              controls={<>{updateListButton(plugin)}{cancelControl(plugin, operation)}<EntryToggle checked={!!plugin.enabled} title={t(plugin.enabled ? 'plugins_state_enabled' : 'plugins_state_disabled')} disabled={operationPending(operation)} onChange={enabled => { void pluginStore.toggle(plugin, enabled) }} />
+                {plugin.source !== 'builtin' && <EntryIconButton iconName="trash" title={t('settings_skills_uninstall')} disabled={operationPending(operation)} onClick={() => { void uninstall(plugin) }} />}</>} />
+            <PluginInlineProgressBar operation={operation} label={`${pluginName(plugin)} ${busyLabel(operation)}`} />
+          </div>
+        })}
       </EntryList>)}
     </>}
     {refreshError && <div className={`${styles['pl-market-note']} ${styles['pl-note-error']}`} role="alert" data-plugin-check-error>

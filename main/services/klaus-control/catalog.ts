@@ -779,6 +779,13 @@ export const CONTROL_SURFACES: ControlSurface[] = [
         "currentSession": false
       },
       {
+        "action": "cancel",
+        "channel": "plugins:cancel",
+        "args": "{ id: string } — cancel a queued or running plugin download before it commits",
+        "confirm": false,
+        "currentSession": false
+      },
+      {
         "action": "toggle",
         "channel": "plugins:toggle",
         "args": "{ id: string, enabled: boolean }",

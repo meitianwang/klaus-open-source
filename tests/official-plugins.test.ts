@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import type { Json } from '../main/ipc/contract';
+import { downloadExtension } from '../main/services/extensions/acquisition';
 import { OfficialPluginsService, OFFICIAL_MARKETPLACE } from '../main/services/extensions/official-plugins';
 import { PluginCatalog } from '../main/services/extensions/plugin-catalog';
 import { object, type JsonObject } from '../main/services/service-types';
@@ -551,6 +552,56 @@ await h.test('a platform package whose file name escapes the pinned shape is rej
     try { await service.refresh(new AbortController().signal); } catch (reason) { error = String(reason instanceof Error ? reason.message : reason); }
     assert(error.includes('platform package file does not match'), 'the malformed platform entry is rejected: ' + error);
   } finally { await service.close(); server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); await rm(root, { recursive: true, force: true }); }
+});
+
+await h.test('a package download is not cut off by a wall-clock timeout', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'klaus-package-download-'));
+  const payload = Buffer.from('plugin-bytes-that-arrive-after-the-old-budget');
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const server = createServer((_request: IncomingMessage, response: ServerResponse) => {
+    response.writeHead(200, { 'content-type': 'application/octet-stream', 'content-length': String(payload.length) });
+    timer = setTimeout(() => response.end(payload), 120);
+  });
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+  const origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  const target = join(root, 'plugin.zip');
+  try {
+    await downloadExtension(origin + '/plugin.zip', target, new AbortController().signal, { timeoutMs: 30 });
+    assertEqual((await readFile(target)).toString(), payload.toString(), 'bytes that arrive after the old deadline are kept');
+  } finally {
+    if (timer) clearTimeout(timer);
+    server.closeAllConnections();
+    await new Promise<void>(resolve => server.close(() => resolve()));
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+await h.test('a package download still stops when the caller cancels', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'klaus-package-cancel-'));
+  let entered = false, failure = '';
+  const server = createServer((_request: IncomingMessage, response: ServerResponse) => {
+    entered = true;
+    response.writeHead(200, { 'content-type': 'application/octet-stream', 'content-length': '1000000' });
+  });
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+  const origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  const controller = new AbortController();
+  const pending = downloadExtension(origin + '/plugin.zip', join(root, 'plugin.zip'), controller.signal)
+    .then(() => { failure = 'completed'; }, error => { failure = error instanceof Error ? error.message : String(error); });
+  try {
+    await waitFor(() => entered, 1000, 'package response started');
+    controller.abort();
+    await Promise.race([
+      pending,
+      new Promise((_resolve, reject) => setTimeout(() => reject(new Error('package download ignored caller cancellation')), 2000)),
+    ]);
+    assert(/cancel/i.test(failure), 'caller cancellation still stops the package download: ' + failure);
+  } finally {
+    controller.abort();
+    server.closeAllConnections();
+    await new Promise<void>(resolve => server.close(() => resolve()));
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 process.exitCode = await h.finish(join(__dirname, 'official-plugins.result.json'), 'official-plugins');

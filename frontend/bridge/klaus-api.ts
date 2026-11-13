@@ -1467,6 +1467,7 @@ expose('klaus', {
       call('plugins:install', { id, sessionId: options?.sessionId }),
     update: (id: string, options: { version: string; installedVersion?: string }) =>
       call('plugins:update', { id, ...options }),
+    cancel: (id: string) => call('plugins:cancel', { id }),
     uninstall: (id: string, sessionId?: string) => call('plugins:uninstall', { id, sessionId }),
     toggle: (id: string, enabled: boolean, sessionId?: string) =>
       call('plugins:toggle', { id, enabled, sessionId }),
@@ -1864,6 +1865,8 @@ expose('klaus', {
       subscribe('klausAuth:loginPending', (payload: { url?: string }) => cb(payload)),
     updaterStatus: (cb: (status: any) => void): Unsubscribe =>
       subscribe('updater:status', (status: any) => cb(status)),
+    pluginProgress: (cb: (progress: any) => void): Unsubscribe =>
+      subscribe('plugins:progress', (progress: any) => cb(progress)),
     mcpStatusUpdated: (cb: (payload: { cwd?: string }) => void): Unsubscribe =>
       subscribe('mcp:status:updated', (payload: { cwd?: string }) => cb(payload)),
     /**
