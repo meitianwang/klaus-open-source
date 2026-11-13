@@ -121,10 +121,10 @@ h.test('damaged immutable revisions and content hashes are reported rather than 
 h.test('binary assets persist independently from slide revision changes', () => fixture((store, root) => {
   const doc = store.open(owner, 'Presentation'), binary = Buffer.from([0, 255, 255, 128, 3, 0]);
   const uploaded = store.putAsset(owner, doc.id, binary, 'image/png', 'Image fixture.png');
-  assert.match(uploaded.id, /^[a-f0-9]{32}$/); assert.equal(uploaded.url, `_blob/${uploaded.id}`); assert.equal(uploaded.sizeBytes, binary.length);
+  assert.match(uploaded.id, /^[a-f0-9]{32}$/); assert.equal(uploaded.url, `/_blob/${uploaded.id}`); assert.equal(uploaded.sizeBytes, binary.length);
   assert.deepEqual(Buffer.from(new PptStore(root).asset(owner, doc.id, uploaded.id).bytes), binary);
   assert.equal(store.asset(owner, doc.id, uploaded.id).type, 'image/png'); assert.equal(store.get(owner, doc.id).version, doc.version);
-  const listed = store.assets(owner, doc.id); assert.equal(listed.length, 1); assert.equal(listed[0]!.name, 'Image fixture.png'); assert.equal(listed[0]!.sha256, hash(binary)); assert.equal(typeof listed[0]!.createdAt, 'number');
+  const listed = store.assets(owner, doc.id); assert.equal(listed.length, 1); assert.equal(listed[0]!.url, `/_blob/${uploaded.id}`); assert.equal(listed[0]!.name, 'Image fixture.png'); assert.equal(listed[0]!.sha256, hash(binary)); assert.equal(typeof listed[0]!.createdAt, 'number');
   store.deleteAsset(owner, doc.id, uploaded.id); store.deleteAsset(owner, doc.id, uploaded.id);
   assert.deepEqual(store.assets(owner, doc.id), []);
   assert.deepEqual(Buffer.from(new PptStore(root).asset(owner, doc.id, uploaded.id).bytes), binary);

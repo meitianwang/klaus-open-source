@@ -1,4 +1,6 @@
 const assert = require('node:assert/strict');
+const { writeFileSync } = require('node:fs');
+const { join } = require('node:path');
 const { BrowserWindow } = require('electron');
 const vectors = require('../contracts/vectors/presentation-editor-vectors.json');
 
@@ -6,11 +8,19 @@ async function assertServiceBoundaries(service, window, id, log) {
   const current = await service.call('fixture', 'ppt_inspect', { id });
   assert.equal(current.isError, undefined);
   assert(service.toolSpecs().some(tool => tool.name === 'ppt_import_asset'));
+  assert.equal(vectors.media.assetUrlPrefix, '/_blob/');
+  const rootDir = service.options.readRoots('fixture')[0];
+  const samplePng = join(rootDir, 'imported-fixture.png');
+  writeFileSync(samplePng, Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', 'base64'));
+  const importedAsset = await service.call('fixture', 'ppt_import_asset', { id, path: samplePng });
+  assert.equal(importedAsset.isError, undefined);
+  assert.match(importedAsset.structuredContent.url, /^\/_blob\/[0-9a-f]{32}$/);
   const diagnostics = await service.call('fixture', 'ppt_inspect', { id, diagnostics: true });
   assert.equal(diagnostics.isError, undefined);
   assert.equal(diagnostics.structuredContent.diagnostics.saved, true);
   assert(Array.isArray(diagnostics.structuredContent.diagnostics.files));
   assert(Array.isArray(diagnostics.structuredContent.diagnostics.assets));
+  assert(diagnostics.structuredContent.diagnostics.assets.some(asset => asset.url === importedAsset.structuredContent.url));
   for (const channel of vectors.nativeChannels) await assert.rejects(service.invoke({ channel, args: [{}], role: 'main', senderId: window.webContents.id }));
   for (const channel of vectors.mainChannels) await assert.rejects(service.invoke({ channel, args: [{ sessionId: 'fixture', id }], role: 'ppt', senderId: window.webContents.id }));
   const foreign = await service.call('other-fixture', 'ppt_inspect', { id });

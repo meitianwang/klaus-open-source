@@ -30,7 +30,7 @@
   },
   "agentTools": ["ppt_open", "ppt_inspect", "ppt_publish", "ppt_import_asset", "ppt_export"],
   "media": {
-    "assetUrlPrefix": "_blob/",
+    "assetUrlPrefix": "/_blob/",
     "assetTypes": ["image/png", "image/jpeg", "image/gif", "image/webp", "image/avif", "image/svg+xml", "video/mp4", "video/webm", "audio/mpeg", "audio/ogg", "audio/wav", "font/woff", "font/woff2", "font/ttf", "font/otf"],
     "contentCsp": "media-src 'self' blob: data:"
   },

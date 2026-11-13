@@ -320,12 +320,12 @@ export class PptStore {
       if (active.length >= PPT_ASSET_LIMITS.files || active.reduce((sum, asset) => sum + asset.size, bytes.length) > PPT_ASSET_LIMITS.bytes) return fail('too_large', 'Presentation assets exceed 1000 files or 1 GiB.');
       immutable(directory(path, 'blobs'), sha256, bytes);
       atomicJson(path, 'document.json', { ...state, assets: { ...state.assets, [assetId]: { sha256, size: bytes.length, contentType: mime, name, createdAt: Date.now() } } });
-      return { id: assetId, url: `_blob/${assetId}`, sizeBytes: bytes.length };
+      return { id: assetId, url: `/_blob/${assetId}`, sizeBytes: bytes.length };
     });
   }
   assets(owner: string, id: string): { id: string; url: string; sizeBytes: number; type: string; name: string; sha256: string; createdAt?: number }[] {
     const state = this.manifest(owner, id);
-    return Object.entries(state.assets).filter(([, asset]) => !asset.deleted).map(([assetId, asset]) => ({ id: assetId, url: `_blob/${assetId}`, sizeBytes: asset.size, type: asset.contentType, name: asset.name, sha256: asset.sha256, ...(asset.createdAt !== undefined ? { createdAt: asset.createdAt } : {}) }));
+    return Object.entries(state.assets).filter(([, asset]) => !asset.deleted).map(([assetId, asset]) => ({ id: assetId, url: `/_blob/${assetId}`, sizeBytes: asset.size, type: asset.contentType, name: asset.name, sha256: asset.sha256, ...(asset.createdAt !== undefined ? { createdAt: asset.createdAt } : {}) }));
   }
   /**
    * The last authoring result describes the exact file hashes it validated.

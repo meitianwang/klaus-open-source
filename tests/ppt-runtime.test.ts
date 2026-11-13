@@ -97,7 +97,8 @@ void (async () => {
       const data = new Uint8Array([1, 2, 3, 4]), headers = [['Content-Type', 'image/png'], ['X-Frame-Blobs-Token', boot.capabilities.assets.token]];
       const uploaded = await (await call('POST', `/api/frame/blob/${doc.id}/upload`, data, headers)).json() as any;
       assertEqual(uploaded.size_bytes, 4);
-      const loaded = new Uint8Array(await (await page('/_blob/' + uploaded.opaque_id)).arrayBuffer());
+      assertEqual(uploaded.url, '/_blob/' + uploaded.opaque_id);
+      const loaded = new Uint8Array(await (await page(uploaded.url)).arrayBuffer());
       assertEqual(Buffer.from(loaded).toString('hex'), '01020304');
       const list = await (await call('POST', `/api/frame/blob/${doc.id}/list`, {}, headers)).json() as any;
       assertEqual(list.assets.length, 1);
