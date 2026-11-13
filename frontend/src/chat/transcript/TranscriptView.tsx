@@ -1527,7 +1527,7 @@ export function unitsFromMessages(visible: any[], legacyCreator?: string): Unit[
   let seenUserInput = false
   const msgTurnId = (msg: any) => (typeof msg.turnId === 'string' && msg.turnId) ? msg.turnId : undefined
   visible.forEach((msg, index) => {
-    const base = msg.uuid || `i-${index}`
+    const base = (msg.role === 'user' ? clientMessageId(msg) : undefined) || msg.uuid || `i-${index}`
     const tid = msgTurnId(msg)
     if (msg.kind === 'approval-review') { const review = approvalReview(msg.approvalReview); if (review) units.push({ type: 'approval-review', key: `review:${review.reviewId}`, msg, approvalReview: review, turnId: review.turnId }); return }
     if (msg.kind === 'agent-event' && msg.agentEvent) { units.push({ type: 'agent-event', key: base, msg, agentEvent: msg.agentEvent, turnId: tid }); return }
@@ -5434,3 +5434,4 @@ export function StaticTranscriptView({ msgs, container, running, sessionId }: {
 }
 
 function ignoreVirtualListApi(_api: VirtualTurnListApi | null): void {}
+import { clientMessageId } from '../../../../contracts/message-identity'

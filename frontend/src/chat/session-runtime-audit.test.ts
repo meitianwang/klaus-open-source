@@ -6,7 +6,7 @@ import vectors from '../../../contracts/vectors/session-runtime-state-vectors.js
 
 const source = readFileSync(new URL('./chat.ts', import.meta.url), 'utf8')
 const ast = createSourceFile('chat.ts', source, ScriptTarget.ESNext, true, ScriptKind.TS)
-const idle = () => ({ provisional: false, running: false, historySource: 'saved' as 'saved' | 'ephemeral', activeTurnId: null as string | null, liveTurnId: null as string | null, turnStartedAt: 0, lastTerminalStatus: null as string | null })
+const idle = () => ({ provisional: false, running: false, historySource: 'saved' as 'saved' | 'ephemeral', activeTurnId: null as string | null, liveTurnId: null as string | null, turnStartedAt: 0, lastTerminalStatus: null as string | null, runtimeEvidence: null })
 const live = (id = 'turn-one') => ({ ...idle(), running: true, activeTurnId: id, liveTurnId: id, turnStartedAt: 1 })
 function deferred<T>() {
   let resolve!: (value: T) => void, reject!: (error: Error) => void
@@ -14,31 +14,44 @@ function deferred<T>() {
   return { promise, resolve, reject }
 }
 function fixture() {
-  const calls = { catalog: 0, runtime: 0, scheduled: 0, rendered: 0 }
+  const calls = { catalog: 0, runtime: 0, scheduled: 0, rendered: 0, scopes: [] as Array<string[] | undefined> }
+  const timers = new Map<number, { run(): void; delay: number }>()
+  let timerId = 0
   const context = {
     sessions: Array.from({ length: vectors.historicalRows }, (_, index) => ({ id: `history-${index}`, title: `Title ${index}`, isWorking: false })),
     streams: {} as Record<string, ReturnType<typeof idle>>,
     runningSessions: new Set<string>(), sidebarListedWorkingSessions: new Set<string>(),
     stoppingSessions: new Set<string>(), continuingSessions: new Set<string>(), userInterruptedSessions: new Set<string>(),
-    sessionRuntimeIdleObservations: new Map<string, number>(), SESSION_RUNTIME_IDLE_CONFIRMATIONS: vectors.idleConfirmations,
+    sessionRuntimeIdleObservations: new Map<string, number>(),
+    sessionRuntimeRecoveryAttempts: new Map<string, number>(), sessionRuntimeFullRecoveryAttempts: 0,
+    sessionRuntimeAuditIds: new Set<string>(), sessionRuntimeAuditAllPending: false, sessionRuntimeAuditUrgent: false,
     sessionRuntimeAuditInFlight: false, sessionRuntimeAuditTimer: 0, stopEscArmedTurn: null,
-    window: { currentSessionId: null, clearTimeout() {} },
+    window: { currentSessionId: null, clearTimeout(id: number) { timers.delete(id) },
+      setTimeout(run: () => void, delay: number) { calls.scheduled++; const id = ++timerId; timers.set(id, { run, delay }); return id } },
     retired: new Set<string>(),
-    readRuntime: async () => ({ workingSessionIds: [] as string[] }),
-    klausApi: { session: { runtimeState: async () => { calls.runtime++; return context.readRuntime() },
+    readRuntime: async (_ids?: string[]): Promise<{ workingSessionIds: string[]; unavailableSessionIds?: string[]; snapshots?: any[] }> => ({ workingSessionIds: [] }),
+    klausApi: { session: { runtimeState: async (ids?: string[]) => { calls.runtime++; calls.scopes.push(ids ? [...ids] : undefined); const read = await context.readRuntime(ids); return {
+      sessions: read.snapshots || read.workingSessionIds.map(sessionId => ({ sessionId, status: 'active', turn: { id: 'turn-one', status: 'inProgress' } })),
+      unavailableSessionIds: read.unavailableSessionIds || [], workingSessionIds: read.workingSessionIds,
+    } },
       list: async () => { calls.catalog++; throw Error('A runtime audit must not enumerate the catalog') } } },
     chatStreamStore: { getState: () => ({ sessions: context.streams }) },
     getSessionStream: (id: string) => context.streams[id] || idle(),
     isSessionStreamRetired: (id: string) => context.retired.has(id),
-    scheduleSessionRuntimeAudit: () => { calls.scheduled++ },
     updateSidebarWorkingSource: (set: Set<string>, id: string, working: boolean) => { if (working) set.add(id); else set.delete(id) },
     sidebarSessionStatusKind: () => '', markSidebarSessionSeen() {}, syncBusyForCurrentSession() {}, renderSessionList() { calls.rendered++ }, clearStopEscArm() {},
     updateSessionInList: async () => { calls.catalog++ },
     reconcileSessionWorking: async (id: string, working: boolean) => {
       context.streams = { ...context.streams, [id]: working ? live() : idle() }
     },
+    reconcileNativeSessionRuntime: (row: { sessionId: string; status: string; turn?: { id: string; status: string } }) => {
+      if (row.turn?.status === 'inProgress') {
+        context.runningSessions.add(row.sessionId)
+        context.streams = { ...context.streams, [row.sessionId]: context.streams[row.sessionId] || live() }
+      }
+    },
   }
-  const names = ['auditSessionRuntimeState', 'syncSidebarWorkingFromSessions', 'setSessionRunning']
+  const names = ['armSessionRuntimeAudit', 'scheduleSessionRuntimeAudit', 'retrySessionRuntimeAudit', 'auditSessionRuntimeState', 'syncSidebarWorkingFromSessions', 'setSessionRunning']
   const declarations = names.map(name => {
     const node = ast.statements.find(value => isFunctionDeclaration(value) && value.name?.text === name)
     if (!node) throw Error(`Missing function: ${name}`)
@@ -46,8 +59,13 @@ function fixture() {
   })
   const actions = runInNewContext(transpileModule(`${declarations.join('\n')}\n({ ${names.join(', ')} })`, {
     compilerOptions: { target: ScriptTarget.ES2022 },
-  }).outputText, context) as { auditSessionRuntimeState(): Promise<void>; setSessionRunning(id: string, running: boolean): void }
-  return { context, actions, calls }
+  }).outputText, context) as { auditSessionRuntimeState(ids?: string[]): Promise<void>; scheduleSessionRuntimeAudit(options?: { sessionId?: string; retry?: boolean }): void; setSessionRunning(id: string, running: boolean): void }
+  return { context, actions, calls, timers, async flush() {
+    const first = timers.entries().next().value
+    if (!first) throw Error('No scheduled runtime audit')
+    timers.delete(first[0]); first[1].run()
+    for (let index = 0; index < 12; index++) await Promise.resolve()
+  } }
 }
 
 test('runtime recovery handles a large historical catalog without reading it', async () => {
@@ -82,15 +100,15 @@ test('unchanged runtime snapshots preserve the catalog and skip sidebar renderin
   expect(f.calls.catalog).toBe(0)
 })
 
-test('a missed terminal event settles only after two successful idle observations', async () => {
+test('missing host rows never constitute a terminal verdict', async () => {
   const f = fixture(), id = f.context.sessions[0]!.id
   f.context.streams[id] = live()
   f.actions.setSessionRunning(id, true)
   await f.actions.auditSessionRuntimeState()
   expect(f.context.runningSessions.has(id)).toBe(true)
   await f.actions.auditSessionRuntimeState()
-  expect(f.context.runningSessions.has(id)).toBe(false)
-  expect(f.context.streams[id]?.running).toBe(false)
+  expect(f.context.runningSessions.has(id)).toBe(true)
+  expect(f.context.streams[id]?.running).toBe(true)
   expect(f.calls.catalog).toBe(0)
 })
 
@@ -150,7 +168,7 @@ test('late working snapshots cannot revive a completed or deleted conversation',
   }
 })
 
-test('newly discovered running conversations request metadata once and concurrent audits do not overlap', async () => {
+test('explicit running snapshots do not enumerate metadata and concurrent audits do not overlap', async () => {
   const f = fixture(), pending = deferred<{ workingSessionIds: string[] }>()
   f.context.readRuntime = () => pending.promise
   const audit = f.actions.auditSessionRuntimeState()
@@ -159,5 +177,106 @@ test('newly discovered running conversations request metadata once and concurren
   pending.resolve({ workingSessionIds: ['external-chat'] })
   await audit
   expect(f.context.runningSessions.has('external-chat')).toBe(true)
-  expect(f.calls.catalog).toBe(1)
+  expect(f.calls.catalog).toBe(0)
+})
+
+test('native audit bursts deduplicate only their target IDs', async () => {
+  const f = fixture()
+  f.actions.scheduleSessionRuntimeAudit({ sessionId: 'A' })
+  f.actions.scheduleSessionRuntimeAudit({ sessionId: 'B' })
+  f.actions.scheduleSessionRuntimeAudit({ sessionId: 'A' })
+  expect(f.timers.size).toBe(1)
+  await f.flush()
+  expect(f.calls.scopes).toEqual([['A', 'B']])
+  expect(f.timers.size).toBe(0)
+  expect(f.calls.catalog).toBe(0)
+})
+
+test('inflight audits retain newly requested IDs without overlapping reads', async () => {
+  const f = fixture(), pending = deferred<{ workingSessionIds: string[] }>()
+  f.context.readRuntime = () => pending.promise
+  f.actions.scheduleSessionRuntimeAudit({ sessionId: 'A' })
+  await f.flush()
+  f.actions.scheduleSessionRuntimeAudit({ sessionId: 'B' })
+  f.actions.scheduleSessionRuntimeAudit({ sessionId: 'A' })
+  expect(f.calls.scopes).toEqual([['A']])
+  expect(f.timers.size).toBe(0)
+  pending.resolve({ workingSessionIds: [] })
+  for (let index = 0; index < 12; index++) await Promise.resolve()
+  f.context.readRuntime = async () => ({ workingSessionIds: [] })
+  await f.flush()
+  expect(f.calls.scopes).toEqual([['A'], ['B', 'A']])
+  expect(f.timers.size).toBe(0)
+})
+
+test('unavailable targeted rows retry only the unavailable IDs in that request', async () => {
+  const f = fixture()
+  f.context.readRuntime = async () => ({ workingSessionIds: [], unavailableSessionIds: ['B', 'unrequested'] })
+  f.actions.scheduleSessionRuntimeAudit({ sessionId: 'A' })
+  f.actions.scheduleSessionRuntimeAudit({ sessionId: 'B' })
+  await f.flush()
+  f.context.readRuntime = async () => ({ workingSessionIds: [] })
+  await f.flush()
+  expect(f.calls.scopes).toEqual([['A', 'B'], ['B']])
+  expect(f.timers.size).toBe(0)
+})
+
+test('targeted read failures have a bounded recovery budget and never widen to all bindings', async () => {
+  const f = fixture()
+  f.context.readRuntime = async () => { throw Error('Unavailable transport') }
+  f.actions.scheduleSessionRuntimeAudit({ sessionId: 'B' })
+  while (f.timers.size) await f.flush()
+  expect(f.calls.scopes).toEqual(Array.from({ length: 6 }, () => ['B']))
+  expect(f.context.sessionRuntimeRecoveryAttempts.get('B')).toBe(5)
+  f.context.readRuntime = async () => ({ workingSessionIds: [] })
+  f.actions.scheduleSessionRuntimeAudit({ sessionId: 'C' })
+  expect([...f.timers.values()][0].delay).toBe(0)
+  await f.flush()
+  expect(f.calls.scopes[f.calls.scopes.length - 1]).toEqual(['C'])
+  expect(f.context.sessionRuntimeRecoveryAttempts.get('B')).toBe(5)
+  expect(f.timers.size).toBe(0)
+})
+
+test('a fresh native event preempts backoff while preserving the failed session scope', async () => {
+  const f = fixture()
+  f.context.readRuntime = async () => ({ workingSessionIds: [], unavailableSessionIds: ['B'] })
+  f.actions.scheduleSessionRuntimeAudit({ sessionId: 'B' })
+  await f.flush()
+  expect([...f.timers.values()][0].delay).toBeGreaterThan(0)
+  f.actions.scheduleSessionRuntimeAudit({ sessionId: 'C' })
+  expect([...f.timers.values()][0].delay).toBe(0)
+  f.context.readRuntime = async () => ({ workingSessionIds: [] })
+  await f.flush()
+  expect(f.calls.scopes).toEqual([['B'], ['B', 'C']])
+  expect(f.timers.size).toBe(0)
+})
+
+test('explicit full hydration queued during a targeted read runs afterwards with no lost scope', async () => {
+  const f = fixture(), pending = deferred<{ workingSessionIds: string[] }>()
+  f.context.readRuntime = () => pending.promise
+  f.actions.scheduleSessionRuntimeAudit({ sessionId: 'A' })
+  await f.flush()
+  f.actions.scheduleSessionRuntimeAudit()
+  f.actions.scheduleSessionRuntimeAudit({ sessionId: 'B' })
+  pending.resolve({ workingSessionIds: [] })
+  for (let index = 0; index < 12; index++) await Promise.resolve()
+  f.context.readRuntime = async () => ({ workingSessionIds: [] })
+  await f.flush()
+  expect(f.calls.scopes).toEqual([['A'], undefined])
+  expect(f.timers.size).toBe(0)
+})
+
+test('idle evidence with an unresolved response retries that exact owner without inferring completion', async () => {
+  const f = fixture(), id = 'outcome-pending'
+  f.context.streams[id] = live()
+  f.context.reconcileNativeSessionRuntime = row => {
+    if (row.sessionId === id) (f.context.streams[id] as any).runtimeEvidence = { status: 'idle', activeFlags: [], outcomePending: true }
+  }
+  f.context.readRuntime = async () => ({ workingSessionIds: [], snapshots: [{ sessionId: id, status: 'idle' }] })
+  f.actions.scheduleSessionRuntimeAudit({ sessionId: id })
+  while (f.timers.size) await f.flush()
+  expect(f.calls.scopes).toEqual(Array.from({ length: 6 }, () => [id]))
+  expect(f.context.streams[id].running).toBe(true)
+  expect(f.context.streams[id].activeTurnId).toBe('turn-one')
+  expect(f.calls.catalog).toBe(0)
 })

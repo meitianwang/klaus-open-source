@@ -49,7 +49,7 @@ import { visualArtifact } from '../visuals/artifacts';
 import type { ClientEvent } from '../engine/protocol';
 import { eventInference, publicInference, normalizeSessionMaxRetries, type SessionEventContext } from '../sessions/event-context';
 import { readInlineVisFragmentsSync } from '../services/inline-vis-read';
-import { isSteerMarkerBlock, withoutSteerMarker } from '../../contracts/steer-marker';
+import { presentUserInput } from '../../contracts/steer-marker';
 import { providerErrorDetails, providerErrorTextWithRequestId } from '../../contracts/provider-error-details';
 import type { ToolMediaProjector } from '../services/tool-media';
 import { completedGoalResult } from '../sessions/goal-completion';
@@ -370,15 +370,11 @@ function projectChildEngineEvent(sessionId: string, event: Json, splitToolMedia?
         event: { agentNotification: field(event, 'notification') ?? NULL },
       } as unknown as Json);
     case 'user.message': {
-      // A steered follow-up carries the host's history marker as its first content block
-      // (see `contracts/steer-marker.ts`). Every renderer — desktop live layer and mobile
-      // alike — reads this projection, so the marker is stripped HERE and the row carries
-      // a `steered` flag instead: the bubble shows the user's words, and the edit-target
-      // rule can tell an injection into a running turn from a message that opened one.
       const rawContent = field(field(event, 'message'), 'content') ?? NULL;
-      const stripped = Array.isArray(rawContent) && rawContent.some(isSteerMarkerBlock)
-        ? withoutSteerMarker(rawContent) : rawContent;
-      const steered = Array.isArray(rawContent) && Array.isArray(stripped) && rawContent.length !== stripped.length;
+      const localRender = field(field(event, 'message'), 'localRender') ?? field(event, 'displayMetadata')
+        ?? (field(field(event, 'message'), 'isMeta') === true ? undefined
+          : wire(context?.userDisplayMetadata?.(str(field(event, 'message'), 'uuid'), sessionId)));
+      const { content: stripped, steered } = presentUserInput(rawContent, localRender);
       const questionAnswer = questionAnswerMetadata(field(field(event, 'message'), 'questionAnswer'));
       return [
         {
@@ -388,7 +384,8 @@ function projectChildEngineEvent(sessionId: string, event: Json, splitToolMedia?
             uuid: field(field(event, 'message'), 'uuid') ?? NULL,
             ...(typeof field(field(event, 'message'), 'isMeta') === 'boolean' ? { isMeta: field(field(event, 'message'), 'isMeta') } : {}),
             message: { content: stripped, ...(steered || questionAnswer ? { steered: true } : {}),
-              ...(questionAnswer ? { questionAnswer: questionWire(questionAnswer) } : {}) },
+              ...(questionAnswer ? { questionAnswer: questionWire(questionAnswer) } : {}),
+              ...(localRender && typeof localRender === 'object' && !Array.isArray(localRender) ? { localRender } : {}) },
           },
         },
       ];
@@ -1177,9 +1174,13 @@ function mapProductEvent(method: string, params: Json, splitToolMedia?: ToolMedi
         case 'user_message': {
           const id = strOpt(item, 'id'), text = strOpt(item, 'text');
           if (!id || !text?.trim() || strOpt(item, 'status') !== 'completed') return [];
+          const localRender = field(item, 'localRender') ?? field(item, 'displayMetadata')
+            ?? (field(item, 'isMeta') === true ? undefined : wire(context?.userDisplayMetadata?.(id, sid)));
+          const { steered } = presentUserInput(text, localRender);
           return [{ type: 'user_message', sessionId: sid, message: { uuid: id,
             ...(typeof field(item, 'isMeta') === 'boolean' ? { isMeta: field(item, 'isMeta') } : {}),
-            message: { content: [{ type: 'text', text }] } } }];
+            message: { content: [{ type: 'text', text }], ...(steered ? { steered: true } : {}),
+              ...(localRender ? { localRender } : {}) } } }];
         }
         case 'tool_call':
           return toolCallTerminalEvent(sid, item, splitToolMedia);

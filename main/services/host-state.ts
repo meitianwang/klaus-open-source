@@ -138,6 +138,7 @@ export class HostState {
    * names its caller here.
    */
   private drop(rendererId: string, engineId: string, reason: string): void {
+    this.submittedMessages.delete(rendererId);
     this.onDrop?.(rendererId, engineId, reason);
     this.log?.('session-binding-dropped', JSON.stringify({ sessionId: rendererId, engineId, reason }));
   }
@@ -172,6 +173,7 @@ export class HostState {
 
   /** Record a binding established by a successful `session/start`. */
   rememberSession(rendererId: string, engineId: string, init: Json, provider?: SessionProviderIdentity & { modelPreferenceRevision?: number; modelTierRevision?: number; hostWritableRoots?: readonly string[] }): void {
+    this.submittedMessages.delete(rendererId);
     this.live.set(rendererId, { engineId, touchedAt: Date.now(), init, stale: false,
       hostWritableRoots: [...new Set(provider?.hostWritableRoots ?? [])],
       modelPreferenceRevision: provider?.modelPreferenceRevision ?? this.modelPreferenceRevision(rendererId),
@@ -441,6 +443,86 @@ export class HostState {
 
   /** Observe running-turn set changes (restart ledger maintenance hooks here). */
   onTurnRunningChange?: () => void;
+
+  /**
+   * Submission identities outlive terminal events so a delayed ACK or inspection can
+   * still join the original optimistic row. Binding removal retires the whole ledger.
+   */
+  private readonly submittedMessages = new Map<string, Map<string, {
+    engineId: string; clientMessageId: string; displayMetadata: Json;
+    userMessageId?: string; turnId?: string; startsTurn: boolean; settled?: boolean;
+  }>>();
+
+  noteSubmittedMessage(rendererId: string, engineId: string, submissionId: string,
+    clientMessageId: string, displayMetadata: Json, userMessageId?: string): void {
+    if (this.liveSession(rendererId) !== engineId || !clientMessageId || clientMessageId.length > 512) return;
+    const records = this.submittedMessages.get(rendererId) ?? new Map();
+    // A late retry may not transfer an already issued identity to another input.
+    if (records.has(submissionId)) return;
+    records.set(submissionId, { engineId, clientMessageId, displayMetadata,
+      ...(userMessageId ? { userMessageId } : {}), startsTurn: !userMessageId });
+    this.submittedMessages.set(rendererId, records);
+    // Keep recent completed admissions, while retaining the current turn's owner.
+    while (records.size > 256) {
+      const oldest = [...records.keys()].find(id => id !== this.runningSubmissionId(rendererId));
+      if (!oldest) break;
+      records.delete(oldest);
+    }
+  }
+
+  bindSubmittedTurn(rendererId: string, engineId: string, submissionId: string, turnId: string): string | undefined {
+    if (this.liveSession(rendererId) !== engineId) return undefined;
+    const record = this.submittedMessages.get(rendererId)?.get(submissionId);
+    if (!record?.startsTurn || record.engineId !== engineId || record.turnId && record.turnId !== turnId) return undefined;
+    record.turnId = turnId;
+    return record.clientMessageId;
+  }
+
+  turnClientMessageId(rendererId: string, engineId: string, turnId: string): string | undefined {
+    if (this.liveSession(rendererId) !== engineId) return undefined;
+    const records = this.submittedMessages.get(rendererId);
+    if (!records) return undefined;
+    return [...records.entries()].find(([submissionId, record]) => record.startsTurn
+      && record.engineId === engineId && (record.turnId === turnId || submissionId === turnId))?.[1].clientMessageId;
+  }
+
+  submittedTurnSettled(rendererId: string, engineId: string, turnId: string): boolean {
+    if (this.liveSession(rendererId) !== engineId) return false;
+    return [...(this.submittedMessages.get(rendererId)?.entries() ?? [])].some(([submissionId, record]) =>
+      record.engineId === engineId && record.startsTurn && record.settled
+      && (submissionId === turnId || record.turnId === turnId));
+  }
+
+  bindSubmittedTurnFromMessages(rendererId: string, engineId: string, turnId: string, userMessageIds: ReadonlySet<string>): string | undefined {
+    if (this.liveSession(rendererId) !== engineId) return undefined;
+    for (const [submissionId, record] of this.submittedMessages.get(rendererId) ?? []) {
+      if (record.engineId === engineId && record.startsTurn && record.userMessageId
+        && userMessageIds.has(record.userMessageId)) return this.bindSubmittedTurn(rendererId, engineId, submissionId, turnId);
+    }
+    return undefined;
+  }
+
+  settleSubmittedTurn(rendererId: string, engineId: string, turnIds: ReadonlySet<string>): void {
+    if (this.liveSession(rendererId) !== engineId) return;
+    for (const [submissionId, record] of this.submittedMessages.get(rendererId) ?? []) {
+      if (record.engineId === engineId && record.startsTurn
+        && (turnIds.has(submissionId) || record.turnId && turnIds.has(record.turnId))) record.settled = true;
+    }
+  }
+
+  submittedMessage(rendererId: string, engineId: string, userMessageId: string, submissionId?: string):
+    { clientMessageId: string; displayMetadata: Json } | undefined {
+    if (this.liveSession(rendererId) !== engineId) return undefined;
+    const records = this.submittedMessages.get(rendererId);
+    if (!records) return undefined;
+    const known = [...records.values()].find(record => record.engineId === engineId && record.userMessageId === userMessageId);
+    if (known) return known;
+    // Only the exact facade submission may associate its first canonical user UUID.
+    const record = submissionId ? records.get(submissionId) : undefined;
+    if (!record?.startsTurn || record.engineId !== engineId || record.userMessageId) return undefined;
+    record.userMessageId = userMessageId;
+    return record;
+  }
 
   /** Mark a turn accepted for a session. */
   markTurnRunning(rendererId: string, turnId?: string, submissionId = turnId): void {

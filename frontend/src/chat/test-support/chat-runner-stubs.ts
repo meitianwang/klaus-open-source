@@ -5,8 +5,17 @@
 // first. Keeping them in one place stops each new harness from rediscovering
 // the same ReferenceError when `chat.ts` grows another module-level symbol.
 
+import { applyComposerSubmitState, composerSubmitState } from '../composer/submit-state'
+
 /** Inert stand-ins for `chat.ts` module state referenced by extracted functions. */
 export const chatRunnerStubs = `
+${composerSubmitState.toString()}
+${applyComposerSubmitState.toString()}
+var sidePaneRuntimes = new Map();
+var sidePreparation = null;
+var settledSideSubmissions = new WeakSet();
+var sideRuntimeForSession = typeof sideRuntimeForSession === 'function' ? sideRuntimeForSession : function(id) { return Array.from(sidePaneRuntimes.values()).find(runtime => runtime.sessionId === id); };
+var sideComposerRuntimes = function sideComposerRuntimes() { return sidePaneRuntimes.values(); };
 var sideFriendIntentApi = { setHidden() {}, setValue() {}, setDisabled() {} };
 var sideFriendContexts = new Map();
 var friendComposeContext = { intent: 'request' };
@@ -39,6 +48,12 @@ var loadPersistedSideDrafts = function loadPersistedSideDrafts() { return {}; };
 
 /** Same stand-ins as an object spread for harnesses that build a VM context literally. */
 export const chatRunnerStubContext = () => ({
+  composerSubmitState,
+  applyComposerSubmitState,
+  sidePaneRuntimes: new Map(),
+  sidePreparation: null,
+  settledSideSubmissions: new WeakSet(),
+  sideRuntimeForSession: () => undefined,
   sideFriendIntentApi: { setHidden() {}, setValue() {}, setDisabled() {} },
   sideFriendContexts: new Map<string, { intent: string }>(),
   friendComposeContext: { intent: 'request' },

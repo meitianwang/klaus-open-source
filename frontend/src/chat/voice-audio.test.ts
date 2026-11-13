@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, test } from 'bun:test'
 import { pcm16Wav } from './voice-audio'
-import { voiceInputSource, VOICE_INPUT_SOURCES, VOICE_NATIVE_STREAMING_SOURCES, voiceAudioMaxBytes, voiceUploadContainer, visibleVoiceInputSources } from '../../../shared/voice-input'
+import { voiceInputSource, VOICE_INPUT_SOURCES, VOICE_SELECTABLE_SOURCES, VOICE_NATIVE_STREAMING_SOURCES, voiceAudioMaxBytes, voiceUploadContainer, visibleVoiceInputSources } from '../../../shared/voice-input'
 import { voiceErrorKey } from './voice-errors'
 
 const frame = (values: number[]) => Int16Array.from(values).buffer
@@ -9,7 +9,9 @@ const frame = (values: number[]) => Int16Array.from(values).buffer
 describe('voice input source and audio contracts', () => {
   test('committed source vector pins provider availability and language/bounds without changing saved intent', () => {
     const vector = JSON.parse(readFileSync(new URL('../../../contracts/vectors/voice-input-source-vectors.json', import.meta.url), 'utf8'))
-    expect([...VOICE_INPUT_SOURCES]).toEqual(vector.sources)
+    expect([...VOICE_SELECTABLE_SOURCES]).toEqual(vector.sources)
+    expect(VOICE_INPUT_SOURCES).toContain('custom')
+    expect(VOICE_SELECTABLE_SOURCES).not.toContain('custom')
     expect(vector.localeOverrideSources).toEqual([])
     for (const source of ['workbuddy', 'qoder', 'qoderwork', 'qwenwork', 'trae'] as const) expect(voiceAudioMaxBytes(source)).toBe(vector.providerAudioMaxBytes[source])
     // Container policy: PCM-pinned subscription wires keep 16 kHz mono WAV;
@@ -33,7 +35,10 @@ describe('voice input source and audio contracts', () => {
   })
   test('absent source retains platform behavior while unsupported saved intent stays unavailable', () => {
     expect(voiceInputSource('', true)).toBe('system')
-    expect(voiceInputSource('', false)).toBe('custom')
+    expect(voiceInputSource('', false)).toBeUndefined()
+    expect(voiceInputSource('custom', false)).toBe('custom')
+    expect(visibleVoiceInputSources({}, '')).not.toContain('custom')
+    expect(visibleVoiceInputSources({}, 'custom')).toContain('custom')
     expect(voiceInputSource('unknown', true)).toBeUndefined()
     expect(voiceAudioMaxBytes('workbuddy')).toBe(16 * 1024 * 1024); expect(voiceAudioMaxBytes('qoderwork')).toBe(12 * 1024 * 1024)
     for (const source of VOICE_INPUT_SOURCES) expect(voiceInputSource(source, false)).toBe(source)

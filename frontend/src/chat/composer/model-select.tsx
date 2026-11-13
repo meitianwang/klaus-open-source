@@ -10,6 +10,8 @@ import { isKiroRoutingAlias, kiroThinkingLevel, kiroThinkingLevels, kiroThinking
 // state. React preserves row identity so submenu refs remain valid.
 import { useEffect, useRef, useState } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
+import { mountRetainedIsland } from './retained-island'
+import { createVisibilityScope } from '../visibility-scope'
 import { createPortal } from 'react-dom'
 import { createStore, type StoreApi } from 'zustand/vanilla'
 import { useStore } from 'zustand'
@@ -250,6 +252,8 @@ interface ModelSelectState {
 
 export interface ModelSelectApi {
   close(): void
+  setVisible(visible: boolean): void
+  dispose(): void
   setDisabled(disabled: boolean): void
   setItems(next: MainModelItem[] | null | undefined, opts?: { value?: string; thinkingLevel?: string; ultraMode?: boolean; fastMode?: boolean; fastModeSupported?: boolean; fastModeBilling?: FastModeState['billing']; unavailable?: boolean; loading?: boolean }): void
   setValue(next: string): void
@@ -841,12 +845,13 @@ export function mountModelSelect(
     ultraSaveRevision++
     store.setState({ runtime: null, thinkingLevel: 'medium', ultraMode: false, fastMode: false, fastModePending: false, thinkingPending: false, ultraPending: false, open: false, submenuOpen: false })
   }
-  store.subscribe((state) => {
-    root.classList.toggle('open', state.open)
-  })
-  registerOverlay(overlayIdForElement(root, 'model-select'), () => {
+  const close = () => {
+    store.getState().ultraConfirmation?.('cancel')
     store.setState({ open: false, submenuOpen: false })
-  })
+  }
+  const visibleEffects = createVisibilityScope()
+  visibleEffects.add(() => store.subscribe(state => root.classList.toggle('open', state.open)))
+  visibleEffects.add(() => registerOverlay(overlayIdForElement(root, 'model-select'), close))
 
   let reactRoot = modelSelectRoots.get(root)
   let ultraSaveRevision = 0
@@ -854,7 +859,7 @@ export function mountModelSelect(
     reactRoot = createRoot(root)
     modelSelectRoots.set(root, reactRoot)
   }
-  reactRoot.render(
+  const activity = mountRetainedIsland(reactRoot, () => (
     <ModelSelectMenu
       store={store}
       onEmptyClick={onEmptyClick}
@@ -894,11 +899,23 @@ export function mountModelSelect(
       rootEl={root}
       titleKey={titleKey}
       title={title}
-    />,
-  )
+    />
+  ))
 
   return {
-    close() { store.setState({ open: false, submenuOpen: false }) },
+    close,
+    setVisible(visible) {
+      if (!visible) close()
+      visibleEffects.setActive(visible)
+      activity.setVisible(visible)
+    },
+    dispose() {
+      close()
+      visibleEffects.dispose()
+      activity.dispose()
+      modelSelectRoots.delete(root)
+      modelSaver.invalidate(); thinkingSaver.invalidate(); fastModeSaver.invalidate(); ultraSaver.invalidate()
+    },
     setDisabled(disabled) { store.setState({ disabled, ...(disabled ? { open: false, submenuOpen: false } : {}) }) },
     setItems(next, { value: nextValue, thinkingLevel: nextThinkingLevel, ultraMode: nextUltraMode, fastMode: nextFastMode, fastModeSupported: nextFastSupported, fastModeBilling: nextFastBilling, unavailable = false, loading = false } = {}) {
       syncScope()

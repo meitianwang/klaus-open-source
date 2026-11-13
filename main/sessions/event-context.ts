@@ -29,6 +29,8 @@ export function eventInference(params: unknown): PublicInference | undefined {
 
 /** Public event metadata from the session binding, without provider credentials. */
 export interface SessionEventContext {
+  /** Exact canonical identity lookup, resolved before input presentation. */
+  userDisplayMetadata?: (messageUuid: string, engineSessionId: string) => unknown;
   maxRetries?: number;
   authMode?: string;
   inference?: PublicInference;

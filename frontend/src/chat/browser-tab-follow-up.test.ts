@@ -1,10 +1,12 @@
 import { restoreComposerDocument, snapshotComposerDocument } from './composer/document-model'
 import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
+import { randomUUID } from 'node:crypto'
 import { runInNewContext } from 'node:vm'
 import { createSourceFile, forEachChild, isFunctionDeclaration, isPropertyAssignment, ModuleKind, ScriptKind, ScriptTarget, transpileModule } from 'typescript'
 import { browserTabMentionUri, type BrowserTabMention } from '../../../shared/browser-tab-mention'
 import { browserTabReference } from './composer/browser-tab-reference'
+import { clientMessageId as userMessageClientId } from '../../../contracts/message-identity'
 import { normalizeComposerReferences } from './composer/reference-token'
 import { normalizeComposerDraft } from './composer/slash-draft'
 
@@ -42,6 +44,7 @@ function fixture() {
   const queued: any[] = []
   const rendered: any[] = []
   const restoredDrafts: any[] = []
+  const deliveries: any[] = []
   const draft = { text: '', references: [] as any[] }
   const context: Record<string, any> = {
     call: async (channel: string, payload: unknown) => { calls.push({ channel, payload }); return { ok: true, messageId: 'steer-a' } },
@@ -62,7 +65,19 @@ function fixture() {
     runClientQueueMutation: async (_session: string, _id: string, mutate: () => Promise<unknown>) => mutate(),
     pendingQueueAdditions: new Map(), persistLocalValue() { return true },
     renderLocalUserPayload: (_session: string, payload: unknown, options: unknown) => rendered.push({ payload, options }),
-    ingestChatEvent: () => { throw new Error('Unexpected delivery error') },
+    // A steer targets the turn that was running when it was issued; the fixture
+    // models one running turn per conversation.
+    getSessionStream: (id: string) => ({ activeTurnId: `${id}-turn-a1`, liveTurnId: null, turnStartedAtMs: { [`${id}-turn-a1`]: 111 }, turnStartedAt: undefined, liveUnits: [], history: [] }),
+    crypto: { randomUUID },
+    userMessageClientId,
+    retractLocalUserMessage: (_sessionId: string, identity: string) => {
+      const index = rendered.findIndex(entry => entry.options?.uuid === identity)
+      if (index >= 0) rendered.splice(index, 1)
+    },
+    ingestChatEvent: (event: { type?: string }) => {
+      if (!event?.type || event.type === 'api_error') throw new Error('Unexpected delivery error')
+      deliveries.push(event)
+    },
     isSideChatSession: () => false,
     window: { currentSessionId: 'conversation-a' }, scrollToBottom() {},
     inputEl: { focus() {} },
@@ -100,7 +115,12 @@ describe('browser tab follow-up delivery metadata', () => {
     expect(f.calls[0].payload.displayMetadata.composerReferences).toEqual(outgoing.composerReferences)
     expect(f.calls[0].payload.displayMetadata.composerReferences[0].browserTab.faviconUrl).toBe('data:image/png;base64,AAAA')
     expect(f.rendered[0].payload.composerReferences).toEqual(outgoing.composerReferences)
-    expect(f.rendered[0].options).toEqual({ uuid: 'steer-a', steered: true })
+    // The optimistic bubble is drawn before the RPC with the locally issued identity;
+    // the same identity rides the wire metadata and fences the captured turn.
+    const issued = f.calls[0].payload.displayMetadata.clientMessageId
+    expect(f.rendered[0].options).toEqual({ uuid: issued, steered: true, targetTurnId: 'conversation-a-turn-a1', targetTurnStartedAt: 111 })
+    expect(f.calls[0].payload.displayMetadata.steerMessageId).toBe(issued)
+    expect(f.calls[0].payload.displayMetadata.expectedTurnId).toBe('conversation-a-turn-a1')
   })
 
   test('a queued row restored from disk keeps the same snapshot when sent into a running turn', async () => {
@@ -109,15 +129,27 @@ describe('browser tab follow-up delivery metadata', () => {
     const restored = JSON.parse(JSON.stringify(f.queued[0]))
     expect(restored.displayMetadata.composerReferences).toEqual(outgoing.composerReferences)
     expect(await f.api.steerFollowUp('conversation-a', restored)).toBe(true)
-    expect(f.calls[0].payload.displayMetadata).toEqual(restored.displayMetadata)
+    // The persisted snapshot survives the disk round trip unchanged; the send adds
+    // only the issued identity and its captured-turn fence on top of it.
+    const { clientMessageId, steerMessageId, expectedTurnId, ...display } = f.calls[0].payload.displayMetadata
+    expect(display).toEqual(restored.displayMetadata)
+    expect(clientMessageId).toBe(steerMessageId)
+    expect(expectedTurnId).toBe('conversation-a-turn-a1')
     expect(f.calls[0].payload.displayMetadata.composerReferences[0].browserTab.mention).toBe(outgoing.composerReferences[0].browserTab?.mention)
   })
 
-  test('ordinary text follow-ups preserve the optional metadata contract', async () => {
+  test('ordinary text follow-ups carry their issued identity and no display extras', async () => {
     const f = fixture()
     const outgoing = { ...payload(), text: 'Continue', displayText: 'Continue', finalText: 'Continue', composerReferences: [] }
     expect(await f.api.steerFollowUp('conversation-a', outgoing)).toBe(true)
-    expect(f.calls[0].payload.displayMetadata).toBeUndefined()
+    // A plain steer still owns a stable submitted identity end to end; it must not
+    // grow display extras the author never attached.
+    const metadata = f.calls[0].payload.displayMetadata
+    expect(metadata.clientMessageId).toBe(metadata.steerMessageId)
+    expect(metadata.expectedTurnId).toBe('conversation-a-turn-a1')
+    expect(metadata.composerReferences).toEqual([])
+    expect(metadata.pastedCards).toEqual([])
+    expect(metadata.selectedTextAttachments).toEqual([])
   })
 
   test('submitting a padded draft preserves authored whitespace and browser reference ranges', async () => {

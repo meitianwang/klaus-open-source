@@ -5,6 +5,7 @@ import { restrictToVerticalAxis, restrictToFirstScrollableAncestor } from '@dnd-
 import { CSS } from '@dnd-kit/utilities'
 import { QueueMessagePreview } from './queue-message-preview'
 import { createPortal } from 'react-dom'
+import { mountRetainedIsland, useRetainedOpenState } from './retained-island'
 import { createRoot } from 'react-dom/client'
 import { createStore, type StoreApi } from 'zustand/vanilla'
 import { useStore } from 'zustand'
@@ -72,6 +73,8 @@ export interface FollowUpQueueHandlers {
 }
 
 export interface FollowUpQueueApi {
+  setVisible(visible: boolean): void
+  dispose(): void
   /** rows=null → 整条隐藏（归档态/空队列）；banner 为打断暂停的头部横幅。 */
   render(rows: FollowUpRow[] | null, banner: string | null, queueingEnabled: boolean, sessionId?: string): void
 }
@@ -353,7 +356,7 @@ export function RowMenu({ row, handlers, queueingEnabled, disabled, initialOpen 
   disabled: boolean
   initialOpen?: boolean
 }) {
-  const [open, setOpen] = useState(initialOpen)
+  const [open, setOpen] = useRetainedOpenState(initialOpen === true)
   const menuId = useId(), triggerId = useId()
   const rootRef = useRef<HTMLSpanElement>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
@@ -713,8 +716,8 @@ function FollowUpQueueBody({ store, container, handlers }: {
 export function mountFollowUpQueue(container: HTMLElement | null, handlers: FollowUpQueueHandlers): FollowUpQueueApi | null {
   if (!container) return null
   const store = createStore<QueueState>(() => ({ rows: null, banner: null, queueingEnabled: false, sessionId: '' })) as StoreApi<QueueState>
-  createRoot(container).render(<FollowUpQueueBody store={store} container={container} handlers={handlers} />)
-  return { render(rows, banner, queueingEnabled, sessionId = '') {
+  const activity = mountRetainedIsland(createRoot(container), () => <FollowUpQueueBody store={store} container={container} handlers={handlers} />)
+  return { setVisible: activity.setVisible, dispose: activity.dispose, render(rows, banner, queueingEnabled, sessionId = '') {
     store.setState({ rows: rows ? [...rows] : null, banner: banner ?? null, queueingEnabled, sessionId })
   } }
 }

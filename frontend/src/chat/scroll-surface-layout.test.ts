@@ -85,8 +85,9 @@ describe('outer proxy scrollbar', () => {
     expect(cssRule(STYLES_CSS, '#messages {')).toContain('overflow-anchor: none;')
     expect(cssRule(STYLES_CSS, '#messages {')).toContain('scrollbar-width: none;')
     expect(cssRule(STYLES_CSS, '#messages::-webkit-scrollbar {')).toContain('display: none;')
-    expect(cssRule(STYLES_CSS, '.side-messages {')).toContain('scrollbar-width: none;')
-    expect(cssRule(STYLES_CSS, '.side-messages::-webkit-scrollbar {')).toContain('display: none;')
+    expect(cssRule(STYLES_CSS, '.side-messages-slot {')).toContain('scrollbar-width: none;')
+    expect(cssRule(STYLES_CSS, '.side-messages {')).toContain('overflow: hidden;')
+    expect(cssRule(STYLES_CSS, '.side-messages-slot::-webkit-scrollbar {')).toContain('display: none;')
   })
 
   test('proxy is a 6px scroller pinned to the region right edge', () => {
@@ -104,7 +105,9 @@ describe('outer proxy scrollbar', () => {
 
   test('mounts for both columns and feeds directional input to their controllers', () => {
     expect(CHAT_TS).toContain("region: document.getElementById('main')")
-    expect(CHAT_TS).toContain("region: document.getElementById('side-chat-panel')")
+    // The side proxy binds lazily per retained runtime; its region is still the
+    // right-hand side panel, resolved when the viewport is bound.
+    expect(CHAT_TS).toContain("const region = document.getElementById('side-chat-panel')")
     // An actual proxy movement records its direction before writing the column.
     expect(CHAT_TS).toContain("mainScrollController.noteUserScrollIntent(direction === 'up' ? 'away' : 'toward')")
     expect(CHAT_TS).toContain("sideScrollController?.noteUserScrollIntent(direction === 'up' ? 'away' : 'toward')")

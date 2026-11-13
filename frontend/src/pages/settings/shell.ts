@@ -219,14 +219,18 @@ export function esc(str: unknown): string {
 }
 
 function prewarmCommandAndPluginViews(): void {
+  const targetWindow = hostWindow
+  const targetDocument = targetWindow?.document as Document | undefined
+  if (typeof targetDocument?.getElementById !== 'function') return
   const run = () => {
-    const pluginsContent = document.getElementById('plugins-view-content')
-    if (pluginsContent && pluginsContent.dataset.ready !== '1') w().reloadPluginsView?.()
-    const slashContent = document.getElementById('slash-commands-view-content')
-    if (slashContent && slashContent.dataset.ready !== '1') w().reloadSlashCommandsView?.()
+    if (typeof window === 'undefined' || window !== targetWindow || targetWindow.closed || targetWindow.document !== targetDocument) return
+    const pluginsContent = targetDocument.getElementById('plugins-view-content')
+    if (pluginsContent && pluginsContent.dataset.ready !== '1') targetWindow.reloadPluginsView?.()
+    const slashContent = targetDocument.getElementById('slash-commands-view-content')
+    if (slashContent && slashContent.dataset.ready !== '1') targetWindow.reloadSlashCommandsView?.()
   }
-  if (typeof w().requestIdleCallback === 'function') {
-    w().requestIdleCallback(run, { timeout: 2000 })
+  if (typeof targetWindow.requestIdleCallback === 'function') {
+    targetWindow.requestIdleCallback(run, { timeout: 2000 })
   } else {
     setTimeout(run, 900)
   }

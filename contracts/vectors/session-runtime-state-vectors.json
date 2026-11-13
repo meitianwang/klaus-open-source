@@ -1,9 +1,10 @@
 {
-  "reason": "Runtime recovery includes ordinary and side conversations from the host working registry without enumerating storage. Catalog visibility must not turn an active side conversation into a false idle verdict. Private and internal sessions remain excluded.",
+  "reason": "Runtime recovery reads explicit engine session status and the latest named turn outcome. Catalog omissions and host registry absences are not terminal evidence. Idle without a turn outcome triggers inspection and notLoaded preserves state. Ordinary and side conversations share this path; private and internal sessions remain excluded.",
   "channel": "session:runtime-state",
   "workingSessionIds": ["running-chat", "background-chat", "side-task"],
   "excludedSessionIds": ["private-chat"],
-  "idleConfirmations": 2,
+  "terminalAuthority": "explicit-named-turn-outcome",
+  "missingSessionVerdict": "unknown",
   "historicalRows": 5000,
   "expectedCatalogReadsDuringAudit": 0,
   "expectedConcurrentCatalogScans": 1

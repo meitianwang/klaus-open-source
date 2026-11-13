@@ -11,6 +11,7 @@ import { GoalSubmissionReceipts, goalAttachmentIntent, serializeGoalSubmissionIn
 import { canRestorePendingDraft, goalSubmissionUserUuid, setPendingSubmissionRecovery, clearPendingSubmissionRecovery, pendingSubmissionRecovery } from './composer/pending-submission'
 import { normalizeComposerDraft } from './composer/slash-draft'
 import { prepareComposerSubmission } from './composer/session-preparation'
+import { clientMessageId as userMessageClientId } from '../../../contracts/message-identity'
 import { runContextRowVisible } from './run-context'
 import { transcriptChromeState } from './transcript/chrome-state'
 
@@ -19,8 +20,8 @@ const store = await import('./stream-store')
 const source = readFileSync(new URL('./chat.ts', import.meta.url), 'utf8')
 const ast = createSourceFile('chat.ts', source, ScriptTarget.Latest, true)
 const names = new Set(['sendMessage', 'ensureSession', 'switchSession', 'reconcilePendingComposerSubmissions', 'currentPendingComposerSubmission', 'beginPendingComposerSubmission',
-  'promotePendingComposerSubmission', 'acceptPendingComposerSubmission', 'settlePendingComposerSubmission', 'stopPendingComposerSubmission',
-  'syncComposerContextRowVisibility', 'mainTranscriptChromeState', 'syncMainTranscriptChrome', 'retryUnsentSubmission', 'resurfaceUnsentSubmission'])
+  'createPendingComposerSubmissionRecord', 'promotePendingComposerSubmission', 'acceptPendingComposerSubmission', 'settlePendingComposerSubmission', 'stopPendingComposerSubmission',
+  'dismissPendingComposerSubmission', 'reconcileCancelledComposerAdmissions', 'syncComposerContextRowVisibility', 'mainTranscriptChromeState', 'syncMainTranscriptChrome', 'retryUnsentSubmission', 'resurfaceUnsentSubmission'])
 const functions = ast.statements.filter(node => isFunctionDeclaration(node) && names.has(node.name?.text || '')).map(node => node.getText(ast))
 const code = transpileModule(`${functions.join('\n')}\n({ sendMessage, switchSession, reconcilePendingComposerSubmissions, currentPendingComposerSubmission, stopPendingComposerSubmission, syncMainTranscriptChrome, ensureSession });`,
   { compilerOptions: { target: ScriptTarget.ES2022 } }).outputText
@@ -43,6 +44,8 @@ function fixture({ existing = false, goal = false, worktree = false } = {}) {
     goalInteractions: new GoalInteractionClock(), draftPromotion: new DraftSessionPromotion(), promoteInflight: null,
     sessions: [], sessionDeletePending: new Set(), draftOnlySessionIds: new Set(), sessionDrafts: new Map(), sessionPendingFiles: new Map(), runningSessions: new Set(),
     pendingComposerSubmissions: new Map(), visiblePendingSubmissionId: null,
+    sidePendingSubmissionIds: new Set<string>(), cancelledComposerAdmissions: new Map<string, any>(),
+    sideRuntimeForSession: () => undefined,
     mainTranscriptChromeSessionId: null,
     preparingSubmissions: createGoalSubmissionGate(), creatingGoalSessions: createGoalSubmissionGate(),
     busy: false, composerGoalEnabled: goal, pendingRunMode: worktree ? 'worktree' : 'local',
@@ -74,7 +77,7 @@ function fixture({ existing = false, goal = false, worktree = false } = {}) {
     renderPreviews() {}, renderSelectedSlashCommand() {}, autoResize() {}, hideSlashMenu() {}, hideComposerPlusMenu() {},
     syncBusyForCurrentSession: () => { c.busy = !!api.currentPendingComposerSubmission() || !!store.getSessionStream(c.window.currentSessionId || '').running },
     syncMainTranscriptChrome() {}, showToast() {}, tt: (key: string) => key,
-    ...store, canRestorePendingDraft, goalSubmissionUserUuid, setPendingSubmissionRecovery, clearPendingSubmissionRecovery,
+    ...store, canRestorePendingDraft, goalSubmissionUserUuid, setPendingSubmissionRecovery, clearPendingSubmissionRecovery, userMessageClientId,
     parseBtwSlashInput: () => null, parseCompactSlashInput: () => null, composerGoalEligible: () => true,
     ensureComposerModelConfigured: () => { calls.push('model'); return model.promise }, hasUploadInFlight: () => false,
     isWorktreeSessionWorkdir: () => false, refreshWorktreeAvailability: async () => 'available',
@@ -331,9 +334,13 @@ test('failed creation provides a recovery action while preserving a newer draft'
 })
 
 test('Stop while goal acknowledgement is pending interrupts its admitted owner after acknowledgement', async () => {
-  const f = fixture({ goal: true }), task = f.api.sendMessage()
+  const f = fixture({ goal: true }), task = f.api.sendMessage(), pending = f.api.currentPendingComposerSubmission()
   f.model.resolve(true); await drain(); f.resolveCreation()
   for (let i = 0; i < 20 && !f.goals.length; i++) await new Promise(done => setTimeout(done, 1))
+  // The engine surfaces the admitted turn before the acknowledgement returns: its
+  // runtime status opens the turn and the owned user echo binds the exact input.
+  store.ingestChatEvent({ type: 'session_runtime_status', sessionId: f.hostId, status: 'active', turnId: 'goal-turn-1' })
+  store.ingestChatEvent({ type: 'user_message', sessionId: f.hostId, turnId: 'goal-turn-1', message: { uuid: pending.uuid, message: { content: 'Build the authored task' } } } as any)
   expect(f.api.stopPendingComposerSubmission()).toBe(true)
   f.goalAck.resolve({ ok: true, goal: { status: 'active' }, goalRevision: 1, admission: 'scheduled' })
   await task
@@ -351,6 +358,9 @@ test('an uncertain goal acknowledgement is never resubmitted and a late owned ec
   expect(f.goals).toHaveLength(1)
   expect(f.draft().text).toBe('')
   store.ingestChatEvent({ type: 'session_runtime_status', sessionId: f.hostId, status: 'active', turnId: 'late-goal-turn' })
+  // Only an owned echo — the canonical user row carrying the submission identity —
+  // reconciles the uncertain record; session-only runtime status never adopts it.
+  store.ingestChatEvent({ type: 'user_message', sessionId: f.hostId, turnId: 'late-goal-turn', message: { uuid: pending.uuid, message: { content: 'Build the authored task' } } } as any)
   f.api.reconcilePendingComposerSubmissions()
   expect(pendingSubmissionRecovery(pending.uuid)).toBeUndefined()
   expect(store.getSessionStream(f.hostId).turnWorkStartedAtMs['late-goal-turn']).toBe(pending.startedAtMs)
@@ -413,6 +423,9 @@ test('a completed goal echo survives reconciliation when its acknowledgement is 
   f.model.resolve(true); await drain(); f.resolveCreation()
   for (let i = 0; i < 20 && !f.goals.length; i++) await new Promise(done => setTimeout(done, 1))
   store.ingestChatEvent({ type: 'session_runtime_status', sessionId: f.hostId, status: 'active', turnId: 'completed-before-ack' })
+  // The completed echo arrives as the canonical user row owning the submission
+  // identity, before the acknowledgement is lost and before any history load.
+  store.ingestChatEvent({ type: 'user_message', sessionId: f.hostId, turnId: 'completed-before-ack', message: { uuid: pending.uuid, message: { content: 'Build the authored task' } } } as any)
   const before = store.getSessionStream(f.hostId)
   store.chatStreamStore.setState({ sessions: { ...store.chatStreamStore.getState().sessions, [f.hostId]: {
     ...before, running: false, activeTurnId: null, lastTerminalStatus: 'completed',

@@ -5,8 +5,10 @@
 // renderer code rather than a copy of it.
 import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
+import { randomUUID } from 'node:crypto'
 import { runInNewContext } from 'node:vm'
 import ts from 'typescript'
+import { clientMessageId as userMessageClientId } from '../../../contracts/message-identity'
 import type { ClientQueueSnapshotEvent, ClientQueueRow, ClientQueueSnapshot, QueuedFollowUpDispatchedEvent } from './engine-events'
 import { browserTabMentionUri, type BrowserTabMention } from '../../../shared/browser-tab-mention'
 import { browserTabReference } from './composer/browser-tab-reference'
@@ -42,7 +44,13 @@ interface Ingress {
 function renderer(currentSessionId = 'conversation', options: { sideSessionId?: string | null } = {}) {
   const cache = new Map<string, ClientQueueSnapshot>()
   const bubbles: Array<{ sessionId: string; text: string }> = []
+  // Parallel record of each bubble's client identity so a retraction removes
+  // exactly the optimistic row it drew, mirroring the production store rule.
+  const bubbleUuids: Array<string | undefined> = []
+  const streams = new Map<string, { activeTurnId: string | null; liveTurnId: string | null; turnStartedAtMs: Record<string, number>; turnStartedAt?: number; liveUnits: unknown[]; history?: unknown[] }>()
   const notices: Array<{ error?: string }> = []
+  // follow_up_status lifecycle events are recorded apart from user-visible errors.
+  const deliveries: Array<{ type?: string; state?: string }> = []
   const steerRequests: unknown[][] = []
   // What the engine's steer replies with; a test flips this to model a refusal.
   let steerReply: { ok?: boolean; messageId?: string; error?: string; unconfirmed?: boolean; removed?: boolean } = { ok: true, messageId: 'steered-1' }
@@ -77,8 +85,25 @@ function renderer(currentSessionId = 'conversation', options: { sideSessionId?: 
     sideScrollController: { prepareLatestTurnPlacement: () => { sidePlacements++ } },
     sideRuntimeForSession: (id: string) => id === sideSessionId ? { preparePlacement: () => { sidePlacements++ } } : undefined,
     showTranscriptSurface() {}, noteCommandReference() {}, syncComposerContextRowVisibility() {},
-    ingestLocalUserTurn: (_sessionId: string, payload: { text?: string; displayText?: string }) => {
+    ingestLocalUserTurn: (_sessionId: string, payload: { text?: string; displayText?: string; uuid?: string }) => {
       bubbles.push({ sessionId: _sessionId, text: String(payload?.displayText || payload?.text || '') })
+      bubbleUuids.push(payload?.uuid)
+    },
+    crypto: { randomUUID },
+    userMessageClientId,
+    // Every conversation in these vectors steers into a running turn; the queue
+    // ingress test owns placement assertions, not turn bookkeeping.
+    getSessionStream: (id: string) => {
+      let stream = streams.get(id)
+      if (!stream) {
+        stream = { activeTurnId: `${id}-turn`, liveTurnId: null, turnStartedAtMs: {}, turnStartedAt: undefined, liveUnits: [], history: [] }
+        streams.set(id, stream)
+      }
+      return stream
+    },
+    retractLocalUserMessage: (sessionId: string, identity: string) => {
+      const index = bubbleUuids.findIndex((uuid, position) => uuid === identity && bubbles[position]?.sessionId === sessionId)
+      if (index >= 0) { bubbleUuids.splice(index, 1); bubbles.splice(index, 1) }
     },
     get sideSurfaceSessionId() { return sideSessionId },
     setSideSession: (id: string | null) => {
@@ -92,7 +117,12 @@ function renderer(currentSessionId = 'conversation', options: { sideSessionId?: 
     // steerFollowUp records the bubble it drew here; the queue bar reads it back.
     locallySentSteerIdsBySession: new Map<string, Set<string>>(),
     klausApi: { chat: { followUp: async (...request: unknown[]) => { steerRequests.push(request); return steerReply } } },
-    ingestChatEvent: (event: { error?: string }) => { notices.push(event) },
+    // Only error notices are user-visible failures here; follow_up_status
+    // delivery events belong to the store lifecycle and are recorded separately.
+    ingestChatEvent: (event: { type?: string; error?: string }) => {
+      if (!event?.type || event.type === 'api_error') notices.push(event)
+      else deliveries.push(event)
+    },
   }
   runInNewContext(code, sandbox)
   const ingress = sandbox as unknown as Ingress

@@ -8,6 +8,7 @@ import { referencesFromEditor as documentReferencesFromEditor } from './composer
 import { expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { runInNewContext } from 'node:vm'
+import { installPendingSubmissionFixture } from './test-support/pending-submission-fixture'
 import { createSourceFile, forEachChild, isBinaryExpression, isExpressionStatement, isFunctionDeclaration, ModuleKind, ScriptKind, ScriptTarget, transpileModule } from 'typescript'
 import * as inlineQuotes from './composer/inline-quote'
 import { scrollCaretIntoView } from './composer/caret-scroll'
@@ -23,7 +24,7 @@ if (typeof window === 'undefined') (globalThis as any).window = { addEventListen
 const { isThinkingLevelValue, isThinkingLevelForModel, mainModelMenuValue } = await import('./composer/model-select')
 const { modelOptionForValue } = await import('../../../shared/cursor-model-catalog')
 import vectors from '../../../contracts/vectors/side-task-feedback-vectors.json'
-import { createSidePanePlacement } from './panels/side-pane-placement'
+import { createSidePanePlacement, sidePaneElementId, identifySidePaneComposer } from './panels/side-pane-placement'
 
 // Run the real draft lifecycle, quote insertion and surface binding together.
 // Only DOM geometry and host effects are supplied by the fixture.
@@ -32,7 +33,7 @@ const ast = createSourceFile('chat.ts', source, ScriptTarget.ESNext, true, Scrip
 const functionNames = new Set(['inlineQuoteEntries', 'sideInlineQuoteEntries', 'sideComposedInputText', 'sideComposedInputDraft', 'sideSetComposerDraft', 'sideAddSelection', 'sideUpload',
   'uploadAttachment', 'sideAttachmentRetained', 'removeSideAttachment', 'attachSidePastedText', 'handleSideComposerPaste',
   'addSideFiles', 'addSideFilePaths', 'filesFromClipboardData', 'filePathsFromClipboardData', 'clipboardLooksFileLike',
-  'inlineQuoteDocumentData', 'sideAutoResize', 'sideDraftUnchanged', 'sideSubmit', 'sideSubmitNow', 'sideSubmitRunningFollowUp', 'updateSideSendButton', 'releaseSideDeferredSend', 'refreshSideComposerModel'])
+  'hideSideComposer', 'inlineQuoteDocumentData', 'sideAutoResize', 'sideDraftUnchanged', 'sideSubmit', 'sideSubmitNow', 'sideSubmitRunningFollowUp', 'updateSideSendButton', 'releaseSideDeferredSend', 'refreshSideComposerModel'])
 const hookNames = new Set(['klausSideComposerBind', 'klausSideComposerPrepare', 'klausSideComposerPromote', 'klausSideComposerDiscard',
   'klausSideComposerAddSelection', 'klausSideSurfaceActivate', 'klausSideSurfaceClear', 'klausSideSurfaceRemove', 'klausSideSurfaceSessionId'])
 const declarations: string[] = []
@@ -66,7 +67,7 @@ function element() {
     selectionStart: 0, selectionEnd: 0, focus() {}, remove() {},
     setSelectionRange(start: number, end: number) { this.selectionStart = start; this.selectionEnd = end },
     setAttribute: (name: string, value: string) => { attributes.set(name, value) },
-    getAttribute: (name: string) => attributes.get(name), toggleAttribute() {},
+    getAttribute: (name: string) => attributes.get(name), removeAttribute: (name: string) => { attributes.delete(name) }, toggleAttribute() {},
     classList: { add: (...names: string[]) => { names.forEach(name => classes.add(name)) }, remove: (...names: string[]) => { names.forEach(name => classes.delete(name)) },
       toggle: (name: string, active: boolean) => { if (active) classes.add(name); else classes.delete(name) }, contains: (name: string) => classes.has(name) },
   }
@@ -180,12 +181,18 @@ export function createSideComposerFixture() {
     retainsAttachment: (entry: Entry) => context.sidePendingFiles.includes(entry),
   }
   Object.assign(context, {
-    runtime, sidePaneRuntimes: new Map([['right', runtime]]), sidePanePlacement: createSidePanePlacement(), sidePanePlacements: ['right'],
+    runtime, sidePaneRuntimes: new Map([['right', runtime]]), retainedSideRuntimes: new Map(),
+    sidePaneElementId, identifySidePaneComposer, sidePanePlacement: createSidePanePlacement(), sidePanePlacements: ['right'],
+    // This unit fixture exercises draft serialization in one extracted closure.
+    // Full retained editor construction and independent pane state are tested
+    // with real activation handlers in side-pane-composer.test.ts.
+    activateSideComposer: () => runtime,
     sideRuntime: () => runtime, sideRuntimeForSession: (id: string) => runtime.sessionId === id ? runtime : undefined,
     setSidePaneSession: (_runtime: unknown, id: string | null) => { context.sideSurfaceSessionId = id },
     showLeftSidePane() {},
     refreshSideAttachmentPanes: (entry: Entry) => { if (context.sidePendingFiles.includes(entry)) { context.sideRenderPreviews(); api.releaseSideDeferredSend() } },
   })
+  installPendingSubmissionFixture(context)
   api = runInNewContext(script, context)
   context.window.klausUpdateSideSendButton = api.updateSideSendButton
   return { context, window: context.window, input, button, model, calls, api, running, viewportSnapshots,

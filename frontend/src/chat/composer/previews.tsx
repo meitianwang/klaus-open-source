@@ -25,6 +25,7 @@ export interface PreviewsActions {
 
 export interface PreviewsApi {
   render(entries: PreviewEntry[]): void
+  dispose(): void
 }
 
 const tt = (key: string): string => (window as any).tt?.(key) || ''
@@ -126,8 +127,10 @@ function PreviewsList({ store, actions, container }: {
 export function mountPreviews(container: HTMLElement | null, actions: PreviewsActions): PreviewsApi | null {
   if (!container) return null
   const store = createStore<{ entries: PreviewEntry[] }>(() => ({ entries: [] })) as StoreApi<{ entries: PreviewEntry[] }>
-  createRoot(container).render(<PreviewsList store={store} actions={actions} container={container} />)
+  const root = createRoot(container)
+  root.render(<PreviewsList store={store} actions={actions} container={container} />)
   return {
+    dispose() { root.unmount() },
     render(entries) {
       store.setState({ entries: [...entries] })
     },

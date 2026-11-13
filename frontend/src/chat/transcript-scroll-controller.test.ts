@@ -16,6 +16,8 @@ class ScrollElement extends EventTarget {
   parentElement: ScrollElement | null = null
   children: ScrollElement[] = []
   spacer: ScrollElement | null = null
+  scrollWrites = 0
+  roundScroll = false
   private top = 0
   private properties = new Map<string, string>()
   style: { height: string; getPropertyValue: (name: string) => string; setProperty: (name: string, value: string) => void } = {
@@ -25,7 +27,10 @@ class ScrollElement extends EventTarget {
   field = false
   get scrollHeight(): number { return this.contentHeight + (Number.parseFloat(this.spacer?.style.height ?? '') || 0) }
   get scrollTop(): number { return this.top }
-  set scrollTop(value: number) { this.top = Math.min(Math.max(0, value), Math.max(0, this.scrollHeight - this.clientHeight)) }
+  set scrollTop(value: number) {
+    this.scrollWrites++
+    this.top = Math.min(Math.max(0, this.roundScroll ? Math.round(value) : value), Math.max(0, this.scrollHeight - this.clientHeight))
+  }
   closest(): ScrollElement | null { return this.field ? this : null }
   getClientRects(): unknown[] { return this.visible ? [{}] : [] }
   getBoundingClientRect(): { top: number; bottom: number; height: number } { return { top: 0, bottom: this.clientHeight, height: this.clientHeight } }
@@ -44,7 +49,9 @@ const globals = globalThis as any
 const names = ['HTMLElement', 'document', 'ResizeObserver', 'MutationObserver', 'requestAnimationFrame', 'cancelAnimationFrame']
 const originals = Object.fromEntries(names.map(name => [name, globals[name]]))
 let documentEvents: EventTarget
-let observers: Array<{ fire(): void; disconnected: boolean }>
+type Observer = { fire(): void; deliver(): void; disconnected: boolean; observed: Set<Element> }
+let observers: Observer[]
+let mutations: Observer[]
 let frames: Map<number, FrameRequestCallback>
 let nextFrame = 0
 let frameTime = 0
@@ -72,12 +79,24 @@ const fixture = (options: { distance?: number; spacer?: boolean; height?: number
 beforeAll(() => {
   globals.HTMLElement = ScrollElement
   globals.ResizeObserver = class {
-    record: { fire(): void; disconnected: boolean }
-    constructor(callback: () => void) { this.record = { fire: () => { if (!this.record.disconnected) callback() }, disconnected: false }; observers.push(this.record) }
-    observe() {} unobserve() {}
+    record: Observer
+    constructor(callback: () => void) {
+      this.record = { fire: () => { if (!this.record.disconnected) callback() }, deliver: callback, disconnected: false, observed: new Set() }
+      observers.push(this.record)
+    }
+    observe(element: Element) { this.record.observed.add(element) }
+    unobserve(element: Element) { this.record.observed.delete(element) }
     disconnect() { this.record.disconnected = true }
   }
-  globals.MutationObserver = undefined
+  globals.MutationObserver = class {
+    record: Observer
+    constructor(callback: () => void) {
+      this.record = { fire: () => { if (!this.record.disconnected) callback() }, deliver: callback, disconnected: false, observed: new Set() }
+      mutations.push(this.record)
+    }
+    observe(element: Element) { this.record.observed.add(element) }
+    disconnect() { this.record.disconnected = true }
+  }
   globals.requestAnimationFrame = (callback: FrameRequestCallback) => { const id = ++nextFrame; frames.set(id, callback); return id }
   globals.cancelAnimationFrame = (id: number) => { frames.delete(id) }
 })
@@ -85,6 +104,7 @@ beforeEach(() => {
   documentEvents = new EventTarget()
   globals.document = Object.assign(documentEvents, { hidden: false })
   observers = []
+  mutations = []
   frames = new Map()
   frameTime = performance.now()
 })
@@ -246,6 +266,206 @@ describe('transcript scroll input ownership', () => {
     expect(transcriptScrollControllerFor(asElement(child))).toBe(replacement)
     release()
     expect(transcriptScrollControllerFor(asElement(child))).toBeNull()
+  })
+})
+
+describe('retained transcript visibility', () => {
+  test('inactive layout notifications and input cannot overwrite the saved reading state', () => {
+    const { element, controller } = fixture({ distance: 400 })
+    const staleObservers = [...observers, ...mutations]
+    controller.prepareMeasuredLayout()
+    const staleFrames = [...frames.values()]
+    controller.setActive(false)
+    element.contentHeight = 0; element.clientHeight = 0
+    const writes = element.scrollWrites
+    element.wheel(100); element.emit('scroll')
+    element.emit('keydown', { key: 'End' })
+    documentEvents.dispatchEvent(new Event('visibilitychange'))
+    for (const observer of staleObservers) observer.deliver()
+    for (const frame of staleFrames) frame(frameTime + 500)
+    controller.compensateScrollToDistanceFromBottomPx(0)
+    controller.scrollToDistanceFromBottomPx(0, 'instant', 'user')
+    controller.scrollToBottom()
+    controller.prepareMeasuredLayout()
+    expect(element.scrollWrites).toBe(writes)
+    expect(controller.getLastScrollDistanceFromBottomPx()).toBe(400)
+    expect(controller.isScrolledFromBottom()).toBe(true)
+    expect(controller.shouldFollowContentGrowth()).toBe(false)
+    expect(frames.size).toBe(0)
+    expect(staleObservers.every(observer => observer.disconnected)).toBe(true)
+    element.contentHeight = 2600; element.clientHeight = 800
+    controller.setActive(true)
+    expect(distanceFromBottom(asElement(element))).toBe(400)
+    element.wheel(400); element.moveToDistance(24)
+    expect(controller.shouldFollowContentGrowth()).toBe(true)
+  })
+
+  test('restoring the same registered controller retains fractional distance, spacer and pending placement', () => {
+    const { element, controller } = fixture({ distance: 400, spacer: true })
+    const unregister = registerTranscriptScrollController(controller)
+    element.roundScroll = true
+    controller.compensateScrollToDistanceFromBottomPx(400.25)
+    const spacer = { getHeightPx: () => 100, scrollToBottom() {} }
+    controller.responseSpacerController.register(spacer)
+    controller.prepareLatestTurnPlacement('before-hide')
+    controller.setActive(false)
+    element.contentHeight = 0; element.clientHeight = 0
+    controller.prepareLatestTurnPlacement('while-hidden')
+    element.contentHeight = 2400; element.clientHeight = 800
+    controller.setActive(true)
+    expect(transcriptScrollControllerFor(asElement(element))).toBe(controller)
+    expect(distanceFromBottom(asElement(element))).toBe(400)
+    expect(controller.getUnroundedScrollDistanceFromBottomPx(400)).toBe(400.25)
+    expect(controller.shouldFollowContentGrowth()).toBe(false)
+    expect(controller.isScrolledFromBottom()).toBe(true)
+    expect(controller.getResponseSpacer()).toBe(spacer)
+    for (const id of ['before-hide', 'while-hidden']) {
+      expect(controller.consumePendingLatestTurnPlacement(id)).toEqual({
+        distanceFromBottomPx: 400, scrollHeightPx: 2000, shouldPlaceLatestTurn: true,
+      })
+    }
+    unregister()
+  })
+
+  test('queued observers from an earlier visibility period cannot move the restored viewport', () => {
+    const { element, controller } = fixture()
+    const old = [...observers, ...mutations]
+    controller.setActive(false)
+    const child = new ScrollElement(); element.children = [child]
+    element.contentHeight += 300
+    controller.setActive(true)
+    expect(controller.shouldFollowContentGrowth()).toBe(true)
+    expect(distanceFromBottom(asElement(element))).toBe(0)
+    expect(observers.slice(2).every(observer => observer.observed.has(asElement(child)))).toBe(true)
+    element.contentHeight += 100
+    const writes = element.scrollWrites
+    for (const observer of old) observer.deliver()
+    expect(element.scrollWrites).toBe(writes)
+    expect(distanceFromBottom(asElement(element))).toBe(100)
+    for (const observer of observers.slice(2)) observer.fire()
+    expect(distanceFromBottom(asElement(element))).toBe(0)
+    expect(controller.getLastScrollDistanceFromBottomPx()).toBe(0)
+  })
+
+  test('activation before visible layout preserves fractional reading distance until the viewport has size', () => {
+    const { element, controller } = fixture({ distance: 400 })
+    element.roundScroll = true
+    controller.compensateScrollToDistanceFromBottomPx(400.25)
+    controller.setActive(false)
+    element.contentHeight = 0; element.clientHeight = 0
+    const writes = element.scrollWrites
+    controller.setActive(true)
+    for (const observer of observers) observer.fire()
+    expect(element.scrollWrites).toBe(writes)
+    expect(controller.getLastScrollDistanceFromBottomPx()).toBe(400)
+    expect(controller.getUnroundedScrollDistanceFromBottomPx(400)).toBe(400.25)
+    element.contentHeight = 2400; element.clientHeight = 800
+    for (const observer of observers) observer.fire()
+    expect(distanceFromBottom(asElement(element))).toBe(400)
+    expect(controller.getUnroundedScrollDistanceFromBottomPx(400)).toBe(400.25)
+    expect(controller.shouldFollowContentGrowth()).toBe(false)
+  })
+
+  test('hiding stops an animation once and stale frames cannot restart it after restoration', () => {
+    const { element, controller } = fixture({ distance: 400, reducedMotion: false })
+    let stopped = 0
+    controller.scrollToBottom({ onStop: () => { stopped++ } })
+    tick(80); element.emit('scroll')
+    const saved = controller.getLastScrollDistanceFromBottomPx()
+    const staleFrames = [...frames.values()]
+    controller.setActive(false)
+    const writes = element.scrollWrites
+    for (const frame of staleFrames) frame(frameTime + 500)
+    expect(element.scrollWrites).toBe(writes)
+    expect(stopped).toBe(1)
+    expect(frames.size).toBe(0)
+    element.contentHeight += 200
+    controller.setActive(true)
+    expect(distanceFromBottom(asElement(element))).toBeCloseTo(saved)
+    const restoredWrites = element.scrollWrites
+    for (const frame of staleFrames) frame(frameTime + 1000)
+    expect(element.scrollWrites).toBe(restoredWrites)
+    expect(stopped).toBe(1)
+    expect(controller.shouldFollowContentGrowth()).toBe(true)
+  })
+
+  test('hidden short content keeps its history owner without fetching until it becomes active', async () => {
+    const { element, controller } = fixture({ height: 820 })
+    const pages: string[] = []
+    controller.setActive(false)
+    controller.setOlderHistoryLoader(asElement(element), async () => {
+      pages.push('retained owner')
+      element.contentHeight += 200
+      return 'stop'
+    })
+    await settle()
+    for (const observer of [...observers, ...mutations]) observer.deliver()
+    expect(pages).toEqual([])
+    controller.setActive(true)
+    await settle()
+    expect(pages).toEqual(['retained owner'])
+    expect(element.scrollHeight).toBe(1020)
+  })
+
+  test('an in-flight top-boundary page pauses continuation while hidden and resumes its retained owner', async () => {
+    const { element, controller } = fixture({ distance: 1200 })
+    const pages: string[] = []
+    let finish!: (result: 'continue') => void
+    controller.setOlderHistoryLoader(asElement(element), async () => {
+      pages.push('retained owner')
+      if (pages.length === 1) return new Promise<'continue'>(resolve => { finish = resolve })
+      element.contentHeight += 200; element.scrollTop = 100
+      return 'stop'
+    })
+    element.wheel(-20)
+    expect(pages).toEqual(['retained owner'])
+    controller.setActive(false)
+    finish('continue')
+    await settle()
+    expect(pages).toEqual(['retained owner'])
+    controller.setActive(true)
+    await settle()
+    expect(pages).toEqual(['retained owner', 'retained owner'])
+    expect(element.scrollTop).toBe(100)
+  })
+
+  test('destroyed inactive controllers never reconnect or restart retained history', async () => {
+    const { element, controller } = fixture({ height: 820 })
+    const pages: string[] = []
+    controller.setActive(false)
+    controller.setOlderHistoryLoader(asElement(element), async () => { pages.push('unexpected'); return 'stop' })
+    controller.destroy()
+    const writes = element.scrollWrites
+    controller.setActive(true)
+    element.wheel(-20); element.emit('scroll')
+    for (const observer of [...observers, ...mutations]) observer.deliver()
+    controller.scrollToBottom()
+    await settle()
+    expect(element.scrollWrites).toBe(writes)
+    expect(pages).toEqual([])
+    expect(observers.every(observer => observer.disconnected)).toBe(true)
+  })
+
+  test('reactivation waits for an outstanding page before switching to the currently visible history owner', async () => {
+    const { controller } = fixture({ height: 820 })
+    const previous = new ScrollElement(), current = new ScrollElement()
+    current.visible = false
+    const pages: string[] = []
+    let finish!: (result: 'continue') => void
+    controller.setOlderHistoryLoader(asElement(previous), async () => {
+      pages.push('previous owner')
+      return new Promise<'continue'>(resolve => { finish = resolve })
+    })
+    await settle()
+    controller.setActive(false)
+    previous.visible = false; current.visible = true
+    controller.setOlderHistoryLoader(asElement(current), async () => { pages.push('current owner'); return 'stop' })
+    controller.setActive(true)
+    await settle()
+    expect(pages).toEqual(['previous owner'])
+    finish('continue')
+    await settle()
+    expect(pages).toEqual(['previous owner', 'current owner'])
   })
 })
 

@@ -28,6 +28,11 @@
     }
   },
   "nativeInput": [{ "type": "text", "text": "Inspect the attachment\n\nAttached:\n- /managed/uploads/notes.txt" }],
+  "literalInput": {
+    "reason": "Admission attribution is metadata. A queued authored literal must never be removed from durable input when dispatched as a steer.",
+    "content": [{ "type": "text", "text": "<!-- klaus-steered-message -->" }, { "type": "text", "text": "body" }],
+    "displayMetadata": { "inputPresentation": { "version": 1, "kind": "steer" } }
+  },
   "imageOnly": {
     "id": "image-only",
     "displayText": "",

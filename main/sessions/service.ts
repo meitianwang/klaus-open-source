@@ -32,6 +32,8 @@ import { bindFriendConversationGroup, friendConversationGroups, type FriendConve
 import type { FriendContinuationAssociation } from '../services/friend-message-store';
 import { friendFilesRoots } from '../services/friend-directory';
 import { createHash, randomUUID } from 'node:crypto';
+import type { SessionRuntimeRead, SessionRuntimeSnapshot } from '../../contracts/session-runtime';
+import { clientMessageId } from '../../contracts/message-identity';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { closeSync, openSync, readSync, readdirSync } from 'node:fs';
 import { persistentSessionIdentity, scratchDirectory, removeScratchDirectory, removeSessionSidecars } from './cleanup';
@@ -68,7 +70,7 @@ import type { WorkspaceStore } from '../services/workspaces';
 import type { ExtensionDiscovery } from '../services/extensions/discovery';
 import { DirectoryLeases } from '../services/directory-leases';
 import { buildMessageInput } from '../services/attachments';
-import { withSteerMarker } from '../../contracts/steer-marker';
+import { inputKind, presentUserInput, withInputPresentation } from '../../contracts/steer-marker';
 import { editPrepareFromRow, historyTurnIds, planEditResend, planRewind, rawHistoryMessages, resolveEditTarget, userDisplayMetadata, userMessageUuidForTurn } from './lifecycle';
 import { SideQuestions, querySideQuestion, type SideQuestionIdentity, type SideQuestionInput } from './side-questions';
 import { MentionTitleOverrides, SessionMentionCatalog } from '../services/session-mention-catalog';
@@ -1179,6 +1181,67 @@ export class SessionService {
   private hasContinuingGoal(id: string): boolean { return this.deps.state.workflows.goal(id)?.goal?.status === 'active' && this.deps.state.workflows.mode(id)?.mode !== 'plan'; }
 
   /** Engine lifecycle status for one session changed; drive stream retention from it. */
+  async runtimeState(sessionIds?: readonly string[]): Promise<SessionRuntimeRead> {
+    const owner = this.attached;
+    const requested = sessionIds ? new Set(sessionIds) : null;
+    const bindings = this.deps.state.bindings().filter(row => (!requested || requested.has(row.rendererId)) && this.isRuntimeVisible(row.rendererId));
+    const sessions: SessionRuntimeSnapshot[] = [], unavailableSessionIds: string[] = [];
+    if (!owner || owner.client.isClosed()) return { sessions, workingSessionIds: [], unavailableSessionIds: bindings.map(row => row.rendererId) };
+    await Promise.all(bindings.map(async binding => {
+      try {
+        // This read inspects lifecycle only. It never replaces transcript state
+        // or invents completion from a missing entry in the host's registry.
+        const result = object(await this.request('engine/readThread', { threadId: binding.rendererId, limit: 1 }));
+        this.ensureCurrentClient(owner.client);
+        if (this.deps.state.liveSession(binding.rendererId) !== binding.engineId) throw new Error('Session binding changed');
+        const status = object(object(result?.thread)?.status), turn = Array.isArray(result?.turns) ? object(result.turns[0]) : undefined;
+        if (!status || !['active', 'idle', 'notLoaded'].includes(String(status.type))) throw new Error('Invalid session status');
+        const nativeItems = Array.isArray(turn?.items) ? turn.items : [];
+        const canonicalUserIds = new Set(nativeItems.flatMap(value => {
+          const item = object(value);
+          return item && ['userMessage', 'user_message'].includes(String(item.type)) && typeof item.id === 'string' ? [item.id] : [];
+        }));
+        const nativeOpener = nativeItems.map(object).find(item => item && ['userMessage', 'user_message'].includes(String(item.type)));
+        const nativeOpenerId = typeof nativeOpener?.id === 'string' ? nativeOpener.id : undefined;
+        // Inspection already carries exact provider-invisible presentation records.
+        // Only the opener's own UUID may supply its submitted identity.
+        const nativeClientId = (() => {
+          if (!nativeOpenerId) return undefined;
+          for (let index = nativeItems.length - 1; index >= 0; index--) {
+            const item = object(nativeItems[index]), message = object(item?.message);
+            if (item?.type !== 'klausMessage' || message?.type !== 'system'
+              || message.subtype !== 'user_display' || typeof message.text !== 'string') continue;
+            try {
+              const envelope = object(JSON.parse(message.text) as Json), metadata = object(envelope?.localRender);
+              if (envelope?.messageUuid !== nativeOpenerId) continue;
+              if (presentUserInput(nativeOpener?.content, metadata).steered
+                || inputKind(metadata) === undefined && metadata?.steerMessageId !== undefined) return undefined;
+              const identity = clientMessageId(metadata);
+              if (identity) return identity;
+            } catch { /* A malformed presentation record proves no identity. */ }
+          }
+          return undefined;
+        })();
+        const submittedClientId = clientMessageId(turn) ?? nativeClientId ?? (typeof turn?.id === 'string'
+          ? this.deps.state.turnClientMessageId(binding.rendererId, binding.engineId, turn.id)
+            ?? this.deps.state.bindSubmittedTurnFromMessages(binding.rendererId, binding.engineId, turn.id, canonicalUserIds) : undefined);
+        if (typeof turn?.id === 'string' && ['completed', 'failed', 'interrupted'].includes(String(turn.status))) {
+          this.deps.state.settleSubmittedTurn(binding.rendererId, binding.engineId, new Set([turn.id]));
+        }
+        sessions.push({ sessionId: binding.rendererId, status: status.type as SessionRuntimeSnapshot['status'],
+          ...(Array.isArray(status.activeFlags) ? { activeFlags: status.activeFlags.filter((flag): flag is string => typeof flag === 'string') } : {}),
+          ...(turn && typeof turn.id === 'string' && typeof turn.status === 'string' ? { turn: {
+            id: turn.id, status: turn.status, startedAt: typeof turn.startedAt === 'number' ? turn.startedAt : null,
+            completedAt: typeof turn.completedAt === 'number' ? turn.completedAt : null,
+            ...(submittedClientId ? { clientMessageId: submittedClientId } : {}),
+            ...(typeof object(turn.error)?.message === 'string' ? { error: object(turn.error)!.message as string } : {}),
+          } } : {}),
+        });
+      } catch { unavailableSessionIds.push(binding.rendererId); }
+    }));
+    return { sessions, unavailableSessionIds, workingSessionIds: sessions.filter(row => row.status === 'active').map(row => row.sessionId) };
+  }
+
   private noteEngineSessionStatus(engineId: string, status: Json | undefined): void {
     const type = object(status)?.type;
     if (typeof type !== 'string') return;
@@ -4310,7 +4373,7 @@ export class SessionService {
       // delegation and channel paths' admission push, including the display
       // snapshot the engine persists as its provider-invisible metadata row.
       const metadata = object(payload.displayMetadata) ?? {};
-      const localRender = Object.keys(metadata).length ? metadata : undefined;
+      const localRender = withInputPresentation(metadata, 'turn');
       this.deps.pushChatEvents([{ type: 'user_message', sessionId: rendererId, message: {
         type: 'user', uuid: randomMessageId(), timestamp: new Date().toISOString(),
         message: { role: 'user', content: typeof payload.text === 'string' ? payload.text : '',
@@ -4427,7 +4490,7 @@ export class SessionService {
               // provider-invisible metadata row, so the live bubble and history replay
               // render one human-facing text; a channel envelope must not leak into it.
               const metadata = object(payload.displayMetadata) ?? {};
-              const localRender = Object.keys(metadata).length ? metadata : undefined;
+              const localRender = withInputPresentation(metadata, 'turn');
               this.deps.pushChatEvents([{ type: 'user_message', sessionId: rendererId, message: {
                 type: 'user', uuid: randomMessageId(), timestamp: new Date().toISOString(),
                 message: { role: 'user', content: typeof payload.text === 'string' ? payload.text : '',
@@ -4659,16 +4722,22 @@ export class SessionService {
       admission?.admitted();
       // Language is a live UI preference; an existing session must read it again
       // before generating the next delegated task's title.
-      const turnOptions = object(options) ?? {};
+      const turnOptions: Record<string, Json> = { ...object(options), displayMetadata: withInputPresentation(object(options)?.displayMetadata, 'turn') };
       const systemPromptAppend = [turnOptions.systemPromptAppend, subagentTitleDirective(this.configRoot)].filter(Boolean).join('\n\n');
-      const issue = (): void => { observation?.beforeIssue?.(); if (observation) observation.issued = true; };
+      const issue = (): void => {
+        observation?.beforeIssue?.();
+        const metadata = turnOptions.displayMetadata;
+        const submittedClientId = clientMessageId(metadata);
+        if (submittedClientId) this.deps.state.noteSubmittedMessage(rendererId, engineId, turnId, submittedClientId, metadata!);
+        if (observation) observation.issued = true;
+      };
       const request = { sessionId: engineId, mode, input, options: { ...turnOptions, systemPromptAppend }, ...(turnId ? { submissionId: turnId } : {}) };
       const started = observation?.queueId
         ? await this.clientQueue.start(rendererId, observation.queueId, request, TURN_TIMEOUT_MS, observation.retryUnconfirmed, issue)
         : (issue(), await submitTurnInput(client, request, TURN_TIMEOUT_MS));
       this.ensureCurrentClient(client);
       if (typeof started?.turnId !== 'string' || !started.turnId) throw new IpcHandlerError('TURN_START_FAILED', 'The engine did not return a turn identity');
-      this.deps.state.markTurnSubmissionId(rendererId, started.turnId);
+      if (this.deps.state.runningSubmissionId(rendererId) === turnId) this.deps.state.markTurnSubmissionId(rendererId, started.turnId);
       if (turnId && started.turnId !== turnId) throw new IpcHandlerError('TURN_START_FAILED', 'The engine returned a different messaging turn identity');
       confirm();
       if (this.sideTasks.acceptTurn(rendererId, sideTitle)) {
@@ -4886,7 +4955,7 @@ export class SessionService {
       // snapshot the engine persists as its provider-invisible metadata row.
       this.deps.pushChatEvents([{ type: 'user_message', sessionId: targetId, message: {
         type: 'user', uuid: randomMessageId(), timestamp: new Date().toISOString(),
-        message: { role: 'user', content: text, ...(deliveryMetadata ? { localRender: deliveryMetadata } : {}) },
+        message: { role: 'user', content: text, localRender: withInputPresentation(deliveryMetadata, 'turn') },
       } }]);
       // Seed the title from the SENDER's prose: an envelope would otherwise make
       // `<klaus-delegation>` the conversation's first title.
@@ -4971,6 +5040,12 @@ export class SessionService {
   async followUp(rendererId: string, payload: Record<string, Json>): Promise<Json> {
     const text = typeof payload.text === 'string' ? payload.text : '';
     if (payload.displayMetadata != null && (!object(payload.displayMetadata) || Array.isArray(payload.displayMetadata))) return { ok: false, error: 'displayMetadata must be an object' };
+    const metadata = object(payload.displayMetadata);
+    const stableMessageId = metadata?.steerMessageId;
+    if (stableMessageId !== undefined && (typeof stableMessageId !== 'string'
+      || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(stableMessageId))) {
+      return { ok: false, error: 'steerMessageId must be a UUID' };
+    }
     if (payload.media != null && !Array.isArray(payload.media)) return { ok: false, error: 'media must be an array' };
     const media = Array.isArray(payload.media) ? payload.media : [];
     if (text.trim().length === 0 && !media.length) {
@@ -4983,7 +5058,12 @@ export class SessionService {
     }
     const targetTurnId = this.deps.state.runningSubmissionId(rendererId);
     if (!targetTurnId) return { ok: false, error: 'The running turn has no identity. Please retry after its state refreshes.' };
-    if (payload.expectedTurnId !== undefined && (typeof payload.expectedTurnId !== 'string' || payload.expectedTurnId !== targetTurnId)) return { ok: false, error: 'The turn changed before this follow-up could be steered.' };
+    const expectedTurnId = payload.expectedTurnId ?? metadata?.expectedTurnId;
+    if (expectedTurnId !== undefined && (typeof expectedTurnId !== 'string'
+      || expectedTurnId !== targetTurnId && (payload.expectedTurnId !== undefined
+        || expectedTurnId !== this.deps.state.runningTurnId(rendererId)))) {
+      return { ok: false, error: 'The turn changed before this follow-up could be steered.' };
+    }
     let binding: { engineId: string; client: EngineClientLike };
     try {
       binding = this.liveFollowUpBinding(rendererId);
@@ -5013,13 +5093,7 @@ export class SessionService {
       }
     }
     catch (error) { return { ok: false, error: sessionFailureMessage(error) }; }
-    // The engine persists a drained steer as its own user message INSIDE the running
-    // turn. The marker block is what later tells that row apart from a message that
-    // OPENED a turn — the distinction the edit rule draws ("the last message the user
-    // sent" means the last turn-opener) — and every user-facing
-    // projection strips it back off. See `contracts/steer-marker.ts`.
-    input = withSteerMarker(input) as Json;
-    const messageId = randomMessageId();
+    const messageId = typeof stableMessageId === 'string' ? stableMessageId : randomMessageId();
     if (typeof payload.queueOwnerId === 'string') this.clientQueue.bindSteerClaim(rendererId, payload.queueOwnerId, messageId);
     // A human mid-turn follow-up ends any `wait_threads` this conversation is
     // running, exactly like `send` does. The delegated steer path calls
@@ -5029,13 +5103,15 @@ export class SessionService {
       this.assertFollowUpBinding(rendererId, engineId, client);
       this.requireTurnAuthorization(rendererId);
       if (!this.deps.state.isWorking(rendererId) || this.deps.state.runningSubmissionId(rendererId) !== targetTurnId) return { ok: false, error: 'The turn ended or changed before the follow-up could be steered.' };
-      const displayMetadata = object(payload.displayMetadata) ?? (browserTabReferencesIn(text).length ? { displayText: text } : undefined);
+      const originalDisplayMetadata = object(payload.displayMetadata) ?? (browserTabReferencesIn(text).length ? { displayText: text } : undefined);
+      const displayMetadata = withInputPresentation(originalDisplayMetadata, 'steer');
+      this.deps.state.noteSubmittedMessage(rendererId, engineId, `steer-${messageId}`,
+        clientMessageId(displayMetadata) ?? messageId, displayMetadata ?? { clientMessageId: messageId }, messageId);
       return this.followUps.submit({ client, sessionId: rendererId, engineSessionId: engineId, messageId, targetTurnId, text, input,
-        ...(displayMetadata ? { displayMetadata } : {}),
+        ...(originalDisplayMetadata ? { displayMetadata: originalDisplayMetadata } : {}),
         delivery: 'user',
         ...(typeof payload.queueOwnerId === 'string' ? { submitInput: (request: TurnInputRequest, onIssue: () => void) => this.clientQueue.start(rendererId, payload.queueOwnerId as string, request, 30_000, payload.retryUnconfirmed === true, onIssue) } : {}),
         ...(typeof payload.displayText === 'string' ? { displayText: payload.displayText } : {}),
-        ...(payload.displayMetadata && typeof payload.displayMetadata === 'object' && !Array.isArray(payload.displayMetadata) ? { displayMetadata: payload.displayMetadata } : {}),
         ...(Array.isArray(payload.mobileAttachments) ? { mobileAttachments: payload.mobileAttachments } : {}),
         assertCurrent: () => {
           this.assertFollowUpBinding(rendererId, engineId, client);
@@ -5079,26 +5155,15 @@ export class SessionService {
     if (expectedTurnId && (active === null || active !== expectedTurnId && submissionId !== expectedTurnId)) {
       return { ok: true, accepted: false, interruptedTurnId: null };
     }
-    if (active === null) {
-      this.deps.state.clearTurnRunning(rendererId);
-      this.deps.pushChatEvents([{ type: 'session_runtime_status', sessionId: rendererId, status: 'idle', turnId: null }]);
-      return { ok: true, accepted: false, interruptedTurnId: null };
-    }
+    if (active === null) return { ok: true, accepted: false, interruptedTurnId: null };
 
     this.pendingTurns.stop(rendererId);
     // The engine pauses durable next-turn input only after accepting the exact
     // interruption fence. A stale Stop must not pause a newer turn's queue.
-    // Clear host bookkeeping and emit provisional idle before the round trip.
-    // The renderer retains the live turn until a confirmed cancellation outcome
-    // or its terminal event; dispatch acknowledgement alone cannot settle it.
-    this.deps.state.clearTurnRunning(rendererId);
-    // The engine turn is still winding down even though the registry already
-    // says idle. Until its terminal event lands, teardown paths (stale-binding
-    // rebuild, idle retirement, close) must treat this session as occupied, or
-    // they kill the aborting turn and swallow its terminal frame.
+    // Interruption intent does not settle a turn. Keep its ownership until the
+    // engine confirms cancellation or publishes the exact turn's terminal event.
     this.deps.state.noteInterruptWindow(rendererId);
     this.deps.onInterrupted?.(rendererId);
-    this.deps.pushChatEvents([{ type: 'session_runtime_status', sessionId: rendererId, status: 'idle', turnId: active }]);
 
     const completion = interruptTurn({ client, sessionId: engineId, rendererId, origin, expectedTurnId: expectedTurnId ? submissionId ?? undefined : undefined });
     // The result is consumed below after card settlement, including a synchronously rejected dispatch.
@@ -5119,6 +5184,7 @@ export class SessionService {
 
     try {
       const outcome = await completion;
+      if (outcome.accepted && this.deps.state.runningTurnId(rendererId) === active) this.deps.state.clearTurnRunning(rendererId);
       return { ok: true, accepted: outcome.accepted, confirmed: true, interruptedTurnId: outcome.accepted ? active : null,
         ...(outcome.goalPauseError ? { goalPauseError: outcome.goalPauseError } : {}) };
     } catch (error) {

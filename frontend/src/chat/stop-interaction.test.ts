@@ -12,6 +12,7 @@ import { createSourceFile, forEachChild, isArrowFunction, isIdentifier, isProper
 import vectors from './transcript/stop-interaction-vectors.json'
 import { I18N } from '../i18n/messages'
 import { LIBRARY as icons } from '../icons/library'
+import { chatRunnerStubContext } from './test-support/chat-runner-stubs'
 
 ;(globalThis as any).window = {
   addEventListener: () => {},
@@ -210,7 +211,7 @@ describe('stop interaction vectors: four stop trajectories', () => {
     expect(settled.tools.bad.status).toBe('error')
     expect(settled.tools.bad.stopWindowFailure).toBeUndefined()
     expect(settled.interruptedLiveTurn).toBeNull()
-    expect(settled.turnStatuses['turn-1']).toBeUndefined()
+    expect(settled.turnStatuses['turn-1']).toBe('completed')
   })
 
   test('a refused stop also gives the failure back to the tool', () => {
@@ -522,7 +523,7 @@ describe('stop interaction vectors: continue entry', () => {
     expect(arm).toBeLessThan(ingest)
     expect(chat).toContain('const continueArmUntil = new Map<string, number>()')
     expect(chat).toContain('const armUntil = continueArmUntil.get(sessionId) || 0')
-    expect(chat).toContain("btnSend.classList.toggle('continuing', continuePending)")
+    expect(readFileSync(new URL('./composer/submit-state.ts', import.meta.url), 'utf8')).toContain('continuing: state.continuePending')
     expect(chat).toContain('continuingSessions.delete(event.sessionId)\n      updateSendBtn()')
     expect(chat).toContain('setSessionRunning(change.sessionId, change.running)')
     expect(chat).not.toContain("event.type === 'done' || event.type === 'interrupted' || event.type === 'compaction_error') {\n      stoppingSessions.delete(event.sessionId)\n      continuingSessions.delete(event.sessionId)")
@@ -553,7 +554,7 @@ describe('stop interaction vectors: continue entry', () => {
     const expectedRoles = JSON.parse(readFileSync(new URL('../../../contracts/vectors/turn-termination-vectors.json', import.meta.url), 'utf8')).composerContinue.roleAcrossSessionSwitchAndDraft as boolean[]
     const classes = new Set<string>()
     const button = {
-      disabled: false, title: '',
+      disabled: false, title: '', setAttribute() {}, removeAttribute() {},
       classList: {
         toggle: (name: string, active: boolean) => { if (active) classes.add(name); else classes.delete(name) },
         remove: (...names: string[]) => names.forEach(name => classes.delete(name)),
@@ -561,11 +562,11 @@ describe('stop interaction vectors: continue entry', () => {
     }
     const eligible = new Set(['first'])
     let inputText = ''
-    const sandbox = { currentPendingComposerSubmission: () => undefined,
+    const sandbox = { ...chatRunnerStubContext(), currentPendingComposerSubmission: () => undefined,
       voiceChatUi: undefined,
       window: { currentSessionId: 'first', addEventListener: () => {} }, busy: false, composerPredictions: undefined, composerReferenceEntries: () => [], friendSendInFlight: false,
       btnSend: button, creatingGoalSessions: new Set(), stoppingSessions: new Set(), continuingSessions: new Set(),
-      continueArmUntil: new Map(), pendingFiles: [],
+      continueArmUntil: new Map(), pendingFiles: [], followUpQueueMode: 'queue', pendingSendAfterUpload: null,
       canContinueTurn: (sessionId: string) => eligible.has(sessionId),
       hasComposerText: () => inputText.length > 0,
       // An edit of a sent message owns the composer, so `composerContinueMode` consults
@@ -664,7 +665,8 @@ describe('stop interaction vectors: composer stop affordance', () => {
     expect(chat).toContain('if (stopEscArmed()) {')
     expect(chat).toContain('armStopEsc(sessionId)')
     // A direct click never needs arming, and the arm dies with the Turn.
-    expect(chat).toContain('clearStopEscArm()\n  stoppingSessions.add(sessionId)')
+    expect(chat).toContain('clearStopEscArm()\n  const stopOwner = stoppingSessions.add(sessionId)')
+    expect(chat).toContain('stoppingSessions.delete(sessionId, stopOwner)')
     expect(chat).toContain('if (stopEscArmedTurn?.sessionId === event.sessionId) clearStopEscArm()')
     // The arm is scoped to the Turn, so it cannot outlive it and stop the next one.
     expect(chat).toContain('stopEscArmedTurn = { sessionId, turnId: getSessionStream(sessionId).activeTurnId }')
@@ -680,7 +682,8 @@ describe('stop interaction vectors: composer stop affordance', () => {
     expect(spec.klaus.settledRequestRefused).toBe(true)
     expect(spec.klaus.request!.expectedTurnId).toBe('string | undefined')
     const chat = readFileSync(new URL('./chat.ts', import.meta.url), 'utf8')
-    expect(chat).toContain('const expectedTurnId = getSessionStream(sessionId).activeTurnId')
+    expect(chat).toContain('const expectedTurnId = admittedTurnId || getSessionStream(sessionId).activeTurnId')
+    expect(chat).toContain('if (admittedTurnId && getSessionStream(sessionId).activeTurnId !== admittedTurnId) return')
     expect(chat).toContain('klausApi.chat.interrupt(sessionId, expectedTurnId)')
     expect(chat).toContain("event.type === 'api_error' && event.terminal === true")
     const bridge = readFileSync(new URL('../../bridge/klaus-api.ts', import.meta.url), 'utf8')
@@ -755,7 +758,7 @@ describe('stop interaction vectors: running composer submit mode', () => {
     for (const index of [cacheStart, cacheEnd, functionsStart, functionsEnd]) expect(index).toBeGreaterThanOrEqual(0)
     const classes = new Set<string>()
     const button = {
-      disabled: false, title: '',
+      disabled: false, title: '', setAttribute() {}, removeAttribute() {},
       classList: {
         toggle: (name: string, active: boolean) => { if (active) classes.add(name); else classes.delete(name) },
         remove: (...names: string[]) => names.forEach(name => classes.delete(name)),
@@ -763,7 +766,7 @@ describe('stop interaction vectors: running composer submit mode', () => {
         contains: (name: string) => classes.has(name),
       },
     }
-    const sandbox = { currentPendingComposerSubmission: () => undefined,
+    const sandbox = { ...chatRunnerStubContext(), currentPendingComposerSubmission: () => undefined,
       voiceChatUi: undefined,
       window: { currentSessionId: 'run', addEventListener: () => {} }, busy: false, composerPredictions: undefined, composerReferenceEntries: () => [], friendSendInFlight: false,
       btnSend: button, creatingGoalSessions: new Set(), stoppingSessions: new Set(), continuingSessions: new Set(),
@@ -873,7 +876,7 @@ describe('stop interaction vectors: running composer submit mode', () => {
     expect(chat).toContain("else requestTurnStop(window.currentSessionId || '')")
     // The side composer keeps parity with the main one.
     expect(chat).toContain("if (running && !stopping && hasContent) sideSubmit({ followUp: true })")
-    expect(chat).toContain('const runningSubmit = !!running && !stopping && !empty')
+    expect(readFileSync(new URL('./composer/submit-state.ts', import.meta.url), 'utf8')).toContain('const runningSubmit = busy && !input.preparing && !input.stopping && !input.goalPreparing && input.hasContent')
   })
 })
 

@@ -8,6 +8,53 @@ const script = transpileModule(readFileSync(new URL('./shell.ts', import.meta.ur
   compilerOptions: { target: ScriptTarget.ES2022, module: ModuleKind.CommonJS },
 }).outputText
 
+function prewarmFixture(withDocument = true) {
+  const callbacks: Array<() => void> = []
+  const calls: string[] = []
+  const document = { getElementById: () => ({ dataset: {} }) }
+  const window: any = {
+    ...(withDocument ? { document } : {}),
+    requestIdleCallback: (callback: () => void) => callbacks.push(callback),
+    reloadPluginsView: () => calls.push('plugins'),
+    reloadSlashCommandsView: () => calls.push('commands'),
+  }
+  const context = {
+    exports: {}, window, document,
+    require: (name: string) => {
+      if (name === '../../i18n') return { t: (key: string) => key }
+      if (name === './kv') return { unmountSettingsTab() {} }
+      if (name === './settings-error-text') return { settingsErrorText: () => '' }
+      if (name === './settings.module.css') return { default: {} }
+      throw Error(`Unexpected import: ${name}`)
+    },
+  }
+  runInNewContext(script, context)
+  return { callbacks, calls, context }
+}
+
+test('settings do not schedule DOM prewarming for a window without a document', () => {
+  expect(prewarmFixture(false).callbacks).toHaveLength(0)
+})
+
+test('settings prewarm both catalog views on the owning live document', () => {
+  const fixture = prewarmFixture()
+  expect(fixture.callbacks).toHaveLength(1)
+  fixture.callbacks[0]()
+  expect(fixture.calls).toEqual(['plugins', 'commands'])
+})
+
+test('deferred settings prewarming ignores a replaced window or document', () => {
+  for (const replace of ['window', 'document', 'closed'] as const) {
+    const fixture = prewarmFixture()
+    expect(fixture.callbacks).toHaveLength(1)
+    if (replace === 'window') fixture.context.window = undefined
+    else if (replace === 'document') fixture.context.window.document = undefined
+    else fixture.context.window.closed = true
+    expect(() => fixture.callbacks[0]()).not.toThrow()
+    expect(fixture.calls).toEqual([])
+  }
+})
+
 function fixture() {
   const classes = new Set<string>()
   const calls: string[] = []

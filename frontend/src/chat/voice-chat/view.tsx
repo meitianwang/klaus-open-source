@@ -1,5 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
+import { mountRetainedIsland, useRetainedVisibility } from '../composer/retained-island';
+import { createVisibilityScope } from '../visibility-scope';
 import { createRoot } from 'react-dom/client';
 import { useT } from '../../i18n';
 import { VoiceChatController, type VoiceChatDependencies } from '../voice-chat-controller';
@@ -37,7 +39,9 @@ export function VoiceChatView({ controller, deps, notifyErrors = true }: { contr
   // The send slot keeps whatever affordance has work in it (stop while a turn
   // runs, continue after an interruption); the voice entry never covers those.
   const presentation = voiceChatPresentation(snapshot, deps, supported);
-  const { matching, hasDraft, launch, showingControls } = presentation;
+  const visible = useRetainedVisibility();
+  const { hasDraft } = presentation;
+  const matching = visible && presentation.matching, launch = visible && presentation.launch, showingControls = visible && presentation.showingControls;
   const presentationKey = useRef(presentation.key);
   presentationKey.current = presentation.key;
   useEffect(() => {
@@ -124,7 +128,7 @@ export function VoiceChatView({ controller, deps, notifyErrors = true }: { contr
 
 const presentations = new WeakMap<VoiceChatController, Map<HTMLElement, boolean>>();
 
-export function mountVoiceChat(deps: VoiceChatViewDependencies, sharedController?: VoiceChatController): { controller: VoiceChatController; refresh(): void; dispose(): void } {
+export function mountVoiceChat(deps: VoiceChatViewDependencies, sharedController?: VoiceChatController): { controller: VoiceChatController; refresh(): void; setVisible(visible: boolean): void; setRegions(content: HTMLElement, visibilityRoot?: HTMLElement): void; dispose(): void } {
   const host = document.createElement('span'); host.className = 'voice-chat-composer-controls';
   deps.row.insertBefore(host, deps.sendButton);
   const controller = sharedController ?? new VoiceChatController(deps), root = createRoot(host);
@@ -132,21 +136,49 @@ export function mountVoiceChat(deps: VoiceChatViewDependencies, sharedController
   presentations.set(controller, surfaces);
   surfaces.set(deps.wrapper, false);
   // A call is visible if any of its composer surfaces can present it.
-  const viewDeps = { ...deps, present: async (eligible: boolean, sessionId: string | null, notice?: string) => {
+  let viewDeps = { ...deps, present: async (eligible: boolean, sessionId: string | null, notice?: string) => {
     surfaces.set(deps.wrapper, eligible);
     return deps.present?.([...surfaces.values()].some(Boolean), controller.snapshot().targetSessionId ?? sessionId, notice);
   } };
-  const unbindStart = bindCommandHandler('startVoiceChat', () => {
-    if (controller.snapshot().open || !deps.inChat() || deps.hasDraft() || !deps.canStart() || deps.commandActive?.() === false) return false;
-    void controller.start(deps.currentSession() ?? undefined); return true;
-  });
-  root.render(<VoiceChatView controller={controller} deps={viewDeps} notifyErrors={!sharedController} />);
-  const refresh = () => { window.dispatchEvent(new Event('klaus:voice-chat-refresh')); };
+  let visible = true, disposed = false;
+  const effects = createVisibilityScope();
+  const activity = mountRetainedIsland(root, () => <VoiceChatView controller={controller} deps={viewDeps} notifyErrors={!sharedController} />);
+  const refresh = () => { if (visible && !disposed) window.dispatchEvent(new Event('klaus:voice-chat-refresh')); };
   const sessionChanged = () => { refresh(); if (!sharedController) void controller.refresh(); };
   const preferencesChanged = () => { if (!sharedController) void controller.refresh(); };
-  window.addEventListener('klaus:session-change', sessionChanged);
-  window.addEventListener('klaus:composer-preferences-changed', preferencesChanged);
-  window.addEventListener('klaus:models-changed', preferencesChanged);
+  effects.add(current => bindCommandHandler('startVoiceChat', () => {
+    if (!current() || controller.snapshot().open || !deps.inChat() || deps.hasDraft() || !deps.canStart() || deps.commandActive?.() === false) return false;
+    void controller.start(deps.currentSession() ?? undefined); return true;
+  }));
+  effects.add(() => {
+    window.addEventListener('klaus:session-change', sessionChanged);
+    window.addEventListener('klaus:composer-preferences-changed', preferencesChanged);
+    window.addEventListener('klaus:models-changed', preferencesChanged);
+    return () => {
+      window.removeEventListener('klaus:session-change', sessionChanged);
+      window.removeEventListener('klaus:composer-preferences-changed', preferencesChanged);
+      window.removeEventListener('klaus:models-changed', preferencesChanged);
+    };
+  });
   if (!sharedController) void controller.refresh();
-  return { controller, refresh, dispose: () => { unbindStart(); window.removeEventListener('klaus:session-change', sessionChanged); window.removeEventListener('klaus:composer-preferences-changed', preferencesChanged); window.removeEventListener('klaus:models-changed', preferencesChanged); root.unmount(); host.remove(); surfaces.delete(deps.wrapper); if (!sharedController) void controller.dispose().catch(() => {}); } };
+  return { controller, refresh, setRegions(content, visibilityRoot) {
+    if (disposed || viewDeps.content === content && viewDeps.visibilityRoot === visibilityRoot) return;
+    viewDeps = { ...viewDeps, content, visibilityRoot };
+    activity.refresh();
+  }, setVisible(value) {
+    if (disposed || visible === value) return;
+    visible = value;
+    if (!visible) {
+      surfaces.set(deps.wrapper, false);
+      void deps.present?.([...surfaces.values()].some(Boolean), controller.snapshot().targetSessionId ?? deps.currentSession()).catch(() => {});
+    }
+    effects.setActive(visible);
+    activity.setVisible(visible);
+  }, dispose() {
+    if (disposed) return;
+    disposed = true;
+    effects.dispose(); activity.dispose(); host.remove(); surfaces.delete(deps.wrapper);
+    void deps.present?.([...surfaces.values()].some(Boolean), controller.snapshot().targetSessionId ?? deps.currentSession()).catch(() => {});
+    if (!sharedController) void controller.dispose().catch(() => {});
+  } };
 }

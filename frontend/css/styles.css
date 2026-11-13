@@ -4116,13 +4116,14 @@ spinner (data-chat-timeline-scroll-generating): the affordance then
    composer host) live here. */
 /* No native scrollbar here either: the side transcript is represented by the
    same outer proxy scrollbar as the main column (.chat-outer-scrollbar). */
-.side-messages { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 12px 16px; scrollbar-width: none; }
+.side-messages { flex: 1 1 auto; min-height: 0; overflow: hidden; position: relative; }
 .side-messages::-webkit-scrollbar { display: none; }
 .side-messages[hidden] { display: none; }
 /* Per-side-task slot: each side tab owns one, all live in the DOM simultaneously,
    only one visible at a time. Switching tabs is a pure hidden-attribute flip so
    in-flight streams keep painting into their own slots regardless of visibility. */
-.side-messages-slot { display: block; }
+.side-messages-slot { display: block; height: 100%; box-sizing: border-box; overflow-y: auto; overflow-x: hidden; padding: 12px 16px; scrollbar-width: none; }
+.side-messages-slot::-webkit-scrollbar { display: none; }
 .side-messages-slot[hidden] { display: none !important; }
 .side-composer-host { flex: 0 0 auto; }
 .side-composer-host[hidden] { display: none; }

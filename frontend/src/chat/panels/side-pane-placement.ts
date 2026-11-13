@@ -7,13 +7,15 @@ export function sidePaneElementId(id: string, placement: SidePanePlacement): str
 }
 
 /** Keep composer-local selectors stable while each mounted pane owns unique ids. */
-export function sidePaneDocument(document: Document, placement: SidePanePlacement): Document {
-  if (placement === 'right') return document
+export function sidePaneDocument(document: Document, placement: SidePanePlacement | (() => SidePanePlacement),
+  local?: (id: string) => HTMLElement | null | undefined): Document {
   return new Proxy(document, {
     get(target, property) {
-      if (property === 'getElementById') return (id: string) => target.getElementById(
-        id === 'artifacts-panel' ? 'left-side-chat-panel' : sidePaneElementId(id, placement),
-      )
+      if (property === 'getElementById') return (id: string) => {
+        const pane = typeof placement === 'function' ? placement() : placement
+        return local?.(id) || target.getElementById(
+          id === 'artifacts-panel' && pane === 'left' ? 'left-side-chat-panel' : sidePaneElementId(id, pane))
+      }
       const value = Reflect.get(target, property, target)
       return typeof value === 'function' ? value.bind(target) : value
     },
@@ -21,10 +23,12 @@ export function sidePaneDocument(document: Document, placement: SidePanePlacemen
 }
 
 /** Rename after mounting so shared composer initialization can use its local selectors. */
-export function identifySidePaneComposer(root: HTMLElement, placement: SidePanePlacement): void {
-  if (placement === 'right') return
+export function identifySidePaneComposer(root: HTMLElement, placement: SidePanePlacement, retainedKey?: string): void {
   const nodes = [root, ...root.querySelectorAll<HTMLElement>('[id]')]
-  const renamed = new Map(nodes.filter(node => node.id).map(node => [node.id, sidePaneElementId(node.id, placement)]))
+  const renamed = new Map(nodes.filter(node => node.id).map(node => {
+    const local = node.dataset.sideLocalId ||= node.id
+    return [node.id, retainedKey ? `retained-${retainedKey}-${local}` : sidePaneElementId(local, placement)]
+  }))
   for (const node of nodes) {
     if (node.id) node.id = renamed.get(node.id)!
     for (const attribute of ['for', 'aria-controls', 'aria-labelledby', 'aria-describedby']) {

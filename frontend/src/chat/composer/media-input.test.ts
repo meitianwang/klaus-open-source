@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
+import { randomUUID } from 'node:crypto'
 import { runInNewContext } from 'node:vm'
 import { createSourceFile, isFunctionDeclaration, ScriptTarget, transpileModule } from 'typescript'
 import { mediaInputMime } from '../../../../shared/media-input'
@@ -13,7 +14,7 @@ const ast = createSourceFile('chat.ts', readFileSync(new URL('../chat.ts', impor
 const declarations = ast.statements.filter(node => isFunctionDeclaration(node) && ['buildOutgoingPayload', 'sentUserDisplayMetadata', 'queuedPendingFiles'].includes(node.name?.text || ''))
 const api = runInNewContext(transpileModule(declarations.map(node => node.getText(ast)).join('\n') + '\n({ buildOutgoingPayload, sentUserDisplayMetadata, queuedPendingFiles })', {
   compilerOptions: { target: ScriptTarget.ES2022 },
-}).outputText, { mediaInputMime, isInlineImage, normalizeComposerReferences, encodeSelectedTextEnvelope, parseSelectedTextEnvelope, pendingEntriesFromPrepare,
+}).outputText, { crypto: { randomUUID }, mediaInputMime, isInlineImage, normalizeComposerReferences, encodeSelectedTextEnvelope, parseSelectedTextEnvelope, pendingEntriesFromPrepare,
   composePastedTextRequest: (text: string) => ({ text }), resourceReferenceContext: () => '', Date,
 })
 const file = (name: string, type: string) => ({ file: { name, type, size: 10 }, uploadPath: '/uploads/' + name, uploading: false })

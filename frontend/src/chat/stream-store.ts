@@ -1,4 +1,6 @@
 import { forgetApprovalReviewSession, replaceApprovalReviewHistory, type DeniedApprovalReview } from './approval-review-state'
+import type { SessionRuntimeSnapshot } from '../../../contracts/session-runtime'
+import { clientMessageId, sameUserMessage } from '../../../contracts/message-identity'
 import { ByteBudgetLru, retainedBytes } from './byte-budget'
 import { mergeSubmittedUserHistory, retainUnownedLiveUnits } from './transcript-user-handoff'
 import { retireMarkdownRuntime } from './markdown-async'
@@ -107,7 +109,7 @@ type LiveUnitValue =
   // so a message steered in mid-turn shows where it arrived.
   | { type: 'live-delegation'; key: string; messageId: string; delegation: { input: string; sourceThreadId: string | null; sourceHostId?: string } }
 
-export type LiveUnit = LiveUnitValue & { turnId?: string; inference?: InferenceSnapshot; pendingUserTurn?: string; goalCompletion?: import('./transcript/goal-completion').GoalCompletionSummary }
+export type LiveUnit = LiveUnitValue & { turnId?: string; inference?: InferenceSnapshot; pendingUserTurn?: string; optimisticUser?: boolean; goalCompletion?: import('./transcript/goal-completion').GoalCompletionSummary }
 
 function detailsForApiError(event: Record<string, unknown>): ProviderErrorDetails {
   const message = String(event.error ?? '').trim()
@@ -117,6 +119,7 @@ function detailsForApiError(event: Record<string, unknown>): ProviderErrorDetail
 }
 
 export interface SessionStreamState {
+  runtimeEvidence: { status: SessionRuntimeSnapshot['status']; activeFlags: string[]; outcomePending: boolean } | null
   /** Renderer-only previews must never query the host under their temporary identity. */
   provisional: boolean
   asyncQuestions: AsyncQuestionUi
@@ -240,6 +243,7 @@ const EMPTY_SESSION: SessionStreamState = {
   agentTasks: {},
   agentTimeline: [],
   running: false,
+  runtimeEvidence: null,
   goalContinuationId: null,
   streamMode: 'idle',
   currentInference: null,
@@ -291,6 +295,8 @@ const EMPTY_SESSION: SessionStreamState = {
 type PendingRuntime = Pick<SessionStreamState, 'running' | 'streamMode' | 'currentInference' | 'activityVisible'
   | 'activeTurnId' | 'liveTurnId' | 'interruptedLiveTurn' | 'lastTerminalStatus' | 'turnStartedAt' | 'stopRequestedAt'>
 interface PendingUserTurn {
+  clientMessageId?: string
+  observedTurnId?: string
   aliases: Set<string>
   uuid: string
   key: string
@@ -312,7 +318,7 @@ function pendingUserTurn(sessionId: string, uuid: string): PendingUserTurn | und
   return [...(pendingUserTurns.get(sessionId)?.values() ?? [])].find(turn => turn.aliases.has(uuid))
 }
 function unadmittedUserTurn(sessionId: string): PendingUserTurn | undefined {
-  return [...(pendingUserTurns.get(sessionId)?.values() ?? [])].find(turn => turn.ownsRuntime && !turn.observed)
+  return [...(pendingUserTurns.get(sessionId)?.values() ?? [])].find(turn => !turn.observed && (turn.ownsRuntime || !!turn.clientMessageId))
 }
 function forgetPendingUserTurn(sessionId: string, turn: PendingUserTurn): void {
   const turns = pendingUserTurns.get(sessionId)
@@ -320,12 +326,22 @@ function forgetPendingUserTurn(sessionId: string, turn: PendingUserTurn): void {
   if (!turns?.size) pendingUserTurns.delete(sessionId)
 }
 /** The input acceptance clock survives startup and is adopted once by the real Turn. */
-function adoptPendingUserTurn(sessionId: string): number | undefined {
-  const turn = unadmittedUserTurn(sessionId)
+function adoptPendingUserTurn(sessionId: string, clientId?: string, turnId?: string | null): number | undefined {
+  const turn = [...(pendingUserTurns.get(sessionId)?.values() ?? [])].find(record =>
+    (!record.observedTurnId || record.observedTurnId === turnId)
+    && (clientId ? !!turnId && record.clientMessageId === clientId : !record.clientMessageId && record.ownsRuntime))
   if (!turn) return undefined
   turn.observed = true
-  if (turn.accepted) forgetPendingUserTurn(sessionId, turn)
+  if (turnId) turn.observedTurnId = turnId
   return turn.startedAt
+}
+
+function staleTurnStart(state: SessionStreamState, turnId: string | null): boolean {
+  if (!turnId) return false
+  if (['completed', 'interrupted', 'failed'].includes(state.turnStatuses[turnId])) return true
+  const index = state.turnSequence.indexOf(turnId)
+  return !!state.activeTurnId && state.activeTurnId !== turnId && index >= 0
+    && index < state.turnSequence.indexOf(state.activeTurnId)
 }
 
 function completedWorkClock(state: SessionStreamState, units: LiveUnit[], turnId: string | null = state.activeTurnId || state.liveTurnId): Partial<SessionStreamState> {
@@ -371,6 +387,8 @@ const LATE_AFTER_INTERRUPT_TYPES = new Set([...RUN_ACTIVITY_TYPES].filter(type =
 export function isStoppedTurnFrame(event: any): boolean {
   const turnId = typeof event?.turnId === 'string' ? event.turnId : ''
   if (!turnId || !event.sessionId) return false
+  if (event.type === 'user_message' && getSessionStream(event.sessionId).liveUnits.some(unit =>
+    unit.type === 'live-user' && sameUserMessage(unit.msg, event.message))) return false
   const terminal = event.type === 'done' || event.type === 'interrupted'
     || event.type === 'compaction_error' || event.type === 'api_error' && event.terminal === true
   if (!terminal && event.type !== 'session_runtime_status' && !RUN_ACTIVITY_TYPES.has(event.type)) return false
@@ -651,8 +669,24 @@ function patchSession(sessionId: string, patch: (prev: SessionStreamState) => Pa
       pendingEdit.snapshot.replacementTurnId = observedTurnId
     }
     const turnId = next.activeTurnId || prev.activeTurnId
-    if (turnId && (next.liveUnits !== prev.liveUnits || next.activeTurnId !== prev.activeTurnId)) {
-      next.liveUnits = next.liveUnits.map(unit => unit.turnId ? unit : { ...unit, turnId })
+    if (next.liveUnits !== prev.liveUnits || next.activeTurnId !== prev.activeTurnId || pendingUserTurns.has(sessionId)) {
+      const adopted = new Set<PendingUserTurn>()
+      next.liveUnits = next.liveUnits.map(unit => {
+        const clientId = unit.type === 'live-user' ? clientMessageId(unit.msg) : undefined
+        const pending = unit.pendingUserTurn ? pendingUserTurn(sessionId, unit.pendingUserTurn)
+          : clientId ? [...(pendingUserTurns.get(sessionId)?.values() ?? [])].find(record => record.clientMessageId === clientId) : undefined
+        if (unit.turnId) {
+          if (pending?.accepted && pending.observedTurnId === unit.turnId) adopted.add(pending)
+          return unit
+        }
+        if (clientId) {
+          if (!pending?.observedTurnId) return unit
+          if (pending.accepted) adopted.add(pending)
+          return { ...unit, turnId: pending.observedTurnId }
+        }
+        return turnId ? { ...unit, turnId } : unit
+      })
+      for (const record of adopted) forgetPendingUserTurn(sessionId, record)
     }
     // Keep one observed Turn order for the whole session. A Turn that history
     // later takes over keeps its slot, so a live-only Turn that preceded it can
@@ -1207,8 +1241,13 @@ export function ingestChatEvent(event: any, context: { userInterrupted?: boolean
       // names a DIFFERENT turn than the one still streaming is that other turn's word, not
       // this turn's: settling on it would kill a live turn, exactly what the old host-side
       // guard was afraid of. Unnamed terminal events keep settling the active turn.
-      if (turnId && prev.running && prev.activeTurnId && prev.activeTurnId !== turnId) return {}
-      adoptPendingUserTurn(sessionId)
+      adoptPendingUserTurn(sessionId, event.clientMessageId, turnId)
+      const terminalStatus = interrupted ? 'interrupted' : failed ? 'failed' : type === 'done' ? 'completed' : undefined
+      const pending = unadmittedUserTurn(sessionId)
+      if ((turnId && prev.running && prev.activeTurnId && prev.activeTurnId !== turnId)
+        || (!prev.activeTurnId && pending?.clientMessageId && pending.clientMessageId !== event.clientMessageId)) {
+        return turnId && terminalStatus ? { turnStatuses: { ...prev.turnStatuses, [turnId]: terminalStatus } } : {}
+      }
       if (interrupted || failed) resetTaskContinuation(sessionId)
       // Some driver paths emit a legacy bare `done` after the authoritative
       // interrupted lifecycle event. It carries no additional state and must
@@ -1330,6 +1369,7 @@ export function ingestChatEvent(event: any, context: { userInterrupted?: boolean
             : type === 'done'
               ? 'completed'
               : prev.lastTerminalStatus,
+        ...(type === 'done' && turnId ? { turnStatuses: { ...prev.turnStatuses, [turnId]: 'completed' } } : {}),
         currentInference: null,
         turnStartedAt: 0,
         stopRequestedAt: null,
@@ -1364,6 +1404,17 @@ export function ingestChatEvent(event: any, context: { userInterrupted?: boolean
 
   switch (type) {
     case 'session_runtime_status': {
+      if (event.source === 'session') {
+        patchSession(sessionId, prev => ({
+          runtimeEvidence: { status: event.status, activeFlags: event.activeFlags || [],
+            outcomePending: event.status === 'idle' && prev.running },
+          // A session's idle notification has no turn identity. It requests an
+          // outcome read, never impersonates the active turn's completion.
+          // Session activity is wider than response activity. A real turn or
+          // its matching admission, not this notification alone, owns Stop.
+        }))
+        break
+      }
       // The engine's turn lifecycle is the authority
       // for the running indicator. `active` opens the turn under the id the engine named;
       // `idle` settles it. An idle frame for a foreign turn is ignored so it cannot erase a
@@ -1371,9 +1422,24 @@ export function ingestChatEvent(event: any, context: { userInterrupted?: boolean
       const turnId = typeof event.turnId === 'string' && event.turnId ? event.turnId : null
       if (event.status === 'active') {
         patchSession(sessionId, prev => {
-          if (prev.activeTurnId && turnId && prev.activeTurnId !== turnId && prev.running) return {}
-          const submittedAt = adoptPendingUserTurn(sessionId)
-          const startedAt = submittedAt ?? (prev.turnStartedAt || Date.now())
+          if (staleTurnStart(prev, turnId)) return {}
+          // A lifecycle frame for a turn this renderer never observed cannot replace
+          // a turn that is still running: it is a late replay from an obsolete turn
+          // or a drifted foreign frame. The frame naming this renderer's own
+          // unadmitted input is that input's start, not a foreign lifecycle. A
+          // genuine successor enters the observed sequence through its own
+          // start/requesting frames before its status arrives, and a drifted
+          // session converges through idle frames or an identified native read.
+          const claimsUnadmittedInput = !!event.clientMessageId
+            && unadmittedUserTurn(sessionId)?.clientMessageId === event.clientMessageId
+          if (prev.running && prev.activeTurnId && turnId && prev.activeTurnId !== turnId
+            && !prev.turnSequence.includes(turnId) && !claimsUnadmittedInput) return {}
+          const submittedAt = adoptPendingUserTurn(sessionId, event.clientMessageId, turnId)
+          const changed = !!prev.activeTurnId && prev.activeTurnId !== turnId
+          const modernPending = unadmittedUserTurn(sessionId)?.clientMessageId
+          const inspectedStart = typeof event.startedAtMs === 'number' && Number.isFinite(event.startedAtMs) && event.startedAtMs > 0
+            ? event.startedAtMs : undefined
+          const startedAt = submittedAt ?? inspectedStart ?? (changed || modernPending ? Date.now() : prev.turnStartedAt || Date.now())
           const continuation = turnId && beginTaskTurn(sessionId, { turnId, goalContinuation: event.goalContinuation, inputOrigin: event.inputOrigin, goalId: event.goalId })
           return {
             running: true,
@@ -1428,29 +1494,6 @@ export function ingestChatEvent(event: any, context: { userInterrupted?: boolean
       const uuid = event.message?.uuid
       const steered = event.message?.message?.steered === true
       const questionAnswer = event.message?.message?.questionAnswer
-      const current = getSessionStream(sessionId)
-      if (uuid) {
-        const owned = current.liveUnits.find(unit => unit.type === 'live-user' && unit.msg.uuid === uuid)
-        if (owned && owned.type === 'live-user') {
-          // A steer this renderer sent is painted before the canonical frame arrives.
-          // The frame is the authority on what the row IS, so merge its `steered` flag
-          // into the existing bubble; keeping only the local copy would leave the edit
-          // gate treating an injection as a turn opener.
-          if ((steered || questionAnswer) && owned.msg.steered !== true) {
-            patchSession(sessionId, prev => ({
-              liveUnits: prev.liveUnits.map(unit => unit.type === 'live-user' && unit.msg.uuid === uuid
-                ? { ...unit, msg: { ...unit.msg, steered: true, ...(questionAnswer ? { questionAnswer } : {}) } } : unit),
-            }))
-          }
-          break
-        }
-        if (current.history?.some(message => message.role === 'user' && message.uuid === uuid)) break
-      }
-      resetTaskContinuation(sessionId)
-      // Channel 起源的 user 回合：存原始消息形状，渲染层与历史 user 同分流。
-      // The event projection already strips a steer history marker and stamps the row
-      // `steered`; the flag rides into the live unit so the edit-target rule treats an
-      // injection into a running turn differently from a turn opener.
       const content = event.message?.message?.content
       const text = typeof content === 'string'
         ? content
@@ -1465,22 +1508,42 @@ export function ingestChatEvent(event: any, context: { userInterrupted?: boolean
       const rawRender = event.message?.message?.localRender
       const localRender = rawRender !== undefined && typeof rawRender === 'object' && !Array.isArray(rawRender)
         ? rawRender as Record<string, unknown> : null
-      patchSession(sessionId, prev => ({
-        goalContinuationId: null,
-        liveUnits: event.message?.uuid && (prev.liveUnits.some(unit => unit.type === 'live-user' && unit.msg.uuid === event.message.uuid)
-          || prev.history?.some(message => message.role === 'user' && message.uuid === event.message.uuid)) ? prev.liveUnits : [...sealTail(prev.liveUnits), {
-          type: 'live-user', key: nextKey('u'),
-          msg: {
-            role: 'user', text, contentBlocks,
-            timestamp: Date.parse(event.message?.timestamp || '') || undefined,
-            uuid: event.message?.uuid,
-            ...(localRender ? { localRender } : {}),
-            ...(steered ? { steered: true } : {}),
-            ...(questionAnswer ? { questionAnswer, steered: true } : {}),
-          },
-          turnId: questionAnswer?.turnId || event.turnId || prev.activeTurnId || undefined,
-        }],
-      }))
+      const submittedId = clientMessageId(event.message)
+      const canonical = { role: 'user' as const, text, contentBlocks, uuid,
+        timestamp: typeof event.message?.timestamp === 'number' ? event.message.timestamp
+          : Date.parse(event.message?.timestamp || '') || undefined,
+        ...(submittedId ? { clientMessageId: submittedId } : {}),
+        ...(localRender ? { localRender } : {}),
+        ...(steered ? { steered: true } : {}),
+        ...(questionAnswer ? { questionAnswer, steered: true } : {}) }
+      const current = getSessionStream(sessionId)
+      const capturedOwner = questionAnswer?.turnId || event.turnId
+        || (typeof localRender?.expectedTurnId === 'string' ? localRender.expectedTurnId : undefined)
+      if (!current.liveUnits.some(unit => unit.type === 'live-user' && sameUserMessage(unit.msg, canonical))
+        // A canonical frame replaying a message the saved history already owns is
+        // not a new user turn: it must not reset the carried continuation display.
+        && !current.history?.some(message => message.role === 'user' && sameUserMessage(message, canonical))
+        && (!capturedOwner || capturedOwner === current.activeTurnId)) resetTaskContinuation(sessionId)
+      patchSession(sessionId, prev => {
+        const owned = prev.liveUnits.find(unit => unit.type === 'live-user' && sameUserMessage(unit.msg, canonical))
+        const capturedTurn = questionAnswer?.turnId || event.turnId
+          || (typeof localRender?.expectedTurnId === 'string' ? localRender.expectedTurnId : undefined)
+        if (owned?.type === 'live-user') {
+          return { liveUnits: prev.liveUnits.map(unit => unit === owned ? { ...unit, optimisticUser: false,
+            ...(unit.turnId || !capturedTurn ? {} : { turnId: capturedTurn }),
+            msg: { ...unit.msg, ...canonical, timestamp: unit.msg.timestamp ?? canonical.timestamp,
+              ...((unit.msg.steered || steered) ? { steered: true } : {}),
+              localRender: { ...canonical.localRender, ...unit.msg.localRender } } } : unit) }
+        }
+        if (prev.history?.some(row => row.role === 'user' && sameUserMessage(row, canonical))) {
+          return { history: prev.history.map(row => row.role === 'user' && sameUserMessage(row, canonical)
+            ? { ...row, localRender: { ...canonical.localRender, ...row.localRender } } : row) }
+        }
+        return { ...(!capturedTurn || capturedTurn === prev.activeTurnId ? { goalContinuationId: null } : {}), liveUnits: [...sealTail(prev.liveUnits), {
+          type: 'live-user', key: nextKey('u'), msg: canonical,
+          turnId: capturedTurn || (!submittedId ? prev.activeTurnId || undefined : undefined),
+        }] }
+      })
       break
     }
     case 'text_delta':
@@ -1525,8 +1588,9 @@ export function ingestChatEvent(event: any, context: { userInterrupted?: boolean
       patchSession(sessionId, prev => {
         if (event.mode === 'requesting') {
           const turnId = (typeof event.turnId === 'string' && event.turnId) ? event.turnId : prev.activeTurnId
+          if (staleTurnStart(prev, turnId)) return {}
           const startedNewTurn = !!turnId && turnId !== prev.activeTurnId
-          const submittedAt = adoptPendingUserTurn(sessionId)
+          const submittedAt = adoptPendingUserTurn(sessionId, event.clientMessageId, turnId)
           const startedAt = submittedAt ?? (startedNewTurn || !prev.turnStartedAt ? Date.now() : prev.turnStartedAt)
           return {
             streamMode: 'requesting',
@@ -1896,6 +1960,7 @@ function sealTailText(units: LiveUnit[]): LiveUnit[] {
 export interface LocalUserTurnPayload {
   text: string
   uuid?: string
+  clientMessageId?: string
   /** True for a message the host steered into a running turn rather than a new opener. */
   steered?: boolean
   attachments?: any[]
@@ -1906,11 +1971,13 @@ export interface LocalUserTurnPayload {
   pastedCards?: any[]
   selectedTextAttachments?: any[]
   timestamp?: number
+  targetTurnId?: string
+  targetTurnStartedAt?: number
 }
 
 function localUserUnit(payload: LocalUserTurnPayload): Extract<LiveUnit, { type: 'live-user' }> {
   return {
-    type: 'live-user', key: nextKey('u'),
+    type: 'live-user', key: nextKey('u'), optimisticUser: true,
     msg: {
       role: 'user', text: payload.text, contentBlocks: [],
       uuid: payload.uuid,
@@ -1922,6 +1989,7 @@ function localUserUnit(payload: LocalUserTurnPayload): Extract<LiveUnit, { type:
       timestamp: typeof payload.timestamp === 'number' && Number.isFinite(payload.timestamp) && payload.timestamp > 0
         ? payload.timestamp : Date.now(),
       localRender: {
+        ...(payload.clientMessageId ? { clientMessageId: payload.clientMessageId } : {}),
         attachments: payload.attachments || [],
         slashCommand: payload.slashCommand ?? null,
         composerReferences: payload.composerReferences || [],
@@ -1943,7 +2011,7 @@ export function beginPendingUserTurn(sessionId: string, payload: LocalUserTurnPa
     ? payload.timestamp : Date.now()
   const existing = before.liveUnits.find(unit => unit.type === 'live-user' && unit.msg.uuid === uuid)
   const unit: LiveUnit = { ...(existing ?? localUserUnit({ ...payload, timestamp })), pendingUserTurn: uuid }
-  const record: PendingUserTurn = { aliases: new Set([uuid]), uuid, key: unit.key, startedAt: timestamp,
+  const record: PendingUserTurn = { clientMessageId: payload.clientMessageId, aliases: new Set([uuid]), uuid, key: unit.key, startedAt: timestamp,
     before: pendingRuntime(before), ownsRuntime: !before.running && !before.activeTurnId, observed: false, accepted: false }
   const turns = pendingUserTurns.get(sessionId) ?? new Map<string, PendingUserTurn>()
   turns.set(uuid, record); pendingUserTurns.set(sessionId, turns)
@@ -1974,21 +2042,30 @@ export function movePendingUserTurn(sourceId: string, targetId: string, uuid: st
   const turns = pendingUserTurns.get(targetId) ?? new Map<string, PendingUserTurn>()
   turns.set(record.uuid, record); pendingUserTurns.set(targetId, turns)
   record.before = pendingRuntime(target)
-  record.ownsRuntime = !target.running && !target.activeTurnId && !target.lastTerminalStatus
-  record.observed = !!target.activeTurnId || !!target.lastTerminalStatus
+  record.ownsRuntime = !target.running && !target.activeTurnId && !record.observed
+    && (!!record.clientMessageId || !target.lastTerminalStatus)
+  record.observed = record.clientMessageId ? record.observed : !!target.activeTurnId || !!target.lastTerminalStatus
   streamTransactions.transact(() => {
     patchSession(targetId, prev => {
-      const duplicate = prev.liveUnits.find(row => row.type === 'live-user' && row.msg.uuid === record.uuid)
-      const saved = prev.history?.some(row => row.role === 'user' && row.uuid === record.uuid)
+      const identity = unit?.type === 'live-user' ? unit.msg : { uuid: record.uuid, clientMessageId: record.clientMessageId }
+      const duplicate = prev.liveUnits.find(row => row.type === 'live-user' && sameUserMessage(row.msg, identity))
+      const savedRow = prev.history?.find(row => row.role === 'user' && sameUserMessage(row, identity))
+      const saved = !!savedRow
+      const exactTurn = duplicate?.turnId || savedRow?.turnId
+      if (record.clientMessageId && !record.observedTurnId && exactTurn) {
+        record.observed = true
+        record.observedTurnId = exactTurn
+      }
       const row = unit?.type === 'live-user' ? { ...unit, ...(duplicate?.turnId ? { turnId: duplicate.turnId } : {}),
+        ...(duplicate ? { optimisticUser: duplicate.optimisticUser === true } : {}),
         msg: { ...unit.msg, ...(duplicate?.type === 'live-user' ? duplicate.msg : {}), timestamp: record.startedAt,
-          ...(unit.msg.localRender ? { localRender: unit.msg.localRender } : {}) } } : undefined
+          ...(unit.msg.localRender ? { localRender: { ...(duplicate?.type === 'live-user' ? duplicate.msg.localRender : {}), ...unit.msg.localRender } } : {}) } } : undefined
       const liveUnits = !row || saved ? prev.liveUnits : duplicate
         ? prev.liveUnits.map(item => item === duplicate ? row : item) : [row, ...prev.liveUnits]
       return { liveUnits,
-        ...(record.ownsRuntime ? { running: true, streamMode: 'requesting' as const, activityVisible: true,
+        ...(record.ownsRuntime && !record.observed ? { running: true, streamMode: 'requesting' as const, activityVisible: true,
           turnStartedAt: record.startedAt, interruptedLiveTurn: null, lastTerminalStatus: null, stopRequestedAt: null } : {}),
-        ...(record.observed && target.activeTurnId ? { turnStartedAt: record.startedAt,
+        ...(record.observed && target.activeTurnId && (!record.clientMessageId || record.observedTurnId === target.activeTurnId) ? { turnStartedAt: record.startedAt,
           turnWorkStartedAtMs: { ...prev.turnWorkStartedAtMs, [target.activeTurnId]: record.startedAt },
           ...completedWorkClock(prev, liveUnits, target.activeTurnId) } : {}),
       }
@@ -1997,7 +2074,7 @@ export function movePendingUserTurn(sourceId: string, targetId: string, uuid: st
       chatStreamStore.setState(state => { const sessions = { ...state.sessions }; delete sessions[sourceId]; return { sessions } })
       retainedStreams.delete(sourceId); historyReadTokens.delete(sourceId); historyInFlight.delete(sourceId)
     } else patchSession(sourceId, prev => ({ liveUnits: prev.liveUnits.filter(row => row.key !== record.key),
-      ...(restoreSourceRuntime ? sourceRuntime : {}) }))
+      ...(restoreSourceRuntime && !prev.activeTurnId && prev.turnStartedAt === record.startedAt ? sourceRuntime : {}) }))
   })
   rememberStream(targetId)
 }
@@ -2026,13 +2103,14 @@ export function finishPendingUserTurn(sessionId: string, uuid: string, outcome: 
   if (!record) return
   if (outcome === 'accepted') {
     record.accepted = true
-    if (record.observed || !record.ownsRuntime) forgetPendingUserTurn(sessionId, record)
+    if (record.observed || !record.clientMessageId && !record.ownsRuntime) forgetPendingUserTurn(sessionId, record)
   } else forgetPendingUserTurn(sessionId, record)
   patchSession(sessionId, prev => ({
-    ...(outcome !== 'accepted' && record.ownsRuntime && !record.observed ? record.before : {}),
+    ...(outcome !== 'accepted' && record.ownsRuntime && !record.observed && !prev.activeTurnId
+      && prev.turnStartedAt === record.startedAt ? record.before : {}),
     liveUnits: prev.liveUnits.flatMap(row => {
       if (row.key !== record.key) return [row]
-      if (outcome === 'cancelled') return []
+      if (outcome === 'cancelled' && (!record.clientMessageId || row.optimisticUser !== false && !record.observedTurnId)) return []
       const { pendingUserTurn: _pending, ...settled } = row
       return [settled as LiveUnit]
     }).concat(outcome === 'failed' && error?.trim() ? [{ type: 'live-error', key: nextKey('submit-error'), text: error.trim(), submissionUuid: record.uuid }] : []),
@@ -2049,6 +2127,22 @@ export function discardPendingUserTurn(sessionId: string, uuid: string): void {
 export function ingestLocalUserTurn(sessionId: string, payload: LocalUserTurnPayload): void {
   if (!sessionId) return
   pendingEditedTurns.delete(sessionId)
+  if (payload.steered) {
+    patchSession(sessionId, prev => {
+      const local = localUserUnit(payload)
+      const existing = prev.liveUnits.find(unit => unit.type === 'live-user' && sameUserMessage(unit.msg, local.msg))
+      const target = payload.targetTurnId || prev.activeTurnId || prev.liveTurnId || undefined
+      const capturedClock = target && typeof payload.targetTurnStartedAt === 'number' && payload.targetTurnStartedAt > 0
+        ? { turnWorkStartedAtMs: { ...prev.turnWorkStartedAtMs, [target]: prev.turnWorkStartedAtMs[target] ?? payload.targetTurnStartedAt } } : {}
+      if (prev.history?.some(row => row.role === 'user' && sameUserMessage(row, local.msg))) return {}
+      return { ...capturedClock, liveUnits: existing?.type === 'live-user'
+        ? prev.liveUnits.map(unit => unit === existing ? { ...unit,
+          ...(unit.turnId || !target ? {} : { turnId: target }),
+          msg: { ...local.msg, ...unit.msg, localRender: { ...local.msg.localRender, ...unit.msg.localRender } } } : unit)
+        : [...sealTail(prev.liveUnits), { ...local, ...(target ? { turnId: target } : {}) }] }
+    })
+    return
+  }
   patchSession(sessionId, prev => ({
     running: true,
     currentInference: null,
@@ -2059,6 +2153,13 @@ export function ingestLocalUserTurn(sessionId: string, payload: LocalUserTurnPay
     stopRequestedAt: null,
     liveUnits: [...sealTail(prev.liveUnits), localUserUnit(payload)],
   }))
+}
+
+/** A confirmed refusal retracts only its own optimistic input, never canonical work. */
+export function retractLocalUserMessage(sessionId: string, identity: string): void {
+  if (!sessionId || !identity) return
+  patchSession(sessionId, prev => ({ liveUnits: prev.liveUnits.filter(unit => unit.type !== 'live-user'
+    || unit.optimisticUser !== true || unit.msg.uuid !== identity && clientMessageId(unit.msg) !== identity) }))
 }
 
 /**
@@ -2188,6 +2289,45 @@ export function clearTurnInterruptRequest(sessionId: string): void {
  * the webview: stop animating first, then let persisted history replace the
  * stale live layer and restore the Turn's completed/failed status.
  */
+/** Apply an explicit inspection result without replacing the transcript's live/event cut. */
+export function reconcileNativeSessionRuntime(snapshot: SessionRuntimeSnapshot): void {
+  const { sessionId, turn } = snapshot
+  const current = getSessionStream(sessionId)
+  const pending = unadmittedUserTurn(sessionId)
+  const matchedPending = !!pending?.clientMessageId && pending.clientMessageId === turn?.clientMessageId
+  if (pending && (!turn?.clientMessageId || pending.clientMessageId !== turn.clientMessageId)
+    || current.provisional || snapshot.status === 'notLoaded') return
+  const terminal = !!turn && ['completed', 'failed', 'interrupted'].includes(turn.status)
+  const evidence = { status: snapshot.status, activeFlags: snapshot.activeFlags || [],
+    outcomePending: snapshot.status === 'idle' && current.running && !terminal }
+  if (snapshot.status === 'active') {
+    if (turn && current.activeTurnId && current.activeTurnId !== turn.id
+      && (turn.startedAt == null || turn.startedAt < current.turnStartedAt)) return
+    if (turn?.status === 'inProgress') {
+      ingestChatEvent({ type: 'session_runtime_status', sessionId,
+        status: 'active', turnId: turn.id, clientMessageId: turn.clientMessageId, startedAtMs: turn.startedAt })
+      patchSession(sessionId, () => ({ runtimeEvidence: evidence }))
+      return
+    }
+  }
+  if (!turn || !terminal) {
+    patchSession(sessionId, () => ({ runtimeEvidence: evidence }))
+    return
+  }
+  // An old read or a predecessor's completion cannot settle a successor.
+  if (!matchedPending && current.activeTurnId && current.activeTurnId !== turn.id) return
+  if (!matchedPending && current.liveTurnId && current.liveTurnId !== turn.id) return
+  if (!matchedPending && !current.activeTurnId && current.running && current.turnStartedAt > (turn.completedAt ?? 0)) return
+  if (current.running || matchedPending) {
+    ingestChatEvent(turn.status === 'failed'
+      ? { type: 'api_error', sessionId, turnId: turn.id, clientMessageId: turn.clientMessageId, terminal: true, error: turn.error || '' }
+      : { type: turn.status === 'interrupted' ? 'interrupted' : 'done', sessionId, turnId: turn.id, clientMessageId: turn.clientMessageId })
+  }
+  patchSession(sessionId, prev => ({ ...(!prev.activeTurnId ? { runtimeEvidence: { status: snapshot.status,
+      activeFlags: snapshot.activeFlags || [], outcomePending: false } } : {}),
+    turnStatuses: { ...prev.turnStatuses, [turn.id]: turn.status } }))
+}
+
 export function reconcileSessionWorking(sessionId: string, isWorking: boolean): Promise<void> {
   if (!sessionId) return Promise.resolve()
   const current = chatStreamStore.getState().sessions[sessionId]
@@ -3046,7 +3186,8 @@ export function loadSessionHistory(sessionId: string, options: {
             .sort((a, b) => a - b)[0]
           turnStartClock[seedId] = seeded ?? Date.now()
         }
-        const settledHistory = options.reconcile ? reviewHandoff.history
+        const settledHistory = options.reconcile ? mergeSubmittedUserHistory(reviewHandoff.history,
+          submittedUnits.filter(unit => unit.type === 'live-user' && clientMessageId(unit.msg)), [], turnStartClock)
           : mergeSubmittedUserHistory(reviewHandoff.history, covers ? submittedUnits : [], submittedHistory || [], turnStartClock)
         if (covers && pendingEdit && (options.reconcile || editedTurnId
           && settledHistory.some(message => message.role === 'user' && message.turnId === editedTurnId))) {
@@ -3081,7 +3222,13 @@ export function loadSessionHistory(sessionId: string, options: {
           const supersededKeys = savedReplacement && pendingEdit ? pendingEdit.snapshot.droppedKeys : null
           const retentionBase = handoffBase.filter(unit => !keptSet.has(unit) && !supersededKeys?.has(unit.key))
           if (verdictRead) {
-            sweptLiveUnits = kept
+            // An inspection is not proof that an uncovered modern input was deleted.
+            // Only an explicit rewrite cut may retire its identity without a replacement.
+            const modern = !liveCut && options.rewoundLiveTail !== true
+              ? retainUnownedLiveUnits(retentionBase.filter(unit => unit.type === 'live-user' && clientMessageId(unit.msg)),
+                settledHistory, turnStartClock, false).units : []
+            retainedUnowned = modern.length
+            sweptLiveUnits = [...kept, ...modern]
           } else {
             // A terminal turn whose work has not flushed yet is not owned by
             // saved history: its user row alone must not hand off the live
@@ -3111,6 +3258,12 @@ export function loadSessionHistory(sessionId: string, options: {
             sweptLiveUnits = [...kept, ...optimisticHeld, ...retention.units]
           }
         }
+        const modernTurnIds = new Set([...prev.liveUnits.flatMap(unit => unit.type === 'live-user'
+          && clientMessageId(unit.msg) && unit.turnId ? [unit.turnId] : []),
+        ...(prev.history || []).flatMap(row => row.role === 'user' && clientMessageId(row) && row.turnId ? [row.turnId] : [])])
+        const modernTerminals = !liveCut && options.rewoundLiveTail !== true
+          ? Object.fromEntries(Object.entries(prev.turnStatuses).filter(([id, status]) => modernTurnIds.has(id)
+            && ['completed', 'interrupted', 'failed'].includes(status))) : {}
         const mergedHistory = mergeAgentTimeline(settledHistory, agentTimeline)
         return {
           agentTimeline,
@@ -3128,7 +3281,7 @@ export function loadSessionHistory(sessionId: string, options: {
             turnShells: nextSaved ? savedShells(nextSaved) : { ...prev.turnShells, ...shellEntries(pageMeta.shells) },
             ...(nextSaved ? { savedTranscript: nextSaved } : {}),
           } : {}),
-          turnStatuses: restoredStatuses,
+          turnStatuses: { ...modernTerminals, ...restoredStatuses },
           turnStartedAtMs,
           turnFinishedAtMs,
           turnDurations,

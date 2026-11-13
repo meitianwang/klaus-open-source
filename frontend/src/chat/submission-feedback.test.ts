@@ -3,6 +3,7 @@ import { referencesFromEditor as documentReferencesFromEditor } from './composer
 import { expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { runInNewContext } from 'node:vm'
+import { installPendingSubmissionFixture } from './test-support/pending-submission-fixture'
 import { createSourceFile, forEachChild, isFunctionDeclaration, ModuleKind, ScriptKind, ScriptTarget, transpileModule } from 'typescript'
 import { approvalReviewShortcutRange } from './composer/approval-review-shortcut'
 import { normalizeComposerReferences } from './composer/reference-token'
@@ -38,7 +39,7 @@ function element() {
   const attributes = new Map<string, string>(), classes = new Set<string>()
   return { value: '', hidden: true, disabled: false, textContent: '', title: '',
     setAttribute: (name: string, value: string) => { attributes.set(name, value) },
-    getAttribute: (name: string) => attributes.get(name), toggleAttribute() {},
+    getAttribute: (name: string) => attributes.get(name), removeAttribute: (name: string) => { attributes.delete(name) }, toggleAttribute() {},
     classList: { add: (...names: string[]) => { names.forEach(name => classes.add(name)) }, remove: (...names: string[]) => { names.forEach(name => classes.delete(name)) },
       toggle: (name: string, active: boolean) => { if (active) classes.add(name); else classes.delete(name) }, contains: (name: string) => classes.has(name) },
   }
@@ -50,12 +51,14 @@ function fixture() {
   const ready = deferred<boolean>(), mainWait = deferred<void>(), queueWait = deferred<{ status: 'queued' }>()
   const running: Record<string, boolean> = {}
   const submitted: Array<{ sessionId: string; text: string }> = []
+  const unsentSnapshots: any[] = []
   let mainCalls = 0, modelReads = 0
   let api: { send(): Promise<void>; sideSubmit(options?: { followUp?: boolean }): Promise<void>; updateSideSendButton(): void }
   const context = {
     parseCompactSlashInput: parseManualCompactInput, composedInputText: () => input.value,
     normalizeComposerReferences, approvalReviewShortcutRange, referencesFromEditor: documentReferencesFromEditor,
-    beginPendingComposerSubmission: () => null, settlePendingComposerSubmission() {},
+    beginPendingComposerSubmission: () => null,
+    recordUnsentSubmission: (record: any) => unsentSnapshots.push(record),
     window: { currentSessionId: 'main', isSessionRunning: (id: string) => !!running[id] },
     document: { getElementById: (id: string) => elements[id] || null },
     preparingSubmissions: createGoalSubmissionGate(), creatingGoalSessions: createGoalSubmissionGate(),
@@ -83,16 +86,19 @@ function fixture() {
     sendMessage: async () => { mainCalls++; await mainWait.promise }, syncBusyForCurrentSession() {},
     showToast() {}, pendingSendAfterUpload: null,
   }
+  installPendingSubmissionFixture(context)
   api = runInNewContext(script, context)
   return { context, api, ready, mainWait, queueWait, running, input, sideInput, mainButton, sideButton, submitted,
-    mainCalls: () => mainCalls, modelReads: () => modelReads }
+    mainCalls: () => mainCalls, modelReads: () => modelReads, unsentSnapshots }
 }
 
-test('side send retains its ordinary affordance and drops duplicate clicks during a cold readiness lookup', async () => {
+test('side send owns pending transcript feedback and drops duplicate dispatch during a cold readiness lookup', async () => {
   const f = fixture()
   const first = f.api.sideSubmit()
   expect(f.sideButton.disabled).toBe(false)
-  expect(f.sideButton.getAttribute('aria-label')).toBe('submit_tooltip_send')
+  expect(f.sideButton.getAttribute('aria-label')).toBe('submit_tooltip_stop')
+  expect(f.sideInput.value).toBe('')
+  expect([...(f.context as any).pendingComposerSubmissions.values()][0].draft.text).toBe('Side question')
   expect(f.sideButton.getAttribute('aria-busy')).toBeUndefined()
   expect(f.sideButton.classList.contains('preparing')).toBe(false)
   await f.api.sideSubmit()
@@ -127,14 +133,16 @@ test('a running attachment-only side follow-up retains submit and restores Stop 
   expect(f.submitted).toHaveLength(1)
 })
 
-test('failed model readiness releases its reservation and preserves the side draft', async () => {
+test('failed model readiness releases its reservation and retains the submitted snapshot outside the next draft', async () => {
   const f = fixture()
   const pending = f.api.sideSubmit()
   f.ready.resolve(false)
   await pending
   expect(f.submitted).toEqual([])
-  expect(f.sideInput.value).toBe('Side question')
-  expect(f.sideButton.disabled).toBe(false)
+  expect(f.sideInput.value).toBe('')
+  expect(f.unsentSnapshots[0].draft.text).toBe('Side question')
+  expect(f.unsentSnapshots[0].payload.clientMessageId).toBeTruthy()
+  expect(f.sideButton.disabled).toBe(true)
   expect(f.context.preparingSubmissions.has('side')).toBe(false)
 })
 
@@ -146,7 +154,7 @@ for (const change of ['tab', 'draft'] as const) {
     f.sideInput.value = 'New draft'
     f.ready.resolve(true)
     await pending
-    expect(f.submitted).toEqual([])
+    expect(f.submitted).toEqual([{ sessionId: 'side', text: 'Side question' }])
     expect(f.sideInput.value).toBe('New draft')
     expect(f.context.preparingSubmissions.has('side')).toBe(false)
   })

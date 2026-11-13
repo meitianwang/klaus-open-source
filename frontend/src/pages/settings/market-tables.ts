@@ -1014,7 +1014,7 @@ const AGENT_TOOL_NAME_ZH = {
   Agent: '智能体',
 }
 
-Object.assign(window as any, {
+const marketTables = {
   AGENT_CATEGORY_ORDER,
   SKILL_TEXT_I18N,
   SKILL_ICON_BY_CATEGORY,
@@ -1034,8 +1034,11 @@ Object.assign(window as any, {
   AGENT_TOOL_NAME_ZH,
   AGENT_ICON_BY_TYPE,
   AGENT_ICON_TONE,
-})
+}
 
-// 表全部经 window 桥消费，本文件没有具名导出；这行只是把它标成 ES module，
-// 好让 `import('./market-tables')`（测试里的副作用导入）在 tsc 眼里也成立。
-export {}
+/** Install the shared data on each renderer or fixture, even after a cached import. */
+export function installMarketTables(target: object): void {
+  Object.assign(target, marketTables)
+}
+
+if (typeof window !== 'undefined') installMarketTables(window)

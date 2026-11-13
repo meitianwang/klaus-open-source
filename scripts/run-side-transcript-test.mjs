@@ -7,7 +7,7 @@ import { assertElectronGuiAvailable, spawnElectronGuiSync } from './electron-tes
 
 const require = createRequire(import.meta.url);
 const desktop = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const logsRoot = join(desktop, 'dist/side-transcript-logs');
+const logsRoot = process.env.KLAUS_SIDE_TRANSCRIPT_LOGS_ROOT || join(desktop, 'dist/side-transcript-logs');
 mkdirSync(logsRoot, { recursive: true });
 const logs = mkdtempSync(join(logsRoot, 'run-'));
 const profile = join(logs, 'profile');
@@ -37,13 +37,19 @@ try {
   delete env.ELECTRON_RUN_AS_NODE;
   writeFileSync(log, 'COMMAND: approved Electron runner dist/tests/side-transcript-app.integration.js\n');
   const result = spawnElectronGuiSync(require('electron'), ['dist/tests/side-transcript-app.integration.js'], {
-    cwd: desktop, env, stdio: ['ignore', log, log], timeout: 180_000,
+    cwd: desktop, env, stdio: ['ignore', log, log], timeout: 300_000,
   });
   writeFileSync(log, `EXIT: ${result.status}; SIGNAL: ${result.signal ?? ''}\n`);
   if (result.error) throw result.error;
   const report = JSON.parse(readFileSync(join(logs, 'result.json'), 'utf8'));
-  if (result.status !== 0 || !report.passed || report.checks !== 34) throw Error('Side transcript acceptance failed');
-  console.log(`Side transcript: ${report.checks} checks passed. Original output: ${gate}`);
+  const stages = ['before-send', 'ack-pending', 'runtime-snapshot-pending', 'held-before-first-token',
+    'streaming', 'completed', 'same-text-resubmit', 'tab-away-back', 'main-away-back', 'dual-running', 'stopped'];
+  const required = [...['left', 'right'].flatMap(pane => stages.map(stage => `${pane}:${stage}`)), 'dual:stop-isolation'];
+  const missing = required.filter(stage => !report.mechanismStages?.includes(stage));
+  if (result.status !== 0 || !report.passed || report.checks !== 34 || report.mechanismChecks < 90 || missing.length) {
+    throw Error(`Side transcript acceptance failed; missing mechanism stages: ${missing.join(', ')}`);
+  }
+  console.log(`Side transcript: ${report.checks} baseline checks and ${report.mechanismChecks} mechanism checks passed. Original output: ${gate}`);
 } catch (error) {
   writeFileSync(log, String(error instanceof Error ? error.stack : error) + '\n');
   console.error(`${error instanceof Error ? error.message : error}\nOriginal output: ${gate}`);

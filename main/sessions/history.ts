@@ -29,7 +29,7 @@ import { mimeForExtension, savedPathReferencesFromText, storeBytes, storeAntigra
 import { splitDynamicToolMedia } from '../services/tool-media';
 import { toolArtifactPaths } from '../services/tool-artifact-paths';
 import { attachInlineVisFragments } from '../services/inline-vis-read';
-import { isSteerMarkerBlock, withoutSteerMarker } from '../../contracts/steer-marker';
+import { presentUserInput } from '../../contracts/steer-marker';
 import { subagentCommunication } from '../../contracts/subagent-communication';
 import { providerErrorDetails, providerErrorTextWithRequestId } from '../../contracts/provider-error-details';
 import { agentNotificationReceipt } from '../ipc/project';
@@ -418,10 +418,9 @@ function buildHistoryMessages(
       continue;
     }
 
-    // A steered user message carries the host's history marker as its first block;
-    // every user-facing surface reads the stripped content instead.
-    const userContent = kind === 'user' ? withoutSteerMarker(arr(message.content)) : arr(message.content);
-    const steered = kind === 'user' && userContent.length !== arr(message.content).length;
+    const presentation = presentUserInput(arr(message.content), kind === 'user' ? userDisplays.get(str(message.uuid)) ?? message.localRender : undefined);
+    const userContent = kind === 'user' ? presentation.content : arr(message.content);
+    const steered = kind === 'user' && presentation.steered;
     const communication = kind === 'user' ? subagentCommunication(userContent, message.isMeta === true || message.is_meta === true) : null;
     if (communication) {
       const row: JsonObject = { id: `${sessionId}-${index++}`, uuid: optUuid(message), role: 'user',

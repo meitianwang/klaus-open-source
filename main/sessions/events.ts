@@ -165,9 +165,24 @@ export class SessionEventPump {
     }
     const rawSessionId = 'params' in event ? object(event.params)?.sessionId : undefined;
     const boundSessionId = typeof rawSessionId === 'string' ? this.rendererId(rawSessionId) : undefined;
+    if (event.type === 'sessionStatusChanged' && boundSessionId) {
+      const status = object(object(event.params)?.status);
+      if (status && ['active', 'idle', 'notLoaded'].includes(String(status.type))) {
+        this.deps.forwarder.enqueue([{ type: 'session_runtime_status', source: 'session',
+          sessionId: boundSessionId, status: status.type ?? 'notLoaded', turnId: null,
+          activeFlags: Array.isArray(status.activeFlags) ? status.activeFlags : [] }]);
+      }
+    }
     const inference = 'params' in event ? eventInference(event.params) : undefined;
     const projectionContext = boundSessionId
-      ? { ...this.deps.state.sessionEventContext(boundSessionId, inference), configRoot: this.deps.configRoot }
+      ? { ...this.deps.state.sessionEventContext(boundSessionId, inference), configRoot: this.deps.configRoot,
+        userDisplayMetadata: (uuid: string, engineSessionId: string): unknown => {
+          if (!uuid || engineSessionId !== rawSessionId || typeof rawSessionId !== 'string') return undefined;
+          const params = 'params' in event ? object(event.params) : undefined;
+          const submissionId = typeof params?.submissionId === 'string' ? params.submissionId
+            : typeof object(params?.event)?.submissionId === 'string' ? object(params?.event)!.submissionId as string : undefined;
+          return this.deps.state.submittedMessage(boundSessionId, rawSessionId, uuid, submissionId)?.displayMetadata;
+        } }
       : undefined;
     this.deps.observe?.(event, generation);
     if (event.type === 'reverseRequest') {
@@ -250,6 +265,11 @@ export class SessionEventPump {
       const params = object(event.params) ?? {};
       const actualTurnId = object(params.detail)?.turnId;
       const rendererId = typeof params.sessionId === 'string' ? this.rendererId(params.sessionId) : undefined;
+      const submittedClientId = rendererId && typeof actualTurnId === 'string'
+        && typeof params.submissionId === 'string' && typeof params.sessionId === 'string'
+        ? this.deps.state.bindSubmittedTurn(rendererId, params.sessionId, params.submissionId, actualTurnId) : undefined;
+      if (rendererId && typeof params.sessionId === 'string' && typeof params.submissionId === 'string'
+        && this.deps.state.submittedTurnSettled(rendererId, params.sessionId, params.submissionId)) return;
       if (rendererId && typeof params.submissionId === 'string' && params.submissionId
         && typeof actualTurnId === 'string' && actualTurnId) {
         this.activeTurnAliases.set(rendererId, { submissionId: params.submissionId, engineTurnId: actualTurnId });
@@ -260,6 +280,7 @@ export class SessionEventPump {
       // mid-turn and must not reopen a turn the lifecycle already settled.
       if (rendererId && typeof actualTurnId === 'string' && actualTurnId) {
         this.deps.forwarder.enqueue([{ type: 'session_runtime_status', sessionId: rendererId, status: 'active', turnId: actualTurnId,
+          ...(submittedClientId ? { clientMessageId: submittedClientId } : {}),
           ...(goalTurnMetadata(params.detail) ?? goalTurnMetadata(params)) }]);
       }
     }
@@ -269,7 +290,6 @@ export class SessionEventPump {
     const splitToolMedia = boundSessionId && configRoot !== undefined
       ? (result: Json | undefined) => splitDynamicToolMedia(result, configRoot) : undefined;
     for (const chat of [...projectEngineEvent(event, projectionContext, splitToolMedia), ...this.agentTasks.observe(event, id => this.rendererId(id))]) {
-      let terminalIdleFrame: Json | null = null;
       // A hook's runtime failure never enters the conversation.
       // The desktop surface manages hooks from Settings → Hooks (trust, enable, open the
       // config file) and stays silent about their failures in the transcript; the failure
@@ -283,6 +303,20 @@ export class SessionEventPump {
       const rawId = typeof chat.sessionId === 'string' ? chat.sessionId : '';
       const sessionId = this.rendererId(rawId) ?? rawId;
       chat.sessionId = sessionId;
+      if (chat.type === 'user_message' && boundSessionId && typeof rawSessionId === 'string') {
+        const message = object(chat.message);
+        const params = 'params' in event ? object(event.params) : undefined;
+        if (message && typeof message.uuid === 'string' && message.isMeta !== true) {
+          const submitted = this.deps.state.submittedMessage(sessionId, rawSessionId, message.uuid,
+            typeof params?.submissionId === 'string' ? params.submissionId
+              : typeof object(params?.event)?.submissionId === 'string' ? object(params?.event)!.submissionId as string : undefined);
+          if (submitted) {
+            const body = object(message.message) ?? {};
+            message.clientMessageId = submitted.clientMessageId;
+            message.message = { ...body, localRender: body.localRender ?? submitted.displayMetadata };
+          }
+        }
+      }
       if (chat.type === 'user_message' && (this.duplicateQuestionMessage(sessionId, object(chat.message))
         || this.duplicateCanonicalUserMessage(sessionId, object(chat.message)))) continue;
       // The facade's turn/completed uses the submission ID; turn/started carries
@@ -312,6 +346,7 @@ export class SessionEventPump {
           terminalIds.add(alias.submissionId);
           terminalIds.add(alias.engineTurnId);
         }
+        if (typeof rawSessionId === 'string') this.deps.state.settleSubmittedTurn(sessionId, rawSessionId, terminalIds);
         // A terminal event is the engine's own word that a turn ended, so it
         // ALWAYS reaches the renderer and is applied under the turnId it carries. Dropping it
         // on an identity mismatch (the pre-2026-10-06 guard) froze the renderer in a running
@@ -337,14 +372,8 @@ export class SessionEventPump {
           // must not disturb the terminal frames the renderer is converging on.
           if (this.deps.onTurnSettled) void Promise.resolve(this.deps.onTurnSettled(sessionId)).catch(() => {});
         }
-        // The renderer's running indicator is DERIVED
-        // from the engine's turn lifecycle, not mirrored from activity frames. Every terminal
-        // event carries an explicit idle frame AFTER it so a renderer whose copy of the truth
-        // drifted converges on the engine's word without trusting the host's running registry.
-        terminalIdleFrame = { type: 'session_runtime_status', sessionId, status: 'idle', turnId: typeof chat.turnId === 'string' ? chat.turnId : null };
       }
       projected.push(chat);
-      if (terminalIdleFrame) projected.push(terminalIdleFrame);
     }
     this.deps.forwarder.enqueue(projected);
     if (event.type === 'turnCompleted') this.deps.forwarder.flush();

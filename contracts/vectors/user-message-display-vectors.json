@@ -25,6 +25,128 @@
       "thumbnailCountPerImage": 1
     }
   },
+  "inputPresentation": {
+    "_why": "Admission owns versioned provider-invisible attribution; authored text is never a modern control channel. Untagged historical leading marker plus body remains ambiguous and retains legacy steer behavior.",
+    "marker": "<!-- klaus-steered-message -->",
+    "cases": [
+      {
+        "name": "modern-turn-leading-literal",
+        "texts": [
+          "<!-- klaus-steered-message -->",
+          "body"
+        ],
+        "metadata": {
+          "inputPresentation": {
+            "version": 1,
+            "kind": "turn"
+          },
+          "steerMessageId": "untrusted"
+        },
+        "expectedTexts": [
+          "<!-- klaus-steered-message -->",
+          "body"
+        ],
+        "steered": false
+      },
+      {
+        "name": "modern-steer-leading-literal",
+        "texts": [
+          "<!-- klaus-steered-message -->",
+          "body"
+        ],
+        "metadata": {
+          "inputPresentation": {
+            "version": 1,
+            "kind": "steer"
+          }
+        },
+        "expectedTexts": [
+          "<!-- klaus-steered-message -->",
+          "body"
+        ],
+        "steered": true
+      },
+      {
+        "name": "modern-turn-standalone-literal",
+        "texts": [
+          "<!-- klaus-steered-message -->"
+        ],
+        "metadata": {
+          "inputPresentation": {
+            "version": 1,
+            "kind": "turn"
+          }
+        },
+        "expectedTexts": [
+          "<!-- klaus-steered-message -->"
+        ],
+        "steered": false
+      },
+      {
+        "name": "legacy-leading-control",
+        "texts": [
+          "<!-- klaus-steered-message -->",
+          "body"
+        ],
+        "expectedTexts": [
+          "body"
+        ],
+        "steered": true
+      },
+      {
+        "name": "legacy-nonleading-literal",
+        "texts": [
+          "body",
+          "<!-- klaus-steered-message -->"
+        ],
+        "expectedTexts": [
+          "body",
+          "<!-- klaus-steered-message -->"
+        ],
+        "steered": false
+      },
+      {
+        "name": "legacy-standalone-literal",
+        "texts": [
+          "<!-- klaus-steered-message -->"
+        ],
+        "expectedTexts": [
+          "<!-- klaus-steered-message -->"
+        ],
+        "steered": false
+      },
+      {
+        "name": "legacy-padded-literal",
+        "texts": [
+          " <!-- klaus-steered-message --> ",
+          "body"
+        ],
+        "expectedTexts": [
+          " <!-- klaus-steered-message --> ",
+          "body"
+        ],
+        "steered": false
+      },
+      {
+        "name": "future-presentation-preserves-text",
+        "texts": [
+          "<!-- klaus-steered-message -->",
+          "body"
+        ],
+        "metadata": {
+          "inputPresentation": {
+            "version": 2,
+            "kind": "steer"
+          }
+        },
+        "expectedTexts": [
+          "<!-- klaus-steered-message -->",
+          "body"
+        ],
+        "steered": false
+      }
+    ]
+  },
   "send": {
     "channel": "chat:send",
     "field": "displayMetadata",

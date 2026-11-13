@@ -40,7 +40,14 @@ export function registerSessionHandlers(registry: ChannelRegistry, deps: {
         ...(typeof value.limit === 'number' ? { limit: value.limit } : {}),
       }) as unknown as Promise<Json>;
     },
-    'session:runtime-state': () => ({ workingSessionIds: state.runningSessions().filter(id => sessions.isRuntimeVisible(id)) }),
+    'session:runtime-state': context => {
+      const ids = payload(context).sessionIds;
+      if (ids !== undefined && (!Array.isArray(ids) || ids.length > 256
+        || ids.some(id => typeof id !== 'string' || !id || id.length > 512))) {
+        throw new IpcHandlerError('BAD_REQUEST', 'sessionIds must be a bounded list of conversation identities');
+      }
+      return sessions.runtimeState(ids as string[] | undefined) as unknown as Promise<Json>;
+    },
     'session:list-archived': () => sessions.listArchivedSessions(),
     'session:view-retain': context => {
       context.assertCurrent?.();

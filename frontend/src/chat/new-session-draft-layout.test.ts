@@ -1,6 +1,8 @@
 import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
+import { randomUUID } from 'node:crypto'
+import { chatFunctionFixture } from './test-support/chat-function-fixture'
 
 const CHAT_TS = readFileSync(fileURLToPath(new URL('./chat.ts', import.meta.url)), 'utf8')
 const SESSION_LIST_TS = readFileSync(fileURLToPath(new URL('./sidebar/session-list.tsx', import.meta.url)), 'utf8')
@@ -44,11 +46,22 @@ describe('draft-only new session layout', () => {
     expect(refreshWorkdir).toContain('const hasMessages = !!reportedHasMessages && !isDraftOnlySession(id)')
   })
 
-  test('the first real turn releases both welcome-layout guards', () => {
-    const submit = functionBody('async function submitTurnPayload(', '\nfunction clientQueueFor(')
-    expect(submit).toContain('draftOnlySessionIds.delete(targetSessionId)')
-    expect(submit.indexOf('draftOnlySessionIds.delete(targetSessionId)'))
-      .toBeLessThan(submit.indexOf('renderLocalUserPayload(targetSessionId, payload)'))
+  test('the first real turn releases both welcome-layout guards before optimistic rendering', async () => {
+    const drafts = new Set(['target', 'unrelated']), modes = new Set(['target', 'unrelated'])
+    const observed: Array<{ draftOnly: boolean; editableMode: boolean }> = []
+    const context = {
+      crypto: { randomUUID }, draftOnlySessionIds: drafts, userInterruptedSessions: new Set(),
+      submittedTurnSessionIds: new Set(), takeEditedQueueReinsert() {}, setDraft() {},
+      forgetRunModeForDraft: (id: string) => modes.delete(id),
+      renderLocalUserPayload: (id: string) => observed.push({ draftOnly: drafts.has(id), editableMode: modes.has(id) }),
+      klausApi: { chat: { send: async () => {} } }, sentUserDisplayMetadata: () => ({}), finishPendingUserTurn() {},
+    }
+    const api = chatFunctionFixture<{ submitTurnPayload(id: string, payload: unknown): Promise<unknown> }>(['submitTurnPayload'], context)
+    await api.submitTurnPayload('target', { finalText: 'First input', media: [] })
+    expect(observed).toEqual([{ draftOnly: false, editableMode: false }])
+    expect(drafts.has('unrelated')).toBe(true)
+    expect(modes.has('unrelated')).toBe(true)
+    expect(context.submittedTurnSessionIds.has('target')).toBe(true)
 
     const eventHandler = functionBody('function handleChatEvent(event: ChatEvent) {', '\nklausApi.on.permissionRequest(')
     // The run-activity guard releases the draft-only lifecycle and the draft's

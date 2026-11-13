@@ -56,6 +56,7 @@ function flushScrollEvents() {
 const savedDocument = globalThis.document
 const savedWindow = globalThis.window
 const savedResizeObserver = globalThis.ResizeObserver
+const savedMutationObserver = globalThis.MutationObserver
 
 beforeEach(() => {
   pendingScroll = new Set()
@@ -65,12 +66,14 @@ beforeEach(() => {
     setTimeout: () => 1, clearTimeout() {},
   }
   ;(globalThis as any).ResizeObserver = undefined
+  ;(globalThis as any).MutationObserver = undefined
 })
 
 afterEach(() => {
   ;(globalThis as any).document = savedDocument
   ;(globalThis as any).window = savedWindow
   ;(globalThis as any).ResizeObserver = savedResizeObserver
+  ;(globalThis as any).MutationObserver = savedMutationObserver
 })
 
 function fixture() {
@@ -88,6 +91,89 @@ function fixture() {
   const proxy = region.children[0]
   return { source, proxy, intents, handle }
 }
+
+function geometryNotifications() {
+  const callbacks: Array<() => void> = []
+  const Observer = class {
+    constructor(callback: () => void) { callbacks.push(callback) }
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  }
+  ;(globalThis as any).ResizeObserver = Observer
+  ;(globalThis as any).MutationObserver = Observer
+  return callbacks
+}
+
+describe('retained outer scrollbar visibility', () => {
+  test('inactive notifications and proxy gestures never write the transcript or proxy geometry', () => {
+    const callbacks = geometryNotifications()
+    const { source, proxy, intents, handle } = fixture()
+    flushScrollEvents()
+    handle.setActive(false)
+    const range = proxy.firstElementChild!.style.height
+    const geometry = { ...proxy.style }
+    source.contentHeight = 2400; source.scrollTop = 1900
+    proxy.scrollTop = 100
+    source.dispatch('scroll')
+    proxy.dispatch('scroll'); proxy.dispatch('wheel', { deltaY: -10 })
+    proxy.dispatch('pointerdown')
+    for (const callback of callbacks) callback()
+    handle.sync()
+    flushScrollEvents()
+    expect(source.scrollTop).toBe(1900)
+    expect(proxy.scrollTop).toBe(100)
+    expect(proxy.firstElementChild!.style.height).toBe(range)
+    expect(proxy.style).toEqual(geometry)
+    expect(intents).toEqual([])
+    handle.destroy()
+  })
+
+  test('reactivation keeps the same proxy and follows the restored source instead of its parked thumb', () => {
+    const callbacks = geometryNotifications()
+    const { source, proxy, intents, handle } = fixture()
+    flushScrollEvents()
+    const old = [...callbacks]
+    handle.setActive(false)
+    proxy.scrollTop = 100
+    source.contentHeight = 2400; source.scrollTop = 1900
+    handle.setActive(true)
+    flushScrollEvents()
+    expect(proxy.scrollTop).toBe(1900)
+    expect(source.scrollTop).toBe(1900)
+    expect(proxy.firstElementChild!.style.height).toBe('2400px')
+    expect(intents).toEqual([])
+    source.contentHeight = 2600; source.scrollTop = 2100
+    for (const callback of old) callback()
+    expect(proxy.firstElementChild!.style.height).toBe('2400px')
+    for (const callback of callbacks.slice(old.length)) callback()
+    flushScrollEvents()
+    expect(source.scrollTop).toBe(2100)
+    expect(proxy.scrollTop).toBe(2100)
+    proxy.scrollTop = 2000
+    flushScrollEvents()
+    expect(source.scrollTop).toBe(2000)
+    expect(intents).toEqual(['up'])
+    handle.destroy()
+  })
+
+  test('destroyed inactive proxies cannot reconnect listeners or layout observation', () => {
+    const callbacks = geometryNotifications()
+    const { source, proxy, intents, handle } = fixture()
+    flushScrollEvents()
+    handle.setActive(false); handle.destroy(); handle.setActive(true)
+    const range = proxy.firstElementChild!.style.height
+    source.contentHeight = 2400; source.scrollTop = 1900
+    proxy.scrollTop = 100
+    for (const callback of callbacks) callback()
+    handle.sync()
+    flushScrollEvents()
+    expect(source.scrollTop).toBe(1900)
+    expect(proxy.scrollTop).toBe(100)
+    expect(proxy.firstElementChild!.style.height).toBe(range)
+    expect(intents).toEqual([])
+  })
+})
 
 describe('outer scrollbar synchronization', () => {
   test('mounting reflects the existing transcript position without user intent', () => {

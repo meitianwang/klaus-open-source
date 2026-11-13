@@ -1,5 +1,5 @@
 {
-  "reason": "Active input uses its captured live binding and bypasses lifecycle mutations such as title persistence; a closing, retired or changed binding is refused before issuance. A turn/submit mode=steer ACK confirms admission, not application. expectedTurnId binds the steer to its intended running turn and queueMessageId gives the input its durable UUID. Actual correlated rejection alone is failed. Confirmation timeout, malformed receipt and binding retirement are unconfirmed, never permanent api_error. The bounded connection listener stays alive after timeout so late applied replaces uncertainty. Interrupted/failed turns reconcile exact UUIDs against authoritative queue snapshots: still-pending input is pending, preserved for explicit session/resumeQueued. A stopped turn never resumes automatically. Engine pending rows remain visible after restart without exposing ephemeral correlation IDs. A confirmed removal is removed, clears its keyed notice and retires its receipt observer; a stale or refused removal preserves observation.",
+  "reason": "Active input uses its captured live binding and bypasses lifecycle mutations such as title persistence; a closing, retired or changed binding is refused before issuance. A turn/submit mode=steer ACK confirms admission, not application. expectedTurnId binds the steer to its intended running turn and queueMessageId gives the input its durable UUID. The host stamps inputPresentation version 1 kind steer in provider-invisible displayMetadata; admission never adds control text to the user's input. Actual correlated rejection alone is failed. Confirmation timeout, malformed receipt and binding retirement are unconfirmed, never permanent api_error. The bounded connection listener stays alive after timeout so late applied replaces uncertainty. Interrupted/failed turns reconcile exact UUIDs against authoritative queue snapshots: still-pending input is pending, preserved for explicit session/resumeQueued. A stopped turn never resumes automatically. Engine pending rows remain visible after restart without exposing ephemeral correlation IDs. A confirmed removal is removed, clears its keyed notice and retires its receipt observer; a stale or refused removal preserves observation.",
   "identity": {
     "sessionId": "conversation",
     "engineSessionId": "engine-session",
@@ -17,7 +17,8 @@
       "delivery": "user",
       "expectedTurnId": "target-turn",
       "queueMessageId": "message-one",
-      "mode": "steer"
+      "mode": "steer",
+      "displayMetadata": { "inputPresentation": { "version": 1, "kind": "steer" } }
     }
   },
   "delegationRequest": {
@@ -29,7 +30,8 @@
       "delivery": "delegation",
       "expectedTurnId": "target-turn",
       "queueMessageId": "message-one",
-      "mode": "steer"
+      "mode": "steer",
+      "displayMetadata": { "inputPresentation": { "version": 1, "kind": "steer" } }
     }
   },
   "ack": {
@@ -43,6 +45,7 @@
   },
   "queued": {
     "type": "follow_up_status",
+    "displayMetadata": { "inputPresentation": { "version": 1, "kind": "steer" } },
     "sessionId": "conversation",
     "messageId": "message-one",
     "text": "Inspect the final tool result",
@@ -50,6 +53,7 @@
   },
   "applied": {
     "type": "follow_up_status",
+    "displayMetadata": { "inputPresentation": { "version": 1, "kind": "steer" } },
     "sessionId": "conversation",
     "messageId": "message-one",
     "text": "Inspect the final tool result",
@@ -65,6 +69,7 @@
   },
   "delegationQueued": {
     "type": "follow_up_status",
+    "displayMetadata": { "inputPresentation": { "version": 1, "kind": "steer" } },
     "sessionId": "conversation",
     "messageId": "message-one",
     "text": "<klaus-delegation>\n  <source-thread-id>sender-thread</source-thread-id>\n  <input>Inspect the final tool result</input>\n</klaus-delegation>",
@@ -72,6 +77,7 @@
   },
   "delegationApplied": {
     "type": "follow_up_status",
+    "displayMetadata": { "inputPresentation": { "version": 1, "kind": "steer" } },
     "sessionId": "conversation",
     "messageId": "message-one",
     "text": "<klaus-delegation>\n  <source-thread-id>sender-thread</source-thread-id>\n  <input>Inspect the final tool result</input>\n</klaus-delegation>",
@@ -121,6 +127,7 @@
   "rendererFailures": [],
   "pending": {
     "type": "follow_up_status",
+    "displayMetadata": { "inputPresentation": { "version": 1, "kind": "steer" } },
     "sessionId": "conversation",
     "messageId": "message-one",
     "text": "Inspect the final tool result",
@@ -129,6 +136,7 @@
   },
   "unconfirmed": {
     "type": "follow_up_status",
+    "displayMetadata": { "inputPresentation": { "version": 1, "kind": "steer" } },
     "sessionId": "conversation",
     "messageId": "message-one",
     "text": "Inspect the final tool result",
@@ -137,6 +145,7 @@
   },
   "removed": {
     "type": "follow_up_status",
+    "displayMetadata": { "inputPresentation": { "version": 1, "kind": "steer" } },
     "sessionId": "conversation",
     "messageId": "message-one",
     "text": "Inspect the final tool result",

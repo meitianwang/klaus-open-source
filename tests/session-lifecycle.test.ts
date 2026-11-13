@@ -320,4 +320,20 @@ h.test('the export strips the steer marker from the user wording', async () => {
   assertEqual(body, 'User:\nplease also run the gate\n\nAssistant:\ndone', 'the marker is host bookkeeping, not dialogue');
 });
 
+h.test('versioned attribution controls edit eligibility and preserves literal drafts and exports', async () => {
+  const vector = JSON.parse(await readFile(join(__dirname, '../../contracts/vectors/user-message-display-vectors.json'), 'utf8')).inputPresentation;
+  const { planRewind } = await import('../main/sessions/lifecycle');
+  for (const entry of vector.cases) {
+    const history: Json[] = [{ type: 'user', uuid: 'u', content: entry.texts.map((text: string) => ({ type: 'text', text })) },
+      ...(entry.metadata ? [{ type: 'system', subtype: 'user_display', text: JSON.stringify({ messageUuid: 'u', localRender: entry.metadata }) }] : [])];
+    const target = resolveEditTarget(history, { u: 't' }, 'u');
+    assertEqual(typeof target === 'string', entry.steered, entry.name + ': only openers are editable');
+    assertEqual(userMessageUuidForTurn(history, { u: 't' }, 't'), entry.steered ? '' : 'u', entry.name + ': turn opener');
+    const rewind = planRewind(history, 'u');
+    assert(typeof rewind !== 'string', 'rewind has a real UUID');
+    assertEqual(rewind.text, entry.expectedTexts.join('').trim(), entry.name + ': original draft');
+    assertEqual(renderThreadText(history), 'User:\n' + entry.expectedTexts.join('').trim(), entry.name + ': export');
+  }
+});
+
 void h.finish(join(__dirname,'session-lifecycle-result.json'),'session-lifecycle').then(code=>{process.exitCode=code;});

@@ -15,7 +15,8 @@ function blockOf(selector: string): string {
 
 describe('transcript scroll axes', () => {
   test('main and side transcripts disable surface-level horizontal scrolling', () => {
-    for (const selector of ['#messages {', '.side-messages {']) {
+    expect(blockOf('.side-messages {')).toContain('overflow: hidden')
+    for (const selector of ['#messages {', '.side-messages-slot {']) {
       const block = blockOf(selector)
       expect(block).toContain('overflow-y: auto')
       expect(block).toContain('overflow-x: hidden')

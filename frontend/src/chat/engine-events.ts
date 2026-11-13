@@ -39,7 +39,15 @@ export interface ThinkingDeltaEvent extends SessionScoped { type: 'thinking_delt
 export interface StreamModeEvent extends SessionScoped, GoalTurnMetadata { type: 'stream_mode'; mode: 'requesting' | 'responding' | 'thinking' | 'tool-use' | 'idle' | string; turnId?: string }
 // The engine turn lifecycle's own word for whether the
 // session is running. `active` opens a turn under the id the engine named; `idle` settles it.
-export interface SessionRuntimeStatusEvent extends SessionScoped, GoalTurnMetadata { type: 'session_runtime_status'; status: 'active' | 'idle'; turnId: string | null }
+export interface SessionRuntimeStatusEvent extends SessionScoped, GoalTurnMetadata {
+  type: 'session_runtime_status'
+  source?: 'turn' | 'session'
+  status: 'active' | 'idle' | 'notLoaded'
+  turnId: string | null
+  activeFlags?: string[]
+  clientMessageId?: string
+  startedAtMs?: number
+}
 export interface ModelUpdateEvent extends SessionScoped, ModelUpdateState { type: 'model_update' }
 export interface ToolStartEvent extends SessionScoped { type: 'tool_start'; toolName: string; toolCallId: string; args: unknown }
 export interface ToolInputDeltaEvent extends SessionScoped { type: 'tool_input_delta'; toolCallId: string; delta: string }
@@ -382,6 +390,7 @@ export interface RustQueueSnapshotItem {
 // 渲染层 follow-up 队列项：本地乐观项与引擎队列项共用一个形状
 //（mapRustQueueSnapshotItem / queueFollowUp 两个构造点的并集）。
 export interface FollowUpQueueItem {
+  clientMessageId?: string
   friendDispatchId?: string;
   friendIntent?: 'request' | 'notice';
   friendReplyToMessageId?: string;
@@ -549,6 +558,7 @@ export interface WorkspaceMentionNode {
 
 // buildOutgoingPayload 的产出：一次发送的完整载荷（乐观气泡 + IPC media）。
 export interface OutgoingPayload {
+  clientMessageId?: string
   friendDispatchId?: string;
   friendIntent?: 'request' | 'notice';
   friendReplyToMessageId?: string;

@@ -272,7 +272,8 @@ expose('klaus', {
      */
     mentionCandidates: (opts: SessionMentionRequest = {}): Promise<SessionMentionPage> =>
       call('session:mention-candidates', opts),
-    runtimeState: (): Promise<{ workingSessionIds: string[] }> => call('session:runtime-state'),
+    runtimeState: (sessionIds?: string[]): Promise<import('../../contracts/session-runtime').SessionRuntimeRead> =>
+      call('session:runtime-state', sessionIds ? { sessionIds } : undefined),
     listArchived: () => call('session:list-archived'),
     retainView: (sessionId: string, viewId: string) => call('session:view-retain', { sessionId, viewId }),
     releaseView: (sessionId: string, viewId: string) => call('session:view-release', { sessionId, viewId }),

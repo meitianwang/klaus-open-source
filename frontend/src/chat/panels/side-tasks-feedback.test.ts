@@ -9,6 +9,7 @@ import * as quoteRouting from '../../../../contracts/side-task-quotes'
 import { createPanelTabsFixture } from './panel-tabs-quote-routing.test'
 import { createSideComposerFixture, deferred, settle } from '../side-composer-drafts.test'
 import { chatRunnerStubs } from '../test-support/chat-runner-stubs'
+import type { createSidePanePlacement } from './side-pane-placement'
 
 const script = transpileModule(`${chatRunnerStubs}${readFileSync(new URL('./side-tasks.ts', import.meta.url), 'utf8')}`, {
   compilerOptions: { target: ScriptTarget.ES2022, module: ModuleKind.CommonJS },
@@ -31,6 +32,9 @@ class Element {
 
 function fixture(options: { loaded?: boolean | null; tasks?: ReturnType<typeof task>[] } = {}) {
   const composer = createSideComposerFixture()
+  const activePlacement = (composer.context as typeof composer.context & {
+    sidePanePlacement: ReturnType<typeof createSidePanePlacement>
+  }).sidePanePlacement
   const elements = new Map<string, Element>()
   for (const id of ['artifacts-panel', 'side-chat-panel', 'side-messages', 'side-composer-host', 'side-chat-empty', 'side-chat-expired', 'side-chat-recreate', 'side-task-new']) elements.set(id, new Element())
   elements.get('artifacts-panel')!.classList.add('collapsed')
@@ -67,7 +71,14 @@ function fixture(options: { loaded?: boolean | null; tasks?: ReturnType<typeof t
   const state = { get tabs(): Array<{ id: string; title: string; badge: string }> {
     return panelTabs.snapshot().tabs.filter((tab: any) => tab.kind === 'side-task').map((tab: any) => ({ id: tab.key, title: tab.title, badge: tab.badge }))
   }, get active(): string | null { return window.KlausPanelTabs.sideTaskQuotePanels()[0].activeId },
-    get bound() { return composer.context.sideSurfaceSessionId }, set bound(id: string | null) { composer.context.sideSurfaceSessionId = id } }
+    // Retained closures keep their session identity while hidden; only the
+    // active placement describes which owner is currently visible.
+    get bound() { return activePlacement.active('right') },
+    set bound(id: string | null) {
+      composer.context.sideSurfaceSessionId = id
+      if (id) activePlacement.activate(id, 'right')
+      else activePlacement.clear('right')
+    } }
   runInNewContext(script, { window, document: { getElementById: (id: string) => elements.get(id) }, exports: {},
     require: (name: string) => {
       if (name === '../../../../contracts/side-task-quotes') return quoteRouting

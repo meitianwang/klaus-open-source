@@ -8,7 +8,7 @@ import { object } from '../ipc/arguments';
 import { IpcHandlerError } from '../ipc/registry';
 
 import { DELEGATION_TAG_OPEN, parseDelegationEnvelope } from '../../contracts/thread-delegation';
-import { isSteerMarkerBlock, withoutSteerMarker } from '../../contracts/steer-marker';
+import { presentUserInput } from '../../contracts/steer-marker';
 
 export type RewindPlan = { numTurns: number; text: string; displayMetadata: Json };
 
@@ -33,23 +33,15 @@ export function planRewind(messages: Json[], uuid: string): RewindPlan | string 
   if (index < 0) return 'uuid-not-found';
   const user = (message: Json): boolean => { const row = object(message); return row?.type === 'user' && row.isMeta !== true; };
   if (!user(messages[index]!)) return 'not-a-user-message';
-  let displayMetadata: Json = null;
-  for (const message of messages) {
-    const row = object(message);
-    if (row?.type !== 'system' || row.subtype !== 'user_display' || typeof row.text !== 'string') continue;
-    try {
-      const display = object(JSON.parse(row.text));
-      if (display?.messageUuid === uuid && object(display.localRender)) { displayMetadata = display.localRender!; break; }
-    } catch { /* Unrelated malformed display metadata cannot authorize a rewind. */ }
-  }
+  const displayMetadata = userDisplayMetadata(messages, uuid);
   const displayText = object(displayMetadata)?.displayText;
   return { numTurns: messages.slice(index).filter(user).length, displayMetadata,
-    text: typeof displayText === 'string' && displayText.trim() ? displayText.trim() : userTextWithoutSteerMarker(object(messages[index])?.content) };
+    text: typeof displayText === 'string' && displayText.trim() ? displayText.trim() : userTextWithoutSteerMarker(object(messages[index])?.content, displayMetadata) };
 }
 
 /** The user's words from a content array, with a steer history marker block removed. */
-function userTextWithoutSteerMarker(content: Json | undefined): string {
-  const blocks = Array.isArray(content) && content.some(isSteerMarkerBlock) ? withoutSteerMarker(content) : content;
+function userTextWithoutSteerMarker(content: Json | undefined, metadata?: Json): string {
+  const blocks = presentUserInput(content, metadata).content;
   return contentText(blocks).trim();
 }
 
@@ -160,13 +152,14 @@ export function editPrepareFromRow(uuid: string, row: Record<string, Json> | und
 /**
  * Whether a raw history row is a user message the host steered into a running turn.
  *
- * The marker is the leading content block the host prepends at submit time (see
- * `contracts/steer-marker.ts`); the engine persists the blocks verbatim, so the raw
- * history is the one place the distinction survives without an engine change.
+ * Provider-invisible presentation owns modern attribution. Historical rows without
+ * it retain compatibility with the exact leading marker shape.
  */
-export function isSteeredRow(message: Json | undefined): boolean {
-  const content = object(message)?.content;
-  return Array.isArray(content) && content.some(isSteerMarkerBlock);
+export function isSteeredRow(message: Json | undefined, metadata?: Json): boolean {
+  const row = object(message);
+  const presentation = metadata ?? row?.localRender;
+  const steered = presentUserInput(row?.content, presentation).steered;
+  return object(presentation)?.inputPresentation !== undefined ? steered : row?.steered === true || steered;
 }
 
 /**
@@ -190,7 +183,8 @@ export function resolveEditTarget(
   messages: Json[], turnIds: Record<string, string>, messageUuid: string, turnId?: string,
 ): { uuid: string; index: number } | string {
   const isUser = (message: Json): boolean => { const row = object(message); return row?.type === 'user' && row.isMeta !== true; };
-  const isOpener = (message: Json): boolean => isUser(message) && !isSteeredRow(message);
+  const isOpener = (message: Json): boolean => isUser(message)
+    && !isSteeredRow(message, userDisplayMetadata(messages, String(object(message)?.uuid ?? '')));
   const uuid = messageUuid || userMessageUuidForTurn(messages, turnIds, turnId ?? '');
   if (!uuid) return messageUuid ? 'uuid-not-found' : 'turn-not-in-history';
   const index = messages.findIndex(message => object(message)?.uuid === uuid);
@@ -207,8 +201,8 @@ export function resolveEditTarget(
 
 /** The `localRender` envelope the engine stored for one message uuid, or null. */
 export function userDisplayMetadata(messages: Json[], uuid: string): Json {
-  for (const message of messages) {
-    const row = object(message);
+  for (let index = messages.length - 1; index >= 0; index--) {
+    const row = object(messages[index]);
     if (row?.type !== 'system' || row.subtype !== 'user_display' || typeof row.text !== 'string') continue;
     try {
       const display = object(JSON.parse(row.text));
@@ -245,7 +239,7 @@ export function userMessageUuidForTurn(messages: Json[], turnIds: Record<string,
     const row = object(message);
     const uuid = typeof row?.uuid === 'string' ? row.uuid : '';
     if (!uuid || turnIds[uuid] !== turnId) continue;
-    if (row?.type === 'user' && row.isMeta !== true) return uuid;
+    if (row?.type === 'user' && row.isMeta !== true && !isSteeredRow(message, userDisplayMetadata(messages, uuid))) return uuid;
   }
   return '';
 }
@@ -309,15 +303,15 @@ export function renderThreadText(messages: Json[]): string {
     const row = object(message), kind = row?.type ?? row?.role;
     const label = kind === 'user' ? 'User' : kind === 'assistant' ? 'Assistant' : kind === 'tool_result' ? 'Tool result' : undefined;
     if (!label || !row) continue;
-    const text = exportMessageText(row);
+    const text = exportMessageText(row, typeof row.uuid === 'string' ? userDisplayMetadata(messages, row.uuid) : undefined);
     if (text) lines.push(`${label}:\n${text}`);
   }
   return lines.join('\n\n');
 }
 
-function exportMessageText(row: Record<string, Json>): string {
+function exportMessageText(row: Record<string, Json>, metadata?: Json): string {
   const content = row.content ?? row.contentBlocks;
-  const stripped = Array.isArray(content) && content.some(isSteerMarkerBlock) ? withoutSteerMarker(content) : content;
+  const stripped = (row.type ?? row.role) === 'user' ? presentUserInput(content, metadata ?? row.localRender).content : content;
   return foldDelegationText(stripped !== undefined ? contentText(stripped) : typeof row.text === 'string' ? row.text : '').trim();
 }
 
@@ -343,7 +337,7 @@ function foldDelegationText(text: string): string {
 /** Keep the save dialog name anchored to the conversation's first user message. */
 export function defaultExportFileName(messages: Json[]): string {
   const first = messages.map(object).find(row => (row?.type ?? row?.role) === 'user');
-  const base = [...(first ? exportMessageText(first) : '')].slice(0, 50).join('');
+  const base = [...(first ? exportMessageText(first, typeof first.uuid === 'string' ? userDisplayMetadata(messages, first.uuid) : undefined) : '')].slice(0, 50).join('');
   const name = base.replace(/[^\p{Alphabetic}\p{N}._-]+/gu, '-').replace(/^-+|-+$/g, '');
   return `${name || 'klaus-session'}.txt`;
 }

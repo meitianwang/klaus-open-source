@@ -5,6 +5,7 @@
 import { expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
+import { createSidePaneComposerFixture } from './test-support/side-pane-composer-fixture'
 
 const read = (rel: string) => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8')
 
@@ -36,7 +37,28 @@ test('voice-chat css still gates the send hide on the wrapper state only', () =>
   expect(css).toContain('#side-input-wrapper:is([data-voice-chat="active-empty"], [data-voice-chat="active-draft"]) #side-voice-input-btn { display: none !important; }')
 })
 
-test('side composer failures, drafts and surface removal keep user-visible parity', () => {
+for (const running of [true, false]) test(`removing a side view preserves its runtime without sealing future frames: running=${running}`, async () => {
+  const f = createSidePaneComposerFixture()
+  try {
+    await f.window.klausSideSurfaceActivate('removed-view', 'left')
+    await f.window.klausSideSurfaceActivate('remaining-view', 'right')
+    f.setRuntime('removed-view', { running, historyStale: !running, activeTurnId: 'owned-turn' })
+    const before = f.streamFor('removed-view')
+    const root = f.input('left').closest('[data-side-pane]')
+    f.window.klausSideSurfaceRemove('removed-view')
+    expect(root.isConnected).toBe(false)
+    expect(f.document.querySelector('[data-sideid="removed-view"]')).toBeNull()
+    expect(f.calls.retired).toEqual([])
+    expect(f.streamFor('removed-view')).toBe(before)
+    expect(f.window.klausSideSurfaceSessionId('right')).toBe('remaining-view')
+    f.setRuntime('removed-view', { lastTerminalStatus: 'completed', running: false })
+    await f.window.klausSideSurfaceActivate('removed-view', 'left')
+    expect(f.streamFor('removed-view').lastTerminalStatus).toBe('completed')
+    expect(f.window.klausSideSurfaceSessionId('left')).toBe('removed-view')
+  } finally { await f.destroy() }
+})
+
+test('side composer failures and drafts keep user-visible parity', () => {
   const chat = read('chat.ts')
   // An unexpected escape from the submit net surfaces as an operational toast.
   expect(chat).toContain("showToast(tt('chat_send_failed_prefix')")
@@ -45,8 +67,6 @@ test('side composer failures, drafts and surface removal keep user-visible parit
   expect(chat).toContain('persistSideDraft(sideDraftScope, outgoing)')
   expect(chat).toContain('persistedSideDraft(scope)')
   expect(chat).toContain('persistSideDraft(sid, null)')
-  // Surface removal never retires a stream that still owns retained work.
-  expect(chat).toContain('closingStream.running !== true && !closingStream.historyStale')
   const messages = read('../i18n/messages.ts')
   expect(messages.match(/chat_send_failed_prefix:/g)?.length).toBe(2)
 })

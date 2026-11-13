@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, test } from 'bun:test'
+import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { localizePluginDescription, localizePluginName } from '../skills/localize'
 
 // The official plugin lineup ships localized product names and Chinese
@@ -23,18 +23,19 @@ const OFFICIAL_SLUGS = [
 ] as const
 
 const CJK = /[一-鿿]/
+let previousWindow: PropertyDescriptor | undefined
 
 beforeAll(async () => {
-  // The tables module assigns onto window once per process, at import time.
-  // Mounting them on globalThis (the same shim the term-matching test uses)
-  // keeps them reachable for every later importer in this process; a private
-  // window object here would strand the cached module's tables and break the
-  // next test file that imports the tables expecting them on its own shim.
   const g = globalThis as any
-  if (!g.window) g.window = g
-  // Side-effect import mounts the real tables on window, the same bridge the
-  // plugin page consumes, so the assertions below read production data.
-  await import('../settings/market-tables')
+  previousWindow = Object.getOwnPropertyDescriptor(g, 'window')
+  g.window = { currentLang: 'en' }
+  const { installMarketTables } = await import('../settings/market-tables')
+  installMarketTables(g.window)
+})
+
+afterAll(() => {
+  if (previousWindow) Object.defineProperty(globalThis, 'window', previousWindow)
+  else delete (globalThis as any).window
 })
 
 const pluginRow = (slug: string) => ({ id: `${slug}@klaus-official`, name: slug })

@@ -18,6 +18,20 @@ const store = await import('./stream-store')
 const flush = () => new Promise(resolve => setTimeout(resolve, 0))
 
 describe('session_runtime_status convergence', () => {
+  test('a steered message joins the current turn without restarting its clock', () => {
+    const sessionId = 'runtime-status-steer-clock'
+    store.ingestLocalUserTurn(sessionId, { text: 'initial' })
+    store.ingestChatEvent({ type: 'session_runtime_status', sessionId, status: 'active', turnId: 'turn-1' })
+    const startedAt = store.getSessionStream(sessionId).turnStartedAt
+    store.ingestLocalUserTurn(sessionId, { text: 'follow-up', uuid: 'steer-id', steered: true,
+      clientMessageId: 'steer-client' })
+    const current = store.getSessionStream(sessionId)
+    expect(current.activeTurnId).toBe('turn-1')
+    expect(current.turnStartedAt).toBe(startedAt)
+    expect(current.liveUnits.at(-1)).toMatchObject({ type: 'live-user', turnId: 'turn-1',
+      msg: { localRender: { clientMessageId: 'steer-client' } } })
+  })
+
   test('an active frame opens the running state under the engine-named turn', () => {
     const sessionId = 'runtime-status-active'
     store.ingestChatEvent({ type: 'session_runtime_status', sessionId, status: 'active', turnId: 'turn-9' })

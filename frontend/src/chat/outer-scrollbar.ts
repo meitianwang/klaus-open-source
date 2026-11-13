@@ -18,6 +18,8 @@ const THUMB_FADE_MS = 700
 export interface OuterScrollbarHandle {
   /** Re-measure geometry (region visibility flips, window resizes). */
   sync(): void
+  /** Suspend visible-layout effects while keeping the proxy element and its owner. */
+  setActive(active: boolean): void
   destroy(): void
 }
 
@@ -45,6 +47,9 @@ export function mountOuterScrollbar(options: {
   let fadeTimer = 0
   let syncingFrom: 'proxy' | 'source' | null = null
   let lastProxyTop = 0
+  let active = true
+  let destroyed = false
+  let activation = 0
 
   const scrollable = () => scrollEl.scrollHeight > scrollEl.clientHeight + 1
 
@@ -58,6 +63,7 @@ export function mountOuterScrollbar(options: {
   }
 
   const syncGeometry = () => {
+    if (!active || destroyed) return
     // Consume a queued thumb movement before changing its range/position.
     // Geometry clamps created below get recorded by syncProxyPosition.
     onProxyScroll()
@@ -73,7 +79,9 @@ export function mountOuterScrollbar(options: {
   const armFade = () => {
     proxy.classList.add('is-scrolling')
     if (fadeTimer) window.clearTimeout(fadeTimer)
+    const owner = activation
     fadeTimer = window.setTimeout(() => {
+      if (!active || destroyed || activation !== owner) return
       fadeTimer = 0
       proxy.classList.remove('is-scrolling')
     }, THUMB_FADE_MS)
@@ -82,7 +90,7 @@ export function mountOuterScrollbar(options: {
   // Source -> proxy. Programmatic stick-to-bottom writes land here too, which
   // is what makes the thumb track live output.
   const onSourceScroll = () => {
-    if (syncingFrom === 'proxy') return
+    if (!active || destroyed || syncingFrom === 'proxy') return
     onProxyScroll()
     syncingFrom = 'source'
     syncProxyPosition()
@@ -90,7 +98,7 @@ export function mountOuterScrollbar(options: {
     armFade()
   }
   const onProxyScroll = () => {
-    if (syncingFrom === 'source' || proxy.style.display === 'none' || proxy.clientHeight <= 0) return
+    if (!active || destroyed || syncingFrom === 'source' || proxy.style.display === 'none' || proxy.clientHeight <= 0) return
     const top = proxy.scrollTop
     if (Math.abs(top - lastProxyTop) <= 0.5) return
     const direction = top < lastProxyTop ? 'up' : 'down'
@@ -102,51 +110,75 @@ export function mountOuterScrollbar(options: {
     armFade()
   }
 
-  scrollEl.addEventListener('scroll', onSourceScroll, { passive: true })
-  proxy.addEventListener('scroll', onProxyScroll, { passive: true })
-  for (const type of ['touchstart', 'pointerdown'] as const) {
-    proxy.addEventListener(type, () => onUserScrollIntent?.(), { passive: true })
-  }
-  // Wheel input records direction before the proxy scroll event arrives.
-  proxy.addEventListener('wheel', (event: WheelEvent) => {
-    onUserScrollIntent?.(event.deltaY < 0 ? 'up' : 'down')
-  }, { passive: true })
-
   const observers: ResizeObserver[] = []
+  const releaseListeners: Array<() => void> = []
   let contentObserver: MutationObserver | null = null
-  if (typeof ResizeObserver === 'function') {
-    const ro = new ResizeObserver(syncGeometry)
-    ro.observe(scrollEl)
-    ro.observe(region)
-    let observedContent: Element | null = null
-    const observeContent = () => {
-      const content = scrollEl.firstElementChild
-      if (content === observedContent) return
-      if (observedContent) ro.unobserve(observedContent)
-      observedContent = content
-      if (content) ro.observe(content)
+  const connect = () => {
+    const owner = ++activation
+    const current = () => active && !destroyed && activation === owner
+    const listen = (target: EventTarget, type: string, callback: (event: any) => void) => {
+      const listener = (event: Event) => { if (current()) callback(event) }
+      target.addEventListener(type, listener, { passive: true })
+      releaseListeners.push(() => target.removeEventListener(type, listener))
     }
-    observeContent()
-    if (typeof MutationObserver === 'function') {
-      contentObserver = new MutationObserver(() => { observeContent(); syncGeometry() })
-      contentObserver.observe(scrollEl, { childList: true })
+    listen(scrollEl, 'scroll', onSourceScroll)
+    listen(proxy, 'scroll', onProxyScroll)
+    for (const type of ['touchstart', 'pointerdown']) listen(proxy, type, () => onUserScrollIntent?.())
+    listen(proxy, 'wheel', (event: WheelEvent) => onUserScrollIntent?.(event.deltaY < 0 ? 'up' : 'down'))
+    listen(window, 'resize', syncGeometry)
+    if (typeof ResizeObserver === 'function') {
+      const ro = new ResizeObserver(() => { if (current()) syncGeometry() })
+      ro.observe(scrollEl)
+      ro.observe(region)
+      let observedContent: Element | null = null
+      const observeContent = () => {
+        const content = scrollEl.firstElementChild
+        if (content === observedContent) return
+        if (observedContent) ro.unobserve(observedContent)
+        observedContent = content
+        if (content) ro.observe(content)
+      }
+      observeContent()
+      if (typeof MutationObserver === 'function') {
+        contentObserver = new MutationObserver(() => {
+          if (!current()) return
+          observeContent()
+          syncGeometry()
+        })
+        contentObserver.observe(scrollEl, { childList: true })
+      }
+      observers.push(ro)
     }
-    observers.push(ro)
   }
-  const onWindowResize = () => syncGeometry()
-  window.addEventListener('resize', onWindowResize)
-
+  const disconnect = () => {
+    activation++
+    if (fadeTimer) window.clearTimeout(fadeTimer)
+    fadeTimer = 0
+    for (const release of releaseListeners.splice(0)) release()
+    for (const ro of observers.splice(0)) ro.disconnect()
+    contentObserver?.disconnect()
+    contentObserver = null
+  }
+  connect()
   syncGeometry()
 
   return {
     sync: syncGeometry,
+    setActive(value) {
+      if (destroyed || active === value) return
+      active = value
+      if (!active) { disconnect(); return }
+      connect()
+      // The restored source owns the position; a parked thumb is not reader input.
+      syncingFrom = 'source'
+      syncGeometry()
+      syncingFrom = null
+    },
     destroy() {
-      if (fadeTimer) window.clearTimeout(fadeTimer)
-      scrollEl.removeEventListener('scroll', onSourceScroll)
-      proxy.removeEventListener('scroll', onProxyScroll)
-      window.removeEventListener('resize', onWindowResize)
-      for (const ro of observers) ro.disconnect()
-      contentObserver?.disconnect()
+      if (destroyed) return
+      destroyed = true
+      active = false
+      disconnect()
       proxy.remove()
     },
   }

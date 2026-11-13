@@ -153,6 +153,17 @@ describe('image inspection disclosure contract', () => {
     expect(html).toContain('Image not found')
   })
 
+  test('completed image inspection keeps accompanying text without exposing input details', () => {
+    ;(window as any).klaus = { media: { url: () => 'klaus-media://fixture/capture.png' } }
+    const tool = { ...value('browser_screenshot', {}), media: [{ path: '/capture.png' }], output: 'Browser capture <notes>' }
+    const html = renderToStaticMarkup(<ActivityToolContent tool={tool} open onToggle={() => {}} locale="en" />)
+    expect(html).toContain('<img')
+    expect(html).toContain('Browser capture &lt;notes&gt;')
+    expect(html).toContain('aria-label="Image notes"')
+    expect(html).toContain('aria-label="Copy output"')
+    expect(html).not.toContain('Copy input')
+  })
+
   test('viewed image media stays in the disclosure while generated output keeps its deliverable', () => {
     ;(window as any).currentLang = 'en'
     const card = { toolCallId: 'preview', toolName: 'view_image', args: {}, argsDelta: '', progress: [], agent: false, bgTask: false,

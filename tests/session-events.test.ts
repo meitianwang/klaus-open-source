@@ -51,15 +51,9 @@ for (const vector of contextVector.authCases) {
       assertEqual(f.state.isWorking('conversation'), false, 'the composer leaves its busy state');
     }
     f.forwarder.close();
-    // Every terminal frame carries an idle session_runtime_status frame after
-    // it, so the renderer's running indicator converges on the engine's word.
-    const withIdle = (frames: Array<Record<string, Json>>) => frames.flatMap(frame => [
-      { ...frame, sessionId: 'conversation' },
-      ...(frame.type === 'interrupted' || frame.type === 'done' || (frame.type === 'api_error' && frame.terminal === true)
-        ? [{ type: 'session_runtime_status', sessionId: 'conversation', status: 'idle', turnId: typeof frame.turnId === 'string' ? frame.turnId : null }]
-        : []),
-    ]);
-    assertDeepEqual(f.delivered.flatMap(row => row.value), [...withIdle(vector.rawAuth), ...withIdle(vector.typedAuth)], 'both paths retain the bound source and renderer identity');
+    // Terminal content does not synthesize an authoritative runtime snapshot.
+    const withSession = (frames: Array<Record<string, Json>>) => frames.map(frame => ({ ...frame, sessionId: 'conversation' }));
+    assertDeepEqual(f.delivered.flatMap(row => row.value), [...withSession(vector.rawAuth), ...withSession(vector.typedAuth)], 'both paths retain the bound source and renderer identity without a synthetic idle');
     assertDeepEqual(f.state.sessionEventContext('conversation'), { maxRetries: 5, authMode: vector.source }, 'event context exposes only public provider metadata');
   });
 }
@@ -108,22 +102,15 @@ h.test('global model changes preserve active event contexts until their own reco
     { type: 'api_retry', sessionId: 'next-conversation', attempt: 1, maxRetries: 0, phase: null, kind: 'rate_limit' },
     { type: 'auth_required', sessionId: 'conversation', reason: 'Session credential expired', mode: 'codex' },
     { type: 'interrupted', sessionId: 'conversation', turnId: 'turn-1' },
-    { type: 'session_runtime_status', sessionId: 'conversation', status: 'idle', turnId: 'turn-1' },
     { type: 'auth_required', sessionId: 'next-conversation', reason: 'Session credential expired', mode: 'custom' },
     { type: 'interrupted', sessionId: 'next-conversation', turnId: 'turn-1' },
-    { type: 'session_runtime_status', sessionId: 'next-conversation', status: 'idle', turnId: 'turn-1' },
   ], 'concurrent old and new conversations keep independent sources and budgets');
   assertEqual(f.state.updateInference('conversation', 'retired-engine', {}, { source: 'local', selection: 'local:fixture' }, 1), false, 'a retired source binding cannot retarget the card');
   assertEqual(f.state.sessionEventContext('conversation')?.authMode, 'codex', 'rejected replacement preserves the active source');
   assert(f.state.updateInference('conversation', 'engine-session', { config: { model: 'fixture' } }, { source: 'qoder', selection: 'qoder:fixture' }, f.state.modelPreferenceRevision('conversation')), 'an acknowledged replacement changes the bound provider');
   assertDeepEqual(f.state.sessionEventContext('conversation'), { maxRetries: 7, authMode: 'qoder' }, 'model reconfiguration retains the original session retry policy');
   f.delivered.length = 0; f.pump.receive(contextVector.inputs.typedAuth, 1); f.forwarder.close();
-  assertDeepEqual(f.delivered.flatMap(row => row.value), contextVector.authCases.find(row => row.source === 'qoder')!.typedAuth.flatMap(frame => [
-    { ...frame, sessionId: 'conversation' },
-    ...(frame.type === 'interrupted' || frame.type === 'done' || (frame.type === 'api_error' && frame.terminal === true)
-      ? [{ type: 'session_runtime_status', sessionId: 'conversation', status: 'idle', turnId: typeof frame.turnId === 'string' ? frame.turnId : null }]
-      : []),
-  ]), 'subsequent events use the successfully reconfigured provider');
+  assertDeepEqual(f.delivered.flatMap(row => row.value), contextVector.authCases.find(row => row.source === 'qoder')!.typedAuth.map(frame => ({ ...frame, sessionId: 'conversation' })), 'subsequent events use the successfully reconfigured provider');
 });
 
 h.test('old engine generations cannot publish retry or auth events with a replacement binding', async () => {
@@ -141,7 +128,6 @@ h.test('old engine generations cannot publish retry or auth events with a replac
     { type: 'api_retry', sessionId: 'conversation', attempt: 1, maxRetries: 0, phase: null, kind: 'rate_limit' },
     { type: 'auth_required', sessionId: 'conversation', reason: 'Session credential expired', mode: 'custom' },
     { type: 'interrupted', sessionId: 'conversation', turnId: 'turn-1' },
-    { type: 'session_runtime_status', sessionId: 'conversation', status: 'idle', turnId: 'turn-1' },
   ], 'the replacement generation uses its own bound context');
   f.state.forgetSession('conversation');
   assertEqual(f.state.sessionEventContext('conversation'), undefined, 'retiring a binding also retires its event context');
@@ -340,7 +326,7 @@ h.test('stale connection and turn completions do not clear newer running state',
   // The stale completion is STILL forwarded (the renderer applies it under its
   // own turnId and ignores it for the live turn); only the registry stays untouched.
   const staleFrames = f.delivered.flatMap(row => row.value as Array<Record<string, Json>>);
-  assertDeepEqual(staleFrames.map(frame => frame.type), ['done', 'session_runtime_status'], 'a stale completion reaches the renderer with its idle frame');
+  assertDeepEqual(staleFrames.map(frame => frame.type), ['done'], 'a stale completion retains its own content without claiming current runtime status');
   assertEqual(staleFrames.find(frame => frame.type === 'done')?.turnId, 'old-turn', 'and keeps the turn it names');
   f.delivered.length = 0;
   f.pump.receive({ type: 'turnCompleted', params: { sessionId: 'engine-session', turnId: 'new-turn' } }, 2);

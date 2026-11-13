@@ -1262,6 +1262,246 @@ test('a lagging flush read keeps a settled turn live tail until saved holds its 
 // A stop whose engine confirmation outlived the host's control deadline first renders a
 // false-alarm notice; the late accepted outcome arrives as notice_retract and must remove
 // exactly that notice row, leaving unrelated notices and units untouched.
+describe('modern submitted identity ownership', () => {
+  const start = (sessionId: string, turnId: string, clientMessageId?: string) =>
+    store.ingestChatEvent({ type: 'session_runtime_status', sessionId, status: 'active', turnId, clientMessageId })
+  const pending = (sessionId: string, id: string, timestamp = 1000) => {
+    respond = async () => []
+    store.beginPendingUserTurn(sessionId, { text: 'same words', uuid: id, clientMessageId: id, timestamp,
+      composerDocument: { original: id }, selectedTextAttachments: [{ text: 'quoted', quoteId: id }] })
+  }
+  const canonical = (sessionId: string, clientMessageId: string, uuid: string, turnId?: string, steered = false) =>
+    store.ingestChatEvent({ type: 'user_message', sessionId, turnId, message: { uuid, clientMessageId,
+      message: { content: [{ type: 'text', text: 'canonical words' }], steered,
+        localRender: { clientMessageId, displayText: 'same words' } } } })
+
+  for (const ackFirst of [false, true]) {
+    test(`exact admission stamps its input when ACK ${ackFirst ? 'precedes' : 'follows'} the real start`, () => {
+      const sessionId = `modern-ack-${ackFirst}`, id = `client:ack-${ackFirst}`
+      pending(sessionId, id)
+      const key = userBubbles(sessionId)[0].key
+      if (ackFirst) store.finishPendingUserTurn(sessionId, id, 'accepted')
+      start(sessionId, 'actual-turn', id)
+      if (!ackFirst) store.finishPendingUserTurn(sessionId, id, 'accepted')
+      canonical(sessionId, id, 'canonical-server-uuid', 'actual-turn')
+      const users = userBubbles(sessionId)
+      expect(users).toHaveLength(1)
+      expect(users[0]).toMatchObject({ key, turnId: 'actual-turn', msg: { uuid: 'canonical-server-uuid',
+        timestamp: 1000, localRender: { clientMessageId: id, composerDocument: { original: id } } } })
+      expect(store.getSessionStream(sessionId).turnWorkStartedAtMs['actual-turn']).toBe(1000)
+      expect(store.hasPendingTurnStart(sessionId)).toBe(false)
+    })
+  }
+
+  for (const source of ['other-window', 'automatic-continuation']) {
+    test(`${source} runtime does not adopt a local modern input or lose its runtime on local failure`, () => {
+      const sessionId = `modern-foreign-${source}`, id = `client:${source}`
+      pending(sessionId, id)
+      start(sessionId, 'foreign-turn')
+      store.ingestChatEvent({ type: 'stream_mode', sessionId, mode: 'requesting', turnId: 'foreign-turn' })
+      const clock = store.getSessionStream(sessionId).turnStartedAt
+      expect(clock).not.toBe(1000)
+      expect(userBubbles(sessionId)[0].turnId).toBeUndefined()
+      expect(store.hasPendingTurnStart(sessionId)).toBe(true)
+      store.finishPendingUserTurn(sessionId, id, 'failed', 'refused')
+      const state = store.getSessionStream(sessionId)
+      expect(state.running).toBe(true)
+      expect(state.activeTurnId).toBe('foreign-turn')
+      expect(state.turnStartedAt).toBe(clock)
+      expect(userBubbles(sessionId)[0].turnId).toBeUndefined()
+    })
+  }
+
+  test('a terminal without matching identity cannot settle an unidentified modern pending start', () => {
+    const sessionId = 'modern-foreign-terminal'
+    pending(sessionId, 'client:pending')
+    store.finishPendingUserTurn(sessionId, 'client:pending', 'accepted')
+    store.ingestChatEvent({ type: 'done', sessionId, turnId: 'old-turn' })
+    expect(store.getSessionStream(sessionId)).toMatchObject({ running: true, activeTurnId: null })
+    expect(store.hasPendingTurnStart(sessionId)).toBe(true)
+    expect(userBubbles(sessionId)[0].turnId).toBeUndefined()
+    start(sessionId, 'old-turn')
+    expect(store.getSessionStream(sessionId).activeTurnId).toBeNull()
+    start(sessionId, 'own-turn', 'client:pending')
+    expect(userBubbles(sessionId)[0].turnId).toBe('own-turn')
+  })
+
+  test('a successor keeps its clock and input after predecessor terminal, idle, start, requesting and snapshot', () => {
+    const sessionId = 'modern-successor'
+    pending(sessionId, 'client:a', 1000); start(sessionId, 'turn-a', 'client:a')
+    store.finishPendingUserTurn(sessionId, 'client:a', 'accepted')
+    store.ingestChatEvent({ type: 'done', sessionId, turnId: 'turn-a' })
+    pending(sessionId, 'client:b', 2000); start(sessionId, 'turn-b', 'client:b')
+    store.finishPendingUserTurn(sessionId, 'client:b', 'accepted')
+    for (const event of [
+      { type: 'done', turnId: 'turn-a' },
+      { type: 'session_runtime_status', status: 'idle', turnId: 'turn-a' },
+      { type: 'session_runtime_status', status: 'active', turnId: 'turn-a', clientMessageId: 'client:a' },
+      { type: 'stream_mode', mode: 'requesting', turnId: 'turn-a', clientMessageId: 'client:a' },
+    ]) store.ingestChatEvent({ sessionId, ...event })
+    store.reconcileNativeSessionRuntime({ sessionId, status: 'idle', turn: {
+      id: 'turn-a', status: 'completed', startedAt: 1000, completedAt: 1500, clientMessageId: 'client:a' } })
+    expect(store.getSessionStream(sessionId)).toMatchObject({ running: true, activeTurnId: 'turn-b', turnStartedAt: 2000 })
+    expect(userBubbles(sessionId).find(unit => unit.msg.localRender?.clientMessageId === 'client:b')?.turnId).toBe('turn-b')
+  })
+
+  test('native notLoaded and session idle request an outcome without adopting or settling pending input', () => {
+    const sessionId = 'modern-native-evidence'
+    pending(sessionId, 'client:native', 1000)
+    store.ingestChatEvent({ type: 'session_runtime_status', sessionId, source: 'session', status: 'idle' })
+    expect(store.getSessionStream(sessionId).runtimeEvidence).toMatchObject({ status: 'idle', outcomePending: true })
+    store.reconcileNativeSessionRuntime({ sessionId, status: 'notLoaded' })
+    store.reconcileNativeSessionRuntime({ sessionId, status: 'idle', turn: { id: 'unknown', status: 'completed', startedAt: 1, completedAt: 9999 } })
+    expect(store.hasPendingTurnStart(sessionId)).toBe(true)
+    store.finishPendingUserTurn(sessionId, 'client:native', 'accepted')
+    store.reconcileNativeSessionRuntime({ sessionId, status: 'idle', turn: {
+      id: 'native-turn', status: 'completed', startedAt: 1000, completedAt: 1500, clientMessageId: 'client:native' } })
+    expect(store.getSessionStream(sessionId)).toMatchObject({ running: false, turnStatuses: { 'native-turn': 'completed' } })
+    expect(userBubbles(sessionId)[0].turnId).toBe('native-turn')
+    expect(store.hasPendingTurnStart(sessionId)).toBe(false)
+  })
+
+  test('session activity without an active response does not expose Stop or fabricate a turn', () => {
+    const sessionId = 'session-activity-without-response'
+    store.ingestChatEvent({ type: 'session_runtime_status', sessionId, source: 'session',
+      status: 'active', activeFlags: ['waitingOnUserInput'] })
+    expect(store.getSessionStream(sessionId)).toMatchObject({ running: false, activeTurnId: null,
+      runtimeEvidence: { status: 'active', activeFlags: ['waitingOnUserInput'] } })
+    store.reconcileNativeSessionRuntime({ sessionId, status: 'active' })
+    expect(store.getSessionStream(sessionId).running).toBe(false)
+    store.reconcileNativeSessionRuntime({ sessionId, status: 'active', turn: {
+      id: 'response', status: 'inProgress', startedAt: 1000, completedAt: null } })
+    expect(store.getSessionStream(sessionId)).toMatchObject({ running: true, activeTurnId: 'response' })
+    store.reconcileNativeSessionRuntime({ sessionId, status: 'active', turn: {
+      id: 'response', status: 'completed', startedAt: 1000, completedAt: 2000 } })
+    expect(store.getSessionStream(sessionId)).toMatchObject({ running: false, lastTerminalStatus: 'completed' })
+  })
+
+  test('matching canonical input can arrive before the start without borrowing a foreign turn', () => {
+    const sessionId = 'modern-canonical-first'
+    pending(sessionId, 'client:canonical')
+    start(sessionId, 'foreign')
+    canonical(sessionId, 'client:canonical', 'server-canonical')
+    expect(userBubbles(sessionId)).toHaveLength(1)
+    expect(userBubbles(sessionId)[0].turnId).toBeUndefined()
+    start(sessionId, 'own', 'client:canonical')
+    expect(userBubbles(sessionId)[0].turnId).toBe('own')
+  })
+
+  test('equal text with distinct client identities keeps separate user rows', () => {
+    const sessionId = 'modern-same-text'
+    pending(sessionId, 'client:first')
+    canonical(sessionId, 'client:second', 'server-second', 'second-turn')
+    expect(userBubbles(sessionId)).toHaveLength(2)
+    expect(userBubbles(sessionId)[0].turnId).toBeUndefined()
+    expect(userBubbles(sessionId)[1].turnId).toBe('second-turn')
+  })
+
+  test('promotion cannot adopt a foreign target runtime and local failure cannot clear it', () => {
+    const source = 'modern-move-source', target = 'modern-move-target', id = 'client:moved'
+    pending(source, id)
+    start(target, 'foreign-target')
+    const clock = store.getSessionStream(target).turnStartedAt
+    store.movePendingUserTurn(source, target, id)
+    expect(userBubbles(target)[0].turnId).toBeUndefined()
+    expect(store.hasPendingTurnStart(target)).toBe(true)
+    store.finishPendingUserTurn(target, id, 'failed', 'not admitted')
+    expect(store.getSessionStream(target)).toMatchObject({ running: true, activeTurnId: 'foreign-target', turnStartedAt: clock })
+  })
+
+  test('promotion starts pending runtime after an older terminal without resurrecting an exact canonical terminal', () => {
+    const target = 'modern-move-idle'
+    store.ingestChatEvent({ type: 'done', sessionId: target, turnId: 'previous-turn' })
+    pending('modern-idle-preview', 'client:new-input', 2000)
+    store.movePendingUserTurn('modern-idle-preview', target, 'client:new-input')
+    expect(store.getSessionStream(target)).toMatchObject({ running: true, activeTurnId: null, turnStartedAt: 2000 })
+    const exactTarget = 'modern-move-exact-target', id = 'client:exact-target'
+    pending('modern-exact-preview', id)
+    canonical(exactTarget, id, 'exact-user', 'exact-turn')
+    store.ingestChatEvent({ type: 'done', sessionId: exactTarget, turnId: 'exact-turn' })
+    store.finishPendingUserTurn('modern-exact-preview', id, 'accepted')
+    store.movePendingUserTurn('modern-exact-preview', exactTarget, id)
+    expect(store.getSessionStream(exactTarget).running).toBe(false)
+    expect(userBubbles(exactTarget)).toHaveLength(1)
+    expect(userBubbles(exactTarget)[0].turnId).toBe('exact-turn')
+    store.retractLocalUserMessage(exactTarget, id)
+    expect(userBubbles(exactTarget)).toHaveLength(1)
+  })
+
+  test('a predecessor active snapshot cannot replace the successor runtime', () => {
+    const sessionId = 'modern-active-snapshot'
+    start(sessionId, 'successor')
+    store.reconcileNativeSessionRuntime({ sessionId, status: 'active', turn: {
+      id: 'predecessor', status: 'inProgress', startedAt: 1, completedAt: null } })
+    expect(store.getSessionStream(sessionId).activeTurnId).toBe('successor')
+  })
+
+  test('partial saved snapshots retain modern input until exact canonical coverage and preserve its metadata', async () => {
+    const sessionId = 'modern-partial-history', id = 'client:partial'
+    pending(sessionId, id)
+    start(sessionId, 'partial-turn', id)
+    store.finishPendingUserTurn(sessionId, id, 'accepted')
+    store.ingestChatEvent({ type: 'done', sessionId, turnId: 'partial-turn' })
+    await flush()
+    respond = async () => ({ messages: [{ role: 'user', uuid: 'other-server', turnId: 'partial-turn', text: 'same words',
+      localRender: { clientMessageId: 'client:other' } }], turnStatuses: { 'partial-turn': 'completed' } })
+    await store.loadSessionHistory(sessionId, { reconcile: true })
+    expect(userBubbles(sessionId).filter(unit => unit.msg.localRender?.clientMessageId === id)).toHaveLength(1)
+    respond = async () => ({ messages: [{ role: 'user', uuid: 'exact-server', turnId: 'partial-turn', text: 'expanded operational words',
+      localRender: { clientMessageId: id } }], turnStatuses: { 'partial-turn': 'completed' } })
+    await store.loadSessionHistory(sessionId, { reconcile: true })
+    expect(userBubbles(sessionId).filter(unit => unit.msg.localRender?.clientMessageId === id)).toHaveLength(0)
+    expect(store.getSessionStream(sessionId).history?.find(row => row.uuid === 'exact-server')?.localRender)
+      .toMatchObject({ clientMessageId: id, composerDocument: { original: id } })
+  })
+
+  test('a lagging empty history read cannot erase a modern terminal verdict and reopen its turn', async () => {
+    const sessionId = 'modern-terminal-after-read', id = 'client:terminal-read'
+    pending(sessionId, id)
+    start(sessionId, 'ended-turn', id)
+    store.finishPendingUserTurn(sessionId, id, 'accepted')
+    store.ingestChatEvent({ type: 'done', sessionId, turnId: 'ended-turn' })
+    await flush()
+    expect(store.getSessionStream(sessionId).turnStatuses['ended-turn']).toBe('completed')
+    start(sessionId, 'ended-turn', id)
+    store.ingestChatEvent({ type: 'stream_mode', sessionId, mode: 'requesting', turnId: 'ended-turn', clientMessageId: id })
+    expect(store.getSessionStream(sessionId)).toMatchObject({ running: false, activeTurnId: null })
+  })
+
+  for (const canonicalFirst of [false, true]) {
+    test(`steer canonical ${canonicalFirst ? 'before' : 'after'} ACK retains captured ownership and row identity`, () => {
+      const sessionId = `modern-steer-${canonicalFirst}`, id = `steer-${canonicalFirst}`
+      start(sessionId, 'turn-b')
+      const clock = store.getSessionStream(sessionId).turnStartedAt
+      const payload = { text: 'same words', uuid: id, clientMessageId: id, steered: true,
+        targetTurnId: 'turn-a', targetTurnStartedAt: 1000, composerDocument: { original: id } }
+      store.ingestLocalUserTurn(sessionId, payload)
+      const key = userBubbles(sessionId)[0].key
+      if (canonicalFirst) canonical(sessionId, id, id, 'turn-a', true)
+      // Re-observing the accepted local identity must not create an ACK-time row.
+      store.ingestLocalUserTurn(sessionId, payload)
+      if (!canonicalFirst) canonical(sessionId, id, id, 'turn-a', true)
+      expect(userBubbles(sessionId)).toHaveLength(1)
+      expect(userBubbles(sessionId)[0]).toMatchObject({ key, turnId: 'turn-a', optimisticUser: false,
+        msg: { steered: true, localRender: { composerDocument: { original: id } } } })
+      expect(store.getSessionStream(sessionId)).toMatchObject({ activeTurnId: 'turn-b', turnStartedAt: clock })
+      expect(store.getSessionStream(sessionId).turnWorkStartedAtMs['turn-a']).toBe(1000)
+      store.retractLocalUserMessage(sessionId, id)
+      expect(userBubbles(sessionId)).toHaveLength(1)
+    })
+  }
+
+  test('explicit steer refusal retracts only the named optimistic row', () => {
+    const sessionId = 'modern-steer-refusal'
+    start(sessionId, 'turn-a')
+    for (const id of ['keep', 'refuse']) store.ingestLocalUserTurn(sessionId, {
+      text: 'same words', uuid: id, clientMessageId: id, steered: true, targetTurnId: 'turn-a' })
+    store.retractLocalUserMessage(sessionId, 'refuse')
+    expect(userBubbles(sessionId).map(unit => unit.msg.uuid)).toEqual(['keep'])
+    expect(store.getSessionStream(sessionId).activeTurnId).toBe('turn-a')
+  })
+})
+
 test('notice_retract removes only the keyed false-alarm interrupt notice', () => {
   const sessionId = 'interrupt-notice-retract'
   store.ingestChatEvent({ type: 'notice', sessionId, content: 'unrelated notice' })

@@ -1,5 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
+import { mountRetainedIsland, useRetainedOpenState } from './retained-island'
+import { createVisibilityScope } from '../visibility-scope'
 import { BypassConfirmDialog } from './bypass-confirm-dialog'
 import { createStore, type StoreApi } from 'zustand/vanilla'
 import { useStore } from 'zustand'
@@ -46,6 +48,8 @@ interface PermissionSelectState {
 
 export interface PermissionSelectApi {
   close(): void
+  setVisible(visible: boolean): void
+  dispose(): void
   setValue(next: PermissionPreset | null): void
   setUnavailable(): void
   refresh(): void
@@ -67,7 +71,7 @@ export function PermissionSelectMenu({ store, rootEl, getSessionId }: {
   // and would trip the outside-click close below; hold the menu open instead.
   const confirmingRef = useRef(false)
   const [, force] = useState(0)
-  const [confirming, setConfirming] = useState(false)
+  const [confirming, setConfirming] = useRetainedOpenState()
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const requestRef = useRef(0)
@@ -85,6 +89,14 @@ export function PermissionSelectMenu({ store, rootEl, getSessionId }: {
     else setTimeout(() => { confirmingRef.current = false }, 0)
   }
   ;(store as any).__forceRender = () => force(v => v + 1)
+  ;(store as any).__closeTransient = () => {
+    requestRef.current++
+    confirmationSessionRef.current = undefined
+    confirmingRef.current = false
+    setConfirming(false)
+    setSaving(false)
+    setError('')
+  }
   useEffect(() => {
     mountedRef.current = true
     const changed = () => {
@@ -102,6 +114,7 @@ export function PermissionSelectMenu({ store, rootEl, getSessionId }: {
       requestRef.current++
       window.removeEventListener('klaus:session-change', changed)
       delete (store as any).__forceRender
+      delete (store as any).__closeTransient
     }
   }, [])
 
@@ -313,22 +326,34 @@ export function mountPermissionSelect(root: HTMLElement | null, getSessionId: ()
     open: false,
     unavailable: true,
   })) as StoreApi<PermissionSelectState>
-  store.subscribe(state => { root.classList.toggle('open', state.open) })
-  registerOverlay(overlayIdForElement(root, 'permission-select'), () => {
+  const visibleEffects = createVisibilityScope()
+  visibleEffects.add(() => store.subscribe(state => { root.classList.toggle('open', state.open) }))
+  const close = () => {
+    ;(store as any).__closeTransient?.()
     store.setState({ open: false })
-  })
+  }
+  visibleEffects.add(() => registerOverlay(overlayIdForElement(root, 'permission-select'), close))
 
   let reactRoot = permissionSelectRoots.get(root)
   if (!reactRoot) {
     reactRoot = createRoot(root)
     permissionSelectRoots.set(root, reactRoot)
   }
-  reactRoot.render(
-    <PermissionSelectMenu store={store} rootEl={root} getSessionId={getSessionId} />,
-  )
+  const activity = mountRetainedIsland(reactRoot, () => <PermissionSelectMenu store={store} rootEl={root} getSessionId={getSessionId} />)
 
   return {
-    close() { store.setState({ open: false }) },
+    close,
+    setVisible(visible) {
+      if (!visible) close()
+      visibleEffects.setActive(visible)
+      activity.setVisible(visible)
+    },
+    dispose() {
+      close()
+      visibleEffects.dispose()
+      activity.dispose()
+      permissionSelectRoots.delete(root)
+    },
     setValue(next) {
       store.setState({ value: next, unavailable: false })
       ;(store as any).__forceRender?.()

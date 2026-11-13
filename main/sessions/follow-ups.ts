@@ -1,3 +1,4 @@
+import { withInputPresentation } from '../../contracts/steer-marker';
 import { parseDelegationEnvelope } from '../../contracts/thread-delegation';
 import type { AcknowledgedClient } from '../engine/acknowledged';
 import { submitTurnInput, type TurnInputRequest, type TurnInputAccepted } from '../engine/turn-input';
@@ -85,6 +86,7 @@ export class FollowUps {
   pendingCount(): number { return this.pending.size; }
 
   submit(request: FollowUpRequest): Promise<FollowUpReply> {
+    request = { ...request, displayMetadata: withInputPresentation(request.displayMetadata, 'steer') };
     const refused = (error: string): Promise<FollowUpReply> => Promise.resolve({ ok: false, error });
     if (this.closed) return refused('The application is closing');
     if (!request.sessionId || !request.engineSessionId || !request.messageId || !request.targetTurnId) return refused('A conversation, running turn and follow-up identity are required');
@@ -105,7 +107,7 @@ export class FollowUps {
         sessionId: request.engineSessionId, mode: 'steer', input: request.input, submissionId,
         expectedTurnId: request.targetTurnId, queueMessageId: request.messageId,
         ...(request.delivery ? { delivery: request.delivery } : {}),
-        ...(request.displayMetadata ? { displayMetadata: request.displayMetadata } : {}),
+        displayMetadata: withInputPresentation(request.displayMetadata, 'steer'),
       };
       if (request.submitInput) await request.submitInput(prepared, () => { job.issued = true; });
       else { job.issued = true; await submitTurnInput(request.client, prepared, 30_000); }

@@ -6,6 +6,7 @@ import type { AsyncQuestionRequest } from './async-question-state'
 import { closeAsyncQuestionPanel, declineAsyncQuestion, editAsyncQuestion, openAsyncQuestion } from './async-question-state'
 import type { ApprovalsDeps } from '../approvals'
 import { liveApprovalsOf } from '../sidebar/attention'
+import { createSidePaneComposerFixture } from '../test-support/side-pane-composer-fixture'
 
 let previousWindow: any
 let stream: typeof import('../stream-store')
@@ -558,19 +559,22 @@ describe('reopen is wired to surfaces showing a session, never to state changes'
     expect(reopen).toBeGreaterThan(guard)
     expect(chat.indexOf('reopenAsyncQuestionsForSession(id)', reopen + 1)).toBe(-1)
   })
-  test('the side tab reopens the tab that just activated', () => {
-    const activate = chat.indexOf('window.klausSideSurfaceActivate = async (sideId, placement:')
-    const reopen = chat.indexOf('reopenAsyncQuestionsForSession(sideId)')
-    expect(activate).toBeGreaterThan(-1)
-    // Both panes activate the requested side identity before reopening its question.
-    const activated = chat.slice(activate, chat.indexOf('window.klausSideSurfaceRemove', activate))
-    expect(activated).toContain('const runtime = sideRuntime(placement)')
-    expect(activated).toContain('setSidePaneSession(runtime, sideId)')
-    expect(activated).toContain('runtime.hooks.klausSideComposerBind?.(sideId)')
-    expect(activated).toContain('mountReactTranscript(sideId, surface.messagesEl')
-    expect(activated.indexOf('setSidePaneSession(runtime, sideId)')).toBeLessThan(activated.indexOf('reopenAsyncQuestionsForSession(sideId)'))
-    expect(reopen).toBeGreaterThan(activate)
-    expect(chat.indexOf('window.klausSideSurfaceRemove', activate)).toBeGreaterThan(reopen)
+  test('the side tab reopens only its identity after binding and mounting its transcript', async () => {
+    const f = createSidePaneComposerFixture()
+    try {
+      await f.window.klausSideSurfaceActivate('question-left', 'left')
+      await f.window.klausSideSurfaceActivate('question-right', 'right')
+      expect(f.calls.reopens).toEqual([
+        { id: 'question-left', left: 'question-left', right: null, mounted: true },
+        { id: 'question-right', left: 'question-left', right: 'question-right', mounted: true },
+      ])
+      f.setRuntime('question-left', { running: true })
+      expect(f.calls.reopens).toHaveLength(2)
+      f.window.klausSideSurfaceClear('left')
+      expect(f.calls.reopens).toHaveLength(2)
+      await f.window.klausSideSurfaceActivate('question-left', 'left')
+      expect(f.calls.reopens.at(-1)).toEqual({ id: 'question-left', left: 'question-left', right: 'question-right', mounted: true })
+    } finally { await f.destroy() }
   })
   test('startup recovery sweeps every session but reopens only the current one', () => {
     const approvals = readFileSync(new URL('../approvals.ts', import.meta.url), 'utf8')

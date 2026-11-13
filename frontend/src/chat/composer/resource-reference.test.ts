@@ -2,6 +2,7 @@ import { mediaInputMime } from '../../../../shared/media-input'
 import { composerDocumentFromText, snapshotComposerDocument } from './document-model'
 import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
+import { randomUUID } from 'node:crypto'
 import { runInNewContext } from 'node:vm'
 import { createSourceFile, isFunctionDeclaration, ScriptTarget, transpileModule } from 'typescript'
 import { encodeSelectedTextEnvelope } from '../selected-text-envelope'
@@ -105,6 +106,7 @@ describe('inline resource references', () => {
     const build = runInNewContext(transpileModule(`${declaration.getText(ast)}\nbuildOutgoingPayload`, {
       compilerOptions: { target: ScriptTarget.ES2022 },
     }).outputText, {
+      crypto: { randomUUID },
       composePastedTextRequest: (value: string) => ({ text: value }),
       encodeSelectedTextEnvelope, resourceReferenceContext, normalizeComposerReferences, isInlineImage, mediaInputMime,
     })

@@ -364,8 +364,6 @@ export class EngineClientFollowUpQueue {
       throw new QueueMutationError('queue_revision_changed', 'The queue order changed while its delivery was being prepared');
     }
     const input = parts(request.input);
-    // Rendering markers are an admission projection, never durable user input.
-    if (request.mode === 'steer' && request.delivery === 'user' && record(input[0])?.text === '<!-- klaus-steered-message -->') input.shift();
     let revision = view.snapshot.revision;
     if (!entry.inputOmitted && !isDeepStrictEqual(input, entry.input)) {
       if (entry.dispatching) throw new QueueMutationError('queue_delivery_unknown', 'Unconfirmed queued input cannot be replaced before retry');

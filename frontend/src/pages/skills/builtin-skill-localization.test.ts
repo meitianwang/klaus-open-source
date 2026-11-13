@@ -16,7 +16,7 @@
 // 第三方品牌名（GitHub / Notion / Claude / API Key 这类）本就该原样显示，所以第
 // 二条只按显式清单断言，不做「zh 值必须含中文」的全体扫描——那种扫描会把占位符
 // （user@host[:port]）和厂商名全判成错。
-import { beforeAll, describe, expect, test } from 'bun:test'
+import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 
 const BUILTIN_SKILL_DIR_NAMES = [
@@ -74,14 +74,37 @@ function dictionary(block: 'en' | 'zh'): Map<string, string> {
 }
 
 let table: Record<string, Record<string, [string, string]>>
+let previousWindow: PropertyDescriptor | undefined
 
 beforeAll(async () => {
   const g = globalThis as any
-  g.window = g
-  g.currentLang = 'zh'
-  // 数据表在导入时挂到 window，localize 也经 window 桥读它。
-  await import('../settings/market-tables')
-  table = (globalThis as any).window.SKILL_TEXT_I18N
+  previousWindow = Object.getOwnPropertyDescriptor(g, 'window')
+  g.window = { currentLang: 'zh' }
+  const { installMarketTables } = await import('../settings/market-tables')
+  installMarketTables(g.window)
+  table = g.window.SKILL_TEXT_I18N
+})
+
+afterAll(() => {
+  if (previousWindow) Object.defineProperty(globalThis, 'window', previousWindow)
+  else delete (globalThis as any).window
+})
+
+test('cached market tables install on a replacement window without losing localization', async () => {
+  const { installMarketTables } = await import('../settings/market-tables')
+  const { localizeSkillName, localizePluginName } = await import('./localize')
+  const previous = window
+  const replacement = { currentLang: 'zh', retained: true }
+  try {
+    ;(globalThis as any).window = replacement
+    installMarketTables(replacement)
+    installMarketTables(replacement)
+    expect(replacement.retained).toBe(true)
+    expect(localizeSkillName({ dirName: 'canvas' })).toBe('画布')
+    expect(localizePluginName({ id: 'digram@klaus-official', name: 'digram' })).toBe('图表')
+  } finally {
+    ;(globalThis as any).window = previous
+  }
 })
 
 describe('builtin skill display names', () => {
@@ -114,14 +137,14 @@ describe('talking-head marketplace localization', () => {
     const row = { dirName: 'talking-head-video', name: '口播视频剪辑', description: '市场中文简介' }
     const global = globalThis as any
     try {
-      global.currentLang = 'en'
+      global.window.currentLang = 'en'
       expect(localize.localizeSkillName(row)).toBe('Talking-head Video')
       expect(hasCjk(localize.localizeSkillDescription(row))).toBe(false)
-      global.currentLang = 'zh'
+      global.window.currentLang = 'zh'
       expect(localize.localizeSkillName(row)).toBe('口播视频剪辑')
       expect(localize.localizeSkillDescription(row)).toContain('圆形人物画中画')
     } finally {
-      global.currentLang = 'zh'
+      global.window.currentLang = 'zh'
     }
   })
 })
@@ -142,7 +165,7 @@ describe('official plugin card names', () => {
   test('中文档给出中文产品名，不回退成 slug 的机械大写', async () => {
     const localize = await import('./localize')
     const g = globalThis as any
-    g.currentLang = 'zh'
+    g.window.currentLang = 'zh'
     for (const plugin of OFFICIAL_PLUGINS) {
       expect(localize.localizePluginName(plugin)).toBe(plugin.zh)
     }
@@ -151,13 +174,13 @@ describe('official plugin card names', () => {
   test('英文档给出产品名，不摆小写 slug', async () => {
     const localize = await import('./localize')
     const g = globalThis as any
-    g.currentLang = 'en'
+    g.window.currentLang = 'en'
     try {
       for (const plugin of OFFICIAL_PLUGINS) {
         expect(localize.localizePluginName(plugin)).toBe(plugin.en)
       }
     } finally {
-      g.currentLang = 'zh'
+      g.window.currentLang = 'zh'
     }
   })
 
@@ -166,7 +189,7 @@ describe('official plugin card names', () => {
   test('官方插件贡献的技能条目在中文档也有产品名', async () => {
     const localize = await import('./localize')
     const g = globalThis as any
-    g.currentLang = 'zh'
+    g.window.currentLang = 'zh'
     for (const plugin of OFFICIAL_PLUGINS) {
       expect(localize.localizeSkillName({ dirName: plugin.name, name: plugin.name })).toBe(plugin.zh)
     }

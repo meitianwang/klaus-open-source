@@ -40,7 +40,7 @@ import type { PetMainCapture } from '../../../contracts/desktop-pet-appshot'
 import { appshotContextText } from '../../../contracts/appshot-context'
 const klausApi = window.klaus
 // 流式状态 store（Batch 4）：chatEvent 全事件镜像入 store，功能域随迁移逐个改为订阅。
-import { ingestPlanningQuestion, ingestGoalCompletion, ingestTaskGoalSnapshot, ingestPlanningSnapshot, ingestChatEvent, ingestChatFrameEvent, isStoppedTurnFrame, retireSessionStream, reviveSessionStream, isSessionStreamRetired, registerSessionRetentionParticipant, trimSessionStreamCache, ingestEngineStatus, ingestLiveApproval, requestTurnInterrupt, clearTurnInterruptRequest, canContinueTurn, getSessionStream, ingestLocalUserTurn, retractLocalUserTurn, observeEditedUserTurn, commitEditedUserTurn, noteOnScreenCollapseStats, resolveLiveApproval, chatStreamStore, loadSessionHistory, reconcileSessionWorking, prepareSubagentStream, seedSubagentTasks, subagentOwnerStreamId, updateAsyncQuestionUi, reopenAsyncQuestionsForSession } from './stream-store'
+import { ingestPlanningQuestion, ingestGoalCompletion, ingestTaskGoalSnapshot, ingestPlanningSnapshot, ingestChatEvent, ingestChatFrameEvent, isStoppedTurnFrame, retireSessionStream, reviveSessionStream, isSessionStreamRetired, registerSessionRetentionParticipant, trimSessionStreamCache, ingestEngineStatus, ingestLiveApproval, requestTurnInterrupt, clearTurnInterruptRequest, canContinueTurn, getSessionStream, ingestLocalUserTurn, retractLocalUserTurn, retractLocalUserMessage, observeEditedUserTurn, commitEditedUserTurn, noteOnScreenCollapseStats, resolveLiveApproval, chatStreamStore, loadSessionHistory, reconcileSessionWorking, reconcileNativeSessionRuntime, prepareSubagentStream, seedSubagentTasks, subagentOwnerStreamId, updateAsyncQuestionUi, reopenAsyncQuestionsForSession } from './stream-store'
 import { isTurnInProgressRefusal } from './send-refusal'
 import type { EditedUserTurnSnapshot } from './stream-store'
 import { createSidePanePlacement, identifySidePaneComposer, sidePaneDocument, sidePaneElementId, sidePanePlacements, sidePaneWindow, type SidePanePlacement } from './panels/side-pane-placement'
@@ -141,6 +141,10 @@ import { createManualCompactController, isManualCompactCommand, manualCompactPre
 import { invalidatePluginMentions, invalidateDeviceMentions } from './composer/mention-queries'
 import { WorkspaceFileSearchSession } from './composer/workspace-file-search-session'
 import { mountFollowUpQueue, type FollowUpQueueApi, type FollowUpQueueHandlers } from './composer/follow-up-queue'
+import { applyComposerSubmitState, composerSubmitState } from './composer/submit-state'
+import { createTurnStopState } from './composer/turn-stop-state'
+import { createVisibilityScope } from './visibility-scope'
+import { clientMessageId as userMessageClientId } from '../../../contracts/message-identity'
 import { queuedRowContent, queuedComposerReferences } from './composer/queue-row-content'
 import { engineFollowUpRows } from './engine-follow-up-queue'
 import type { QueueSnapshotEvent } from './engine-events'
@@ -250,6 +254,8 @@ const creatingGoalSessions = createGoalSubmissionGate()
 const goalInteractions = new GoalInteractionClock()
 const preparingSubmissions = createGoalSubmissionGate()
 const pendingComposerSubmissions = new Map<string, PendingComposerSubmission>()
+const sidePendingSubmissionIds = new Set<string>()
+const cancelledComposerAdmissions = new Map<string, PendingComposerSubmission>()
 let visiblePendingSubmissionId: string | null = null
 window.getCurrentSessionId = () => window.currentSessionId
 window.getKnownSessionInfo = (sessionId: string) => findKnownSession(sessionId)
@@ -270,12 +276,17 @@ window.getKnownSessionInfo = (sessionId: string) => findKnownSession(sessionId)
 // and on done/reload.
 const liveStreamText = new Map()
 const runningSessions = new Set<string>()
-const stoppingSessions = new Set<string>()
-const sessionRuntimeIdleObservations = new Map<string, number>()
-const SESSION_RUNTIME_AUDIT_INTERVAL_MS = 15_000
-const SESSION_RUNTIME_IDLE_CONFIRMATIONS = 2
+const stoppingSessions = createTurnStopState(id => {
+  const stream = getSessionStream(id)
+  return stream.activeTurnId || stream.liveTurnId
+})
 let sessionRuntimeAuditTimer = 0
 let sessionRuntimeAuditInFlight = false
+const sessionRuntimeAuditIds = new Set<string>()
+let sessionRuntimeAuditAllPending = false
+let sessionRuntimeAuditUrgent = false
+const sessionRuntimeRecoveryAttempts = new Map<string, number>()
+let sessionRuntimeFullRecoveryAttempts = 0
 let sessionListReorderSeq = 0
 let sessionListReadSeq = 0
 let sessionListSettledSeq = 0
@@ -1417,72 +1428,71 @@ function updateSidebarWorkingSource(set: Set<string>, sessionId: string, working
   const before = sidebarSessionStatusKind(sessionId)
   if (working) set.add(sessionId)
   else set.delete(sessionId)
-  // Either own-turn working source must arm the convergence audit so a missed
-  // terminal event can settle from the authoritative session registry.
-  if (working) scheduleSessionRuntimeAudit()
   if (render && before !== sidebarSessionStatusKind(sessionId)) renderSessionList()
 }
 
-function syncSidebarWorkingFromSessions(list: Pick<SessionInfo, 'id' | 'isWorking'>[], { reconcileRuntime = false } = {}) {
+function syncSidebarWorkingFromSessions(list: Pick<SessionInfo, 'id' | 'isWorking'>[]) {
   for (const s of list || []) {
     if (!s?.id) continue
     updateSidebarWorkingSource(sidebarListedWorkingSessions, s.id, !!s.isWorking, { render: false })
-    if (!reconcileRuntime) continue
-    const storeRunning = getSessionStream(s.id).running
-    if (s.isWorking) {
-      sessionRuntimeIdleObservations.delete(s.id)
-      if (!runningSessions.has(s.id)) setSessionRunning(s.id, true)
-      if (!storeRunning) void reconcileSessionWorking(s.id, true)
-      // A session the host reports working keeps the audit polling even when the
-      // renderer never opened it (recovered turns, background continuations):
-      // without a running renderer state nothing else schedules the audit, and a
-      // missed lifecycle frame would leave the window idle forever.
-      scheduleSessionRuntimeAudit()
-      continue
-    }
-    if (!runningSessions.has(s.id) && !storeRunning) {
-      sessionRuntimeIdleObservations.delete(s.id)
-      continue
-    }
-    const idleObservations = (sessionRuntimeIdleObservations.get(s.id) || 0) + 1
-    sessionRuntimeIdleObservations.set(s.id, idleObservations)
-    if (idleObservations < SESSION_RUNTIME_IDLE_CONFIRMATIONS) continue
-    sessionRuntimeIdleObservations.delete(s.id)
-    stoppingSessions.delete(s.id)
-    continuingSessions.delete(s.id)
-    userInterruptedSessions.delete(s.id)
-    if (stopEscArmedTurn?.sessionId === s.id) clearStopEscArm()
-    setSessionRunning(s.id, false)
-    void reconcileSessionWorking(s.id, false)
   }
 }
 
-function scheduleSessionRuntimeAudit(options: { once?: boolean } = {}) {
-  if (sessionRuntimeAuditTimer || sessionRuntimeAuditInFlight) return
-  // The audit is the convergence path for BOTH drift directions. A session the
-  // host lists as working while the renderer sits idle (a turn recovered after a
-  // restart whose lifecycle frame never arrived) has no other rescuer, so the
-  // host-side working set must keep the poll alive on its own. Sub-agent
-  // activity is deliberately not a working source: it lives in the Monitor
-  // alone, so it can neither light a row nor strand one.
-  if (!options.once && runningSessions.size === 0 && sidebarListedWorkingSessions.size === 0) return
+function armSessionRuntimeAudit(): void {
+  if (sessionRuntimeAuditInFlight || sessionRuntimeAuditTimer || !sessionRuntimeAuditAllPending && !sessionRuntimeAuditIds.size) return
+  const attempts = sessionRuntimeAuditAllPending ? sessionRuntimeFullRecoveryAttempts
+    : Math.max(0, ...[...sessionRuntimeAuditIds].map(id => sessionRuntimeRecoveryAttempts.get(id) || 0))
   sessionRuntimeAuditTimer = window.setTimeout(() => {
     sessionRuntimeAuditTimer = 0
-    void auditSessionRuntimeState()
-  }, SESSION_RUNTIME_AUDIT_INTERVAL_MS)
+    const ids = sessionRuntimeAuditAllPending ? undefined : [...sessionRuntimeAuditIds]
+    sessionRuntimeAuditAllPending = false
+    sessionRuntimeAuditIds.clear()
+    sessionRuntimeAuditUrgent = false
+    void auditSessionRuntimeState(ids)
+  }, sessionRuntimeAuditUrgent ? 0 : Math.min(1000 * 2 ** attempts, 15_000))
 }
 
-async function auditSessionRuntimeState() {
+function scheduleSessionRuntimeAudit(options: { once?: boolean; retry?: boolean; sessionId?: string } = {}) {
+  if (options.sessionId) {
+    sessionRuntimeAuditIds.add(options.sessionId)
+    if (!options.retry) sessionRuntimeRecoveryAttempts.delete(options.sessionId)
+  } else {
+    sessionRuntimeAuditAllPending = true
+    if (!options.retry) sessionRuntimeFullRecoveryAttempts = 0
+  }
+  if (!options.retry) {
+    sessionRuntimeAuditUrgent = true
+    if (sessionRuntimeAuditTimer) window.clearTimeout(sessionRuntimeAuditTimer)
+    sessionRuntimeAuditTimer = 0
+  }
+  armSessionRuntimeAudit()
+}
+
+function retrySessionRuntimeAudit(ids?: string[]): void {
+  if (ids) {
+    for (const id of ids) {
+      const attempts = sessionRuntimeRecoveryAttempts.get(id) || 0
+      if (attempts >= 5) continue
+      sessionRuntimeRecoveryAttempts.set(id, attempts + 1)
+      sessionRuntimeAuditIds.add(id)
+    }
+  } else if (sessionRuntimeFullRecoveryAttempts < 5) {
+    sessionRuntimeFullRecoveryAttempts++
+    sessionRuntimeAuditAllPending = true
+  }
+  armSessionRuntimeAudit()
+}
+
+async function auditSessionRuntimeState(sessionIds?: string[]) {
   if (sessionRuntimeAuditInFlight) return
   sessionRuntimeAuditInFlight = true
   try {
     const runtimeAtRequest = chatStreamStore.getState().sessions
-    const { workingSessionIds } = await klausApi.session.runtimeState()
-    const working = new Set<string>(workingSessionIds)
-    const candidates = new Set<string>([...runningSessions, ...sidebarListedWorkingSessions, ...working,
-      ...Object.keys(runtimeAtRequest).filter(id => runtimeAtRequest[id]?.running)])
-    const snapshot: Pick<SessionInfo, 'id' | 'isWorking'>[] = []
-    for (const id of candidates) {
+    const reply = await klausApi.session.runtimeState(sessionIds)
+    const outcomePending = new Set<string>()
+    for (const snapshot of reply.sessions) {
+      const id = snapshot.sessionId
+      if (sessionIds && !sessionIds.includes(id)) continue
       if (isSessionStreamRetired(id)) continue
       const before = runtimeAtRequest[id], current = getSessionStream(id)
       if (before?.provisional || current.provisional) continue
@@ -1492,26 +1502,19 @@ async function auditSessionRuntimeState() {
         || (before?.activeTurnId ?? null) !== current.activeTurnId
         || (before?.liveTurnId ?? null) !== current.liveTurnId
         || (before?.turnStartedAt ?? 0) !== current.turnStartedAt
-        || (before?.lastTerminalStatus ?? null) !== current.lastTerminalStatus) {
-        sessionRuntimeIdleObservations.delete(id)
-        continue
-      }
-      snapshot.push({ id, isWorking: working.has(id) })
+        || (before?.lastTerminalStatus ?? null) !== current.lastTerminalStatus
+        || (before?.runtimeEvidence ?? null) !== current.runtimeEvidence) continue
+      reconcileNativeSessionRuntime(snapshot)
+      if (getSessionStream(id).runtimeEvidence?.outcomePending) outcomePending.add(id)
     }
-    const statuses = new Map(snapshot.map(row => [row.id, row.isWorking]))
-    const statusChanged = sessions.some(row => statuses.has(row.id) && !!row.isWorking !== statuses.get(row.id))
-    if (statusChanged) sessions = sessions.map(row => statuses.has(row.id) ? { ...row, isWorking: statuses.get(row.id) } : row)
-    syncSidebarWorkingFromSessions(snapshot, { reconcileRuntime: true })
-    if (statusChanged) renderSessionList()
-    // A missed start can reveal a conversation created outside this renderer.
-    // Discover its metadata once; ordinary status recovery never scans storage.
-    if (snapshot.some(row => row.isWorking && getSessionStream(row.id).historySource !== 'ephemeral'
-      && !sessions.some(known => known.id === row.id))) void updateSessionInList()
+    const unavailable = reply.unavailableSessionIds.filter((id: string) => !sessionIds || sessionIds.includes(id))
+    retrySessionRuntimeAudit([...new Set([...unavailable, ...outcomePending])])
   } catch {
-    // A failed audit is not evidence that a Turn ended. The next interval retries.
+    // A failed read proves no terminal outcome; retry exactly the scope that failed.
+    retrySessionRuntimeAudit(sessionIds)
   } finally {
     sessionRuntimeAuditInFlight = false
-    scheduleSessionRuntimeAudit()
+    armSessionRuntimeAudit()
   }
 }
 
@@ -1519,22 +1522,15 @@ function setSessionRunning(sessionId: string, running: boolean) {
   if (!sessionId) return
   const before = sidebarSessionStatusKind(sessionId)
   if (running) {
-    sessionRuntimeIdleObservations.delete(sessionId)
     runningSessions.add(sessionId)
     markSidebarSessionSeen(sessionId, { render: false })
   }
   else {
     runningSessions.delete(sessionId)
     sidebarListedWorkingSessions.delete(sessionId)
-    sessionRuntimeIdleObservations.delete(sessionId)
   }
   if (sessionId === window.currentSessionId) syncBusyForCurrentSession()
   if (before !== sidebarSessionStatusKind(sessionId)) renderSessionList()
-  if (running) scheduleSessionRuntimeAudit()
-  else if (runningSessions.size === 0 && sessionRuntimeAuditTimer) {
-    window.clearTimeout(sessionRuntimeAuditTimer)
-    sessionRuntimeAuditTimer = 0
-  }
 }
 
 async function loadFollowUpQueueMode() {
@@ -1726,6 +1722,7 @@ type SideComposerRuntime = {
   refreshSelectors?: () => void
   invalidatePreferences?: () => void
   preparePlacement?: (id: string) => void
+  clearPlacement?: (id: string) => void
   resetScroll?: (distance: number) => void
   compensateScroll?: (distance: number) => void
   retainsAttachment?: (entry: PendingFileEntry) => boolean
@@ -1734,8 +1731,52 @@ type SideComposerRuntime = {
   dispose?: () => void
   mountVoice?: () => void
   focus?: () => void
+  root?: HTMLElement
+  messagesEl?: HTMLElement
+  bindViewport?: (messagesEl: HTMLElement) => void
+  setVisible?: (visible: boolean) => void
+  cancelPreparation?: () => boolean
 }
-const sidePaneRuntimes = new Map<SidePanePlacement, SideComposerRuntime>()
+const sidePaneRuntimes = new Map<string, SideComposerRuntime>()
+const retainedSideRuntimes = new Map<string, SideComposerRuntime>()
+function hideSideComposer(runtime: SideComposerRuntime) {
+  if (!runtime.root) return
+  runtime.setVisible?.(false)
+  runtime.root.hidden = true
+  runtime.root.style.display = 'none'
+  identifySidePaneComposer(runtime.root, runtime.placement, runtime.sessionId || runtime.placement)
+  if (sidePaneRuntimes.get(runtime.placement) === runtime) sidePaneRuntimes.delete(runtime.placement)
+  sidePaneRuntimes.set(`retained:${runtime.sessionId || runtime.placement}`, runtime)
+}
+function activateSideComposer(sideId: string, placement: SidePanePlacement, messagesEl: HTMLElement): SideComposerRuntime {
+  const outgoing = sideRuntime(placement)
+  let runtime = retainedSideRuntimes.get(sideId)
+  if (!runtime) {
+    runtime = outgoing.sessionId == null ? outgoing : { placement, sessionId: null, hooks: {} }
+    runtime.messagesEl = messagesEl
+    if (!runtime.root) initSideComposer(placement, runtime)
+    retainedSideRuntimes.set(sideId, runtime)
+  }
+  if (outgoing !== runtime) hideSideComposer(outgoing)
+  if (runtime.placement !== placement && sidePaneRuntimes.get(runtime.placement) === runtime) {
+    if (runtime.placement === 'left') showLeftSidePane(null)
+    sidePaneRuntimes.delete(runtime.placement)
+  }
+  if (runtime.placement !== placement) runtime.setVisible?.(false)
+  runtime.placement = placement
+  sidePaneRuntimes.delete(`retained:${sideId}`)
+  sidePaneRuntimes.set(placement, runtime)
+  const host = document.getElementById(sidePaneElementId('side-composer-host', placement))
+  if (runtime.root && host) {
+    host.appendChild(runtime.root)
+    identifySidePaneComposer(runtime.root, placement)
+    runtime.root.hidden = false
+    runtime.root.style.display = ''
+  }
+  runtime.bindViewport?.(messagesEl)
+  runtime.setVisible?.(true)
+  return runtime
+}
 const sidePanePlacement = createSidePanePlacement()
 const sideComposerDrafts = new Map<string, { value: string; files: PendingFileEntry[]; deferred: DeferredSendIntent | null; document?: ComposerDocumentSnapshot }>()
 // Side drafts outlive a reload the same way the primary composer's do: the
@@ -1768,7 +1809,7 @@ function sideRuntime(placement: SidePanePlacement = 'right'): SideComposerRuntim
   return runtime
 }
 function sideRuntimeForSession(id: string): SideComposerRuntime | undefined {
-  return [...sidePaneRuntimes.values()].find(runtime => runtime.sessionId === id)
+  return retainedSideRuntimes.get(id) || [...sidePaneRuntimes.values()].find(runtime => runtime.sessionId === id)
 }
 function setSidePaneSession(runtime: SideComposerRuntime, id: string | null) {
   runtime.setSession?.(id)
@@ -1826,23 +1867,14 @@ window.klausSideSurfaceActivate = async (sideId, placement: SidePanePlacement = 
   // history they had when the surface went away: whole completed turns never
   // appeared until an unrelated trigger re-read them.
   void loadSessionHistory(sideId)
-  const runtime = sideRuntime(placement)
-  const source = sideRuntimeForSession(sideId)
-  if (source && source !== runtime) {
-    const previous = sideSurfaces.get(sideId)
-    if (previous) captureTranscriptViewport(previous.messagesEl)
-    source.hooks.klausSideComposerBind?.(null)
-    setSidePaneSession(source, null)
-    source.refresh?.()
-    source.refreshQueue?.()
-    if (source.placement === 'left') showLeftSidePane(null)
-  }
+  const outgoing = sideRuntime(placement)
   const retainedSurface = sideSurfaces.has(sideId)
-  const switching = runtime.sessionId !== sideId
-  const previous = runtime.sessionId ? sideSurfaces.get(runtime.sessionId) : null
+  const switching = outgoing.sessionId !== sideId
+  const previous = outgoing.sessionId ? sideSurfaces.get(outgoing.sessionId) : null
   if (switching && previous) captureTranscriptViewport(previous.messagesEl)
   const surface = getOrCreateSideSurface(sideId, placement)
   if (!surface) return
+  const runtime = activateSideComposer(sideId, placement, surface.messagesEl)
   const savedDistance = transcriptViewportState(sideId)?.distanceFromBottomPx ?? 0
   if (switching) runtime.resetScroll?.(savedDistance)
   sidePanePlacement.activate(sideId, placement)
@@ -1887,10 +1919,12 @@ window.klausSideSurfaceRemove = sideId => {
   // sealing the session; tombstones stay reserved for deleted sessions
   // (forgetSessionLocalState) whose late traffic must be rejected.
   sidePanePlacement.remove(sideId)
-  for (const runtime of sidePaneRuntimes.values()) if (runtime.sessionId === sideId) {
-    setSidePaneSession(runtime, null)
-    runtime.refresh?.()
-    runtime.refreshQueue?.()
+  const retained = retainedSideRuntimes.get(sideId)
+  retained?.dispose?.()
+  retained?.root?.remove()
+  retainedSideRuntimes.delete(sideId)
+  for (const [key, runtime] of sidePaneRuntimes) if (runtime.sessionId === sideId) {
+    sidePaneRuntimes.delete(key)
     if (runtime.placement === 'left') showLeftSidePane(null)
   }
 }
@@ -1900,10 +1934,8 @@ window.klausSideSurfaceClear = (placement?: SidePanePlacement) => {
     const previous = runtime.sessionId ? sideSurfaces.get(runtime.sessionId) : null
     if (previous) captureTranscriptViewport(previous.messagesEl)
     for (const slot of sideMessagesContainer(pane)?.children || []) (slot as HTMLElement).hidden = true
-    runtime.hooks.klausSideComposerBind?.(null)
-    setSidePaneSession(runtime, null)
-    runtime.refresh?.()
-    runtime.refreshQueue?.()
+    hideSideComposer(runtime)
+    sidePaneRuntimes.delete(pane)
     if (pane === 'left') showLeftSidePane(null)
   }
   sidePanePlacement.clear(placement)
@@ -1915,7 +1947,9 @@ window.klausSideSurfaceSessionId = (placement: SidePanePlacement = 'right') => s
 ;(window as any).klausSideComposerBind = (id: string | null, placement: SidePanePlacement = 'right') => sideRuntime(placement).hooks.klausSideComposerBind?.(id)
 ;(window as any).klausSideComposerPrepare = (id: string, parentId: string | null, placement: SidePanePlacement = 'right') => {
   if (placement === 'left') showLeftSidePane(id)
-  return sideRuntime(placement).hooks.klausSideComposerPrepare?.(id, parentId)
+  const runtime = sideRuntime(placement)
+  if (!runtime.root) initSideComposer(placement, runtime)
+  return runtime.hooks.klausSideComposerPrepare?.(id, parentId)
 }
 ;(window as any).klausSideComposerAddSelection = (text: string, placement: SidePanePlacement = 'right') => sideRuntime(placement).hooks.klausSideComposerAddSelection?.(text)
 ;(window as any).klausSideComposerPromote = (id: string, sessionId: string, inheritModel = true) => ([...sidePaneRuntimes.values()].find(runtime => runtime.ownsDraft?.(id)) || sideRuntime()).hooks.klausSideComposerPromote?.(id, sessionId, inheritModel)
@@ -1952,15 +1986,23 @@ async function resolveEditorMentionReference(entry: MentionEntry, sessionId: str
 // visually and behaviourally identical, re-id'd to #side-* and bound to the
 // active side task. Attachments (+) and voice (mic) are wired to side-scoped
 // state / the shared recorder; discovery is bound to the active side draft.
-function initSideComposer(placement: SidePanePlacement = 'right') {
-  const runtime = sideRuntime(placement)
-  const document = sidePaneDocument(globalThis.document, placement)
+function initSideComposer(placement: SidePanePlacement = 'right', runtime = sideRuntime(placement)) {
+  const visibleEffects = createVisibilityScope()
+  const document = sidePaneDocument(globalThis.document, () => runtime.placement, id => {
+    if (id === 'side-messages' && runtime.messagesEl) return runtime.messagesEl
+    return runtime.root?.dataset.sideLocalId === id ? runtime.root
+      : runtime.root?.querySelector<HTMLElement>(`[data-side-local-id="${id}"]`)
+  })
   const window = sidePaneWindow(globalThis.window, runtime.hooks)
   let sideSurfaceSessionId: string | null = runtime.sessionId
   let sideModelApi: ModelSelectApi | null = null
   let sidePermissionApi: PermissionSelectApi | null = null
   let sideFollowUpQueueApi: FollowUpQueueApi | null = null
   let sideScrollController: TranscriptScrollController | null = null
+  let releaseScrollController: (() => void) | undefined
+  let sideOuterScrollbar: ReturnType<typeof mountOuterScrollbar> | undefined
+  let sideScrollbarRegion: HTMLElement | null = null
+  let sideVisible = true
   let sideVoiceChatUi: ReturnType<typeof mountVoiceChat> | undefined
   let sideWindowsSandboxBanner: WindowsSandboxBannerMount | null = null
   let sideComposerModelRevision = 0
@@ -1975,7 +2017,7 @@ function initSideComposer(placement: SidePanePlacement = 'right') {
   runtime.setSession = id => { sideSurfaceSessionId = id; runtime.sessionId = id }
   runtime.refreshQueue = renderSideFollowUpQueue
   runtime.invalidatePreferences = () => { sideComposerModelRevision++ }
-  runtime.refreshModel = refreshSideComposerModel
+  runtime.refreshModel = () => runtime.root?.hidden ? Promise.resolve() : refreshSideComposerModel()
   runtime.refresh = () => {
     sideVoiceChatUi?.refresh()
     sideWindowsSandboxBanner?.refresh()
@@ -1983,9 +2025,19 @@ function initSideComposer(placement: SidePanePlacement = 'right') {
     sideModelApi?.setRuntime(sideSurfaceSessionId ? getSessionStream(sideSurfaceSessionId) : null)
     runtime.hooks.klausUpdateSideSendButton?.()
   }
-  runtime.syncRuntime = () => sideModelApi?.setRuntime(sideSurfaceSessionId ? getSessionStream(sideSurfaceSessionId) : null)
+  runtime.syncRuntime = () => {
+    if (runtime.root?.hidden) return
+    sideModelApi?.setRuntime(sideSurfaceSessionId ? getSessionStream(sideSurfaceSessionId) : null)
+    updateSideSendButton()
+  }
+  visibleEffects.add(current => chatStreamStore.subscribe((next, previous) => {
+    if (!current()) return
+    const id = sideSurfaceSessionId
+    if (id && next.sessions[id] !== previous.sessions[id]) updateSideSendButton()
+  }))
   runtime.refreshSelectors = () => { sideModelApi?.refresh(); sidePermissionApi?.refresh() }
   runtime.preparePlacement = id => sideScrollController?.prepareLatestTurnPlacement(id)
+  runtime.clearPlacement = id => sideScrollController?.clearPendingLatestTurnPlacement(id)
   runtime.resetScroll = distance => sideScrollController?.resetForConversation(distance)
   runtime.compensateScroll = distance => {
     if (sideScrollController && sideScrollController.scrollEl.clientHeight > 0) sideScrollController.compensateScrollToDistanceFromBottomPx(distance)
@@ -1994,7 +2046,16 @@ function initSideComposer(placement: SidePanePlacement = 'right') {
   runtime.dispose = () => {
     if (disposed) return
     disposed = true
+    runtime.cancelPreparation?.()
+    visibleEffects.dispose()
+    releaseScrollController?.()
+    sideScrollController?.destroy()
+    sideOuterScrollbar?.destroy()
     sideVoiceChatUi?.dispose()
+    sideModelApi?.dispose?.()
+    sidePermissionApi?.dispose?.()
+    sideFollowUpQueueApi?.dispose?.()
+    sidePreviewsApi?.dispose?.()
     sideWindowsSandboxBanner?.dispose()
     sideComposerControl?.destroy?.()
   }
@@ -2048,8 +2109,9 @@ function initSideComposer(placement: SidePanePlacement = 'right') {
 
   const host = document.getElementById('side-composer-host')
   const template = document.getElementById('input-wrapper')
-  if (!host || !template || host.dataset.ready === '1') return
+  if (!host || !template || runtime.root) return
   const clone = template.cloneNode(true) as HTMLElement
+  runtime.root = clone
   clone.id = 'side-input-wrapper'
   clone.querySelectorAll<HTMLElement>('[id]').forEach((el) => { el.id = `side-${el.id}` })
   // A pending main question must never be copied into a side task's composer.
@@ -2093,23 +2155,40 @@ function initSideComposer(placement: SidePanePlacement = 'right') {
   host.dataset.ready = '1'
   sideWindowsSandboxBanner = mountWindowsSandboxBanner(clone, () => windowsSandboxContext(sideSurfaceSessionId ? sessionWorkdir(sideSurfaceSessionId) : null, sideSurfaceSessionId))
 
-  const sideScrollEl = sideMessagesContainer()
-  if (sideScrollEl) {
+  const floatButton = clone.querySelector<HTMLElement>('#side-scroll-to-bottom')
+  runtime.bindViewport = sideScrollEl => {
+    const region = document.getElementById('side-chat-panel')
+    if (sideScrollController?.scrollEl === sideScrollEl) {
+      if (sideScrollbarRegion !== region) {
+        sideOuterScrollbar?.destroy()
+        sideScrollbarRegion = region
+        sideOuterScrollbar = mountOuterScrollbar({ scrollEl: sideScrollEl, region,
+          onUserScrollIntent: direction => { if (direction) sideScrollController?.noteUserScrollIntent(direction === 'up' ? 'away' : 'toward') },
+        })
+        sideOuterScrollbar?.setActive(sideVisible)
+      }
+      return
+    }
+    releaseScrollController?.()
+    sideScrollController?.destroy()
+    sideOuterScrollbar?.destroy()
     sideScrollController = new TranscriptScrollController({
       scrollEl: sideScrollEl,
-      floatButton: clone.querySelector<HTMLElement>('#side-scroll-to-bottom'),
+      floatButton,
       responseSpacer: true,
+      isVisible: () => !sideScrollEl.hidden && sideScrollEl.clientHeight > 0 && runtime.root?.hidden !== true,
     })
-    registerTranscriptScrollController(sideScrollController)
+    releaseScrollController = registerTranscriptScrollController(sideScrollController)
+    sideScrollbarRegion = region
+    sideOuterScrollbar = mountOuterScrollbar({
+      scrollEl: sideScrollEl,
+      region,
+      onUserScrollIntent: direction => {
+        if (direction) sideScrollController?.noteUserScrollIntent(direction === 'up' ? 'away' : 'toward')
+      },
+    })
   }
-  // Same proxy scrollbar as the main column, pinned to the side panel's edge.
-  mountOuterScrollbar({
-    scrollEl: sideMessagesContainer(),
-    region: document.getElementById('side-chat-panel'),
-    onUserScrollIntent: (direction) => {
-      if (direction) sideScrollController?.noteUserScrollIntent(direction === 'up' ? 'away' : 'toward')
-    },
-  })
+  if (runtime.messagesEl) runtime.bindViewport(runtime.messagesEl)
 
   const sideSend = clone.querySelector<HTMLButtonElement>('#side-send')
   let sideFriendSending = false
@@ -2137,9 +2216,9 @@ function initSideComposer(placement: SidePanePlacement = 'right') {
   const sideVoiceBtn = clone.querySelector<HTMLElement>('#side-voice-input-btn')
   mountSideComposerVoice = () => {
     if (!voiceChatUi || sideVoiceChatUi || !sideSend || !sideInput) return
-    const panel = document.getElementById('artifacts-panel')!
+    const panel = document.getElementById(runtime.placement === 'left' ? 'left-side-chat-panel' : 'artifacts-panel')!
     sideVoiceChatUi = mountVoiceChat({
-      wrapper: clone, row: clone.querySelector('.input-row')!, content: document.getElementById('side-chat-panel')!,
+      wrapper: clone, row: clone.querySelector('.input-row')!, content: document.getElementById(runtime.placement === 'left' ? 'left-side-chat-panel' : 'side-chat-panel')!,
       visibilityRoot: panel, sendButton: sideSend, input: sideInput,
       transport: klausApi.voice.chat,
       currentSession: () => sideSurfaceSessionId,
@@ -2151,11 +2230,15 @@ function initSideComposer(placement: SidePanePlacement = 'right') {
       // #side-send while the composer is empty and idle).
       canStart: () => false,
       commandActive: () => clone.contains(document.activeElement),
-      inChat: () => !!sideSurfaceSessionId && panel.dataset.mode === 'side-chat' && !panel.classList.contains('collapsed'),
+      inChat: () => {
+        const currentPanel = document.getElementById(runtime.placement === 'left' ? 'left-side-chat-panel' : 'artifacts-panel')
+        return !!sideSurfaceSessionId && !!currentPanel && currentPanel.dataset.mode === 'side-chat' && !currentPanel.classList.contains('collapsed')
+      },
       feedback: () => { void submitDebugReport('') },
       systemSettings: () => klausApi.systemPermissions.openSettings('microphone'),
       present: (eligible, sessionId, notice) => klausApi.voice.chat.present({ eligible, sessionId, ...(notice ? { notice } : {}) }),
     }, voiceChatUi.controller)
+    sideVoiceChatUi.setVisible(sideVisible)
   }
   mountSideComposerVoice()
   let sideDraftScope: string | null = null
@@ -2186,6 +2269,40 @@ function initSideComposer(placement: SidePanePlacement = 'right') {
   let sideSelectedSlashCommand: SlashCommandInfo | null = null
   let sideSelectedSlashCommandRange: { start: number; end: number } | null = null
   let sideDiscovery: ReturnType<typeof createEditorDiscovery> | null = null
+  let sidePreparation: { pending: PendingComposerSubmission | null; release(): void } | null = null
+  const settledSideSubmissions = new WeakSet<PendingComposerSubmission>()
+  runtime.cancelPreparation = () => {
+    const preparation = sidePreparation
+    const pending = preparation?.pending
+    if (!pending || pending.phase !== 'preparing' || pending.cancelled) return false
+    pending.cancelled = true
+    pending.phase = 'cancelled'
+    settledSideSubmissions.add(pending)
+    settlePendingComposerSubmission(pending)
+    preparation.release()
+    if (sidePreparation === preparation) sidePreparation = null
+    updateSideSendButton()
+    return true
+  }
+  runtime.setVisible = visible => {
+    sideVisible = visible
+    if (!visible) visibleEffects.setActive(false)
+    const content = document.getElementById(runtime.placement === 'left' ? 'left-side-chat-panel' : 'side-chat-panel')
+    if (visible && content) sideVoiceChatUi?.setRegions?.(content, document.getElementById(runtime.placement === 'left' ? 'left-side-chat-panel' : 'artifacts-panel') || undefined)
+    sideModelApi?.setVisible?.(visible)
+    sidePermissionApi?.setVisible?.(visible)
+    sideFollowUpQueueApi?.setVisible?.(visible)
+    sideVoiceChatUi?.setVisible?.(visible)
+    sideScrollController?.setActive(visible)
+    sideOuterScrollbar?.setActive(visible)
+    if (!visible) {
+      sideComposerModelRevision++
+      sideDiscovery?.hide(true)
+    } else {
+      visibleEffects.setActive(true)
+      runtime.syncRuntime?.()
+    }
+  }
   if (sideInput) sideComposerControl = installContenteditableTextControl(sideInput as unknown as HTMLElement, (value) => [
     ...sideInlineQuoteEntries(value).map((entry) => ({
       start: entry.range!.start,
@@ -2322,14 +2439,29 @@ function initSideComposer(placement: SidePanePlacement = 'right') {
     sideInput.addEventListener('select', () => { void sideDiscovery?.refresh() })
     sideInput.addEventListener('focus', () => { void sideDiscovery?.refresh() })
     sideInput.addEventListener('blur', () => sideDiscovery?.hide())
-    const panel = document.getElementById('artifacts-panel')
-    if (panel) new MutationObserver(() => {
-      if (panel.classList.contains('collapsed') || panel.dataset.mode !== 'side-chat') sideDiscovery?.hide()
-    }).observe(panel, { attributes: true, attributeFilter: ['class', 'data-mode'] })
-    window.addEventListener('klaus:skills-changed', () => { sideDiscovery?.hide(); void sideDiscovery?.refresh() })
-    document.addEventListener('pointerdown', event => {
-      if (!menu.contains(event.target as Node) && !sideInput.contains(event.target as Node) && !sidePlusBtn?.contains(event.target as Node)) sideDiscovery?.hide(true)
-    }, true)
+    visibleEffects.add(current => {
+      const panel = document.getElementById(runtime.placement === 'left' ? 'left-side-chat-panel' : 'artifacts-panel')
+      if (!panel) return
+      const observer = new MutationObserver(() => {
+        if (!current()) return
+        if (panel.classList.contains('collapsed') || panel.dataset.mode !== 'side-chat') sideDiscovery?.hide()
+      })
+      observer.observe(panel, { attributes: true, attributeFilter: ['class', 'data-mode'] })
+      return () => observer.disconnect()
+    })
+    visibleEffects.add(current => {
+      const refresh = () => { if (current()) { sideDiscovery?.hide(); void sideDiscovery?.refresh() } }
+      const dismiss = (event: PointerEvent) => {
+        if (!current()) return
+        if (!menu.contains(event.target as Node) && !sideInput.contains(event.target as Node) && !sidePlusBtn?.contains(event.target as Node)) sideDiscovery?.hide(true)
+      }
+      window.addEventListener('klaus:skills-changed', refresh)
+      document.addEventListener('pointerdown', dismiss, true)
+      return () => {
+        window.removeEventListener('klaus:skills-changed', refresh)
+        document.removeEventListener('pointerdown', dismiss, true)
+      }
+    })
   }
   if (sidePreviews) sidePreviews.innerHTML = ''
   const sideAttachmentHistory = new AttachmentHistory()
@@ -2539,13 +2671,14 @@ function initSideComposer(placement: SidePanePlacement = 'right') {
   // Side voice: reuse the single shared recorder, but route the transcript into
   // the side input and mirror the main mic's press-hold / click-toggle model.
   if (sideVoiceBtn) {
-    registerVoiceComposer(sideVoiceBtn, (text: string) => {
+    visibleEffects.add(current => registerVoiceComposer(sideVoiceBtn, (text: string) => {
+      if (!current()) return
       const existing = sideInput!.value
       const needsSpace = existing && !/\s$/.test(existing)
       sideInput!.value = existing + (needsSpace ? ' ' : '') + text
       sideInput!.focus()
       sideAutoResize()
-    })
+    }))
   }
 
   async function restoreSidePastedTextToComposer(entry: PendingFileEntry) {
@@ -2827,15 +2960,22 @@ function initSideComposer(placement: SidePanePlacement = 'right') {
 
   async function sideSubmit(options: { replay?: boolean; followUp?: boolean; invert?: boolean } = {}) {
     const sid = sideSurfaceSessionId
-    if (!sid) return
+    if (!sid || sidePreparation?.pending && !sidePreparation.pending.cancelled
+      && (sidePreparation.pending.phase === 'preparing' || sidePreparation.pending.phase === 'submitting')) return
     const compactInstructions = sidePendingFiles.length === 0 ? parseCompactSlashInput(sideComposedInputText()) : null
     if (compactInstructions !== null) { await sideCompact(compactInstructions); return }
     if (!(sideInput?.value || '').trim() && sidePendingFiles.length === 0) return sideSubmitNow(options)
     const release = preparingSubmissions.begin(sid)
     if (!release) return
+    const preparation = { pending: null as PendingComposerSubmission | null, release }
+    sidePreparation = preparation
     updateSideSendButton()
     try { await sideSubmitNow(options) }
-    finally { release(); updateSideSendButton() }
+    finally {
+      release()
+      if (sidePreparation === preparation) sidePreparation = null
+      updateSideSendButton()
+    }
   }
 
   async function sideSubmitNow(options: { replay?: boolean; followUp?: boolean; invert?: boolean } = {}) {
@@ -2911,11 +3051,6 @@ function initSideComposer(placement: SidePanePlacement = 'right') {
       return
     }
     if (!value.trim() && sidePendingFiles.length === 0) return
-    const draft = sideInput?.value || ''
-    const draftFiles = [...sidePendingFiles]
-    const draftRevision = sideComposerControl?.revision
-    if (!(await ensureComposerModelConfigured(sid))) return
-    if (!sideDraftUnchanged(sid, draft, draftFiles, draftRevision)) return
     if (hasUploadInFlight(sidePendingFiles)) {
       sidePendingSendAfterUpload = { invertFollowUp: false }
       sideSend?.classList.add('awaiting-upload')
@@ -2925,23 +3060,42 @@ function initSideComposer(placement: SidePanePlacement = 'right') {
     sidePendingSendAfterUpload = null
     sideSend?.classList.remove('awaiting-upload')
     const files = [...sidePendingFiles]
+    const payload = buildOutgoingPayload(value, files, historyDraft.slashCommand?.command || null, sid, references, draftDocument, false)
+    const pending = createPendingComposerSubmissionRecord(sid, historyDraft, files, payload, goalInteractions.token(sid))
+    sidePendingSubmissionIds.add(pending.id)
+    if (sidePreparation) sidePreparation.pending = pending
+    renderLocalUserPayload(sid, payload, { uuid: pending.uuid, pending: true, timestamp: pending.startedAtMs })
     addSessionHistory(sid, historyDraft)
     sidePendingFiles = []
     sideRenderPreviews()
     sideSetComposerDraft('')
+    sideComposerControl?.resetHistory()
     persistSideDraft(sid, null)
     sideAutoResize()
     updateSideSendButton()
     klausApi.session.touchSideTask?.(sid).catch(() => {})
     takeEditedQueueReinsert(sid)
     try {
-      await submitTurnPayload(sid, buildOutgoingPayload(value, files, historyDraft.slashCommand?.command || null, sid, references, draftDocument))
+      if (!(await ensureComposerModelConfigured(sid)) || pending.cancelled) return
+      if (isWorktreeSessionWorkdir(sessionWorkdir(sid))) {
+        if (await refreshWorktreeAvailability(sid) !== 'available' || pending.cancelled) return
+      }
+      if (pending.cancelled) return
+      pending.phase = 'submitting'
+      updateSideSendButton()
+      const error = await submitTurnPayload(sid, payload, { quietError: true, preserveDraft: true, skipOptimistic: true, pendingSubmission: pending })
+      if (!error) acceptPendingComposerSubmission(pending)
+      else if ((pending.phase as PendingComposerSubmission['phase']) !== 'unconfirmed') { pending.phase = 'failed'; pending.error = error }
     } catch (err) {
-      // submitTurnPayload owns the ordinary failure net (refusal re-route and
-      // the transcript error pill); an escape from it is an unexpected throw
-      // that must reach the user as an operational error instead of vanishing
-      // into the console.
+      pending.phase = pending.phase === 'submitting' ? 'unconfirmed' : 'failed'
+      pending.error = pending.phase === 'unconfirmed' ? tt('submission_unconfirmed') : (err as Error)?.message || String(err)
       showToast(tt('chat_send_failed_prefix') + ((err as Error | null)?.message || String(err)))
+    } finally {
+      if (pending.phase !== 'accepted' && !settledSideSubmissions.has(pending)) {
+        settledSideSubmissions.add(pending)
+        settlePendingComposerSubmission(pending)
+      }
+      updateSideSendButton()
     }
   }
   sideInput?.addEventListener('input', (rawEvent: Event) => {
@@ -2988,6 +3142,12 @@ function initSideComposer(placement: SidePanePlacement = 'right') {
   })
   sideSend?.addEventListener('click', (e: MouseEvent) => {
     e.preventDefault()
+    if (runtime.cancelPreparation?.()) return
+    if (sidePreparation?.pending?.phase === 'submitting' && sideSurfaceSessionId) {
+      stopPendingComposerSubmission(sideSurfaceSessionId)
+      updateSideSendButton()
+      return
+    }
     // Same split as the main composer: while the side turn runs and the side
     // composer holds content, the button is a submit (queue/steer), not a stop.
     const running = !!sideSurfaceSessionId && window.isSessionRunning?.(sideSurfaceSessionId)
@@ -2998,8 +3158,10 @@ function initSideComposer(placement: SidePanePlacement = 'right') {
   })
   // Keep the send/stop affordance in sync with the side session's running state.
   function updateSideSendButton() {
-    if (!sideSend) return
-    const friendRefs = sideComposedInputDraft().references.filter(reference => reference.kind === 'friend')
+    if (!sideSend || runtime.root?.hidden) return
+    const pending = sidePreparation?.pending
+    const preparing = !!pending && !pending.cancelled && (pending.phase === 'preparing' || pending.phase === 'submitting')
+    const friendRefs = preparing ? [] : sideComposedInputDraft().references.filter(reference => reference.kind === 'friend')
     const friendIntent = sideSurfaceSessionId ? sideFriendContexts.get(sideSurfaceSessionId)?.intent || 'request' : 'request'
     sideFriendIntentApi?.setHidden(friendRefs.length === 0)
     sideFriendIntentApi?.setValue(friendIntent)
@@ -3014,35 +3176,18 @@ function initSideComposer(placement: SidePanePlacement = 'right') {
     const running = !!sideSurfaceSessionId && window.isSessionRunning?.(sideSurfaceSessionId)
     document.getElementById('side-scroll-to-bottom')?.toggleAttribute('data-generating', !!running)
     const stopping = !!sideSurfaceSessionId && stoppingSessions.has(sideSurfaceSessionId)
-    const empty = !(sideInput?.value || '').trim() && sidePendingFiles.length === 0
-    const continuing = !running && !stopping && !!sideSurfaceSessionId && empty
-      && sessionContinueMode(sideSurfaceSessionId)
-    const continuePending = !!sideSurfaceSessionId && continuingSessions.has(sideSurfaceSessionId)
-    const runningSubmit = !!running && !stopping && !empty
-    sideSend.classList.toggle('busy', !!running)
-    sideSend.classList.toggle('running-submit', runningSubmit)
-    sideSend.classList.toggle('stopping', stopping)
-    sideSend.classList.toggle('continue', continuing)
-    sideSend.classList.toggle('continuing', continuePending)
-    sideSend.disabled = !sideSurfaceSessionId || stopping
-      || (continuing ? continuePending : (!running && empty))
-    sideSend.setAttribute('aria-label', stopping
-      ? tt('submit_tooltip_stopping')
-      : runningSubmit && hasUploadInFlight(sidePendingFiles) && sidePendingSendAfterUpload
-        ? tt('submit_tooltip_waiting_upload')
-        : runningSubmit
-          ? tt(followUpQueueMode === 'steer' ? 'submit_tooltip_steer' : 'submit_tooltip_queue')
-          : running
-            ? tt('submit_tooltip_stop')
-            : continuing
-              ? tt(continuePending ? 'submit_tooltip_continuing' : 'submit_tooltip_continue')
-              : tt('submit_tooltip_send'))
+    const hasContent = !!(sideInput?.value || '').trim() || sidePendingFiles.length > 0
+    applyComposerSubmitState(sideSend, composerSubmitState({
+      ownerReady: !!sideSurfaceSessionId, running: !!running, stopping,
+      preparing,
+      cancelled: !!pending?.cancelled,
+      hasContent, uploading: hasUploadInFlight(sidePendingFiles), waitingForUpload: !!sidePendingSendAfterUpload,
+      continueOffered: !!sideSurfaceSessionId && !hasContent && sessionContinueMode(sideSurfaceSessionId),
+      continuing: !!sideSurfaceSessionId && continuingSessions.has(sideSurfaceSessionId),
+      followUpMode: followUpQueueMode,
+    }), tt, { tooltip: false })
   }
   ;(window as any).klausUpdateSideSendButton = updateSideSendButton
-  const sideSendTimer = window.setInterval(() => {
-    if (sideSurfaceSessionId && document.visibilityState !== 'hidden' && !settingsVisibleIfAny()) updateSideSendButton()
-  }, 300)
-  window.addEventListener('pagehide', () => window.clearInterval(sideSendTimer), { once: true })
 
   // The side composer's own queue island. A side chat is a separate session with its
   // own queue, and the host dispatches and pauses it exactly like the main one, so it
@@ -3677,12 +3822,13 @@ function sentUserDisplayMetadata(payload: OutgoingPayload | FollowUpQueueItem) {
   const command = payload.sentSlashCommand
   const source = String(command?.source || '').toLowerCase()
   const isSkill = !!command && (command.kind === 'skill' || source.includes('skill'))
-  if (!payload.composerDocument && !isSkill && !(payload.pastedCards?.length) && !(payload.composerReferences?.length)
+  if (!payload.clientMessageId && !payload.composerDocument && !isSkill && !(payload.pastedCards?.length) && !(payload.composerReferences?.length)
     && !payload.media.some((attachment: any) => attachment.type === 'media')) return undefined
   return {
+    ...(payload.clientMessageId ? { clientMessageId: payload.clientMessageId } : {}),
     displayText: payload.displayText,
     ...(payload.composerDocument ? { composerDocument: payload.composerDocument } : {}),
-    attachments: payload.liveAttachments
+    attachments: (payload.liveAttachments || [])
       .filter((attachment) => attachment.type !== 'image')
       .map((attachment) => ({ type: attachment.type, name: attachment.name, path: attachment.path, ...(attachment.mimeType ? { mimeType: attachment.mimeType } : {}) })),
     pastedCards: payload.pastedCards || [],
@@ -4446,12 +4592,12 @@ async function init() {
   const initialSessions = await readSessionSnapshot()
   if (initialSessions) {
     sessions = initialSessions
-    syncSidebarWorkingFromSessions(sessions, { reconcileRuntime: true })
+    syncSidebarWorkingFromSessions(sessions)
   }
   // One unconditional audit after boot: a window restored over sessions whose
   // turns the host recovered in the background may have missed every lifecycle
   // frame, and with no running state of its own nothing else would ever read
-  // the host's working registry again. The audit's own gate then keeps polling
+  // explicit runtime facts once. Later native events, focus and reconnect recover
   // only while some session is working on either side.
   scheduleSessionRuntimeAudit({ once: true })
   await refreshProjectWorkspaces({ render: false, refreshWorkdir: false })
@@ -6929,6 +7075,7 @@ window.addEventListener('klaus:session-change', () => {
 })
 window.addEventListener('klaus:panel-tabs-change', publishNativeMenuState)
 window.addEventListener('focus', publishNativeMenuState)
+window.addEventListener('focus', () => scheduleSessionRuntimeAudit({ once: true }))
 const nativeMenuObserver = new MutationObserver(publishNativeMenuState)
 for (const id of ['terminal-toggle', 'browser-panel-toggle', 'browser-reload']) {
   const control = document.getElementById(id)
@@ -9081,6 +9228,7 @@ function buildOutgoingPayload(
     : encodeSelectedTextEnvelope(requestText, encodedSelectedTextAttachments)
 
   return {
+    clientMessageId: `client:${crypto.randomUUID()}`,
     text,
     finalText,
     displayText: text,
@@ -9121,7 +9269,7 @@ function isSideChatSession(sessionId: string | null | undefined): boolean {
   return !!sessionId && sideSurfaces.has(sessionId)
 }
 
-function renderLocalUserPayload(targetSessionId: string, payload: OutgoingPayload | FollowUpQueueItem, options: { uuid?: string; edit?: EditedUserTurnSnapshot; steered?: boolean } = {}) {
+function renderLocalUserPayload(targetSessionId: string, payload: OutgoingPayload | FollowUpQueueItem, options: { uuid?: string; edit?: EditedUserTurnSnapshot; steered?: boolean; pending?: boolean; timestamp?: number; targetTurnId?: string; targetTurnStartedAt?: number } = {}) {
   if (isSideChatSession(targetSessionId)) {
     sideRuntimeForSession(targetSessionId)?.preparePlacement?.(targetSessionId)
   } else if (targetSessionId === window.currentSessionId) {
@@ -9137,10 +9285,13 @@ function renderLocalUserPayload(targetSessionId: string, payload: OutgoingPayloa
   // 本地乐观气泡入 store（React transcript 消费）；旧 appendUserMsg 的 DOM 路径已退役。
   const localPayload = {
     text: payload.finalText,
-    uuid: options.uuid,
+    uuid: options.uuid || payload.clientMessageId,
+    clientMessageId: payload.clientMessageId,
     // A steer joins the running turn instead of opening one; the flag keeps the edit
     // gate from offering to rewrite it once the turn stops.
     ...(options.steered ? { steered: true } : {}),
+    ...(options.targetTurnId !== undefined ? { targetTurnId: options.targetTurnId } : {}),
+    ...(options.targetTurnStartedAt !== undefined ? { targetTurnStartedAt: options.targetTurnStartedAt } : {}),
     attachments: payload.liveAttachments,
     slashCommand: payload.sentSlashCommand,
     displayText: payload.displayText,
@@ -9148,9 +9299,10 @@ function renderLocalUserPayload(targetSessionId: string, payload: OutgoingPayloa
     pastedCards: payload.pastedCards,
     selectedTextAttachments: payload.selectedTextAttachments,
     composerReferences: payload.composerReferences,
-    timestamp: Date.now(),
+    timestamp: options.timestamp ?? Date.now(),
   }
   if (options.edit) commitEditedUserTurn(targetSessionId, options.edit, localPayload)
+  else if (options.pending) beginPendingUserTurn(targetSessionId, localPayload)
   else ingestLocalUserTurn(targetSessionId, localPayload)
   ;(window as any).klausUpdateSideSendButton?.()
   // 首条消息落地后运行环境锁定，立即收起「运行于」行（侧面板无此行所以加 guard）。
@@ -9303,7 +9455,8 @@ function syncCurrentTranscriptChrome(
 }
 chatStreamStore.subscribe(syncCurrentTranscriptChrome)
 
-async function submitTurnPayload(targetSessionId: string, payload: OutgoingPayload | FollowUpQueueItem, options: { quietError?: boolean; preserveDraft?: boolean; preserveQueueAnchor?: boolean; skipOptimistic?: boolean } = {}): Promise<string | null> {
+async function submitTurnPayload(targetSessionId: string, payload: OutgoingPayload | FollowUpQueueItem, options: { quietError?: boolean; preserveDraft?: boolean; preserveQueueAnchor?: boolean; skipOptimistic?: boolean; pendingSubmission?: PendingComposerSubmission } = {}): Promise<string | null> {
+  payload.clientMessageId ||= `client:${crypto.randomUUID()}`
   draftOnlySessionIds.delete(targetSessionId)
   userInterruptedSessions.delete(targetSessionId)
   // A re-insert position only means something for a message that goes back INTO the
@@ -9321,7 +9474,7 @@ async function submitTurnPayload(targetSessionId: string, payload: OutgoingPaylo
   // its global subscription updates the current or off-screen sidebar row.
   // A worktree-mode first send painted its bubble ahead of the host-side
   // creation wait; painting it again here would duplicate the row.
-  if (!options.skipOptimistic) renderLocalUserPayload(targetSessionId, payload)
+  if (!options.skipOptimistic) renderLocalUserPayload(targetSessionId, payload, { pending: true })
   try {
     await klausApi.chat.send(
       targetSessionId,
@@ -9337,15 +9490,26 @@ async function submitTurnPayload(targetSessionId: string, payload: OutgoingPaylo
       // follow-up channel (steer first, queue as fallback). The optimistic row
       // already on screen becomes the steer/queue row, so nothing paints twice
       // and the refusal never surfaces as a transcript row.
-      if (await rerouteRefusedSendAsFollowUp(targetSessionId, payload)) return null
+      if (await rerouteRefusedSendAsFollowUp(targetSessionId, payload)) {
+        finishPendingUserTurn(targetSessionId, payload.clientMessageId, 'cancelled')
+        return null
+      }
+      finishPendingUserTurn(targetSessionId, payload.clientMessageId, 'failed', message)
       if (!options.quietError) window.showToast?.(tt('follow_up_failed'), { duration: 4000 })
       return message
     }
-    await reconcileSessionWorking(targetSessionId, false)
+    const refusal = (err as { data?: { error?: { code?: unknown }; code?: unknown } })?.data
+    if (options.pendingSubmission && !refusal?.error?.code && !refusal?.code) {
+      options.pendingSubmission.phase = 'unconfirmed'
+      options.pendingSubmission.error = tt('submission_unconfirmed')
+      finishPendingUserTurn(targetSessionId, payload.clientMessageId, 'failed', tt('submission_unconfirmed'))
+      return tt('submission_unconfirmed')
+    }
+    finishPendingUserTurn(targetSessionId, payload.clientMessageId, 'failed', options.quietError ? undefined : message)
     // quietError 供队列派发/Retry 用：失败由行进入 paused 等 Retry，
     // 不再另弹错误气泡；普通发送路径保留 live-error 气泡。
     if (!options.quietError) {
-      ingestChatEvent({ type: 'api_error', sessionId: targetSessionId, error: message })
+      if (options.skipOptimistic) window.showToast?.(message, { duration: 4000 })
       if (window.currentSessionId === targetSessionId) inputEl.focus()
     }
     return message
@@ -9353,6 +9517,7 @@ async function submitTurnPayload(targetSessionId: string, payload: OutgoingPaylo
   // The turn is admitted: from here on, empty-shell recycling treats this
   // conversation as content-bearing even while the rollout flush lags.
   submittedTurnSessionIds.add(targetSessionId)
+  finishPendingUserTurn(targetSessionId, payload.clientMessageId, 'accepted')
   return null
 }
 
@@ -9996,20 +10161,44 @@ async function removeEngineFollowUp(sessionId: string, uuid: string): Promise<vo
 }
 
 async function steerFollowUp(targetSessionId: string, payload: OutgoingPayload | FollowUpQueueItem, options: { quietError?: boolean } = {}) {
-  const result = await klausApi.chat.followUp?.(
-    targetSessionId,
-    payload.finalText,
-    payload.media.length > 0 ? payload.media : undefined,
-    sentUserDisplayMetadata(payload),
-  )
-  if (result?.removed) return true
-  if (!result?.ok && !result?.unconfirmed) {
-    if (!options.quietError) ingestChatEvent({ type: 'api_error', sessionId: targetSessionId, error: result?.error || 'Failed to send follow-up' })
+  const target = getSessionStream(targetSessionId)
+  const targetTurnId = target.activeTurnId || target.liveTurnId
+  if (!targetTurnId || typeof klausApi.chat.followUp !== 'function') return false
+  const targetTurnStartedAt = target.turnStartedAtMs[targetTurnId] ?? target.turnStartedAt ?? undefined
+  const messageId = crypto.randomUUID()
+  const steeredPayload = { ...payload, clientMessageId: messageId }
+  renderLocalUserPayload(targetSessionId, steeredPayload, { uuid: messageId, steered: true, targetTurnId, targetTurnStartedAt })
+  noteLocallySentSteer(targetSessionId, messageId)
+  const delivery = (state: FollowUpStatusEvent['state']) => ingestChatEvent({
+    type: 'follow_up_status', sessionId: targetSessionId, messageId, text: payload.finalText, state,
+  })
+  delivery('pending')
+  let result
+  try {
+    result = await klausApi.chat.followUp(targetSessionId, steeredPayload.finalText,
+      steeredPayload.media.length > 0 ? steeredPayload.media : undefined,
+      { ...sentUserDisplayMetadata(steeredPayload), clientMessageId: messageId, steerMessageId: messageId, expectedTurnId: targetTurnId })
+  } catch {
+    // A lost acknowledgement is not a refusal: the issued identity remains owned here.
+    delivery('unconfirmed')
+    return true
+  }
+  if (result?.removed || result?.ok === false && !result.unconfirmed) {
+    const stream = getSessionStream(targetSessionId)
+    const matches = (message: { uuid?: string }) => message.uuid === messageId || userMessageClientId(message) === messageId
+    if (stream.liveUnits.some(unit => unit.type === 'live-user' && unit.optimisticUser === false && matches(unit.msg))
+      || stream.history?.some(message => message.role === 'user' && matches(message))) {
+      delivery('applied')
+      return true
+    }
+    retractLocalUserMessage(targetSessionId, messageId)
+    locallySentSteerIdsBySession.get(targetSessionId)?.delete(messageId)
+    delivery('removed')
+    if (result.removed) return true
+    if (!options.quietError) ingestChatEvent({ type: 'api_error', sessionId: targetSessionId, error: result.error || 'Failed to send follow-up' })
     return false
   }
-  // Issued input is consumed even when its ACK is uncertain; its keyed notice owns delivery status.
-  renderLocalUserPayload(targetSessionId, payload, { uuid: result.messageId, steered: true })
-  noteLocallySentSteer(targetSessionId, result.messageId)
+  delivery(!result || result.unconfirmed ? 'unconfirmed' : 'engine_queued')
   return true
 }
 
@@ -10453,11 +10642,12 @@ async function submitRunningFollowUp({ invert = false } = {}) {
 }
 
 function reconcilePendingComposerSubmissions(): void {
+  reconcileCancelledComposerAdmissions()
   for (const pending of pendingComposerSubmissions.values()) {
     if (pending.phase !== 'unconfirmed' || !pending.sessionId) continue
     const stream = getSessionStream(pending.sessionId)
-    const echoed = stream.liveUnits.find(unit => unit.type === 'live-user' && unit.msg.uuid === pending.uuid && unit.turnId)
-    const saved = stream.history?.find(message => message.role === 'user' && message.uuid === pending.uuid)
+    const echoed = stream.liveUnits.find(unit => unit.type === 'live-user' && (unit.msg.uuid === pending.uuid || userMessageClientId(unit.msg) === pending.uuid) && unit.turnId)
+    const saved = stream.history?.find(message => message.role === 'user' && (message.uuid === pending.uuid || userMessageClientId(message) === pending.uuid))
     if (!echoed && !saved) continue
     const turnId = echoed?.turnId || saved?.turnId
     acceptPendingComposerSubmission(pending)
@@ -10477,11 +10667,10 @@ function currentPendingComposerSubmission(): PendingComposerSubmission | undefin
       : window.currentSessionId === null && visiblePendingSubmissionId === pending.id))
 }
 
-function beginPendingComposerSubmission(draft: ComposerDraft, files: PendingFileEntry[], slashCommand: SlashCommandInfo | null, navigationToken: string): PendingComposerSubmission {
-  const sourceSessionId = window.currentSessionId
+function createPendingComposerSubmissionRecord(sourceSessionId: string | null, draft: ComposerDraft, files: PendingFileEntry[], payload: OutgoingPayload, navigationToken: string): PendingComposerSubmission {
   const id = crypto.randomUUID(), uuid = `submission:${id}`
   const startedAtMs = Date.now()
-  const payload = buildOutgoingPayload(draft.text, files, slashCommand, sourceSessionId || '', normalizeComposerReferences(draft.text, draft.references), draft.document, false)
+  payload.clientMessageId = uuid
   const pending: PendingComposerSubmission = {
     id, uuid, sourceSessionId, sessionId: sourceSessionId, viewId: sourceSessionId || `pending:${id}`,
     navigationToken, draft, files, payload, startedAtMs,
@@ -10491,6 +10680,14 @@ function beginPendingComposerSubmission(draft: ComposerDraft, files: PendingFile
     phase: 'preparing', cancelled: false,
   }
   pendingComposerSubmissions.set(id, pending)
+  return pending
+}
+
+function beginPendingComposerSubmission(draft: ComposerDraft, files: PendingFileEntry[], slashCommand: SlashCommandInfo | null, navigationToken: string): PendingComposerSubmission {
+  const sourceSessionId = window.currentSessionId
+  const payload = buildOutgoingPayload(draft.text, files, slashCommand, sourceSessionId || '', normalizeComposerReferences(draft.text, draft.references), draft.document, false)
+  const pending = createPendingComposerSubmissionRecord(sourceSessionId, draft, files, payload, navigationToken)
+  const { id, uuid, startedAtMs } = pending
   if (!sourceSessionId) visiblePendingSubmissionId = id
   syncComposerContextRowVisibility()
   clearComposerAfterSubmit(sourceSessionId || '')
@@ -10500,7 +10697,7 @@ function beginPendingComposerSubmission(draft: ComposerDraft, files: PendingFile
   }
   mainScrollController.prepareLatestTurnPlacement(pending.viewId)
   beginPendingUserTurn(pending.viewId, {
-    text: payload.finalText, uuid, timestamp: startedAtMs, attachments: payload.liveAttachments,
+    text: payload.finalText, uuid, clientMessageId: uuid, timestamp: startedAtMs, attachments: payload.liveAttachments,
     slashCommand: payload.sentSlashCommand, displayText: payload.displayText,
     composerReferences: payload.composerReferences, composerDocument: payload.composerDocument,
     pastedCards: payload.pastedCards, selectedTextAttachments: payload.selectedTextAttachments,
@@ -10530,17 +10727,71 @@ function promotePendingComposerSubmission(pending: PendingComposerSubmission, se
   })
 }
 
+/** A delayed admission acknowledgement must never stop a replacement turn. */
+function reconcileCancelledComposerAdmissions(): void {
+  for (const [identity, pending] of cancelledComposerAdmissions) {
+    if (!pending.sessionId) continue
+    const stream = getSessionStream(pending.sessionId)
+    const echoed = stream.liveUnits.find(unit => unit.type === 'live-user'
+      && (unit.msg.uuid === identity || userMessageClientId(unit.msg) === identity) && unit.turnId)
+    const saved = stream.history?.find(message => message.role === 'user'
+      && (message.uuid === identity || userMessageClientId(message) === identity))
+    const turnId = echoed?.turnId || saved?.turnId
+    if (!turnId) continue
+    if (stream.activeTurnId === turnId && stream.running) {
+      cancelledComposerAdmissions.delete(identity)
+      requestTurnStop(pending.sessionId, turnId)
+    } else if (stream.turnStatuses[turnId] || stream.activeTurnId && stream.activeTurnId !== turnId) {
+      cancelledComposerAdmissions.delete(identity)
+    }
+  }
+}
+
 function acceptPendingComposerSubmission(pending: PendingComposerSubmission): void {
   pending.phase = 'accepted'
   clearPendingSubmissionRecovery(pending.uuid)
   if (pending.sessionId) clearUnsentSubmission(pending.sessionId)
   finishPendingUserTurn(pending.viewId, pending.uuid, 'accepted')
   pendingComposerSubmissions.delete(pending.id)
+  sidePendingSubmissionIds.delete(pending.id)
   if (visiblePendingSubmissionId === pending.id) visiblePendingSubmissionId = null
-  if (pending.cancelled && pending.sessionId) requestTurnStop(pending.sessionId)
+  if (pending.cancelled && pending.sessionId) {
+    cancelledComposerAdmissions.set(pending.uuid, pending)
+    reconcileCancelledComposerAdmissions()
+  }
+}
+
+function dismissPendingComposerSubmission(pending: PendingComposerSubmission): void {
+  if (pending.phase === 'accepted' || !pendingComposerSubmissions.has(pending.id)) return
+  const side = sidePendingSubmissionIds.has(pending.id)
+  pending.cancelled = true
+  pending.phase = 'cancelled'
+  clearPendingSubmissionRecovery(pending.uuid)
+  discardPendingUserTurn(pending.viewId, pending.uuid)
+  pendingComposerSubmissions.delete(pending.id)
+  sidePendingSubmissionIds.delete(pending.id)
+  const newerOwner = [...pendingComposerSubmissions.values()].some(record => record.viewId === pending.viewId
+    && (record.phase === 'preparing' || record.phase === 'submitting'))
+  if (!newerOwner) {
+    if (side) sideRuntimeForSession(pending.viewId)?.clearPlacement?.(pending.viewId)
+    else mainScrollController.clearPendingLatestTurnPlacement(pending.viewId)
+  }
+  if (visiblePendingSubmissionId === pending.id) {
+    visiblePendingSubmissionId = null
+    if (!window.currentSessionId) {
+      unmountReactTranscript(messagesEl)
+      messagesEl.style.display = 'none'
+      welcomeEl.style.display = 'flex'
+      syncTopModeButtons()
+    }
+  }
+  syncBusyForCurrentSession()
+  syncMainTranscriptChrome()
+  renderSessionList()
 }
 
 function settlePendingComposerSubmission(pending: PendingComposerSubmission): void {
+  if (pending.phase === 'unconfirmed') reconcilePendingComposerSubmissions()
   if (pending.phase === 'accepted' || !pendingComposerSubmissions.has(pending.id)) return
   const owner = pending.sessionId || pending.sourceSessionId
   const visible = owner ? window.currentSessionId === owner
@@ -10578,30 +10829,15 @@ function settlePendingComposerSubmission(pending: PendingComposerSubmission): vo
     run: () => { retryUnsentSubmission(pending.sessionId!, pending.uuid) },
   } : {
     action: pending.phase === 'unconfirmed' ? 'dismiss' : 'back',
-    run: () => {
-      clearPendingSubmissionRecovery(pending.uuid)
-      discardPendingUserTurn(pending.viewId, pending.uuid)
-      pending.phase = 'cancelled'
-      settlePendingComposerSubmission(pending)
-    },
+    run: () => { dismissPendingComposerSubmission(pending) },
   })
   finishPendingUserTurn(pending.viewId, pending.uuid, retainFailure ? 'failed' : 'cancelled',
     retainFailure ? pending.error || tt('message_prepare_failed') : undefined)
   if (retainFailure) {
     if (pending.phase !== 'unconfirmed') pending.phase = 'failed'
   } else {
-    mainScrollController.clearPendingLatestTurnPlacement(pending.viewId)
-    clearPendingSubmissionRecovery(pending.uuid)
-    pendingComposerSubmissions.delete(pending.id)
-    if (visiblePendingSubmissionId === pending.id) {
-      visiblePendingSubmissionId = null
-      if (!window.currentSessionId) {
-        unmountReactTranscript(messagesEl)
-        messagesEl.style.display = 'none'
-        welcomeEl.style.display = 'flex'
-        syncTopModeButtons()
-      }
-    }
+    dismissPendingComposerSubmission(pending)
+    return
   }
   syncBusyForCurrentSession()
   syncMainTranscriptChrome()
@@ -10610,7 +10846,7 @@ function settlePendingComposerSubmission(pending: PendingComposerSubmission): vo
 
 function unsentTurnPayload(record: UnsentSubmissionRecord) {
   return {
-    text: record.payload.finalText, uuid: record.uuid, timestamp: record.atMs,
+    text: record.payload.finalText, uuid: record.uuid, clientMessageId: record.payload.clientMessageId, timestamp: record.atMs,
     attachments: record.payload.liveAttachments, slashCommand: record.payload.sentSlashCommand,
     displayText: record.payload.displayText, composerReferences: record.payload.composerReferences,
     composerDocument: record.payload.composerDocument, pastedCards: record.payload.pastedCards,
@@ -10650,7 +10886,9 @@ function resurfaceUnsentSubmission(sessionId: string) {
 }
 
 function stopPendingComposerSubmission(sessionId?: string): boolean {
-  const pending = currentPendingComposerSubmission()
+  const pending = sessionId ? [...pendingComposerSubmissions.values()].find(record =>
+    (record.sessionId === sessionId || record.viewId === sessionId)
+    && (record.phase === 'preparing' || record.phase === 'submitting')) : currentPendingComposerSubmission()
   if (!pending || sessionId && sessionId !== pending.sessionId && sessionId !== pending.viewId) return false
   pending.cancelled = true
   if (pending.sessionId) goalInteractions.stop(pending.sessionId)
@@ -11091,9 +11329,9 @@ async function sendMessage(options: ComposerSendOptions = {}) {
     const pastedPaths = payload.pastedCards.map(card => card.path).filter((path): path is string => !!path)
     if (pastedPaths.length) void klausApi.chat.pastedTextRelease(pastedPaths).catch(() => undefined)
   }
-  const submissionError = await submitTurnPayload(targetSessionId, payload, { ...(pending ? { quietError: true } : {}), preserveDraft: true, skipOptimistic: !!pending || targetSessionId === earlySessionId })
+  const submissionError = await submitTurnPayload(targetSessionId, payload, { ...(pending ? { quietError: true, pendingSubmission: pending } : {}), preserveDraft: true, skipOptimistic: !!pending || targetSessionId === earlySessionId })
   if (pending && !submissionError) acceptPendingComposerSubmission(pending)
-  else if (pending) { pending.phase = 'failed'; pending.error = submissionError || tt('message_prepare_failed') }
+  else if (pending && pending.phase !== 'unconfirmed') { pending.phase = 'failed'; pending.error = submissionError || tt('message_prepare_failed') }
   firstSendInFlight = false
   if (!submissionError) {
     if (!sourceSessionId) addSessionHistory(targetSessionId, draft, true)
@@ -14848,6 +15086,7 @@ function handleChatEvent(event: ChatEvent) {
   // 镜像层：全事件先进 stream store（React 侧消费面），再走既有 DOM 渲染管线。
   // userInterrupted 上下文供 api_error 卡的抑制判定（对齐下方 case 的守卫）。
   ingestChatFrameEvent(event, { userInterrupted: userInterruptedSessions.has(event.sessionId) })
+  if (event.type === 'session_runtime_status' && event.source === 'session') scheduleSessionRuntimeAudit({ once: true, sessionId: event.sessionId })
   if (event.type === 'model_update') refreshContextAfterModelUpdate(event.sessionId, previousModelUpdate)
   if (event.type === 'done' && event.sessionId === window.currentSessionId && !foreignTerminalTurn(event)) {
     const turnId = typeof event.turnId === 'string' && event.turnId ? event.turnId : undefined
@@ -15275,7 +15514,7 @@ klausApi.on.engineStatus((status: string) => {
   if (status !== lastModelEngineStatus) {
     lastModelEngineStatus = status
     invalidateComposerPreferenceReads()
-    if (status === 'ok') { void refreshComposerPreferences(); void refreshAllSideComposerModels() }
+    if (status === 'ok') { void refreshComposerPreferences(); void refreshAllSideComposerModels(); scheduleSessionRuntimeAudit({ once: true }) }
   }
   ingestEngineStatus(status)
 })
@@ -15326,7 +15565,7 @@ async function updateSessionInList({ reorder = false }: { reorder?: boolean } = 
   // settled while no lifecycle frame reached this webview (recovered turns after
   // a restart, background continuations) converges here instead of waiting for
   // an audit that only runs once the renderer already thinks something is live.
-  syncSidebarWorkingFromSessions(sessions, { reconcileRuntime: true })
+  syncSidebarWorkingFromSessions(sessions)
   await refreshProjectWorkspaces({ render: false, refreshWorkdir: false })
   renderSessionList()
   // Surfaces that read the ledger through window.getKnownSessionInfo (the
@@ -15512,6 +15751,7 @@ window.addEventListener('klaus:friend-message-compose', (event: Event) => {
 })
 
 function updateSendBtn() {
+  for (const runtime of sidePaneRuntimes.values()) runtime.hooks.klausUpdateSideSendButton?.()
   updateFriendComposeControls()
   if (friendSendInFlight) { btnSend.disabled = true; return }
   const directFriends = composerReferenceEntries().filter(reference => reference.kind === 'friend')
@@ -15533,59 +15773,16 @@ function updateSendBtn() {
     btnSend.classList.remove('stopping', 'esc-armed', 'continue', 'continuing', 'awaiting-upload', 'running-submit')
     return
   }
-  // While a turn runs the button is the stop affordance ONLY while the composer
-  // holds nothing to submit (or the stop request is already in flight). Typing
-  // anything hands it back to submit: the press then queues or steers the
-  // follow-up instead of aborting the turn (see the
-  // running-composer-submit-mode rule in stop-interaction-vectors.json).
   const stopping = !!(window.currentSessionId && stoppingSessions.has(window.currentSessionId))
-  const runningSubmit = busy && !pendingSubmission && !stopping && !goalPreparing && (hasComposerText() || pendingFiles.length > 0)
-  if (busy) {
-    btnSend.classList.add('busy')
-    btnSend.disabled = stopping || !!pendingSubmission?.cancelled
-    btnSend.classList.toggle('running-submit', runningSubmit)
-    btnSend.title = stopping
-      ? tt('submit_tooltip_stopping')
-      : runningSubmit && hasUploadInFlight(pendingFiles) && pendingSendAfterUpload
-        ? tt('submit_tooltip_waiting_upload')
-        : runningSubmit
-          ? tt(followUpQueueMode === 'steer' ? 'submit_tooltip_steer' : 'submit_tooltip_queue')
-          : tt('submit_tooltip_stop')
-    btnSend.classList.toggle('stopping', stopping)
-    btnSend.classList.toggle('esc-armed', !stopping && !runningSubmit && stopEscArmed())
-    btnSend.classList.remove('continue')
-    btnSend.classList.remove('continuing')
-    // The stop affordance must never carry the waiting-for-upload animation:
-    // every call on the way out of send() already has `busy` set, so leaving it
-    // on here kept the button breathing for the whole turn. The running-submit
-    // face is a live submit, so a press parked on an in-flight upload keeps
-    // breathing there — that is the only thing separating "received, waiting"
-    // from a plain enabled button.
-    btnSend.classList.toggle('awaiting-upload', runningSubmit && hasUploadInFlight(pendingFiles) && !!pendingSendAfterUpload)
-    return
-  }
-  btnSend.classList.remove('busy')
-  btnSend.classList.remove('stopping')
-  btnSend.classList.remove('esc-armed')
-  btnSend.classList.remove('running-submit')
-  const continuing = composerContinueOffered
-  const continuePending = !!window.currentSessionId && continuingSessions.has(window.currentSessionId)
-  btnSend.classList.toggle('continue', continuing)
-  btnSend.classList.toggle('continuing', continuePending)
-  if (continuing) {
-    btnSend.disabled = continuePending
-    btnSend.title = tt(continuePending ? 'submit_tooltip_continuing' : 'submit_tooltip_continue')
-    btnSend.classList.remove('awaiting-upload')
-    return
-  }
-  const uploading = hasUploadInFlight(pendingFiles)
-  btnSend.disabled = uploading || (!hasComposerText() && pendingFiles.length === 0)
-  // A parked submit is waiting on those uploads — say so, otherwise the click
-  // that did nothing looks like the app ignored the user.
-  btnSend.title = uploading && pendingSendAfterUpload
-    ? tt('submit_tooltip_waiting_upload')
-    : tt('submit_tooltip_send')
-  btnSend.classList.toggle('awaiting-upload', uploading && !!pendingSendAfterUpload)
+  applyComposerSubmitState(btnSend, composerSubmitState({
+    ownerReady: true, running: busy, stopping, preparing: !!pendingSubmission,
+    cancelled: !!pendingSubmission?.cancelled, goalPreparing,
+    hasContent: hasComposerText() || pendingFiles.length > 0,
+    uploading: hasUploadInFlight(pendingFiles), waitingForUpload: !!pendingSendAfterUpload,
+    continueOffered: composerContinueOffered,
+    continuing: !!window.currentSessionId && continuingSessions.has(window.currentSessionId),
+    followUpMode: followUpQueueMode, escapeArmed: stopEscArmed(),
+  }), tt, { tooltip: true })
 }
 
 // ==================== Input events ====================
@@ -15766,16 +15963,20 @@ function foreignTerminalTurn(event: { sessionId?: string; turnId?: string }): bo
   return !!state.running && !!state.activeTurnId && state.activeTurnId !== turnId
 }
 
-function requestTurnStop(sessionId: string) {
-  if (stopPendingComposerSubmission(sessionId) || stopPendingFriendTask(sessionId)) return
+function requestTurnStop(sessionId: string, admittedTurnId?: string) {
+  if (admittedTurnId && getSessionStream(sessionId).activeTurnId !== admittedTurnId) return
+  if (!admittedTurnId) {
+    if (sideRuntimeForSession(sessionId)?.cancelPreparation?.()) return
+    if (stopPendingComposerSubmission(sessionId) || stopPendingFriendTask(sessionId)) return
+  }
   if (!sessionId || stoppingSessions.has(sessionId)) return
   goalInteractions.stop(sessionId)
   clearStopEscArm()
-  stoppingSessions.add(sessionId)
+  const stopOwner = stoppingSessions.add(sessionId)
   userInterruptedSessions.add(sessionId)
   // Name the Turn being stopped so the host can refuse the request if this
   // session has already moved on to another one.
-  const expectedTurnId = getSessionStream(sessionId).activeTurnId
+  const expectedTurnId = admittedTurnId || getSessionStream(sessionId).activeTurnId
   requestTurnInterrupt(sessionId)
   const requestedAt = getSessionStream(sessionId).stopRequestedAt
   updateSendBtn()
@@ -15787,7 +15988,7 @@ function requestTurnStop(sessionId: string) {
   // A refused fence belongs to the captured turn. A replacement must keep running.
   const settleRefusedStop = () => {
     if (!ownsStopRequest()) return
-    stoppingSessions.delete(sessionId)
+    stoppingSessions.delete(sessionId, stopOwner)
     userInterruptedSessions.delete(sessionId)
     clearTurnInterruptRequest(sessionId)
     updateSendBtn()
@@ -15818,7 +16019,7 @@ function requestTurnStop(sessionId: string) {
     // Loading belongs to this request, not to the engine's later cleanup. An
     // uncertain outcome retains its turn intent, but must not lock the button.
     if (!stoppingSessions.has(sessionId) || !ownsStopRequest()) return
-    stoppingSessions.delete(sessionId)
+    stoppingSessions.delete(sessionId, stopOwner)
     updateSendBtn()
   })
 }

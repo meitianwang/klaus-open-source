@@ -6,6 +6,7 @@ import type { AddressInfo } from 'node:net';
 export async function startComposerLifecycleProvider(options: { responseText?: string } = {}) {
   const requests: Array<Record<string, unknown>> = [];
   const pending = new Set<() => void>();
+  const pendingText = new Set<() => void>();
   let holdNext = false, holdBeforeText = false, entered = 0;
   const release = () => { for (const finish of [...pending]) finish(); };
   const server = createServer((request, response) => {
@@ -37,11 +38,12 @@ export async function startComposerLifecycleProvider(options: { responseText?: s
           pending.delete(finish);
           if (response.destroyed || response.writableEnded) return;
           deferredText?.();
+          if (deferredText) pendingText.delete(deferredText);
           send('content_block_stop', { index: 0 });
           send('message_delta', { delta: { stop_reason: 'end_turn', stop_sequence: null }, usage: { output_tokens: 12 } });
           send('message_stop', {}); response.end();
         };
-        response.once('close', () => pending.delete(finish));
+        response.once('close', () => { pending.delete(finish); if (deferredText) pendingText.delete(deferredText); });
         send('message_start', { message });
         const tools = Array.isArray(body.tools) ? body.tools as Array<{ name?: string; input_schema?: { required?: string[] } }> : [];
         const choice = body.tool_choice as { type?: string; name?: string } | undefined;
@@ -60,8 +62,11 @@ export async function startComposerLifecycleProvider(options: { responseText?: s
         const emitText = () => send('content_block_delta', { index: 0, delta: { type: 'text_delta', text: options.responseText ?? 'COMPOSER_FIXTURE_RESPONSE' } });
         // Only the normal agent response owns a hold; title requests also stream.
         const held = holdNext && tools.some(row => row.name === 'Bash');
-        if (held && holdBeforeText) deferredText = emitText;
-        else emitText();
+        if (held && holdBeforeText) {
+          let emitted = false;
+          deferredText = () => { if (!emitted) { emitted = true; emitText(); } };
+          pendingText.add(deferredText);
+        } else emitText();
         if (held) { holdNext = false; holdBeforeText = false; entered++; pending.add(finish); }
         else finish();
       } catch (error) { response.destroy(error as Error); }
@@ -71,6 +76,7 @@ export async function startComposerLifecycleProvider(options: { responseText?: s
   return {
     url: `http://127.0.0.1:${(server.address() as AddressInfo).port}`, requests, release,
     holdNext: (beforeText = false) => { holdNext = true; holdBeforeText = beforeText; }, entered: () => entered,
+    streamHeldText: () => { for (const emit of [...pendingText]) { pendingText.delete(emit); emit(); } },
     close: () => new Promise<void>((done, reject) => { release(); server.closeAllConnections(); server.close(error => error ? reject(error) : done()); }),
   };
 }

@@ -138,12 +138,20 @@ export class TranscriptScrollController {
   private readonly userScrollListeners = new Set<(distance: number, previous: number) => void>()
   private readonly olderHistoryLoaders = new Map<HTMLElement, { loader: OlderHistoryLoader; autoLoad: boolean }>()
   private historyLoopRunning = false
+  private historyLoadPending: { loader: OlderHistoryLoader; autoLoad: boolean } | null = null
   private historyLoopToken: object | null = null
   private observedSize: { client: number; scroll: number } | null = null
   private floatShown: boolean | undefined
-  private readonly abort = new AbortController()
-  private readonly resizeObserver: ResizeObserver | null
-  private readonly growthObserver: ResizeObserver | null
+  private active = true
+  private destroyed = false
+  private activation: object | null = null
+  private abort: AbortController | null = null
+  private resizeObserver: ResizeObserver | null = null
+  private growthObserver: ResizeObserver | null = null
+  private mutationObserver: MutationObserver | null = null
+  private readonly unsubscribeResponseSpacer: () => void
+  private lastScrollHeight: number
+  private restoreDistance: number | null = null
   private growthTop = 0
   private contentObservationFrame = 0
   private readonly observedContent = new Set<Element>()
@@ -159,51 +167,104 @@ export class TranscriptScrollController {
     this.following = this.lastDistance <= BOTTOM_TOLERANCE_PX
     this.scrolledFromBottom = this.lastDistance > BOTTOM_TOLERANCE_PX
     this.usesResponseSpacer = options.responseSpacer === true
-    this.responseSpacerController.subscribe(() => this.syncFloatButton())
-    const listen = { passive: true, signal: this.abort.signal } as const
+    this.lastScrollHeight = this.scrollEl.scrollHeight
+    this.unsubscribeResponseSpacer = this.responseSpacerController.subscribe(() => this.syncFloatButton())
+    this.connectEffects()
+  }
+
+  /** Suspend visible-layout work without replacing this conversation's scroll state. */
+  setActive(active: boolean): void {
+    if (this.destroyed || active === this.active) return
+    this.active = active
+    if (!active) {
+      this.disconnectEffects()
+      return
+    }
+    this.restoreDistance = this.getUnroundedScrollDistanceFromBottomPx(this.lastDistance)
+    this.connectEffects()
+    if (!this.restoreViewport()) return
+    this.syncFloatButton()
+    this.resumeHistory()
+  }
+
+  private restoreViewport(): boolean {
+    if (this.restoreDistance == null) return true
+    if (this.scrollEl.clientHeight <= 0 || !this.isVisible()) return false
+    const distance = this.restoreDistance
+    this.restoreDistance = null
+    this.write('instant', () => distance)
+    return true
+  }
+
+  private resumeHistory(): void {
+    if (this.historyLoadPending?.autoLoad && this.historyLoadPending === this.activeOlderHistory()) this.loadOlderHistory()
+    else { this.historyLoadPending = null; this.onResizeForHistory() }
+  }
+
+  private connectEffects(): void {
+    const activation = this.activation = {}
+    const current = () => this.active && !this.destroyed && this.activation === activation
+    const abort = this.abort = new AbortController()
+    const listen = { passive: true, signal: abort.signal } as const
     const element = this.scrollEl
-    element.addEventListener('scroll', this.onScroll, listen)
-    element.addEventListener('wheel', this.onWheel, listen)
-    element.addEventListener('keydown', this.onKeyDown, { signal: this.abort.signal })
-    element.addEventListener('pointerdown', this.onPointerDown, listen)
-    element.addEventListener('pointerup', this.clearScrollbarDrag, listen)
-    element.addEventListener('pointercancel', this.clearScrollbarDrag, listen)
-    element.addEventListener('touchstart', this.onTouchStart, listen)
-    element.addEventListener('touchmove', this.onTouchMove, listen)
-    element.addEventListener('touchend', this.clearTouch, listen)
-    element.addEventListener('touchcancel', this.clearTouch, listen)
+    element.addEventListener('scroll', () => { if (current()) this.onScroll() }, listen)
+    element.addEventListener('wheel', event => { if (current()) this.onWheel(event) }, listen)
+    element.addEventListener('keydown', event => { if (current()) this.onKeyDown(event) }, { signal: abort.signal })
+    element.addEventListener('pointerdown', event => { if (current()) this.onPointerDown(event) }, listen)
+    element.addEventListener('pointerup', () => { if (current()) this.clearScrollbarDrag() }, listen)
+    element.addEventListener('pointercancel', () => { if (current()) this.clearScrollbarDrag() }, listen)
+    element.addEventListener('touchstart', event => { if (current()) this.onTouchStart(event) }, listen)
+    element.addEventListener('touchmove', event => { if (current()) this.onTouchMove(event) }, listen)
+    element.addEventListener('touchend', () => { if (current()) this.clearTouch() }, listen)
+    element.addEventListener('touchcancel', () => { if (current()) this.clearTouch() }, listen)
     this.floatButton?.addEventListener('click', () => {
+      if (!current()) return
       const spacer = this.getResponseSpacer()
       if (spacer == null) this.scrollToBottom()
       else spacer.scrollToBottom()
-    }, { signal: this.abort.signal })
+    }, { signal: abort.signal })
     if (typeof ResizeObserver === 'function') {
       // Short content: load older history until the viewport can scroll.
-      this.resizeObserver = new ResizeObserver(this.onResizeForHistory)
+      this.resizeObserver = new ResizeObserver(() => { if (current()) this.onResizeForHistory() })
       this.resizeObserver.observe(element)
       // Bottom-anchored growth: keep a following, exactly-bottom view at the bottom.
       this.growthTop = element.scrollTop
-      this.growthObserver = new ResizeObserver(this.onGrowth)
+      this.growthObserver = new ResizeObserver(() => { if (current()) this.onGrowth() })
       this.growthObserver.observe(element)
       this.observeContent()
-    } else {
-      this.resizeObserver = null
-      this.growthObserver = null
     }
     if (typeof MutationObserver === 'function') {
-      const mutations = new MutationObserver(() => this.observeContent())
-      mutations.observe(element, { childList: true })
-      this.abort.signal.addEventListener('abort', () => mutations.disconnect())
+      this.mutationObserver = new MutationObserver(() => { if (current()) this.observeContent() })
+      this.mutationObserver.observe(element, { childList: true })
     }
-    document.addEventListener('visibilitychange', this.onVisibilityChange, { signal: this.abort.signal })
+    document.addEventListener('visibilitychange', () => { if (current()) this.onVisibilityChange() }, { signal: abort.signal })
+  }
+
+  private disconnectEffects(): void {
+    this.activation = null
+    this.abort?.abort()
+    this.abort = null
+    this.cancelAnimation()
+    this.resizeObserver?.disconnect()
+    this.growthObserver?.disconnect()
+    this.mutationObserver?.disconnect()
+    this.resizeObserver = null
+    this.growthObserver = null
+    this.mutationObserver = null
+    this.observedContent.clear()
+    if (this.contentObservationFrame) cancelAnimationFrame(this.contentObservationFrame)
+    this.contentObservationFrame = 0
+    this.intent = null
+    this.scrollbarDrag = null
+    this.touchStart = null
   }
 
   destroy(): void {
-    this.cancelAnimation()
-    this.abort.abort()
-    this.resizeObserver?.disconnect()
-    this.growthObserver?.disconnect()
-    if (this.contentObservationFrame) cancelAnimationFrame(this.contentObservationFrame)
+    if (this.destroyed) return
+    this.destroyed = true
+    this.active = false
+    this.disconnectEffects()
+    this.unsubscribeResponseSpacer()
     this.historyLoopToken = null
   }
 
@@ -245,14 +306,16 @@ export class TranscriptScrollController {
    * never invalidated after it has already delivered this frame's observation.
    */
   prepareMeasuredLayout(): void {
+    if (!this.active || this.destroyed) return
     for (const content of this.observedContent) {
       this.growthObserver?.unobserve(content)
       this.resizeObserver?.unobserve(content)
     }
     if (this.contentObservationFrame) return
+    const activation = this.activation
     this.contentObservationFrame = requestAnimationFrame(() => {
+      if (!this.active || this.activation !== activation) return
       this.contentObservationFrame = 0
-      if (this.abort.signal.aborted) return
       for (const content of this.observedContent) {
         this.growthObserver?.observe(content)
         this.resizeObserver?.observe(content)
@@ -263,6 +326,7 @@ export class TranscriptScrollController {
 
   /** A system or user request to show a specific distance from the bottom. */
   scrollToDistanceFromBottomPx(distancePx: number, behavior: ScrollBehavior = 'instant', source: ScrollSource = 'system'): void {
+    if (!this.active || this.destroyed) return
     const previous = this.lastDistance
     const distance = Math.max(0, distancePx)
     if (distance > BOTTOM_TOLERANCE_PX) this.cancelAnimation()
@@ -288,7 +352,7 @@ export class TranscriptScrollController {
     const distance = this.lastDistance
     const spacer = this.getResponseSpacer()?.getHeightPx() ?? 0
     this.pendingPlacements.set(conversationId, {
-      distanceFromBottomPx: distance, scrollHeightPx: this.scrollEl.scrollHeight,
+      distanceFromBottomPx: distance, scrollHeightPx: this.active ? this.scrollEl.scrollHeight : this.lastScrollHeight,
       shouldPlaceLatestTurn: distance - spacer <= PLACE_LATEST_TURN_MAX_DISTANCE_PX,
     })
   }
@@ -312,6 +376,7 @@ export class TranscriptScrollController {
 
   /** Return to the bottom: instant when already close, otherwise eased over a short duration. */
   scrollToBottom(options: ScrollToBottomOptions = {}): void {
+    if (!this.active || this.destroyed) return
     const element = this.scrollEl
     this.following = options.followContentGrowth !== false
     const start = distanceFromBottom(element)
@@ -325,7 +390,9 @@ export class TranscriptScrollController {
     this.animationStop = options.onStop
     this.timedAnimation = options.durationMs != null
     const startedAt = performance.now()
+    const activation = this.activation
     const step = (now: number) => {
+      if (!this.active || this.activation !== activation) return
       if (!this.scrollEl.isConnected) { this.cancelAnimation(); return }
       const progress = Math.min(1, (now - startedAt) / (options.durationMs ?? SCROLL_TO_BOTTOM_DURATION_MS))
       const eased = 1 - (1 - progress) ** 3
@@ -377,7 +444,7 @@ export class TranscriptScrollController {
 
   /** Recompute the float button after visibility or geometry changes outside scrolling. */
   syncFloatButton(): void {
-    if (!this.floatButton) return
+    if (!this.active || this.destroyed || !this.floatButton) return
     const spacer = this.getResponseSpacer()
     const away = spacer == null ? this.scrolledFromBottom : this.lastDistance > spacer.getHeightPx() + BOTTOM_TOLERANCE_PX
     const show = this.isVisible() && away
@@ -390,16 +457,19 @@ export class TranscriptScrollController {
 
   /** Scrollbar input outside the element (the column's proxy scrollbar) is reader intent too. */
   noteUserScrollIntent(direction: ScrollDirection): void {
+    if (!this.active || this.destroyed) return
     this.recordIntent(direction)
   }
 
   // ---- internals -----------------------------------------------------------
 
   private record(distance: number): void {
+    if (!this.active || this.destroyed) return
     // Hidden surfaces report a zero-size viewport; their last real position is kept.
     if (this.scrollEl.clientHeight === 0 && this.scrollEl.scrollHeight === 0) return
     if (this.unrounded?.actual !== distance) this.unrounded = null
     this.lastDistance = distance
+    this.lastScrollHeight = this.scrollEl.scrollHeight
     for (const listener of this.scrollListeners) listener(distance)
     this.scrolledFromBottom = distance > BOTTOM_TOLERANCE_PX
     this.syncFloatButton()
@@ -428,7 +498,9 @@ export class TranscriptScrollController {
   }
 
   private write(behavior: ScrollBehavior, target: (element: HTMLElement) => number): void {
+    if (!this.active || this.destroyed) return
     const element = this.scrollEl
+    if (element.clientHeight === 0 && element.scrollHeight === 0) return
     const distance = Math.max(0, target(element))
     if (distance !== distanceFromBottom(element)) { this.unrounded = null; this.intent = null }
     const top = scrollTopFor(element, distance)
@@ -448,15 +520,18 @@ export class TranscriptScrollController {
   }
 
   private loadOlderHistory = (): void => {
-    if (this.historyLoopRunning || !this.activeOlderHistory()) return
+    if (!this.active || this.destroyed || this.historyLoopRunning || !this.activeOlderHistory()) return
+    this.historyLoadPending = null
     const token = this.historyLoopToken
     this.historyLoopRunning = true
     void (async () => {
       try {
-        while (this.historyLoopToken === token && this.nearTop()) {
+        while (this.active && !this.destroyed && this.historyLoopToken === token && this.nearTop()) {
           const active = this.activeOlderHistory()
           if (!active) break
-          if (await active.loader() === 'stop' || !active.autoLoad) break
+          const result = await active.loader()
+          if (this.historyLoopToken !== token || result === 'stop' || !active.autoLoad) break
+          if (!this.active) { this.historyLoadPending = active; break }
         }
       } catch {
         // A failed page is reported by the surface; the loop simply ends.
@@ -468,6 +543,12 @@ export class TranscriptScrollController {
   }
 
   private onResizeForHistory = (): void => {
+    if (!this.active || this.destroyed) return
+    if (!this.restoreViewport()) return
+    if (this.historyLoadPending?.autoLoad && this.historyLoadPending === this.activeOlderHistory()) {
+      this.loadOlderHistory()
+      return
+    }
     const element = this.scrollEl
     const active = this.activeOlderHistory()
     if (!active || !active.autoLoad || this.historyLoopRunning) return
@@ -480,6 +561,7 @@ export class TranscriptScrollController {
 
   /** Observe the surface's content blocks (one transcript root, or one slot per side tab). */
   private observeContent(): void {
+    if (!this.active || this.destroyed) return
     const children = new Set(Array.from(this.scrollEl.children))
     for (const content of this.observedContent) {
       if (children.has(content)) continue
@@ -496,7 +578,10 @@ export class TranscriptScrollController {
   }
 
   private onGrowth = (): void => {
+    if (!this.active || this.destroyed) return
+    if (!this.restoreViewport()) return
     const element = this.scrollEl
+    this.lastScrollHeight = element.scrollHeight
     const scrolled = Math.abs(this.growthTop - element.scrollTop) > 1
     this.growthTop = element.scrollTop
     const current = distanceFromBottom(element)
@@ -565,6 +650,7 @@ export class TranscriptScrollController {
   }
 
   private onScroll = (): void => {
+    if (!this.restoreViewport()) return
     const element = this.scrollEl
     const previous = this.lastDistance
     const drag = this.scrollbarDrag

@@ -44,6 +44,9 @@ function fixture(turnId: string | null = 'captured-turn') {
     Error, stopPendingComposerSubmission: () => false, stopPendingFriendTask: () => false,
     creatingGoalSessions: new Set(), stoppingSessions: stopping, userInterruptedSessions: interrupted,
     goalInteractions: new GoalInteractionClock(), clearStopEscArm() {}, getSessionStream: store.getSessionStream,
+    // Main-conversation fences never resolve a side runtime; the stop path only
+    // consults it to route side-surface effects.
+    sideRuntimeForSession: () => undefined,
     requestTurnInterrupt: store.requestTurnInterrupt,
     clearTurnInterruptRequest(id: string) { clears++; store.clearTurnInterruptRequest(id) },
     updateSendBtn() { renders++ }, showToast(message: string) { toasts.push(message) }, noticeI18nKey,

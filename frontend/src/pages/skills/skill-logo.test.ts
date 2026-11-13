@@ -9,7 +9,7 @@
 // 3. 两个渲染 helper 的 HTML 形状：市场卡版只有一张铺满槽位的 img（砖壳由
 //    iconClassName 卸掉），行式版保留砖壳外廓类并叠 logo 修饰类——CSS 靠这两个
 //    类把砖的描边/底色/顶部小签让位给成品方砖图。
-import { beforeAll, describe, expect, test } from 'bun:test'
+import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { existsSync } from 'node:fs'
 
 const LOGO_SKILLS = [
@@ -31,13 +31,14 @@ let skillLogoBrickHtml: (src: string) => string
 let skillRemoteIconHtml: (src: string) => string
 let skillEmojiBrickHtml: (emoji: string) => string
 let getSkillBrandTile: (skill: any) => any
+let previousWindow: PropertyDescriptor | undefined
 
 beforeAll(async () => {
-  // localize 经 window 桥读 settings 数据表，导入前先把桥立起来（同 plugin-market-terms.test）。
   const g = globalThis as any
-  g.window = g
-  g.currentLang = 'zh'
-  await import('../settings/market-tables')
+  previousWindow = Object.getOwnPropertyDescriptor(g, 'window')
+  g.window = { currentLang: 'zh' }
+  const { installMarketTables } = await import('../settings/market-tables')
+  installMarketTables(g.window)
   const mod = await import('./localize')
   getSkillLogoSrc = mod.getSkillLogoSrc
   skillLogoImgHtml = mod.skillLogoImgHtml
@@ -45,6 +46,11 @@ beforeAll(async () => {
   skillRemoteIconHtml = mod.skillRemoteIconHtml
   skillEmojiBrickHtml = mod.skillEmojiBrickHtml
   getSkillBrandTile = mod.getSkillBrandTile
+})
+
+afterAll(() => {
+  if (previousWindow) Object.defineProperty(globalThis, 'window', previousWindow)
+  else delete (globalThis as any).window
 })
 
 describe('skill brand logos', () => {

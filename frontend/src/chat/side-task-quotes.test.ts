@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { mediaInputMime } from '../../../shared/media-input'
 import { composerDraftFromControl } from './composer/document-draft'
 import { createComposerDraft, normalizeComposerDraft, selectedSlashCommandFromDraft } from './composer/slash-draft'
@@ -7,6 +8,7 @@ import { referencesFromEditor as documentReferencesFromEditor } from './composer
 import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { runInNewContext } from 'node:vm'
+import { installPendingSubmissionFixture } from './test-support/pending-submission-fixture'
 import { createSourceFile, forEachChild, isBinaryExpression, isExpressionStatement, isFunctionDeclaration, ModuleKind, ScriptKind, ScriptTarget, transpileModule } from 'typescript'
 import * as inlineQuotes from './composer/inline-quote'
 import { configuredAgentReferences, normalizeComposerReferences } from './composer/reference-token'
@@ -53,6 +55,7 @@ function fixture(options: { running?: boolean; parentRunning?: boolean; mode?: '
     setSelectionRange(start: number, end: number) { this.selectionStart = start; this.selectionEnd = end },
   }
   const context = {
+    crypto: { randomUUID }, persistSideDraft() {},
     composerTokenDataWithinDepth, mediaInputMime,
     referencesFromEditor: documentReferencesFromEditor, composerDraftFromControl, createComposerDraft, normalizeComposerDraft, selectedSlashCommandFromDraft, migrateSkillDraft, workspaceReferencesIn,
     sideSelectedSlashCommand: null, sideSelectedSlashCommandRange: null, sideReferenceTokens: [], sideDiscovery: null, sideBindingRevision: 0, sideHistoryBrowsingIndex: -1, addSessionHistory() {},
@@ -105,6 +108,7 @@ function fixture(options: { running?: boolean; parentRunning?: boolean; mode?: '
     steerFollowUp: async (_sid: string, payload: Payload) => { submissions.push({ route: 'steer', payload }); return true },
     showToast: (text: string) => { toasts.push(text) }, tt: (key: string) => key,
   }
+  installPendingSubmissionFixture(context)
   const api = runInNewContext(entryPoints, context) as {
     sideSubmit: (options?: { replay?: boolean; followUp?: boolean }) => Promise<void>
     removeSideInlineQuote: (entry: QuoteEntry) => void

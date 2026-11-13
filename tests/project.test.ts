@@ -39,6 +39,24 @@ import { projectSessionHistory } from '../main/sessions/history';
 
 const h = new Harness();
 
+h.test('canonical user projections preserve local display identities without changing content', () => {
+  const metadata = { clientMessageId: 'client:stable-input', displayText: 'visible input' };
+  const raw = mapChatEvents({ type: 'rawSessionEvent', params: { sessionId: 'root',
+    event: { subagentEvent: { agentId: 'root', event: { type: 'user.message', message: {
+      uuid: 'canonical-input', content: [{ type: 'text', text: 'operational input' }], localRender: metadata,
+    } } } } } });
+  const product = mapChatEvents({ type: 'productEvent', method: 'item/completed', params: {
+    sessionId: 'identity-session', item: { type: 'user_message', id: 'canonical-input',
+      status: 'completed', text: 'operational input', displayMetadata: metadata },
+  } });
+  for (const events of [raw, product]) {
+    const message = (events[0] as Record<string, Json>).message as Record<string, Json>;
+    const body = message.message as Record<string, Json>;
+    assertDeepEqual(body.localRender, metadata, 'canonical display data retains its provider-invisible identity');
+    assertDeepEqual(body.content, [{ type: 'text', text: 'operational input' }], 'display metadata does not replace canonical input');
+  }
+});
+
 interface VectorCase {
   name?: string;
   method?: string;
@@ -1013,6 +1031,47 @@ h.test('saved communication actions retain queue acceptance separately from mode
   const message = (result.messages as Record<string, Json>[])[0]!;
   const block = (message.contentBlocks as Record<string, Json>[])[0]!;
   assertDeepEqual((block.__result as Record<string, Json>).agentCommunication, output, 'saved queue acknowledgement survives replay');
+});
+
+h.test('input presentation preserves authored marker literals on raw and product events', () => {
+  const literal = '<!-- klaus-steered-message -->';
+  for (const kind of ['turn', 'steer']) {
+    const localRender = { inputPresentation: { version: 1, kind } };
+    const raw = mapChatEvents({ type: 'rawSessionEvent', params: { sessionId: 's', event: { subagentEvent: { agentId: 's', event: { type: 'user.message', message: { uuid: 'u', content: [{ type: 'text', text: literal }, { type: 'text', text: 'body' }], localRender } } } } } });
+    const product = mapChatEvents({ type: 'productEvent', method: 'item/completed', params: { sessionId: 's', item: { type: 'user_message', id: 'u', text: literal, status: 'completed', localRender } } });
+    const body = ((raw[0]!.message as Record<string, Json>).message as Record<string, Json>);
+    assertDeepEqual(body.content, [{ type: 'text', text: literal }, { type: 'text', text: 'body' }], 'metadata owns classification, not authored content');
+    assertEqual(body.steered === true, kind === 'steer', 'raw attribution');
+    assertEqual((((product[0]!.message as Record<string, Json>).message as Record<string, Json>).steered === true), kind === 'steer', 'product attribution');
+  }
+});
+
+h.test('saved and raw input attribution follows the versioned display contract without a host ledger', async () => {
+  const vector = JSON.parse(readFileSync(vectorPath('user-message-display-vectors.json'), 'utf8')).inputPresentation;
+  for (const entry of vector.cases) {
+    const content = entry.texts.map((text: string) => ({ type: 'text', text }));
+    const history: Json[] = [{ type: 'user', uuid: 'u', content },
+      ...(entry.metadata ? [{ type: 'system', subtype: 'user_display', text: JSON.stringify({ messageUuid: 'u', localRender: entry.metadata }) }] : [])];
+    const replay = projectSessionHistory({ history }, 's') as Record<string, Json>;
+    const row = (replay.messages as Record<string, Json>[])[0]!;
+    assertEqual(row.steered === true, entry.steered, entry.name + ': saved attribution');
+    assertDeepEqual((row.contentBlocks as Record<string, Json>[]).map(block => block.text), entry.expectedTexts, entry.name + ': saved text');
+    const raw = mapChatEvents({ type: 'rawSessionEvent', params: { sessionId: 's', event: { subagentEvent: { agentId: 's', event: { type: 'user.message', message: { uuid: 'u', content, ...(entry.metadata ? { localRender: entry.metadata } : {}) } } } } } });
+    const body = (raw[0]!.message as Record<string, Json>).message as Record<string, Json>;
+    assertEqual(body.steered === true, entry.steered, entry.name + ': raw attribution');
+    assertDeepEqual((body.content as Record<string, Json>[]).map(block => block.text), entry.expectedTexts, entry.name + ': raw text');
+  }
+});
+
+h.test('exact canonical presentation is resolved before legacy stripping', () => {
+  const content = [{ type: 'text', text: '<!-- klaus-steered-message -->' }, { type: 'text', text: 'body' }];
+  let resolved = 0;
+  const events = mapChatEvents({ type: 'rawSessionEvent', params: { sessionId: 's', event: { subagentEvent: { agentId: 's', event: { type: 'user.message', message: { uuid: 'canonical', content } } } } } }, undefined,
+    { userDisplayMetadata: (uuid, sessionId) => { assertEqual(uuid, 'canonical', 'exact UUID'); assertEqual(sessionId, 's', 'exact session'); resolved++; return { inputPresentation: { version: 1, kind: 'turn' } }; } });
+  const body = (events[0]!.message as Record<string, Json>).message as Record<string, Json>;
+  assertEqual(resolved, 1, 'presentation resolved before content projection');
+  assertDeepEqual(body.content, content, 'original literal survives the first projection');
+  assertEqual(body.steered, undefined, 'ordinary attribution overrides legacy shape');
 });
 
 // Drain the queue, then report.

@@ -6,6 +6,7 @@
 import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
+import { chatFunctionFixture } from './test-support/chat-function-fixture'
 
 const CHAT_TS = readFileSync(fileURLToPath(new URL('./chat.ts', import.meta.url)), 'utf8')
 
@@ -39,9 +40,25 @@ describe('sidebar working sources wire', () => {
     expect(converge).not.toContain('reconcileAgentTasksFromEngine(s.id)')
   })
 
-  test('any working source lighting up arms the audit', () => {
-    const body = sliceBetween('function updateSidebarWorkingSource', 'function syncSidebarWorkingFromSessions')
-    expect(body).toContain('if (working) scheduleSessionRuntimeAudit()')
+  test('working source changes repaint only real status transitions without starting a polling audit', () => {
+    const working = new Set<string>()
+    let renders = 0, audits = 0
+    const api = chatFunctionFixture<{ updateSidebarWorkingSource(set: Set<string>, id: string, value: boolean, options?: { render: boolean }): void }>(['updateSidebarWorkingSource'], {
+      sidebarSessionStatusKind: (id: string) => working.has(id) ? 'active' : 'idle',
+      renderSessionList: () => { renders++ }, scheduleSessionRuntimeAudit: () => { audits++ },
+    })
+    api.updateSidebarWorkingSource(working, 'owned', true)
+    expect(working.has('owned')).toBe(true)
+    expect(renders).toBe(1)
+    api.updateSidebarWorkingSource(working, 'owned', true)
+    expect(renders).toBe(1)
+    api.updateSidebarWorkingSource(working, 'owned', false)
+    expect(working.has('owned')).toBe(false)
+    expect(renders).toBe(2)
+    api.updateSidebarWorkingSource(working, 'owned', true, { render: false })
+    expect(working.has('owned')).toBe(true)
+    expect(renders).toBe(2)
+    expect(audits).toBe(0)
   })
 
   test('a failed child pull retries independently without changing parent work', () => {

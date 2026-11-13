@@ -100,7 +100,7 @@ h.test('a host-authored send pushes the user frame no composer owns', async () =
   const frame = pushed.find(event => (event as Record<string, Json>).type === 'user_message') as Record<string, any> | undefined;
   assert(frame, 'the live layer receives the trigger row a scheduled run has no composer for');
   assertEqual(frame.message.message.content, 'Run the nightly report', 'the frame carries the prompt text');
-  assertDeepEqual(frame.message.message.localRender, { origin: 'automation', taskName: 'Nightly' }, 'the provenance snapshot rides the frame');
+  assertDeepEqual(frame.message.message.localRender, { origin: 'automation', taskName: 'Nightly', inputPresentation: { version: 1, kind: 'turn' } }, 'the provenance snapshot rides the frame');
   pushed.length = 0;
   // Admission marks the turn running; an idle session is what a composer send needs.
   state.clearTurnRunning(id);
@@ -126,13 +126,13 @@ h.test('browser tab references reach normal and mid-turn input through the named
   const started = rowAt(client.sentSubmit('start-if-idle'), 0, 'browser turn');
   assert(String(started.input).includes(reference.mention), 'canonical identity reaches provider input');
   assert(String(started.input).includes('LIVE_BROWSER_REFERENCE_CONTEXT'), 'ordinary input has live operational context');
-  assertDeepEqual((started.options as Record<string, Json>).displayMetadata, metadata, 'display chips survive separately');
+  assertDeepEqual((started.options as Record<string, Json>).displayMetadata, { ...metadata, inputPresentation: { version: 1, kind: 'turn' } }, 'display chips survive separately');
   state.markTurnRunning(id, 'browser-mention-turn');
   const followed = await service.followUp(id, { text, displayMetadata: metadata }) as Record<string, Json>;
   assertEqual(followed.ok, true, 'human follow-up admitted');
   const steered = rowAt(client.sentSubmit('steer'), 0, 'browser steer');
   assert(JSON.stringify(steered.input).includes('LIVE_BROWSER_REFERENCE_CONTEXT'), 'mid-turn input has the same browser resolver context');
-  assertDeepEqual(steered.displayMetadata, metadata, 'mid-turn metadata stays separate from operational input');
+  assertDeepEqual(steered.displayMetadata, { ...metadata, inputPresentation: { version: 1, kind: 'steer' } }, 'mid-turn metadata stays separate from operational input');
   assertDeepEqual(contexts, [{ sessionId: id, ids: ['42'] }, { sessionId: id, ids: ['42'] }], 'resolver is scoped for both human paths');
   await service.shutdown();
 });
@@ -702,7 +702,7 @@ h.test('subagent task titles follow the current UI language in new and existing 
     const metadata = { displayText: 'Displayed request', origin: 'composer' };
     await service.send(id, { text: 'Find the settings and delegate the work.', displayMetadata: metadata });
     const first = rowAt(client.sentSubmit('start-if-idle'), 0, 'first turn').options as Record<string, Json>;
-    assertDeepEqual(first.displayMetadata, metadata, 'naming instructions do not overwrite display metadata');
+    assertDeepEqual(first.displayMetadata, { ...metadata, inputPresentation: { version: 1, kind: 'turn' } }, 'naming instructions do not overwrite display metadata');
     assert(String(first.systemPromptAppend).includes(`summary of the work in ${row.language}, the current interface language`), 'the normal turn receives the current language');
     state.clearTurnRunning(id);
     const nextSetting = row.setting === 'zh' ? 'en' : 'zh';
@@ -840,7 +840,7 @@ const runtimeStateVector = JSON.parse(readFileSync(vectorPath('session-runtime-s
   channel: string; workingSessionIds: string[]; excludedSessionIds: string[]; expectedConcurrentCatalogScans: number;
 };
 
-h.test('runtime state reads only the host registry and filters hidden conversations', async () => {
+h.test('runtime state inspects explicit native status for ordinary and side conversations', async () => {
   const root = freshRoot(), client = new FakeClient();
   kvSet('klaus.sideTasks.registry', JSON.stringify([{ id: 'side-task', parentSessionId: 'running-chat',
     title: 'Side task', createdAt: 1, updatedAt: 1, phase: 'active', initialTitleIndex: 1 }]), root);
@@ -849,16 +849,32 @@ h.test('runtime state reads only the host registry and filters hidden conversati
   });
   assertEqual(service.isSideTask('side-task'), true, 'the test owns a real side-task registry entry');
   assertEqual(service.isCatalogVisible('side-task'), false, 'side conversations stay out of the ordinary catalog');
-  for (const id of [...runtimeStateVector.workingSessionIds, ...runtimeStateVector.excludedSessionIds, '__internal']) state.markTurnRunning(id);
+  client.reply('engine/readThread', { thread: { status: { type: 'active', activeFlags: ['waitingOnApproval'] } },
+    turns: [{ id: 'native-turn', status: 'inProgress', startedAt: 1, completedAt: null }] });
+  await service.request('engine/readThread', { threadId: 'running-chat' });
+  client.calls.length = 0;
+  for (const id of [...runtimeStateVector.workingSessionIds, ...runtimeStateVector.excludedSessionIds, '__internal']) {
+    state.rememberSession(id, id, {}); state.markTurnRunning(id);
+  }
   const registry = new ChannelRegistry();
   registerSessionHandlers(registry, { sessions: service, state, events: {} as SessionEventPump,
     configRoot: root, chooseExportPath: async () => undefined });
   const handler = registry.lookup(runtimeStateVector.channel)!;
   const context = { channel: runtimeStateVector.channel, role: 'main' as const, senderId: 1, args: [] };
-  assertDeepEqual(await handler(context), { workingSessionIds: runtimeStateVector.workingSessionIds }, 'only visible working conversations are returned');
+  const snapshot = object(await handler(context))!;
+  assertDeepEqual((snapshot.workingSessionIds as string[]).sort(), [...runtimeStateVector.workingSessionIds].sort(), 'native active sessions include side conversations');
+  assertDeepEqual(snapshot.unavailableSessionIds, [], 'every public binding was inspected');
+  assertEqual((snapshot.sessions as Json[]).length, 3, 'private and internal bindings are excluded');
   state.clearTurnRunning(runtimeStateVector.workingSessionIds[0]!);
-  assertDeepEqual(await handler(context), { workingSessionIds: runtimeStateVector.workingSessionIds.slice(1) }, 'the snapshot observes new host state immediately');
-  assertEqual(client.calls.length, 0, 'status recovery never attaches to the engine or reads its catalog');
+  assertDeepEqual((object(await handler(context))!.workingSessionIds as string[]).sort(), [...runtimeStateVector.workingSessionIds].sort(),
+    'clearing host bookkeeping cannot falsify an active native session');
+  assertEqual(client.sent('engine/listSessions').length, 0, 'inspection does not enumerate the catalog');
+  assertEqual(client.sent('engine/readThread').length, 6, 'both inspections query all three public bindings');
+  const focused = object(await handler({ ...context, args: [{ sessionIds: ['side-task'] }] }))!;
+  assertDeepEqual(focused.workingSessionIds, ['side-task'], 'a session notification invalidates only its own inspection');
+  assertEqual(client.sent('engine/readThread').length, 7, 'a focused recovery does not rescan other native sessions');
+  await assertRejects(() => Promise.resolve(handler({ ...context, args: [{ sessionIds: [42] }] })),
+    'malformed runtime inspection identities are refused');
 });
 
 h.test('concurrent complete catalog readers share one scan and release it after success or failure', async () => {
@@ -1472,21 +1488,310 @@ h.test('followUp sends a prefixed submissionId and returns the bare messageId', 
   assertEqual(sent.mode, 'steer', 'targeted running-turn admission');
   assertEqual(sent.expectedTurnId, 'turn-1', 'steer binds the captured turn');
   assertEqual(sent.queueMessageId, messageId, 'durable queue identity equals the user message identity');
-  // The steer lands in history as its own user message; the leading marker block is what
-  // later tells that row apart from a message that OPENED a turn (the edit rule's
-  // distinction), and every user-facing projection strips it back off.
-  assertDeepEqual(sent.input, [
-    { type: 'text', text: '<!-- klaus-steered-message -->' },
-    { type: 'text', text: 'also check the tests' },
-  ], 'the marker block leads the steered input');
+  assertDeepEqual(sent.input, 'also check the tests', 'presentation never adds model-visible control text');
+  assertDeepEqual((sent.displayMetadata as Record<string, Json>).inputPresentation,
+    { version: 1, kind: 'steer' }, 'the actual admission owns provider-invisible attribution');
   assertEqual(sent.sessionId, 'engine-1', 'addressed by the ENGINE session id');
   assert(!pushed.some(value => (value as Record<string, Json>).state === 'applied'), 'admission does not apply the input');
   client.emit('event', { type: 'rawSessionEvent', params: { sessionId: 'engine-1', event: { submissionId: sent.submissionId, steered: { applied: true } } } });
   await waitFor(() => pushed.some(value => (value as Record<string, Json>).state === 'applied'), 1000, 'delivery completion');
   assertDeepEqual(pushed.filter(value => (value as Record<string, Json>).type === 'follow_up_status'), [
-    { type: 'follow_up_status', sessionId: 'r1', messageId, text: 'also check the tests', state: 'engine_queued' },
-    { type: 'follow_up_status', sessionId: 'r1', messageId, text: 'also check the tests', state: 'applied' },
+    { type: 'follow_up_status', sessionId: 'r1', messageId, text: 'also check the tests', state: 'engine_queued', displayMetadata: { inputPresentation: { version: 1, kind: 'steer' } } },
+    { type: 'follow_up_status', sessionId: 'r1', messageId, text: 'also check the tests', state: 'applied', displayMetadata: { inputPresentation: { version: 1, kind: 'steer' } } },
   ], 'admission and application are separate, correlated renderer events');
+  await service.shutdown();
+});
+
+h.test('submitted identities join early starts, canonical input and terminal inspection before the ACK', async () => {
+  class EarlyLifecycleClient extends FakeClient {
+    override async requestWithTimeout(method: string, params: Json): Promise<unknown> {
+      const reply = await super.requestWithTimeout(method, params);
+      const request = object(params);
+      if (method === 'turn/submit' && request?.mode === 'start-if-idle') {
+        this.emit('event', { type: 'productEvent', method: 'turn/started', params: {
+          sessionId: request.sessionId, submissionId: request.submissionId,
+          detail: { type: 'turn.started', turnId: 'actual-core-turn' },
+        } });
+        this.emit('event', { type: 'productEvent', method: 'item/completed', params: {
+          sessionId: request.sessionId, submissionId: request.submissionId,
+          item: { type: 'user_message', id: 'canonical-user', status: 'completed', text: 'hello' },
+        } });
+        this.emit('event', { type: 'turnCompleted', params: {
+          sessionId: request.sessionId, turnId: request.submissionId, result: { stopReason: 'end_turn' },
+        } });
+      }
+      return reply;
+    }
+  }
+  const client = new EarlyLifecycleClient().reply('session/start', { sessionId: 'identity-live' })
+    .replySubmit('start-if-idle').reply('engine/readThread', {
+      thread: { status: { type: 'idle' } },
+      turns: [{ id: 'actual-core-turn', status: 'completed', startedAt: 1, completedAt: 2 }],
+    });
+  const { service, state } = serviceWith(client, byoRoot());
+  const forwarded: Json[] = [], forwarder = new ChatEventForwarder((_channel, events) => forwarded.push(...events as Json[]));
+  const pump = new SessionEventPump({ state, currentGeneration: () => 1, emit: () => {}, log: () => {}, forwarder });
+  client.on('event', event => pump.receive(event, 1));
+  const id = String(object(await service.newSession())!.id);
+  const metadata = { clientMessageId: 'client:ordinary-input', displayText: 'hello', selectedTextAttachments: [{ text: 'quoted' }] };
+  await service.send(id, { text: 'hello', displayMetadata: metadata });
+  forwarder.flush();
+  const active = forwarded.map(object).find(event => event?.type === 'session_runtime_status' && event.status === 'active');
+  assertEqual(active?.clientMessageId, metadata.clientMessageId, 'an early start carries the exact submitted identity');
+  assertEqual(active?.turnId, 'actual-core-turn', 'the engine UUID remains separate from the facade submission');
+  const user = object(forwarded.map(object).find(event => event?.type === 'user_message')?.message);
+  assertEqual(user?.clientMessageId, metadata.clientMessageId, 'canonical input joins the optimistic row');
+  assertDeepEqual(object(user?.message)?.localRender, { ...metadata, inputPresentation: { version: 1, kind: 'turn' } }, 'provider-invisible display data reaches canonical live input');
+  assertEqual(state.isWorking(id), false, 'a terminal before the ACK is not resurrected');
+  const runtime = await service.runtimeState();
+  assertEqual(runtime.sessions[0]?.turn?.clientMessageId, metadata.clientMessageId, 'terminal inspection retains the identity after settlement');
+  const started = rowAt(client.sentSubmit('start-if-idle'), 0, 'identity start');
+  assert(!JSON.stringify(started.input).includes(metadata.clientMessageId), 'the identity never enters provider input');
+  await service.shutdown();
+});
+
+h.test('submitted identity ownership survives terminal events but expires with its binding', () => {
+  const state = new HostState(), forwarded: Json[] = [];
+  state.rememberSession('identity-session', 'identity-engine', {});
+  const forwarder = new ChatEventForwarder((_channel, events) => forwarded.push(...events as Json[]));
+  const pump = new SessionEventPump({ state, currentGeneration: () => 7, emit: () => {}, log: () => {}, forwarder });
+  state.noteSubmittedMessage('identity-session', 'identity-engine', 'facade-a', 'client:a', { clientMessageId: 'client:a' });
+  state.markTurnRunning('identity-session', 'facade-a');
+  pump.receive({ type: 'turnCompleted', params: { sessionId: 'identity-engine', turnId: 'facade-a', result: { stopReason: 'end_turn' } } }, 7);
+  state.noteSubmittedMessage('identity-session', 'identity-engine', 'facade-b', 'submission:b', { clientMessageId: 'submission:b' });
+  state.markTurnRunning('identity-session', 'facade-b');
+  const start = (submissionId: string, turnId: string) => ({ type: 'productEvent' as const, method: 'turn/started',
+    params: { sessionId: 'identity-engine', submissionId, detail: { turnId } } });
+  pump.receive(start('facade-a', 'core-a'), 7);
+  assertEqual(state.runningSubmissionId('identity-session'), 'facade-b', 'a settled predecessor cannot replace the pending successor');
+  assertEqual(state.turnClientMessageId('identity-session', 'identity-engine', 'core-a'), 'client:a', 'the delayed real UUID still joins its original submission');
+  pump.receive(start('facade-b', 'core-b'), 6);
+  forwarder.flush();
+  assert(!forwarded.map(object).some(event => event?.type === 'session_runtime_status' && event.status === 'active'), 'old generations cannot publish admission');
+  pump.receive(start('facade-b', 'core-b'), 7);
+  forwarder.flush();
+  const active = forwarded.map(object).filter(event => event?.type === 'session_runtime_status' && event.status === 'active');
+  assertDeepEqual(active.map(event => event?.clientMessageId), ['submission:b'], 'only the matching successor is admitted');
+  state.invalidateConnection();
+  state.rememberSession('identity-session', 'identity-engine', {});
+  assertEqual(state.bindSubmittedTurn('identity-session', 'identity-engine', 'facade-b', 'core-b'), undefined, 'reusing an engine ID after reconnect cannot recover an obsolete identity');
+});
+
+h.test('a predecessor ACK cannot overwrite the facade ownership of its successor', async () => {
+  let beforeAcknowledgement: ((request: Record<string, Json>) => void) | undefined;
+  class DelayedAckClient extends FakeClient {
+    override async requestWithTimeout(method: string, params: Json): Promise<unknown> {
+      const reply = await super.requestWithTimeout(method, params);
+      if (method === 'turn/submit' && object(params)?.mode === 'start-if-idle') beforeAcknowledgement?.(object(params)!);
+      return reply;
+    }
+  }
+  const client = new DelayedAckClient().reply('session/start', { sessionId: 'late-ack-engine' }).replySubmit('start-if-idle');
+  const { service, state } = serviceWith(client, byoRoot());
+  const forwarder = new ChatEventForwarder(() => {});
+  const pump = new SessionEventPump({ state, currentGeneration: () => 1, emit: () => {}, log: () => {}, forwarder });
+  const id = String(object(await service.newSession())!.id);
+  beforeAcknowledgement = request => {
+    pump.receive({ type: 'turnCompleted', params: { sessionId: 'late-ack-engine',
+      turnId: request.submissionId!, result: { stopReason: 'end_turn' } } }, 1);
+    state.noteSubmittedMessage(id, 'late-ack-engine', 'successor-facade', 'client:successor', {});
+    pump.receive({ type: 'productEvent', method: 'turn/started', params: {
+      sessionId: 'late-ack-engine', submissionId: 'successor-facade', detail: { turnId: 'successor-core' },
+    } }, 1);
+  };
+  await service.send(id, { text: 'first input', displayMetadata: { clientMessageId: 'client:predecessor' } });
+  assertEqual(state.runningTurnId(id), 'successor-core', 'the successor keeps its actual UUID');
+  assertEqual(state.runningSubmissionId(id), 'successor-facade', 'the predecessor ACK cannot retarget later interrupts or follow-ups');
+  forwarder.close();
+  await service.shutdown();
+});
+
+h.test('runtime inspection recovers a missed start through a known canonical input rather than session pending state', async () => {
+  const client = new FakeClient().reply('engine/readThread', {
+    thread: { status: { type: 'idle' } },
+    turns: [{ id: 'missed-core', status: 'completed', startedAt: 1, completedAt: 2,
+      items: [{ type: 'userMessage', id: 'saved-original-user', content: [] }] }],
+  });
+  const { service, state } = serviceWith(client, byoRoot());
+  await service.client();
+  state.rememberSession('inspected-session', 'inspected-engine', {});
+  state.noteSubmittedMessage('inspected-session', 'inspected-engine', 'original-facade', 'submission:original', { clientMessageId: 'submission:original' });
+  state.submittedMessage('inspected-session', 'inspected-engine', 'saved-original-user', 'original-facade');
+  state.noteSubmittedMessage('inspected-session', 'inspected-engine', 'new-facade', 'client:new', { clientMessageId: 'client:new' });
+  state.markTurnRunning('inspected-session', 'new-facade');
+  const snapshot = (await service.runtimeState()).sessions[0];
+  assertEqual(snapshot?.turn?.clientMessageId, 'submission:original', 'the read names the owner of its actual canonical input');
+  assertEqual(state.submittedTurnSettled('inspected-session', 'inspected-engine', 'missed-core'), true, 'an inspected terminal prevents a late start from resurrecting admission');
+  assertEqual(state.runningSubmissionId('inspected-session'), 'new-facade', 'inspection does not transfer the new admission to the old turn');
+  client.reply('engine/readThread', { thread: { status: { type: 'idle' } },
+    turns: [{ id: 'unknown-core', status: 'completed', startedAt: 3, completedAt: 4, items: [] }] });
+  assertEqual((await service.runtimeState()).sessions[0]?.turn?.clientMessageId, undefined, 'unknown input never borrows the session pending identity');
+  await service.shutdown();
+});
+
+h.test('native runtime input identity survives reconnect and takes precedence over the host ledger', async () => {
+  const client = new FakeClient().reply('engine/readThread', { thread: { status: { type: 'idle' } },
+    turns: [{ id: 'native-owned-turn', status: 'completed', startedAt: 1, completedAt: 2,
+      items: [{ type: 'userMessage', id: 'native-opener-user', content: [{ type: 'text', text: '<!-- klaus-steered-message -->' }, { type: 'text', text: 'same words' }] },
+        { type: 'userMessage', id: 'native-steer-user', content: [{ type: 'text', text: 'same words' }] },
+        { type: 'klausMessage', message: { type: 'system', subtype: 'user_display', text: JSON.stringify({
+          messageUuid: 'native-opener-user', localRender: { clientMessageId: 'client:native-opener',
+            inputPresentation: { version: 1, kind: 'turn' }, steerMessageId: 'caller-supplied-noise' },
+        }) } },
+        { type: 'klausMessage', message: { type: 'system', subtype: 'user_display', text: JSON.stringify({
+          messageUuid: 'native-steer-user', localRender: { clientMessageId: 'client:not-the-opener', steerMessageId: 'native-steer-user' },
+        }) } }] }] });
+  const { service, state } = serviceWith(client, byoRoot());
+  await service.client();
+  state.rememberSession('native-owned-session', 'native-owned-engine', {});
+  assertEqual((await service.runtimeState(['native-owned-session'])).sessions[0]?.turn?.clientMessageId,
+    'client:native-opener', 'native inspection recovers input without notification or ledger state');
+  state.noteSubmittedMessage('native-owned-session', 'native-owned-engine', 'host-facade', 'client:host-cache', {});
+  state.bindSubmittedTurn('native-owned-session', 'native-owned-engine', 'host-facade', 'native-owned-turn');
+  assertEqual((await service.runtimeState(['native-owned-session'])).sessions[0]?.turn?.clientMessageId,
+    'client:native-opener', 'source-owned opener identity wins over a stale host cache');
+  state.rememberSession('native-owned-session', 'native-owned-engine', {});
+  assertEqual((await service.runtimeState(['native-owned-session'])).sessions[0]?.turn?.clientMessageId,
+    'client:native-opener', 'binding replacement does not require re-observing a user UUID');
+  client.reply('engine/readThread', { thread: { status: { type: 'idle' } },
+    turns: [{ id: 'legacy-turn', status: 'completed', startedAt: 1, completedAt: 2, items: [] }] });
+  assertEqual((await service.runtimeState(['native-owned-session'])).sessions[0]?.turn?.clientMessageId,
+    undefined, 'old records do not borrow another turn identity');
+  client.reply('engine/readThread', { thread: { status: { type: 'idle' } }, turns: [{
+    id: 'steer-only-continuation', status: 'completed', startedAt: 3, completedAt: 4, items: [
+      { type: 'userMessage', id: 'first-steer', content: [{ type: 'text', text: 'follow-up' }] },
+      { type: 'klausMessage', message: { type: 'system', subtype: 'user_display', text: JSON.stringify({
+        messageUuid: 'first-steer', localRender: { clientMessageId: 'client:steer-only', inputPresentation: { version: 1, kind: 'steer' } },
+      }) } },
+    ],
+  }] });
+  assertEqual((await service.runtimeState(['native-owned-session'])).sessions[0]?.turn?.clientMessageId,
+    undefined, 'a continuation with no opener cannot be claimed by its first steering input');
+  client.reply('engine/readThread', { thread: { status: { type: 'idle' } }, turns: [{
+    id: 'legacy-steer-only', status: 'completed', startedAt: 3, completedAt: 4, items: [
+      { type: 'userMessage', id: 'first-steer', content: [{ type: 'text', text: '<!-- klaus-steered-message -->' }, { type: 'text', text: 'legacy body' }] },
+      { type: 'klausMessage', message: { type: 'system', subtype: 'user_display', text: JSON.stringify({
+        messageUuid: 'first-steer', localRender: { clientMessageId: 'client:legacy-steer-only' },
+      }) } },
+    ],
+  }] });
+  assertEqual((await service.runtimeState(['native-owned-session'])).sessions[0]?.turn?.clientMessageId,
+    undefined, 'the durable steer marker excludes older follow-ups without dedicated metadata');
+  await service.shutdown();
+});
+
+h.test('actual admissions override caller attribution before raw canonical text is projected', async () => {
+  const literal = '<!-- klaus-steered-message -->';
+  const canonicalContent = [{ type: 'text', text: literal }, { type: 'text', text: 'body' }];
+  class LiteralClient extends FakeClient {
+    override async requestWithTimeout(method: string, params: Json): Promise<unknown> {
+      const reply = await super.requestWithTimeout(method, params), request = object(params);
+      if (method === 'turn/submit') this.emit('event', { type: 'rawSessionEvent', params: {
+        sessionId: request!.sessionId, event: { submissionId: request!.submissionId,
+          subagentEvent: { agentId: request!.sessionId, event: { type: 'user.message', message: {
+            uuid: request!.mode === 'steer' ? request!.queueMessageId : 'ordinary-canonical', content: canonicalContent,
+          } } } },
+      } });
+      return reply;
+    }
+  }
+  const client = new LiteralClient().reply('session/start', { sessionId: 'literal-engine' }).replySubmit('start-if-idle').replySubmit('steer');
+  const { service, state } = serviceWith(client, byoRoot());
+  const forwarded: Json[] = [], forwarder = new ChatEventForwarder((_channel, events) => forwarded.push(...events as Json[]));
+  const pump = new SessionEventPump({ state, currentGeneration: () => 1, emit: () => {}, log: () => {}, forwarder });
+  client.on('event', event => pump.receive(event, 1));
+  const id = String(object(await service.newSession())!.id);
+  await service.send(id, { text: literal, displayMetadata: { clientMessageId: 'client:literal', inputPresentation: { version: 1, kind: 'steer' } } });
+  const steerId = '9be33333-3333-4333-8333-333333333333';
+  await service.followUp(id, { text: literal, displayMetadata: { clientMessageId: steerId, steerMessageId: steerId, inputPresentation: { version: 1, kind: 'turn' } } });
+  forwarder.flush();
+  const users = forwarded.map(object).filter(row => row?.type === 'user_message').map(row => object(row!.message)!);
+  assertEqual(users.length, 2, 'one canonical row per input');
+  for (const [index, kind] of ['turn', 'steer'].entries()) {
+    const body = object(users[index]!.message)!;
+    assertDeepEqual(body.content, canonicalContent, kind + ': literal is intact before enrichment completes');
+    assertEqual(body.steered === true, kind === 'steer', kind + ': actual admission wins');
+    assertDeepEqual(object(body.localRender)?.inputPresentation, { version: 1, kind }, kind + ': durable attribution');
+  }
+  assertEqual(rowAt(client.sentSubmit('start-if-idle'), 0, 'ordinary input').input, literal, 'ordinary literal is not rewritten');
+  assertEqual(rowAt(client.sentSubmit('steer'), 0, 'steer input').input, literal, 'steer literal is not rewritten or prefixed');
+  assertEqual(users[1]!.uuid, steerId, 'the stable canonical UUID survives literal content');
+  await service.shutdown();
+});
+
+h.test('submission identity retention is bounded without evicting the active admission', () => {
+  const state = new HostState();
+  state.rememberSession('bounded-session', 'bounded-engine', {});
+  state.markTurnRunning('bounded-session', 'active-submission');
+  state.noteSubmittedMessage('bounded-session', 'bounded-engine', 'active-submission', 'client:active', {});
+  for (let index = 0; index < 300; index++) {
+    state.noteSubmittedMessage('bounded-session', 'bounded-engine', `old-${index}`, `client:${index}`, {});
+  }
+  assertEqual(state.turnClientMessageId('bounded-session', 'bounded-engine', 'old-0'), undefined, 'oldest inactive identity is reclaimed');
+  assertEqual(state.turnClientMessageId('bounded-session', 'bounded-engine', 'active-submission'), 'client:active', 'the active owner survives trimming');
+  assertEqual(state.turnClientMessageId('bounded-session', 'bounded-engine', 'old-299'), 'client:299', 'the latest completed identity remains recoverable');
+});
+
+h.test('client-supplied steer identities survive canonical input before acknowledgement', async () => {
+  class CanonicalSteerClient extends FakeClient {
+    override async requestWithTimeout(method: string, params: Json): Promise<unknown> {
+      const request = object(params);
+      if (method === 'turn/submit' && request?.mode === 'steer') {
+        this.emit('event', { type: 'productEvent', method: 'item/completed', params: { sessionId: request.sessionId,
+          item: { type: 'user_message', id: request.queueMessageId, status: 'completed', text: 'live follow-up' } } });
+      }
+      return super.requestWithTimeout(method, params);
+    }
+  }
+  const client = new CanonicalSteerClient().replySubmit('steer');
+  const { service, state } = serviceWith(client, byoRoot());
+  await service.client();
+  state.rememberSession('steer-session', 'steer-engine', {}); state.markTurnRunning('steer-session', 'core-a', 'facade-a');
+  const forwarded: Json[] = [], forwarder = new ChatEventForwarder((_channel, events) => forwarded.push(...events as Json[]));
+  const pump = new SessionEventPump({ state, currentGeneration: () => 1, emit: () => {}, log: () => {}, forwarder });
+  client.on('event', event => pump.receive(event, 1));
+  const messageId = '9be22222-2222-4222-8222-222222222222';
+  const metadata = { steerMessageId: messageId, clientMessageId: messageId, expectedTurnId: 'core-a', displayText: 'live follow-up' };
+  const result = object(await service.followUp('steer-session', { text: 'live follow-up', displayMetadata: metadata }));
+  forwarder.flush();
+  assertEqual(result?.messageId, messageId, 'ACK returns the client identity rather than minting a second row');
+  const request = rowAt(client.sentSubmit('steer'), 0, 'stable steer');
+  assertEqual(request.queueMessageId, messageId, 'canonical queue UUID is the client UUID');
+  assertEqual(request.submissionId, `steer-${messageId}`, 'receipt correlation retains its facade prefix');
+  assertEqual(request.expectedTurnId, 'facade-a', 'captured UI turn resolves to its own facade fence');
+  const user = object(forwarded.map(object).find(event => event?.type === 'user_message')?.message);
+  assertEqual(user?.uuid, messageId, 'canonical live frame keeps the same UUID before ACK');
+  assertEqual(user?.clientMessageId, messageId, 'canonical live identity matches the optimistic row');
+  assertDeepEqual(object(user?.message)?.localRender, { ...metadata, inputPresentation: { version: 1, kind: 'steer' } }, 'canonical follow-up retains display metadata');
+  state.markTurnRunning('steer-session', 'core-b', 'facade-b');
+  const refused = object(await service.followUp('steer-session', { text: 'old target', displayMetadata: metadata }));
+  assertEqual(refused?.ok, false, 'a captured predecessor may not steer its successor');
+  assertEqual(client.sentSubmit('steer').length, 1, 'foreign-turn refusal never dispatches');
+  const invalid = object(await service.followUp('steer-session', { text: 'invalid identity', displayMetadata: { steerMessageId: 'client:not-a-uuid' } }));
+  assertEqual(invalid?.ok, false, 'steer queue identity must be a UUID without constraining ordinary client IDs');
+  await service.shutdown();
+});
+
+h.test('uncertain steer admission keeps its client identity and delivery status', async () => {
+  class UncertainSteerClient extends FakeClient {
+    override async requestWithTimeout(method: string, params: Json): Promise<unknown> {
+      if (method === 'turn/submit' && object(params)?.mode === 'steer') {
+        this.calls.push({ method, params });
+        throw Object.assign(new Error('acknowledgement timed out'), { kind: 'timeout' });
+      }
+      return super.requestWithTimeout(method, params);
+    }
+  }
+  const client = new UncertainSteerClient(), { service, state, pushed } = serviceWith(client, byoRoot());
+  await service.client();
+  state.rememberSession('uncertain-session', 'uncertain-engine', {}); state.markTurnRunning('uncertain-session', 'turn-a');
+  const messageId = '9be33333-3333-4333-8333-333333333333';
+  const result = object(await service.followUp('uncertain-session', { text: 'uncertain delivery',
+    displayMetadata: { steerMessageId: messageId, clientMessageId: messageId, expectedTurnId: 'turn-a' } }));
+  assertEqual(result?.unconfirmed, true, 'transport uncertainty is not an explicit refusal');
+  assertEqual(result?.messageId, messageId, 'uncertainty keeps the original optimistic identity');
+  assert(pushed.map(object).some(event => event?.type === 'follow_up_status' && event.messageId === messageId
+    && event.state === 'unconfirmed'), 'delivery state addresses the same row');
   await service.shutdown();
 });
 
@@ -1750,9 +2055,7 @@ h.test('interrupt forwards explicit user origin, and refuses a stale expectedTur
   // An empty expectedTurnId means "stop whatever is running", which must still work.
   const bare = await service.interrupt('r1', '') as Record<string, Json>;
   assertEqual(bare.accepted, true, 'an empty expectedTurnId is not stale');
-  // The settlement is optimistic: the registry clears and the idle frame publishes BEFORE the
-  // engine RPC resolves, so the RPC send only appears once the background leg reaches the
-  // client.
+  // Completion follows the engine's accepted interruption outcome, not dispatch intent.
   await waitFor(() => client.sent('turn/interrupt').length === 1, 1000, 'the background interrupt leg reaches the engine');
 
   const sent = rowAt(client.sent('turn/interrupt'), 0, 'the interrupt request');
@@ -1824,8 +2127,8 @@ h.test('interrupt settles parked approvals so the engine stops blocking', async 
   // waiting forever for an answer the engine no longer wants.
   assertDeepEqual(
     pushed.map((event) => (event as Record<string, Json>).type).sort(),
-    ['elicit_cancelled', 'permission_cancelled', 'session_runtime_status'],
-    'a cancellation event per settled request plus the optimistic idle frame',
+    ['elicit_cancelled', 'permission_cancelled'],
+    'each card settles without inventing a session idle notification',
   );
 });
 
@@ -3999,7 +4302,7 @@ h.test('a composer-owned payload does not re-stamp the original display metadata
   const options = (client.sentSubmit('start-if-idle')[0] as { options?: Record<string, Json> })?.options;
   // `displayOptions(null)` yields null, which the turn start flattens away, so the field is
   // absent rather than explicitly null. Either way the stale envelope must not ride along.
-  assertEqual(options?.displayMetadata, undefined, 'no envelope rides the replacement');
+  assertDeepEqual(options?.displayMetadata, { inputPresentation: { version: 1, kind: 'turn' } }, 'replacement has admission attribution without stale display text');
   assert(!JSON.stringify(options ?? {}).includes('STALE'), 'the pre-edit wording is not re-stamped');
 });
 
@@ -4833,9 +5136,9 @@ h.test('friend delegation persists status and origin metadata on the engine turn
   assertEqual(result.ok, true, 'the existing delivery route admits the reply');
   const metadata = { externalFriendMessage: true, displayText: 'Task declined', sender, replyToRequestId: 'origin', requestCreatedAt: 1234, friendStatus: 'rejected', statusDetail: 'Task declined' };
   const start = rowAt(client.sentSubmit('start-if-idle'), 0, 'friend reply start');
-  assertDeepEqual(object(start.options)?.displayMetadata, metadata, 'engine persistence retains local display fields');
+  assertDeepEqual(object(start.options)?.displayMetadata, { ...metadata, inputPresentation: { version: 1, kind: 'turn' } }, 'engine persistence retains local display fields');
   const frame = pushed.filter(event => (event as Record<string, Json>).type === 'user_message')[0] as Record<string, Json>;
-  assertDeepEqual(object(object(frame.message)?.message)?.localRender, metadata, 'the live row retains the same fields');
+  assertDeepEqual(object(object(frame.message)?.message)?.localRender, { ...metadata, inputPresentation: { version: 1, kind: 'turn' } }, 'the live row retains the same fields');
   client.emit('event', { type: 'turnCompleted', params: { sessionId: 'live', turnId: start.submissionId, result: {} } });
   await service.shutdown();
 });
@@ -4852,7 +5155,7 @@ h.test('hosted messaging pushes the display snapshot with the admitted user fram
   const turn = service.sendAndWait('thread', { text: 'envelope body', displayMetadata: { externalFriendMessage: true, displayText: 'Sender: hello' } });
   await waitFor(() => client.sentSubmit('start-if-idle').length === 1, 1000, 'turn admitted');
   const start = rowAt(client.sentSubmit('start-if-idle'), 0, 'start');
-  assertDeepEqual(object(start.options)?.displayMetadata, { externalFriendMessage: true, displayText: 'Sender: hello' }, 'the engine receives the snapshot for its metadata row');
+  assertDeepEqual(object(start.options)?.displayMetadata, { externalFriendMessage: true, displayText: 'Sender: hello', inputPresentation: { version: 1, kind: 'turn' } }, 'the engine receives the snapshot for its metadata row');
   const id = String(start.submissionId);
   client.emit('event', { type: 'productEvent', method: 'item/completed', params: { sessionId: 'live', submissionId: id, item: { type: 'agent_message', text: 'reply' } } });
   client.emit('event', { type: 'turnCompleted', params: { sessionId: 'live', turnId: id, result: {} } });
@@ -4860,7 +5163,7 @@ h.test('hosted messaging pushes the display snapshot with the admitted user fram
   const frame = pushed.filter(event => (event as Record<string, Json>).type === 'user_message').map(event => event as Record<string, Json>)[0]!;
   const inner = object(object(frame.message)?.message) ?? {};
   assertEqual(inner.content, 'envelope body', 'the model-facing text still rides the frame');
-  assertDeepEqual(inner.localRender, { externalFriendMessage: true, displayText: 'Sender: hello' }, 'the live bubble renders the snapshot, not the envelope');
+  assertDeepEqual(inner.localRender, { externalFriendMessage: true, displayText: 'Sender: hello', inputPresentation: { version: 1, kind: 'turn' } }, 'the live bubble renders the snapshot, not the envelope');
   await service.shutdown();
 });
 
@@ -5713,7 +6016,7 @@ h.test('uncertain client-queue steer retains a durable non-dispatchable copy unt
   assertEqual(obj(await service.clientQueueDeliver('thread', 'queued-one')).code, 'queue_delivery_unknown', 'retry requires an explicit user decision');
   await service.clientQueueResume('thread'); assertEqual(client.sentQueue('steer').length, 1, 'resume never resends unknown input');
   const steer = obj(client.sentQueue('steer')[0]);
-  assertDeepEqual(steer.displayMetadata, displayMetadata, 'queued steer preserves the stored composer snapshot');
+  assertDeepEqual(steer.displayMetadata, { ...displayMetadata, inputPresentation: { version: 1, kind: 'steer' } }, 'queued steer preserves the stored composer snapshot');
   const notice = pushed.find(event => obj(event).type === 'follow_up_status' && obj(event).state === 'unconfirmed');
   assertEqual(obj(notice).messageId, steer.queueMessageId, 'uncertainty uses the durable engine UUID');
   assert(!pushed.some(event => obj(event).type === 'queued_follow_up_dispatched'), 'unknown admission draws a waiting row, not a confirmed sent bubble');

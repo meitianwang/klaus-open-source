@@ -15,6 +15,7 @@ const h = new Harness(), roots: string[] = [];
 const vector = JSON.parse(readFileSync(join(__dirname, '../../contracts/vectors/engine-client-queue-vectors.json'), 'utf8')) as {
   methods: Record<string, string>; identity: { rendererId: string; threadId: string; itemId: string; turnId: string };
   payload: JsonObject; nativeInput: Json[]; imageOnly: JsonObject;
+  literalInput: { content: Json[]; displayMetadata: JsonObject };
   migration: { additionMutation: { id: string; fingerprint: string }; removalMutation: { id: string; fingerprint: string } };
   admission: { defaultMode: 'start-if-idle'; steerMode: 'steer'; separateTurnSubmitCalls: number; separateDeleteCalls: number };
 };
@@ -344,6 +345,19 @@ for (const mode of ['start-if-idle', 'steer'] as const) h.test(`queued ${mode} u
   if (mode === 'steer') assertEqual(request.params.expectedTurnId, turnId, 'steer retains the exact target fence');
   assertDeepEqual(ids(await f.adapter.snapshot(rendererId)), [], 'confirmed admission consumes the durable row');
   assert(!('applied' in admitted), 'application needs its own correlated engine outcome');
+});
+
+h.test('queued steer admission retains an authored leading literal without rewriting native input', async () => {
+  const f = fixture(undefined, undefined, { prepare: async () => vector.literalInput.content });
+  await f.adapter.add(rendererId, itemId, { ...item(itemId), displayMetadata: vector.literalInput.displayMetadata });
+  await f.adapter.claim(rendererId, itemId);
+  const before = f.engine.calls.length;
+  await f.adapter.start(rendererId, itemId, { sessionId: threadId, mode: 'steer', input: vector.literalInput.content,
+    submissionId: 'literal-steer', queueMessageId: itemId, expectedTurnId: turnId, delivery: 'user', displayMetadata: vector.literalInput.displayMetadata }, 1000);
+  const calls = f.engine.calls.slice(before);
+  assertEqual(calls.filter(call => call.method === vector.methods.update).length, 0, 'presentation does not remove a literal or rewrite durable bytes');
+  const request = calls.find(call => call.method === vector.methods.start)!;
+  assertDeepEqual(request.params.displayMetadata, vector.literalInput.displayMetadata, 'metadata travels separately from the authored input');
 });
 
 h.test('a definite busy admission retains the original row without a local fallback', async () => {

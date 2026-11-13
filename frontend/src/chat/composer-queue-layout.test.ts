@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { transpileModule, ScriptTarget } from 'typescript'
+import { createSidePaneComposerFixture } from './test-support/side-pane-composer-fixture'
 
 const INDEX_HTML = readFileSync(fileURLToPath(new URL('../../index.html', import.meta.url)), 'utf8')
 const STYLES_CSS = readFileSync(fileURLToPath(new URL('../../css/styles.css', import.meta.url)), 'utf8')
@@ -205,7 +206,35 @@ describe('composer status layout', () => {
     expect(focused.value).toBe(cancel)
   })
 
-  test('the side composer keeps its own queue island instead of dropping it', () => {
+  test('each side composer owns a queue island whose handlers follow its session through movement', async () => {
+    const f = createSidePaneComposerFixture()
+    try {
+      await f.window.klausSideSurfaceActivate('queue-left', 'left')
+      await f.window.klausSideSurfaceActivate('queue-right', 'right')
+      const left = f.calls.queueIslands.find(island => island.handlers.getSession() === 'queue-left')!
+      const right = f.calls.queueIslands.find(island => island.handlers.getSession() === 'queue-right')!
+      expect(left.element).not.toBe(right.element)
+      expect(left.handlers.options.offerSideChat).toBe(false)
+      expect(right.handlers.options.offerSideChat).toBe(false)
+      expect(left.element.closest<HTMLElement>('[id$="composer-host"]')!.id).toBe('left-side-composer-host')
+      f.calls.queueRenders.length = 0
+      f.vmApi.sidePaneRuntimes.get('left').refreshQueue()
+      f.vmApi.sidePaneRuntimes.get('right').refreshQueue()
+      expect(f.calls.queueRenders).toEqual([
+        { pane: 'left-side-composer-host', id: 'queue-left' },
+        { pane: 'side-composer-host', id: 'queue-right' },
+      ])
+      await f.window.klausSideSurfaceMove('queue-left', 'right')
+      expect(left.handlers.getSession()).toBe('queue-left')
+      expect(left.element.closest<HTMLElement>('[id$="composer-host"]')!.id).toBe('side-composer-host')
+      expect(right.handlers.getSession()).toBe('queue-right')
+      expect(right.element.closest<HTMLElement>('[data-side-pane]')!.hidden).toBe(true)
+      await f.window.klausSideSurfaceActivate('queue-right', 'left')
+      expect(right.element.closest<HTMLElement>('[id$="composer-host"]')!.id).toBe('left-side-composer-host')
+    } finally { await f.destroy() }
+  })
+
+  test('cloning the side composer clears inherited queue contents and strips main workflow controls', () => {
     // A side chat keeps its own queue mount while main workflow controls are removed.
     expect(CHAT_TS).not.toContain('#side-action-dots-host, #side-follow-up-queue')
     // The clone copied the main island's rendered DOM, so it is emptied before the
@@ -217,22 +246,7 @@ describe('composer status layout', () => {
     // chat from a side chat is not a thing the product does.
     expect(CHAT_TS).toContain('() => sideSurfaceSessionId,')
     expect(CHAT_TS).toContain('{ offerSideChat: false }')
-    // Every side-session change repaints, or the reused composer shows the previous
-    // side chat's rows.
-    expect(CHAT_TS).toContain("initSideComposer('right')")
-    expect(CHAT_TS).toContain("initSideComposer('left')")
-    expect(CHAT_TS).toContain('runtime.refreshQueue = renderSideFollowUpQueue')
-    for (const hook of ['window.klausSideSurfaceActivate', 'window.klausSideSurfaceRemove', 'window.klausSideSurfaceClear']) {
-      const start = CHAT_TS.indexOf(hook)
-      const nextHook = CHAT_TS.indexOf('\nwindow.', start + hook.length)
-      expect(start).toBeGreaterThan(0)
-      expect(nextHook).toBeGreaterThan(start)
-      expect(CHAT_TS.slice(start, nextHook)).toContain('runtime.refreshQueue?.()')
-    }
-    const activate = CHAT_TS.slice(CHAT_TS.indexOf('window.klausSideSurfaceActivate'), CHAT_TS.indexOf('window.klausSideSurfaceRemove'))
-    expect(activate).toContain('const runtime = sideRuntime(placement)')
-    expect(activate).toContain('source.refreshQueue?.()')
-    expect(activate).toContain('setSidePaneSession(runtime, sideId)')
+    expect(CHAT_TS).toContain('removeSideWorkflowControls(clone)')
   })
 
   test('the side composer can queue while its turn runs, like the main one', () => {
@@ -245,7 +259,31 @@ describe('composer status layout', () => {
     expect(CHAT_TS).toContain("followUpModeHelper.resolveSubmitAction(followUpQueueMode, invert)")
   })
 
-  test('the side send button stops only with an empty composer, and an empty Enter still stops', () => {
+  test('the side send button and Enter stop only an empty running composer and otherwise queue its content', async () => {
+    const f = createSidePaneComposerFixture()
+    try {
+      await f.window.klausSideSurfaceActivate('button-owner', 'right')
+      f.setRuntime('button-owner', { running: true })
+      expect(f.button('right').classList.contains('running-submit')).toBe(false)
+      f.button('right').click()
+      expect(f.calls.stops).toEqual(['button-owner'])
+      f.input('right').dispatchEvent(new f.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
+      await f.settle()
+      expect(f.calls.stops).toEqual(['button-owner', 'button-owner'])
+      expect(f.calls.queues).toEqual([])
+      f.setText('right', 'Follow-up input')
+      expect(f.button('right').classList.contains('running-submit')).toBe(true)
+      expect(f.button('right').getAttribute('aria-label')).toBe('submit_tooltip_queue')
+      f.button('right').click()
+      await f.settle()
+      expect(f.calls.queues).toEqual(['button-owner'])
+      expect(f.calls.stops).toEqual(['button-owner', 'button-owner'])
+      expect(f.button('right').classList.contains('running-submit')).toBe(false)
+      expect(f.button('right').getAttribute('aria-label')).toBe('submit_tooltip_stop')
+    } finally { await f.destroy() }
+  })
+
+  test('side keyboard and button routing share the follow-up admission boundary', () => {
     // Two regressions this split could introduce, both silent and both destructive:
     // the button never stopping (so a side turn could not be stopped at all), and an
     // empty Enter becoming a follow-up (so pressing Enter to stop would send a stray
@@ -262,9 +300,6 @@ describe('composer status layout', () => {
       CHAT_TS.indexOf('if ((value || sidePendingFiles.length > 0) && options.followUp) {') + 900,
     )
     expect(stopBranch).toContain('requestTurnStop(sid)')
-    // The side button mirrors the main one's face while running with content.
-    expect(CHAT_TS).toContain('const runningSubmit = !!running && !stopping && !empty')
-    expect(CHAT_TS).toContain("sideSend.classList.toggle('running-submit', runningSubmit)")
   })
 })
 

@@ -8,6 +8,39 @@ const submitted = { role: 'user', uuid: 'pending', turnId: 'turn', text: 'A requ
 const live = [{ type: 'live-user', key: 'local-user', turnId: 'turn', msg: submitted }]
 
 describe('submitted history ownership', () => {
+  test('a client identity never claims another opener by turn or repeated text', () => {
+    const pending = { ...submitted, uuid: 'client:new', localRender: { clientMessageId: 'new', displayText: 'New display' } }
+    const saved = { ...submitted, uuid: 'server:old', localRender: undefined }
+    const rows = mergeSubmittedUserHistory([saved], [{ type: 'live-user', key: 'new', turnId: 'turn', msg: pending }], [])
+    expect(rows).toEqual([saved])
+  })
+
+  test('an acknowledged input transfers independently from still-running work', () => {
+    const pending = { ...submitted, uuid: 'client:new', localRender: { clientMessageId: 'new' } }
+    const saved = { ...pending, uuid: 'server:new' }
+    const work = { type: 'live-text', key: 'work', turnId: 'turn' }
+    const result = retainUnownedLiveUnits([
+      { type: 'live-user', key: 'new', turnId: 'turn', msg: pending }, work,
+    ], [saved], {}, false, true, 'turn')
+    expect(result.units).toEqual([work])
+    expect(result.retained).toBe(1)
+  })
+
+  test('an unconfirmed identity survives an advancing read without clock attribution', () => {
+    const unit = { type: 'live-user', key: 'new', msg: { ...submitted, uuid: 'client:new',
+      turnId: undefined, timestamp: 100, localRender: { clientMessageId: 'new' } } }
+    const result = retainUnownedLiveUnits([unit], [{ ...submitted, uuid: 'server:old', timestamp: 101 }],
+      { turn: 102 }, false, true)
+    expect(result.units).toEqual([unit])
+    expect(result.units[0].turnId).toBeUndefined()
+  })
+
+  test('a matching client identity replaces an input with a different server UUID', () => {
+    const pending = { ...submitted, uuid: 'client:new', localRender: { clientMessageId: 'new' } }
+    const saved = { ...pending, uuid: 'server:new' }
+    expect(retainUnownedLiveUnits([{ type: 'live-user', key: 'new', msg: pending }], [saved], {}, false).units).toEqual([])
+  })
+
   for (const row of placementVectors.cases) test(row.name, () => {
     const input = JSON.stringify(row)
     const units = row.live.map(msg => ({ type: 'live-user', key: msg.uuid, turnId: msg.turnId, msg }))
@@ -227,6 +260,27 @@ describe('running turn retention', () => {
 })
 
 describe('flush-lag retention', () => {
+  test('partial history cannot cover a different modern input merely by turn or text', () => {
+    const local = { type: 'live-user', key: 'local-input', turnId: 'turn-a',
+      msg: { role: 'user', uuid: 'client:local', text: 'same words', localRender: { clientMessageId: 'client:local' } } }
+    const saved = [{ role: 'user', uuid: 'server:other', text: 'same words', turnId: 'turn-a',
+      localRender: { clientMessageId: 'client:other' } }]
+    expect(mergeSubmittedUserHistory(saved, [local], [])).toEqual(saved)
+    expect(retainUnownedLiveUnits([local], saved, { 'turn-a': 1000 }, false).units).toEqual([local])
+    const exact = [{ ...saved[0], uuid: 'server:local', localRender: { clientMessageId: 'client:local' } }]
+    expect(retainUnownedLiveUnits([local], exact, {}, false).units).toEqual([])
+  })
+  test('canonical identity merges authored metadata despite a changed server UUID and operational text', () => {
+    const local = { type: 'live-user', key: 'local-input', turnId: 'turn-a',
+      msg: { role: 'user', uuid: 'client:local', text: 'visible input',
+        localRender: { clientMessageId: 'client:local', composerDocument: { original: true }, selectedTextAttachments: [{ text: 'quoted' }] } } }
+    const saved = [{ role: 'user', uuid: 'server:local', text: 'expanded operational input', turnId: 'turn-a',
+      localRender: { clientMessageId: 'client:local' } }]
+    const merged = mergeSubmittedUserHistory(saved, [local], [])
+    expect(merged).toHaveLength(1)
+    expect(merged[0].uuid).toBe('server:local')
+    expect(merged[0].localRender).toMatchObject({ clientMessageId: 'client:local', composerDocument: { original: true } })
+  })
   test('a settled turn whose work has not flushed is not owned by its input row', () => {
     const savedUserRow = { role: 'user', uuid: 'saved-user', turnId: 'turn-lag', text: 'go', timestamp: 1000 }
     const stamped = [{ type: 'live-text', key: 't1', turnId: 'turn-lag', text: 'work' }]

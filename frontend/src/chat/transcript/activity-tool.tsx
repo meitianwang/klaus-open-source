@@ -368,6 +368,7 @@ function AdvisorAdviceCard({ tool, locale }: { tool: ActivityToolData; locale: s
 
 function ToolDetails({ tool, presentation, locale }: { tool: ActivityToolData; presentation: ActivityToolPresentation; locale: string }) {
   if (tool.toolName === 'advisor') return <AdvisorAdviceCard tool={tool} locale={locale} />
+  const completedImage = presentation.kind === 'image' && tool.state === 'done' && !!presentation.imagePaths?.length
   const input = activityInputText(presentation.args)
   const details = <div className={styles.detailsCard}>
     {tool.toolName.startsWith('mcp__') ? <div className={styles.detailSection}><div className={styles.detailHeading}>{tool.toolName}</div></div> : null}
@@ -387,7 +388,9 @@ function ToolDetails({ tool, presentation, locale }: { tool: ActivityToolData; p
     {presentation.kind === 'image' ? <ImageActivityDetails tool={tool} presentation={presentation} locale={locale} /> : null}
     {presentation.semantic?.category === 'web' ? <WebActivitySources tool={tool} locale={locale} /> : null}
     {presentation.semantic?.category === 'schedule' ? <ScheduleActivityDetails tool={tool} locale={locale} /> : null}
-    {presentation.kind === 'image' && tool.state === 'done' && !!presentation.imagePaths?.length ? null : details}
+    {completedImage
+      ? tool.output?.trim() ? <ScrollOutput text={tool.output} label={copyText(locale, 'Image notes', '图片说明')} locale={locale} /> : null
+      : details}
   </>
 }
 
@@ -460,7 +463,7 @@ function OrdinaryToolCard({ tool, result, presentation, open, onToggle, locale, 
 }) {
   const exceptional = tool.state === 'error' || tool.state === 'interrupted' || tool.state === 'awaiting-approval'
   // Ordinary tools keep their real input and result inspectable. A successful
-  // image inspection needs only its thumbnails; failures retain diagnostic details.
+  // image inspection keeps thumbnails and accompanying notes; failures retain diagnostic details.
   // Specialized privacy-preserving and agent-action rows returned above retain their own UI.
   const expandable = true
   const declined = presentation.kind === 'exec' && tool.state === 'error' && tool.approvalReviews?.some(review => review.status === 'denied') === true

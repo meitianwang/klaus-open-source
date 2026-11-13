@@ -7,7 +7,7 @@
 //
 // 断言走对外的两个函数（页面真正调用的那两个），不测内部 helper：词表和规则顺序
 // 也是这条行为的一部分，绕过它们等于只测了一个正则。
-import { beforeAll, describe, expect, test } from 'bun:test'
+import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 
 const BUILTIN_BROWSER = {
   id: 'browser@builtin',
@@ -21,16 +21,22 @@ const BUILTIN_BROWSER = {
 
 let getPluginIconName: (plugin: any) => string
 let localizePluginDescription: (plugin: any) => string
+let previousWindow: PropertyDescriptor | undefined
 
 beforeAll(async () => {
-  // 数据表模块在导入时往 window 上挂表，localize 也经 window 桥读它们。
   const g = globalThis as any
-  g.window = g
-  g.currentLang = 'zh'
-  await import('../settings/market-tables')
+  previousWindow = Object.getOwnPropertyDescriptor(g, 'window')
+  g.window = { currentLang: 'zh' }
+  const { installMarketTables } = await import('../settings/market-tables')
+  installMarketTables(g.window)
   const localize = await import('./localize')
   getPluginIconName = localize.getPluginIconName
   localizePluginDescription = localize.localizePluginDescription
+})
+
+afterAll(() => {
+  if (previousWindow) Object.defineProperty(globalThis, 'window', previousWindow)
+  else delete (globalThis as any).window
 })
 
 describe('plugin market term matching', () => {

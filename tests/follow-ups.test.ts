@@ -68,7 +68,7 @@ h.test('a terminal emitted before the ACK is retained and ordered after admissio
 h.test('a delegated steer carries its envelope on the applied verdict so the live layer can draw it', async () => {
   const f = fixture();
   assertDeepEqual(await f.followUps.submit({ ...vector.delegationIdentity, client: f.client, input: vector.delegationIdentity.text, assertCurrent: () => {} }), vector.reply, 'delegated submission admits like any steer');
-  assertDeepEqual(f.client.calls, [{ method: 'turn/submit', params: { sessionId: 'engine-session', input: vector.delegationIdentity.text, mode: 'steer', submissionId: 'steer-message-one', delivery: 'delegation', expectedTurnId: 'target-turn', queueMessageId: 'message-one' } }], 'the delegation delivery keeps its envelope text and delivery tag');
+  assertDeepEqual(f.client.calls, [{ method: 'turn/submit', params: { sessionId: 'engine-session', input: vector.delegationIdentity.text, mode: 'steer', submissionId: 'steer-message-one', delivery: 'delegation', expectedTurnId: 'target-turn', queueMessageId: 'message-one', displayMetadata: { inputPresentation: { version: 1, kind: 'steer' } } } }], 'the delegation delivery keeps its envelope text and delivery tag');
   assertDeepEqual(f.events, [vector.delegationQueued], 'the queued notice keeps the raw envelope as its text');
   f.client.outcome({ steered: { applied: true } }); await drained(f);
   // The engine appends the envelope to the turn's last tool result AFTER that

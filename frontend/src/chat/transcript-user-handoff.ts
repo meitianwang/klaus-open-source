@@ -1,3 +1,5 @@
+import { clientMessageId, sameUserMessage } from '../../../contracts/message-identity'
+
 interface TranscriptOrderRow {
   uuid?: string
   turnId?: string
@@ -15,6 +17,10 @@ interface UserRow extends TranscriptOrderRow {
   localRender?: unknown
   userRenderSnapshot?: boolean
   [key: string]: any
+}
+
+function displayFields(value: unknown): Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
 }
 
 function messageTime(value: unknown): number | null {
@@ -96,21 +102,25 @@ export function mergeSubmittedUserHistory(history: UserRow[], liveUnits: LiveRow
   const previousDisplay = new Map(previous.filter(row => row.role === 'user' && row.uuid && row.localRender)
     .map(row => [row.uuid, row]))
   const rows = history.map(saved => {
-    const source = saved.role === 'user' && saved.uuid ? previousDisplay.get(saved.uuid) : undefined
-    return !saved.localRender && source?.localRender && source.text === saved.text
-      ? { ...saved, localRender: source.localRender } : saved
+    const source = saved.role === 'user'
+      ? clientMessageId(saved) ? previous.find(row => row.role === 'user' && sameUserMessage(row, saved))
+        : saved.uuid ? previousDisplay.get(saved.uuid) : undefined : undefined
+    return source?.localRender && (clientMessageId(saved) || source.text === saved.text)
+      ? { ...saved, localRender: { ...displayFields(source.localRender), ...displayFields(saved.localRender) } } : saved
   })
   const liveRows = liveTranscriptOrderRows(liveUnits)
   const snapshots = [...previous.filter(row => row.userRenderSnapshot), ...liveRows.flatMap((row, index) =>
     liveUnits[index].type === 'live-user' ? [{ ...row, userRenderSnapshot: true }] : [])]
   const matchedLegacy = new Set<UserRow>()
   for (const source of snapshots) {
-    let index = source.uuid ? rows.findIndex(row => row.role === 'user' && row.uuid === source.uuid) : -1
-    if (index < 0 && source.turnId && !source.steered && !source.questionAnswer) {
-      index = rows.findIndex(row => row.role === 'user' && row.turnId === source.turnId && !row.steered && !row.questionAnswer)
+    const submittedId = clientMessageId(source)
+    let index = rows.findIndex(row => row.role === 'user' && sameUserMessage(row, source))
+    if (index < 0 && !submittedId && source.turnId && !source.steered && !source.questionAnswer) {
+      index = rows.findIndex(row => row.role === 'user' && !clientMessageId(row)
+        && row.turnId === source.turnId && !row.steered && !row.questionAnswer)
     }
     // Older saved rows have no protocol identity; accept only a unique opener match.
-    if (index < 0 && !source.steered && !source.questionAnswer && typeof source.text === 'string'
+    if (index < 0 && !submittedId && !source.steered && !source.questionAnswer && typeof source.text === 'string'
       && snapshots.filter(row => row.text === source.text).length === 1) {
       const legacy = rows.filter(row => row.role === 'user' && !row.uuid && !row.turnId && !row.userRenderSnapshot
         && !row.steered && !row.questionAnswer && row.text === source.text && !matchedLegacy.has(row))
@@ -126,7 +136,7 @@ export function mergeSubmittedUserHistory(history: UserRow[], liveUnits: LiveRow
     // bubble beside the saved projection of the same send. A snapshot that
     // DOES carry a turn id keeps the stricter rules above: a saved history
     // without that turn is a lagging read, and its opener must stay local.
-    if (index < 0 && !source.uuid && !source.turnId && !source.steered && !source.questionAnswer
+    if (index < 0 && !submittedId && !source.uuid && !source.turnId && !source.steered && !source.questionAnswer
       && typeof source.text === 'string' && snapshots.filter(row => row.text === source.text).length === 1) {
       const sameText = rows.filter(row => row.role === 'user' && !row.userRenderSnapshot
         && !row.steered && !row.questionAnswer && row.text === source.text && !matchedLegacy.has(row))
@@ -140,7 +150,7 @@ export function mergeSubmittedUserHistory(history: UserRow[], liveUnits: LiveRow
     // turn start clock is this store's equivalent of that ownership. Attribute
     // the send to the earliest turn that started at or after it and merge into
     // that turn's saved opener, instead of painting a second bubble.
-    if (index < 0 && !source.uuid && !source.turnId && !source.steered && !source.questionAnswer) {
+    if (index < 0 && !submittedId && !source.uuid && !source.turnId && !source.steered && !source.questionAnswer) {
       const sentAt = messageTime(source.timestamp)
       if (sentAt != null && Object.keys(turnStarts).length > 0) {
         const ownerTurn = Object.keys(turnStarts)
@@ -163,7 +173,9 @@ export function mergeSubmittedUserHistory(history: UserRow[], liveUnits: LiveRow
     }
     if (index >= 0) {
       const saved = rows[index]
-      if (!saved.localRender && source.localRender && saved.text === source.text) rows[index] = { ...saved, localRender: source.localRender }
+      if (source.localRender && (submittedId || !saved.localRender && saved.text === source.text)) {
+        rows[index] = { ...saved, localRender: { ...displayFields(source.localRender), ...displayFields(saved.localRender) } }
+      }
       continue
     }
     // Only an optional answer is ever inserted into saved rows here: it can be
@@ -213,6 +225,14 @@ export function retainUnownedLiveUnits<L extends { type: string; turnId?: string
   let retained = 0
   for (const unit of units) {
     if (!RETAINED_LIVE_UNIT_TYPES.has(unit.type)) continue
+    if (unit.type === 'live-user' && clientMessageId(unit.msg)) {
+      const saved = settledHistory.find(row => row.role === 'user' && sameUserMessage(row, unit.msg))
+      // A canonical input can hydrate before its turn's work. Only that exact
+      // input transfers ownership; work remains under the existing turn policy.
+      if (saved) continue
+      out.push(unit); retained++
+      continue
+    }
     const stamped = typeof unit.turnId === 'string' && unit.turnId ? unit.turnId : null
     if (stamped) {
       // A saved row of a still-running turn only proves its input flushed; the
