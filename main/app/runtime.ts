@@ -1541,10 +1541,14 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
     // The managed-policy install points Chrome at this HTTPS update manifest;
     // the CRX beside it is published by scripts/package-chrome-extension.mjs.
     chromePolicyUpdateManifestUrl: process.env.KLAUS_CHROME_EXT_MANIFEST ?? edition.serverUrl + '/ext/update_manifest.xml',
+    buildStamp: app.getVersion(),
     reportDiagnostic: message => log.write('chrome', message),
     beginOperation: id => pip?.service.beginOperation(id),
     observeResult: (id, lease, result) => { if (typeof lease === 'number') pip?.service.browserResult(id, lease, result); },
   });
+  // A refreshed deploy copy lets a running unpacked extension take over the
+  // new build at its next idle moment, without any user action.
+  void browserMcp.chrome.syncDeployedExtension().catch(() => {});
   early.add(() => browserMcp.shutdown());
   registerBrowserHandlers(registry, {
     selectWindow: context => {

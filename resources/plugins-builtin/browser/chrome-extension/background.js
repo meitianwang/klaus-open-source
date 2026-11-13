@@ -2,6 +2,9 @@ const HOST_NAME = 'com.klaus.chromeextension'
 const DEBUGGER_PROTOCOL_VERSION = '1.3'
 const NATIVE_RECONNECT_ALARM = `native-transport-reconnect:${HOST_NAME}`
 const CLIENT_HEARTBEAT_ALARM = 'client-heartbeat-alarm'
+const BUILD_CHECK_ALARM = 'extension-build-check'
+const BUILD_MARKER_FILE = 'klaus-build.json'
+let loadedBuildMarker = null
 const STORAGE_TAB_GROUPS_KEY = 'TAB_GROUPS'
 const BORROWED_TABS_KEY = 'KLAUS_BORROWED_TABS'
 const PENDING_UPDATE_KEY = 'KLAUS_PENDING_EXTENSION_UPDATE'
@@ -63,6 +66,8 @@ async function initialize() {
   connectNative()
   registerRuntimeListeners()
   registerUpdateLifecycle()
+  void captureLoadedBuildMarker()
+  ensureAlarm(BUILD_CHECK_ALARM, 30).catch(() => {})
   registerDebuggerListeners()
   registerDownloadListeners()
   registerActiveTabListeners()
@@ -123,6 +128,11 @@ function registerRuntimeListeners() {
     if (alarm.name === CLIENT_HEARTBEAT_ALARM) {
       heartbeatNativeHost().catch(() => {})
     }
+
+    if (alarm.name === BUILD_CHECK_ALARM) {
+      checkDeployedBuildUpdate().catch(() => {})
+      applyPendingExtensionUpdate().catch(() => {})
+    }
   })
 }
 
@@ -154,6 +164,41 @@ async function applyPendingExtensionUpdate() {
   await chrome.storage.session.remove(PENDING_UPDATE_KEY).catch(() => {})
   chrome.runtime.reload()
   return true
+}
+
+async function readDeployedBuildMarker() {
+  try {
+    const response = await fetch(chrome.runtime.getURL(BUILD_MARKER_FILE), { cache: 'no-store' })
+    if (!response.ok) return null
+    const record = await response.json()
+    return typeof record?.build === 'string' && record.build ? record.build : null
+  } catch { return null }
+}
+
+async function captureLoadedBuildMarker() {
+  loadedBuildMarker = await readDeployedBuildMarker()
+}
+
+// An unpacked install keeps serving the build that was on disk when this
+// worker started. The host refreshes the deployed copy on its own schedule,
+// so poll the marker and take the new build over at the next idle moment.
+async function checkDeployedBuildUpdate() {
+  const onDisk = await readDeployedBuildMarker()
+  if (!onDisk || loadedBuildMarker === null || onDisk === loadedBuildMarker) return
+  if (!isBrowserControlActive()) {
+    chrome.runtime.reload()
+    return
+  }
+  await chrome.storage?.session?.set?.({ [PENDING_UPDATE_KEY]: `build:${onDisk}` }).catch?.(() => {})
+}
+
+async function reloadExtensionOnRequest() {
+  if (!isBrowserControlActive()) {
+    chrome.runtime.reload()
+    return {}
+  }
+  await chrome.storage?.session?.set?.({ [PENDING_UPDATE_KEY]: 'pending' }).catch?.(() => {})
+  return { deferred: true }
 }
 
 function registerDebuggerListeners() {
@@ -274,6 +319,7 @@ function connectNative(options = {}) {
   let port
   try {
     port = chrome.runtime.connectNative(HOST_NAME)
+    checkDeployedBuildUpdate().catch(() => {})
   } catch (error) {
     updateNativeStatus(options.failureState || 'disconnected', { error: normalizeError(error) })
     scheduleReconnect()
@@ -487,6 +533,8 @@ async function dispatch(method, params) {
       return releaseMediaTransfer(params)
     case 'cancelDownload':
       return cancelOwnedDownload(params)
+    case 'reloadExtension':
+      return reloadExtensionOnRequest()
     case 'attach':
       return attach(params)
     case 'detach':
@@ -522,6 +570,8 @@ async function getInfo() {
       extensionId: chrome.runtime.id,
       extensionInstanceId,
       extensionHostName: HOST_NAME,
+      buildMarker: loadedBuildMarker,
+      controlActive: isBrowserControlActive(),
       fileSchemeAccessAllowed: typeof chrome.extension?.isAllowedFileSchemeAccess === 'function' ? await chrome.extension.isAllowedFileSchemeAccess() : null,
       capabilities: ['task_downloads', 'flat_cdp_sessions', 'tab_mentions_v1', 'browser_management'],
     },
@@ -1042,6 +1092,7 @@ async function turnEnded(params) {
     await detachAttachedTabIdsBestEffort([...session.tabIds])
     session.currentTurnId = null
     await stopSession(session)
+    checkDeployedBuildUpdate().catch(() => {})
   }
   return {}
 }

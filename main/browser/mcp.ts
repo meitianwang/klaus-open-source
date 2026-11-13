@@ -14,6 +14,8 @@ export interface BrowserMcpOptions {
   chromeDiscoveryDirectory?: string;
   /** HTTPS update manifest backing the managed-policy extension install. */
   chromePolicyUpdateManifestUrl?: string;
+  /** Build id stamped into the deployed extension copy for stale detection. */
+  buildStamp?: string;
   reportDiagnostic?: (message: string) => void;
   beginOperation?: (sessionId: string) => unknown;
   observeResult?: (sessionId: string, lease: unknown, result: Json) => void;
@@ -43,7 +45,7 @@ export class BrowserMcpServer {
       onTabsChanged: () => manager.publishTabInventoryChange(),
       artifactDirectory: join(manager.configRoot, 'artifacts'),
       authorize: (sessionId, url, resource, signal) => manager.authorize(sessionId, url, resource, signal),
-      setup: options.chromeExtensionRoot ? { configRoot: manager.configRoot, extensionRoot: options.chromeExtensionRoot, deployRoot: join(manager.configRoot, 'chrome-extension'), policyUpdateManifestUrl: options.chromePolicyUpdateManifestUrl, showExtensionFolder: path => shell.showItemInFolder(path) } : undefined,
+      setup: options.chromeExtensionRoot ? { configRoot: manager.configRoot, extensionRoot: options.chromeExtensionRoot, deployRoot: join(manager.configRoot, 'chrome-extension'), policyUpdateManifestUrl: options.chromePolicyUpdateManifestUrl, buildStamp: options.buildStamp, showExtensionFolder: path => shell.showItemInFolder(path) } : undefined,
     });
     this.operations = new BrowserOperations(manager, this.chrome);
   }

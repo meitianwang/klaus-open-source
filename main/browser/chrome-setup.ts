@@ -7,6 +7,9 @@ import { promisify } from 'node:util';
 import { BrowserError, message, object, type BrowserObject } from './types';
 import { discoverChrome } from './chrome-relay';
 
+/** Written into the deployed extension copy so stale installs are detectable. */
+const BUILD_MARKER_FILE = 'klaus-build.json';
+
 const exec = promisify(execFile);
 const MARKER = 'Klaus Electron Chrome native host v1';
 const MAC_SUPPORT = ['Google/Chrome', 'Google/Chrome Beta', 'Google/Chrome Dev', 'Google/Chrome Canary', 'Google/Chrome for Testing', 'Google/ChromeForTesting', 'Chromium', 'Microsoft Edge', 'Microsoft Edge Beta', 'Microsoft Edge Dev', 'BraveSoftware/Brave-Browser', 'com.operasoftware.Opera', 'Vivaldi'];
@@ -39,6 +42,8 @@ export interface ChromeSetupOptions {
   showExtensionFolder?: (path: string) => void;
   /** Where the bundled extension is copied for manual "load unpacked" installs. */
   deployRoot?: string;
+  /** Build id stamped into the deployed copy so stale installs are detectable. */
+  buildStamp?: string;
   /** HTTPS update manifest the managed-policy install points Chrome at. */
   policyUpdateManifestUrl?: string;
   /** Test seam: the Chrome policy plist path without the .plist suffix. */
@@ -449,7 +454,24 @@ export class ChromeSetup {
     await rm(target, { recursive: true, force: true });
     await mkdir(target, { recursive: true });
     await cp(this.options.extensionRoot, target, { recursive: true });
+    await writeFile(join(target, BUILD_MARKER_FILE), `${JSON.stringify({ build: this.options.buildStamp ?? 'unknown' })}\n`, { mode: 0o644 });
     return { ok: true, extensionPath: target, extensionId: identity.id, extensionManagerUrl: `chrome://extensions/?id=${identity.id}` };
+  }
+
+  /** Build stamp of the extension copy Chrome currently loads unpacked. */
+  async deployedBuildMarker(): Promise<string | null> {
+    try {
+      const raw = JSON.parse(await readFile(join(this.deployDirectory(), BUILD_MARKER_FILE), 'utf8')) as { build?: unknown };
+      return typeof raw.build === 'string' && raw.build ? raw.build : null;
+    } catch { return null; }
+  }
+
+  /** Re-deploy when the stamped build differs from this app's build. */
+  async syncIfStale(): Promise<boolean> {
+    if (!this.options.buildStamp) return false;
+    if ((await this.deployedBuildMarker()) === this.options.buildStamp) return false;
+    await this.deploy();
+    return true;
   }
 
   private async open(url: string): Promise<void> {

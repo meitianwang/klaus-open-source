@@ -67,6 +67,12 @@ export class ChromeBrowserService {
     return discoverChrome(this.options.discoveryDirectory);
   }
 
+  /** Refresh the unpacked extension copy when this app's build moved on. */
+  async syncDeployedExtension(): Promise<boolean> {
+    if (!this.options.setup) return false;
+    return new ChromeSetup({ ...this.options.setup, enabled: () => this.isEnabled(), discoveryDirectory: this.options.discoveryDirectory }).syncIfStale();
+  }
+
   async list(): Promise<BrowserObject[]> {
     return (await this.discover()).browsers.map(instance => ({ id: instance.id, browserId: instance.id, name: chromeBrowserName(instance), type: 'chrome', available: Array.isArray(object(instance.info.metadata).capabilities) && ['task_downloads', 'flat_cdp_sessions'].every(feature => (object(instance.info.metadata).capabilities as Json[]).includes(feature)), version: instance.info.version ?? '', executable: instance.executable }));
   }
@@ -120,6 +126,17 @@ export class ChromeBrowserService {
         if (`chrome:${object(current.metadata).extensionInstanceId}` !== browserId) throw new BrowserError('stale_browser', 'The browser profile changed during connection. Select the tab again.');
         const currentCapabilities = object(current.metadata).capabilities;
         if (!Array.isArray(currentCapabilities) || !['task_downloads', 'flat_cdp_sessions'].every(feature => currentCapabilities.includes(feature))) throw new BrowserError('unavailable', 'The connected extension changed. Reload the bundled Klaus Chrome extension.');
+        if (this.options.setup) {
+          const setup = new ChromeSetup({ ...this.options.setup, enabled: () => this.isEnabled(), discoveryDirectory: this.options.discoveryDirectory });
+          await setup.syncIfStale().catch(() => {});
+          const deployed = await setup.deployedBuildMarker().catch(() => null);
+          const metadata = object(current.metadata);
+          // An unpacked install keeps serving the build that was on disk when
+          // its worker started; ask for the reload only while no task runs.
+          if (deployed && typeof metadata.buildMarker === 'string' && metadata.buildMarker !== deployed && metadata.controlActive !== true) {
+            void relay.request('reloadExtension', { session_id: 'klaus-discovery', turn_id: 'discovery' }, 1500).catch(() => {});
+          }
+        }
         instance.info = current;
       } catch (error) { relay.close(); throw error; }
       if (!this.isEnabled()) { relay.close(); this.requireEnabled(); }

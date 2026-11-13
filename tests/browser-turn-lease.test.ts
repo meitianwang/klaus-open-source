@@ -1,4 +1,4 @@
-import { chmodSync, mkdtempSync, rmSync } from 'node:fs';
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createServer } from 'node:net';
@@ -12,7 +12,7 @@ const h = new Harness();
 interface RelayLog { method: string; params: BrowserObject }
 
 /** A unix-socket stand-in for the native host plus extension relay peer. */
-async function fakeRelay(log: RelayLog[]): Promise<{ directory: string; close: () => void }> {
+async function fakeRelay(log: RelayLog[], metadata: BrowserObject = {}): Promise<{ directory: string; close: () => void }> {
   const directory = mkdtempSync(join(tmpdir(), 'klaus-turn-lease-'));
   const endpoint = join(directory, 'klaus-lease.sock');
   const server = createServer(socket => {
@@ -22,7 +22,7 @@ async function fakeRelay(log: RelayLog[]): Promise<{ directory: string; close: (
         if (typeof message.id !== 'number' || typeof message.method !== 'string') continue;
         const params = (message.params ?? {}) as BrowserObject;
         log.push({ method: message.method, params });
-        socket.write(chromeFrame({ jsonrpc: '2.0', id: message.id, result: reply(message.method, params) }));
+        socket.write(chromeFrame({ jsonrpc: '2.0', id: message.id, result: reply(message.method, params, metadata) }));
       }
     });
   });
@@ -31,10 +31,10 @@ async function fakeRelay(log: RelayLog[]): Promise<{ directory: string; close: (
   return { directory, close: () => { server.close(); rmSync(directory, { recursive: true, force: true }); } };
 }
 
-function reply(method: string, params: BrowserObject): BrowserObject {
+function reply(method: string, params: BrowserObject, metadata: BrowserObject = {}): BrowserObject {
   const tab = { id: 7, url: 'https://example.com/', title: 'Example', active: true, width: 800, height: 600, zoomFactor: 1 };
   switch (method) {
-    case 'getInfo': return { metadata: { extensionInstanceId: 'lease-inst', capabilities: ['task_downloads', 'flat_cdp_sessions'] }, name: 'Chrome', version: '120' };
+    case 'getInfo': return { metadata: { extensionInstanceId: 'lease-inst', capabilities: ['task_downloads', 'flat_cdp_sessions'], ...metadata }, name: 'Chrome', version: '120' };
     case 'host/browser': return { executable: 'Google Chrome', pid: 1 };
     case 'getTabs': case 'getUserTabs': return [tab] as unknown as BrowserObject;
     case 'getUserHistory': return [] as unknown as BrowserObject;
@@ -85,6 +85,63 @@ void h.test('one debugger attach per turn lease, released at turn end', async ()
   } finally {
     await service.shutdown();
     relay.close();
+  }
+});
+
+void h.test('a stale unpacked extension is nudged to reload while idle', async () => {
+  const log: RelayLog[] = [];
+  const relay = await fakeRelay(log, { buildMarker: 'old-build', controlActive: false });
+  const cfg = mkdtempSync(join(tmpdir(), 'klaus-nudge-cfg-'));
+  const ext = mkdtempSync(join(tmpdir(), 'klaus-nudge-ext-'));
+  const deploy = mkdtempSync(join(tmpdir(), 'klaus-nudge-deploy-'));
+  writeFileSync(join(ext, 'extension-id.json'), JSON.stringify({ extensionId: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', extensionHostName: 'com.klaus.test' }));
+  writeFileSync(join(deploy, 'klaus-build.json'), JSON.stringify({ build: 'new-build' }));
+  const service = new ChromeBrowserService({ enabled: () => true, discoveryDirectory: relay.directory, setup: { configRoot: cfg, extensionRoot: ext, deployRoot: deploy, buildStamp: 'new-build' } });
+  try {
+    await service.execute('S1', 'chrome:lease-inst', 'console', {}, {});
+    assert(log.some(row => row.method === 'reloadExtension'), 'host asks the idle stale extension to reload');
+  } finally {
+    await service.shutdown();
+    relay.close();
+    rmSync(cfg, { recursive: true, force: true }); rmSync(ext, { recursive: true, force: true }); rmSync(deploy, { recursive: true, force: true });
+  }
+});
+
+void h.test('a current or busy extension is not nudged', async () => {
+  for (const metadata of [{ buildMarker: 'new-build', controlActive: false }, { buildMarker: 'old-build', controlActive: true }] as BrowserObject[]) {
+    const log: RelayLog[] = [];
+    const relay = await fakeRelay(log, metadata);
+    const deploy = mkdtempSync(join(tmpdir(), 'klaus-nudge-deploy-'));
+    writeFileSync(join(deploy, 'klaus-build.json'), JSON.stringify({ build: 'new-build' }));
+    const service = new ChromeBrowserService({ enabled: () => true, discoveryDirectory: relay.directory, setup: { configRoot: deploy, extensionRoot: deploy, deployRoot: deploy, buildStamp: 'new-build' } });
+    try {
+      await service.execute('S1', 'chrome:lease-inst', 'console', {}, {});
+      assert(!log.some(row => row.method === 'reloadExtension'), `no reload nudge for ${JSON.stringify(metadata)}`);
+    } finally {
+      await service.shutdown();
+      relay.close();
+      rmSync(deploy, { recursive: true, force: true });
+    }
+  }
+});
+
+void h.test('a stale deploy copy refreshes from the bundled resources', async () => {
+  const cfg = mkdtempSync(join(tmpdir(), 'klaus-sync-cfg-'));
+  const ext = mkdtempSync(join(tmpdir(), 'klaus-sync-ext-'));
+  const deploy = mkdtempSync(join(tmpdir(), 'klaus-sync-deploy-'));
+  writeFileSync(join(ext, 'extension-id.json'), JSON.stringify({ extensionId: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', extensionHostName: 'com.klaus.test' }));
+  writeFileSync(join(ext, 'sentinel.txt'), 'sentinel');
+  writeFileSync(join(deploy, 'klaus-build.json'), JSON.stringify({ build: 'old-build' }));
+  const service = new ChromeBrowserService({ enabled: () => true, discoveryDirectory: cfg, setup: { configRoot: cfg, extensionRoot: ext, deployRoot: deploy, buildStamp: 'new-build' } });
+  try {
+    assertEqual(await service.syncDeployedExtension(), true, 'stale deploy copy re-deploys');
+    const marker = JSON.parse(readFileSync(join(deploy, 'klaus-build.json'), 'utf8')) as { build?: string };
+    assertEqual(marker.build ?? '', 'new-build', 'marker carries the current build stamp');
+    assertEqual(readFileSync(join(deploy, 'sentinel.txt'), 'utf8'), 'sentinel', 'bundled files landed in the deploy copy');
+    assertEqual(await service.syncDeployedExtension(), false, 'a fresh deploy copy is left alone');
+  } finally {
+    await service.shutdown();
+    rmSync(cfg, { recursive: true, force: true }); rmSync(ext, { recursive: true, force: true }); rmSync(deploy, { recursive: true, force: true });
   }
 });
 
