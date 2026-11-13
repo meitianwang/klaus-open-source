@@ -154,7 +154,7 @@ test('shared quota pools render one header per group with a row per window', () 
   const html = renderer.renderAntigravityUsageWindows({ windows: [
     { id: 'pool_weekly', groupLabel: 'Gemini Models', windowKind: 'weekly', usedPercent: 92, resetsAt: now + ((4 * 24 + 23) * 60 + 30) * 60000, resetNotice: true },
     { id: 'pool_duration_5h', groupLabel: 'Gemini Models', windowKind: 'duration', windowToken: '5h', usedPercent: 0, resetsAt: now + 5 * 3600000, resetNotice: true },
-    { id: 'pool_weekly', groupLabel: 'Claude and GPT models', windowKind: 'weekly', usedPercent: 80, resetsAt: now + (5 * 24 + 4) * 60 * 60000, resetNotice: true },
+    { id: 'pool_weekly', groupLabel: 'Claude and GPT models', windowKind: 'weekly', usedPercent: 80, resetsAt: now + ((5 * 24 + 4) * 60 + 30) * 60000, resetNotice: true },
     { id: 'pool_duration_5h', groupLabel: 'Claude and GPT models', windowKind: 'duration', windowToken: '5h', usedPercent: 40, resetsAt: now + 3 * 3600000 },
   ] })
   expect(html.match(/usage-group-head/g)).toHaveLength(2)
