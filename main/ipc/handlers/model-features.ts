@@ -8,6 +8,7 @@ import { object, string, type JsonObject, type EngineRequest } from '../../servi
 
 export const MODEL_FEATURE_CHANNELS = [
   'settings:advisor:get', 'settings:advisor:set',
+  'settings:orchestrator:get', 'settings:orchestrator:set',
   'settings:feature-models:get', 'settings:feature-models:set', 'settings:image-gen:get',
   'settings:image-gen:set', 'settings:video-gen:get', 'settings:video-gen:set',
   'settings:audio-gen:get', 'settings:audio-gen:set',
@@ -107,6 +108,12 @@ export function registerModelFeatureHandlers(registry: ChannelRegistry, deps: {
   registry.register('settings:advisor:set', async ctx => {
     const result = features.setAdvisor(object(ctx.args[0]));
     if (object(result).ok === true) await deps.onSettingsChanged('advisor');
+    return result;
+  }, 'settings');
+  registry.register('settings:orchestrator:get', () => features.getOrchestrator(), 'settings');
+  registry.register('settings:orchestrator:set', async ctx => {
+    const result = features.setOrchestrator(object(ctx.args[0]));
+    if (object(result).ok === true) await deps.onSettingsChanged('orchestrator');
     return result;
   }, 'settings');
   registry.register('settings:feature-models:get', () => features.getFeatureModels(), 'settings');

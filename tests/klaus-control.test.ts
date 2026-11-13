@@ -276,7 +276,8 @@ void (async () => {
       // queued or running plugin download can be cancelled cleanly before commit.
       // Retiring the QoderWork subscription removes its six `qoderwork-auth:*`
       // channels and the `qoderworkAuth` control surface.
-      assert.equal(channels.size, 756);
+      // 760 adds session orchestration mode (get/set) and global orchestrator execution target settings (get/set).
+      assert.equal(channels.size, 760);
       const companionChannels = [...channels].filter(channel => channel.startsWith('desktop-pet:'));
       assert.equal(companionChannels.length, 58);
       for (const channel of companionChannels) {
@@ -323,7 +324,7 @@ void (async () => {
       // Music adds independent selection and native model preference surfaces (68).
       // Each new account source owns its explicit authentication surface.
       // Auxiliary task model picks add `featureModels` (72) beside the advisor.
-      assert.equal(new Set(CONTROL_SURFACES.map(surface => surface.key)).size, 71);
+      assert.equal(new Set(CONTROL_SURFACES.map(surface => surface.key)).size, 72);
     });
     await h.test('model control cannot grant itself preview access or acquire the owner activity projection', async () => {
       const preview = JSON.parse(await readFile(join(root, 'contracts/vectors/artifact-preview-access-vectors.json'), 'utf8')).controlAccess;

@@ -3,7 +3,7 @@ import { useT } from '../../i18n'
 import { renderMarkdownHtml } from '../markdown'
 import { writeClipboardText } from '../../clipboard'
 import { icon } from '../../icons/registry'
-import type { PlanReviewController } from './plan-controller'
+import type { PlanImplementationMode, PlanReviewController } from './plan-controller'
 import { createPlanDocumentEditor, type PlanDocumentEditor as DocumentEditor } from './plan-document-editor'
 import './planning.css'
 
@@ -91,10 +91,21 @@ export function ProposedPlanReview({ controller, active = true }: { controller: 
   const t = useT()
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot, controller.getSnapshot)
   const choice = useRef<HTMLButtonElement>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
   const voice = useRef<HTMLButtonElement>(null)
   const [voiceUnavailable, setVoiceUnavailable] = useState(false)
+  const [modeMenuOpen, setModeMenuOpen] = useState(false)
   const pending = state.plan.status === 'proposed' && state.reviewPending
   const working = state.phase !== 'ready'
+  const goalStatus = controller.goalState()
+  useEffect(() => {
+    if (!modeMenuOpen) return
+    const onDocClick = (event: MouseEvent) => {
+      if (!menuRef.current?.contains(event.target as Node)) setModeMenuOpen(false)
+    }
+    document.addEventListener('click', onDocClick)
+    return () => document.removeEventListener('click', onDocClick)
+  }, [modeMenuOpen])
   useEffect(() => {
     if (!pending) return
     let cancelled = false
@@ -117,23 +128,76 @@ export function ProposedPlanReview({ controller, active = true }: { controller: 
       const target = event.target as HTMLElement | null
       if (target?.closest('input,textarea,[contenteditable="true"]') && !(event.key === 'Escape' && target.closest('#input-area'))) return
       if (event.key === 'Escape') {
+        if (modeMenuOpen) {
+          event.preventDefault()
+          event.stopImmediatePropagation()
+          setModeMenuOpen(false)
+          return
+        }
         event.preventDefault()
         event.stopImmediatePropagation()
         void controller.cancel()
       } else if (event.key === 'Enter' && (event.metaKey || event.ctrlKey) && !state.feedbackOpen) {
         event.preventDefault()
-        void controller.accept()
+        void controller.accept(state.implementationMode)
       }
     }
     document.addEventListener('keydown', onKey, true)
     return () => document.removeEventListener('keydown', onKey, true)
-  }, [active, controller, pending, working, state.feedbackOpen])
+  }, [active, controller, pending, working, state.feedbackOpen, state.implementationMode, modeMenuOpen])
   if (!pending) return null
+  const primaryLabelKey = state.phase === 'accepting'
+    ? 'planning_starting'
+    : state.implementationMode === 'orchestrate'
+      ? 'planning_implement_orchestrate'
+      : state.implementationMode === 'ultra'
+        ? 'planning_implement_ultra'
+        : state.implementationMode === 'goal'
+          ? 'planning_implement_goal'
+          : 'planning_implement'
+  const modeOptions: Array<{ mode: PlanImplementationMode; titleKey: string; descKey: string; disabled?: boolean }> = [
+    { mode: 'standard', titleKey: 'planning_implement', descKey: 'planning_implement_standard_desc' },
+    ...(goalStatus.eligible ? [{
+      mode: 'goal' as const,
+      titleKey: 'planning_implement_goal',
+      descKey: goalStatus.locked ? 'planning_implement_goal_locked' : 'planning_implement_goal_desc',
+      disabled: goalStatus.locked,
+    }] : []),
+    { mode: 'orchestrate', titleKey: 'planning_implement_orchestrate', descKey: 'planning_implement_orchestrate_desc' },
+    { mode: 'ultra', titleKey: 'planning_implement_ultra', descKey: 'planning_implement_ultra_desc' },
+  ]
   return <section className="proposed-plan-review" aria-label={t('planning_review_question')} data-plan-id={state.plan.id} data-plan-revision={state.plan.revision} aria-busy={working}>
     <header><strong>{t('planning_review_question')}</strong><button type="button" disabled={working} aria-label={t('planning_cancel')} onClick={() => { void controller.cancel() }}><ActionIcon name="close" /></button></header>
-    <button ref={choice} type="button" className="proposed-plan-implement" disabled={working} aria-keyshortcuts="Meta+Enter Control+Enter" onClick={() => { void controller.accept() }}>
-      <span className="proposed-plan-choice" aria-hidden="true" /><span>{t(state.phase === 'accepting' ? 'planning_starting' : 'planning_implement')}</span><span className="proposed-plan-choice-arrow" aria-hidden="true">→</span>
-    </button>
+    <div className="proposed-plan-implement-group" ref={menuRef}>
+      <div className="proposed-plan-implement-split">
+        <button ref={choice} type="button" className="proposed-plan-implement" disabled={working} aria-keyshortcuts="Meta+Enter Control+Enter" onClick={() => { setModeMenuOpen(false); void controller.accept(state.implementationMode) }}>
+          <span className="proposed-plan-choice" aria-hidden="true" /><span>{t(primaryLabelKey)}</span><span className="proposed-plan-choice-arrow" aria-hidden="true">→</span>
+        </button>
+        <button type="button" className="proposed-plan-implement-more" disabled={working} aria-label={t('planning_implement_more')} aria-expanded={modeMenuOpen} data-plan-implement-more onClick={event => { event.stopPropagation(); setModeMenuOpen(open => !open) }}>
+          <ActionIcon name="chevron-down" />
+        </button>
+      </div>
+      {modeMenuOpen ? (
+        <div className="proposed-plan-implement-menu" role="menu" data-plan-implement-menu>
+          {modeOptions.map(option => (
+            <button key={option.mode} type="button" role="menuitemradio" aria-checked={state.implementationMode === option.mode}
+              disabled={working || option.disabled} data-plan-implement-option={option.mode}
+              className={`proposed-plan-implement-option${state.implementationMode === option.mode ? ' is-selected' : ''}`}
+              onClick={() => {
+                setModeMenuOpen(false)
+                controller.setImplementationMode(option.mode)
+                void controller.accept(option.mode)
+              }}>
+              <span className="proposed-plan-implement-option-copy">
+                <span className="proposed-plan-implement-option-title">{t(option.titleKey)}</span>
+                <span className="proposed-plan-implement-option-desc">{t(option.descKey)}</span>
+              </span>
+              {state.implementationMode === option.mode ? <span className="proposed-plan-implement-option-check" aria-hidden="true">✓</span> : null}
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </div>
     <form onSubmit={event => { event.preventDefault(); void controller.feedback(state.feedbackDraft) }}>
       <span className="proposed-plan-feedback-icon"><ActionIcon name="edit" /></span>
       <textarea aria-label={t('planning_other')} placeholder={t('planning_feedback_placeholder')} rows={state.feedbackOpen ? 3 : 1} value={state.feedbackDraft} disabled={working}

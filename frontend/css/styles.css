@@ -3067,12 +3067,16 @@ mark.spec-annotated {
 .goal-mode-badge:hover .goal-badge-icon { display: none; }
 .goal-mode-badge:hover .goal-badge-close { display: flex; }
 
-#plan-mode-badge {
+#plan-mode-badge,
+#orchestrate-mode-badge,
+#ultra-mode-badge {
   background: transparent;
   color: var(--fg-tertiary);
   font-weight: var(--weight-normal);
 }
-#plan-mode-badge:hover { background: var(--bg-hover); color: var(--fg-secondary); }
+#plan-mode-badge:hover,
+#orchestrate-mode-badge:hover,
+#ultra-mode-badge:hover { background: var(--bg-hover); color: var(--fg-secondary); }
 
 /* ---- 任务面板的 spec 绑定条：执行中的任务对照哪份已批准 spec ---- */
 .task-spec-binding {

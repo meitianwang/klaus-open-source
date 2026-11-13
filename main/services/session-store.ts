@@ -134,6 +134,7 @@ function ensureTables(db: DatabaseSync, configRoot: string): void {
   db.exec('CREATE TABLE IF NOT EXISTS session_chat_modes (session_id TEXT PRIMARY KEY, mode TEXT NOT NULL, updated_at INTEGER NOT NULL)');
   db.exec('CREATE TABLE IF NOT EXISTS session_thinking_levels (session_id TEXT PRIMARY KEY, level TEXT NOT NULL, updated_at INTEGER NOT NULL)');
   db.exec('CREATE TABLE IF NOT EXISTS session_ultra_modes (session_id TEXT PRIMARY KEY, enabled INTEGER NOT NULL, updated_at INTEGER NOT NULL)');
+  db.exec('CREATE TABLE IF NOT EXISTS session_orchestration_modes (session_id TEXT PRIMARY KEY, enabled INTEGER NOT NULL, updated_at INTEGER NOT NULL)');
   db.exec('CREATE TABLE IF NOT EXISTS session_fast_modes (session_id TEXT PRIMARY KEY, enabled INTEGER NOT NULL, updated_at INTEGER NOT NULL)');
   db.exec('CREATE TABLE IF NOT EXISTS session_source_fast_modes (session_id TEXT NOT NULL, source TEXT NOT NULL, enabled INTEGER NOT NULL, updated_at INTEGER NOT NULL, PRIMARY KEY (session_id, source))');
   db.exec('CREATE TABLE IF NOT EXISTS session_permission_modes (session_id TEXT PRIMARY KEY, mode TEXT NOT NULL, updated_at INTEGER NOT NULL)');
@@ -386,6 +387,7 @@ export function inheritSessionComposerPreferences(parentId: string, sessionId: s
     const model = preferenceIn(db, parentId, defaultModelPreference(db));
     const thinking = thinkingLevelIn(db, parentId);
     const ultra = ultraModeIn(db, parentId);
+    const orchestration = orchestrationModeIn(db, parentId);
     const fast = fastModeIn(db, parentId, model.source);
     const now = Date.now();
     db.prepare('INSERT INTO session_main_models (session_id, mode, source, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(session_id) DO UPDATE SET mode = excluded.mode, source = excluded.source, updated_at = excluded.updated_at')
@@ -394,6 +396,8 @@ export function inheritSessionComposerPreferences(parentId: string, sessionId: s
       .run(sessionId, thinking, now);
     db.prepare('INSERT INTO session_ultra_modes (session_id, enabled, updated_at) VALUES (?, ?, ?) ON CONFLICT(session_id) DO UPDATE SET enabled = excluded.enabled, updated_at = excluded.updated_at')
       .run(sessionId, ultra ? 1 : 0, now);
+    db.prepare('INSERT INTO session_orchestration_modes (session_id, enabled, updated_at) VALUES (?, ?, ?) ON CONFLICT(session_id) DO UPDATE SET enabled = excluded.enabled, updated_at = excluded.updated_at')
+      .run(sessionId, orchestration ? 1 : 0, now);
     if (isRequestFastSource(model.source)) writeFastMode(db, sessionId, model.source, fast);
     db.prepare('INSERT INTO session_runtime_policies (session_id, policy_json, updated_at) SELECT ?, policy_json, ? FROM session_runtime_policies WHERE session_id = ? ON CONFLICT(session_id) DO UPDATE SET policy_json=excluded.policy_json, updated_at=excluded.updated_at').run(sessionId, now, parentId);
   });
@@ -682,6 +686,13 @@ export function applySessionUltraSelection(
     if (sessionId) {
       db.prepare('INSERT INTO session_ultra_modes (session_id, enabled, updated_at) VALUES (?, ?, ?) ON CONFLICT(session_id) DO UPDATE SET enabled = excluded.enabled, updated_at = excluded.updated_at')
         .run(sessionId, enabled ? 1 : 0, now);
+      if (enabled) {
+        db.prepare('INSERT INTO session_orchestration_modes (session_id, enabled, updated_at) VALUES (?, 0, ?) ON CONFLICT(session_id) DO UPDATE SET enabled = 0, updated_at = excluded.updated_at')
+          .run(sessionId, now);
+      }
+    }
+    if (updateDefaults && enabled) {
+      db.prepare('DELETE FROM settings WHERE key = ?').run('composer.orchestration_mode');
     }
     const written = keys.map(key => ({ key, value: get(db, key) }));
     return { enabled, rollback: () => withSettingsTransaction(configRoot, current => {
@@ -708,6 +719,110 @@ export function applySessionUltraSelection(
         }
       }
     }) };
+  });
+}
+
+function orchestrationModeIn(db: DatabaseSync, sessionId: string): boolean {
+  const fallback = get(db, 'composer.orchestration_mode') === '1';
+  if (!sessionId) return fallback;
+  const row = db.prepare('SELECT enabled FROM session_orchestration_modes WHERE session_id = ?').get(sessionId) as { enabled: number } | undefined;
+  if (!row) {
+    db.prepare('INSERT INTO session_orchestration_modes (session_id, enabled, updated_at) VALUES (?, ?, ?)').run(sessionId, fallback ? 1 : 0, Date.now());
+    return fallback;
+  }
+  return row.enabled === 1;
+}
+
+export function readSessionOrchestrationMode(sessionId: string, configRoot: string): boolean {
+  return withSettingsTransaction(configRoot, db => {
+    ensureTables(db, configRoot);
+    return orchestrationModeIn(db, sessionId);
+  });
+}
+
+export function applySessionOrchestrationSelection(
+  sessionId: string, enabled: boolean, configRoot: string, permissionPolicy?: RuntimePolicy,
+  options: { updateDefaults?: boolean } = {},
+): { enabled: boolean; rollback(): void } {
+  const { updateDefaults = true } = options;
+  if (!updateDefaults && !sessionId) throw new IpcHandlerError('BAD_REQUEST', 'Session-only preferences require a session id');
+  if (permissionPolicy !== undefined && !decodeRuntimePolicy(permissionPolicy)) throw new IpcHandlerError('BAD_REQUEST', 'invalid permission policy');
+  return withSettingsTransaction(configRoot, db => {
+    ensureTables(db, configRoot);
+    const keys = updateDefaults ? ['composer.orchestration_mode', ...(enabled ? ['composer.ultra_mode'] : [])] : [];
+    const previous = keys.map(key => ({ key, value: get(db, key) }));
+    const session = sessionId
+      ? db.prepare('SELECT enabled, updated_at FROM session_orchestration_modes WHERE session_id = ?').get(sessionId) as { enabled: number; updated_at: number } | undefined
+      : undefined;
+    const previousUltra = sessionId && enabled
+      ? db.prepare('SELECT enabled, updated_at FROM session_ultra_modes WHERE session_id = ?').get(sessionId) as { enabled: number; updated_at: number } | undefined
+      : undefined;
+    const previousPermission = sessionId && permissionPolicy !== undefined
+      ? db.prepare('SELECT policy_json, updated_at FROM session_runtime_policies WHERE session_id = ?').get(sessionId) as { policy_json: string; updated_at: number } | undefined
+      : undefined;
+    if (updateDefaults) {
+      if (enabled) {
+        put(db, 'composer.orchestration_mode', '1');
+        db.prepare('DELETE FROM settings WHERE key = ?').run('composer.ultra_mode');
+      } else {
+        db.prepare('DELETE FROM settings WHERE key = ?').run('composer.orchestration_mode');
+      }
+    }
+    const now = Math.max(
+      Date.now(),
+      Number(session?.updated_at ?? 0) + 1,
+      Number(previousUltra?.updated_at ?? 0) + 1,
+      Number(previousPermission?.updated_at ?? 0) + 1,
+    );
+    const permissionJson = permissionPolicy ? JSON.stringify({ policy: permissionPolicy }) : undefined;
+    if (sessionId && permissionJson) {
+      db.prepare('INSERT INTO session_runtime_policies (session_id, policy_json, updated_at) VALUES (?, ?, ?) ON CONFLICT(session_id) DO UPDATE SET policy_json = excluded.policy_json, updated_at = excluded.updated_at')
+        .run(sessionId, permissionJson, now);
+    }
+    if (sessionId) {
+      db.prepare('INSERT INTO session_orchestration_modes (session_id, enabled, updated_at) VALUES (?, ?, ?) ON CONFLICT(session_id) DO UPDATE SET enabled = excluded.enabled, updated_at = excluded.updated_at')
+        .run(sessionId, enabled ? 1 : 0, now);
+      if (enabled) {
+        db.prepare('INSERT INTO session_ultra_modes (session_id, enabled, updated_at) VALUES (?, 0, ?) ON CONFLICT(session_id) DO UPDATE SET enabled = 0, updated_at = excluded.updated_at')
+          .run(sessionId, now);
+      }
+    }
+    const written = keys.map(key => ({ key, value: get(db, key) }));
+    return {
+      enabled,
+      rollback: () => withSettingsTransaction(configRoot, current => {
+        for (let i = 0; i < previous.length; i++) {
+          const row = previous[i]!;
+          if (get(current, row.key) !== written[i]!.value) continue;
+          if (row.value === undefined) current.prepare('DELETE FROM settings WHERE key = ?').run(row.key);
+          else put(current, row.key, row.value);
+        }
+        if (sessionId) {
+          const latestPermission = permissionPolicy !== undefined
+            ? current.prepare('SELECT policy_json, updated_at FROM session_runtime_policies WHERE session_id = ?').get(sessionId) as { policy_json: string; updated_at: number } | undefined
+            : undefined;
+          if (permissionPolicy !== undefined && latestPermission?.policy_json === permissionJson && latestPermission?.updated_at === now) {
+            if (previousPermission) current.prepare('UPDATE session_runtime_policies SET policy_json = ?, updated_at = ? WHERE session_id = ?')
+              .run(previousPermission.policy_json ?? null, previousPermission.updated_at ?? null, sessionId);
+            else current.prepare('DELETE FROM session_runtime_policies WHERE session_id = ?').run(sessionId);
+          }
+          const latest = current.prepare('SELECT enabled, updated_at FROM session_orchestration_modes WHERE session_id = ?').get(sessionId) as { enabled: number; updated_at: number } | undefined;
+          if (latest?.enabled === (enabled ? 1 : 0) && latest.updated_at === now) {
+            if (session) current.prepare('UPDATE session_orchestration_modes SET enabled = ?, updated_at = ? WHERE session_id = ?')
+              .run(session.enabled ?? null, session.updated_at ?? null, sessionId);
+            else current.prepare('DELETE FROM session_orchestration_modes WHERE session_id = ?').run(sessionId);
+          }
+          if (enabled) {
+            const latestUltra = current.prepare('SELECT enabled, updated_at FROM session_ultra_modes WHERE session_id = ?').get(sessionId) as { enabled: number; updated_at: number } | undefined;
+            if (latestUltra?.enabled === 0 && latestUltra.updated_at === now) {
+              if (previousUltra) current.prepare('UPDATE session_ultra_modes SET enabled = ?, updated_at = ? WHERE session_id = ?')
+                .run(previousUltra.enabled ?? null, previousUltra.updated_at ?? null, sessionId);
+              else current.prepare('DELETE FROM session_ultra_modes WHERE session_id = ?').run(sessionId);
+            }
+          }
+        }
+      }),
+    };
   });
 }
 
@@ -865,7 +980,7 @@ export function bindSessionWorkdir(sessionId: string, workdir: string, configRoo
 /** Called after deleting a persistent thread or disposing a registered ephemeral session. */
 export function forgetEphemeralPreferences(sessionId: string, configRoot: string): void {
   withSettingsTransaction(configRoot, db => {
-    for (const table of ['session_main_models', 'session_chat_modes', 'session_workdirs', 'session_workspaces', 'session_titles', 'session_thinking_levels', 'session_ultra_modes', 'session_fast_modes', 'session_source_fast_modes', 'session_permission_modes', 'session_runtime_policies', 'session_recency', 'session_agent_profiles']) {
+    for (const table of ['session_main_models', 'session_chat_modes', 'session_workdirs', 'session_workspaces', 'session_titles', 'session_thinking_levels', 'session_ultra_modes', 'session_orchestration_modes', 'session_fast_modes', 'session_source_fast_modes', 'session_permission_modes', 'session_runtime_policies', 'session_recency', 'session_agent_profiles']) {
       if (db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?").get(table)) {
         db.prepare(`DELETE FROM ${table} WHERE session_id = ?`).run(sessionId);
       }

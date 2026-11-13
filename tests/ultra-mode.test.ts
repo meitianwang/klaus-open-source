@@ -397,7 +397,7 @@ h.test('native menu selection cannot enable Ultra or bypass permission confirmat
   assert.equal(readSessionUltraMode('current', root), false);
 });
 
-h.test('a direct native selection exits Ultra atomically and becomes the reasoning default for future chats', async () => {
+h.test('a direct native selection preserves Ultra work mode and becomes the reasoning default for future chats', async () => {
   const root = fresh();
   setSessionThinkingLevel('current', 'high', root);
   applySessionUltraSelection('current', true, root);
@@ -407,9 +407,9 @@ h.test('a direct native selection exits Ultra atomically and becomes the reasoni
   await composer(root, () => {
     observed.push([readSessionThinkingLevel('current', root), readSessionUltraMode('current', root)]);
   }).setThinking({ sessionId: 'current', level: 'low' });
-  assert.deepEqual(observed, [['low', false]]);
+  assert.deepEqual(observed, [['low', true]]);
   assert.equal(readSessionThinkingLevel('current', root), 'low');
-  assert.equal(readSessionUltraMode('current', root), false);
+  assert.equal(readSessionUltraMode('current', root), true);
   assert.equal(readSessionThinkingLevel('', root), 'low');
   assert.equal(readSessionThinkingLevel('other', root), 'high');
   assert.equal(readSessionThinkingLevel('future', root), 'low');

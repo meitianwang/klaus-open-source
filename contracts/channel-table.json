@@ -6,7 +6,7 @@
     "bridgeDir": "frontend/bridge"
   },
   "summary": {
-    "registeredInvoke": 756,
+    "registeredInvoke": 760,
     "registeredPush": 79,
     "roles": 11
   },
@@ -597,6 +597,7 @@
         "session:get-fast-mode",
         "session:get-main-model",
         "session:get-main-model-options",
+        "session:get-orchestration-mode",
         "session:get-permission-mode",
         "session:get-resolved-workdir",
         "session:get-spec-mode",
@@ -617,6 +618,7 @@
         "session:set-collaboration-mode",
         "session:set-fast-mode",
         "session:set-main-model",
+        "session:set-orchestration-mode",
         "session:set-permission-mode",
         "session:set-pinned",
         "session:set-spec-mode",
@@ -734,6 +736,8 @@
         "settings:music-gen:set",
         "settings:music-selection:get",
         "settings:music-selection:set",
+        "settings:orchestrator:get",
+        "settings:orchestrator:set",
         "settings:output-styles:list",
         "settings:output-styles:set",
         "settings:power:set",

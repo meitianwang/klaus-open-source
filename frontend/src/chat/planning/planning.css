@@ -34,7 +34,20 @@
 .proposed-plan-review { padding: 12px; border: 1px solid var(--border); border-radius: 16px; background: var(--bg); color: var(--fg); font-size: var(--text-body-sm); }
 .proposed-plan-review > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 4px 12px; }
 .proposed-plan-review > header strong { font-weight: var(--weight-semibold); }
-.proposed-plan-review > button.proposed-plan-implement { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; border: 0; border-radius: 10px; background: var(--bg-hover); color: var(--fg); font: inherit; text-align: start; cursor: pointer; }
+.proposed-plan-implement-group { position: relative; display: flex; flex-direction: column; gap: 6px; }
+.proposed-plan-implement-split { display: flex; align-items: stretch; gap: 6px; }
+.proposed-plan-implement-split > button.proposed-plan-implement,
+.proposed-plan-review > button.proposed-plan-implement { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; width: 100%; padding: 8px 10px; border: 0; border-radius: 10px; background: var(--bg-hover); color: var(--fg); font: inherit; text-align: start; cursor: pointer; }
+.proposed-plan-implement-more { display: grid; place-items: center; width: 36px; flex-shrink: 0; padding: 0; border: 0; border-radius: 10px; background: var(--bg-hover); color: var(--fg-secondary); cursor: pointer; }
+.proposed-plan-implement-more:hover, .proposed-plan-implement-split > button.proposed-plan-implement:hover { background: color-mix(in srgb, var(--fg) 8%, transparent); color: var(--fg); }
+.proposed-plan-implement-more[aria-expanded="true"] svg { transform: rotate(180deg); }
+.proposed-plan-implement-menu { display: flex; flex-direction: column; gap: 2px; padding: 5px; border: 1px solid var(--border); border-radius: 12px; background: var(--bg-elevated, var(--bg)); }
+.proposed-plan-implement-option { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; padding: 8px 10px; border: 0; border-radius: 8px; background: transparent; color: var(--fg); font: inherit; text-align: start; cursor: pointer; }
+.proposed-plan-implement-option:hover:not(:disabled), .proposed-plan-implement-option.is-selected { background: var(--bg-hover); }
+.proposed-plan-implement-option-copy { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.proposed-plan-implement-option-title { font-weight: var(--weight-medium); color: var(--fg); }
+.proposed-plan-implement-option-desc { font-size: var(--text-small); color: var(--fg-secondary); }
+.proposed-plan-implement-option-check { flex-shrink: 0; color: var(--fg-secondary); }
 .proposed-plan-choice { flex-shrink: 0; width: 20px; height: 20px; border: 1px solid var(--border); border-radius: 6px; background: color-mix(in srgb, var(--fg) 4%, transparent); }
 .proposed-plan-choice-arrow { margin-inline-start: auto; color: var(--fg-tertiary); font-size: 20px; line-height: 1; }
 .proposed-plan-review form { display: flex; align-items: flex-start; gap: 10px; padding: 12px 4px 0; }

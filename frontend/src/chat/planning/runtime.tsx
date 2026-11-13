@@ -1,5 +1,5 @@
 import { useEffect, useSyncExternalStore } from 'react'
-import { createPlanReviewController, type PlanReviewController } from './plan-controller'
+import { createPlanReviewController, type PlanImplementationHooks, type PlanReviewController } from './plan-controller'
 import { ProposedPlanCard, ProposedPlanReview } from './plan-card'
 import type { PlanningApi, PlanningSnapshot, ProposedPlan } from './types'
 
@@ -7,7 +7,7 @@ const snapshots = new Map<string, PlanningSnapshot>()
 const controllers = new Map<string, PlanReviewController>()
 const listeners = new Set<() => void>()
 let version = 0
-let integration: null | { api: PlanningApi; open(sessionId: string, controller: PlanReviewController): void; download(content: string): Promise<void> } = null
+let integration: null | ({ api: PlanningApi; open(sessionId: string, controller: PlanReviewController): void; download(content: string): Promise<void> } & PlanImplementationHooks) = null
 
 export function configurePlanningWorkflow(options: NonNullable<typeof integration>) { integration = options }
 export function planningSnapshot(sessionId: string) { return snapshots.get(sessionId) }
@@ -31,7 +31,7 @@ export function planReviewController(sessionId: string, plan: ProposedPlan): Pla
     controller = createPlanReviewController(sessionId, plan, integration.api, snapshot => {
       receivePlanningSnapshot(sessionId, snapshot)
       window.dispatchEvent(new CustomEvent('klaus:planning-snapshot', { detail: { sessionId, planning: snapshot } }))
-    })
+    }, integration)
     controllers.set(key, controller)
   }
   return controller

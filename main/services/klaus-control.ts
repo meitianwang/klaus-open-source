@@ -158,7 +158,7 @@ export class KlausControlService {
       if (isSecretField(row)) return toolText('Credential values are available only to the user in settings.', false);
       if (write) {
         if (row === 'composer.permission_mode') throw new Error('Global permission mode can only be changed by the user in the composer.');
-        const composerActions: Record<string, string> = { 'composer.main_model': 'setMainModel', 'composer.thinking_level': 'setThinkingLevel', 'composer.ultra_mode': 'setUltraMode', 'composer.codex_fast_mode': 'setFastMode' };
+        const composerActions: Record<string, string> = { 'composer.main_model': 'setMainModel', 'composer.thinking_level': 'setThinkingLevel', 'composer.ultra_mode': 'setUltraMode', 'composer.orchestration_mode': 'setOrchestrationMode', 'composer.codex_fast_mode': 'setFastMode' };
         if (composerActions[row] || isFastModePreferenceKey(row)) throw new Error(`Use session.${composerActions[row] || 'setFastMode'} for this setting.`);
         const pref = PREFERENCES.find(pref => pref.row === row);
         if (pref) throw new Error(`Use preference.set { name: ${pref.name}, value } so the value and any protection change are validated.`);

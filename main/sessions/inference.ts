@@ -3,7 +3,7 @@ import { object } from '../ipc/arguments';
 import { resolveRuntimePolicy, resolveWebSearchAccess } from '../../contracts/runtime-settings';
 import { runtimeConfigValues } from '../services/runtime-config-values';
 
-const INFERENCE_KEYS = ['provider', 'auth', 'modelSelection', 'modelTierSelections', 'modelTierTargets', 'advisorTarget', 'featureTargets', 'modelSource', 'capabilities', 'capabilitiesByModel', 'pricing'] as const;
+const INFERENCE_KEYS = ['provider', 'auth', 'modelSelection', 'modelTierSelections', 'modelTierTargets', 'advisorTarget', 'orchestratorTarget', 'orchestrationMode', 'featureTargets', 'modelSource', 'capabilities', 'capabilitiesByModel', 'pricing'] as const;
 const CONFIG_KEYS = ['model', 'modelTiers', 'effort', 'thinking', 'ultraMode', 'fastMode', 'contextWindow', 'maxOutputTokens', 'maxOutputRetryTokens', 'modelVerbosity', 'reasoningSummary', 'webSearch'] as const;
 
 /** The named facade accepts a complete inference selection, never a session-init patch. */

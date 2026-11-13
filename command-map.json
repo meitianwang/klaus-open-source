@@ -1,6 +1,6 @@
 {
   "summary": {
-    "invokeDeclared": 756,
+    "invokeDeclared": 760,
     "pushDeclared": 79
   },
   "rows": [
@@ -1957,6 +1957,10 @@
       "kind": "invoke"
     },
     {
+      "channel": "session:get-orchestration-mode",
+      "kind": "invoke"
+    },
+    {
       "channel": "session:get-permission-mode",
       "kind": "invoke"
     },
@@ -2034,6 +2038,10 @@
     },
     {
       "channel": "session:set-main-model",
+      "kind": "invoke"
+    },
+    {
+      "channel": "session:set-orchestration-mode",
       "kind": "invoke"
     },
     {
@@ -2502,6 +2510,14 @@
     },
     {
       "channel": "settings:music-selection:set",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:orchestrator:get",
+      "kind": "invoke"
+    },
+    {
+      "channel": "settings:orchestrator:set",
       "kind": "invoke"
     },
     {

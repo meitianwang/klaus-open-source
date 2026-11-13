@@ -432,10 +432,7 @@ function ModelSelectMenu({ store, onEmptyClick, saveModel, saveThinkingLevel, sa
   const supportsFastMode = value.startsWith('cursor:') ? cursorFast.supported : fastModeSupported && selectedItem?.supportsFastMode === true
   const levels = mainModelThinkingLevels(selectedItem)
   const thinkingPresentation = mainModelThinkingPresentation(selectedItem, thinkingLevel)
-  // Ultra is picked from inside the reasoning menu, so the anchor row stays
-  // reachable even when the selected model declares no native rungs; only the
-  // loading placeholder hides it.
-  const thinkingRowVisible = !loading
+  const thinkingRowVisible = !loading && thinkingPresentation.rows.length > 0
 
   const close = () => store.setState({ open: false, submenuOpen: false })
   const submenuVisible = modelSelectSubmenuVisible(open, submenuOpen, thinkingRowVisible)
@@ -520,11 +517,7 @@ function ModelSelectMenu({ store, onEmptyClick, saveModel, saveThinkingLevel, sa
     submenu.style.right = 'auto'
   }, [submenuVisible, items, value, thinkingLevel])
 
-  // While Ultra is on, the menu reports it as the active pick; the preserved
-  // native rung stays stored underneath and takes the label back on leaving.
-  const thinkingRowLabel = ultraMode
-    ? tt('thinking_ultra')
-    : (thinkingPresentation.showBadge ? thinkingPresentation.label : '')
+  const thinkingRowLabel = thinkingPresentation.showBadge ? thinkingPresentation.label : ''
 
   if (loading) return null
 
@@ -643,20 +636,8 @@ function ModelSelectMenu({ store, onEmptyClick, saveModel, saveThinkingLevel, sa
         ref={submenuRef}
         role="menu"
       >
-        {thinkingPresentation.rows.length === 0 && (
-          <button type="button" role="menuitemradio" aria-checked={!ultraMode}
-            disabled={ultraPending || thinkingPending} data-ultra-off-row="true"
-            className={`kls-select-item${ultraMode ? '' : ' is-selected'}`}
-            onClick={event => { event.stopPropagation(); void saveUltraMode(false) }}>
-            <span className="kls-select-item-copy">
-              <span className="kls-select-item-label">{tt('klaus_default')}</span>
-            </span>
-          </button>
-        )}
         {thinkingPresentation.rows.map(row => {
-          // Ultra owns the single check while it is on; the native rung keeps
-          // its stored value underneath and takes the check back on leaving.
-          const selected = !ultraMode && row.selected
+          const selected = row.selected
           return (
             <button
               key={row.value}
@@ -676,25 +657,6 @@ function ModelSelectMenu({ store, onEmptyClick, saveModel, saveThinkingLevel, sa
             </button>
           )
         })}
-        {/* The local orchestration mode is a member of this menu: one radio row
-            after the native rungs, checked while the mode is on. */}
-        <button
-          type="button"
-          disabled={ultraPending || thinkingPending}
-          aria-busy={ultraPending}
-          role="menuitemradio"
-          aria-checked={ultraMode}
-          data-ultra-row="true"
-          className={`kls-select-item${ultraMode ? ' is-selected' : ''}`}
-          onClick={(event) => {
-            event.stopPropagation()
-            void saveUltraMode(true)
-          }}
-        >
-          <span className="kls-select-item-copy">
-            <span className="kls-select-item-label">{tt('thinking_ultra')}</span>
-          </span>
-        </button>
       </div>
     </>
   )
@@ -782,8 +744,8 @@ export function mountModelSelect(
       thinkingPersistenceToken = token
       thinkingPersistencePending = true
       try {
-        await thinkingSaver.save({ level, ultraMode: false }, async value => {
-          await w().klaus.session.setThinkingLevel(value.level, id, { ultraMode: false })
+        await thinkingSaver.save({ level, ultraMode: store.getState().ultraMode }, async value => {
+          await w().klaus.session.setThinkingLevel(value.level, id)
           await Promise.all([w().refreshComposerPreferences?.(), w().refreshSideModelButton?.()])
         })
       } finally {

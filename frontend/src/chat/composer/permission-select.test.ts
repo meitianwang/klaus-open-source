@@ -167,6 +167,6 @@ test('Plan and Goal badges share the position immediately after the permission s
   expect(chat).toContain("const permissionSelect = inputRow.querySelector('#permission-select')")
   expect(chat).toContain('badge.previousElementSibling !== permissionSelect')
   expect(chat).toContain('inputRow.insertBefore(badge, permissionSelect.nextSibling)')
-  expect(chat.match(/placeComposerModeBadge\(inputRow, badge\)/g)).toHaveLength(2)
+  expect(chat.match(/placeComposerModeBadge\(inputRow, badge\)/g)).toHaveLength(4)
   expect(css).not.toContain('.input-row .goal-mode-badge:not(.spec-mode-badge) { margin-left: auto; }')
 })

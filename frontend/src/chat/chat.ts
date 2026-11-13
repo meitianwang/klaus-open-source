@@ -69,6 +69,9 @@ import { mountPermissionSelect, permissionPresetFromResponse, type PermissionSel
 import { syntheticContextQuery, resolveSyntheticContextQuery, type SyntheticContextQuery } from './composer/context-menu-model'
 import { queryClient } from '../app/query-client'
 import { activatePlanShortcut, isPlanShortcut, withPlanShortcut } from './composer/plan-shortcut'
+import { activateModeToggleShortcut, isOrchestrateShortcut, isUltraShortcut, withOrchestrateShortcut, withUltraShortcut } from './composer/work-mode-shortcuts'
+import { UltraAccessDialog } from './composer/ultra-access-dialog'
+import type { UltraAccessDecision } from './composer/ultra-selection'
 import { configurePlanningQuestions, receivePlanningQuestion, planningQuestionReadToken, reconcilePlanningQuestionRead, pendingPlanningQuestions, subscribePlanningQuestions, PlanningQuestionView } from './planning/questions-runtime'
 import type { GoalSnapshot as GoalWireSnapshot, PlanningInputRequest } from '../../../contracts/planning-goals'
 import type { PlanningQuestionRequest } from './planning/questions-state'
@@ -3454,6 +3457,10 @@ window.addEventListener('klaus:settings-visibility-change', () => syncTopModeBut
 
 function slashCommandDisplayName(command: SlashCommandInfo | null | undefined) {
   if (isManualCompactCommand(command)) return tt('compact_command_title')
+  if (isPlanShortcut(command as SlashCommandInfo)) return tt('composer_plan')
+  if (isOrchestrateShortcut(command)) return tt('composer_orchestrate')
+  if (isUltraShortcut(command)) return tt('composer_ultra')
+  if (isGoalShortcut(command as SlashCommandInfo)) return tt('composer_goal')
   return slashCommandDisplayLabel(command)
 }
 
@@ -3534,6 +3541,10 @@ function commandGroupClass(command: SlashCommandInfo | null | undefined) {
 
 function commandIconSvg(command: SlashCommandInfo | null | undefined, className = '') {
   if (isManualCompactCommand(command)) return contextPieSvg(contextUsageView(ctxPanel.sessions.get(window.currentSessionId || ''))?.percent ?? 0).replace('<svg ', `<svg${iconClassAttr(className)} `)
+  if (command && isPlanShortcut(command)) return klausIcon('plan', { cls: className })
+  if (isOrchestrateShortcut(command)) return klausIcon('workflow', { cls: className })
+  if (isUltraShortcut(command)) return klausIcon('sb-nav-agents', { cls: className })
+  if (command && isGoalShortcut(command)) return klausIcon('goal', { cls: className })
   switch (commandGroupKey(command)) {
     case 'skills': return skillIconSvg(className)
     case 'plugins': return pluginIconSvg(className)
@@ -11553,6 +11564,8 @@ function selectSlashItem(command: SlashCommandInfo) {
   if (isApprovalReviewShortcut(command)) { activateComposerApprovalReviewShortcut(triggerRange); return }
   if (isGoalShortcut(command)) { void activateComposerGoalShortcut(triggerRange); return }
   if (isPlanShortcut(command)) { void activateComposerPlanShortcut(triggerRange); return }
+  if (isOrchestrateShortcut(command)) { void activateComposerOrchestrateShortcut(triggerRange); return }
+  if (isUltraShortcut(command)) { void activateComposerUltraShortcut(triggerRange); return }
   insertSlashCommandToken(command, triggerRange)
   focusComposerInputAfterSlashInsert()
 }
@@ -11642,6 +11655,8 @@ const COMPOSER_PLUS_ICONS = {
   slash: slashCommandIconSvg(),
   spec: klausIcon('spec'),
   plan: klausIcon('plan'),
+  orchestrate: klausIcon('workflow'),
+  ultra: klausIcon('sb-nav-agents'),
   goal: klausIcon('goal'),
   check: klausIcon('check-2'),
   manage: klausIcon('manage'),
@@ -11970,6 +11985,52 @@ configurePlanningWorkflow({
     const result = await klausApi.session.saveSpecDoc('PLAN.md', content)
     if (result?.ok === false && !result.canceled) throw new Error('Plan download failed')
   },
+  goalState: sessionId => ({
+    eligible: goalPursuitEligibility.get(sessionId) !== false
+      && goalSurfaceEligible(findKnownSession(sessionId), !!detectChannelPrefix(sessionId || '')),
+    locked: hasLiveGoal(sessionId),
+  }),
+  prepareMode: async (sessionId, mode, content) => {
+    if (mode === 'orchestrate') {
+      return setComposerOrchestrateMode(true, sessionId)
+    }
+    if (mode === 'ultra') {
+      return setComposerUltraMode(true, sessionId)
+    }
+    if (mode === 'goal') {
+      if (hasLiveGoal(sessionId)) return false
+      const rawObjective = Array.from(`${tt('goal_spec_objective_prefix')}\n\n${content.trim()}`).slice(0, 3900).join('')
+      const prepared = await klausApi.goal.prepareObjective(sessionId, { text: rawObjective })
+      const updated = await klausApi.goal.set(sessionId, {
+        objective: prepared.objective,
+        status: 'active',
+        preparationId: prepared.preparationId,
+        submit: false,
+      })
+      if (updated?.ok === false) throw new Error('Goal creation failed')
+      if (composerOrchestrateEnabled) {
+        composerOrchestrateEnabled = false
+        void klausApi.session.setOrchestrationMode?.(false, sessionId).catch(() => {})
+      }
+      if (composerUltraEnabled) {
+        composerUltraEnabled = false
+        void klausApi.session.setUltraMode?.(false, sessionId).catch(() => {})
+      }
+      updateWorkModeBadges()
+      return true
+    }
+    if (composerOrchestrateEnabled) {
+      composerOrchestrateEnabled = false
+      await klausApi.session.setOrchestrationMode?.(false, sessionId).catch(() => {})
+    }
+    if (composerUltraEnabled) {
+      composerUltraEnabled = false
+      await klausApi.session.setUltraMode?.(false, sessionId).catch(() => {})
+    }
+    updateWorkModeBadges()
+    void refreshComposerPreferences()
+    return true
+  },
 })
 ;(window as any).klausActivatePlanningPanel = async ({ sessionId, planId, revision }: { sessionId: string; planId: string; revision: number }) => {
   const plan = planningSnapshot(sessionId)?.plans.find(entry => entry.id === planId && entry.revision === revision)
@@ -12064,7 +12125,10 @@ function applyPlanningUpdated({ sessionId, planning }: { sessionId: string; plan
   ingestPlanningSnapshot(sessionId, planning)
   if (sessionId === window.currentSessionId) {
     composerSpecEnabled = planning.mode === 'plan'
-    if (composerSpecEnabled && composerGoalEnabled) setComposerGoalEnabled(false)
+    if (composerSpecEnabled) {
+      if (composerGoalEnabled) setComposerGoalEnabled(false)
+      if (typeof clearWorkModesForPlan === 'function') clearWorkModesForPlan()
+    }
     updateSpecBadge()
     composerPredictions?.invalidate(sessionId)
   }
@@ -12096,7 +12160,9 @@ function composerGoalEligible(): boolean {
 }
 function withComposerGoalShortcut(commands: SlashCommandInfo[]): SlashCommandInfo[] {
   const scoped = composerGoalEligible() ? withGoalShortcut(commands, tt('composer_goal')) : commands.filter(command => !isGoalShortcut(command))
-  return withApprovalReviewShortcut(scoped, tt('approval_review_shortcut'), !!window.currentSessionId && approvalReviewDenials(window.currentSessionId).length > 0)
+  const withReview = withApprovalReviewShortcut(scoped, tt('approval_review_shortcut'), !!window.currentSessionId && approvalReviewDenials(window.currentSessionId).length > 0)
+  const withUltra = typeof withUltraShortcut === 'function' ? withUltraShortcut(withReview, tt('ultra_mode_description')) : withReview
+  return typeof withOrchestrateShortcut === 'function' ? withOrchestrateShortcut(withUltra, tt('orchestrator_settings_desc')) : withUltra
 }
 
 function activateComposerApprovalReviewShortcut(range: { start: number; end: number } | null) {
@@ -12141,7 +12207,11 @@ async function toggleComposerGoalEnabled(forceEnable = false): Promise<boolean> 
     } catch { showToast(tt('planning_mode_failed')); return false }
   }
   if (!valid()) return rejected()
-  if (next) { composerSpecEnabled = false; updateSpecBadge() }
+  if (next) {
+    composerSpecEnabled = false
+    updateSpecBadge()
+    if (typeof clearWorkModesForGoal === 'function') clearWorkModesForGoal(targetSessionId)
+  }
   setComposerGoalEnabled(next)
   return composerGoalEnabled
 }
@@ -12366,9 +12436,8 @@ function renderGoalEditor(sessionId: string, goal: GoalSnapshot) {
 ;(window as any).klausActiveGoalId = () => openGoalSessionId ? goalSnapshots.get(openGoalSessionId)?.goalId || '' : ''
 window.addEventListener('klaus:session-change', closeGoalPanel)
 window.addEventListener('klaus:lang-change', () => {
-  updateGoalBadge()
+  updateWorkModeBadges()
   updateGoalIndicator()
-  updateSpecBadge()
   if (openGoalSessionId) { const goal = goalSnapshots.get(openGoalSessionId); if (goal) renderGoalEditor(openGoalSessionId, goal) }
 })
 function confirmGoalReplacement(goal: GoalSnapshot, objective: string): Promise<boolean> {
@@ -12472,10 +12541,209 @@ async function toggleComposerSpecEnabled() {
     const result = await klausApi.session.setCollaborationMode(targetSessionId, next ? 'plan' : 'default')
     if (window.currentSessionId !== targetSessionId || generation !== specModeRevision) return composerSpecEnabled
     applyPlanningUpdated({ sessionId: targetSessionId, planning: result.planning })
-    if (next && composerGoalEnabled) setComposerGoalEnabled(false)
+    if (next) {
+      if (composerGoalEnabled) setComposerGoalEnabled(false)
+      if (composerOrchestrateEnabled) {
+        composerOrchestrateEnabled = false
+        void klausApi.session.setOrchestrationMode?.(false, targetSessionId).catch(() => {})
+      }
+      if (composerUltraEnabled) {
+        composerUltraEnabled = false
+        void klausApi.session.setUltraMode?.(false, targetSessionId).catch(() => {})
+      }
+    }
   } catch { showToast(tt('planning_mode_failed')) }
-  updateSpecBadge()
+  updateWorkModeBadges()
   return composerSpecEnabled
+}
+
+let composerOrchestrateEnabled = false
+let composerUltraEnabled = false
+
+function confirmWorkModeFullAccess(kind: 'orchestrate' | 'ultra'): Promise<UltraAccessDecision> {
+  return new Promise(resolve => {
+    claimOverlay('work-mode-full-access')
+    const host = document.createElement('div')
+    document.body.appendChild(host)
+    const root = createRoot(host)
+    let settled = false
+    const finish = (decision: UltraAccessDecision) => {
+      if (settled) return
+      settled = true
+      unregisterOverlay('work-mode-full-access')
+      window.removeEventListener('klaus:lang-change', render)
+      root.unmount()
+      host.remove()
+      resolve(decision)
+    }
+    registerOverlay('work-mode-full-access', () => finish('cancel'))
+    const render = () => root.render(createElement(UltraAccessDialog, {
+      onDecision: finish,
+      translate: tt,
+      titleKey: kind === 'orchestrate' ? 'orchestrate_full_access_title' : 'ultra_full_access_title',
+      messageKey: kind === 'orchestrate' ? 'orchestrate_full_access_message' : 'ultra_full_access_message',
+    }))
+    window.addEventListener('klaus:lang-change', render)
+    render()
+  })
+}
+
+async function setComposerOrchestrateMode(next: boolean, explicitSessionId?: string | null): Promise<boolean> {
+  const sourceSessionId = explicitSessionId ?? window.currentSessionId
+  const targetSessionId = sourceSessionId || await ensureSession()
+  if (!targetSessionId || (explicitSessionId === undefined && sourceSessionId && sourceSessionId !== window.currentSessionId)) return false
+  let permissionMode: PermissionPreset | undefined
+  if (next) {
+    try {
+      const perm = await klausApi.session.getPermissionMode(targetSessionId)
+      if (perm?.mode === 'bypassPermissions') {
+        const decision = await confirmWorkModeFullAccess('orchestrate')
+        if (decision === 'cancel' || (explicitSessionId === undefined && sourceSessionId && sourceSessionId !== window.currentSessionId)) return false
+        if (decision === 'restricted') permissionMode = 'default'
+      }
+    } catch { /* Proceed if permission check is unavailable in isolated fixtures. */ }
+    if (composerSpecEnabled && explicitSessionId === undefined) {
+      try {
+        const result = await klausApi.session.setCollaborationMode(targetSessionId, 'default')
+        applyPlanningUpdated({ sessionId: targetSessionId, planning: result.planning })
+      } catch { showToast(tt('planning_mode_failed')); return false }
+    }
+    if (composerGoalEnabled && targetSessionId === window.currentSessionId) setComposerGoalEnabled(false)
+  }
+  try {
+    await klausApi.session.setOrchestrationMode(next, targetSessionId, permissionMode ? { permissionMode } : undefined)
+    if (targetSessionId === window.currentSessionId) {
+      composerOrchestrateEnabled = next
+      if (next) composerUltraEnabled = false
+      updateWorkModeBadges()
+      void refreshComposerPreferences()
+    }
+    return true
+  } catch {
+    showToast(tt('orchestrate_mode_failed'))
+    return false
+  }
+}
+
+async function setComposerUltraMode(next: boolean, explicitSessionId?: string | null): Promise<boolean> {
+  const sourceSessionId = explicitSessionId ?? window.currentSessionId
+  const targetSessionId = sourceSessionId || await ensureSession()
+  if (!targetSessionId || (explicitSessionId === undefined && sourceSessionId && sourceSessionId !== window.currentSessionId)) return false
+  let permissionMode: PermissionPreset | undefined
+  if (next) {
+    try {
+      const perm = await klausApi.session.getPermissionMode(targetSessionId)
+      if (perm?.mode === 'bypassPermissions') {
+        const decision = await confirmWorkModeFullAccess('ultra')
+        if (decision === 'cancel' || (explicitSessionId === undefined && sourceSessionId && sourceSessionId !== window.currentSessionId)) return false
+        if (decision === 'restricted') permissionMode = 'default'
+      }
+    } catch { /* Proceed if permission check is unavailable in isolated fixtures. */ }
+    if (composerSpecEnabled && explicitSessionId === undefined) {
+      try {
+        const result = await klausApi.session.setCollaborationMode(targetSessionId, 'default')
+        applyPlanningUpdated({ sessionId: targetSessionId, planning: result.planning })
+      } catch { showToast(tt('planning_mode_failed')); return false }
+    }
+    if (composerGoalEnabled && targetSessionId === window.currentSessionId) setComposerGoalEnabled(false)
+  }
+  try {
+    await klausApi.session.setUltraMode(next, targetSessionId, permissionMode ? { permissionMode } : undefined)
+    if (targetSessionId === window.currentSessionId) {
+      composerUltraEnabled = next
+      if (next) composerOrchestrateEnabled = false
+      updateWorkModeBadges()
+      void refreshComposerPreferences()
+    }
+    return true
+  } catch {
+    showToast(tt('ultra_mode_failed'))
+    return false
+  }
+}
+
+async function activateComposerOrchestrateShortcut(range: { start: number; end: number } | null) {
+  return activateModeToggleShortcut({
+    sessionId: () => window.currentSessionId,
+    readDraft: () => inputEl.value,
+    toggle: () => setComposerOrchestrateMode(!composerOrchestrateEnabled),
+    replaceDraft: (value, caret) => { setComposerText(value); autoResize(); updateSendBtn(); persistComposerDraft(); focusComposerInput(inputEl, caret) },
+  }, range)
+}
+
+async function activateComposerUltraShortcut(range: { start: number; end: number } | null) {
+  return activateModeToggleShortcut({
+    sessionId: () => window.currentSessionId,
+    readDraft: () => inputEl.value,
+    toggle: () => setComposerUltraMode(!composerUltraEnabled),
+    replaceDraft: (value, caret) => { setComposerText(value); autoResize(); updateSendBtn(); persistComposerDraft(); focusComposerInput(inputEl, caret) },
+  }, range)
+}
+
+function updateOrchestrateBadge() {
+  const inputRow = inputWrapperEl?.querySelector('.input-row')
+  if (!inputRow) return
+  let badge = document.getElementById('orchestrate-mode-badge')
+  if (!composerOrchestrateEnabled || composerSpecEnabled || composerGoalEnabled) { badge?.remove(); return }
+  if (!badge) {
+    badge = document.createElement('button')
+    badge.id = 'orchestrate-mode-badge'
+    ;(badge as HTMLButtonElement).type = 'button'
+    badge.className = 'goal-mode-badge spec-mode-badge'
+    badge.onclick = () => { void setComposerOrchestrateMode(false) }
+  }
+  badge.setAttribute('aria-label', tt('orchestrate_mode_off'))
+  badge.innerHTML = `<span class="goal-badge-icon" aria-hidden="true">${COMPOSER_PLUS_ICONS.orchestrate}</span><span class="goal-badge-close" aria-hidden="true">×</span><span class="goal-badge-text">${escapeHtml(tt('composer_orchestrate'))}</span>`
+  placeComposerModeBadge(inputRow, badge)
+}
+
+function updateUltraBadge() {
+  const inputRow = inputWrapperEl?.querySelector('.input-row')
+  if (!inputRow) return
+  let badge = document.getElementById('ultra-mode-badge')
+  if (!composerUltraEnabled || composerOrchestrateEnabled || composerSpecEnabled || composerGoalEnabled) { badge?.remove(); return }
+  if (!badge) {
+    badge = document.createElement('button')
+    badge.id = 'ultra-mode-badge'
+    ;(badge as HTMLButtonElement).type = 'button'
+    badge.className = 'goal-mode-badge spec-mode-badge'
+    badge.onclick = () => { void setComposerUltraMode(false) }
+  }
+  badge.setAttribute('aria-label', tt('ultra_mode_off'))
+  badge.innerHTML = `<span class="goal-badge-icon" aria-hidden="true">${COMPOSER_PLUS_ICONS.ultra}</span><span class="goal-badge-close" aria-hidden="true">×</span><span class="goal-badge-text">${escapeHtml(tt('composer_ultra'))}</span>`
+  placeComposerModeBadge(inputRow, badge)
+}
+
+function updateWorkModeBadges() {
+  updateGoalBadge()
+  updateSpecBadge()
+  updateOrchestrateBadge()
+  updateUltraBadge()
+}
+
+function clearWorkModesForGoal(targetSessionId: string | null) {
+  if (composerOrchestrateEnabled && targetSessionId) {
+    composerOrchestrateEnabled = false
+    void klausApi.session.setOrchestrationMode?.(false, targetSessionId).catch(() => {})
+  }
+  if (composerUltraEnabled && targetSessionId) {
+    composerUltraEnabled = false
+    void klausApi.session.setUltraMode?.(false, targetSessionId).catch(() => {})
+  }
+  updateWorkModeBadges()
+}
+
+function clearWorkModesForPlan() {
+  if (composerOrchestrateEnabled) composerOrchestrateEnabled = false
+  if (composerUltraEnabled) composerUltraEnabled = false
+  updateOrchestrateBadge()
+  updateUltraBadge()
+}
+
+function syncWorkModeBadgesFromPreferences(snapshot: ComposerPreferencesSnapshot) {
+  composerUltraEnabled = Boolean(snapshot.ultraMode) && !composerSpecEnabled && !composerGoalEnabled
+  composerOrchestrateEnabled = Boolean(snapshot.orchestrationMode) && !composerUltraEnabled && !composerSpecEnabled && !composerGoalEnabled
+  updateWorkModeBadges()
 }
 
 async function activateComposerPlanShortcut(range: { start: number; end: number } | null) {
@@ -12667,6 +12935,8 @@ function selectComposerCommand(command: SlashCommandInfo, triggerRange?: { start
   if (isApprovalReviewShortcut(command)) { activateComposerApprovalReviewShortcut(range || null); return }
   if (isGoalShortcut(command)) { void activateComposerGoalShortcut(range || null); return }
   if (isPlanShortcut(command)) { void activateComposerPlanShortcut(range || null); return }
+  if (isOrchestrateShortcut(command)) { void activateComposerOrchestrateShortcut(range || null); return }
+  if (isUltraShortcut(command)) { void activateComposerUltraShortcut(range || null); return }
   insertSlashCommandToken(command, range || null)
   focusComposerInputAfterSlashInsert()
 }
@@ -14652,6 +14922,7 @@ type ComposerPreferencesSnapshot = {
   unavailable: boolean
   thinkingLevel: string
   ultraMode: boolean
+  orchestrationMode?: boolean
   fastMode: boolean
   fastModeSupported?: boolean
   fastModeBilling?: FastModeState['billing']
@@ -14718,6 +14989,7 @@ function applyComposerPreferences(snapshot: ComposerPreferencesSnapshot) {
   })
   permissionSelectApi?.setValue(snapshot.permissionMode)
   if (snapshot.permissionAvailable === false) permissionSelectApi?.setUnavailable()
+  if (typeof syncWorkModeBadgesFromPreferences === 'function') syncWorkModeBadgesFromPreferences(snapshot)
 }
 
 // A conversation switch can reuse the model state already resolved for the
@@ -14804,7 +15076,7 @@ async function refreshComposerPreferences() {
         : (mainModelMenuValue(cachedItems ?? [], saved?.mode) || cachedItems?.[0]?.value || '')
       mainModelApi?.setItems(cachedItems, { value: seedValue })
     }
-    const [resolved, catalogItems, thinking, permission, fastMode, ultraMode] = await Promise.all([
+    const [resolved, catalogItems, thinking, permission, fastMode, ultraMode, orchestrationMode] = await Promise.all([
       source ? klausApi.session.getMainModel(sessionId).catch(() => null) : Promise.resolve(null),
       source ? buildMainModelItems(source).catch(error => {
         console.warn('[composer-preferences] model catalog unavailable:', error)
@@ -14814,6 +15086,7 @@ async function refreshComposerPreferences() {
       klausApi.session.getPermissionMode(sessionId).catch(() => null),
       klausApi.session.getFastMode(sessionId),
       klausApi.session.getUltraMode(sessionId),
+      klausApi.session.getOrchestrationMode?.(sessionId).catch(() => ({ enabled: false })) ?? Promise.resolve({ enabled: false }),
     ])
     if (revision !== composerPreferencesRevision || sessionId !== window.currentSessionId) return
     if (resolved && (resolved.source !== saved?.source || resolved.mode !== saved?.mode)) return
@@ -14843,7 +15116,7 @@ async function refreshComposerPreferences() {
     // (max, through a model with no ladder, came back as high for good).
     const normalizedPermission = permission ? permissionPresetFromResponse(permission)
       : composerPreferencesSnapshot?.sessionId === sessionId ? composerPreferencesSnapshot.permissionMode : null
-    composerPreferencesSnapshot = { sessionId, source, items, mode, unavailable, thinkingLevel, ultraMode: ultraMode.enabled, fastMode: fastMode.enabled, fastModeSupported: fastMode.supported, fastModeBilling: fastMode.billing, permissionMode: normalizedPermission,
+    composerPreferencesSnapshot = { sessionId, source, items, mode, unavailable, thinkingLevel, ultraMode: ultraMode.enabled, orchestrationMode: orchestrationMode.enabled, fastMode: fastMode.enabled, fastModeSupported: fastMode.supported, fastModeBilling: fastMode.billing, permissionMode: normalizedPermission,
       permissionAvailable: permission !== null }
     cacheComposerPreferences(composerPreferencesSnapshot)
     if (catalogItems && saved?.mode) void reconcileUnavailableComposerModel(sessionId, source, saved.mode, mode, items)
@@ -14854,7 +15127,7 @@ async function refreshComposerPreferences() {
     // Keep the last known rows for this source: a failed refresh must not blank
     // a picker the cache can still serve.
     const keep = composerPreferencesSnapshot?.sessionId === sessionId ? composerPreferencesSnapshot : null
-    composerPreferencesSnapshot = keep ?? { sessionId, source: '', items: [], mode: '', unavailable: true, thinkingLevel: 'medium', ultraMode: false, fastMode: false, permissionMode: null, permissionAvailable: false }
+    composerPreferencesSnapshot = keep ?? { sessionId, source: '', items: [], mode: '', unavailable: true, thinkingLevel: 'medium', ultraMode: false, orchestrationMode: false, fastMode: false, permissionMode: null, permissionAvailable: false }
     applyComposerPreferences(composerPreferencesSnapshot)
   }
 }

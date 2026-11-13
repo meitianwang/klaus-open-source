@@ -84,11 +84,11 @@ export class SessionConfiguration {
       catch (error) { this.markInferenceChanged(); throw error; }
       return;
     }
-    if (['advisor', 'feature_models', 'modelProviders', 'auth_mode', 'klaus.maxOutputTokens', 'klaus.maxOutputRetryTokens', 'klaus.modelVerbosity', 'klaus.reasoningSummary'].includes(key) || key.startsWith('model_tiers:')) {
+    if (['advisor', 'orchestrator', 'feature_models', 'modelProviders', 'auth_mode', 'klaus.maxOutputTokens', 'klaus.maxOutputRetryTokens', 'klaus.modelVerbosity', 'klaus.reasoningSummary'].includes(key) || key.startsWith('model_tiers:')) {
       if (scope?.kind === 'project') {
         for (const binding of this.deps.state.bindings()) if (this.matchesScope(binding.rendererId, scope)) await this.markInferenceChanged(binding.rendererId);
       } else await this.markInferenceChanged();
-    } else if (!['composer.main_model', 'composer.thinking_level', 'composer.ultra_mode'].includes(key) && !isFastModePreferenceKey(key) && !UI_ONLY_SETTINGS_KEYS.includes(key)) {
+    } else if (!['composer.main_model', 'composer.thinking_level', 'composer.ultra_mode', 'composer.orchestration_mode'].includes(key) && !isFastModePreferenceKey(key) && !UI_ONLY_SETTINGS_KEYS.includes(key)) {
       this.markChanged();
     }
     // Model, thinking, and source Fast mode defaults are deliberately in

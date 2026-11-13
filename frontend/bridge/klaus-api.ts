@@ -388,6 +388,10 @@ expose('klaus', {
       call('session:get-ultra-mode', { ...(sessionId ? { sessionId } : {}) }),
     setUltraMode: (enabled: boolean, sessionId?: string | null, options?: { permissionMode?: PermissionPreset }) =>
       call('session:set-ultra-mode', { enabled, ...(sessionId ? { sessionId } : {}), ...(options?.permissionMode ? { permissionMode: options.permissionMode } : {}) }),
+    getOrchestrationMode: (sessionId?: string | null): Promise<{ enabled: boolean }> =>
+      call('session:get-orchestration-mode', { ...(sessionId ? { sessionId } : {}) }),
+    setOrchestrationMode: (enabled: boolean, sessionId?: string | null, options?: { permissionMode?: PermissionPreset }) =>
+      call('session:set-orchestration-mode', { enabled, ...(sessionId ? { sessionId } : {}), ...(options?.permissionMode ? { permissionMode: options.permissionMode } : {}) }),
     /** Fast mode availability depends on the selected source and remains session-scoped. */
     getFastMode: (sessionId?: string | null): Promise<FastModeState> =>
       call('session:get-fast-mode', { ...(sessionId ? { sessionId } : {}) }),
@@ -909,6 +913,12 @@ expose('klaus', {
         source ? call('settings:advisor:get', { source }) : call('settings:advisor:get'),
       set: (config: { enabled?: boolean; model?: string; source?: string }) =>
         call('settings:advisor:set', config),
+    },
+    orchestrator: {
+      get: (): Promise<{ mode: 'use_medium' | 'custom'; model: string; status: string; error?: string; message?: string }> =>
+        call('settings:orchestrator:get'),
+      set: (config: { model?: string }) =>
+        call('settings:orchestrator:set', config),
     },
     // Auxiliary task models: title generation, message predictions, memory and
     // dream upkeep, and speech refinement. Each pick is one global

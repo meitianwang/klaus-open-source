@@ -3,9 +3,11 @@ import { Icon } from '../../components/Icon'
 import type { UltraAccessDecision } from './ultra-selection'
 import styles from './composer.module.css'
 
-export function UltraAccessDialog({ onDecision, translate }: {
+export function UltraAccessDialog({ onDecision, translate, titleKey = 'ultra_full_access_title', messageKey = 'ultra_full_access_message' }: {
   onDecision: (decision: UltraAccessDecision) => void
   translate: (key: string) => string
+  titleKey?: string
+  messageKey?: string
 }) {
   const titleId = useId()
   const messageId = useId()
@@ -40,8 +42,8 @@ export function UltraAccessDialog({ onDecision, translate }: {
         role="dialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={messageId}>
         <button type="button" className={styles['ultra-access-close']} aria-label={translate('close')}
           onClick={() => onDecision('cancel')}><Icon name="tc-close" size={16} /></button>
-        <div className="klaus-dialog-title" id={titleId}>{translate('ultra_full_access_title')}</div>
-        <div className="klaus-dialog-message" id={messageId}>{translate('ultra_full_access_message')}</div>
+        <div className="klaus-dialog-title" id={titleId}>{translate(titleKey)}</div>
+        <div className="klaus-dialog-message" id={messageId}>{translate(messageKey)}</div>
         <div className={`klaus-dialog-footer ${styles['ultra-access-footer']}`}>
           <button type="button" className="klaus-dialog-btn klaus-dialog-confirm klaus-dialog-danger"
             onClick={() => onDecision('full-access')}>{translate('ultra_full_access_use')}</button>

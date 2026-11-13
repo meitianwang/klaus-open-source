@@ -5,6 +5,7 @@ import { object, string } from '../../services/service-types';
 export const COMPOSER_CHANNELS = [
   'session:get-main-model', 'session:set-main-model', 'session:get-thinking-level', 'session:set-thinking-level',
   'session:get-ultra-mode', 'session:set-ultra-mode',
+  'session:get-orchestration-mode', 'session:set-orchestration-mode',
   'session:get-fast-mode', 'session:set-fast-mode',
   'session:get-permission-mode', 'session:set-permission-mode',
   'session:get-custom-main-model-options', 'session:get-main-model-options',
@@ -21,6 +22,8 @@ export function registerComposerHandlers(registry: ChannelRegistry, deps: Compos
   registry.register('session:set-thinking-level', ctx => service.setThinking(object(ctx.args[0]), ctx.assertCurrent), 'composer');
   registry.register('session:get-ultra-mode', ctx => service.getUltraMode(string(object(ctx.args[0]).sessionId)), 'composer');
   registry.register('session:set-ultra-mode', ctx => service.setUltraMode(object(ctx.args[0]), ctx.assertCurrent), 'composer');
+  registry.register('session:get-orchestration-mode', ctx => service.getOrchestrationMode(string(object(ctx.args[0]).sessionId)), 'composer');
+  registry.register('session:set-orchestration-mode', ctx => service.setOrchestrationMode(object(ctx.args[0]), ctx.assertCurrent), 'composer');
   registry.register('session:get-fast-mode', ctx => service.getFastMode(string(object(ctx.args[0]).sessionId)), 'composer');
   registry.register('session:set-fast-mode', ctx => service.setFastMode(object(ctx.args[0]), ctx.assertCurrent), 'composer');
   registry.register('session:get-permission-mode', ctx => service.getPermission(string(object(ctx.args[0]).sessionId)), 'composer');

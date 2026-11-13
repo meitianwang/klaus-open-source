@@ -1,6 +1,6 @@
 /** Cloned side composers accept messages and attachments without main workflow controls. */
 export function removeSideWorkflowControls(root: ParentNode): void {
-  root.querySelectorAll<HTMLElement>('#side-slash-menu, #side-composer-plus-menu, #side-composer-plus-submenu, #side-action-dots-host, #side-spec-banner, #side-goal-indicator, #side-planning-input-panel, #side-planning-decision-panel, #side-plan-mode-badge, #side-goal-mode-badge, #side-spec-mode-badge')
+  root.querySelectorAll<HTMLElement>('#side-slash-menu, #side-composer-plus-menu, #side-composer-plus-submenu, #side-action-dots-host, #side-spec-banner, #side-goal-indicator, #side-planning-input-panel, #side-planning-decision-panel, #side-plan-mode-badge, #side-orchestrate-mode-badge, #side-ultra-mode-badge, #side-goal-mode-badge, #side-spec-mode-badge')
     .forEach(element => element.remove())
 }
 

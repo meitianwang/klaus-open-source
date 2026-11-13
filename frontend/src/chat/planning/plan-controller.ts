@@ -1,5 +1,12 @@
 import type { PlanDocument, PlanningApi, PlanningSnapshot, ProposedPlan } from './types'
 
+export type PlanImplementationMode = 'standard' | 'goal' | 'orchestrate' | 'ultra'
+
+export interface PlanImplementationHooks {
+  prepareMode?(sessionId: string, mode: PlanImplementationMode, content: string): Promise<boolean>
+  goalState?(sessionId: string): { eligible: boolean; locked: boolean }
+}
+
 export interface PlanReviewState {
   plan: ProposedPlan
   content: string
@@ -12,11 +19,12 @@ export interface PlanReviewState {
   feedbackOpen: boolean
   feedbackDraft: string
   conflict: PlanDocument | null
+  implementationMode: PlanImplementationMode
 }
 
 /** A review lease is tied to one conversation, artifact, and complete revision. */
-export function createPlanReviewController(sessionId: string, plan: ProposedPlan, api: PlanningApi, publish: (planning: PlanningSnapshot) => void) {
-  let state: PlanReviewState = { plan, content: plan.content, baseline: plan.content, document: null, phase: 'ready', error: null, editorOpen: false, feedbackOpen: false, feedbackDraft: '', reviewPending: plan.status === 'proposed' && (plan as ProposedPlan & { reviewPending?: boolean }).reviewPending !== false, conflict: null }
+export function createPlanReviewController(sessionId: string, plan: ProposedPlan, api: PlanningApi, publish: (planning: PlanningSnapshot) => void, hooks?: PlanImplementationHooks) {
+  let state: PlanReviewState = { plan, content: plan.content, baseline: plan.content, document: null, phase: 'ready', error: null, editorOpen: false, feedbackOpen: false, feedbackDraft: '', reviewPending: plan.status === 'proposed' && (plan as ProposedPlan & { reviewPending?: boolean }).reviewPending !== false, conflict: null, implementationMode: 'standard' }
   const listeners = new Set<() => void>()
   let epoch = 0
   let disposed = false
@@ -87,9 +95,10 @@ export function createPlanReviewController(sessionId: string, plan: ProposedPlan
     }
   }
 
-  async function accept() {
+  async function accept(mode: PlanImplementationMode = state.implementationMode) {
     if (!usable()) return false
     if (!state.content.trim()) { patch({ error: 'planning_empty' }); return false }
+    if (mode !== state.implementationMode) patch({ implementationMode: mode })
     // Save the entire review before re-reading the document. The read includes
     // edits from an external editor and detects a superseded artifact revision.
     if (!(await save()) || !usable()) return false
@@ -102,6 +111,14 @@ export function createPlanReviewController(sessionId: string, plan: ProposedPlan
       const successor = latest.planning.plans.find(plan => plan.id === state.plan.id && plan.revision === latest.document.revision)
       if (!successor || successor.status !== 'proposed' || (successor as ProposedPlan & { reviewPending?: boolean }).reviewPending === false) throw new Error('planning_stale')
       patch({ plan: successor, document: latest.document, content: latest.document.content, baseline: latest.document.content })
+      if (hooks?.prepareMode) {
+        const prepared = await hooks.prepareMode(sessionId, mode, latest.document.content)
+        if (!valid(ticket)) return false
+        if (!prepared) {
+          patch({ phase: 'ready' })
+          return false
+        }
+      }
       const result = await api.accept(sessionId, { ...identity(), content: latest.document.content, clientRequestId: key('implementation', latest.document.content) })
       if (!valid(ticket)) return false
       if (result.accepted === false && result.planning.plans.find(plan => plan.id === state.plan.id)?.status !== 'accepted') throw new Error('Plan admission was refused')
@@ -179,6 +196,8 @@ export function createPlanReviewController(sessionId: string, plan: ProposedPlan
       if (await save()) patch({ editorOpen: false })
     },
     openEditor: loadDocument,
+    setImplementationMode(mode: PlanImplementationMode) { patch({ implementationMode: mode }) },
+    goalState: () => hooks?.goalState?.(sessionId) ?? { eligible: true, locked: false },
     save, accept, feedback, cancel,
     invalidateBinding() {
       epoch++

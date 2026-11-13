@@ -49,6 +49,35 @@ function advisorTarget(db: DatabaseSync): AdvisorTarget {
     modelId: (separator > 0 ? model.slice(separator + 1) : model) || 'unset',
     code: 'ADVISOR_MODEL_INVALID', message: string(settings.message) };
 }
+function orchestrator(db: DatabaseSync): JsonObject {
+  const model = normalizedModelValue(get(db, 'orchestrator.model') ?? '');
+  const reference = qualifiedModelReference(model);
+  return {
+    mode: model ? 'custom' : 'use_medium',
+    model,
+    providerSupported: true,
+    status: !model ? 'use_medium' : reference ? 'configured' : 'unavailable',
+    ...(!model || reference ? {} : {
+      error: 'orchestrator_model_invalid',
+      message: 'Choose an execution model with an explicit supported source (source:model), or reuse the shared Medium tier.',
+    }),
+  };
+}
+function orchestratorTarget(db: DatabaseSync): AdvisorTarget {
+  const settings = orchestrator(db);
+  const model = string(settings.model);
+  if (!model) return null;
+  const reference = qualifiedModelReference(model);
+  if (reference) return { type: 'source', ...reference };
+  const separator = model.indexOf(':');
+  return {
+    type: 'unavailable',
+    source: separator > 0 ? model.slice(0, separator) : 'unknown',
+    modelId: (separator > 0 ? model.slice(separator + 1) : model) || 'unset',
+    code: 'ORCHESTRATOR_MODEL_INVALID',
+    message: string(settings.message),
+  };
+}
 // Auxiliary feature models: one optional source-qualified pick per background
 // capability (title generation, message predictions, memory and dream upkeep,
 // speech refinement). An empty slot follows the session's main model. The
@@ -416,6 +445,20 @@ export class ModelFeatureSettings {
       if ((enabled || supplied && model !== previous.model) && model && !qualifiedModelReference(model)) return { ok: false, error: 'advisor_model_invalid', settings: previous };
       put(db, 'advisor.enabled', enabled ? '1' : '0'); put(db, 'advisor.model', model);
       return { ok: true, settings: advisor(db) };
+    });
+  }
+  getOrchestrator(): Json { return this.transaction(db => orchestrator(db)); }
+  getOrchestratorTarget(): AdvisorTarget { return this.transaction(db => orchestratorTarget(db)); }
+  setOrchestrator(payload: JsonObject): Json {
+    return this.transaction((db): Json => {
+      const previous = orchestrator(db);
+      const supplied = Object.hasOwn(payload, 'model');
+      if (supplied && typeof payload.model !== 'string') return { ok: false, error: 'orchestrator_model_invalid', settings: previous };
+      const model = supplied ? normalizedModelValue(string(payload.model)) : string(previous.model);
+      if (model && !qualifiedModelReference(model)) return { ok: false, error: 'orchestrator_model_invalid', settings: previous };
+      if (model) put(db, 'orchestrator.model', model);
+      else db.prepare('DELETE FROM settings WHERE key = ?').run('orchestrator.model');
+      return { ok: true, settings: orchestrator(db) };
     });
   }
   getFeatureModels(): Json { return this.transaction(db => ({ ok: true, settings: featureModels(db) })); }

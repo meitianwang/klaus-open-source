@@ -10,12 +10,12 @@ import { kvGet, isFailure } from './settings';
 import { isRequestFastSource } from '../../shared/model-fast-mode';
 import { resolvedFastModeMetadata } from './native-fast-mode';
 import {
-  DEFAULT_THINKING_LEVEL, readSessionModel, readSessionThinkingLevel, readSessionFastMode, readSessionUltraMode,
+  DEFAULT_THINKING_LEVEL, readSessionModel, readSessionThinkingLevel, readSessionFastMode, readSessionUltraMode, readSessionOrchestrationMode,
   sessionSpecMode, sessionWorkdir, sourceTierSelections, validThinkingLevel,
 } from './session-store';
 import type { Json } from '../ipc/contract';
 import { object, string } from './service-types';
-import { resolveAdvisorTarget, resolveFeatureTargets, resolveSessionProvider, type ProviderResolution, type SessionProviderDeps } from './session-provider';
+import { resolveAdvisorTarget, resolveOrchestratorTarget, resolveFeatureTargets, resolveSessionProvider, type ProviderResolution, type SessionProviderDeps } from './session-provider';
 import { resolveRuntimePolicy, runtimePolicyConfig, type RuntimePolicy } from '../../contracts/runtime-settings';
 
 /** The settings keys the composer preferences live under (`composer.rs:18-20`). */
@@ -408,6 +408,9 @@ export function buildSessionInit(options: SessionInitOptions): SessionInitResult
 
   init.modelSelection = resolved.selection;
   init.advisorTarget = resolved.advisorTarget === undefined ? resolveAdvisorTarget(configRoot) : resolved.advisorTarget;
+  const orchestratorTarget = resolved.orchestratorTarget === undefined ? resolveOrchestratorTarget(configRoot) : resolved.orchestratorTarget;
+  if (orchestratorTarget !== null) init.orchestratorTarget = orchestratorTarget;
+  if (readSessionOrchestrationMode(rendererId, configRoot)) init.orchestrationMode = true;
   // Auxiliary feature targets ride the same publication: three optional slots,
   // an explicit null per unset slot, and the speech refinement model stays out
   // because the voice runtime reads its own pick at call time.

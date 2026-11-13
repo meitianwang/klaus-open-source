@@ -302,6 +302,13 @@ export const CONTROL_SURFACES: ControlSurface[] = [
         "currentSession": true
       },
       {
+        "action": "orchestrationMode",
+        "channel": "session:get-orchestration-mode",
+        "args": "{ sessionId?: string } — Per-session planner/executor orchestration mode",
+        "confirm": false,
+        "currentSession": true
+      },
+      {
         "action": "fastMode",
         "channel": "session:get-fast-mode",
         "args": "{ sessionId?: string } — Native Fast mode and selected-model availability",
@@ -412,6 +419,13 @@ export const CONTROL_SURFACES: ControlSurface[] = [
         "action": "setUltraMode",
         "channel": "session:set-ultra-mode",
         "args": "{ enabled: boolean, sessionId?: string } — Enable proactive delegation with model-resolved request effort while retaining the saved native choice. A session id changes only that conversation; omit it to change the default for future conversations",
+        "confirm": false,
+        "currentSession": true
+      },
+      {
+        "action": "setOrchestrationMode",
+        "channel": "session:set-orchestration-mode",
+        "args": "{ enabled: boolean, sessionId?: string } — Enable planner/executor orchestration mode for a conversation while keeping its main model as planner and verifier",
         "confirm": false,
         "currentSession": true
       },
@@ -3386,6 +3400,33 @@ export const CONTROL_SURFACES: ControlSurface[] = [
       }
     ],
     "manualHeading": "顾问",
+    "panel": [
+      "settings",
+      "modelTiers"
+    ]
+  },
+  {
+    "key": "orchestrator",
+    "about": "The orchestration execution model (编排执行模型): chooses which model carries out implementation edits and verification runs when a chat enables Orchestration mode, while the chat's selected main model handles read-only planning, stage checks, and final review. Stored once globally in Settings → Model Division & Orchestration (modelTiers); an empty model value reuses the shared Medium sub-agent tier.",
+    "reads": [
+      {
+        "action": "get",
+        "channel": "settings:orchestrator:get",
+        "args": "no arguments — reads the global execution-model selection; answers { mode: 'use_medium'|'custom', model, providerSupported, status, error? }.",
+        "confirm": false,
+        "currentSession": false
+      }
+    ],
+    "writes": [
+      {
+        "action": "set",
+        "channel": "settings:orchestrator:set",
+        "args": "{ model?: string } — pass an empty string '' to reuse the shared Medium tier, or an explicit source:modelId reference.",
+        "confirm": false,
+        "currentSession": false
+      }
+    ],
+    "manualHeading": "模型档位",
     "panel": [
       "settings",
       "modelTiers"

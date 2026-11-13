@@ -108,16 +108,16 @@ test('model and permission confirmations cannot survive hiding or publish an old
   let permission!: NonNullable<ReturnType<typeof permissionModule.mountPermissionSelect>>
   await act(async () => {
     model = modelModule.mountModelSelect(modelRoot, { getSessionId: () => 'owner' })!
-    model.setItems([{ value: 'custom:test', label: 'Retained model' }], { value: 'custom:test' })
+    model.setItems([{ value: 'custom:test', label: 'Retained model', supportedThinkingLevels: ['low', 'high'] }], { value: 'custom:test' })
     permission = permissionModule.mountPermissionSelect(permissionRoot, () => 'owner')!
     permission.setValue('default')
   })
   await click(modelRoot.querySelector('button[aria-haspopup="menu"]'))
   await click(modelRoot.querySelector('.kls-select-panel button[aria-haspopup="menu"]'))
-  await click(modelRoot.querySelector('[data-ultra-row]'))
-  expect(document.querySelector('[role="dialog"]')).not.toBeNull()
+  expect((modelRoot.querySelector('[role="menu"]') as HTMLElement | null)?.hidden).toBe(false)
   await act(async () => { model.setVisible(false); model.setVisible(true) })
-  expect(document.querySelector('[role="dialog"]')).toBeNull()
+  expect((modelRoot.querySelector('.kls-select-panel') as HTMLElement | null)?.hidden).toBe(true)
+  expect((modelRoot.querySelector('[role="menu"]') as HTMLElement | null)?.hidden).toBe(true)
   expect(modelRoot.textContent).toContain('Retained model')
   await click(permissionRoot.querySelector('button[aria-haspopup="menu"]'))
   await click(permissionRoot.querySelector('[data-preset="bypassPermissions"]'))

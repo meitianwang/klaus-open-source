@@ -30,7 +30,7 @@ export const NAV_ENTRIES: NavEntry[] = [
   { kind: 'tab', stab: 'archivedSessions', i18n: 'archived_sessions', icon: 'settings-nav-archived-sessions' },
   { kind: 'group', i18n: 'settings_group_engine' },
   { kind: 'tab', stab: 'models', i18n: 'providers_settings', icon: 'settings-nav-models', searchKeys: ['models', 'model_sources_tab', 'model_defaults_tab', 'voice_engine_label'] },
-  { kind: 'tab', stab: 'modelTiers', i18n: 'model_mapping_title', icon: 'settings-nav-model-tiers', searchKeys: ['advisor_settings'] },
+  { kind: 'tab', stab: 'modelTiers', i18n: 'model_mapping_title', icon: 'settings-nav-model-tiers', searchKeys: ['orchestrator_settings', 'subagent_tiers_settings', 'advisor_settings'] },
   { kind: 'tab', stab: 'multimodal', i18n: 'multimodal_models_settings', icon: 'settings-nav-multimodal', searchKeys: ['image_tier_title', 'audio_gen_settings', 'music_gen_settings', 'video_gen_settings'] },
   { kind: 'tab', stab: 'engineWeb', i18n: 'settings_engine_web', icon: 'settings-nav-engine-web' },
   { kind: 'tab', stab: 'permissions', i18n: 'perm_rules_tab', icon: 'settings-nav-permissions' },

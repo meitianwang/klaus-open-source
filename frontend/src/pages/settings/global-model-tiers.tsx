@@ -15,6 +15,8 @@ import { useSettingsSnapshot } from './settings-snapshot'
 const w = () => window as any
 
 interface AdvisorSnapshot { enabled: boolean; model: string; pending?: object; saveError?: string }
+interface OrchestratorSnapshot { model: string; pending?: object; saveError?: string }
+const USE_MEDIUM_MODEL = '__use_medium__'
 
 // The tier mapping and catalog seed a fresh state instance across remounts;
 // the snapshot write-back below keeps them current.
@@ -25,7 +27,7 @@ export function GlobalModelTiers({ configureSource }: { configureSource: (source
   const [state] = useState(() => new GlobalModelTiersState({
     get: loadGlobalModelTierMappings, options: loadGlobalModelTierOptions, set: saveGlobalModelTier,
   }, tierViewCache ?? undefined))
-  const snapshot = useSyncExternalStore(state.subscribe, state.getSnapshot)
+  const snapshot = useSyncExternalStore(state.subscribe, state.getSnapshot, state.getSnapshot)
   const { mapping, options, editor, loading, loadError, optionsError, saving, saveError } = snapshot
   const modalRef = useRef<HTMLDivElement>(null)
   // Keep the cross-remount seed current with whatever this view last read.
@@ -126,6 +128,101 @@ export function GlobalModelTiers({ configureSource }: { configureSource: (source
     }
   }
 
+  const [orchestrator, setOrchestratorState, beginOrchestratorRead] = useSettingsSnapshot<OrchestratorSnapshot | null>('model-defaults:orchestrator', null)
+  const orchestratorSaving = Boolean(orchestrator?.pending)
+  const orchestratorSavePending = useRef(false)
+  const [orchestratorError, setOrchestratorError] = useState('')
+  useEffect(() => {
+    let cancelled = false
+    const load = () => {
+      const api = w().klaus?.settings?.orchestrator
+      const publish = beginOrchestratorRead()
+      if (!api?.get) {
+        publish(current => current ?? { model: '' })
+        return
+      }
+      publish(current => current)
+      void api.get().then((reply: any) => {
+        if (reply?.ok === false) {
+          if (!cancelled && publish(current => current)) setOrchestratorError(t('orchestrator_load_failed'))
+          return
+        }
+        if (!cancelled && publish(current => current?.pending ? current : {
+          model: String(reply?.model || ''), saveError: current?.saveError,
+        })) setOrchestratorError('')
+      }, () => { if (!cancelled && publish(current => current)) setOrchestratorError(t('orchestrator_load_failed')) })
+    }
+    load()
+    window.addEventListener('klaus:models-changed', load)
+    return () => { cancelled = true; window.removeEventListener('klaus:models-changed', load) }
+  }, [beginOrchestratorRead, t])
+
+  const orchestratorRefParsed = useMemo<ModelTierReference | null>(() => {
+    const stored = String(orchestrator?.model || '')
+    const sep = stored.indexOf(':')
+    if (sep < 1) return null
+    return { source: stored.slice(0, sep), modelId: stored.slice(sep + 1) }
+  }, [orchestrator?.model])
+  const [orchestratorSourceChoice, setOrchestratorSourceChoice] = useSettingsSnapshot('model-defaults:orchestrator-source', '')
+  useEffect(() => {
+    if (orchestratorSaving) return
+    if (!orchestrator?.model) {
+      if (orchestratorSourceChoice && orchestratorSourceChoice !== USE_MEDIUM_MODEL && !orchestratorRefParsed) return
+      if (!orchestratorSourceChoice) setOrchestratorSourceChoice(USE_MEDIUM_MODEL)
+      return
+    }
+    if (orchestratorRefParsed && orchestratorRefParsed.source !== orchestratorSourceChoice) {
+      setOrchestratorSourceChoice(orchestratorRefParsed.source)
+    }
+  }, [orchestrator?.model, orchestratorRefParsed?.source, orchestratorSourceChoice, orchestratorSaving])
+
+  const orchestratorSource = orchestratorSourceChoice === USE_MEDIUM_MODEL
+    ? USE_MEDIUM_MODEL
+    : (orchestratorSourceChoice && advisorSourceRows.some(row => row.source === orchestratorSourceChoice)
+      ? orchestratorSourceChoice
+      : orchestratorRefParsed?.source || USE_MEDIUM_MODEL)
+  const orchestratorSourceRow = orchestratorSource === USE_MEDIUM_MODEL
+    ? undefined
+    : advisorSourceRows.find(row => row.source === orchestratorSource)
+  const orchestratorModelId = orchestratorRefParsed && orchestratorRefParsed.source === orchestratorSource ? orchestratorRefParsed.modelId : ''
+  const orchestratorSelected = orchestratorSourceRow ? modelOptionForValue(orchestratorSourceRow.options || [], orchestratorModelId) : undefined
+  const orchestratorModelItems = orchestratorSource === USE_MEDIUM_MODEL ? [] : [
+    { value: '', label: t('model_tiers_pick_model'), disabled: true },
+    ...(orchestratorRefParsed && orchestratorRefParsed.source === orchestratorSource
+      && !(orchestratorSourceRow?.options || []).some(row => modelOptionHasValue(row, orchestratorRefParsed.modelId))
+      ? [{ value: orchestratorRefParsed.modelId, label: orchestratorRefParsed.modelId, disabled: true }] : []),
+    ...modelOptionsForValue(orchestratorSourceRow?.options || [], orchestratorModelId).map(row => ({
+      value: row.modelId,
+      label: row.label,
+      disabled: !modelOptionIsSelectable(row, orchestratorSource),
+    })),
+  ]
+  const orchestratorMissing = Boolean(orchestrator?.model && !orchestratorRefParsed)
+    || Boolean(orchestratorRefParsed && !advisorSourceRows.some(row => row.source === orchestratorRefParsed.source))
+    || Boolean(orchestratorModelId && !orchestratorSelected)
+
+  const saveOrchestrator = async (model: string) => {
+    if (orchestratorSavePending.current || orchestrator?.pending) return
+    orchestratorSavePending.current = true
+    const previous = orchestrator
+    const pending = {}
+    setOrchestratorState({ model, pending })
+    setOrchestratorError('')
+    try {
+      const result = await w().klaus?.settings?.orchestrator?.set({ model })
+      if (result?.ok === false) throw new Error(result.error || t('settings_failed'))
+      const saved = result?.settings || { model }
+      setOrchestratorState(current => current?.pending === pending ? { model: String(saved.model || '') } : current)
+    } catch (error: any) {
+      const message = settingsErrorText('model-tiers-action', error, 'settings_failed')
+      setOrchestratorState(current => current?.pending === pending && previous ? { ...previous, saveError: message } : current)
+      setOrchestratorError(message)
+    } finally {
+      orchestratorSavePending.current = false
+      window.dispatchEvent(new Event('klaus:models-changed'))
+    }
+  }
+
   useEffect(() => {
     void state.load()
     const refresh = () => { void state.load() }
@@ -190,6 +287,108 @@ export function GlobalModelTiers({ configureSource }: { configureSource: (source
 
       <div className={styles['tiers-group']}>
         <div className={styles['settings-section-heading']}>
+          <div className="settings-section-title">{t('orchestrator_settings')}</div>
+          <p className={styles['settings-section-hint']}>{t('orchestrator_settings_desc')}</p>
+        </div>
+        <div className={`${styles['pref-card']} ${styles['default-model-card']}`} data-orchestrator-models data-model-settings-card>
+          <div className="pref-row">
+            <div className={styles['pref-row-text']}>
+              <div className={styles['pref-row-label']} id="orchestrator-source-label">{t('model_tiers_source')}</div>
+            </div>
+            <ModelSourceSelect id="orchestrator-source-select" className={`kls-select ${styles['model-tier-select']}`}
+              labelId="orchestrator-source-label"
+              items={[
+                { value: USE_MEDIUM_MODEL, label: t('orchestrator_use_medium') },
+                ...advisorSourceRows.map(row => ({ value: row.source, label: sourceLabel(row.source) })),
+              ]}
+              value={orchestratorSource} disabled={!orchestrator || orchestratorSaving || !options}
+              bindKey={`orchestrator-source|${orchestratorSource}|${orchestratorSaving}|${Boolean(options)}`}
+              onChange={source => {
+                setOrchestratorSourceChoice(source)
+                if (source === USE_MEDIUM_MODEL) {
+                  void saveOrchestrator('')
+                  return
+                }
+                const next = orchestratorRefParsed && orchestratorRefParsed.source === source
+                  ? orchestratorRefParsed.modelId
+                  : (advisorSourceRows.find(row => row.source === source)?.options?.find(opt => modelOptionIsSelectable(opt, source))?.modelId || '')
+                if (next) void saveOrchestrator(`${source}:${next}`)
+              }} />
+          </div>
+          {orchestratorSource !== USE_MEDIUM_MODEL ? (
+            <div className="pref-row">
+              <div className={styles['pref-row-text']}>
+                <div className={styles['pref-row-label']} id="orchestrator-model-label">{t('model_tiers_model')}</div>
+              </div>
+              <KlsSelect id="orchestrator-model-select" className={`kls-select ${styles['model-tier-select']}`}
+                labelId="orchestrator-model-label" items={orchestratorModelItems} value={orchestratorModelId}
+                disabled={!orchestrator || orchestratorSaving || !options || orchestratorSourceRow?.status !== 'ready'}
+                bindKey={JSON.stringify([orchestratorSource, orchestratorModelId, orchestratorSaving, Boolean(options), orchestratorSourceRow])}
+                onChange={modelId => { void saveOrchestrator(modelId ? `${orchestratorSource}:${modelId}` : '') }} />
+            </div>
+          ) : null}
+          {orchestrator?.saveError || orchestratorError || (orchestratorSource !== USE_MEDIUM_MODEL && (orchestratorSourceRow?.status !== 'ready' || orchestratorMissing)) ? (
+            <div className="pref-row">
+              <p className={styles['tier-reason']} role="alert" style={{ margin: 0 }}>
+                {orchestrator?.saveError || orchestratorError || reasonText(orchestratorSourceRow?.reasonCode, orchestratorSourceRow?.reason) || t('orchestrator_model_unavailable')}
+              </p>
+              {orchestratorSource !== USE_MEDIUM_MODEL && orchestratorSourceRow?.status !== 'ready' ? (
+                <button type="button" className="btn-xs" onClick={() => configure(orchestratorSource)}>{t('model_tiers_configure_source')}</button>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+      </div>
+
+      <div className={styles['tiers-group']}>
+        <div className={styles['settings-section-heading']}>
+          <div className="settings-section-title">{t('subagent_tiers_settings')}</div>
+          <p className={styles['settings-section-hint']}>{t('subagent_tiers_settings_desc')}</p>
+        </div>
+        {mapping?.migration?.warning ? <p className={styles['tier-migration']} role="alert">{mapping.migration.warning === 'invalid_legacy_mapping' ? t('model_tiers_migration_invalid') : t('model_tiers_migration_warning')}</p> : null}
+        {loadError || optionsError ? (
+          <div className={styles['tier-load-error']} role="alert">
+            <span>{loadError || optionsError}</span>
+            <button type="button" className="btn-sm" onClick={() => { void state.load() }}>{t('auth_status_retry')}</button>
+          </div>
+        ) : null}
+        <div className={styles['tier-grid']}>
+          {MODEL_TIERS.map(tier => {
+            const target = mapping?.[tier.tier] || null
+            const catalog = target ? options?.sources.find(row => row.source === target.source) : undefined
+            const model = target ? modelOptionForValue(catalog?.options || [], target.modelId) : undefined
+            // Keep saved cards neutral while the source catalog is loading.
+            const catalogPending = Boolean(target) && !options && !optionsError && !loadError
+            const status = !mapping ? 'unavailable' : !target ? 'inherit'
+              : catalogPending ? 'loading'
+              : optionsError || loadError || catalog?.status !== 'ready' || !modelOptionIsSelectable(model, target.source) ? 'unavailable' : 'ready'
+            const label = status === 'loading' ? t('loading') : (model?.label || modelReferenceLabel(target, options))
+            const reason = loadError || optionsError || (target && status === 'unavailable'
+              ? reasonText(model?.reasonCode || catalog?.reasonCode, model?.reason || catalog?.reason) || t('model_tiers_missing_model') : '')
+            return (
+              <article className={styles['tier-card']} key={tier.tier} data-model-tier={tier.tier} data-tier-status={status}>
+                <header className={styles['tier-card-heading']}>
+                  <strong>{t(tier.labelKey)}</strong>
+                </header>
+                <p className={styles['tier-purpose']}>{t(tier.hintKey)}</p>
+                <div className={styles['tier-target']}>
+                  <span className={styles['tier-model-label']}>{mapping ? (target ? label : t('no_models')) : t('loading')}</span>
+                </div>
+                {reason ? <p className={styles['tier-reason']}>{reason}</p> : null}
+                <div className={styles['tier-card-actions']}>
+                  {target && status === 'unavailable' ? <button type="button" className="btn-xs" onClick={() => configure(target.source)}>{t('model_tiers_configure_source')}</button> : null}
+                  <button type="button" className="btn-sm" disabled={!mapping || Boolean(loadError) || status === 'loading'} data-tier-edit={tier.tier}
+                    aria-label={t('model_tiers_edit_label').replace('{tier}', t(tier.labelKey))}
+                    onClick={() => { state.open(tier.tier); void state.load() }}>{t('model_tiers_edit')}</button>
+                </div>
+              </article>
+            )
+          })}
+        </div>
+      </div>
+
+      <div className={styles['tiers-group']}>
+        <div className={styles['settings-section-heading']}>
           <div className="settings-section-title">{t('advisor_settings')}</div>
           <p className={styles['settings-section-hint']}>{t('advisor_settings_desc')}</p>
         </div>
@@ -230,48 +429,6 @@ export function GlobalModelTiers({ configureSource }: { configureSource: (source
               onChange={modelId => { void saveAdvisor(Boolean(advisor?.enabled), modelId ? `${advisorSource}:${modelId}` : '') }} />
           </div>
           {advisor?.saveError || advisorError || advisorMissing ? <p className={styles['tier-reason']} role="alert">{advisor?.saveError || advisorError || t('advisor_model_unavailable')}</p> : null}
-        </div>
-      </div>
-      <div className={styles['tiers-group']}>
-        {mapping?.migration?.warning ? <p className={styles['tier-migration']} role="alert">{mapping.migration.warning === 'invalid_legacy_mapping' ? t('model_tiers_migration_invalid') : t('model_tiers_migration_warning')}</p> : null}
-        {loadError || optionsError ? (
-          <div className={styles['tier-load-error']} role="alert">
-            <span>{loadError || optionsError}</span>
-            <button type="button" className="btn-sm" onClick={() => { void state.load() }}>{t('auth_status_retry')}</button>
-          </div>
-        ) : null}
-        <div className={styles['tier-grid']}>
-          {MODEL_TIERS.map(tier => {
-            const target = mapping?.[tier.tier] || null
-            const catalog = target ? options?.sources.find(row => row.source === target.source) : undefined
-            const model = target ? modelOptionForValue(catalog?.options || [], target.modelId) : undefined
-            // Keep saved cards neutral while the source catalog is loading.
-            const catalogPending = Boolean(target) && !options && !optionsError && !loadError
-            const status = !mapping ? 'unavailable' : !target ? 'inherit'
-              : catalogPending ? 'loading'
-              : optionsError || loadError || catalog?.status !== 'ready' || !modelOptionIsSelectable(model, target.source) ? 'unavailable' : 'ready'
-            const label = status === 'loading' ? t('loading') : (model?.label || modelReferenceLabel(target, options))
-            const reason = loadError || optionsError || (target && status === 'unavailable'
-              ? reasonText(model?.reasonCode || catalog?.reasonCode, model?.reason || catalog?.reason) || t('model_tiers_missing_model') : '')
-            return (
-              <article className={styles['tier-card']} key={tier.tier} data-model-tier={tier.tier} data-tier-status={status}>
-                <header className={styles['tier-card-heading']}>
-                  <strong>{t(tier.labelKey)}</strong>
-                </header>
-                <p className={styles['tier-purpose']}>{t(tier.hintKey)}</p>
-                <div className={styles['tier-target']}>
-                  <span className={styles['tier-model-label']}>{mapping ? (target ? label : t('no_models')) : t('loading')}</span>
-                </div>
-                {reason ? <p className={styles['tier-reason']}>{reason}</p> : null}
-                <div className={styles['tier-card-actions']}>
-                  {target && status === 'unavailable' ? <button type="button" className="btn-xs" onClick={() => configure(target.source)}>{t('model_tiers_configure_source')}</button> : null}
-                  <button type="button" className="btn-sm" disabled={!mapping || Boolean(loadError) || status === 'loading'} data-tier-edit={tier.tier}
-                    aria-label={t('model_tiers_edit_label').replace('{tier}', t(tier.labelKey))}
-                    onClick={() => { state.open(tier.tier); void state.load() }}>{t('model_tiers_edit')}</button>
-                </div>
-              </article>
-            )
-          })}
         </div>
       </div>
       </div>
