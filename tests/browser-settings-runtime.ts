@@ -59,6 +59,11 @@ export async function assertBrowserSettingsRuntime(runtime: DesktopRuntime, prof
     await evaluate('window.openSettings("browser")');
     await waitFor(() => evaluate('Boolean(document.querySelector("#browser-clear-data:not(:disabled)"))'), 5000, 'browser settings returns from history');
     await click('#browser-clear-data');
+    // The destructive clear is guarded by a confirmation dialog (history is
+    // checked by default); the real clearData only runs from its confirm
+    // button, the last button inside the dialog.
+    await waitFor(() => evaluate('Boolean(document.querySelector("[data-clear-dialog]"))'), 5000, 'clear asks for confirmation before deleting data');
+    await click('[data-clear-dialog] button:last-of-type');
     await waitFor(async () => (await evaluate('window.settingsApi.browserUse.history({ query: "Browser settings visit" })')).items.length === 0, 5000, 'clear history stays empty after reload');
     await evaluate('window.closeSettings()');
     runtime.browser.setConversation('manual');

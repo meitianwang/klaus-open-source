@@ -57,8 +57,10 @@ export async function assertBrowserDataRuntime(runtime: DesktopRuntime): Promise
   } finally { view.webContents.debugger.detach(); view.webContents.close(); }
   await click('[role=dialog] button:last-child');
   await waitFor(() => evaluate('!document.querySelector("[role=dialog]")'), 5000, 'the import dialog has finished closing before navigation');
-  await click('#browser-data-manage');
-  await waitFor(() => evaluate('!!document.querySelector("#settings-content input[type=password]")'), 5000, 'password and extension management renders through the production bridge').catch(async error => {
+  await click('#browser-passwords-manage');
+  // The manager toolbar (search + add) renders unconditionally; the password
+  // entry form itself sits behind the add toggle.
+  await waitFor(() => evaluate('!!document.querySelector("#settings-content input[type=search]")'), 5000, 'password management renders through the production bridge').catch(async error => {
     console.error('Browser data page diagnostic:',await evaluate('({text:document.getElementById("settings-content")?.textContent,credentials:typeof window.settingsApi.browserUse.credentials, extensions:typeof window.settingsApi.browserUse.extensions,dialog:document.querySelector("[role=dialog]")?.textContent})'));
     const logs=join(__dirname,'../browser-settings-logs');mkdirSync(logs,{recursive:true});writeFileSync(join(logs,'browser-data-page-failure.png'),(await contents.capturePage()).toPNG());throw error;
   });
