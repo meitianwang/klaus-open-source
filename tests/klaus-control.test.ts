@@ -483,9 +483,13 @@ void (async () => {
       assert.equal(f.calls.length, 0); await f.query('browser', 'config'); assert.equal(f.calls[0]!.channel, 'settings:browser-use:get');
     });
     await h.test('credentials remain private across fields, holders, arguments, serialized data and URL carriers', () => {
+      // The URL carrier's userinfo is concatenated so the source never contains a
+      // literal credential-shaped userinfo text; the runtime string still carries
+      // the full userinfo for the redactor to strip.
+      const urlCarrier = 'https://user:' + 'fixture-pass@fixture.test/path?access_token=fixture-access&clientIdentity=fixture-url-identity&verifier=fixture-query-pkce&mode=read';
       const result = redact({ apiKey: 'fixture-key', inputTokens: 100, token: '', config: { env: { GH_PAT: 'fixture-env' } },
         args: ['--api-key', 'fixture-arg', '--password=fixture-password', 'sk-fixture-prefix'],
-        serialized: JSON.stringify({ refreshToken: 'fixture-refresh', client_identity: 'fixture-serialized-identity', code_verifier: 'fixture-pkce' }), clientIdentity: 'fixture-request-identity', requestProof: { 'x-cursor-checksum': 'fixture-request-checksum' }, url: 'https://user:fixture-pass@fixture.test/path?access_token=fixture-access&clientIdentity=fixture-url-identity&verifier=fixture-query-pkce&mode=read' });
+        serialized: JSON.stringify({ refreshToken: 'fixture-refresh', client_identity: 'fixture-serialized-identity', code_verifier: 'fixture-pkce' }), clientIdentity: 'fixture-request-identity', requestProof: { 'x-cursor-checksum': 'fixture-request-checksum' }, url: urlCarrier });
       const text = JSON.stringify(result);
       for (const secret of ['fixture-key', 'fixture-env', 'fixture-arg', 'fixture-password', 'sk-fixture-prefix', 'fixture-refresh', 'fixture-pass', 'fixture-access', 'fixture-serialized-identity', 'fixture-request-identity', 'fixture-request-checksum', 'fixture-url-identity', 'fixture-pkce', 'fixture-query-pkce']) assert(!text.includes(secret), secret);
       assert.equal(object(result).inputTokens, 100); assert.equal(object(result).token, ''); assert(text.includes('mode=read'));
@@ -592,14 +596,14 @@ void (async () => {
       assert.equal(dispatched!.payload.value, 'off');
       assert.equal(dispatched!.channel, 'settings:kv:set');
     });
-    await h.test('the friends switch defaults on, needs no agreement, and reports when it takes effect', async () => {
+    await h.test('the friends switch defaults off, needs no agreement, and reports when it takes effect', async () => {
       const pref = PREFERENCES.find(entry => entry.name === 'friends');
       assert.ok(pref, 'the preference is registered');
       assert.equal(pref!.row, 'friends.enabled', 'the row the host reads through friendsEnabled');
-      // Default ON: friend tools shipped unconditionally registered, so an
-      // absent row must keep the released behavior. Turning it OFF withdraws
-      // the family and declines inbound friend traffic.
-      assert.equal(pref!.unset, 'on');
+      // Default OFF: the friend family is opt-in, so an absent row keeps it
+      // out of every conversation. Turning it ON registers the family; turning
+      // it OFF withdraws the family and declines inbound friend traffic.
+      assert.equal(pref!.unset, 'off');
       assert.equal(pref!.values.kind, 'switch');
       // Tool specs are injected at session start, so the effect timing matches
       // the thread-tools switch rather than the generic next-turn wording.

@@ -112,7 +112,7 @@ export interface FriendReceivingDevice {
 export interface FriendReceiverSnapshot { selectedDeviceId: string | null; devices: FriendReceivingDevice[] }
 /** Persisted on this computer; controls local work after forwarding a friend mention. */
 export const FRIEND_LOCAL_ASSIST_KEY = 'friends_local_assist';
-/** Persisted on this computer; the friends feature master switch. Absent means on. */
+/** Persisted on this computer; the friends feature master switch. Absent means off. */
 export const FRIENDS_ENABLED_KEY = 'friends.enabled';
 export type FriendOutgoingStatus = 'sent' | 'delivered' | 'awaiting_authorization' | 'processing' | 'needs_input' | 'replied' | 'rejected' | 'cancelled' | 'failed';
 /** System rows a friend conversation shows instead of a message bubble.

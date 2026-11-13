@@ -7,20 +7,20 @@ import { ReceiverSettings } from '../friends/ReceiverSettings'
 import { DefaultFriendGrant } from '../friends/DefaultFriendGrant'
 import styles from './settings.module.css'
 
-/** The master switch for the whole friends feature; absent means on, matching the host reader. */
+/** The master switch for the whole friends feature; absent means off, matching the host reader. */
 function FriendsFeatureToggle() {
   const t = useT()
   const [enabled, setEnabled] = useState<boolean | null>(null)
   useEffect(() => {
     let live = true
-    void kvGet(FRIENDS_ENABLED_KEY).then(raw => { if (live) setEnabled(boolChecked(raw, true)) })
+    void kvGet(FRIENDS_ENABLED_KEY).then(raw => { if (live) setEnabled(boolChecked(raw, false)) })
     return () => { live = false }
   }, [])
   return <PrefToggleRow
     id="friends-enabled"
     label={t('friends_enabled')}
     desc={t('friends_enabled_desc')}
-    checked={enabled !== false}
+    checked={enabled === true}
     disabled={enabled === null}
     onChange={async checked => {
       setEnabled(checked)

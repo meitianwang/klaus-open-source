@@ -5,8 +5,9 @@ import { join } from 'node:path';
 import { FriendsService, type FriendsDeps } from '../main/services/friends';
 import { FriendTaskStore } from '../main/services/friend-task-store';
 import { FriendMessageStore } from '../main/services/friend-message-store';
-import { bindFriendSession, friendSessionScope } from '../main/services/friend-session-scope';
+import { bindFriendSession, friendSessionScope, FRIENDS_ENABLED_KEY } from '../main/services/friend-session-scope';
 import { bindFriendConversationGroup } from '../main/services/friend-conversation-groups';
+import { kvSet } from '../main/services/settings';
 import type { FriendMessage } from '../shared/friends';
 import { Harness, waitFor } from './harness';
 
@@ -14,6 +15,7 @@ const h=new Harness(),SELF='owner',PEER='peer',FRIEND='friend',LOCAL='local-devi
 const signal=()=>new AbortController().signal;
 function fixture(devices=[REMOTE]){
   const root=mkdtempSync(join(tmpdir(),'friend-interactions-'));
+  kvSet(FRIENDS_ENABLED_KEY,'on',root);
   const requests:any[]=[],created:any[]=[],turns:any[]=[],followUps:any[]=[],sent:any[]=[];
   const store=new FriendTaskStore(root);let fail=false,obsolete=false;
   const deps:FriendsDeps={configRoot:root,serverURL:'https://fixture.invalid',account:()=>({userId:SELF,token:'fixture-token'}),enabled:()=>false,

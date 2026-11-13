@@ -14,17 +14,18 @@ export { FRIENDS_ENABLED_KEY };
  * friend context note, friend task conversations and inbound friend traffic
  * all read this one row.
  *
- * Default ON — the friend tools shipped unconditionally registered, so an
- * absent row must keep the released behavior. Turning it OFF withdraws the
- * whole family from the NEXT conversation's tool catalog, refuses calls in
- * already-open conversations, stops the per-turn friend note, and declines
- * inbound friend messages, so no friend-related prompt reaches the model.
+ * Default OFF — the friend family is opt-in: an absent row keeps it out of
+ * every conversation. Turning it ON registers the family in the NEXT
+ * conversation's tool catalog and starts the per-turn friend note; turning it
+ * OFF withdraws the family from the next catalog, refuses calls in already-open
+ * conversations, stops the per-turn friend note, and declines inbound friend
+ * messages, so no friend-related prompt reaches the model.
  * Read from the host's own settings row, like `thread_tools.enabled`.
  */
 export function friendsEnabled(configRoot: string = configRootFrom()): boolean {
   const value = kvGet(FRIENDS_ENABLED_KEY, configRoot);
   const raw = value === null || isFailure(value) ? undefined : value.trim().toLowerCase();
-  if (raw === undefined || raw === '') return true;
+  if (raw === undefined || raw === '') return false;
   return !['off', '0', 'false', 'no', 'disable', 'disabled'].includes(raw);
 }
 

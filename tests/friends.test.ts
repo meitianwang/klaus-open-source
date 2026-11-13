@@ -32,6 +32,7 @@ function deferred<T>() { let resolve!: (value: T) => void, reject!: (error: unkn
 function fixture(protocol?: string) {
   const parent = realpathSync(mkdtempSync(join(tmpdir(), 'klaus-friends-unit-'))), root = join(parent, 'profile'), resources = join(parent, 'resources');
   mkdirSync(root); mkdirSync(resources); mkdirSync(join(resources, 'read')); mkdirSync(join(resources, 'write'));
+  kvSet(FRIENDS_ENABLED_KEY, 'on', root);
   let account: MobileAccount | undefined = { userId: vector.selfUserId, token: 'owner-token' }, selected: string | null = LOCAL, unavailable = false, sendFailure = false, lostTaskAck = false, replyRefusal = false;
   let friend: FriendSummary = { id: vector.friendId, userId: vector.friendUserId, displayName: 'Stored Friend', avatarUrl: '/api/avatars/friend.png', status: 'accepted', allowIncomingAgentTasks: true, peerAllowsAgentTasks: true, online: true };
   let targets: FriendExecutionTargets | null = null;
@@ -1567,11 +1568,16 @@ h.test('direct friend references bypass legacy local assistance preferences',asy
   }finally{await f.close();}
 });
 h.test('the friends.enabled switch withdraws tools, the per-turn note and inbound traffic', async () => {
+  const bare = mkdtempSync(join(tmpdir(), 'klaus-friends-default-'));
   const f = fixture(); try {
-    // Absent row keeps the released behavior: the family is complete.
+    // Absent row: the family is opt-in, so the gate starts withheld.
+    assert.equal(friendsEnabled(bare), false);
+    assert.equal(withFriendToolsGate(FRIEND_TOOL_SPECS, false).length, 0);
+    assert.equal(FRIEND_TOOL_NAMES.size, FRIEND_TOOL_SPECS.length, 'the gate covers every spec in the family');
+
+    // The fixture opts the feature in explicitly, like a user who turned it on.
     assert.equal(friendsEnabled(f.root), true);
     assert.equal(withFriendToolsGate(FRIEND_TOOL_SPECS, true).length, FRIEND_TOOL_SPECS.length);
-    assert.equal(FRIEND_TOOL_NAMES.size, FRIEND_TOOL_SPECS.length, 'the gate covers every spec in the family');
 
     kvSet(FRIENDS_ENABLED_KEY, 'off', f.root);
     assert.equal(friendsEnabled(f.root), false);
@@ -1594,6 +1600,6 @@ h.test('the friends.enabled switch withdraws tools, the per-turn note and inboun
 
     kvSet(FRIENDS_ENABLED_KEY, 'on', f.root);
     assert.equal(friendsEnabled(f.root), true);
-  } finally { await f.close(); }
+  } finally { await f.close(); rmSync(bare, { recursive: true, force: true }); }
 });
 void h.finish(join(__dirname, 'friends-result.json'), 'friends').then(code => { clearTimeout(deadline); process.exitCode = code; });

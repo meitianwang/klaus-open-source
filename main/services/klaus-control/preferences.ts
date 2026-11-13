@@ -38,7 +38,7 @@ export const PREFERENCES: Preference[] = [
   pref('budgetUsd', 'klaus.engine.maxBudgetUsd', { kind: 'amount' }, 'no ceiling', 'no settings page', 'The session spending ceiling in US dollars.'),
   pref('checkpoints', 'klaus.checkpointing', switchValue, 'off', 'no settings page', 'Record automatic workspace checkpoints.'),
   pref('threadTools', 'thread_tools.enabled', switchValue, 'on', 'no settings page', 'Let a conversation list, read, create, fork, wait on and message other conversations.'),
-  pref('friends', 'friends.enabled', switchValue, 'on', 'friends settings page', 'Let conversations list, message and reply to Klaus friends and run the tasks friends send. Turning it off withdraws the friend tools and the friend context note and declines inbound friend traffic.'),
+  pref('friends', 'friends.enabled', switchValue, 'off', 'friends settings page', 'Let conversations list, message and reply to Klaus friends and run the tasks friends send. Turning it off withdraws the friend tools and the friend context note and declines inbound friend traffic.'),
 ];
 function onOff(raw: string): boolean | undefined {
   if (['on', '1', 'true', 'yes', 'enable', 'enabled'].includes(raw.toLowerCase())) return true;

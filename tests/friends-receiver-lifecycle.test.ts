@@ -5,8 +5,8 @@ import { join } from 'node:path';
 import { FriendsService, type FriendsDeps } from '../main/services/friends';
 import { FriendTaskStore } from '../main/services/friend-task-store';
 import { FriendMessageStore } from '../main/services/friend-message-store';
-import { bindFriendSession, friendSessionScope } from '../main/services/friend-session-scope';
-import { withSettingsTransaction } from '../main/services/settings';
+import { bindFriendSession, friendSessionScope, FRIENDS_ENABLED_KEY } from '../main/services/friend-session-scope';
+import { kvSet, withSettingsTransaction } from '../main/services/settings';
 import { IpcHandlerError } from '../main/ipc/registry';
 import type { Json } from '../main/ipc/contract';
 import type { FriendMessage, FriendTaskGrant } from '../shared/friends';
@@ -20,6 +20,7 @@ const grantJson = grant as unknown as Json;
 type Internal = { syncInbox(): Promise<void>; drainSupplements(): Promise<void>; flushReplyOutbox(): Promise<void> };
 function fixture() {
   const root = mkdtempSync(join(tmpdir(), 'friends-receiver-lifecycle-'));
+  kvSet(FRIENDS_ENABLED_KEY, 'on', root);
   const store = new FriendTaskStore(root), messages = new FriendMessageStore(root);
   const requests: Record<string, any>[] = [], created: string[] = [], retired: string[] = [], interrupted: string[] = [], idleRetired: string[] = [];
   const turns: Array<{ id: string; resolve(value: { reply: string | null }): void; reject(reason: unknown): void; done?: boolean }> = [];

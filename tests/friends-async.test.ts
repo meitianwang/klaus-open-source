@@ -6,9 +6,9 @@ import { FriendsService, FRIEND_TOOL_SPECS, type FriendsDeps } from '../main/ser
 import { FriendTaskStore } from '../main/services/friend-task-store';
 import { FriendMessageStore } from '../main/services/friend-message-store';
 import { IpcHandlerError } from '../main/ipc/registry';
-import { bindFriendSession, friendSessionScope } from '../main/services/friend-session-scope';
+import { bindFriendSession, friendSessionScope, FRIENDS_ENABLED_KEY } from '../main/services/friend-session-scope';
 import { bindFriendConversationGroup, friendConversationGroups } from '../main/services/friend-conversation-groups';
-import { withSettingsTransaction } from '../main/services/settings';
+import { kvSet, withSettingsTransaction } from '../main/services/settings';
 import { object, type JsonObject } from '../main/services/service-types';
 import type { FriendMessage, FriendTaskGrant } from '../shared/friends';
 import { Harness, waitFor } from './harness';
@@ -18,6 +18,7 @@ const SELF='owner', PEER='peer', FRIEND='friend-one', LOCAL='local-device', REMO
 const signal=()=>new AbortController().signal;
 function fixture(){
   const root=mkdtempSync(join(tmpdir(),'friend-async-'));
+  kvSet(FRIENDS_ENABLED_KEY,'on',root);
   let account:{userId:string;token:string}|undefined={userId:SELF,token:'fixture-token'};
   let origin='owner-turn';
   let failFriend='';
