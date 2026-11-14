@@ -277,7 +277,8 @@ void (async () => {
       // Retiring the QoderWork subscription removes its six `qoderwork-auth:*`
       // channels and the `qoderworkAuth` control surface.
       // 760 adds session orchestration mode (get/set) and global orchestrator execution target settings (get/set).
-      assert.equal(channels.size, 760);
+      // 762 adds `skills:cancel` and `agents:cancel` on the existing `skill` and `agents` surfaces.
+      assert.equal(channels.size, 762);
       const companionChannels = [...channels].filter(channel => channel.startsWith('desktop-pet:'));
       assert.equal(companionChannels.length, 58);
       for (const channel of companionChannels) {

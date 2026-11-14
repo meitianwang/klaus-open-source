@@ -144,6 +144,7 @@ export class OfficialPluginsService {
         await downloadExtension(base + packageFile, archive, requestSignal, {
           fetch: this.deps.fetch,
           token: endpoint.token,
+          maxBytes: 512 * 1024 ** 2,
           onProgress: ({ receivedBytes, totalBytes: declared }) => {
             totalBytes = declared || receivedBytes;
             onProgress?.({ stage: 'downloading', transferred: receivedBytes, total: declared });

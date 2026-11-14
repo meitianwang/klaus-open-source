@@ -1,0 +1,333 @@
+/* Shared extension transfer surfaces (plugins, skills, sub-agents).
+   Aligned with the desktop update-notice ink scale: one accent bar with subtle
+   shimmer, inline tabular metrics, and a single-line milestone rail. */
+
+.inlineTrack {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: 1px;
+  height: 2.5px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--fg) 8%, transparent);
+  pointer-events: none;
+}
+
+.fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+  transition: width 240ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.fillActive {
+  position: relative;
+  overflow: hidden;
+}
+
+.fillActive::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    color-mix(in srgb, var(--accent-text) 28%, transparent) 50%,
+    transparent 100%
+  );
+  transform: translateX(-100%);
+  animation: ext-transfer-shimmer 1.8s ease-in-out infinite;
+}
+
+.fillIndeterminate {
+  width: 35%;
+  animation: ext-transfer-slide 1.2s ease-in-out infinite;
+}
+
+@keyframes ext-transfer-shimmer {
+  to { transform: translateX(100%); }
+}
+
+@keyframes ext-transfer-slide {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(300%); }
+}
+
+.banner {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0 0 16px;
+  padding: 12px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+}
+
+.bannerHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.bannerLead {
+  flex: 1;
+  min-width: 200px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  color: inherit;
+}
+
+.bannerLeadClickable {
+  cursor: pointer;
+}
+
+.bannerIcon {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-hover);
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+.bannerIcon img {
+  max-width: 24px;
+  max-height: 24px;
+  object-fit: contain;
+}
+
+.bannerInfo {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.bannerTitleRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.bannerName {
+  font-size: var(--text-body-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--fg);
+}
+
+.bannerStage {
+  font-size: var(--text-small);
+  color: var(--fg-secondary);
+}
+
+.bannerMeta {
+  font-size: var(--text-caption);
+  color: var(--fg-tertiary);
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bannerActions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.track {
+  height: 5px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--fg) 8%, transparent);
+}
+
+.panel {
+  margin: 20px 0 8px;
+  padding: 14px 16px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--bg-secondary);
+}
+
+.panelTop {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+
+.panelStage {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--text-body-sm);
+  font-weight: var(--weight-medium);
+  color: var(--fg);
+}
+
+.panelNumbers {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.percent {
+  font-size: var(--text-body-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--fg);
+}
+
+.size {
+  font-size: var(--text-caption);
+  color: var(--fg-secondary);
+}
+
+.metaRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+
+.metaItem {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  font-size: var(--text-caption);
+}
+
+.metaLabel {
+  color: var(--fg-tertiary);
+}
+
+.metaValue {
+  color: var(--fg-secondary);
+  font-weight: var(--weight-medium);
+  font-variant-numeric: tabular-nums;
+}
+
+.steps {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.step {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: none;
+  min-width: 0;
+}
+
+.stepConnector {
+  flex: 1;
+  min-width: 12px;
+  height: 1px;
+  background: var(--border);
+  transition: background 240ms ease;
+}
+
+.stepConnectorActive {
+  background: color-mix(in srgb, var(--fg) 24%, transparent);
+}
+
+.stepMarker {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  flex: none;
+  color: var(--fg-quaternary);
+}
+
+.stepDone .stepMarker {
+  color: var(--fg-secondary);
+}
+
+.stepActive .stepMarker {
+  color: var(--fg);
+}
+
+.spinner {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+  box-sizing: border-box;
+  border: 1.6px solid color-mix(in srgb, var(--fg) 18%, transparent);
+  border-top-color: var(--fg);
+  border-radius: 50%;
+  animation: ext-transfer-spin 0.8s linear infinite;
+}
+
+.stepSpinner {
+  width: 11px;
+  height: 11px;
+  box-sizing: border-box;
+  border: 1.6px solid color-mix(in srgb, var(--fg) 18%, transparent);
+  border-top-color: var(--fg);
+  border-radius: 50%;
+  animation: ext-transfer-spin 0.8s linear infinite;
+}
+
+@keyframes ext-transfer-spin {
+  to { transform: rotate(360deg); }
+}
+
+.stepDot {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--fg-quaternary);
+}
+
+.stepLabel {
+  font-size: var(--text-caption);
+  color: var(--fg-quaternary);
+  white-space: nowrap;
+}
+
+.stepDone .stepLabel {
+  color: var(--fg-tertiary);
+}
+
+.stepActive .stepLabel {
+  color: var(--fg);
+  font-weight: var(--weight-medium);
+}
+
+.hint {
+  margin: 10px 0 0;
+  font-size: var(--text-caption);
+  color: var(--fg-tertiary);
+  line-height: 1.5;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner, .stepSpinner, .fillIndeterminate, .fillActive::after { animation: none; }
+  .fill, .stepConnector { transition: none; }
+}

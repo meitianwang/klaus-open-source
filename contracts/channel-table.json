@@ -6,11 +6,12 @@
     "bridgeDir": "frontend/bridge"
   },
   "summary": {
-    "registeredInvoke": 760,
-    "registeredPush": 79,
+    "registeredInvoke": 762,
+    "registeredPush": 81,
     "roles": 11
   },
   "pushChannels": [
+    "agents:progress",
     "app:navigate",
     "app:preferences-changed",
     "background-process:changed",
@@ -78,6 +79,7 @@
     "settings:browser-use:import-progress",
     "settings:runtime:windows-sandbox-setup-completed",
     "skills:changed",
+    "skills:progress",
     "ssh:askpass",
     "storage:chats-changed",
     "terminal:data",
@@ -118,6 +120,7 @@
       "bundle": "bridge/klaus-api.ts",
       "invoke": [
         "agents:background-summaries",
+        "agents:cancel",
         "agents:definitions:delete",
         "agents:definitions:list",
         "agents:definitions:read",
@@ -761,6 +764,7 @@
         "site-references:open",
         "site-references:open-targets",
         "skills:builtin",
+        "skills:cancel",
         "skills:install",
         "skills:install-from-source",
         "skills:list",
@@ -866,6 +870,7 @@
         "zhipu-auth:status"
       ],
       "push": [
+        "agents:progress",
         "app:navigate",
         "app:preferences-changed",
         "background-process:changed",
@@ -933,6 +938,7 @@
         "settings:browser-use:import-progress",
         "settings:runtime:windows-sandbox-setup-completed",
         "skills:changed",
+        "skills:progress",
         "ssh:askpass",
         "storage:chats-changed",
         "terminal:data",

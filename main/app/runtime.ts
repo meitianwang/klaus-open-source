@@ -1652,6 +1652,7 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
     endpoint: () => { const token = object(readStoredAuth(configRoot))?.token;
       return resolveSkillMarketEndpoint({ serverUrl: account.serverUrl, token: typeof token === 'string' ? token : undefined, environment: process.env }); },
     onChanged: async () => { await invalidateSkillCatalog(); emit('app:preferences-changed', { key: 'skills' }); },
+    onProgress: progress => { push('skills:progress', { ...progress }); },
   });
   registerSkillMarketHandlers(registry, skillMarket);
   early.add(() => skillMarket.close());
@@ -1663,6 +1664,7 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
     endpoint: () => { const token = object(readStoredAuth(configRoot))?.token;
       const baseUrl = account.serverUrl.replace(/\/+$/, '');
       return baseUrl ? { baseUrl, ...(typeof token === 'string' && token ? { token } : {}) } : undefined; },
+    onProgress: progress => { push('agents:progress', { ...progress }); },
   });
   registerAgentMarketHandlers(registry, agentMarket);
   early.add(() => agentMarket.close());

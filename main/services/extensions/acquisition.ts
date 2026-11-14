@@ -10,7 +10,7 @@ import { checkCancelled, download, type DownloadProgress } from '../download';
 import { pathInside } from '../workspaces';
 import { managedPath, missing } from './file-store';
 
-export const MAX_ARCHIVE_BYTES = 512 * 1024 ** 2;
+export const MAX_ARCHIVE_BYTES = 256 * 1024 ** 2;
 export const MAX_EXTRACT_BYTES = 1024 * 1024 ** 2;
 export class SavedExtensionError extends Error {
   constructor(message: string) { super(message); this.name = 'SavedExtensionError'; }
@@ -102,6 +102,46 @@ export async function fetchExtensionText(url: string, signal: AbortSignal, optio
       return new TextDecoder('utf-8', { fatal: true }).decode(Buffer.concat(chunks));
     } finally { await reader.cancel().catch(() => undefined); reader.releaseLock(); }
   });
+}
+export async function downloadExtensionText(url: string, signal: AbortSignal, options: AcquisitionHttpOptions = {}): Promise<string> {
+  const maxBytes = options.maxBytes ?? 8 * 1024 ** 2;
+  checkCancelled(signal);
+  const controller = new AbortController(), cancel = (): void => controller.abort();
+  signal.addEventListener('abort', cancel, { once: true });
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const arm = (ms: number): void => { if (timer) clearTimeout(timer); timer = setTimeout(cancel, ms); };
+  try {
+    arm(15_000);
+    const response = await guardedFetch({ ...options, maxBytes })(url, { signal: controller.signal });
+    if (!response.ok || !response.body) { await response.body?.cancel(); throw new Error(`HTTP ${response.status}`); }
+    const sizeHeader = response.headers.get('content-length');
+    const declaredTotal = sizeHeader && /^\d+$/.test(sizeHeader) ? Number(sizeHeader) : 0;
+    options.onProgress?.({ receivedBytes: 0, totalBytes: declaredTotal });
+    const reader = response.body.getReader(), chunks: Uint8Array[] = [];
+    let size = 0;
+    try {
+      for (;;) {
+        checkCancelled(signal);
+        arm(30_000);
+        const item = await reader.read();
+        if (item.done) break;
+        size += item.value.length;
+        if (size > maxBytes) throw new Error('Extension response exceeds its download limit');
+        chunks.push(item.value);
+        options.onProgress?.({ receivedBytes: size, totalBytes: declaredTotal });
+      }
+      return new TextDecoder('utf-8', { fatal: true }).decode(Buffer.concat(chunks));
+    } finally {
+      await reader.cancel().catch(() => undefined);
+      reader.releaseLock();
+    }
+  } catch (error) {
+    checkCancelled(signal);
+    throw error;
+  } finally {
+    if (timer) clearTimeout(timer);
+    signal.removeEventListener('abort', cancel);
+  }
 }
 export async function downloadExtension(url: string, target: string, signal: AbortSignal, options: AcquisitionHttpOptions = {}): Promise<void> {
   const maxBytes = options.maxBytes ?? MAX_ARCHIVE_BYTES;

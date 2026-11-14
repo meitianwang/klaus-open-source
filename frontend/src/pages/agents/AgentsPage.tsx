@@ -1,13 +1,16 @@
 // Agents 页（React 岛）——迁自 js/pages/agents.js。
 // 卡片栅格/分类 tabs/搜索/双弹窗；本地化查表（AGENT_TEXT_ZH 等）经 window
 // 桥消费（数据表仍住 settings.js，Batch 3 收尾时随 settings 一并迁 TS）。
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { useT } from '../../i18n'
 import { PageHeader } from '../../components/PageHeader'
 import { ModalPortal } from '../../components/ModalPortal'
 import { AgentCreateModal, AgentEditorModal, defaultAgentMarkdown } from './modals'
 import { agentFieldsFromContent, type AgentFormFields } from './model-items'
 import { MarketCard, MarketGrid } from '../../components/Market'
+import { ExtensionInlineProgressBar, ExtensionTransferBanner } from '../../components/ExtensionTransfer'
+import { acquisitionPending, agentAcquisitionStore, type ExtensionAcquisitionItem } from '../../components/extension-acquisition-store'
+import { canCancelPluginOperation, compactStageLabelKey, compactTransferSummary } from '../plugins/plugin-transfer'
 import { getAgentLogoSrc } from '../../icons/extension-logos'
 import { skillLogoBrickHtml } from '../skills/localize'
 import styles from './agents.module.css'
@@ -134,42 +137,82 @@ function getAgentSearchValues(agent: AgentDef, t: (k: string) => string): unknow
  * 档同一条 openEdit 路径），广场不长出第二种写/删行为。内置智能体不在广场
  * 出现，不可改的边界保持不变。
  */
-function AgentMarketControls({ item, onChanged, onDelete }: {
-  item: MarketAgent; onChanged: () => void; onDelete: (id: string) => void;
+function agentBusyLabel(operation: ExtensionAcquisitionItem | undefined, t: (k: string) => string): string {
+  if (operation?.cancelling) return t('plugins_cancelling')
+  if (operation?.phase === 'queued') return t('plugins_queued')
+  if (operation?.progress) return t(compactStageLabelKey(operation.progress.stage))
+  return t('agents_market_installing')
+}
+
+async function performAgentAcquisition(
+  item: MarketAgent,
+  t: (k: string) => string,
+  onChanged: () => void,
+): Promise<{ ok?: boolean; cancelled?: boolean; error?: string; version?: string }> {
+  const action = item.hasUpdate ? 'update' : 'install'
+  return agentAcquisitionStore.enqueue(item.slug, action, async () => {
+    const result = await w().klaus.agents.install(item.slug, item.latestVersion || undefined)
+    if (result?.cancelled) return { ok: false, cancelled: true }
+    if (result?.ok) {
+      showToast(`${t(item.hasUpdate ? 'agents_market_updated_toast' : 'agents_market_installed_toast')}: ${result.id || item.slug}`)
+      onChanged()
+      return { ok: true, version: item.latestVersion }
+    }
+    const err = result?.error || t('toast_unknown')
+    showToast(t('toast_error_prefix') + err)
+    return { ok: false, error: err }
+  })
+}
+
+function AgentMarketControls({
+  item,
+  operation,
+  onChanged,
+  onDelete,
+  onCancel,
+}: {
+  item: MarketAgent
+  operation?: ExtensionAcquisitionItem
+  onChanged: () => void
+  onDelete: (id: string) => void
+  onCancel: () => void
 }) {
   const t = useT()
-  const [busy, setBusy] = useState(false)
-  const busyRef = useRef(false)
-
-  const install = async () => {
-    if (busyRef.current) return
-    busyRef.current = true
-    setBusy(true)
-    try {
-      const result = await w().klaus.agents.install(item.slug, item.latestVersion || undefined)
-      if (result?.ok) {
-        showToast(`${t(item.hasUpdate ? 'agents_market_updated_toast' : 'agents_market_installed_toast')}: ${result.id || item.slug}`)
-        onChanged()
-      } else {
-        showToast(t('toast_error_prefix') + (result?.error || t('toast_unknown')))
-      }
-    } catch (err: any) {
-      showToast(t('toast_error_prefix') + (err?.message || err || t('toast_unknown')))
-    } finally {
-      busyRef.current = false
-      setBusy(false)
-    }
-  }
+  const busy = acquisitionPending(operation)
+  const cancellable = canCancelPluginOperation(operation)
+  const baseLabel = item.hasUpdate ? t('agents_market_update') : t('agents_market_install')
+  const idleLabel = item.hasUpdate && item.latestVersion
+    ? t('agents_update_to').replace('{version}', item.latestVersion)
+    : baseLabel
 
   const installButton = (
-    <button className="btn-xs" disabled={busy} onClick={() => { void install() }}>
-      {busy ? t('agents_market_installing') : item.hasUpdate ? t('agents_market_update') : t('agents_market_install')}
-    </button>
+    <>
+      <button
+        className="btn-xs"
+        data-agent-acquire={item.slug}
+        disabled={busy}
+        onClick={(e) => { e.stopPropagation(); void performAgentAcquisition(item, t, onChanged) }}
+      >
+        {busy && <span className={styles['agent-spinner']} aria-hidden="true" />}
+        {busy ? agentBusyLabel(operation, t) : idleLabel}
+      </button>
+      {(cancellable || operation?.cancelling) && (
+        <button
+          type="button"
+          className="btn-xs"
+          data-agent-cancel={item.slug}
+          disabled={!cancellable}
+          onClick={(e) => { e.stopPropagation(); onCancel() }}
+        >
+          {t(operation?.cancelling ? 'plugins_cancelling' : 'plugins_cancel')}
+        </button>
+      )}
+    </>
   )
   if (item.installed) return (
     <>
-      {item.installed && !item.hasUpdate ? <span className="sk-health-badge">{t('agents_market_installed')}</span> : installButton}
-      <button className="btn-xs btn-danger" onClick={() => onDelete(item.slug)}>{t('agents_market_uninstall')}</button>
+      {item.installed && !item.hasUpdate && !busy ? <span className="sk-health-badge">{t('agents_market_installed')}</span> : installButton}
+      <button className="btn-xs btn-danger" disabled={busy} onClick={(e) => { e.stopPropagation(); onDelete(item.slug) }}>{t('agents_market_uninstall')}</button>
     </>
   )
   return installButton
@@ -221,6 +264,8 @@ function createAgentViaKlaus(t: (k: string) => string) {
 
 export function AgentsPage() {
   const t = useT()
+  const transferSnap = useSyncExternalStore(agentAcquisitionStore.subscribe, agentAcquisitionStore.getSnapshot)
+  const { operations: transferOps, batch: transferBatch } = transferSnap
   const [data, setData] = useState<{ agents: AgentDef[]; failedFiles: FailedFile[] } | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [filter, setFilter] = useState('all')
@@ -253,6 +298,11 @@ export function AgentsPage() {
   }, [])
 
   useEffect(() => { void loadMarket() }, [loadMarket])
+
+  const updatableAgents = (market ?? []).filter(item => item.installed && item.hasUpdate)
+  useEffect(() => {
+    agentAcquisitionStore.setAvailableUpdates(updatableAgents.length)
+  }, [updatableAgents.length])
 
   // 广场装完的智能体要立刻出现在已安装档；已安装档删掉的也要让广场卡片回到
   // 「安装」态，所以两边任一变化都重拉广场列表。
@@ -356,10 +406,15 @@ export function AgentsPage() {
       { key: 'market', label: t('agents_tab_market'), count: market?.length ?? 0 },
       { key: 'installed', label: t('agents_tab_installed'), count: installedCount },
     ]
+    const updateAllIdle = !(transferBatch?.running || (updatableAgents.length > 0 && updatableAgents.every(item => acquisitionPending(transferOps[item.slug]))))
+    const tabActionsHtml = updatableAgents.length > 0
+      ? `<div class="${styles['agent-tab-actions']}"><button type="button" class="btn-sm" data-agent-update-all${updateAllIdle ? '' : ' disabled'}>${esc(t('agents_update_all').replace('{count}', String(updatableAgents.length)))}</button></div>`
+      : ''
     return `<div class="sk-tabbar">
           <div class="sk-tabs" role="tablist" aria-label="${esc(t('agents'))}">
             ${views.map(item => `<button class="sk-tab ${view === item.key ? 'active' : ''}" role="tab" aria-selected="${view === item.key}" tabindex="${view === item.key ? 0 : -1}" data-agent-view-tab="${esc(item.key)}">${esc(item.label)} <span class="sk-tab-count">${item.count}</span></button>`).join('')}
           </div>
+          ${tabActionsHtml}
         </div>
         ${view === 'installed' ? `<div class="sk-category-tabs" role="tablist" aria-label="${esc(t('agents'))}">
           ${tabs.map(tab => `<button class="qc-scope-tab ${active === tab.key ? 'active' : ''}" role="tab" aria-selected="${active === tab.key}" data-agent-category-tab="${esc(tab.key)}">${esc(tab.label)} <span class="qc-scope-tab-count">${tab.count}</span></button>`).join('')}
@@ -458,11 +513,42 @@ export function AgentsPage() {
         : w().renderLineIcon(w().getAgentIconName(type), w().getAgentIconToneVar(type) || undefined) as string,
     }
   }
+  const marketBySlug = new Map<string, MarketAgent>()
+  for (const item of market ?? []) marketBySlug.set(item.slug, item)
+  const refreshAll = () => { void loadMarket(); void reload() }
+  const cancelAgentTransfer = async (slug: string, displayName: string) => {
+    if (await agentAcquisitionStore.cancel(slug)) {
+      showToast(t('agents_cancelled_named').replace('{name}', displayName))
+    }
+  }
+  const updateAllAgents = async () => {
+    const bySlug = new Map(updatableAgents.map(item => [item.slug, item]))
+    await agentAcquisitionStore.runBatch([...bySlug.keys()], slug => {
+      const target = bySlug.get(slug)
+      return target ? performAgentAcquisition(target, t, refreshAll) : Promise.resolve({ ok: false })
+    })
+  }
+  const activeTransferSlug = Object.keys(transferOps).find(slug => {
+    const op = transferOps[slug]
+    return op?.phase === 'running' && Boolean(op.progress)
+  })
+  const activeTransferAgent = activeTransferSlug ? marketBySlug.get(activeTransferSlug) : undefined
+  const activeOnScreen = Boolean(activeTransferSlug && (
+    view === 'market'
+      ? visibleMarket.some(item => item.slug === activeTransferSlug)
+      : visibleAgents.some(agent => (agent?.editableId || agent?.agentType) === activeTransferSlug)
+  ))
+  const showTransferBanner = Boolean(activeTransferAgent && !activeOnScreen)
+  const queuedAgentCount = Object.values(transferOps).filter(op => op?.phase === 'queued').length
+  const agentVersionText = (item?: MarketAgent) => item?.hasUpdate && item.version && item.latestVersion
+    ? `${item.version} → ${item.latestVersion}`
+    : item?.version || item?.latestVersion || ''
 
   return (
     <div
       className="sk-section"
       onClick={(e) => {
+        if ((e.target as Element).closest('[data-agent-update-all]')) { void updateAllAgents(); return }
         // 视图与分类 tab 都住在页头工厂 HTML 里，点击由容器委托处理（同旧版事件结构）。
         const viewBtn = (e.target as Element).closest('[data-agent-view-tab]') as HTMLElement | null
         if (viewBtn) {
@@ -479,6 +565,29 @@ export function AgentsPage() {
       }}
     >
       {header(buildTabsBodyHtml(categoryTabs, activeFilter))}
+      {transferBatch && (
+        <p className={styles['agent-batch-status']} role="status" data-agent-batch>
+          {t(transferBatch.running ? 'agents_batch_progress' : transferBatch.failed ? 'agents_batch_partial' : 'agents_batch_success')
+            .replace('{completed}', String(transferBatch.completed))
+            .replace('{total}', String(transferBatch.total))
+            .replace('{failed}', String(transferBatch.failed))}
+        </p>
+      )}
+      {showTransferBanner && activeTransferAgent && activeTransferSlug && transferOps[activeTransferSlug] && (
+        <ExtensionTransferBanner
+          itemId={activeTransferSlug}
+          name={activeTransferAgent.name || activeTransferAgent.slug}
+          iconHtml={agentIcon(activeTransferAgent.slug).__html}
+          operation={transferOps[activeTransferSlug]!}
+          queuedCount={queuedAgentCount}
+          openLabelKey="plugins_transfer_locate"
+          onOpen={view !== 'market' ? () => setView('market') : undefined}
+          onCancel={() => { void cancelAgentTransfer(activeTransferSlug, activeTransferAgent.name || activeTransferAgent.slug) }}
+          bannerAttr="agent-transfer-banner"
+          detailAttr="agent-transfer-locate"
+          cancelAttr="agent-cancel"
+        />
+      )}
       {view === 'market' && marketError && (
         <div className={styles['sk-load-warning']} role="status">
           <span>{marketError}</span>
@@ -491,25 +600,51 @@ export function AgentsPage() {
             <div dangerouslySetInnerHTML={{ __html: w().klsLoading.render() }} />
           ) : (
             <MarketGrid empty={visibleMarket.length === 0} emptyText={t('agents_market_empty')}>
-              {visibleMarket.map(item => (
-                <MarketCard
-                  key={item.slug}
-                  datasets={{ slug: item.slug, search: [item.slug, item.name, item.description, item.author].join(' ') }}
-                  iconHtml={agentIcon(item.slug).__html}
-                  title={item.name || item.slug}
-                  subtitle={<span className={styles['sk-row-cmd']}>{`@agent-${item.slug}`}</span>}
-                  badge={(
-                    <>
-                      {item.model && item.model !== 'inherit' ? <span className="s-badge s-badge-gray">{item.model}</span> : null}
-                      {item.author ? <span className="s-badge s-badge-gray">{item.author}</span> : null}
-                      {item.hasUpdate ? <span className="s-badge s-badge-blue">{t('agents_market_update_available')}</span> : null}
-                    </>
-                  )}
-                  desc={item.description || item.slug}
-                  onOpen={item.installed ? () => { void openEdit(item.slug) } : undefined}
-                  controls={<AgentMarketControls item={item} onChanged={() => { void loadMarket(); void reload() }} onDelete={id => { void onDelete(id) }} />}
-                />
-              ))}
+              {visibleMarket.map(item => {
+                const operation = transferOps[item.slug]
+                const summary = compactTransferSummary(operation, t)
+                const versionText = agentVersionText(item)
+                return (
+                  <div key={item.slug} className={styles['agent-market-card-wrap']}>
+                    <MarketCard
+                      datasets={{ slug: item.slug, search: [item.slug, item.name, item.description, item.author].join(' ') }}
+                      iconHtml={agentIcon(item.slug).__html}
+                      title={item.name || item.slug}
+                      subtitle={summary
+                        ? <span className={styles['agent-transfer-meta']} data-agent-transfer-meta={item.slug}>{summary}</span>
+                        : (
+                          <>
+                            <span className={styles['sk-row-cmd']}>{`@agent-${item.slug}`}</span>
+                            {item.hasUpdate && versionText && <span className={styles['agent-version']}>{versionText}</span>}
+                          </>
+                        )}
+                      badge={(
+                        <>
+                          {item.model && item.model !== 'inherit' ? <span className="s-badge s-badge-gray">{item.model}</span> : null}
+                          {item.author ? <span className="s-badge s-badge-gray">{item.author}</span> : null}
+                          {item.hasUpdate ? <span className="s-badge s-badge-blue">{t('agents_market_update_available')}</span> : null}
+                        </>
+                      )}
+                      desc={item.description || item.slug}
+                      onOpen={item.installed ? () => { void openEdit(item.slug) } : undefined}
+                      controls={
+                        <AgentMarketControls
+                          item={item}
+                          operation={operation}
+                          onChanged={refreshAll}
+                          onDelete={id => { void onDelete(id) }}
+                          onCancel={() => { void cancelAgentTransfer(item.slug, item.name || item.slug) }}
+                        />
+                      }
+                    />
+                    <ExtensionInlineProgressBar
+                      operation={operation}
+                      label={`${item.name || item.slug} ${agentBusyLabel(operation, t)}`}
+                      dataAttr="agent-inline-bar"
+                    />
+                  </div>
+                )
+              })}
             </MarketGrid>
           )
         ) : visibleAgents.length + visibleFailed.length ? (
@@ -523,6 +658,13 @@ export function AgentsPage() {
               // does not apply.
               const model = typeof agent?.model === 'string' && agent.model && agent.model !== 'inherit' ? agent.model : ''
               const editable = agent?.editableId
+              const marketKey = editable || name
+              const marketEntry = category === 'user' ? marketBySlug.get(marketKey) : undefined
+              const operation = marketEntry ? transferOps[marketEntry.slug] : undefined
+              const transferPending = acquisitionPending(operation)
+              const cancellable = canCancelPluginOperation(operation)
+              const summary = compactTransferSummary(operation, t)
+              const versionText = agentVersionText(marketEntry)
               return (
                 <div
                   className={`sk-card ${styles['agent-card']} ${styles['agent-card-clickable']}`}
@@ -537,15 +679,21 @@ export function AgentsPage() {
                       <span className="kls-icon-host" dangerouslySetInnerHTML={agentIcon(name)} />
                       <div className={styles['slash-command-card-title']}>
                         <div className={styles['slash-command-name']}>@agent-{name}</div>
-                        <div className={styles['slash-command-display-name']}>{localizeAgentDisplayName(agent)}</div>
+                        <div className={styles['slash-command-display-name']}>{marketEntry?.name || localizeAgentDisplayName(agent)}</div>
                       </div>
                     </div>
                   </div>
                   <div className={styles['sk-card-desc']}>{localizeAgentDescription(agent) || t('agents_no_description')}</div>
-                  <div className={styles['agent-card-meta']}>{summarizeAgentTools(agent, t)}</div>
+                  <div className={styles['agent-card-meta']}>
+                    {summary
+                      ? <span className={styles['agent-transfer-meta']} data-agent-transfer-meta={marketEntry?.slug}>{summary}</span>
+                      : summarizeAgentTools(agent, t)}
+                  </div>
                   <div className={styles['slash-command-card-foot']}>
                     <div className={styles['slash-command-badges']}>
                       <span className={`s-badge ${agentBadgeClass(agent)}`}>{t(`agents_category_${category}`) || agent?.source || t('sys_auth_unknown')}</span>
+                      {marketEntry?.hasUpdate && versionText && <span className={styles['agent-version']}>{versionText}</span>}
+                      {marketEntry?.hasUpdate && <span className="s-badge s-badge-blue">{t('agents_market_update_available')}</span>}
                       {model ? <span className="s-badge s-badge-gray">{model}</span> : null}
                       {agent?.effort !== undefined && <span className="s-badge s-badge-gray">{String(agent.effort)}</span>}
                       {agent?.memory && <span className="s-badge s-badge-gray">{`memory:${agent.memory}`}</span>}
@@ -554,10 +702,41 @@ export function AgentsPage() {
                       {agent?.background === true && <span className="s-badge s-badge-gray">{t('agents_badge_background')}</span>}
                     </div>
                     <div className={styles['sk-card-actions']}>
-                      <button className="btn-xs" onClick={() => insertAgentMention(name)}>{t('agents_use')}</button>
-                      {editable && <button className="btn-xs btn-danger" disabled={Boolean(actionBusy)} onClick={() => { void onDelete(editable) }}>{t('delete_title')}</button>}
+                      {marketEntry && (marketEntry.hasUpdate || transferPending) && (
+                        <>
+                          <button
+                            className="btn-xs"
+                            data-agent-update={marketEntry.slug}
+                            disabled={transferPending}
+                            onClick={() => { void performAgentAcquisition(marketEntry, t, refreshAll) }}
+                          >
+                            {transferPending && <span className={styles['agent-spinner']} aria-hidden="true" />}
+                            {transferPending
+                              ? agentBusyLabel(operation, t)
+                              : (marketEntry.latestVersion ? t('agents_update_to').replace('{version}', marketEntry.latestVersion) : t('agents_market_update'))}
+                          </button>
+                          {(cancellable || operation?.cancelling) && (
+                            <button
+                              type="button"
+                              className="btn-xs"
+                              data-agent-cancel={marketEntry.slug}
+                              disabled={!cancellable}
+                              onClick={() => { void cancelAgentTransfer(marketEntry.slug, marketEntry.name || localizeAgentDisplayName(agent) || name) }}
+                            >
+                              {t(operation?.cancelling ? 'plugins_cancelling' : 'plugins_cancel')}
+                            </button>
+                          )}
+                        </>
+                      )}
+                      <button className="btn-xs" disabled={transferPending} onClick={() => insertAgentMention(name)}>{t('agents_use')}</button>
+                      {editable && <button className="btn-xs btn-danger" disabled={Boolean(actionBusy) || transferPending} onClick={() => { void onDelete(editable) }}>{t('delete_title')}</button>}
                     </div>
                   </div>
+                  <ExtensionInlineProgressBar
+                    operation={operation}
+                    label={`${localizeAgentDisplayName(agent) || name} ${agentBusyLabel(operation, t)}`}
+                    dataAttr="agent-inline-bar"
+                  />
                 </div>
               )
             })}

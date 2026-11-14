@@ -28,7 +28,7 @@ void (async () => {
   await h.test('the seven market handlers are real registrations and uploads accept the frontend binary envelope', async () => {
     const f = await marketFixture();
     try {
-      assert.deepEqual(f.registry.channels(), ['plugins:marketplace:add', 'plugins:refresh', 'skills:install', 'skills:install-from-source', 'skills:market', 'skills:update', 'skills:upload'].sort());
+      assert.deepEqual(f.registry.channels(), ['plugins:marketplace:add', 'plugins:refresh', 'skills:cancel', 'skills:install', 'skills:install-from-source', 'skills:market', 'skills:update', 'skills:upload'].sort());
       assert.deepEqual(await f.invoke('skills:upload', { name: 'my skill.md', buffer: { __klausBinary: skill('uploaded').toString('base64') } }), { ok: true, name: 'my-skill', missingBins: [], missingEnv: [] });
       assert.equal(await readFile(join(f.root, 'skills/my-skill/SKILL.md'), 'utf8'), skill('uploaded').toString());
       assert.deepEqual(await f.invoke('skills:upload', { name: '中文 技能.md', buffer: { __klausBinary: skill('unicode').toString('base64') } }), { ok: true, name: '中文-技能', missingBins: [], missingEnv: [] });
@@ -280,6 +280,36 @@ void (async () => {
       assert.deepEqual(f.requests.map(request => request.authorization), ['Bearer fixture-token', 'Bearer fixture-token']);
       assert.equal(target.requests[0]!.authorization, undefined);
     } finally { await f.close(); await target.close(); }
+  });
+  await h.test('skill download emits monotonic stage progress and supports user cancellation cleanly', async () => {
+    const events: Array<Record<string, unknown>> = [];
+    const f = await remote({ skills: { onProgress: event => { events.push({ ...event }); } } });
+    try {
+      f.route((_request, response) => serve(response, archive('streamed')));
+      const updated = object(await f.market.update({ slug: 'streamed', version: '2.0.0' }));
+      assert.equal(updated.ok, true);
+      const stages = events.map(e => e.stage);
+      assert.equal(stages.includes('downloading') && stages.includes('extracting') && stages.includes('installing'), true);
+      assert.equal(events.at(-1)?.cancellable, false);
+
+      await put(join(f.root, 'skills/keep/SKILL.md'), skill('preserved'));
+      let held: ServerResponse | undefined;
+      f.route((_request, response) => {
+        held = response;
+        response.writeHead(200, { 'Content-Length': '1048576' });
+        response.write(Buffer.alloc(1024));
+      });
+      const pending = f.market.update({ slug: 'keep', version: '2.0.0' });
+      await waitFor(() => held !== undefined, 2000, 'skill download started');
+      const cancelReply = object(await f.invoke('skills:cancel', { name: 'keep' }));
+      assert.equal(cancelReply.ok, true);
+      assert.equal(cancelReply.cancelled, true);
+      const cancelledOutcome = object(await pending);
+      assert.equal(cancelledOutcome.ok, false);
+      assert.equal(cancelledOutcome.cancelled, true);
+      assert.equal(await readFile(join(f.root, 'skills/keep/SKILL.md'), 'utf8'), skill('preserved').toString());
+      await cleanStages(f);
+    } finally { await f.close(); }
   });
   process.exitCode = await h.finish(join(__dirname, 'skills-market.result.json'), 'skills-market');
 })();

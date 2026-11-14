@@ -626,6 +626,13 @@ export const CONTROL_SURFACES: ControlSurface[] = [
         "args": "{ slug: string, version?: string } — installs one plaza entry into ~/.klaus/agents/<slug>.md through the same writer as `save`; there is no plaza uninstall, removal is `delete`",
         "confirm": false,
         "currentSession": false
+      },
+      {
+        "action": "cancel",
+        "channel": "agents:cancel",
+        "args": "{ slug: string } — cancel a queued or running plaza download before it commits",
+        "confirm": false,
+        "currentSession": false
       }
     ],
     "manualHeading": "扩展怎么被加载",
@@ -727,6 +734,13 @@ export const CONTROL_SURFACES: ControlSurface[] = [
         "action": "update",
         "channel": "skills:update",
         "args": "{ slug: string, version?: string (defaults to the newest) }",
+        "confirm": false,
+        "currentSession": false
+      },
+      {
+        "action": "cancel",
+        "channel": "skills:cancel",
+        "args": "{ name: string } — cancel a queued or running skill download before it commits",
         "confirm": false,
         "currentSession": false
       },

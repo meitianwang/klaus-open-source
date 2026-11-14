@@ -530,6 +530,7 @@ expose('klaus', {
     // 用户智能体文件，删除仍走 definitions.delete，只保留一种回收站行为。
     market: (opts?: { query?: string }) => call('agents:market', opts),
     install: (slug: string, version?: string) => call('agents:install', { slug, version }),
+    cancel: (slug: string) => call('agents:cancel', { slug }),
   },
 
   // Engine introspection / control surfaces that don't fit chat or session.
@@ -1440,6 +1441,7 @@ expose('klaus', {
       }),
     update: (slug: string, version?: string) =>
       call('skills:update', { slug, version }),
+    cancel: (name: string) => call('skills:cancel', { name }),
     uninstall: (name: string, opts?: { projectRoot?: string }) =>
       call('skills:uninstall', { name, projectRoot: opts?.projectRoot }),
     toggle: (name: string, enabled: boolean) => call('skills:toggle', { name, enabled }),
@@ -1869,6 +1871,10 @@ expose('klaus', {
       subscribe('updater:status', (status: any) => cb(status)),
     pluginProgress: (cb: (progress: any) => void): Unsubscribe =>
       subscribe('plugins:progress', (progress: any) => cb(progress)),
+    skillProgress: (cb: (progress: any) => void): Unsubscribe =>
+      subscribe('skills:progress', (progress: any) => cb(progress)),
+    agentProgress: (cb: (progress: any) => void): Unsubscribe =>
+      subscribe('agents:progress', (progress: any) => cb(progress)),
     mcpStatusUpdated: (cb: (payload: { cwd?: string }) => void): Unsubscribe =>
       subscribe('mcp:status:updated', (payload: { cwd?: string }) => cb(payload)),
     /**

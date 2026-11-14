@@ -1,10 +1,11 @@
 import { isAbsolute, join } from 'node:path';
 import type { Json } from '../ipc/contract';
-import { checkCancelled } from '../services/download';
-import { errorMessage, object, string, type JsonObject } from '../services/service-types';
-import { fetchExtensionText, PendingAcquisitions } from '../services/extensions/acquisition';
+import { Cancelled, checkCancelled } from '../services/download';
+import { errorMessage, object, requiredString, string, type JsonObject } from '../services/service-types';
+import { downloadExtensionText, fetchExtensionText, PendingAcquisitions } from '../services/extensions/acquisition';
 import { atomicDocument, directoryNames, managedPath, missing, optionalDocument } from '../services/extensions/file-store';
 import { frontmatter } from '../services/extensions/frontmatter';
+import { ExtensionTransferTracker, type ExtensionTransferEvent, type TrackedAcquisition } from '../services/extensions/transfer-progress';
 
 /** Where the sub-agent plaza is read from. There is no upstream inventory to proxy. */
 export interface AgentMarketEndpoint { baseUrl: string; token?: string }
@@ -19,6 +20,9 @@ export interface AgentMarketDeps {
    */
   saveAgent: (payload: { id: string; content: string }) => Promise<Json>;
   endpoint: () => AgentMarketEndpoint | undefined | Promise<AgentMarketEndpoint | undefined>;
+  onProgress?: (event: ExtensionTransferEvent) => void;
+  progressIntervalMs?: number;
+  now?: () => number;
   /**
    * Test/ops override only, mirroring KLAUS_SKILLS_MARKET_DIR: an absolute
    * directory holding `agents-catalog.json` + `agents/<file>.md`, read straight
@@ -28,7 +32,6 @@ export interface AgentMarketDeps {
   environment?: NodeJS.ProcessEnv;
   fetch?: typeof fetch;
   requestTimeoutMs?: number;
-  downloadTimeoutMs?: number;
 }
 
 /** An agent is one Markdown file, so the download cap is a document cap, not an archive cap. */
@@ -50,7 +53,16 @@ const failed = (error: unknown, slug?: string): JsonObject => ({
  */
 export class AgentMarketService {
   private readonly pending = new PendingAcquisitions();
-  constructor(private readonly deps: AgentMarketDeps) {}
+  private readonly transfers: ExtensionTransferTracker;
+  constructor(private readonly deps: AgentMarketDeps) {
+    this.transfers = new ExtensionTransferTracker({ onProgress: deps.onProgress, progressIntervalMs: deps.progressIntervalMs, now: deps.now });
+  }
+
+  cancel(payload: JsonObject): Json {
+    const raw = typeof payload.slug === 'string' && payload.slug.trim() ? payload.slug : payload.id;
+    const id = requiredString(raw, 'slug');
+    return this.transfers.cancel(id);
+  }
 
   private async localDirectory(): Promise<string | undefined> {
     const explicit = this.deps.marketDirectory ?? (this.deps.environment ?? process.env).KLAUS_AGENTS_MARKET_DIR;
@@ -159,7 +171,7 @@ export class AgentMarketService {
   }
 
   /** Fetch one agent's Markdown, from the local mirror or the server. */
-  private async download(slug: string, version: string, signal: AbortSignal): Promise<string> {
+  private async download(slug: string, version: string, signal: AbortSignal, tracked?: TrackedAcquisition): Promise<string> {
     const directory = await this.localDirectory();
     if (directory) {
       const raw = await optionalDocument(await managedPath(directory, 'agents-catalog.json'));
@@ -179,19 +191,29 @@ export class AgentMarketService {
     const url = new URL(endpoint.baseUrl.replace(/\/+$/, '') + '/api/market/agents/download');
     url.searchParams.set('slug', slug);
     if (version) url.searchParams.set('version', version);
-    return fetchExtensionText(url.href, signal, {
-      fetch: this.deps.fetch, token: endpoint.token, timeoutMs: this.deps.downloadTimeoutMs, maxBytes: MAX_AGENT_BYTES,
+    return downloadExtensionText(url.href, signal, {
+      fetch: this.deps.fetch,
+      token: endpoint.token,
+      maxBytes: MAX_AGENT_BYTES,
+      onProgress: ({ receivedBytes, totalBytes }) => tracked?.emit('downloading', receivedBytes, totalBytes),
     });
   }
 
   install(payload: JsonObject): Promise<Json> {
-    return this.pending.run(async (signal): Promise<Json> => {
+    const initialSlug = string(payload.slug).trim();
+    const action: 'install' | 'update' = payload.updating === true ? 'update' : 'install';
+    const tracked = this.transfers.begin(initialSlug, action);
+    return this.pending.run(async (pendingSignal): Promise<Json> => {
+      const signal = AbortSignal.any([pendingSignal, tracked.signal]);
       const slug = string(payload.slug).trim();
       if (!validSlug(slug)) return failed('Invalid agent name', slug);
+      tracked.setId(slug);
+      if (tracked.isCancelledByUser()) return { ok: false, slug, cancelled: true };
       const version = string(payload.version).trim();
       try {
-        const content = await this.download(slug, version, signal);
+        const content = await this.download(slug, version, signal, tracked);
         checkCancelled(signal);
+        tracked.emit('verifying');
         // Fail before touching disk: a card whose file has no name or no prompt
         // would install an agent the engine silently skips, which reads as a
         // successful install that never appears in the roster.
@@ -200,16 +222,22 @@ export class AgentMarketService {
         if (!string(parsed.data.name).trim()) throw new Error('The agent file has no frontmatter name');
         if (!string(parsed.data.description).trim()) throw new Error('The agent file has no frontmatter description');
         if (!parsed.body.trim()) throw new Error('The agent file has no prompt body');
+        checkCancelled(signal);
+        tracked.lockCommit();
+        tracked.emit('installing');
         const result = object(await this.deps.saveAgent({ id: slug, content }));
         if (result.ok !== true) throw new Error(string(result.error) || 'The agent could not be saved');
         await this.record(slug, version || string(object(parsed.data.latestVersion).version) || 'latest', (await this.localDirectory()) ? 'local' : 'market');
         return { ok: true, slug, id: string(result.id) || slug, version: version || 'latest' };
       } catch (error) {
+        if (tracked.isCancelledByUser() && (error instanceof Cancelled || tracked.signal.aborted)) {
+          return { ok: false, slug, cancelled: true };
+        }
         if ((error as NodeJS.ErrnoException)?.code === 'ENOENT' || missing(error)) return failed('Agent not found', slug);
         return failed(error, slug);
       }
-    });
+    }).finally(() => { tracked.finish(); });
   }
 
-  async close(): Promise<void> { await this.pending.close(); }
+  async close(): Promise<void> { this.transfers.abortAll(); await this.pending.close(); }
 }

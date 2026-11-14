@@ -50,12 +50,15 @@ describe('agents page plaza contract', () => {
     expect(page).toContain("view === 'installed' ? `<div class=\"sk-category-tabs\"")
   })
 
-  test('the plaza opens exactly two channels and leaves removal to the agent file path', () => {
-    expect(handlers).toContain("['agents:market', 'agents:install']")
+  test('the plaza opens market, install and cancel channels while leaving removal to the agent file path', () => {
+    expect(handlers).toContain("['agents:market', 'agents:install', 'agents:cancel']")
     expect(bridge).toContain("call('agents:market', opts)")
     expect(bridge).toContain("call('agents:install', { slug, version })")
+    expect(bridge).toContain("call('agents:cancel', { slug })")
     expect(page).toContain('w().klaus.agents.market()')
     expect(page).toContain('w().klaus.agents.install(item.slug')
+    expect(page).toContain('ExtensionTransferBanner')
+    expect(page).toContain('agentAcquisitionStore')
     // 广场不新增删除通道：装完就是普通用户智能体文件。
     expect(page).not.toContain('agents:uninstall')
     expect(handlers).not.toContain('uninstall')

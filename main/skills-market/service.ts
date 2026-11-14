@@ -3,19 +3,23 @@ import { basename, isAbsolute, join } from 'node:path';
 import type { Json } from '../ipc/contract';
 import { decodeBinary } from '../ipc/binary';
 import { IpcHandlerError } from '../ipc/registry';
-import { checkCancelled } from '../services/download';
-import { errorMessage, object, string, type JsonObject } from '../services/service-types';
+import { Cancelled, checkCancelled } from '../services/download';
+import { errorMessage, object, requiredString, string, type JsonObject } from '../services/service-types';
 import { withSettingsTransaction } from '../services/settings';
 import { copyExtensionTree, downloadExtension, extractExtensionZip, fetchExtensionText, PendingAcquisitions, replaceExtensionDirectory, SavedExtensionError } from '../services/extensions/acquisition';
 import { atomicDocument, directoryNames, managedPath, missing, optionalDocument } from '../services/extensions/file-store';
 import { frontmatter, scalar } from '../services/extensions/frontmatter';
 import type { SkillService } from '../services/extensions/skills';
+import { ExtensionTransferTracker, type ExtensionTransferEvent, type TrackedAcquisition } from '../services/extensions/transfer-progress';
 
 export interface SkillMarketEndpoint { baseUrl: string; direct: boolean; token?: string }
 export interface SkillMarketDeps {
   skills: SkillService;
   endpoint: () => SkillMarketEndpoint | undefined | Promise<SkillMarketEndpoint | undefined>;
   onChanged: () => void | Promise<void>;
+  onProgress?: (event: ExtensionTransferEvent) => void;
+  progressIntervalMs?: number;
+  now?: () => number;
   /** Test/ops override only: the shipped client has no bundled free catalog, the server hosts it. */
   marketDirectory?: string;
   environment?: NodeJS.ProcessEnv;
@@ -54,10 +58,19 @@ const dependencies = (value: { missingBins: string[]; missingEnv: string[]; unsu
 /** Acquires skill content, while the existing SkillService serializes every skill mutation. */
 export class SkillMarketService {
   private readonly pending = new PendingAcquisitions();
+  private readonly transfers: ExtensionTransferTracker;
   private readonly configRoot: string;
-  constructor(private readonly deps: SkillMarketDeps) { this.configRoot = deps.skills.configRoot; }
+  constructor(private readonly deps: SkillMarketDeps) {
+    this.configRoot = deps.skills.configRoot;
+    this.transfers = new ExtensionTransferTracker({ onProgress: deps.onProgress, progressIntervalMs: deps.progressIntervalMs, now: deps.now });
+  }
   private mutate(operation: (signal: AbortSignal) => Promise<Json>): Promise<Json> {
     return this.pending.run(signal => this.deps.skills.withMutation(() => { checkCancelled(signal); return operation(signal); }));
+  }
+  cancel(payload: JsonObject): Json {
+    const raw = typeof payload.name === 'string' && payload.name.trim() ? payload.name : payload.slug;
+    const id = requiredString(raw, 'name');
+    return this.transfers.cancel(id);
   }
   // The free catalog moved to the server-hosted market; the shipped client has
   // no bundled copy to fall back to. Only an explicit absolute directory (test
@@ -191,11 +204,16 @@ export class SkillMarketService {
     try { await this.deps.onChanged(); }
     catch (error) { throw new SavedExtensionError('Skill was saved, but reloading live sessions failed: ' + errorMessage(error)); }
   }
-  private async installArchive(name: string, version: string, url: string, signal: AbortSignal, endpoint?: SkillMarketEndpoint, recordSource = 'upstream'): Promise<JsonObject> {
+  private async installArchive(name: string, version: string, url: string, signal: AbortSignal, endpoint?: SkillMarketEndpoint, recordSource = 'upstream', tracked?: TrackedAcquisition): Promise<JsonObject> {
     const stage = await this.staging();
     try {
       const archive = join(stage, 'skill.zip'), extracted = join(stage, 'content'); await mkdir(extracted, { mode: 0o700 });
-      await downloadExtension(url, archive, signal, { fetch: this.deps.fetch, token: endpoint?.token });
+      await downloadExtension(url, archive, signal, {
+        fetch: this.deps.fetch,
+        token: endpoint?.token,
+        onProgress: ({ receivedBytes, totalBytes }) => tracked?.emit('downloading', receivedBytes, totalBytes),
+      });
+      tracked?.emit('extracting');
       await extractExtensionZip(archive, extracted, signal);
       let root = extracted;
       if (await optionalDocument(join(root, 'SKILL.md')) === undefined) {
@@ -209,16 +227,19 @@ export class SkillMarketService {
       const meta = parsed.data;
       const deps = await this.deps.skills.missingDependencies(meta);
       if (deps.unsupported) throw new Error('This skill is not supported on this operating system');
+      checkCancelled(signal);
+      tracked?.lockCommit();
+      tracked?.emit('installing');
       await replaceExtensionDirectory(this.configRoot, 'skills/' + name, root, signal, () => this.record(name, version, recordSource, Boolean(endpoint)));
       await this.changed();
       return { ok: true, name, missingBins: deps.missingBins, missingEnv: deps.missingEnv };
     } finally { await rm(stage, { recursive: true, force: true }); }
   }
-  private async remoteInstall(name: string, version: string, endpoint: SkillMarketEndpoint, signal: AbortSignal): Promise<JsonObject> {
+  private async remoteInstall(name: string, version: string, endpoint: SkillMarketEndpoint, signal: AbortSignal, tracked?: TrackedAcquisition): Promise<JsonObject> {
     const url = this.url(endpoint, 'download'); url.searchParams.set('slug', name); if (version) url.searchParams.set('version', version);
-    return this.installArchive(name, version || 'latest', url.href, signal, endpoint);
+    return this.installArchive(name, version || 'latest', url.href, signal, endpoint, 'upstream', tracked);
   }
-  private async localInstall(payload: JsonObject, name: string, signal: AbortSignal): Promise<JsonObject> {
+  private async localInstall(payload: JsonObject, name: string, signal: AbortSignal, tracked?: TrackedAcquisition): Promise<JsonObject> {
     const directory = await this.localDirectory(); if (!directory) return failed('Skill not found', name);
     const source = await managedPath(directory, name), raw = await optionalDocument(await managedPath(source, 'SKILL.md'));
     if (raw === undefined) return failed('Skill not found', name);
@@ -230,37 +251,60 @@ export class SkillMarketService {
       canAutoInstall: false, missingBins: deps.missingBins, missingEnv: deps.missingEnv, installCommands: [], error: 'Missing dependencies: ' + deps.missingBins.join(', ') };
     const stage = await this.staging();
     try {
+      tracked?.emit('extracting');
       const copy = join(stage, 'content'); await copyExtensionTree(source, copy, signal);
+      checkCancelled(signal);
+      tracked?.lockCommit();
+      tracked?.emit('installing');
       await replaceExtensionDirectory(this.configRoot, 'skills/' + name, copy, signal, () => this.record(name, '', 'local', true));
       await this.changed();
       return { ok: true, name, missingBins: deps.missingBins, missingEnv: deps.missingEnv, installedDependencies: [], dependencyWarnings: [] };
     } finally { await rm(stage, { recursive: true, force: true }); }
   }
   install(payload: JsonObject): Promise<Json> {
-    return this.mutate(async signal => {
-      const name = string(payload.name); if (!validName(name)) return failed('Invalid skill name', typeof payload.name === 'string' ? name : undefined);
+    const initialName = typeof payload.name === 'string' ? payload.name.trim() : '';
+    const tracked = this.transfers.begin(initialName, 'install');
+    return this.mutate(async pendingSignal => {
+      const signal = AbortSignal.any([pendingSignal, tracked.signal]);
+      const name = string(payload.name);
+      if (!validName(name)) return failed('Invalid skill name', typeof payload.name === 'string' ? name : undefined);
+      tracked.setId(name);
+      if (tracked.isCancelledByUser()) return { ok: false, name, cancelled: true };
       let remoteError: unknown;
       try {
         const endpoint = await this.deps.endpoint(); checkCancelled(signal);
-        if (endpoint) try { return await this.remoteInstall(name, string(payload.version), endpoint, signal); }
+        if (endpoint) try { return await this.remoteInstall(name, string(payload.version), endpoint, signal, tracked); }
         catch (error) { checkCancelled(signal); if (error instanceof SavedExtensionError) return failed(error, name); remoteError = error; }
-        const local = await this.localInstall(payload, name, signal);
+        const local = await this.localInstall(payload, name, signal, tracked);
         return local.ok === false && local.error === 'Skill not found' && remoteError !== undefined ? failed('Remote install failed: ' + errorMessage(remoteError), name) : local;
-      } catch (error) { return failed(error, name); }
-    });
+      } catch (error) {
+        if (tracked.isCancelledByUser() && (error instanceof Cancelled || tracked.signal.aborted)) return { ok: false, name, cancelled: true };
+        return failed(error, name);
+      }
+    }).finally(() => { tracked.finish(); });
   }
   update(payload: JsonObject): Promise<Json> {
-    return this.mutate(async signal => {
+    const initialSlug = typeof payload.slug === 'string' ? payload.slug.trim() : '';
+    const tracked = this.transfers.begin(initialSlug, 'update');
+    return this.mutate(async pendingSignal => {
+      const signal = AbortSignal.any([pendingSignal, tracked.signal]);
       const name = string(payload.slug); if (!name) return failed('slug required'); if (!validName(name)) return failed('Invalid skill name', name);
+      tracked.setId(name);
+      if (tracked.isCancelledByUser()) return { ok: false, name, cancelled: true };
       try {
         const endpoint = await this.deps.endpoint(); checkCancelled(signal);
         if (!endpoint) return failed('skill market is not configured (no desktop token / upstream URL)', name);
-        return await this.remoteInstall(name, string(payload.version), endpoint, signal);
-      } catch (error) { return failed(error, name); }
-    });
+        return await this.remoteInstall(name, string(payload.version), endpoint, signal, tracked);
+      } catch (error) {
+        if (tracked.isCancelledByUser() && (error instanceof Cancelled || tracked.signal.aborted)) return { ok: false, name, cancelled: true };
+        return failed(error, name);
+      }
+    }).finally(() => { tracked.finish(); });
   }
   installFromSource(payload: JsonObject): Promise<Json> {
-    return this.mutate(async signal => {
+    const tracked = this.transfers.begin(typeof payload.name === 'string' ? payload.name.trim() : '', 'install');
+    return this.mutate(async pendingSignal => {
+      const signal = AbortSignal.any([pendingSignal, tracked.signal]);
       const spec = string(payload.spec).trim(); if (!spec) return failed('spec required');
       if (string(payload.ref).trim() || string(payload.subpath).trim()) return failed('Branch, tag and subpath options are not supported for direct ZIP sources');
       let sourceUrl: URL;
@@ -271,16 +315,21 @@ export class SkillMarketService {
       inferred = inferred.trim().replace(/\s+/gu, '-');
       const name = typeof payload.name === 'string' ? payload.name : inferred;
       if (!validName(name)) return failed('Invalid skill name', name);
+      tracked.setId(name);
+      if (tracked.isCancelledByUser()) return { ok: false, name, cancelled: true };
       try {
         const target = await managedPath(this.configRoot, 'skills/' + name);
         try {
           await lstat(target);
           if (payload.force !== true) return failed('Skill is already installed; enable overwrite to replace it', name);
         } catch (error) { if (!missing(error)) throw error; }
-        return await this.installArchive(name, 'source', sourceUrl.href, signal, undefined, 'source');
+        return await this.installArchive(name, 'source', sourceUrl.href, signal, undefined, 'source', tracked);
       }
-      catch (error) { return failed(error, name); }
-    });
+      catch (error) {
+        if (tracked.isCancelledByUser() && (error instanceof Cancelled || tracked.signal.aborted)) return { ok: false, name, cancelled: true };
+        return failed(error, name);
+      }
+    }).finally(() => { tracked.finish(); });
   }
   upload(payload: JsonObject): Promise<Json> {
     if (typeof payload.name !== 'string') throw new IpcHandlerError('BAD_REQUEST', 'name required');
@@ -326,5 +375,5 @@ export class SkillMarketService {
       finally { await rm(stage, { recursive: true, force: true }); }
     });
   }
-  close(): Promise<void> { return this.pending.close(); }
+  close(): Promise<void> { this.transfers.abortAll(); return this.pending.close(); }
 }

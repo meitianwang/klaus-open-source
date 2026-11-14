@@ -1,11 +1,14 @@
 // Skills 页（React 岛）——迁自 js/pages/skills.js。
 // market（三页共用双列卡片 + 远程搜索/无限滚动）/ installed（本页单列行式
 // 列表 sk-row，使用/卸载 + 对勾启停）双档 + 分类 tabs + 全局/项目作用域。
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { useT } from '../../i18n'
 import { ModalPortal } from '../../components/ModalPortal'
 import { PageHeader } from '../../components/PageHeader'
 import { MarketCard, MarketGrid } from '../../components/Market'
+import { ExtensionInlineProgressBar, ExtensionTransferBanner } from '../../components/ExtensionTransfer'
+import { acquisitionPending, skillAcquisitionStore, type ExtensionAcquisitionItem } from '../../components/extension-acquisition-store'
+import { canCancelPluginOperation, compactStageLabelKey, compactTransferSummary } from '../plugins/plugin-transfer'
 import { rawIconHtml } from '../../components/Icon'
 import {
   getSkillBrandTile, getSkillCategory, getSkillIconName, getSkillSearchValuesLocal, groupSkillsByCategory,
@@ -152,72 +155,136 @@ function draftTextInComposer(text: string) {
   setTimeout(() => insertWhenReady(), 120)
 }
 
-/** 市场卡行尾安装/更新钮（描边 btn-xs，hover 才显——同 qc-row 语汇）。 */
-function MarketInstallBtn({ skill, onChanged }: { skill: SkillItem; onChanged: () => void }) {
+function skillSlug(skill: SkillItem): string {
+  return String(skill.upstreamSlug || skill.dirName || skill.name || '').trim()
+}
+
+function skillBusyLabel(operation: ExtensionAcquisitionItem | undefined, fallback: string | null, t: (key: string) => string): string {
+  if (operation?.cancelling) return t('plugins_cancelling')
+  if (operation?.phase === 'queued') return t('plugins_queued')
+  if (operation?.progress) return t(compactStageLabelKey(operation.progress.stage))
+  if (fallback) return fallback
+  return operation?.action === 'update' ? (t('skills_updating') || '更新中...') : t('plugins_installing')
+}
+
+async function performSkillUpdate(
+  skill: SkillItem,
+  t: (key: string) => string,
+  onChanged: () => void,
+): Promise<{ ok?: boolean; cancelled?: boolean; installed?: boolean; error?: string; version?: string }> {
+  const id = skillSlug(skill)
+  if (!id) return { ok: false, error: 'Missing skill slug' }
+  return skillAcquisitionStore.enqueue(id, 'update', async () => {
+    const result = requireMutationResult(
+      await w().klaus.skills.update(id, skill.latestVersion || undefined),
+      t('skills_invalid_response'),
+    )
+    if (result.cancelled) return { ok: false, cancelled: true }
+    if (result.ok) {
+      showToast(`${t('skills_updated_toast') || '已更新'}: ${result.name}`)
+      markSkillUpdatedInCache(id, skill.latestVersion)
+      markInstalledCacheStale()
+      onChanged()
+      return { ok: true, version: skill.latestVersion }
+    }
+    if (result.installed) {
+      markSkillUpdatedInCache(id, skill.latestVersion)
+      markInstalledCacheStale()
+      onChanged()
+      showToast(t('skills_saved_reload_failed'))
+      return { ok: false, installed: true, version: skill.latestVersion }
+    }
+    showToast(t('toast_error_prefix') + (result.error || t('toast_unknown')))
+    return { ok: false, error: result.error || t('toast_unknown') }
+  })
+}
+
+/** 市场卡行尾安装/更新钮（接入共享传输进度与可取消队列）。 */
+function MarketInstallBtn({
+  skill,
+  operation,
+  onChanged,
+  onCancel,
+}: {
+  skill: SkillItem
+  operation?: ExtensionAcquisitionItem
+  onChanged: () => void
+  onCancel: () => void
+}) {
   const t = useT()
   const [busyLabel, setBusyLabel] = useState<string | null>(null)
   const [done, setDone] = useState(false)
   const busyRef = useRef(false)
-  const id = String(skill.upstreamSlug || skill.dirName || skill.name)
+  const id = skillSlug(skill)
+  const pending = acquisitionPending(operation) || Boolean(busyLabel)
+  const cancellable = canCancelPluginOperation(operation)
 
   const install = async () => {
-    if (busyRef.current) return
+    if (busyRef.current || acquisitionPending(operation)) return
     busyRef.current = true
     setBusyLabel(t('skills_install_checking'))
     try {
-      let result = requireMutationResult(
-        await w().klaus.skills.install(id, { version: skill.latestVersion || undefined }),
-        t('skills_invalid_response'),
-      )
-      if (result.needsDependencyInstall) {
-        const missing = (result.missingBins || []).join(', ')
-        if (result.canAutoInstall) {
-          const choice = await w().klausDialog.confirm({
-            title: t('skills_dependency_install_title'),
-            message: `${t('skills_dependency_install_message')}\n\n${t('skills_dependency_missing')}: ${missing}`,
-            confirmText: t('skills_dependency_install_confirm'),
-            checkbox: { label: t('skills_dependency_install_checkbox'), defaultChecked: true },
-          })
-          if (!choice.confirmed) return
-          setBusyLabel(choice.checked ? t('skills_installing_dependencies') : t('settings_skills_uploading'))
-          result = requireMutationResult(await w().klaus.skills.install(id, choice.checked
-            ? { installMissing: true, version: skill.latestVersion || undefined }
-            : { skipDependencyInstall: true, version: skill.latestVersion || undefined }), t('skills_invalid_response'))
-        } else {
-          const confirmed = await w().klausDialog.confirm({
-            title: t('skills_dependency_manual_title'),
-            message: `${t('skills_dependency_manual_message')}\n\n${t('skills_dependency_missing')}: ${missing}`,
-            confirmText: t('skills_dependency_install_anyway'),
-          })
-          if (!confirmed) return
-          setBusyLabel(t('settings_skills_uploading'))
-          result = requireMutationResult(
-            await w().klaus.skills.install(id, { skipDependencyInstall: true, version: skill.latestVersion || undefined }),
-            t('skills_invalid_response'),
-          )
+      await skillAcquisitionStore.enqueue(id, 'install', async () => {
+        let result = requireMutationResult(
+          await w().klaus.skills.install(id, { version: skill.latestVersion || undefined }),
+          t('skills_invalid_response'),
+        )
+        if (result.cancelled) return { ok: false, cancelled: true }
+        if (result.needsDependencyInstall) {
+          const missing = (result.missingBins || []).join(', ')
+          if (result.canAutoInstall) {
+            const choice = await w().klausDialog.confirm({
+              title: t('skills_dependency_install_title'),
+              message: `${t('skills_dependency_install_message')}\n\n${t('skills_dependency_missing')}: ${missing}`,
+              confirmText: t('skills_dependency_install_confirm'),
+              checkbox: { label: t('skills_dependency_install_checkbox'), defaultChecked: true },
+            })
+            if (!choice.confirmed) return { ok: false, cancelled: true }
+            setBusyLabel(choice.checked ? t('skills_installing_dependencies') : t('settings_skills_uploading'))
+            result = requireMutationResult(await w().klaus.skills.install(id, choice.checked
+              ? { installMissing: true, version: skill.latestVersion || undefined }
+              : { skipDependencyInstall: true, version: skill.latestVersion || undefined }), t('skills_invalid_response'))
+          } else {
+            const confirmed = await w().klausDialog.confirm({
+              title: t('skills_dependency_manual_title'),
+              message: `${t('skills_dependency_manual_message')}\n\n${t('skills_dependency_missing')}: ${missing}`,
+              confirmText: t('skills_dependency_install_anyway'),
+            })
+            if (!confirmed) return { ok: false, cancelled: true }
+            setBusyLabel(t('settings_skills_uploading'))
+            result = requireMutationResult(
+              await w().klaus.skills.install(id, { skipDependencyInstall: true, version: skill.latestVersion || undefined }),
+              t('skills_invalid_response'),
+            )
+          }
         }
-      }
-      if (result.ok) {
-        let message = `${t('settings_skills_installed_toast')}: ${result.name}`
-        if (result.missingBins?.length) message += ` · ${t('skills_dependency_missing')}: ${result.missingBins.join(', ')}`
-        if (result.missingEnv?.length) message += ` · ${t('skills_dependency_env_hint')}: ${result.missingEnv.join(', ')}`
-        if (result.dependencyWarnings?.length) message += ` · ${result.dependencyWarnings[0]}`
-        showToast(message)
-        markSkillInstalledInCache(id)
-        markInstalledCacheStale()
-        setDone(true)
-        onChanged()
-      } else if (result.installed) {
-        markSkillInstalledInCache(id)
-        markInstalledCacheStale()
-        setDone(true)
-        onChanged()
-        showToast(t('skills_saved_reload_failed'))
-      } else {
+        if (result.cancelled) return { ok: false, cancelled: true }
+        if (result.ok) {
+          let message = `${t('settings_skills_installed_toast')}: ${result.name}`
+          if (result.missingBins?.length) message += ` · ${t('skills_dependency_missing')}: ${result.missingBins.join(', ')}`
+          if (result.missingEnv?.length) message += ` · ${t('skills_dependency_env_hint')}: ${result.missingEnv.join(', ')}`
+          if (result.dependencyWarnings?.length) message += ` · ${result.dependencyWarnings[0]}`
+          showToast(message)
+          markSkillInstalledInCache(id)
+          markInstalledCacheStale()
+          setDone(true)
+          onChanged()
+          return { ok: true, version: skill.latestVersion }
+        }
+        if (result.installed) {
+          markSkillInstalledInCache(id)
+          markInstalledCacheStale()
+          setDone(true)
+          onChanged()
+          showToast(t('skills_saved_reload_failed'))
+          return { ok: false, installed: true }
+        }
         const missing = result.missingBins?.length ? `${t('skills_dependency_missing')}: ${result.missingBins.join(', ')}. ` : ''
         const warning = result.dependencyWarnings?.length ? result.dependencyWarnings[0] : ''
-        showToast(t('toast_error_prefix') + missing + (result.error || warning || t('toast_unknown')))
-      }
+        const err = missing + (result.error || warning || t('toast_unknown'))
+        showToast(t('toast_error_prefix') + err)
+        return { ok: false, error: err }
+      })
     } catch (err: any) {
       showToast(t('toast_error_prefix') + (err?.message || err || t('toast_unknown')))
     } finally {
@@ -227,51 +294,55 @@ function MarketInstallBtn({ skill, onChanged }: { skill: SkillItem; onChanged: (
   }
 
   const update = async () => {
-    if (busyRef.current) return
+    if (busyRef.current || acquisitionPending(operation)) return
     busyRef.current = true
     setBusyLabel(t('skills_updating') || '更新中...')
     try {
-      const result = requireMutationResult(
-        await w().klaus.skills.update(id, skill.latestVersion || undefined),
-        t('skills_invalid_response'),
-      )
-      if (result.ok) {
-        showToast(`${t('skills_updated_toast') || '已更新'}: ${result.name}`)
-        markSkillUpdatedInCache(id, skill.latestVersion)
-        markInstalledCacheStale()
-        setDone(true)
-        onChanged()
-      } else if (result.installed) {
-        markSkillUpdatedInCache(id, skill.latestVersion)
-        markInstalledCacheStale()
-        setDone(true)
-        onChanged()
-        showToast(t('skills_saved_reload_failed'))
-      } else {
-        showToast(t('toast_error_prefix') + (result.error || t('toast_unknown')))
-      }
-    } catch (err: any) {
-      showToast(t('toast_error_prefix') + (err?.message || err))
+      const outcome = await performSkillUpdate(skill, t, onChanged)
+      if (outcome.ok || outcome.installed) setDone(true)
     } finally {
       busyRef.current = false
       setBusyLabel(null)
     }
   }
 
-  if (done || (skill.installed && !skill.hasUpdate)) {
+  if (done || (skill.installed && !skill.hasUpdate && !pending)) {
     return <button className="btn-xs" disabled>{t('installed') || '已安装'}</button>
   }
-  if (skill.dependencyStatus === 'unsupported' || skill.dependencyStatus === 'invalid') {
+  if (!pending && (skill.dependencyStatus === 'unsupported' || skill.dependencyStatus === 'invalid')) {
     return <button className="btn-xs" disabled>
       {t(skill.dependencyStatus === 'invalid' ? 'skills_health_invalid' : 'skills_health_unsupported')}
     </button>
   }
-  if (busyLabel) return <button className="btn-xs" disabled>{busyLabel}</button>
+  if (pending) {
+    return (
+      <>
+        <button className="btn-xs" disabled>
+          <span className={styles['sk-spinner']} aria-hidden="true" />
+          {skillBusyLabel(operation, busyLabel, t)}
+        </button>
+        {(cancellable || operation?.cancelling) && (
+          <button
+            type="button"
+            className="btn-xs"
+            data-skill-cancel={id}
+            disabled={!cancellable}
+            onClick={(e) => { e.stopPropagation(); onCancel() }}
+          >
+            {t(operation?.cancelling ? 'plugins_cancelling' : 'plugins_cancel')}
+          </button>
+        )}
+      </>
+    )
+  }
   if (skill.hasUpdate) {
-    return <button className="btn-xs" onClick={(e) => { e.stopPropagation(); void update() }}>{t('skills_update_btn') || '更新'}</button>
+    const label = skill.latestVersion
+      ? t('skills_update_to').replace('{version}', skill.latestVersion)
+      : (t('skills_update_btn') || '更新')
+    return <button className="btn-xs" data-skill-update={id} onClick={(e) => { e.stopPropagation(); void update() }}>{label}</button>
   }
   return (
-    <button className="btn-xs" onClick={(e) => { e.stopPropagation(); void install() }}>
+    <button className="btn-xs" data-skill-install={id} onClick={(e) => { e.stopPropagation(); void install() }}>
       {t('settings_skills_install') || t('skills_install_btn') || '安装'}
     </button>
   )
@@ -279,6 +350,8 @@ function MarketInstallBtn({ skill, onChanged }: { skill: SkillItem; onChanged: (
 
 export function SkillsPage() {
   const t = useT()
+  const transferSnap = useSyncExternalStore(skillAcquisitionStore.subscribe, skillAcquisitionStore.getSnapshot)
+  const { operations: transferOps, batch: transferBatch } = transferSnap
   const filterTextMatches = w().filterTextMatches as (q: string, hay: unknown[]) => boolean
   const [snap, setSnap] = useState<Snapshot | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -635,7 +708,30 @@ export function SkillsPage() {
 
   // ---- 派生列表 ----
   const esc = w().esc as (s: unknown) => string
-  const baseList = snap ? (view === 'market' ? snap.market : snap.userInstalled) : []
+  const marketByDir = new Map<string, SkillItem>()
+  for (const item of snap?.market ?? []) {
+    const key = String(item.dirName || item.upstreamSlug || item.name || '').trim()
+    if (key && item.source !== 'builtin') marketByDir.set(key, item)
+  }
+  const updatableSkills = (snap?.market ?? []).filter(s => s.source !== 'builtin' && s.installed && s.hasUpdate)
+  useEffect(() => {
+    skillAcquisitionStore.setAvailableUpdates(updatableSkills.length)
+  }, [updatableSkills.length])
+
+  const enrichedInstalled = (snap?.userInstalled ?? []).map(item => {
+    if (scope !== 'global') return item
+    const dir = String(item.dirName || item.name || '').trim()
+    const m = marketByDir.get(dir)
+    if (!m) return item
+    return {
+      ...item,
+      upstreamSlug: m.upstreamSlug ?? item.upstreamSlug,
+      hasUpdate: m.hasUpdate === true,
+      version: m.version ?? item.version,
+      latestVersion: m.latestVersion ?? item.latestVersion,
+    }
+  })
+  const baseList = snap ? (view === 'market' ? snap.market : enrichedInstalled) : []
   const enabledFiltered = view === 'installed'
     ? baseList.filter(s => (filter === 'enabled' ? s.userEnabled : filter === 'disabled' ? !s.userEnabled : true))
     : baseList
@@ -691,11 +787,13 @@ export function SkillsPage() {
           </div>
         </div>`
       : ''
+    const updateAllIdle = !(transferBatch?.running || (updatableSkills.length > 0 && updatableSkills.every(item => acquisitionPending(transferOps[skillSlug(item)]))))
+    const trailingActionsHtml = `<div class="${styles['sk-tab-actions']}">${updatableSkills.length > 0 ? `<button type="button" class="btn-sm" data-skill-update-all${updateAllIdle ? '' : ' disabled'}>${esc(t('skills_update_all').replace('{count}', String(updatableSkills.length)))}</button>` : ''}${view === 'installed' ? '<div class="sk-filters"><div id="sk-filter" class="kls-select"></div></div>' : ''}</div>`
     return `<div class="sk-tabbar">
           <div class="sk-tabs" role="tablist" aria-label="${esc(t('skills'))}">
             ${tabs.map(tab => `<button class="sk-tab ${view === tab.key ? 'active' : ''}" role="tab" aria-selected="${view === tab.key}" tabindex="${view === tab.key ? 0 : -1}" data-skill-tab="${tab.key}">${esc(tab.label)}${tab.showBadge ? ` <span class="sk-tab-count">${tab.count}</span>` : ''}</button>`).join('')}
           </div>
-          ${view === 'installed' ? '<div class="sk-filters"><div id="sk-filter" class="kls-select"></div></div>' : ''}
+          ${trailingActionsHtml}
         </div>
         ${scopeBar}
         ${showCategoryTabs ? `
@@ -725,6 +823,22 @@ export function SkillsPage() {
     await reload({ forceRefresh: true })
     if (stateRef.current.view === 'market' && query) await remoteSearch(query)
   }, [reload, remoteSearch])
+
+  const cancelSkillTransfer = async (skill: SkillItem) => {
+    const slug = skillSlug(skill)
+    if (!slug) return
+    if (await skillAcquisitionStore.cancel(slug)) {
+      showToast(t('skills_cancelled_named').replace('{name}', localizeSkillName(skill)))
+    }
+  }
+
+  const updateAllSkills = async () => {
+    const bySlug = new Map(updatableSkills.map(item => [skillSlug(item), item]))
+    await skillAcquisitionStore.runBatch([...bySlug.keys()], id => {
+      const target = bySlug.get(id)
+      return target ? performSkillUpdate(target, t, () => { void refreshPage() }) : Promise.resolve({ ok: false })
+    })
+  }
 
   const onSearchInput = (value: string) => {
     setSearch(value)
@@ -786,6 +900,25 @@ export function SkillsPage() {
     : snap.errors.installed)
   const pageWarning = [...new Set([loadWarning, visibleLoadError].filter((value): value is string => Boolean(value)))]
     .join(' · ')
+  const activeTransferSlug = Object.keys(transferOps).find(id => {
+    const op = transferOps[id]
+    return op?.phase === 'running' && Boolean(op.progress)
+  })
+  const activeTransferSkill = activeTransferSlug
+    ? (snap.market.find(s => skillSlug(s) === activeTransferSlug) || enrichedInstalled.find(s => skillSlug(s) === activeTransferSlug))
+    : undefined
+  const showTransferBanner = Boolean(activeTransferSkill && !visibleSkills.some(s => skillSlug(s) === activeTransferSlug))
+  const queuedSkillCount = Object.values(transferOps).filter(op => op?.phase === 'queued').length
+  const skillTileHtml = (s: SkillItem) => {
+    const tile = getSkillBrandTile(s)
+    return tile?.kind === 'logo' ? skillLogoImgHtml(tile.src)
+      : tile?.kind === 'icon' ? skillRemoteIconHtml(tile.src)
+        : tile?.kind === 'emoji' ? skillEmojiGlyphHtml(tile.emoji)
+          : skillGlyphSvg(getSkillIconName(s))
+  }
+  const skillVersionText = (s: SkillItem) => s.hasUpdate && s.version && s.latestVersion
+    ? `${s.version} → ${s.latestVersion}`
+    : s.version || s.latestVersion || ''
 
   return (
     <div
@@ -793,6 +926,7 @@ export function SkillsPage() {
       aria-busy={searching || installedContextLoading || actionBusy.size > 0 ? 'true' : 'false'}
       onClick={(e) => {
         const target = e.target as Element
+        if (target.closest('[data-skill-update-all]')) { void updateAllSkills(); return }
         const tabBtn = target.closest('[data-skill-tab]') as HTMLElement | null
         if (tabBtn) {
           const next = tabBtn.dataset.skillTab as 'market' | 'installed'
@@ -842,6 +976,29 @@ export function SkillsPage() {
       }}
     >
       {header}
+      {transferBatch && (
+        <p className={styles['sk-batch-status']} role="status" data-skill-batch>
+          {t(transferBatch.running ? 'skills_batch_progress' : transferBatch.failed ? 'skills_batch_partial' : 'skills_batch_success')
+            .replace('{completed}', String(transferBatch.completed))
+            .replace('{total}', String(transferBatch.total))
+            .replace('{failed}', String(transferBatch.failed))}
+        </p>
+      )}
+      {showTransferBanner && activeTransferSkill && activeTransferSlug && transferOps[activeTransferSlug] && (
+        <ExtensionTransferBanner
+          itemId={activeTransferSlug}
+          name={localizeSkillName(activeTransferSkill)}
+          iconHtml={skillTileHtml(activeTransferSkill)}
+          operation={transferOps[activeTransferSlug]!}
+          queuedCount={queuedSkillCount}
+          openLabelKey="plugins_transfer_locate"
+          onOpen={view !== 'market' ? () => switchView('market') : undefined}
+          onCancel={() => { void cancelSkillTransfer(activeTransferSkill) }}
+          bannerAttr="skill-transfer-banner"
+          detailAttr="skill-transfer-locate"
+          cancelAttr="skill-cancel"
+        />
+      )}
       {pageWarning && (
         <div className={styles['sk-load-warning']} role="status">
           <span>{pageWarning}</span>
@@ -864,35 +1021,50 @@ export function SkillsPage() {
           <MarketGrid empty={false} emptyText={emptyText}>
             {visibleSkills.map(s => {
               const dirName = String(s.dirName || s.name || '').trim()
+              const slug = skillSlug(s)
+              const operation = slug ? transferOps[slug] : undefined
+              const summary = compactTransferSummary(operation, t)
+              const versionText = skillVersionText(s)
               const tile = getSkillBrandTile(s)
               return (
-                <MarketCard
-                  key={dirName || localizeSkillName(s)}
-                  datasets={{
-                    name: localizeSkillName(s),
-                    category: getSkillCategory(s),
-                    search: getSkillSearchValuesLocal(s).join(' '),
-                  }}
-                  iconHtml={tile?.kind === 'logo' ? skillLogoImgHtml(tile.src)
-                    : tile?.kind === 'icon' ? skillRemoteIconHtml(tile.src)
-                      : tile?.kind === 'emoji' ? skillEmojiGlyphHtml(tile.emoji)
-                        : skillGlyphSvg(getSkillIconName(s))}
-                  {...(tile?.kind === 'logo' || tile?.kind === 'icon'
-                    ? { iconClassName: styles['kls-market-icon-logo'] }
-                    : tile?.kind === 'emoji' ? { iconClassName: styles['kls-market-icon-emoji'] } : {})}
-                  title={localizeSkillName(s)}
-                  subtitle={dirName ? <span className={styles['sk-row-cmd']}>/{dirName}</span> : undefined}
-                  badge={<SkillHealthBadge skill={s} />}
-                  desc={localizeSkillDescription(s) || dirName}
-                  controls={s.source === 'builtin'
-                    ? <>
-                        <span className="sk-health-badge">{t('skills_builtin_badge')}</span>
-                        {s.userInvocable && dirName && (
-                          <button className="btn-xs" onClick={() => useSkill(s)}>{t('slash_commands_use')}</button>
-                        )}
-                      </>
-                    : <MarketInstallBtn skill={s} onChanged={() => { void refreshPage() }} />}
-                />
+                <div key={dirName || localizeSkillName(s)} className={styles['sk-card-wrap']}>
+                  <MarketCard
+                    datasets={{
+                      name: localizeSkillName(s),
+                      'skill-slug': slug,
+                      category: getSkillCategory(s),
+                      search: getSkillSearchValuesLocal(s).join(' '),
+                    }}
+                    iconHtml={skillTileHtml(s)}
+                    {...(tile?.kind === 'logo' || tile?.kind === 'icon'
+                      ? { iconClassName: styles['kls-market-icon-logo'] }
+                      : tile?.kind === 'emoji' ? { iconClassName: styles['kls-market-icon-emoji'] } : {})}
+                    title={localizeSkillName(s)}
+                    subtitle={summary
+                      ? <span className={styles['sk-transfer-meta']} data-skill-transfer-meta={slug}>{summary}</span>
+                      : (dirName || versionText) ? (
+                        <>
+                          {dirName && <span className={styles['sk-row-cmd']}>/{dirName}</span>}
+                          {s.hasUpdate && versionText && <span className={styles['sk-version']}>{versionText}</span>}
+                        </>
+                      ) : undefined}
+                    badge={<SkillHealthBadge skill={s} />}
+                    desc={localizeSkillDescription(s) || dirName}
+                    controls={s.source === 'builtin'
+                      ? <>
+                          <span className="sk-health-badge">{t('skills_builtin_badge')}</span>
+                          {s.userInvocable && dirName && (
+                            <button className="btn-xs" onClick={() => useSkill(s)}>{t('slash_commands_use')}</button>
+                          )}
+                        </>
+                      : <MarketInstallBtn skill={s} operation={operation} onChanged={() => { void refreshPage() }} onCancel={() => { void cancelSkillTransfer(s) }} />}
+                  />
+                  <ExtensionInlineProgressBar
+                    operation={operation}
+                    label={`${localizeSkillName(s)} ${skillBusyLabel(operation, null, t)}`}
+                    dataAttr="skill-inline-bar"
+                  />
+                </div>
               )
             })}
           </MarketGrid>
@@ -902,55 +1074,99 @@ export function SkillsPage() {
               const skillName = localizeSkillName(s)
               const skillDescription = localizeSkillDescription(s)
               const dirName = String(s.dirName || s.name || '').trim()
-              const rowBusy = actionBusy.has(`toggle:${dirName}`) || actionBusy.has(`uninstall:${scope}:${dirName}`)
+              const slug = skillSlug(s)
+              const operation = scope === 'global' && slug ? transferOps[slug] : undefined
+              const transferPending = acquisitionPending(operation)
+              const cancellable = canCancelPluginOperation(operation)
+              const summary = compactTransferSummary(operation, t)
+              const versionText = skillVersionText(s)
+              const rowBusy = transferPending || actionBusy.has(`toggle:${dirName}`) || actionBusy.has(`uninstall:${scope}:${dirName}`)
               const tile = getSkillBrandTile(s)
               return (
-                <div
-                  className="sk-row"
-                  data-skill-key={dirName}
-                  data-name={skillName}
-                  data-category={getSkillCategory(s)}
-                  aria-busy={rowBusy ? 'true' : 'false'}
-                  key={dirName || skillName}
-                >
-                  <button type="button" className={styles['sk-row-open']} aria-label={skillName} disabled={!dirName || rowBusy} onClick={() => openSkillWindow(dirName)}>
-                    {tile?.kind === 'logo'
-                      ? <span className="kls-icon-host" dangerouslySetInnerHTML={{ __html: skillLogoBrickHtml(tile.src) }} />
-                      : tile?.kind === 'icon'
+                <div key={dirName || skillName} className={styles['sk-row-wrap']}>
+                  <div
+                    className="sk-row"
+                    data-skill-key={dirName}
+                    data-name={skillName}
+                    data-category={getSkillCategory(s)}
+                    aria-busy={rowBusy ? 'true' : 'false'}
+                  >
+                    <button type="button" className={styles['sk-row-open']} aria-label={skillName} disabled={!dirName || rowBusy} onClick={() => openSkillWindow(dirName)}>
+                      {tile?.kind === 'logo'
                         ? <span className="kls-icon-host" dangerouslySetInnerHTML={{ __html: skillLogoBrickHtml(tile.src) }} />
-                        : tile?.kind === 'emoji'
-                          ? <span className="kls-icon-host" dangerouslySetInnerHTML={{ __html: skillEmojiBrickHtml(tile.emoji) }} />
-                          : <span className="kls-icon-host" dangerouslySetInnerHTML={{ __html: renderLineIcon(getSkillIconName(s)) }} />}
-                    <div className={styles['sk-row-main']}>
-                      <div className={styles['sk-row-name-line']}>
-                        <span className={styles['sk-row-name']}>{skillName}</span>
-                        {dirName && <span className={styles['sk-row-cmd']}>/{dirName}</span>}
-                        <SkillHealthBadge skill={s} />
+                        : tile?.kind === 'icon'
+                          ? <span className="kls-icon-host" dangerouslySetInnerHTML={{ __html: skillLogoBrickHtml(tile.src) }} />
+                          : tile?.kind === 'emoji'
+                            ? <span className="kls-icon-host" dangerouslySetInnerHTML={{ __html: skillEmojiBrickHtml(tile.emoji) }} />
+                            : <span className="kls-icon-host" dangerouslySetInnerHTML={{ __html: renderLineIcon(getSkillIconName(s)) }} />}
+                      <div className={styles['sk-row-main']}>
+                        <div className={styles['sk-row-name-line']}>
+                          <span className={styles['sk-row-name']}>{skillName}</span>
+                          {dirName && <span className={styles['sk-row-cmd']}>/{dirName}</span>}
+                          {!summary && s.hasUpdate && versionText ? <span className={styles['sk-version']}>{versionText}</span> : null}
+                          <SkillHealthBadge skill={s} />
+                        </div>
+                        <div className={styles['sk-row-desc']}>
+                          {summary
+                            ? <span className={styles['sk-transfer-meta']} data-skill-transfer-meta={slug}>{summary}</span>
+                            : (skillDescription || dirName)}
+                        </div>
                       </div>
-                      <div className={styles['sk-row-desc']}>{skillDescription || dirName}</div>
+                    </button>
+                    <div className={`${styles['sk-row-actions']}${s.hasUpdate || transferPending ? ` ${styles['sk-row-actions-visible']}` : ''}`}>
+                      {scope === 'global' && (s.hasUpdate || transferPending) && (
+                        <>
+                          <button
+                            type="button"
+                            className="btn-xs"
+                            data-skill-update={slug}
+                            disabled={transferPending}
+                            onClick={() => { void performSkillUpdate(s, t, () => { void refreshPage() }) }}
+                          >
+                            {transferPending && <span className={styles['sk-spinner']} aria-hidden="true" />}
+                            {transferPending
+                              ? skillBusyLabel(operation, null, t)
+                              : (s.latestVersion ? t('skills_update_to').replace('{version}', s.latestVersion) : (t('skills_update_btn') || '更新'))}
+                          </button>
+                          {(cancellable || operation?.cancelling) && (
+                            <button
+                              type="button"
+                              className="btn-xs"
+                              data-skill-cancel={slug}
+                              disabled={!cancellable}
+                              onClick={() => { void cancelSkillTransfer(s) }}
+                            >
+                              {t(operation?.cancelling ? 'plugins_cancelling' : 'plugins_cancel')}
+                            </button>
+                          )}
+                        </>
+                      )}
+                      {!transferPending && s.userInvocable && dirName && (
+                        <button className="btn-xs" disabled={rowBusy} onClick={() => useSkill(s)}>{t('slash_commands_use')}</button>
+                      )}
+                      {!transferPending && s.source === 'installed' && (
+                        <button
+                          className="btn-xs qc-btn-danger" aria-label={t('settings_skills_uninstall')}
+                          disabled={rowBusy}
+                          onClick={() => { void uninstallSkill(s) }}
+                          dangerouslySetInnerHTML={{ __html: rawIconHtml('trash', { size: 13 }) }}
+                        />
+                      )}
                     </div>
-                  </button>
-                  <div className={styles['sk-row-actions']}>
-                    {s.userInvocable && dirName && (
-                      <button className="btn-xs" disabled={rowBusy} onClick={() => useSkill(s)}>{t('slash_commands_use')}</button>
-                    )}
-                    {s.source === 'installed' && (
-                      <button
-                        className="btn-xs qc-btn-danger" aria-label={t('settings_skills_uninstall')}
-                        disabled={rowBusy}
-                        onClick={() => { void uninstallSkill(s) }}
-                        dangerouslySetInnerHTML={{ __html: rawIconHtml('trash', { size: 13 }) }}
-                      />
-                    )}
+                    <button
+                      className={`${styles['sk-row-check']} ${s.userEnabled ? 'on' : ''}`}
+                      role="switch"
+                      aria-checked={s.userEnabled ? 'true' : 'false'}
+                      aria-label={`${s.userEnabled ? t('skills_disable_action') : t('skills_enable_action')}: ${skillName}`}
+                      disabled={!dirName || rowBusy}
+                      onClick={() => { void toggleSkill(s) }}
+                      dangerouslySetInnerHTML={{ __html: rawIconHtml('check') }}
+                    />
                   </div>
-                  <button
-                    className={`${styles['sk-row-check']} ${s.userEnabled ? 'on' : ''}`}
-                    role="switch"
-                    aria-checked={s.userEnabled ? 'true' : 'false'}
-                    aria-label={`${s.userEnabled ? t('skills_disable_action') : t('skills_enable_action')}: ${skillName}`}
-                    disabled={!dirName || rowBusy}
-                    onClick={() => { void toggleSkill(s) }}
-                    dangerouslySetInnerHTML={{ __html: rawIconHtml('check') }}
+                  <ExtensionInlineProgressBar
+                    operation={operation}
+                    label={`${skillName} ${skillBusyLabel(operation, null, t)}`}
+                    dataAttr="skill-inline-bar"
                   />
                 </div>
               )

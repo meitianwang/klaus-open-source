@@ -90,5 +90,7 @@ describe('skills page interaction contract', () => {
     expect(marketService).toContain("dependencyStatus: 'invalid'")
     expect(marketService).toContain("parseError = 'Skill catalog entry has no SKILL.md'")
     expect(page).toContain("skill.dependencyStatus === 'unsupported' || skill.dependencyStatus === 'invalid'")
+    expect(page).toContain('ExtensionTransferBanner')
+    expect(page).toContain('skillAcquisitionStore')
   })
 })

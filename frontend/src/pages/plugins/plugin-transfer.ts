@@ -56,6 +56,17 @@ export function formatRemainingLabel(value: RemainingTime, t: (key: string) => s
     .replace('{minutes}', String(value.minutes))
 }
 
+export function compactStageLabelKey(stage?: PluginInstallStage, queued = false): string {
+  if (queued) return 'plugins_queued'
+  switch (stage) {
+    case 'downloading': return 'plugins_stage_short_downloading'
+    case 'verifying': return 'plugins_stage_short_verifying'
+    case 'extracting': return 'plugins_stage_short_extracting'
+    case 'installing': return 'plugins_stage_short_installing'
+    default: return 'plugins_installing'
+  }
+}
+
 export function stageLabelKey(stage?: PluginInstallStage, queued = false): string {
   if (queued) return 'plugins_stage_queued'
   switch (stage) {

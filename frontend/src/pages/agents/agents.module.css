@@ -109,6 +109,7 @@
 
 .agent-card {
   min-height: 184px;
+  position: relative;
 }
 
 .agent-card .sk-card-desc {
@@ -315,4 +316,66 @@
 .sk-load-warning > span {
   min-width: 0;
   overflow-wrap: anywhere;
+}
+
+.agent-market-card-wrap {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+.agent-market-card-wrap > :global(.kls-market-card) {
+  flex: 1;
+}
+
+.agent-version {
+  color: var(--fg-tertiary);
+  font-size: var(--text-caption);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.agent-transfer-meta {
+  color: var(--fg-secondary);
+  font-size: var(--text-caption);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 280px;
+}
+
+.agent-tab-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: auto;
+}
+
+.agent-batch-status {
+  margin: 0 0 14px;
+  font-size: var(--text-small);
+  color: var(--fg-secondary);
+}
+
+.agent-spinner {
+  display: inline-block;
+  width: 11px;
+  height: 11px;
+  flex-shrink: 0;
+  border: 1.5px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: agent-spin 0.8s linear infinite;
+  vertical-align: -1.5px;
+  margin-right: 5px;
+}
+
+@keyframes agent-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-spinner { animation: none; }
 }

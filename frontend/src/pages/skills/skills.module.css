@@ -318,6 +318,77 @@
   opacity: 0.65;
 }
 
+.sk-card-wrap {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+.sk-card-wrap > :global(.kls-market-card) {
+  flex: 1;
+}
+
+.sk-row-wrap {
+  min-width: 0;
+  position: relative;
+}
+
+.sk-row-actions-visible {
+  opacity: 1;
+}
+
+.sk-version {
+  color: var(--fg-tertiary);
+  font-size: var(--text-caption);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.sk-transfer-meta {
+  color: var(--fg-secondary);
+  font-size: var(--text-caption);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 280px;
+}
+
+.sk-tab-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: auto;
+}
+
+.sk-batch-status {
+  margin: 0 0 14px;
+  font-size: var(--text-small);
+  color: var(--fg-secondary);
+}
+
+.sk-spinner {
+  display: inline-block;
+  width: 11px;
+  height: 11px;
+  flex-shrink: 0;
+  border: 1.5px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: sk-spin 0.8s linear infinite;
+  vertical-align: -1.5px;
+  margin-right: 5px;
+}
+
+@keyframes sk-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sk-spinner { animation: none; }
+}
+
 .sk-source-force {
   display: flex;
   align-items: center;

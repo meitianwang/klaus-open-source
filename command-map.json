@@ -1,11 +1,15 @@
 {
   "summary": {
-    "invokeDeclared": 760,
-    "pushDeclared": 79
+    "invokeDeclared": 762,
+    "pushDeclared": 81
   },
   "rows": [
     {
       "channel": "agents:background-summaries",
+      "kind": "invoke"
+    },
+    {
+      "channel": "agents:cancel",
       "kind": "invoke"
     },
     {
@@ -2613,6 +2617,10 @@
       "kind": "invoke"
     },
     {
+      "channel": "skills:cancel",
+      "kind": "invoke"
+    },
+    {
       "channel": "skills:install",
       "kind": "invoke"
     },
@@ -3045,6 +3053,10 @@
       "kind": "invoke"
     },
     {
+      "channel": "agents:progress",
+      "kind": "push"
+    },
+    {
       "channel": "app:navigate",
       "kind": "push"
     },
@@ -3310,6 +3322,10 @@
     },
     {
       "channel": "skills:changed",
+      "kind": "push"
+    },
+    {
+      "channel": "skills:progress",
       "kind": "push"
     },
     {

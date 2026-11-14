@@ -134,9 +134,9 @@ async function fixture(options: { catalog?: JsonObject; artifacts?: Record<strin
 }
 
 void (async () => {
-  await h.test('the plaza registers exactly two channels and leaves removal to the existing agent file path', async () => {
+  await h.test('the plaza registers market, install and cancel channels and leaves removal to the existing agent file path', async () => {
     const f = await fixture();
-    try { assert.deepEqual(f.registry.channels(), ['agents:install', 'agents:market']); }
+    try { assert.deepEqual(f.registry.channels(), ['agents:cancel', 'agents:install', 'agents:market']); }
     finally { await f.close(); }
   });
 
@@ -320,6 +320,51 @@ void (async () => {
       const closed = object(await service.market({}).then(value => value, error => ({ ok: false, error: String(error) })));
       assert.equal(closed.ok === false || Array.isArray(closed.items), true);
     } finally { await rm(root, { recursive: true, force: true }); }
+  });
+
+  await h.test('agent download reports monotonic stages and supports user cancellation without writing partial files', async () => {
+    const f = await fixture();
+    const events: Array<Record<string, unknown>> = [];
+    const trackedService = new AgentMarketService({
+      configRoot: join(f.root, 'config'),
+      saveAgent: payload => f.extensions.agentsSave(payload),
+      endpoint: () => ({ baseUrl: f.origin }),
+      onProgress: event => { events.push({ ...event }); },
+    });
+    try {
+      const ok = object(await trackedService.install({ slug: 'frontend-studio', version: '1.0.0' }));
+      assert.equal(ok.ok, true);
+      const stages = events.map(e => e.stage);
+      assert.equal(stages.includes('downloading') && stages.includes('verifying') && stages.includes('installing'), true);
+      assert.equal(events.at(-1)?.cancellable, false);
+
+      let held: ServerResponse | undefined;
+      f.route((_request, response) => {
+        held = response;
+        response.writeHead(200, { 'Content-Type': 'text/markdown; charset=utf-8', 'Content-Length': '65536' });
+        response.write('---\nname: slow-agent\n');
+      });
+      const pending = trackedService.install({ slug: 'slow-agent', version: '1.0.0' });
+      await new Promise<void>((resolve, reject) => {
+        const deadline = Date.now() + 2000;
+        const poll = () => {
+          if (held) resolve();
+          else if (Date.now() > deadline) reject(new Error('Agent download did not start'));
+          else setTimeout(poll, 15);
+        };
+        poll();
+      });
+      const cancelReply = object(trackedService.cancel({ slug: 'slow-agent' }));
+      assert.equal(cancelReply.ok, true);
+      assert.equal(cancelReply.cancelled, true);
+      const cancelledOutcome = object(await pending);
+      assert.equal(cancelledOutcome.ok, false);
+      assert.equal(cancelledOutcome.cancelled, true);
+      assert.equal(await present(join(f.root, 'config/agents/slow-agent.md')), false);
+    } finally {
+      await trackedService.close();
+      await f.close();
+    }
   });
 
   process.exitCode = await h.finish(join(__dirname, 'agents-market.result.json'), 'agents-market');
