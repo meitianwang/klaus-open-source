@@ -6,7 +6,7 @@
     "bridgeDir": "frontend/bridge"
   },
   "summary": {
-    "registeredInvoke": 762,
+    "registeredInvoke": 763,
     "registeredPush": 81,
     "roles": 11
   },
@@ -168,6 +168,7 @@
         "auth:login",
         "auth:logout",
         "auth:status",
+        "auth:switch-account",
         "bailian-auth:console-login",
         "bailian-auth:console-logout",
         "bailian-auth:console-status",

@@ -629,6 +629,7 @@ const AUTH_ERROR_KEYS: Record<string, string> = {
   workbuddy_client_credentials_have_no_token: 'auth_err_local_no_token',
   credential_store_write_failed: 'auth_err_store_write',
   credential_store_delete_failed: 'auth_err_store_delete',
+  claude_account_not_found: 'auth_err_account_not_found',
 }
 
 // The host wraps engine verdicts in transport noise before the renderer sees
@@ -924,6 +925,7 @@ export function SubscriptionCardBody({ mode, reloadSeq, reload, activateModelOnL
   const [loginBusy, setLoginBusy] = useState(false)
   const authActionBusyRef = useRef(false)
   const [importBusy, setImportBusy] = useState(false)
+  const [switchingAccountId, setSwitchingAccountId] = useState<string | null>(null)
   // Declared unconditionally, ahead of the loading early-return below, so the hook
   // order does not depend on whether a status read has landed.
   const [apiKey, setApiKey] = useState('')
@@ -1043,15 +1045,56 @@ export function SubscriptionCardBody({ mode, reloadSeq, reload, activateModelOnL
 
   const accounts: Array<{ id: string; email: string; displayName: string; isCurrent: boolean }> =
     source.mode === 'subscription' && Array.isArray(status.accounts) ? status.accounts : []
+  const accountBusy = loginBusy || importBusy || switchingAccountId !== null
+
+  const onSwitchAccount = async (accountId: string) => {
+    if (authActionBusyRef.current) return
+    authActionBusyRef.current = true
+    setLogoutError('')
+    setStatusMsg('')
+    setSwitchingAccountId(accountId)
+    try {
+      const result = await source.api().switchAccount(accountId)
+      if (result?.ok !== true) {
+        setStatusMsg(authErrorText(source, result?.error))
+        return
+      }
+      const selected = accounts.find(row => row.id === accountId)
+      if (selected) {
+        const reordered = [selected, ...accounts.filter(row => row.id !== accountId)]
+          .map((row, index) => ({ ...row, isCurrent: index === 0 }))
+        const nextStatus = {
+          ...status,
+          account: selected.email || selected.displayName || status.account,
+          accounts: reordered,
+        }
+        subscriptionStatusCache.set(mode, nextStatus)
+        setStatus(nextStatus)
+      }
+      window.dispatchEvent(new Event('klaus:auth-mode-changed'))
+      reload()
+    } catch (error: any) {
+      setStatusMsg(authErrorText(source, error?.message || String(error)))
+    } finally {
+      authActionBusyRef.current = false
+      setSwitchingAccountId(null)
+    }
+  }
 
   const onRemoveAccount = async (accountId: string) => {
+    if (authActionBusyRef.current) return
     if (!(await w().klausDialog.confirm(t('sub_account_remove_confirm')))) return
+    authActionBusyRef.current = true
+    setLogoutError('')
     try {
       const result = await source.api().logout(accountId)
       if (result?.ok !== true) throw new Error(authErrorText(source, result?.error))
+      window.dispatchEvent(new Event('klaus:auth-mode-changed'))
       reload()
     } catch (error: any) {
       setStatusMsg(settingsErrorText('profile-logout', error, 'profile_logout_failed'))
+    } finally {
+      authActionBusyRef.current = false
     }
   }
 
@@ -1138,11 +1181,11 @@ export function SubscriptionCardBody({ mode, reloadSeq, reload, activateModelOnL
     : accounts.length > 0
       // Queued sources can add or refresh another account.
       ? <>
-          <button className="btn-xs btn-danger" id={`${prefix}-logout-btn`} onClick={() => { void onLogout() }}>{t(source.logoutLabel)}</button>
+          <button className="btn-xs btn-danger" id={`${prefix}-logout-btn`} disabled={accountBusy} onClick={() => { void onLogout() }}>{t(source.logoutLabel)}</button>
           {' '}
-          <button className="btn-sm" id={`${prefix}-login-btn`} disabled={loginBusy || importBusy} onClick={() => { void onLogin() }}>{t(source.loginLabel)}</button>
+          <button className="btn-sm" id={`${prefix}-login-btn`} disabled={accountBusy} onClick={() => { void onLogin() }}>{t(source.loginLabel)}</button>
           {' '}
-          {source.importLabel ? <button className="btn-sm" id={`${prefix}-import-btn`} disabled={importBusy || loginBusy} onClick={() => { void onImport() }}>{t(source.importLabel)}</button> : null}
+          {source.importLabel ? <button className="btn-sm" id={`${prefix}-import-btn`} disabled={accountBusy} onClick={() => { void onImport() }}>{t(source.importLabel)}</button> : null}
         </>
       : signedIn
       ? <button className="btn-xs btn-danger" id={`${prefix}-logout-btn`} disabled={loginBusy} onClick={() => { void onLogout() }}>{t(source.logoutLabel)}</button>
@@ -1199,13 +1242,29 @@ export function SubscriptionCardBody({ mode, reloadSeq, reload, activateModelOnL
         <div className={styles['account-list']} id={`${prefix}-account-list`}>
           {accounts.map(row => (
             <div className={styles['account-row']} key={row.id} data-account-id={row.id}>
-              <span className={styles['account-row-name']}>{row.email || row.displayName || t(source.accountFallback)}</span>
-              {row.isCurrent ? <span className="badge">{t('sub_account_current')}</span> : null}
-              <button
-                className="btn-xs btn-danger"
-                aria-label={t('sub_account_remove')}
-                onClick={() => { void onRemoveAccount(row.id) }}
-              >{t('sub_account_remove')}</button>
+              <div className={styles['account-row-identity']}>
+                <span className={styles['account-row-name']}>{row.email || row.displayName || t(source.accountFallback)}</span>
+                {row.isCurrent ? <span className="badge">{t('sub_account_current')}</span> : null}
+              </div>
+              <div className={styles['account-row-actions']}>
+                {!row.isCurrent ? (
+                  <button
+                    type="button"
+                    className="btn-xs"
+                    data-switch-account={row.id}
+                    disabled={accountBusy}
+                    onClick={() => { void onSwitchAccount(row.id) }}
+                  >{t('sub_account_switch')}</button>
+                ) : null}
+                <button
+                  type="button"
+                  className="btn-xs btn-danger"
+                  data-remove-account={row.id}
+                  aria-label={t('sub_account_remove')}
+                  disabled={accountBusy}
+                  onClick={() => { void onRemoveAccount(row.id) }}
+                >{t('sub_account_remove')}</button>
+              </div>
             </div>
           ))}
         </div>

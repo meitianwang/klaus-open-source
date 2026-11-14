@@ -1,5 +1,5 @@
 {
-  "reason": "A Claude subscription login can carry a queue of accounts. The credential file defines account order and login generations; refreshed tokens are authoritative in the engine credential store. Status, the quota dashboard and rotation share the queue, while quota reads reuse inference authentication instead of expired login seeds.",
+  "reason": "A Claude subscription login can carry a queue of accounts. The credential file defines account order and login generations; refreshed tokens are authoritative in the engine credential store. Status, manual active-account switching, the quota dashboard and rotation share the queue, while quota reads reuse inference authentication instead of expired login seeds.",
   "storage": {
     "file": "claude-subscription-oauth.json",
     "queueKey": "accounts",
@@ -37,6 +37,12 @@
       "isCurrent"
     ],
     "currentRule": "the head of the queue is isCurrent; exactly one row is current"
+  },
+  "switch": {
+    "channel": "auth:switch-account",
+    "order": "moves the selected accountId to index 0 while preserving the relative order of the remaining stored accounts",
+    "sideEffects": "updates oauthAccount metadata, invalidates the Claude allowance cache and reconfigures live inference sessions",
+    "missingAccount": "returns ok false with error 'claude_account_not_found'"
   },
   "usage": {
     "method": "claude/usage",

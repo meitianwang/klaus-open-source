@@ -2523,7 +2523,7 @@ export const CONTROL_SURFACES: ControlSurface[] = [
   },
   {
     "key": "claudeAuth",
-    "about": "Claude Code subscription sign-in (provider auth, separate from the Klaus account). The source keeps a queue of several Claude accounts. When the account in use is rate-limited or out of allowance, the engine moves it to the tail and retries the same request on the next one, erroring only after every account has been tried; authentication failures first try token renewal and then rotate if another account is available. A single account or a queue whose logins all fail needs a new sign-in. Per-account allowance is in account.usage.",
+    "about": "Claude Code subscription sign-in (provider auth, separate from the Klaus account). The source keeps a queue of several Claude accounts: the head account is active and can be switched explicitly with switchAccount, and when the account in use is rate-limited or out of allowance, the engine moves it to the tail and retries the same request on the next one, erroring only after every account has been tried; authentication failures first try token renewal and then rotate if another account is available. A single account or a queue whose logins all fail needs a new sign-in. Per-account allowance is in account.usage.",
     "reads": [
       {
         "action": "status",
@@ -2545,6 +2545,13 @@ export const CONTROL_SURFACES: ControlSurface[] = [
         "action": "importLocal",
         "channel": "auth:import-local",
         "args": "no arguments — adopts this computer's existing Claude login; appends or refreshes the same way as login",
+        "confirm": false,
+        "currentSession": false
+      },
+      {
+        "action": "switchAccount",
+        "channel": "auth:switch-account",
+        "args": "{ accountId: string (an id from status.accounts) } — moves that stored account to the head of the queue so it becomes the active account",
         "confirm": false,
         "currentSession": false
       },

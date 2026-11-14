@@ -26,7 +26,7 @@ export const AUTH_CHANNELS = [
   'zhipu-auth:status', 'zhipu-auth:set-api-key', 'zhipu-auth:logout', 'zhipu-auth:models',
   'ark-auth:status', 'ark-auth:set-api-key', 'ark-auth:logout', 'ark-auth:models',
   'ark-auth:console-login', 'ark-auth:console-status', 'ark-auth:console-logout',
-  'auth:status', 'auth:login', 'auth:logout', 'auth:import-local',
+  'auth:status', 'auth:login', 'auth:logout', 'auth:switch-account', 'auth:import-local',
   'codex-auth:start', 'codex-auth:poll', 'codex-auth:logout', 'codex-auth:import-local', 'qoder-auth:import-local',
 ] as const;
 
@@ -81,6 +81,7 @@ export function registerAuthHandlers(registry: ChannelRegistry, deps: AccountDep
   registry.register('auth:status', () => service.subscriptions.claudeStatus(), 'auth');
   registry.register('auth:login', () => service.subscriptions.claudeLogin(), 'auth');
   registry.register('auth:logout', ctx => service.subscriptions.claudeLogout(string(object(ctx.args[0] ?? {}).accountId) || undefined), 'auth');
+  registry.register('auth:switch-account', ctx => service.subscriptions.claudeSwitchAccount(requiredString(object(ctx.args[0]).accountId, 'accountId')), 'auth');
   registry.register('auth:import-local', () => service.subscriptions.claudeImportLocal(), 'auth');
   registry.register('codex-auth:start', () => service.subscriptions.codexStart(), 'auth');
   registry.register('codex-auth:poll', ctx => service.subscriptions.codexPoll(string(object(ctx.args[0]).deviceCode)), 'auth');

@@ -1,6 +1,6 @@
 {
   "summary": {
-    "invokeDeclared": 762,
+    "invokeDeclared": 763,
     "pushDeclared": 81
   },
   "rows": [
@@ -198,6 +198,10 @@
     },
     {
       "channel": "auth:status",
+      "kind": "invoke"
+    },
+    {
+      "channel": "auth:switch-account",
       "kind": "invoke"
     },
     {

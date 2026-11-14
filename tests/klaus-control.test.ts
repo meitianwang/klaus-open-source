@@ -278,7 +278,9 @@ void (async () => {
       // channels and the `qoderworkAuth` control surface.
       // 760 adds session orchestration mode (get/set) and global orchestrator execution target settings (get/set).
       // 762 adds `skills:cancel` and `agents:cancel` on the existing `skill` and `agents` surfaces.
-      assert.equal(channels.size, 762);
+      // 763 adds `auth:switch-account` on `claudeAuth` so a queued Claude subscription
+      // account can be promoted to the active head from Model Sources or control actions.
+      assert.equal(channels.size, 763);
       const companionChannels = [...channels].filter(channel => channel.startsWith('desktop-pet:'));
       assert.equal(companionChannels.length, 58);
       for (const channel of companionChannels) {
@@ -626,6 +628,12 @@ void (async () => {
         assert.equal(object(await f.action(key!, action!)).success, false);
         assert.equal(object(await f.action(key!, action!, {}, true)).success, true);
       }
+      assert.equal(object(await f.action('claudeAuth', 'logout', { accountId: 'acct-1' })).success, false,
+        'removing a stored Claude account remains confirm-gated');
+      assert.equal(object(await f.action('claudeAuth', 'switchAccount', { accountId: 'acct-2' })).success, true,
+        'switching the active Claude account in the pool needs no destructive confirm gate');
+      const switched = f.calls.find(call => call.channel === 'auth:switch-account');
+      assert.deepEqual(switched?.payload, { accountId: 'acct-2' });
     });
     await h.test('soft failures never become successful action prose and external text is marked untrusted', async () => {
       const f = fixture({}, { dispatch: async () => ({ ok: false, error: 'Fixture storage failed' }) });

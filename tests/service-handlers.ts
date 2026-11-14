@@ -760,6 +760,60 @@ export function registerServiceHandlerTests(h: Harness, freshRoot: () => string)
     } finally { service.close(); }
   });
 
+  h.test('switching the active Claude account promotes it to the queue head while preserving remaining order and syncing metadata', async () => {
+    const root = freshRoot(), registry = new ChannelRegistry();
+    let stored: Json[] = [
+      { id: 'acct-a', email: 'alice@example.invalid', displayName: 'Alice', accountUuid: 'uuid-a', organizationUuid: 'org-a', tokens: { accessToken: 'tok-a', refreshToken: 'ref-a', subscriptionType: 'pro' } },
+      { id: 'acct-b', email: 'bob@example.invalid', displayName: 'Bob', accountUuid: 'uuid-b', organizationUuid: 'org-b', tokens: { accessToken: 'tok-b', refreshToken: 'ref-b', subscriptionType: 'max' } },
+      { id: 'acct-c', email: 'carol@example.invalid', displayName: 'Carol', accountUuid: 'uuid-c', organizationUuid: 'org-c', tokens: { accessToken: 'tok-c', refreshToken: 'ref-c', subscriptionType: 'team' } },
+    ];
+    let writeCount = 0;
+    const authChanges: Array<{ signedOut?: boolean } | undefined> = [];
+    const service = registerAuthHandlers(registry, accountDeps(root, {
+      subscriptionCredentials: {
+        readClaudeOAuth: async () => ({ value: null }),
+        readClaudeAccounts: async () => ({ accounts: structuredClone(stored) }),
+        writeClaudeAccounts: async accounts => { writeCount++; stored = structuredClone(accounts); return { success: true }; },
+        writeClaudeOAuth: async () => ({ success: true }),
+        removeClaudeOAuth: async () => true,
+        readLocalClaudeCredential: async () => ({ present: false }),
+        readCursorCredential: async () => ({ present: false }),
+        readQoderIdeCredential: async () => ({ present: false }),
+        readAntigravityKeychainSecret: async () => ({ present: false }),
+        readQwenWorkCredential: async () => ({ present: false }),
+        readWorkBuddyCredential: async () => ({ present: false }),
+      },
+      onAuthChanged: async change => { authChanges.push(change); },
+    }));
+    try {
+      assertDeepEqual(await invoke(registry, 'auth:switch-account', { accountId: 'acct-c' }), { ok: true, accountId: 'acct-c' }, 'selected account promoted');
+      assertDeepEqual(stored.map(row => object(row).id), ['acct-c', 'acct-a', 'acct-b'], 'remaining accounts keep relative order behind the new head');
+      assertEqual(writeCount, 1, 'queue persisted once');
+      assertDeepEqual(authChanges, [undefined], 'switch notifies active inference without marking signed-out');
+      assertDeepEqual(await invoke(registry, 'auth:status'), {
+        loggedIn: true,
+        account: 'carol@example.invalid',
+        subscriptionType: 'team',
+        accounts: [
+          { id: 'acct-c', email: 'carol@example.invalid', displayName: 'Carol', isCurrent: true },
+          { id: 'acct-a', email: 'alice@example.invalid', displayName: 'Alice', isCurrent: false },
+          { id: 'acct-b', email: 'bob@example.invalid', displayName: 'Bob', isCurrent: false },
+        ],
+      }, 'status reflects the newly promoted head account');
+      const config = JSON.parse(readFileSync(join(root, '.klaus.json'), 'utf8')) as Record<string, unknown>;
+      assertDeepEqual(config.oauthAccount, {
+        accountUuid: 'uuid-c',
+        emailAddress: 'carol@example.invalid',
+        organizationUuid: 'org-c',
+        displayName: 'Carol',
+      }, 'stored oauthAccount metadata tracks the new active head');
+
+      assertDeepEqual(await invoke(registry, 'auth:switch-account', { accountId: 'acct-c' }), { ok: true, accountId: 'acct-c' }, 'switching to the current head is idempotent');
+      assertEqual(writeCount, 1, 'idempotent switch avoids redundant credential store writes');
+      assertDeepEqual(await invoke(registry, 'auth:switch-account', { accountId: 'missing-id' }), { ok: false, error: 'claude_account_not_found' }, 'unknown account id is rejected cleanly');
+    } finally { service.close(); }
+  });
+
   h.test('real account poll uses PKCE, stores private credentials, removes guest mode and broadcasts the user', async () => {
     const root = freshRoot(), registry = new ChannelRegistry();
     writeFileSync(join(root, 'klaus-guest-mode'), '1');

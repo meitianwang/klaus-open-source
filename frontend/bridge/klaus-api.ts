@@ -1490,6 +1490,7 @@ expose('klaus', {
     status: () => call('auth:status'),
     login: () => call('auth:login'),
     logout: (accountId?: string) => call('auth:logout', accountId ? { accountId } : {}),
+    switchAccount: (accountId: string) => call('auth:switch-account', { accountId }),
     importLocal: () => call('auth:import-local'),
   },
 

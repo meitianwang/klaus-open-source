@@ -363,6 +363,30 @@ export class SubscriptionAuthService {
       } catch (error) { return { ok: false, error: errorMessage(error) }; }
     });
   }
+  /** Move a queued Claude account to the head so new and live inference uses it immediately. */
+  async claudeSwitchAccount(accountId: string): Promise<Json> {
+    const targetId = accountId.trim();
+    if (!targetId) return { ok: false, error: 'claude_account_not_found' };
+    return this.writes.run(async (): Promise<Json> => {
+      try {
+        if (this.closed) return { ok: false, error: 'Login cancelled' };
+        const read = await this.credentials().readClaudeAccounts();
+        if (read.error) return { ok: false, error: read.error };
+        const accounts = read.accounts.map(normalizeClaudeAccount).filter((row): row is JsonObject => row !== null);
+        const index = accounts.findIndex(row => string(row.id) === targetId);
+        if (index < 0) return { ok: false, error: 'claude_account_not_found' };
+        if (index > 0) {
+          const selected = accounts[index]!;
+          const reordered = [selected, ...accounts.slice(0, index), ...accounts.slice(index + 1)];
+          const saved = await this.credentials().writeClaudeAccounts(reordered);
+          if (!saved.success) return { ok: false, error: saved.error ?? 'credential_store_write_failed' };
+        }
+        await this.syncClaudeAccountMeta();
+        await this.deps.onAuthChanged();
+        return { ok: true, accountId: targetId };
+      } catch (error) { return { ok: false, error: errorMessage(error) }; }
+    });
+  }
   async claudeLogin(): Promise<Json> {
     const epoch = ++this.claudeEpoch;
     this.claudeController?.abort();

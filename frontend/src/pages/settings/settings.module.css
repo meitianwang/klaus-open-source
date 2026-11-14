@@ -1439,13 +1439,30 @@
 .account-row {
   display: flex;
   align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.account-row-identity {
+  display: flex;
+  align-items: center;
   gap: 8px;
+  min-width: 0;
+  flex: 1;
+}
+.account-row-identity :global(.badge) {
+  flex-shrink: 0;
 }
 .account-row-name {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.account-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
 }
 .api-key-block {
   margin-top: 12px;
