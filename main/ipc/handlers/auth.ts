@@ -10,7 +10,7 @@ export const AUTH_CHANNELS = [
   'kiro-auth:import-local', 'kiro-auth:logout', 'kiro-auth:models',
   'trae-auth:status', 'trae-auth:start', 'trae-auth:poll', 'trae-auth:cancel',
   'trae-auth:import-local', 'trae-auth:logout', 'trae-auth:models',
-  'antigravity-auth:status', 'antigravity-auth:import-local', 'antigravity-auth:logout', 'antigravity-auth:models',
+  'antigravity-auth:status', 'antigravity-auth:import-local', 'antigravity-auth:switch-account', 'antigravity-auth:logout', 'antigravity-auth:models',
   'antigravity-auth:start', 'antigravity-auth:poll', 'antigravity-auth:cancel',
   'klausAuth:status', 'klausAuth:login', 'klausAuth:cancelLogin', 'klausAuth:logout', 'klausAuth:guestEnter',
   'klausAuth:clientConfig', 'klausAuth:subscription', 'klausAuth:updateProfile', 'klausAuth:uploadAvatar',
@@ -68,7 +68,8 @@ export function registerAuthHandlers(registry: ChannelRegistry, deps: AccountDep
   registry.register('antigravity-auth:poll', ctx => service.subscriptions.antigravityPoll(requiredString(object(ctx.args[0]).flowId, 'flowId')), 'auth');
   registry.register('antigravity-auth:cancel', ctx => service.subscriptions.antigravityCancel(requiredString(object(ctx.args[0]).flowId, 'flowId')), 'auth');
   registry.register('antigravity-auth:import-local', () => service.subscriptions.antigravityImportLocal(), 'auth');
-  registry.register('antigravity-auth:logout', () => service.subscriptions.antigravityLogout(), 'auth');
+  registry.register('antigravity-auth:switch-account', ctx => service.subscriptions.antigravitySwitchAccount(requiredString(object(ctx.args[0]).accountId, 'accountId')), 'auth');
+  registry.register('antigravity-auth:logout', ctx => service.subscriptions.antigravityLogout(string(object(ctx.args[0] ?? {}).accountId) || undefined), 'auth');
   registry.register('antigravity-auth:models', async (): Promise<Json> => {
     try {
       const result = object(await deps.request('antigravity/models', { read: 'warm' }));

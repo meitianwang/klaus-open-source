@@ -40,6 +40,7 @@ export interface SubscriptionSource {
   importFailedPrefix?: string
   confirmLogout: string
   deviceExpired?: string
+  multiAccount?: boolean
   login: (source: SubscriptionSource, setStatus: (text: string) => void, reload: () => void, options?: SubscriptionLoginOptions) => Promise<void>
   deviceHint?: (flow: any) => string
   /**
@@ -166,6 +167,7 @@ export const SUBSCRIPTION_SOURCES: Record<string, SubscriptionSource> = {
     importFailedPrefix: 'antigravity_import_failed_prefix',
     confirmLogout: 'antigravity_confirm_logout',
     deviceExpired: 'antigravity_browser_login_expired',
+    multiAccount: true,
     login: loginThroughDeviceFlow,
   },
   subscription: {
@@ -184,6 +186,7 @@ export const SUBSCRIPTION_SOURCES: Record<string, SubscriptionSource> = {
     importSuccess: 'sub_import_success',
     importFailedPrefix: 'sub_import_failed_prefix',
     confirmLogout: 'sub_confirm_logout',
+    multiAccount: true,
     // 宿主自己跑完整个回环授权，一次调用就有结果。
     login: loginThroughHost,
   },
@@ -545,6 +548,8 @@ const AUTH_ERROR_KEYS: Record<string, string> = {
   antigravity_login_unconfigured: 'antigravity_login_unconfigured',
   antigravity_login_url_invalid: 'antigravity_login_browser_failed',
   antigravity_login_browser_failed: 'antigravity_login_browser_failed',
+  antigravity_account_not_found: 'auth_err_account_not_found',
+  antigravity_account_limit_reached: 'antigravity_account_limit_reached',
   claude_cli_credentials_not_found: 'auth_err_local_not_found',
   codex_cli_auth_not_found: 'auth_err_local_not_found',
   // Qoder gets its own wording: two independent stores are consulted (the IDE's
@@ -720,12 +725,17 @@ function noteCursorSettings(mode: string, phase: string, status: any = {}): void
 }
 
 /** Account-only surfaces refresh credentials without changing conversation preferences. */
-export async function activateSubscriptionMode(mode: string, reload: () => void, sessionId: string | null | undefined = w().currentSessionId, options: SubscriptionLoginOptions = {}, account?: string | null): Promise<void> {
+export async function activateSubscriptionMode(mode: string, reload: () => void, sessionId: string | null | undefined = w().currentSessionId, options: SubscriptionLoginOptions = {}, account?: string | null, accounts?: any[]): Promise<void> {
   // The source activation write remounts the settings tab; seed the cache with
   // the state this success establishes so the remounted card does not paint
   // the pre-login row (or a skeleton) while the confirming read is in flight.
   const status = { ...(subscriptionStatusCache.get(mode) || {}), loggedIn: true }
   if (account !== undefined) status.account = account
+  if (Array.isArray(accounts)) {
+    status.accounts = accounts
+  } else if (SUBSCRIPTION_SOURCES[mode]?.multiAccount && (!Array.isArray(status.accounts) || status.accounts.length === 0)) {
+    status.accounts = [{ id: 'seeded', email: account || '', displayName: '', isCurrent: true }]
+  }
   if (mode === 'workbuddy' && options.workbuddyRegion) status.region = options.workbuddyRegion
   delete status.needsReimport
   delete status.needsLogin
@@ -745,7 +755,14 @@ export async function activateSubscriptionMode(mode: string, reload: () => void,
 
 async function completeSubscriptionLogin(source: SubscriptionSource, result: any, setStatus: (text: string) => void, reload: () => void, sessionId: string | null | undefined, options: SubscriptionLoginOptions): Promise<void> {
   try {
-    await activateSubscriptionMode(source.mode, reload, sessionId, options, typeof result?.account === 'string' ? result.account : null)
+    await activateSubscriptionMode(
+      source.mode,
+      reload,
+      sessionId,
+      options,
+      typeof result?.account === 'string' ? result.account : null,
+      Array.isArray(result?.accounts) ? result.accounts : undefined,
+    )
   } catch (error: any) {
     noteCursorSettings(source.mode, 'model_activation_failed', result)
     setStatus(tGlobal('auth_switch_failed_prefix') + authErrorText(source, error?.message || String(error)))
@@ -903,7 +920,7 @@ export async function pollDeviceFlow(source: SubscriptionSource, flow: any, setS
       // Source activation can remount this card; the committed flow must no longer
       // belong to its unmount cancellation handler.
       options.onCompleted?.()
-      setStatus(tGlobal('auth_please_resend'))
+      setStatus(res.updatedExisting ? tGlobal('sub_account_updated') : tGlobal('auth_please_resend'))
       await completeSubscriptionLogin(source, res, setStatus, reload, options.sessionId, options)
       return
     }
@@ -1043,8 +1060,8 @@ export function SubscriptionCardBody({ mode, reloadSeq, reload, activateModelOnL
     }
   }
 
-  const accounts: Array<{ id: string; email: string; displayName: string; isCurrent: boolean }> =
-    source.mode === 'subscription' && Array.isArray(status.accounts) ? status.accounts : []
+  const accounts: Array<{ id: string; email: string; displayName: string; isCurrent: boolean; needsLogin?: boolean }> =
+    source.multiAccount && Array.isArray(status.accounts) ? status.accounts : []
   const accountBusy = loginBusy || importBusy || switchingAccountId !== null
 
   const onSwitchAccount = async (accountId: string) => {
@@ -1061,11 +1078,14 @@ export function SubscriptionCardBody({ mode, reloadSeq, reload, activateModelOnL
       }
       const selected = accounts.find(row => row.id === accountId)
       if (selected) {
-        const reordered = [selected, ...accounts.filter(row => row.id !== accountId)]
-          .map((row, index) => ({ ...row, isCurrent: index === 0 }))
+        const reordered = Array.isArray(result.accounts)
+          ? result.accounts
+          : [selected, ...accounts.filter(row => row.id !== accountId)]
+              .map((row, index) => ({ ...row, isCurrent: index === 0 }))
         const nextStatus = {
           ...status,
-          account: selected.email || selected.displayName || status.account,
+          account: result.account ?? (selected.email || selected.displayName || status.account),
+          needsLogin: typeof result.needsLogin === 'boolean' ? result.needsLogin : selected.needsLogin === true,
           accounts: reordered,
         }
         subscriptionStatusCache.set(mode, nextStatus)
@@ -1089,6 +1109,11 @@ export function SubscriptionCardBody({ mode, reloadSeq, reload, activateModelOnL
     try {
       const result = await source.api().logout(accountId)
       if (result?.ok !== true) throw new Error(authErrorText(source, result?.error))
+      if (result.loggedIn === false) {
+        subscriptionStatusCache.set(mode, { loggedIn: false, accounts: [] })
+      } else if (Array.isArray(result.accounts)) {
+        subscriptionStatusCache.set(mode, { ...status, ...result })
+      }
       window.dispatchEvent(new Event('klaus:auth-mode-changed'))
       reload()
     } catch (error: any) {
@@ -1178,7 +1203,7 @@ export function SubscriptionCardBody({ mode, reloadSeq, reload, activateModelOnL
   // leave a band of stray spacing under the key field.
   const actions = status.unavailable
     ? <button className="btn-sm" onClick={reload}>{t('auth_status_retry')}</button>
-    : accounts.length > 0
+    : accounts.length > 1 || (accounts.length > 0 && signedIn)
       // Queued sources can add or refresh another account.
       ? <>
           <button className="btn-xs btn-danger" id={`${prefix}-logout-btn`} disabled={accountBusy} onClick={() => { void onLogout() }}>{t(source.logoutLabel)}</button>
@@ -1218,12 +1243,12 @@ export function SubscriptionCardBody({ mode, reloadSeq, reload, activateModelOnL
       <div className="card-header">
         {status.unavailable
           ? <strong>{t('auth_status_unavailable')}</strong>
-          : signedIn
+          : signedIn || accounts.length > 1
           ? accounts.length > 1
             // The queue below already names every account, head included;
             // repeating the head email up here would show one address twice,
             // so a queued login headlines its account count instead.
-            ? <><strong>{t('sub_accounts_count').replace('{count}', String(accounts.length))}</strong><span className="badge">{t('auth_logged_in')}</span></>
+            ? <><strong>{t('sub_accounts_count').replace('{count}', String(accounts.length))}</strong><span className="badge">{t(mode === 'antigravity' ? 'antigravity_credential_saved' : 'auth_logged_in')}</span></>
             : <><strong>{status.account || t(source.accountFallback)}</strong><span className="badge">{t(mode === 'antigravity' ? 'antigravity_credential_saved' : 'auth_logged_in')}</span></>
           : <strong>{t(source.notLoggedIn)}</strong>}
         {mode === 'workbuddy' && status.loggedIn && (status.region === 'cn' || status.region === 'intl')
@@ -1245,6 +1270,7 @@ export function SubscriptionCardBody({ mode, reloadSeq, reload, activateModelOnL
               <div className={styles['account-row-identity']}>
                 <span className={styles['account-row-name']}>{row.email || row.displayName || t(source.accountFallback)}</span>
                 {row.isCurrent ? <span className="badge">{t('sub_account_current')}</span> : null}
+                {row.needsLogin ? <span className="badge">{t('sub_account_expired')}</span> : null}
               </div>
               <div className={styles['account-row-actions']}>
                 {!row.isCurrent ? (
@@ -1342,7 +1368,7 @@ export function SubscriptionCardBody({ mode, reloadSeq, reload, activateModelOnL
       {(!['antigravity', 'trae', 'kiro'].includes(mode) || !signedIn) && status.error ? <div className={styles['settings-status-text']}>{authErrorText(source, status.error)}</div>
         : mode === 'cursor' && status.needsLogin ? <div className={styles['settings-status-text']}>{t('cursor_browser_login_expired')}</div>
         : mode === 'cursor' && status.needsReimport ? <div className={styles['settings-status-text']}>{status.reason ? authErrorText(source, status.reason) : t('cursor_import_expired')}</div> : null}
-      {!['antigravity', 'trae', 'kiro'].includes(mode) || !signedIn ? <div id={`${prefix}-login-status`} className={styles['settings-status-text']}>{statusMsg}</div> : null}
+      {!['trae', 'kiro'].includes(mode) || !signedIn ? <div id={`${prefix}-login-status`} className={styles['settings-status-text']}>{statusMsg}</div> : null}
     </div>
   )
 }

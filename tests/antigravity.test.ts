@@ -363,6 +363,94 @@ h.test('engine catalog notifications broadcast source invalidation and quota win
       { id: 'gemini-3.8-flash', label: 'Gemini 3.8 Flash', usedPercent: 3, resetsAt: 1793789273000 },
     ],
   });
-});
+  });
+
+  h.test('Antigravity account pool host actions switch active head, isolate per-account logout, roll back only added imports and project multi-account quotas', async () => {
+  const f = await fixture();
+  const rpcCalls: Array<{ method: string; params: JsonObject }> = [];
+  const authChanges: Array<{ signedOut?: boolean } | undefined> = [];
+  let releaseAdopt!: (value: JsonObject) => void;
+  let holdAdopt = false;
+  const service = new SubscriptionAuthService({
+  configRoot: f.root,
+  homeDir: f.root,
+  request: async (method, params) => {
+    const payload = object(params);
+    rpcCalls.push({ method, params: payload });
+    if (method === 'antigravity/switchAccount') {
+      return payload.accountId === 'ag-missing'
+        ? { ok: false, error: 'antigravity_account_not_found' }
+        : { ok: true, signedIn: true, loggedIn: true, accountId: payload.accountId };
+    }
+    if (method === 'antigravity/logout') {
+      if (payload.accountId === 'ag-keep-other') return { ok: true, signedIn: true, loggedIn: true };
+      return { ok: true, signedIn: false, loggedIn: false };
+    }
+    if (method === 'antigravity/adoptCredential' && holdAdopt) {
+      return await new Promise<JsonObject>(resolve => { releaseAdopt = resolve; });
+    }
+    return { ok: true };
+  },
+  openExternal: async () => {},
+  onAuthChanged: async change => { authChanges.push(change); },
+  });
+  try {
+  assert.deepEqual(await service.antigravitySwitchAccount('ag-2'), { ok: true, signedIn: true, loggedIn: true, accountId: 'ag-2' });
+  assert.deepEqual(await service.antigravitySwitchAccount('ag-missing'), { ok: false, error: 'antigravity_account_not_found' });
+  assert.deepEqual(await service.antigravityLogout('ag-keep-other'), { ok: true, signedIn: true, loggedIn: true });
+  assert.deepEqual(await service.antigravityLogout(), { ok: true, signedIn: false, loggedIn: false });
+  assert.deepEqual(authChanges, [undefined, undefined, { signedOut: true }],
+    'switching or removing one account from a non-empty pool reconfigures live sessions without marking signed-out');
+
+  // Cancelling an in-flight import into an already-populated pool rolls back only the newly added account.
+  rpcCalls.length = 0;
+  holdAdopt = true;
+  const pendingImport = service.antigravityImportLocal();
+  await waitFor(() => rpcCalls.length === 1, 1000, 'import adopts credential');
+  const closing = service.close();
+  releaseAdopt({ ok: true, signedIn: true, addedAccountId: 'ag-added', previousCount: 2 });
+  await closing;
+  assert.equal(object(await pendingImport).ok, false);
+  assert.deepEqual(rpcCalls, [
+    { method: 'antigravity/adoptCredential', params: rpcCalls[0]!.params },
+    { method: 'antigravity/logout', params: { accountId: 'ag-added' } },
+  ]);
+
+  const multiQuota = antigravityUsage({
+    signedIn: true,
+    accounts: [
+      {
+        id: 'ag-1',
+        label: 'head@example.invalid',
+        isCurrent: true,
+        state: 'ok',
+        plan: 'Google AI Ultra',
+        windows: [
+          { id: 'w1', groupLabel: 'Gemini Models', window: '5h', usedPercent: 15, description: 'Resets in 5h' },
+        ],
+      },
+      {
+        id: 'ag-2',
+        label: 'expired@example.invalid',
+        isCurrent: false,
+        state: 'error',
+        error: 'app-server rpc error -32000: antigravity_login_expired',
+      },
+    ],
+  });
+  assert.equal(multiQuota.state, 'ok');
+  assert.equal(multiQuota.plan, 'Google AI Ultra');
+  const rows = multiQuota.accounts as JsonObject[];
+  assert.equal(rows.length, 2);
+  assert.equal(rows[0]!.isCurrent, true);
+  assert.equal((rows[0]!.windows as JsonObject[])[0]!.id, 'pool_duration_5h');
+  assert.equal(rows[1]!.isCurrent, false);
+  assert.equal(rows[1]!.state, 'error');
+  assert.equal(rows[1]!.error, 'antigravity_login_expired');
+  } finally {
+  await service.close();
+  await f.close();
+  }
+  });
 
 void h.finish(join(__dirname, 'antigravity-result.json'), 'antigravity').then(code => { process.exitCode = code; });

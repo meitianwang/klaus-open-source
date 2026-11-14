@@ -1558,7 +1558,8 @@ expose('klaus', {
     poll: (flowId: string) => call('antigravity-auth:poll', { flowId }),
     cancel: (flowId: string) => call('antigravity-auth:cancel', { flowId }),
     importLocal: () => call('antigravity-auth:import-local'),
-    logout: () => call('antigravity-auth:logout'),
+    switchAccount: (accountId: string) => call('antigravity-auth:switch-account', { accountId }),
+    logout: (accountId?: string) => call('antigravity-auth:logout', accountId ? { accountId } : {}),
     models: () => call('antigravity-auth:models'),
   },
   // The engine owns this subscription's credentials and cloud protocol.

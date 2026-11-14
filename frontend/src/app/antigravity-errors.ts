@@ -36,6 +36,7 @@ const ANTIGRAVITY_ERROR_KEYS = new Set([
   'antigravity_refresh_invalid',
   'antigravity_store_unavailable',
   'antigravity_store_invalid',
+  'antigravity_account_limit_reached',
 ])
 
 /** Stable service verdicts retain their meaning in live and saved turn failures. */

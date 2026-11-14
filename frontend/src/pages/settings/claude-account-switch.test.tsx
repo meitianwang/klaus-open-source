@@ -188,4 +188,88 @@ describe('Claude subscription account pool active-account switch', () => {
 
     await act(async () => { root.unmount() })
   })
+
+  test('Antigravity account pool switches active head, shows credential-saved and expired badges and keeps add-account actions', async () => {
+    let queue = [
+      { id: 'ag-a', email: 'alpha@example.invalid', displayName: '', needsLogin: true },
+      { id: 'ag-b', email: 'beta@example.invalid', displayName: '', needsLogin: false },
+    ]
+    const switched: string[] = []
+    happyWindow.currentLang = 'zh'
+    happyWindow.klaus = {
+      antigravityAuth: {
+        status: async () => ({
+          loggedIn: true,
+          signedIn: true,
+          account: queue[0]!.email,
+          needsLogin: queue[0]!.needsLogin,
+          accounts: queue.map((row, index) => ({ ...row, isCurrent: index === 0 })),
+        }),
+        switchAccount: async (accountId: string) => {
+          switched.push(accountId)
+          const idx = queue.findIndex(row => row.id === accountId)
+          if (idx < 0) return { ok: false, error: 'antigravity_account_not_found' }
+          if (idx > 0) {
+            const picked = queue[idx]!
+            queue = [picked, ...queue.slice(0, idx), ...queue.slice(idx + 1)]
+          }
+          return {
+            ok: true,
+            accountId,
+            account: queue[0]!.email,
+            needsLogin: queue[0]!.needsLogin,
+            accounts: queue.map((row, index) => ({ ...row, isCurrent: index === 0 })),
+          }
+        },
+        logout: async (accountId?: string) => {
+          queue = accountId ? queue.filter(row => row.id !== accountId) : []
+          return {
+            ok: true,
+            loggedIn: queue.length > 0,
+            signedIn: queue.length > 0,
+            account: queue[0]?.email,
+            accounts: queue.map((row, index) => ({ ...row, isCurrent: index === 0 })),
+          }
+        },
+        start: async () => ({ ok: true }),
+        poll: async () => ({ ok: true }),
+        cancel: async () => ({ ok: true }),
+        importLocal: async () => ({ ok: true }),
+      },
+      session: { setMainModel: async () => {} },
+    }
+
+    const container = happyWindow.document.createElement('div')
+    happyWindow.document.body.appendChild(container)
+    const root = createRoot(container)
+    let seq = 0
+    const renderAg = () => root.render(
+      React.createElement(SubscriptionCardBody, {
+        mode: 'antigravity',
+        reloadSeq: seq,
+        reload: () => { seq += 1; renderAg() },
+      }),
+    )
+    await act(async () => { renderAg() })
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)) })
+
+    expect(container.querySelector('#antigravity-auth-card .card-header')?.textContent).toContain(I18N.zh.antigravity_credential_saved)
+    const rows = [...container.querySelectorAll('[data-account-id]')] as HTMLElement[]
+    expect(rows.map(r => r.getAttribute('data-account-id'))).toEqual(['ag-a', 'ag-b'])
+    expect(rows[0]!.textContent).toContain(I18N.zh.sub_account_expired)
+    expect(container.querySelector('#antigravity-auth-login-btn')).not.toBeNull()
+    expect(container.querySelector('#antigravity-auth-import-btn')).not.toBeNull()
+
+    const switchBeta = rows[1]!.querySelector('[data-switch-account="ag-b"]') as HTMLButtonElement
+    await act(async () => { switchBeta.click() })
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)) })
+
+    expect(switched).toEqual(['ag-b'])
+    const updated = [...container.querySelectorAll('[data-account-id]')] as HTMLElement[]
+    expect(updated.map(r => r.getAttribute('data-account-id'))).toEqual(['ag-b', 'ag-a'])
+    expect(updated[0]!.textContent).toContain(I18N.zh.sub_account_current)
+    expect(container.querySelector('[role="alert"]')).toBeNull()
+
+    await act(async () => { root.unmount() })
+  })
 })

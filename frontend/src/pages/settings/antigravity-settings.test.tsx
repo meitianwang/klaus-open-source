@@ -81,8 +81,6 @@ test('browser completion preserves its originating session and retires cancellat
       expect(html).toContain(`id="antigravity-auth-${action}-btn"`)
     }
     expect(html.match(/<button/g)).toHaveLength(loginVectors.accountCard.signedInActions.length)
-    expect(html).not.toContain('id="antigravity-auth-login-btn"')
-    expect(html).not.toContain('id="antigravity-auth-import-btn"')
   }, {
     start: async () => browserFlow(),
     poll: async () => { (globalThis as any).window.currentSessionId = 'other-session'; return { ok: true } },

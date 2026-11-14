@@ -2832,9 +2832,9 @@ export const CONTROL_SURFACES: ControlSurface[] = [
   },
   {
     "key": "antigravityAuth",
-    "about": "Sign in to Antigravity through browser authorization or reuse the local account for cloud models, image generation, search and dictation. Quotas use the same account. Signing out removes only the Klaus credential.",
+    "about": "Sign in to Antigravity through browser authorization or reuse the local account for cloud models, image generation, search and dictation. The source keeps a queue of several accounts: the head account is active and can be switched explicitly with switchAccount, and rate-limit, allowance or unrecoverable authentication refusals advance the queue automatically. Per-account quotas are in account.usage. Signing out removes only the Klaus credential.",
     "reads": [
-      { "action": "status", "channel": "antigravity-auth:status", "args": "", "confirm": false, "currentSession": false },
+      { "action": "status", "channel": "antigravity-auth:status", "args": "no arguments — answers { loggedIn, account, needsLogin, accounts: [{ id, email, displayName, isCurrent, needsLogin }] }", "confirm": false, "currentSession": false },
       { "action": "models", "channel": "antigravity-auth:models", "args": "", "confirm": false, "currentSession": false }
     ],
     "writes": [
@@ -2842,7 +2842,8 @@ export const CONTROL_SURFACES: ControlSurface[] = [
       { "action": "poll", "channel": "antigravity-auth:poll", "args": "{ flowId: string (from antigravityAuth.start) }", "confirm": false, "currentSession": false },
       { "action": "cancel", "channel": "antigravity-auth:cancel", "args": "{ flowId: string (from antigravityAuth.start) }", "confirm": false, "currentSession": false },
       { "action": "importLocal", "channel": "antigravity-auth:import-local", "args": "", "confirm": false, "currentSession": false },
-      { "action": "logout", "channel": "antigravity-auth:logout", "args": "", "confirm": true, "currentSession": false }
+      { "action": "switchAccount", "channel": "antigravity-auth:switch-account", "args": "{ accountId: string (an id from status.accounts) } — moves that stored account to the head of the queue so it becomes the active account", "confirm": false, "currentSession": false },
+      { "action": "logout", "channel": "antigravity-auth:logout", "args": "{ accountId?: string (an id from status.accounts) } — removes that one account; omitting accountId signs out EVERY stored Antigravity account", "confirm": true, "currentSession": false }
     ],
     "manualHeading": "模型来源",
     "panel": ["settings", "models"]

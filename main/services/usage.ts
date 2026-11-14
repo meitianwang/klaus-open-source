@@ -337,7 +337,7 @@ function selectAntigravityGroupWindows(rawWindows: unknown[]): JsonObject[] | un
   return selected.length ? selected : undefined;
 }
 
-export function antigravityUsage(value: unknown): JsonObject {
+function projectSingleAntigravityUsage(value: unknown): JsonObject {
   const answer = object(value);
   if (answer.signedIn === true && Array.isArray(answer.windows)) {
     const pools = selectAntigravityGroupWindows(answer.windows);
@@ -360,6 +360,33 @@ export function antigravityUsage(value: unknown): JsonObject {
     }
   }
   return subscriptionAllowanceUsage(value, antigravityQuotaGroupLabel);
+}
+
+function normalizeAntigravityRowError(rawError: unknown): string {
+  const message = string(rawError);
+  const tag = /\b(antigravity_[a-z0-9_]+|model_context_window_exceeded)\b/u.exec(message)?.[1];
+  return tag ?? 'Usage request failed; check your network connection and retry';
+}
+
+export function antigravityUsage(value: unknown): JsonObject {
+  const answer = object(value);
+  if (Array.isArray(answer.accounts)) {
+    if (answer.signedIn !== true || answer.accounts.length === 0) return { state: 'signed_out', accounts: [] };
+    const accounts = answer.accounts.map((raw, index): JsonObject => {
+      const row = object(raw);
+      const id = string(row.id) || String(index);
+      const label = string(row.label) || string(row.account) || 'Antigravity';
+      const base: JsonObject = { id, label, isCurrent: index === 0 };
+      optionalString(base, 'plan', row.plan);
+      if (row.state === 'error') {
+        return { ...base, state: 'error', error: normalizeAntigravityRowError(row.error) };
+      }
+      const projected = projectSingleAntigravityUsage({ ...row, signedIn: true });
+      return { ...projected, ...base, state: 'ok' };
+    });
+    return { ...accounts[0]!, accounts };
+  }
+  return projectSingleAntigravityUsage(value);
 }
 
 /** Keep independent service-reported packs and unknown totals intact. */

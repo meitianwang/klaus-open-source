@@ -3,13 +3,14 @@ import { readFileSync } from 'node:fs'
 import { runInNewContext } from 'node:vm'
 import ts from 'typescript'
 import { cursorErrorText } from '../app/cursor-errors'
+import { knownAntigravityErrorText } from '../app/antigravity-errors'
 import { I18N } from '../i18n/messages'
 
 // The subscription usage popover shows one block per stored account when the
 // login carries a queue, and falls back to the single block otherwise. These
 // cases pin both shapes against the production renderer.
 const source = ts.createSourceFile('chat.ts', readFileSync(new URL('./chat.ts', import.meta.url), 'utf8'), ts.ScriptTarget.Latest, true)
-const names = ['renderUsageBarRow', 'renderUsageWindows', 'renderUsageCredits', 'renderUsageExtra', 'claudeUsageErrorText', 'renderUsageProvider', 'renderUsageSnapshot', 'USAGE_MODE_PROVIDER_KEYS', 'USAGE_PRESET_MODE_NAMES']
+const names = ['renderUsageBarRow', 'renderUsageWindows', 'renderUsageCredits', 'renderUsageExtra', 'renderAntigravityUsageWindows', 'renderAntigravityUsageCredits', 'usageFormatCountdown', 'usageLocalizedDuration', 'antigravityWindowLabel', 'claudeUsageErrorText', 'renderUsageProvider', 'renderUsageSnapshot', 'USAGE_MODE_PROVIDER_KEYS', 'USAGE_PRESET_MODE_NAMES']
 const code = ts.transpileModule(
   names.map(name => {
     const node = source.statements.find((statement): statement is ts.FunctionDeclaration | ts.VariableStatement =>
@@ -25,6 +26,7 @@ function usageRenderer(translate: (key: string) => string = key => key, language
   return runInNewContext(`${code}\n({ renderUsageSnapshot })`, {
   escapeHtml: (text: string) => String(text),
   cursorErrorText,
+  knownAntigravityErrorText,
   usageWindowLabel: (window: { label?: string; id?: string }) => window.label || window.id || 'Five hour window',
   usageFormatTime: (time?: number) => time === undefined ? '' : 'billing-cycle-reset',
   tt: translate,
@@ -311,5 +313,47 @@ describe('Bailian Token Plan usage', () => {
     })
     expect(html).toContain(I18N.zh.bailian_subscription_expired)
     expect(html).not.toContain('bailian_usage_console_hint')
+  })
+})
+
+describe('Antigravity multi-account usage', () => {
+  test('renders per-account shared pools, marks the current head and isolates expired account errors in both languages', () => {
+    for (const language of ['en', 'zh'] as const) {
+      const localized = usageRenderer(key => I18N[language][key] || key, language)
+      const html = localized.renderUsageSnapshot({
+        mode: 'antigravity',
+        provider: {
+          state: 'error',
+          error: 'antigravity_login_expired',
+          accounts: [
+            {
+              id: 'ag-1',
+              label: 'expired@example.invalid',
+              isCurrent: true,
+              state: 'error',
+              error: 'antigravity_login_expired',
+            },
+            {
+              id: 'ag-2',
+              label: 'ultra@example.invalid',
+              isCurrent: false,
+              state: 'ok',
+              plan: 'Google AI Ultra',
+              windows: [
+                { id: 'pool_duration_5h', groupLabel: 'Gemini Models', windowKind: 'duration', windowToken: '5h', usedPercent: 20 },
+              ],
+            },
+          ],
+        },
+      })
+      expect(html).toContain('expired@example.invalid')
+      expect(html).toContain('ultra@example.invalid')
+      expect(html).toContain('Google AI Ultra')
+      expect(html).toContain('Gemini Models')
+      expect(html).toContain('80%')
+      expect(html).toContain(I18N[language].usage_account_current)
+      expect(html).toContain(I18N[language].antigravity_login_expired)
+      expect(html).not.toContain('antigravity_login_expired')
+    }
   })
 })

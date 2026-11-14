@@ -39,6 +39,7 @@
     { "code": "antigravity_refresh_invalid", "expectedKey": "antigravity_refresh_invalid" },
     { "code": "antigravity_store_unavailable", "expectedKey": "antigravity_store_unavailable" },
     { "code": "antigravity_store_invalid", "expectedKey": "antigravity_store_invalid" },
+    { "code": "antigravity_account_limit_reached", "expectedKey": "antigravity_account_limit_reached" },
     { "code": "antigravity_unmapped_future_tag", "expectedKey": "antigravity_error_generic" }
   ]
 }

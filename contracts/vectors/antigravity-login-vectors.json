@@ -1,6 +1,6 @@
 {
-  "version": 2,
-  "reason": "Browser authorization and local credential reuse have independent entrypoints. Completed authorization preserves credential ownership while cancellation fences stale replies. Connected accounts expose sign-out with confirmation and describe saved credentials without claiming verified service access.",
+  "version": 3,
+  "reason": "Browser authorization and local credential reuse have independent entrypoints and append or refresh accounts in an Antigravity account queue. Completed authorization preserves credential ownership while cancellation fences stale replies. Connected accounts expose sign-out alongside login and local reuse for adding accounts, allow switching the active head account or removing individual accounts, rotate automatically on rate-limit/quota/auth refusals, and describe saved credentials without claiming verified service access.",
   "start": {
     "ok": true,
     "flowId": "fixture-flow-one",
@@ -16,7 +16,16 @@
     "ok": true,
     "signedIn": true,
     "loggedIn": true,
-    "account": "account@example.invalid"
+    "account": "account@example.invalid",
+    "accounts": [
+      {
+        "id": "acct-one",
+        "email": "account@example.invalid",
+        "displayName": "",
+        "isCurrent": true,
+        "needsLogin": false
+      }
+    ]
   },
   "cancelled": {
     "ok": true,
@@ -30,7 +39,24 @@
       "importLocal"
     ],
     "signedInActions": [
-      "logout"
+      "logout",
+      "login",
+      "import"
+    ]
+  },
+  "multiAccount": {
+    "file": "antigravity-auth.json",
+    "queueKey": "accounts",
+    "switchChannel": "antigravity-auth:switch-account",
+    "logoutChannel": "antigravity-auth:logout",
+    "rotationTriggers": [
+      "rate_limit",
+      "quota",
+      "auth"
+    ],
+    "neverTriggers": [
+      "network",
+      "invalid_request"
     ]
   }
 }

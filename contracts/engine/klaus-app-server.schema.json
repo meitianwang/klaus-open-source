@@ -11369,20 +11369,38 @@
       },
       "result": true
     },
+    "antigravity/switchAccount": {
+      "params": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "title": "AntigravitySwitchAccountParams",
+        "type": "object",
+        "required": [
+          "accountId"
+        ],
+        "properties": {
+          "accountId": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "result": true
+    },
     "antigravity/logout": {
       "params": {
         "$schema": "http://json-schema.org/draft-07/schema#",
-        "title": "QoderParams",
-        "description": "`qoder/*` and `qwenwork/*` request params for the calls that take nothing but a correlation id: status, logout, importLocal, loginStart.\n\nThese subscriptions are endpoint state, not session state — a settings page signs in with no session bound — so these carry no session id, like the config and rule-store methods.",
+        "title": "AntigravityLogoutParams",
         "type": "object",
         "properties": {
-          "submissionId": {
+          "accountId": {
+            "default": null,
             "type": [
               "string",
               "null"
             ]
           }
-        }
+        },
+        "additionalProperties": false
       },
       "result": true
     },

@@ -1,6 +1,6 @@
 {
   "summary": {
-    "invokeDeclared": 763,
+    "invokeDeclared": 764,
     "pushDeclared": 81
   },
   "rows": [
@@ -82,6 +82,10 @@
     },
     {
       "channel": "antigravity-auth:status",
+      "kind": "invoke"
+    },
+    {
+      "channel": "antigravity-auth:switch-account",
       "kind": "invoke"
     },
     {

@@ -6,7 +6,7 @@
     "bridgeDir": "frontend/bridge"
   },
   "summary": {
-    "registeredInvoke": 763,
+    "registeredInvoke": 764,
     "registeredPush": 81,
     "roles": 11
   },
@@ -139,6 +139,7 @@
         "antigravity-auth:poll",
         "antigravity-auth:start",
         "antigravity-auth:status",
+        "antigravity-auth:switch-account",
         "app:camera-lease",
         "app:camera-lease-release",
         "app:content-find",

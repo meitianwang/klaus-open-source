@@ -17023,7 +17023,8 @@ function renderUsageSnapshot(snapshot: { mode: string; provider?: { state?: stri
   const nameKey = (USAGE_MODE_PROVIDER_KEYS as Record<string, string>)[mode]
   const name = nameKey ? tt(nameKey) : ((USAGE_PRESET_MODE_NAMES as Record<string, string>)[mode] || mode)
   let body = ''
-  if (data.state === 'ok' || (mode === 'subscription' && Array.isArray(data.accounts) && data.accounts.length > 0)) {
+  const hasQueuedAccounts = (mode === 'subscription' || mode === 'antigravity') && Array.isArray(data.accounts) && data.accounts.length > 0
+  if (data.state === 'ok' || hasQueuedAccounts) {
     if (mode === 'subscription' && Array.isArray(data.accounts) && data.accounts.length > 0) {
       // A subscription login can carry a queue of accounts; each one keeps its
       // own allowance window, so the popover shows one block per account and
@@ -17036,6 +17037,17 @@ function renderUsageSnapshot(snapshot: { mode: string; provider?: { state?: stri
           : renderUsageWindows(row) + renderUsageExtra(row.extraUsage)
         const gap = index > 0 ? ' style="margin-top:10px"' : ''
         return `<div class="usage-account"${gap}><div class="usage-provider-head"><span class="usage-provider-name">${label}</span>${current}</div>${inner}</div>`
+      }).join('')
+    } else if (mode === 'antigravity' && Array.isArray(data.accounts) && data.accounts.length > 0) {
+      body = data.accounts.map((row: any, index: number) => {
+        const label = escapeHtml(String(row.label || tt('antigravity_account_fallback')))
+        const rowPlan = row.plan ? `<span class="usage-plan-badge">${escapeHtml(String(row.plan))}</span>` : ''
+        const current = row.isCurrent ? `<span class="usage-plan-badge">${escapeHtml(tt('usage_account_current'))}</span>` : ''
+        const inner = row.state === 'error'
+          ? `<div class="usage-empty usage-error-text">${escapeHtml(tt('usage_error'))}${row.error ? ` · ${escapeHtml(String(knownAntigravityErrorText(String(row.error), tt) || row.error).slice(0, 320))}` : ''}</div>`
+          : renderAntigravityUsageWindows(row) + (row.credits ? renderAntigravityUsageCredits('usage_qoder_personal', row.credits) : '')
+        const gap = index > 0 ? ' style="margin-top:10px"' : ''
+        return `<div class="usage-account"${gap}><div class="usage-provider-head"><span class="usage-provider-name">${label}</span>${rowPlan}${current}</div>${inner}</div>`
       }).join('')
     } else if (mode === 'kiro') {
       body = renderKiroUsageWindows(data)
@@ -17118,7 +17130,7 @@ function renderUsageSnapshot(snapshot: { mode: string; provider?: { state?: stri
       body = `<div class="usage-empty">${escapeHtml(tt('usage_byok_metered'))}</div>`
     }
   }
-  return renderUsageProvider(name, data, body)
+  return renderUsageProvider(name, mode === 'antigravity' && hasQueuedAccounts ? { ...data, plan: undefined } : data, body)
 }
 
 const usageDashboardRequests = new WeakMap<HTMLElement, number>()

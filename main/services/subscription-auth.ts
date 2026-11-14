@@ -970,7 +970,10 @@ export class SubscriptionAuthService {
         if (stale()) throw new Error('Account operation cancelled');
         const imported = object(await this.deps.request('antigravity/adoptCredential', { credential }));
         if (stale()) {
-          await this.deps.request('antigravity/logout', {});
+          const rollbackId = typeof imported.addedAccountId === 'string' && typeof imported.previousCount === 'number' && imported.previousCount > 0
+            ? imported.addedAccountId
+            : undefined;
+          await this.deps.request('antigravity/logout', rollbackId ? { accountId: rollbackId } : {});
           throw new Error('Account operation cancelled');
         }
         if (imported.ok === true) await this.deps.onAuthChanged();
@@ -980,16 +983,34 @@ export class SubscriptionAuthService {
     });
   }
 
-  async antigravityLogout(): Promise<Json> {
-    ++this.antigravityEpoch;
-    const previousFlow = this.antigravityLoginFlow;
-    this.antigravityLoginFlow = undefined;
+  async antigravityLogout(accountId?: string): Promise<Json> {
+    const targetId = accountId?.trim() || undefined;
+    if (!targetId) ++this.antigravityEpoch;
+    const previousFlow = !targetId ? this.antigravityLoginFlow : undefined;
+    if (!targetId) this.antigravityLoginFlow = undefined;
     return this.writes.run(async (): Promise<Json> => {
-      if (previousFlow) await this.deps.request('antigravity/loginCancel', { flow: { flowId: previousFlow.flowId } });
-      if (this.closed) return { ok: false, error: 'Account operation cancelled' };
-      const result = object(await this.deps.request('antigravity/logout', {}));
-      await this.deps.onAuthChanged({ signedOut: true });
-      return result;
+      try {
+        if (previousFlow) await this.deps.request('antigravity/loginCancel', { flow: { flowId: previousFlow.flowId } });
+        if (this.closed) return { ok: false, error: 'Account operation cancelled' };
+        const result = object(await this.deps.request('antigravity/logout', targetId ? { accountId: targetId } : {}));
+        if (result.ok === false) return result;
+        const signedOut = !targetId || result.signedIn === false || result.loggedIn === false;
+        await this.deps.onAuthChanged(signedOut ? { signedOut: true } : undefined);
+        return result;
+      } catch (error) { return { ok: false, error: errorMessage(error) }; }
+    });
+  }
+
+  async antigravitySwitchAccount(accountId: string): Promise<Json> {
+    const targetId = accountId.trim();
+    if (!targetId) return { ok: false, error: 'antigravity_account_not_found' };
+    return this.writes.run(async (): Promise<Json> => {
+      try {
+        if (this.closed) return { ok: false, error: 'Account operation cancelled' };
+        const result = object(await this.deps.request('antigravity/switchAccount', { accountId: targetId }));
+        if (result.ok === true) await this.deps.onAuthChanged();
+        return result;
+      } catch (error) { return { ok: false, error: errorMessage(error) }; }
     });
   }
 

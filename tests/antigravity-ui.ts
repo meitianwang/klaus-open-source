@@ -58,8 +58,8 @@ void (async () => {
       await waitFor(() => evaluate<boolean>("Boolean(document.querySelector('.klaus-dialog-overlay.active .klaus-dialog-confirm'))"), 10_000, 'local account reuse asks for confirmation');
       await evaluate("document.querySelector('.klaus-dialog-overlay.active .klaus-dialog-confirm').click(); true");
       await waitFor(() => evaluate<boolean>("window.klaus.antigravityAuth.status().then(status => status.loggedIn === true && status.needsLogin !== true)"), 90_000, 'the account connects through the real host');
-      await waitFor(() => evaluate<boolean>("Boolean(document.getElementById('antigravity-auth-logout-btn')) && !document.getElementById('antigravity-auth-login-btn') && !document.getElementById('antigravity-auth-import-btn')"), 30_000, 'the connected account retains sign-out without login or import');
-      assertEqual(await evaluate<number>("document.getElementById('antigravity-auth-card')?.querySelectorAll('button').length ?? -1"), 1, 'the connected account card retains only sign-out');
+      await waitFor(() => evaluate<boolean>("Boolean(document.getElementById('antigravity-auth-logout-btn')) && Boolean(document.getElementById('antigravity-auth-login-btn')) && Boolean(document.getElementById('antigravity-auth-import-btn'))"), 30_000, 'the connected account card keeps sign-out alongside login and local reuse for adding accounts');
+      assertEqual(await evaluate<number>("document.getElementById('antigravity-auth-card')?.querySelectorAll('button').length ?? -1"), 3, 'the single connected account card exposes sign-out, login and local reuse');
       const state = await evaluate<{ connected: boolean; source: string; models: number; unavailable: number }>(`(async () => {
         const status = await window.klaus.antigravityAuth.status();
         const saved = await window.klaus.session.getMainModel(undefined, {resolve:false});
