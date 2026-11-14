@@ -184,34 +184,31 @@ export function visibleSeedText(value: string): string {
   return text + withoutContext.slice(cursor);
 }
 
-/** The first-generation prompt frames the capped first user content as the task prompt. */
-export function initialTitlePrompt(input: string, maxChars: number): string {
-  const instructions = [
-    `Generate a concise, single-line task title of up to ${maxChars} characters and under five words where possible.`,
-    'Start with an imperative verb.',
-    "Capitalize only the first word unless the user's language, proper nouns, acronyms, or code terms require otherwise.",
-    'Preserve ticket references exactly.',
-    "Write the title in the user's language.",
-    'Do not use quotes, markdown, or trailing punctuation.',
-    'Do not answer the request.',
-  ].join(' ')
-  const prefix = `${instructions}\n\nUser prompt:\n`
-  // The whole prompt is bounded in bytes, never splitting a Unicode character.
-  const remaining = TITLE_PROMPT_MAX_BYTES - Buffer.byteLength(prefix, 'utf8')
+/** Bound the user content in UTF-8 bytes without splitting a Unicode character. */
+export function initialTitlePrompt(input: string): string {
   let text = ''
   for (const char of input.trim()) {
-    if (Buffer.byteLength(text + char, 'utf8') > remaining) break
+    if (Buffer.byteLength(text + char, 'utf8') > TITLE_PROMPT_MAX_BYTES) break
     text += char
   }
-  return `${prefix}${text}`
+  return text
+}
+
+/** Additional character-bound guidance placed in the system prompt, preserving JSON output. */
+export function initialTitleInstructions(maxChars: number): string {
+  return [
+    `Keep the title within ${maxChars} characters and under five words where possible.`,
+    "Write the title in the user's language and preserve ticket references and code identifiers.",
+    'Reply only with JSON: {"title":"..."}.',
+  ].join(' ')
 }
 
 /** The adaptive refresh asks whether the cached generated title still fits. */
-export function refreshTitlePrompt(current: string, maxChars: number): string {
+export function refreshTitleInstructions(current: string, maxChars: number): string {
   return [
     `Keep the current chat title ${JSON.stringify(current)} if it still fits the conversation.`,
     `If the focus has changed, write a more useful title in the user's language, up to ${maxChars} characters.`,
-    'Reply only with JSON: {"title":"...","description":"a search summary, up to 100 characters"}. Do not use tools.',
+    'Reply only with JSON: {"title":"..."}. Do not use tools.',
   ].join(' ');
 }
 
@@ -457,7 +454,10 @@ export class SessionTitles<C extends AcknowledgedClient = AcknowledgedClient> {
       let reply: unknown;
       try {
         reply = await requestAcknowledged(attempt.client, 'session/generateTitle', {
-          sessionId: attempt.liveId, prompt: initialTitlePrompt(attempt.cappedInput, chars), persist: false,
+          sessionId: attempt.liveId,
+          instructions: initialTitleInstructions(chars),
+          prompt: initialTitlePrompt(attempt.cappedInput),
+          persist: false,
         }, 'generatedTitle', GENERATION_TIMEOUT_MS);
       } finally {
         // Release before reacquiring serialize below. Rename may already have
@@ -543,7 +543,7 @@ export class SessionTitles<C extends AcknowledgedClient = AcknowledgedClient> {
     let reply: unknown;
     try {
       reply = await requestAcknowledged(client, 'session/generateTitle', {
-        sessionId: liveId, prompt: refreshTitlePrompt(cached, REFRESH_TITLE_CHARS), persist: false,
+        sessionId: liveId, instructions: refreshTitleInstructions(cached, REFRESH_TITLE_CHARS), persist: false,
       }, 'generatedTitle', GENERATION_TIMEOUT_MS);
     } catch (error) {
       this.deps.log?.('session-title-refresh-failed', String(error));

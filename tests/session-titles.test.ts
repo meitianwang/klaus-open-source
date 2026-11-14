@@ -79,9 +79,9 @@ interface Vector {
   records: Array<{ id: string; title: string; source: string | null; attemptedAt: number | null; revision: number }>;
   rows: Json[];
   expectedTitles: string[];
-  generation: { method: string; input: string; charLimit: number; promptFirstLine: string; promptSuffix: string; params: Row; reply: Row; expectedTitle: string; updateMethod: string; updateParams: Row; updateReply: Row; expectedEvent: Row };
+  generation: { method: string; input: string; charLimit: number; instructionsFirstLine: string; instructionsJsonContract: string; prompt: string; params: Row; reply: Row; expectedTitle: string; updateMethod: string; updateParams: Row; updateReply: Row; expectedEvent: Row };
   rejectedGenerationReplies: Row[];
-  refresh: { gate: string; interval: number; charLimit: number; cacheLimit: number; promptContains: string[] };
+  refresh: { gate: string; interval: number; charLimit: number; cacheLimit: number; instructionsContains: string[] };
   retry: { quietPeriodMs: number; failedAttemptKeepsStampUntilQuietPeriodPasses: boolean; attemptVoidedImmediatelyWhenLiveSessionChanged: boolean; completedTurnRetriesUntitledConversation: boolean; openRecoveryClaimedOnlyWithVisibleContent: boolean };
 }
 const generations = (f: Fixture): Array<{ method: string; params: Row }> => f.client.calls.filter(call => call.method === 'session/generateTitle').map(call => ({ method: call.method, params: object(call.params) ?? {} }));
@@ -187,10 +187,13 @@ h.test('the first turn generates once through the named wrappers and applies the
     const call = generations(f)[0]!;
     assertEqual(call.method, vector.generation.method, 'only the named generateTitle wrapper');
     assertDeepEqual({ sessionId: call.params.sessionId, persist: call.params.persist }, vector.generation.params, 'generation params carry the session and the unpersisted flag');
+    const instructions = String(call.params.instructions);
     const prompt = String(call.params.prompt);
-    assert(prompt.startsWith(vector.generation.promptFirstLine), 'the host-owned prompt frames the task');
-    assert(prompt.endsWith(vector.generation.promptSuffix), 'the capped first content closes the prompt');
-    assert(prompt.includes(`up to ${vector.generation.charLimit} characters`), 'the prompt carries its character limit');
+    assert(instructions.startsWith(vector.generation.instructionsFirstLine), 'the host-owned instructions carry the character limit');
+    assert(instructions.includes(vector.generation.instructionsJsonContract), 'instructions preserve the JSON output contract');
+    assert(!instructions.includes('Do not use quotes'), 'instructions never ask for unquoted plain-text output');
+    assertEqual(prompt, vector.generation.prompt, 'prompt carries only the capped user message without meta-instructions');
+    assert(instructions.includes(`within ${vector.generation.charLimit} characters`), 'instructions carry the character limit');
     assertDeepEqual(f.client.calls[1], { method: vector.generation.updateMethod, params: vector.generation.updateParams }, 'the generated title syncs through updateTitle');
     assertDeepEqual(readSessionTitle('thread', f.root), { title: vector.generation.expectedTitle, source: 'ai', legacySeed: false, attemptedAt: 100, revision: 101 }, 'durable provenance and monotonic revisions');
     assertDeepEqual(f.events.at(-1), vector.generation.expectedEvent, 'AI completion pushes after persistence');
@@ -427,8 +430,10 @@ h.test('the adaptive refresh revisits a cached generated title every fifth compl
     await settle();
     assertEqual(generations(f).length, 2, 'the fifth completed turn refreshes');
     const refresh = generations(f)[1]!;
-    for (const fragment of vector.refresh.promptContains) assert(String(refresh.params.prompt).includes(fragment), `refresh prompt carries ${fragment}`);
-    assert(String(refresh.params.prompt).includes(JSON.stringify('Generated title')), 'refresh prompt quotes the cached title');
+    for (const fragment of vector.refresh.instructionsContains) assert(String(refresh.params.instructions).includes(fragment), `refresh instructions carry ${fragment}`);
+    assert(!String(refresh.params.instructions).includes('description'), 'refresh instructions match the single-field title schema');
+    assertEqual(refresh.params.prompt, undefined, 'refresh reads the session transcript rather than overwriting prompt');
+    assert(String(refresh.params.instructions).includes(JSON.stringify('Generated title')), 'refresh instructions quote the cached title');
     assertEqual(readSessionTitle('thread', f.root)?.title, 'Sharper title', 'a better refresh title is applied');
     assertEqual(cacheTitle(f, 'thread'), 'Sharper title', 'the cache follows the applied title');
     await f.serialize('thread', async () => { f.titles.recordRename('thread', 'Manual name'); });
