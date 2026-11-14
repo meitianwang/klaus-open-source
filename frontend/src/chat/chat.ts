@@ -86,6 +86,7 @@ import { mapCaretAroundToken, placeholderCount, shiftPositionAfterRemoval } from
 import { openModelSettings, toggleSettings, openSettings } from '../pages/settings/shell'
 import { openTeamIssueDeepLink, restoreCollaborationRoute } from '../pages/team-collaboration/project-navigation'
 import { queueFriendInvite } from '../pages/friends/invite'
+import { getFriendsFeatureEnabled, initFriendsSidebarGate } from '../pages/friends/feature-enabled'
 import { friendInboxSnapshot, friendTaskById, pendingFriendTaskForSession, refreshFriendInbox, subscribeFriendInbox, wireFriendInbox } from './friend-inbox'
 import { stopPendingFriendTask } from './friend-task-start'
 import { FRIEND_COMPOSE_EVENT, takeQueuedFriendCompose, type FriendComposeRequest } from '../pages/friends/compose'
@@ -16531,6 +16532,7 @@ document.getElementById('btn-memory')?.addEventListener('click', () => {
 })
 
 document.getElementById('btn-friends')?.addEventListener('click', () => {
+  if (!getFriendsFeatureEnabled()) return
   if (document.getElementById('settings-view')?.classList.contains('active')) toggleSettings()
   const pages = (window as any).klsPageViews
   for (const name of ['cron', 'memory', 'mcp', 'skills', 'plugins', 'slash-commands', 'agents', 'channels', 'team-collaboration']) pages?.get(name)?.hide()
@@ -18087,7 +18089,7 @@ klausApi.on.deepLinkOpenTeamIssue?.((payload: unknown) => { openTeamIssueDeepLin
 // A clicked add-me link: queue the invite and show the friends page; the page
 // consumes the queue when its island mounts (or immediately, if already up).
 klausApi.on.deepLinkFriendInvite?.(({ email }: { email?: string }) => {
-  if (!email) return
+  if (!email || !getFriendsFeatureEnabled()) return
   queueFriendInvite(email)
   document.getElementById('btn-friends')?.click()
 })
@@ -18107,7 +18109,7 @@ klausApi.on.deepLinkFriendTask?.(({ taskId }: { taskId?: string }) => {
 function consumeFriendCompose(event?: Event) {
   const queued = takeQueuedFriendCompose()
   const request = (event as CustomEvent<FriendComposeRequest> | undefined)?.detail ?? queued
-  if (!request) return
+  if (!request || !getFriendsFeatureEnabled()) return
   btnNewChat.click()
   insertComposerReferenceToken({ kind: 'friend', id: request.friendId, name: request.name, value: request.value }, { start: 0, end: 0 })
   inputEl.dispatchEvent(new Event('input'))
@@ -18271,10 +18273,26 @@ featureGates = initFeatureGates({
   log: (message) => console.warn('[feature-gates]', message),
 })
 
+const friendsSidebarGate = initFriendsSidebarGate({
+  setEntryVisible: (visible) => {
+    const entry = document.getElementById('btn-friends')
+    if (entry) entry.hidden = !visible
+  },
+  onFriendsDisabled: () => {
+    if (currentNonChatView !== 'friends') return
+    window.hideFriendsView?.()
+    setCurrentNonChatView(null)
+    restoreArtifactsPanelForChatView()
+  },
+})
+
 // --- Boot ---
 async function boot() {
   try {
     if (typeof window.loadPreferences === 'function') await window.loadPreferences()
+  } catch {}
+  try {
+    await friendsSidebarGate.refresh()
   } catch {}
   if (typeof window.applyI18n === 'function') window.applyI18n()
   // Hydrate sidebar collapse state from settings.db (authoritative). The first

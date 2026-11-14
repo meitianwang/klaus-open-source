@@ -29,7 +29,7 @@ globals.klaus = {
       return { items, nextCursor: null }
     },
   },
-  settings: { mobileBridge: { devices: async () => ({ ok: true, devices: [{ id: 'device-fixture', name: 'Fixture computer', platform: 'darwin', status: 'online' }] }) } },
+  settings: { kv: { get: async (key: string) => key === 'friends.enabled' ? 'on' : undefined }, mobileBridge: { devices: async () => ({ ok: true, devices: [{ id: 'device-fixture', name: 'Fixture computer', platform: 'darwin', status: 'online' }] }) } },
   friends: { list: async () => ({ friends: [{ id: fixtureFriendId, status: 'accepted', displayName: 'Fixture friend', online: true }] }) },
   agents: { definitions: { list: async () => ({ agents: [{ agentType: 'reviewer', filename: 'Reviewer', whenToUse: 'Review changes and report concrete findings. '.repeat(80) }] }) } },
   browserUse: { mentionTabs: async () => ({ ok: true, tabs: [], errors: [] }) },

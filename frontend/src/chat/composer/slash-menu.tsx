@@ -12,6 +12,7 @@ import { QueryClientProvider, useQuery } from '@tanstack/react-query'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { escapeHtml } from '../transcript/factories'
 import { FriendAvatar } from '../../pages/friends/FriendsDialog'
+import { useFriendsFeatureEnabled } from '../../pages/friends/feature-enabled'
 import { pluginMentionNames } from '../../pages/skills/localize'
 import { slashRowLabels } from './slash-row-labels'
 import { useT } from '../../i18n'
@@ -292,6 +293,7 @@ function MentionMenu({ request, actions, store }: {
     staleTime: DEVICES_STALE_MS,
     enabled: isCategoryLevel,
   })
+  const friendsFeatureEnabled = useFriendsFeatureEnabled()
   useEffect(() => {
     const unsubscribe = window.klaus?.on?.klausAuthUpdated?.(() => {
       void queryClient.cancelQueries({ queryKey: friendsQueryKey() })
@@ -300,11 +302,19 @@ function MentionMenu({ request, actions, store }: {
     })
     return () => unsubscribe?.()
   }, [])
+  useEffect(() => {
+    if (!friendsFeatureEnabled) {
+      void queryClient.cancelQueries({ queryKey: friendsQueryKey() })
+      queryClient.removeQueries({ queryKey: friendsQueryKey() })
+      return
+    }
+    void queryClient.invalidateQueries({ queryKey: friendsQueryKey() })
+  }, [friendsFeatureEnabled])
   const friends = useQuery({
     queryKey: friendsQueryKey(),
     queryFn: fetchFriendRows,
     staleTime: FRIENDS_STALE_MS,
-    enabled: isCategoryLevel,
+    enabled: isCategoryLevel && friendsFeatureEnabled,
   })
   const normalizedQuery = query.trim()
   const [conversationQuery, setConversationQuery] = useState('')
@@ -372,9 +382,9 @@ function MentionMenu({ request, actions, store }: {
       remoteSection('devices', 'mention_group_devices', devices, (rows) => projectDeviceRows(rows, t), '', {
         loading: 'mention_group_devices_loading', error: 'mention_group_devices_error', empty: 'mention_group_empty',
       }),
-      remoteSection('friends', 'mention_group_friends', friends, (rows) => projectFriendRows(rows, t), '', {
+      ...(friendsFeatureEnabled ? [remoteSection('friends', 'mention_group_friends', friends, (rows) => projectFriendRows(rows, t), '', {
         loading: 'mention_group_friends_loading', error: 'mention_group_friends_error', empty: 'mention_group_empty',
-      }),
+      })] : []),
       { key: 'commands', labelKey: 'composer_slash_commands', rows: commandRows.filter(row => actions.commandGroupKey(row.command) !== 'skills'),
         ...(commands.isError ? { state: { kind: 'error' as const, labelKey: 'composer_load_failed' } }
           : !commands.data && commands.isFetching ? { state: { kind: 'loading' as const, labelKey: 'loading' } } : {}) },
@@ -387,7 +397,7 @@ function MentionMenu({ request, actions, store }: {
       }),
     ]
     return contextMenuSections(sourceSections, query)
-  }, [isCategoryLevel, scope, sessionId, root, query,
+  }, [isCategoryLevel, scope, sessionId, root, query, friendsFeatureEnabled,
     plugins.data, plugins.isFetching, plugins.isError, devices.data, devices.isFetching, devices.isError,
     friends.data, friends.isFetching, friends.isError, conversationData, conversationsPending, conversationsFailed,
     browserTabs.data, browserTabs.isFetching, browserTabs.isError, files.data, files.isFetching, files.isError,

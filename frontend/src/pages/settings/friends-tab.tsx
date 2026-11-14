@@ -1,8 +1,9 @@
 // Device and default authorization settings for friend collaboration.
 import { useEffect, useState } from 'react'
 import { useT } from '../../i18n'
-import { FRIENDS_ENABLED_KEY } from '../../../../shared/friends'
-import { SettingsPage, PrefToggleRow, kvGet, kvSet, boolChecked } from './kv'
+import { FRIENDS_ENABLED_KEY, isFriendsFeatureEnabled } from '../../../../shared/friends'
+import { SettingsPage, PrefToggleRow, kvGet, kvSet } from './kv'
+import { setFriendsFeatureEnabled } from '../friends/feature-enabled'
 import { ReceiverSettings } from '../friends/ReceiverSettings'
 import { DefaultFriendGrant } from '../friends/DefaultFriendGrant'
 import styles from './settings.module.css'
@@ -13,7 +14,12 @@ function FriendsFeatureToggle() {
   const [enabled, setEnabled] = useState<boolean | null>(null)
   useEffect(() => {
     let live = true
-    void kvGet(FRIENDS_ENABLED_KEY).then(raw => { if (live) setEnabled(boolChecked(raw, false)) })
+    void kvGet(FRIENDS_ENABLED_KEY).then(raw => {
+      if (!live) return
+      const resolved = isFriendsFeatureEnabled(raw)
+      setEnabled(resolved)
+      setFriendsFeatureEnabled(resolved)
+    })
     return () => { live = false }
   }, [])
   return <PrefToggleRow
@@ -24,7 +30,11 @@ function FriendsFeatureToggle() {
     disabled={enabled === null}
     onChange={async checked => {
       setEnabled(checked)
-      if (!await kvSet(FRIENDS_ENABLED_KEY, checked ? 'on' : 'off')) setEnabled(!checked)
+      setFriendsFeatureEnabled(checked)
+      if (!await kvSet(FRIENDS_ENABLED_KEY, checked ? 'on' : 'off')) {
+        setEnabled(!checked)
+        setFriendsFeatureEnabled(!checked)
+      }
     }}
   />
 }

@@ -2,6 +2,7 @@ import type { FriendSummary } from '../../../../shared/friends'
 import type { MentionEntry } from './slash-menu'
 import { queryClient } from '../../app/query-client'
 import { friendDisplayName } from '../../pages/friends/display-name'
+import { readFriendsFeatureEnabledFromHost } from '../../pages/friends/feature-enabled'
 import type { BrowserTabMention } from '../../../../shared/browser-tab-mention'
 import { BROWSER_TAB_MENTIONS_REFRESH_MS, browserTabDetail, browserTabLabel, normalizeBrowserTabMention } from './browser-tab-reference'
 
@@ -124,6 +125,8 @@ export async function fetchPluginRows(sessionId: string | null): Promise<PluginR
 
 /** Friend requests are management-only; mention choices are accepted relationships. */
 export async function fetchFriendRows(): Promise<FriendSummary[]> {
+  const hostEnabled = readFriendsFeatureEnabledFromHost()
+  if (hostEnabled && !(await hostEnabled)) return []
   const api = klaus()?.friends
   if (!api?.list) throw new Error('friends_unavailable')
   const snapshot = await api.list()

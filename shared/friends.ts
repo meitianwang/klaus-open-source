@@ -114,6 +114,13 @@ export interface FriendReceiverSnapshot { selectedDeviceId: string | null; devic
 export const FRIEND_LOCAL_ASSIST_KEY = 'friends_local_assist';
 /** Persisted on this computer; the friends feature master switch. Absent means off. */
 export const FRIENDS_ENABLED_KEY = 'friends.enabled';
+
+/** Interpret the stored `friends.enabled` setting row; absent or blank stays off. */
+export function isFriendsFeatureEnabled(value: string | null | undefined): boolean {
+  const raw = typeof value === 'string' ? value.trim().toLowerCase() : '';
+  if (!raw) return false;
+  return !['off', '0', 'false', 'no', 'disable', 'disabled'].includes(raw);
+}
 export type FriendOutgoingStatus = 'sent' | 'delivered' | 'awaiting_authorization' | 'processing' | 'needs_input' | 'replied' | 'rejected' | 'cancelled' | 'failed';
 /** System rows a friend conversation shows instead of a message bubble.
  *  `ended`: the friend's Klaus finished without a result. `unreplied`: this

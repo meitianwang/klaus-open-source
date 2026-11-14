@@ -2,7 +2,7 @@ import { presetRuntimePolicy, type RuntimePolicy } from '../../contracts/runtime
 import { configRootFrom } from './config-root';
 import { isFailure, kvGet, withSettingsDb, withSettingsTransaction } from './settings';
 import type { DatabaseSync } from 'node:sqlite';
-import { friendExecutionPreset, FRIENDS_ENABLED_KEY, type FriendExecutionPreset, type FriendTaskGrant } from '../../shared/friends';
+import { friendExecutionPreset, FRIENDS_ENABLED_KEY, isFriendsFeatureEnabled, type FriendExecutionPreset, type FriendTaskGrant } from '../../shared/friends';
 import { forgetFriendConversationGroupIn } from './friend-conversation-groups';
 import { sessionRuntimePolicy } from './session-store';
 
@@ -24,9 +24,7 @@ export { FRIENDS_ENABLED_KEY };
  */
 export function friendsEnabled(configRoot: string = configRootFrom()): boolean {
   const value = kvGet(FRIENDS_ENABLED_KEY, configRoot);
-  const raw = value === null || isFailure(value) ? undefined : value.trim().toLowerCase();
-  if (raw === undefined || raw === '') return false;
-  return !['off', '0', 'false', 'no', 'disable', 'disabled'].includes(raw);
+  return isFriendsFeatureEnabled(value === null || isFailure(value) ? undefined : value);
 }
 
 export interface FriendSessionScope {
