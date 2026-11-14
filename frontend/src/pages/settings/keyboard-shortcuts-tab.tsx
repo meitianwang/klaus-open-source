@@ -685,8 +685,8 @@ function ResetAllDialog({ resetting, error, onCancel, onConfirm }: {
         {error != null && <p className={kb['dialog-error']} role="alert">{error}</p>}
         <div className={kb['dialog-footer']}>
           <button type="button" className="btn-sm" disabled={resetting} onClick={onCancel}>{t('kb_reset_all_confirm_cancel')}</button>
-          <button type="button" className="btn-sm btn-danger" disabled={resetting} onClick={onConfirm}>
-            {resetting && <span className={kb['btn-spinner']} aria-hidden="true" />}
+          <button type="button" className={`btn-sm btn-danger${resetting ? ' is-busy' : ''}`} aria-busy={resetting || undefined} disabled={resetting} onClick={onConfirm}>
+            {resetting && <span className="btn-spinner" aria-hidden="true" />}
             {t('kb_reset_all_confirm_confirm')}
           </button>
         </div>

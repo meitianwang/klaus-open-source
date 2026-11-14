@@ -942,7 +942,9 @@ export function SubscriptionCardBody({ mode, reloadSeq, reload, activateModelOnL
   const [loginBusy, setLoginBusy] = useState(false)
   const authActionBusyRef = useRef(false)
   const [importBusy, setImportBusy] = useState(false)
+  const [logoutBusy, setLogoutBusy] = useState(false)
   const [switchingAccountId, setSwitchingAccountId] = useState<string | null>(null)
+  const [removingAccountId, setRemovingAccountId] = useState<string | null>(null)
   // Declared unconditionally, ahead of the loading early-return below, so the hook
   // order does not depend on whether a status read has landed.
   const [apiKey, setApiKey] = useState('')
@@ -1044,25 +1046,35 @@ export function SubscriptionCardBody({ mode, reloadSeq, reload, activateModelOnL
   }
 
   const onLogout = async () => {
+    if (authActionBusyRef.current) return
     if (!(await w().klausDialog.confirm(t(source.confirmLogout)))) return
+    if (authActionBusyRef.current) return
+    authActionBusyRef.current = true
+    setLogoutBusy(true)
     setLogoutError('')
+    setStatusMsg('')
     try {
       const result = await source.api().logout()
       if (result?.ok !== true) throw new Error(result?.error || '')
       // The auth-mode write remounts the settings tab; seed the signed-out
       // state so the remounted card does not paint the old logged-in row.
-      subscriptionStatusCache.set(mode, { loggedIn: false })
+      const nextStatus = { loggedIn: false, signedIn: false, accounts: [] }
+      subscriptionStatusCache.set(mode, nextStatus)
+      setStatus(nextStatus)
       window.dispatchEvent(new Event('klaus:auth-mode-changed'))
       reload()
     } catch (error: any) {
       const message = authErrorText(source, error?.message)
       setLogoutError(message === t('auth_unknown_error') ? t('profile_logout_failed') : message)
+    } finally {
+      authActionBusyRef.current = false
+      setLogoutBusy(false)
     }
   }
 
   const accounts: Array<{ id: string; email: string; displayName: string; isCurrent: boolean; needsLogin?: boolean }> =
     source.multiAccount && Array.isArray(status.accounts) ? status.accounts : []
-  const accountBusy = loginBusy || importBusy || switchingAccountId !== null
+  const accountBusy = loginBusy || importBusy || logoutBusy || switchingAccountId !== null || removingAccountId !== null
 
   const onSwitchAccount = async (accountId: string) => {
     if (authActionBusyRef.current) return
@@ -1104,22 +1116,45 @@ export function SubscriptionCardBody({ mode, reloadSeq, reload, activateModelOnL
   const onRemoveAccount = async (accountId: string) => {
     if (authActionBusyRef.current) return
     if (!(await w().klausDialog.confirm(t('sub_account_remove_confirm')))) return
+    if (authActionBusyRef.current) return
     authActionBusyRef.current = true
     setLogoutError('')
+    setStatusMsg('')
+    setRemovingAccountId(accountId)
     try {
       const result = await source.api().logout(accountId)
-      if (result?.ok !== true) throw new Error(authErrorText(source, result?.error))
-      if (result.loggedIn === false) {
-        subscriptionStatusCache.set(mode, { loggedIn: false, accounts: [] })
-      } else if (Array.isArray(result.accounts)) {
-        subscriptionStatusCache.set(mode, { ...status, ...result })
+      if (result?.ok !== true) {
+        const message = authErrorText(source, result?.error)
+        setStatusMsg(message === t('auth_unknown_error') ? t('profile_logout_failed') : message)
+        return
       }
+      const remaining = Array.isArray(result.accounts)
+        ? result.accounts
+        : accounts
+            .filter(row => row.id !== accountId)
+            .map((row, index) => ({ ...row, isCurrent: index === 0 }))
+      const nextLoggedIn = typeof result.loggedIn === 'boolean' ? result.loggedIn : remaining.length > 0
+      const head = remaining[0]
+      const nextStatus = nextLoggedIn
+        ? {
+            ...status,
+            ...result,
+            loggedIn: true,
+            account: result.account ?? (head ? (head.email || head.displayName || status.account) : undefined),
+            needsLogin: typeof result.needsLogin === 'boolean' ? result.needsLogin : head?.needsLogin === true,
+            accounts: remaining,
+          }
+        : { loggedIn: false, signedIn: false, accounts: [] }
+      subscriptionStatusCache.set(mode, nextStatus)
+      setStatus(nextStatus)
       window.dispatchEvent(new Event('klaus:auth-mode-changed'))
       reload()
     } catch (error: any) {
-      setStatusMsg(settingsErrorText('profile-logout', error, 'profile_logout_failed'))
+      const message = authErrorText(source, error?.message)
+      setStatusMsg(message === t('auth_unknown_error') ? settingsErrorText('profile-logout', error, 'profile_logout_failed') : message)
     } finally {
       authActionBusyRef.current = false
+      setRemovingAccountId(null)
     }
   }
 
@@ -1206,14 +1241,26 @@ export function SubscriptionCardBody({ mode, reloadSeq, reload, activateModelOnL
     : accounts.length > 1 || (accounts.length > 0 && signedIn)
       // Queued sources can add or refresh another account.
       ? <>
-          <button className="btn-xs btn-danger" id={`${prefix}-logout-btn`} disabled={accountBusy} onClick={() => { void onLogout() }}>{t(source.logoutLabel)}</button>
+          <button
+            className={`btn-xs btn-danger${logoutBusy ? ' is-busy' : ''}`}
+            id={`${prefix}-logout-btn`}
+            aria-busy={logoutBusy || undefined}
+            disabled={accountBusy}
+            onClick={() => { void onLogout() }}
+          >{logoutBusy ? <span className="btn-spinner" aria-hidden="true" /> : null}{t(source.logoutLabel)}</button>
           {' '}
           <button className="btn-sm" id={`${prefix}-login-btn`} disabled={accountBusy} onClick={() => { void onLogin() }}>{t(source.loginLabel)}</button>
           {' '}
           {source.importLabel ? <button className="btn-sm" id={`${prefix}-import-btn`} disabled={accountBusy} onClick={() => { void onImport() }}>{t(source.importLabel)}</button> : null}
         </>
       : signedIn
-      ? <button className="btn-xs btn-danger" id={`${prefix}-logout-btn`} disabled={loginBusy} onClick={() => { void onLogout() }}>{t(source.logoutLabel)}</button>
+      ? <button
+          className={`btn-xs btn-danger${logoutBusy ? ' is-busy' : ''}`}
+          id={`${prefix}-logout-btn`}
+          aria-busy={logoutBusy || undefined}
+          disabled={accountBusy}
+          onClick={() => { void onLogout() }}
+        >{logoutBusy ? <span className="btn-spinner" aria-hidden="true" /> : null}{t(source.logoutLabel)}</button>
       : source.apiKey
         // A source with a key field but no `device` block (Token Plan) shows the key
         // entry alone: there is no login it could offer. A source WITH one (Kimi)
@@ -1257,7 +1304,6 @@ export function SubscriptionCardBody({ mode, reloadSeq, reload, activateModelOnL
           ? <span className="badge">{t('bailian_subscription_expired_badge')}</span> : null}
       </div>
       {mode === 'antigravity' && status.needsLogin === true ? <p role="alert" className="card-meta">{t('antigravity_login_expired')}</p> : null}
-      {mode === 'antigravity' && signedIn ? <p className="card-meta">{t('antigravity_credential_saved_hint')}</p> : null}
       {mode === 'trae' && status.needsLogin === true ? <p role="alert" className="card-meta">{t('trae_login_expired')}</p> : null}
       {mode === 'bailian' && signedIn && status.subscriptionState === 'expired'
         ? <p role="alert" className="card-meta">{t('bailian_subscription_expired')}</p> : null}
@@ -1265,34 +1311,40 @@ export function SubscriptionCardBody({ mode, reloadSeq, reload, activateModelOnL
         ? <p role="alert" className="card-meta">{t('bailian_key_invalid')}</p> : null}
       {accounts.length > 1 ? (
         <div className={styles['account-list']} id={`${prefix}-account-list`}>
-          {accounts.map(row => (
-            <div className={styles['account-row']} key={row.id} data-account-id={row.id}>
-              <div className={styles['account-row-identity']}>
-                <span className={styles['account-row-name']}>{row.email || row.displayName || t(source.accountFallback)}</span>
-                {row.isCurrent ? <span className="badge">{t('sub_account_current')}</span> : null}
-                {row.needsLogin ? <span className="badge">{t('sub_account_expired')}</span> : null}
-              </div>
-              <div className={styles['account-row-actions']}>
-                {!row.isCurrent ? (
+          {accounts.map(row => {
+            const isSwitching = switchingAccountId === row.id
+            const isRemoving = removingAccountId === row.id
+            return (
+              <div className={styles['account-row']} key={row.id} data-account-id={row.id}>
+                <div className={`${styles['account-row-identity']}${isRemoving ? ` ${styles['account-row-identity-removing']}` : ''}`}>
+                  <span className={styles['account-row-name']}>{row.email || row.displayName || t(source.accountFallback)}</span>
+                  {row.isCurrent ? <span className="badge">{t('sub_account_current')}</span> : null}
+                  {row.needsLogin ? <span className="badge">{t('sub_account_expired')}</span> : null}
+                </div>
+                <div className={styles['account-row-actions']}>
+                  {!row.isCurrent ? (
+                    <button
+                      type="button"
+                      className={`btn-xs${isSwitching ? ' is-busy' : ''}`}
+                      data-switch-account={row.id}
+                      aria-busy={isSwitching || undefined}
+                      disabled={accountBusy}
+                      onClick={() => { void onSwitchAccount(row.id) }}
+                    >{isSwitching ? <span className="btn-spinner" aria-hidden="true" /> : null}{t('sub_account_switch')}</button>
+                  ) : null}
                   <button
                     type="button"
-                    className="btn-xs"
-                    data-switch-account={row.id}
+                    className={`btn-xs btn-danger${isRemoving ? ' is-busy' : ''}`}
+                    data-remove-account={row.id}
+                    aria-label={t('sub_account_remove')}
+                    aria-busy={isRemoving || undefined}
                     disabled={accountBusy}
-                    onClick={() => { void onSwitchAccount(row.id) }}
-                  >{t('sub_account_switch')}</button>
-                ) : null}
-                <button
-                  type="button"
-                  className="btn-xs btn-danger"
-                  data-remove-account={row.id}
-                  aria-label={t('sub_account_remove')}
-                  disabled={accountBusy}
-                  onClick={() => { void onRemoveAccount(row.id) }}
-                >{t('sub_account_remove')}</button>
+                    onClick={() => { void onRemoveAccount(row.id) }}
+                  >{isRemoving ? <span className="btn-spinner" aria-hidden="true" /> : null}{t('sub_account_remove')}</button>
+                </div>
               </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
       ) : null}
       {source.apiKey && !status.loggedIn ? (

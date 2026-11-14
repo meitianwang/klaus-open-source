@@ -321,21 +321,3 @@
   gap: 8px;
   margin-top: 12px;
 }
-
-/* The reset-all confirm keeps the button label and shows a spinner while
-   the mutation is in flight (`loading` prop), rather than swapping the text. */
-.btn-spinner {
-  display: inline-block;
-  width: 12px;
-  height: 12px;
-  margin-right: 6px;
-  vertical-align: -2px;
-  border-radius: 50%;
-  border: 2px solid color-mix(in srgb, currentColor 30%, transparent);
-  border-top-color: currentColor;
-  animation: kb-spin 0.8s linear infinite;
-}
-
-@keyframes kb-spin {
-  to { transform: rotate(360deg); }
-}

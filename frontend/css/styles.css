@@ -6491,9 +6491,9 @@ single repository — `disabled` + `disabledReason`). The row keeps its
   cursor: pointer;
   transition: background var(--transition), border-color var(--transition), color var(--transition);
 }
-.btn-sm:hover { background: var(--bg-hover); border-color: var(--input-border); }
+.btn-sm:hover:not(:disabled) { background: var(--bg-hover); border-color: var(--input-border); }
 .btn-sm.btn-primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
-.btn-sm.btn-primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+.btn-sm.btn-primary:hover:not(:disabled) { background: var(--accent-hover); border-color: var(--accent-hover); }
 .btn-xs {
   /* Row-flex parents pair these with ellipsized text siblings; without these
      two a narrow column squeezes the label into vertical CJK wrapping. */
@@ -6510,11 +6510,30 @@ single repository — `disabled` + `disabledReason`). The row keeps its
   cursor: pointer;
   white-space: nowrap;
 }
-.btn-xs:hover { background: var(--bg-hover); }
+.btn-xs:hover:not(:disabled) { background: var(--bg-hover); }
 .btn-xs.btn-primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
-.btn-xs.btn-primary:hover { background: var(--accent-hover); }
+.btn-xs.btn-primary:hover:not(:disabled) { background: var(--accent-hover); }
 .btn-danger { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 28%, var(--border)); }
-.btn-danger:hover { background: var(--danger-bg); }
+.btn-danger:hover:not(:disabled) { background: var(--danger-bg); }
+.btn-sm:disabled, .btn-xs:disabled { opacity: .45; cursor: default; }
+:is(.btn-sm, .btn-xs).is-busy:disabled { opacity: 1; cursor: progress; }
+.btn-spinner {
+  display: inline-block;
+  width: 11px;
+  height: 11px;
+  margin-right: 5px;
+  vertical-align: -1px;
+  border-radius: 50%;
+  border: 1.5px solid color-mix(in srgb, currentColor 30%, transparent);
+  border-top-color: currentColor;
+  animation: btn-spin 0.8s linear infinite;
+}
+@keyframes btn-spin {
+  to { transform: rotate(360deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .btn-spinner { animation: none; }
+}
 
 /* Form fields */
 .form-row { margin-bottom: 12px; }
@@ -7459,7 +7478,7 @@ button.kls-market-open {
   border-color: var(--border);
   background: var(--bg);
 }
-.sk-card .btn-danger:hover {
+.sk-card .btn-danger:hover:not(:disabled) {
   color: var(--error-fg);
   border-color: color-mix(in srgb, var(--error-accent) 38%, var(--border));
   background: color-mix(in srgb, var(--error-accent) 7%, var(--bg));

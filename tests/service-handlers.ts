@@ -814,6 +814,51 @@ export function registerServiceHandlerTests(h: Harness, freshRoot: () => string)
     } finally { service.close(); }
   });
 
+  h.test('model-source credential mutations invoke onSubscriptionAuthChanged without triggering Klaus account hooks', async () => {
+    const root = freshRoot(), registry = new ChannelRegistry();
+    writeFileSync(join(root, 'klaus-auth.json'), JSON.stringify({ token: 'tok', user: { id: 'u1', email: 'u@example.invalid' } }), { mode: 0o600 });
+    let stored: Json[] = [
+      { id: 'acct-a', email: 'alice@example.invalid', displayName: 'Alice', tokens: { accessToken: 'tok-a' } },
+      { id: 'acct-b', email: 'bob@example.invalid', displayName: 'Bob', tokens: { accessToken: 'tok-b' } },
+    ];
+    const klausAccountChanges: Array<{ signedOut?: boolean } | undefined> = [];
+    const subscriptionChanges: Array<{ signedOut?: boolean } | undefined> = [];
+    const service = registerAuthHandlers(registry, accountDeps(root, {
+      subscriptionCredentials: {
+        readClaudeOAuth: async () => ({ value: null }),
+        readClaudeAccounts: async () => ({ accounts: structuredClone(stored) }),
+        writeClaudeAccounts: async accounts => { stored = structuredClone(accounts); return { success: true }; },
+        writeClaudeOAuth: async () => ({ success: true }),
+        removeClaudeOAuth: async () => { stored = []; return true; },
+        readLocalClaudeCredential: async () => ({ present: false }),
+        readCursorCredential: async () => ({ present: false }),
+        readQoderIdeCredential: async () => ({ present: false }),
+        readAntigravityKeychainSecret: async () => ({ present: false }),
+        readQwenWorkCredential: async () => ({ present: false }),
+        readWorkBuddyCredential: async () => ({ present: false }),
+      },
+      request: async (method, params) => {
+        if (method === 'antigravity/logout') {
+          return object(params).accountId ? { ok: true, signedIn: true, loggedIn: true } : { ok: true, signedIn: false, loggedIn: false };
+        }
+        return { ok: true };
+      },
+      onAuthChanged: async change => { klausAccountChanges.push(change); },
+      onSubscriptionAuthChanged: async change => { subscriptionChanges.push(change); },
+    }));
+    try {
+      assertDeepEqual(await invoke(registry, 'antigravity-auth:logout', { accountId: 'ag-secondary' }), { ok: true, signedIn: true, loggedIn: true }, 'secondary Antigravity account removed');
+      assertDeepEqual(await invoke(registry, 'auth:logout', { accountId: 'acct-b' }), { ok: true }, 'secondary Claude account removed');
+      assertDeepEqual(await invoke(registry, 'auth:logout', { accountId: 'acct-a' }), { ok: true }, 'final Claude account removed');
+      assertDeepEqual(klausAccountChanges, [], 'model-source account removal never restarts Klaus account services');
+      assertDeepEqual(subscriptionChanges, [undefined, undefined, { signedOut: true }],
+        'removing a secondary account preserves signed-in status while removing the final account marks signed-out');
+
+      assertDeepEqual(await invoke(registry, 'klausAuth:logout', {}), { ok: true }, 'Klaus account signed out');
+      assertDeepEqual(klausAccountChanges, [{ signedOut: true }], 'Klaus account logout still triggers Klaus account hooks');
+    } finally { service.close(); }
+  });
+
   h.test('real account poll uses PKCE, stores private credentials, removes guest mode and broadcasts the user', async () => {
     const root = freshRoot(), registry = new ChannelRegistry();
     writeFileSync(join(root, 'klaus-guest-mode'), '1');

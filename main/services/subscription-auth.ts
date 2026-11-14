@@ -349,6 +349,7 @@ export class SubscriptionAuthService {
     ++this.claudeEpoch; this.claudeController?.abort();
     return this.writes.run(async (): Promise<Json> => {
       try {
+        let signedOut = true;
         if (!accountId) {
           if (!await this.credentials().removeClaudeOAuth()) return { ok: false, error: 'credential_store_delete_failed' };
         } else {
@@ -357,9 +358,10 @@ export class SubscriptionAuthService {
           if (remaining.length === accounts.length) return { ok: false, error: 'claude_account_not_found' };
           const saved = await this.credentials().writeClaudeAccounts(remaining);
           if (!saved.success) return { ok: false, error: saved.error ?? 'credential_store_delete_failed' };
+          signedOut = remaining.length === 0;
         }
         await this.syncClaudeAccountMeta();
-        await this.deps.onAuthChanged({ signedOut: true }); return { ok: true };
+        await this.deps.onAuthChanged(signedOut ? { signedOut: true } : undefined); return { ok: true };
       } catch (error) { return { ok: false, error: errorMessage(error) }; }
     });
   }

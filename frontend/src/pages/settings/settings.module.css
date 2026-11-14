@@ -1454,6 +1454,10 @@
   gap: 8px;
   min-width: 0;
   flex: 1;
+  transition: opacity 150ms ease;
+}
+.account-row-identity-removing {
+  opacity: .55;
 }
 .account-row-identity :global(.badge) {
   flex-shrink: 0;

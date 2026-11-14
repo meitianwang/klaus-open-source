@@ -1981,9 +1981,6 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
     }),
     openExternal: url => shell.openExternal(url),
     onAuthChanged: async change => {
-      invalidateClaudeUsage();
-      // Authentication callbacks may still own the credential write queue.
-      // Invalidate immediately and drain without waiting on that same queue.
       void composerPredictions?.invalidateAll().catch(error => log.write('prediction-auth-cleanup', String(error)));
       teamCollaboration?.refreshAccount();
       // The server resolves gates per user, so a login/logout changes answers.
@@ -1991,13 +1988,25 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
       // The guide rides the same payload: a sign-out must not leave the
       // previous account's introduction on screen.
       void onboardingGuide?.accountChanged();
+      const signedOut = change?.signedOut === true;
+      await configuration.markInferenceChanged(undefined, signedOut ? 'signed-out' : undefined);
+      if (!closing) try { await mobile?.refreshAccount(); } catch (error) { log.write('mobile-account', String(error)); }
+    },
+    onSubscriptionAuthChanged: async change => {
+      // Model-source credentials never alter the signed-in Klaus account, so
+      // keep the mobile relay, feature gates, and collaboration watchers intact
+      // instead of restarting transports or blocking behind relay readiness.
+      invalidateClaudeUsage();
+      // Authentication callbacks may still own the credential write queue.
+      // Invalidate immediately and drain without waiting on that same queue.
+      void composerPredictions?.invalidateAll().catch(error => log.write('prediction-auth-cleanup', String(error)));
       // A sign-out removes the credential live sessions were using; their
       // background re-preparation then fails by design and must not surface
       // as a model error the user caused.
       const signedOut = change?.signedOut === true;
       await configuration.markInferenceChanged(undefined, signedOut ? 'signed-out' : undefined);
+      mobile?.notePreferencesChanged('auth_mode');
       setImmediate(() => { if (!closing) void configuration.refreshSubagentModelCatalog().catch(error => log.write('subagent-model-catalog', String(error))); });
-      if (!closing) try { await mobile?.refreshAccount(); } catch (error) { log.write('mobile-account', String(error)); }
       setImmediate(() => { if (!closing) { void petRealtime?.refreshAvailability().catch(error => log.write('pet-realtime-availability', String(error))); void chatRealtime?.refreshAvailability().catch(error => log.write('voice-chat-availability', String(error))); } });
     },
     log: (kind, detail) => {

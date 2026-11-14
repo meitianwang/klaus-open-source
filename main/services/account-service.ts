@@ -16,6 +16,7 @@ export interface AccountDeps {
   openExternal: (url: string) => Promise<void>;
   push: ServicePush;
   onAuthChanged: (change?: { signedOut?: boolean }) => void | Promise<void>;
+  onSubscriptionAuthChanged?: (change?: { signedOut?: boolean }) => void | Promise<void>;
   fetch?: typeof fetch;
   subscriptionFetch?: SubscriptionAuthDeps['fetch'];
   serverUrl?: string;
@@ -86,7 +87,12 @@ export class AccountService {
     const configured = deps.serverUrl ?? process.env.KLAUS_SERVER_URL;
     this.serverUrl = (configured?.trim() ? configured : currentDesktopEdition().serverUrl).replace(/\/+$/, '');
     this.fetcher = deps.fetch ?? fetch;
-    this.subscriptions = new SubscriptionAuthService({ ...deps, fetch: deps.subscriptionFetch ?? deps.fetch, credentials: deps.subscriptionCredentials });
+    this.subscriptions = new SubscriptionAuthService({
+      ...deps,
+      onAuthChanged: deps.onSubscriptionAuthChanged ?? deps.onAuthChanged,
+      fetch: deps.subscriptionFetch ?? deps.fetch,
+      credentials: deps.subscriptionCredentials,
+    });
   }
   status(): Json { return klausAuthStatus(this.configRoot); }
   private stored(): JsonObject { return object(readStoredAuth(this.configRoot)); }

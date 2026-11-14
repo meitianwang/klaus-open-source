@@ -268,7 +268,117 @@ describe('Claude subscription account pool active-account switch', () => {
     const updated = [...container.querySelectorAll('[data-account-id]')] as HTMLElement[]
     expect(updated.map(r => r.getAttribute('data-account-id'))).toEqual(['ag-b', 'ag-a'])
     expect(updated[0]!.textContent).toContain(I18N.zh.sub_account_current)
+    expect(container.querySelector('#antigravity-auth-card .card-meta')).toBeNull()
     expect(container.querySelector('[role="alert"]')).toBeNull()
+
+    await act(async () => { root.unmount() })
+  })
+
+  test('removing an account shows inline button spinner, dims only the target row identity, updates immediately without waiting for status reload, and recovers on failure', async () => {
+    let queue = [
+      { id: 'ag-1', email: 'one@example.invalid', displayName: '', needsLogin: false },
+      { id: 'ag-2', email: 'two@example.invalid', displayName: '', needsLogin: false },
+      { id: 'ag-3', email: 'three@example.invalid', displayName: '', needsLogin: false },
+    ]
+    let releaseLogout!: (value: any) => void
+    let hangNextStatus = false
+    happyWindow.currentLang = 'zh'
+    happyWindow.klaus = {
+      antigravityAuth: {
+        status: async () => {
+          if (hangNextStatus) return await new Promise(() => {})
+          return {
+            loggedIn: queue.length > 0,
+            signedIn: queue.length > 0,
+            account: queue[0]?.email,
+            needsLogin: false,
+            accounts: queue.map((row, index) => ({ ...row, isCurrent: index === 0 })),
+          }
+        },
+        switchAccount: async () => ({ ok: true }),
+        logout: (accountId?: string) => new Promise(resolve => {
+          releaseLogout = value => {
+            if (value?.ok) queue = accountId ? queue.filter(row => row.id !== accountId) : []
+            resolve(value)
+          }
+        }),
+        start: async () => ({ ok: true }),
+        poll: async () => ({ ok: true }),
+        cancel: async () => ({ ok: true }),
+        importLocal: async () => ({ ok: true }),
+      },
+      session: { setMainModel: async () => {} },
+    }
+
+    const container = happyWindow.document.createElement('div')
+    happyWindow.document.body.appendChild(container)
+    const root = createRoot(container)
+    let seq = 0
+    const renderAg = () => root.render(
+      React.createElement(SubscriptionCardBody, {
+        mode: 'antigravity',
+        reloadSeq: seq,
+        reload: () => { seq += 1; renderAg() },
+      }),
+    )
+    await act(async () => { renderAg() })
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)) })
+
+    // Trigger remove on ag-2 and keep RPC in flight.
+    const removeTwo = container.querySelector('[data-remove-account="ag-2"]') as HTMLButtonElement
+    await act(async () => { removeTwo.click() })
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)) })
+
+    expect(removeTwo.disabled).toBe(true)
+    expect(removeTwo.classList.contains('is-busy')).toBe(true)
+    expect(removeTwo.getAttribute('aria-busy')).toBe('true')
+    expect(removeTwo.querySelector('.btn-spinner')).not.toBeNull()
+    expect(removeTwo.textContent).toBe(I18N.zh.sub_account_remove)
+
+    // Sibling buttons are disabled quietly without spinner or busy exemption.
+    const removeOne = container.querySelector('[data-remove-account="ag-1"]') as HTMLButtonElement
+    const switchThree = container.querySelector('[data-switch-account="ag-3"]') as HTMLButtonElement
+    const logoutBtn = container.querySelector('#antigravity-auth-logout-btn') as HTMLButtonElement
+    for (const sibling of [removeOne, switchThree, logoutBtn]) {
+      expect(sibling.disabled).toBe(true)
+      expect(sibling.classList.contains('is-busy')).toBe(false)
+      expect(sibling.querySelector('.btn-spinner')).toBeNull()
+    }
+
+    const rowOneIdentity = container.querySelector('[data-account-id="ag-1"] > div') as HTMLElement
+    const rowTwoIdentity = container.querySelector('[data-account-id="ag-2"] > div') as HTMLElement
+    expect(rowTwoIdentity.className).not.toBe(rowOneIdentity.className)
+
+    // Fail first: restores row class and surfaces localized account-not-found copy.
+    await act(async () => { releaseLogout({ ok: false, error: 'antigravity_account_not_found' }) })
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)) })
+
+    expect(removeTwo.disabled).toBe(false)
+    expect(removeTwo.classList.contains('is-busy')).toBe(false)
+    expect(removeTwo.querySelector('.btn-spinner')).toBeNull()
+    expect((container.querySelector('[data-account-id="ag-2"] > div') as HTMLElement).className).toBe(rowOneIdentity.className)
+    expect(container.querySelector('#antigravity-auth-login-status')?.textContent).toBe(I18N.zh.auth_err_account_not_found)
+
+    // Succeed while the follow-up status() read hangs: row disappears immediately.
+    hangNextStatus = true
+    await act(async () => { removeTwo.click() })
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)) })
+    await act(async () => {
+      releaseLogout({
+        ok: true,
+        loggedIn: true,
+        signedIn: true,
+        account: 'one@example.invalid',
+        accounts: [
+          { id: 'ag-1', email: 'one@example.invalid', displayName: '', isCurrent: true, needsLogin: false },
+          { id: 'ag-3', email: 'three@example.invalid', displayName: '', isCurrent: false, needsLogin: false },
+        ],
+      })
+    })
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)) })
+
+    const remainingIds = [...container.querySelectorAll('[data-account-id]')].map(r => r.getAttribute('data-account-id'))
+    expect(remainingIds).toEqual(['ag-1', 'ag-3'])
 
     await act(async () => { root.unmount() })
   })
