@@ -9,11 +9,11 @@ mkdirSync(logs, { recursive: true });
 
 void (async () => {
   try {
-    await h.test('the served editor page turns the in-progress sequence on once', () => {
+    await h.test('the served editor page turns the local editor feature flags on once', () => {
       const source = '<script>globalThis.__appifact_flags_override={appifact_extra_export_formats:true}</script>';
       const once = enablePresentationCreationSequence(source);
-      assert(once.includes('appifact_creation_sequence:true,appifact_extra_export_formats:true'), 'flag is inserted before the existing overrides');
-      assertEqual(enablePresentationCreationSequence(once), once, 'a second pass does not duplicate the flag');
+      assert(once.includes('appifact_bottom_toolbar:true,appifact_creation_sequence:true,appifact_icon_set:true,slides_theme_tab:true,tidal_glowing_ember:true,appifact_extra_export_formats:true'), 'flags are inserted before the existing overrides');
+      assertEqual(enablePresentationCreationSequence(once), once, 'a second pass does not duplicate the flags');
       assertEqual(enablePresentationCreationSequence('<html></html>'), '<html></html>', 'pages without the override are left alone');
     });
     await h.test('authoring activity tells the open editor whether the chat is still writing', () => {

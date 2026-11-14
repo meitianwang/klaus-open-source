@@ -1,9 +1,17 @@
 const FLAGS_OVERRIDE = 'globalThis.__appifact_flags_override={';
+const REQUIRED_EDITOR_FLAGS = [
+  'appifact_bottom_toolbar',
+  'appifact_creation_sequence',
+  'appifact_icon_set',
+  'slides_theme_tab',
+  'tidal_glowing_ember',
+] as const;
 
-/** Turn on the editor's in-progress page sequence when this host serves the editor page. */
+/** Turn on the editor's local toolbar, theme, icon set and creation sequence flags when served. */
 export function enablePresentationCreationSequence(html: string): string {
-  if (!html.includes(FLAGS_OVERRIDE) || html.includes('appifact_creation_sequence:')) return html;
-  return html.replace(FLAGS_OVERRIDE, `${FLAGS_OVERRIDE}appifact_creation_sequence:true,`);
+  if (!html.includes(FLAGS_OVERRIDE)) return html;
+  const missing = REQUIRED_EDITOR_FLAGS.filter(flag => !html.includes(`${flag}:`)).map(flag => `${flag}:true,`).join('');
+  return missing ? html.replace(FLAGS_OVERRIDE, `${FLAGS_OVERRIDE}${missing}`) : html;
 }
 
 /**

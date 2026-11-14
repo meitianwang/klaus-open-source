@@ -120,7 +120,7 @@ export class PptRuntime {
     const assetToken = `${randomBytes(18).toString('base64url')}.${identity.organization}.${identity.account}.${Math.floor(Date.now() / 1000) + 86400}`;
     return { kind: 'authed', ver: document.version, live: document.version, liveEntry: 'page', seq: document.seq,
       assetToken, wsToken: this.token(owner, id, 'live'), title: document.title, favicon: '', created_at: document.createdAt, updated_at: document.updatedAt,
-      runtime: { contract: '0.0.0', changes: [] }, hot: true, typeInstance: true, type: { slug: 'slides' }, typeSlug: 'slides', typeTitle: 'PPT',
+      runtime: { contract: '0.2.47', changes: [] }, hot: true, typeInstance: true, type: { slug: 'slides' }, typeSlug: 'slides', typeTitle: 'PPT',
       singleUser: true, exportSurface: true, artifactFilesEnabled: true, downloadsExtendedTypes: true,
       permissionsEnabled: true, reportEnabled: true, tokenExchangeEnabled: false, pregrantEnabled: false,
       perm: { role: 'owner', mode: 'owner', users: [], version: 1, assignableReadModes: ['owner'] }, author: { account: identity.account, name: 'You' },
