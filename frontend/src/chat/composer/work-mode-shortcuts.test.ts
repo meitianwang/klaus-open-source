@@ -22,7 +22,7 @@ beforeAll(() => {
     klaus: {
       settings: {
         advisor: { get: async () => ({ enabled: false, model: '' }) },
-        orchestrator: { get: async () => ({ mode: 'use_medium', model: '' }) },
+        orchestrator: { get: async () => ({ mode: 'use_medium', model: '', fallbackToMain: false }) },
       },
     },
   }
@@ -116,10 +116,114 @@ describe('plan implementation mode bridge', () => {
 })
 
 describe('upgraded model division & orchestration settings', () => {
-  test('renders Orchestration, Sub-agent tiers, and Advisor without exposing technical guardrails', () => {
+  test('renders Orchestration fallback toggle, Sub-agent tiers, and Advisor without exposing technical guardrails', () => {
     const html = renderToStaticMarkup(createElement(GlobalModelTiers, { configureSource: () => {} }))
     expect(html).toContain('data-orchestrator-models')
+    expect(html).toContain('id="orchestrator-fallback-to-main"')
     expect(html).toContain('data-advisor-models')
     expect(html).not.toContain('30')
+  })
+})
+
+describe('orchestrator fallback confirmation modal lifecycle', () => {
+  test('routes background session prompts to pending queue, parks on session switch, and submits continue/pause decisions', async () => {
+    const { Window } = await import('happy-dom')
+    const happy = new Window({ url: 'http://localhost/' })
+    const saved = new Map<string, PropertyDescriptor | undefined>()
+    for (const key of ['window', 'document', 'HTMLElement', 'Element', 'Node', 'Event', 'KeyboardEvent', 'requestAnimationFrame']) {
+      saved.set(key, Object.getOwnPropertyDescriptor(globalThis, key))
+      ;(globalThis as any)[key] = key === 'window' ? happy
+        : key === 'requestAnimationFrame' ? happy.requestAnimationFrame.bind(happy)
+        : (happy as any)[key]
+    }
+    try {
+      let activeSession: string | null = 'sess-a'
+      const responses: Array<{ requestId: string; response: any }> = []
+      ;(happy as any).currentLang = 'zh'
+      ;(happy as any).klaus = {
+        app: { setApprovalBadge: async () => {} },
+        permission: { respond: () => {}, pending: async () => [] },
+        elicit: {
+          pending: async () => [],
+          respond: async (requestId: string, response: any) => {
+            responses.push({ requestId, response })
+            return { ok: true }
+          },
+        },
+        memorySnapshot: { respond: () => {} },
+      }
+      const approvals = await import('../approvals')
+      const pendingElicitsBySession = new Map<string, any[]>()
+      approvals.initApprovals({
+        currentSessionId: () => activeSession,
+        isCronRunSession: () => false,
+        markCronRunUnread: () => {},
+        renderSessionList: () => {},
+        pendingPermissionsBySession: new Map(),
+        pendingElicitsBySession,
+      })
+
+      // 1. Background session queues in pendingElicitsBySession without mounting modal on sess-a
+      approvals.showElicitRequest({
+        requestId: 'req-bg',
+        sessionId: 'sess-b',
+        metadata: { kind: 'orchestrator_fallback', failedModel: 'qwen3-coder', mainModel: 'opus-5.5', reasonCode: 'quota' },
+      })
+      expect(happy.document.querySelector('[data-orchestrator-fallback-dialog]')).toBeNull()
+      expect(pendingElicitsBySession.get('sess-b')?.length).toBe(1)
+
+      // 2. Active session mounts modal with localized reason, parks when switching away, and reopens on return
+      approvals.showElicitRequest({
+        requestId: 'req-fg',
+        sessionId: 'sess-a',
+        metadata: { kind: 'orchestrator_fallback', failedModel: 'qwen3-coder', mainModel: 'opus-5.5', reasonCode: 'quota' },
+      })
+      const modal1 = happy.document.querySelector('[data-orchestrator-fallback-dialog="req-fg"]')
+      expect(modal1).not.toBeNull()
+      expect(modal1?.textContent).toContain('qwen3-coder')
+      expect(modal1?.textContent).toContain('额度已用完')
+      expect(modal1?.textContent).toContain('opus-5.5')
+
+      activeSession = 'sess-b'
+      approvals.parkOrchestratorFallbackPrompts('sess-b')
+      expect(happy.document.querySelector('[data-orchestrator-fallback-dialog="req-fg"]')).toBeNull()
+      expect(pendingElicitsBySession.get('sess-a')?.[0]?.requestId).toBe('req-fg')
+
+      // Switch back to sess-a and accept "continue with chat model"
+      activeSession = 'sess-a'
+      const queued = pendingElicitsBySession.get('sess-a') || []
+      pendingElicitsBySession.delete('sess-a')
+      for (const req of queued) approvals.showElicitRequest(req)
+      const continueBtn = happy.document.querySelector('[data-orchestrator-fallback-choice="continue"]') as HTMLElement | null
+      expect(continueBtn).not.toBeNull()
+      continueBtn!.click()
+      await new Promise(resolve => setTimeout(resolve, 10))
+      expect(responses).toEqual([{
+        requestId: 'req-fg',
+        response: { kind: 'accept', values: ['continue_with_main'] },
+      }])
+
+      // 3. Clicking "Pause for now" sends decline
+      approvals.showElicitRequest({
+        requestId: 'req-pause',
+        sessionId: 'sess-a',
+        metadata: { kind: 'orchestrator_fallback', failedModel: 'codex-mini', mainModel: 'opus-5.5', reasonCode: 'auth' },
+      })
+      const pauseBtn = happy.document.querySelector('[data-orchestrator-fallback-choice="pause"]') as HTMLElement | null
+      expect(pauseBtn).not.toBeNull()
+      pauseBtn!.click()
+      await new Promise(resolve => setTimeout(resolve, 10))
+      expect(responses.at(-1)).toEqual({
+        requestId: 'req-pause',
+        response: { kind: 'decline', reason: 'paused_by_user' },
+      })
+    } finally {
+      await happy.happyDOM.cancelAsync()
+      happy.close()
+      for (const [key, desc] of saved) {
+        if (desc) Object.defineProperty(globalThis, key, desc)
+        else delete (globalThis as any)[key]
+      }
+    }
   })
 })

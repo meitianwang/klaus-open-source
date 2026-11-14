@@ -696,6 +696,7 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
   const events = new SessionEventPump({
     state, forwarder: chat, emit, configRoot,
     isPrivateThread: id => retiredPrivateSessions.isPrivateThread(id),
+    isUnattended: id => cronRuntime?.isRunSession(id) === true,
     answerAttachments: groups => attachments.answerAttachments(groups),
     currentGeneration: () => sessions.engine()?.generation,
     log: (kind, detail) => log.write(kind, detail),

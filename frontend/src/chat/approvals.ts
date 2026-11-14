@@ -19,7 +19,10 @@ interface KlausApprovalApi {
     respond: (requestId: string, decision: string) => unknown
     pending?: (sessionId: string) => Promise<ApprovalRequest[]>
   }
-  elicit?: { pending?: (sessionId: string) => Promise<ApprovalRequest[]> }
+  elicit?: {
+    pending?: (sessionId: string) => Promise<ApprovalRequest[]>
+    respond?: (requestId: string, response: { kind: 'accept'; values: string[] } | { kind: 'decline'; reason?: string }) => Promise<unknown> | unknown
+  }
   question?: { pending: (sessionId: string) => Promise<AsyncQuestionRequest[]> }
   memorySnapshot: { respond: (requestId: string, choice: string) => unknown }
 }
@@ -34,6 +37,7 @@ export interface ApprovalRequest {
   toolCallId?: string
   toolInput?: { planFilePath?: unknown; questions?: unknown[] } & Record<string, unknown>
   prompt?: string
+  metadata?: Record<string, unknown>
   responseChannel?: 'elicit'
   agentType?: string
   snapshotTimestamp?: string
@@ -61,10 +65,13 @@ const permissionRecovery = createApprovalRecovery<ApprovalRequest>({
       && !!deps.pendingPermissionsBySession.get(request.sessionId || '')?.some(pending => pending.requestId === request.requestId)),
   receive: showPermissionRequest,
 })
+const openOrchestratorFallbackPrompts = new Map<string, { req: ApprovalRequest; dismiss(requeue?: boolean): void }>()
+
 const elicitationRecovery = createApprovalRecovery<ApprovalRequest>({
   read: sessionId => klausApi().elicit?.pending?.(sessionId) || Promise.resolve([]),
-  contains: request => getSessionStream(request.sessionId || '').liveUnits.some(unit =>
-    'req' in unit && unit.req?.requestId === request.requestId)
+  contains: request => openOrchestratorFallbackPrompts.has(request.requestId)
+    || getSessionStream(request.sessionId || '').liveUnits.some(unit =>
+      'req' in unit && unit.req?.requestId === request.requestId)
     || (request.sessionId !== deps.currentSessionId()
       && !!deps.pendingElicitsBySession.get(request.sessionId || '')?.some(pending => pending.requestId === request.requestId)),
   receive: showElicitRequest,
@@ -115,6 +122,7 @@ export function trackApprovalRequest(requestId: string | undefined, sessionId: s
 
 export function untrackApprovalRequest(requestId: string | undefined): void {
   if (!requestId) return
+  openOrchestratorFallbackPrompts.get(requestId)?.dismiss(false)
   permissionRecovery.settle(requestId)
   elicitationRecovery.settle(requestId)
   if (!pendingApprovalMeta.delete(requestId)) return
@@ -126,6 +134,9 @@ export function untrackApprovalRequest(requestId: string | undefined): void {
 // 会话删除时回收其全部挂起请求（含已物化进 DOM 但未处理的卡）。
 export function untrackApprovalRequestsOfSession(sessionId: string | null): void {
   if (!sessionId) return
+  for (const [, entry] of openOrchestratorFallbackPrompts) {
+    if (entry.req.sessionId === sessionId) entry.dismiss(false)
+  }
   permissionRecovery.invalidate(sessionId)
   elicitationRecovery.invalidate(sessionId)
   questionRecoveryGeneration.set(sessionId, (questionRecoveryGeneration.get(sessionId) || 0) + 1)
@@ -194,14 +205,125 @@ export function showElicitRequest(req: ApprovalRequest): void {
   // 按 sessionId 路由：后台会话（cron/teammate）的追问不能挂到当前在看的会话上。
   if (req.sessionId && req.sessionId !== deps.currentSessionId()) {
     const list = deps.pendingElicitsBySession.get(req.sessionId) || []
-    list.push(req)
+    if (!list.some(item => item.requestId === req.requestId)) list.push(req)
     deps.pendingElicitsBySession.set(req.sessionId, list)
     if (deps.isCronRunSession(req.sessionId)) deps.markCronRunUnread(req.sessionId)
     deps.renderSessionList()
     return
   }
+  if (req.metadata?.kind === 'orchestrator_fallback') {
+    showOrchestratorFallbackPrompt(req)
+    return
+  }
   // 追问卡由 React 渲染（live-elicit 单元）。
   ingestLiveApproval('elicit', req)
+}
+
+export function parkOrchestratorFallbackPrompts(nextSessionId: string | null): void {
+  let parked = false
+  for (const [, entry] of openOrchestratorFallbackPrompts) {
+    if ((entry.req.sessionId || null) !== nextSessionId) {
+      entry.dismiss(true)
+      parked = true
+    }
+  }
+  if (parked) deps?.renderSessionList()
+}
+
+function orchestratorFallbackReasonLabel(code: unknown): string {
+  switch (String(code || '')) {
+    case 'auth': return tt('orchestrator_reason_auth')
+    case 'quota': return tt('orchestrator_reason_quota')
+    case 'model_unavailable': return tt('orchestrator_reason_model_unavailable')
+    default: return tt('orchestrator_reason_unavailable')
+  }
+}
+
+export function showOrchestratorFallbackPrompt(req: ApprovalRequest): void {
+  if (!req || !req.requestId || openOrchestratorFallbackPrompts.has(req.requestId)) return
+  const overlay = document.createElement('div')
+  overlay.className = 'klaus-dialog-overlay'
+  overlay.dataset.orchestratorFallbackDialog = req.requestId
+  const renderCopy = () => {
+    const failedModel = String(req.metadata?.failedModel || tt('orchestrator_settings'))
+    const mainModel = String(req.metadata?.mainModel || '')
+    const reason = orchestratorFallbackReasonLabel(req.metadata?.reasonCode)
+    const body = tt('orchestrator_fallback_dialog_body')
+      .replace('{model}', failedModel)
+      .replace('{reason}', reason)
+      .replace('{mainModel}', mainModel)
+    overlay.innerHTML = `
+      <div class="klaus-dialog-backdrop"></div>
+      <div class="klaus-dialog-card" role="dialog" aria-modal="true">
+        <div class="klaus-dialog-title">${escapeHtml(tt('orchestrator_fallback_dialog_title'))}</div>
+        <div class="klaus-dialog-message">${escapeHtml(body)}</div>
+        <div class="klaus-dialog-message klaus-dialog-snapshot-error" role="alert" hidden></div>
+        <div class="klaus-dialog-footer">
+          <button class="klaus-dialog-btn klaus-dialog-cancel" data-orchestrator-fallback-choice="pause" type="button">${escapeHtml(tt('orchestrator_fallback_dialog_pause'))}</button>
+          <button class="klaus-dialog-btn klaus-dialog-confirm" data-orchestrator-fallback-choice="continue" type="button">${escapeHtml(tt('orchestrator_fallback_dialog_continue'))}</button>
+        </div>
+      </div>`
+    overlay.querySelector('.klaus-dialog-backdrop')?.addEventListener('click', () => { void respond('pause') })
+    overlay.querySelector('[data-orchestrator-fallback-choice="pause"]')?.addEventListener('click', () => { void respond('pause') })
+    overlay.querySelector('[data-orchestrator-fallback-choice="continue"]')?.addEventListener('click', () => { void respond('continue') })
+  }
+  let closed = false
+  let responding = false
+  const cleanup = (immediate = false) => {
+    if (closed) return
+    closed = true
+    openOrchestratorFallbackPrompts.delete(req.requestId)
+    document.removeEventListener('keydown', onKey, true)
+    window.removeEventListener('klaus:lang-change', onLangChange)
+    overlay.classList.remove('active')
+    if (immediate) overlay.remove()
+    else setTimeout(() => overlay.remove(), 160)
+  }
+  const dismiss = (requeue = false) => {
+    if (closed) return
+    cleanup(true)
+    if (requeue && req.sessionId) {
+      const list = deps.pendingElicitsBySession.get(req.sessionId) || []
+      if (!list.some(item => item.requestId === req.requestId)) list.push(req)
+      deps.pendingElicitsBySession.set(req.sessionId, list)
+    }
+  }
+  const respond = async (choice: 'continue' | 'pause') => {
+    if (closed || responding) return
+    responding = true
+    overlay.setAttribute('aria-busy', 'true')
+    overlay.querySelectorAll<HTMLButtonElement>('[data-orchestrator-fallback-choice]').forEach(btn => { btn.disabled = true })
+    const errorEl = overlay.querySelector<HTMLElement>('.klaus-dialog-snapshot-error')
+    if (errorEl) errorEl.hidden = true
+    try {
+      const payload = choice === 'continue'
+        ? { kind: 'accept' as const, values: ['continue_with_main'] }
+        : { kind: 'decline' as const, reason: 'paused_by_user' }
+      const result = await Promise.resolve(klausApi().elicit?.respond?.(req.requestId, payload)) as { ok?: boolean; error?: unknown } | undefined
+      if (result?.ok === false || result?.error) throw new Error(typeof result.error === 'string' ? result.error : tt('settings_failed'))
+      untrackApprovalRequest(req.requestId)
+      cleanup()
+    } catch (error: any) {
+      if (errorEl) {
+        errorEl.textContent = error?.message || tt('settings_failed')
+        errorEl.hidden = false
+      }
+      overlay.querySelectorAll<HTMLButtonElement>('[data-orchestrator-fallback-choice]').forEach(btn => { btn.disabled = false })
+      overlay.removeAttribute('aria-busy')
+      responding = false
+    }
+  }
+  const onKey = (e: KeyboardEvent) => {
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); void respond('pause') }
+  }
+  const onLangChange = () => { if (!closed && !responding) renderCopy() }
+  openOrchestratorFallbackPrompts.set(req.requestId, { req, dismiss })
+  renderCopy()
+  document.body.appendChild(overlay)
+  requestAnimationFrame(() => overlay.classList.add('active'))
+  document.addEventListener('keydown', onKey, true)
+  window.addEventListener('klaus:lang-change', onLangChange)
+  setTimeout(() => (overlay.querySelector('[data-orchestrator-fallback-choice="continue"]') as HTMLElement | null)?.focus(), 0)
 }
 
 // ==================== 用户态记忆快照合并对话框 ====================

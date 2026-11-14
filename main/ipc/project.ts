@@ -342,6 +342,14 @@ function toolEventChatEvents(params: Json): JsonRecord[] {
         },
       ];
     }
+    case 'orchestrator_fallback':
+      return [{
+        type: 'orchestrator_fallback',
+        sessionId,
+        failedModel: orNull(field(ev, 'failedModel')),
+        mainModel: orNull(field(ev, 'mainModel')),
+        reason: orNull(field(ev, 'reason')),
+      }];
     default:
       return [];
   }
@@ -916,7 +924,7 @@ export function mapChatEvents(event: ClientEvent, splitToolMedia?: ToolMediaProj
 
 const TURN_SCOPED_CHAT_EVENTS = new Set([
   'stream_mode', 'text_delta', 'thinking_delta', 'message_complete',
-  'tool_start', 'tool_end', 'tool_input_delta', 'progress', 'diff_update',
+  'tool_start', 'tool_end', 'tool_input_delta', 'progress', 'diff_update', 'orchestrator_fallback',
   'done', 'interrupted', 'api_error', 'proposed_plan', 'proposed_plan_delta', 'progress_plan', 'goal_completion',
 ]);
 

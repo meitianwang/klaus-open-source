@@ -915,9 +915,9 @@ expose('klaus', {
         call('settings:advisor:set', config),
     },
     orchestrator: {
-      get: (): Promise<{ mode: 'use_medium' | 'custom'; model: string; status: string; error?: string; message?: string }> =>
+      get: (): Promise<{ mode: 'use_medium' | 'custom'; model: string; fallbackToMain: boolean; status: string; error?: string; message?: string }> =>
         call('settings:orchestrator:get'),
-      set: (config: { model?: string }) =>
+      set: (config: { model?: string; fallbackToMain?: boolean }) =>
         call('settings:orchestrator:set', config),
     },
     // Auxiliary task models: title generation, message predictions, memory and

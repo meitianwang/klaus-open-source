@@ -210,7 +210,7 @@ import { coalesceSubagentTaskAliases, navigateToSubagentConversation } from './s
 import { initVoice, registerVoiceComposer, flushVoiceLearning, clearVoiceLearning, cancelVoiceForChat } from './voice'
 import { mountVoiceChat } from './voice-chat/view'
 import { activityToolDisplayName, activityToolPresentation } from './transcript/activity-tool-model'
-import { initApprovals, syncApprovalBadge, trackApprovalRequest, untrackApprovalRequest, untrackApprovalRequestsOfSession, restorePendingPermissions, showPermissionRequest, showElicitRequest, showMemorySnapshotPrompt, type ApprovalRequest } from './approvals'
+import { initApprovals, syncApprovalBadge, trackApprovalRequest, untrackApprovalRequest, untrackApprovalRequestsOfSession, restorePendingPermissions, showPermissionRequest, showElicitRequest, showMemorySnapshotPrompt, parkOrchestratorFallbackPrompts, type ApprovalRequest } from './approvals'
 import { createQuickInputConsumer } from './quick-input-submission'
 import { shouldRestoreWelcomeRunMode, type DraftRunMode } from './draft-run-mode'
 import { runContextControls, runContextRowVisible, type RunTargetKind } from './run-context'
@@ -7914,6 +7914,7 @@ async function switchSession(id: string) {
   pendingNewChatWorkdir = null
   pendingNewChatProjectRoot = null
   pendingNewChatWorkspaceId = null
+  parkOrchestratorFallbackPrompts(id)
   window.currentSessionId = id
   // Set the target viewport width before its transcript can paint. Surface
   // content still restores after the browser has adopted this conversation.
@@ -8154,6 +8155,7 @@ function enterNewChatState(options: { workdir?: string | null; workspaceId?: str
   }
   pendingNewChatProjectRoot = projectIdentityForWorkdir(pendingNewChatWorkdir)
 
+  parkOrchestratorFallbackPrompts(null)
   window.currentSessionId = null
   void refreshWorktreeAvailability(null)
   composerSpecEnabled = false
@@ -15523,6 +15525,11 @@ function handleChatEvent(event: ChatEvent) {
       break
     case 'tool_input_delta': break
     case 'progress': break
+    case 'orchestrator_fallback':
+      if (isActiveSessionEvent(event)) {
+        showToast(tt('orchestrator_auto_fallback_toast'))
+      }
+      break
     case 'notice': break
     // The overview's Artifacts section owns its session record and subscribes to
     // this event directly with a debounced refetch. The diff store separately

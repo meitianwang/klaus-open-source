@@ -62,6 +62,7 @@ export interface SessionEventDeps {
   /** Explicit host profile; absent for stateless event projection consumers. */
   configRoot?: string;
   isPrivateThread?: (threadId: string) => boolean;
+  isUnattended?: (threadId: string) => boolean;
   answerAttachments?: (groups: Record<string, Json>) => Promise<Record<string, Json>>;
   /** Additional consumers such as mobile, task state and recording use this stream. */
   observe?: (event: ClientEvent, generation: number) => void;
@@ -502,10 +503,15 @@ export class SessionEventPump {
     const rawSession = typeof params.sessionId === 'string' ? params.sessionId : '';
     const sessionId = this.rendererId(rawSession);
     const body = object(isApproval ? params.request : params.elicitation) ?? {};
-    if (!isApproval && object(object(body.request)?.metadata)?.kind === 'request_user_input') return;
+    const requestMeta = !isApproval ? object(object(body.request)?.metadata) : undefined;
+    if (requestMeta?.kind === 'request_user_input') return;
     const rawId = isApproval ? body.id : body.requestId;
     if (!sessionId || typeof rawId !== 'string' || !rawId) {
       void request.respondError(-32602, 'A known session and request identity are required').catch(() => {});
+      return;
+    }
+    if (requestMeta?.kind === 'orchestrator_fallback' && this.deps.isUnattended?.(sessionId) === true) {
+      void request.respond({ kind: 'decline', reason: 'unattended_scheduled_run' }).catch(() => {});
       return;
     }
     // A late renderer response cannot settle a different engine generation's card.
@@ -634,5 +640,6 @@ function elicitationCard(body: Record<string, Json>, requestId: string, sessionI
     toolInput: { questions: request.questions, ...(request.metadata != null ? { metadata: request.metadata } : {}) },
   };
   for (const key of ['options', 'multiSelect']) if (request[key] != null) card[key] = request[key];
+  if (object(request.metadata)) card.metadata = request.metadata!;
   return card;
 }

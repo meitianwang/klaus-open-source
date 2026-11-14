@@ -15,7 +15,7 @@ import { useSettingsSnapshot } from './settings-snapshot'
 const w = () => window as any
 
 interface AdvisorSnapshot { enabled: boolean; model: string; pending?: object; saveError?: string }
-interface OrchestratorSnapshot { model: string; pending?: object; saveError?: string }
+interface OrchestratorSnapshot { model: string; fallbackToMain: boolean; pending?: object; saveError?: string }
 const USE_MEDIUM_MODEL = '__use_medium__'
 
 // The tier mapping and catalog seed a fresh state instance across remounts;
@@ -138,7 +138,7 @@ export function GlobalModelTiers({ configureSource }: { configureSource: (source
       const api = w().klaus?.settings?.orchestrator
       const publish = beginOrchestratorRead()
       if (!api?.get) {
-        publish(current => current ?? { model: '' })
+        publish(current => current ?? { model: '', fallbackToMain: false })
         return
       }
       publish(current => current)
@@ -148,7 +148,7 @@ export function GlobalModelTiers({ configureSource }: { configureSource: (source
           return
         }
         if (!cancelled && publish(current => current?.pending ? current : {
-          model: String(reply?.model || ''), saveError: current?.saveError,
+          model: String(reply?.model || ''), fallbackToMain: Boolean(reply?.fallbackToMain), saveError: current?.saveError,
         })) setOrchestratorError('')
       }, () => { if (!cancelled && publish(current => current)) setOrchestratorError(t('orchestrator_load_failed')) })
     }
@@ -201,18 +201,23 @@ export function GlobalModelTiers({ configureSource }: { configureSource: (source
     || Boolean(orchestratorRefParsed && !advisorSourceRows.some(row => row.source === orchestratorRefParsed.source))
     || Boolean(orchestratorModelId && !orchestratorSelected)
 
-  const saveOrchestrator = async (model: string) => {
+  const saveOrchestrator = async (patch: { model?: string; fallbackToMain?: boolean }) => {
     if (orchestratorSavePending.current || orchestrator?.pending) return
     orchestratorSavePending.current = true
     const previous = orchestrator
+    const nextModel = patch.model !== undefined ? patch.model : String(orchestrator?.model || '')
+    const nextFallback = patch.fallbackToMain !== undefined ? patch.fallbackToMain : Boolean(orchestrator?.fallbackToMain)
     const pending = {}
-    setOrchestratorState({ model, pending })
+    setOrchestratorState({ model: nextModel, fallbackToMain: nextFallback, pending })
     setOrchestratorError('')
     try {
-      const result = await w().klaus?.settings?.orchestrator?.set({ model })
+      const result = await w().klaus?.settings?.orchestrator?.set(patch)
       if (result?.ok === false) throw new Error(result.error || t('settings_failed'))
-      const saved = result?.settings || { model }
-      setOrchestratorState(current => current?.pending === pending ? { model: String(saved.model || '') } : current)
+      const saved = result?.settings || { model: nextModel, fallbackToMain: nextFallback }
+      setOrchestratorState(current => current?.pending === pending ? {
+        model: String(saved.model || ''),
+        fallbackToMain: Boolean(saved.fallbackToMain),
+      } : current)
     } catch (error: any) {
       const message = settingsErrorText('model-tiers-action', error, 'settings_failed')
       setOrchestratorState(current => current?.pending === pending && previous ? { ...previous, saveError: message } : current)
@@ -306,13 +311,13 @@ export function GlobalModelTiers({ configureSource }: { configureSource: (source
               onChange={source => {
                 setOrchestratorSourceChoice(source)
                 if (source === USE_MEDIUM_MODEL) {
-                  void saveOrchestrator('')
+                  void saveOrchestrator({ model: '' })
                   return
                 }
                 const next = orchestratorRefParsed && orchestratorRefParsed.source === source
                   ? orchestratorRefParsed.modelId
                   : (advisorSourceRows.find(row => row.source === source)?.options?.find(opt => modelOptionIsSelectable(opt, source))?.modelId || '')
-                if (next) void saveOrchestrator(`${source}:${next}`)
+                if (next) void saveOrchestrator({ model: `${source}:${next}` })
               }} />
           </div>
           {orchestratorSource !== USE_MEDIUM_MODEL ? (
@@ -324,9 +329,21 @@ export function GlobalModelTiers({ configureSource }: { configureSource: (source
                 labelId="orchestrator-model-label" items={orchestratorModelItems} value={orchestratorModelId}
                 disabled={!orchestrator || orchestratorSaving || !options || orchestratorSourceRow?.status !== 'ready'}
                 bindKey={JSON.stringify([orchestratorSource, orchestratorModelId, orchestratorSaving, Boolean(options), orchestratorSourceRow])}
-                onChange={modelId => { void saveOrchestrator(modelId ? `${orchestratorSource}:${modelId}` : '') }} />
+                onChange={modelId => { void saveOrchestrator({ model: modelId ? `${orchestratorSource}:${modelId}` : '' }) }} />
             </div>
           ) : null}
+          <div className="pref-row">
+            <div className={styles['pref-row-text']}>
+              <div className={styles['pref-row-label']}>{t('orchestrator_fallback_label')}</div>
+              <div className={styles['pref-row-desc']}>{t('orchestrator_fallback_desc')}</div>
+            </div>
+            <label className={styles['pref-switch']}>
+              <input type="checkbox" id="orchestrator-fallback-to-main" aria-label={t('orchestrator_fallback_label')}
+                checked={Boolean(orchestrator?.fallbackToMain)} disabled={!orchestrator || orchestratorSaving}
+                onChange={event => { void saveOrchestrator({ fallbackToMain: event.target.checked }) }} />
+              <span className={styles['pref-switch-track']} />
+            </label>
+          </div>
           {orchestrator?.saveError || orchestratorError || (orchestratorSource !== USE_MEDIUM_MODEL && (orchestratorSourceRow?.status !== 'ready' || orchestratorMissing)) ? (
             <div className="pref-row">
               <p className={styles['tier-reason']} role="alert" style={{ margin: 0 }}>

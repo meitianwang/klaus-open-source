@@ -51,10 +51,12 @@ function advisorTarget(db: DatabaseSync): AdvisorTarget {
 }
 function orchestrator(db: DatabaseSync): JsonObject {
   const model = normalizedModelValue(get(db, 'orchestrator.model') ?? '');
+  const fallbackToMain = get(db, 'orchestrator.fallback_to_main') === '1';
   const reference = qualifiedModelReference(model);
   return {
     mode: model ? 'custom' : 'use_medium',
     model,
+    fallbackToMain,
     providerSupported: true,
     status: !model ? 'use_medium' : reference ? 'configured' : 'unavailable',
     ...(!model || reference ? {} : {
@@ -449,15 +451,20 @@ export class ModelFeatureSettings {
   }
   getOrchestrator(): Json { return this.transaction(db => orchestrator(db)); }
   getOrchestratorTarget(): AdvisorTarget { return this.transaction(db => orchestratorTarget(db)); }
+  getOrchestratorFallbackToMain(): boolean { return this.transaction(db => get(db, 'orchestrator.fallback_to_main') === '1'); }
   setOrchestrator(payload: JsonObject): Json {
     return this.transaction((db): Json => {
       const previous = orchestrator(db);
-      const supplied = Object.hasOwn(payload, 'model');
-      if (supplied && typeof payload.model !== 'string') return { ok: false, error: 'orchestrator_model_invalid', settings: previous };
-      const model = supplied ? normalizedModelValue(string(payload.model)) : string(previous.model);
+      const suppliedModel = Object.hasOwn(payload, 'model');
+      if (suppliedModel && typeof payload.model !== 'string') return { ok: false, error: 'orchestrator_model_invalid', settings: previous };
+      const suppliedFallback = Object.hasOwn(payload, 'fallbackToMain');
+      if (suppliedFallback && typeof payload.fallbackToMain !== 'boolean') return { ok: false, error: 'orchestrator_fallback_invalid', settings: previous };
+      const model = suppliedModel ? normalizedModelValue(string(payload.model)) : string(previous.model);
       if (model && !qualifiedModelReference(model)) return { ok: false, error: 'orchestrator_model_invalid', settings: previous };
+      const fallbackToMain = suppliedFallback ? Boolean(payload.fallbackToMain) : Boolean(previous.fallbackToMain);
       if (model) put(db, 'orchestrator.model', model);
       else db.prepare('DELETE FROM settings WHERE key = ?').run('orchestrator.model');
+      put(db, 'orchestrator.fallback_to_main', fallbackToMain ? '1' : '0');
       return { ok: true, settings: orchestrator(db) };
     });
   }

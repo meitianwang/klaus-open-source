@@ -3412,7 +3412,7 @@ export const CONTROL_SURFACES: ControlSurface[] = [
       {
         "action": "get",
         "channel": "settings:orchestrator:get",
-        "args": "no arguments — reads the global execution-model selection; answers { mode: 'use_medium'|'custom', model, providerSupported, status, error? }.",
+        "args": "no arguments — reads the global execution-model selection; answers { mode: 'use_medium'|'custom', model, fallbackToMain, providerSupported, status, error? }.",
         "confirm": false,
         "currentSession": false
       }
@@ -3421,7 +3421,7 @@ export const CONTROL_SURFACES: ControlSurface[] = [
       {
         "action": "set",
         "channel": "settings:orchestrator:set",
-        "args": "{ model?: string } — pass an empty string '' to reuse the shared Medium tier, or an explicit source:modelId reference.",
+        "args": "{ model?: string, fallbackToMain?: boolean } — pass model: '' to reuse the shared Medium tier, an explicit source:modelId reference, or fallbackToMain to toggle automatic fallback to the chat model when the execution model is unavailable or out of quota.",
         "confirm": false,
         "currentSession": false
       }

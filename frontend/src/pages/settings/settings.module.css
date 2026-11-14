@@ -630,6 +630,7 @@
   gap: 12px;
 }
 .default-model-card .pref-row-label { margin-bottom: 0; }
+.default-model-card .pref-row-desc { margin-top: 2px; }
 .default-model-card .model-tier-select { width: 200px; max-width: 65%; min-width: 0; flex-shrink: 1; }
 /* Auxiliary task rows keep the source and model pickers side by side. */
 .feature-model-controls { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }

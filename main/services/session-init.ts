@@ -15,7 +15,7 @@ import {
 } from './session-store';
 import type { Json } from '../ipc/contract';
 import { object, string } from './service-types';
-import { resolveAdvisorTarget, resolveOrchestratorTarget, resolveFeatureTargets, resolveSessionProvider, type ProviderResolution, type SessionProviderDeps } from './session-provider';
+import { resolveAdvisorTarget, resolveOrchestratorTarget, resolveOrchestratorFallbackToMain, resolveFeatureTargets, resolveSessionProvider, type ProviderResolution, type SessionProviderDeps } from './session-provider';
 import { resolveRuntimePolicy, runtimePolicyConfig, type RuntimePolicy } from '../../contracts/runtime-settings';
 
 /** The settings keys the composer preferences live under (`composer.rs:18-20`). */
@@ -410,6 +410,8 @@ export function buildSessionInit(options: SessionInitOptions): SessionInitResult
   init.advisorTarget = resolved.advisorTarget === undefined ? resolveAdvisorTarget(configRoot) : resolved.advisorTarget;
   const orchestratorTarget = resolved.orchestratorTarget === undefined ? resolveOrchestratorTarget(configRoot) : resolved.orchestratorTarget;
   if (orchestratorTarget !== null) init.orchestratorTarget = orchestratorTarget;
+  const orchestratorFallbackToMain = resolved.orchestratorFallbackToMain === undefined ? resolveOrchestratorFallbackToMain(configRoot) : resolved.orchestratorFallbackToMain;
+  if (orchestratorFallbackToMain) init.orchestratorFallbackToMain = true;
   if (readSessionOrchestrationMode(rendererId, configRoot)) init.orchestrationMode = true;
   // Auxiliary feature targets ride the same publication: three optional slots,
   // an explicit null per unset slot, and the speech refinement model stays out

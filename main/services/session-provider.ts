@@ -8,7 +8,7 @@ import { MODEL_TIERS, readModelTierMapping } from './model-tier-settings';
 import { ModelFeatureSettings, type AdvisorTarget, type FeatureTargets } from './model-features';
 
 export type ProviderResolution =
-  | { kind: 'engineModel'; selection: string; source: string; supportsFastMode?: boolean; nativeThinkingLevel?: string; modelTierTargets?: Json; modelTierRevision?: number; advisorTarget?: AdvisorTarget; orchestratorTarget?: AdvisorTarget; featureTargets?: FeatureTargets }
+  | { kind: 'engineModel'; selection: string; source: string; supportsFastMode?: boolean; nativeThinkingLevel?: string; modelTierTargets?: Json; modelTierRevision?: number; advisorTarget?: AdvisorTarget; orchestratorTarget?: AdvisorTarget; orchestratorFallbackToMain?: boolean; featureTargets?: FeatureTargets }
   | { kind: 'unavailable'; code: string; message: string };
 export interface SessionProviderDeps {
   configRoot?: string;
@@ -90,6 +90,11 @@ export function resolveOrchestratorTarget(configRoot = configRootFrom()): Adviso
   }
 }
 
+export function resolveOrchestratorFallbackToMain(configRoot = configRootFrom()): boolean {
+  try { return new ModelFeatureSettings(configRoot).getOrchestratorFallbackToMain(); }
+  catch { return false; }
+}
+
 /** Auxiliary feature routing never derives from the main model, tier mapping or credentials. */
 export function resolveFeatureTargets(configRoot = configRootFrom()): FeatureTargets {
   try { return new ModelFeatureSettings(configRoot).getFeatureTargets(); }
@@ -114,7 +119,7 @@ export async function resolveSessionProvider(sessionId: string, deps: SessionPro
     if (latest.source !== main.source || latest.mode !== preference.mode) {
       throw new IpcHandlerError('MODEL_SELECTION_CHANGED', 'The model configuration changed while the session was starting. Try again.');
     }
-    return { ...main, modelTierTargets: targets, modelTierRevision: revision, advisorTarget: resolveAdvisorTarget(root), orchestratorTarget: resolveOrchestratorTarget(root), featureTargets: resolveFeatureTargets(root) };
+    return { ...main, modelTierTargets: targets, modelTierRevision: revision, advisorTarget: resolveAdvisorTarget(root), orchestratorTarget: resolveOrchestratorTarget(root), orchestratorFallbackToMain: resolveOrchestratorFallbackToMain(root), featureTargets: resolveFeatureTargets(root) };
   } catch (error) {
     return { kind: 'unavailable', code: error instanceof IpcHandlerError ? error.code : 'MODEL_PROVIDER_UNAVAILABLE', message: errorMessage(error) };
   }
