@@ -8,6 +8,12 @@ export function registerUpdaterHandlers(registry: ChannelRegistry, service: Upda
   registry.register('updater:status', () => service.snapshot() as unknown as Json, 'updater');
   // A person asking for a check is the only attempt allowed to produce a visible
   // result notice; the background cadence calls the service without the flag.
-  registry.register('updater:check', async context => await service.check({ explicit: object(context.args[0]).explicit === true }) as unknown as Json, 'updater');
+  registry.register('updater:check', async context => {
+    const args = object(context.args[0]);
+    return await service.check({
+      explicit: args.explicit === true,
+      download: args.download === true,
+    }) as unknown as Json;
+  }, 'updater');
   registry.register('updater:install', async () => await service.install() as unknown as Json, 'updater');
 }

@@ -622,6 +622,23 @@ void (async () => {
       assert.equal(dispatched!.payload.value, 'off');
       assert.equal(dispatched!.channel, 'settings:kv:set');
     });
+    await h.test('the autoDownloadUpdates switch defaults on, needs no agreement, and reports immediate effect', async () => {
+      const pref = PREFERENCES.find(entry => entry.name === 'autoDownloadUpdates');
+      assert.ok(pref, 'the preference is registered');
+      assert.equal(pref!.row, 'updater.autoDownload');
+      assert.equal(pref!.unset, 'on');
+      assert.equal(pref!.values.kind, 'switch');
+      assert.match(takesEffect(pref!.row), /immediately/i);
+      assert.equal(normalizePreference(pref!, 'off'), 'off');
+      assert.equal(normalizePreference(pref!, 'on'), 'on');
+
+      const f = fixture();
+      assert.equal(object(await f.action('preference', 'set', { name: 'autoDownloadUpdates', value: 'off' })).success, true);
+      const dispatched = f.calls.find(call => call.payload.key === 'updater.autoDownload');
+      assert.ok(dispatched);
+      assert.equal(dispatched!.payload.value, 'off');
+      assert.equal(dispatched!.channel, 'settings:kv:set');
+    });
     await h.test('pre-authorization, allowed apps and hooks require agreement', async () => {
       const f = fixture();
       for (const [key, action] of [['permission', 'addRule'], ['permission', 'deleteRule'], ['computerUse', 'addAllowedApp'], ['hook', 'set'], ['hook', 'setProject']]) {

@@ -1,10 +1,10 @@
 // The one owner of update UI state. The host owns the transfer; this store owns
-// only the person's choices about how it is presented: whether the detail is
-// collapsed, and which offer they postponed. Every surface (settings card,
-// progress detail, persistent card, ready decision, installation overlay) reads
+// only the person's choices about how it is presented: which offer they
+// postponed, and whether a download or install request is in flight. Every
+// surface (settings card, persistent sidebar card, installation overlay) reads
 // this same snapshot, so no two surfaces can disagree about the phase.
 import {
-  DISMISS_STORAGE_KEY, PROGRESS_DIALOG_DELAY_MS, initialNoticeState, isDismissed, noticeFor,
+  DISMISS_STORAGE_KEY, initialNoticeState, isDismissed, noticeFor,
   parseDismissRecord, surfacesFor,
   type DismissRecord, type NoticeState, type UpdateNotice, type UpdateStatus, type UpdateSurfaces,
 } from './model'
@@ -12,8 +12,8 @@ import {
 export interface UpdateSnapshot {
   status: UpdateStatus | null
   surfaces: UpdateSurfaces
-  /** True once a download has outlived the delay gate. */
-  progressEligible: boolean
+  /** A download was requested and the host has not started transferring yet. */
+  downloadRequested: boolean
   /** An install was accepted and the hand-off has not reached the host yet. */
   installRequested: boolean
 }
@@ -22,7 +22,7 @@ type Listener = () => void
 
 interface UpdaterBridge {
   status?: () => Promise<UpdateStatus>
-  check?: (args?: { explicit?: boolean }) => Promise<UpdateStatus>
+  check?: (args?: { explicit?: boolean; download?: boolean }) => Promise<UpdateStatus>
   install?: () => Promise<{ ok?: boolean; error?: string }>
 }
 interface HostApi {
@@ -51,18 +51,15 @@ function translate(key: string): string {
 
 const listeners = new Set<Listener>()
 let status: UpdateStatus | null = null
-let progressHidden = false
 let dismissedRecord: DismissRecord | null = null
-let progressEligible = false
-let observedTransfer = false
+let downloadRequested = false
 let installRequested = false
-let progressTimer: ReturnType<typeof setTimeout> | null = null
 let lastPhase = ''
 let noticeState: NoticeState = initialNoticeState()
 let snapshot: UpdateSnapshot = {
   status: null,
-  surfaces: surfacesFor({ status: null, progressHidden: false, dismissed: false, observedTransfer: false }),
-  progressEligible: false,
+  surfaces: surfacesFor({ status: null, dismissed: false, installRequested: false }),
+  downloadRequested: false,
   installRequested: false,
 }
 
@@ -85,13 +82,10 @@ function dismissedNow(): boolean {
 }
 
 function rebuild(): void {
-  const surfaces = surfacesFor({ status, progressHidden, dismissed: dismissedNow(), observedTransfer })
   snapshot = {
     status,
-    // The detail waits for the gate so a check that answers immediately never
-    // flashes a dialog on screen.
-    surfaces: { ...surfaces, progressDialog: surfaces.progressDialog && progressEligible },
-    progressEligible,
+    surfaces: surfacesFor({ status, dismissed: dismissedNow(), installRequested }),
+    downloadRequested,
     installRequested,
   }
 }
@@ -99,10 +93,6 @@ function rebuild(): void {
 function emit(): void {
   rebuild()
   for (const listener of Array.from(listeners)) listener()
-}
-
-function clearProgressTimer(): void {
-  if (progressTimer !== null) { clearTimeout(progressTimer); progressTimer = null }
 }
 
 function fill(template: string, values: Record<string, string>): string {
@@ -125,29 +115,22 @@ function showNotice(notice: UpdateNotice): void {
   toast?.(translate(key), { tone: 'danger' })
 }
 
-/** Applies one host push: phase transitions reset presentation, ticks do not. */
+/** Applies one host push: phase transitions reset in-flight flags, ticks do not. */
 export function applyUpdateStatus(next: UpdateStatus | null): void {
   const previousPhase = lastPhase
   status = next
-  // Only a transfer this renderer actually watched earns the completion dialog.
-  // An offer already cached when the app started gets the card, not a modal on
-  // every launch.
-  if (next?.state === 'downloading') observedTransfer = true
   const phase = `${next?.state ?? 'idle'}|${next?.availableVersion ?? ''}`
   lastPhase = phase
   if (phase !== previousPhase) {
-    // A new phase or a new offer starts uncollapsed; progress ticks inside one
-    // phase must never reopen what the person collapsed.
-    progressHidden = false
-    clearProgressTimer()
-    progressEligible = false
-    if (next?.state !== 'downloading' && next?.state !== 'downloaded' && next?.state !== 'installing') observedTransfer = false
+    // Starting a download or running an explicit check clears a prior postpone
+    // so the finished transfer can present its install action in the sidebar.
+    if (next?.state === 'downloading' || (next?.explicit === true && next?.state === 'checking')) {
+      writeDismiss(null)
+    }
+    if (next?.state !== 'available') downloadRequested = false
     // The hand-off is over once the host reports any new phase, including the
     // failure that replaces it.
     if (next?.state !== 'downloaded') installRequested = false
-    if (next?.state === 'downloading') {
-      progressTimer = setTimeout(() => { progressTimer = null; progressEligible = true; emit() }, PROGRESS_DIALOG_DELAY_MS)
-    }
   }
   const notice = noticeFor(next ?? {}, noticeState)
   emit()
@@ -161,25 +144,19 @@ export function subscribeUpdate(listener: Listener): () => void {
   return () => { listeners.delete(listener) }
 }
 
-/** Collapse the detail. The transfer keeps running and the card stays reachable. */
-export function hideUpdateProgress(): void {
-  progressHidden = true
-  emit()
-}
-
-export function showUpdateProgress(): void {
-  progressHidden = false
-  emit()
-}
-
 /**
- * Postpone this offer: detail and card both stand down, and the same version
- * stays quiet until its window expires or the person checks again.
+ * Postpone this offer: the sidebar card stands down, and the same version stays
+ * quiet until its window expires, the person checks again, or a download begins.
  */
 export function deferUpdate(): void {
   const version = status?.availableVersion
-  progressHidden = true
   if (version) writeDismiss({ version, timestamp: Date.now() })
+  emit()
+}
+
+export function clearPostponedUpdate(): void {
+  if (!dismissedRecord) return
+  writeDismiss(null)
   emit()
 }
 
@@ -194,6 +171,27 @@ export async function checkForUpdate(): Promise<UpdateStatus | null> {
   const next = await api.check({ explicit: true })
   applyUpdateStatus(next ?? null)
   return next ?? null
+}
+
+/**
+ * Explicitly download an available offer when automatic downloads are turned off.
+ */
+export async function downloadUpdate(): Promise<UpdateStatus | null> {
+  const api = host().updater
+  if (!api?.check || downloadRequested || installRequested) return null
+  writeDismiss(null)
+  downloadRequested = true
+  emit()
+  try {
+    const next = await api.check({ explicit: true, download: true })
+    downloadRequested = false
+    applyUpdateStatus(next ?? null)
+    return next ?? null
+  } catch (error) {
+    downloadRequested = false
+    emit()
+    throw error
+  }
 }
 
 /**
@@ -237,15 +235,12 @@ export function startUpdateNotices(): void {
 
 /** Test seam: drops all presentation state without touching the host. */
 export function resetUpdateNotices(): void {
-  clearProgressTimer()
   unsubscribeHost?.()
   unsubscribeHost = null
   started = false
   status = null
-  progressHidden = false
   dismissedRecord = null
-  progressEligible = false
-  observedTransfer = false
+  downloadRequested = false
   installRequested = false
   lastPhase = ''
   noticeState = initialNoticeState()

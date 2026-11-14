@@ -1,178 +1,136 @@
 {
-  "schemaVersion": 1,
-  "reason": "One update transfer has four presentations. These cases pin which surface owns each phase, how a person's two different choices (collapse the detail vs postpone the offer) change that ownership, and which attempts are allowed to produce a visible result notice. Without them a progress tick could reopen a collapsed dialog, a postponed offer could keep nagging, or a background failure could interrupt the user. The completion dialog also requires a transfer this session actually watched, so an offer already cached at launch does not raise a modal on every start.",
-  "delayGateMs": 500,
+  "schemaVersion": 2,
+  "reason": "One update lifecycle has two visual surfaces: the persistent sidebar card for available, downloading, and ready offers, and the centered installation overlay once the user starts installing. Available and ready offers stay out of the centered modal area so background checks and downloads never interrupt active work; clicking install raises the centered overlay immediately while verification and installation complete.",
   "dismissTtlMs": 43200000,
   "downloadBarCeiling": 60,
   "surfaceCases": [
     {
       "name": "idle shows nothing",
       "state": "idle",
-      "collapsed": false,
       "postponed": false,
       "expect": {
-        "progressDialog": false,
         "banner": false,
-        "readyDialog": false,
         "installingOverlay": false
-      },
-      "observedTransfer": false
+      }
     },
     {
       "name": "checking shows no transfer surface",
       "state": "checking",
-      "collapsed": false,
       "postponed": false,
       "expect": {
-        "progressDialog": false,
         "banner": false,
-        "readyDialog": false,
         "installingOverlay": false
-      },
-      "observedTransfer": false
+      }
     },
     {
-      "name": "a running transfer owns the detail and the card",
-      "state": "downloading",
-      "collapsed": false,
+      "name": "an available offer shows only the sidebar card",
+      "state": "available",
       "postponed": false,
       "expect": {
-        "progressDialog": true,
         "banner": true,
-        "readyDialog": false,
         "installingOverlay": false
-      },
-      "observedTransfer": true
+      }
     },
     {
-      "name": "collapsing keeps the card and the running transfer",
-      "state": "downloading",
-      "collapsed": true,
-      "postponed": false,
-      "expect": {
-        "progressDialog": false,
-        "banner": true,
-        "readyDialog": false,
-        "installingOverlay": false
-      },
-      "observedTransfer": true
-    },
-    {
-      "name": "a finished transfer asks before restarting",
-      "state": "downloaded",
-      "collapsed": false,
-      "postponed": false,
-      "expect": {
-        "progressDialog": false,
-        "banner": true,
-        "readyDialog": true,
-        "installingOverlay": false
-      },
-      "observedTransfer": true
-    },
-    {
-      "name": "collapsing the decision leaves the card as the install entry",
-      "state": "downloaded",
-      "collapsed": true,
-      "postponed": false,
-      "expect": {
-        "progressDialog": false,
-        "banner": true,
-        "readyDialog": false,
-        "installingOverlay": false
-      },
-      "observedTransfer": true
-    },
-    {
-      "name": "postponing silences the whole notice",
-      "state": "downloaded",
-      "collapsed": false,
+      "name": "postponing an available offer silences the sidebar card",
+      "state": "available",
       "postponed": true,
       "expect": {
-        "progressDialog": false,
         "banner": false,
-        "readyDialog": false,
         "installingOverlay": false
-      },
-      "observedTransfer": true
+      }
     },
     {
-      "name": "postponing also silences a running transfer notice",
-      "state": "downloading",
-      "collapsed": false,
-      "postponed": true,
-      "expect": {
-        "progressDialog": false,
-        "banner": false,
-        "readyDialog": false,
-        "installingOverlay": false
-      },
-      "observedTransfer": true
-    },
-    {
-      "name": "installation owns the screen and cannot be collapsed",
-      "state": "installing",
-      "collapsed": true,
+      "name": "an available state without a version is not an offer",
+      "state": "available",
+      "version": null,
       "postponed": false,
       "expect": {
-        "progressDialog": false,
         "banner": false,
-        "readyDialog": false,
+        "installingOverlay": false
+      }
+    },
+    {
+      "name": "a running transfer shows only the sidebar card, never a centered modal",
+      "state": "downloading",
+      "postponed": false,
+      "expect": {
+        "banner": true,
+        "installingOverlay": false
+      }
+    },
+    {
+      "name": "a running transfer stays visible in the sidebar card even if an earlier offer was postponed",
+      "state": "downloading",
+      "postponed": true,
+      "expect": {
+        "banner": true,
+        "installingOverlay": false
+      }
+    },
+    {
+      "name": "a finished transfer stays in the sidebar card without raising a modal",
+      "state": "downloaded",
+      "postponed": false,
+      "expect": {
+        "banner": true,
+        "installingOverlay": false
+      }
+    },
+    {
+      "name": "postponing silences a finished offer",
+      "state": "downloaded",
+      "postponed": true,
+      "expect": {
+        "banner": false,
+        "installingOverlay": false
+      }
+    },
+    {
+      "name": "clicking install raises the centered overlay immediately while verification runs",
+      "state": "downloaded",
+      "postponed": false,
+      "installRequested": true,
+      "expect": {
+        "banner": false,
         "installingOverlay": true
-      },
-      "observedTransfer": true
+      }
+    },
+    {
+      "name": "installation owns the screen",
+      "state": "installing",
+      "postponed": false,
+      "expect": {
+        "banner": false,
+        "installingOverlay": true
+      }
     },
     {
       "name": "installation cannot be postponed away",
       "state": "installing",
-      "collapsed": true,
       "postponed": true,
       "expect": {
-        "progressDialog": false,
         "banner": false,
-        "readyDialog": false,
         "installingOverlay": true
-      },
-      "observedTransfer": true
+      }
     },
     {
       "name": "an unsupported installation shows no notice",
       "state": "downloaded",
       "supported": false,
-      "collapsed": false,
       "postponed": false,
       "expect": {
-        "progressDialog": false,
         "banner": false,
-        "readyDialog": false,
         "installingOverlay": false
-      },
-      "observedTransfer": true
+      }
     },
     {
       "name": "a downloaded state without a version is not an offer",
       "state": "downloaded",
       "version": null,
-      "collapsed": false,
       "postponed": false,
       "expect": {
-        "progressDialog": false,
         "banner": false,
-        "readyDialog": false,
-        "installingOverlay": false
-      },
-      "observedTransfer": true
-    },
-    {
-      "name": "an offer already cached at launch gets the card, not a modal",
-      "state": "downloaded",
-      "collapsed": false,
-      "postponed": false,
-      "observedTransfer": false,
-      "expect": {
-        "progressDialog": false,
-        "banner": true,
-        "readyDialog": false,
         "installingOverlay": false
       }
     }
@@ -188,6 +146,12 @@
       "name": "a background check that finds nothing stays silent",
       "state": "idle",
       "explicit": false,
+      "expect": null
+    },
+    {
+      "name": "a manual check that finds an available update needs no extra toast",
+      "state": "available",
+      "explicit": true,
       "expect": null
     },
     {
@@ -223,6 +187,11 @@
       "expect": "checking"
     },
     {
+      "name": "an available release offers downloading",
+      "state": "available",
+      "expect": "available"
+    },
+    {
       "name": "downloading names downloading, never checking",
       "state": "downloading",
       "expect": "downloading"
@@ -243,6 +212,11 @@
       "name": "idle explains the update model",
       "state": "idle",
       "expect": "action"
+    },
+    {
+      "name": "an available release explains it can be downloaded",
+      "state": "available",
+      "expect": "available"
     },
     {
       "name": "an unreachable service keeps its own reason",
@@ -351,5 +325,5 @@
       "expect": "162.3 MB"
     }
   ],
-  "_change": "Initial pin for the four update surfaces, the collapse/postpone distinction, explicit-only result notices, per-phase failure reasons and the shared 0-60 / 60-100 progress bar."
+  "_change": "Retire the centered download-progress and download-ready dialogs so available, downloading, and downloaded states stay in the bottom-left sidebar card; add the available phase for manual download mode; raise the centered installation overlay only when installation is requested or running."
 }

@@ -1,14 +1,14 @@
 // Mounts the update surfaces once per renderer. The persistent card lives above
-// the sidebar footer so a running or finished transfer stays reachable without
-// opening settings; the modal surfaces portal to the body.
+// the sidebar footer so available, downloading, and ready offers stay reachable
+// without interrupting the user; the installation modal portals to the body.
 import { createRoot, type Root } from 'react-dom/client'
 import { flushSync } from 'react-dom'
 import { UpdateBanner, UpdateOverlays, useUpdateSnapshot } from './components'
 import { startUpdateNotices } from './store'
 
 function SidebarUpdateCard() {
-  const { status, surfaces, installRequested } = useUpdateSnapshot()
-  return <UpdateBanner status={status} surfaces={surfaces} pending={installRequested} />
+  const { status, surfaces, downloadRequested, installRequested } = useUpdateSnapshot()
+  return <UpdateBanner status={status} surfaces={surfaces} pending={installRequested} downloadingPending={downloadRequested} />
 }
 
 let cardRoot: Root | null = null

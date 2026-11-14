@@ -1688,7 +1688,7 @@ expose('klaus', {
     status: () => call('updater:status'),
     // A person-initiated check is the only attempt that shows a result notice;
     // the background cadence runs in the host without this flag.
-    check: (args?: { explicit?: boolean }) => call('updater:check', args ?? {}),
+    check: (args?: { explicit?: boolean; download?: boolean }) => call('updater:check', args ?? {}),
     install: () => call('updater:install'),
   },
 

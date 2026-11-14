@@ -1,4 +1,5 @@
 import { VOICE_SELECTABLE_SOURCES } from '../../../shared/voice-input';
+import { UPDATER_AUTO_DOWNLOAD_KEY } from '../../../shared/updater-preferences';
 import type { Json } from '../../ipc/contract';
 import { DEFAULT_WEB_SEARCH_SOURCE, WEB_SEARCH_SOURCES } from '../../../contracts/web-search-settings';
 
@@ -39,6 +40,7 @@ export const PREFERENCES: Preference[] = [
   pref('checkpoints', 'klaus.checkpointing', switchValue, 'off', 'no settings page', 'Record automatic workspace checkpoints.'),
   pref('threadTools', 'thread_tools.enabled', switchValue, 'on', 'no settings page', 'Let a conversation list, read, create, fork, wait on and message other conversations.'),
   pref('friends', 'friends.enabled', switchValue, 'off', 'friends settings page', 'Let conversations list, message and reply to Klaus friends and run the tasks friends send. Turning it off withdraws the friend tools and the friend context note and declines inbound friend traffic.'),
+  pref('autoDownloadUpdates', UPDATER_AUTO_DOWNLOAD_KEY, switchValue, 'on', 'about', 'Download found app updates automatically in the background. When off, checks announce available updates without downloading until requested.'),
 ];
 function onOff(raw: string): boolean | undefined {
   if (['on', '1', 'true', 'yes', 'enable', 'enabled'].includes(raw.toLowerCase())) return true;
@@ -80,6 +82,7 @@ export function preferenceLine(pref: Preference, value: Json): string {
 export function takesEffect(row: string): string {
   if (row.startsWith('klaus.') || row.startsWith('feature:')) return 'Open conversations pick up the updated configuration on their next turn.';
   if (row === 'theme' || row === 'language' || row.startsWith('appearance.')) return 'Open windows re-read this preference immediately.';
+  if (row === UPDATER_AUTO_DOWNLOAD_KEY) return 'Takes effect immediately for update checks; turning it on while an update is waiting starts downloading it.';
   // The tool specs are injected at session start, so an already-open conversation
   // keeps the specs it was given; the change reaches the NEXT conversation. This
   // is deliberately not the `klaus.*` "next turn" wording, which would be false

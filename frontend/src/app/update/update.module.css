@@ -1,7 +1,6 @@
-/* Update notice surfaces. One transfer, four presentations: the modal detail,
-   the persistent card, the install decision and the installation hand-off.
-   Styled in Klaus's monochrome ink palette without divider hairlines or
-   duplicated progress bars. */
+/* Update notice surfaces: the persistent sidebar card for available,
+   downloading, and ready offers, plus the centered installation hand-off shown
+   once the user starts installing. Styled in Klaus's monochrome ink palette. */
 
 .backdrop {
   position: fixed;
@@ -30,6 +29,7 @@
   border-radius: var(--radius-lg);
   background: var(--bg-elevated);
   box-shadow: 0 24px 48px -12px rgba(0, 0, 0, 0.18), 0 2px 8px rgba(0, 0, 0, 0.05);
+  outline: none;
   animation: update-slide-in 180ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 @keyframes update-slide-in {
@@ -68,13 +68,6 @@
 
 .headText { flex: 1; min-width: 0; }
 
-.titleRow {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
 .title {
   margin: 0;
   font-size: var(--text-emphasis);
@@ -82,18 +75,6 @@
   line-height: 1.35;
   color: var(--fg);
   letter-spacing: -0.01em;
-}
-
-.versionPill {
-  display: inline-flex;
-  align-items: center;
-  padding: 1px 7px;
-  border-radius: 999px;
-  background: var(--bg-hover);
-  font-size: var(--text-caption);
-  font-weight: var(--weight-medium);
-  color: var(--fg-secondary);
-  font-variant-numeric: tabular-nums;
 }
 
 .subtitle {
@@ -136,65 +117,6 @@
 }
 @keyframes update-shimmer {
   to { transform: translateX(100%); }
-}
-
-/* Download readout panel: size/percent above the bar, speed/ETA below it. */
-.transferPanel {
-  margin-top: 16px;
-  padding: 12px 14px;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-md);
-  background: var(--bg-secondary);
-}
-
-.percentRow {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 8px;
-}
-.size {
-  font-size: var(--text-caption);
-  color: var(--fg-secondary);
-  font-variant-numeric: tabular-nums;
-}
-.percent {
-  font-size: var(--text-body-sm);
-  font-weight: var(--weight-semibold);
-  color: var(--fg);
-  font-variant-numeric: tabular-nums;
-}
-
-.metaRow {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-top: 8px;
-}
-.metaItem {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 6px;
-  min-width: 0;
-  font-size: var(--text-caption);
-}
-.metaLabel {
-  color: var(--fg-tertiary);
-}
-.metaValue {
-  color: var(--fg-secondary);
-  font-weight: var(--weight-medium);
-  font-variant-numeric: tabular-nums;
-}
-
-.foot {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 18px;
 }
 
 /* Installation hand-off: one bar paired with a single-line milestone rail. */
@@ -275,8 +197,8 @@
   font-weight: var(--weight-medium);
 }
 
-/* Persistent card: lives above the sidebar footer, so a minimized transfer is
-   still visible and installable without reopening settings. */
+/* Persistent card: lives above the sidebar footer so available, downloading,
+   and ready updates stay visible without interrupting the main workspace. */
 .banner {
   display: flex;
   flex-direction: column;
@@ -302,6 +224,13 @@
 }
 .bannerArt svg { display: block; width: 15px; height: 15px; fill: currentColor; }
 .bannerText { flex: 1; min-width: 0; }
+.bannerTitleRow {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
 .bannerTitle {
   overflow: hidden;
   font-size: var(--text-body-sm);
@@ -310,12 +239,38 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.bannerPercent {
+  flex: none;
+  font-size: var(--text-badge);
+  font-weight: var(--weight-semibold);
+  color: var(--fg-secondary);
+  font-variant-numeric: tabular-nums;
+}
 .bannerDesc {
   overflow: hidden;
   font-size: var(--text-badge);
   color: var(--fg-tertiary);
   font-variant-numeric: tabular-nums;
   text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bannerMeta {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  min-width: 0;
+  font-size: var(--text-badge);
+  color: var(--fg-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+.bannerSize {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bannerEta {
+  flex: none;
   white-space: nowrap;
 }
 .bannerTrack { height: 4px; }

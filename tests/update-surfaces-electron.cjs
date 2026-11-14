@@ -16,8 +16,6 @@ app.whenReady().then(async () => {
   try {
     progress('Loading fixture')
     await window.loadFile(join(logs, 'index.html'))
-    // The fixture drives real timers (the detail's delay gate), so readiness is
-    // polled rather than read once: an early read would see no results at all.
     const deadline = Date.now() + 60_000
     for (;;) {
       const ready = await window.webContents.executeJavaScript('!!window.updateSurfacesResults')
@@ -36,9 +34,9 @@ app.whenReady().then(async () => {
       writeFileSync(join(logs, `${name}.png`), (await window.webContents.capturePage()).toPNG())
       progress(`Captured ${name}`)
     }
-    await capture('downloading-detail', 'window.updateSurfacesFixture.downloading()')
-    await capture('downloading-collapsed', 'window.updateSurfacesFixture.collapse()')
-    await capture('ready-decision', 'window.updateSurfacesFixture.ready()')
+    await capture('available-card', 'window.updateSurfacesFixture.available()')
+    await capture('downloading-card', 'window.updateSurfacesFixture.downloading()')
+    await capture('ready-card', 'window.updateSurfacesFixture.ready()')
     await capture('installing-overlay', 'window.updateSurfacesFixture.installing()')
     await capture('settings-page', 'window.updateSurfacesFixture.settings()')
 

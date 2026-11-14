@@ -14,7 +14,7 @@ export interface UpdateProgress {
 
 export interface UpdateStatus {
   supported?: boolean
-  state?: 'idle' | 'checking' | 'downloading' | 'downloaded' | 'installing' | 'error'
+  state?: 'idle' | 'checking' | 'available' | 'downloading' | 'downloaded' | 'installing' | 'error'
   currentVersion?: string
   availableVersion?: string | null
   error?: string | null
@@ -26,8 +26,6 @@ export interface UpdateStatus {
 /** A dismissed offer stays quiet for half a day, then announces itself again. */
 export const DISMISS_TTL_MS = 12 * 60 * 60 * 1000
 export const DISMISS_STORAGE_KEY = 'klaus_update_dismissed'
-/** A check that answers faster than this never opens the progress dialog. */
-export const PROGRESS_DIALOG_DELAY_MS = 500
 
 export interface DismissRecord { version: string; timestamp: number }
 
@@ -124,71 +122,65 @@ export function noticeFor(status: UpdateStatus, state: NoticeState): UpdateNotic
 }
 
 export interface UpdateSurfaces {
-  /** Modal transfer detail; opens on a download that outlives the delay gate. */
-  progressDialog: boolean
-  /** Persistent card: the way back to the detail, and the install entry. */
+  /** Persistent sidebar card for available, downloading, and ready offers. */
   banner: boolean
-  /** Install decision, raised when an offer becomes ready and the detail is open. */
-  readyDialog: boolean
-  /** Full-screen installation hand-off. */
+  /** Centered modal raised only once installation begins. */
   installingOverlay: boolean
 }
 
 export interface SurfaceInput {
   status: UpdateStatus | null
   /**
-   * The person collapsed the detail. This hides the modal only: the persistent
-   * card stays, so the transfer remains reachable and installable.
-   */
-  progressHidden: boolean
-  /**
-   * The person postponed this version. That silences the whole notice — detail
-   * and card alike — until the quiet window expires or they check again.
+   * The person postponed this version. That silences the sidebar card until
+   * the quiet window expires, they check again, or a download begins.
    */
   dismissed: boolean
   /**
-   * A transfer was actually observed in this session. The install decision is
-   * the completion of that transfer, so an offer already cached at launch gets
-   * the persistent card instead of a modal on every start.
+   * The person clicked install and the hand-off is verifying before the host
+   * enters `installing`. Raising the overlay immediately avoids dead clicks.
    */
-  observedTransfer: boolean
+  installRequested?: boolean
 }
 
-export function surfacesFor({ status, progressHidden, dismissed, observedTransfer }: SurfaceInput): UpdateSurfaces {
+export function surfacesFor({ status, dismissed, installRequested }: SurfaceInput): UpdateSurfaces {
   const state = status?.state ?? 'idle'
   const supported = status?.supported !== false
+  if (state === 'installing') return { banner: false, installingOverlay: true }
+  if (!supported) return { banner: false, installingOverlay: false }
+  const available = state === 'available' && Boolean(status?.availableVersion)
   const transferring = state === 'downloading'
-  const installing = state === 'installing'
   const ready = state === 'downloaded' && Boolean(status?.availableVersion)
-  // Installation always owns the screen: it ends in a restart, so it can never
-  // be collapsed or postponed away.
-  if (installing) return { progressDialog: false, banner: false, readyDialog: false, installingOverlay: true }
-  if (!supported || dismissed) return { progressDialog: false, banner: false, readyDialog: false, installingOverlay: false }
+  // Clicking install opens the centered installation hand-off immediately while
+  // the host re-verifies the release; downloading and ready stay in the card.
+  if (installRequested === true && ready) return { banner: false, installingOverlay: true }
+  if (transferring) return { banner: true, installingOverlay: false }
   return {
-    progressDialog: transferring && !progressHidden,
-    banner: transferring || ready,
-    // The ready decision is the detail's own form for the finished transfer, so
-    // collapsing it takes the decision with it and leaves the card as the entry.
-    readyDialog: ready && !progressHidden && observedTransfer,
+    banner: (available || ready) && !dismissed,
     installingOverlay: false,
   }
 }
 
 /** Settings-page action label: every phase names itself, never a neighbouring one. */
-export type SettingsAction = 'check' | 'checking' | 'downloading' | 'install' | 'installing'
+export type SettingsAction = 'check' | 'checking' | 'available' | 'downloading' | 'install' | 'installing'
 
-export function settingsActionFor(status: UpdateStatus | null, checking: boolean, installing: boolean): SettingsAction {
+export function settingsActionFor(
+  status: UpdateStatus | null,
+  checking: boolean,
+  installing: boolean,
+  downloading = false,
+): SettingsAction {
   const state = status?.state ?? 'idle'
   if (installing || state === 'installing') return 'installing'
   if (state === 'downloaded' && status?.availableVersion) return 'install'
-  if (state === 'downloading') return 'downloading'
+  if (downloading || state === 'downloading') return 'downloading'
   if (checking || state === 'checking') return 'checking'
+  if (state === 'available' && status?.availableVersion) return 'available'
   return 'check'
 }
 
 /** The settings card keeps its own explanation for every outcome. */
 export type SettingsHint =
-  | 'action' | 'checking' | 'downloading' | 'ready' | 'installing'
+  | 'action' | 'checking' | 'available' | 'downloading' | 'ready' | 'installing'
   | 'unsupported' | 'check-unavailable' | 'check-rejected' | 'download-failed' | 'install-failed'
 
 export function settingsHintFor(status: UpdateStatus | null, checkError: boolean): SettingsHint {
@@ -206,5 +198,6 @@ export function settingsHintFor(status: UpdateStatus | null, checkError: boolean
   if (state === 'downloading') return 'downloading'
   if (state === 'installing') return 'installing'
   if (state === 'downloaded' && status?.availableVersion) return 'ready'
+  if (state === 'available' && status?.availableVersion) return 'available'
   return 'action'
 }

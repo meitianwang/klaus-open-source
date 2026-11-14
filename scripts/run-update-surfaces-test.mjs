@@ -41,7 +41,9 @@ html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);font-family:
 
   const command = [join(desktop, 'tests/update-surfaces-electron.cjs'), logs]
   appendFileSync(gate, `$ ${require('electron')} ${command.join(' ')}\n`)
-  const child = spawnElectronGui(require('electron'), command, { cwd: desktop, env: process.env, stdio: ['ignore', 'pipe', 'pipe'] })
+  const env = { ...process.env }
+  delete env.ELECTRON_RUN_AS_NODE
+  const child = spawnElectronGui(require('electron'), command, { cwd: desktop, env, stdio: ['ignore', 'pipe', 'pipe'] })
   for (const stream of [child.stdout, child.stderr]) stream.on('data', data => { appendFileSync(gate, data); process.stdout.write(data) })
   const timer = setTimeout(() => child.kill('SIGTERM'), 150_000)
   const code = await new Promise((resolveCode, reject) => { child.once('error', reject); child.once('close', resolveCode) })

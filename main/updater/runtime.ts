@@ -18,6 +18,7 @@ export async function createDesktopUpdater(options: {
   configRoot: string;
   edition?: DesktopEdition;
   emit: (status: UpdateStatus) => void;
+  autoDownload?: () => boolean;
   log: (message: string) => void;
   prepareToQuit: () => Promise<void>;
   installationFailedAfterPrepare: (error: unknown, staged: boolean) => void;
@@ -25,7 +26,7 @@ export async function createDesktopUpdater(options: {
   const currentVersion = options.app.getVersion();
   const edition = options.edition ?? currentDesktopEdition();
   let unavailableReason: string | undefined;
-  const unsupported = () => new UpdateService({ currentVersion, cacheRoot: join(options.configRoot, 'electron/updates'), unavailableReason, emit: options.emit, installer: { install: async () => { throw new Error('updates_unavailable'); }, dispose: async () => {} } });
+  const unsupported = () => new UpdateService({ currentVersion, cacheRoot: join(options.configRoot, 'electron/updates'), unavailableReason, emit: options.emit, autoDownload: options.autoDownload, installer: { install: async () => { throw new Error('updates_unavailable'); }, dispose: async () => {} } });
   if (!options.app.isPackaged || !['darwin', 'win32'].includes(process.platform)) return unsupported();
   try {
     let text: string;
@@ -41,7 +42,7 @@ export async function createDesktopUpdater(options: {
     const policy = productionPolicy({ platform: config.platform, arch: config.arch, currentVersion, channel: config.channel, feedUrl: config.feedUrl, application: edition.application });
     const identity: PlatformIdentity = { platform: config.platform, application: edition.application, executable: options.app.getPath('exe'), teamId: config.teamId, publisher: config.publisher, windowsAuthenticode: config.windowsAuthenticode };
     await verifyPlatformSignature(config.platform === 'darwin' ? resolve(identity.executable, '../../..') : identity.executable, identity);
-    return new UpdateService({ currentVersion, cacheRoot: join(options.configRoot, 'electron/updates'), policy, emit: options.emit, installer: new PlatformUpdateInstaller({ identity, app: options.app, autoUpdater: options.autoUpdater, log: options.log,
+    return new UpdateService({ currentVersion, cacheRoot: join(options.configRoot, 'electron/updates'), policy, emit: options.emit, autoDownload: options.autoDownload, installer: new PlatformUpdateInstaller({ identity, app: options.app, autoUpdater: options.autoUpdater, log: options.log,
       prepareToQuit: options.prepareToQuit, installationFailedAfterPrepare: options.installationFailedAfterPrepare }) });
   } catch (error) {
     unavailableReason = error instanceof Error ? error.message : String(error);

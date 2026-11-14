@@ -14,7 +14,7 @@ import { updateFixture } from './updater-fixture';
 import { DynamicTools } from '../main/sessions/dynamic-tools';
 
 const h = new Harness();
-async function setup(options: { slow?: boolean; badBytes?: boolean; redirect?: boolean; installError?: string; timeout?: number; prepare?: () => Promise<void> } = {}) {
+async function setup(options: { slow?: boolean; badBytes?: boolean; redirect?: boolean; installError?: string; timeout?: number; autoDownload?: () => boolean; prepare?: () => Promise<void> } = {}) {
   const f = updateFixture(), directory = await mkdtemp(join(tmpdir(), 'klaus-updater-service-'));
   const transitions: UpdateStatus[] = [], installs: PendingUpdate[] = [];
   let current = f.release(), withdrawn = false, checks = 0, downloaded = 0, response: ServerResponse | undefined;
@@ -33,7 +33,7 @@ async function setup(options: { slow?: boolean; badBytes?: boolean; redirect?: b
   const origin = `http://127.0.0.1:${address.port}`;
   current.artifact.url = `${origin}/update.zip`;
   const policy = { ...f.policy, feedUrl: `${origin}/feed`, fixtureOrigin: origin };
-  const service = new UpdateService({ currentVersion: policy.currentVersion, cacheRoot: join(directory, 'cache'), policy, downloadTimeoutMs: options.timeout ?? 5_000, emit: value => transitions.push(value), installer: { install: async update => { installs.push(update); await options.prepare?.(); if (options.installError) throw new Error(options.installError); }, dispose: async () => {} } });
+  const service = new UpdateService({ currentVersion: policy.currentVersion, cacheRoot: join(directory, 'cache'), policy, downloadTimeoutMs: options.timeout ?? 5_000, autoDownload: options.autoDownload, emit: value => transitions.push(value), installer: { install: async update => { installs.push(update); await options.prepare?.(); if (options.installError) throw new Error(options.installError); }, dispose: async () => {} } });
   const wait = async (state: UpdateStatus['state']) => {
     const deadline = Date.now() + 5_000;
     while (service.snapshot().state !== state) { if (Date.now() > deadline) throw new Error(`Expected ${state}, got ${JSON.stringify(service.snapshot())}`); await new Promise(resolveWait => setTimeout(resolveWait, 5)); }
@@ -276,6 +276,40 @@ void (async () => {
     const f = await setup({ slow: true });
     try { await f.service.check(); await f.service.dispose(); ok(!f.transitions.some(value => value.state === 'downloaded')); equal(f.installs.length, 0); }
     finally { await f.close(); }
+  });
+  await h.test('disabling automatic downloads announces available updates without transferring until requested', async () => {
+    let autoDownload = false;
+    const f = await setup({ autoDownload: () => autoDownload });
+    try {
+      const registry = new ChannelRegistry(); registerUpdaterHandlers(registry, f.service);
+      const call = (channel: string, args: unknown[] = []) => registry.lookup(channel)!({ channel, role: 'main', senderId: 1, args: args as never });
+      const checked = await call('updater:check', [{ explicit: true }]) as unknown as UpdateStatus;
+      equal(checked.state, 'available');
+      equal(checked.availableVersion, '1.1.0');
+      equal(f.downloaded, 0, 'the artifact is not downloaded when automatic downloads are off');
+      deepEqual(f.transitions.map(value => value.state), ['checking', 'available']);
+
+      // Background rechecks keep the same available offer quiet without blinking checking.
+      const beforeRecheck = f.transitions.length;
+      const rechecked = await f.service.check();
+      equal(rechecked.state, 'available');
+      equal(f.downloaded, 0);
+      equal(f.transitions.length, beforeRecheck);
+
+      // Explicitly requesting download transfers and verifies the release.
+      equal((await call('updater:check', [{ explicit: true, download: true }]) as unknown as UpdateStatus).state, 'downloading');
+      await f.wait('downloaded');
+      equal(f.downloaded, 1);
+
+      // Keeping autoDownload off after the cache is ready preserves the verified cache.
+      equal((await f.service.check()).state, 'downloaded');
+      equal(f.downloaded, 1);
+
+      // A withdrawn offer while autoDownload is off still retires to idle.
+      f.withdraw();
+      equal((await f.service.check()).state, 'idle');
+      equal(f.service.snapshot().availableVersion, null);
+    } finally { await f.close(); }
   });
   await h.test('unsigned development instances expose status without networking or installation', async () => {
     let network = 0;

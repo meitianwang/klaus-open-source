@@ -174,7 +174,7 @@ export const CONTROL_SURFACES: ControlSurface[] = [
   },
   {
     "key": "updater",
-    "about": "Automatic updates: current state, transfer progress, checking, installing. The app checks a few seconds after launch and then every 15 minutes, and downloads a found update on its own, reporting percent, speed and remaining time while it transfers. A progress dialog can be minimized to a persistent card above the sidebar footer; a finished download asks before restarting, and `install` restarts into it. `check` accepts { explicit: true } for a person-initiated attempt, which is the only kind that shows a result notice. Self-built and development builds report updates as unsupported.",
+    "about": "Application updates: current state, transfer progress, checking, downloading, and installing. The app checks a few seconds after launch and then every 15 minutes; when `autoDownloadUpdates` (`updater.autoDownload` on Settings → App update, on by default) is enabled, a found update downloads in the background, and when off it stops at `available` until `check` is called with `{ download: true }`. Available, downloading, and downloaded updates stay in the persistent card above the sidebar footer; the centered overlay opens only once installation starts. `check` accepts `{ explicit: true }` for a person-initiated attempt, which is the only kind that shows a result notice. Self-built and development builds report updates as unsupported.",
     "reads": [
       {
         "action": "status",
@@ -188,7 +188,7 @@ export const CONTROL_SURFACES: ControlSurface[] = [
       {
         "action": "check",
         "channel": "updater:check",
-        "args": "",
+        "args": "{ explicit?: boolean, download?: boolean } — checks the signed release feed; pass explicit: true for a person-requested check, and download: true to start downloading when automatic downloads are off",
         "confirm": false,
         "currentSession": false
       },

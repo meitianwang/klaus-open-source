@@ -1,14 +1,15 @@
 import { describe, expect, test } from 'bun:test'
 import vectors from '../../../../contracts/vectors/update-notice-vectors.json'
+import { isUpdaterAutoDownloadEnabled, UPDATER_AUTO_DOWNLOAD_KEY } from '../../../../shared/updater-preferences'
 import {
-  DISMISS_TTL_MS, PROGRESS_DIALOG_DELAY_MS, displayPercent, formatBytes, initialNoticeState, isDismissed,
+  DISMISS_TTL_MS, displayPercent, formatBytes, initialNoticeState, isDismissed,
   noticeFor, parseDismissRecord, remainingTime, settingsActionFor, settingsHintFor, surfacesFor,
   type UpdateStatus,
 } from './model'
 
 function statusFor(entry: {
-  state: string; supported?: boolean; version?: string | null; collapsed?: boolean; postponed?: boolean
-  explicit?: boolean; errorKind?: string; observedTransfer?: boolean
+  state: string; supported?: boolean; version?: string | null; postponed?: boolean
+  explicit?: boolean; errorKind?: string; installRequested?: boolean
 }): UpdateStatus {
   return {
     supported: entry.supported !== false,
@@ -25,7 +26,6 @@ function statusFor(entry: {
 
 describe('update notice contract', () => {
   test('the pinned pacing constants are the ones the model uses', () => {
-    expect(PROGRESS_DIALOG_DELAY_MS).toBe(vectors.delayGateMs)
     expect(DISMISS_TTL_MS).toBe(vectors.dismissTtlMs)
   })
 
@@ -33,9 +33,8 @@ describe('update notice contract', () => {
     test(`surface: ${entry.name}`, () => {
       const surfaces = surfacesFor({
         status: statusFor(entry),
-        progressHidden: entry.collapsed,
         dismissed: entry.postponed,
-        observedTransfer: entry.observedTransfer === true,
+        installRequested: entry.installRequested === true,
       })
       expect(surfaces).toEqual(entry.expect)
     })
@@ -74,6 +73,18 @@ describe('update notice contract', () => {
 })
 
 describe('update notice behaviour beyond the pinned cases', () => {
+  test('automatic downloads default to enabled unless explicitly turned off', () => {
+    expect(UPDATER_AUTO_DOWNLOAD_KEY).toBe('updater.autoDownload')
+    expect(isUpdaterAutoDownloadEnabled(undefined)).toBe(true)
+    expect(isUpdaterAutoDownloadEnabled(null)).toBe(true)
+    expect(isUpdaterAutoDownloadEnabled('')).toBe(true)
+    expect(isUpdaterAutoDownloadEnabled('on')).toBe(true)
+    expect(isUpdaterAutoDownloadEnabled('true')).toBe(true)
+    expect(isUpdaterAutoDownloadEnabled('off')).toBe(false)
+    expect(isUpdaterAutoDownloadEnabled('false')).toBe(false)
+    expect(isUpdaterAutoDownloadEnabled('0')).toBe(false)
+  })
+
   test('a repeated push is not a new event, so a notice fires once per outcome', () => {
     const state = initialNoticeState()
     const status = statusFor({ state: 'idle', explicit: true })
@@ -128,8 +139,9 @@ describe('update notice behaviour beyond the pinned cases', () => {
     expect(displayPercent({ percent: 11.6, bytesPerSecond: 0, transferred: 0, total: 0, installing: false })).toBe(12)
   })
 
-  test('a local check in flight names checking without overriding a real transfer', () => {
+  test('in-flight check, download and install actions report their own phase', () => {
     expect(settingsActionFor(statusFor({ state: 'idle' }), true, false)).toBe('checking')
+    expect(settingsActionFor(statusFor({ state: 'available' }), false, false, true)).toBe('downloading')
     expect(settingsActionFor(statusFor({ state: 'downloading' }), true, false)).toBe('downloading')
     expect(settingsActionFor(statusFor({ state: 'downloaded' }), false, true)).toBe('installing')
   })

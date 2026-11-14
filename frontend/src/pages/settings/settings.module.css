@@ -1426,6 +1426,12 @@
 .about-status[data-state='error'] {
   color: var(--danger);
 }
+.about-card :global(.pref-row) {
+  margin-top: 4px;
+  padding: 12px 0 0;
+  min-height: 0;
+  border-top: 1px solid var(--border-subtle);
+}
 /* The Kimi card's pasted-credential block: a key field and an optional base URL
    above the ordinary card actions, because Kimi's documented third-party route is
    a console key rather than an account login. The device-flow button stays below

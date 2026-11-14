@@ -23,6 +23,7 @@ import { EngineManager } from '../engine/manager';
 import { SessionService } from '../sessions/service';
 import { createDesktopUpdater } from '../updater/runtime';
 import type { UpdateStatus } from '../updater/service';
+import { UPDATER_AUTO_DOWNLOAD_KEY, isUpdaterAutoDownloadEnabled } from '../../shared/updater-preferences';
 import { ResumeLedger } from '../sessions/resume-ledger';
 import { runStartupResumeRecovery } from '../sessions/resume-recovery';
 import { registerUpdaterHandlers } from '../ipc/handlers/updater';
@@ -478,7 +479,12 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
   // state transition rebuilds the menu; every push still reaches the renderer.
   const updaterStatusForMenu: UpdateStatus[] = [];
   let updaterMenuState = '';
+  const readAutoDownloadUpdates = (): boolean => {
+    const value = kvGet(UPDATER_AUTO_DOWNLOAD_KEY, configRoot);
+    return isUpdaterAutoDownloadEnabled(!isFailure(value) ? value : undefined);
+  };
   const updater = await createDesktopUpdater({ app, autoUpdater, resourcesRoot: resourceRoot(), configRoot, edition,
+    autoDownload: readAutoDownloadUpdates,
     emit: status => {
       updaterStatusForMenu[0] = status;
       const menuState = `${status.supported ? '1' : '0'}:${status.state}`;
@@ -1910,6 +1916,9 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
       emit('app:preferences-changed', { key });
       if (key === 'language') refreshMenus();
       if (key === 'notification.desktop') void notificationAuthorization?.ensure();
+      if (key === UPDATER_AUTO_DOWNLOAD_KEY && readAutoDownloadUpdates() && updater.snapshot().state === 'available') {
+        void updater.check({ download: true });
+      }
       // The two system-hotkey KV rows (`global_shortcut`, `quick_input_shortcut`)
       // no longer drive anything here. They moved into keybindings.json, and
       // `DesktopShortcuts` now reads its accelerators from the KeymapService, so

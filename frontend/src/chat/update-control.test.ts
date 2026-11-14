@@ -23,7 +23,7 @@ describe('desktop update control', () => {
     expect(icons).toContain("'sidebar-user-update': shell(downloadSimpleSvg")
   })
 
-  test('one store owns every surface, and the retired footer pill is gone', () => {
+  test('one store owns every surface, and centered download/ready modals are gone', () => {
     // A second owner of update state is how the sidebar and the settings page
     // previously disagreed about the same transfer.
     expect(authScreen).not.toContain('updaterStatus')
@@ -33,30 +33,31 @@ describe('desktop update control', () => {
     expect(index).not.toContain('titlebar-update-status')
     expect(styles).not.toContain('.titlebar-update-status')
     expect(index).not.toContain('id="update-banner"')
-    for (const surface of ['UpdateProgressDialog', 'UpdateReadyDialog', 'UpdateInstallingOverlay', 'UpdateBanner']) {
+    for (const surface of ['UpdateInstallingOverlay', 'UpdateBanner']) {
       expect(components).toContain(`export function ${surface}`)
+    }
+    for (const retired of ['UpdateProgressDialog', 'UpdateReadyDialog', 'update-progress', 'update-ready']) {
+      expect(components).not.toContain(retired)
     }
     expect(components).toContain('useSyncExternalStore(subscribeUpdate, updateSnapshot, updateSnapshot)')
   })
 
-  test('the transfer detail reports size, speed and remaining time, and can be collapsed', () => {
-    expect(components).toContain("t('update_speed')")
-    expect(components).toContain("t('update_remaining')")
+  test('downloading and available updates stay in the sidebar card without tooltip or centered modal triggers', () => {
     expect(components).toContain('formatBytes(progress?.transferred ?? 0)')
-    expect(components).toContain('remainingLabel(progress, t)')
-    expect(components).toContain('data-action="update-minimize"')
-    expect(components).toContain('onClick={hideUpdateProgress}')
-    // The card is the way back, so collapsing never loses the transfer.
-    expect(components).toContain('data-action="update-show-progress"')
-    expect(components).toContain('onClick={showUpdateProgress}')
+    expect(components).toContain('remainingShortLabel(progress, t)')
+    expect(components).toContain('data-action="update-download"')
+    expect(components).toContain('data-action="update-install"')
+    expect(components).not.toContain('data-action="update-minimize"')
+    expect(components).not.toContain('data-action="update-show-progress"')
+    expect(components).not.toContain('title=')
+    expect(components).not.toContain('data-klaus-tip')
   })
 
-  test('a finished transfer asks before restarting and offers a postpone', () => {
-    expect(components).toContain("t('update_ready_title')")
+  test('available and ready offers offer a per-version postpone', () => {
     expect(components).toContain('data-action="update-later"')
     expect(components).toContain('onClick={deferUpdate}')
     expect(store).toContain('DISMISS_STORAGE_KEY')
-    // Postponing is recorded per version, and asking again clears it.
+    // Postponing is recorded per version, and checking or downloading clears it.
     expect(store).toContain('writeDismiss({ version, timestamp: Date.now() })')
     expect(store).toContain('writeDismiss(null)')
   })
@@ -66,13 +67,12 @@ describe('desktop update control', () => {
     expect(components).toContain("INSTALL_STEPS = ['preparing', 'installing', 'restarting']")
     const overlay = components.slice(components.indexOf('export function UpdateInstallingOverlay'), components.indexOf('export function UpdateBanner'))
     expect(overlay).not.toContain('deferUpdate')
-    expect(overlay).not.toContain('hideUpdateProgress')
     expect(overlay).not.toContain('update_installing_hint')
     expect(overlay).not.toContain('stepTrack')
     expect(overlay).toContain('useDialogFocus()')
   })
 
-  test('every dialog traps focus and exposes itself to assistive technology', () => {
+  test('the installation dialog traps focus and exposes itself to assistive technology', () => {
     expect(components).toContain('role="dialog" aria-modal="true"')
     expect(components).toContain("event.key === 'Escape'")
     expect(components).toContain("event.key !== 'Tab'")
@@ -88,16 +88,18 @@ describe('desktop update control', () => {
     expect(module).toContain('.settings-version-unavailable')
   })
 
-  test('the settings page carries two equal cards and no diagnostics switch', () => {
+  test('the settings page carries the auto-download switch inside the version card and no diagnostics switch', () => {
     const about = readFrontendFile('src/pages/settings/about-tab.tsx')
     const prefs = readFrontendFile('src/pages/settings/prefs-tabs.tsx')
     expect(about).toContain("t('update_current_version')")
+    expect(about).toContain('id="about-auto-download"')
+    expect(about).toContain('UPDATER_AUTO_DOWNLOAD_KEY')
     expect(about).toContain("t('update_changelog_hint')")
     expect(about).toContain('id="about-open-changelog"')
     expect(about).not.toContain('klaus-provider-trace')
     expect(prefs).toContain("'klaus-provider-trace'")
     // The action label comes from the phase, never from a neighbouring one.
-    expect(about).toContain('settingsActionFor(status, checking, installRequested)')
+    expect(about).toContain('settingsActionFor(status, checking, installRequested, downloadRequested)')
     expect(about).toContain('settingsHintFor(status, checkFailed)')
   })
 

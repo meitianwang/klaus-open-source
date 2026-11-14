@@ -773,58 +773,53 @@ void (async () => {
       const surface = (name: string) => `!!document.querySelector('[data-surface="${name}"]')`;
       const click = (action: string, scope = '') => `document.querySelector('${scope}[data-action="${action}"]').click()`;
 
-      // A running transfer opens the detail after its delay gate and keeps a
-      // persistent card, so the numbers are visible without opening settings.
+      // Available, downloading and ready updates stay in the persistent sidebar
+      // card without opening centered modals; only installation owns the modal.
       const total = 170184704;
+      await publish({...offered,state:'available'});
+      await waitFor(() => desktop.window.webContents.executeJavaScript(surface('update-banner')), 5000, 'an available update shows the persistent sidebar card');
+      assertEqual(await desktop.window.webContents.executeJavaScript(`!${surface('update-progress')} && !${surface('update-ready')} && !${surface('update-installing')}`), true, 'available opens no centered modal');
+
       await publish({...offered,state:'downloading',progress:{percent:6.6,bytesPerSecond:8105472,transferred:18758041,total,installing:false}});
-      await waitFor(() => desktop.window.webContents.executeJavaScript(surface('update-progress')), 5000, 'a running transfer opens its progress detail');
-      assertEqual(await desktop.window.webContents.executeJavaScript(surface('update-banner')), true, 'the persistent card accompanies the detail');
-      const metrics = await desktop.window.webContents.executeJavaScript("document.querySelector('[data-surface=\"update-progress\"]').innerText") as string;
-      assert(/17\.89 MB/.test(metrics) && /162\.3 MB/.test(metrics), 'the detail reports transferred and total bytes');
-      assert(/7\.73 MB\/s/.test(metrics), 'the detail reports the smoothed speed');
-      assert(/19|20/.test(metrics), 'the detail reports a remaining-time estimate');
+      await waitFor(() => desktop.window.webContents.executeJavaScript(`(() => { const el = document.querySelector('[data-surface="update-banner"]'); return !!el && el.getAttribute('data-state') === 'downloading'; })()`), 5000, 'a running transfer updates the persistent card');
+      assertEqual(await desktop.window.webContents.executeJavaScript(`!${surface('update-progress')} && !${surface('update-ready')}`), true, 'downloading opens no centered modal');
+      const metrics = await desktop.window.webContents.executeJavaScript("document.querySelector('[data-surface=\"update-banner\"]').innerText") as string;
+      assert(/17\.89 MB/.test(metrics) && /162\.3 MB/.test(metrics), 'the card reports transferred and total bytes');
+      assert(/19|20/.test(metrics), 'the card reports a remaining-time estimate');
       const progressFrame = await desktop.window.webContents.capturePage(undefined, { stayHidden: true });
-      assert(!progressFrame.isEmpty(), 'the transfer detail paints in the real workbench');
+      assert(!progressFrame.isEmpty(), 'the downloading card paints in the real workbench');
       writeFileSync(join(__dirname, 'update-progress-current.png'), progressFrame.toPNG());
 
-      // Collapsing hides only the detail: the transfer keeps running and the card
-      // remains the way back to it.
-      await desktop.window.webContents.executeJavaScript(click('update-minimize'));
-      await waitFor(() => desktop.window.webContents.executeJavaScript(`!${surface('update-progress')}`), 5000, 'minimize closes the detail');
-      assertEqual(await desktop.window.webContents.executeJavaScript(surface('update-banner')), true, 'minimize keeps the persistent card');
       await publish({...offered,state:'downloading',progress:{percent:24,bytesPerSecond:8105472,transferred:68073881,total,installing:false}});
-      assertEqual(await desktop.window.webContents.executeJavaScript(`!${surface('update-progress')}`), true, 'a progress tick never reopens a collapsed detail');
       const cardText = await desktop.window.webContents.executeJavaScript("document.querySelector('[data-surface=\"update-banner\"]').innerText") as string;
-      assert(/24%/.test(cardText), 'the collapsed card keeps reporting live progress');
-      await desktop.window.webContents.executeJavaScript(click('update-show-progress'));
-      await waitFor(() => desktop.window.webContents.executeJavaScript(surface('update-progress')), 5000, 'show progress recalls the detail');
+      assert(/24%/.test(cardText), 'the card keeps reporting live progress');
+      assertEqual(await desktop.window.webContents.executeJavaScript(`!${surface('update-progress')}`), true, 'progress ticks never open a centered modal');
 
-      // A finished transfer asks before it restarts anything.
+      // A finished transfer stays in the sidebar card and offers restart + later.
       await publish(offered);
-      await waitFor(() => desktop.window.webContents.executeJavaScript(surface('update-ready')), 5000, 'a finished transfer raises its install decision');
-      const readyText = await desktop.window.webContents.executeJavaScript("document.querySelector('[data-surface=\"update-ready\"]').innerText") as string;
-      assert(/0\.3\.99/.test(readyText), 'the decision names the version it would install');
+      await waitFor(() => desktop.window.webContents.executeJavaScript(`(() => { const el = document.querySelector('[data-surface="update-banner"]'); return !!el && el.getAttribute('data-state') === 'ready'; })()`), 5000, 'a finished transfer presents its install action in the card');
+      assertEqual(await desktop.window.webContents.executeJavaScript(`!${surface('update-ready')} && !${surface('update-installing')}`), true, 'finishing the download opens no centered modal');
+      const readyText = await desktop.window.webContents.executeJavaScript("document.querySelector('[data-surface=\"update-banner\"]').innerText") as string;
+      assert(/0\.3\.99/.test(readyText), 'the card names the version it would install');
       const readyFrame = await desktop.window.webContents.capturePage(undefined, { stayHidden: true });
-      assert(!readyFrame.isEmpty(), 'the install decision paints in the real workbench');
+      assert(!readyFrame.isEmpty(), 'the ready card paints in the real workbench');
       writeFileSync(join(__dirname, 'update-ready-current.png'), readyFrame.toPNG());
 
-      // Postponing stands the whole notice down for this version.
-      await desktop.window.webContents.executeJavaScript(click('update-later', '[data-surface="update-ready"] '));
-      await waitFor(() => desktop.window.webContents.executeJavaScript(`!${surface('update-ready')} && !${surface('update-banner')}`), 5000, 'postponing silences the decision and the card');
+      // Postponing stands the notice down for this version.
+      await desktop.window.webContents.executeJavaScript(click('update-later', '[data-surface="update-banner"] '));
+      await waitFor(() => desktop.window.webContents.executeJavaScript(`!${surface('update-banner')}`), 5000, 'postponing silences the card');
       await publish({...offered,availableVersion:'0.4.0'});
-      await waitFor(() => desktop.window.webContents.executeJavaScript(surface('update-ready')), 5000, 'a different version is a new offer, not the postponed one');
+      await waitFor(() => desktop.window.webContents.executeJavaScript(surface('update-banner')), 5000, 'a different version is a new offer, not the postponed one');
 
       // Revocation retracts every affordance; a later verified offer restores them.
       await publish({...offered,state:'error',availableVersion:null,error:'Fixture release revoked',errorKind:'check-rejected'});
-      await waitFor(() => desktop.window.webContents.executeJavaScript(`!${surface('update-banner')} && !${surface('update-ready')}`), 5000, 'revocation removes the install affordance');
+      await waitFor(() => desktop.window.webContents.executeJavaScript(`!${surface('update-banner')} && !${surface('update-installing')}`), 5000, 'revocation removes the install affordance');
       await publish(offered);
       await waitFor(() => desktop.window.webContents.executeJavaScript(surface('update-banner')), 5000, 'a later verified offer may reuse the displayed version');
 
-      const busy = await desktop.window.webContents.executeJavaScript(`(() => { const button = document.querySelector('[data-surface="update-ready"] [data-action="update-install"]'); button.click(); return { disabled: button.disabled, text: button.textContent }; })()`) as {disabled:boolean;text:string};
-      assertEqual(busy.disabled, true, 'click disables duplicate update requests immediately');
-      assert(/Preparing|正在准备/.test(busy.text), 'click gives immediate visible update preparation feedback');
+      await desktop.window.webContents.executeJavaScript(click('update-install', '[data-surface="update-banner"] '));
       await waitFor(() => desktop.window.webContents.executeJavaScript("/The update could not be installed|更新未能安装/.test(document.body.innerText)"), 5000, 'a real unavailable install response surfaces a readable error');
-      await waitFor(() => desktop.window.webContents.executeJavaScript("(() => { const button = document.querySelector('[data-surface=\"update-ready\"] [data-action=\"update-install\"]'); return !!button && !button.disabled; })()"), 5000, 'a refused install restores the action');
+      await waitFor(() => desktop.window.webContents.executeJavaScript(`!${surface('update-installing')} && (() => { const button = document.querySelector('[data-surface="update-banner"] [data-action="update-install"]'); return !!button && !button.disabled; })()`), 5000, 'a refused install retracts the modal and restores the card action');
 
       // Installation owns the screen: it cannot be collapsed or postponed away.
       await publish({...offered,state:'installing',progress:{percent:88,bytesPerSecond:0,transferred:total,total,installing:true}});

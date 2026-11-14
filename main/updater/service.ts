@@ -21,7 +21,7 @@ export type UpdateProgress = {
 };
 export interface UpdateStatus {
   supported: boolean;
-  state: 'idle' | 'checking' | 'downloading' | 'downloaded' | 'installing' | 'error';
+  state: 'idle' | 'checking' | 'available' | 'downloading' | 'downloaded' | 'installing' | 'error';
   currentVersion: string;
   availableVersion: string | null;
   error: string | null;
@@ -44,6 +44,8 @@ export interface UpdateServiceOptions {
   unavailableReason?: string;
   installer: UpdateInstaller;
   emit: (status: UpdateStatus) => void;
+  /** Read on each check so toggling the preference takes effect without restarting. */
+  autoDownload?: () => boolean;
   fetch?: typeof fetch;
   requestTimeoutMs?: number;
   downloadTimeoutMs?: number;
@@ -210,19 +212,22 @@ export class UpdateService {
   /**
    * Returns after the feed response; transfer progress continues on
    * updater:status pushes. `explicit` marks a person-initiated attempt, which is
-   * the only kind allowed to produce a visible result notice.
+   * the only kind allowed to produce a visible result notice; `download` starts
+   * transferring a found release even when automatic downloads are turned off.
    */
-  async check(options: { explicit?: boolean } = {}): Promise<UpdateStatus> {
+  async check(options: { explicit?: boolean; download?: boolean } = {}): Promise<UpdateStatus> {
     if (!this.status.supported || this.disposed || this.controller || this.handingOff || this.queuedInstall) return this.snapshot();
     const controller = new AbortController(); this.controller = controller;
     const explicit = options.explicit === true;
+    const shouldDownload = options.download === true || (this.options.autoDownload ? this.options.autoDownload() : true);
     let checked!: () => void;
     const responseReady = new Promise<void>(resolve => { checked = resolve; });
     this.operation = (async () => {
       let phase: 'check' | 'download' = 'check';
       try {
+        const silentAvailableRefresh = !explicit && !shouldDownload && this.status.state === 'available';
         this.status = { ...this.status, explicit };
-        this.publish('checking');
+        if (!silentAvailableRefresh) this.publish('checking');
         const proof = await this.offer(controller.signal);
         if (!proof) { await this.clearPending(); this.publish('idle', null, null); return; }
         if (this.pending?.proof.digest === proof.digest) {
@@ -233,6 +238,12 @@ export class UpdateService {
           return;
         }
         await this.clearPending();
+        if (!shouldDownload) {
+          if (!silentAvailableRefresh || this.status.availableVersion !== proof.release.version) {
+            this.publish('available', null, proof.release.version);
+          }
+          return;
+        }
         const total = proof.release.artifact.size;
         this.resetProgressClock();
         phase = 'download';
