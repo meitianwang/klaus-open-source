@@ -689,7 +689,7 @@
             "additionalProperties": false
           },
           "ModelTierTarget": {
-            "description": "Host targets use the existing provider/auth/capabilities/pricing wire shapes. The facade resolves engine-owned source references into the same shape.",
+            "description": "Auxiliary and orchestration model targets resolve engine-owned source references into concrete provider/auth/capabilities/pricing bindings.",
             "oneOf": [
               {
                 "type": "object",
@@ -907,6 +907,31 @@
                 "type": [
                   "boolean",
                   "null"
+                ]
+              },
+              "orchestrationMode": {
+                "description": "Whether orchestration mode is active for this conversation.",
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "orchestratorFallbackToMain": {
+                "description": "Whether orchestration mode automatically falls back to the chat model on execution-model failure.",
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "orchestratorTarget": {
+                "description": "Optional explicit execution target for orchestration mode; omitted/null reuses the medium tier.",
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/ModelTierTarget"
+                  },
+                  {
+                    "type": "null"
+                  }
                 ]
               },
               "pricing": true,
@@ -2794,13 +2819,29 @@
       },
       "result": {
         "$schema": "http://json-schema.org/draft-07/schema#",
-        "title": "SubmissionAck",
-        "description": "Ack carrying the submission id assigned to a forwarded op.",
+        "title": "TurnInterruptResponse",
+        "description": "`turn/interrupt` response: the settled interruption outcome. The reply is deferred until cancellation lands (or answers `accepted:false` at once when nothing was running), so its arrival confirms the interruption.",
         "type": "object",
         "required": [
+          "accepted",
           "submissionId"
         ],
         "properties": {
+          "accepted": {
+            "type": "boolean"
+          },
+          "goalPauseError": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "interruptedTurnId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "submissionId": {
             "type": "string"
           }
@@ -6767,13 +6808,6 @@
           "source"
         ],
         "properties": {
-          "catalog": {
-            "default": [],
-            "type": "array",
-            "items": {
-              "$ref": "#/definitions/ModelSelectionCatalogEntry"
-            }
-          },
           "modelTierSelections": {
             "default": {},
             "type": "object",
@@ -6796,6 +6830,7 @@
             "type": "string"
           }
         },
+        "additionalProperties": false,
         "definitions": {
           "ModelCapabilitiesInitSchema": {
             "description": "Schema projection of the closed per-model initialization metadata contract.",
@@ -7131,18 +7166,6 @@
               "none"
             ]
           },
-          "ModelSelectionCatalogEntry": {
-            "description": "A host-owned catalog entry. Only the on-device source uses this input; subscription and custom catalogs are owned by the engine.",
-            "type": "object",
-            "required": [
-              "value"
-            ],
-            "properties": {
-              "value": {
-                "type": "string"
-              }
-            }
-          },
           "ModelThinkingCapabilityInitSchema": {
             "type": "object",
             "properties": {
@@ -7158,7 +7181,7 @@
             "additionalProperties": false
           },
           "ModelTierTarget": {
-            "description": "Host targets use the existing provider/auth/capabilities/pricing wire shapes. The facade resolves engine-owned source references into the same shape.",
+            "description": "Auxiliary and orchestration model targets resolve engine-owned source references into concrete provider/auth/capabilities/pricing bindings.",
             "oneOf": [
               {
                 "type": "object",
@@ -12161,7 +12184,7 @@
             "additionalProperties": false
           },
           "ModelTierTarget": {
-            "description": "Host targets use the existing provider/auth/capabilities/pricing wire shapes. The facade resolves engine-owned source references into the same shape.",
+            "description": "Auxiliary and orchestration model targets resolve engine-owned source references into concrete provider/auth/capabilities/pricing bindings.",
             "oneOf": [
               {
                 "type": "object",
@@ -12379,6 +12402,31 @@
                 "type": [
                   "boolean",
                   "null"
+                ]
+              },
+              "orchestrationMode": {
+                "description": "Whether orchestration mode is active for this conversation.",
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "orchestratorFallbackToMain": {
+                "description": "Whether orchestration mode automatically falls back to the chat model on execution-model failure.",
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "orchestratorTarget": {
+                "description": "Optional explicit execution target for orchestration mode; omitted/null reuses the medium tier.",
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/ModelTierTarget"
+                  },
+                  {
+                    "type": "null"
+                  }
                 ]
               },
               "pricing": true,
@@ -12873,7 +12921,7 @@
             "additionalProperties": false
           },
           "ModelTierTarget": {
-            "description": "Host targets use the existing provider/auth/capabilities/pricing wire shapes. The facade resolves engine-owned source references into the same shape.",
+            "description": "Auxiliary and orchestration model targets resolve engine-owned source references into concrete provider/auth/capabilities/pricing bindings.",
             "oneOf": [
               {
                 "type": "object",
@@ -13091,6 +13139,31 @@
                 "type": [
                   "boolean",
                   "null"
+                ]
+              },
+              "orchestrationMode": {
+                "description": "Whether orchestration mode is active for this conversation.",
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "orchestratorFallbackToMain": {
+                "description": "Whether orchestration mode automatically falls back to the chat model on execution-model failure.",
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "orchestratorTarget": {
+                "description": "Optional explicit execution target for orchestration mode; omitted/null reuses the medium tier.",
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/ModelTierTarget"
+                  },
+                  {
+                    "type": "null"
+                  }
                 ]
               },
               "pricing": true,
@@ -13671,7 +13744,7 @@
             "additionalProperties": false
           },
           "ModelTierTarget": {
-            "description": "Host targets use the existing provider/auth/capabilities/pricing wire shapes. The facade resolves engine-owned source references into the same shape.",
+            "description": "Auxiliary and orchestration model targets resolve engine-owned source references into concrete provider/auth/capabilities/pricing bindings.",
             "oneOf": [
               {
                 "type": "object",
@@ -13891,6 +13964,31 @@
                   "null"
                 ]
               },
+              "orchestrationMode": {
+                "description": "Whether orchestration mode is active for this conversation.",
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "orchestratorFallbackToMain": {
+                "description": "Whether orchestration mode automatically falls back to the chat model on execution-model failure.",
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "orchestratorTarget": {
+                "description": "Optional explicit execution target for orchestration mode; omitted/null reuses the medium tier.",
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/ModelTierTarget"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "pricing": true,
               "provider": true
             }
@@ -13997,6 +14095,18 @@
               "string",
               "null"
             ]
+          },
+          "orchestrationMode": {
+            "default": false,
+            "type": "boolean"
+          },
+          "orchestratorFallbackToMain": {
+            "default": false,
+            "type": "boolean"
+          },
+          "orchestratorTarget": {
+            "description": "Non-secret orchestration execution target status, or null when reusing the medium tier.",
+            "default": null
           },
           "pendingChangeId": {
             "type": [

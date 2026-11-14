@@ -1311,8 +1311,7 @@
   padding: 12px;
 }
 /* Separator belongs between two adjacent rows, not under every row: a standalone
-   row (e.g. the local-models enable switch) or the last row of a group followed
-   by other content must not trail a stray line. */
+   row or the last row of a group followed by other content must not trail a stray line. */
 :global(.pref-row) + :global(.pref-row) { border-top: 1px solid var(--border); }
 /* The text column is flex:1 with long descriptions; at the 480px window
    minimum an unprotected right-hand label button wraps vertically. Native
