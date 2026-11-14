@@ -163,7 +163,6 @@ h.test('buildSessionInit and inferenceInit carry orchestrationMode and orchestra
 h.test('orchestrator fallback events project toast frames and unattended scheduled runs auto-decline fallback prompts', () => {
   const frames = projectEngineEvent({
     type: 'sessionEvent',
-    method: 'session/event',
     params: {
       sessionId: 'sess-1',
       turnId: 'turn-1',
@@ -206,7 +205,7 @@ h.test('orchestrator fallback events project toast frames and unattended schedul
     isUnattended: id => id === 'cron-chat',
   });
 
-  let cronResponse: Json = null;
+  let cronResponse: unknown = null;
   pump.receive({
     type: 'reverseRequest',
     request: {

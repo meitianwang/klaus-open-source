@@ -20,7 +20,7 @@ const suites = [
   'resume-recovery',
   'mobile-transport', 'mobile-load-diagnostics',
   'system-trust', 'pending-turns', 'friends', 'friends-async', 'friend-conversation-groups', 'friends-receiver-lifecycle', 'friends-interactions', 'remote-thread-client', 'remote-thread-tools', 'mobile-catalog', 'mobile-push',
-  'model-updates', 'ultra-mode', 'native-fast-mode', 'runtime-settings', 'runtime-settings-live',
+  'model-updates', 'ultra-mode', 'orchestration-mode', 'native-fast-mode', 'runtime-settings', 'runtime-settings-live',
   'html-preview', 'artifact-paths', 'inline-visualization', 'inline-visualization-dom', 'inline-visualization-wheel', 'visual-artifact-card-dom', 'ui-screenshot-delivery', 'image-zoom-commands', 'media-generation', 'qoder-media-facade', 'session-closing',
   'connectors-runtime', 'retired-private-sessions', 'windows-sandbox-setup', 'private-directory', 'settings-backup', 'legacy-ui-state', 'instance-guard', 'updater-profile', 'thread-tools-live', 'klaus-control', 'keymap', 'native-menu-labels', 'device-mention', 'conversation-mention',
   'device-storage', 'worktree-storage',
