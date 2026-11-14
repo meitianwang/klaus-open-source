@@ -70,8 +70,6 @@ import { syntheticContextQuery, resolveSyntheticContextQuery, type SyntheticCont
 import { queryClient } from '../app/query-client'
 import { activatePlanShortcut, isPlanShortcut, withPlanShortcut } from './composer/plan-shortcut'
 import { activateModeToggleShortcut, isOrchestrateShortcut, isUltraShortcut, withOrchestrateShortcut, withUltraShortcut } from './composer/work-mode-shortcuts'
-import { UltraAccessDialog } from './composer/ultra-access-dialog'
-import type { UltraAccessDecision } from './composer/ultra-selection'
 import { configurePlanningQuestions, receivePlanningQuestion, planningQuestionReadToken, reconcilePlanningQuestionRead, pendingPlanningQuestions, subscribePlanningQuestions, PlanningQuestionView } from './planning/questions-runtime'
 import type { GoalSnapshot as GoalWireSnapshot, PlanningInputRequest } from '../../../contracts/planning-goals'
 import type { PlanningQuestionRequest } from './planning/questions-state'
@@ -12248,10 +12246,11 @@ function updateGoalBadge() {
     badge = document.createElement('button')
     badge.id = 'goal-mode-badge'
     ;(badge as HTMLButtonElement).type = 'button'
-    badge.className = 'goal-mode-badge'
+    badge.className = 'goal-mode-badge is-goal'
     badge.innerHTML = `<span class="goal-badge-icon" aria-hidden="true">${COMPOSER_PLUS_ICONS.goal}</span><span class="goal-badge-close" aria-hidden="true">×</span><span class="goal-badge-text">${escapeHtml(tt('composer_goal'))}</span>`
     badge.onclick = () => { void toggleComposerGoalEnabled() }
   }
+  badge.classList.add('is-goal')
   badge.setAttribute('aria-label', tt('goal_badge_tooltip'))
   const label = badge.querySelector<HTMLElement>('.goal-badge-text')
   if (label) label.textContent = tt('composer_goal')
@@ -12561,58 +12560,22 @@ async function toggleComposerSpecEnabled() {
 let composerOrchestrateEnabled = false
 let composerUltraEnabled = false
 
-function confirmWorkModeFullAccess(kind: 'orchestrate' | 'ultra'): Promise<UltraAccessDecision> {
-  return new Promise(resolve => {
-    claimOverlay('work-mode-full-access')
-    const host = document.createElement('div')
-    document.body.appendChild(host)
-    const root = createRoot(host)
-    let settled = false
-    const finish = (decision: UltraAccessDecision) => {
-      if (settled) return
-      settled = true
-      unregisterOverlay('work-mode-full-access')
-      window.removeEventListener('klaus:lang-change', render)
-      root.unmount()
-      host.remove()
-      resolve(decision)
-    }
-    registerOverlay('work-mode-full-access', () => finish('cancel'))
-    const render = () => root.render(createElement(UltraAccessDialog, {
-      onDecision: finish,
-      translate: tt,
-      titleKey: kind === 'orchestrate' ? 'orchestrate_full_access_title' : 'ultra_full_access_title',
-      messageKey: kind === 'orchestrate' ? 'orchestrate_full_access_message' : 'ultra_full_access_message',
-    }))
-    window.addEventListener('klaus:lang-change', render)
-    render()
-  })
-}
-
 async function setComposerOrchestrateMode(next: boolean, explicitSessionId?: string | null): Promise<boolean> {
   const sourceSessionId = explicitSessionId ?? window.currentSessionId
   const targetSessionId = sourceSessionId || await ensureSession()
   if (!targetSessionId || (explicitSessionId === undefined && sourceSessionId && sourceSessionId !== window.currentSessionId)) return false
-  let permissionMode: PermissionPreset | undefined
   if (next) {
-    try {
-      const perm = await klausApi.session.getPermissionMode(targetSessionId)
-      if (perm?.mode === 'bypassPermissions') {
-        const decision = await confirmWorkModeFullAccess('orchestrate')
-        if (decision === 'cancel' || (explicitSessionId === undefined && sourceSessionId && sourceSessionId !== window.currentSessionId)) return false
-        if (decision === 'restricted') permissionMode = 'default'
-      }
-    } catch { /* Proceed if permission check is unavailable in isolated fixtures. */ }
     if (composerSpecEnabled && explicitSessionId === undefined) {
       try {
         const result = await klausApi.session.setCollaborationMode(targetSessionId, 'default')
         applyPlanningUpdated({ sessionId: targetSessionId, planning: result.planning })
       } catch { showToast(tt('planning_mode_failed')); return false }
+      if (sourceSessionId && sourceSessionId !== window.currentSessionId) return false
     }
     if (composerGoalEnabled && targetSessionId === window.currentSessionId) setComposerGoalEnabled(false)
   }
   try {
-    await klausApi.session.setOrchestrationMode(next, targetSessionId, permissionMode ? { permissionMode } : undefined)
+    await klausApi.session.setOrchestrationMode(next, targetSessionId)
     if (targetSessionId === window.currentSessionId) {
       composerOrchestrateEnabled = next
       if (next) composerUltraEnabled = false
@@ -12630,26 +12593,18 @@ async function setComposerUltraMode(next: boolean, explicitSessionId?: string | 
   const sourceSessionId = explicitSessionId ?? window.currentSessionId
   const targetSessionId = sourceSessionId || await ensureSession()
   if (!targetSessionId || (explicitSessionId === undefined && sourceSessionId && sourceSessionId !== window.currentSessionId)) return false
-  let permissionMode: PermissionPreset | undefined
   if (next) {
-    try {
-      const perm = await klausApi.session.getPermissionMode(targetSessionId)
-      if (perm?.mode === 'bypassPermissions') {
-        const decision = await confirmWorkModeFullAccess('ultra')
-        if (decision === 'cancel' || (explicitSessionId === undefined && sourceSessionId && sourceSessionId !== window.currentSessionId)) return false
-        if (decision === 'restricted') permissionMode = 'default'
-      }
-    } catch { /* Proceed if permission check is unavailable in isolated fixtures. */ }
     if (composerSpecEnabled && explicitSessionId === undefined) {
       try {
         const result = await klausApi.session.setCollaborationMode(targetSessionId, 'default')
         applyPlanningUpdated({ sessionId: targetSessionId, planning: result.planning })
       } catch { showToast(tt('planning_mode_failed')); return false }
+      if (sourceSessionId && sourceSessionId !== window.currentSessionId) return false
     }
     if (composerGoalEnabled && targetSessionId === window.currentSessionId) setComposerGoalEnabled(false)
   }
   try {
-    await klausApi.session.setUltraMode(next, targetSessionId, permissionMode ? { permissionMode } : undefined)
+    await klausApi.session.setUltraMode(next, targetSessionId)
     if (targetSessionId === window.currentSessionId) {
       composerUltraEnabled = next
       if (next) composerOrchestrateEnabled = false
@@ -12690,9 +12645,10 @@ function updateOrchestrateBadge() {
     badge = document.createElement('button')
     badge.id = 'orchestrate-mode-badge'
     ;(badge as HTMLButtonElement).type = 'button'
-    badge.className = 'goal-mode-badge spec-mode-badge'
+    badge.className = 'goal-mode-badge spec-mode-badge is-orchestrate'
     badge.onclick = () => { void setComposerOrchestrateMode(false) }
   }
+  badge.classList.add('is-orchestrate')
   badge.setAttribute('aria-label', tt('orchestrate_mode_off'))
   badge.innerHTML = `<span class="goal-badge-icon" aria-hidden="true">${COMPOSER_PLUS_ICONS.orchestrate}</span><span class="goal-badge-close" aria-hidden="true">×</span><span class="goal-badge-text">${escapeHtml(tt('composer_orchestrate'))}</span>`
   placeComposerModeBadge(inputRow, badge)
@@ -12707,9 +12663,10 @@ function updateUltraBadge() {
     badge = document.createElement('button')
     badge.id = 'ultra-mode-badge'
     ;(badge as HTMLButtonElement).type = 'button'
-    badge.className = 'goal-mode-badge spec-mode-badge'
+    badge.className = 'goal-mode-badge spec-mode-badge is-ultra'
     badge.onclick = () => { void setComposerUltraMode(false) }
   }
+  badge.classList.add('is-ultra')
   badge.setAttribute('aria-label', tt('ultra_mode_off'))
   badge.innerHTML = `<span class="goal-badge-icon" aria-hidden="true">${COMPOSER_PLUS_ICONS.ultra}</span><span class="goal-badge-close" aria-hidden="true">×</span><span class="goal-badge-text">${escapeHtml(tt('composer_ultra'))}</span>`
   placeComposerModeBadge(inputRow, badge)
@@ -12770,9 +12727,10 @@ function updateSpecBadge() {
     badge = document.createElement('button')
     badge.id = 'plan-mode-badge'
     ;(badge as HTMLButtonElement).type = 'button'
-    badge.className = 'goal-mode-badge spec-mode-badge'
+    badge.className = 'goal-mode-badge spec-mode-badge is-plan'
     badge.onclick = () => { void toggleComposerSpecEnabled() }
   }
+  badge.classList.add('is-plan')
   badge.setAttribute('aria-label', tt('planning_mode_off'))
   badge.innerHTML = `<span class="goal-badge-icon" aria-hidden="true">${COMPOSER_PLUS_ICONS.plan}</span><span class="goal-badge-close" aria-hidden="true">×</span><span class="goal-badge-text">${escapeHtml(tt('composer_plan'))}</span>`
   placeComposerModeBadge(inputRow, badge)

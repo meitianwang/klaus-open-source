@@ -390,8 +390,6 @@ describe('Shared reasoning and Fast controls select native account models', () =
     const writes: unknown[] = []
     const ultra = createUltraSelection({
       getSelection: () => ({ model, enabled, sessionId: 'cursor-session' }),
-      getPermission: async () => ({ mode: 'bypassPermissions' }),
-      confirm: async () => 'restricted',
       save: async (next, sessionId, permissionMode) => { writes.push({ next, sessionId, permissionMode }); enabled = next },
       onError: error => { throw error },
     })
@@ -406,7 +404,7 @@ describe('Shared reasoning and Fast controls select native account models', () =
     await native.choose('medium')
     expect(model).toBe(family.cursorVariants[3]!.value)
     expect(enabled).toBe(true)
-    expect(writes).toEqual([{ next: true, sessionId: 'cursor-session', permissionMode: 'default' }])
+    expect(writes).toEqual([{ next: true, sessionId: 'cursor-session', permissionMode: undefined }])
   })
 
   test('other model sources retain their declared native effort choices and badge', () => {

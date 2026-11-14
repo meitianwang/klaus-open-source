@@ -12,7 +12,6 @@ import { useEffect, useRef, useState } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { mountRetainedIsland } from './retained-island'
 import { createVisibilityScope } from '../visibility-scope'
-import { createPortal } from 'react-dom'
 import { createStore, type StoreApi } from 'zustand/vanilla'
 import { useStore } from 'zustand'
 import { Icon, rawIconHtml } from '../../components/Icon'
@@ -32,8 +31,7 @@ import {
 import styles from './composer.module.css'
 import type { ComposerInferenceState } from '../model-inference'
 import { createPreferenceSaver } from './preference-save'
-import { createThinkingSelection, createUltraSelection, type UltraAccessDecision } from './ultra-selection'
-import { UltraAccessDialog } from './ultra-access-dialog'
+import { createThinkingSelection, createUltraSelection } from './ultra-selection'
 import { isAutomaticCursorSelection } from './model-selection-values'
 
 export { isThinkingLevelValue, THINKING_LEVEL_ITEMS }
@@ -240,7 +238,6 @@ interface ModelSelectState {
   thinkingPending: boolean
   ultraMode: boolean
   ultraPending: boolean
-  ultraConfirmation: ((decision: UltraAccessDecision) => void) | null
   fastMode: boolean
   fastModeSupported: boolean
   fastModeBilling?: FastModeState['billing']
@@ -402,7 +399,6 @@ function ModelSelectMenu({ store, onEmptyClick, saveModel, saveThinkingLevel, sa
   const thinkingPending = useStore(store, s => s.thinkingPending)
   const ultraMode = useStore(store, s => s.ultraMode)
   const ultraPending = useStore(store, s => s.ultraPending)
-  const ultraConfirmation = useStore(store, s => s.ultraConfirmation)
   const fastMode = useStore(store, s => s.fastMode)
   const fastModePending = useStore(store, s => s.fastModePending)
   const fastModeSupported = useStore(store, s => s.fastModeSupported)
@@ -537,7 +533,6 @@ function ModelSelectMenu({ store, onEmptyClick, saveModel, saveThinkingLevel, sa
 
   return (
     <>
-      {ultraConfirmation ? createPortal(<UltraAccessDialog onDecision={ultraConfirmation} translate={tt} />, document.body) : null}
       <button
         type="button" className="kls-select-trigger" aria-haspopup="menu" aria-expanded={open ? 'true' : 'false'}
         disabled={disabled}
@@ -693,7 +688,6 @@ export function mountModelSelect(
     thinkingPending: false,
     ultraMode: false,
     ultraPending: false,
-    ultraConfirmation: null,
     fastMode: false,
     fastModeSupported: false,
     fastModePending: false,
@@ -776,16 +770,9 @@ export function mountModelSelect(
   })
   const ultraSelection = createUltraSelection({
     getSelection: () => ({ sessionId: sessionId(), enabled: store.getState().ultraMode, model: store.getState().value }),
-    getPermission: () => w().klaus.session.getPermissionMode(sessionId()),
-    confirm: () => new Promise(resolve => {
-      store.setState({ open: false, submenuOpen: false, ultraConfirmation: decision => {
-        store.setState({ ultraConfirmation: null })
-        resolve(decision)
-      } })
-    }),
-    save: async (enabled, id, permissionMode) => {
+    save: async (enabled, id) => {
       await ultraSaver.save(enabled, async value => {
-        await w().klaus.session.setUltraMode(value, id, permissionMode ? { permissionMode } : undefined)
+        await w().klaus.session.setUltraMode(value, id)
         await Promise.all([w().refreshComposerPreferences?.(), w().refreshSideModelButton?.()])
       })
     },
@@ -799,7 +786,6 @@ export function mountModelSelect(
     scope = next
     thinkingSelection.invalidate()
     ultraSelection.invalidate()
-    store.getState().ultraConfirmation?.('cancel')
     thinkingSaveRevision++
     thinkingPersistencePending = false
     thinkingPersistenceToken = null
@@ -812,7 +798,6 @@ export function mountModelSelect(
     store.setState({ runtime: null, thinkingLevel: 'medium', ultraMode: false, fastMode: false, fastModePending: false, thinkingPending: false, ultraPending: false, open: false, submenuOpen: false })
   }
   const close = () => {
-    store.getState().ultraConfirmation?.('cancel')
     store.setState({ open: false, submenuOpen: false })
   }
   const visibleEffects = createVisibilityScope()
@@ -905,7 +890,6 @@ export function mountModelSelect(
       if (!thinkingPersistencePending && (value !== previous.value || thinkingLevel !== previous.thinkingLevel)) {
         thinkingSelection.invalidate()
         ultraSelection.invalidate()
-        store.getState().ultraConfirmation?.('cancel')
       }
       const ultraMode = thinkingPersistencePending || previous.ultraPending ? previous.ultraMode : nextUltraMode ?? previous.ultraMode
       // The stored level goes into state UNCLAMPED. What the control shows is

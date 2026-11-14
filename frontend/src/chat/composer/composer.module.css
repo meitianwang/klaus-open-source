@@ -373,44 +373,6 @@
   padding: 0;
   cursor: pointer;
 }
-.ultra-access-card {
-  width: min(92vw, 460px);
-}
-
-.ultra-access-card :global(.klaus-dialog-title) {
-  padding-right: 24px;
-}
-
-.ultra-access-close {
-  position: absolute;
-  top: 16px;
-  right: 16px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  border: none;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--fg-secondary);
-  cursor: pointer;
-}
-
-.ultra-access-close:hover,
-.ultra-access-close:focus-visible {
-  background: var(--bg-hover);
-  color: var(--fg);
-}
-
-.ultra-access-footer {
-  flex-wrap: wrap;
-}
-
-.ultra-access-footer :global(.klaus-dialog-btn) {
-  flex: 1;
-  white-space: nowrap;
-}
 
 /* Full-access confirmation dialog: same shell as the shared klaus-dialog, with
    a capability list that spells out what leaving the sandbox covers. */

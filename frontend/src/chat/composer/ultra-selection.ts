@@ -1,17 +1,15 @@
 import type { PermissionPreset } from './permission-select'
 
-export type UltraAccessDecision = 'full-access' | 'restricted' | 'cancel'
-
-export function requiresUltraAccessConfirmation(next: boolean, previous: boolean, permission: PermissionPreset): boolean {
-  return next && !previous && permission === 'bypassPermissions'
+export function requiresUltraAccessConfirmation(_next: boolean, _previous: boolean, _permission: PermissionPreset): boolean {
+  return false
 }
 
-/** Capture the composer scope before opening a dialog; a later chat cannot
- * inherit either the selection or the permission change from that dialog. */
-export function createUltraSelection({ getSelection, getPermission, confirm, save, onError }: {
+/** Capture the composer scope before saving Ultra so a later chat cannot
+ * inherit an in-flight selection. Enabling a work mode never prompts for or
+ * rewrites the session's permission preset; permission confirmation belongs
+ * exclusively to the permission selector itself. */
+export function createUltraSelection({ getSelection, save, onError }: {
   getSelection: () => { sessionId: string | undefined; enabled: boolean; model: string }
-  getPermission: () => Promise<{ mode: PermissionPreset }>
-  confirm: () => Promise<UltraAccessDecision>
   save: (enabled: boolean, sessionId: string | undefined, permissionMode?: PermissionPreset) => Promise<void>
   onError: (error: unknown) => void
 }) {
@@ -27,17 +25,7 @@ export function createUltraSelection({ getSelection, getPermission, confirm, sav
           && captured.enabled === current.enabled && captured.model === current.model
       }
       try {
-        let permissionMode: PermissionPreset | undefined
-        if (enabled && !captured.enabled) {
-          const permission = await getPermission()
-          if (!isCurrent()) return
-          if (requiresUltraAccessConfirmation(enabled, captured.enabled, permission.mode)) {
-            const decision = await confirm()
-            if (!isCurrent() || decision === 'cancel') return
-            if (decision === 'restricted') permissionMode = 'default'
-          }
-        }
-        if (isCurrent()) await save(enabled, captured.sessionId, permissionMode)
+        if (isCurrent()) await save(enabled, captured.sessionId)
       } catch (error) {
         if (isCurrent()) onError(error)
       }

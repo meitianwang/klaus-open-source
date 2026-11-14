@@ -170,3 +170,38 @@ test('Plan and Goal badges share the position immediately after the permission s
   expect(chat.match(/placeComposerModeBadge\(inputRow, badge\)/g)).toHaveLength(4)
   expect(css).not.toContain('.input-row .goal-mode-badge:not(.spec-mode-badge) { margin-left: auto; }')
 })
+
+test('all four composer work-mode pills share Goal pill geometry with distinct theme-safe colors', () => {
+  const chat = readFileSync(new URL('../chat.ts', import.meta.url), 'utf8')
+  const css = readFileSync(new URL('../../../css/styles.css', import.meta.url), 'utf8')
+  const themeEngine = readFileSync(new URL('../../app/i18n.ts', import.meta.url), 'utf8')
+
+  expect(css).toContain('color: var(--goal-badge-fg, #2ba67a);')
+  expect(css).toContain('--goal-badge-fg: #3ccb8f;')
+  expect(css).toContain(':is(#plan-mode-badge, #side-plan-mode-badge, .goal-mode-badge.is-plan) { --goal-badge-fg: #3d82e0; }')
+  expect(css).toContain(':is(#orchestrate-mode-badge, #side-orchestrate-mode-badge, .goal-mode-badge.is-orchestrate) { --goal-badge-fg: #8b5cf6; }')
+  expect(css).toContain(':is(#ultra-mode-badge, #side-ultra-mode-badge, .goal-mode-badge.is-ultra) { --goal-badge-fg: #d6489a; }')
+  expect(css).toContain('[data-theme="dark"] :is(#plan-mode-badge, #side-plan-mode-badge, .goal-mode-badge.is-plan) { --goal-badge-fg: #6aa8ff; }')
+  expect(css).toContain('[data-theme="dark"] :is(#orchestrate-mode-badge, #side-orchestrate-mode-badge, .goal-mode-badge.is-orchestrate) { --goal-badge-fg: #a98bff; }')
+  expect(css).toContain('[data-theme="dark"] :is(#ultra-mode-badge, #side-ultra-mode-badge, .goal-mode-badge.is-ultra) { --goal-badge-fg: #f07ab8; }')
+  expect(css).not.toContain('#plan-mode-badge,\n#orchestrate-mode-badge,\n#ultra-mode-badge {\n  background: transparent;')
+  expect(chat).toContain("badge.className = 'goal-mode-badge spec-mode-badge is-plan'")
+  expect(chat).toContain("badge.className = 'goal-mode-badge spec-mode-badge is-orchestrate'")
+  expect(chat).toContain("badge.className = 'goal-mode-badge spec-mode-badge is-ultra'")
+  expect(themeEngine).not.toContain('--goal-badge-fg')
+  expect(themeEngine).not.toContain('--goal-badge-bg')
+})
+
+test('work-mode switches never open a full-access modal while the permission selector preserves BypassConfirmDialog', () => {
+  const chat = readFileSync(new URL('../chat.ts', import.meta.url), 'utf8')
+  const modelSelect = readFileSync(new URL('./model-select.tsx', import.meta.url), 'utf8')
+  const permissionSelect = readFileSync(new URL('./permission-select.tsx', import.meta.url), 'utf8')
+  const bypassDialog = readFileSync(new URL('./bypass-confirm-dialog.tsx', import.meta.url), 'utf8')
+
+  expect(chat).not.toContain('confirmWorkModeFullAccess')
+  expect(chat).not.toContain('UltraAccessDialog')
+  expect(modelSelect).not.toContain('UltraAccessDialog')
+  expect(permissionSelect).toContain('<BypassConfirmDialog onDecision={onBypassDecision} translate={tt} />')
+  expect(bypassDialog).toContain("translate('perm_bypass_dialog_title')")
+  expect(bypassDialog).toContain("translate('perm_bypass_dialog_confirm')")
+})

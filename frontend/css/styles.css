@@ -3034,7 +3034,7 @@ mark.spec-annotated {
 #goal-indicator .goal-indicator-btn svg { width: 14px; height: 14px; display: block; }
 #goal-indicator .goal-indicator-expand[aria-expanded="true"] .goal-indicator-chevron svg { transform: rotate(90deg); }
 
-/* Goal and Spec share a compact chip immediately after the permission selector. */
+/* Composer work-mode pills share one chip immediately after the permission selector. */
 .goal-mode-badge {
   display: inline-flex;
   align-items: center;
@@ -3053,6 +3053,22 @@ mark.spec-annotated {
   cursor: pointer;
   transition: background 0.15s, color 0.15s;
 }
+.goal-mode-badge:hover {
+  background: var(--goal-badge-hover-bg, color-mix(in srgb, currentColor 14%, transparent));
+}
+[data-theme="dark"] .goal-mode-badge {
+  --goal-badge-fg: #3ccb8f;
+  background: var(--goal-badge-bg, color-mix(in srgb, currentColor 12%, transparent));
+}
+[data-theme="dark"] .goal-mode-badge:hover {
+  background: var(--goal-badge-hover-bg, color-mix(in srgb, currentColor 18%, transparent));
+}
+:is(#plan-mode-badge, #side-plan-mode-badge, .goal-mode-badge.is-plan) { --goal-badge-fg: #3d82e0; }
+:is(#orchestrate-mode-badge, #side-orchestrate-mode-badge, .goal-mode-badge.is-orchestrate) { --goal-badge-fg: #8b5cf6; }
+:is(#ultra-mode-badge, #side-ultra-mode-badge, .goal-mode-badge.is-ultra) { --goal-badge-fg: #d6489a; }
+[data-theme="dark"] :is(#plan-mode-badge, #side-plan-mode-badge, .goal-mode-badge.is-plan) { --goal-badge-fg: #6aa8ff; }
+[data-theme="dark"] :is(#orchestrate-mode-badge, #side-orchestrate-mode-badge, .goal-mode-badge.is-orchestrate) { --goal-badge-fg: #a98bff; }
+[data-theme="dark"] :is(#ultra-mode-badge, #side-ultra-mode-badge, .goal-mode-badge.is-ultra) { --goal-badge-fg: #f07ab8; }
 .goal-mode-badge .goal-badge-icon {
   display: inline-flex;
   align-items: center;
@@ -3066,17 +3082,6 @@ mark.spec-annotated {
 .goal-mode-badge .goal-badge-close { display: none; width: 16px; height: 16px; align-items: center; justify-content: center; font-size: var(--text-emphasis); line-height: 1; }
 .goal-mode-badge:hover .goal-badge-icon { display: none; }
 .goal-mode-badge:hover .goal-badge-close { display: flex; }
-
-#plan-mode-badge,
-#orchestrate-mode-badge,
-#ultra-mode-badge {
-  background: transparent;
-  color: var(--fg-tertiary);
-  font-weight: var(--weight-normal);
-}
-#plan-mode-badge:hover,
-#orchestrate-mode-badge:hover,
-#ultra-mode-badge:hover { background: var(--bg-hover); color: var(--fg-secondary); }
 
 /* ---- 任务面板的 spec 绑定条：执行中的任务对照哪份已批准 spec ---- */
 .task-spec-binding {
