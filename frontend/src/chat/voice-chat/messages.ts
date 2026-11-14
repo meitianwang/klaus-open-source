@@ -1,6 +1,6 @@
 export const voiceChatEn = {
-  kb_cmd_start_voice_chat: 'Start voice chat', kb_cmd_start_voice_chat_desc: 'Start live voice in the current conversation.',
-  kb_cmd_toggle_voice_chat: 'Toggle voice chat', kb_cmd_toggle_voice_chat_desc: 'Start a new voice conversation or end the current call from any application.',
+  kb_cmd_start_voice_chat: 'Start voice chat', kb_cmd_start_voice_chat_desc: 'Start live voice in the current chat',
+  kb_cmd_toggle_voice_chat: 'Toggle voice chat', kb_cmd_toggle_voice_chat_desc: 'Start a new voice chat or end the current call from any application',
   voice_chat_start: 'Start voice chat', voice_chat_cancel: 'Cancel voice chat', voice_chat_stop: 'Stop voice chat', voice_chat_ending: 'Ending voice chat…',
   voice_chat_mic_mute: 'Mute microphone', voice_chat_mic_unmute: 'Unmute microphone', voice_chat_speaker_mute: 'Mute speakers', voice_chat_speaker_unmute: 'Unmute speakers',
   voice_chat_starting: 'Starting voice chat', voice_chat_listening: 'Listening', voice_chat_thinking: 'Thinking', voice_chat_speaking: 'Speaking', voice_chat_muted: 'Microphone muted',
@@ -14,8 +14,8 @@ export const voiceChatEn = {
   voice_chat_command: 'Running command', voice_chat_editing: 'Editing files', voice_chat_reading: 'Reading files', voice_chat_searching: 'Searching', voice_chat_waiting: 'Waiting for approval', voice_chat_more: '+{count} more',
 };
 export const voiceChatZh: typeof voiceChatEn = {
-  kb_cmd_start_voice_chat: '开始语音聊天', kb_cmd_start_voice_chat_desc: '在当前会话中启动实时语音。',
-  kb_cmd_toggle_voice_chat: '切换语音聊天', kb_cmd_toggle_voice_chat_desc: '从任意应用启动新的语音会话，或结束当前通话。',
+  kb_cmd_start_voice_chat: '开始语音聊天', kb_cmd_start_voice_chat_desc: '在当前聊天中启动实时语音',
+  kb_cmd_toggle_voice_chat: '切换语音聊天', kb_cmd_toggle_voice_chat_desc: '在任意应用中启动新的语音聊天，或结束当前通话',
   voice_chat_start: '开始语音聊天', voice_chat_cancel: '取消语音聊天', voice_chat_stop: '停止语音聊天', voice_chat_ending: '正在结束语音聊天…',
   voice_chat_mic_mute: '将麦克风静音', voice_chat_mic_unmute: '取消麦克风静音', voice_chat_speaker_mute: '将扬声器静音', voice_chat_speaker_unmute: '取消扬声器静音',
   voice_chat_starting: '正在启动语音聊天', voice_chat_listening: '正在聆听', voice_chat_thinking: '正在思考', voice_chat_speaking: '正在说话', voice_chat_muted: '麦克风已静音',

@@ -9,6 +9,8 @@ import { BUILT_IN_PETS } from "../../pets/catalog";
 import { PetSprite } from "../../pets/Sprite";
 import { petMessages } from "../../pets/messages";
 import { captureShortcut, shortcutLabel } from "../../pets/settings-model";
+import { builtInPetDescription } from "../../pets/messages";
+import { useLang } from "../../i18n";
 import { SettingsPage } from "./kv";
 import { useSettingsSnapshot } from "./settings-snapshot";
 import { Icon } from "../../components/Icon";
@@ -36,9 +38,8 @@ export function PetsSettingsTab() {
     [busy, setBusy] = useState(false),
     [customizing, setCustomizing] = useState(false),
     [capturing, setCapturing] = useState(false);
-  const language =
-    state?.settings.language ??
-    (document.documentElement.lang.startsWith("zh") ? "zh" : "en");
+  const uiLanguage = useLang();
+  const language = state?.settings.language ?? uiLanguage;
   const m = petMessages(language),
     api = desktopPet();
   useEffect(
@@ -323,7 +324,7 @@ export function PetsSettingsTab() {
                 >
                   <PetSprite pet={pet} size={88} respondToHover />
                   <strong>{pet.name}</strong>
-                  <p>{pet.description}</p>
+                  <p>{pet.builtIn ? builtInPetDescription(pet.id, pet.description, language) : pet.description}</p>
                 </button>
                 {!pet.builtIn && pet.spriteVersion === 1 && (
                   <button

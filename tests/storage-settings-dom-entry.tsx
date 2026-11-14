@@ -120,7 +120,7 @@ w.storageSettingsReady = (async () => {
     hit('[data-cleanup-id="old-0"] input'); await wait()
     check('checkbox updates the live selection summary', modal()!.textContent!.includes('已选聊天：55'))
     hit('#storage-review-delete'); await wait()
-    check('final confirmation states permanence and reviewed count', !!modal()?.textContent?.includes('55 个聊天') && !!modal()?.textContent?.includes('无法撤消'))
+    check('final confirmation states permanence and reviewed count', !!modal()?.textContent?.includes('55 个聊天') && !!modal()?.textContent?.includes('无法撤销'))
     hit('#storage-confirm-delete'); await until(() => calls.some(call => call.method === 'cleanup')); await until(() => !modal())
     await until(() => calls.some(call => call.method === 'refresh'))
     const cleanup = calls.find(call => call.method === 'cleanup')!

@@ -440,6 +440,14 @@ interface PermRuleLists {
   ask: PermRule[]
 }
 
+function permRuleSourceLabel(source: string, t: (key: string) => string): string {
+  if (source === 'userSettings') return t('perm_rules_source_user')
+  if (source === 'projectSettings') return t('perm_rules_source_project')
+  if (source === 'localSettings') return t('perm_rules_source_local')
+  if (source === 'policySettings') return t('perm_rules_source_policy')
+  return source
+}
+
 export function PermissionRulesTab() {
   const t = useT()
   const [lists, , beginRead] = useSettingsSnapshot<PermRuleLists | null>('permissions:lists', null)
@@ -520,11 +528,11 @@ export function PermissionRulesTab() {
             <div className="pref-row" key={`${behavior}:${r.toolName}:${r.ruleContent || ''}:${i}`}>
               <div className={styles['pref-row-text']}>
                 <div className={styles['pref-row-label']}><code>{label}</code></div>
-                <div className={styles['pref-row-desc']}>{r.source}</div>
+                <div className={styles['pref-row-desc']}>{permRuleSourceLabel(r.source, t)}</div>
               </div>
               {editable
                 ? <button type="button" className="btn-sm btn-danger perm-rule-del" disabled={busy} onClick={() => { void deleteRule(r, behavior) }}>{t('perm_rules_delete')}</button>
-                : <span className={styles['pref-row-desc']}>{r.source}</span>}
+                : <span className={styles['pref-row-desc']}>{t('perm_rules_readonly')}</span>}
             </div>
           )
         }) : <div className="pref-row"><div className={styles['pref-row-desc']}>{t('perm_rules_empty')}</div></div>}

@@ -141,10 +141,10 @@ describe('browser extension status panel', () => {
     expect(render(idle)).not.toContain('用系统策略安装')
     const unsupported = { ...idle, policySupported: false, policySupportReason: 'mdm_enrolled' as const }
     expect(render(unsupported)).not.toContain('>用系统策略安装</button>')
-    expect(render(unsupported)).toContain('零手势安装在这里不可用')
+    expect(render(unsupported)).toContain('自动安装在这里不可用')
     const configured = { ...idle, policySupported: true, policyUpdateManifestUrl: 'https://klaus-ai.cn/ext/update_manifest.xml' }
     expect(render(configured)).toContain('用系统策略安装')
-    expect(render(configured)).toContain('零手势安装（系统策略）')
+    expect(render(configured)).toContain('自动安装（系统策略）')
     // Installed: the block flips to the uninstall affordance and names the cost.
     const installed = { ...configured, policyInstalled: true }
     const installedHtml = render(installed)

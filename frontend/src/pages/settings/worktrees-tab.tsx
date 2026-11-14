@@ -151,5 +151,5 @@ export function WorktreesManager() {
 
 export function WorktreesTab() {
   const t = useT()
-  return <SettingsPage title={t('worktrees_settings')}><WorktreesManager /></SettingsPage>
+  return <SettingsPage title={t('worktrees_settings')} subtitle={t('worktrees_desc')}><WorktreesManager /></SettingsPage>
 }

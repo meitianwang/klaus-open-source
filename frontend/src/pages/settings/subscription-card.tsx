@@ -920,7 +920,7 @@ export async function pollDeviceFlow(source: SubscriptionSource, flow: any, setS
       // Source activation can remount this card; the committed flow must no longer
       // belong to its unmount cancellation handler.
       options.onCompleted?.()
-      setStatus(res.updatedExisting ? tGlobal('sub_account_updated') : tGlobal('auth_please_resend'))
+      setStatus(res.updatedExisting ? tGlobal('sub_account_updated') : tGlobal('auth_signed_in_ready'))
       await completeSubscriptionLogin(source, res, setStatus, reload, options.sessionId, options)
       return
     }
