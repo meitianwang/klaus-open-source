@@ -418,14 +418,14 @@ export const CONTROL_SURFACES: ControlSurface[] = [
       {
         "action": "setUltraMode",
         "channel": "session:set-ultra-mode",
-        "args": "{ enabled: boolean, sessionId?: string } — Enable Parallel mode (并行, /parallel or /ultra) for proactive parallel delegation with model-resolved request effort while retaining the saved native choice. A session id changes only that conversation; omit it to change the default for future conversations",
+        "args": "{ enabled: boolean, sessionId?: string } — Enable Parallel mode (并行, /parallel or /ultra) for proactive parallel delegation with model-resolved request effort while retaining the saved native choice. Changes one conversation and updates the default for future conversations while leaving other existing conversations unchanged; omit sessionId to change only that default",
         "confirm": false,
         "currentSession": true
       },
       {
         "action": "setOrchestrationMode",
         "channel": "session:set-orchestration-mode",
-        "args": "{ enabled: boolean, sessionId?: string } — Enable planner/executor orchestration mode for a conversation while keeping its main model as planner and verifier",
+        "args": "{ enabled: boolean, sessionId?: string } — Enable planner/executor orchestration mode for a conversation while keeping its main model as planner and verifier. Changes one conversation and updates the default for future conversations while leaving other existing conversations unchanged; omit sessionId to change only that default",
         "confirm": false,
         "currentSession": true
       },

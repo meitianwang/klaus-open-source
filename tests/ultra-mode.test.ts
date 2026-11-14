@@ -330,7 +330,7 @@ h.test('a native menu pick publishes its effort and exit from Ultra together', a
   await service.setThinking({ sessionId: 'current', level: pick.level, ultraMode: pick.ultraMode });
   assert.deepEqual(observed, Array.from({ length: pick.publicationCount }, () => [pick.level, false]));
   assert.equal(readSessionUltraMode('other', root), true);
-  assert.equal(readSessionUltraMode('', root), true);
+  assert.equal(readSessionUltraMode('', root), false);
   assert.equal(readSessionThinkingLevel('', root), pick.level);
 });
 
@@ -369,16 +369,22 @@ h.test('native menu rollback preserves a newer mode selection in the same chat',
   assert.equal(readSessionUltraMode('', root), false);
 });
 
-h.test('an existing chat cannot replace the Ultra default for future chats', async () => {
+h.test('an existing chat updates the Ultra default for future chats without changing prior chats', async () => {
   const root = fresh(), service = composer(root);
   assert.equal(readSessionUltraMode('', root), false);
+  assert.equal(readSessionUltraMode('prior', root), false);
   await service.setUltraMode({ sessionId: 'current', enabled: true });
   assert.equal(readSessionUltraMode('current', root), true);
-  assert.equal(readSessionUltraMode('future', root), false);
-  await service.setUltraMode({ enabled: true });
+  assert.equal(readSessionUltraMode('prior', root), false);
+  assert.equal(readSessionUltraMode('future', root), true);
   await service.setUltraMode({ sessionId: 'current', enabled: false });
   assert.equal(readSessionUltraMode('current', root), false);
-  assert.equal(readSessionUltraMode('future-after-draft-selection', root), true);
+  assert.equal(readSessionUltraMode('future', root), true);
+  assert.equal(readSessionUltraMode('future-after-off', root), false);
+  await service.setUltraMode({ enabled: true });
+  await service.setUltraMode({ sessionId: 'current', enabled: false, updateDefaults: false });
+  assert.equal(readSessionUltraMode('current', root), false);
+  assert.equal(readSessionUltraMode('future-after-scoped-off', root), true);
 });
 
 h.test('an unscoped native menu selection updates the future default atomically', async () => {

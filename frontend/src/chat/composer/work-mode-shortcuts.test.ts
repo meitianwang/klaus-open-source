@@ -319,6 +319,7 @@ describe('orchestrator fallback confirmation modal lifecycle', () => {
 describe('welcome work mode draft lifecycle', () => {
   const source = createSourceFile('chat.ts', readFileSync(new URL('../chat.ts', import.meta.url), 'utf8'), ScriptTarget.ESNext, true)
   const names = [
+    'toggleComposerSpecEnabled',
     'effectiveWelcomeWorkModes',
     'patchCachedSessionWorkModes',
     'seedPromotedComposerPreferences',
@@ -333,7 +334,7 @@ describe('welcome work mode draft lifecycle', () => {
     if (!node) throw new Error(`Missing work mode function: ${name}`)
     return node.getText(source)
   }).join('\n')
-  const script = transpileModule(`${declarations}\n({ ${names.join(',')}, get composerOrchestrateEnabled() { return composerOrchestrateEnabled }, get composerUltraEnabled() { return composerUltraEnabled } })`, { compilerOptions: { target: ScriptTarget.ES2022 } }).outputText
+  const script = transpileModule(`${declarations}\n({ ${names.join(',')}, get composerOrchestrateEnabled() { return composerOrchestrateEnabled }, get composerUltraEnabled() { return composerUltraEnabled }, get composerSpecEnabled() { return composerSpecEnabled } })`, { compilerOptions: { target: ScriptTarget.ES2022 } }).outputText
 
   function fixture() {
     const orchestrationCalls: unknown[] = []
@@ -341,8 +342,9 @@ describe('welcome work mode draft lifecycle', () => {
     const ensureSessionCalls: string[] = []
     const setItems: unknown[] = []
     const context: any = {
-      window: { currentSessionId: null },
+      window: { currentSessionId: null as string | null },
       currentSessionId: null,
+      specModeRevision: 0,
       composerSpecEnabled: false,
       composerGoalEnabled: false,
       composerUltraEnabled: false,
@@ -352,18 +354,26 @@ describe('welcome work mode draft lifecycle', () => {
       composerPreferencesRevision: 0,
       composerPreferencesSnapshot: null,
       composerPreferencesBySession: new Map<string | null, any>(),
-      ensureSession: async () => { ensureSessionCalls.push('ensure'); return 'created-session' },
+      ensureSession: async () => { ensureSessionCalls.push('ensure'); context.window.currentSessionId = 'created-session'; return 'created-session' },
       showToast() {},
       updateWorkModeBadges() {},
       updateOrchestrateBadge() {},
       updateUltraBadge() {},
-      setComposerGoalEnabled() {},
-      applyPlanningUpdated() {},
+      setComposerGoalEnabled(enabled: boolean) { context.composerGoalEnabled = enabled },
+      applyPlanningUpdated({ planning }: { planning?: { mode?: string } }) {
+        const isPlan = planning?.mode === 'plan'
+        context.composerSpecEnabled = isPlan
+        if (isPlan) { context.composerOrchestrateEnabled = false; context.composerUltraEnabled = false }
+      },
       tt: (key: string) => key,
       klausApi: { session: {
-        setOrchestrationMode: async (enabled: boolean, sessionId?: string | null) => { orchestrationCalls.push({ enabled, sessionId }) },
-        setUltraMode: async (enabled: boolean, sessionId?: string | null) => { ultraCalls.push({ enabled, sessionId }) },
-        setCollaborationMode: async () => ({ planning: {} }),
+        setOrchestrationMode: async (enabled: boolean, sessionId?: string | null, options?: unknown) => {
+          orchestrationCalls.push({ enabled, sessionId, ...(options !== undefined ? { options } : {}) })
+        },
+        setUltraMode: async (enabled: boolean, sessionId?: string | null, options?: unknown) => {
+          ultraCalls.push({ enabled, sessionId, ...(options !== undefined ? { options } : {}) })
+        },
+        setCollaborationMode: async (_id: string, mode: string) => ({ planning: { mode } }),
       } },
       mainModelApi: { setItems: (items: unknown, opts: unknown) => setItems.push({ items, opts }) },
       mainModelCatalogCache: { get: () => null, invalidate() {}, revalidate: async () => [] },
@@ -375,16 +385,37 @@ describe('welcome work mode draft lifecycle', () => {
     return { api, context, orchestrationCalls, ultraCalls, ensureSessionCalls, setItems }
   }
 
-  test('a welcome orchestration pick stays local and survives a defaults push', async () => {
+  test('a welcome orchestration pick persists the default without creating a session and survives an older defaults push', async () => {
     const f = fixture()
     const ok = await f.api.setComposerOrchestrateMode(true)
     expect(ok).toBe(true)
     expect(f.ensureSessionCalls).toEqual([])
-    expect(f.orchestrationCalls).toEqual([])
+    expect(f.orchestrationCalls).toEqual([{ enabled: true, sessionId: null }])
     expect(f.api.composerOrchestrateEnabled).toBe(true)
     f.api.syncWorkModeBadgesFromPreferences({ sessionId: null, orchestrationMode: false, ultraMode: false } as any)
     expect(f.api.composerOrchestrateEnabled).toBe(true)
     expect(f.api.composerUltraEnabled).toBe(false)
+  })
+
+  test('enabling Orchestrate or Parallel in an open session invalidates cached null draft, while Plan and Goal clear only the active session', async () => {
+    const f = fixture()
+    f.context.composerPreferencesBySession.set(null, { sessionId: null, ultraMode: false, orchestrationMode: false })
+    f.context.window.currentSessionId = 'sess-1'
+    expect(await f.api.setComposerUltraMode(true)).toBe(true)
+    expect(f.ultraCalls).toEqual([{ enabled: true, sessionId: 'sess-1' }])
+    expect(f.context.composerPreferencesBySession.has(null)).toBe(false)
+
+    f.ultraCalls.length = 0
+    await f.api.toggleComposerSpecEnabled()
+    expect(f.ultraCalls).toEqual([{ enabled: false, sessionId: 'sess-1', options: { updateDefaults: false } }])
+    expect(f.api.composerSpecEnabled).toBe(true)
+    expect(f.api.composerUltraEnabled).toBe(false)
+
+    f.context.composerSpecEnabled = false
+    f.context.composerOrchestrateEnabled = true
+    f.api.clearWorkModesForGoal('sess-2')
+    expect(f.orchestrationCalls).toEqual([{ enabled: false, sessionId: 'sess-2', options: { updateDefaults: false } }])
+    expect(f.api.composerOrchestrateEnabled).toBe(false)
   })
 
   test('promoting a welcome draft seeds the promoted session with the picked mode', () => {

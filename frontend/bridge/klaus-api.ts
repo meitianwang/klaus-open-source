@@ -388,16 +388,28 @@ expose('klaus', {
       call('session:get-thinking-level', { ...(sessionId ? { sessionId } : {}) }),
     setThinkingLevel: (level: string, sessionId?: string | null, options?: { ultraMode?: false }) =>
       call('session:set-thinking-level', { level, ...(sessionId ? { sessionId } : {}), ...(options?.ultraMode === false ? { ultraMode: false } : {}) }),
-    /** Per-session local orchestration mode. Only unscoped selections write the
-     *  future default; existing conversations retain their own selections. */
+    /** Per-session Parallel and Orchestration work modes. Changing a conversation
+     *  updates that conversation and the default for future conversations while
+     *  leaving existing conversations untouched; `updateDefaults: false` scopes a
+     *  cleanup (such as entering Plan or Goal mode) to the target conversation. */
     getUltraMode: (sessionId?: string | null): Promise<{ enabled: boolean }> =>
       call('session:get-ultra-mode', { ...(sessionId ? { sessionId } : {}) }),
-    setUltraMode: (enabled: boolean, sessionId?: string | null, options?: { permissionMode?: PermissionPreset }) =>
-      call('session:set-ultra-mode', { enabled, ...(sessionId ? { sessionId } : {}), ...(options?.permissionMode ? { permissionMode: options.permissionMode } : {}) }),
+    setUltraMode: (enabled: boolean, sessionId?: string | null, options?: { permissionMode?: PermissionPreset; updateDefaults?: boolean }) =>
+      call('session:set-ultra-mode', {
+        enabled,
+        ...(sessionId ? { sessionId } : {}),
+        ...(options?.permissionMode ? { permissionMode: options.permissionMode } : {}),
+        ...(options?.updateDefaults !== undefined ? { updateDefaults: options.updateDefaults } : {}),
+      }),
     getOrchestrationMode: (sessionId?: string | null): Promise<{ enabled: boolean }> =>
       call('session:get-orchestration-mode', { ...(sessionId ? { sessionId } : {}) }),
-    setOrchestrationMode: (enabled: boolean, sessionId?: string | null, options?: { permissionMode?: PermissionPreset }) =>
-      call('session:set-orchestration-mode', { enabled, ...(sessionId ? { sessionId } : {}), ...(options?.permissionMode ? { permissionMode: options.permissionMode } : {}) }),
+    setOrchestrationMode: (enabled: boolean, sessionId?: string | null, options?: { permissionMode?: PermissionPreset; updateDefaults?: boolean }) =>
+      call('session:set-orchestration-mode', {
+        enabled,
+        ...(sessionId ? { sessionId } : {}),
+        ...(options?.permissionMode ? { permissionMode: options.permissionMode } : {}),
+        ...(options?.updateDefaults !== undefined ? { updateDefaults: options.updateDefaults } : {}),
+      }),
     /** Fast mode availability depends on the selected source and remains session-scoped. */
     getFastMode: (sessionId?: string | null): Promise<FastModeState> =>
       call('session:get-fast-mode', { ...(sessionId ? { sessionId } : {}) }),

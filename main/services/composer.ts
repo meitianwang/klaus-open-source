@@ -353,12 +353,14 @@ export class ComposerService {
     return { enabled: readSessionUltraMode(sessionId, this.configRoot) };
   }
   /**
-   * Toggle the local orchestration mode of ONE conversation. The reasoning
-   * ladder and the native model selection stay untouched: Ultra authorizes
-   * proactive delegation, it is not a provider effort rung.
+   * Toggle Parallel mode on ONE conversation and update the remembered default
+   * for future conversations, leaving other existing conversations untouched.
    */
   async setUltraMode(payload: JsonObject, assertCurrent?: () => void): Promise<Json> {
     if (typeof payload.enabled !== 'boolean') throw new IpcHandlerError('BAD_REQUEST', 'enabled must be a boolean');
+    if (payload.updateDefaults !== undefined && typeof payload.updateDefaults !== 'boolean') {
+      throw new IpcHandlerError('BAD_REQUEST', 'updateDefaults must be a boolean');
+    }
     const enabled = payload.enabled;
     const permission = payload.permissionMode;
     if (permission !== undefined && (!enabled || typeof permission !== 'string' || !PERMISSIONS.includes(permission))) {
@@ -371,6 +373,9 @@ export class ComposerService {
       // Enabling Ultra clears the conversation's orchestration switch inside the
       // same transaction, so that notice follows the same rule as the reverse one.
       const previousOrchestration = enabled ? readSessionOrchestrationMode(sessionId, this.configRoot) : false;
+      const defaultOrchestration = enabled && payload.updateDefaults !== false && sessionId
+        ? readSessionOrchestrationMode('', this.configRoot)
+        : false;
       const values = permission === undefined ? undefined : await this.engine.resolved(sessionId ? await this.deps.sessionCwd?.(sessionId) : undefined);
       const permissionPolicy = typeof permission === 'string'
         ? presetRuntimePolicy(permission as import('../../contracts/runtime-settings').PermissionPreset, runtimePolicyForSession(sessionId, values!, this.configRoot).policy) : undefined;
@@ -378,7 +383,9 @@ export class ComposerService {
       let selection: ReturnType<typeof applySessionUltraSelection> | undefined;
       try {
         assertCurrent?.();
-        selection = applySessionUltraSelection(sessionId, enabled, this.configRoot, permissionPolicy, { updateDefaults: !sessionId });
+        selection = applySessionUltraSelection(sessionId, enabled, this.configRoot, permissionPolicy, {
+          updateDefaults: payload.updateDefaults !== false,
+        });
         if (permissionPolicy) await this.deps.onSessionConfigChanged({ kind: 'permission', ...(sessionId ? { sessionId } : {}) });
         if (previous !== enabled || previousOrchestration || permission !== undefined) await this.deps.onSessionConfigChanged({ kind: 'thinking', sessionId });
       } catch (error) {
@@ -393,7 +400,7 @@ export class ComposerService {
       this.deps.push('app:preferences-changed', { key: 'composer.ultra_mode' });
       // Only a mode that actually changed state is announced. Announcing a key
       // the write did not touch makes every open composer drop its resolved state.
-      if (previousOrchestration) this.deps.push('app:preferences-changed', { key: 'composer.orchestration_mode' });
+      if (previousOrchestration || defaultOrchestration) this.deps.push('app:preferences-changed', { key: 'composer.orchestration_mode' });
       if (permission !== undefined) this.deps.push('app:preferences-changed', { key: 'composer.permission_mode' });
       return { ok: true };
     });
@@ -403,6 +410,9 @@ export class ComposerService {
   }
   async setOrchestrationMode(payload: JsonObject, assertCurrent?: () => void): Promise<Json> {
     if (typeof payload.enabled !== 'boolean') throw new IpcHandlerError('BAD_REQUEST', 'enabled must be a boolean');
+    if (payload.updateDefaults !== undefined && typeof payload.updateDefaults !== 'boolean') {
+      throw new IpcHandlerError('BAD_REQUEST', 'updateDefaults must be a boolean');
+    }
     const enabled = payload.enabled;
     const permission = payload.permissionMode;
     if (permission !== undefined && (!enabled || typeof permission !== 'string' || !PERMISSIONS.includes(permission))) {
@@ -413,6 +423,9 @@ export class ComposerService {
       const sessionId = sessionIdOf(payload);
       const previous = readSessionOrchestrationMode(sessionId, this.configRoot);
       const previousUltra = enabled ? readSessionUltraMode(sessionId, this.configRoot) : false;
+      const defaultUltra = enabled && payload.updateDefaults !== false && sessionId
+        ? readSessionUltraMode('', this.configRoot)
+        : false;
       const values = permission === undefined ? undefined : await this.engine.resolved(sessionId ? await this.deps.sessionCwd?.(sessionId) : undefined);
       const permissionPolicy = typeof permission === 'string'
         ? presetRuntimePolicy(permission as import('../../contracts/runtime-settings').PermissionPreset, runtimePolicyForSession(sessionId, values!, this.configRoot).policy) : undefined;
@@ -420,7 +433,9 @@ export class ComposerService {
       let selection: ReturnType<typeof applySessionOrchestrationSelection> | undefined;
       try {
         assertCurrent?.();
-        selection = applySessionOrchestrationSelection(sessionId, enabled, this.configRoot, permissionPolicy, { updateDefaults: !sessionId });
+        selection = applySessionOrchestrationSelection(sessionId, enabled, this.configRoot, permissionPolicy, {
+          updateDefaults: payload.updateDefaults !== false,
+        });
         if (permissionPolicy) await this.deps.onSessionConfigChanged({ kind: 'permission', ...(sessionId ? { sessionId } : {}) });
         if (previous !== enabled || previousUltra || permission !== undefined) await this.deps.onSessionConfigChanged({ kind: 'thinking', sessionId });
       } catch (error) {
@@ -433,7 +448,7 @@ export class ComposerService {
         throw error;
       }
       this.deps.push('app:preferences-changed', { key: 'composer.orchestration_mode' });
-      if (previousUltra) this.deps.push('app:preferences-changed', { key: 'composer.ultra_mode' });
+      if (previousUltra || defaultUltra) this.deps.push('app:preferences-changed', { key: 'composer.ultra_mode' });
       if (permission !== undefined) this.deps.push('app:preferences-changed', { key: 'composer.permission_mode' });
       return { ok: true };
     });
@@ -456,6 +471,9 @@ export class ComposerService {
     if (!LEVELS.includes(selected) && !isTraeNativeEffort(selected) && !isKiroNativeEffort(selected)) return { error: 'invalid level' };
     if (payload.ultraMode !== undefined && payload.ultraMode !== false) {
       throw new IpcHandlerError('BAD_REQUEST', 'A native reasoning selection can only leave Ultra');
+    }
+    if (payload.updateDefaults !== undefined && typeof payload.updateDefaults !== 'boolean') {
+      throw new IpcHandlerError('BAD_REQUEST', 'updateDefaults must be a boolean');
     }
     return this.mutations.run(async () => {
       assertCurrent?.();
@@ -504,8 +522,9 @@ export class ComposerService {
       }
       const nativeMember = saved.source === 'trae' || saved.source === 'kiro';
       const leaveUltra = payload.ultraMode === false;
+      const updateDefaults = payload.updateDefaults !== false;
       const selection = applySessionThinkingSelection(sessionId, nativeMember ? previous : selected, this.configRoot, undefined,
-        { model, ...(leaveUltra ? { ultraMode: false } : {}), updateThinking: !nativeMember, updateUltraDefault: leaveUltra && !sessionId, updateModelDefault: !sessionId });
+        { model, ...(leaveUltra ? { ultraMode: false } : {}), updateThinking: !nativeMember, updateDefaults, updateUltraDefault: leaveUltra && updateDefaults, updateModelDefault: !sessionId });
       try {
         if (model || previous !== selected || (leaveUltra && previousUltra)) await this.deps.onSessionConfigChanged({ kind: model ? 'model' : 'thinking', sessionId });
       } catch (error) {

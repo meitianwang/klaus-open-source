@@ -39,7 +39,6 @@ export function validModelSelection(mode: string): boolean {
 // falling back to the source's built-in default every time.
 const LAST_SOURCE_MODEL_PREFIX = 'composer.last_model:';
 const LAST_SOURCE_THINKING_PREFIX = 'composer.last_thinking_level:';
-const LAST_SOURCE_ULTRA_PREFIX = 'composer.last_ultra_mode:';
 
 function lastSourceModelKey(source: string): string {
   return LAST_SOURCE_MODEL_PREFIX + source;
@@ -47,10 +46,6 @@ function lastSourceModelKey(source: string): string {
 
 function lastSourceThinkingKey(source: string): string {
   return LAST_SOURCE_THINKING_PREFIX + source;
-}
-
-function lastSourceUltraKey(source: string): string {
-  return LAST_SOURCE_ULTRA_PREFIX + source;
 }
 
 export function readLastSourceModel(db: DatabaseSync, source: string): string | undefined {
@@ -74,17 +69,6 @@ export function readLastSourceThinkingLevel(db: DatabaseSync, source: string): s
 function writeLastSourceThinkingLevel(db: DatabaseSync, source: string, level: string): void {
   if (!validThinkingLevel(level)) return;
   put(db, lastSourceThinkingKey(source), level);
-}
-
-export function readLastSourceUltraMode(db: DatabaseSync, source: string): boolean | undefined {
-  const value = get(db, lastSourceUltraKey(source));
-  if (value === '1') return true;
-  if (value === '0') return false;
-  return undefined;
-}
-
-function writeLastSourceUltraMode(db: DatabaseSync, source: string, enabled: boolean): void {
-  put(db, lastSourceUltraKey(source), enabled ? '1' : '0');
 }
 
 function get(db: DatabaseSync, key: string): string | undefined {
@@ -194,6 +178,27 @@ function ensureTables(db: DatabaseSync, configRoot: string): void {
     put(db, 'migrated.composer_global_v1', '1');
     put(db, 'migrated.composer_session_model_v2', '1');
     put(db, 'migrated.composer_session_source_v3', '1');
+  }
+  if (!get(db, 'migrated.composer_session_work_modes_v1')) {
+    // Freeze the current Parallel and Orchestration defaults into every conversation
+    // that already exists, including unopened history on disk, so enabling either
+    // work mode in a later conversation never changes an earlier conversation.
+    const now = Date.now();
+    const ultraFallback = get(db, 'composer.ultra_mode') === '1' ? 1 : 0;
+    const orchFallback = !ultraFallback && get(db, 'composer.orchestration_mode') === '1' ? 1 : 0;
+    for (const table of ['session_main_models', 'session_thinking_levels', 'session_chat_modes']) {
+      db.prepare(`INSERT OR IGNORE INTO session_ultra_modes (session_id, enabled, updated_at) SELECT session_id, ?, ? FROM ${table}`).run(ultraFallback, now);
+      db.prepare(`INSERT OR IGNORE INTO session_orchestration_modes (session_id, enabled, updated_at) SELECT session_id, ?, ? FROM ${table}`).run(orchFallback, now);
+    }
+    const ids = historicalSessionIds(configRoot);
+    const insertUltra = db.prepare('INSERT OR IGNORE INTO session_ultra_modes (session_id, enabled, updated_at) VALUES (?, ?, ?)');
+    const insertOrch = db.prepare('INSERT OR IGNORE INTO session_orchestration_modes (session_id, enabled, updated_at) VALUES (?, ?, ?)');
+    for (const id of ids) {
+      if (!id) continue;
+      insertUltra.run(id, ultraFallback, now);
+      insertOrch.run(id, orchFallback, now);
+    }
+    put(db, 'migrated.composer_session_work_modes_v1', '1');
   }
   // Freeze every legacy row before a new default changes its source, including unopened conversations.
   const fallback = authModeIn(db);
@@ -344,7 +349,7 @@ function sessionSourceIn(db: DatabaseSync, sessionId: string): string | undefine
 
 function preferenceIn(db: DatabaseSync, sessionId: string, fallback: SessionModelPreference): SessionModelPreference {
   if (!sessionId) return fallback;
-  ultraModeIn(db, sessionId);
+  seedWorkModesIn(db, sessionId);
   const row = db.prepare('SELECT mode, source FROM session_main_models WHERE session_id = ?').get(sessionId);
   if (!row) {
     db.prepare('INSERT INTO session_main_models (session_id, mode, source, updated_at) VALUES (?, ?, ?, ?)')
@@ -428,7 +433,7 @@ export function setSessionModel(
   }
   withSettingsTransaction(configRoot, db => {
     ensureTables(db, configRoot);
-    if (sessionId) ultraModeIn(db, sessionId);
+    if (sessionId) seedWorkModesIn(db, sessionId);
     const previous = sessionId
       ? db.prepare('SELECT source FROM session_main_models WHERE session_id = ?').get(sessionId) as { source?: string } | undefined
       : undefined;
@@ -437,8 +442,9 @@ export function setSessionModel(
     if (!MODEL_SOURCES.includes(source)) throw new IpcHandlerError('INVALID_MODEL_SOURCE', 'Select a supported model source');
     if (options.fastMode !== undefined && !isRequestFastSource(source)) throw new IpcHandlerError('INVALID_MODEL_SOURCE', 'Fast mode is unavailable for this model source');
     // A source switch restores the last concrete model and its reasoning
-    // configuration the user chose while that source was active. An explicit
-    // selection in this call always wins.
+    // configuration the user chose while that source was active. Session work
+    // modes (Parallel and Orchestration) belong to the conversation rather than
+    // a provider source, so switching sources preserves them unless explicitly set.
     const previousSource = sessionId
       ? (typeof previous?.source === 'string' && previous.source ? previous.source : authModeIn(db))
       : authModeIn(db);
@@ -446,12 +452,19 @@ export function setSessionModel(
     const rememberedModel = sourceChanged ? readLastSourceModel(db, source) : undefined;
     const selectedMode = mode === 'auto' && rememberedModel ? rememberedModel : mode;
     const thinkingLevel = options.thinkingLevel ?? (sourceChanged ? readLastSourceThinkingLevel(db, source) : undefined);
-    const ultraMode = options.ultraMode ?? (sourceChanged ? readLastSourceUltraMode(db, source) : undefined);
+    const ultraMode = options.ultraMode;
     if (options.updateDefaults !== false) {
       if (selectedMode === 'auto') db.prepare('DELETE FROM settings WHERE key = ?').run('composer.main_model');
       else put(db, 'composer.main_model', selectedMode);
       put(db, 'auth_mode', source);
-      if (ultraMode !== undefined) put(db, 'composer.ultra_mode', ultraMode ? '1' : '0');
+      if (ultraMode !== undefined) {
+        if (ultraMode) {
+          put(db, 'composer.ultra_mode', '1');
+          db.prepare('DELETE FROM settings WHERE key = ?').run('composer.orchestration_mode');
+        } else {
+          db.prepare('DELETE FROM settings WHERE key = ?').run('composer.ultra_mode');
+        }
+      }
       if (thinkingLevel !== undefined) {
         if (thinkingLevel === DEFAULT_THINKING_LEVEL) db.prepare('DELETE FROM settings WHERE key = ?').run('composer.thinking_level');
         else put(db, 'composer.thinking_level', thinkingLevel);
@@ -463,18 +476,21 @@ export function setSessionModel(
       }
       if (selectedMode !== 'auto') writeLastSourceModel(db, source, selectedMode);
       if (thinkingLevel !== undefined) writeLastSourceThinkingLevel(db, source, thinkingLevel);
-      if (ultraMode !== undefined) writeLastSourceUltraMode(db, source, ultraMode);
     }
     if (sessionId) {
+      const now = Date.now();
       db.prepare('INSERT INTO session_main_models (session_id, mode, source, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(session_id) DO UPDATE SET mode = excluded.mode, source = excluded.source, updated_at = excluded.updated_at')
-        .run(sessionId, selectedMode, source, Date.now());
-      // Each source snapshots its own default once; switching accounts cannot
-      // carry a higher-usage preference into another provider.
-      if (ultraMode !== undefined) db.prepare('INSERT INTO session_ultra_modes(session_id, enabled, updated_at) VALUES (?, ?, ?) ON CONFLICT(session_id) DO UPDATE SET enabled=excluded.enabled, updated_at=excluded.updated_at').run(sessionId, ultraMode ? 1 : 0, Date.now());
+        .run(sessionId, selectedMode, source, now);
+      if (ultraMode !== undefined) {
+        db.prepare('INSERT INTO session_ultra_modes(session_id, enabled, updated_at) VALUES (?, ?, ?) ON CONFLICT(session_id) DO UPDATE SET enabled=excluded.enabled, updated_at=excluded.updated_at').run(sessionId, ultraMode ? 1 : 0, now);
+        if (ultraMode) {
+          db.prepare('INSERT INTO session_orchestration_modes(session_id, enabled, updated_at) VALUES (?, 0, ?) ON CONFLICT(session_id) DO UPDATE SET enabled=0, updated_at=excluded.updated_at').run(sessionId, now);
+        }
+      }
       seedFastMode(db, sessionId, source);
       if (options.fastMode !== undefined) writeFastMode(db, sessionId, source, options.fastMode);
       if (thinkingLevel !== undefined) db.prepare('INSERT INTO session_thinking_levels (session_id, level, updated_at) VALUES (?, ?, ?) ON CONFLICT(session_id) DO UPDATE SET level = excluded.level, updated_at = excluded.updated_at')
-        .run(sessionId, thinkingLevel, Date.now());
+        .run(sessionId, thinkingLevel, now);
     }
   });
 }
@@ -500,7 +516,7 @@ export function readSessionThinkingLevel(sessionId: string, configRoot: string):
 function thinkingLevelIn(db: DatabaseSync, sessionId: string): string {
   const fallback = defaultThinkingLevel(db);
   if (!sessionId) return fallback;
-  ultraModeIn(db, sessionId);
+  seedWorkModesIn(db, sessionId);
   const row = db.prepare('SELECT level FROM session_thinking_levels WHERE session_id = ?').get(sessionId);
   if (!row) {
     db.prepare('INSERT INTO session_thinking_levels (session_id, level, updated_at) VALUES (?, ?, ?)')
@@ -541,7 +557,7 @@ export function applySessionThinkingSelection(
   }
   return withSettingsTransaction(configRoot, db => {
     ensureTables(db, configRoot);
-    if (sessionId) ultraModeIn(db, sessionId);
+    if (sessionId) seedWorkModesIn(db, sessionId);
     const keys = [...(updateThinking && updateDefaults ? ['composer.thinking_level'] : []),
       ...(options.ultraMode === false && updateUltraDefault ? ['composer.ultra_mode'] : []),
       ...(model && updateModelDefault ? ['composer.main_model', 'auth_mode'] : [])];
@@ -631,17 +647,33 @@ function defaultThinkingLevel(db: DatabaseSync): string {
   return validThinkingLevel(raw) ? raw : DEFAULT_THINKING_LEVEL;
 }
 
-/** The orchestration mode a conversation runs with, falling back to the global
- *  default ONCE, mirroring {@link thinkingLevelIn}'s freeze-on-first-read. */
-function ultraModeIn(db: DatabaseSync, sessionId: string): boolean {
-  const fallback = get(db, 'composer.ultra_mode') === '1';
-  if (!sessionId) return fallback;
-  const row = db.prepare('SELECT enabled FROM session_ultra_modes WHERE session_id = ?').get(sessionId) as { enabled: number } | undefined;
-  if (!row) {
-    db.prepare('INSERT INTO session_ultra_modes (session_id, enabled, updated_at) VALUES (?, ?, ?)').run(sessionId, fallback ? 1 : 0, Date.now());
-    return fallback;
+function defaultWorkModesIn(db: DatabaseSync): { ultra: boolean; orchestration: boolean } {
+  const ultra = get(db, 'composer.ultra_mode') === '1';
+  const orchestration = !ultra && get(db, 'composer.orchestration_mode') === '1';
+  return { ultra, orchestration };
+}
+
+/** Freeze both Parallel and Orchestration work modes into a conversation on first
+ *  read so later changes to the remembered default never rewrite existing chats. */
+function seedWorkModesIn(db: DatabaseSync, sessionId: string): { ultra: boolean; orchestration: boolean } {
+  const defaults = defaultWorkModesIn(db);
+  if (!sessionId) return defaults;
+  const ultraRow = db.prepare('SELECT enabled FROM session_ultra_modes WHERE session_id = ?').get(sessionId) as { enabled: number } | undefined;
+  const orchRow = db.prepare('SELECT enabled FROM session_orchestration_modes WHERE session_id = ?').get(sessionId) as { enabled: number } | undefined;
+  const now = Date.now();
+  const ultra = ultraRow ? ultraRow.enabled === 1 : (orchRow?.enabled === 1 ? false : defaults.ultra);
+  const orchestration = orchRow ? orchRow.enabled === 1 : (ultra ? false : defaults.orchestration);
+  if (!ultraRow) {
+    db.prepare('INSERT INTO session_ultra_modes (session_id, enabled, updated_at) VALUES (?, ?, ?)').run(sessionId, ultra ? 1 : 0, now);
   }
-  return row.enabled === 1;
+  if (!orchRow) {
+    db.prepare('INSERT INTO session_orchestration_modes (session_id, enabled, updated_at) VALUES (?, ?, ?)').run(sessionId, orchestration ? 1 : 0, now);
+  }
+  return { ultra, orchestration };
+}
+
+function ultraModeIn(db: DatabaseSync, sessionId: string): boolean {
+  return seedWorkModesIn(db, sessionId).ultra;
 }
 
 export function readSessionUltraMode(sessionId: string, configRoot: string): boolean {
@@ -651,7 +683,7 @@ export function readSessionUltraMode(sessionId: string, configRoot: string): boo
   });
 }
 
-/** Persist the orchestration switch and its optional permission choice together,
+/** Persist the Parallel work mode and its optional permission choice together,
  *  with the same rollback contract {@link applySessionThinkingSelection} uses. */
 export function applySessionUltraSelection(
   sessionId: string, enabled: boolean, configRoot: string, permissionPolicy?: RuntimePolicy,
@@ -662,25 +694,31 @@ export function applySessionUltraSelection(
   if (permissionPolicy !== undefined && !decodeRuntimePolicy(permissionPolicy)) throw new IpcHandlerError('BAD_REQUEST', 'invalid permission policy');
   return withSettingsTransaction(configRoot, db => {
     ensureTables(db, configRoot);
-    const keys = updateDefaults ? ['composer.ultra_mode'] : [];
+    const keys = updateDefaults ? ['composer.ultra_mode', ...(enabled ? ['composer.orchestration_mode'] : [])] : [];
     const previous = keys.map(key => ({ key, value: get(db, key) }));
     const session = sessionId
       ? db.prepare('SELECT enabled, updated_at FROM session_ultra_modes WHERE session_id = ?').get(sessionId) as { enabled: number; updated_at: number } | undefined
+      : undefined;
+    const previousOrchestration = sessionId && enabled
+      ? db.prepare('SELECT enabled, updated_at FROM session_orchestration_modes WHERE session_id = ?').get(sessionId) as { enabled: number; updated_at: number } | undefined
       : undefined;
     const previousPermission = sessionId && permissionPolicy !== undefined
       ? db.prepare('SELECT policy_json, updated_at FROM session_runtime_policies WHERE session_id = ?').get(sessionId) as { policy_json: string; updated_at: number } | undefined
       : undefined;
     if (updateDefaults) {
-      if (enabled) put(db, 'composer.ultra_mode', '1');
-      else db.prepare('DELETE FROM settings WHERE key = ?').run('composer.ultra_mode');
+      if (enabled) {
+        put(db, 'composer.ultra_mode', '1');
+        db.prepare('DELETE FROM settings WHERE key = ?').run('composer.orchestration_mode');
+      } else {
+        db.prepare('DELETE FROM settings WHERE key = ?').run('composer.ultra_mode');
+      }
     }
-    // Source-scoped memory records the last orchestration choice on this source,
-    // independent of whether the pick also updates the default for future chats.
-    const source = sessionId
-      ? (db.prepare('SELECT source FROM session_main_models WHERE session_id = ?').get(sessionId) as { source?: string } | undefined)?.source
-      : (modelSource(get(db, 'composer.main_model') ?? '') ?? authModeIn(db));
-    if (typeof source === 'string' && MODEL_SOURCES.includes(source)) writeLastSourceUltraMode(db, source, enabled);
-    const now = Math.max(Date.now(), Number(session?.updated_at ?? 0) + 1, Number(previousPermission?.updated_at ?? 0) + 1);
+    const now = Math.max(
+      Date.now(),
+      Number(session?.updated_at ?? 0) + 1,
+      Number(previousOrchestration?.updated_at ?? 0) + 1,
+      Number(previousPermission?.updated_at ?? 0) + 1,
+    );
     const permissionJson = permissionPolicy ? JSON.stringify({ policy: permissionPolicy }) : undefined;
     if (sessionId && permissionJson) db.prepare('INSERT INTO session_runtime_policies (session_id, policy_json, updated_at) VALUES (?, ?, ?) ON CONFLICT(session_id) DO UPDATE SET policy_json = excluded.policy_json, updated_at = excluded.updated_at').run(sessionId, permissionJson, now);
     if (sessionId) {
@@ -689,10 +727,9 @@ export function applySessionUltraSelection(
       if (enabled) {
         db.prepare('INSERT INTO session_orchestration_modes (session_id, enabled, updated_at) VALUES (?, 0, ?) ON CONFLICT(session_id) DO UPDATE SET enabled = 0, updated_at = excluded.updated_at')
           .run(sessionId, now);
+      } else {
+        seedWorkModesIn(db, sessionId);
       }
-    }
-    if (updateDefaults && enabled) {
-      db.prepare('DELETE FROM settings WHERE key = ?').run('composer.orchestration_mode');
     }
     const written = keys.map(key => ({ key, value: get(db, key) }));
     return { enabled, rollback: () => withSettingsTransaction(configRoot, current => {
@@ -717,20 +754,21 @@ export function applySessionUltraSelection(
             .run(session.enabled ?? null, session.updated_at ?? null, sessionId);
           else current.prepare('DELETE FROM session_ultra_modes WHERE session_id = ?').run(sessionId);
         }
+        if (enabled) {
+          const latestOrch = current.prepare('SELECT enabled, updated_at FROM session_orchestration_modes WHERE session_id = ?').get(sessionId) as { enabled: number; updated_at: number } | undefined;
+          if (latestOrch?.enabled === 0 && latestOrch.updated_at === now) {
+            if (previousOrchestration) current.prepare('UPDATE session_orchestration_modes SET enabled = ?, updated_at = ? WHERE session_id = ?')
+              .run(previousOrchestration.enabled ?? null, previousOrchestration.updated_at ?? null, sessionId);
+            else current.prepare('DELETE FROM session_orchestration_modes WHERE session_id = ?').run(sessionId);
+          }
+        }
       }
     }) };
   });
 }
 
 function orchestrationModeIn(db: DatabaseSync, sessionId: string): boolean {
-  const fallback = get(db, 'composer.orchestration_mode') === '1';
-  if (!sessionId) return fallback;
-  const row = db.prepare('SELECT enabled FROM session_orchestration_modes WHERE session_id = ?').get(sessionId) as { enabled: number } | undefined;
-  if (!row) {
-    db.prepare('INSERT INTO session_orchestration_modes (session_id, enabled, updated_at) VALUES (?, ?, ?)').run(sessionId, fallback ? 1 : 0, Date.now());
-    return fallback;
-  }
-  return row.enabled === 1;
+  return seedWorkModesIn(db, sessionId).orchestration;
 }
 
 export function readSessionOrchestrationMode(sessionId: string, configRoot: string): boolean {

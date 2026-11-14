@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Harness } from './harness';
@@ -322,6 +322,46 @@ h.test('a session-only orchestration selection leaves the new chat defaults unto
   assert.equal(readSessionOrchestrationMode('s-draft-promoted', root), true);
   assert.equal(readSessionOrchestrationMode('', root), false);
   assert.equal(readSessionUltraMode('s-draft-promoted', root), false);
+});
+
+h.test('enabling Orchestration or Parallel mode in a session seeds subsequent new sessions without changing earlier sessions', async () => {
+  const root = fresh();
+  const projectDir = join(root, 'projects', 'demo-repo');
+  mkdirSync(projectDir, { recursive: true });
+  writeFileSync(join(projectDir, 'historical-unopened.jsonl'), '{}\n', 'utf8');
+
+  const service = makeComposer(root);
+  setSessionThinkingLevel('prior-open', 'medium', root);
+
+  await service.setOrchestrationMode({ sessionId: 'current-1', enabled: true });
+  assert.equal(readSessionOrchestrationMode('current-1', root), true);
+  assert.equal(readSessionOrchestrationMode('prior-open', root), false);
+  assert.equal(readSessionOrchestrationMode('historical-unopened', root), false);
+  assert.equal(readSessionUltraMode('historical-unopened', root), false);
+  assert.equal(readSessionOrchestrationMode('', root), true);
+  assert.equal(readSessionOrchestrationMode('new-after-orch', root), true);
+  assert.equal(readSessionUltraMode('new-after-orch', root), false);
+
+  await service.setUltraMode({ sessionId: 'new-after-orch', enabled: true });
+  assert.equal(readSessionUltraMode('new-after-orch', root), true);
+  assert.equal(readSessionOrchestrationMode('new-after-orch', root), false);
+  assert.equal(readSessionOrchestrationMode('current-1', root), true);
+  assert.equal(readSessionUltraMode('current-1', root), false);
+  assert.equal(readSessionOrchestrationMode('prior-open', root), false);
+  assert.equal(readSessionUltraMode('prior-open', root), false);
+  assert.equal(readSessionUltraMode('new-after-parallel', root), true);
+  assert.equal(readSessionOrchestrationMode('new-after-parallel', root), false);
+
+  await service.setUltraMode({ sessionId: 'new-after-parallel', enabled: false, updateDefaults: false });
+  assert.equal(readSessionUltraMode('new-after-parallel', root), false);
+  assert.equal(readSessionUltraMode('new-still-parallel', root), true);
+
+  await service.setUltraMode({ sessionId: 'new-still-parallel', enabled: false });
+  assert.equal(readSessionUltraMode('new-still-parallel', root), false);
+  assert.equal(readSessionUltraMode('new-after-reset', root), false);
+  assert.equal(readSessionOrchestrationMode('new-after-reset', root), false);
+  assert.equal(readSessionOrchestrationMode('current-1', root), true);
+  assert.equal(readSessionUltraMode('new-after-orch', root), true);
 });
 
 void h.finish(process.argv[2] ?? join(tmpdir(), 'orchestration-mode-result.json'), 'orchestration-mode').then(code => {

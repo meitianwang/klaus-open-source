@@ -41,21 +41,20 @@ h.test('a conversation restores the model it last used on that source', () => {
   assertEqual(readSessionModel('thread', root).source, 'custom', 'the conversation stays on the requested source');
 });
 
-h.test('source memory restores reasoning and orchestration settings independently', () => {
+h.test('source memory restores reasoning settings while preserving session work modes across source switches', () => {
   const root = freshRoot();
   setSessionModel('thread', 'codex:one', 'codex', root, { thinkingLevel: 'high', ultraMode: true });
-  setSessionModel('thread', 'custom:one', 'custom', root, { thinkingLevel: 'low', ultraMode: false });
+  setSessionModel('thread', 'custom:one', 'custom', root, { thinkingLevel: 'low' });
+
+  assertEqual(readSessionThinkingLevel('thread', root), 'low', 'the custom reasoning level applies');
+  assertEqual(readSessionUltraMode('thread', root), true, 'switching model source preserves the active Parallel work mode');
 
   setSessionModel('thread', 'auto', 'codex', root);
   assertEqual(readSessionThinkingLevel('thread', root), 'high', 'the Codex reasoning level returns');
-  assertEqual(readSessionUltraMode('thread', root), true, 'the Codex orchestration switch returns');
-
-  setSessionModel('thread', 'auto', 'custom', root);
-  assertEqual(readSessionThinkingLevel('thread', root), 'low', 'the custom reasoning level returns');
-  assertEqual(readSessionUltraMode('thread', root), false, 'the custom orchestration switch returns');
+  assertEqual(readSessionUltraMode('thread', root), true, 'Parallel work mode remains active across source switches');
 });
 
-h.test('standalone reasoning and orchestration picks update the source memory', () => {
+h.test('standalone reasoning picks update the source memory without tying work modes to a source', () => {
   const root = freshRoot();
   setSessionModel('thread', 'codex:one', 'codex', root);
   setSessionThinkingLevel('thread', 'xhigh', root);
@@ -64,7 +63,7 @@ h.test('standalone reasoning and orchestration picks update the source memory', 
   setSessionModel('thread', 'custom:one', 'custom', root);
   setSessionModel('thread', 'auto', 'codex', root);
   assertEqual(readSessionThinkingLevel('thread', root), 'xhigh', 'a reasoning-only pick is remembered');
-  assertEqual(readSessionUltraMode('thread', root), true, 'an orchestration-only pick is remembered');
+  assertEqual(readSessionUltraMode('thread', root), true, 'the session work mode remains intact');
 });
 
 h.test('a source with no memory still resolves its own default', () => {

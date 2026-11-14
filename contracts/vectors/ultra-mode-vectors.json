@@ -1,5 +1,5 @@
 {
-  "reason": "Ultra is a raw reasoning selection projected from the stored menu preset. The final child reasoning selection determines its built-in delegation mode; configured or model-owned hint text takes precedence. Saved native preferences remain available when leaving the preset. Ultra requests resolve the supported collaboration effort, then max, then the last declared non-Ultra value, then medium. A native selection atomically exits Ultra, including direct reasoning writes. Leaving Ultra in an existing chat keeps the Ultra default for future chats; its native reasoning pick becomes the reasoning default for future chats, as a model pick does. Role fields are applied after validated call/default selections. Full-history forks inherit the initiating step's configuration. Shared tree execution permits and resident reservations have separate lifetimes; completion does not unload a resident. Permission changes retain their own confirmation and rollback contracts.",
+  "reason": "Ultra is a raw reasoning selection projected from the stored menu preset. The final child reasoning selection determines its built-in delegation mode; configured or model-owned hint text takes precedence. Saved native preferences remain available when leaving the preset. Ultra requests resolve the supported collaboration effort, then max, then the last declared non-Ultra value, then medium. A native selection atomically exits Ultra, including direct reasoning writes. Changing Parallel (Ultra) or Orchestration mode in a chat updates that chat and the remembered default for future chats while leaving pre-existing chats unchanged, matching model and reasoning picks. Role fields are applied after validated call/default selections. Full-history forks inherit the initiating step's configuration. Shared tree execution permits and resident reservations have separate lifetimes; completion does not unload a resident. Permission changes retain their own confirmation and rollback contracts.",
   "mode": "ultra",
   "requestEffort": {
     "preferredField": "multiAgentReasoningEffort",
@@ -11,7 +11,7 @@
   "ordinaryModeWithoutSpawnTool": true,
   "internalQueriesReceiveDelegationMode": false,
   "reselectionKeepsEnabled": true,
-  "defaultWriteScope": "draft",
+  "defaultWriteScope": "session",
   "noNativeEffortMenu": ["default", "ultra"],
   "restrictedPermission": "default",
   "noEffortChoices": [],

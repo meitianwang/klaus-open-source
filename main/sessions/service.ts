@@ -3230,6 +3230,10 @@ export class SessionService {
       readSessionModel(rendererId, this.configRoot);
       applySessionUltraSelection(rendererId, options.ultraModeOverride, this.configRoot, undefined, { updateDefaults: false });
     }
+    if (options.collaborationMode === 'plan') {
+      applySessionOrchestrationSelection(rendererId, false, this.configRoot, undefined, { updateDefaults: false });
+      applySessionUltraSelection(rendererId, false, this.configRoot, undefined, { updateDefaults: false });
+    }
     if (options.localWorkdir) bindSessionWorkdir(rendererId, options.localWorkdir, this.configRoot);
     if (options.agentProfile) bindSessionAgent(this.configRoot, rendererId, options.agentProfile);
     const resolvedBinding = this.deps.workspaces ? await this.directory(rendererId) : options.localWorkdir ?? requested ?? sessionDir(rendererId, this.configRoot);
