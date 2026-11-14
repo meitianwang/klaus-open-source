@@ -22379,8 +22379,22 @@
           "threadId"
         ],
         "properties": {
+          "afterMessageUuid": {
+            "description": "`session/forkSession` only: cut point — the branch inherits history through the exchange containing this message uuid, inclusive (mirrors `fork_session.afterMessageUuid`). Other lifecycle methods ignore it.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "beforeMessageUuid": {
             "description": "`session/forkSession` only: cut point — the branch inherits history strictly BEFORE the message with this uuid (mirrors the inner `fork_session.beforeMessageUuid`). Other lifecycle methods ignore it.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "beforeTurnId": {
+            "description": "`session/forkSession` only: cut point — the branch inherits history strictly BEFORE this turn id (mirrors `fork_session.beforeTurnId`). Other lifecycle methods ignore it.",
             "type": [
               "string",
               "null"
@@ -22390,6 +22404,13 @@
             "description": "Explicit persistent fork opt-in; ordinary forks are isolated.",
             "type": [
               "boolean",
+              "null"
+            ]
+          },
+          "lastTurnId": {
+            "description": "`session/forkSession` only: cut point — the branch inherits history through this turn id, inclusive (mirrors `fork_session.lastTurnId`). Other lifecycle methods ignore it.",
+            "type": [
+              "string",
               "null"
             ]
           },
@@ -22442,8 +22463,22 @@
           "threadId"
         ],
         "properties": {
+          "afterMessageUuid": {
+            "description": "`session/forkSession` only: cut point — the branch inherits history through the exchange containing this message uuid, inclusive (mirrors `fork_session.afterMessageUuid`). Other lifecycle methods ignore it.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "beforeMessageUuid": {
             "description": "`session/forkSession` only: cut point — the branch inherits history strictly BEFORE the message with this uuid (mirrors the inner `fork_session.beforeMessageUuid`). Other lifecycle methods ignore it.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "beforeTurnId": {
+            "description": "`session/forkSession` only: cut point — the branch inherits history strictly BEFORE this turn id (mirrors `fork_session.beforeTurnId`). Other lifecycle methods ignore it.",
             "type": [
               "string",
               "null"
@@ -22453,6 +22488,13 @@
             "description": "Explicit persistent fork opt-in; ordinary forks are isolated.",
             "type": [
               "boolean",
+              "null"
+            ]
+          },
+          "lastTurnId": {
+            "description": "`session/forkSession` only: cut point — the branch inherits history through this turn id, inclusive (mirrors `fork_session.lastTurnId`). Other lifecycle methods ignore it.",
+            "type": [
+              "string",
               "null"
             ]
           },
@@ -22505,8 +22547,22 @@
           "threadId"
         ],
         "properties": {
+          "afterMessageUuid": {
+            "description": "`session/forkSession` only: cut point — the branch inherits history through the exchange containing this message uuid, inclusive (mirrors `fork_session.afterMessageUuid`). Other lifecycle methods ignore it.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "beforeMessageUuid": {
             "description": "`session/forkSession` only: cut point — the branch inherits history strictly BEFORE the message with this uuid (mirrors the inner `fork_session.beforeMessageUuid`). Other lifecycle methods ignore it.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "beforeTurnId": {
+            "description": "`session/forkSession` only: cut point — the branch inherits history strictly BEFORE this turn id (mirrors `fork_session.beforeTurnId`). Other lifecycle methods ignore it.",
             "type": [
               "string",
               "null"
@@ -22516,6 +22572,13 @@
             "description": "Explicit persistent fork opt-in; ordinary forks are isolated.",
             "type": [
               "boolean",
+              "null"
+            ]
+          },
+          "lastTurnId": {
+            "description": "`session/forkSession` only: cut point — the branch inherits history through this turn id, inclusive (mirrors `fork_session.lastTurnId`). Other lifecycle methods ignore it.",
+            "type": [
+              "string",
               "null"
             ]
           },
@@ -22568,8 +22631,22 @@
           "threadId"
         ],
         "properties": {
+          "afterMessageUuid": {
+            "description": "`session/forkSession` only: cut point — the branch inherits history through the exchange containing this message uuid, inclusive (mirrors `fork_session.afterMessageUuid`). Other lifecycle methods ignore it.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "beforeMessageUuid": {
             "description": "`session/forkSession` only: cut point — the branch inherits history strictly BEFORE the message with this uuid (mirrors the inner `fork_session.beforeMessageUuid`). Other lifecycle methods ignore it.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "beforeTurnId": {
+            "description": "`session/forkSession` only: cut point — the branch inherits history strictly BEFORE this turn id (mirrors `fork_session.beforeTurnId`). Other lifecycle methods ignore it.",
             "type": [
               "string",
               "null"
@@ -22579,6 +22656,13 @@
             "description": "Explicit persistent fork opt-in; ordinary forks are isolated.",
             "type": [
               "boolean",
+              "null"
+            ]
+          },
+          "lastTurnId": {
+            "description": "`session/forkSession` only: cut point — the branch inherits history through this turn id, inclusive (mirrors `fork_session.lastTurnId`). Other lifecycle methods ignore it.",
+            "type": [
+              "string",
               "null"
             ]
           },
@@ -22631,8 +22715,22 @@
           "threadId"
         ],
         "properties": {
+          "afterMessageUuid": {
+            "description": "`session/forkSession` only: cut point — the branch inherits history through the exchange containing this message uuid, inclusive (mirrors `fork_session.afterMessageUuid`). Other lifecycle methods ignore it.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "beforeMessageUuid": {
             "description": "`session/forkSession` only: cut point — the branch inherits history strictly BEFORE the message with this uuid (mirrors the inner `fork_session.beforeMessageUuid`). Other lifecycle methods ignore it.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "beforeTurnId": {
+            "description": "`session/forkSession` only: cut point — the branch inherits history strictly BEFORE this turn id (mirrors `fork_session.beforeTurnId`). Other lifecycle methods ignore it.",
             "type": [
               "string",
               "null"
@@ -22642,6 +22740,13 @@
             "description": "Explicit persistent fork opt-in; ordinary forks are isolated.",
             "type": [
               "boolean",
+              "null"
+            ]
+          },
+          "lastTurnId": {
+            "description": "`session/forkSession` only: cut point — the branch inherits history through this turn id, inclusive (mirrors `fork_session.lastTurnId`). Other lifecycle methods ignore it.",
+            "type": [
+              "string",
               "null"
             ]
           },

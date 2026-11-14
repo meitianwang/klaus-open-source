@@ -15,9 +15,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { EventEmitter } from 'node:events';
 
-import { assertEqual, Harness } from './harness';
+import { assertEqual, assertRejects, Harness } from './harness';
 import { HostState } from '../main/services/host-state';
 import { SessionService, type EngineAttacherLike, type EngineClientLike } from '../main/sessions/service';
+import { readSessionModel, readSessionThinkingLevel, setSessionModel } from '../main/services/session-store';
 import { kvSet, withSettingsDb } from '../main/services/settings';
 import type { Json } from '../main/ipc/contract';
 import { FakeEngineQueue } from './engine-queue-fixture';
@@ -156,6 +157,37 @@ h.test('an explicit ledger title wins over a stale engine title, matching the se
   const service = serviceWith(client, root);
   const fork = await service.forkSession('source') as Record<string, Json>;
   assertEqual(fork.title, 'Renamed in ledger · Branch', 'the branch resolves titles like the projected session list');
+});
+
+h.test('a branch forwards turn and post-message cut options and inherits source composer preferences', async () => {
+  const root = byoRoot();
+  withSettingsDb(root, db => {
+    db.exec(`CREATE TABLE IF NOT EXISTS custom_main_models (
+      id TEXT PRIMARY KEY, name TEXT NOT NULL, provider TEXT NOT NULL, model TEXT NOT NULL,
+      base_url TEXT NOT NULL, api_key TEXT NOT NULL, updated_at INTEGER NOT NULL
+    )`);
+    db.prepare('INSERT INTO custom_main_models VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .run('picked-custom', 'Picked Model', 'openai-compatible', 'picked-v1', 'https://api.example.invalid/v1', 'fixture-credential', 1);
+  });
+  setSessionModel('source', 'custom:picked-custom', 'custom', root, { thinkingLevel: 'high', updateDefaults: false });
+  const client = new ForkFakeClient('Turn cut source');
+  const service = serviceWith(client, root);
+
+  const byTurn = await service.forkSession('source', { lastTurnId: 'turn-2' }) as Record<string, Json>;
+  const forkCall = client.sent('session/forkSession')[0] as Record<string, Json>;
+  assertEqual(forkCall.lastTurnId, 'turn-2', 'lastTurnId reaches session/forkSession');
+  assertEqual(forkCall.beforeMessageUuid, undefined, 'no beforeMessageUuid is synthesized on a turn cut');
+  assertEqual(readSessionModel(String(byTurn.id), root).mode, 'custom:picked-custom', 'the branch inherits the source session model');
+  assertEqual(readSessionThinkingLevel(String(byTurn.id), root), 'high', 'the branch inherits the source thinking level');
+
+  await service.forkSession('source', { afterMessageUuid: 'assistant-2' });
+  const postMsgCall = client.sent('session/forkSession')[1] as Record<string, Json>;
+  assertEqual(postMsgCall.afterMessageUuid, 'assistant-2', 'afterMessageUuid reaches session/forkSession');
+
+  await assertRejects(
+    () => service.forkSession('source', { lastTurnId: 'turn-2', beforeMessageUuid: 'u3' }),
+    'conflicting branch cut options are rejected',
+  );
 });
 
 void (async () => {

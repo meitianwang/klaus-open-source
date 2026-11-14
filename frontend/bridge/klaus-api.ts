@@ -277,11 +277,17 @@ expose('klaus', {
     listArchived: () => call('session:list-archived'),
     retainView: (sessionId: string, viewId: string) => call('session:view-retain', { sessionId, viewId }),
     releaseView: (sessionId: string, viewId: string) => call('session:view-release', { sessionId, viewId }),
-    /** Fork a conversation into a branch. `beforeMessageUuid` cuts the
-     *  inherited history strictly BEFORE that message (「在新任务中继续」);
-     *  omit it for a full-transcript branch. The source stays untouched. */
-    fork: (sessionId: string, opts?: { beforeMessageUuid?: string; inheritGoal?: boolean }) =>
-      call('session:fork', { sessionId, ...(opts?.beforeMessageUuid ? { beforeMessageUuid: opts.beforeMessageUuid } : {}), ...(opts?.inheritGoal ? { inheritGoal: true } : {}) }),
+    /** Fork a conversation into a branch. Optional cut fields select the exact
+     *  turn or message boundary; omit them for a full-transcript branch. */
+    fork: (sessionId: string, opts?: { beforeMessageUuid?: string; afterMessageUuid?: string; lastTurnId?: string; beforeTurnId?: string; inheritGoal?: boolean }) =>
+      call('session:fork', {
+        sessionId,
+        ...(opts?.beforeMessageUuid ? { beforeMessageUuid: opts.beforeMessageUuid } : {}),
+        ...(opts?.afterMessageUuid ? { afterMessageUuid: opts.afterMessageUuid } : {}),
+        ...(opts?.lastTurnId ? { lastTurnId: opts.lastTurnId } : {}),
+        ...(opts?.beforeTurnId ? { beforeTurnId: opts.beforeTurnId } : {}),
+        ...(opts?.inheritGoal ? { inheritGoal: true } : {}),
+      }),
     listSideTasks: (parentSessionId: string) =>
       call('side-task:list', { parentSessionId }),
     createSideTask: (parentSessionId: string, options?: { initialTitleIndex: number }) =>

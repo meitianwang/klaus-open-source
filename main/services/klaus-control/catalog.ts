@@ -376,7 +376,7 @@ export const CONTROL_SURFACES: ControlSurface[] = [
       {
         "action": "fork",
         "channel": "session:fork",
-        "args": "{ sessionId: string, beforeMessageUuid?: string (branch from just before that message instead of copying the whole conversation) }",
+        "args": "{ sessionId: string, lastTurnId?: string, beforeTurnId?: string, afterMessageUuid?: string, beforeMessageUuid?: string }",
         "confirm": false,
         "currentSession": false
       },

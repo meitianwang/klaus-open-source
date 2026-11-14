@@ -511,12 +511,10 @@ export interface MsgActionsSpec {
   // Only a user bubble with a uuid offers rewind; branch is offered on user (with uuid)
 // and on the assistant's last segment.
   uuid?: string
+  turnId?: string
   /**
-   * The turn this user bubble started. Only the EDIT control can be addressed by turn
-   * rather than by uuid, because the host resolves a turn to its message through the
-   * engine's history while rewind/fork all take a messageUuid directly. A stopped
-   * turn's optimistic bubble has no uuid — the engine assigns it and never reports it —
-   * so this is the only handle that makes such a bubble editable.
+   * The turn this user bubble started. Used by inline edit and pre-turn fork
+   * when an optimistic stopped-turn bubble has not received its saved uuid yet.
    */
   editTurn?: string
   kind: 'user' | 'assistant'
@@ -759,7 +757,9 @@ export function renderMsgActionsHtml(spec: MsgActionsSpec): string {
   if (spec.kind === 'assistant') parts.push(timeHtml)
   if (spec.extraHtml) parts.push(spec.extraHtml)
   if (spec.kind === 'assistant' && spec.goalCompletion) parts.push(renderGoalCompletionMetaHtml(spec.goalCompletion))
-  return `<div class="msg-actions" data-copy-text="${escapeHtml(spec.copyText)}">${parts.filter(Boolean).join('')}</div>`
+  const turnAttr = spec.turnId ? ` data-turn-id="${escapeHtml(spec.turnId)}"` : ''
+  const msgAttr = spec.uuid ? ` data-message-uuid="${escapeHtml(spec.uuid)}"` : ''
+  return `<div class="msg-actions" data-copy-text="${escapeHtml(spec.copyText)}"${turnAttr}${msgAttr}>${parts.filter(Boolean).join('')}</div>`
 }
 
 export function renderGoalCompletionMetaHtml(completion: GoalCompletionSummary): string {

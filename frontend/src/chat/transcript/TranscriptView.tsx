@@ -285,8 +285,11 @@ export function makeTranscriptClickHandler(
         return
       }
       if (!sessionId) return
-      const uuid = group?.dataset.uuid || ''
-      void runMessageAction(action, sessionId, uuid, group)
+      const uuid = group?.dataset?.uuid || bar?.dataset?.messageUuid || ''
+      const turnId = bar?.dataset?.turnId
+        || group?.closest?.<HTMLElement>('[data-klaus-transcript-turn-id]')?.dataset?.klausTranscriptTurnId
+        || ''
+      void runMessageAction(action, sessionId, uuid, group, turnId)
       return
     }
     handleTranscriptClick(event as unknown as React.MouseEvent)
@@ -427,7 +430,9 @@ export function composerDraftFromDisplayMetadata(value: any): any | null {
  * the clicked reply never reaches into unrelated UI.
  */
 export function branchCutUuidAfter(group: HTMLElement, sessionId = ''): string {
-  const root = (group.closest('[data-klaus-transcript-turn]')?.parentElement ?? group.parentElement) as HTMLElement | null
+  const root = (group.closest?.('[data-virtual-turn-list]')
+    ?? group.closest?.('[data-klaus-transcript-turn]')?.parentElement
+    ?? group.parentElement) as HTMLElement | null
   const nextInOrder = (el: HTMLElement): HTMLElement | null => {
     if (el.firstElementChild) return el.firstElementChild as HTMLElement
     let node: HTMLElement | null = el
@@ -445,8 +450,47 @@ export function branchCutUuidAfter(group: HTMLElement, sessionId = ''): string {
   return ''
 }
 
-async function runMessageAction(action: string, sessionId: string, uuid: string, group: HTMLElement | null): Promise<void> {
-  const lockKey = `${sessionId}:${uuid || 'tail'}:${action}`
+export type ForkCutOptions = {
+  beforeMessageUuid?: string
+  afterMessageUuid?: string
+  lastTurnId?: string
+  beforeTurnId?: string
+}
+
+function isPersistedTurnIdentity(turnId: string): boolean {
+  return !!turnId && turnId !== 'live' && !turnId.endsWith('-preamble') && !turnId.startsWith('submission:')
+}
+
+export function resolveForkCutOptions(
+  sessionId: string,
+  isUser: boolean,
+  uuid: string,
+  turnId: string,
+  group: HTMLElement | null,
+): { ok: true; options: ForkCutOptions } | { ok: false } {
+  if (isUser) {
+    const cutUuid = uuid ? persistedCutUuid(sessionId, group, uuid) : ''
+    if (cutUuid && !cutUuid.startsWith('submission:')) return { ok: true, options: { beforeMessageUuid: cutUuid } }
+    const resolvedTurn = turnId || group?.dataset?.editTurn || (uuid ? liveTurnIdForMessage(sessionId, uuid) : '')
+    if (isPersistedTurnIdentity(resolvedTurn)) return { ok: true, options: { beforeTurnId: resolvedTurn } }
+    return { ok: false }
+  }
+  if (isPersistedTurnIdentity(turnId)) {
+    return { ok: true, options: { lastTurnId: turnId } }
+  }
+  const msgUuid = uuid && !uuid.startsWith('submission:') ? uuid : ''
+  if (msgUuid) {
+    return { ok: true, options: { afterMessageUuid: msgUuid } }
+  }
+  const nextUuid = group ? branchCutUuidAfter(group, sessionId) : ''
+  if (nextUuid.startsWith('submission:')) return { ok: false }
+  if (nextUuid) return { ok: true, options: { beforeMessageUuid: nextUuid } }
+  if (group?.closest?.('[data-virtual-turn-list]')) return { ok: false }
+  return { ok: true, options: {} }
+}
+
+async function runMessageAction(action: string, sessionId: string, uuid: string, group: HTMLElement | null, turnId = ''): Promise<void> {
+  const lockKey = `${sessionId}:${uuid || turnId || 'tail'}:${action}`
   if (actionInFlight.has(lockKey)) return
   const api = w().klaus
   if (action === 'edit') {
@@ -517,24 +561,17 @@ async function runMessageAction(action: string, sessionId: string, uuid: string,
   }
   if (action === 'branch') {
     const isUser = !!group?.classList.contains('user') || !!group?.classList.contains('teammate')
-    const confirmKey = isUser && uuid ? 'msg_branch_confirm' : 'msg_fork_after_confirm'
+    const confirmKey = isUser && (uuid || turnId) ? 'msg_branch_confirm' : 'msg_fork_after_confirm'
     if (!(await w().klausDialog.confirm({ message: tGlobalText(confirmKey) }))) return
     if (actionInFlight.has(lockKey)) return
     actionInFlight.add(lockKey)
     try {
-      // Assistant reply: the cut is the first persisted user message after it,
-      // evaluated at click time. The walk crosses turn-wrapper boundaries.
-      // Both sources can be a live optimistic row carrying only a client-only
-      // `submission:` id, so both go through the persisted-uuid resolution; an
-      // id that still cannot be resolved aborts the branch instead of letting
-      // the engine fail on it or silently inheriting the whole conversation.
-      let cutUuid = isUser && uuid ? persistedCutUuid(sessionId, group, uuid) : ''
-      if (!cutUuid && group) cutUuid = branchCutUuidAfter(group, sessionId)
-      if (cutUuid.startsWith('submission:')) {
+      const resolved = resolveForkCutOptions(sessionId, isUser, uuid, turnId, group)
+      if (!resolved.ok) {
         await w().klausDialog.alert(tGlobalText('msg_branch_cut_unresolved'))
         return
       }
-      const result = await api.session.fork(sessionId, cutUuid ? { beforeMessageUuid: cutUuid } : {})
+      const result = await api.session.fork(sessionId, resolved.options)
         .catch((error: any) => ({ error: String(error?.message || error) }))
       if (!result?.id) {
         await w().klausDialog.alert(result?.error || tGlobalText('fork_session_failed'))
@@ -1606,6 +1643,7 @@ export function unitsFromMessages(visible: any[], legacyCreator?: string): Unit[
         if (segment.messageId) occurrences.set(segment.messageId, occurrence + 1)
         units.push({
           type: segment.kind, key: segment.messageId ? `message:${segment.messageId}${occurrence ? `:segment:${occurrence}` : ''}` : `${base}-s${si}`, segment,
+          msg,
           ...(segment.kind === 'ask-user' ? { block: segment.block } : {}),
           ts: msg.timestamp,
           turnId: tid,
@@ -3095,7 +3133,7 @@ function UnitView({ unit, isThinkingExpanded, onToggleThinking, archived, runnin
       inlineVis={segment.inlineVis}
       endResourceTurn={readOnly ? null : unit.endResourceTurn}
       turnId={unit.turnId}
-      actionsHtml={unit.hasActions ? renderMsgActionsHtml({ ts: unit.ts, copyText: '', kind: 'assistant', archived, running, readOnly, goalCompletion: unit.goalCompletion }) : ''}
+      actionsHtml={unit.hasActions ? renderMsgActionsHtml({ ts: unit.ts, copyText: '', uuid: msg?.uuid, turnId: unit.turnId, kind: 'assistant', archived, running, readOnly, goalCompletion: unit.goalCompletion }) : ''}
     />
     return unit.friendFollowUp ? <FriendFollowUp text={unit.resolvedText ?? segment.text ?? ''}>{bubble}</FriendFollowUp> : bubble
   }
@@ -4038,7 +4076,6 @@ export function TranscriptView({ sessionId, container, scroll = 'none', readOnly
 
   return (
     <AgentEntranceProvider units={[...historyUnits, ...selectSessionStream(chatStreamStore.getState(), sessionId).liveUnits]} readOnly={readOnly}>
-      {scroll === 'main' ? <BranchBanner sessionId={sessionId} /> : null}
       {showHistorySkeleton ? <TranscriptHistorySkeleton label={t('loading')} /> : null}
       {!showHistorySkeleton && historyLoadFailed ? (
         <div className={`${styles['transcript-load-failed']}`} role="alert">
@@ -4277,7 +4314,7 @@ function LiveTextView({ unit, sessionId, unitProps, mediaPaths, mediaAliases, is
     : inlineVisPostProcess(markdown)
   const actionsHtml = unit.turnTail && !unit.streaming
     ? renderMsgActionsHtml({
-        ts: unit.turnTail.ts, copyText: source, kind: 'assistant',
+        ts: unit.turnTail.ts, copyText: source, uuid: unit.messageId, turnId: unit.turnId, kind: 'assistant',
         archived: unitProps.archived, running: unitProps.running, readOnly: unitProps.readOnly,
         extraHtml: unit.turnTail.meta ? renderTurnUsageMetaHtml(unit.turnTail.meta) : '',
         goalCompletion: unit.goalCompletion,
@@ -5269,26 +5306,42 @@ export function LiveTail({ sessionId, unitProps, scroll = 'none', container, tim
       }
     }
     jumpTargets.current = targets
+    const showBranchBanner = scroll === 'main'
+    const hasOlderGap = visibleFrames.some(frame => frame.saved?.nodes.some(node => node.kind === 'history-gap'))
+    let branchBoundaryKey: string | null = null
+    for (const frame of visibleFrames) {
+      if (!frame.live && frame.saved && !frame.saved.nodes.some(node => node.kind === 'history-gap')
+        && (!frame.saved.turnId || frame.saved.turnId.endsWith('-preamble'))) {
+        branchBoundaryKey = frame.key
+      }
+    }
     const renderFrame = (key: string) => {
       const frame = frameByKey.get(key)
       return frame ? <Fragment key={key}><TranscriptTurnFrame renderKey={key} identity={keys} saved={frame.saved} live={frame.live}
         liveProps={frame.liveProps} renderHistoryNode={timeline.renderNode} unitProps={unitProps} />
+        {showBranchBanner && frame.key === branchBoundaryKey ? <BranchBanner sessionId={sessionId} /> : null}
         {frame.key === latest?.key ? latestFooter : null}</Fragment> : null
     }
     const latest = visibleFrames.at(-1)
     const latestUser = [...liveUnits].reverse().find(unit => unit.type === 'live-user')
     const phase = latestTurnPhase({ running, hasWork: thinkingActive || activityVisible || Object.keys(tools).length > 0,
       texts: textUnits })
-    timelineContent = timeline.controller && container && visibleFrames.length > 0
-      ? <VirtualTranscript sessionId={sessionId} container={container} controller={timeline.controller}
-          entries={visibleFrames.map(frame => ({ key: frame.key, turnId: frame.saved?.turnId ?? frame.live?.owner,
-            historyGap: frame.saved?.nodes.some(node => node.kind === 'history-gap'),
-            firstProtectedItemId: running && (frame.saved?.turnId ?? frame.live?.owner) === turnKey
-              ? (history ?? []).filter(row => row.turnId === turnKey).at(-500)?.uuid ?? null : null,
-            estimatedHeightPx: frame.saved?.nodes.some(node => node.kind === 'history-gap') ? 144 : 280 }))}
-          renderRow={renderFrame} latestKey={latest?.key ?? null} placementKey={latest ? `${latest.key}:${latestUser?.key ?? ''}` : null}
-          phase={phase} running={running} onApiChange={onListApiChange} />
-      : visibleFrames.map(frame => renderFrame(frame.key))
+    const leadingBranchBanner = showBranchBanner && branchBoundaryKey === null && !hasOlderGap
+      ? <BranchBanner sessionId={sessionId} />
+      : null
+    timelineContent = <>
+      {leadingBranchBanner}
+      {timeline.controller && container && visibleFrames.length > 0
+        ? <VirtualTranscript sessionId={sessionId} container={container} controller={timeline.controller}
+            entries={visibleFrames.map(frame => ({ key: frame.key, turnId: frame.saved?.turnId ?? frame.live?.owner,
+              historyGap: frame.saved?.nodes.some(node => node.kind === 'history-gap'),
+              firstProtectedItemId: running && (frame.saved?.turnId ?? frame.live?.owner) === turnKey
+                ? (history ?? []).filter(row => row.turnId === turnKey).at(-500)?.uuid ?? null : null,
+              estimatedHeightPx: frame.saved?.nodes.some(node => node.kind === 'history-gap') ? 144 : 280 }))}
+            renderRow={renderFrame} latestKey={latest?.key ?? null} placementKey={latest ? `${latest.key}:${latestUser?.key ?? ''}` : null}
+            phase={phase} running={running} onApiChange={onListApiChange} />
+        : visibleFrames.map(frame => renderFrame(frame.key))}
+    </>
 
   }
   return (

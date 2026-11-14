@@ -9,7 +9,7 @@ import { describe, expect, test } from 'bun:test'
 // The stream store touches `window` at module scope, so the shim has to exist
 // BEFORE anything that imports `TranscriptView`.
 ;(globalThis as any).window = { ...(globalThis as any).window, addEventListener: () => {}, currentLang: 'en' }
-const { branchCutUuidAfter, persistedCutUuid } = await import('./TranscriptView')
+const { branchCutUuidAfter, persistedCutUuid, resolveForkCutOptions } = await import('./TranscriptView')
 const { chatStreamStore } = await import('../stream-store')
 
 /** Minimal element tree: exactly the properties the cut-point walk reads. */
@@ -59,6 +59,8 @@ class El {
 const userRow = (uuid = '') => { const row = new El(['msg-group', 'user']); row.uuid = uuid; return row }
 const assistantRow = () => new El(['msg-group', 'assistant'])
 const turnWrapper = () => new El([], { 'data-klaus-transcript-turn': '' })
+const virtualRowWrapper = (key: string, child: El) => new El().append(new El([], { 'data-virtual-turn-key': key }).append(child))
+const virtualListRoot = () => new El([], { 'data-virtual-turn-list': '' })
 const asHtml = (el: El) => el as unknown as HTMLElement
 
 describe('the fork cut point after an assistant reply', () => {
@@ -69,6 +71,17 @@ describe('the fork cut point after an assistant reply', () => {
     const u1 = userRow('u1'), a1 = assistantRow()
     const u2 = userRow('u2'), a2 = assistantRow()
     root.append(turnWrapper().append(u1, a1), turnWrapper().append(u2, a2))
+    expect(branchCutUuidAfter(asHtml(a1))).toBe('u2')
+  })
+
+  test('crosses virtualized row wrappers inside data-virtual-turn-list', () => {
+    const list = virtualListRoot()
+    const u1 = userRow('u1'), a1 = assistantRow()
+    const u2 = userRow('u2'), a2 = assistantRow()
+    list.append(
+      virtualRowWrapper('turn-1', turnWrapper().append(u1, a1)),
+      virtualRowWrapper('turn-2', turnWrapper().append(u2, a2)),
+    )
     expect(branchCutUuidAfter(asHtml(a1))).toBe('u2')
   })
 
@@ -149,5 +162,45 @@ describe('the persisted uuid behind a live optimistic row', () => {
     const u1 = userRow('u1'), a1 = assistantRow()
     root.append(turnWrapper().append(u1, a1), turnWrapper().append(userRow('submission:x')))
     expect(branchCutUuidAfter(asHtml(a1), 'sess')).toBe('p2')
+  })
+})
+
+describe('deterministic fork cut resolution without DOM guessing', () => {
+  test('an assistant reply with a persisted turnId cuts inclusively by lastTurnId even when later turns are unmounted', () => {
+    const list = virtualListRoot()
+    const a2 = assistantRow()
+    list.append(virtualRowWrapper('turn-2', turnWrapper().append(userRow('u2'), a2)))
+    expect(resolveForkCutOptions('sess', false, 'a2', 'turn-2', asHtml(a2))).toEqual({
+      ok: true,
+      options: { lastTurnId: 'turn-2' },
+    })
+  })
+
+  test('an inherited preamble assistant reply cuts inclusively by afterMessageUuid', () => {
+    const list = virtualListRoot()
+    const a1 = assistantRow()
+    list.append(virtualRowWrapper('sess-preamble', turnWrapper().append(userRow('u1'), a1)))
+    expect(resolveForkCutOptions('sess', false, 'a1', 'sess-preamble', asHtml(a1))).toEqual({
+      ok: true,
+      options: { afterMessageUuid: 'a1' },
+    })
+  })
+
+  test('an unpersisted assistant row inside a virtualized list is refused instead of silently copying the full chat', () => {
+    const list = virtualListRoot()
+    const liveReply = assistantRow()
+    list.append(virtualRowWrapper('live', turnWrapper().append(liveReply)))
+    expect(resolveForkCutOptions('sess', false, '', 'live', asHtml(liveReply))).toEqual({ ok: false })
+  })
+
+  test('a user row cuts strictly before its persisted uuid or stopped turn id', () => {
+    expect(resolveForkCutOptions('sess', true, 'u2', 'turn-2', null)).toEqual({
+      ok: true,
+      options: { beforeMessageUuid: 'u2' },
+    })
+    expect(resolveForkCutOptions('sess', true, '', 'turn-stopped', null)).toEqual({
+      ok: true,
+      options: { beforeTurnId: 'turn-stopped' },
+    })
   })
 })

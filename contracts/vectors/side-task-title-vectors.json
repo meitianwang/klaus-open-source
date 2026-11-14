@@ -1,7 +1,7 @@
 {
-  "reason": "Side-tab labels derive once from the visible request after a valid turn/start acknowledgement. Queue admission and quote attachment do not rename; successful queued dispatch follows the same acceptance rule. Empty or media-only first accepted turns consume the first-turn state without falling back to quoted context. The first accepted nonempty request also replaces a before-first manual label; later manual names are preserved. Default numbering uses the visible target-panel count plus one: the renderer sends its captured index so pending and active labels agree. Internal host callers without that override fall back to the current family count plus one. Side labels retain the full normalized request and stay independent of ordinary seed/AI title generation; lifecycle behavior is unchanged.",
+  "reason": "Side-tab labels derive once from the visible request after a valid turn/start acknowledgement. Queue admission and quote attachment do not rename; successful queued dispatch follows the same acceptance rule. Empty or media-only first accepted turns consume the first-turn state without falling back to quoted context. The first accepted nonempty request also replaces a before-first manual label; later manual names are preserved. Default numbering uses the visible target-panel count plus one: the renderer sends its captured index so pending and active labels agree. Internal host callers without that override fall back to the current family count plus one. Side labels retain the full normalized request and stay independent of ordinary first-turn AI title generation; lifecycle behavior is unchanged.",
   "basis": {
-    "normalization": "Static source-derived Markdown/request acceptance cases for qW = nonempty VV(yp(input).trim()) else null. The full normalization_cases set is committed here; runtime tests only exercise Klaus behavior against this vector.",
+    "normalization": "Committed Markdown/request normalization cases for trimming plain visible request text. Runtime tests exercise Klaus behavior against this vector.",
     "normalizationCaseCount": 36,
     "boundaries": "Klaus selected-text envelopes, explicit default-looking labels, HTML/directive edges and long Unicode/ASCII requests."
   },
@@ -24,7 +24,7 @@
     "queueAdmissionRenames": false,
     "emptyTitleConsumesFirstTurn": true,
     "automaticLengthCap": null,
-    "ordinaryTitlePipeline": "seed-then-first-turn-generation",
+    "ordinaryTitlePipeline": "first-turn-ai-generation",
     "manualBeforeFirstReplaced": true,
     "manualAfterFirstProtected": true
   },
@@ -275,6 +275,6 @@
   "ordinaryRegression": {
     "text": "# Main **prompt** AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
     "expectedSeed": "# Main **prompt** AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA…",
-    "generatedTitle": "Generated ordinary conversation title"
+    "generatedTitle": "Generated ordinary chat title"
   }
 }

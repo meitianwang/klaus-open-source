@@ -102,9 +102,19 @@ export function registerSessionHandlers(registry: ChannelRegistry, deps: {
     },
     'session:fork': context => {
       const value = payload(context);
-      if (value.beforeMessageUuid != null && typeof value.beforeMessageUuid !== 'string') throw new IpcHandlerError('BAD_REQUEST', 'beforeMessageUuid must be a string');
+      for (const field of ['beforeMessageUuid', 'afterMessageUuid', 'lastTurnId', 'beforeTurnId'] as const) {
+        if (value[field] != null && typeof value[field] !== 'string') {
+          throw new IpcHandlerError('BAD_REQUEST', `${field} must be a string`);
+        }
+      }
       if (value.inheritGoal !== undefined && typeof value.inheritGoal !== 'boolean') throw new IpcHandlerError('BAD_REQUEST', 'inheritGoal must be a boolean');
-      return sessions.forkSession(requiredString(value, 'sessionId'), typeof value.beforeMessageUuid === 'string' ? value.beforeMessageUuid : undefined, value.inheritGoal === true);
+      return sessions.forkSession(requiredString(value, 'sessionId'), {
+        ...(typeof value.beforeMessageUuid === 'string' ? { beforeMessageUuid: value.beforeMessageUuid } : {}),
+        ...(typeof value.afterMessageUuid === 'string' ? { afterMessageUuid: value.afterMessageUuid } : {}),
+        ...(typeof value.lastTurnId === 'string' ? { lastTurnId: value.lastTurnId } : {}),
+        ...(typeof value.beforeTurnId === 'string' ? { beforeTurnId: value.beforeTurnId } : {}),
+        inheritGoal: value.inheritGoal === true,
+      });
     },
     'session:export': context => {
       const id = requiredString(payload(context), 'sessionId');

@@ -145,14 +145,14 @@ h.test('notification pending policy reads actual side-task ownership without act
 h.test('notification pending policy retains actual start identity after a terminal clears working state before its ACK', async () => {
   const f = fixture(), held = deferred<void>();
   f.client.heldTurnStart = () => held.promise;
-  f.client.turnStartReply = { status: 'started', submissionId: 'held-own-start', turnId: 'held-own-start' };
   const sending = f.service.send('parent', { text: 'Held start reply' });
   await waitFor(() => f.client.sent('turn/submit').length === 1, 2000, 'ordinary turn reached held ACK');
+  const ownStart = String(f.client.sent('turn/submit')[0]!.submissionId);
   const engineId = f.state.liveSession('parent')!;
-  f.client.emit('event', { type: 'productEvent', method: 'turn/started', params: { sessionId: engineId, submissionId: 'held-own-start', detail: { turnId: 'held-own-core' } } });
+  f.client.emit('event', { type: 'productEvent', method: 'turn/started', params: { sessionId: engineId, submissionId: ownStart, detail: { turnId: 'held-own-core' } } });
   f.state.clearTurnRunning('parent');
   const before = f.client.calls.length;
-  assertEqual(f.service.hasPendingNotificationWork('parent', 'held-own-start', []), false, 'own authoritative facade identity is not other pending work');
+  assertEqual(f.service.hasPendingNotificationWork('parent', ownStart, []), false, 'own authoritative facade identity is not other pending work');
   assertEqual(f.service.hasPendingNotificationWork('parent', 'held-own-core', []), false, 'actual core alias remains correlated after success settlement');
   assert(f.service.hasPendingNotificationWork('parent', 'unrelated-turn', []), 'unrelated terminal cannot consume the pending start');
   assertEqual(f.client.calls.length, before, 'classification adds no engine request');
@@ -383,9 +383,8 @@ h.test('ordinary first-content fallback and one AI title generation remain indep
   await new Promise<void>(resolve => setImmediate(resolve));
   assertEqual(client.sent('session/generateTitle').length, 0, 'side completion uses no ordinary title inference');
   await service.send('parent', { text: expected.text });
-  await waitFor(() => readSessionTitle('parent', root)?.source === 'seed', 1000, 'ordinary accepted content still seeds the title');
-  assertEqual(titleVectors.acceptance.ordinaryTitlePipeline, 'seed-then-first-turn-generation', 'ordinary pipeline contract');
-  assertEqual(readSessionTitle('parent', root)?.title, expected.expectedSeed, 'ordinary sixty-codepoint fallback still retains its existing raw formatting');
+  assertEqual(titleVectors.acceptance.ordinaryTitlePipeline, 'first-turn-ai-generation', 'ordinary pipeline contract');
+  assertEqual(readSessionTitle('parent', root), undefined, 'ordinary send keeps placeholder until first-turn AI generation');
   client.emit('event', { type: 'productEvent', method: 'turn/started', params: { sessionId: state.liveSession('parent'), turnId: 'turn' } });
   await waitFor(() => readSessionTitle('parent', root)?.source === 'ai', 1000, 'the first turn generates the ordinary title');
   state.clearTurnRunning('parent');
@@ -397,7 +396,7 @@ h.test('ordinary first-content fallback and one AI title generation remain indep
   assertEqual(readSessionTitle('parent', root)?.title, expected.generatedTitle, 'ordinary AI result remains authoritative');
   assertEqual(readSessionTitle(id, root), undefined, 'side title remains outside ordinary durable state');
   assertEqual((await sideRow(service, id)).title, 'Side request', 'ordinary inference does not rewrite the side tab');
-  assertDeepEqual(titleEvents(events, 'parent').map(value => object(value)?.title), [expected.expectedSeed, expected.generatedTitle], 'ordinary fallback and AI title publish in the existing order');
+  assertDeepEqual(titleEvents(events, 'parent').map(value => object(value)?.title), [expected.generatedTitle], 'ordinary first-turn AI title publishes once');
 });
 
 for (const vector of preferenceVectors.cases) h.test(`side task inherits preferences: ${vector.name}`, async () => {

@@ -3168,11 +3168,35 @@ export class SessionService {
       ...(options.workspaceId ? this.deps.workspaces?.workspaceRoots(options.workspaceId) ?? [] : []),
     ], () => this.mutate(rendererId, () => this.createSession(rendererId, options)));
   }
-  private createSession(rendererId: string, options: NewSessionOptions, source?: { threadId: string; beforeMessageUuid?: string; sideTask?: boolean; inheritGoal?: boolean }): Promise<Json> {
+  private createSession(
+    rendererId: string,
+    options: NewSessionOptions,
+    source?: {
+      threadId: string;
+      beforeMessageUuid?: string;
+      afterMessageUuid?: string;
+      lastTurnId?: string;
+      beforeTurnId?: string;
+      sideTask?: boolean;
+      inheritGoal?: boolean;
+    },
+  ): Promise<Json> {
     return this.trackSessionRecovery(rendererId, () => this.createSessionNow(rendererId, options, source));
   }
 
-  private async createSessionNow(rendererId: string, options: NewSessionOptions, source?: { threadId: string; beforeMessageUuid?: string; sideTask?: boolean; inheritGoal?: boolean }): Promise<Json> {
+  private async createSessionNow(
+    rendererId: string,
+    options: NewSessionOptions,
+    source?: {
+      threadId: string;
+      beforeMessageUuid?: string;
+      afterMessageUuid?: string;
+      lastTurnId?: string;
+      beforeTurnId?: string;
+      sideTask?: boolean;
+      inheritGoal?: boolean;
+    },
+  ): Promise<Json> {
     const requested = typeof options.workdir === 'string' && options.workdir.trim().length > 0
       ? options.workdir.trim()
       : null;
@@ -3256,8 +3280,16 @@ export class SessionService {
     // A fork must bind the fresh endpoint before any task/history snapshot materializes it.
     if (source && !source.sideTask) {
       const method = 'session/forkSession';
-      const params = { sessionId: engineId, threadId: source.threadId, newThreadId: rendererId,
-        ...(source.beforeMessageUuid ? { beforeMessageUuid: source.beforeMessageUuid } : {}), ...(source.inheritGoal ? { inheritGoal: true } : {}) };
+      const params = {
+        sessionId: engineId,
+        threadId: source.threadId,
+        newThreadId: rendererId,
+        ...(source.beforeMessageUuid ? { beforeMessageUuid: source.beforeMessageUuid } : {}),
+        ...(source.afterMessageUuid ? { afterMessageUuid: source.afterMessageUuid } : {}),
+        ...(source.lastTurnId ? { lastTurnId: source.lastTurnId } : {}),
+        ...(source.beforeTurnId ? { beforeTurnId: source.beforeTurnId } : {}),
+        ...(source.inheritGoal ? { inheritGoal: true } : {}),
+      };
       const reply = await requestAcknowledged(client, method, params, 'session', SESSION_START_TIMEOUT_MS);
       const result = object(reply);
       if (result?.threadId !== rendererId) throw new IpcHandlerError('INVALID_ENGINE_RESPONSE', 'The engine returned a different branch identity');
@@ -3294,6 +3326,7 @@ export class SessionService {
       if (live && startupClient) await this.cleanupStartedSession(startupClient, rendererId, live, error);
       if (error instanceof SessionPreparationPendingError) throw error;
       if (source && !source.sideTask && startedEngineId) {
+        forgetEphemeralPreferences(rendererId, this.configRoot);
         const cleanupError = await this.deleteIncompleteBranch(rendererId);
         if (cleanupError) {
           // The half-built endpoint never ran a turn, so nothing user-visible
@@ -3462,9 +3495,28 @@ export class SessionService {
     }
   }
 
-  forkSession(rendererId: string, beforeMessageUuid?: string, inheritGoal = false): Promise<Json> {
+  forkSession(
+    rendererId: string,
+    cutOrOptions?: string | {
+      beforeMessageUuid?: string;
+      afterMessageUuid?: string;
+      lastTurnId?: string;
+      beforeTurnId?: string;
+      inheritGoal?: boolean;
+    },
+    legacyInheritGoal = false,
+  ): Promise<Json> {
     if (friendSessionScope(this.configRoot, rendererId)) return Promise.reject(new IpcHandlerError('FRIEND_SCOPE_DENIED', 'Friend task conversations cannot be forked into unrestricted conversations'));
-    if (beforeMessageUuid !== undefined && (!beforeMessageUuid.trim() || Buffer.byteLength(beforeMessageUuid) > 4096)) throw new IpcHandlerError('BAD_REQUEST', 'Invalid branch message identity');
+    const opts = typeof cutOrOptions === 'string'
+      ? { beforeMessageUuid: cutOrOptions, inheritGoal: legacyInheritGoal }
+      : cutOrOptions === undefined
+        ? { inheritGoal: legacyInheritGoal }
+        : { ...cutOrOptions, inheritGoal: cutOrOptions.inheritGoal ?? legacyInheritGoal };
+    const cuts = [opts.beforeMessageUuid, opts.afterMessageUuid, opts.lastTurnId, opts.beforeTurnId].filter(v => v !== undefined);
+    for (const cut of cuts) {
+      if (!cut.trim() || Buffer.byteLength(cut) > 4096) throw new IpcHandlerError('BAD_REQUEST', 'Invalid branch message identity');
+    }
+    if (cuts.length > 1) throw new IpcHandlerError('BAD_REQUEST', 'At most one branch cut point may be specified');
     const branchId = randomSessionId();
     return this.directories.run(async () => [...this.resourceRoots(rendererId), join(this.configRoot, 'sessions', branchId)],
       () => this.mutate(rendererId, async () => {
@@ -3497,8 +3549,17 @@ export class SessionService {
         const baseTitle = sourceTitle.replace(/\s*·\s*Branch$/i, '');
         const title = `${baseTitle} · Branch`;
         const forkedFrom = { sessionId: rendererId, threadId: rendererId, title: baseTitle };
+        inheritSessionComposerPreferences(rendererId, branchId, this.configRoot);
         const row = object(await this.mutate(branchId, () => this.createSession(branchId,
-          { workdir, workspaceId, projectRoot, title, hostMetadata: { forkedFrom } }, { threadId: rendererId, beforeMessageUuid, inheritGoal })))!;
+          { workdir, workspaceId, projectRoot, title, hostMetadata: { forkedFrom } },
+          {
+            threadId: rendererId,
+            beforeMessageUuid: opts.beforeMessageUuid,
+            afterMessageUuid: opts.afterMessageUuid,
+            lastTurnId: opts.lastTurnId,
+            beforeTurnId: opts.beforeTurnId,
+            inheritGoal: opts.inheritGoal,
+          })))!;
         return { ...row, archived: false, forkedFrom };
       }));
   }
@@ -4033,7 +4094,8 @@ export class SessionService {
     let engineId: string;
     try { engineId = await this.resolveLiveSession(rendererId, false, false); }
     catch (startupError) {
-      if (this.deleted.has(rendererId) || this.isSideTask(rendererId) || rendererId.startsWith('__')) throw startupError;
+      const side = this.sideTasks.get(rendererId);
+      if (this.deleted.has(rendererId) || (side && side.phase !== 'active') || rendererId.startsWith('__')) throw startupError;
       // The complete saved transcript remains readable when its provider cannot resume.
       try {
         return await this.storedHistory(rendererId);
