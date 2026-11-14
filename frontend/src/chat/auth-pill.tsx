@@ -227,6 +227,22 @@ export function paintableAuthMode(
   return modeSession === (currentSessionId ?? null) ? mode : null
 }
 
+/**
+ * A welcome draft's first send promotes it to a real conversation without
+ * changing its provider. Carrying the draft's remembered mark onto the new
+ * conversation lets the notice paint it in the same frame, so the pill never
+ * steps out of the row while the host read runs. Ordinary switches never
+ * inherit: their target has its own provider.
+ */
+export function promoteWelcomeSourceMemory(
+  memory: Map<string | null, string>,
+  detail: { sessionId?: string | null; promotedFromWelcome?: boolean } | null | undefined,
+): void {
+  if (!detail?.promotedFromWelcome || !detail.sessionId || memory.has(detail.sessionId)) return
+  const welcomeSource = memory.get(null)
+  if (welcomeSource !== undefined) memory.set(detail.sessionId, welcomeSource)
+}
+
 function AuthModePill() {
   useT() // 语言切换时重渲 title/aria
   const [mode, setMode] = useState<string | null>(null)
@@ -277,7 +293,11 @@ function AuthModePill() {
   // Source/config changes and session switches can all change the effective
   // source shown here because a conversation keeps its own concrete model.
   useEffect(() => {
-    const changed = () => {
+    const changed = (event?: Event) => {
+      promoteWelcomeSourceMemory(
+        sourceMemory.current,
+        (event as CustomEvent<{ sessionId?: string | null; promotedFromWelcome?: boolean }> | undefined)?.detail,
+      )
       menuRequests.invalidate()
       setMenu(null)
       kick()

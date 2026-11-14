@@ -334,7 +334,7 @@ export const CONTROL_SURFACES: ControlSurface[] = [
       {
         "action": "new",
         "channel": "session:new",
-        "args": "{ workdir?: string, workspaceId?: string, projectRoot?: string }",
+        "args": "{ workdir?: string, workspaceId?: string, projectRoot?: string, orchestrationMode?: boolean, ultraMode?: boolean }",
         "confirm": false,
         "currentSession": false
       },

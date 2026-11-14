@@ -50,7 +50,7 @@ import { buildSessionInitAsync, desktopMediaDirective, inlineVisualizationDirect
 import { ensureSessionVisualizationsDir } from '../services/visualizations';
 import { resolveModelTierTargets, type SessionProviderDeps } from '../services/session-provider';
 import { readModelTierMapping } from '../services/model-tier-settings';
-import { applySessionRuntimePolicy, bindSessionWorkdir, forgetEphemeralPreferences, inheritSessionComposerPreferences, pinSessionModel, readSessionModel, readSessionThinkingLevel, setSessionThinkingLevel, sessionWorkdir } from '../services/session-store';
+import { applySessionOrchestrationSelection, applySessionRuntimePolicy, applySessionUltraSelection, bindSessionWorkdir, forgetEphemeralPreferences, inheritSessionComposerPreferences, pinSessionModel, readSessionModel, readSessionThinkingLevel, setSessionThinkingLevel, sessionWorkdir } from '../services/session-store';
 import { applySessionAgent, assertSessionAgent, bindSessionAgent, sessionAgent, type SessionAgentProfile } from '../services/session-agent';
 import { requestAcknowledged } from '../engine/acknowledged';
 import type { ClientEvent } from '../engine/protocol';
@@ -196,6 +196,10 @@ interface NewSessionOptions {
   modelOverride?: string;
   /** Thinking level frozen onto the new conversation (scheduled tasks), read by the session init. */
   thinkingOverride?: string;
+  /** Work modes chosen on a draft before the conversation existed. They apply to this
+   *  conversation only and never rewrite the defaults for future chats. */
+  orchestrationModeOverride?: boolean;
+  ultraModeOverride?: boolean;
   /** Host-owned work directory that must not register a standalone local project. */
   localWorkdir?: string;
   agentProfile?: SessionAgentProfile;
@@ -3214,6 +3218,18 @@ export class SessionService {
     else if (options.runtimePolicyOverride) applySessionRuntimePolicy(rendererId, { policy: { ...options.runtimePolicyOverride } }, this.configRoot);
     if (options.modelOverride) pinSessionModel(this.configRoot, rendererId, options.modelOverride);
     if (options.thinkingOverride) setSessionThinkingLevel(rendererId, options.thinkingOverride, this.configRoot);
+    // A draft can carry a work mode picked before its conversation existed. Write
+    // it as this conversation's own selection, before the init is built, so the
+    // first turn and every later read see it without a second chain of writes.
+    if (typeof options.orchestrationModeOverride === 'boolean') {
+      applySessionOrchestrationSelection(rendererId, options.orchestrationModeOverride, this.configRoot, undefined, { updateDefaults: false });
+    }
+    if (typeof options.ultraModeOverride === 'boolean') {
+      // Ultra clears orchestration inside the same transaction; reading the model
+      // first binds the source-scoped last choice to this conversation's source.
+      readSessionModel(rendererId, this.configRoot);
+      applySessionUltraSelection(rendererId, options.ultraModeOverride, this.configRoot, undefined, { updateDefaults: false });
+    }
     if (options.localWorkdir) bindSessionWorkdir(rendererId, options.localWorkdir, this.configRoot);
     if (options.agentProfile) bindSessionAgent(this.configRoot, rendererId, options.agentProfile);
     const resolvedBinding = this.deps.workspaces ? await this.directory(rendererId) : options.localWorkdir ?? requested ?? sessionDir(rendererId, this.configRoot);

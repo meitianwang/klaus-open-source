@@ -25,8 +25,12 @@ export function registerSessionHandlers(registry: ChannelRegistry, deps: {
       if (value.workdir != null && typeof value.workdir !== 'string') throw new IpcHandlerError('BAD_REQUEST', 'workdir must be a path');
       if (value.workspaceId != null && typeof value.workspaceId !== 'string') throw new IpcHandlerError('BAD_REQUEST', 'workspaceId must be a string');
       if (value.projectRoot != null && typeof value.projectRoot !== 'string') throw new IpcHandlerError('BAD_REQUEST', 'projectRoot must be a path');
+      if (value.orchestrationMode !== undefined && typeof value.orchestrationMode !== 'boolean') throw new IpcHandlerError('BAD_REQUEST', 'orchestrationMode must be a boolean');
+      if (value.ultraMode !== undefined && typeof value.ultraMode !== 'boolean') throw new IpcHandlerError('BAD_REQUEST', 'ultraMode must be a boolean');
       return sessions.newSession({ workdir: value.workdir as string | null | undefined, workspaceId: value.workspaceId as string | null | undefined,
-        projectRoot: value.projectRoot as string | null | undefined });
+        projectRoot: value.projectRoot as string | null | undefined,
+        ...(typeof value.orchestrationMode === 'boolean' ? { orchestrationModeOverride: value.orchestrationMode } : {}),
+        ...(typeof value.ultraMode === 'boolean' ? { ultraModeOverride: value.ultraMode } : {}) });
     },
     'session:list': () => sessions.listSessions(),
     'session:mention-candidates': context => {

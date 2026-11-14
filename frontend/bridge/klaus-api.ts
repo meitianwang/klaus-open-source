@@ -263,7 +263,7 @@ expose('klaus', {
 
   // Sessions
   session: {
-    new: (opts?: { workdir?: string | null; workspaceId?: string | null; projectRoot?: string | null }) => call('session:new', opts ?? {}),
+    new: (opts?: { workdir?: string | null; workspaceId?: string | null; projectRoot?: string | null; orchestrationMode?: boolean; ultraMode?: boolean }) => call('session:new', opts ?? {}),
     list: () => call('session:list'),
     /**
      * Search conversation titles for the composer menu. Empty or whitespace-only

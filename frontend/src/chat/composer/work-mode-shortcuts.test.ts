@@ -11,6 +11,9 @@ import {
 import { createPlanReviewController } from '../planning/plan-controller'
 import { ProposedPlanReview } from '../planning/plan-card'
 import { GlobalModelTiers } from '../../pages/settings/global-model-tiers'
+import { readFileSync } from 'node:fs'
+import { runInNewContext } from 'node:vm'
+import { createSourceFile, isFunctionDeclaration, ScriptTarget, transpileModule } from 'typescript'
 
 const previousWindow = (globalThis as any).window
 beforeAll(() => {
@@ -61,6 +64,62 @@ describe('work mode shortcuts', () => {
     expect(ok).toBe(true)
     expect(draft).toBe('refactor payment retries')
     expect(caret).toBe(0)
+  })
+
+  test('strips the command token before the toggle resolves and keeps text typed meanwhile', async () => {
+    let draft = 'refactor payment retries /orchestrate'
+    let caret = 0
+    const sessionIds = ['sess-1', 'sess-1', 'sess-1']
+    let release: (ok: boolean) => void = () => {}
+    const pending = new Promise<boolean>(resolve => { release = resolve })
+    const running = activateModeToggleShortcut({
+      sessionId: () => sessionIds.shift() ?? 'sess-1',
+      readDraft: () => draft,
+      toggle: async () => pending,
+      replaceDraft: (next, nextCaret) => { draft = next; caret = nextCaret },
+    }, { start: 25, end: 37 })
+    // The trigger is already gone while the toggle is still pending.
+    expect(draft).toBe('refactor payment retries ')
+    expect(caret).toBe(25)
+    // Text typed during the wait survives the toggle completing.
+    draft = 'refactor payment retries and add metrics'
+    release(true)
+    expect(await running).toBe(true)
+    expect(draft).toBe('refactor payment retries and add metrics')
+  })
+
+  test('restores the original draft when a refused toggle left the draft untouched', async () => {
+    let draft = 'refactor /ultra retries'
+    let caret = 0
+    const ok = await activateModeToggleShortcut({
+      sessionId: () => 'sess-1',
+      readDraft: () => draft,
+      toggle: async () => false,
+      replaceDraft: (next, nextCaret) => { draft = next; caret = nextCaret },
+    }, { start: 9, end: 15 })
+    expect(ok).toBe(false)
+    expect(draft).toBe('refactor /ultra retries')
+    expect(caret).toBe(15)
+  })
+
+  test('a refused toggle leaves the draft alone once the user typed or the conversation moved on', async () => {
+    let draft = '/orchestrate refactor'
+    let caret = 0
+    let session = 'sess-1'
+    let release: (ok: boolean) => void = () => {}
+    const pending = new Promise<boolean>(resolve => { release = resolve })
+    const running = activateModeToggleShortcut({
+      sessionId: () => session,
+      readDraft: () => draft,
+      toggle: async () => pending,
+      replaceDraft: (next, nextCaret) => { draft = next; caret = nextCaret },
+    }, { start: 0, end: 12 })
+    expect(draft).toBe('refactor')
+    draft = 'refactor plus more'
+    session = 'sess-2'
+    release(false)
+    expect(await running).toBe(false)
+    expect(draft).toBe('refactor plus more')
   })
 
   test('aligns all four mode badges to concise labels and plain-language descriptions', async () => {
@@ -177,6 +236,8 @@ describe('orchestrator fallback confirmation modal lifecycle', () => {
         memorySnapshot: { respond: () => {} },
       }
       const approvals = await import('../approvals')
+      // i18n initializes `currentLang` at module load, so re-assert the locale after the import.
+      ;(happy as any).currentLang = 'zh'
       const pendingElicitsBySession = new Map<string, any[]>()
       approvals.initApprovals({
         currentSessionId: () => activeSession,
@@ -249,5 +310,95 @@ describe('orchestrator fallback confirmation modal lifecycle', () => {
         else delete (globalThis as any)[key]
       }
     }
+  })
+})
+
+// Work modes chosen on the new chat screen are a draft: they must stay local
+// until a conversation exists, survive preference pushes that still report the
+// defaults, and be inherited when that draft is promoted to a session.
+describe('welcome work mode draft lifecycle', () => {
+  const source = createSourceFile('chat.ts', readFileSync(new URL('../chat.ts', import.meta.url), 'utf8'), ScriptTarget.ESNext, true)
+  const names = [
+    'effectiveWelcomeWorkModes',
+    'patchCachedSessionWorkModes',
+    'seedPromotedComposerPreferences',
+    'setComposerOrchestrateMode',
+    'setComposerUltraMode',
+    'syncWorkModeBadgesFromPreferences',
+    'clearWorkModesForGoal',
+    'cacheComposerPreferences',
+  ]
+  const declarations = names.map(name => {
+    const node = source.statements.find(node => isFunctionDeclaration(node) && node.name?.text === name)
+    if (!node) throw new Error(`Missing work mode function: ${name}`)
+    return node.getText(source)
+  }).join('\n')
+  const script = transpileModule(`${declarations}\n({ ${names.join(',')}, get composerOrchestrateEnabled() { return composerOrchestrateEnabled }, get composerUltraEnabled() { return composerUltraEnabled } })`, { compilerOptions: { target: ScriptTarget.ES2022 } }).outputText
+
+  function fixture() {
+    const orchestrationCalls: unknown[] = []
+    const ultraCalls: unknown[] = []
+    const ensureSessionCalls: string[] = []
+    const setItems: unknown[] = []
+    const context: any = {
+      window: { currentSessionId: null },
+      currentSessionId: null,
+      composerSpecEnabled: false,
+      composerGoalEnabled: false,
+      composerUltraEnabled: false,
+      composerOrchestrateEnabled: false,
+      welcomeWorkMode: null,
+      workModeMutationRevision: 0,
+      composerPreferencesRevision: 0,
+      composerPreferencesSnapshot: null,
+      composerPreferencesBySession: new Map<string | null, any>(),
+      ensureSession: async () => { ensureSessionCalls.push('ensure'); return 'created-session' },
+      showToast() {},
+      updateWorkModeBadges() {},
+      updateOrchestrateBadge() {},
+      updateUltraBadge() {},
+      setComposerGoalEnabled() {},
+      applyPlanningUpdated() {},
+      tt: (key: string) => key,
+      klausApi: { session: {
+        setOrchestrationMode: async (enabled: boolean, sessionId?: string | null) => { orchestrationCalls.push({ enabled, sessionId }) },
+        setUltraMode: async (enabled: boolean, sessionId?: string | null) => { ultraCalls.push({ enabled, sessionId }) },
+        setCollaborationMode: async () => ({ planning: {} }),
+      } },
+      mainModelApi: { setItems: (items: unknown, opts: unknown) => setItems.push({ items, opts }) },
+      mainModelCatalogCache: { get: () => null, invalidate() {}, revalidate: async () => [] },
+      composerModelReadinessCache: { invalidate() {}, remember() {} },
+      mainModelMenuValue: () => '',
+      sidePaneRuntimes: new Map(),
+    }
+    const api = runInNewContext(script, context) as Record<string, any>
+    return { api, context, orchestrationCalls, ultraCalls, ensureSessionCalls, setItems }
+  }
+
+  test('a welcome orchestration pick stays local and survives a defaults push', async () => {
+    const f = fixture()
+    const ok = await f.api.setComposerOrchestrateMode(true)
+    expect(ok).toBe(true)
+    expect(f.ensureSessionCalls).toEqual([])
+    expect(f.orchestrationCalls).toEqual([])
+    expect(f.api.composerOrchestrateEnabled).toBe(true)
+    f.api.syncWorkModeBadgesFromPreferences({ sessionId: null, orchestrationMode: false, ultraMode: false } as any)
+    expect(f.api.composerOrchestrateEnabled).toBe(true)
+    expect(f.api.composerUltraEnabled).toBe(false)
+  })
+
+  test('promoting a welcome draft seeds the promoted session with the picked mode', () => {
+    const f = fixture()
+    f.context.composerPreferencesSnapshot = {
+      sessionId: null, source: 'codex', items: [], mode: 'codex:gpt-6.1', thinkingLevel: 'medium',
+      ultraMode: false, orchestrationMode: false, fastMode: false, permissionMode: null, unavailable: false,
+    }
+    f.api.seedPromotedComposerPreferences('promoted-1', 'orchestrate')
+    expect(f.context.composerPreferencesBySession.get('promoted-1')).toMatchObject({
+      sessionId: 'promoted-1',
+      orchestrationMode: true,
+      ultraMode: false,
+    })
+    expect(f.context.composerPreferencesBySession.get('promoted-1')?.mode).toBe('codex:gpt-6.1')
   })
 })

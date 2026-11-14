@@ -23,6 +23,7 @@ const names = [
   'cacheComposerPreferences',
   'concreteStoredModel',
   'reconcileUnavailableComposerModel',
+  'invalidateComposerPreferenceReads',
 ]
 const declarations = names.map(name => {
   const node = source.statements.find(node => isFunctionDeclaration(node) && node.name?.text === name)
@@ -48,6 +49,7 @@ function fixture() {
     sideComposerModelRevision: 0,
     composerPreferencesSnapshot: null,
     composerPreferencesBySession: new Map(),
+    sidePaneRuntimes: new Map(),
     mainModelApi: { setItems(items: any[], opts: Record<string, unknown>) { sets.push({ items, opts }) }, setValue() {}, setRuntime() {}, refresh() {}, close() {} },
     permissionSelectApi: { setValue() {}, setUnavailable() {}, refresh() {}, close() {} },
     predictionModelSelections: new Map(),
@@ -197,4 +199,27 @@ test('switching models, model sources or composer modes never invalidates settle
   await f.api.refreshCatalogSource('codex')
   expect(f.predictionCalls.some(call => call.startsWith('invalidate:'))).toBe(false)
   expect(f.predictionCalls).toEqual(['recheck:codex-chat', 'recheck:codex-chat', 'recheck:*'])
+})
+
+test('a session switch without a catalog change keeps the resolved catalog rows', async () => {
+  const f = fixture()
+  await f.api.refreshComposerPreferences()
+  let catalogInvalidations = 0
+  f.context.mainModelCatalogCache = { ...f.context.mainModelCatalogCache, invalidate() { catalogInvalidations++ } }
+  f.sets.length = 0
+  f.api.invalidateComposerPreferenceReads({ catalog: false })
+  await f.api.refreshComposerPreferences()
+  expect(catalogInvalidations).toBe(0)
+  expect(f.sets.some(call => call.opts.loading === true)).toBe(false)
+})
+
+test('a matching snapshot seeds the picker with its reasoning level instead of the pending state', async () => {
+  const f = fixture()
+  f.setSnapshot({ ...codexSnapshot('codex-chat', 'codex:gpt-5.1'), thinkingLevel: 'high' })
+  f.sets.length = 0
+  await f.api.refreshComposerPreferences()
+  const seed = f.sets[0]
+  expect(seed?.opts.loading).toBeFalsy()
+  expect(seed?.opts.value).toBe('codex:gpt-5.1')
+  expect(seed?.opts.thinkingLevel).toBe('high')
 })

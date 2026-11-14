@@ -6,6 +6,7 @@ import { Harness } from './harness';
 import { ComposerService } from '../main/services/composer';
 import { ModelFeatureSettings } from '../main/services/model-features';
 import {
+  applySessionOrchestrationSelection,
   readSessionOrchestrationMode,
   readSessionUltraMode,
   readSessionThinkingLevel,
@@ -262,6 +263,65 @@ h.test('orchestrator fallback events project toast frames and unattended schedul
     reasonCode: 'quota',
   });
   forwarder.close();
+});
+
+h.test('work mode changes push only the preferences they actually alter', async () => {
+  const root = fresh();
+  const pushed: unknown[] = [];
+  const values = runtimePolicyConfig(presetRuntimePolicy('default')) as JsonObject;
+  const service = new ComposerService({
+    configRoot: root,
+    push: (channel: string, payload: unknown) => pushed.push({ channel, payload }),
+    onSessionConfigChanged: () => {},
+    request: async (method: string, raw: Json) => {
+      if (method === 'config/read') return { values: structuredClone(values), resolved: structuredClone(values), version: '1' };
+      if (method === 'config/batchWrite') {
+        const params = object(raw);
+        for (const item of params.edits as Json[]) {
+          const edit = object(item);
+          if (edit.value === null) delete values[String(edit.keyPath)];
+          else values[String(edit.keyPath)] = edit.value!;
+        }
+        return { version: '1' };
+      }
+      return {};
+    },
+  });
+
+  // Enabling orchestration while Ultra is off leaves Ultra alone.
+  await service.setOrchestrationMode({ sessionId: 's1', enabled: true });
+  assert.deepEqual(pushed, [{ channel: 'app:preferences-changed', payload: { key: 'composer.orchestration_mode' } }]);
+  assert.equal(readSessionOrchestrationMode('s1', root), true);
+
+  // Enabling Ultra clears the active orchestration, so both rows are announced.
+  pushed.length = 0;
+  await service.setUltraMode({ sessionId: 's1', enabled: true });
+  assert.deepEqual(pushed, [
+    { channel: 'app:preferences-changed', payload: { key: 'composer.ultra_mode' } },
+    { channel: 'app:preferences-changed', payload: { key: 'composer.orchestration_mode' } },
+  ]);
+
+  // Disabling Ultra announces only Ultra.
+  pushed.length = 0;
+  await service.setUltraMode({ sessionId: 's1', enabled: false });
+  assert.deepEqual(pushed, [{ channel: 'app:preferences-changed', payload: { key: 'composer.ultra_mode' } }]);
+
+  // Re-enabling orchestration while Ultra is active clears Ultra and announces both.
+  await service.setUltraMode({ sessionId: 's1', enabled: true });
+  pushed.length = 0;
+  await service.setOrchestrationMode({ sessionId: 's1', enabled: true });
+  assert.deepEqual(pushed, [
+    { channel: 'app:preferences-changed', payload: { key: 'composer.orchestration_mode' } },
+    { channel: 'app:preferences-changed', payload: { key: 'composer.ultra_mode' } },
+  ]);
+});
+
+h.test('a session-only orchestration selection leaves the new chat defaults untouched', () => {
+  const root = fresh();
+  applySessionOrchestrationSelection('s-draft-promoted', true, root, undefined, { updateDefaults: false });
+  assert.equal(readSessionOrchestrationMode('s-draft-promoted', root), true);
+  assert.equal(readSessionOrchestrationMode('', root), false);
+  assert.equal(readSessionUltraMode('s-draft-promoted', root), false);
 });
 
 void h.finish(process.argv[2] ?? join(tmpdir(), 'orchestration-mode-result.json'), 'orchestration-mode').then(code => {

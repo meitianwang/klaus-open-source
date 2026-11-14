@@ -368,6 +368,9 @@ export class ComposerService {
       assertCurrent?.();
       const sessionId = sessionIdOf(payload);
       const previous = readSessionUltraMode(sessionId, this.configRoot);
+      // Enabling Ultra clears the conversation's orchestration switch inside the
+      // same transaction, so that notice follows the same rule as the reverse one.
+      const previousOrchestration = enabled ? readSessionOrchestrationMode(sessionId, this.configRoot) : false;
       const values = permission === undefined ? undefined : await this.engine.resolved(sessionId ? await this.deps.sessionCwd?.(sessionId) : undefined);
       const permissionPolicy = typeof permission === 'string'
         ? presetRuntimePolicy(permission as import('../../contracts/runtime-settings').PermissionPreset, runtimePolicyForSession(sessionId, values!, this.configRoot).policy) : undefined;
@@ -377,7 +380,7 @@ export class ComposerService {
         assertCurrent?.();
         selection = applySessionUltraSelection(sessionId, enabled, this.configRoot, permissionPolicy, { updateDefaults: !sessionId });
         if (permissionPolicy) await this.deps.onSessionConfigChanged({ kind: 'permission', ...(sessionId ? { sessionId } : {}) });
-        if (previous !== enabled || permission !== undefined) await this.deps.onSessionConfigChanged({ kind: 'thinking', sessionId });
+        if (previous !== enabled || previousOrchestration || permission !== undefined) await this.deps.onSessionConfigChanged({ kind: 'thinking', sessionId });
       } catch (error) {
         selection?.rollback();
         await defaultSelection?.rollback();
@@ -388,7 +391,9 @@ export class ComposerService {
         throw error;
       }
       this.deps.push('app:preferences-changed', { key: 'composer.ultra_mode' });
-      if (enabled) this.deps.push('app:preferences-changed', { key: 'composer.orchestration_mode' });
+      // Only a mode that actually changed state is announced. Announcing a key
+      // the write did not touch makes every open composer drop its resolved state.
+      if (previousOrchestration) this.deps.push('app:preferences-changed', { key: 'composer.orchestration_mode' });
       if (permission !== undefined) this.deps.push('app:preferences-changed', { key: 'composer.permission_mode' });
       return { ok: true };
     });
@@ -428,7 +433,7 @@ export class ComposerService {
         throw error;
       }
       this.deps.push('app:preferences-changed', { key: 'composer.orchestration_mode' });
-      if (enabled) this.deps.push('app:preferences-changed', { key: 'composer.ultra_mode' });
+      if (previousUltra) this.deps.push('app:preferences-changed', { key: 'composer.ultra_mode' });
       if (permission !== undefined) this.deps.push('app:preferences-changed', { key: 'composer.permission_mode' });
       return { ok: true };
     });
