@@ -99,3 +99,111 @@ describe('frozen history read while the running Turn streams', () => {
     expect(stream.liveTurnId).toBe(LIVE)
   })
 })
+
+describe('scheduled and host-authored startup window', () => {
+  test('opening a scheduled run before turn/started keeps its trigger message through completion without duplication', async () => {
+    const calls: any[] = []
+    api = {
+      historyPage: async (_id: string, options: any) => {
+        calls.push(options)
+        return { messages: [], turns: [], page: { hasMore: false, nextCursor: null } }
+      },
+      historyItems: async () => ({ messages: [], page: { hasMore: false } }),
+    }
+    const id = 'scheduled-startup-before-turn-id'
+    store.ingestChatEvent({ type: 'session_runtime_status', sessionId: id, status: 'active', turnId: null, startedAtMs: 1_500, inputOrigin: 'user' })
+    store.ingestChatEvent({
+      type: 'user_message',
+      sessionId: id,
+      message: {
+        type: 'user',
+        uuid: 'local-trigger-uuid',
+        timestamp: '2026-11-14T00:00:01.500Z',
+        message: { role: 'user', content: 'Run the release check', localRender: { origin: 'automation', taskName: 'Release check' } },
+      },
+    })
+
+    // Switching in while session MCP servers are still initializing skips the doomed read and keeps the bubble.
+    await store.loadSessionHistory(id)
+    expect(calls).toHaveLength(0)
+    expect(store.getSessionStream(id).liveUnits.map(unit => unit.type)).toEqual(['live-user'])
+
+    // Once preparation finishes, turn/started stamps the real engine turn UUID onto the trigger bubble.
+    store.ingestChatEvent({ type: 'session_runtime_status', sessionId: id, status: 'active', turnId: LIVE })
+    store.ingestChatEvent({ type: 'stream_mode', sessionId: id, mode: 'thinking', turnId: LIVE })
+    store.ingestChatEvent({ type: 'thinking_delta', sessionId: id, thinking: 'Inspecting...', turnId: LIVE })
+    expect(store.getSessionStream(id).liveUnits[0]?.turnId).toBe(LIVE)
+
+    // When the turn settles, saved history takes over cleanly with a single user row.
+    api.historyPage = async () => ({
+      messages: [
+        { uuid: 'saved-trigger-uuid', turnId: LIVE, role: 'user', text: 'Run the release check', localRender: { origin: 'automation', taskName: 'Release check' } },
+        { uuid: 'saved-reply-uuid', turnId: LIVE, role: 'assistant', text: 'All clear.', isFinalReply: true },
+      ],
+      turns: [{ id: LIVE, ordinal: 1, itemsView: 'full', status: 'completed', startedAtMs: 1_500, finishedAtMs: 2_500, durationMs: 1_000 }],
+      turnStatuses: { [LIVE]: 'completed' },
+      page: { hasMore: false, nextCursor: null },
+    })
+    store.ingestChatEvent({ type: 'done', sessionId: id, turnId: LIVE })
+    await store.loadSessionHistory(id, { reconcile: true })
+    const settled = store.getSessionStream(id)
+    expect(settled.liveUnits.filter(unit => unit.type === 'live-user')).toHaveLength(0)
+    expect(settled.history?.filter(row => row.role === 'user').map(row => row.uuid)).toEqual(['saved-trigger-uuid'])
+  })
+
+  test('an initial empty disk read never wipes an unstamped trigger message', async () => {
+    api = {
+      historyPage: async () => ({ messages: [], turns: [], page: { hasMore: false, nextCursor: null } }),
+      historyItems: async () => ({ messages: [], page: { hasMore: false } }),
+    }
+    const id = 'scheduled-empty-initial-read'
+    store.ingestChatEvent({
+      type: 'user_message',
+      sessionId: id,
+      message: {
+        type: 'user',
+        uuid: 'unstamped-trigger',
+        timestamp: '2026-11-14T00:00:02.000Z',
+        message: { role: 'user', content: 'Run check', localRender: { origin: 'automation' } },
+      },
+    })
+    await store.loadSessionHistory(id)
+    expect(store.getSessionStream(id).liveUnits.map(unit => unit.type)).toEqual(['live-user'])
+  })
+
+  test('a crossing initial read withholds an unfinished turn shell already written to disk', async () => {
+    const id = 'scheduled-crossing-initial-read'
+    let releaseRead!: (value: any) => void
+    api = {
+      historyPage: () => new Promise(resolve => { releaseRead = resolve }),
+      historyItems: async () => ({ messages: [], page: { hasMore: false } }),
+    }
+    const reading = store.loadSessionHistory(id)
+    store.ingestChatEvent({ type: 'session_runtime_status', sessionId: id, status: 'active', turnId: null, startedAtMs: 2_000, inputOrigin: 'user' })
+    store.ingestChatEvent({
+      type: 'user_message',
+      sessionId: id,
+      message: {
+        type: 'user',
+        uuid: 'crossing-trigger',
+        timestamp: '2026-11-14T00:00:02.000Z',
+        message: { role: 'user', content: 'Immediate switch prompt', localRender: { origin: 'automation' } },
+      },
+    })
+    releaseRead({
+      messages: [],
+      turns: [
+        { id: `${id}-preamble`, ordinal: 0, itemsView: 'full', status: null },
+        { id: LIVE, ordinal: 1, itemsView: 'full', status: 'interrupted', startedAtMs: 2_000, finishedAtMs: null, durationMs: null },
+      ],
+      turnStatuses: { [LIVE]: 'interrupted' },
+      turnStartedAtMs: { [LIVE]: 2_000 },
+      page: { hasMore: false, nextCursor: null },
+    })
+    await reading
+    const state = store.getSessionStream(id)
+    expect(Object.keys(state.turnShells)).toEqual([`${id}-preamble`])
+    expect(state.liveUnits.map(unit => unit.type)).toEqual(['live-user'])
+    expect(state.turnStatuses[LIVE]).toBeUndefined()
+  })
+})

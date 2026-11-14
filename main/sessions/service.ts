@@ -4333,9 +4333,10 @@ export class SessionService {
       queueId: queuedNotice.id, retryUnconfirmed: queuedNotice.retryUnconfirmed, confirmed: false, admitted: announce,
       beforeIssue: () => this.clientQueue.bindTurnClaim(rendererId, queuedNotice.id, submissionId!),
     } : undefined;
+    let startedTurnId: string;
     {
       try {
-        await this.startTurn(client, rendererId, engineId, input, displayOptions(payload), undefined, submissionId, title, observation);
+        startedTurnId = await this.startTurn(client, rendererId, engineId, input, displayOptions(payload), undefined, submissionId, title, observation);
       } catch (error) {
         // The engine can refuse a turn start for a session it already forgot
         // (a close that outlived its deadline receipt). The refusal marks the
@@ -4345,7 +4346,7 @@ export class SessionService {
         this.deps.log?.('session-send-rebuilt-after-refusal', JSON.stringify({ sessionId: rendererId, engineId }));
         const rebuilt = await this.resolveLiveSession(rendererId);
         this.ensureCurrentClient(client);
-        await this.startTurn(client, rendererId, rebuilt, input, displayOptions(payload), undefined, submissionId, title, observation);
+        startedTurnId = await this.startTurn(client, rendererId, rebuilt, input, displayOptions(payload), undefined, submissionId, title, observation);
       }
       announce();
     }
@@ -4357,11 +4358,7 @@ export class SessionService {
       // snapshot the engine persists as its provider-invisible metadata row.
       const metadata = object(payload.displayMetadata) ?? {};
       const localRender = withInputPresentation(metadata, 'turn');
-      this.deps.pushChatEvents([{ type: 'user_message', sessionId: rendererId, message: {
-        type: 'user', uuid: randomMessageId(), timestamp: new Date().toISOString(),
-        message: { role: 'user', content: typeof payload.text === 'string' ? payload.text : '',
-          ...(localRender ? { localRender } : {}) },
-      } }]);
+      this.pushHostAuthoredTurnFrames(rendererId, startedTurnId, typeof payload.text === 'string' ? payload.text : '', localRender);
     }
     // This is the human composer path, so it ends a `wait_threads` this
     // conversation may be running. `deliverDelegation` reaches `startTurn`
@@ -4474,11 +4471,7 @@ export class SessionService {
               // render one human-facing text; a channel envelope must not leak into it.
               const metadata = object(payload.displayMetadata) ?? {};
               const localRender = withInputPresentation(metadata, 'turn');
-              this.deps.pushChatEvents([{ type: 'user_message', sessionId: rendererId, message: {
-                type: 'user', uuid: randomMessageId(), timestamp: new Date().toISOString(),
-                message: { role: 'user', content: typeof payload.text === 'string' ? payload.text : '',
-                  ...(localRender ? { localRender } : {}) },
-              } }]);
+              this.pushHostAuthoredTurnFrames(rendererId, submissionId, typeof payload.text === 'string' ? payload.text : '', localRender);
             },
           });
           this.rememberTitleInput(rendererId, payload);
@@ -4612,7 +4605,42 @@ export class SessionService {
     check();
   }
 
-  private async startTurn(client: EngineClientLike, rendererId: string, engineId: string, input: Json, options: Json, admission?: TurnAdmission, submissionId?: string, sideTitle?: string | null, observation?: TurnStartObservation): Promise<void> {
+  private pushHostAuthoredTurnFrames(rendererId: string, submissionId: string, text: string, localRender: Json | undefined): void {
+    const now = Date.now();
+    const events: Json[] = [];
+    // `turn/submit` resolves once the engine admits the turn, before session MCP
+    // servers finish initializing and before `turn/started` names the engine turn
+    // UUID. Opening the running state with `turnId: null` freezes the live layer
+    // immediately and lets `turn/started` stamp the real engine turn UUID onto the
+    // trigger bubble when preparation finishes.
+    if (this.deps.state.isWorking(rendererId) && this.deps.state.runningSubmissionId(rendererId) === submissionId) {
+      events.push({
+        type: 'session_runtime_status',
+        sessionId: rendererId,
+        status: 'active',
+        turnId: null,
+        startedAtMs: now,
+        inputOrigin: 'user',
+      });
+    }
+    events.push({
+      type: 'user_message',
+      sessionId: rendererId,
+      message: {
+        type: 'user',
+        uuid: randomMessageId(),
+        timestamp: new Date(now).toISOString(),
+        message: {
+          role: 'user',
+          content: text,
+          ...(localRender ? { localRender } : {}),
+        },
+      },
+    });
+    this.deps.pushChatEvents(events);
+  }
+
+  private async startTurn(client: EngineClientLike, rendererId: string, engineId: string, input: Json, options: Json, admission?: TurnAdmission, submissionId?: string, sideTitle?: string | null, observation?: TurnStartObservation): Promise<string> {
     return this.directories.run(async () => this.resourceRoots(rendererId),
       () => this.mutate(rendererId, () => this.startTurnLocked(client, rendererId, engineId, input, options, admission, submissionId, sideTitle, observation)));
   }
@@ -4651,7 +4679,7 @@ export class SessionService {
    * deadlocks. `editMessage` composes this with `rewindLocked` to truncate and
    * restart in one critical section.
    */
-  private async startTurnLocked(client: EngineClientLike, rendererId: string, engineId: string, input: Json, options: Json, admission?: TurnAdmission, submissionId?: string, sideTitle?: string | null, observation?: TurnStartObservation, mode: 'start-if-idle' | 'continue-if-idle' = 'start-if-idle'): Promise<void> {
+  private async startTurnLocked(client: EngineClientLike, rendererId: string, engineId: string, input: Json, options: Json, admission?: TurnAdmission, submissionId?: string, sideTitle?: string | null, observation?: TurnStartObservation, mode: 'start-if-idle' | 'continue-if-idle' = 'start-if-idle'): Promise<string> {
     // A caller-supplied id becomes the turn id verbatim (`TurnStartParams`), which
     // is what lets a delegated turn be told apart from one a human typed. The
     // admission path owns this id already, so the two must not both be given.
@@ -4730,8 +4758,9 @@ export class SessionService {
       if (this.deps.state.isWorking(rendererId) && !this.deps.state.runningTurnId(rendererId)) {
         this.deps.state.markTurnRunning(rendererId, started.turnId);
       }
+      return started.turnId;
     } catch (error) {
-      if (observation?.confirmed) return;
+      if (observation?.confirmed) return turnId;
       if (observation?.queueId && observation.issued && object(error)?.kind !== 'server') throw new UnconfirmedQueuedTurnError(turnId!);
       // A competing engine admission may publish while this request is awaiting
       // its refusal. Release only our optimistic identity, never that newer turn.
@@ -4930,16 +4959,13 @@ export class SessionService {
       // turn-origin-aware surface. No admission token: a delegated turn does not
       // claim `hostedTurns` ownership the way an IM turn does.
       const submissionId = `delegation-${randomMessageId()}`;
-      await this.startTurn(client, targetId, engineId, input, delegationTurnOptions(request, deliveryMetadata), undefined, submissionId);
+      const startedTurnId = await this.startTurn(client, targetId, engineId, input, delegationTurnOptions(request, deliveryMetadata), undefined, submissionId);
       // The engine starts this turn on its own admission, so no client typed the
       // message and no optimistic bubble exists: without this frame the live layer
       // shows the turn running with NO user row until history reloads at turn end.
       // Same contract as the IM channel path's admitted() push, including the display
       // snapshot the engine persists as its provider-invisible metadata row.
-      this.deps.pushChatEvents([{ type: 'user_message', sessionId: targetId, message: {
-        type: 'user', uuid: randomMessageId(), timestamp: new Date().toISOString(),
-        message: { role: 'user', content: text, localRender: withInputPresentation(deliveryMetadata, 'turn') },
-      } }]);
+      this.pushHostAuthoredTurnFrames(targetId, startedTurnId, text, withInputPresentation(deliveryMetadata, 'turn'));
       // Seed the title from the SENDER's prose: an envelope would otherwise make
       // `<klaus-delegation>` the conversation's first title.
       this.rememberTitleInput(targetId, { text: request.displayText ?? text });

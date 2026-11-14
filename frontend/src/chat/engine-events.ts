@@ -271,6 +271,13 @@ export interface ContextCollapseStatsEvent extends SessionScoped { type: 'contex
 export interface TombstoneEvent extends SessionScoped { type: 'tombstone' }
 export interface FileEvent extends SessionScoped { type: 'file'; data?: string; filename?: string; mimeType?: string }
 export interface McpAuthUrlEvent extends SessionScoped { type: 'mcp_auth_url'; serverName?: string; url?: string }
+export interface OrchestratorFallbackEvent extends SessionScoped {
+  type: 'orchestrator_fallback'
+  turnId?: string
+  failedModel?: string
+  mainModel?: string
+  reason?: string
+}
 
 export type ChatEvent =
   | ProposedPlanEvent
@@ -329,6 +336,7 @@ export type ChatEvent =
   | TombstoneEvent
   | FileEvent
   | McpAuthUrlEvent
+  | OrchestratorFallbackEvent
   | SessionRuntimeStatusEvent
 
 // ---- 领域实体 ----

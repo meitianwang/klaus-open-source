@@ -3253,18 +3253,46 @@ export function loadSessionHistory(sessionId: string, options: {
             const heldSet = new Set(optimisticHeld)
             const retention = retainUnownedLiveUnits(retentionBase.filter(unit => !heldSet.has(unit)),
               settledHistory, turnStartClock, handoffBase.some(unit => unit.type === 'live-error'),
-              !sameHistoryRows(prev.history, reviewHandoff.history), activeRunningTurn, laggingTurns)
+              reviewHandoff.history.length > 0 && !sameHistoryRows(prev.history, reviewHandoff.history), activeRunningTurn, laggingTurns)
             retainedUnowned = retention.retained
             sweptLiveUnits = [...kept, ...optimisticHeld, ...retention.units]
           }
         }
+        // A history read started while the live layer was empty (`!covers`) can
+        // resolve after a new turn is already running in `liveUnits` and has
+        // written its initial turn shell or input row to disk. Keep earlier turns,
+        // while withholding the live-owned turn so its shell and user row do not
+        // render a second time beside the live layer.
+        const crossingExcluded = new Set<string>()
+        const crossingRunningTurns: string[] = []
+        if (!covers && !liveCut && options.rewoundLiveTail !== true && liveLayerOwnsTurn(prev) && !discardedInterruptedTurn) {
+          for (const id of ownedTurns) crossingExcluded.add(id)
+          if (prev.running && typeof prev.liveTurnId === 'string' && crossingExcluded.has(prev.liveTurnId)) {
+            crossingRunningTurns.push(prev.liveTurnId)
+          } else if (crossingExcluded.size === 0 && prev.running && prev.liveUnits.some(unit => unit.type === 'live-user' && !unit.turnId)) {
+            const pendingShell = pageMeta?.shells.at(-1)
+            if (pendingShell?.id && !pendingShell.id.endsWith('-preamble')
+              && !['completed', 'failed'].includes(projectTurnStatuses[pendingShell.id] ?? pendingShell.status ?? '')
+              && !turnFinishedAtMs[pendingShell.id] && turnDurations[pendingShell.id] == null
+              && !turnCancelledTools[pendingShell.id]?.length) {
+              crossingExcluded.add(pendingShell.id)
+              crossingRunningTurns.push(pendingShell.id)
+            }
+          }
+        }
+        const committedSaved = crossingRunningTurns.length && nextSaved
+          ? savedTranscriptWithoutTurns(nextSaved, crossingRunningTurns) ?? nextSaved
+          : nextSaved
+        const committedHistory = crossingExcluded.size > 0
+          ? settledHistory.filter(row => typeof row.turnId !== 'string' || !crossingExcluded.has(row.turnId))
+          : settledHistory
         const modernTurnIds = new Set([...prev.liveUnits.flatMap(unit => unit.type === 'live-user'
           && clientMessageId(unit.msg) && unit.turnId ? [unit.turnId] : []),
         ...(prev.history || []).flatMap(row => row.role === 'user' && clientMessageId(row) && row.turnId ? [row.turnId] : [])])
         const modernTerminals = !liveCut && options.rewoundLiveTail !== true
           ? Object.fromEntries(Object.entries(prev.turnStatuses).filter(([id, status]) => modernTurnIds.has(id)
             && ['completed', 'interrupted', 'failed'].includes(status))) : {}
-        const mergedHistory = mergeAgentTimeline(settledHistory, agentTimeline)
+        const mergedHistory = mergeAgentTimeline(committedHistory, agentTimeline)
         return {
           agentTimeline,
           supportsSavedItemAnchors,
@@ -3275,20 +3303,26 @@ export function loadSessionHistory(sessionId: string, options: {
           historyStale: retainedUnowned > 0,
           historyLoading: false,
           historyLoadFailed: false,
-          loadedRows: rows,
+          loadedRows: committedSaved
+            ? savedRows(committedSaved)
+            : (crossingExcluded.size > 0 ? rows.filter(row => typeof row.turnId !== 'string' || !crossingExcluded.has(row.turnId)) : rows),
           ...(pageMeta ? {
-            turnsPagination: pageMeta.pagination ?? prev.turnsPagination,
-            turnShells: nextSaved ? savedShells(nextSaved) : { ...prev.turnShells, ...shellEntries(pageMeta.shells) },
-            ...(nextSaved ? { savedTranscript: nextSaved } : {}),
+            turnsPagination: committedSaved ? savedPagination(committedSaved) : pageMeta.pagination ?? prev.turnsPagination,
+            turnShells: committedSaved
+              ? savedShells(committedSaved)
+              : { ...prev.turnShells, ...shellEntries(crossingRunningTurns.length ? pageMeta.shells.filter(shell => !crossingRunningTurns.includes(shell.id)) : pageMeta.shells) },
+            ...(committedSaved ? { savedTranscript: committedSaved } : {}),
           } : {}),
-          turnStatuses: { ...modernTerminals, ...restoredStatuses },
-          turnStartedAtMs,
-          turnFinishedAtMs,
-          turnDurations,
-          turnErrors: projectTurnErrors,
-          turnErrorKinds: projectTurnErrorKinds,
-          turnErrorDetails: projectTurnErrorDetails,
-          turnCancelledTools,
+          turnStatuses: crossingExcluded.size > 0
+            ? withoutInferredInterrupt(preservingLiveTurns({ ...modernTerminals, ...restoredStatuses }, prev.turnStatuses, crossingExcluded), tailOpen)
+            : { ...modernTerminals, ...restoredStatuses },
+          turnStartedAtMs: crossingExcluded.size > 0 ? preservingLiveTurns(turnStartedAtMs, prev.turnStartedAtMs, crossingExcluded) : turnStartedAtMs,
+          turnFinishedAtMs: crossingExcluded.size > 0 ? preservingLiveTurns(turnFinishedAtMs, prev.turnFinishedAtMs, crossingExcluded) : turnFinishedAtMs,
+          turnDurations: crossingExcluded.size > 0 ? preservingLiveTurns(turnDurations, prev.turnDurations, crossingExcluded) : turnDurations,
+          turnErrors: crossingExcluded.size > 0 ? preservingLiveTurns(projectTurnErrors, prev.turnErrors, crossingExcluded) : projectTurnErrors,
+          turnErrorKinds: crossingExcluded.size > 0 ? preservingLiveTurns(projectTurnErrorKinds, prev.turnErrorKinds, crossingExcluded) : projectTurnErrorKinds,
+          turnErrorDetails: crossingExcluded.size > 0 ? preservingLiveTurns(projectTurnErrorDetails, prev.turnErrorDetails, crossingExcluded) : projectTurnErrorDetails,
+          turnCancelledTools: crossingExcluded.size > 0 ? preservingLiveTurns(turnCancelledTools, prev.turnCancelledTools, crossingExcluded) : turnCancelledTools,
           ...(discardedInterruptedTurn || (liveCut && (!prev.interruptedLiveTurn?.turnId || liveCut.turnIds.includes(prev.interruptedLiveTurn.turnId))) ? { interruptedLiveTurn: null, lastTerminalStatus: null, stopRequestedAt: null } : {}),
           activeTurnId: liveCut && prev.activeTurnId && liveCut.turnIds.includes(prev.activeTurnId)
             ? null

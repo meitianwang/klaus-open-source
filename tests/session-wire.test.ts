@@ -97,7 +97,13 @@ h.test('a host-authored send pushes the user frame no composer owns', async () =
   const session = await service.newSession() as Record<string, Json>;
   const id = String(session.id);
   await service.send(id, { text: 'Run the nightly report', displayMetadata: { origin: 'automation', taskName: 'Nightly' } }, undefined, undefined, { frame: true });
-  const frame = pushed.find(event => (event as Record<string, Json>).type === 'user_message') as Record<string, any> | undefined;
+  const statusIdx = pushed.findIndex(event => {
+    const row = event as Record<string, Json>;
+    return row.type === 'session_runtime_status' && row.sessionId === id && row.status === 'active' && row.turnId === null;
+  });
+  const frameIdx = pushed.findIndex(event => (event as Record<string, Json>).type === 'user_message');
+  assert(statusIdx >= 0 && statusIdx < frameIdx, 'host-authored sends activate the session runtime before publishing the trigger bubble');
+  const frame = pushed[frameIdx] as Record<string, any> | undefined;
   assert(frame, 'the live layer receives the trigger row a scheduled run has no composer for');
   assertEqual(frame.message.message.content, 'Run the nightly report', 'the frame carries the prompt text');
   assertDeepEqual(frame.message.message.localRender, { origin: 'automation', taskName: 'Nightly', inputPresentation: { version: 1, kind: 'turn' } }, 'the provenance snapshot rides the frame');

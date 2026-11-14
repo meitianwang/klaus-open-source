@@ -22,12 +22,12 @@ describe('read_computer_history compact activity label and i18n parity', () => {
   test('registers read_computer_history as a compact activity row in English and Chinese', () => {
     expect(isCompactActivityTool('read_computer_history')).toBe(true)
     ;(globalThis as any).window.currentLang = 'en'
-    expect(dynamicActivityLabel(en, { toolName: 'read_computer_history', state: 'running' }, false)).toBe('Reading computer history')
-    expect(dynamicActivityLabel(en, { toolName: 'read_computer_history', state: 'done' }, true, true)).toBe('Read computer history')
-    expect(dynamicActivityLabel(en, { toolName: 'read_computer_history', state: 'done' }, true, false)).toBe('read computer history')
+    expect(dynamicActivityLabel(en, { toolName: 'read_computer_history', args: {}, state: 'running' }, false)).toBe('Reading computer history')
+    expect(dynamicActivityLabel(en, { toolName: 'read_computer_history', args: {}, state: 'done' }, true, true)).toBe('Read computer history')
+    expect(dynamicActivityLabel(en, { toolName: 'read_computer_history', args: {}, state: 'done' }, true, false)).toBe('read computer history')
     ;(globalThis as any).window.currentLang = 'zh'
-    expect(dynamicActivityLabel(zh, { toolName: 'read_computer_history', state: 'running' }, false)).toBe('正在查看电脑历史')
-    expect(dynamicActivityLabel(zh, { toolName: 'read_computer_history', state: 'done' }, true, true)).toBe('已查看电脑历史')
+    expect(dynamicActivityLabel(zh, { toolName: 'read_computer_history', args: {}, state: 'running' }, false)).toBe('正在查看电脑历史')
+    expect(dynamicActivityLabel(zh, { toolName: 'read_computer_history', args: {}, state: 'done' }, true, true)).toBe('已查看电脑历史')
   })
 
   test('every computer_history_ key exists in both en and zh tables', () => {
