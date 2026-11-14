@@ -8,6 +8,8 @@ import { COMPUTER_HISTORY_ENABLED_KEY, COMPUTER_HISTORY_MAX_POLICY_ENTRIES, COMP
   isPrivateWindowTitle, parseObservationPolicy, removeObservationEntry, serializeObservationPolicy, shouldObserve,
   upsertObservationEntry, validateObservationEntry } from '../main/services/computer-history/observation-policy';
 import { ComputerHistoryService, COMPUTER_HISTORY_ORGANIZATION_BLOCKED, COMPUTER_HISTORY_UNAVAILABLE_PLATFORM } from '../main/services/computer-history/service';
+import { COMPUTER_HISTORY_TOOL_SPEC, executeReadComputerHistory, READ_COMPUTER_HISTORY_TOOL, withComputerHistoryToolGate } from '../main/services/computer-history/tools';
+import { computerHistoryDirective, computerHistoryToolsEnabled, hostCapabilityDirectives } from '../main/services/session-init';
 import { COMPUTER_HISTORY_STARTED_MARKER } from '../main/services/computer-history/watcher';
 import { withSettingsDb } from '../main/services/settings';
 import type { ManagedPolicySnapshot } from '../main/services/computer-use/managed-policy';
@@ -135,7 +137,7 @@ h.test('the store appends entries, skips corrupt lines and pages newest-last', (
 
 h.test('pruning enforces the retention window and the entry cap, regenerating the digest', () => {
   const root = mkdtempSync(join(temporary, 'prune-')); roots.push(root);
-  const now = 1_800_000_000_000;
+  const now = new Date(2027, 0, 15, 12, 0, 0).getTime();
   const store = new ComputerHistoryStore(root, () => now);
   store.append({ kind: 'app', at: now - COMPUTER_HISTORY_RETENTION_MS - 60_000, name: 'Ancient' });
   store.append({ kind: 'app', at: now - 60_000, name: 'Recent' });
@@ -299,6 +301,50 @@ h.test('the service exposes the aligned lifecycle method surface', () => {
     strict.equal(typeof (f.service as unknown as Record<string, unknown>)[method], 'function', `missing method ${method}`);
   }
   strict.deepEqual(vector.frames.events, ['appActivated', 'windowTitle', 'unavailable', 'stopped']);
+});
+
+h.test('read_computer_history gates session catalog and serves filtered, deduplicated context', async () => {
+  const f = fixture();
+  const baseDefs = [{ name: 'web_search' }, COMPUTER_HISTORY_TOOL_SPEC];
+  strict.deepEqual(withComputerHistoryToolGate(baseDefs, false), [{ name: 'web_search' }]);
+  strict.deepEqual(withComputerHistoryToolGate(baseDefs, true), baseDefs);
+  strict.equal(hostCapabilityDirectives([{ name: 'web_search' }]), '');
+  strict.ok(hostCapabilityDirectives([COMPUTER_HISTORY_TOOL_SPEC]).includes(computerHistoryDirective()));
+  strict.equal(computerHistoryToolsEnabled(f.root, 'win32'), false);
+  strict.equal(computerHistoryToolsEnabled(f.root, 'darwin'), false);
+
+  const disabledOutcome = executeReadComputerHistory(f.service, {}) as Record<string, unknown>;
+  strict.equal(disabledOutcome.success, false);
+
+  await f.service.setEnabled({ enabled: true });
+  strict.equal(computerHistoryToolsEnabled(f.root, 'darwin'), true);
+  await waitFor(() => f.ledger().length >= 3, 5000, 'frames recorded');
+
+  const friendBlocked = executeReadComputerHistory(f.service, {}, { forbiddenReason: 'friend-blocked' }) as Record<string, unknown>;
+  strict.equal(friendBlocked.success, false);
+
+  const store = new ComputerHistoryStore(f.root);
+  const now = Date.now();
+  store.append({ kind: 'window', at: now + 10, bundleId: 'com.apple.Safari', name: 'Safari', title: 'Docs Page', url: 'https://docs.example.com/guide' });
+  store.append({ kind: 'window', at: now + 20, bundleId: 'com.apple.Safari', name: 'Safari', title: 'Docs Page', url: 'https://docs.example.com/guide' });
+
+  const queried = executeReadComputerHistory(f.service, { query: 'docs.example.com', limit: 5 }) as { success: boolean; contentItems: Array<{ text: string }> };
+  strict.equal(queried.success, true);
+  const parsed = JSON.parse(queried.contentItems[0]!.text) as { state: string; count: number; entries: Array<{ at: number; title?: string }> };
+  strict.equal(parsed.state, 'running');
+  strict.equal(parsed.count, 1, 'consecutive identical observations collapse to the latest timestamp');
+  strict.equal(parsed.entries[0]!.at, now + 20);
+
+  const paged = executeReadComputerHistory(f.service, { limit: 1 }) as { success: boolean; contentItems: Array<{ text: string }> };
+  const page1 = JSON.parse(paged.contentItems[0]!.text) as { hasMore: boolean; nextBefore?: number };
+  strict.equal(page1.hasMore, true);
+  strict.equal(typeof page1.nextBefore, 'number');
+  const page2Raw = executeReadComputerHistory(f.service, { limit: 10, before: page1.nextBefore! }) as { success: boolean; contentItems: Array<{ text: string }> };
+  const page2 = JSON.parse(page2Raw.contentItems[0]!.text) as { entries: Array<{ at: number }> };
+  strict.ok(page2.entries.every(entry => entry.at < page1.nextBefore!));
+
+  await f.service.setEnabled({ enabled: false });
+  strict.equal(COMPUTER_HISTORY_TOOL_SPEC.name, READ_COMPUTER_HISTORY_TOOL);
 });
 
 void h.finish(join(__dirname, 'computer-history-results.json'), 'computer-history').then(async code => {

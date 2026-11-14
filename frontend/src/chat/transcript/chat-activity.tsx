@@ -156,7 +156,7 @@ export function isChatListActivityTool(toolName: string, args?: unknown): boolea
 
 /** Compact activity labels also identify rows with specialized disclosures. */
 export function isCompactActivityTool(toolName: string, args?: unknown): boolean {
-  return chatActivityKind(toolName, args) !== null || ['skill', 'klaus_query', 'read_thread_terminal'].includes(toolName)
+  return chatActivityKind(toolName, args) !== null || ['skill', 'klaus_query', 'read_thread_terminal', 'read_computer_history'].includes(toolName)
 }
 
 /**
@@ -457,6 +457,10 @@ export function dynamicActivityLabel(translate: (key: string) => string, tool: C
   if (tool.toolName === 'read_thread_terminal') {
     const state = !completed ? 'active' : leading ? 'completed' : 'completed_following'
     return translate(`chat_activity_terminal_${state}`)
+  }
+  if (tool.toolName === 'read_computer_history') {
+    const state = !completed ? 'active' : leading ? 'completed' : 'completed_following'
+    return translate(`chat_activity_computer_history_${state}`)
   }
   return follow(genericActivityLabel(tool.toolName, effectiveState, locale))
 }

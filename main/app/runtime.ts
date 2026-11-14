@@ -174,6 +174,7 @@ import { createVoiceRuntime, voiceModelAccess } from './voice-runtime';
 import { createPipRuntime } from './pip-runtime';
 import { createComputerUseRuntime } from './computer-use-runtime';
 import { ComputerHistoryService } from '../services/computer-history/service';
+import { COMPUTER_HISTORY_TOOL_SPEC, executeReadComputerHistory, withComputerHistoryToolGate } from '../services/computer-history/tools';
 import { registerComputerHistorySettingsHandlers } from '../ipc/handlers/computer-history';
 import { ManagedComputerUsePolicyReader } from '../services/computer-use/managed-policy';
 import { lockedScreenRefusal } from '../services/computer-use/locked-screen-gate';
@@ -430,6 +431,7 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
   let cronMetadataBackfill: Promise<void> = Promise.resolve();
   let pip: ReturnType<typeof createPipRuntime> | undefined;
   let computerUse: Awaited<ReturnType<typeof createComputerUseRuntime>> | undefined;
+  let computerHistory: ComputerHistoryService | undefined;
   let connectors: ReturnType<typeof createConnectorsRuntime> | undefined;
   let dynamicTools: DynamicTools | undefined;
   let friends: FriendsService | undefined;
@@ -784,10 +786,13 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
       // feature switch withdraws the whole family from every catalog; like the
       // gates above it is read per session init, and FriendsService also guards
       // at execution time for conversations already open.
-      const friendScoped = rendererId && friendSessionScope(configRoot, rendererId)
+      const isFriendTask = Boolean(rendererId && friendSessionScope(configRoot, rendererId));
+      const friendScoped = isFriendTask
         ? scoped
         : scoped.filter(spec => !FRIEND_TASK_ONLY_TOOL_NAMES.has(string(object(spec)?.name)));
-      return withFriendToolsGate(friendScoped, friendsEnabled(configRoot));
+      const historyAllowed = remoteScoped === null && !isFriendTask
+        && Boolean(computerHistory ? computerHistory.getSettings().enabled : false);
+      return withComputerHistoryToolGate(withFriendToolsGate(friendScoped, friendsEnabled(configRoot)), historyAllowed);
     },
     productContextNote: rendererId => [productContextNote(), runningSummaryContextNote(runningSummaryAvailable(desktopPet?.snapshot())),
       !workspaces.remoteBinding(rendererId) ? workspaceDependencyNote() : '',
@@ -952,6 +957,16 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
     const result = await widgets.run(args, context.sessionId, callId);
     context.assertCurrent();
     return result;
+  });
+  dynamicTools.register(COMPUTER_HISTORY_TOOL_SPEC, (args, engineId, signal) => {
+    const context = hostToolContext(engineId, signal);
+    context.assertCurrent();
+    const forbiddenReason = friendSessionScope(configRoot, context.sessionId)
+      ? 'Computer History is private to the device owner and unavailable in friend task conversations.'
+      : workspaces.remoteBinding(context.sessionId)
+        ? 'Computer History observes the local Mac only and is unavailable in remote workspace conversations.'
+        : undefined;
+    return executeReadComputerHistory(computerHistory, args, { forbiddenReason });
   });
   let remoteThreads: RemoteThreadClient | undefined;
   let deviceStatusCache: { at: number; status: Record<string, string> } | null = null;
@@ -2353,13 +2368,16 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
   // Local environment-history observation: macOS-only, admin-manageable, and
   // strictly local (a bounded timeline under the config root, never uploaded).
   const computerHistoryManaged = new ManagedComputerUsePolicyReader();
-  const computerHistory = new ComputerHistoryService({ configRoot,
+  computerHistory = new ComputerHistoryService({ configRoot,
     command: computerHelper ? { executable: computerHelper } : undefined,
     managedPolicy: () => computerHistoryManaged.read(),
     log: message => log.write('computer-history', message) });
-  registerComputerHistorySettingsHandlers(registry, computerHistory);
+  registerComputerHistorySettingsHandlers(registry, computerHistory, {
+    onChanged: () => configuration.markChanged(),
+  });
   computerHistory.autostart();
-  early.add(async () => { if (!(await computerHistory.shutdown()).complete) throw new Error('Computer History startup resources did not finish closing'); });
+  const activeComputerHistory = computerHistory;
+  early.add(async () => { if (!(await activeComputerHistory.shutdown()).complete) throw new Error('Computer History startup resources did not finish closing'); });
   const quickDeliveryTargets = new Map<string, number>();
   const quickDelivery = new QuickInputDelivery({
     ready: async (signal, value) => {

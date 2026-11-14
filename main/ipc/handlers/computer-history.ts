@@ -4,10 +4,18 @@ import { ChannelRegistry } from '../registry';
 import { arg0 } from '../binary';
 
 /** Settings-window channels for the local environment-history surface. */
-export function registerComputerHistorySettingsHandlers(registry: ChannelRegistry, service: ComputerHistoryService): void {
+export function registerComputerHistorySettingsHandlers(
+  registry: ChannelRegistry,
+  service: ComputerHistoryService,
+  options: { onChanged?: () => void } = {},
+): void {
   registry.registerAll({
     'settings:computer-history:get': () => service.snapshot() as unknown as Json,
-    'settings:computer-history:set-enabled': async context => await service.setEnabled(arg0(context.args)) as unknown as Json,
+    'settings:computer-history:set-enabled': async context => {
+      const result = await service.setEnabled(arg0(context.args));
+      if (result.ok) options.onChanged?.();
+      return result as unknown as Json;
+    },
     'settings:computer-history:pause': async () => await service.pause() as unknown as Json,
     'settings:computer-history:resume': async () => await service.resume() as unknown as Json,
     'settings:computer-history:update-observation': context => service.updateObservationPolicy(arg0(context.args)) as unknown as Json,

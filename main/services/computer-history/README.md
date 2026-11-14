@@ -72,6 +72,17 @@ unreadable, which fails closed), enabling is refused with
 `Computer History is blocked by your organization's policy.` and the settings
 payload reports `managedDisabled`.
 
+## Agent context integration
+
+When Computer History is enabled on macOS (and not blocked by organization
+policy), local owner conversations receive the read-only `read_computer_history`
+host tool (`main/services/computer-history/tools.ts`) and its companion
+`### Computer History` developer-instructions section (`session-init.ts`).
+Friend task conversations and remote-workspace conversations never receive the
+tool and are refused at execution time as well. Toggling the enable switch in
+Settings marks idle session bindings stale so open conversations pick up the
+updated tool set on their next message.
+
 ## IPC surface
 
 Settings-window channels, group `computer-history-settings`:

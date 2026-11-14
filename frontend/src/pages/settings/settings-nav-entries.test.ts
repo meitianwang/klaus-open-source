@@ -138,3 +138,14 @@ describe('settings nav storage entry', () => {
     expect(storageEntry!.icon).toBe('settings-nav-storage')
   })
 })
+
+describe('settings nav computer history entry', () => {
+  const computerUseEntry = NAV_ENTRIES.find(entry => entry.stab === 'computerUse')
+  const historyEntry = NAV_ENTRIES.find(entry => entry.stab === 'computerHistory')
+
+  test('uses its own history icon distinct from computer use', () => {
+    expect(historyEntry).toBeDefined()
+    expect(historyEntry!.icon).toBe('settings-nav-computer-history')
+    expect(historyEntry!.icon).not.toBe(computerUseEntry?.icon)
+  })
+})

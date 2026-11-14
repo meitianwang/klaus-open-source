@@ -560,6 +560,7 @@ export const LIBRARY: Record<string, string> = {
   'browser-use-logo-3': shell(maskHappySvg, { cls: 'browser-use-logo' }),         // Playwright MCP
   'browser-use-logo-5': shell(monitorPlaySvg, { cls: 'browser-use-logo' }),       // Computer Use
   'computer-use-pip': shell(pictureInPictureSvg),
+  'computer-history-logo': shell(clockCounterClockwiseSvg, { cls: 'browser-use-logo' }),
   'browser-use-logo-6': shell(deviceMobileSvg, { cls: 'browser-use-logo' }),      // Mobile Bridge
   'sys-auth-shield-ok': shell(shieldCheckSvg, { size: 22 }),
   'sys-auth-shield-warn': shell(shieldWarningSvg, { size: 22 }),
@@ -596,6 +597,7 @@ export const LIBRARY: Record<string, string> = {
   'settings-nav-worktrees': shell(treeStructureSvg),
   'settings-nav-permissions': shell(keySvg),
   'settings-nav-hooks': shell(webhooksLogoSvg),
+  'settings-nav-computer-history': shell(clockCounterClockwiseSvg),
   'settings-nav-mobile': shell(deviceMobileSvg),
   'settings-nav-models': shell(stackSvg),
   'settings-nav-model-tiers': shell(stairsSvg),

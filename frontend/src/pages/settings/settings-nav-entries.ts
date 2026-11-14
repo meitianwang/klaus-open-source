@@ -40,7 +40,7 @@ export const NAV_ENTRIES: NavEntry[] = [
   { kind: 'tab', stab: 'browser', i18n: 'browser_use_title', icon: 'browser', searchKeys: ['browser_settings', 'browser_use_desc'] },
   // The connector switch remains on the connectors page.
   { kind: 'tab', stab: 'computerUse', i18n: 'computer_use_title', icon: 'computer-use-pip' },
-  { kind: 'tab', stab: 'computerHistory', i18n: 'computer_history_title', icon: 'computer-use-pip', macOnly: true },
+  { kind: 'tab', stab: 'computerHistory', i18n: 'computer_history_title', icon: 'settings-nav-computer-history', macOnly: true },
   { kind: 'tab', stab: 'mobile', i18n: 'mobile_bridge_settings', icon: 'settings-nav-mobile' },
   { kind: 'group', i18n: 'settings_group_system' },
   { kind: 'tab', stab: 'systemAuth', id: 'nav-system-auth', i18n: 'system_auth', icon: 'settings-nav-system-auth', macOnly: true },

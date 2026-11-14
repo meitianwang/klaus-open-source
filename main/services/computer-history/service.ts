@@ -193,6 +193,18 @@ export class ComputerHistoryService {
     const before = typeof row.before === 'number' ? row.before : undefined;
     return { entries: this.store.entries(limit, before) as unknown as Array<Record<string, unknown>> };
   }
+  queryTimeline(options: { limit?: number; before?: number; sinceMinutes?: number; query?: string } = {}) {
+    const sinceMs = typeof options.sinceMinutes === 'number' && Number.isFinite(options.sinceMinutes) && options.sinceMinutes > 0
+      ? this.now() - Math.min(48 * 60, options.sinceMinutes) * 60_000
+      : undefined;
+    const result = this.store.query({
+      limit: options.limit,
+      before: options.before,
+      sinceMs,
+      query: options.query,
+    });
+    return { state: this.desired, ...result };
+  }
 
   async shutdown(): Promise<{ complete: boolean }> {
     this.closing = true;

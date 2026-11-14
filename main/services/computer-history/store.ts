@@ -71,12 +71,57 @@ export class ComputerHistoryStore {
     catch { return 0; }
   }
 
-  /** Newest-last page of the timeline, optionally before an epoch-ms cursor. */
+  /** Newest-last page of the timeline within the retention window, optionally before an epoch-ms cursor. */
   entries(limit = 200, before?: number): ComputerHistoryEntry[] {
     const max = Math.max(1, Math.min(500, Math.floor(limit) || 200));
-    const all = this.readAll();
+    const cutoff = this.now() - COMPUTER_HISTORY_RETENTION_MS;
+    const all = this.readAll().filter(item => item.at >= cutoff);
     const filtered = before === undefined ? all : all.filter(item => item.at < before);
     return filtered.slice(Math.max(0, filtered.length - max));
+  }
+
+  /**
+   * Newest-first filtered slice for agent context queries, collapsing consecutive
+   * identical observations so focus jitter never crowds out distinct context.
+   */
+  query(options: { limit?: number; before?: number; sinceMs?: number; query?: string } = {}): {
+    entries: ComputerHistoryEntry[];
+    hasMore: boolean;
+    nextBefore?: number;
+  } {
+    const max = Math.max(1, Math.min(100, Math.floor(options.limit ?? 30) || 30));
+    const floor = Math.max(this.now() - COMPUTER_HISTORY_RETENTION_MS, options.sinceMs ?? 0);
+    const needle = options.query?.trim().toLowerCase() ?? '';
+    const raw = this.readAll().filter(item => {
+      if (item.at < floor) return false;
+      if (options.before !== undefined && item.at >= options.before) return false;
+      if (!needle) return true;
+      return [item.name, item.bundleId, item.title, item.url]
+        .some(field => typeof field === 'string' && field.toLowerCase().includes(needle));
+    });
+    const deduped: ComputerHistoryEntry[] = [];
+    for (const item of raw) {
+      const previous = deduped[deduped.length - 1];
+      if (previous
+        && previous.kind === item.kind
+        && (previous.bundleId ?? '') === (item.bundleId ?? '')
+        && (previous.name ?? '') === (item.name ?? '')
+        && (previous.title ?? '') === (item.title ?? '')
+        && (previous.url ?? '') === (item.url ?? '')) {
+        deduped[deduped.length - 1] = item;
+      } else {
+        deduped.push(item);
+      }
+    }
+    const newestFirst = deduped.reverse();
+    const page = newestFirst.slice(0, max);
+    const hasMore = newestFirst.length > max;
+    const oldest = page[page.length - 1];
+    return {
+      entries: page,
+      hasMore,
+      ...(hasMore && oldest ? { nextBefore: oldest.at } : {}),
+    };
   }
 
   private rewrite(entries: readonly ComputerHistoryEntry[]): void {
