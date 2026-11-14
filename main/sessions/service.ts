@@ -5571,7 +5571,16 @@ export class SessionService {
         this.attached = undefined;
         await Promise.allSettled([...this.hostedTurns.values()].map(turn => turn.done));
         this.hostedTurns.clear();
-        for (const task of this.sideTasks.clear()) await this.forgetSideTask(task.id);
+        // Durable side-task rows survive an application shutdown so the next
+        // launch adopts them from the persisted registry
+        // (loadPersistedSideTasks). Only in-memory runtime state is released
+        // here: identity deletion, preference cleanup and registry removal
+        // belong to the explicit-close path (closeSideTaskNow ->
+        // forgetSideTask), never to a plain restart.
+        for (const task of this.sideTasks.releaseAll()) {
+          this.deps.state.forgetSession(task.id, 'side-task-shutdown');
+          this.deps.workspaces?.forgetSession(task.id);
+        }
         await Promise.all(this.sideTaskCleanup);
         await questions;
         await followUps;

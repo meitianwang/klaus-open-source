@@ -8,7 +8,8 @@ import type { Json } from '../main/ipc/contract';
 import { object } from '../main/ipc/arguments';
 import { HostState } from '../main/services/host-state';
 import { applySessionUltraSelection, readSessionFastMode, readSessionModel, readSessionThinkingLevel, readSessionUltraMode, setSessionFastMode, setSessionModel, setSessionThinkingLevel } from '../main/services/session-store';
-import { kvSet, withSettingsDb } from '../main/services/settings';
+import { kvGet, kvSet, withSettingsDb } from '../main/services/settings';
+import { SIDE_TASK_REGISTRY_KEY } from '../main/sessions/side-tasks';
 import { WorkspaceStore } from '../main/services/workspaces';
 import { ExtensionDiscovery } from '../main/services/extensions/discovery';
 import { SessionService, type EngineClientLike, type SessionServiceDeps } from '../main/sessions/service';
@@ -903,10 +904,19 @@ h.test('a structural settings change rebuilds a live side task instead of refusi
 
 h.test('a restarted host rematerializes persisted side tasks from their durable registry', async () => {
   const first = fixture(); const id = await create(first.service);
+  setSessionThinkingLevel(id, 'high', first.root);
+  // The real restart path: a clean shutdown must leave the durable registry
+  // and the session preferences on disk for the next launch to adopt.
+  await first.service.shutdown();
+  const stored = kvGet(SIDE_TASK_REGISTRY_KEY, first.root);
+  const persisted = JSON.parse(typeof stored === 'string' ? stored : '[]');
+  assertEqual(persisted.length, 1, 'application shutdown preserves the durable registry');
+  assertEqual(object(persisted[0])?.id, id, 'the same identity persists');
   const reboot = fixture({}, first.root);
   const rows = await reboot.service.listSideTasks('parent');
   assertEqual(rows.length, 1, 'the persisted side task returns after a restart');
   assertEqual(object(rows[0])?.id, id, 'the same identity is rematerialized');
+  assertEqual(readSessionThinkingLevel(id, reboot.root), 'high', 'session preferences survive the restart');
   const resumed = await reboot.service.resolveLiveSession(id);
   assert(resumed !== undefined, 'the rematerialized side task resumes from its rollout');
   assert(reboot.service.isSideTask(id), 'rematerialized ownership is live');
@@ -959,10 +969,12 @@ h.test('forking a side task uses the durable disk fork and leaves the source liv
 h.test('pin and archive flags survive a host restart through the durable registry', async () => {
   const first = fixture(); const id = await create(first.service);
   await first.service.setPinned(id, true);
+  await first.service.shutdown();
   const reboot = fixture({}, first.root);
   assert((await reboot.service.listSessions()).some(row => object(row)?.id === id), 'the pinned side task rematerializes pinned');
   await reboot.service.setPinned(id, false);
   await reboot.service.setArchived(id, true);
+  await reboot.service.shutdown();
   const reboot2 = fixture({}, first.root);
   assert((await reboot2.service.listArchivedSessions()).some(row => object(row)?.id === id), 'the archived side task rematerializes archived');
   assertEqual((await reboot2.service.listSideTasks('parent')).length, 0, 'and stays out of the panel');

@@ -118,4 +118,11 @@ export class SideTaskRegistry {
   failed(id: string, error: string): void { const task = this.tasks.get(id); if (task) { task.phase = 'failed'; task.error = error; this.persist(); } }
   remove(id: string): void { this.tasks.delete(id); this.persist(); }
   clear(): SideTask[] { const tasks = this.all(); this.tasks.clear(); this.persist(); return tasks; }
+  /**
+   * Drop the in-memory rows WITHOUT persisting. An application shutdown must
+   * leave the durable registry intact so the next launch adopts the same rows
+   * (loadPersistedSideTasks); durable deletion stays on remove()/clear(),
+   * which only the explicit-close path may reach.
+   */
+  releaseAll(): SideTask[] { const tasks = this.all(); this.tasks.clear(); return tasks; }
 }
