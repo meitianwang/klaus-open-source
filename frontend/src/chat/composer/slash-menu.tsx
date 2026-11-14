@@ -361,7 +361,9 @@ function MentionMenu({ request, actions, store }: {
     const commandRows = (commands.data || []).map(command => ({
       name: actions.slashCommandDisplayName(command), path: `command:${command.name}`,
       rel: actions.slashCommandDescription(command), isDir: false, kind: 'command' as const,
-      command, aliases: [String(command.name || '')], icon: actions.commandIconSvg(command),
+      command,
+      aliases: [String(command.name || ''), ...(Array.isArray(command.aliases) ? command.aliases.map((alias: unknown) => String(alias || '')).filter(Boolean) : [])],
+      icon: actions.commandIconSvg(command),
     }))
     const sourceSections: MentionSection[] = [
       { key: 'context-actions', labelKey: 'composer_add_menu', rows: actions.contextActions?.() || [] },

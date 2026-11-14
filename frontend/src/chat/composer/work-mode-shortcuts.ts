@@ -16,13 +16,16 @@ export function isOrchestrateShortcut(command: SlashCommandInfo | null | undefin
 
 export function withUltraShortcut(commands: SlashCommandInfo[], description: string): SlashCommandInfo[] {
   return [
-    { name: 'ultra', description, source: ULTRA_SHORTCUT_SOURCE, kind: 'command', type: 'action' },
-    ...commands.filter(command => command.name.toLowerCase() !== 'ultra'),
+    { name: 'parallel', aliases: ['ultra'], description, source: ULTRA_SHORTCUT_SOURCE, kind: 'command', type: 'action' },
+    ...commands.filter(command => {
+      const lower = command.name.toLowerCase()
+      return lower !== 'parallel' && lower !== 'ultra'
+    }),
   ]
 }
 
 export function isUltraShortcut(command: SlashCommandInfo | null | undefined): boolean {
-  return Boolean(command && command.name === 'ultra' && command.source === ULTRA_SHORTCUT_SOURCE)
+  return Boolean(command && (command.name === 'parallel' || command.name === 'ultra') && command.source === ULTRA_SHORTCUT_SOURCE)
 }
 
 export async function activateModeToggleShortcut(host: {

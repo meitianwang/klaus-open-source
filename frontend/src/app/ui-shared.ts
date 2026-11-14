@@ -134,7 +134,7 @@ const SLASH_COMMAND_TEXT_ZH: Record<string, string[]> = {
   model: ['模型', '设置会话使用的 AI 模型。', '[模型]'],
   passes: ['通行证', '管理订阅通行证。'],
   permissions: ['权限', '管理允许和拒绝的工具权限规则。'],
-  plan: ['计划模式', '启用计划模式或查看当前会话计划。', '[open|<描述>]'],
+  plan: ['计划', '先讨论方案，再开始实现', '[open|<描述>]'],
   plugin: ['插件', '管理插件。'],
   'privacy-settings': ['隐私设置', '查看和更新隐私设置。'],
   'remote-env': ['远程环境', '配置 teleport 会话的默认远程环境。'],
@@ -372,10 +372,17 @@ export function getPluginSearchValues(plugin: any): unknown[] {
 
 export function getSlashCommandSearchValues(command: any): unknown[] {
   const name = String(command?.name || '').trim()
+  const aliases = Array.isArray(command?.aliases)
+    ? command.aliases.flatMap((alias: unknown) => {
+        const token = String(alias || '').trim()
+        return token ? [token, `/${token}`] : []
+      })
+    : []
   const category = classifySlashCommand(command || {})
   return [
     name,
     name ? `/${name}` : '',
+    ...aliases,
     command?.displayName,
     command?.description,
     command?.argumentHint,

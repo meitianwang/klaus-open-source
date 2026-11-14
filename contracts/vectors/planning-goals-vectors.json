@@ -656,12 +656,13 @@
     "runningTurn": "no footer"
   },
   "goalBadgeLocale": {
+    "_why": "All four composer mode pills share concise two-character Chinese / single-word English labels (Plan / Goal / Orchestrate / Parallel; 计划 / 目标 / 编排 / 并行).",
     "en": {
-      "label": "Goal mode",
+      "label": "Goal",
       "accessibleName": "Set a goal and keep pushing until done"
     },
     "zh": {
-      "label": "\u76ee\u6807\u6a21\u5f0f",
+      "label": "\u76ee\u6807",
       "accessibleName": "\u8bbe\u5b9a\u76ee\u6807\uff0c\u6301\u7eed\u63a8\u8fdb\u76f4\u81f3\u5b8c\u6210"
     }
   },

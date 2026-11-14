@@ -480,6 +480,7 @@ export interface AgentTask {
 // engine.slashCommands 行（harness fixture 与引擎发现层一致）。
 export interface SlashCommandInfo {
   name: string
+  aliases?: string[]
   displayName?: string
   description?: string
   kind?: string

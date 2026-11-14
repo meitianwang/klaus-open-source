@@ -3465,6 +3465,10 @@ function slashCommandDisplayName(command: SlashCommandInfo | null | undefined) {
 
 function slashCommandDescription(command: SlashCommandInfo | null | undefined) {
   if (isManualCompactCommand(command)) return manualCompactPresentation({ sessionId: window.currentSessionId, percent: contextUsageView(ctxPanel.sessions.get(window.currentSessionId || ''))?.percent ?? null }, tt).description
+  if (isPlanShortcut(command as SlashCommandInfo)) return tt('composer_plan_description')
+  if (isOrchestrateShortcut(command)) return tt('orchestrate_mode_description')
+  if (isUltraShortcut(command)) return tt('ultra_mode_description')
+  if (isGoalShortcut(command as SlashCommandInfo)) return tt('composer_goal_description')
   return window.klausSlashCommandI18n?.description?.(command) || command?.description || ''
 }
 
@@ -3560,12 +3564,14 @@ function slashCommandGroupLabel(group: string) {
 }
 
 function slashCommandMatchesSearch(command: SlashCommandInfo, query: string) {
+  const aliases = Array.isArray(command?.aliases) ? command.aliases : []
   const search = window.klausSearch
   if (search?.matches) {
     const values = typeof search.slashCommandValues === 'function'
       ? search.slashCommandValues(command)
       : [
           command?.name,
+          ...aliases,
           command?.displayName,
           command?.description,
           command?.argumentHint,
@@ -3580,6 +3586,7 @@ function slashCommandMatchesSearch(command: SlashCommandInfo, query: string) {
   if (!q) return true
   return [
     command?.name,
+    ...aliases,
     command?.displayName,
     command?.description,
     command?.argumentHint,
@@ -12164,7 +12171,7 @@ function withComposerGoalShortcut(commands: SlashCommandInfo[]): SlashCommandInf
   const scoped = composerGoalEligible() ? withGoalShortcut(commands, tt('composer_goal')) : commands.filter(command => !isGoalShortcut(command))
   const withReview = withApprovalReviewShortcut(scoped, tt('approval_review_shortcut'), !!window.currentSessionId && approvalReviewDenials(window.currentSessionId).length > 0)
   const withUltra = typeof withUltraShortcut === 'function' ? withUltraShortcut(withReview, tt('ultra_mode_description')) : withReview
-  return typeof withOrchestrateShortcut === 'function' ? withOrchestrateShortcut(withUltra, tt('orchestrator_settings_desc')) : withUltra
+  return typeof withOrchestrateShortcut === 'function' ? withOrchestrateShortcut(withUltra, tt('orchestrate_mode_description')) : withUltra
 }
 
 function activateComposerApprovalReviewShortcut(range: { start: number; end: number } | null) {

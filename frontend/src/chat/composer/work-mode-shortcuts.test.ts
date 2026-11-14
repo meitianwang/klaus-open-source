@@ -33,16 +33,19 @@ afterAll(() => {
 })
 
 describe('work mode shortcuts', () => {
-  test('deduplicates and identifies /orchestrate and /ultra shortcuts', () => {
+  test('deduplicates and identifies /orchestrate and /parallel (with /ultra alias) shortcuts', () => {
     const base = [
       { name: 'ORCHESTRATE', kind: 'command' as const, type: 'action' as const },
+      { name: 'PARALLEL', kind: 'command' as const, type: 'action' as const },
       { name: 'ULTRA', kind: 'command' as const, type: 'action' as const },
       { name: 'review', kind: 'command' as const, type: 'action' as const },
     ]
-    const list = withOrchestrateShortcut(withUltraShortcut(base, 'Ultra desc'), 'Orch desc')
-    expect(list.map(item => item.name)).toEqual(['orchestrate', 'ultra', 'review'])
+    const list = withOrchestrateShortcut(withUltraShortcut(base, 'Parallel desc'), 'Orch desc')
+    expect(list.map(item => item.name)).toEqual(['orchestrate', 'parallel', 'review'])
+    expect(list[1].aliases).toEqual(['ultra'])
     expect(isOrchestrateShortcut(list[0])).toBe(true)
     expect(isUltraShortcut(list[1])).toBe(true)
+    expect(isUltraShortcut({ name: 'ultra', source: list[1].source, kind: 'command', type: 'action' })).toBe(true)
     expect(isOrchestrateShortcut(list[2])).toBe(false)
   })
 
@@ -58,6 +61,27 @@ describe('work mode shortcuts', () => {
     expect(ok).toBe(true)
     expect(draft).toBe('refactor payment retries')
     expect(caret).toBe(0)
+  })
+
+  test('aligns all four mode badges to concise labels and plain-language descriptions', async () => {
+    const { I18N } = await import('../../i18n/messages')
+    expect([
+      I18N.zh.composer_plan,
+      I18N.zh.composer_goal,
+      I18N.zh.composer_orchestrate,
+      I18N.zh.composer_ultra,
+    ]).toEqual(['计划', '目标', '编排', '并行'])
+    expect([
+      I18N.en.composer_plan,
+      I18N.en.composer_goal,
+      I18N.en.composer_orchestrate,
+      I18N.en.composer_ultra,
+    ]).toEqual(['Plan', 'Goal', 'Orchestrate', 'Parallel'])
+    expect(I18N.zh.ultra_mode_description).toBe('拆成多路子任务同时做，最后汇总结果')
+    expect(I18N.zh.orchestrate_mode_description).toBe('主模型负责规划和验收，执行模型负责写代码和验证')
+    expect(I18N.zh.planning_implement_goal).toBe('是，按目标实施')
+    expect(I18N.zh.planning_implement_orchestrate).toBe('是，按编排实施')
+    expect(I18N.zh.planning_implement_ultra).toBe('是，按并行实施')
   })
 })
 

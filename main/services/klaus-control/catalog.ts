@@ -297,7 +297,7 @@ export const CONTROL_SURFACES: ControlSurface[] = [
       {
         "action": "ultraMode",
         "channel": "session:get-ultra-mode",
-        "args": "{ sessionId?: string } — Local proactive delegation mode, independent of reasoning",
+        "args": "{ sessionId?: string } — Parallel mode (并行): local proactive parallel sub-agent delegation mode, independent of reasoning",
         "confirm": false,
         "currentSession": true
       },
@@ -418,7 +418,7 @@ export const CONTROL_SURFACES: ControlSurface[] = [
       {
         "action": "setUltraMode",
         "channel": "session:set-ultra-mode",
-        "args": "{ enabled: boolean, sessionId?: string } — Enable proactive delegation with model-resolved request effort while retaining the saved native choice. A session id changes only that conversation; omit it to change the default for future conversations",
+        "args": "{ enabled: boolean, sessionId?: string } — Enable Parallel mode (并行, /parallel or /ultra) for proactive parallel delegation with model-resolved request effort while retaining the saved native choice. A session id changes only that conversation; omit it to change the default for future conversations",
         "confirm": false,
         "currentSession": true
       },
@@ -509,7 +509,7 @@ export const CONTROL_SURFACES: ControlSurface[] = [
     ],
     "writes": [],
     "manualHeading": "目标与侧任务",
-    "elsewhere": "a row pinned directly above the composer while a goal is set — the objective, the budget spent so far, and edit / pause / clear buttons. It is switched on as Goal mode from the composer's + menu."
+    "elsewhere": "a row pinned directly above the composer while a goal is set — the objective, the budget spent so far, and edit / pause / clear buttons. It is switched on as Goal from the composer's + menu (or /goal)."
   },
   {
     "key": "sideTask",
