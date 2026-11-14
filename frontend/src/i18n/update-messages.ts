@@ -44,7 +44,7 @@ export const updateZh = {
   update_dialog_version: '版本 {version}',
   update_speed: '下载速度',
   update_remaining: '剩余时间',
-  update_progress_hint: '下载完成后可立即安装更新。您可以继续使用应用程序。',
+  update_progress_hint: '下载完成后即可安装，期间可继续使用应用。',
   update_minimize: '最小化',
   update_show_progress: '查看进度',
   update_time_calculating: '计算中…',

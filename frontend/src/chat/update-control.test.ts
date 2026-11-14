@@ -67,6 +67,8 @@ describe('desktop update control', () => {
     const overlay = components.slice(components.indexOf('export function UpdateInstallingOverlay'), components.indexOf('export function UpdateBanner'))
     expect(overlay).not.toContain('deferUpdate')
     expect(overlay).not.toContain('hideUpdateProgress')
+    expect(overlay).not.toContain('update_installing_hint')
+    expect(overlay).not.toContain('stepTrack')
     expect(overlay).toContain('useDialogFocus()')
   })
 

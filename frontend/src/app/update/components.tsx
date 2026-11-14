@@ -4,7 +4,7 @@
 //   - the persistent card once the detail is collapsed or the offer is ready,
 //   - the install decision when the transfer finishes,
 //   - the installation hand-off, which ends in a restart.
-import { useCallback, useEffect, useId, useRef, useSyncExternalStore } from 'react'
+import { Fragment, useCallback, useEffect, useId, useRef, useSyncExternalStore } from 'react'
 import { Icon } from '../../components/Icon'
 import { ModalPortal } from '../../components/ModalPortal'
 import { useT } from '../../i18n'
@@ -67,6 +67,18 @@ function remainingLabel(progress: UpdateProgress | null | undefined, t: (key: st
   return fill(t('update_time_hours_minutes'), { hours: String(value.hours), minutes: String(value.minutes) })
 }
 
+/** Squircle app badge anchoring every update dialog to the Klaus brand mark. */
+function UpdateAppBadge() {
+  return (
+    <span className={styles.appBadge} aria-hidden="true">
+      <svg viewBox="0 0 48 48" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="3.3" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M24 5 38.5 13v16.5L24 37.5 18.5 42v-7.8L9.5 29.5V13Z" />
+        <path d="M18 17.5 25.5 23 18 28.5M30.5 17v12" />
+      </svg>
+    </span>
+  )
+}
+
 /** Transfer detail: percent, size, smoothed speed and the estimate it produces. */
 export function UpdateProgressDialog({ status }: { status: UpdateStatus | null }) {
   const t = useT()
@@ -79,31 +91,33 @@ export function UpdateProgressDialog({ status }: { status: UpdateStatus | null }
     <div className={styles.backdrop}>
       <div className={styles.dialog} ref={container} role="dialog" aria-modal="true" aria-labelledby={titleId} data-surface="update-progress">
         <div className={styles.head}>
-          <span className={styles.spinner} aria-hidden="true" />
+          <UpdateAppBadge />
           <div className={styles.headText}>
-            <h2 className={styles.title} id={titleId}>{t('update_header_downloading')}</h2>
-            {version && <p className={styles.subtitle}>{fill(t('update_dialog_version'), { version })}</p>}
+            <div className={styles.titleRow}>
+              <h2 className={styles.title} id={titleId}>{t('update_header_downloading')}</h2>
+              {version && <span className={styles.versionPill}>{fill(t('update_dialog_version'), { version })}</span>}
+            </div>
+            <p className={styles.subtitle}>{t('update_progress_hint')}</p>
           </div>
         </div>
-        <div className={styles.body}>
+        <div className={styles.transferPanel}>
           <div className={styles.percentRow}>
-            <span className={styles.percent}>{percent}%</span>
             <span className={styles.size}>{formatBytes(progress?.transferred ?? 0)} / {formatBytes(progress?.total ?? 0)}</span>
+            <span className={styles.percent}>{percent}%</span>
           </div>
           <div className={styles.track} role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent} aria-label={t('update_header_downloading')}>
             <div className={styles.fill} style={{ width: `${percent}%` }} />
           </div>
-          <div className={styles.metrics}>
-            <div>
-              <div className={styles.metricLabel}>{t('update_speed')}</div>
-              <div className={styles.metricValue}>{formatBytes(progress?.bytesPerSecond ?? 0)}/s</div>
-            </div>
-            <div>
-              <div className={styles.metricLabel}>{t('update_remaining')}</div>
-              <div className={styles.metricValue}>{remainingLabel(progress, t)}</div>
-            </div>
+          <div className={styles.metaRow}>
+            <span className={styles.metaItem}>
+              <span className={styles.metaLabel}>{t('update_speed')}</span>
+              <span className={styles.metaValue}>{formatBytes(progress?.bytesPerSecond ?? 0)}/s</span>
+            </span>
+            <span className={styles.metaItem}>
+              <span className={styles.metaLabel}>{t('update_remaining')}</span>
+              <span className={styles.metaValue}>{remainingLabel(progress, t)}</span>
+            </span>
           </div>
-          <p className={styles.hint}>{t('update_progress_hint')}</p>
         </div>
         <div className={styles.foot}>
           <button type="button" className="btn-sm" data-action="update-minimize" onClick={hideUpdateProgress}>{t('update_minimize')}</button>
@@ -123,6 +137,7 @@ export function UpdateReadyDialog({ status, pending }: { status: UpdateStatus | 
     <div className={styles.backdrop}>
       <div className={styles.dialog} ref={container} role="dialog" aria-modal="true" aria-labelledby={titleId} aria-busy={pending} data-surface="update-ready">
         <div className={styles.head}>
+          <UpdateAppBadge />
           <div className={styles.headText}>
             <h2 className={styles.title} id={titleId}>{t('update_ready_title')}</h2>
             <p className={styles.subtitle}>{version ? fill(t('update_ready_body_version'), { version }) : t('update_ready_body')}</p>
@@ -155,25 +170,41 @@ export function UpdateInstallingOverlay({ status }: { status: UpdateStatus | nul
     <div className={styles.backdrop}>
       <div className={styles.dialog} ref={container} role="dialog" aria-modal="true" aria-labelledby={titleId} data-surface="update-installing">
         <div className={styles.head}>
-          <span className={styles.spinner} aria-hidden="true" />
+          <UpdateAppBadge />
           <div className={styles.headText}>
             <h2 className={styles.title} id={titleId}>{version ? fill(t('update_installing_title_version'), { version }) : t('update_installing_title')}</h2>
             <p className={styles.subtitle}>{t('update_installing_body')}</p>
           </div>
         </div>
-        <div className={styles.body}>
+        <div className={styles.installBody}>
           <div className={styles.track} role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent} aria-label={t('update_installing_title')}>
-            <div className={styles.fill} style={{ width: `${percent}%` }} />
+            <div className={`${styles.fill} ${styles.fillActive}`} style={{ width: `${Math.max(8, percent)}%` }} />
           </div>
           <div className={styles.steps}>
-            {INSTALL_STEPS.map((step, index) => (
-              <div key={step} className={`${styles.step} ${index < active ? styles.stepDone : index === active ? styles.stepActive : ''}`}>
-                <div className={styles.stepTrack}><div className={styles.stepFill} /></div>
-                <span className={styles.stepLabel}>{t(`update_step_${step}`)}</span>
-              </div>
-            ))}
+            {INSTALL_STEPS.map((step, index) => {
+              const done = index < active
+              const current = index === active
+              return (
+                <Fragment key={step}>
+                  {index > 0 && <span className={`${styles.stepConnector} ${index <= active ? styles.stepConnectorActive : ''}`} aria-hidden="true" />}
+                  <div className={`${styles.step} ${done ? styles.stepDone : current ? styles.stepActive : ''}`}>
+                    <span className={styles.stepMarker} aria-hidden="true">
+                      {done ? (
+                        <svg viewBox="0 0 12 12" width="11" height="11" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M2.25 6.25 4.85 8.85 9.75 3.5" />
+                        </svg>
+                      ) : current ? (
+                        <span className={styles.stepSpinner} />
+                      ) : (
+                        <span className={styles.stepDot} />
+                      )}
+                    </span>
+                    <span className={styles.stepLabel}>{t(`update_step_${step}`)}</span>
+                  </div>
+                </Fragment>
+              )
+            })}
           </div>
-          <p className={styles.hint}>{t('update_installing_hint')}</p>
         </div>
       </div>
     </div>

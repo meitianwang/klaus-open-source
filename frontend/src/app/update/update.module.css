@@ -1,6 +1,7 @@
 /* Update notice surfaces. One transfer, four presentations: the modal detail,
    the persistent card, the install decision and the installation hand-off.
-   They share these primitives so the same phase never reads two ways. */
+   Styled in Klaus's monochrome ink palette without divider hairlines or
+   duplicated progress bars. */
 
 .backdrop {
   position: fixed;
@@ -10,60 +11,141 @@
   align-items: center;
   justify-content: center;
   padding: 24px;
-  background: rgba(0, 0, 0, 0.5);
+  background: rgba(15, 17, 20, 0.28);
   backdrop-filter: blur(4px);
   animation: update-fade-in 150ms ease-out;
+}
+:global([data-theme="dark"]) .backdrop {
+  background: rgba(0, 0, 0, 0.52);
 }
 @keyframes update-fade-in { from { opacity: 0; } to { opacity: 1; } }
 
 .dialog {
   width: 100%;
-  max-width: 420px;
+  max-width: 416px;
+  padding: 22px;
+  box-sizing: border-box;
   overflow: hidden;
   border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   background: var(--bg-elevated);
-  box-shadow: var(--shadow-lg);
-  animation: update-slide-in 180ms ease-out;
+  box-shadow: 0 24px 48px -12px rgba(0, 0, 0, 0.18), 0 2px 8px rgba(0, 0, 0, 0.05);
+  animation: update-slide-in 180ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 @keyframes update-slide-in {
-  from { transform: translateY(8px); opacity: 0; }
-  to { transform: translateY(0); opacity: 1; }
+  from { transform: scale(0.98) translateY(6px); opacity: 0; }
+  to { transform: scale(1) translateY(0); opacity: 1; }
 }
 
 .head {
   display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 16px 20px;
-  border-bottom: 1px solid var(--border-subtle);
+  align-items: flex-start;
+  gap: 14px;
 }
+
+.appBadge {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 40px;
+  height: 40px;
+  margin-top: 1px;
+  border-radius: 10px;
+  background: linear-gradient(180deg, #2b2e33 0%, #15171a 100%);
+  color: #ffffff;
+  box-shadow:
+    0 2px 6px rgba(0, 0, 0, 0.14),
+    inset 0 1px 0 rgba(255, 255, 255, 0.16),
+    0 0 0 1px rgba(0, 0, 0, 0.08);
+}
+:global([data-theme="dark"]) .appBadge {
+  background: linear-gradient(180deg, #2c2f35 0%, #141619 100%);
+  box-shadow:
+    0 2px 8px rgba(0, 0, 0, 0.4),
+    inset 0 1px 0 rgba(255, 255, 255, 0.14),
+    0 0 0 1px rgba(255, 255, 255, 0.1);
+}
+
 .headText { flex: 1; min-width: 0; }
+
+.titleRow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .title {
   margin: 0;
   font-size: var(--text-emphasis);
   font-weight: var(--weight-semibold);
+  line-height: 1.35;
   color: var(--fg);
   letter-spacing: -0.01em;
 }
-.subtitle {
-  margin: 2px 0 0;
+
+.versionPill {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--bg-hover);
   font-size: var(--text-caption);
-  color: var(--fg-tertiary);
+  font-weight: var(--weight-medium);
+  color: var(--fg-secondary);
+  font-variant-numeric: tabular-nums;
 }
 
-.spinner {
-  flex: none;
-  width: 18px;
-  height: 18px;
-  border: 2px solid var(--border);
-  border-top-color: var(--text-accent);
-  border-radius: 50%;
-  animation: update-spin 0.8s linear infinite;
+.subtitle {
+  margin: 4px 0 0;
+  font-size: var(--text-body-sm);
+  line-height: 1.5;
+  color: var(--fg-secondary);
+  text-wrap: pretty;
 }
-@keyframes update-spin { to { transform: rotate(360deg); } }
 
-.body { padding: 18px 20px; }
+/* Shared progress bar in the desktop ink scale. */
+.track {
+  height: 5px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--fg) 8%, transparent);
+}
+.fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+  transition: width 240ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+.fillActive {
+  position: relative;
+  overflow: hidden;
+}
+.fillActive::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    color-mix(in srgb, var(--accent-text) 28%, transparent) 50%,
+    transparent 100%
+  );
+  transform: translateX(-100%);
+  animation: update-shimmer 1.8s ease-in-out infinite;
+}
+@keyframes update-shimmer {
+  to { transform: translateX(100%); }
+}
+
+/* Download readout panel: size/percent above the bar, speed/ETA below it. */
+.transferPanel {
+  margin-top: 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--bg-secondary);
+}
 
 .percentRow {
   display: flex;
@@ -72,60 +154,39 @@
   gap: 12px;
   margin-bottom: 8px;
 }
-.percent {
-  font-size: var(--text-title);
-  font-weight: var(--weight-semibold);
-  color: var(--fg);
-  font-variant-numeric: tabular-nums;
-}
 .size {
   font-size: var(--text-caption);
-  color: var(--fg-tertiary);
+  color: var(--fg-secondary);
   font-variant-numeric: tabular-nums;
 }
-
-.track {
-  height: 6px;
-  overflow: hidden;
-  border-radius: 999px;
-  background: var(--bg-hover);
-}
-.fill {
-  height: 100%;
-  border-radius: 999px;
-  background: var(--text-accent);
-  transition: width 200ms ease-out;
-}
-
-.metrics {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 16px;
-  margin-top: 16px;
-}
-.metricLabel {
-  margin-bottom: 2px;
-  font-size: var(--text-badge);
-  font-weight: var(--weight-semibold);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--fg-quaternary);
-}
-.metricValue {
+.percent {
   font-size: var(--text-body-sm);
-  font-weight: var(--weight-medium);
+  font-weight: var(--weight-semibold);
   color: var(--fg);
   font-variant-numeric: tabular-nums;
 }
 
-.hint {
-  margin: 16px 0 0;
-  padding: 10px 12px;
-  border-radius: var(--radius-sm);
-  background: var(--bg-secondary);
+.metaRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 8px;
+}
+.metaItem {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
   font-size: var(--text-caption);
-  line-height: var(--leading-settings-description, 1.55);
+}
+.metaLabel {
   color: var(--fg-tertiary);
+}
+.metaValue {
+  color: var(--fg-secondary);
+  font-weight: var(--weight-medium);
+  font-variant-numeric: tabular-nums;
 }
 
 .foot {
@@ -133,8 +194,85 @@
   align-items: center;
   justify-content: flex-end;
   gap: 8px;
-  padding: 12px 20px;
-  border-top: 1px solid var(--border-subtle);
+  margin-top: 18px;
+}
+
+/* Installation hand-off: one bar paired with a single-line milestone rail. */
+.installBody {
+  margin-top: 18px;
+}
+
+.steps {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.step {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: none;
+  min-width: 0;
+}
+
+.stepConnector {
+  flex: 1;
+  min-width: 12px;
+  height: 1px;
+  background: var(--border);
+  transition: background 240ms ease;
+}
+.stepConnectorActive {
+  background: color-mix(in srgb, var(--fg) 24%, transparent);
+}
+
+.stepMarker {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  flex: none;
+  color: var(--fg-quaternary);
+}
+.stepDone .stepMarker {
+  color: var(--fg-secondary);
+}
+.stepActive .stepMarker {
+  color: var(--fg);
+}
+
+.stepSpinner {
+  width: 11px;
+  height: 11px;
+  box-sizing: border-box;
+  border: 1.6px solid color-mix(in srgb, var(--fg) 18%, transparent);
+  border-top-color: var(--fg);
+  border-radius: 50%;
+  animation: update-spin 0.8s linear infinite;
+}
+@keyframes update-spin { to { transform: rotate(360deg); } }
+
+.stepDot {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--fg-quaternary);
+}
+
+.stepLabel {
+  font-size: var(--text-caption);
+  color: var(--fg-quaternary);
+  white-space: nowrap;
+}
+.stepDone .stepLabel {
+  color: var(--fg-tertiary);
+}
+.stepActive .stepLabel {
+  color: var(--fg);
+  font-weight: var(--weight-medium);
 }
 
 /* Persistent card: lives above the sidebar footer, so a minimized transfer is
@@ -146,8 +284,9 @@
   margin: 0 var(--sidebar-gutter) 8px;
   padding: 10px 12px;
   border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   background: var(--bg-elevated);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
   -webkit-app-region: no-drag;
 }
 .bannerHead { display: flex; align-items: center; gap: 10px; min-width: 0; }
@@ -157,11 +296,11 @@
   flex: none;
   width: 28px;
   height: 28px;
-  border-radius: var(--radius-xs);
-  background: color-mix(in srgb, var(--text-accent) 14%, transparent);
-  color: var(--text-accent);
+  border-radius: var(--radius-sm);
+  background: var(--bg-hover);
+  color: var(--fg-secondary);
 }
-.bannerArt svg { display: block; width: 16px; height: 16px; fill: currentColor; }
+.bannerArt svg { display: block; width: 15px; height: 15px; fill: currentColor; }
 .bannerText { flex: 1; min-width: 0; }
 .bannerTitle {
   overflow: hidden;
@@ -175,6 +314,7 @@
   overflow: hidden;
   font-size: var(--text-badge);
   color: var(--fg-tertiary);
+  font-variant-numeric: tabular-nums;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -182,24 +322,9 @@
 .bannerActions { display: flex; align-items: center; gap: 6px; }
 .bannerActions > :first-child { flex: 1; min-width: 0; }
 
-/* Installation hand-off: it ends in a restart, so it offers no way out. */
-.steps { display: flex; gap: 8px; margin-top: 16px; }
-.step { flex: 1; min-width: 0; text-align: center; }
-.stepTrack {
-  height: 4px;
-  margin-bottom: 6px;
-  overflow: hidden;
-  border-radius: 999px;
-  background: var(--bg-hover);
-}
-.stepFill { height: 100%; width: 0; border-radius: 999px; background: var(--text-accent); transition: width 300ms ease-out; }
-.stepDone .stepFill { width: 100%; }
-.stepActive .stepFill { width: 55%; }
-.stepLabel { font-size: var(--text-badge); color: var(--fg-quaternary); }
-.stepDone .stepLabel, .stepActive .stepLabel { color: var(--fg-secondary); }
-
 @media (prefers-reduced-motion: reduce) {
   .backdrop, .dialog { animation: none; }
-  .spinner { animation-duration: 2s; }
-  .fill, .stepFill { transition: none; }
+  .stepSpinner { animation-duration: 2s; }
+  .fillActive::after { animation: none; display: none; }
+  .fill, .stepConnector { transition: none; }
 }
