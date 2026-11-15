@@ -2,23 +2,26 @@
 
 Local relay for Klaus engine traffic bound for the Antigravity service.
 
-The engine speaks plain HTTP to this relay over loopback. The relay re-issues
-each request over its own Go `net/http` TLS stack to the allowlisted upstream
-host named by the `X-Egress-Target` request header, so upstream connections
-originate from the same HTTP/TLS stack that the hub protocol components use.
-Responses stream back with per-chunk flushing, so server-sent event streams
-stay live end to end.
+The engine speaks plain HTTP/1.1 or unencrypted HTTP/2 (`h2c`) to this relay
+over loopback. The relay re-issues each request over its own Go `net/http` TLS
+stack to the allowlisted upstream host named by the `X-Egress-Target` request
+header, isolating upstream connection pools per account key (`X-Egress-Pool`)
+and inheriting `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY` from the environment.
+Responses stream back with per-chunk flushing and HTTP trailer preservation, so
+server-sent event streams and bidirectional gRPC streams stay live end to end.
 
 ## Protocol
 
 - Every request must carry `X-Egress-Token: <shared secret>`; the secret is
-  handed to the relay via `KLAUS_EGRESS_TOKEN` at spawn time. Mismatch → 403.
+  handed to the relay via `KLAUS_EGRESS_TOKEN` at spawn time. Mismatch -> 403.
 - `X-Egress-Target: <host>` selects the upstream from the allowlist
   (`daily-cloudcode-pa.googleapis.com`, `cloudcode-pa.googleapis.com`,
-  `oauth2.googleapis.com`). Unknown target → 400.
-- Method, path, query, body and remaining headers are forwarded as-is
-  (hop-by-hop headers are dropped). Response status, headers and body are
-  streamed back unchanged.
+  `oauth2.googleapis.com`, `aicode.googleapis.com`, `www.googleapis.com`).
+  Unknown target -> 400.
+- `X-Egress-Pool: <key>` (optional) isolates upstream transport pools per
+  account generation so distinct accounts never share an idle TLS connection.
+- `POST /egress-reset-pool` (with token) closes idle connections for the named
+  `X-Egress-Pool` (or all pools when omitted).
 - `GET /egress-healthz` (with token) returns `ok`.
 
 ## Lifecycle
@@ -43,10 +46,9 @@ stay live end to end.
 ## Build
 
 `./build.sh [output-dir]` cross-compiles all bundled platforms (stdlib only,
-`CGO_ENABLED=0`). Go >= 1.27.4 is required: the module language version pins
-the transport defaults (including post-quantum hybrid key agreement) that the
-upstream handshake shape depends on. Release packaging places the platform
-binary next to the engine binary as `antigravity-egress`(`.exe`); the engine
-discovers it there or via `KLAUS_ANTIGRAVITY_EGRESS=/path/to/binary`. Without
-a discoverable relay the engine talks to the service directly and behavior is
-unchanged.
+`CGO_ENABLED=0`). Go >= 1.27.4 is required (`GOTOOLCHAIN=auto` resolves it from
+`go.mod` when a newer Go toolchain is installed). Release packaging places the
+platform binary next to the engine binary as `antigravity-egress`(`.exe`); the
+engine discovers it there or via `KLAUS_ANTIGRAVITY_EGRESS=/path/to/binary` and
+refuses direct upstream HTTPS traffic when the relay is unavailable unless
+`KLAUS_ANTIGRAVITY_ALLOW_DIRECT=1` is set explicitly for diagnostics.

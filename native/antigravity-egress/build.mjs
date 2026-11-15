@@ -19,10 +19,15 @@ const [goos, goarch] = goTarget;
 // go.mod pins the module language version because it selects the transport
 // defaults (including post-quantum hybrid key agreement) that the upstream
 // handshake shape depends on; older toolchains refuse the build on their own.
+const goEnv = {
+  ...process.env,
+  GOTOOLCHAIN: process.env.GOTOOLCHAIN ?? 'auto',
+  PATH: [process.env.PATH, '/opt/homebrew/bin', '/usr/local/go/bin', '/usr/local/bin'].filter(Boolean).join(process.platform === 'win32' ? ';' : ':'),
+};
 const go = process.env.KLAUS_GO ?? 'go';
 let compiler;
 try {
-  compiler = execFileSync(go, ['version'], { encoding: 'utf8' }).trim();
+  compiler = execFileSync(go, ['version'], { cwd: directory, env: goEnv, encoding: 'utf8' }).trim();
 } catch {
   throw new Error('Go 1.27.4 or newer is required to build the Antigravity egress relay; set KLAUS_GO=/path/to/go or add go to PATH');
 }
@@ -43,7 +48,7 @@ mkdirSync(output, { recursive: true });
 const artifact = 'antigravity-egress' + (platform === 'win32' ? '.exe' : '');
 const target = resolve(output, artifact), temporary = `${target}.tmp-${process.pid}`;
 execFileSync(go, ['build', '-trimpath', '-ldflags', '-s -w', '-o', temporary, '.'],
-  { cwd: directory, stdio: 'inherit', env: { ...process.env, GOOS: goos, GOARCH: goarch, CGO_ENABLED: '0' } });
+  { cwd: directory, stdio: 'inherit', env: { ...goEnv, GOOS: goos, GOARCH: goarch, CGO_ENABLED: '0' } });
 // Verify the actual binary header: a stale or translated toolchain must not
 // silently stage bytes for another platform.
 const compiled = readFileSync(temporary);

@@ -1,10 +1,9 @@
 // Command antigravity-egress is a local relay for Klaus engine traffic bound
-// for the Antigravity service. The engine speaks plain HTTP over loopback;
-// the relay re-issues each request over its own TLS stack to the allowlisted
-// upstream host named by the X-Egress-Target header, so upstream connections
-// originate from the same HTTP/TLS stack that the hub protocol components
-// use. Responses stream back with per-chunk flushing so server-sent event
-// streams stay live.
+// for the Antigravity service. The engine speaks plain HTTP/1.1 or unencrypted
+// HTTP/2 (h2c) over loopback; the relay re-issues each request over its own TLS
+// stack to the allowlisted upstream host named by the X-Egress-Target header.
+// Responses stream back with per-chunk flushing and trailer preservation so
+// both server-sent event streams and bidirectional gRPC streams stay live.
 //
 // Lifecycle: the relay prints "READY 127.0.0.1:<port>" once listening, exits
 // when its stdin closes (the parent process is gone) or on SIGINT/SIGTERM.
@@ -21,29 +20,38 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 )
+
+const maxAccountPools = 16
 
 var allowedTargets = map[string]bool{
 	"daily-cloudcode-pa.googleapis.com": true,
 	"cloudcode-pa.googleapis.com":       true,
 	"oauth2.googleapis.com":             true,
+	"aicode.googleapis.com":             true,
+	"www.googleapis.com":                true,
 }
 
 // Hop-by-hop and relay-internal headers must not be forwarded in either
-// direction.
+// direction. "te: trailers" is preserved for gRPC over HTTP/2.
 var skipRequestHeaders = map[string]bool{
 	"host":              true,
 	"connection":        true,
 	"keep-alive":        true,
 	"proxy-connection":  true,
 	"transfer-encoding": true,
+	"upgrade":           true,
+	"http2-settings":    true,
 	"x-egress-token":    true,
 	"x-egress-target":   true,
+	"x-egress-pool":     true,
 	"content-length":    true,
 }
 
@@ -53,12 +61,110 @@ var skipResponseHeaders = map[string]bool{
 	"transfer-encoding": true,
 }
 
+type poolEntry struct {
+	key       string
+	client    *http.Client
+	transport *http.Transport
+}
+
+type clientPool struct {
+	mu      sync.Mutex
+	factory func() (*http.Client, *http.Transport)
+	entries []poolEntry
+}
+
+func newClientPool(tlsBase *tls.Config, upstreamOverride string, proxyFunc func(*http.Request) (*url.URL, error)) *clientPool {
+	return &clientPool{
+		factory: func() (*http.Client, *http.Transport) {
+			var clonedTLS *tls.Config
+			if tlsBase != nil {
+				clonedTLS = tlsBase.Clone()
+			} else {
+				clonedTLS = &tls.Config{}
+			}
+			activeProxy := proxyFunc
+			if upstreamOverride != "" {
+				activeProxy = nil
+			}
+			transport := &http.Transport{
+				Proxy:             activeProxy,
+				TLSClientConfig:   clonedTLS,
+				ForceAttemptHTTP2: true,
+				DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+					if upstreamOverride != "" {
+						addr = upstreamOverride
+					}
+					dialer := &net.Dialer{Timeout: 15 * time.Second, KeepAlive: 30 * time.Second}
+					return dialer.DialContext(ctx, network, addr)
+				},
+				MaxIdleConnsPerHost: 4,
+				IdleConnTimeout:     90 * time.Second,
+			}
+			return &http.Client{Transport: transport}, transport
+		},
+	}
+}
+
+func (p *clientPool) get(rawKey string) *http.Client {
+	key := strings.TrimSpace(rawKey)
+	if len(key) > 128 {
+		key = key[:128]
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for i, entry := range p.entries {
+		if entry.key == key {
+			if i != len(p.entries)-1 {
+				p.entries = append(append(p.entries[:i], p.entries[i+1:]...), entry)
+			}
+			return entry.client
+		}
+	}
+	if len(p.entries) >= maxAccountPools {
+		evicted := p.entries[0]
+		p.entries = p.entries[1:]
+		evicted.transport.CloseIdleConnections()
+	}
+	client, transport := p.factory()
+	p.entries = append(p.entries, poolEntry{key: key, client: client, transport: transport})
+	return client
+}
+
+func (p *clientPool) reset(rawKey string) {
+	key := strings.TrimSpace(rawKey)
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if key == "" {
+		for _, entry := range p.entries {
+			entry.transport.CloseIdleConnections()
+		}
+		p.entries = nil
+		return
+	}
+	for i, entry := range p.entries {
+		if entry.key == key {
+			entry.transport.CloseIdleConnections()
+			p.entries = append(p.entries[:i], p.entries[i+1:]...)
+			return
+		}
+	}
+}
+
+func newRelayServer(handler http.Handler) *http.Server {
+	var protocols http.Protocols
+	protocols.SetHTTP1(true)
+	protocols.SetUnencryptedHTTP2(true)
+	return &http.Server{
+		Handler:           handler,
+		ReadHeaderTimeout: 10 * time.Second,
+		Protocols:         &protocols,
+	}
+}
+
 func main() {
 	log.SetFlags(0)
 	token := os.Getenv("KLAUS_EGRESS_TOKEN")
 	if token == "" {
-		// Alternative secret-file provisioning, mirroring the common
-		// container secret-mount pattern.
 		if tokenFile := os.Getenv("KLAUS_EGRESS_TOKEN_FILE"); tokenFile != "" {
 			if contents, err := os.ReadFile(tokenFile); err == nil {
 				token = strings.TrimSpace(string(contents))
@@ -70,8 +176,6 @@ func main() {
 	}
 
 	tlsConfig := &tls.Config{}
-	// Diagnostic CA injection for local wire-fidelity harnesses; production
-	// runs use the platform trust store.
 	if caFile := os.Getenv("KLAUS_EGRESS_CA_FILE"); caFile != "" {
 		pemBytes, err := os.ReadFile(caFile)
 		if err != nil {
@@ -84,29 +188,13 @@ func main() {
 		tlsConfig.RootCAs = pool
 	}
 
-	transport := &http.Transport{
-		TLSClientConfig:   tlsConfig,
-		ForceAttemptHTTP2: true,
-		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-			// Diagnostic override used by local wire-fidelity harnesses.
-			if override := os.Getenv("KLAUS_EGRESS_UPSTREAM_OVERRIDE"); override != "" {
-				addr = override
-			}
-			dialer := &net.Dialer{Timeout: 15 * time.Second, KeepAlive: 30 * time.Second}
-			return dialer.DialContext(ctx, network, addr)
-		},
-		MaxIdleConnsPerHost: 4,
-	}
-	client := &http.Client{Transport: transport}
+	pools := newClientPool(tlsConfig, os.Getenv("KLAUS_EGRESS_UPSTREAM_OVERRIDE"), http.ProxyFromEnvironment)
 
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		log.Fatalf("antigravity-egress: listen: %v", err)
 	}
-	server := &http.Server{
-		Handler:           relayHandler{client: client, token: token},
-		ReadHeaderTimeout: 10 * time.Second,
-	}
+	server := newRelayServer(relayHandler{pools: pools, token: token})
 
 	fmt.Fprintf(os.Stdout, "READY 127.0.0.1:%d\n", listener.Addr().(*net.TCPAddr).Port)
 
@@ -127,8 +215,8 @@ func main() {
 }
 
 type relayHandler struct {
-	client *http.Client
-	token  string
+	pools *clientPool
+	token string
 }
 
 func (h relayHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -141,11 +229,22 @@ func (h relayHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.WriteString(w, "ok")
 		return
 	}
+	if r.Method == http.MethodPost && r.URL.Path == "/egress-reset-pool" {
+		h.pools.reset(r.Header.Get("X-Egress-Pool"))
+		_, _ = io.WriteString(w, "ok")
+		return
+	}
 	target := strings.ToLower(r.Header.Get("X-Egress-Target"))
-	if !allowedTargets[target] {
+	hostOnly := target
+	if host, _, err := net.SplitHostPort(target); err == nil {
+		hostOnly = host
+	}
+	if !allowedTargets[hostOnly] {
 		http.Error(w, "unknown egress target", http.StatusBadRequest)
 		return
 	}
+	_ = http.NewResponseController(w).EnableFullDuplex()
+
 	upstream := "https://" + target + r.URL.Path
 	if r.URL.RawQuery != "" {
 		upstream += "?" + r.URL.RawQuery
@@ -156,7 +255,16 @@ func (h relayHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	for name, values := range r.Header {
-		if skipRequestHeaders[strings.ToLower(name)] {
+		lower := strings.ToLower(name)
+		if skipRequestHeaders[lower] {
+			continue
+		}
+		if lower == "te" {
+			for _, value := range values {
+				if strings.EqualFold(strings.TrimSpace(value), "trailers") {
+					out.Header.Add("Te", "trailers")
+				}
+			}
 			continue
 		}
 		for _, value := range values {
@@ -165,7 +273,8 @@ func (h relayHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	out.ContentLength = r.ContentLength
 
-	resp, err := h.client.Do(out)
+	client := h.pools.get(r.Header.Get("X-Egress-Pool"))
+	resp, err := client.Do(out)
 	if err != nil {
 		log.Printf("antigravity-egress: upstream %s %s: %v", r.Method, target, err)
 		http.Error(w, "upstream unreachable", http.StatusBadGateway)
@@ -182,6 +291,9 @@ func (h relayHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(resp.StatusCode)
 	flusher, _ := w.(http.Flusher)
+	if flusher != nil {
+		flusher.Flush()
+	}
 	buffer := make([]byte, 32*1024)
 	for {
 		count, readErr := resp.Body.Read(buffer)
@@ -196,8 +308,14 @@ func (h relayHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if readErr != nil {
 			if readErr != io.EOF {
 				log.Printf("antigravity-egress: upstream read: %v", readErr)
+				return
 			}
-			return
+			break
+		}
+	}
+	for name, values := range resp.Trailer {
+		for _, value := range values {
+			w.Header().Add(http.TrailerPrefix+name, value)
 		}
 	}
 }

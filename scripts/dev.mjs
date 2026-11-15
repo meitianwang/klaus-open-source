@@ -92,7 +92,7 @@ if (options.has('--reuse-native')) {
   // engine connects to the service directly; release packaging enforces the
   // staged artifact, so a missing toolchain can never ship silently.
   const egressRelayBuild = spawnSync(process.execPath, ['native/antigravity-egress/build.mjs', helperDirectory('antigravity-egress')], { cwd: appDirectory, stdio: 'inherit' });
-  if (egressRelayBuild.status !== 0) console.warn('[dev] antigravity-egress relay unavailable; the engine will connect to the service directly');
+  if (egressRelayBuild.status !== 0) console.warn('[dev] antigravity-egress relay unavailable; Antigravity cloud requests will fail closed until Go >= 1.27.4 is available');
 }
 const browserImport = ensureBrowserImportHelper({ repo, platform: process.platform, arch: process.arch });
 if (browserImport.supported) console.log(`[dev] browser import helper: ${browserImport.helperPath}`);
