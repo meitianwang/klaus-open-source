@@ -48,7 +48,18 @@ export class McpElicitationPump {
       if (this.deps.currentGeneration() !== generation || this.deps.state.liveSession(sessionId) !== engineId) throw new IpcHandlerError('STALE_SESSION', 'The MCP elicitation owner changed');
     };
     const resolve = async (response: Row) => { current(); await this.deps.resolve(engineId, generation, rawId, response); };
-    if ((request.mode !== undefined && request.mode !== 'form') || !object(request.requestedSchema) || this.active.size >= 512) {
+    const meta = object(request._meta), klaus = object(meta?.klaus);
+    const prompt = typeof request.message === 'string' && request.message.trim() ? request.message : 'MCP server is asking for input';
+    // Three wire shapes reach a card: the standard form and the arbitrary
+    // JSON-schema form render typed fields; a URL flow renders an openable
+    // link the user confirms or skips. Anything else is cancelled so the
+    // server gets a verdict instead of hanging.
+    const mode = request.mode === undefined ? 'form' : request.mode;
+    const schema = object(request.requestedSchema);
+    const url = typeof request.url === 'string' ? safeElicitUrl(request.url) : undefined;
+    const formLike = (mode === 'form' || mode === 'openai/form') && !!schema;
+    const urlFlow = mode === 'url' && url !== undefined;
+    if ((!formLike && !urlFlow) || this.active.size >= 512) {
       void resolve({ action: 'cancel' }).catch(error => this.deps.log('mcp-elicitation-cancel', String(error)));
       this.deps.log('mcp-elicitation-refused', 'Unsupported form or pending interaction capacity exceeded'); return;
     }
@@ -60,11 +71,11 @@ export class McpElicitationPump {
       try { await resolve(response); settle(); this.active.delete(key); }
       catch (error) { if (this.active.has(key)) status = 'open'; throw error; }
     };
-    const meta = object(request._meta), klaus = object(meta?.klaus);
-    const prompt = typeof request.message === 'string' && request.message.trim() ? request.message : 'MCP server is asking for input';
-    const card: Row = { requestId: key, sessionId, type: 'mcp-elicit', serverName: event.serverName ?? '',
-      prompt, message: prompt, requestedSchema: request.requestedSchema!,
-      ...(typeof klaus?.computerUseApp === 'string' ? { computerUseApp: klaus.computerUseApp } : {}) };
+    const card: Row = urlFlow
+      ? { requestId: key, sessionId, type: 'mcp-url', serverName: event.serverName ?? '', prompt, message: prompt, url: url! }
+      : { requestId: key, sessionId, type: 'mcp-elicit', serverName: event.serverName ?? '',
+          prompt, message: prompt, requestedSchema: schema!,
+          ...(typeof klaus?.computerUseApp === 'string' ? { computerUseApp: klaus.computerUseApp } : {}) };
     const responder: PendingReverse['request'] = {
       get outstanding() { return status !== 'settled'; },
       respond: async value => {
@@ -76,8 +87,18 @@ export class McpElicitationPump {
       respondError: async () => { await answer({ action: 'cancel' }); },
     };
     this.active.set(key, settle);
-    this.deps.state.parkReverse({ requestId: key, sessionId, isApproval: false, elicitationKind: 'mcp-form', toolName: '', card, request: responder });
+    this.deps.state.parkReverse({ requestId: key, sessionId, isApproval: false, elicitationKind: urlFlow ? 'mcp-url' : 'mcp-form', toolName: '', card, request: responder });
     this.deps.present(card);
   }
   private key(generation: number, engineId: string, requestId: string): string { return `${generation}:mcp:${engineId}:${requestId}`; }
+}
+
+/** A browser-openable http(s) URL without embedded credentials, normalized. */
+function safeElicitUrl(value: string): string | undefined {
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  let url: URL;
+  try { url = new URL(trimmed); } catch { return undefined; }
+  if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) return undefined;
+  return url.toString();
 }

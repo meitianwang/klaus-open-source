@@ -565,7 +565,10 @@ export class SessionEventPump {
       if (entry.elicitationKind === 'mcp-form' && (answer.kind === 'answers' || (answer.kind === 'accept' && !object(answer.values)))) {
         throw new IpcHandlerError('BAD_REQUEST', 'MCP form acceptance requires a content object');
       }
-      if (entry.elicitationKind !== 'mcp-form' && answer.kind === 'accept' && (!Array.isArray(answer.values) || answer.values.some(value => typeof value !== 'string'))) {
+      if (entry.elicitationKind === 'mcp-url' && answer.kind === 'answers') {
+        throw new IpcHandlerError('BAD_REQUEST', 'A URL request carries no answer set');
+      }
+      if (entry.elicitationKind !== 'mcp-form' && entry.elicitationKind !== 'mcp-url' && answer.kind === 'accept' && (!Array.isArray(answer.values) || answer.values.some(value => typeof value !== 'string'))) {
         throw new IpcHandlerError('BAD_REQUEST', 'values must be an array of strings');
       }
       if (answer.kind === 'answers' && (!object(answer.answers) || Object.values(object(answer.answers)!).some(value => typeof value !== 'string'))) {

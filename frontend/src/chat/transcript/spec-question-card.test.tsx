@@ -112,6 +112,16 @@ test('MCP schema elicitation retains its existing typed controls and submit acti
   expect(html).not.toContain(t('spec_question_recommend'))
 })
 
+test('MCP url elicitation offers the browser handoff and the user verdict', () => {
+  const html = renderToStaticMarkup(<ElicitCard req={{ requestId: 'mcp-url-1', type: 'mcp-url', url: 'https://example.com/approve', prompt: 'Complete authorization' }} resolved={null} sessionId="session-1" />)
+  expect(html).toContain('Complete authorization')
+  expect(html).toContain(t('elicit_url_hint'))
+  expect(html).toContain(t('elicit_url_open'))
+  expect(html).toContain(t('elicit_url_done'))
+  expect(html).toContain(t('elicit_skip'))
+  expect(html).not.toContain('data-schema-field')
+})
+
 test('a blocking card gates every submit path on batch readiness, in one place', () => {
   // Enter, the field-row CTA and single-select auto-advance all funnel through
   // advance(); the readiness check lives there so no caller can bypass it. The

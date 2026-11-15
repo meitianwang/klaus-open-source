@@ -92,7 +92,7 @@ export interface PendingReverse {
    * `decline` to an approval the engine is waiting on, which it cannot parse.
    */
   isApproval: boolean;
-  elicitationKind?: 'mcp-form';
+  elicitationKind?: 'mcp-form' | 'mcp-url';
   /** The card pushed to the renderer, kept so `permission:pending` can re-send it. */
   card: Json;
   /** The engine's own tool name for the pending request's diagnostics. */

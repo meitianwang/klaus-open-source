@@ -634,8 +634,62 @@ export function ElicitCard(props: {
   resolved: null | 'submitted' | 'declined' | 'cancelled'
   sessionId: string
 }) {
+  if (props.req.type === 'mcp-url') return <UrlElicitCard {...props} />
   return props.req.type === 'mcp-elicit' || props.req.computerUseApp
     ? <StructuredElicitCard {...props} /> : <NativeQuestionCard {...props} />
+}
+
+// MCP URL elicitation: the server asks the user to complete a step in the
+// browser. The card opens the link and waits for the user's own verdict —
+// Done accepts, Skip declines; an engine-side settlement resolves the card
+// through the same terminal events as the other elicitation shapes.
+function UrlElicitCard({ req, resolved, sessionId }: {
+  req: any
+  resolved: null | 'submitted' | 'declined' | 'cancelled'
+  sessionId: string
+}) {
+  const t = useT()
+  const submission = useMemo(createQuestionSubmissionController, [req.requestId, sessionId])
+  const responseState = useSyncExternalStore(submission.subscribe, submission.getSnapshot, submission.getSnapshot)
+  const locked = !!resolved || responseState.phase !== 'pending'
+  useEffect(() => {
+    if (resolved) submission.resolve(resolved === 'submitted' ? 'submitted' : 'skipped')
+  }, [submission, resolved])
+  const respond = async (payload: Record<string, unknown>, mode: 'submitted' | 'skipped') => {
+    const succeeded = await submission.send(async () => w().klaus.elicit.respond(req.requestId, payload), mode)
+    if (!succeeded) return
+    w().untrackApprovalRequest?.(req.requestId)
+    resolveLiveApproval(sessionId, req.requestId, mode === 'submitted' ? 'submitted' : 'declined')
+  }
+  const open = () => {
+    const url = typeof req.url === 'string' ? req.url : ''
+    if (!url) return
+    void Promise.resolve(w().klaus?.app?.openExternal?.(url)).catch(() => {})
+  }
+  const resultText = resolved === 'submitted' ? t('elicit_answered')
+    : resolved === 'cancelled' ? t('elicit_cancelled')
+    : t('elicit_declined')
+  return (
+    <div className={`permission-card ${styles['elicit-card']}${resolved ? ' permission-resolved' : ''}`} id={`elicit-${req.requestId}`} aria-busy={!resolved && locked}>
+      <ApprovalChip iconHtml={rawIconHtml('chat-bubble')} label={t('elicit_title')} timer={null} />
+      <div className={`${styles['permission-message']}`}>{req.prompt || ''}</div>
+      <div className={`${styles['permission-suggestions']}`}>
+        <div className={`${styles['permission-suggestion']}`}>{t('elicit_url_hint')}</div>
+      </div>
+      {responseState.failed ? <div className="spec-question-error" role="alert">{t('spec_question_submit_failed')}</div> : null}
+      <div className={`${styles['permission-actions']}`}>
+        {resolved ? (
+          <div className={`${styles['permission-result']} ${resolved === 'submitted' ? 'permission-allowed' : 'permission-denied'}`}>{resultText}</div>
+        ) : (
+          <>
+            <button className={`${styles['permission-btn']} ${styles['permission-btn-deny']}`} disabled={locked} onClick={() => void respond({ kind: 'decline' }, 'skipped')}>{t('elicit_skip')}</button>
+            <button className={`${styles['permission-btn']} ${styles['permission-btn-session']}`} disabled={locked} onClick={open}>{t('elicit_url_open')}</button>
+            <button className={`${styles['permission-btn']} ${styles['permission-btn-allow']}`} disabled={locked} onClick={() => void respond({ kind: 'accept' }, 'submitted')}>{t(responseState.phase === 'submitting' ? 'spec_question_submitting' : 'elicit_url_done')}</button>
+          </>
+        )}
+      </div>
+    </div>
+  )
 }
 
 function NativeQuestionCard({ req, resolved, sessionId }: {

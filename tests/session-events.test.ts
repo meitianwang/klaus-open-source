@@ -461,6 +461,34 @@ h.test('MCP facade failure cancels the original operation and never reports appr
   await assertRejects(() => f.pump.respond({ requestId: mcpVector.card.requestId!, response: mcpVector.answer }, false), 'failed terminal rejects the user action');
   assertDeepEqual(calls.map(row => row.action), ['accept', 'cancel'], 'cleanup cancels the unresolved original request'); f.forwarder.close();
 });
+h.test('MCP url and arbitrary-schema elicitations reach the renderer instead of auto-cancelling', async () => {
+  const calls: unknown[][] = [];
+  const f = fixture(async (...args) => { calls.push(args); });
+  f.pump.receive(mcpFrame({ requestId: 'mcp-url', serverName: 'calendar', request: { mode: 'url', message: 'Complete authorization', url: 'https://example.com/approve', elicitationId: 'el-1' } }), 1);
+  assertDeepEqual(f.delivered[0]!.value, {
+    requestId: '1:mcp:engine-session:mcp-url', sessionId: 'conversation', type: 'mcp-url', serverName: 'calendar',
+    prompt: 'Complete authorization', message: 'Complete authorization', url: 'https://example.com/approve',
+  }, 'the URL flow publishes its own renderer shape');
+  await f.pump.respond({ requestId: '1:mcp:engine-session:mcp-url', response: { kind: 'accept' } }, false);
+  assertDeepEqual(calls, [['engine-session', 1, 'mcp-url', { action: 'accept', content: {} }]], 'Done reaches the named resolver as an accept with empty content');
+  f.pump.receive(mcpFrame({ requestId: 'mcp-openai', serverName: 'other', request: { mode: 'openai/form', message: 'Pick one', requestedSchema: { type: 'object', properties: { choice: { type: 'string', enum: ['a', 'b'] } } } } }), 1);
+  assertDeepEqual(f.delivered[1]!.value, {
+    requestId: '1:mcp:engine-session:mcp-openai', sessionId: 'conversation', type: 'mcp-elicit', serverName: 'other',
+    prompt: 'Pick one', message: 'Pick one', requestedSchema: { type: 'object', properties: { choice: { type: 'string', enum: ['a', 'b'] } } },
+  }, 'the arbitrary-schema form keeps the structured card shape');
+  await f.pump.respond({ requestId: '1:mcp:engine-session:mcp-openai', response: { kind: 'decline' } }, false);
+  assertDeepEqual(calls[1], ['engine-session', 1, 'mcp-openai', { action: 'decline' }], 'Skip reaches the named resolver as a decline');
+  f.forwarder.close();
+});
+h.test('MCP url elicitations with a non-browser URL are cancelled at the host gate', async () => {
+  const calls: unknown[][] = [];
+  const f = fixture(async (...args) => { calls.push(args); });
+  f.pump.receive(mcpFrame({ requestId: 'mcp-bad-url', serverName: 'calendar', request: { mode: 'url', message: 'Run something', url: 'file:///etc/passwd', elicitationId: 'el-2' } }), 1);
+  assertEqual(f.delivered.length, 0, 'no card is published for a non-HTTP URL');
+  assertDeepEqual(calls, [['engine-session', 1, 'mcp-bad-url', { action: 'cancel' }]], 'the request is cancelled instead of being presented');
+  assertEqual(f.state.pendingCount(), 0, 'a cancelled URL request parks no card');
+  f.forwarder.close();
+});
 
 h.test('hook failures stay out of the transcript and land in the host log', () => {
   // The transcript never carries a hook's runtime failure; the
