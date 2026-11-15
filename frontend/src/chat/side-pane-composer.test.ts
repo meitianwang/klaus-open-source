@@ -242,7 +242,7 @@ test('cloning a main composer with an active prediction never leaks it into a ne
     f.window.klausSideSurfaceClear('right')
     f.window.klausSideComposerPrepare('pending-new-side', 'parent', 'right')
     const sideWrapper = f.document.getElementById('side-input-wrapper')!
-    const sideGhosts = sideWrapper.querySelectorAll<HTMLElement>('.composer-prediction')
+    const sideGhosts = sideWrapper.querySelectorAll('.composer-prediction')
     expect(sideGhosts).toHaveLength(1)
     expect(sideGhosts[0]!.hidden).toBe(true)
     expect(sideGhosts[0]!.textContent).toBe('')
@@ -258,13 +258,13 @@ test('cloning a main composer with an active prediction never leaks it into a ne
     await f.window.klausSideSurfaceActivate('side-empty', 'right')
     await f.settle()
     expect(f.calls.predictions).toEqual([])
-    expect(sideWrapper.querySelector<HTMLElement>('.composer-prediction')!.hidden).toBe(true)
+    expect(sideWrapper.querySelector('.composer-prediction')!.hidden).toBe(true)
 
     // Activate a side task that has completed its own turn: its own suggestion renders, hides on quote, and adopts on Tab.
     await f.window.klausSideSurfaceActivate('side-with-work', 'right')
     await f.settle()
     const activeWrapper = f.document.getElementById('side-input-wrapper')!
-    const activeGhost = activeWrapper.querySelector<HTMLElement>('.composer-prediction')!
+    const activeGhost = activeWrapper.querySelector('.composer-prediction')!
     expect(f.calls.predictions.map(call => call.target)).toEqual([{ sessionId: 'side-with-work', turnId: 'side-turn-1' }])
     expect(activeGhost.hidden).toBe(false)
     expect(activeGhost.textContent).toContain('Follow up on the side answer')
