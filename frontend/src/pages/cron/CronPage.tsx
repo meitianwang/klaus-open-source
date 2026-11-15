@@ -336,6 +336,15 @@ export function CronPage() {
     || tasks.find(task => task.id === selectedId)
     || null
 
+  // Split mode: while a detail panel is open the view stops scrolling as one
+  // page; the header stays pinned and each pane scrolls inside its column.
+  useEffect(() => {
+    const view = document.getElementById('cron-view')
+    if (!view) return
+    view.classList.toggle('cron-view-split', !!selected)
+    return () => { view.classList.remove('cron-view-split') }
+  }, [selected])
+
   const executionLabel = (task: CronTask): string => {
     const target = cronExecutionTarget(task)
     if (target.kind === 'workspace') {

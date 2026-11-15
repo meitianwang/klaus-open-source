@@ -5089,6 +5089,31 @@ spinner (data-chat-timeline-scroll-generating): the affordance then
   z-index: 100;
 }
 #cron-view.active { display: block; }
+/* Split mode (a task detail is open): the view stops scrolling as one page
+   and becomes a fixed flex column — header pinned at the top, the two panes
+   of .cron-split each scrolling inside their own column. Toggled from the
+   cron page island together with the split's has-detail class. */
+#cron-view.cron-view-split {
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+#cron-view.cron-view-split #cron-view-content {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+#cron-view.cron-view-split #cron-view-content > .cron-inner {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+#cron-view.cron-view-split .kls-page-header { flex: 0 0 auto; }
 
 .cron-inner {
   max-width: 1040px;

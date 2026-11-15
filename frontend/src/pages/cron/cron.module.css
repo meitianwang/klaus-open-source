@@ -978,22 +978,31 @@ button.cron-run-open { cursor: pointer; }
 }
 
 /* When a task is selected the two columns sit side by side; the list narrows
-   and the detail panel takes the rest. */
+   and the detail panel takes the rest. The split fills the height left over
+   by the pinned page header (the view switches to its non-scrolling split
+   layout) so each column can scroll on its own. */
 .cron-split:global(.has-detail) {
   display: grid;
   grid-template-columns: minmax(320px, 5fr) 7fr;
   gap: 8px;
-  align-items: start;
+  align-items: stretch;
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 .cron-split:global(.has-detail) .cron-pane-list {
   display: block;
 }
 
+/* Independent scroll containers: a wheel gesture over one column never
+   moves the other column or the page chrome. */
+.cron-split:global(.has-detail) .cron-pane {
+  overflow-y: auto;
+  min-height: 0;
+}
+
 .cron-pane-detail:global(.active) {
   display: block;
-  position: sticky;
-  top: 0;
 }
 
 .cron-detail-placeholder {
