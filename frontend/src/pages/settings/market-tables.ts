@@ -18,6 +18,10 @@ const SKILL_TEXT_I18N = {
     en: ['Douyin Audio Downloader', 'Capture the signed CDN media URL of a public Douyin video through the in-app browser (no login), download it with curl, and extract the audio track to m4a/mp3 with ffmpeg.'],
     zh: ['抖音音频下载', '用应用内浏览器打开公开抖音视频页，捕获签名 CDN 媒体地址（无需登录），curl 下载后用 ffmpeg 抽取音轨为 m4a/mp3。'],
   },
+  'video-publish': {
+    en: ['Video Publish', 'Publish a finished local video to Douyin, Xiaohongshu, Bilibili, WeChat Channels, Toutiao, Kuaishou, YouTube, TikTok, or X through the already logged-in Chrome. Stop before the final publish control unless you explicitly say to publish.'],
+    zh: ['视频发布', '把本地成片发到抖音、小红书、B站、视频号、头条、快手、YouTube、TikTok 或 X。使用已经登录的 Chrome 填好上传页，除非明确要求发布，否则停在发布按钮前。'],
+  },
   'product-feature-video': {
     en: ['Product Feature Video', 'Create product promos, feature showcases and release videos from real components or approved screenshots with deterministic code rendering.'],
     zh: ['产品功能宣传片', '从真实组件或授权截图制作产品宣传片、功能展示与版本更新视频，确定性代码渲染交付。'],
