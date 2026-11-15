@@ -1448,6 +1448,23 @@ void (async () => {
       } finally { await relay.close(); await f.close(); }
     }
   });
+  await h.test('persistent enrolment failures join the backoff ladder instead of polling every second', async () => {
+    const f = await mobileFixture();
+    let requests = 0;
+    const relay = new MobileRelay({ ...new MobileSettingsStore(f.root, f.relayURL, {}).read(), localBaseURL: 'http://127.0.0.1:1' }, {
+      configRoot: f.root, account: () => ({ token: 'token', userId: 'user' }), machineIdentifier: async () => 'fixture-machine',
+      fetch: async () => { requests++; return new Response('{}', { status: 500 }); }, accountReadyRetryMs: 1,
+    });
+    try {
+      relay.start();
+      await waitFor(() => requests >= 3, 2000, 'Fast enrolment polls');
+      await sleep(600);
+      // Three fast polls (register plus heartbeat fallback each), then the ladder floor of 2.5s
+      // keeps the next cycle out of this window. A readiness-poll regression would sit far below
+      // the lower bound here and a missing ladder would blow past the upper bound.
+      assert.ok(requests >= 6 && requests <= 12, `expected ladder-bound retries, got ${requests} requests`);
+    } finally { await relay.close(); await f.close(); }
+  });
   await h.test('account-scoped device identity retains stored legacy seed on Windows and macOS', async () => {
     const f = await mobileFixture(); try {
       withSettingsDb(f.root, db => db.prepare('INSERT INTO settings(key,value) VALUES (?,?)').run('mobile_bridge.device_seed', 'legacy-seed'));

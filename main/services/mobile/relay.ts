@@ -17,6 +17,8 @@ const RECONNECT_BACKOFF_INITIAL_MS = 5_000;
 const RECONNECT_BACKOFF_CAP_MS = 30_000;
 /** Readiness poll while the signed-in account has not been enrolled yet. */
 const ACCOUNT_READY_RETRY_MS = 1_000;
+/** Enrolment failures poll at the readiness rate at most this many times before joining the backoff ladder. */
+const ENROLL_FAST_POLLS = 3;
 /** Extra spread added on top of a server-specified retry deadline. */
 const RETRY_AFTER_JITTER_MS = 30_000;
 /** Ceiling on draining writers after the relay is told to stop. */
@@ -45,7 +47,7 @@ interface RelayDeps {
   friendConnected?: () => void;
   friendDisconnected?: () => void;
   configRoot: string; account(): MobileAccount | undefined; fetch?: typeof fetch; platform?: NodeJS.Platform;
-  machineIdentifier?: () => Promise<string | undefined>; hostname?: string; heartbeatMs?: number; retryDelaysMs?: number[]; requestTimeoutMs?: number;
+  machineIdentifier?: () => Promise<string | undefined>; hostname?: string; heartbeatMs?: number; retryDelaysMs?: number[]; requestTimeoutMs?: number; accountReadyRetryMs?: number;
   authorizationExpired?: () => void;
   socketHeartbeatMs?: number; socketPongTimeoutMs?: number;
   log?: (event: string, fields: JsonObject) => void;
@@ -154,6 +156,7 @@ export class MobileRelay {
   }
   private async supervise(): Promise<void> {
     let attempt = 0;
+    let enrollPolls = 0;
     while (this.live()) {
       let opened = false;
       // Enrolment and transport failures wait differently: enrolment waits for the
@@ -170,7 +173,7 @@ export class MobileRelay {
       } catch { if (this.live()) { this.error = 'Relay registration failed'; this.powerChanged('error'); } }
       if (!this.live()) break;
       // Only a connection that stayed up for the stability window resets the ladder.
-      if (opened) attempt = 0;
+      if (opened) { attempt = 0; enrollPolls = 0; }
       const server = this.retryAt; this.retryAt = undefined;
       if (server !== undefined) {
         const wait = Math.max(0, server - Date.now()) + Math.floor(Math.random() * RETRY_AFTER_JITTER_MS);
@@ -183,11 +186,13 @@ export class MobileRelay {
           undefined, { signal: this.abort.signal }).catch(() => {});
         continue;
       }
-      if (phase === 'enroll') {
+      if (phase === 'enroll' && enrollPolls++ < ENROLL_FAST_POLLS) {
         // The account may still be settling; this is a readiness poll, not a backoff.
-        await delay(ACCOUNT_READY_RETRY_MS, undefined, { signal: this.abort.signal }).catch(() => {});
+        await delay(this.deps.accountReadyRetryMs ?? ACCOUNT_READY_RETRY_MS, undefined, { signal: this.abort.signal }).catch(() => {});
         continue;
       }
+      // An enrolment the server keeps refusing joins the same ladder as a transport
+      // failure, so a long outage cannot turn into a request storm.
       const backoff = Math.min(RECONNECT_BACKOFF_CAP_MS, RECONNECT_BACKOFF_INITIAL_MS * 2 ** Math.min(attempt, 10));
       attempt++;
       // Spread the retry so a fleet that lost the same relay does not return in lockstep.
