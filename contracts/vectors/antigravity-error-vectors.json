@@ -1,6 +1,6 @@
 {
-  "version": 3,
-  "reason": "Service rejections remain specific localized turn failures. Explicit account suspension, eligibility restrictions and unexplained permission denial must not be confused with expired credentials or network failures. Model access denial must not be presented as expired sign-in or a picker restriction; a NOT_FOUND verdict for a model the refreshed account catalog no longer lists reports the account offering; an identity the live catalog never carried reports a stale selection to re-resolve, not an account limitation. Unknown source tags fall back to a generic localized failure.",
+  "version": 4,
+  "reason": "Service rejections remain specific localized turn failures. Explicit account suspension, eligibility restrictions, verification challenges and unexplained permission denial must not be confused with expired credentials or network failures. Model access denial must not be presented as expired sign-in or a picker restriction; a NOT_FOUND verdict for a model the refreshed account catalog no longer lists reports the account offering; an identity the live catalog never carried reports a stale selection to re-resolve, not an account limitation. Unknown source tags fall back to a generic localized failure.",
   "cases": [
     { "code": "antigravity_model_access_denied", "expectedKey": "antigravity_model_access_denied" },
     { "code": "antigravity_model_not_offered", "expectedKey": "antigravity_model_not_offered" },
@@ -10,6 +10,7 @@
     { "code": "antigravity_region_unsupported", "expectedKey": "antigravity_region_unsupported" },
     { "code": "antigravity_account_disabled", "expectedKey": "antigravity_account_disabled" },
     { "code": "antigravity_account_restricted", "expectedKey": "antigravity_account_restricted" },
+    { "code": "antigravity_verification_required", "expectedKey": "antigravity_verification_required" },
     { "code": "antigravity_permission_denied", "expectedKey": "antigravity_permission_denied" },
     { "code": "antigravity_auth_required", "expectedKey": "antigravity_auth_required" },
     { "code": "antigravity_login_expired", "expectedKey": "antigravity_login_expired" },

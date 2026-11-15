@@ -7,6 +7,7 @@ const ANTIGRAVITY_ERROR_KEYS = new Set([
   'antigravity_region_unsupported',
   'antigravity_account_disabled',
   'antigravity_account_restricted',
+  'antigravity_verification_required',
   'antigravity_permission_denied',
   'antigravity_auth_required',
   'antigravity_login_expired',
