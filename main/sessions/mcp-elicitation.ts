@@ -36,7 +36,10 @@ export class McpElicitationPump {
       if (finish) {
         finish(); this.active.delete(key);
         const pending = this.deps.state.takePending(key);
-        if (pending) this.deps.cancelled(cancelledEvent(false, key, sessionId));
+        if (pending) {
+          const base = cancelledEvent(false, key, sessionId) as Row;
+          this.deps.cancelled(terminal.action === 'accept' ? { ...base, reason: 'resolved' } : base);
+        }
       }
     }
     const event = object(envelope.mcpElicitation), request = object(event?.request), rawId = event?.requestId;
@@ -80,7 +83,9 @@ export class McpElicitationPump {
       get outstanding() { return status !== 'settled'; },
       respond: async value => {
         const input = object(value) ?? {};
-        const response: Row = input.kind === 'accept' ? { action: 'accept', content: object(input.values) ?? {} } : { action: 'decline' };
+        const response: Row = input.kind === 'accept'
+          ? (urlFlow ? { action: 'accept' } : { action: 'accept', content: object(input.values) ?? {} })
+          : { action: 'decline' };
         if (meta) response._meta = meta;
         await answer(response);
       },

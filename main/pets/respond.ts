@@ -114,7 +114,9 @@ export class DesktopPetResponder {
         answer = { kind: 'answers', answers, ...(files && Object.keys(files).length ? { attachments: files } : {}) };
       } else {
         if (response.kind !== 'accept') bad('An elicitation answer is required');
-        if (attention.kind === 'mcp-form') {
+        if (attention.kind === 'mcp-url') {
+          answer = { kind: 'accept' };
+        } else if (attention.kind === 'mcp-form') {
           const values = jsonObject(response.values);
           if (Object.values(values).some(value => !(typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean' || Array.isArray(value) && value.every(item => typeof item === 'string')))) bad('Invalid form field values');
           answer = { kind: 'accept', values };

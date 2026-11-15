@@ -658,12 +658,18 @@ export function AttentionControls({
           {m.cancel}
         </button>
         <button
-          className="primary"
           disabled={busy}
           onClick={() => void send({ kind: "open" })}
         >
-          {m.continue}
+          {m.openLink}
           <Icon name="arrow-up-right" size={12} />
+        </button>
+        <button
+          className="primary"
+          disabled={busy}
+          onClick={() => void send({ kind: "accept" })}
+        >
+          {m.done}
         </button>
       </div>
     </section>

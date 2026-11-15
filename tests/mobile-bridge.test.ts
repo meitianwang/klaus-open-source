@@ -1591,6 +1591,12 @@ void (async () => {
       client.socket.send(JSON.stringify({ type: 'elicit_respond', requestId: 'mcp-form', response: { kind: 'accept', values: { enabled: true } } }));
       assert.deepEqual(await client.next('action_result'), { type: 'action_result', action: 'elicit_respond', ok: true, requestId: 'mcp-form' });
       assert.deepEqual(object((await client.next('elicit_resolved')).response), { kind: 'accept', values: { enabled: true } });
+
+      f.bridge.publishElicitationRequest({ requestId: 'mcp-url', sessionId: 's1', type: 'mcp-url', url: 'https://example.com/approve' }, f.owner());
+      assert.equal((await client.next('elicit_pending')).elicitationType, 'mcp-url');
+      client.socket.send(JSON.stringify({ type: 'elicit_respond', requestId: 'mcp-url', response: { kind: 'accept' } }));
+      assert.deepEqual(await client.next('action_result'), { type: 'action_result', action: 'elicit_respond', ok: true, requestId: 'mcp-url' });
+      assert.deepEqual(object((await client.next('elicit_resolved')).response), { kind: 'accept' });
       await stopSocket(client.socket);
     } finally { await f.close(); }
   });

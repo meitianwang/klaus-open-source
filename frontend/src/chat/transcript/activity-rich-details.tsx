@@ -11,11 +11,17 @@ export function ImageActivityDetails({ tool, presentation, locale }: { tool: Act
   const sessionId = tool.sessionId ?? ''
   const images = (presentation.imagePaths ?? []).map(path => ({ path, name: path.split(/[/\\]/).at(-1) || path,
     src: (window as any).klaus?.media?.url?.(path, sessionId) || '' })).filter(image => image.src)
-  if (!images.length) return <p className={styles.notice}>{locale.startsWith('zh') ? '没有可用的图片预览。可在详情中查看原始结果。' : 'No image preview is available. Inspect the original result in details.'}</p>
+  const unsupportedNotice = presentation.imageUnsupportedByModel ? <p className={styles.notice} data-image-unsupported>
+    {locale.startsWith('zh')
+      ? '读取时模型不支持图像，仅收到占位说明；切换到支持图像的模型后可直接看到原图。'
+      : 'The model active during this read did not support images and saw a placeholder; models with vision see the image directly.'}
+  </p> : null
+  if (!images.length) return <>
+    {unsupportedNotice}
+    <p className={styles.notice}>{locale.startsWith('zh') ? '没有可用的图片预览。可在详情中查看原始结果。' : 'No image preview is available. Inspect the original result in details.'}</p>
+  </>
   return <>
-    {presentation.imageUnsupportedByModel ? <p className={styles.notice} data-image-unsupported>
-      {locale.startsWith('zh') ? '当前模型看不到这张图片；切换到支持图像的模型后可直接查看。' : 'The current model cannot see this image; switch to a model with vision to view it.'}
-    </p> : null}
+    {unsupportedNotice}
     <div className={styles.images} data-viewed-images>
       {images.map(image => <button type="button" key={image.path} className={styles.image} data-media-thumb="1"
         data-media-path={image.path} data-media-session={sessionId}

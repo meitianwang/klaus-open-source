@@ -74,7 +74,7 @@ export type PetFormValue = string | number | boolean | string[];
 export type PetAttentionResponse =
   | { decision: 'allow' | 'deny'; acceptedSuggestionIndices?: number[] }
   | { kind: 'answers'; answers: Record<string, string>; attachments?: Record<string, string[]> }
-  | { kind: 'accept'; values: string[] | Record<string, PetFormValue>; persistApp?: boolean }
+  | { kind: 'accept'; values?: string[] | Record<string, PetFormValue>; persistApp?: boolean }
   | { kind: 'decline' | 'cancel' }
   | { kind: 'open' };
 export interface PetTaskResponse { taskId: string; requestId: string; response: PetAttentionResponse }

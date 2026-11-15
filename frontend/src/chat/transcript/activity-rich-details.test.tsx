@@ -178,4 +178,28 @@ describe('image inspection disclosure contract', () => {
     const generated = renderToStaticMarkup(<LiveToolCard card={{ ...card, toolName: 'generate_image' }} sessionId="owner" open={false} onToggle={() => {}} />)
     expect(generated).toContain('<img')
   })
+
+  test('blind-model image reads surface read-time notice in both collapsed summary and expanded details', () => {
+    ;(window as any).klaus = { media: { url: (path: string) => `klaus-media://fixture/${encodeURIComponent(path)}` } }
+    const output = JSON.stringify({ path: '/tmp/shot.png', found: true, kind: 'image', mimeType: 'image/png', imageUnsupportedByModel: true })
+    const tool = { ...value('read', { path: '/tmp/shot.png' }), output }
+    expect(activityToolPresentation(tool).imageUnsupportedByModel).toBe(true)
+
+    const collapsedEn = renderToStaticMarkup(<ActivityToolContent tool={tool} open={false} onToggle={() => {}} locale="en" />)
+    expect(collapsedEn).toContain('Read 1 image (model lacked vision when read)')
+    expect(collapsedEn).not.toContain('Viewed 1 image')
+
+    const collapsedZh = renderToStaticMarkup(<ActivityToolContent tool={tool} open={false} onToggle={() => {}} locale="zh" />)
+    expect(collapsedZh).toContain('已读取 1 张图像（读取时模型不支持图像）')
+
+    const openZh = renderToStaticMarkup(<ActivityToolContent tool={tool} open onToggle={() => {}} locale="zh" />)
+    expect(openZh).toContain('data-image-unsupported')
+    expect(openZh).toContain('读取时模型不支持图像，仅收到占位说明；切换到支持图像的模型后可直接看到原图。')
+    expect(openZh).not.toContain('当前模型看不到这张图片')
+
+    ;(window as any).klaus = { media: { url: () => '' } }
+    const noPreview = renderToStaticMarkup(<ActivityToolContent tool={tool} open onToggle={() => {}} locale="en" />)
+    expect(noPreview).toContain('data-image-unsupported')
+    expect(noPreview).toContain('No image preview is available.')
+  })
 })

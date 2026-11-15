@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs'
 import { t } from '../../i18n'
 
 ;(globalThis as any).window ??= { addEventListener: () => {} }
-const { AskUserQuestionCard, ElicitCard } = await import('./approval-cards')
+const { AskUserQuestionCard, ElicitCard, extractMcpSchemaValues } = await import('./approval-cards')
 
 test('question cards expose recommendations, batch submission, custom answers and keyboard access', () => {
   const html = renderToStaticMarkup(<AskUserQuestionCard req={{ requestId: 'ask-1', responseChannel: 'elicit', attachmentsSupported: true, toolInput: { questions: [
@@ -112,14 +112,58 @@ test('MCP schema elicitation retains its existing typed controls and submit acti
   expect(html).not.toContain(t('spec_question_recommend'))
 })
 
-test('MCP url elicitation offers the browser handoff and the user verdict', () => {
-  const html = renderToStaticMarkup(<ElicitCard req={{ requestId: 'mcp-url-1', type: 'mcp-url', url: 'https://example.com/approve', prompt: 'Complete authorization' }} resolved={null} sessionId="session-1" />)
+test('MCP url elicitation shows server attribution, highlighted host, browser handoff, and user verdict', () => {
+  const html = renderToStaticMarkup(<ElicitCard req={{ requestId: 'mcp-url-1', type: 'mcp-url', serverName: 'calendar', url: 'https://example.com/approve?state=1', prompt: 'Complete authorization' }} resolved={null} sessionId="session-1" />)
+  expect(html).toContain('calendar')
   expect(html).toContain('Complete authorization')
+  expect(html).toContain('data-elicit-url')
+  expect(html).toContain('<strong>example.com</strong>/approve?state=1')
   expect(html).toContain(t('elicit_url_hint'))
   expect(html).toContain(t('elicit_url_open'))
   expect(html).toContain(t('elicit_url_done'))
   expect(html).toContain(t('elicit_skip'))
   expect(html).not.toContain('data-schema-field')
+})
+
+test('MCP form and arbitrary JSON-schema elicitations render and extract oneOf, multi-select, nested JSON, and root objects', () => {
+  const complexSchema = {
+    type: 'object',
+    required: ['env', 'scopes', 'filter'],
+    properties: {
+      env: { type: 'string', title: 'Environment', oneOf: [{ const: 'dev', title: 'Development' }, { const: 'prod', title: 'Production' }] },
+      scopes: { type: 'array', title: 'Scopes', items: { anyOf: [{ const: 'read', title: 'Read access' }, { const: 'write', title: 'Write access' }] }, default: ['read'] },
+      filter: { type: 'object', title: 'Filter JSON', properties: { tag: { type: 'string' } } },
+    },
+  }
+  const html = renderToStaticMarkup(<ElicitCard req={{ requestId: 'mcp-complex', type: 'mcp-elicit', serverName: 'other', requestedSchema: complexSchema }} resolved={null} sessionId="session-1" />)
+  expect(html).toContain('other')
+  expect(html).toContain('<option value="dev" selected="">Development</option>')
+  expect(html).toContain('data-schema-multiselect="scopes" checked="" value="read"')
+  expect(html).toContain('data-schema-json-field="filter"')
+
+  expect(extractMcpSchemaValues(complexSchema, {
+    scalars: { env: { value: 'prod' } },
+    multiSelects: { scopes: ['read', 'write'] },
+    jsonFields: { filter: '{"tag":"urgent"}' },
+  })).toEqual({
+    ok: true,
+    values: { env: 'prod', scopes: ['read', 'write'], filter: { tag: 'urgent' } },
+  })
+  expect(extractMcpSchemaValues(complexSchema, {
+    scalars: { env: { value: 'prod' } },
+    multiSelects: { scopes: ['read'] },
+    jsonFields: { filter: 'not-json' },
+  })).toEqual({ ok: false, kind: 'json', field: 'Filter JSON' })
+  expect(extractMcpSchemaValues(complexSchema, {
+    scalars: { env: { value: 'prod' } },
+    multiSelects: { scopes: [] },
+    jsonFields: { filter: '{}' },
+  })).toEqual({ ok: false, kind: 'required', field: 'Scopes' })
+
+  const openRoot = renderToStaticMarkup(<ElicitCard req={{ requestId: 'mcp-root', type: 'mcp-elicit', requestedSchema: { type: 'object' } }} resolved={null} sessionId="session-1" />)
+  expect(openRoot).toContain('data-schema-json-root="1"')
+  expect(extractMcpSchemaValues({ type: 'object' }, { rootJson: '{"custom":42}' })).toEqual({ ok: true, values: { custom: 42 } })
+  expect(extractMcpSchemaValues({ type: 'object' }, { rootJson: '[1,2]' })).toEqual({ ok: false, kind: 'json', field: 'JSON' })
 })
 
 test('a blocking card gates every submit path on batch readiness, in one place', () => {

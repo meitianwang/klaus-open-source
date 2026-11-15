@@ -55,6 +55,11 @@ export function activityToolSummary(presentation: ActivityToolPresentation, stat
   }
   if (kind === 'image') {
     const count = Math.max(1, presentation.imageCount || 1)
+    if (!active && !stopped && !failed && presentation.imageUnsupportedByModel) {
+      if (zh) return `已读取 ${count} 张图像（读取时模型不支持图像）`
+      const noun = count === 1 ? 'image' : 'images'
+      return `Read ${count} ${noun} (model lacked vision when read)`
+    }
     if (zh) return `${active ? '正在查看' : stopped ? '已停止查看' : failed ? '未能查看' : '已查看'} ${count} 张图像`
     const noun = count === 1 ? 'image' : 'images'
     return `${active ? 'Viewing' : stopped ? 'Stopped viewing' : failed ? 'Failed to view' : 'Viewed'} ${count} ${noun}`

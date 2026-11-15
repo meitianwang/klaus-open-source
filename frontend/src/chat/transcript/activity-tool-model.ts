@@ -206,7 +206,8 @@ export function activityToolPresentation(tool: ActivityToolData): ActivityToolPr
     const imagePaths = viewedImagePaths(tool, object, path)
     // A read stored for a blind model carries the flag in its output envelope;
     // surface it so the details view can say why the model cannot see it.
-    const imageUnsupportedByModel = activityResultObjects(tool.output).some(item => item.imageUnsupportedByModel === true)
+    const imageUnsupportedByModel = activityResultObjects(tool.output).some(item =>
+      item.imageUnsupportedByModel === true || (typeof item.imageUnsupportedByModel === 'string' && item.imageUnsupportedByModel.trim().length > 0))
     return { ...common, kind: 'image', imageCount: imagePaths.length || count, imagePaths, ...(imageUnsupportedByModel ? { imageUnsupportedByModel } : {}) }
   }
   const semantic = semanticActivity(tool.toolName, args, tool.output)

@@ -98,6 +98,7 @@ export function elicitationResponse(value: unknown): JsonObject {
   if (!['accept', 'answers', 'decline'].includes(string(answer.kind))) throw badRequest('A valid elicitation response is required');
   if (answer.kind === 'accept') {
     const values = answer.values;
+    if (values === undefined) return { response: { kind: 'accept' } };
     if (!values || typeof values !== 'object' || (Array.isArray(values) && values.some(item => typeof item !== 'string'))) {
       throw badRequest('values must be a form object or an array of strings');
     }

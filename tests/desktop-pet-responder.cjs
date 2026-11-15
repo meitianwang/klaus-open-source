@@ -71,12 +71,16 @@ module.exports = async function run(check) {
     await assert.rejects(row.responder.respond('task', 'request', { kind: 'accept', values: {}, persistApp: true }), /owned request/);
     assert.equal(row.context.responses.length, 0);
   });
-  await check('MCP URL open uses the original pending URL and retains the request', async () => {
+  await check('MCP URL open uses the original pending URL and retains the request until accepted', async () => {
     const row = fixture({ id: 'request', kind: 'mcp-url', url: 'https://display.invalid' }, false, { url: 'https://original.example/approve' });
     const reply = await row.responder.respond('task', 'request', { kind: 'open', url: 'https://injected.invalid' });
     assert.deepEqual(row.context.opened, ['https://original.example/approve']); assert.equal(reply.pending, true);
     assert.equal(row.context.parked.size, 1); assert.equal(row.context.responses.length, 0); assert.equal(row.context.resolved.length, 0);
-    row.entry.card.url = 'javascript:alert(1)'; await assert.rejects(row.responder.respond('task', 'request', { kind: 'open' }), /HTTP or HTTPS/);
+    await row.responder.respond('task', 'request', { kind: 'accept' });
+    assert.deepEqual(row.context.responses[0], { payload: { requestId: 'request', response: { kind: 'accept' } }, approval: false });
+    assert.equal(row.context.resolved[0].channel, 'elicit:resolved');
+    const badUrl = fixture({ id: 'request', kind: 'mcp-url', url: 'https://display.invalid' }, false, { url: 'javascript:alert(1)' });
+    await assert.rejects(badUrl.responder.respond('task', 'request', { kind: 'open' }), /HTTP or HTTPS/);
   });
   await check('async answers revalidate pending turn and keep one idempotency ID after ambiguous failure', async () => {
     const row = fixture(question('async-question'));

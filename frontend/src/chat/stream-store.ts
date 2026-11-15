@@ -1846,7 +1846,7 @@ export function ingestChatEvent(event: any, context: { userInterrupted?: boolean
       resolveLiveApproval(sessionId, event.requestId, (unit: LiveUnit) =>
         unit.type === 'live-ask' ? { mode: 'skipped', answers: {} }
           : unit.type === 'live-execution-mode' ? { decision: 'cancelled' }
-            : 'cancelled')
+            : (event as { reason?: string }).reason === 'resolved' ? 'submitted' : 'cancelled')
       break
     case 'session_title_updated':
       patchSession(sessionId, () => ({ title: typeof event.title === 'string' ? event.title : null }))

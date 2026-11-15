@@ -470,9 +470,22 @@ h.test('MCP url and arbitrary-schema elicitations reach the renderer instead of 
     prompt: 'Complete authorization', message: 'Complete authorization', url: 'https://example.com/approve',
   }, 'the URL flow publishes its own renderer shape');
   await f.pump.respond({ requestId: '1:mcp:engine-session:mcp-url', response: { kind: 'accept' } }, false);
-  assertDeepEqual(calls, [['engine-session', 1, 'mcp-url', { action: 'accept', content: {} }]], 'Done reaches the named resolver as an accept with empty content');
+  assertDeepEqual(calls, [['engine-session', 1, 'mcp-url', { action: 'accept' }]], 'Done reaches the named resolver without a spurious form content object');
+  f.pump.receive(mcpFrame({ requestId: 'mcp-url-notified', serverName: 'calendar', request: { mode: 'url', message: 'Complete authorization', url: 'https://example.com/callback', elicitationId: 'el-2' } }), 1);
+  f.pump.receive({
+    type: 'rawSessionEvent',
+    params: {
+      sessionId: 'engine-session',
+      event: { mcpElicitationResolved: { requestId: 'mcp-url-notified', action: 'accept' } },
+    },
+  }, 1);
+  f.forwarder.flush();
+  assertDeepEqual(f.delivered[2]!.value, [{
+    type: 'elicit_cancelled', requestId: '1:mcp:engine-session:mcp-url-notified', sessionId: 'conversation', reason: 'resolved',
+  }], 'engine-side URL completion notification retires the card as resolved');
+  assertEqual(f.state.pendingCount(), 0, 'server-completed URL elicitation releases the parked reverse entry');
   f.pump.receive(mcpFrame({ requestId: 'mcp-openai', serverName: 'other', request: { mode: 'openai/form', message: 'Pick one', requestedSchema: { type: 'object', properties: { choice: { type: 'string', enum: ['a', 'b'] } } } } }), 1);
-  assertDeepEqual(f.delivered[1]!.value, {
+  assertDeepEqual(f.delivered[3]!.value, {
     requestId: '1:mcp:engine-session:mcp-openai', sessionId: 'conversation', type: 'mcp-elicit', serverName: 'other',
     prompt: 'Pick one', message: 'Pick one', requestedSchema: { type: 'object', properties: { choice: { type: 'string', enum: ['a', 'b'] } } },
   }, 'the arbitrary-schema form keeps the structured card shape');

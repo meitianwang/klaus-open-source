@@ -639,10 +639,170 @@ export function ElicitCard(props: {
     ? <StructuredElicitCard {...props} /> : <NativeQuestionCard {...props} />
 }
 
+function splitUrlAroundHost(rawUrl: string): { before: string; domain: string; after: string } | null {
+  if (!rawUrl) return null
+  try {
+    const parsed = new URL(rawUrl)
+    const domain = parsed.host || parsed.hostname
+    const idx = domain ? rawUrl.indexOf(domain) : -1
+    if (idx < 0) return { before: '', domain: rawUrl, after: '' }
+    return { before: rawUrl.slice(0, idx), domain, after: rawUrl.slice(idx + domain.length) }
+  } catch {
+    return { before: '', domain: rawUrl, after: '' }
+  }
+}
+
+interface McpEnumOption {
+  value: string | number
+  label: string
+}
+
+function mcpSingleSelectOptions(schema: any): McpEnumOption[] | null {
+  if (Array.isArray(schema?.oneOf) && schema.oneOf.length > 0 && schema.oneOf.every((opt: any) => opt && (typeof opt.const === 'string' || typeof opt.const === 'number'))) {
+    return schema.oneOf.map((opt: any) => ({
+      value: opt.const,
+      label: typeof opt.title === 'string' && opt.title ? opt.title : String(opt.const),
+    }))
+  }
+  if (Array.isArray(schema?.enum) && schema.enum.length > 0 && schema.enum.every((opt: any) => typeof opt === 'string' || typeof opt === 'number')) {
+    const names = Array.isArray(schema.enumNames) ? schema.enumNames : []
+    return schema.enum.map((opt: string | number, index: number) => ({
+      value: opt,
+      label: typeof names[index] === 'string' && names[index] ? names[index] : String(opt),
+    }))
+  }
+  return null
+}
+
+function mcpMultiSelectOptions(schema: any): Array<{ value: string; label: string }> | null {
+  if (schema?.type !== 'array') return null
+  const items = schema?.items
+  if (!items || typeof items !== 'object') return null
+  const titled = Array.isArray(items.anyOf) ? items.anyOf : Array.isArray(items.oneOf) ? items.oneOf : null
+  if (titled && titled.length > 0 && titled.every((opt: any) => opt && typeof opt.const === 'string')) {
+    return titled.map((opt: any) => ({
+      value: opt.const,
+      label: typeof opt.title === 'string' && opt.title ? opt.title : opt.const,
+    }))
+  }
+  if (Array.isArray(items.enum) && items.enum.length > 0 && items.enum.every((opt: any) => typeof opt === 'string')) {
+    return items.enum.map((opt: string) => ({ value: opt, label: opt }))
+  }
+  return null
+}
+
+function isComplexJsonFieldSchema(schema: any): boolean {
+  if (!schema || typeof schema !== 'object') return false
+  if (mcpSingleSelectOptions(schema) || mcpMultiSelectOptions(schema)) return false
+  if (schema.type === 'object' || schema.type === 'array') return true
+  return !schema.type && Boolean(schema.properties || schema.items || schema.anyOf || schema.oneOf || schema.allOf)
+}
+
+export interface McpSchemaDomSnapshot {
+  rootJson?: string
+  scalars?: Record<string, { value: string; checked?: boolean }>
+  multiSelects?: Record<string, string[]>
+  jsonFields?: Record<string, string>
+}
+
+export type McpSchemaExtractionResult =
+  | { ok: true; values: Record<string, unknown> }
+  | { ok: false; kind: 'json' | 'required'; field: string }
+
+export function extractMcpSchemaValues(requestedSchema: any, input: McpSchemaDomSnapshot): McpSchemaExtractionResult {
+  if (requestedSchema?.properties === undefined) {
+    const raw = (input.rootJson ?? '').trim()
+    if (!raw) return { ok: true, values: {} }
+    try {
+      const parsed = JSON.parse(raw)
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return { ok: false, kind: 'json', field: 'JSON' }
+      return { ok: true, values: parsed as Record<string, unknown> }
+    } catch {
+      return { ok: false, kind: 'json', field: 'JSON' }
+    }
+  }
+  const properties = requestedSchema?.properties && typeof requestedSchema.properties === 'object' ? requestedSchema.properties : {}
+  const required = new Set<string>(Array.isArray(requestedSchema?.required) ? requestedSchema.required.filter((item: unknown): item is string => typeof item === 'string') : [])
+  const content: Record<string, unknown> = {}
+  for (const [field, schema] of Object.entries<any>(properties)) {
+    const label = typeof schema?.title === 'string' && schema.title ? schema.title : field
+    const isRequired = required.has(field)
+    const multiOpts = mcpMultiSelectOptions(schema)
+    if (multiOpts) {
+      const selected = input.multiSelects?.[field] ?? []
+      const minItems = typeof schema?.minItems === 'number' ? schema.minItems : (isRequired ? 1 : 0)
+      if (selected.length < minItems) return { ok: false, kind: 'required', field: label }
+      if (typeof schema?.maxItems === 'number' && selected.length > schema.maxItems) return { ok: false, kind: 'required', field: label }
+      if (selected.length > 0 || isRequired || Array.isArray(schema?.default)) content[field] = selected
+      continue
+    }
+    if (isComplexJsonFieldSchema(schema)) {
+      const raw = (input.jsonFields?.[field] ?? '').trim()
+      if (!raw) {
+        if (isRequired) return { ok: false, kind: 'required', field: label }
+        continue
+      }
+      try {
+        const parsed = JSON.parse(raw)
+        if (schema?.type === 'object' && (!parsed || typeof parsed !== 'object' || Array.isArray(parsed))) {
+          return { ok: false, kind: 'json', field: label }
+        }
+        if (schema?.type === 'array' && !Array.isArray(parsed)) {
+          return { ok: false, kind: 'json', field: label }
+        }
+        content[field] = parsed
+      } catch {
+        return { ok: false, kind: 'json', field: label }
+      }
+      continue
+    }
+    if (schema?.type === 'boolean') {
+      content[field] = Boolean(input.scalars?.[field]?.checked)
+      continue
+    }
+    const singleOpts = mcpSingleSelectOptions(schema)
+    if (singleOpts) {
+      const raw = input.scalars?.[field]?.value ?? ''
+      if (!raw) {
+        if (isRequired) return { ok: false, kind: 'required', field: label }
+        continue
+      }
+      const matched = singleOpts.find(opt => String(opt.value) === raw)
+      content[field] = matched ? matched.value : raw
+      continue
+    }
+    if (schema?.type === 'number' || schema?.type === 'integer') {
+      const raw = (input.scalars?.[field]?.value ?? '').trim()
+      if (!raw) {
+        if (isRequired) return { ok: false, kind: 'required', field: label }
+        continue
+      }
+      const num = Number(raw)
+      if (!Number.isFinite(num) || (schema.type === 'integer' && !Number.isInteger(num))) {
+        return { ok: false, kind: 'required', field: label }
+      }
+      if ((typeof schema.minimum === 'number' && num < schema.minimum) || (typeof schema.maximum === 'number' && num > schema.maximum)) {
+        return { ok: false, kind: 'required', field: label }
+      }
+      content[field] = num
+      continue
+    }
+    const raw = input.scalars?.[field]?.value ?? ''
+    if (!raw) {
+      if (isRequired) return { ok: false, kind: 'required', field: label }
+      continue
+    }
+    if ((typeof schema?.minLength === 'number' && raw.length < schema.minLength) || (typeof schema?.maxLength === 'number' && raw.length > schema.maxLength)) {
+      return { ok: false, kind: 'required', field: label }
+    }
+    content[field] = raw
+  }
+  return { ok: true, values: content }
+}
+
 // MCP URL elicitation: the server asks the user to complete a step in the
-// browser. The card opens the link and waits for the user's own verdict —
-// Done accepts, Skip declines; an engine-side settlement resolves the card
-// through the same terminal events as the other elicitation shapes.
+// browser. The card shows the target server and normalized URL, opens the link,
+// and waits either for the user's verdict or an engine-side completion signal.
 function UrlElicitCard({ req, resolved, sessionId }: {
   req: any
   resolved: null | 'submitted' | 'declined' | 'cancelled'
@@ -661,8 +821,10 @@ function UrlElicitCard({ req, resolved, sessionId }: {
     w().untrackApprovalRequest?.(req.requestId)
     resolveLiveApproval(sessionId, req.requestId, mode === 'submitted' ? 'submitted' : 'declined')
   }
+  const url = typeof req.url === 'string' ? req.url : ''
+  const serverName = typeof req.serverName === 'string' && req.serverName.trim() ? req.serverName.trim() : undefined
+  const urlParts = splitUrlAroundHost(url)
   const open = () => {
-    const url = typeof req.url === 'string' ? req.url : ''
     if (!url) return
     void Promise.resolve(w().klaus?.app?.openExternal?.(url)).catch(() => {})
   }
@@ -671,9 +833,14 @@ function UrlElicitCard({ req, resolved, sessionId }: {
     : t('elicit_declined')
   return (
     <div className={`permission-card ${styles['elicit-card']}${resolved ? ' permission-resolved' : ''}`} id={`elicit-${req.requestId}`} aria-busy={!resolved && locked}>
-      <ApprovalChip iconHtml={rawIconHtml('chat-bubble')} label={t('elicit_title')} timer={null} />
+      <ApprovalChip iconHtml={rawIconHtml('chat-bubble')} label={t('elicit_title')} tool={serverName} timer={null} />
       <div className={`${styles['permission-message']}`}>{req.prompt || ''}</div>
       <div className={`${styles['permission-suggestions']}`}>
+        {urlParts ? (
+          <div className={`${styles['permission-suggestion']}`}>
+            <code data-elicit-url style={{ wordBreak: 'break-all' }}>{urlParts.before}<strong>{urlParts.domain}</strong>{urlParts.after}</code>
+          </div>
+        ) : null}
         <div className={`${styles['permission-suggestion']}`}>{t('elicit_url_hint')}</div>
       </div>
       {responseState.failed ? <div className="spec-question-error" role="alert">{t('spec_question_submit_failed')}</div> : null}
@@ -790,9 +957,14 @@ function StructuredElicitCard({ req, resolved, sessionId }: {
   const otherOptionIndex = findElicitOtherOptionIndex(opts)
   const [otherSelected, setOtherSelected] = useState(false)
   const [otherText, setOtherText] = useState('')
+  const [validationError, setValidationError] = useState<string | null>(null)
   const submission = useMemo(createQuestionSubmissionController, [req.requestId, sessionId])
   const responseState = useSyncExternalStore(submission.subscribe, submission.getSnapshot, submission.getSnapshot)
   const locked = !!resolved || responseState.phase !== 'pending'
+  const serverName: string | undefined =
+    typeof req.serverName === 'string' && req.serverName.trim()
+      ? req.serverName.trim()
+      : undefined
   const computerUseApp: string | undefined =
     typeof req.computerUseApp === 'string' && req.computerUseApp.trim()
       ? req.computerUseApp.trim()
@@ -824,16 +996,36 @@ function StructuredElicitCard({ req, resolved, sessionId }: {
     let values: string[] = []
     let payload: Record<string, unknown> | null = null
     if (isMcpElicit && card) {
-      // C5: Collect structured values from schema-rendered form.
-      const content: Record<string, any> = {}
+      const scalars: Record<string, { value: string; checked?: boolean }> = {}
       card.querySelectorAll('[data-schema-field]').forEach(el => {
         const field = (el as HTMLElement).dataset.schemaField!
-        const inp = el as HTMLInputElement
-        if (inp.type === 'checkbox') content[field] = inp.checked
-        else if (inp.type === 'number') content[field] = inp.value ? Number(inp.value) : undefined
-        else content[field] = inp.value || undefined
+        const inp = el as HTMLInputElement | HTMLSelectElement
+        scalars[field] = { value: inp.value, checked: 'checked' in inp ? inp.checked : undefined }
       })
-      payload = { kind: 'accept', values: content }
+      const multiSelects: Record<string, string[]> = {}
+      card.querySelectorAll('input[data-schema-multiselect]:checked').forEach(el => {
+        const field = (el as HTMLElement).dataset.schemaMultiselect!
+        ;(multiSelects[field] ??= []).push((el as HTMLInputElement).value)
+      })
+      const jsonFields: Record<string, string> = {}
+      card.querySelectorAll('textarea[data-schema-json-field]').forEach(el => {
+        const field = (el as HTMLElement).dataset.schemaJsonField!
+        jsonFields[field] = (el as HTMLTextAreaElement).value
+      })
+      const rootTextarea = card.querySelector('textarea[data-schema-json-root]') as HTMLTextAreaElement | null
+      const extracted = extractMcpSchemaValues(req.requestedSchema, {
+        rootJson: rootTextarea?.value,
+        scalars,
+        multiSelects,
+        jsonFields,
+      })
+      if (!extracted.ok) {
+        const key = extracted.kind === 'json' ? 'elicit_invalid_json' : 'elicit_required_missing'
+        setValidationError(t(key).replace('{field}', extracted.field))
+        return
+      }
+      setValidationError(null)
+      payload = { kind: 'accept', values: extracted.values }
     } else if (opts.length && card) {
       const selectedIndexes: number[] = []
       card.querySelectorAll('input[data-elicit-idx]:checked').forEach(inp => {
@@ -872,43 +1064,87 @@ function StructuredElicitCard({ req, resolved, sessionId }: {
 
   return (
     <div className={`permission-card ${styles['elicit-card']}${resolved ? ' permission-resolved' : ''}`} id={`elicit-${req.requestId}`} ref={cardRef} aria-busy={!resolved && locked}>
-      <ApprovalChip iconHtml={rawIconHtml('chat-bubble')} label={t('elicit_title')} timer={null} />
+      <ApprovalChip iconHtml={rawIconHtml('chat-bubble')} label={t('elicit_title')} tool={serverName} timer={null} />
       <div className={`${styles['permission-message']}`}>{req.prompt || ''}</div>
       {isMcpElicit ? (
-        // C5: Render typed form controls from requestedSchema.
-        <div className={`${styles['permission-suggestions']}`}>
-          {Object.entries(req.requestedSchema?.properties || {}).map(([field, schema]: [string, any]) => {
+        <div className={`${styles['permission-suggestions']}`} onChange={() => { if (validationError) setValidationError(null) }}>
+          {req.requestedSchema?.properties === undefined ? (
+            <textarea
+              data-schema-json-root="1"
+              className={`${styles['elicit-text']}`}
+              rows={3}
+              defaultValue={req.requestedSchema?.default !== undefined ? JSON.stringify(req.requestedSchema.default, null, 2) : '{}'}
+              placeholder="{}"
+              disabled={locked}
+            />
+          ) : Object.entries(req.requestedSchema?.properties || {}).map(([field, schema]: [string, any]) => {
             const type = schema?.type || 'string'
             const label = schema?.title || field
+            const requiredList: string[] = Array.isArray(req.requestedSchema?.required) ? req.requestedSchema.required : []
+            const isRequired = requiredList.includes(field)
+            const multiOpts = mcpMultiSelectOptions(schema)
+            if (multiOpts) {
+              const defaults = new Set(Array.isArray(schema?.default) ? schema.default.map(String) : [])
+              return <div key={field} className={`${styles['permission-suggestion']}`}>
+                <div>{label}</div>
+                {multiOpts.map(opt => (
+                  <label key={opt.value} className={`${styles['permission-suggestion']}`} style={{ marginLeft: 8 }}>
+                    <input type="checkbox" data-schema-multiselect={field} value={opt.value} defaultChecked={defaults.has(opt.value)} disabled={locked} /> {opt.label}
+                  </label>
+                ))}
+              </div>
+            }
+            if (isComplexJsonFieldSchema(schema)) {
+              return <div key={field} className={`${styles['permission-suggestion']}`} style={{ flexDirection: 'column', alignItems: 'stretch', gap: 4 }}>
+                <label>{label}</label>
+                <textarea
+                  data-schema-json-field={field}
+                  className={`${styles['elicit-text']}`}
+                  rows={2}
+                  defaultValue={schema?.default !== undefined ? JSON.stringify(schema.default, null, 2) : ''}
+                  placeholder={schema?.description || (schema?.type === 'array' ? '[]' : '{}')}
+                  disabled={locked}
+                />
+              </div>
+            }
             if (type === 'boolean') {
               return <label key={field} className={`${styles['permission-suggestion']}`}>
-                <input type="checkbox" data-schema-field={field} disabled={locked} /> {label}
+                <input type="checkbox" data-schema-field={field} defaultChecked={schema?.default === true} disabled={locked} /> {label}
               </label>
+            }
+            const singleOpts = mcpSingleSelectOptions(schema)
+            if (singleOpts) {
+              const initial = schema?.default !== undefined
+                ? String(schema.default)
+                : (isRequired && singleOpts[0] ? String(singleOpts[0].value) : '')
+              return <div key={field} className={`${styles['permission-suggestion']}`}>
+                <label>{label}</label>
+                <select data-schema-field={field} defaultValue={initial} disabled={locked} className="kls-input" style={{ marginLeft: 8 }}>
+                  {!isRequired && schema?.default === undefined ? <option value="">—</option> : null}
+                  {singleOpts.map(opt => <option key={String(opt.value)} value={String(opt.value)}>{opt.label}</option>)}
+                </select>
+              </div>
             }
             if (type === 'number' || type === 'integer') {
               return <div key={field} className={`${styles['permission-suggestion']}`}>
                 <label>{label}</label>
                 <input type="number" data-schema-field={field}
+                  defaultValue={typeof schema?.default === 'number' ? String(schema.default) : undefined}
                   min={schema?.minimum} max={schema?.maximum} step={type === 'integer' ? 1 : undefined}
                   disabled={locked} className="kls-input" style={{ marginLeft: 8, width: 100 }} />
-              </div>
-            }
-            if (schema?.enum) {
-              return <div key={field} className={`${styles['permission-suggestion']}`}>
-                <label>{label}</label>
-                <select data-schema-field={field} disabled={locked} className="kls-input" style={{ marginLeft: 8 }}>
-                  {schema.enum.map((opt: string) => <option key={opt} value={opt}>{opt}</option>)}
-                </select>
               </div>
             }
             // string (may have format hint)
             const inputType = schema?.format === 'email' ? 'email'
               : schema?.format === 'uri' ? 'url'
               : schema?.format === 'date' ? 'date'
+              : schema?.format === 'date-time' ? 'datetime-local'
               : 'text'
             return <div key={field} className={`${styles['permission-suggestion']}`}>
               <label>{label}</label>
               <input type={inputType} data-schema-field={field}
+                defaultValue={typeof schema?.default === 'string' ? schema.default : undefined}
+                minLength={schema?.minLength} maxLength={schema?.maxLength}
                 placeholder={schema?.description || ''}
                 disabled={locked} className="kls-input" style={{ marginLeft: 8, flex: 1 }} />
             </div>
@@ -938,6 +1174,7 @@ function StructuredElicitCard({ req, resolved, sessionId }: {
       ) : (
         <textarea className={`${styles['elicit-text']}`} rows={2} placeholder={t('elicit_placeholder')} disabled={locked} />
       )}
+      {validationError ? <div className="spec-question-error" role="alert">{validationError}</div> : null}
       {responseState.failed ? <div className="spec-question-error" role="alert">{t('spec_question_submit_failed')}</div> : null}
       <div className={`${styles['permission-actions']}`}>
         {resolved ? (
