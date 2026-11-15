@@ -8788,7 +8788,8 @@ body.artifacts-maximized .artifacts-panel > .artifacts-body {
 /* These native views paint over renderer-owned screen bounds. Open at the
    final width so their first layout does not measure a growing container. */
 .artifacts-panel[data-mode="browser"],
-.artifacts-panel[data-mode="ppt"] {
+.artifacts-panel[data-mode="ppt"],
+.artifacts-panel[data-mode="design"] {
   transition: none;
 }
 
@@ -9021,6 +9022,14 @@ body.artifacts-maximized .artifacts-panel > .artifacts-body {
   display: flex;
   flex-direction: column;
 }
+.artifacts-panel[data-mode="design"] .artifacts-section { display: none; }
+.artifacts-panel:not([data-mode="design"]) #design-panel { display: none; }
+.artifacts-panel[data-mode="design"] .artifacts-body {
+  padding: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
 .canvas-panel,
 .canvas-panel-host,
 .prototype-panel,
@@ -9028,7 +9037,9 @@ body.artifacts-maximized .artifacts-panel > .artifacts-body {
 .video-editing-panel,
 .video-editing-panel-host,
 .ppt-panel,
-.ppt-panel-host {
+.ppt-panel-host,
+.design-panel,
+.design-panel-host {
   flex: 1;
   min-width: 0;
   min-height: 0;

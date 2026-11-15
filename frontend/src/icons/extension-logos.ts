@@ -3,6 +3,7 @@ const PLUGIN_LOGOS = new Map<string, string>([
   ['prototype-studio@klaus-official', 'extension-logos/plugins/prototype-studio.png'],
   ['browser@builtin', 'extension-logos/plugins/browser.png'],
   ['digram@klaus-official', 'extension-logos/plugins/digram.png'],
+  ['design@klaus-official', 'extension-logos/plugins/design.png'],
   ['iphoneuse@klaus-official', 'extension-logos/plugins/iphoneuse.png'],
 ])
 

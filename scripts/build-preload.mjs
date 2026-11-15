@@ -18,7 +18,7 @@ const DESKTOP = resolve(here, '..');
  * singles out and the app has six surfaces. `preload/recorder.ts` documents why the
  * recorder needs one and why the overlay needs none.
  */
-const ENTRIES = ['main', 'artifact', 'quick-input', 'canvas', 'prototype', 'video-editing', 'ppt', 'recorder', 'pet', 'voice-chat'];
+const ENTRIES = ['main', 'artifact', 'quick-input', 'canvas', 'prototype', 'video-editing', 'ppt', 'design', 'recorder', 'pet', 'voice-chat'];
 
 const ESBUILD = join(DESKTOP, 'node_modules', 'esbuild', 'package.json');
 const OUT_DIR = join(DESKTOP, 'dist', 'preload');

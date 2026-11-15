@@ -6,6 +6,7 @@ import { object } from './service-types';
 const EXPORT_TOOLS = new Set([
   'prototype_export', 'mcp__klaus-prototype__prototype_export',
   'digram_export', 'mcp__klaus-digram__digram_export',
+  'design_export', 'mcp__klaus-design__design_export',
 ]);
 const READ_TOOLS = new Set(['read', 'Read']);
 

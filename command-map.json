@@ -1,7 +1,7 @@
 {
   "summary": {
-    "invokeDeclared": 764,
-    "pushDeclared": 81
+    "invokeDeclared": 775,
+    "pushDeclared": 83
   },
   "rows": [
     {
@@ -726,6 +726,50 @@
     },
     {
       "channel": "cursor-auth:status",
+      "kind": "invoke"
+    },
+    {
+      "channel": "design:chat-request",
+      "kind": "invoke"
+    },
+    {
+      "channel": "design:chat-result",
+      "kind": "invoke"
+    },
+    {
+      "channel": "design:list",
+      "kind": "invoke"
+    },
+    {
+      "channel": "design:open",
+      "kind": "invoke"
+    },
+    {
+      "channel": "design:open-result",
+      "kind": "invoke"
+    },
+    {
+      "channel": "design:panel-close",
+      "kind": "invoke"
+    },
+    {
+      "channel": "design:panel-hide",
+      "kind": "invoke"
+    },
+    {
+      "channel": "design:panel-set-bounds",
+      "kind": "invoke"
+    },
+    {
+      "channel": "design:panel-show",
+      "kind": "invoke"
+    },
+    {
+      "channel": "design:save-file",
+      "kind": "invoke"
+    },
+    {
+      "channel": "design:transport-ready",
       "kind": "invoke"
     },
     {
@@ -3142,6 +3186,14 @@
     },
     {
       "channel": "deep-link:open-team-issue",
+      "kind": "push"
+    },
+    {
+      "channel": "design:chat-request",
+      "kind": "push"
+    },
+    {
+      "channel": "design:open-panel",
       "kind": "push"
     },
     {

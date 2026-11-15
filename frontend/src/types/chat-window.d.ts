@@ -114,6 +114,13 @@ declare global {
     klausActivePptId?: () => string
     klausSuspendPptForOverlay?: () => Promise<void>
     klausResumePptAfterOverlay?: () => Promise<void>
+    klausActivateDesignPanel?: AnyFn
+    klausOpenDesignPanel?: (id: string, sessionId?: string) => Promise<boolean>
+    klausHideDesignPanel?: () => Promise<void>
+    klausCloseDesignPanel?: AnyFn
+    klausActiveDesignId?: () => string
+    klausSuspendDesignForOverlay?: () => Promise<void>
+    klausResumeDesignAfterOverlay?: () => Promise<void>
     KlausPanelTabs?: Record<string, AnyFn>
     KlausSideTasks?: Record<string, AnyFn>
     KlausSubagentPanel?: Record<string, AnyFn>

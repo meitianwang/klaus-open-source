@@ -1,0 +1,42 @@
+{
+  "version": 1,
+  "reason": "The Design Canvas plugin uses Klaus-owned revisioned documents and native protocol adaptation, without a separate file service process.",
+  "exports": [
+    {"format": "pdf"},
+    {"format": "png"},
+    {"format": "html"}
+  ],
+  "nativeChannels": ["design:transport-ready", "design:chat-request", "design:save-file"],
+  "mainChannels": ["design:list", "design:open", "design:open-result", "design:panel-show", "design:panel-set-bounds", "design:panel-hide", "design:panel-close", "design:chat-result"],
+  "ownership": {
+    "documents": "chat",
+    "requestAcknowledgement": "originating main window",
+    "publishFiles": "chat workspace roots",
+    "close": "flush editor, wait for saved state, release view and message ports, retain native document revisions"
+  },
+  "hosting": {
+    "documentStore": "Klaus host",
+    "separateFileServiceProcess": false,
+    "runtimeBridgeVersion": 2,
+    "emptyRevision": "list the served index.html entry; load before first publish and accept live updates",
+    "attribution": "none for local documents",
+    "contentSandbox": {"allow-scripts": true, "allow-same-origin": true, "allow-popups": false}
+  },
+  "editing": ["multi-artboard canvas", "text", "undo", "redo", "tweaks", "layout guides", "pages", "sticky notes", "automatic save", "live file updates", "reopen saved content"],
+  "excluded": ["comments", "external connectors", "fast-edit cloud sampling"],
+  "authoring": {
+    "validator": "authoring/validate.cjs",
+    "export": "validateFiles",
+    "candidate": "complete saved snapshot",
+    "validReceipt": {"saved": true, "validated": true},
+    "invalidReceipt": {"saved": false, "validated": false, "versionUnchanged": true},
+    "diagnostics": ["errors", "warnings", "artboards", "contentHash", "view_context", "files", "assets"]
+  },
+  "agentTools": ["design_open", "design_inspect", "design_publish", "design_import_asset", "design_export"],
+  "media": {
+    "assetUrlPrefix": "/_blob/",
+    "assetTypes": ["image/png", "image/jpeg", "image/gif", "image/webp", "image/avif", "image/svg+xml", "video/mp4", "video/webm", "audio/mpeg", "audio/ogg", "audio/wav", "font/woff", "font/woff2", "font/ttf", "font/otf", "text/css", "text/javascript", "application/json"],
+    "contentCsp": "script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' blob:"
+  },
+  "cancelledSave": {"ok": false, "cancelled": true}
+}

@@ -86,7 +86,7 @@ export interface ReplayToolMedia { path: string; mimeType?: string; sourcePath?:
  * in-app panel it opens and which copy it shows; the host is the only thing that
  * can mint one, and it only does so for a built-in visual tool it recognises.
  */
-export type VisualArtifactKind = 'diagram' | 'model3d' | 'prototype' | 'video-editing' | 'ppt'
+export type VisualArtifactKind = 'diagram' | 'model3d' | 'prototype' | 'video-editing' | 'ppt' | 'design'
 export interface VisualArtifact {
   kind: VisualArtifactKind
   id: string
@@ -101,8 +101,8 @@ export interface ReplayToolResult {
   artifact?: VisualArtifact
 }
 
-const VISUAL_ARTIFACT_KINDS: readonly string[] = ['diagram', 'model3d', 'prototype', 'video-editing', 'ppt']
-const VISUAL_ARTIFACT_FALLBACK_TITLE: Record<VisualArtifactKind, string> = { diagram: 'Diagram', model3d: '3D scene', prototype: 'Prototype', 'video-editing': 'Video Editing', ppt: 'PPT' }
+const VISUAL_ARTIFACT_KINDS: readonly string[] = ['diagram', 'model3d', 'prototype', 'video-editing', 'ppt', 'design']
+const VISUAL_ARTIFACT_FALLBACK_TITLE: Record<VisualArtifactKind, string> = { diagram: 'Diagram', model3d: '3D scene', prototype: 'Prototype', 'video-editing': 'Video Editing', ppt: 'PPT', design: 'Design Canvas' }
 
 export function normalizeVisualArtifact(value: unknown): VisualArtifact | undefined {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
@@ -127,7 +127,7 @@ export function normalizeVisualArtifact(value: unknown): VisualArtifact | undefi
  * copy for saved history that predates explicit content state.
  */
 export function visualArtifactHintState(artifact: VisualArtifact): 'created' | 'ready' {
-  return (artifact.kind === 'prototype' || artifact.kind === 'ppt') && artifact.ready === false ? 'created' : 'ready'
+  return (artifact.kind === 'prototype' || artifact.kind === 'ppt' || artifact.kind === 'design') && artifact.ready === false ? 'created' : 'ready'
 }
 
 export function normalizeToolResultForReplay(result: any): ReplayToolResult | null {

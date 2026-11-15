@@ -60,4 +60,6 @@ export const HOST_CHANNELS = {
   listenerState: 'klaus:listener-state',
   /** A transferred MessagePort, sent only after the owned PPT shell handshake. */
   pptTransportPort: 'klaus:ppt-transport-port',
+  /** A transferred MessagePort, sent only after the owned Design Canvas shell handshake. */
+  designTransportPort: 'klaus:design-transport-port',
 } as const;

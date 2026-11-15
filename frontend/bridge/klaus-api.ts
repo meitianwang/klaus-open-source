@@ -1,4 +1,5 @@
 import type { PptChatRequest } from './ppt-api'
+import type { DesignChatRequest } from './design-api'
 import type { BrowserImportRequest } from '../../contracts/browser-import'
 import type { BrowserImportJobSnapshot } from '../../contracts/browser-import-jobs'
 import type { BrowserAutofillProfileInput, BrowserAutofillProfileKind, BrowserPasswordInput, BrowserPasswordImportRow } from '../../contracts/browser-credentials'
@@ -634,6 +635,24 @@ expose('klaus', {
       subscribe('ppt:open-panel', cb),
     onChatRequest: (cb: (payload: PptChatRequest) => void) => subscribe('ppt:chat-request', cb),
     chatResult: (requestId: string, ok: boolean, error?: string) => call('ppt:chat-result', { requestId, ok, error }),
+  },
+  design: {
+    list: (sessionId: string) =>
+      call('design:list', { sessionId }) as Promise<{ designs: { id: string; title: string }[]; error?: string }>,
+    open: (id: string, sessionId: string) =>
+      call('design:open', { id, sessionId }) as Promise<{ ok?: boolean; error?: string }>,
+    openResult: (requestId: string, ok: boolean, error?: string) =>
+      call('design:open-result', { requestId, ok, error }),
+    panelShow: (id: string, sessionId: string, bounds: { x: number; y: number; width: number; height: number }) =>
+      call('design:panel-show', { id, sessionId, bounds }) as Promise<{ ok?: boolean; error?: string }>,
+    panelSetBounds: (bounds: { x: number; y: number; width: number; height: number }) =>
+      call('design:panel-set-bounds', { bounds }) as Promise<{ ok?: boolean; error?: string }>,
+    panelHide: () => call('design:panel-hide'),
+    panelClose: () => call('design:panel-close'),
+    onOpenPanel: (cb: (payload: { requestId?: string; id: string; title?: string; sessionId: string }) => void) =>
+      subscribe('design:open-panel', cb),
+    onChatRequest: (cb: (payload: DesignChatRequest) => void) => subscribe('design:chat-request', cb),
+    chatResult: (requestId: string, ok: boolean, error?: string) => call('design:chat-result', { requestId, ok, error }),
   },
   prototype: {
     list: (sessionId: string) =>

@@ -14,7 +14,7 @@ import { object } from '../services/service-types';
  * artifact that no projection layer was taught to recognise, so the card never
  * appeared and the panel could only be opened by a route the user could not see.
  */
-export type VisualArtifactKind = 'diagram' | 'model3d' | 'prototype' | 'video-editing' | 'ppt';
+export type VisualArtifactKind = 'diagram' | 'model3d' | 'prototype' | 'video-editing' | 'ppt' | 'design';
 
 export interface VisualArtifact {
   kind: VisualArtifactKind;
@@ -58,6 +58,7 @@ const SURFACES: readonly Surface[] = [
   { kind: 'prototype', server: 'mcp__klaus-prototype__', bare: 'prototype_', defaultTitle: 'Prototype' },
   { kind: 'video-editing', server: 'mcp__klaus-video-editing__', bare: 'video_editing_', defaultTitle: 'Video' },
   { kind: 'ppt', server: 'mcp__klaus-ppt__', bare: 'ppt_', defaultTitle: 'Presentation' },
+  { kind: 'design', server: 'mcp__klaus-design__', bare: 'design_', defaultTitle: 'Design Canvas' },
 ];
 
 const MAX_ID_LENGTH = 160;

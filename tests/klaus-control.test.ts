@@ -282,7 +282,8 @@ void (async () => {
       // account can be promoted to the active head from Model Sources or control actions.
       // 764 adds `antigravity-auth:switch-account` on `antigravityAuth` for the same
       // active-account switch across an Antigravity account pool.
-      assert.equal(channels.size, 764);
+      // 775 adds the eleven `design:*` owner-panel transport channels for Design Canvas.
+      assert.equal(channels.size, 775);
       const companionChannels = [...channels].filter(channel => channel.startsWith('desktop-pet:'));
       assert.equal(companionChannels.length, 58);
       for (const channel of companionChannels) {

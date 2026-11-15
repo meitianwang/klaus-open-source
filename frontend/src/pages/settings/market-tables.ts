@@ -690,6 +690,7 @@ const PLUGIN_NAME_EN_OVERRIDES = {
   'audio-separator': 'Audio Separator',
   iphoneuse: 'iPhone Use',
   ppt: 'PPT',
+  design: 'Design Canvas',
   browser: 'Browser',
 }
 
@@ -755,6 +756,7 @@ const PLUGIN_NAME_ZH_OVERRIDES = {
   'audio-separator': '音频分离',
   iphoneuse: 'iPhone 操控',
   ppt: '演示文稿',
+  design: '设计画布',
   'netlify-skills': 'Netlify 技能',
   'netsuite-suitecloud': 'NetSuite SuiteCloud 开发',
   'oracle-ai-data-platform-workbench-spark-connectors': 'Oracle Spark 连接器',
@@ -907,6 +909,7 @@ const PLUGIN_DESCRIPTION_ZH_OVERRIDES = {
   'audio-separator@klaus-official': '在本机把一首歌分离成人声、伴奏与鼓、贝斯、吉他、钢琴等多轨分轨，支持卡拉 OK 主伴唱分离与去混响、去回声、降噪清理；160 多个带公开质量分的模型可选，推理全部在本机完成，音频不上传。',
   'iphoneuse@klaus-official': '通过 USB 驱动真实 iPhone：引导式 WebDriverAgent 配置、实时屏幕预览与接管、元素树观察与点击、输入、滚动操作，适合 App 查找、列表采集与真机验收。',
   'ppt@klaus-official': '设计并编辑有统一视觉体系的演示文稿：真实图片、可编辑图表、视觉修订与来源校验，导出 PPTX、PDF、PNG 与 HTML。',
+  'design@klaus-official': '在无限多画板画布上设计与编辑网页、落地页、应用界面、可交互原型、海报、印刷文档与图表，支持实时参数微调（Tweaks）、设计系统安装与 PDF、PNG、HTML、ZIP 导出。',
   codex: '连接 Codex 进行代码审查、任务委托和工程协作。',
   'frontend-design': '创建具有辨识度和生产质感的前端界面，避免模板化的 AI 风格。',
   'plugin-dev': '提供插件开发、验证、钩子、MCP、命令和代理相关的工程工作流。',

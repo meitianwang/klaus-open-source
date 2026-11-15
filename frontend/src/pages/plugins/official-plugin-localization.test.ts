@@ -11,6 +11,7 @@ import { localizePluginDescription, localizePluginName } from '../skills/localiz
 const OFFICIAL_SLUGS = [
   'audio-separator',
   'browser',
+  'design',
   'digram',
   'iphoneuse',
   'model3d',

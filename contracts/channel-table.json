@@ -6,9 +6,9 @@
     "bridgeDir": "frontend/bridge"
   },
   "summary": {
-    "registeredInvoke": 764,
-    "registeredPush": 81,
-    "roles": 11
+    "registeredInvoke": 775,
+    "registeredPush": 83,
+    "roles": 12
   },
   "pushChannels": [
     "agents:progress",
@@ -32,6 +32,8 @@
     "deep-link:friend-task",
     "deep-link:open-session",
     "deep-link:open-team-issue",
+    "design:chat-request",
+    "design:open-panel",
     "desktop-pet:appshot-main-capture",
     "desktop-pet:capture-event",
     "desktop-pet:conversation",
@@ -297,6 +299,15 @@
         "cursor-auth:poll",
         "cursor-auth:start",
         "cursor-auth:status",
+        "design:chat-request",
+        "design:chat-result",
+        "design:list",
+        "design:open",
+        "design:open-result",
+        "design:panel-close",
+        "design:panel-hide",
+        "design:panel-set-bounds",
+        "design:panel-show",
         "desktop-pet:ack-main-capture",
         "desktop-pet:acknowledge-task",
         "desktop-pet:appshot-settings",
@@ -893,6 +904,8 @@
         "deep-link:friend-task",
         "deep-link:open-session",
         "deep-link:open-team-issue",
+        "design:chat-request",
+        "design:open-panel",
         "desktop-pet:appshot-main-capture",
         "desktop-pet:capture-event",
         "desktop-pet:conversation",
@@ -1037,6 +1050,18 @@
         "ppt:chat-request",
         "ppt:save-file",
         "ppt:transport-ready"
+      ],
+      "push": []
+    },
+    {
+      "role": "design",
+      "label": "design-panel",
+      "entry": "runtime/shell/frame-shell.html",
+      "bundle": "bridge/design-api.ts",
+      "invoke": [
+        "design:chat-request",
+        "design:save-file",
+        "design:transport-ready"
       ],
       "push": []
     },
