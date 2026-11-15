@@ -12,13 +12,18 @@ export function ImageActivityDetails({ tool, presentation, locale }: { tool: Act
   const images = (presentation.imagePaths ?? []).map(path => ({ path, name: path.split(/[/\\]/).at(-1) || path,
     src: (window as any).klaus?.media?.url?.(path, sessionId) || '' })).filter(image => image.src)
   if (!images.length) return <p className={styles.notice}>{locale.startsWith('zh') ? '没有可用的图片预览。可在详情中查看原始结果。' : 'No image preview is available. Inspect the original result in details.'}</p>
-  return <div className={styles.images} data-viewed-images>
-    {images.map(image => <button type="button" key={image.path} className={styles.image} data-media-thumb="1"
-      data-media-path={image.path} data-media-session={sessionId}
-      aria-label={`${locale.startsWith('zh') ? '查看图片' : 'View image'} · ${image.name}`}>
-      <img src={image.src} alt={image.name} loading="lazy" />
-    </button>)}
-  </div>
+  return <>
+    {presentation.imageUnsupportedByModel ? <p className={styles.notice} data-image-unsupported>
+      {locale.startsWith('zh') ? '当前模型看不到这张图片；切换到支持图像的模型后可直接查看。' : 'The current model cannot see this image; switch to a model with vision to view it.'}
+    </p> : null}
+    <div className={styles.images} data-viewed-images>
+      {images.map(image => <button type="button" key={image.path} className={styles.image} data-media-thumb="1"
+        data-media-path={image.path} data-media-session={sessionId}
+        aria-label={`${locale.startsWith('zh') ? '查看图片' : 'View image'} · ${image.name}`}>
+        <img src={image.src} alt={image.name} loading="lazy" />
+      </button>)}
+    </div>
+  </>
 }
 
 export function WebActivitySources({ tool, locale }: { tool: ActivityToolData; locale: string }) {

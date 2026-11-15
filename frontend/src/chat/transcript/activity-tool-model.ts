@@ -44,6 +44,8 @@ export interface ActivityToolPresentation {
   generationKind?: MediaGenerationKind
   semantic?: SemanticActivity
   imagePaths?: string[]
+  /** The read tool stored this image while the active model could not see it. */
+  imageUnsupportedByModel?: boolean
 }
 
 function record(value: unknown): RecordValue | null {
@@ -202,7 +204,10 @@ export function activityToolPresentation(tool: ActivityToolData): ActivityToolPr
   const count = imageCount(tool, object, path, explicitImage)
   if (explicitImage || (['read', 'read_file', 'readfile'].includes(name) && isReadableImagePath(path))) {
     const imagePaths = viewedImagePaths(tool, object, path)
-    return { ...common, kind: 'image', imageCount: imagePaths.length || count, imagePaths }
+    // A read stored for a blind model carries the flag in its output envelope;
+    // surface it so the details view can say why the model cannot see it.
+    const imageUnsupportedByModel = activityResultObjects(tool.output).some(item => item.imageUnsupportedByModel === true)
+    return { ...common, kind: 'image', imageCount: imagePaths.length || count, imagePaths, ...(imageUnsupportedByModel ? { imageUnsupportedByModel } : {}) }
   }
   const semantic = semanticActivity(tool.toolName, args, tool.output)
   if (semantic) return { ...common, kind: 'native', semantic }
