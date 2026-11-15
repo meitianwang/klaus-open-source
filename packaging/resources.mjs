@@ -219,6 +219,32 @@ export function validateComputerUse(directory, { platform, arch, sourceRoot }) {
   return manifest;
 }
 
+export function egressRelayArtifactName(platform) {
+  if (platform !== 'darwin' && platform !== 'win32') throw new Error('Unsupported egress relay platform');
+  return 'antigravity-egress' + (platform === 'win32' ? '.exe' : '');
+}
+
+export function egressRelaySourceFingerprint(sourceRoot) {
+  const files = ['main.go', 'go.mod', 'build.mjs', 'build.sh'];
+  return sha256(Buffer.concat(files.map(file => readFileSync(join(sourceRoot, file)))));
+}
+
+/** The Antigravity egress relay has an independent native build proof and no checkout fallback. */
+export function validateEgressRelay(directory, { platform, arch, sourceRoot }) {
+  requireTarget(platform, arch);
+  const file = join(directory, egressRelayArtifactName(platform));
+  if (!lstatSync(file).isFile() || !lstatSync(`${file}.json`).isFile()) throw new Error('Egress relay and its manifest must be regular files');
+  const manifest = readJson(`${file}.json`);
+  if (manifest.platform !== platform || manifest.arch !== arch) throw new Error('Egress relay target mismatch');
+  if (manifest.sourceTreeDirty !== false || !/^[a-f0-9]{40}$/.test(manifest.sourceCommit ?? '') || !/^[a-f0-9]{64}$/.test(manifest.sourceSha256 ?? '') || typeof manifest.compiler !== 'string' || !manifest.compiler.trim()) throw new Error('Only clean, identified egress relay artifacts can be packaged');
+  if (sourceRoot && manifest.sourceSha256 !== egressRelaySourceFingerprint(sourceRoot)) throw new Error('Egress relay source fingerprint differs from this checkout');
+  const bytes = readFileSync(file);
+  if (sha256(bytes) !== manifest.sha256) throw new Error('Egress relay SHA-256 mismatch');
+  validateBinaryTarget(bytes, platform, arch);
+  if (platform === 'darwin' && process.platform !== 'win32' && (statSync(file).mode & 0o111) === 0) throw new Error('Egress relay is not executable');
+  return manifest;
+}
+
 /** Match Electron's own installer: its pinned npm package supplies the release checksum. */
 export function electronDownloadOptions(appDirectory, { version, platform, arch }) {
   requireTarget(platform, arch);

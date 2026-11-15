@@ -6,7 +6,7 @@ Guidance for people and coding agents working in the Klaus desktop repository.
 
 - This is the Electron desktop client. `main/`, `preload/` and `shared/` are the TypeScript host; `frontend/` is the UI (with `bridge/`, which publishes `window.klaus`); `native/` holds the native addon and platform helpers.
 - The Rust engine is the submodule `engine/klaus-agent-rust` (https://github.com/meitianwang/klaus-engine). `engine/scripts/` stages it for development and packaging. Changes that belong in the engine are made and pushed there first, then this repository advances the submodule pointer.
-- `resources/` holds what the application ships; build outputs under it (`resources/bin`, `speech`, `recording`, `pip`, `computer-use`) are ignored.
+- `resources/` holds what the application ships; build outputs under it (`resources/bin`, `speech`, `recording`, `pip`, `computer-use`, `browser-import`, `antigravity-egress`) are ignored.
 - Every path in code, scripts and tests is relative to this repository's root. Do not reference anything outside it.
 
 ## Public repository rules

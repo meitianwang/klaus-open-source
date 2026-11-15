@@ -11,6 +11,7 @@ Thumbs.db
 /resources/pip/
 /resources/computer-use/
 /resources/browser-import/
+/resources/antigravity-egress/
 /release/
 __pycache__/
 *.pyc

@@ -4,7 +4,7 @@ import { chmodSync, existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, sy
 import { createPackage } from '@electron/asar';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { computerUseArtifactName, computerUseSourceFingerprint, copyTree, electronDownloadOptions, inventory, nativeFingerprint, pipSourceFingerprint, recordingSourceFingerprint, requireTarget, sha256, specification, speechSourceFingerprint, validateBinaryTarget, validateComputerUse, validateEngine, validateNative, validatePip, validateRecording, validateSpeech, verifiedElectronArchiveDirectory } from './resources.mjs';
+import { computerUseArtifactName, computerUseSourceFingerprint, copyTree, electronDownloadOptions, egressRelayArtifactName, egressRelaySourceFingerprint, inventory, nativeFingerprint, pipSourceFingerprint, recordingSourceFingerprint, requireTarget, sha256, specification, speechSourceFingerprint, validateBinaryTarget, validateComputerUse, validateEgressRelay, validateEngine, validateNative, validatePip, validateRecording, validateSpeech, verifiedElectronArchiveDirectory } from './resources.mjs';
 import { macSigningOptions } from './macos-signing.mjs';
 import { verifyComputerUseResource, verifyPackage, verifyPipResource, verifyRuntimeModuleClosure } from './verify.mjs';
 import { desktopEdition } from './desktop-edition.mjs';
@@ -184,7 +184,7 @@ test('macOS recording validation rejects foreign targets, stale sources and modi
 test('macOS signing plan permits engine V8 JIT while keeping ordinary helper permissions minimal', () => fixture(root => {
   const app = join(root, 'Klaus.app');
   const options = macSigningOptions({ app, arch: 'arm64', identity: 'Developer ID Application: Fixture (ABCDEFGHIJ)', electronVersion: '44.2.0' });
-  assert.equal(options.identityValidation, true); assert.equal(options.binaries.length, 6);
+  assert.equal(options.identityValidation, true); assert.equal(options.binaries.length, 7);
   assert(options.optionsForFile(app).entitlements.includes('com.apple.security.device.audio-input'));
   for (const file of [app, join(app, 'Contents/MacOS/Klaus')]) {
     assert(options.optionsForFile(file).entitlements.includes('com.apple.security.personal-information.photos-library'));
@@ -199,6 +199,7 @@ test('macOS signing plan permits engine V8 JIT while keeping ordinary helper per
   assert(options.binaries.includes(join(app, 'Contents/Resources/recording/darwin-arm64/klaus-recording-helper')));
   assert(options.binaries.includes(join(app, 'Contents/Resources/pip/darwin-arm64/klaus-pip-producer')));
   assert(options.binaries.includes(join(app, 'Contents/Resources/computer-use/darwin-arm64/klaus-computer-use-helper')));
+  assert(options.binaries.includes(join(app, 'Contents/Resources/bin/darwin-arm64/antigravity-egress')));
   for (const file of options.binaries.filter(file => file !== speech && file !== engine)) assert.deepEqual(options.optionsForFile(file), { hardenedRuntime: true, entitlements: [] });
   assert.throws(() => macSigningOptions({ app, arch: 'x64', identity: 'Developer ID Application: Fixture (ABCDEFGHIJ)', electronVersion: '44.2.0' }), /Unsupported desktop target/);
   assert.deepEqual(options.optionsForFile(join(app, 'Contents/Frameworks/Klaus Helper (Renderer).app')), { hardenedRuntime: true });
@@ -361,6 +362,57 @@ test('Windows Computer Use packaging requires its exe and manifest and cannot ac
   rmSync(binary); assert.throws(() => verifyComputerUseResource(resources, identity), /ENOENT/);
 }));
 
+function egressRelayFixture(root, targetPlatform = platform, targetArch = arch) {
+  const sourceRoot = join(root, 'egress-source'); mkdirSync(sourceRoot);
+  for (const name of ['main.go', 'go.mod', 'build.mjs', 'build.sh']) writeFileSync(join(sourceRoot, name), name);
+  const directory = join(root, 'resources/antigravity-egress', `${targetPlatform}-${targetArch}`); mkdirSync(directory, { recursive: true });
+  const binary = join(directory, egressRelayArtifactName(targetPlatform)), bytes = targetPlatform === 'win32' ? pe() : macho();
+  writeFileSync(binary, bytes, { mode: 0o755 });
+  const manifest = { platform: targetPlatform, arch: targetArch, sourceCommit: commit, sourceTreeDirty: false, sourceSha256: egressRelaySourceFingerprint(sourceRoot), compiler: 'go1.27.4 fixture', sha256: sha256(bytes) };
+  const save = value => writeFileSync(`${binary}.json`, JSON.stringify(value));
+  save(manifest);
+  return { directory, sourceRoot, binary, bytes, manifest, save };
+}
+
+test('egress relay validation requires clean complete source proof, executable bytes and the selected architecture', () => fixture(root => {
+  const { directory, sourceRoot, binary, bytes, manifest, save } = egressRelayFixture(root);
+  const validate = () => validateEgressRelay(directory, { platform, arch, sourceRoot });
+  assert.equal(validate().sha256, manifest.sha256);
+  assert.throws(() => validateEgressRelay(directory, { platform: 'win32', arch: 'x64', sourceRoot }), /ENOENT/);
+  for (const change of [{ sourceTreeDirty: true }, { sourceCommit: '' }, { sourceSha256: '' }, { compiler: '' }]) {
+    save({ ...manifest, ...change }); assert.throws(validate, /clean, identified/);
+  }
+  save({ ...manifest, arch: 'x64' }); assert.throws(validate, /target mismatch/);
+  save(manifest);
+  for (const name of ['main.go', 'go.mod', 'build.mjs', 'build.sh']) {
+    writeFileSync(join(sourceRoot, name), 'changed'); assert.throws(validate, /source fingerprint/);
+    writeFileSync(join(sourceRoot, name), name);
+  }
+  writeFileSync(binary, 'changed'); assert.throws(validate, /SHA-256/);
+  const wrongArchitecture = Buffer.from(bytes); wrongArchitecture.writeUInt32LE(0x1000007, 4);
+  writeFileSync(binary, wrongArchitecture); save({ ...manifest, sha256: sha256(wrongArchitecture) });
+  assert.throws(validate, /Mach-O architecture/);
+  writeFileSync(binary, bytes); save(manifest);
+  if (process.platform !== 'win32') {
+    chmodSync(binary, 0o644); assert.throws(validate, /not executable/); chmodSync(binary, 0o755);
+  }
+  rmSync(`${binary}.json`); assert.throws(validate, /ENOENT/);
+}));
+
+test('Windows egress relay keeps the platform-neutral fingerprint and requires x64 PE bytes', () => fixture(root => {
+  const { directory, sourceRoot, binary, manifest, save } = egressRelayFixture(root, 'win32', 'x64');
+  const validate = () => validateEgressRelay(directory, { platform: 'win32', arch: 'x64', sourceRoot });
+  assert.deepEqual(validate(), manifest);
+  assert.equal(egressRelayArtifactName('win32'), 'antigravity-egress.exe');
+  assert.throws(() => egressRelayArtifactName('linux'), /Unsupported egress relay platform/);
+  for (const name of ['main.go', 'go.mod', 'build.mjs', 'build.sh']) {
+    writeFileSync(join(sourceRoot, name), 'changed'); assert.throws(validate, /source fingerprint/);
+    writeFileSync(join(sourceRoot, name), name);
+  }
+  writeFileSync(binary, macho()); save({ ...manifest, sha256: sha256(macho()) });
+  assert.throws(validate, /PE header/);
+}));
+
 for (const id of [undefined, 'domestic', 'international']) test(`Windows ${id ?? 'legacy domestic'} package inventory includes edition identity and rejects changed helper bytes`, async () => {
   const root = mkdtempSync(join(tmpdir(), 'klaus-windows-package-test-'));
   try {
@@ -382,8 +434,14 @@ for (const id of [undefined, 'domestic', 'international']) test(`Windows ${id ??
     const native = { abiVersion: 1, napiVersion: 9, platform: 'win32', arch: 'x64', sourceCommit: commit, sourceTreeDirty: false, credentialFixtures: false, whatsappFixtures: false, sha256: sha256(pe()) };
     write(join(resources, 'native/klaus-native-win32-x64.node'), pe());
     write(join(resources, 'native/klaus-native-win32-x64.node.json'), JSON.stringify(native));
+    const egressSourceRoot = join(root, 'egress-source'); mkdirSync(egressSourceRoot);
+    for (const name of ['main.go', 'go.mod', 'build.mjs', 'build.sh']) writeFileSync(join(egressSourceRoot, name), name);
+    const egressBytes = pe();
+    write(join(resources, 'bin/win32-x64/antigravity-egress.exe'), egressBytes);
+    const egressRelay = { platform: 'win32', arch: 'x64', sourceCommit: commit, sourceTreeDirty: false, sourceSha256: egressRelaySourceFingerprint(egressSourceRoot), compiler: 'go1.27.4 fixture', sha256: sha256(egressBytes) };
+    write(join(resources, 'bin/win32-x64/antigravity-egress.exe.json'), JSON.stringify(egressRelay));
     const manifest = { layoutVersion: 1, application: edition.productName, ...(id ? { edition: id, applicationId: edition.application } : {}),
-      buildKind: 'local-unsigned', platform: 'win32', arch: 'x64', version: '1.2.3', electronVersion: '44.2.0', engine, native, computerUse,
+      buildKind: 'local-unsigned', platform: 'win32', arch: 'x64', version: '1.2.3', electronVersion: '44.2.0', engine, native, computerUse, egressRelay,
       appFiles: inventory(appSource), resourceFiles: inventory(resources) };
     write(join(resources, 'desktop-resources.json'), JSON.stringify(manifest));
     write(join(root, `${edition.executableName}.exe`), pe());
@@ -393,7 +451,14 @@ for (const id of [undefined, 'domestic', 'international']) test(`Windows ${id ??
     assert.equal(report.edition, id ?? 'domestic');
     assert.equal(report.application, edition.application);
     assert.equal(report.computerUseSha256, computerUse.sha256);
+    assert.equal(report.egressRelaySha256, egressRelay.sha256);
     assert.equal(report.resourceFiles, manifest.resourceFiles.length);
+    const egressPath = join(resources, 'bin/win32-x64/antigravity-egress.exe');
+    const egressOriginal = readFileSync(egressPath);
+    const egressTampered = Buffer.from(egressOriginal); egressTampered[100] = 1;
+    writeFileSync(egressPath, egressTampered);
+    assert.throws(() => verifyPackage(root), /hash mismatch: bin\/win32-x64\/antigravity-egress\.exe/);
+    writeFileSync(egressPath, egressOriginal);
     const noticePath = 'bin/win32-x64/licenses/goal-policy/NOTICE';
     assert(manifest.resourceFiles.some(file => file.path === noticePath));
     const notice = join(resources, noticePath), noticeBytes = readFileSync(notice);

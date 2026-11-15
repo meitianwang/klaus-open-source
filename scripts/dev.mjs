@@ -66,7 +66,7 @@ catch (error) {
 }
 
 run([join(repo, 'engine/scripts/prepare-rust-release.mjs'), '--dev', ...(options.has('--reuse-engine') ? ['--verify-only'] : [])]);
-const { requireTarget, validateNative, validateSpeech, validateRecording, validatePip, validateComputerUse } = await import('../packaging/resources.mjs');
+const { requireTarget, validateNative, validateSpeech, validateRecording, validatePip, validateComputerUse, validateEgressRelay } = await import('../packaging/resources.mjs');
 const { ensureBrowserImportHelper } = await import('../packaging/browser-import.mjs');
 requireTarget(process.platform, process.arch);
 const target = `${process.platform}-${process.arch}`;
@@ -82,11 +82,17 @@ if (options.has('--reuse-native')) {
     validatePip(helperDirectory('pip'), { ...validation, sourceRoot: join(nativeRoot, 'pip') });
   }
   validateComputerUse(helperDirectory('computer-use'), { ...validation, sourceRoot: join(nativeRoot, 'computer-use') });
+  validateEgressRelay(helperDirectory('antigravity-egress'), { ...validation, sourceRoot: join(nativeRoot, 'antigravity-egress') });
   console.log('Verified existing native artifacts against this checkout.');
 } else {
   run(['native/scripts/build.mjs']);
   if (process.platform === 'darwin') for (const kind of ['speech', 'recording', 'pip']) run([`native/${kind}/build.mjs`, helperDirectory(kind)]);
   run([`native/computer-use/${process.platform === 'win32' ? 'build-windows.mjs' : 'build.mjs'}`, helperDirectory('computer-use')]);
+  // The relay needs a Go toolchain. Development continues without it and the
+  // engine connects to the service directly; release packaging enforces the
+  // staged artifact, so a missing toolchain can never ship silently.
+  const egressRelayBuild = spawnSync(process.execPath, ['native/antigravity-egress/build.mjs', helperDirectory('antigravity-egress')], { cwd: appDirectory, stdio: 'inherit' });
+  if (egressRelayBuild.status !== 0) console.warn('[dev] antigravity-egress relay unavailable; the engine will connect to the service directly');
 }
 const browserImport = ensureBrowserImportHelper({ repo, platform: process.platform, arch: process.arch });
 if (browserImport.supported) console.log(`[dev] browser import helper: ${browserImport.helperPath}`);

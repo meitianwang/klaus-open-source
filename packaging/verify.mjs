@@ -4,7 +4,7 @@ import { join, normalize, posix, resolve } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import ts from 'typescript';
 import plist from 'plist';
-import { computerUseArtifactName, engineArtifactRecords, inventory, readJson, requireTarget, sha256, specification, validateComputerUse, validateEngine, validatePip, validateRecording, validateSpeech } from './resources.mjs';
+import { computerUseArtifactName, egressRelayArtifactName, engineArtifactRecords, inventory, readJson, requireTarget, sha256, specification, validateComputerUse, validateEgressRelay, validateEngine, validatePip, validateRecording, validateSpeech } from './resources.mjs';
 import { officialPluginRequiredFiles, parseOfficialPluginRecords } from './official-plugins.mjs';
 import { verifyBrowserImportResource } from './browser-import.mjs';
 import { POLICY_NOTICE_CATALOG, POLICY_NOTICE_DIRECTORY } from '../engine/scripts/policy-notices.mjs';
@@ -167,7 +167,8 @@ export function verifyPackage(bundle) {
   const engine = validateEngine(engineDirectory, { platform: manifest.platform, arch: manifest.arch, engineCommit: manifest.engine.engineCommit });
   if (!isDeepStrictEqual(engine, manifest.engine)) throw new Error('Packaged engine manifest differs from the resource identity');
   const artifacts = engineArtifactRecords(engine, manifest);
-  if (readdirSync(engineDirectory).sort().join(',') !== [...artifacts.map(artifact => artifact.file), 'manifest.json', POLICY_NOTICE_CATALOG, POLICY_NOTICE_DIRECTORY].sort().join(',')) throw new Error('Unexpected packaged engine payload');
+  const egressName = egressRelayArtifactName(manifest.platform);
+  if (readdirSync(engineDirectory).sort().join(',') !== [...artifacts.map(artifact => artifact.file), 'manifest.json', POLICY_NOTICE_CATALOG, POLICY_NOTICE_DIRECTORY, egressName, `${egressName}.json`].sort().join(',')) throw new Error('Unexpected packaged engine payload');
   for (const artifact of artifacts) if (expected.get(`bin/${target}/${artifact.file}`)?.sha256 !== artifact.sha256) throw new Error(`Packaged engine identity mismatch: ${artifact.role}`);
   const engineArtifact = artifacts.find(artifact => artifact.role === 'engine');
   const enginePath = `bin/${target}/${engineArtifact.file}`;
@@ -191,6 +192,9 @@ export function verifyPackage(bundle) {
   } else if (manifest.recording || existsSync(join(locations.resources, 'recording'))) throw new Error('The macOS recording helper leaked into a Windows package');
   const pip = verifyPipResource(locations.resources, manifest);
   const computerUse = verifyComputerUseResource(locations.resources, manifest);
+  const egressRelay = validateEgressRelay(engineDirectory, { platform: manifest.platform, arch: manifest.arch });
+  if (!isDeepStrictEqual(egressRelay, manifest.egressRelay)) throw new Error('Packaged egress relay differs from its resource identity');
+  if (expected.get(`bin/${target}/${egressName}`)?.sha256 !== egressRelay.sha256) throw new Error('Packaged egress relay identity mismatch');
   const browserImport = hasBrowserImport ? verifyBrowserImportResource(locations.resources, manifest) : undefined;
   return { ...locations, edition: edition.id, application: edition.application, version: manifest.version, target, electronVersion: manifest.electronVersion, buildKind: manifest.buildKind,
     clientCommit: manifest.clientCommit, clientTreeDirty: manifest.clientTreeDirty, recordedEngineCommit: manifest.recordedEngineCommit,
@@ -201,6 +205,7 @@ export function verifyPackage(bundle) {
     ...(recording ? { recordingSourceCommit: recording.sourceCommit, recordingSha256: recording.sha256 } : {}),
     ...(pip ? { pipSourceCommit: pip.sourceCommit, pipSha256: pip.sha256 } : {}),
     ...(computerUse ? { computerUseSourceCommit: computerUse.sourceCommit, computerUseSha256: computerUse.sha256 } : {}),
+    egressRelaySourceCommit: egressRelay.sourceCommit, egressRelaySha256: egressRelay.sha256,
     ...(browserImport?.supported ? { browserImportTarget: browserImport.target, browserImportSha256: browserImport.sha256, browserImportSigned: browserImport.signed } : {}),
     resourceBytes: actualResourceFiles.reduce((size, file) => size + file.size, 0), verified: true };
 }

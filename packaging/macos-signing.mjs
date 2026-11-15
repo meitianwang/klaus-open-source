@@ -15,10 +15,11 @@ export function macSigningOptions({ app, arch, identity, electronVersion, editio
   const pip = join(resources, 'pip', target, 'klaus-pip-producer');
   const computerUse = join(resources, 'computer-use', target, 'klaus-computer-use-helper');
   const engine = join(resources, 'bin', target, 'klaus-agent-stdio');
+  const egressRelay = join(resources, 'bin', target, 'antigravity-egress');
   const native = join(resources, 'native', `klaus-native-${target}.node`);
   return {
     app: bundle, platform: 'darwin', identity, identityValidation: true, version: electronVersion,
-    binaries: [engine, native, speech, recording, pip, computerUse],
+    binaries: [engine, native, speech, recording, pip, computerUse, egressRelay],
     optionsForFile(file) {
       const path = resolve(file), inside = relative(bundle, path);
       if (inside.startsWith('..') || isAbsolute(inside)) throw new Error('Signing options cannot target a file outside the application');
@@ -37,7 +38,7 @@ export function macSigningOptions({ app, arch, identity, electronVersion, editio
       // The engine embeds V8 for locale sorting. Its executable pages require
       // JIT permission under hardened runtime, independently of Electron's V8.
       if (path === engine) return { hardenedRuntime: true, entitlements: ['com.apple.security.cs.allow-jit'] };
-      if (path === native || path === recording || path === pip || path === computerUse) return { hardenedRuntime: true, entitlements: [] };
+      if (path === native || path === recording || path === pip || path === computerUse || path === egressRelay) return { hardenedRuntime: true, entitlements: [] };
       // Electron's framework and renderer/GPU helpers retain osx-sign defaults.
       return { hardenedRuntime: true };
     },
