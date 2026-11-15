@@ -85,6 +85,7 @@ function fixture({ existing = false, goal = false, worktree = false } = {}) {
     clientQueueSnapshotFor: () => null, clientQueueFor: () => [], needsPausedQueueConfirmation: () => false,
     ensureRunModeWorkspaceForSend: async (surface: any) => { calls.push(`workspace:${surface?.sessionId || ''}`); return worktree ? workspace.promise : true },
     refreshWorkdirButton() {}, renderFollowUpQueue() {}, renderTaskPanel() {}, refreshTasksForSession() {}, saveRunModeForDraft() {}, forgetRunModeForDraft() {},
+    welcomeWorkMode: null, seedPromotedComposerPreferences() {},
     updateGoalIndicator() {}, updateSpecBanner() {}, showTranscriptSurface: () => { calls.push('show'); c.welcomeEl.style.display = 'none'; c.messagesEl.style.display = 'block' },
     goalSubmissionRoute, goalSnapshots: new GoalSnapshots(), goalSubmissionReceipts: new GoalSubmissionReceipts(() => {}),
     isGoalConflict: () => false, reviewGoalDraft, sameGoalDraft, sameGoalReview, prepareGoalSubmission, goalImageInputs, goalAttachmentIntent, serializeGoalSubmissionIntent, createGoalFromDraft,

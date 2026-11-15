@@ -224,3 +224,67 @@ test('a pending left draft promotes without replacing the active right draft or 
     expect(f.document.getElementById('main')!.dataset.leftSideSession).toBeUndefined()
   } finally { await f.destroy() }
 })
+
+test('cloning a main composer with an active prediction never leaks it into a new or quoted side task, while side turns own their own suggestions', async () => {
+  const f = createSidePaneComposerFixture()
+  try {
+    // Seed a visible main-session prediction ghost on #input-wrapper before cloning a fresh side runtime.
+    const mainInput = f.document.getElementById('input')!
+    mainInput.classList.add('has-composer-prediction')
+    mainInput.setAttribute('aria-description', 'Main chat suggestion. Press Tab to accept')
+    const mainGhost = f.document.createElement('div')
+    mainGhost.className = 'composer-prediction'
+    mainGhost.hidden = false
+    mainGhost.textContent = 'Main chat suggestion'
+    mainInput.after(mainGhost)
+
+    // Prepare a brand-new side task via selection quote (as in askWithSelection / +).
+    f.window.klausSideSurfaceClear('right')
+    f.window.klausSideComposerPrepare('pending-new-side', 'parent', 'right')
+    const sideWrapper = f.document.getElementById('side-input-wrapper')!
+    const sideGhosts = sideWrapper.querySelectorAll<HTMLElement>('.composer-prediction')
+    expect(sideGhosts).toHaveLength(1)
+    expect(sideGhosts[0]!.hidden).toBe(true)
+    expect(sideGhosts[0]!.textContent).toBe('')
+    expect(f.input('right').classList.contains('has-composer-prediction')).toBe(false)
+    expect(f.input('right').getAttribute('aria-description')).toBeNull()
+
+    // Promote to a newly created side task with zero own human turns: source returns turnId: null.
+    f.predictionSourceHandler.current = async id => ({ turnId: id === 'side-with-work' ? 'side-turn-1' : null })
+    f.predictionHandler.current = async target => ({
+      suggestion: target.sessionId === 'side-with-work' ? 'Follow up on the side answer' : 'Should never run',
+    })
+    await f.window.klausSideComposerPromote('pending-new-side', 'side-empty')
+    await f.window.klausSideSurfaceActivate('side-empty', 'right')
+    await f.settle()
+    expect(f.calls.predictions).toEqual([])
+    expect(sideWrapper.querySelector<HTMLElement>('.composer-prediction')!.hidden).toBe(true)
+
+    // Activate a side task that has completed its own turn: its own suggestion renders, hides on quote, and adopts on Tab.
+    await f.window.klausSideSurfaceActivate('side-with-work', 'right')
+    await f.settle()
+    const activeWrapper = f.document.getElementById('side-input-wrapper')!
+    const activeGhost = activeWrapper.querySelector<HTMLElement>('.composer-prediction')!
+    expect(f.calls.predictions.map(call => call.target)).toEqual([{ sessionId: 'side-with-work', turnId: 'side-turn-1' }])
+    expect(activeGhost.hidden).toBe(false)
+    expect(activeGhost.textContent).toContain('Follow up on the side answer')
+
+    // Adding an inline quote suppresses the ghost immediately (no overlap).
+    f.window.klausSideComposerAddSelection('名字、描述、「禁止模型自动调用」', 'right')
+    await f.settle()
+    expect(activeGhost.hidden).toBe(true)
+    expect(f.input('right').classList.contains('has-composer-prediction')).toBe(false)
+
+    // Clearing the draft restores the side task's own suggestion; Tab adopts it without submitting.
+    f.setText('right', '')
+    await f.settle()
+    expect(activeGhost.hidden).toBe(false)
+    const tab = new f.window.KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true })
+    f.input('right').dispatchEvent(tab)
+    expect(tab.defaultPrevented).toBe(true)
+    expect(f.input('right').value).toBe('Follow up on the side answer')
+    expect(f.calls.submissions).toHaveLength(0)
+    expect(activeGhost.hidden).toBe(true)
+  } finally { await f.destroy() }
+})
+

@@ -3752,7 +3752,10 @@ export class SessionService {
   }
   async predictionContext(rendererId: string, signal?: AbortSignal): Promise<PredictionContext | null> {
     signal?.throwIfAborted();
-    if (this.isSessionClosing(rendererId) || this.deleted.has(rendererId) || this.isSideTask(rendererId) || this.deps.isPrivateThread?.(rendererId)) return null;
+    const sideTask = this.sideTasks.get(rendererId);
+    if (this.isSessionClosing(rendererId) || this.deleted.has(rendererId)
+      || (sideTask !== undefined && (sideTask.phase !== 'active' || sideTask.archived))
+      || this.deps.isPrivateThread?.(rendererId)) return null;
     this.scheduleIdleRetirement(rendererId);
     const context = await this.directories.run(async () => {
       signal?.throwIfAborted();
@@ -3761,7 +3764,9 @@ export class SessionService {
       signal?.throwIfAborted();
       return this.mutate(rendererId, async () => {
         signal?.throwIfAborted();
-        if (this.isSessionClosing(rendererId) || this.deleted.has(rendererId)) return null;
+        const currentSide = this.sideTasks.get(rendererId);
+        if (this.isSessionClosing(rendererId) || this.deleted.has(rendererId)
+          || (currentSide !== undefined && (currentSide.phase !== 'active' || currentSide.archived))) return null;
         const sessionId = await this.resolveSessionNow(rendererId, false, false, signal);
         signal?.throwIfAborted();
         return object(await this.request('session/predictionContext', { sessionId }));

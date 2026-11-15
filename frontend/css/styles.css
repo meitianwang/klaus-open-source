@@ -3682,12 +3682,20 @@ spinner (data-chat-timeline-scroll-generating): the affordance then
   letter-spacing: 0.02em;
 }
 
-#slash-input-line {
+#slash-input-line, :is(#side-slash-input-line, #left-side-slash-input-line) {
   position: relative;
   display: block;
   min-height: 32px;
   width: 100%;
   overflow: hidden;
+}
+:is(#slash-input-line, #side-slash-input-line, #left-side-slash-input-line):has(> .composer-prediction:not([hidden])) {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+}
+:is(#slash-input-line, #side-slash-input-line, #left-side-slash-input-line):has(> .composer-prediction:not([hidden])) > :is(#input, #side-input, #left-side-input),
+:is(#slash-input-line, #side-slash-input-line, #left-side-slash-input-line):has(> .composer-prediction:not([hidden])) > .composer-prediction:not([hidden]) {
+  grid-area: 1 / 1;
 }
 #composer-token-layer {
   position: absolute;
@@ -3955,18 +3963,32 @@ spinner (data-chat-timeline-scroll-generating): the affordance then
   pointer-events: none;
   white-space: pre-wrap;
 }
-#input.has-composer-prediction[data-placeholder]:empty::before { content: none; }
+#input.has-composer-prediction[data-placeholder]:empty::before,
+:is(#side-input, #left-side-input).has-composer-prediction[data-placeholder]:empty::before { content: none; }
 .composer-prediction {
-  position: absolute;
-  inset: 4px 2px auto;
+  position: relative;
+  z-index: 1;
+  box-sizing: border-box;
+  min-width: 0;
+  width: 100%;
+  max-height: 200px;
+  padding: 4px 2px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-width: none;
   color: var(--fg-quaternary);
-  font: inherit;
+  font-family: var(--font);
   font-size: var(--text-body-sm);
   line-height: 1.5;
   white-space: pre-wrap;
   overflow-wrap: break-word;
+  word-break: break-word;
   cursor: text;
   user-select: none;
+}
+.composer-prediction::-webkit-scrollbar { display: none; }
+:is(#side-slash-input-line, #left-side-slash-input-line) > .composer-prediction {
+  max-height: 160px;
 }
 .composer-prediction[hidden], .composer-prediction-hint[hidden] { display: none; }
 .composer-prediction-hint {
@@ -4154,7 +4176,8 @@ spinner (data-chat-timeline-scroll-generating): the affordance then
      must inherit every metric the input uses — a font-size step here that only
      the input sees wraps the two layers at different widths and desyncs the
      visible text from the caret. */
-  #composer-slash-mirror, :is(#side-composer-slash-mirror, #left-side-composer-slash-mirror) {
+  #composer-slash-mirror, :is(#side-composer-slash-mirror, #left-side-composer-slash-mirror),
+  .composer-prediction {
     font-size: var(--text-title);
   }
   #workdir-btn {

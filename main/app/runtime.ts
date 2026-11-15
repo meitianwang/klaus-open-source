@@ -881,6 +881,7 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
     onDeleted: async (id, options) => {
       await chatRealtime?.releaseSession(id);
       await petRealtime?.releaseSession(id);
+      await composerPredictions?.invalidateSession(id);
       if (!options?.preserveFriendScope) { forgetFriendSession(configRoot, id); friends?.forgetConversation(id); }
       notifications?.forget(id); petActivity?.forget(id);
       mobile?.forgetSession(id);

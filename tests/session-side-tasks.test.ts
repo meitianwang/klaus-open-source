@@ -40,6 +40,7 @@ class Client extends EventEmitter implements EngineClientLike {
   turnStartError?: Error;
   turnStartReply?: unknown;
   generatedTitle?: string;
+  predictionTurnId?: string | null;
   configValues: Record<string, Json> = {};
   effectiveConfig: Record<string, Json> = {};
   queueSnapshot: Record<string, Json> = { revision: 0, items: [], status: 'authoritative' };
@@ -84,6 +85,7 @@ class Client extends EventEmitter implements EngineClientLike {
     if (method === 'session/subagentLifecycle') return { subagentLifecycle: { agents: this.agents } };
     if (method === 'session/backgroundProcesses') { await this.heldBackground?.(); return { backgroundProcesses: { processes: this.processes } }; }
     if (method === 'session/history') return { history: [], historyTurnIds: {} };
+    if (method === 'session/predictionContext') return { turnId: this.predictionTurnId ?? null, model: 'custom:fixture', provider: 'openai', planMode: false, running: false };
     if (method === 'session/modelRuntime') return { revision: 0 };
     if (method === 'config/read') return { values: this.configValues, resolved: this.effectiveConfig, sources: {} };
     if (method === 'session/reconfigureModel') return { revision: Number(params.expectedRevision) + 1 };
@@ -978,6 +980,38 @@ h.test('pin and archive flags survive a host restart through the durable registr
   const reboot2 = fixture({}, first.root);
   assert((await reboot2.service.listArchivedSessions()).some(row => object(row)?.id === id), 'the archived side task rematerializes archived');
   assertEqual((await reboot2.service.listSideTasks('parent')).length, 0, 'and stays out of the panel');
+});
+
+h.test('predictionContext resolves only active unarchived side tasks with a terminal turn', async () => {
+  const { service, client } = fixture();
+  let releaseStart!: () => void;
+  client.heldStart = () => new Promise<void>(resolve => { releaseStart = resolve; });
+  const creating = service.createSideTask('parent');
+  await waitFor(() => client.sent('session/startSideTask').length === 1, 1000, 'side task reserved');
+  const startingId = String(object(client.sent('session/startSideTask')[0]?.init)?.threadId);
+  assertEqual(await service.predictionContext(startingId), null, 'starting side task has no prediction context');
+  assertEqual(client.sent('session/predictionContext').length, 0, 'starting side task does not query engine');
+  client.heldStart = undefined;
+  releaseStart();
+  const created = object(await creating)!;
+  const id = String(created.id);
+
+  // Newly created side task without own human work has turnId: null -> returns null.
+  client.predictionTurnId = null;
+  assertEqual(await service.predictionContext(id), null, 'empty side task returns null context');
+  assertEqual(client.sent('session/predictionContext').length, 1, 'queried active side task once');
+
+  // Once the side task completes its own turn, predictionContext returns its eligibility snapshot.
+  client.predictionTurnId = 'side-turn-1';
+  const ctx = await service.predictionContext(id);
+  assertEqual(ctx?.turnId, 'side-turn-1', 'active side task exposes its own turn');
+  assertEqual(ctx?.model, 'custom:fixture', 'active side task exposes its model');
+
+  // Archiving suppresses predictionContext without resuming the parked side task.
+  await service.setArchived(id, true);
+  const callsBeforeArchivedRead = client.calls.length;
+  assertEqual(await service.predictionContext(id), null, 'archived side task returns null');
+  assertEqual(client.calls.length, callsBeforeArchivedRead, 'archived side task does not resume engine session');
 });
 
 void (async () => {

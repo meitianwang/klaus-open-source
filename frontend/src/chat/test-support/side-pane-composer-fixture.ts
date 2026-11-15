@@ -21,6 +21,8 @@ import { createGoalSubmissionGate } from '../goal-creation'
 import { createVisibilityScope } from '../visibility-scope'
 import { GoalInteractionClock } from '../goals/draft-review'
 import { clientMessageId as userMessageClientId } from '../../../../contracts/message-identity'
+import { mountComposerPredictions, createPredictionSessionSelector, PREDICTIONS_ENABLED_KEY, PREDICTIONS_ACCEPTED_KEY, type PredictionSourceReply, type PredictionReply, type PredictionTarget, type PredictionTrigger } from '../composer/predictions'
+import { subscribePredictionRefresh } from '../composer/prediction-refresh'
 
 const source = readFileSync(new URL('../chat.ts', import.meta.url), 'utf8')
 const runtimeStart = source.indexOf('type SideComposerRuntime =')
@@ -46,7 +48,7 @@ export function createSidePaneComposerFixture() {
   const document: any = window.document
   document.body.innerHTML = `<main id="main"><nav id="left-side-tabs"></nav><div id="messages">Parent content</div>
     <section id="left-side-chat-panel" data-mode="side-chat" hidden><div id="left-side-messages"></div><div id="left-side-composer-host"></div></section>
-    <div id="input-wrapper"><div id="input-area"><div class="input-row"><div id="input" contenteditable="true"></div>
+    <div id="input-wrapper"><div id="input-area"><div id="slash-input-line"><div id="input" contenteditable="true" data-placeholder="Send a message..."></div></div><div class="input-row">
     <button id="composer-plus-btn"></button><input id="file-input" type="file"><button id="voice-input-btn"></button><button id="send"></button>
     <div id="main-model-select"></div><div id="permission-select"></div><div id="previews"></div></div></div>
     <div id="follow-up-queue"></div><button id="scroll-to-bottom"></button></div></main>
@@ -62,14 +64,22 @@ export function createSidePaneComposerFixture() {
     previews: new Map<HTMLElement, any[]>(), retired: [] as string[],
     reopens: [] as Array<{ id: string; left: string | null; right: string | null; mounted: boolean }>,
     queueIslands: [] as Array<{ element: HTMLElement; handlers: any }>,
+    predictionSources: [] as string[],
+    predictions: [] as Array<{ target: PredictionTarget; trigger: PredictionTrigger }>,
+    predictionCancels: [] as string[],
   }
+  const predictionSourceHandler = { current: async (_id: string): Promise<PredictionSourceReply> => ({ turnId: null }) }
+  const predictionHandler = { current: async (_target: PredictionTarget, _trigger: PredictionTrigger): Promise<PredictionReply> => ({ suggestion: null }) }
+  const kvSettings = new Map<string, string>([[PREDICTIONS_ENABLED_KEY, 'on']])
   const running = new Set<string>()
   const pendingSubmissions = new Map<string, any>(), unsent = new Map<string, any>(), recoveries = new Map<string, any>()
   const pendingRuntime = new Map<string, any>()
   const runtimeStore = createStore<{ sessions: Record<string, any> }>(() => ({ sessions: {} }))
-  const streamFor = (id: string) => runtimeStore.getState().sessions[id] || {
-    running: false, liveUnits: [], history: [], turnStatuses: {}, turnStartedAtMs: {}, turnFinishedAtMs: {},
-  }
+  const emptyStream = Object.freeze({
+    running: false, historyGeneration: 0, lastTerminalStatus: null, activeTurnId: null, liveTurnId: null,
+    liveUnits: Object.freeze([]), history: Object.freeze([]), turnStatuses: Object.freeze({}), turnStartedAtMs: Object.freeze({}), turnFinishedAtMs: Object.freeze({}),
+  })
+  const streamFor = (id: string) => runtimeStore.getState().sessions[id] || emptyStream
   const stopping = new Set<string>(), continuing = new Set<string>()
   const scrollControllers: Array<{ scrollEl: HTMLElement; destroyed: boolean }> = []
   let intervalCalls = 0
@@ -86,6 +96,7 @@ export function createSidePaneComposerFixture() {
     MutationObserver: window.MutationObserver, Event: window.Event, CustomEvent: window.CustomEvent,
     console, crypto: { randomUUID }, URL: window.URL, userMessageClientId, cancelledComposerAdmissions: new Map(), createVisibilityScope, composerSubmitState, applyComposerSubmitState, ...placement, ...documentModel, ...documentDraft, ...slashDraft,
     ...inlineQuotes, ...references, ...resourceReferences, workspaceReferencesIn, removeSideWorkflowControls,
+    mountComposerPredictions, createPredictionSessionSelector, subscribePredictionRefresh, PREDICTIONS_ENABLED_KEY, PREDICTIONS_ACCEPTED_KEY,
     referencesFromEditor: resourceReferences.referencesFromEditor,
     installContenteditableTextControl: (element: any, resolve: any, options: any) => {
       const control = installContenteditableTextControl(element, resolve, options)
@@ -184,7 +195,21 @@ export function createSidePaneComposerFixture() {
     disposeAttachmentObjectUrl() {}, rejectOversizedAttachment: () => false,
     uploadAttachment: (entry: any) => new Promise((resolve, reject) => { uploads.set(entry.file.name, { resolve, reject }) }),
     isInlineImage: (_name: string, type: string) => type.startsWith('image/'),
-    klausApi: { session: {
+    klausApi: {
+      composerPredictions: {
+        source: async (id: string) => { calls.predictionSources.push(id); return predictionSourceHandler.current(id) },
+        get: async (sessionId: string, turnId: string, trigger: PredictionTrigger) => {
+          const target = { sessionId, turnId }
+          calls.predictions.push({ target, trigger })
+          return predictionHandler.current(target, trigger)
+        },
+        cancel: async (id: string) => { calls.predictionCancels.push(id) },
+      },
+      settings: { kv: {
+        get: async (key: string) => kvSettings.get(key) ?? null,
+        set: async (key: string, value: string) => { kvSettings.set(key, value) },
+      } },
+      session: {
       getMainModel: async (id: string) => { calls.modelReads.push(id); return { source: 'custom', mode: 'model', resolvedMode: 'model' } },
       getThinkingLevel: async () => ({ level: 'medium' }), getFastMode: async () => ({ enabled: false }),
       getPermissionMode: async () => ({}), getUltraMode: async () => ({ enabled: false }), touchSideTask: async () => ({}),
@@ -199,6 +224,7 @@ export function createSidePaneComposerFixture() {
   const api = {
     window: window as any, document, calls, running, modelPickers, permissionPickers, vmApi, input, button, uploads,
     controls, scrollControllers, stopping, continuing, streamFor, pendingSubmissions, unsent, recoveries, context,
+    predictionSourceHandler, predictionHandler, kvSettings,
     intervalCalls: () => intervalCalls,
     setRuntime(id: string, patch: Record<string, unknown>) {
       const next = { ...streamFor(id), ...patch }

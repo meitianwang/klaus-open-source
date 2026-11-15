@@ -128,7 +128,7 @@ import { createEditorDiscovery, routeComposerPickerKey, type EditorDiscoveryCont
 import { composerDraftFromControl } from './composer/document-draft'
 import { AttachmentHistory, installAttachmentHistory } from './composer/attachment-history'
 import { workspaceReference, workspaceReferencesIn } from './composer/workspace-reference'
-import { mountComposerPredictions, createPredictionSessionSelector, PREDICTIONS_ENABLED_KEY, PREDICTIONS_ACCEPTED_KEY, type PredictionSession } from './composer/predictions'
+import { mountComposerPredictions, createPredictionSessionSelector, PREDICTIONS_ENABLED_KEY, PREDICTIONS_ACCEPTED_KEY, type PredictionSession, type PredictionTrigger } from './composer/predictions'
 import { scrollCaretIntoView } from './composer/caret-scroll'
 import { installComposerEditCommandBridge } from './composer/edit-command-bridge'
 import { revealUserMessageContent } from './transcript/user-message-disclosure'
@@ -1738,6 +1738,10 @@ type SideComposerRuntime = {
   bindViewport?: (messagesEl: HTMLElement) => void
   setVisible?: (visible: boolean) => void
   cancelPreparation?: () => boolean
+  refreshPredictions?: (trigger?: PredictionTrigger, turnId?: string) => void
+  recheckPredictions?: (sessionId?: string) => void
+  reloadPredictionSettings?: () => void
+  invalidatePredictions?: (sessionId?: string) => void
 }
 const sidePaneRuntimes = new Map<string, SideComposerRuntime>()
 const retainedSideRuntimes = new Map<string, SideComposerRuntime>()
@@ -2009,6 +2013,11 @@ function initSideComposer(placement: SidePanePlacement = 'right', runtime = side
   let sideWindowsSandboxBanner: WindowsSandboxBannerMount | null = null
   let sideComposerModelRevision = 0
   let sideComposerModelScope: { sessionId: string; source: string } | null = null
+  const sidePredictionModelSelections = new Map<string, string>()
+  let sideComposerPredictions: ReturnType<typeof mountComposerPredictions> | null = null
+  let stopSidePredictionRefresh: (() => void) | null = null
+  let sidePredictionBlockerObserver: MutationObserver | null = null
+  let sideSlashMenuEl: HTMLElement | null = null
   let mountSideComposerVoice: (() => void) | undefined
   const sideMessagesContainer = () => document.getElementById('side-messages')
   const renderSideFollowUpQueue = () => {
@@ -2016,16 +2025,21 @@ function initSideComposer(placement: SidePanePlacement = 'right', runtime = side
     if (!sideSurfaceSessionId || findKnownSession(sideSurfaceSessionId)?.archived) sideFollowUpQueueApi.render(null, null, followUpQueueMode === 'queue')
     else renderQueueInto(sideFollowUpQueueApi, sideSurfaceSessionId)
   }
-  runtime.setSession = id => { sideSurfaceSessionId = id; runtime.sessionId = id }
+  runtime.setSession = id => { sideSurfaceSessionId = id; runtime.sessionId = id; void sideComposerPredictions?.refresh() }
   runtime.refreshQueue = renderSideFollowUpQueue
   runtime.invalidatePreferences = () => { sideComposerModelRevision++ }
   runtime.refreshModel = () => runtime.root?.hidden ? Promise.resolve() : refreshSideComposerModel()
+  runtime.refreshPredictions = (trigger, turnId) => { void sideComposerPredictions?.refresh(trigger, turnId) }
+  runtime.recheckPredictions = sessionId => { sideComposerPredictions?.recheck?.(sessionId) }
+  runtime.reloadPredictionSettings = () => { void sideComposerPredictions?.reloadSettings() }
+  runtime.invalidatePredictions = sessionId => { sideComposerPredictions?.invalidate(sessionId) }
   runtime.refresh = () => {
     sideVoiceChatUi?.refresh()
     sideWindowsSandboxBanner?.refresh()
     sideModelApi?.setDisabled(!sideSurfaceSessionId)
     sideModelApi?.setRuntime(sideSurfaceSessionId ? getSessionStream(sideSurfaceSessionId) : null)
     runtime.hooks.klausUpdateSideSendButton?.()
+    void sideComposerPredictions?.refresh()
   }
   runtime.syncRuntime = () => {
     if (runtime.root?.hidden) return
@@ -2059,6 +2073,10 @@ function initSideComposer(placement: SidePanePlacement = 'right', runtime = side
     sideFollowUpQueueApi?.dispose?.()
     sidePreviewsApi?.dispose?.()
     sideWindowsSandboxBanner?.dispose()
+    stopSidePredictionRefresh?.()
+    sidePredictionBlockerObserver?.disconnect()
+    sideComposerPredictions?.dispose()
+    sideSlashMenuEl?.remove()
     sideComposerControl?.destroy?.()
   }
   runtime.mountVoice = () => mountSideComposerVoice?.()
@@ -2100,6 +2118,14 @@ function initSideComposer(placement: SidePanePlacement = 'right', runtime = side
     // displayed rung from the stored pick per model. Clamping here would push a
     // downgraded value into the selector's state and make it stick.
     sideComposerModelScope = { sessionId, source: saved.source }
+    if (typeof sidePredictionModelSelections !== 'undefined') {
+      const signature = JSON.stringify([saved.source, mode])
+      const previousSelection = sidePredictionModelSelections.get(sessionId)
+      sidePredictionModelSelections.set(sessionId, signature)
+      if (previousSelection !== undefined && previousSelection !== signature && typeof sideComposerPredictions !== 'undefined') {
+        sideComposerPredictions?.recheck?.(sessionId)
+      }
+    }
     sideModelApi.setItems(items, { value: mode, thinkingLevel, ultraMode: ultraMode.enabled, fastMode: fastMode.enabled, fastModeSupported: fastMode.supported, fastModeBilling: fastMode.billing })
   } catch (error) {
     console.warn('[side-composer-model] refresh failed:', error)
@@ -2127,10 +2153,12 @@ function initSideComposer(placement: SidePanePlacement = 'right', runtime = side
   delete clone.dataset.voiceChat
   const modelRoot = clone.querySelector('#side-main-model-select')
   if (modelRoot) modelRoot.id = 'side-model-select' // reuse existing model-menu styling
-  clone.querySelectorAll('.streaming-dots, .msg, [data-uuid]').forEach((n) => n.remove())
+  clone.querySelectorAll('.streaming-dots, .msg, [data-uuid], .composer-prediction').forEach((n) => n.remove())
   const sideInput = clone.querySelector<HTMLTextAreaElement>('#side-input')
   if (sideInput) {
     sideInput.removeAttribute('data-klaus-text-control')
+    sideInput.classList.remove('has-composer-prediction')
+    sideInput.removeAttribute('aria-description')
     sideInput.replaceChildren()
     sideInput.value = ''
     sideInput.style.height = ''
@@ -2300,9 +2328,11 @@ function initSideComposer(placement: SidePanePlacement = 'right', runtime = side
     if (!visible) {
       sideComposerModelRevision++
       sideDiscovery?.hide(true)
+      sideComposerPredictions?.suspend()
     } else {
       visibleEffects.setActive(true)
       runtime.syncRuntime?.()
+      void sideComposerPredictions?.refresh()
     }
   }
   if (sideInput) sideComposerControl = installContenteditableTextControl(sideInput as unknown as HTMLElement, (value) => [
@@ -2414,6 +2444,7 @@ function initSideComposer(placement: SidePanePlacement = 'right', runtime = side
 
   if (sideInput && sideComposerControl) {
     const menu = document.createElement('div')
+    sideSlashMenuEl = menu
     menu.id = sidePaneElementId('side-slash-menu', placement)
     menu.className = 'slash-menu hidden'
     // Viewport coordinates must stay outside clipped composer ancestors.
@@ -2509,6 +2540,7 @@ function initSideComposer(placement: SidePanePlacement = 'right', runtime = side
   }
   function sideRenderPreviews() {
     sidePreviewsApi?.render(sidePendingFiles)
+    if (typeof sideComposerPredictions !== 'undefined') sideComposerPredictions?.paint()
     if (sideSurfaceSessionId === sideDraftScope) persistQueuedEditDraft(sideSurfaceSessionId, sideComposedInputDraft(), sidePendingFiles)
   }
   function removeSideInlineQuote(entry: PendingFileEntry) {
@@ -2718,7 +2750,7 @@ function initSideComposer(placement: SidePanePlacement = 'right', runtime = side
   const sideDrafts = sideComposerDrafts
   ;(window as any).klausSideComposerBind = (scope: string | null) => {
     sideDiscovery?.hide()
-    if (scope === sideDraftScope) { void sideDiscovery?.refresh(); return }
+    if (scope === sideDraftScope) { void sideDiscovery?.refresh(); if (typeof sideComposerPredictions !== 'undefined') void sideComposerPredictions?.refresh(); return }
     sideBindingRevision++
     sideHistoryBrowsingIndex = -1
     if (sideDraftScope) {
@@ -2746,6 +2778,7 @@ function initSideComposer(placement: SidePanePlacement = 'right', runtime = side
     sideRenderPreviews()
     sideAutoResize()
     void sideDiscovery?.refresh()
+    if (typeof sideComposerPredictions !== 'undefined') void sideComposerPredictions?.refresh()
     // An upload may have finished while this draft was in another tab.
     void Promise.resolve().then(() => {
       if (scope === sideDraftScope && scope === sideSurfaceSessionId) releaseSideDeferredSend()
@@ -2813,6 +2846,7 @@ function initSideComposer(placement: SidePanePlacement = 'right', runtime = side
     if (source && items) {
       sideComposerModelScope = { sessionId, source }
     }
+    if (typeof sideComposerPredictions !== 'undefined') void sideComposerPredictions?.refresh()
   }
   ;(window as any).klausSideComposerDiscard = (id: string) => {
     if (pendingSideDraft?.id === id) { pendingSideDraft = null; sideModelApi?.setDisabled(false) }
@@ -2833,6 +2867,7 @@ function initSideComposer(placement: SidePanePlacement = 'right', runtime = side
       sideComposerControl?.resetHistory()
       sideRenderPreviews()
       sideAutoResize()
+      if (typeof sideComposerPredictions !== 'undefined') void sideComposerPredictions?.refresh()
     }
   }
 
@@ -2899,6 +2934,7 @@ function initSideComposer(placement: SidePanePlacement = 'right', runtime = side
     const files = [...sidePendingFiles]
     const payload = buildOutgoingPayload(value, files, historyDraft.slashCommand?.command || null, sid, references, draftDocument)
     addSessionHistory(sid, historyDraft)
+    if (typeof sideComposerPredictions !== 'undefined') sideComposerPredictions?.submitted()
     const action = value.trimStart().startsWith('/')
       ? 'queue'
       : followUpModeHelper.resolveSubmitAction(followUpQueueMode, invert)
@@ -3068,6 +3104,7 @@ function initSideComposer(placement: SidePanePlacement = 'right', runtime = side
     if (sidePreparation) sidePreparation.pending = pending
     renderLocalUserPayload(sid, payload, { uuid: pending.uuid, pending: true, timestamp: pending.startedAtMs })
     addSessionHistory(sid, historyDraft)
+    if (typeof sideComposerPredictions !== 'undefined') sideComposerPredictions?.submitted()
     sidePendingFiles = []
     sideRenderPreviews()
     sideSetComposerDraft('')
@@ -3161,6 +3198,7 @@ function initSideComposer(placement: SidePanePlacement = 'right', runtime = side
   // Keep the send/stop affordance in sync with the side session's running state.
   function updateSideSendButton() {
     if (!sideSend || runtime.root?.hidden) return
+    if (typeof sideComposerPredictions !== 'undefined') sideComposerPredictions?.paint()
     const pending = sidePreparation?.pending
     const preparing = !!pending && !pending.cancelled && (pending.phase === 'preparing' || pending.phase === 'submitting')
     const friendRefs = preparing ? [] : sideComposedInputDraft().references.filter(reference => reference.kind === 'friend')
@@ -3291,6 +3329,51 @@ function initSideComposer(placement: SidePanePlacement = 'right', runtime = side
     event.stopImmediatePropagation()
   }
   sideInput?.addEventListener('keydown', handleSideRecallKeydown, true)
+  if (sideInput && typeof mountComposerPredictions === 'function' && klausApi.composerPredictions) {
+    const selectSidePredictionSession = createPredictionSessionSelector()
+    const currentSidePredictionSession = (): PredictionSession | null => {
+      const sessionId = sideSurfaceSessionId
+      if (!sideVisible || runtime.root?.hidden || !sessionId || pendingSideDraft || sideDraftScope !== sessionId) return null
+      if (chatStreamStore.getState?.().engineStatus && chatStreamStore.getState().engineStatus !== 'ok') return null
+      const known = findKnownSession(sessionId)
+      if (known?.archived || ((known as { sideTaskStatus?: string } | null)?.sideTaskStatus && (known as { sideTaskStatus?: string }).sideTaskStatus !== 'active')) return null
+      const stream = getSessionStream(sessionId)
+      if (stream.running || stream.historyLoadFailed) return null
+      return selectSidePredictionSession(sessionId, stream)
+    }
+    sideComposerPredictions = mountComposerPredictions({
+      input: sideInput,
+      session: currentSidePredictionSession,
+      source: sessionId => klausApi.composerPredictions.source(sessionId),
+      blocked: () => {
+        const sid = sideSurfaceSessionId
+        const preparing = !!(sidePreparation?.pending && !sidePreparation.pending.cancelled
+          && (sidePreparation.pending.phase === 'preparing' || sidePreparation.pending.phase === 'submitting'))
+        return !sideVisible || !!runtime.root?.hidden || !sid || !!pendingSideDraft || sideDraftScope !== sid
+          || !!window.isSessionRunning?.(sid) || preparing || sideFriendSending
+          || sideInput.disabled || sideInput.getAttribute('contenteditable') === 'false'
+          || sidePendingFiles.length > 0 || !!sideSelectedSlashCommand || sideReferenceTokens.length > 0
+          || (!!sideSlashMenuEl && !sideSlashMenuEl.classList.contains('hidden'))
+          || (sideVoiceBtn?.dataset.voiceState || 'idle') !== 'idle'
+      },
+      predict: (target, trigger) => klausApi.composerPredictions.get(target.sessionId, target.turnId, trigger),
+      cancel: sessionId => klausApi.composerPredictions.cancel(sessionId),
+      get: key => klausApi.settings?.kv?.get ? klausApi.settings.kv.get(key) : Promise.resolve(null),
+      set: (key, value) => klausApi.settings?.kv?.set ? klausApi.settings.kv.set(key, value) : Promise.resolve(),
+      text: tt,
+    })
+    if (typeof subscribePredictionRefresh === 'function') {
+      stopSidePredictionRefresh = subscribePredictionRefresh(chatStreamStore as any, {
+        currentSessionId: () => sideSurfaceSessionId,
+        session: currentSidePredictionSession,
+        invalidate: id => sideComposerPredictions?.invalidate(id),
+        refresh: () => sideComposerPredictions?.refresh(),
+      })
+    }
+    sidePredictionBlockerObserver = new MutationObserver(() => sideComposerPredictions?.paint())
+    if (sideSlashMenuEl) sidePredictionBlockerObserver.observe(sideSlashMenuEl, { attributes: true, attributeFilter: ['class'] })
+    if (sideVoiceBtn) sidePredictionBlockerObserver.observe(sideVoiceBtn, { attributes: true, attributeFilter: ['data-voice-state'] })
+  }
   runtime.retainsAttachment = entry => sidePendingFiles.includes(entry)
   runtime.refreshAttachment = (entry, force = false) => { if (force || sidePendingFiles.includes(entry)) { sideRenderPreviews(); updateSideSendButton(); releaseSideDeferredSend() } }
   runtime.detachAttachment = (entry, cancelPaste) => {
@@ -4679,6 +4762,7 @@ async function init() {
 // 设置页切了 auth_mode / 登录 / 登出后触发这两个事件刷新输入区模型选择。
 window.addEventListener('klaus:auth-mode-changed', () => {
   composerPredictions?.recheck?.()
+  for (const runtime of sidePaneRuntimes.values()) runtime.recheckPredictions?.()
   invalidateComposerPreferenceReads()
   void refreshComposerPreferences()
   void refreshAllSideComposerModels()
@@ -4687,6 +4771,7 @@ let revalidatingCatalogEvent = false
 window.addEventListener('klaus:models-changed', () => {
   if (revalidatingCatalogEvent) return
   composerPredictions?.recheck?.()
+  for (const runtime of sidePaneRuntimes.values()) runtime.recheckPredictions?.()
   invalidateComposerPreferenceReads()
   void refreshComposerPreferences()
   void refreshAllSideComposerModels()
@@ -15154,6 +15239,7 @@ function invalidateComposerPreferenceReads(options?: { catalog?: boolean }) {
 async function refreshCatalogSource(source: string) {
   if (!source) return
   composerPredictions?.recheck?.()
+  for (const runtime of sidePaneRuntimes.values()) runtime.recheckPredictions?.()
   composerModelReadinessCache.invalidate()
   const refreshing = mainModelCatalogCache.revalidate(source)
   void refreshComposerPreferences()
@@ -15369,14 +15455,20 @@ const COMPOSER_PREFERENCE_KEYS = new Set([
 // window's own write.
 const SIDEBAR_COLLAPSE_KEYS = new Set([SIDEBAR_PROJECT_EXPANDED_KEY, SIDEBAR_SECTIONS_COLLAPSED_KEY])
 klausApi.on.appPreferencesChanged?.(({ key }: { key?: string }) => {
-  if (key === PREDICTIONS_ENABLED_KEY || key === PREDICTIONS_ACCEPTED_KEY) void composerPredictions?.reloadSettings()
+  if (key === PREDICTIONS_ENABLED_KEY || key === PREDICTIONS_ACCEPTED_KEY) {
+    void composerPredictions?.reloadSettings()
+    for (const runtime of sidePaneRuntimes.values()) runtime.reloadPredictionSettings?.()
+  }
   if (key === followUpModeHelper.FOLLOW_UP_QUEUE_MODE_KEY) void loadFollowUpQueueMode()
   if (key?.startsWith('model_catalog:')) {
     void refreshCatalogSource(key.slice('model_catalog:'.length))
     return
   }
   if (key && (COMPOSER_PREFERENCE_KEYS.has(key) || isFastModePreferenceKey(key) || key === 'modelProviders' || key === 'auth_mode' || key === 'feature_models' || key.startsWith('model_tiers:'))) {
-    if (key === 'composer.main_model' || key === 'modelProviders' || key === 'auth_mode' || key === 'feature_models') composerPredictions?.recheck?.()
+    if (key === 'composer.main_model' || key === 'modelProviders' || key === 'auth_mode' || key === 'feature_models') {
+      composerPredictions?.recheck?.()
+      for (const runtime of sidePaneRuntimes.values()) runtime.recheckPredictions?.()
+    }
     if (typeof handleExternalWorkModePreferenceChange === 'function') handleExternalWorkModePreferenceChange(key)
     invalidateComposerPreferenceReads({ catalog: key === 'modelProviders' || key === 'auth_mode' })
     void refreshComposerPreferences()
@@ -15575,9 +15667,14 @@ function handleChatEvent(event: ChatEvent) {
   ingestChatFrameEvent(event, { userInterrupted: userInterruptedSessions.has(event.sessionId) })
   if (event.type === 'session_runtime_status' && event.source === 'session') scheduleSessionRuntimeAudit({ once: true, sessionId: event.sessionId })
   if (event.type === 'model_update') refreshContextAfterModelUpdate(event.sessionId, previousModelUpdate)
-  if (event.type === 'done' && event.sessionId === window.currentSessionId && !foreignTerminalTurn(event)) {
+  if (event.type === 'done' && event.sessionId && !foreignTerminalTurn(event)) {
     const turnId = typeof event.turnId === 'string' && event.turnId ? event.turnId : undefined
-    void composerPredictions?.refresh(turnId ? 'live' : 'catch_up', turnId)
+    if (event.sessionId === window.currentSessionId) {
+      void composerPredictions?.refresh(turnId ? 'live' : 'catch_up', turnId)
+    }
+    for (const runtime of sidePaneRuntimes.values()) {
+      if (runtime.sessionId === event.sessionId) runtime.refreshPredictions?.(turnId ? 'live' : 'catch_up', turnId)
+    }
   }
   if (event.type === 'agent_progress' || event.type === 'agent_notification') scheduleAgentTasksSave(event.sessionId)
   if (event.sessionId) specDocuments.onEvent({ ...event, sessionId: event.sessionId })

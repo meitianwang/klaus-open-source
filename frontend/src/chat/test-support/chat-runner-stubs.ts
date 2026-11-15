@@ -44,6 +44,8 @@ var isTurnInProgressRefusal = function isTurnInProgressRefusal() { return false;
 var persistSideDraft = function persistSideDraft() {};
 var persistedSideDraft = function persistedSideDraft() { return null; };
 var loadPersistedSideDrafts = function loadPersistedSideDrafts() { return {}; };
+var sideComposerPredictions = undefined;
+var sidePredictionModelSelections = new Map();
 `
 
 /** Same stand-ins as an object spread for harnesses that build a VM context literally. */
@@ -73,4 +75,6 @@ export const chatRunnerStubContext = () => ({
   persistSideDraft: () => {},
   persistedSideDraft: () => null,
   loadPersistedSideDrafts: () => ({}),
+  sideComposerPredictions: undefined,
+  sidePredictionModelSelections: new Map<string, string>(),
 })

@@ -336,12 +336,13 @@ export function mountComposerPredictions(deps: {
     input.focus()
   }
   const onFocus = () => { sources.retryFailed(); void refresh() }
+  const win = doc.defaultView ?? window
   root.addEventListener('keydown', onKeyDown, true)
   root.addEventListener('input', paint)
   root.addEventListener('compositionstart', onCompositionStart)
   root.addEventListener('compositionend', onCompositionEnd)
   ghost.addEventListener('mousedown', onMouseDown)
-  window.addEventListener('focus', onFocus)
+  win.addEventListener('focus', onFocus)
   const observer = new MutationObserver(paint)
   observer.observe(root, { childList: true, characterData: true, subtree: true })
   void reloadSettings()
@@ -364,7 +365,7 @@ export function mountComposerPredictions(deps: {
       root.removeEventListener('compositionstart', onCompositionStart)
       root.removeEventListener('compositionend', onCompositionEnd)
       ghost.removeEventListener('mousedown', onMouseDown)
-      window.removeEventListener('focus', onFocus)
+      win.removeEventListener('focus', onFocus)
       ghost.remove()
     },
   }

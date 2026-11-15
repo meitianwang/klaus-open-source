@@ -53,6 +53,7 @@
   },
   "generation": {
     "context": "full parent conversation",
+    "sideTaskContext": "visible side-task conversation only; inherited parent prefix is excluded and a side task without its own human work has no source turn",
     "model": "parent model",
     "liveOffscreen": true,
     "tools": false,
