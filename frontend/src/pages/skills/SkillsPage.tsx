@@ -159,6 +159,13 @@ function skillSlug(skill: SkillItem): string {
   return String(skill.upstreamSlug || skill.dirName || skill.name || '').trim()
 }
 
+function skillToastName(skill: SkillItem | null | undefined, fallbackName?: unknown): string {
+  const fallback = String(fallbackName ?? '').trim()
+  return localizeSkillName(skill)
+    || (fallback ? localizeSkillName({ dirName: fallback, name: fallback }) : '')
+    || fallback
+}
+
 function skillBusyLabel(operation: ExtensionAcquisitionItem | undefined, fallback: string | null, t: (key: string) => string): string {
   if (operation?.cancelling) return t('plugins_cancelling')
   if (operation?.phase === 'queued') return t('plugins_queued')
@@ -181,7 +188,7 @@ async function performSkillUpdate(
     )
     if (result.cancelled) return { ok: false, cancelled: true }
     if (result.ok) {
-      showToast(`${t('skills_updated_toast') || '已更新'}: ${result.name}`)
+      showToast(`${t('skills_updated_toast') || '已更新'}: ${skillToastName(skill, result.name)}`)
       markSkillUpdatedInCache(id, skill.latestVersion)
       markInstalledCacheStale()
       onChanged()
@@ -260,7 +267,7 @@ function MarketInstallBtn({
         }
         if (result.cancelled) return { ok: false, cancelled: true }
         if (result.ok) {
-          let message = `${t('settings_skills_installed_toast')}: ${result.name}`
+          let message = `${t('settings_skills_installed_toast')}: ${skillToastName(skill, result.name)}`
           if (result.missingBins?.length) message += ` · ${t('skills_dependency_missing')}: ${result.missingBins.join(', ')}`
           if (result.missingEnv?.length) message += ` · ${t('skills_dependency_env_hint')}: ${result.missingEnv.join(', ')}`
           if (result.dependencyWarnings?.length) message += ` · ${result.dependencyWarnings[0]}`
@@ -642,7 +649,7 @@ export function SkillsPage() {
       try {
         if (!(await w().klausDialog.confirm({
           title: t('settings_skills_uninstall'),
-          message: t('settings_skills_uninstall') + ': ' + dirName + '?',
+          message: t('settings_skills_uninstall') + ': ' + (localizeSkillName(skill) || dirName) + '?',
           confirmText: t('settings_skills_uninstall'),
           danger: true,
         }))) return
@@ -725,6 +732,7 @@ export function SkillsPage() {
     if (!m) return item
     return {
       ...item,
+      name: (!item.name || item.name === dir) && m.name ? m.name : item.name,
       upstreamSlug: m.upstreamSlug ?? item.upstreamSlug,
       hasUpdate: m.hasUpdate === true,
       version: m.version ?? item.version,

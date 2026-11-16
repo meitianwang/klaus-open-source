@@ -93,4 +93,13 @@ describe('skills page interaction contract', () => {
     expect(page).toContain('ExtensionTransferBanner')
     expect(page).toContain('skillAcquisitionStore')
   })
+
+  test('install, update and uninstall notices display localized skill names instead of raw slugs', () => {
+    expect(page).toContain('function skillToastName(')
+    expect(page).toContain("`${t('skills_updated_toast') || '已更新'}: ${skillToastName(skill, result.name)}`")
+    expect(page).toContain("`${t('settings_skills_installed_toast')}: ${skillToastName(skill, result.name)}`")
+    expect(page).toContain("(localizeSkillName(skill) || dirName)")
+    expect(modals).toContain('localizeSkillName({ dirName: rawName, name: rawName })')
+    expect(modals).toContain("`${t('settings_skills_installed_toast')}: ${displayName}`")
+  })
 })

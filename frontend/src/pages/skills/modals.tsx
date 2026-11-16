@@ -3,6 +3,7 @@ import type { RefObject } from 'react'
 import { useT } from '../../i18n'
 import { rawIconHtml } from '../../components/Icon'
 import { invalidateSkillsDataCache } from './data'
+import { localizeSkillName } from './localize'
 import styles from './skills.module.css'
 
 const w = () => window as any
@@ -85,7 +86,9 @@ function useCloseTimer() {
 }
 
 function installMessage(result: any, t: (key: string) => string): string {
-  let message = `${t('settings_skills_installed_toast')}: ${result.name}`
+  const rawName = String(result?.name || '').trim()
+  const displayName = (rawName ? localizeSkillName({ dirName: rawName, name: rawName }) : '') || rawName
+  let message = `${t('settings_skills_installed_toast')}: ${displayName}`
   if (result.missingBins?.length) message += ` · ${t('skills_dependency_missing')}: ${result.missingBins.join(', ')}`
   if (result.missingEnv?.length) message += ` · ${t('skills_dependency_env_hint')}: ${result.missingEnv.join(', ')}`
   return message

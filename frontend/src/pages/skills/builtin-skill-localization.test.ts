@@ -136,6 +136,7 @@ describe('talking-head marketplace localization', () => {
     const localize = await import('./localize')
     const row = { dirName: 'talking-head-video', name: '口播视频剪辑', description: '市场中文简介' }
     const scriptRow = { dirName: 'talking-head-script', name: '口播文案', description: '市场中文简介' }
+    const publishRow = { dirName: 'video-publish', name: 'video-publish', description: '' }
     const global = globalThis as any
     try {
       global.window.currentLang = 'en'
@@ -143,11 +144,13 @@ describe('talking-head marketplace localization', () => {
       expect(hasCjk(localize.localizeSkillDescription(row))).toBe(false)
       expect(localize.localizeSkillName(scriptRow)).toBe('Talking-head Script')
       expect(hasCjk(localize.localizeSkillDescription(scriptRow))).toBe(false)
+      expect(localize.localizeSkillName(publishRow)).toBe('Video Publish')
       global.window.currentLang = 'zh'
       expect(localize.localizeSkillName(row)).toBe('口播视频剪辑')
       expect(localize.localizeSkillDescription(row)).toContain('圆形人物画中画')
       expect(localize.localizeSkillName(scriptRow)).toBe('口播文案')
       expect(localize.localizeSkillDescription(scriptRow)).toContain('口播逐字稿')
+      expect(localize.localizeSkillName(publishRow)).toBe('视频发布')
     } finally {
       global.window.currentLang = 'zh'
     }

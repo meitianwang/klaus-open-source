@@ -99,5 +99,8 @@ describe('agents page plaza contract', () => {
     // 内置等没有用户文件的角色从列表行以只读态打开同一个对话框，只看不改。
     expect(page).toContain('readOnly: true')
     expect(page).toContain('void openAgent(agent)')
+    // 安装与更新完成提示展示本地化智能体名而非裸 slug。
+    expect(page).toContain('const displayName = item.name || localizeAgentDisplayName({ agentType: result.id || item.slug, filename: item.slug }) || result.id || item.slug')
+    expect(page).toContain("`${t(item.hasUpdate ? 'agents_market_updated_toast' : 'agents_market_installed_toast')}: ${displayName}`")
   })
 })

@@ -154,7 +154,8 @@ async function performAgentAcquisition(
     const result = await w().klaus.agents.install(item.slug, item.latestVersion || undefined)
     if (result?.cancelled) return { ok: false, cancelled: true }
     if (result?.ok) {
-      showToast(`${t(item.hasUpdate ? 'agents_market_updated_toast' : 'agents_market_installed_toast')}: ${result.id || item.slug}`)
+      const displayName = item.name || localizeAgentDisplayName({ agentType: result.id || item.slug, filename: item.slug }) || result.id || item.slug
+      showToast(`${t(item.hasUpdate ? 'agents_market_updated_toast' : 'agents_market_installed_toast')}: ${displayName}`)
       onChanged()
       return { ok: true, version: item.latestVersion }
     }
