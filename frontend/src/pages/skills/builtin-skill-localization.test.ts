@@ -135,14 +135,19 @@ describe('talking-head marketplace localization', () => {
   test('market and installed rows follow the selected interface language', async () => {
     const localize = await import('./localize')
     const row = { dirName: 'talking-head-video', name: '口播视频剪辑', description: '市场中文简介' }
+    const scriptRow = { dirName: 'talking-head-script', name: '口播文案', description: '市场中文简介' }
     const global = globalThis as any
     try {
       global.window.currentLang = 'en'
       expect(localize.localizeSkillName(row)).toBe('Talking-head Video')
       expect(hasCjk(localize.localizeSkillDescription(row))).toBe(false)
+      expect(localize.localizeSkillName(scriptRow)).toBe('Talking-head Script')
+      expect(hasCjk(localize.localizeSkillDescription(scriptRow))).toBe(false)
       global.window.currentLang = 'zh'
       expect(localize.localizeSkillName(row)).toBe('口播视频剪辑')
       expect(localize.localizeSkillDescription(row)).toContain('圆形人物画中画')
+      expect(localize.localizeSkillName(scriptRow)).toBe('口播文案')
+      expect(localize.localizeSkillDescription(scriptRow)).toContain('口播逐字稿')
     } finally {
       global.window.currentLang = 'zh'
     }

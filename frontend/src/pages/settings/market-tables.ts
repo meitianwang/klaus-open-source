@@ -14,6 +14,10 @@ const SKILL_TEXT_I18N = {
     en: ['Talking-head Video', 'Edit presenter footage with captions, explanation scenes and circular picture-in-picture. Start from video, audio and a photo, a script, or an idea.'],
     zh: ['口播视频剪辑', '剪辑口播素材，添加字幕、讲解画面和圆形人物画中画。支持视频、音频加照片、文稿或想法起步。'],
   },
+  'talking-head-script': {
+    en: ['Talking-head Script', 'Write or rewrite conversational spoken scripts for short videos: turn rough ideas, news or formal articles into ear-friendly talking-head monologues with hooks, everyday analogies and breath-sized phrasing.'],
+    zh: ['口播文案', '创作或改写短视频口播逐字稿：把选题思路、热点事件或书面文章变成开口就能念的口播文案，前两句抓耳破题、生活化类比拆解逻辑、短句气口顺畅、收尾留钩子。'],
+  },
   'douyin-audio-downloader': {
     en: ['Douyin Audio Downloader', 'Capture the signed CDN media URL of a public Douyin video through the in-app browser (no login), download it with curl, and extract the audio track to m4a/mp3 with ffmpeg.'],
     zh: ['抖音音频下载', '用应用内浏览器打开公开抖音视频页，捕获签名 CDN 媒体地址（无需登录），curl 下载后用 ffmpeg 抽取音轨为 m4a/mp3。'],
@@ -520,6 +524,7 @@ const SKILL_ICON_OVERRIDES = {
   'summarize': 'text',
   'system-screen-control': 'monitor',
   'system-screenshot': 'camera',
+  'talking-head-script': 'mic',
   'techmanual-press': 'book',
   'things-mac': 'checkSquare',
   'tmux': 'terminal',
