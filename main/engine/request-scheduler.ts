@@ -243,7 +243,7 @@ const coalescibleReads = new Set([
 // The picker's catalog reads: concurrent refreshes (main composer, side
 // composer, send preflight) ask the same source with identical parameters, so
 // they share one engine request instead of queueing as separate jobs.
-const CATALOG_READ = /^(?:subscription|codex|cursor|qwenwork|workbuddy|antigravity|trae|kiro|kimi|bailian|minimax|zhipu|qoder)\/models$/;
+const CATALOG_READ = /^(?:subscription|codex|cursor|qwenwork|workbuddy|antigravity|gemini|trae|kiro|kimi|bailian|minimax|zhipu|qoder)\/models$/;
 const criticalMethods = new Set([
   'initialize', 'session/start', 'session/startSideTask', 'session/resumePending', 'session/resumeQueued', 'session/close',
   'turn/start', 'turn/submit', 'turn/interrupt', 'session/steer', 'session/setGoal', 'session/clearGoal',

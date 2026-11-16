@@ -49,7 +49,7 @@ function ordinaryFollowUpPayload(text: string, descriptors: JsonObject[]): JsonO
 }
 
 export function followUpPayload(text: string, descriptors: JsonObject[], source = ''): JsonObject {
-  if (source !== 'antigravity') return ordinaryFollowUpPayload(text, descriptors);
+  if (source !== 'antigravity' && source !== 'gemini') return ordinaryFollowUpPayload(text, descriptors);
   const inline = descriptors.filter(item => string(item.mimeType).startsWith('image/'));
   const media = descriptors.flatMap(item => {
     if (inline.includes(item)) return [item];

@@ -12,6 +12,7 @@ export const AUTH_CHANNELS = [
   'trae-auth:import-local', 'trae-auth:logout', 'trae-auth:models',
   'antigravity-auth:status', 'antigravity-auth:import-local', 'antigravity-auth:switch-account', 'antigravity-auth:logout', 'antigravity-auth:models',
   'antigravity-auth:start', 'antigravity-auth:poll', 'antigravity-auth:cancel',
+  'gemini-auth:status', 'gemini-auth:import-local', 'gemini-auth:switch-account', 'gemini-auth:logout', 'gemini-auth:models',
   'klausAuth:status', 'klausAuth:login', 'klausAuth:cancelLogin', 'klausAuth:logout', 'klausAuth:guestEnter',
   'klausAuth:clientConfig', 'klausAuth:subscription', 'klausAuth:updateProfile', 'klausAuth:uploadAvatar',
   'codex-auth:status', 'codex-auth:models',
@@ -73,6 +74,19 @@ export function registerAuthHandlers(registry: ChannelRegistry, deps: AccountDep
   registry.register('antigravity-auth:models', async (): Promise<Json> => {
     try {
       const result = object(await deps.request('antigravity/models', { read: 'warm' }));
+      return { ok: true, models: (Array.isArray(result.models) ? result.models : []).map(value => {
+        const row = object(value), id = string(row.key), name = string(row.display_name) || string(row.label) || id;
+        return { ...row, id, name, description: string(row.description) || name };
+      }) };
+    } catch (error) { return { ok: false, error: errorMessage(error), models: [] }; }
+  }, 'auth');
+  registry.register('gemini-auth:status', async () => object(await deps.request('gemini/status', {})), 'auth');
+  registry.register('gemini-auth:import-local', () => service.subscriptions.geminiImportLocal(), 'auth');
+  registry.register('gemini-auth:switch-account', ctx => service.subscriptions.geminiSwitchAccount(requiredString(object(ctx.args[0]).accountId, 'accountId')), 'auth');
+  registry.register('gemini-auth:logout', ctx => service.subscriptions.geminiLogout(string(object(ctx.args[0] ?? {}).accountId) || undefined), 'auth');
+  registry.register('gemini-auth:models', async (): Promise<Json> => {
+    try {
+      const result = object(await deps.request('gemini/models', { read: 'warm' }));
       return { ok: true, models: (Array.isArray(result.models) ? result.models : []).map(value => {
         const row = object(value), id = string(row.key), name = string(row.display_name) || string(row.label) || id;
         return { ...row, id, name, description: string(row.description) || name };

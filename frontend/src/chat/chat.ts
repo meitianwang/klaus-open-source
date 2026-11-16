@@ -28,6 +28,7 @@ import { pickKiroModelMetadata, kiroThinkingLevels, kiroThinkingLevel, isKiroRou
 import { isAutomaticCursorSelection } from './composer/model-selection-values'
 import { knownKiroAuthErrorText } from '../app/kiro-errors'
 import { knownAntigravityErrorText } from '../app/antigravity-errors'
+import { knownGeminiErrorText } from '../app/gemini-errors'
 //
 // 渲染域已全部绞杀进同目录的 React 组件树（transcript/composer/sidebar/panels），
 // 本文件是剩余的数据面：会话生命周期、chatEvent 分发、IPC 管线、终端/浏览器/
@@ -17357,6 +17358,7 @@ const USAGE_MODE_PROVIDER_KEYS = {
   qwenwork: 'usage_provider_qwenwork',
   workbuddy: 'usage_provider_workbuddy',
   antigravity: 'usage_provider_antigravity',
+  gemini: 'usage_provider_gemini',
   trae: 'usage_provider_trae',
   kiro: 'usage_provider_kiro',
   kimi: 'usage_provider_kimi',
@@ -17375,6 +17377,7 @@ function renderUsageSnapshot(snapshot: { mode: string; provider?: { state?: stri
   if (mode === 'subscription' && data.error) data = { ...data, error: claudeUsageErrorText(data.error) }
   if (mode === 'kiro' && data.error) data = { ...data, error: knownKiroAuthErrorText(data.error, tt) || data.error }
   if (mode === 'antigravity' && data.error) data = { ...data, error: knownAntigravityErrorText(data.error, tt) || data.error }
+  if (mode === 'gemini' && data.error) data = { ...data, error: knownGeminiErrorText(data.error, tt) || data.error }
   if (mode === 'qwenwork' && data.error) {
     const key = ({
       qwenwork_login_expired: 'usage_qwenwork_login_required',
@@ -17387,7 +17390,7 @@ function renderUsageSnapshot(snapshot: { mode: string; provider?: { state?: stri
   const nameKey = (USAGE_MODE_PROVIDER_KEYS as Record<string, string>)[mode]
   const name = nameKey ? tt(nameKey) : ((USAGE_PRESET_MODE_NAMES as Record<string, string>)[mode] || mode)
   let body = ''
-  const hasQueuedAccounts = (mode === 'subscription' || mode === 'antigravity') && Array.isArray(data.accounts) && data.accounts.length > 0
+  const hasQueuedAccounts = (mode === 'subscription' || mode === 'antigravity' || mode === 'gemini') && Array.isArray(data.accounts) && data.accounts.length > 0
   if (data.state === 'ok' || hasQueuedAccounts) {
     if (mode === 'subscription' && Array.isArray(data.accounts) && data.accounts.length > 0) {
       // A subscription login can carry a queue of accounts; each one keeps its
@@ -17402,13 +17405,14 @@ function renderUsageSnapshot(snapshot: { mode: string; provider?: { state?: stri
         const gap = index > 0 ? ' style="margin-top:10px"' : ''
         return `<div class="usage-account"${gap}><div class="usage-provider-head"><span class="usage-provider-name">${label}</span>${current}</div>${inner}</div>`
       }).join('')
-    } else if (mode === 'antigravity' && Array.isArray(data.accounts) && data.accounts.length > 0) {
+    } else if ((mode === 'antigravity' || mode === 'gemini') && Array.isArray(data.accounts) && data.accounts.length > 0) {
       body = data.accounts.map((row: any, index: number) => {
-        const label = escapeHtml(String(row.label || tt('antigravity_account_fallback')))
+        const label = escapeHtml(String(row.label || tt(mode === 'antigravity' ? 'antigravity_account_fallback' : 'gemini_account_fallback')))
         const rowPlan = row.plan ? `<span class="usage-plan-badge">${escapeHtml(String(row.plan))}</span>` : ''
         const current = row.isCurrent ? `<span class="usage-plan-badge">${escapeHtml(tt('usage_account_current'))}</span>` : ''
+        const rowErrorText = mode === 'antigravity' ? knownAntigravityErrorText : knownGeminiErrorText
         const inner = row.state === 'error'
-          ? `<div class="usage-empty usage-error-text">${escapeHtml(tt('usage_error'))}${row.error ? ` · ${escapeHtml(String(knownAntigravityErrorText(String(row.error), tt) || row.error).slice(0, 320))}` : ''}</div>`
+          ? `<div class="usage-empty usage-error-text">${escapeHtml(tt('usage_error'))}${row.error ? ` · ${escapeHtml(String(rowErrorText(String(row.error), tt) || row.error).slice(0, 320))}` : ''}</div>`
           : renderAntigravityUsageWindows(row) + (row.credits ? renderAntigravityUsageCredits('usage_qoder_personal', row.credits) : '')
         const gap = index > 0 ? ' style="margin-top:10px"' : ''
         return `<div class="usage-account"${gap}><div class="usage-provider-head"><span class="usage-provider-name">${label}</span>${rowPlan}${current}</div>${inner}</div>`
@@ -17417,7 +17421,7 @@ function renderUsageSnapshot(snapshot: { mode: string; provider?: { state?: stri
       body = renderKiroUsageWindows(data)
     } else if (mode === 'trae') {
       body = renderTraeUsageCredits(data.credits)
-    } else if (mode === 'antigravity') {
+    } else if (mode === 'antigravity' || mode === 'gemini') {
       body = renderAntigravityUsageWindows(data)
       if (data.credits) body += renderAntigravityUsageCredits('usage_qoder_personal', data.credits)
     } else if (mode === 'subscription' || mode === 'codex' || mode === 'cursor' || mode === 'kimi' || mode === 'minimax') {

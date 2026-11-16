@@ -4,6 +4,7 @@
   "ordinarySources": ["custom", "codex", "subscription", "cursor", "kimi", "qoder", "qwenwork", "workbuddy"],
   "ordinaryQueueImageCount": 21,
   "ordinaryQueueNoncanonicalPadding": "AB==",
+  "nativeSources": ["antigravity", "gemini"],
   "antigravityQueueAttachmentLimit": 20,
   "ordinaryMissingQuotaRemainingPercent": 100,
   "antigravityMissingQuotaHasPercent": false,

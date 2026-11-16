@@ -6,7 +6,7 @@
     "bridgeDir": "frontend/bridge"
   },
   "summary": {
-    "registeredInvoke": 775,
+    "registeredInvoke": 780,
     "registeredPush": 83,
     "roles": 12
   },
@@ -439,6 +439,11 @@
         "friends:set-receiver",
         "friends:set-remark",
         "friends:share-qr-card",
+        "gemini-auth:import-local",
+        "gemini-auth:logout",
+        "gemini-auth:models",
+        "gemini-auth:status",
+        "gemini-auth:switch-account",
         "git:branches",
         "git:checkout",
         "git:commit-paths",

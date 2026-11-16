@@ -18,7 +18,7 @@ import { AuthMenuRequests, type AuthMenuState } from './auth-menu-state'
 
 const w = () => window as any
 
-const CHAT_AUTH_MODE_ORDER = ['subscription', 'codex', 'cursor', 'qoder', 'qwenwork', 'workbuddy', 'antigravity', 'trae', 'kiro', 'kimi', 'bailian', 'minimax', 'zhipu', 'ark', 'custom']
+const CHAT_AUTH_MODE_ORDER = ['subscription', 'codex', 'cursor', 'qoder', 'qwenwork', 'workbuddy', 'antigravity', 'gemini', 'trae', 'kiro', 'kimi', 'bailian', 'minimax', 'zhipu', 'ark', 'custom']
 
 // Qoder 的官方标志是白绿双色字符，单独拿出来在浅色面上会丢白色部分，
 // 因此沿用官方圆角底板版本（同 kimi 先例）。codex 同为官方位图。
@@ -43,6 +43,9 @@ function AuthModeIcon({ mode }: { mode: string }) {
   }
   if (mode === 'antigravity') {
     return <span className={`${styles['auth-mode-icon']} auth-mode-icon-antigravity`} aria-hidden="true"><img src="antigravity-logo.svg" alt="" /></span>
+  }
+  if (mode === 'gemini') {
+    return <span className={`${styles['auth-mode-icon']} auth-mode-icon-gemini`} aria-hidden="true"><img src="gemini-logo.svg" alt="" /></span>
   }
   if (mode === 'trae') {
     return <span className={`${styles['auth-mode-icon']} auth-mode-icon-trae`} aria-hidden="true"><img src="trae-logo.svg" alt="" /></span>
@@ -95,6 +98,7 @@ function authModeLabel(mode: string): string {
   if (mode === 'qwenwork') return tGlobal('auth_qwenwork')
   if (mode === 'workbuddy') return tGlobal('auth_workbuddy')
   if (mode === 'antigravity') return tGlobal('auth_antigravity')
+  if (mode === 'gemini') return tGlobal('auth_gemini')
   if (mode === 'trae') return tGlobal('auth_trae')
   if (mode === 'kiro') return tGlobal('auth_kiro')
   if (mode === 'kimi') return tGlobal('auth_kimi')

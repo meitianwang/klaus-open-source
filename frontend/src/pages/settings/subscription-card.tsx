@@ -170,6 +170,26 @@ export const SUBSCRIPTION_SOURCES: Record<string, SubscriptionSource> = {
     multiAccount: true,
     login: loginThroughDeviceFlow,
   },
+  gemini: {
+    mode: 'gemini',
+    idPrefix: 'gemini-auth',
+    label: 'auth_gemini',
+    api: () => w().klaus.geminiAuth,
+    accountFallback: 'gemini_account_fallback',
+    notLoggedIn: 'gemini_not_logged_in',
+    // The only credential route is reusing the local Antigravity login, so the
+    // primary button carries the reuse copy and runs the import flow directly.
+    loginLabel: 'gemini_reuse_login',
+    logoutLabel: 'gemini_disconnect',
+    loginOpening: 'gemini_importing',
+    importConfirm: 'gemini_import_confirm',
+    importing: 'gemini_importing',
+    importSuccess: 'gemini_import_success',
+    importFailedPrefix: 'gemini_import_failed_prefix',
+    confirmLogout: 'gemini_confirm_logout',
+    multiAccount: true,
+    login: loginThroughGeminiImport,
+  },
   subscription: {
     mode: 'subscription',
     idPrefix: 'auth',
@@ -550,6 +570,8 @@ const AUTH_ERROR_KEYS: Record<string, string> = {
   antigravity_login_browser_failed: 'antigravity_login_browser_failed',
   antigravity_account_not_found: 'auth_err_account_not_found',
   antigravity_account_limit_reached: 'antigravity_account_limit_reached',
+  gemini_account_not_found: 'auth_err_account_not_found',
+  gemini_account_limit_reached: 'gemini_account_limit_reached',
   claude_cli_credentials_not_found: 'auth_err_local_not_found',
   codex_cli_auth_not_found: 'auth_err_local_not_found',
   // Qoder gets its own wording: two independent stores are consulted (the IDE's
@@ -814,6 +836,26 @@ export async function cancelCursorLogin(): Promise<void> {
   if (pending.flowId) await SUBSCRIPTION_SOURCES.cursor.api().cancel(pending.flowId)
 }
 
+/**
+ * The Gemini lineup has no browser sign-in of its own: its one credential
+ * route is reusing the local Antigravity login, so the card's primary button
+ * carries the reuse copy and runs the import flow directly.
+ */
+async function loginThroughGeminiImport(source: SubscriptionSource, setStatus: (text: string) => void, reload: () => void, options: SubscriptionLoginOptions = {}): Promise<void> {
+  if (!(await w().klausDialog.confirm({
+    message: tGlobal(source.importConfirm ?? 'gemini_import_confirm'),
+    confirmText: tGlobal(source.loginLabel),
+  }))) return
+  setStatus(tGlobal(source.importing ?? 'gemini_importing'))
+  const result = await source.api().importLocal()
+  if (result?.ok !== true) {
+    setStatus(tGlobal(source.importFailedPrefix ?? 'gemini_import_failed_prefix') + authErrorText(source, result?.error))
+    return
+  }
+  setStatus(result.updatedExisting ? tGlobal('sub_account_updated') : tGlobal(source.importSuccess ?? 'gemini_import_success'))
+  await completeSubscriptionLogin(source, result, setStatus, reload, undefined, options)
+}
+
 export async function loginThroughDeviceFlow(source: SubscriptionSource, setStatus: (text: string) => void, reload: () => void, options: SubscriptionLoginOptions = {}): Promise<void> {
   if (source.mode === 'antigravity' || source.mode === 'trae' || source.mode === 'kiro') return loginThroughAntigravityFlow(source, setStatus, reload, options)
   const sessionId = w().currentSessionId ?? null
@@ -1010,7 +1052,7 @@ export function SubscriptionCardBody({ mode, reloadSeq, reload, activateModelOnL
   if (!status) return <Loading />
 
   const prefix = source.idPrefix
-  const signedIn = status.loggedIn && !(['antigravity', 'trae', 'kiro'].includes(mode) && status.needsLogin === true)
+  const signedIn = status.loggedIn && !(['antigravity', 'gemini', 'trae', 'kiro'].includes(mode) && status.needsLogin === true)
 
   const onLogin = async (workbuddyRegion?: 'cn' | 'intl') => {
     if (authActionBusyRef.current) return
@@ -1295,15 +1337,15 @@ export function SubscriptionCardBody({ mode, reloadSeq, reload, activateModelOnL
             // The queue below already names every account, head included;
             // repeating the head email up here would show one address twice,
             // so a queued login headlines its account count instead.
-            ? <><strong>{t('sub_accounts_count').replace('{count}', String(accounts.length))}</strong><span className="badge">{t(mode === 'antigravity' ? 'antigravity_credential_saved' : 'auth_logged_in')}</span></>
-            : <><strong>{status.account || t(source.accountFallback)}</strong><span className="badge">{t(mode === 'antigravity' ? 'antigravity_credential_saved' : 'auth_logged_in')}</span></>
+            ? <><strong>{t('sub_accounts_count').replace('{count}', String(accounts.length))}</strong><span className="badge">{t(mode === 'antigravity' ? 'antigravity_credential_saved' : mode === 'gemini' ? 'gemini_credential_saved' : 'auth_logged_in')}</span></>
+            : <><strong>{status.account || t(source.accountFallback)}</strong><span className="badge">{t(mode === 'antigravity' ? 'antigravity_credential_saved' : mode === 'gemini' ? 'gemini_credential_saved' : 'auth_logged_in')}</span></>
           : <strong>{t(source.notLoggedIn)}</strong>}
         {mode === 'workbuddy' && status.loggedIn && (status.region === 'cn' || status.region === 'intl')
           ? <span className="badge">{t(`workbuddy_region_${status.region}`)}</span> : null}
         {mode === 'bailian' && signedIn && status.subscriptionState === 'expired'
           ? <span className="badge">{t('bailian_subscription_expired_badge')}</span> : null}
       </div>
-      {mode === 'antigravity' && status.needsLogin === true ? <p role="alert" className="card-meta">{t('antigravity_login_expired')}</p> : null}
+      {(mode === 'antigravity' || mode === 'gemini') && status.needsLogin === true ? <p role="alert" className="card-meta">{t(mode === 'antigravity' ? 'antigravity_login_expired' : 'gemini_login_expired')}</p> : null}
       {mode === 'trae' && status.needsLogin === true ? <p role="alert" className="card-meta">{t('trae_login_expired')}</p> : null}
       {mode === 'bailian' && signedIn && status.subscriptionState === 'expired'
         ? <p role="alert" className="card-meta">{t('bailian_subscription_expired')}</p> : null}
@@ -1417,7 +1459,7 @@ export function SubscriptionCardBody({ mode, reloadSeq, reload, activateModelOnL
       ) : null}
       {logoutError ? <div role="alert" className={styles['settings-status-text']}>{logoutError}</div> : null}
       {mode === 'cursor' && loginBusy ? <div className="card-actions"><button className="btn-sm" id="cursor-auth-cancel-btn" onClick={() => { void cancelCursorLogin().then(() => setStatusMsg(t('cursor_auth_cancelled'))).catch(error => setStatusMsg(authErrorText(source, error?.message || String(error)))) }}>{t('cancel')}</button></div> : null}
-      {(!['antigravity', 'trae', 'kiro'].includes(mode) || !signedIn) && status.error ? <div className={styles['settings-status-text']}>{authErrorText(source, status.error)}</div>
+      {(!['antigravity', 'gemini', 'trae', 'kiro'].includes(mode) || !signedIn) && status.error ? <div className={styles['settings-status-text']}>{authErrorText(source, status.error)}</div>
         : mode === 'cursor' && status.needsLogin ? <div className={styles['settings-status-text']}>{t('cursor_browser_login_expired')}</div>
         : mode === 'cursor' && status.needsReimport ? <div className={styles['settings-status-text']}>{status.reason ? authErrorText(source, status.reason) : t('cursor_import_expired')}</div> : null}
       {!['trae', 'kiro'].includes(mode) || !signedIn ? <div id={`${prefix}-login-status`} className={styles['settings-status-text']}>{statusMsg}</div> : null}

@@ -11,6 +11,8 @@ test('account restrictions and exact media MIME metadata survive the model menu 
       antigravityFamilyId: 'ready', antigravityVariants: [{ value: 'antigravity:ready', thinkingLevel: 'medium', available: true }] },
     { value: 'qoder:fast', label: 'Fast', priceFactor: 0.8 },
     { value: 'antigravity:curated', label: 'Curated model', available: true, inRecommendedSort: true },
+    { value: 'gemini:gemini-3-flash', label: 'Gemini 3 Flash', available: true, mediaInputMimeTypes: ['image/png', 'audio/wav'] },
+    { value: 'gemini:pending', label: 'Awaiting entitlement', available: false, reason: 'Public Gemini chat lineup' },
   ]
   const ast = createSourceFile('chat.ts', readFileSync(new URL('../chat.ts', import.meta.url), 'utf8'), ScriptTarget.ESNext, true)
   const declaration = ast.statements.find(node => isFunctionDeclaration(node) && node.name?.text === 'buildSessionMainModelItems')!
@@ -34,4 +36,13 @@ test('account restrictions and exact media MIME metadata survive the model menu 
   // complete inventory.
   expect(rows.find((row: { value?: string; inRecommendedSort?: boolean }) => row.value === 'antigravity:curated')?.inRecommendedSort).toBe(true)
   expect(rows[1].inRecommendedSort).toBeUndefined()
+  // The shared-pool Gemini rows carry the same wire metadata as the sibling
+  // source; their media MIME list and restriction facts must survive hydration
+  // or the composer loses native attachment support for this source.
+  const gemini = rows.find((row: { value?: string }) => row.value === 'gemini:gemini-3-flash')
+  expect(gemini?.mediaInputMimeTypes).toEqual(['image/png', 'audio/wav'])
+  expect(gemini?.available).toBe(true)
+  const geminiPending = rows.find((row: { value?: string }) => row.value === 'gemini:pending')
+  expect(geminiPending?.available).toBe(false)
+  expect(geminiPending?.reason).toBe('Public Gemini chat lineup')
 })

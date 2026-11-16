@@ -65,7 +65,7 @@ export function isMainModelValue(value: unknown): boolean {
   if (typeof value !== 'string' || isAutomaticCursorSelection(value)
     || value.startsWith('kiro:') && isKiroRoutingAlias(value)) return false
   if (['auto', 'high', 'medium', 'low'].includes(value)) return true
-  return ['subscription:', 'custom:', 'codex:', 'cursor:', 'kimi:', 'bailian:', 'minimax:', 'zhipu:', 'ark:', 'deepseek:', 'qoder:', 'qwenwork:', 'workbuddy:', 'antigravity:', 'trae:', 'kiro:']
+  return ['subscription:', 'custom:', 'codex:', 'cursor:', 'kimi:', 'bailian:', 'minimax:', 'zhipu:', 'ark:', 'deepseek:', 'qoder:', 'qwenwork:', 'workbuddy:', 'antigravity:', 'gemini:', 'trae:', 'kiro:']
     .some(prefix => value.startsWith(prefix) && value.length > prefix.length)
 }
 
@@ -105,7 +105,7 @@ export function mainModelItemNote(
   item: MainModelItem,
   translate: (key: string) => string = tt,
 ): string | null {
-  if (modelOptionIsAntigravity(item) || item.value.startsWith('trae:') || item.value.startsWith('kiro:')) return null
+  if (modelOptionIsAntigravity(item) || item.value.startsWith('gemini:') || item.value.startsWith('trae:') || item.value.startsWith('kiro:')) return null
   const note = item.reason || (item.available === false ? translate('model_account_unavailable') : null)
   if (!note || note === mainModelItemLabel(item, translate)) return null
   return note

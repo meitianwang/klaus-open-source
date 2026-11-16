@@ -404,7 +404,7 @@ export const CONTROL_SURFACES: ControlSurface[] = [
       {
         "action": "setMainModel",
         "channel": "session:set-main-model",
-        "args": "{ mode: string (an id from mainModelOptions, or 'auto'), source?: 'custom'|'codex'|'cursor'|'subscription'|'qoder'|'qwenwork'|'workbuddy'|'antigravity'|'trae'|'kiro'|'kimi'|'bailian'|'minimax'|'zhipu'|'ark', sessionId?: string } — changes the model and source of one conversation atomically and updates the default for future conversations; omit sessionId to change only that default",
+        "args": "{ mode: string (an id from mainModelOptions, or 'auto'), source?: 'custom'|'codex'|'cursor'|'subscription'|'qoder'|'qwenwork'|'workbuddy'|'antigravity'|'gemini'|'trae'|'kiro'|'kimi'|'bailian'|'minimax'|'zhipu'|'ark', sessionId?: string } — changes the model and source of one conversation atomically and updates the default for future conversations; omit sessionId to change only that default",
         "confirm": false,
         "currentSession": true
       },
@@ -2849,6 +2849,21 @@ export const CONTROL_SURFACES: ControlSurface[] = [
     "panel": ["settings", "models"]
   },
   {
+    "key": "geminiAuth",
+    "about": "Use the public Gemini chat lineup through the local Antigravity account: importing reuses the same signed-in Google credential and both sources share one account pool. The head account is active and can be switched explicitly with switchAccount. Signing out removes the shared Klaus credential and signs out both sources.",
+    "reads": [
+      { "action": "status", "channel": "gemini-auth:status", "args": "no arguments — answers { loggedIn, account, needsLogin, accounts: [{ id, email, displayName, isCurrent, needsLogin }] }", "confirm": false, "currentSession": false },
+      { "action": "models", "channel": "gemini-auth:models", "args": "", "confirm": false, "currentSession": false }
+    ],
+    "writes": [
+      { "action": "importLocal", "channel": "gemini-auth:import-local", "args": "", "confirm": false, "currentSession": false },
+      { "action": "switchAccount", "channel": "gemini-auth:switch-account", "args": "{ accountId: string (an id from status.accounts) } — moves that stored account to the head of the shared queue so it becomes the active account", "confirm": false, "currentSession": false },
+      { "action": "logout", "channel": "gemini-auth:logout", "args": "{ accountId?: string (an id from status.accounts) } — removes that one account; omitting accountId signs out EVERY stored account of the shared pool", "confirm": true, "currentSession": false }
+    ],
+    "manualHeading": "模型来源",
+    "panel": ["settings", "models"]
+  },
+  {
     "key": "workbuddyAuth",
     "about": "WorkBuddy subscription sign-in: browser login (start/poll) or adopting the signed-in official client on this computer. An adopted login that expires is recovered only by importing it again.",
     "reads": [
@@ -3416,7 +3431,7 @@ export const CONTROL_SURFACES: ControlSurface[] = [
       {
         "action": "set",
         "channel": "settings:advisor:set",
-        "args": "{ enabled?: boolean (omitted keeps the current flag), model?: string } — model is an explicit source:modelId selection, e.g. 'codex:<modelId>', where source is one of subscription|custom|codex|cursor|qoder|qwenwork|workbuddy|antigravity|trae|kiro|kimi|bailian|minimax|zhipu|ark; an empty string clears the pick. Omitting model preserves the saved pick, including when disabling. Enabling without a saved or supplied model is accepted and stays inert, exactly like a disabled advisor, until a model is chosen. Changes apply on the next turn.",
+        "args": "{ enabled?: boolean (omitted keeps the current flag), model?: string } — model is an explicit source:modelId selection, e.g. 'codex:<modelId>', where source is one of subscription|custom|codex|cursor|qoder|qwenwork|workbuddy|antigravity|gemini|trae|kiro|kimi|bailian|minimax|zhipu|ark; an empty string clears the pick. Omitting model preserves the saved pick, including when disabling. Enabling without a saved or supplied model is accepted and stays inert, exactly like a disabled advisor, until a model is chosen. Changes apply on the next turn.",
         "confirm": false,
         "currentSession": false
       }
@@ -3470,7 +3485,7 @@ export const CONTROL_SURFACES: ControlSurface[] = [
       {
         "action": "set",
         "channel": "settings:feature-models:set",
-        "args": "{ title?: string, prediction?: string, memory?: string, voiceRefinement?: string } — a partial patch; each supplied value is '' (follow the chat's main model) or 'source:modelId' where source is one of subscription|custom|codex|cursor|qoder|qwenwork|workbuddy|antigravity|trae|kiro|kimi|bailian|minimax|zhipu|ark and modelId names a model of that source. An invalid reference rejects the whole patch with feature_model_invalid. Changes to title/prediction/memory republish running sessions and apply from the next call; voiceRefinement applies at the next dictation refinement without a republish.",
+        "args": "{ title?: string, prediction?: string, memory?: string, voiceRefinement?: string } — a partial patch; each supplied value is '' (follow the chat's main model) or 'source:modelId' where source is one of subscription|custom|codex|cursor|qoder|qwenwork|workbuddy|antigravity|gemini|trae|kiro|kimi|bailian|minimax|zhipu|ark and modelId names a model of that source. An invalid reference rejects the whole patch with feature_model_invalid. Changes to title/prediction/memory republish running sessions and apply from the next call; voiceRefinement applies at the next dictation refinement without a republish.",
         "confirm": false,
         "currentSession": false
       }

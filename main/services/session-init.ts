@@ -85,6 +85,7 @@ export function mainModelSource(mode: string): string | undefined {
     ['qwenwork:', 'qwenwork'],
     ['workbuddy:', 'workbuddy'],
     ['antigravity:', 'antigravity'],
+    ['gemini:', 'gemini'],
     ['trae:', 'trae'],
     ['kiro:', 'kiro'],
     ['kimi:', 'kimi'],

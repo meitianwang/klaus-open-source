@@ -33,6 +33,13 @@ h.test('ordinary queued images retain their original count and base64 shape admi
   assert(refused(() => validateInput(Array.from({ length: vector.ordinaryQueueImageCount }, () => image()), 'antigravity')), 'native source retains its own aggregate limit');
   assert(refused(() => validateInput([image(vector.ordinaryQueueNoncanonicalPadding)], 'antigravity')), 'native source requires canonical encoding');
   validateInput([native()], 'antigravity');
+  // The shared-wire source inherits the identical native admission policy pair
+  // for pair: same aggregate limit, same canonical encoding, same native media.
+  for (const source of vector.nativeSources) {
+    assert(refused(() => validateInput(Array.from({ length: vector.ordinaryQueueImageCount }, () => image()), source)), 'native aggregate limit holds for ' + source);
+    assert(refused(() => validateInput([image(vector.ordinaryQueueNoncanonicalPadding)], source)), 'canonical encoding holds for ' + source);
+    validateInput([native()], source);
+  }
   assert(refused(() => validateInput([native()])), 'an unspecified source does not enable native media');
 });
 
@@ -50,6 +57,11 @@ h.test('the public queue edit dispatch selects the source policy without changin
   source = 'antigravity';
   assertEqual((await queue.mutate('edit', payload)).ok, true, 'the native source remains editable');
   assertDeepEqual(requests, [{ method: 'session/editQueued', params: { sessionId: 'engine-thread', mutationId: 'one', uuid: 'queued', expectedRevision: 1, edit: { value: [native()] } } }], 'exact request identity and content are preserved');
+  requests.length = 0;
+  source = 'gemini';
+  const sharedPayload = { sessionId: 'thread', request: { uuid: 'queued', mutationId: 'two', edit: { value: [native()] } } };
+  assertEqual((await queue.mutate('edit', sharedPayload)).ok, true, 'the shared-wire source keeps the same native edit policy');
+  assertDeepEqual(requests, [{ method: 'session/editQueued', params: { sessionId: 'engine-thread', mutationId: 'two', uuid: 'queued', expectedRevision: 1, edit: { value: [native()] } } }], 'the shared-wire dispatch preserves request identity and content');
 });
 
 h.test('unknown queue edits are rejected before source preferences are read or a facade mutation is sent', async () => {
@@ -85,7 +97,7 @@ h.test('unknown phone sends over HTTP and WebSocket cannot initialize preference
 });
 
 h.test('ordinary phone model selection retains known-row eligibility and still rejects unknown identities', async () => {
-  for (const source of [...vector.ordinarySources, 'antigravity']) {
+  for (const source of [...vector.ordinarySources, ...vector.nativeSources]) {
     const projection = new MobileModelConfigProjection(async (channel): Promise<Json> => {
       if (channel === 'settings:models:list') return [{ id: 'known' }];
       if (channel === 'session:get-main-model-options') return { options: [{ value: `${source}:known`, label: 'Known', available: false }] };
@@ -142,6 +154,8 @@ h.test('ordinary phone files keep reference payloads while the native source opt
   const nativeInput = mediaItems(input, 'antigravity');
   assertEqual(nativeInput[0]?.mimeType, descriptor.mimeType, 'native phone input retains codec parameters');
   assertEqual(object((followUpPayload('listen', [descriptor], 'antigravity').media as Json[])[0]).type, 'media', 'native route stays explicit');
+  assertEqual(mediaItems(input, 'gemini')[0]?.mimeType, descriptor.mimeType, 'the shared-wire source retains codec parameters');
+  assertEqual(object((followUpPayload('listen', [descriptor], 'gemini').media as Json[])[0]).type, 'media', 'the shared-wire route stays explicit');
 });
 
 void (async () => {

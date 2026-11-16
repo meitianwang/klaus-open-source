@@ -12,7 +12,7 @@ const SOURCE_ROWS = [
   ['subscription', 'Claude Subscription', 'auth:status'], ['codex', 'Codex', 'codex-auth:status'],
   ['cursor', 'Cursor', 'cursor-auth:status'],
   ['qoder', 'Qoder', 'qoder-auth:status'], ['qwenwork', 'QwenWork', 'qwenwork-auth:status'],
-  ['workbuddy', 'WorkBuddy', 'workbuddy-auth:status'], ['antigravity', 'Antigravity', 'antigravity-auth:status'], ['trae', 'TRAE CN', 'trae-auth:status'], ['kiro', 'Kiro', 'kiro-auth:status'], ['kimi', 'Kimi', 'kimi-auth:status'],
+  ['workbuddy', 'WorkBuddy', 'workbuddy-auth:status'], ['antigravity', 'Antigravity', 'antigravity-auth:status'], ['gemini', 'Gemini CLI', 'gemini-auth:status'], ['trae', 'TRAE CN', 'trae-auth:status'], ['kiro', 'Kiro', 'kiro-auth:status'], ['kimi', 'Kimi', 'kimi-auth:status'],
   ['bailian', 'Bailian Token Plan', 'bailian-auth:status'], ['minimax', 'MiniMax M Plan', 'minimax-auth:status'],
   ['zhipu', 'Zhipu Coding Plan', 'zhipu-auth:status'], ['ark', 'Ark Coding Plan', 'ark-auth:status'], ['custom', 'Custom', 'settings:models:list'],
 ] as const;
@@ -93,7 +93,7 @@ export class MobileModelConfigProjection {
         if (!value || modelSource(value) !== source || seen.has(value)) continue;
         if (models.length >= MAX_MODELS) throw new MobileError(503, 'model_catalog_too_large', 'The model catalog exceeds the mobile limit');
         seen.add(value); const model: JsonObject = { value, label: optionText(row.label) || value };
-        const description = optionText(row.description); if (description && source !== 'antigravity' && source !== 'trae' && source !== 'kiro') model.description = description;
+        const description = optionText(row.description); if (description && source !== 'antigravity' && source !== 'gemini' && source !== 'trae' && source !== 'kiro') model.description = description;
         if (Array.isArray(row.supportedThinkingLevels)) model.supportedThinkingLevels = LEVELS.filter(level => (row.supportedThinkingLevels as Json[]).includes(level));
         if (typeof row.defaultThinkingLevel === 'string' && LEVELS.includes(row.defaultThinkingLevel)) model.defaultThinkingLevel = row.defaultThinkingLevel;
         const traeMetadata = pickTraeModelMetadata(row);
@@ -159,7 +159,7 @@ export class MobileModelConfigProjection {
   async validate(preference: MobileModelPreference, includeThinking = true): Promise<void> {
     if (!(await this.sources()).some(row => row.value === preference.source && row.available === true)) throw new MobileError(409, 'model_source_unavailable', 'This model source is not configured on this device');
     const models = await this.models(preference.source);
-    if (!models.length || preference.selection !== 'auto' && !models.some(row => (preference.source !== 'antigravity' || modelOptionIsSelectable(row, preference.source)) && modelOptionHasValue(row, preference.selection))) throw new MobileError(409, 'model_selection_unavailable', 'This model is not available on this device');
+    if (!models.length || preference.selection !== 'auto' && !models.some(row => ((preference.source !== 'antigravity' && preference.source !== 'gemini') || modelOptionIsSelectable(row, preference.source)) && modelOptionHasValue(row, preference.selection))) throw new MobileError(409, 'model_selection_unavailable', 'This model is not available on this device');
     if (includeThinking && preference.source === 'trae' && preference.thinkingLevel !== 'ultra') {
       const selection = preference.selection === 'auto'
         ? string(object(await this.call('session:get-main-model', { previewSource: preference.source })).resolvedMode) : preference.selection;

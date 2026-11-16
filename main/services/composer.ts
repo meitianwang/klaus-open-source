@@ -92,7 +92,7 @@ export class ComposerService {
   }
   async mediaInputMimeTypes(sessionId: string): Promise<string[]> {
     const saved = readSessionModel(sessionId, this.configRoot);
-    if (saved.source !== 'antigravity') return [];
+    if (saved.source !== 'antigravity' && saved.source !== 'gemini') return [];
     const selection = await this.resolvePreference(saved);
     this.assertPreference(sessionId, saved);
     const rows = await this.options(saved.source);
@@ -134,6 +134,24 @@ export class ComposerService {
     catch { /* A readable catalog can still supply a model when its routing default cannot be resolved. */ }
     // Source memory can outlive a provider catalog. Persist a concrete replacement
     // so the store cannot restore the removed member again when saving `auto`.
+    const row = modelOptionForValue(rows, preferred) ?? rows[0];
+    if (!row) throw new IpcHandlerError('MODEL_SELECTION_UNAVAILABLE', 'The selected model is unavailable');
+    return string(object(row).value);
+  }
+  private async geminiCatalog(): Promise<{ reply: JsonObject; rows: Json[] }> {
+    const reply = object(await this.deps.request('gemini/models', { read: 'warm' })) ?? {};
+    return { reply, rows: await this.options('gemini', true, 'warm', reply) };
+  }
+  // The Gemini lineup shares the account pool but keeps its own catalog, so the
+  // source-switch restore mirrors the sibling flow without variant mapping.
+  private async geminiSourceSelection(remembered: string | undefined, rows: Json[], baseline: boolean): Promise<string> {
+    if (remembered && modelOptionForValue(rows, remembered)) return remembered;
+    if (remembered && baseline) {
+      throw new IpcHandlerError('MODEL_CATALOG_NOT_READY', 'The Gemini model catalog is still refreshing; the previous selection was kept');
+    }
+    let preferred = '';
+    try { preferred = await this.resolvePreference({ source: 'gemini', mode: 'auto' }); }
+    catch { /* A readable catalog can still supply a model when its routing default cannot be resolved. */ }
     const row = modelOptionForValue(rows, preferred) ?? rows[0];
     if (!row) throw new IpcHandlerError('MODEL_SELECTION_UNAVAILABLE', 'The selected model is unavailable');
     return string(object(row).value);
@@ -231,6 +249,11 @@ export class ComposerService {
           antigravityRows = catalog.rows;
           assertCurrent?.();
           selection = await this.antigravitySourceSelection(remembered, catalog.rows, catalog.reply.catalogBaseline === true);
+          assertCurrent?.();
+        } else if (source === 'gemini') {
+          const catalog = await this.geminiCatalog();
+          assertCurrent?.();
+          selection = await this.geminiSourceSelection(remembered, catalog.rows, catalog.reply.catalogBaseline === true);
           assertCurrent?.();
         } else if (remembered && remembered !== 'auto') selection = remembered;
       }
@@ -650,7 +673,7 @@ export class ComposerService {
         return metadata({ value: 'custom:' + id, label: string(entry.name) || string(entry.model), description: string(entry.model) }, supported ?? (Object.keys(caps).length ? [] : undefined));
       }).sort((a, b) => string(a.label).localeCompare(string(b.label)));
     }
-    const method = source === 'kiro' ? 'kiro/models' : source === 'trae' ? 'trae/models' : source === 'antigravity' ? 'antigravity/models' : source === 'cursor' ? 'cursor/models' : source === 'subscription'
+    const method = source === 'kiro' ? 'kiro/models' : source === 'trae' ? 'trae/models' : source === 'antigravity' ? 'antigravity/models' : source === 'gemini' ? 'gemini/models' : source === 'cursor' ? 'cursor/models' : source === 'subscription'
       ? 'subscription/models'
       : source === 'codex'
         ? 'codex/models'
@@ -711,7 +734,7 @@ export class ComposerService {
         ...(source === 'trae' ? pickTraeModelMetadata(entry) as JsonObject : {}),
         ...(source === 'kiro' ? pickKiroModelMetadata(entry) as JsonObject : {}),
         ...(isRequestFastSource(source) ? nativeFastModeMetadata(entry, source) : {}) };
-      if (source === 'antigravity' || source === 'trae' || source === 'kiro') {
+      if (source === 'antigravity' || source === 'gemini' || source === 'trae' || source === 'kiro') {
         row.available = entry.disabled !== true && entry.unavailable !== true && entry.available !== false;
         if (source === 'antigravity' && entry.inRecommendedSort === true) row.inRecommendedSort = true;
         const reason = string(entry.reason) || string(entry.unavailableReason);

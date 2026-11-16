@@ -11,6 +11,7 @@ import { updateEn, updateZh } from './update-messages'
 import { pluginTransferEn, pluginTransferZh } from './plugin-transfer-messages'
 import { profileEn, profileZh } from './profile-messages'
 import { antigravityEn, antigravityZh } from './antigravity-messages'
+import { geminiEn, geminiZh } from './gemini-messages'
 import { traeEn, traeZh } from './trae-messages'
 import { kiroEn, kiroZh } from './kiro-messages'
 import { voiceChatEn, voiceChatZh } from '../chat/voice-chat/messages'
@@ -27,6 +28,7 @@ export const I18N: { en: Record<string, string>; zh: Record<string, string> } = 
     ...pluginTransferEn,
     ...profileEn,
     ...antigravityEn,
+    ...geminiEn,
     ...traeEn,
     ...kiroEn,
     ...changesEn,
@@ -4412,6 +4414,7 @@ browser_ext_connected: 'Extension connected',
     ...pluginTransferZh,
     ...profileZh,
     ...antigravityZh,
+    ...geminiZh,
     ...traeZh,
     ...kiroZh,
     ...changesZh,

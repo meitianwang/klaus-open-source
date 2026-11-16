@@ -26,7 +26,7 @@ export const MODEL_TIERS: ModelTier[] = [
 ]
 
 // 自带订阅与自定义源：官方云端与端侧来源已退役，默认落在自定义源。
-export const AUTH_MODE_ORDER = ['subscription', 'codex', 'cursor', 'qoder', 'qwenwork', 'workbuddy', 'antigravity', 'trae', 'kiro', 'kimi', 'bailian', 'minimax', 'zhipu', 'ark', 'custom']
+export const AUTH_MODE_ORDER = ['subscription', 'codex', 'cursor', 'qoder', 'qwenwork', 'workbuddy', 'antigravity', 'gemini', 'trae', 'kiro', 'kimi', 'bailian', 'minimax', 'zhipu', 'ark', 'custom']
 
 export function normalizeAuthMode(mode: string): string {
   return AUTH_MODE_ORDER.includes(mode) ? mode : 'custom'
@@ -76,6 +76,7 @@ export function sourceLabel(source: string, translate: (key: string) => string =
   if (source === 'qwenwork') return translate('auth_qwenwork')
   if (source === 'workbuddy') return translate('auth_workbuddy')
   if (source === 'antigravity') return translate('auth_antigravity')
+  if (source === 'gemini') return translate('auth_gemini')
   if (source === 'trae') return translate('auth_trae')
   if (source === 'kiro') return translate('auth_kiro')
   if (source === 'kimi') return translate('auth_kimi')
@@ -99,6 +100,7 @@ const SOURCE_LOGO_FILES: Record<string, string> = {
   qwenwork: 'qwenwork-logo.png',
   workbuddy: 'import-workbuddy-logo.svg',
   antigravity: 'antigravity-logo.svg',
+  gemini: 'gemini-logo.svg',
   trae: 'trae-logo.svg',
   kiro: 'kiro-logo.png',
   kimi: 'kimi-icon-rounded-corner.png',
