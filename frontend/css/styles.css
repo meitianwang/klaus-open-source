@@ -5093,7 +5093,10 @@ spinner (data-chat-timeline-scroll-generating): the affordance then
    and becomes a fixed flex column — header pinned at the top, the two panes
    of .cron-split each scrolling inside their own column. Toggled from the
    cron page island together with the split's has-detail class. */
-#cron-view.cron-view-split {
+/* display stays gated on .active: the split modifier outlives hide() because
+   the page island keeps its selected task while the overlay is hidden, and an
+   ungated display here would keep the hidden overlay covering the chat. */
+#cron-view.active.cron-view-split {
   overflow: hidden;
   display: flex;
   flex-direction: column;
