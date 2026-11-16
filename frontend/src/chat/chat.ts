@@ -2620,27 +2620,45 @@ function initSideComposer(placement: SidePanePlacement = 'right', runtime = side
       entry.uploadPath = result.path
       entry.file = { name: result.name || entry.file.name, type: result.type || entry.file.type || '', size: result.size ?? entry.file.size ?? 0 }
       entry.lineCount = result.lineCount ?? null
-    } catch {
+    } catch (err) {
       const active = sidePendingFiles.includes(entry)
       removeSideAttachment(entry)
       disposeAttachmentObjectUrl(entry)
       entry.uploading = false
       refreshSideAttachmentPanes(entry, true)
-      if (active) { showToast(tt('upload_failed_short') + entry.file.name); sideRenderPreviews(); releaseSideDeferredSend() }
+      if (active) {
+        const message = (err as Error)?.message === 'file_too_large' && typeof formatFileSize === 'function' && typeof maxAttachmentBytes === 'function'
+          ? tt('file_too_large').replace('{size}', formatFileSize(maxAttachmentBytes(entry.file.name, entry.file.type))) + entry.file.name
+          : tt('upload_failed_short') + entry.file.name
+        showToast(message)
+        sideRenderPreviews()
+        releaseSideDeferredSend()
+      }
       return
     }
     entry.uploading = false
     refreshSideAttachmentPanes(entry)
   }
   function addSideFiles(files: FileList | File[]) {
+    let attachedInPlace = false
     for (const f of files) {
-      if (rejectOversizedAttachment(f.name, f.size, f.type)) continue
+      const rawPath = klausApi.chat?.localFilePath?.(f) || ''
+      const localPath = rawPath && !rawPath.includes('\0') ? rawPath : ''
+      if (rejectOversizedAttachment(f.name, f.size, f.type, localPath)) continue
+      if (localPath && !isInlineImage(f.name, f.type)) {
+        if (!sidePendingFiles.some(candidate => candidate.uploadPath === localPath)) {
+          sidePendingFiles.push({ file: f, objectUrl: null, uploadPath: localPath, sourcePath: localPath, uploading: false })
+          attachedInPlace = true
+        }
+        continue
+      }
       const entry: PendingFileEntry = { file: f, objectUrl: null, uploadPath: null, uploading: true }
       if (isInlineImage(f.name, f.type)) entry.objectUrl = URL.createObjectURL(f)
       sidePendingFiles.push(entry)
       sideUpload(entry)
     }
     sideRenderPreviews()
+    if (attachedInPlace) updateSideSendButton()
   }
   function addSideFilePaths(paths: string[]) {
     for (const path of new Set(paths.filter(Boolean))) {
@@ -17846,8 +17864,8 @@ fileInput.addEventListener('change', () => {
 // go. Size is still worth catching at add time rather than at send time: a send
 // time refusal lands after the composer is cleared and the optimistic bubble is
 // on screen, which looks like a message that was sent and ignored.
-function rejectOversizedAttachment(name: string, size: number, mimeType?: string | null) {
-  const limit = attachmentSizeRejection(name, size, mimeType)
+function rejectOversizedAttachment(name: string, size: number, mimeType?: string | null, localPath?: string | null) {
+  const limit = attachmentSizeRejection(name, size, mimeType, { localPath })
   if (limit === null) return false
   showToast(tt('file_too_large').replace('{size}', formatFileSize(limit)) + name)
   return true
@@ -17855,7 +17873,15 @@ function rejectOversizedAttachment(name: string, size: number, mimeType?: string
 
 function addFiles(files: File[]) {
   for (const f of files) {
-    if (rejectOversizedAttachment(f.name, f.size, f.type)) continue
+    const rawPath = klausApi.chat?.localFilePath?.(f) || ''
+    const localPath = rawPath && !rawPath.includes('\0') ? rawPath : ''
+    if (rejectOversizedAttachment(f.name, f.size, f.type, localPath)) continue
+    if (localPath && !isInlineImage(f.name, f.type)) {
+      if (!pendingFiles.some(candidate => candidate.uploadPath === localPath)) {
+        pendingFiles.push({ file: f, objectUrl: null, uploadPath: localPath, sourcePath: localPath, uploading: false })
+      }
+      continue
+    }
     const entry: PendingFileEntry = { file: f, objectUrl: null, uploadPath: null, uploading: true }
     if (isInlineImage(f.name, f.type)) entry.objectUrl = URL.createObjectURL(f)
     pendingFiles.push(entry)
@@ -18188,7 +18214,8 @@ function editMessageFailure(reason: unknown): string {
 
 async function uploadAttachment(entry: PendingFileEntry) {
   if (entry.sourcePath) {
-    const result = await klausApi.chat.uploadFilePath(entry.sourcePath)
+    const inlineImage = isInlineImage(entry.file.name, entry.file.type)
+    const result = await klausApi.chat.uploadFilePath(entry.sourcePath, inlineImage ? undefined : { reference: true })
     if (!result?.ok) throw new Error(result?.error || 'upload_failed')
     return result
   }
@@ -18214,12 +18241,20 @@ async function uploadFileEntry(entry: PendingFileEntry) {
     entry.uploadPath = result.path
     entry.file = { name: result.name || entry.file.name, type: result.type || entry.file.type || '', size: result.size ?? entry.file.size ?? 0 }
     entry.lineCount = result.lineCount ?? null
-  } catch {
+  } catch (err) {
     const active = pendingFiles.includes(entry)
     removeMainAttachment(entry)
     disposeAttachmentObjectUrl(entry)
     entry.uploading = false
-    if (active) { showToast(tt('upload_failed_short') + entry.file.name); renderPreviews(); updateSendBtn(); releaseDeferredSendIfReady() }
+    if (active) {
+      const message = (err as Error)?.message === 'file_too_large' && typeof formatFileSize === 'function' && typeof maxAttachmentBytes === 'function'
+        ? tt('file_too_large').replace('{size}', formatFileSize(maxAttachmentBytes(entry.file.name, entry.file.type))) + entry.file.name
+        : tt('upload_failed_short') + entry.file.name
+      showToast(message)
+      renderPreviews()
+      updateSendBtn()
+      releaseDeferredSendIfReady()
+    }
     return
   }
   entry.uploading = false
@@ -18267,6 +18302,7 @@ async function openFileAttachmentPreview(entry: PendingFileEntry, ownerSessionId
     if (/[/\\]$/.test(entry.uploadPath)) result = await klausApi.artifacts.reveal(entry.uploadPath)
     else {
       sessionId ||= await ensureSession()
+      await klausApi.artifacts.authorizePreview?.(sessionId, entry.uploadPath)
       result = await klausApi.artifacts.openWindow(sessionId, entry.uploadPath, entry.file?.name || '')
     }
     if (result?.error) throw new Error(result.error)

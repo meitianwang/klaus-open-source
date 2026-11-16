@@ -194,8 +194,8 @@ expose('klaus', {
       call('chat:side-question:cancel', { requestId }),
     uploadFile: (name: string, type: string, buffer: ArrayBuffer) =>
       call('chat:upload', { name, type, buffer }),
-    uploadFilePath: (path: string) =>
-      call('chat:upload-path', { path }),
+    uploadFilePath: (path: string, options?: { reference?: boolean }) =>
+      call('chat:upload-path', options?.reference ? { path, reference: true } : { path }),
     localFilePath,
     /** Store a large composer paste as a host-owned text file; returns its reference. */
     pastedTextCreate: (text: string) =>

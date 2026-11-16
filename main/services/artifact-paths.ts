@@ -251,6 +251,20 @@ export function recordArtifactPathsFromChatEvent(ledger: SessionArtifactPaths, e
  * before the reload. This runs on the PROJECTED history, so the block field is
  * the renderer's `contentBlocks` and image blocks already carry a resolved path.
  */
+export function recordUserAttachmentPaths(ledger: SessionArtifactPaths, sessionId: string, displayMetadata: Json | undefined): void {
+  if (!sessionId) return;
+  const row = object(displayMetadata);
+  if (!row) return;
+  for (const item of Array.isArray(row.attachments) ? row.attachments : []) {
+    const path = object(item)?.path;
+    if (typeof path === 'string' && !/[/\\]$/.test(path)) ledger.record(sessionId, path, true);
+  }
+  for (const item of Array.isArray(row.pastedCards) ? row.pastedCards : []) {
+    const path = object(item)?.path;
+    if (typeof path === 'string' && !/[/\\]$/.test(path)) ledger.record(sessionId, path, true);
+  }
+}
+
 export function recordArtifactPathsFromHistory(ledger: SessionArtifactPaths, sessionId: string, history: Json): void {
   if (!sessionId) return;
   const row = object(history);
@@ -258,6 +272,7 @@ export function recordArtifactPathsFromHistory(ledger: SessionArtifactPaths, ses
   for (const message of Array.isArray(row.messages) ? row.messages : []) {
     const messageRow = object(message);
     if (!messageRow) continue;
+    if (messageRow.role === 'user') recordUserAttachmentPaths(ledger, sessionId, messageRow.localRender);
     if (messageRow.role === 'assistant') {
       const text = typeof messageRow.text === 'string' ? messageRow.text
         : (Array.isArray(messageRow.contentBlocks) ? messageRow.contentBlocks : [])
@@ -268,7 +283,7 @@ export function recordArtifactPathsFromHistory(ledger: SessionArtifactPaths, ses
     for (const block of Array.isArray(messageRow.contentBlocks) ? messageRow.contentBlocks : []) {
       const record = object(block);
       if (!record) continue;
-      if (record.type === 'image' || record.type === 'document') { ledger.record(sessionId, record.path); continue; }
+      if (record.type === 'image' || record.type === 'document' || record.type === 'media' || record.type === 'file') { if (typeof record.path === 'string' && !/[/\\]$/.test(record.path)) ledger.record(sessionId, record.path); continue; }
       if (record.type !== 'tool_use') continue;
       ledger.recordMany(sessionId, shellToolInputPaths(typeof record.name === 'string' ? record.name : '', record.input));
       ledger.recordMany(sessionId, toolInputFilePaths(typeof record.name === 'string' ? record.name : '', record.input));

@@ -1,5 +1,5 @@
 import { mediaInputMime } from '../shared/media-input';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { closeSync, existsSync, ftruncateSync, mkdirSync, mkdtempSync, openSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Json } from '../main/ipc/contract';
@@ -200,6 +200,24 @@ h.test('phone native MIME parsing preserves codecs and explicit opaque media for
   }
   assertEqual(mediaItems([{ type: 'file', filename: 'recording.webm', data: 'data:audio/webm;codecs=opus;base64,UklGRg==' }], 'antigravity')[0]?.mimeType,
     'audio/webm;codecs=opus', 'codec data URL is parsed without discarding parameters');
+});
+
+h.test('oversized referenced local media keeps its path reference while smaller siblings inline', async () => {
+  const folder = root(), largeVideo = join(folder, 'talk.mp4'), smallAudio = join(folder, 'clip.wav');
+  const fd = openSync(largeVideo, 'w');
+  try { ftruncateSync(fd, 60 * 1024 * 1024); }
+  finally { closeSync(fd); }
+  const wavBytes = Buffer.from('UklGRg==', 'base64');
+  writeFileSync(smallAudio, wavBytes);
+  const text = `Review\n\nAttached:\n- ${largeVideo}\n- ${smallAudio}`;
+  const parts = await buildMessageInput(text, [
+    { type: 'media', path: largeVideo, name: 'talk.mp4', mimeType: 'video/mp4' },
+    { type: 'media', path: smallAudio, name: 'clip.wav', mimeType: 'audio/wav' },
+  ], ['audio/wav', 'video/mp4']) as Json[];
+  assertDeepEqual(parts, [
+    { type: 'text', text },
+    { type: 'media', base64: wavBytes.toString('base64'), mimeType: 'audio/wav', filename: 'clip.wav' },
+  ], 'large referenced video skips inline base64 while small audio still inlines');
 });
 
 function stringPath(value: Json | undefined): string { return typeof value === 'string' ? value : ''; }

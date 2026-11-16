@@ -7,6 +7,7 @@ import {
   SessionArtifactPaths,
   recordArtifactPathsFromChatEvent,
   recordArtifactPathsFromHistory,
+  recordUserAttachmentPaths,
 } from '../main/services/artifact-paths';
 import { shellToolInputPaths } from '../main/services/tool-artifact-paths';
 import { assert, Harness } from './harness';
@@ -524,6 +525,23 @@ for (const vector of publications) h.test(`managed image publication contract: $
       : vector.source === 'assistant-link' ? `[Screenshot](<${file}>)` : image,
   }] });
   assert(ledger.has('s1', file) === vector.allowed, vector.name);
+});
+
+h.test('user attachment paths admit external files per session and skip directories', async () => {
+  const { outside } = await fixture();
+  const video = join(outside, 'recording.mp4');
+  const folder = `${outside}/`;
+  await writeFile(video, 'video');
+  const liveLedger = new SessionArtifactPaths();
+  recordUserAttachmentPaths(liveLedger, 's1', { attachments: [{ path: video }, { path: folder }] });
+  assert(liveLedger.has('s1', video), 'live user attachment admits external file path');
+  assert(!liveLedger.has('s2', video), 'live user attachment is scoped to its session');
+  assert(!liveLedger.has('s1', outside), 'directory attachment is not admitted as a file');
+  const historyLedger = new SessionArtifactPaths();
+  recordArtifactPathsFromHistory(historyLedger, 's1', { messages: [{ role: 'user', localRender: { attachments: [{ path: video }, { path: folder }] } }] });
+  assert(historyLedger.has('s1', video), 'reopened history restores external user attachment admission');
+  assert(!historyLedger.has('s2', video), 'restored user attachment remains scoped to its session');
+  assert(!historyLedger.has('s1', outside), 'restored history skips directory entries');
 });
 
 void (async () => {

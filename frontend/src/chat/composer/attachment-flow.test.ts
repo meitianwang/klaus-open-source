@@ -32,7 +32,7 @@ const pasted = (data: Record<string, string> = {}, files: any[] = [], types = Ob
 
 function fixture() {
   const creation = deferred<any>(), upload = deferred<any>(), probe = deferred<string[]>()
-  const calls = { renders: 0, releases: 0, cancels: 0, removed: [] as string[], revoked: [] as string[], paths: [] as string[] }
+  const calls = { renders: 0, releases: 0, cancels: 0, removed: [] as string[], revoked: [] as string[], paths: [] as string[], pathOptions: [] as Array<[string, any]> }
   const input = { value: 'before selected after', selectionStart: 7, selectionEnd: 15 }
   const context: any = {
     decideComposerPaste, isLargePastedText, pastedTextPreview, PASTE_RESTORE_CHAR_LIMIT,
@@ -51,7 +51,7 @@ function fixture() {
     document: { elementFromPoint: (_x: number, _y: number) => null },
     klausApi: { clipboard: { readFilePaths: () => probe.promise }, chat: {
       pastedTextRead: async (_path: string): Promise<any> => ({ ok: true, text: 'restored' }), pastedTextRemove: async (path: string) => { calls.removed.push(path) }, uploadFile: () => upload.promise,
-      uploadFilePath: async (path: string) => { calls.paths.push(path); return { ok: true, path, name: 'file.txt' } },
+      uploadFilePath: async (path: string, options?: any) => { calls.paths.push(path); calls.pathOptions.push([path, options]); return { ok: true, path, name: 'file.txt' } },
     } },
   }
   const api = runInNewContext(script, context) as { handleMainComposerPaste(event: any): Promise<void>; uploadFileEntry(entry: PendingFileEntry): Promise<void>; handleComposerFileDrop(event: any): void; readPastedTextForRestore(entry: PendingFileEntry, current: () => boolean): Promise<string | null> }
@@ -232,3 +232,29 @@ for (const result of [{ ok: false, error: 'pasted_text_restore_too_large' }, { o
     expect(await f.api.readPastedTextForRestore(entry, () => true)).toBeNull()
   })
 }
+
+test('dropping a large local non-image file attaches in-place without reading bytes and deduplicates repeats', () => {
+  const f = fixture()
+  const video = { name: 'talk.mp4', type: 'video/mp4', size: 200 * 1024 * 1024, arrayBuffer: async () => { throw new Error('must not read bytes') } }
+  f.context.klausApi.chat.localFilePath = () => '/videos/talk.mp4'
+  const drop = () => ({ defaultPrevented: false, preventDefault() {}, clientX: 30, clientY: 80,
+    dataTransfer: { types: ['Files'], files: [video], items: [{ kind: 'file', webkitGetAsEntry: () => ({ isDirectory: false, name: 'talk.mp4' }), getAsFile: () => video }] } })
+  f.api.handleComposerFileDrop(drop())
+  f.api.handleComposerFileDrop(drop())
+  expect(f.context.pendingFiles.length).toBe(1)
+  expect(f.context.pendingFiles[0].uploadPath).toBe('/videos/talk.mp4')
+  expect(f.context.pendingFiles[0].uploading).toBe(false)
+  expect(f.calls.paths).toEqual([])
+})
+
+test('pasting native file paths forwards reference mode for non-images and upload mode for inline images', async () => {
+  const f = fixture()
+  f.context.isInlineImage = (name: string) => name.endsWith('.png')
+  const pending = f.api.handleMainComposerPaste(pasted({ 'text/uri-list': 'file:///videos/talk.mp4\nfile:///shots/frame.png' }, [], ['Files', 'text/uri-list']))
+  await pending
+  await Promise.resolve()
+  expect(f.calls.pathOptions).toEqual([
+    ['/videos/talk.mp4', { reference: true }],
+    ['/shots/frame.png', undefined],
+  ])
+})

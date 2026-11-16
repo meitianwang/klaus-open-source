@@ -5,6 +5,7 @@
 import { describe, expect, test } from 'bun:test'
 import {
   attachmentSizeRejection,
+  formatAttachmentSize,
   isInlineImage,
   maxAttachmentBytes,
   MAX_INLINE_IMAGE_BYTES,
@@ -86,5 +87,22 @@ describe('attachmentSizeRejection', () => {
   test('a referenced file still has a ceiling', () => {
     expect(attachmentSizeRejection('huge.zip', MAX_REFERENCED_FILE_BYTES + 1))
       .toBe(MAX_REFERENCED_FILE_BYTES)
+  })
+
+  test('non-image files with a local disk path bypass the upload byte ceiling', () => {
+    expect(attachmentSizeRejection('recording.mp4', 200 * 1024 * 1024, 'video/mp4', { localPath: '/videos/recording.mp4' })).toBe(null)
+    expect(attachmentSizeRejection('archive.zip', 5 * 1024 * 1024 * 1024, 'application/zip', { localPath: '/videos/archive.zip' })).toBe(null)
+    expect(attachmentSizeRejection('huge.png', MAX_INLINE_IMAGE_BYTES + 1, 'image/png', { localPath: '/shots/huge.png' })).toBe(MAX_INLINE_IMAGE_BYTES)
+    expect(attachmentSizeRejection('recording.mp4', MAX_REFERENCED_FILE_BYTES + 1, 'video/mp4')).toBe(MAX_REFERENCED_FILE_BYTES)
+    expect(attachmentSizeRejection('recording.mp4', MAX_REFERENCED_FILE_BYTES + 1, 'video/mp4', { localPath: '' })).toBe(MAX_REFERENCED_FILE_BYTES)
+  })
+})
+
+describe('formatAttachmentSize', () => {
+  test('formats byte, kilobyte, megabyte, and gigabyte sizes consistently', () => {
+    expect(formatAttachmentSize(512)).toBe('512 B')
+    expect(formatAttachmentSize(1536)).toBe('1.5 KB')
+    expect(formatAttachmentSize(2 * 1024 * 1024)).toBe('2 MB')
+    expect(formatAttachmentSize(1.5 * 1024 * 1024 * 1024)).toBe('1.5 GB')
   })
 })

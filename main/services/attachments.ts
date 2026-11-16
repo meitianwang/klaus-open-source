@@ -1,7 +1,7 @@
 import { mediaInputMime, MEDIA_INPUT_FILE_LIMIT } from '../../shared/media-input';
 import { randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
-import { mkdir, open, realpath, rename, rm, type FileHandle } from 'node:fs/promises';
+import { lstat, mkdir, open, realpath, rename, rm, type FileHandle } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { basename, extname, join, resolve } from 'node:path';
 import type { Json } from '../ipc/contract';
@@ -80,9 +80,17 @@ export async function buildMessageInput(text: string, media: Json[], mediaInputM
       const declaredMedia = mediaInputMime(name, string(file.mimeType) || string(file.type));
       if (file.type === 'media') {
         if (!declaredMedia) throw new Error('Invalid audio or video MIME type');
-        // The path reference stays in the request when this model cannot consume the bytes.
+        // The path reference stays in the request when this model cannot consume the bytes,
+        // or when a referenced local media file exceeds the inline wire budget.
         if (!mediaInputMimeTypes.includes(declaredMedia)) continue;
-        const bytes = await readInline(localPath(file.path), Math.min(MEDIA_INPUT_FILE_LIMIT, INLINE_TOTAL_LIMIT - total));
+        const resolved = localPath(file.path), budget = Math.min(MEDIA_INPUT_FILE_LIMIT, INLINE_TOTAL_LIMIT - total);
+        const rawPath = string(file.path);
+        if (rawPath && text.includes(rawPath)) {
+          const source = await regularFile(resolved);
+          const size = await source.stat().then(info => info.size).finally(() => source.close());
+          if (size > budget) continue;
+        }
+        const bytes = await readInline(resolved, budget);
         total += bytes.length;
         parts.push({ type: 'media', base64: bytes.toString('base64'), mimeType: declaredMedia, filename: name });
         continue;
@@ -185,10 +193,44 @@ export class AttachmentService {
       return this.store(name, mime, bytes);
     });
   }
+  private async referencePath(path: string): Promise<JsonObject> {
+    const canonical = await realpath(path), info = await lstat(canonical);
+    const name = basename(path) || basename(canonical) || 'attachment';
+    if (info.isDirectory()) {
+      return { path: /[/\\]$/.test(path) ? path : `${path}/`, name, type: 'inode/directory', size: 0, lineCount: null };
+    }
+    if (!info.isFile()) throw new Error('not_file');
+    const mime = uploadMime(name);
+    if (imageMime(mimeBase(mime))) {
+      const source = await regularFile(path);
+      try { return await this.store(name, mime, source); }
+      finally { await source.close(); }
+    }
+    let lineCount: number | null = null;
+    if (textLike(name, mime) && info.size <= 256 * 1024) {
+      if (info.size === 0) lineCount = 0;
+      else {
+        const source = await regularFile(path);
+        try {
+          const buf = Buffer.alloc(info.size);
+          let offset = 0;
+          while (offset < buf.length) {
+            const { bytesRead } = await source.read(buf, offset, buf.length - offset, offset);
+            if (!bytesRead) break;
+            offset += bytesRead;
+          }
+          const bytes = buf.subarray(0, offset);
+          lineCount = bytes.length ? countLines(bytes, 0) + (bytes.at(-1) === 10 ? 0 : 1) : 0;
+        } finally { await source.close(); }
+      }
+    }
+    return { path, name, type: mime, size: info.size, lineCount };
+  }
   async uploadPath(payload: JsonObject): Promise<Json> {
     try {
       const path = localPath(payload.path);
       return await this.run([path], async () => {
+        if (payload.reference === true) return { ok: true, ...await this.referencePath(path) };
         const source = await regularFile(path);
         try { return { ok: true, ...await this.store(basename(path), uploadMime(path), source) }; }
         finally { await source.close(); }

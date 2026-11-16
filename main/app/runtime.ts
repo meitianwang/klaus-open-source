@@ -248,7 +248,7 @@ import { createOwnedEditMenu } from './owned-edit-menu';
 import { installTextContextMenu } from './text-context-menu';
 import { ImageZoomCommands, type ImageZoomCommand, type ImageZoomTarget } from './image-zoom-commands';
 import { CursorDiagnostics } from '../services/cursor-diagnostics';
-import { SessionArtifactPaths, recordArtifactPathsFromChatEvent, recordArtifactPathsFromHistory } from '../services/artifact-paths';
+import { SessionArtifactPaths, recordArtifactPathsFromChatEvent, recordArtifactPathsFromHistory, recordUserAttachmentPaths } from '../services/artifact-paths';
 import { DigramService } from '../digram/service';
 import { restoreLegacyDiagramCards } from '../digram/history';
 import { Model3DService } from '../model3d/service';
@@ -769,6 +769,7 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
     messageInput: (text, media, types) => attachments.input(text, media, types),
     mediaInputMimeTypes: sessionId => composer ? composer.mediaInputMimeTypes(sessionId) : Promise.resolve([]),
     answerAttachments: groups => attachments.answerAttachments(groups),
+    onUserAttachments: (id, metadata) => recordUserAttachmentPaths(artifactPaths, id, metadata),
     deviceContext: async (addresses) => {
       const discovered = await remoteThreads?.discover(AbortSignal.timeout(10_000)).catch(() => null) ?? null;
       if (!discovered) return '';

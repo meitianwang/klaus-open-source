@@ -97,6 +97,34 @@ h.test('directory exclusion refuses uploads and input reads while shutdown refus
     await f.attachments.close(); await assertRejects(async () => f.attachments.upload({ buffer: [] }), 'closed service refuses cache writes');
   } finally { await f.attachments.close(); }
 });
+
+h.test('reference-mode uploadPath handles large files in place, directories, text line counts, and oversized images', async () => {
+  const f = await fixture();
+  try {
+    const uploadsDir = join(f.root, 'uploads');
+    await mkdir(uploadsDir, { recursive: true });
+    const before = await readdir(uploadsDir);
+    const largeVideo = join(f.root, 'recording.mp4'), expectedSize = FILE_UPLOAD_LIMIT + 50 * 1024 * 1024;
+    const fh = await open(largeVideo, 'w'); await fh.truncate(expectedSize); await fh.close();
+    const videoResult = object(await f.attachments.uploadPath({ path: largeVideo, reference: true }));
+    assertEqual(videoResult.ok, true, 'large local video succeeds in reference mode');
+    assertEqual(videoResult.path, largeVideo, 'reference mode retains original path');
+    assertEqual(videoResult.size, expectedSize, 'reference mode reports exact file size');
+    assertDeepEqual(await readdir(uploadsDir), before, 'reference mode does not copy non-images into uploads');
+    const folder = join(f.root, 'bundle'); await mkdir(folder);
+    const folderResult = object(await f.attachments.uploadPath({ path: folder, reference: true }));
+    assertEqual(folderResult.ok, true, 'reference mode accepts directories');
+    assertEqual(folderResult.path, `${folder}/`, 'directory path ends with a slash');
+    assertEqual(folderResult.type, 'inode/directory', 'directory reports inode/directory MIME');
+    const md = join(f.root, 'notes.md'); await writeFile(md, 'line one\nline two');
+    assertEqual(object(await f.attachments.uploadPath({ path: md, reference: true })).lineCount, 2, 'small text file computes lineCount');
+    const hugePng = join(f.root, 'huge.png');
+    const pngFh = await open(hugePng, 'w'); await pngFh.truncate(IMAGE_UPLOAD_LIMIT + 1); await pngFh.close();
+    const pngResult = object(await f.attachments.uploadPath({ path: hugePng, reference: true }));
+    assertEqual(pngResult.ok, false, 'oversized inline image is still rejected in reference mode');
+    assertEqual(pngResult.error, 'file_too_large', 'oversized image returns file_too_large');
+  } finally { await f.attachments.close(); }
+});
 void (async () => {
   const failed = await h.finish(join(__dirname, 'attachments-result.json'), 'attachments');
   for (const root of roots) await rm(root, { recursive: true, force: true });

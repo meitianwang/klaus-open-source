@@ -70,7 +70,7 @@ export function sideComposerInputRoutes(ts, ast) {
     const hasUploadInFlight = files => files.some(file=>file.uploading);
     const klausApi = {session:{touchSideTask:async()=>{},getResolvedWorkdir:async id=>({workdir:'/roots/'+id})},
       clipboard:{readFilePaths:async()=>pathsWait?pathsWait.promise:[]},
-      chat:{pastedTextRelease:async()=>{},pastedTextRemove:async()=>{},uploadFile:async name=>({path:'/uploads/'+name,name,type:'text/plain'})}};
+      chat:{pastedTextRelease:async()=>{},pastedTextRemove:async()=>{},uploadFile:async name=>({path:'/uploads/'+name,name,type:'text/plain'}),uploadFilePath:async path=>({ok:true,path,name:path.split('/').pop(),type:'text/plain'})}};
     const createPastedTextAttachment = async text => {createdPastes.push(text);return {...pendingPastedTextEntry(text),uploadPath:'/pastes/created',uploading:false}};
     const loadScopedSlashCommands = async id => { discoveryCalls.push(id);return catalogWait?catalogWait.promise:[{name:'alpha',displayName:'Alpha skill',kind:'skill'},{name:'beta',displayName:'Beta skill',kind:'skill'}] };
     const slashCommandMatchesSearch = (command, query) => command.name.includes(query);

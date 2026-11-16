@@ -394,6 +394,7 @@ export interface SessionServiceDeps {
   messageInput?: (text: string, media: Json[], mediaInputMimeTypes?: readonly string[]) => Promise<Json>;
   mediaInputMimeTypes?: (sessionId: string) => Promise<string[]>;
   answerAttachments?: (groups: Record<string, Json>) => Promise<Record<string, Json>>;
+  onUserAttachments?: (sessionId: string, displayMetadata: Json | undefined) => void;
   /**
    * Resolves the `@device-<id>` addresses a composer chip left in the request
    * into the account-device context the model needs to pick a target for
@@ -4825,6 +4826,7 @@ export class SessionService {
       const issue = (): void => {
         observation?.beforeIssue?.();
         const metadata = turnOptions.displayMetadata;
+        this.deps.onUserAttachments?.(rendererId, metadata);
         const submittedClientId = clientMessageId(metadata);
         if (submittedClientId) this.deps.state.noteSubmittedMessage(rendererId, engineId, turnId, submittedClientId, metadata!);
         if (observation) observation.issued = true;
@@ -5200,6 +5202,7 @@ export class SessionService {
       this.requireTurnAuthorization(rendererId);
       if (!this.deps.state.isWorking(rendererId) || this.deps.state.runningSubmissionId(rendererId) !== targetTurnId) return { ok: false, error: 'The turn ended or changed before the follow-up could be steered.' };
       const originalDisplayMetadata = object(payload.displayMetadata) ?? (browserTabReferencesIn(text).length ? { displayText: text } : undefined);
+      this.deps.onUserAttachments?.(rendererId, originalDisplayMetadata);
       const displayMetadata = withInputPresentation(originalDisplayMetadata, 'steer');
       this.deps.state.noteSubmittedMessage(rendererId, engineId, `steer-${messageId}`,
         clientMessageId(displayMetadata) ?? messageId, displayMetadata ?? { clientMessageId: messageId }, messageId);

@@ -29,9 +29,9 @@ const INLINE_IMAGE_MIME_TYPES = [
 export const MAX_INLINE_IMAGE_BYTES = 10 * 1024 * 1024
 
 /**
- * Referenced files never enter the message — only their path does. The cap is
- * here because the bytes are still copied into the uploads dir over IPC, so it
- * bounds renderer memory rather than request size.
+ * Referenced files with no native disk path are copied into the uploads dir
+ * over IPC, so this cap bounds renderer and IPC buffer memory for those blobs.
+ * Local files with a native disk path stay in place and bypass this ceiling.
  */
 export const MAX_REFERENCED_FILE_BYTES = 45 * 1024 * 1024
 
@@ -64,7 +64,12 @@ export function attachmentSizeRejection(
   name: string,
   size: number,
   mimeType?: string | null,
+  options?: { localPath?: string | null },
 ): number | null {
+  const hasLocalPath = typeof options?.localPath === 'string'
+    && options.localPath.length > 0
+    && !options.localPath.includes('\0')
+  if (hasLocalPath && !isInlineImage(name, mimeType)) return null
   const limit = maxAttachmentBytes(name, mimeType)
   return Number(size) > limit ? limit : null
 }
@@ -78,5 +83,6 @@ export function formatAttachmentSize(size: number | undefined): string {
   const bytes = Number(size) || 0
   if (bytes < 1024) return `${bytes} B`
   if (bytes < 1024 * 1024) return `${Math.round(bytes / 102.4) / 10} KB`
-  return `${Math.round(bytes / 1024 / 102.4) / 10} MB`
+  if (bytes < 1024 * 1024 * 1024) return `${Math.round(bytes / 1024 / 102.4) / 10} MB`
+  return `${Math.round(bytes / (1024 * 1024) / 102.4) / 10} GB`
 }
