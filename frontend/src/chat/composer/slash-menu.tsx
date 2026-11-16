@@ -362,7 +362,12 @@ function MentionMenu({ request, actions, store }: {
       name: actions.slashCommandDisplayName(command), path: `command:${command.name}`,
       rel: actions.slashCommandDescription(command), isDir: false, kind: 'command' as const,
       command,
-      aliases: [String(command.name || ''), ...(Array.isArray(command.aliases) ? command.aliases.map((alias: unknown) => String(alias || '')).filter(Boolean) : [])],
+      aliases: [
+        String(command.name || ''),
+        ...(typeof command.displayName === 'string' && command.displayName ? [command.displayName] : []),
+        ...(typeof command.nameZh === 'string' && command.nameZh ? [command.nameZh] : []),
+        ...(Array.isArray(command.aliases) ? command.aliases.map((alias: unknown) => String(alias || '')).filter(Boolean) : []),
+      ],
       icon: actions.commandIconSvg(command),
     }))
     const sourceSections: MentionSection[] = [

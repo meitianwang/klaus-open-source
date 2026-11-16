@@ -63,6 +63,22 @@ function engineAgentTools(value: unknown): string[] | undefined {
   // missing allowlist (inherit all tools), so the host must preserve [].
   return Array.isArray(value) ? [] : undefined;
 }
+export interface SkillUiMetadata {
+  displayName?: string;
+  nameZh?: string;
+  descriptionZh?: string;
+}
+export function skillUiFromMarkdown(raw: string): SkillUiMetadata {
+  const { data } = frontmatter(raw);
+  const displayName = fmString(data.display_name) ?? fmString(data['display-name']);
+  const nameZh = fmString(data.name_zh) ?? fmString(data['name-zh']);
+  const descriptionZh = (fmString(data.description_zh) ?? fmString(data['description-zh']))?.trim().split(/\s+/).join(' ');
+  const ui: SkillUiMetadata = {};
+  if (displayName) ui.displayName = displayName;
+  if (nameZh) ui.nameZh = nameZh;
+  if (descriptionZh) ui.descriptionZh = descriptionZh;
+  return ui;
+}
 export function skillFromMarkdown(raw: string, path: string, fallbackName: string): JsonObject | undefined {
   const { data, body } = frontmatter(raw);
   if (data.context !== undefined && data.context !== 'inline' && data.context !== 'fork') return undefined;
@@ -138,8 +154,9 @@ export function hooksFromDocument(document: unknown): JsonObject[] {
 /** Reads only host-owned init declarations. Plugin command sources are UI/expansion inputs only. */
 export class ExtensionDiscovery {
   private readonly skillCache = new Map<string, Promise<JsonObject[]>>();
+  private readonly skillUiByPath = new Map<string, SkillUiMetadata>();
   /** Invalidated promises are detached before a replacement scan can start. */
-  invalidateSkills(): void { this.skillCache.clear(); }
+  invalidateSkills(): void { this.skillCache.clear(); this.skillUiByPath.clear(); }
   constructor(readonly deps: DiscoveryDeps) {}
   private async names(root: string, relative: string): Promise<string[]> {
     try { return await directoryNames(await managedPath(root, relative)); }
@@ -171,7 +188,10 @@ export class ExtensionDiscovery {
         let skill: JsonObject | undefined;
         try { skill = skillFromMarkdown(raw, join(root, relativePath), name); }
         catch (error) { this.deps.diagnostic?.(join(root, relativePath), error); continue; }
-        if (skill && !seen.has(string(skill.name))) { result.push(skill); seen.add(string(skill.name)); }
+        if (skill && !seen.has(string(skill.name))) {
+          if (typeof skill.path === 'string') this.skillUiByPath.set(skill.path, skillUiFromMarkdown(raw));
+          result.push(skill); seen.add(string(skill.name));
+        }
       }
     }
     if (includeBuiltins) for (const skill of [...(await this.bundledSkills()).filter(skill => this.skillEnabled(skill)), ...BUILTIN_SKILLS]) if (!seen.has(string(skill.name))) { result.push(structuredClone(skill)); seen.add(string(skill.name)); }
@@ -188,7 +208,10 @@ export class ExtensionDiscovery {
         if (raw === undefined) continue;
         try {
           const skill = skillFromMarkdown(raw, join(root, relativePath), name);
-          if (skill && !result.some(row => row.name === skill.name)) result.push(skill);
+          if (skill && !result.some(row => row.name === skill.name)) {
+            if (typeof skill.path === 'string') this.skillUiByPath.set(skill.path, skillUiFromMarkdown(raw));
+            result.push(skill);
+          }
         } catch (error) { this.deps.diagnostic?.(join(root, relativePath), error); }
       }
     }
@@ -292,7 +315,9 @@ export class ExtensionDiscovery {
     const add = (row: JsonObject) => { const name = string(row.name); if (name && !names.has(name)) { rows.push(row); names.add(name); } };
     for (const skill of await this.skills(cwd, false, extraRoots)) {
       if (skill.userInvocable === false || !this.skillEnabled(skill)) continue;
-      const row: JsonObject = { name: skill.name!, displayName: skill.name!, description: skill.description!, scope: [cwd, ...extraRoots].some(root => root && !root.startsWith('ssh://') && pathInside(string(skill.path), join(root, '.klaus/skills'))) ? 'project' : 'global', type: 'prompt', source: 'skills' };
+      const ui = typeof skill.path === 'string' ? this.skillUiByPath.get(skill.path) : undefined;
+      const row: JsonObject = { name: skill.name!, displayName: ui?.displayName || skill.name!, description: skill.description!, scope: [cwd, ...extraRoots].some(root => root && !root.startsWith('ssh://') && pathInside(string(skill.path), join(root, '.klaus/skills'))) ? 'project' : 'global', type: 'prompt', source: 'skills' };
+      assign(row, 'nameZh', ui?.nameZh); assign(row, 'descriptionZh', ui?.descriptionZh);
       assign(row, 'argumentHint', skill.argumentHint); assign(row, 'path', skill.path); row.definitionPreview = this.canPreviewSkill(skill.path, projectPreviewRoots); add(row);
     }
     for (const command of await this.commands(cwd, extraRoots)) {
@@ -305,7 +330,9 @@ export class ExtensionDiscovery {
     }
     for (const skill of await this.bundledSkills()) {
       if (skill.userInvocable === false || !this.skillEnabled(skill)) continue;
-      const row: JsonObject = { name: skill.name!, displayName: skill.name!, description: skill.description ?? '', scope: 'global', type: 'prompt', source: 'builtin-skill' };
+      const ui = typeof skill.path === 'string' ? this.skillUiByPath.get(skill.path) : undefined;
+      const row: JsonObject = { name: skill.name!, displayName: ui?.displayName || skill.name!, description: skill.description ?? '', scope: 'global', type: 'prompt', source: 'builtin-skill' };
+      assign(row, 'nameZh', ui?.nameZh); assign(row, 'descriptionZh', ui?.descriptionZh);
       assign(row, 'argumentHint', skill.argumentHint); assign(row, 'path', skill.path); row.definitionPreview = this.canPreviewSkill(skill.path, projectPreviewRoots); add(row);
     }
     for (const command of BUNDLED_COMMANDS) {

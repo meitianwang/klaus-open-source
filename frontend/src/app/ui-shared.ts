@@ -196,7 +196,7 @@ function getSlashCommandKey(command: any) {
 
 function isSkillSlashCommand(command: any) {
   const source = String(command?.source || '').toLowerCase()
-  return source.includes('skill') || source === 'bundled'
+  return command?.kind === 'skill' || source.includes('skill') || source === 'bundled' || source === 'installed'
 }
 
 function getSlashCommandZhEntry(command: any) {
@@ -211,7 +211,10 @@ export function localizeSlashCommandDisplayName(command: any): string {
     return localizeSkillName({
       dirName: command?.name,
       name: command?.displayName || command?.name,
+      displayName: command?.displayName,
+      nameZh: command?.nameZh,
       description: command?.description,
+      descriptionZh: command?.descriptionZh,
     })
   }
   return command?.displayName || command?.name || ''
@@ -224,7 +227,10 @@ export function localizeSlashCommandDescription(command: any): string {
     return localizeSkillDescription({
       dirName: command?.name,
       name: command?.displayName || command?.name,
+      displayName: command?.displayName,
+      nameZh: command?.nameZh,
       description: command?.description,
+      descriptionZh: command?.descriptionZh,
     })
   }
   return command?.description || ''
@@ -341,7 +347,10 @@ export function getSkillSearchValues(skill: any): unknown[] {
     skill?.dirName,
     skill?.name,
     skill?.displayName,
+    skill?.nameZh,
     skill?.description,
+    skill?.descriptionZh,
+    skill?.descriptionEn,
     localizeSkillName(skill || {}),
     localizeSkillDescription(skill || {}),
     category,
@@ -397,7 +406,10 @@ export function getSlashCommandSearchValues(command: any): unknown[] {
     isSkillSlashCommand(command) ? getSkillSearchValues({
       dirName: name,
       name: command?.displayName || name,
+      displayName: command?.displayName,
+      nameZh: command?.nameZh,
       description: command?.description,
+      descriptionZh: command?.descriptionZh,
     }) : [],
   ]
 }

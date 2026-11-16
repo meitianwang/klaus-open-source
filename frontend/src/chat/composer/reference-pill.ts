@@ -40,9 +40,25 @@ export function composerReferenceIconSvg(reference: ComposerReferenceToken, clas
   return klausIcon('subagent-kind-background', { cls: className })
 }
 
+function skillReferenceLabel(reference: ComposerReferenceToken): string {
+  const raw = String(reference.name || reference.id || '')
+  const id = String(reference.id || reference.name || '')
+  if (!id || raw !== id) return raw
+  const localize = typeof window !== 'undefined' ? (window as any).localizeSkillName : undefined
+  if (typeof localize === 'function') {
+    const localized = String(localize({ dirName: id, name: raw }) || '').trim()
+    if (localized) return localized
+  }
+  return raw
+}
+
 export function renderComposerReferencePillHtml(reference: ComposerReferenceToken, submittedActions = false) {
   const icon = composerReferenceIconSvg(reference, 'slash-pill-icon')
-  const name = reference.kind === 'friend' ? friendReferenceIdentity(reference).name : reference.name
+  const name = reference.kind === 'friend'
+    ? friendReferenceIdentity(reference).name
+    : reference.kind === 'skill'
+      ? skillReferenceLabel(reference)
+      : reference.name
   const marker = reference.kind === 'friend' ? `<small class="friend-identity-tag">${escapeHtml(t('friend_identity_tag'))}</small>` : ''
   const actionable = submittedActions && ['skill', 'plugin', 'conversation', 'file', 'folder'].includes(reference.kind)
     && (reference.kind === 'skill' ? !!reference.skillPath && reference.skillPreview === true : reference.kind === 'file' || reference.kind === 'folder' ? !!(reference.path || reference.rel) : !!reference.id)

@@ -11,12 +11,17 @@ export interface ComposerSkillRow {
   description: string
   source: string
   path?: string
+  nameZh?: string
+  descriptionZh?: string
 }
 
 interface SkillLike {
   name?: unknown
   dirName?: unknown
+  displayName?: unknown
+  nameZh?: unknown
   description?: unknown
+  descriptionZh?: unknown
   source?: unknown
   enabled?: unknown
   userEnabled?: unknown
@@ -27,7 +32,9 @@ interface SkillLike {
 interface ProjectCommandLike {
   name?: unknown
   displayName?: unknown
+  nameZh?: unknown
   description?: unknown
+  descriptionZh?: unknown
   source?: unknown
   kind?: unknown
   scope?: unknown
@@ -58,15 +65,25 @@ export function selectComposerSkillRows(input: {
     if (!name || byName.has(name)) continue
     if (row?.userInvocable === false) continue
     if (row?.enabled === false || row?.userEnabled === false) continue
+    const displayName = typeof row.displayName === 'string' && row.displayName.trim() ? row.displayName.trim() : undefined
+    const nameZh = typeof row.nameZh === 'string' && row.nameZh.trim() ? row.nameZh.trim() : undefined
+    const descriptionZh = typeof row.descriptionZh === 'string' && row.descriptionZh.trim() ? row.descriptionZh.trim() : undefined
     byName.set(name, {
       name,
       // The submenu row and the inserted chip show the same localized product
       // name the skills page shows; a slug without a table entry keeps its
       // frontmatter name, exactly like the page fallback.
-      displayName: localizeSkillName({ dirName: name, name: String(row?.name || name) }),
+      displayName: localizeSkillName({
+        dirName: name,
+        name: String(row?.name || name),
+        ...(displayName ? { displayName } : {}),
+        ...(nameZh ? { nameZh } : {}),
+      }),
       description: String(row?.description || ''),
       source: String(row?.source || 'skills'),
       ...(typeof row.path === 'string' ? { path: row.path } : {}),
+      ...(nameZh ? { nameZh } : {}),
+      ...(descriptionZh ? { descriptionZh } : {}),
     })
   }
   // Scoped discovery has already resolved shadowing and knows each definition's
@@ -75,12 +92,23 @@ export function selectComposerSkillRows(input: {
     if (!isProjectSkillCommand(command)) continue
     const name = String(command.name || '').trim()
     if (!name) continue
+    const existing = byName.get(name)
+    const displayName = typeof command.displayName === 'string' && command.displayName.trim() ? command.displayName.trim() : undefined
+    const nameZh = typeof command.nameZh === 'string' && command.nameZh.trim() ? command.nameZh.trim() : existing?.nameZh
+    const descriptionZh = typeof command.descriptionZh === 'string' && command.descriptionZh.trim() ? command.descriptionZh.trim() : existing?.descriptionZh
     byName.set(name, {
       name,
-      displayName: localizeSkillName({ dirName: name, name: String(command.displayName || name) }),
+      displayName: localizeSkillName({
+        dirName: name,
+        name: String(command.displayName || name),
+        ...(displayName ? { displayName } : {}),
+        ...(nameZh ? { nameZh } : {}),
+      }),
       description: String(command.description || ''),
       source: 'skills',
       ...(typeof command.path === 'string' ? { path: command.path } : {}),
+      ...(nameZh ? { nameZh } : {}),
+      ...(descriptionZh ? { descriptionZh } : {}),
     })
   }
   return [...byName.values()].sort((a, b) =>

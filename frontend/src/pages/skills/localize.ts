@@ -10,7 +10,11 @@ const w = () => window as any
 export interface SkillItem {
   name?: string
   dirName?: string
+  displayName?: string
+  nameZh?: string
   description?: string
+  descriptionZh?: string
+  descriptionEn?: string
   source?: string
   installed?: boolean
   hasUpdate?: boolean
@@ -54,12 +58,23 @@ function getSkillTextEntry(skill: SkillItem | null | undefined): string[] | null
 
 export function localizeSkillName(skill: SkillItem | null | undefined): string {
   const entry = getSkillTextEntry(skill)
-  return entry?.[0] || skill?.name || skill?.dirName || ''
+  if (entry?.[0]) return entry[0]
+  if (getMarketUiLang() === 'zh') {
+    return skill?.nameZh
+      || (skill?.name && skill.name !== skill.dirName ? skill.name : '')
+      || skill?.displayName
+      || skill?.name
+      || skill?.dirName
+      || ''
+  }
+  return skill?.displayName || skill?.name || skill?.dirName || ''
 }
 
 export function localizeSkillDescription(skill: SkillItem | null | undefined): string {
   const entry = getSkillTextEntry(skill)
-  return entry?.[1] || skill?.description || ''
+  if (entry?.[1]) return entry[1]
+  if (getMarketUiLang() === 'zh') return skill?.descriptionZh || skill?.description || ''
+  return skill?.descriptionEn || skill?.description || ''
 }
 
 export function getPluginBaseName(plugin: any): string {

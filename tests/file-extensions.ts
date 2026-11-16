@@ -348,10 +348,18 @@ export function registerFileExtensionTests(h: Harness, freshRoot: () => string):
     await put(join(project, '.klaus/commands/review.md'), 'project $ARGUMENTS');
     await put(join(root, 'commands/shared.md'), 'must not expand');
     await put(join(root, 'skills/shared/SKILL.md'), '---\nname: shared\n---\nskill');
+    await put(join(root, 'skills/bilingual/SKILL.md'), '---\nname: bilingual\ndisplay_name: Bilingual Skill\nname_zh: 双语技能\ndescription: English summary\ndescription_zh: >\n  中文\n  简介\n---\nbody');
     await put(join(plugin, 'single.md'), 'single $0');
     kvSet('skill:shared', JSON.stringify({ enabled: false }), root);
     const discovery = new ExtensionDiscovery({ configRoot: root, pluginCommandSources: async () => [join(plugin, 'single.md')], mcpPromptRows: () => [{ name: 'mcp:server:prompt', source: 'mcp' }] });
     const menu = await discovery.slashCommands(project);
+    const bilingual = menu.find(row => row.name === 'bilingual');
+    assertEqual(bilingual?.displayName, 'Bilingual Skill', 'slash row carries display_name');
+    assertEqual(bilingual?.nameZh, '双语技能', 'slash row carries name_zh');
+    assertEqual(bilingual?.descriptionZh, '中文 简介', 'slash row carries folded description_zh');
+    const engineBilingual = (await discovery.sessionSkills(project)).find(row => row.name === 'bilingual');
+    assertEqual('nameZh' in (engineBilingual ?? {}), false, 'engine wire skill omits UI-only nameZh');
+    assertEqual('displayName' in (engineBilingual ?? {}), false, 'engine wire skill omits UI-only displayName');
     assertEqual(menu.find(row => row.name === 'review')?.scope, 'project', 'project command wins');
     assertEqual(menu.find(row => row.name === 'shared')?.source, 'commands', 'disabled menu skill permits file command row');
     assert(menu.some(row => row.name === 'single' && row.source === 'plugin'), 'single-file plugin command');

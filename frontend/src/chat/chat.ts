@@ -11594,7 +11594,8 @@ async function loadInstalledSlashCommands(options: { strict?: boolean } = {}, re
       return []
     }
     return skills.filter(skill => skill.enabled || skill.userEnabled).map(skill => ({
-      name: skill.dirName || skill.name, displayName: skill.name, description: skill.description || '',
+      name: skill.dirName || skill.name, displayName: skill.displayName || skill.name, description: skill.description || '',
+      ...(skill.nameZh ? { nameZh: skill.nameZh } : {}), ...(skill.descriptionZh ? { descriptionZh: skill.descriptionZh } : {}),
       source: skill.source, path: skill.path, definitionPreview: skill.definitionPreview === true, kind: 'skill', type: 'prompt',
     }))
   } catch (error) {

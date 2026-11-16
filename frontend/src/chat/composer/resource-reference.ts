@@ -2,6 +2,7 @@ import type { SlashCommandInfo } from '../engine-events'
 import type { InlineTokenSnapshot } from './inline-token'
 import { normalizeComposerReferences, syncComposerReferences, type ComposerReferenceToken } from './reference-token'
 import { createComposerDraft, type ComposerDraft } from './slash-draft'
+import { slashCommandDisplayLabel } from './slash-row-labels'
 import { resourceReferenceValue, type ResourceReferenceKind } from '../../../../shared/composer-reference-scan'
 
 export function isSkillCommand(command: SlashCommandInfo): boolean {
@@ -9,7 +10,7 @@ export function isSkillCommand(command: SlashCommandInfo): boolean {
   return command.kind === 'skill' || source.includes('skill') || source === 'bundled' || source === 'installed'
 }
 
-export function skillReference(command: SlashCommandInfo, label = command.displayName || command.name): Omit<ComposerReferenceToken, 'range'> {
+export function skillReference(command: SlashCommandInfo, label = slashCommandDisplayLabel(command)): Omit<ComposerReferenceToken, 'range'> {
   const path = typeof command.path === 'string' ? command.path : undefined
   return { ...resourceReference('skill', label, command.name),
     value: resourceReferenceValue('skill', label, command.name, path),

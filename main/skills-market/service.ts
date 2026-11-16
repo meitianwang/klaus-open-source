@@ -111,8 +111,14 @@ export class SkillMarketService {
         if (raw !== undefined) { const parsed = frontmatter(raw); meta = parsed.data; parseError = parsed.error; }
         else parseError = 'Skill catalog entry has no SKILL.md';
         const metadata = object(meta.metadata), nested = object(metadata.klaus ?? metadata.openclaw ?? metadata.clawdbot ?? metadata);
+        const displayName = (scalar(meta.display_name) ?? scalar(meta['display-name']))?.trim();
+        const nameZh = (scalar(meta.name_zh) ?? scalar(meta['name-zh']))?.trim();
+        const descriptionZh = (scalar(meta.description_zh) ?? scalar(meta['description-zh']))?.trim().split(/\s+/).join(' ');
         result.push({ name: scalar(meta.name)?.trim() || name, description: scalar(meta.description)?.trim().split(/\s+/).join(' ') || '',
           source: 'market', userInvocable: true, userEnabled: false, installed: installed.includes(name), dirName: name,
+          ...(displayName ? { displayName } : {}),
+          ...(nameZh ? { nameZh } : {}),
+          ...(descriptionZh ? { descriptionZh } : {}),
           ...(parseError ? { dependencyStatus: 'invalid', missingBins: [], missingEnv: [], error: parseError } : dependencies(await this.deps.skills.missingDependencies(meta))),
           ...(typeof nested.emoji === 'string' ? { emoji: nested.emoji } : {}),
           ...(meta.tags != null ? { tags: meta.tags } : {}) });
@@ -128,7 +134,7 @@ export class SkillMarketService {
     const tokens = string(query).trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);
     if (!tokens.length) return items;
     return items.filter(item => {
-      const haystack = [item.name, item.description, item.dirName, item.tags].map(value => typeof value === 'string' ? value : JSON.stringify(value ?? '')).join(' ').toLocaleLowerCase();
+      const haystack = [item.name, item.displayName, item.nameZh, item.description, item.descriptionZh, item.dirName, item.tags].map(value => typeof value === 'string' ? value : JSON.stringify(value ?? '')).join(' ').toLocaleLowerCase();
       return tokens.every(token => haystack.includes(token));
     });
   }
@@ -136,7 +142,11 @@ export class SkillMarketService {
     const slug = string(item.slug), local = versions.get(slug), latest = object(item.latestVersion).version;
     let metadata: JsonObject = {}; if (typeof item.metadata === 'string') try { metadata = object(JSON.parse(item.metadata)); } catch { /* A missing declaration has no executable dependency to test. */ }
     const declared = object(metadata.klaus ?? metadata.openclaw ?? metadata.clawdbot ?? metadata)
-    return { name: string(item.nameCn) || string(item.displayName) || slug, description: string(item.descriptionCn) || string(item.summary),
+    const displayName = string(item.displayName).trim(), nameZh = string(item.nameCn).trim();
+    const descriptionEn = string(item.summary).trim(), descriptionZh = string(item.descriptionCn).trim();
+    return { name: nameZh || displayName || slug, description: descriptionZh || descriptionEn,
+      ...(displayName ? { displayName } : {}), ...(nameZh ? { nameZh } : {}),
+      ...(descriptionEn ? { descriptionEn } : {}), ...(descriptionZh ? { descriptionZh } : {}),
       source: 'market', userInvocable: true, userEnabled: false, installed: installed.includes(slug), dirName: slug, upstreamSlug: slug,
       hasUpdate: installed.includes(slug) && typeof latest === 'string' && Boolean(latest) && Boolean(local) && local !== latest,
       ...dependencies(await this.deps.skills.missingDependencies({ metadata })),

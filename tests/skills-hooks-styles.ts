@@ -67,12 +67,15 @@ export function registerSkillsHooksStyleTests(h: Harness, freshRoot: () => strin
     await put(join(bin, 'not-executable'), 'data'); await chmod(join(bin, 'not-executable'), 0o600);
     const f = await fixture(root, { environment: async () => ({ PATH: bin, FIXTURE_EMPTY: '' }) });
     try {
-      await put(join(root, 'skills/dependencies/SKILL.md'), '---\nname: 17\ndescription: >\n  Multiple lines\n  stay readable\ntags: { first: dev }\nmetadata:\n  klaus:\n    emoji: rocket\n    requires:\n      bins: [present-tool, not-executable, absent]\n      env: [FIXTURE_EMPTY, ABSENT]\n---\nbody');
+      await put(join(root, 'skills/dependencies/SKILL.md'), '---\nname: 17\ndisplay_name: Seventeen\nname_zh: 十七\ndescription: >\n  Multiple lines\n  stay readable\ndescription_zh: >\n  多行中文\n  保持可读\ntags: { first: dev }\nmetadata:\n  klaus:\n    emoji: rocket\n    requires:\n      bins: [present-tool, not-executable, absent]\n      env: [FIXTURE_EMPTY, ABSENT]\n---\nbody');
       await put(join(root, 'skills/platform/SKILL.md'), '---\nmetadata: { openclaw: { os: [win32] } }\n---\nbody');
       await mkdir(join(root, 'skills/empty'));
       kvSet('skill:dependencies', 'off', root);
       const rows = (await invoke(f.registry, 'skills:list') as Json[]).map(object), item = rows.find(row => row.dirName === 'dependencies')!;
       assertEqual(item.name, '17', 'typed name coerced'); assertEqual(item.description, 'Multiple lines stay readable', 'folded description');
+      assertEqual(item.displayName, 'Seventeen', 'display_name projected');
+      assertEqual(item.nameZh, '十七', 'name_zh projected');
+      assertEqual(item.descriptionZh, '多行中文 保持可读', 'folded description_zh projected');
       assertDeepEqual(item.missingBins, ['not-executable', 'absent'], 'real execute mode detected');
       assertDeepEqual(item.missingEnv, ['ABSENT'], 'an empty but present environment variable counts present');
       assertEqual(item.dependencyStatus, 'missing', 'binary status takes precedence'); assertEqual(item.userEnabled, false, 'legacy off reader retained');

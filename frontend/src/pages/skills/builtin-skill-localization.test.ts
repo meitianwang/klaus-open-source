@@ -79,7 +79,7 @@ let previousWindow: PropertyDescriptor | undefined
 beforeAll(async () => {
   const g = globalThis as any
   previousWindow = Object.getOwnPropertyDescriptor(g, 'window')
-  g.window = { currentLang: 'zh' }
+  g.window = { currentLang: 'zh', addEventListener: () => {} }
   const { installMarketTables } = await import('../settings/market-tables')
   installMarketTables(g.window)
   table = g.window.SKILL_TEXT_I18N
@@ -153,6 +153,70 @@ describe('talking-head marketplace localization', () => {
       expect(localize.localizeSkillName(publishRow)).toBe('视频发布')
     } finally {
       global.window.currentLang = 'zh'
+    }
+  })
+
+  test('frontmatter displayName/nameZh/descriptionZh localize skills and slash chips even without a static table entry', async () => {
+    const localize = await import('./localize')
+    const { localizeSlashCommandDisplayName, localizeSlashCommandDescription } = await import('../../app/ui-shared')
+    const { skillReference } = await import('../../chat/composer/resource-reference')
+    const { renderComposerReferencePillHtml } = await import('../../chat/composer/reference-pill')
+    const customSkill = {
+      dirName: 'custom-unlisted-skill',
+      name: 'custom-unlisted-skill',
+      displayName: 'Custom Unlisted Skill',
+      nameZh: '未收录双语技能',
+      description: 'English frontmatter summary',
+      descriptionZh: '来自 SKILL.md 的中文简介',
+    }
+    const slashCommand = {
+      name: 'custom-unlisted-skill',
+      displayName: 'Custom Unlisted Skill',
+      nameZh: '未收录双语技能',
+      description: 'English frontmatter summary',
+      descriptionZh: '来自 SKILL.md 的中文简介',
+      source: 'skills',
+      kind: 'skill',
+    }
+    const global = globalThis as any
+    const previousLocalize = global.window.localizeSkillName
+    const previousSlashI18n = global.window.klausSlashCommandI18n
+    global.window.localizeSkillName = localize.localizeSkillName
+    global.window.klausSlashCommandI18n = {
+      displayName: localizeSlashCommandDisplayName,
+      description: localizeSlashCommandDescription,
+    }
+    try {
+      global.window.currentLang = 'zh'
+      expect(localize.localizeSkillName(customSkill)).toBe('未收录双语技能')
+      expect(localize.localizeSkillDescription(customSkill)).toBe('来自 SKILL.md 的中文简介')
+      expect(localizeSlashCommandDisplayName(slashCommand)).toBe('未收录双语技能')
+      expect(localizeSlashCommandDescription(slashCommand)).toBe('来自 SKILL.md 的中文简介')
+      const zhChip = skillReference(slashCommand)
+      expect(zhChip.name).toBe('未收录双语技能')
+      expect(zhChip.id).toBe('custom-unlisted-skill')
+      expect(renderComposerReferencePillHtml({ ...zhChip, range: { start: 0, end: zhChip.value.length } })).toContain('未收录双语技能')
+      // Restored slug-only reference pill also resolves through localizeSkillName when table entry exists.
+      expect(renderComposerReferencePillHtml({
+        kind: 'skill',
+        name: 'talking-head-script',
+        id: 'talking-head-script',
+        value: '[talking-head-script](klaus:skill/talking-head-script)',
+        range: { start: 0, end: 52 },
+      })).toContain('口播文案')
+
+      global.window.currentLang = 'en'
+      expect(localize.localizeSkillName(customSkill)).toBe('Custom Unlisted Skill')
+      expect(localize.localizeSkillDescription(customSkill)).toBe('English frontmatter summary')
+      expect(localizeSlashCommandDisplayName(slashCommand)).toBe('Custom Unlisted Skill')
+      expect(localizeSlashCommandDescription(slashCommand)).toBe('English frontmatter summary')
+      const enChip = skillReference(slashCommand)
+      expect(enChip.name).toBe('Custom Unlisted Skill')
+      expect(enChip.id).toBe('custom-unlisted-skill')
+    } finally {
+      global.window.currentLang = 'zh'
+      global.window.localizeSkillName = previousLocalize
+      global.window.klausSlashCommandI18n = previousSlashI18n
     }
   })
 })

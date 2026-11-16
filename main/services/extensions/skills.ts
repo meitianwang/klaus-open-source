@@ -103,10 +103,16 @@ export class SkillService {
       const metadata = object(meta.metadata), nested = object(metadata.klaus ?? metadata.openclaw ?? metadata.clawdbot ?? metadata);
       const dependencies = parseError ? { missingBins: [], missingEnv: [], unsupported: false } : await this.missingDependencies(meta); let enabled = true;
       const pref = preferences.get(name); if (pref !== undefined) try { enabled = object(JSON.parse(pref)).enabled !== false; } catch { enabled = pref !== 'off'; }
+      const displayName = (scalar(meta.display_name) ?? scalar(meta['display-name']))?.trim();
+      const nameZh = (scalar(meta.name_zh) ?? scalar(meta['name-zh']))?.trim();
+      const descriptionZh = (scalar(meta.description_zh) ?? scalar(meta['description-zh']))?.trim().split(/\s+/).join(' ');
       const row: JsonObject = { name: scalar(meta.name)?.trim() || name, description: scalar(meta.description)?.trim().split(/\s+/).join(' ') || '', source: 'installed', userInvocable: true, userEnabled: enabled, installed: true, dirName: name,
         path: join(path, 'SKILL.md'), definitionPreview: raw !== undefined,
         dependencyStatus: parseError ? 'invalid' : dependencies.unsupported ? 'unsupported' : dependencies.missingBins.length ? 'missing' : dependencies.missingEnv.length ? 'config' : 'ready', missingBins: dependencies.missingBins, missingEnv: dependencies.missingEnv,
         ...(parseError ? { error: parseError } : {}) };
+      if (displayName) row.displayName = displayName;
+      if (nameZh) row.nameZh = nameZh;
+      if (descriptionZh) row.descriptionZh = descriptionZh;
       if (typeof nested.emoji === 'string') row.emoji = nested.emoji;
       if (meta.tags !== null && typeof meta.tags === 'object' && Object.keys(meta.tags).length) row.tags = meta.tags;
       rows.push(row);

@@ -115,6 +115,31 @@ describe('selectComposerSkillRows', () => {
     // A slug without a table entry keeps its frontmatter name.
     const plain = base({ installed: [{ dirName: 'plain', name: 'Plain Name', userEnabled: true }] })
     expect(plain[0].displayName).toBe('Plain Name')
+    // A skill with frontmatter displayName + nameZh localizes without a static table entry.
+    ;(globalThis as any).window.currentLang = 'zh'
+    const fmZh = base({
+      installed: [{
+        dirName: 'unlisted-script',
+        name: 'unlisted-script',
+        displayName: 'Unlisted Script',
+        nameZh: '未收录脚本',
+        description: 'en desc',
+        descriptionZh: '中文描述',
+        userEnabled: true,
+      }],
+    })
+    expect(fmZh[0]).toMatchObject({ displayName: '未收录脚本', nameZh: '未收录脚本', descriptionZh: '中文描述' })
+    ;(globalThis as any).window.currentLang = 'en'
+    const fmEn = base({
+      installed: [{
+        dirName: 'unlisted-script',
+        name: 'unlisted-script',
+        displayName: 'Unlisted Script',
+        nameZh: '未收录脚本',
+        userEnabled: true,
+      }],
+    })
+    expect(fmEn[0].displayName).toBe('Unlisted Script')
   })
 
   test('chat.ts wires the plus-menu loader through the shared merge', () => {
