@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 import { runInNewContext } from 'node:vm'
 import { JsxEmit, ModuleKind, ScriptTarget, transpileModule } from 'typescript'
 import { createStore } from 'zustand/vanilla'
-import { createDesignPanel, designPanelBounds } from './design-panel'
+import { createDesignPanel, designPanelBounds, preferredDesignPanelWidth } from './design-panel'
 import { normalizeVisualArtifact, visualArtifactHintState } from './transcript/factories'
 
 const script = transpileModule(`${readFileSync(new URL('./panels/panel-tabs.tsx', import.meta.url), 'utf8')}\n;({ store, closeDesign: id => closeTab(find('design', id)) });`, {
@@ -19,6 +19,13 @@ test('Design Canvas bounds reject invalid or zero-size measurements', () => {
   expect(designPanelBounds(null)).toBeNull()
   expect(designPanelBounds({ left: 0, top: 0, width: 0, height: 600 })).toBeNull()
   expect(designPanelBounds({ left: Number.NaN, top: 0, width: 480, height: 600 })).toBeNull()
+})
+
+test('preferredDesignPanelWidth widens narrow default panels above the 600px inspector threshold without shrinking wider ones', () => {
+  expect(preferredDesignPanelWidth(460, 1140)).toBe(720)
+  expect(preferredDesignPanelWidth(460, 1320)).toBe(780)
+  expect(preferredDesignPanelWidth(840, 1320)).toBeNull()
+  expect(preferredDesignPanelWidth(460, 820)).toBeNull()
 })
 
 function tabsFixture() {

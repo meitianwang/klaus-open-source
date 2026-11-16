@@ -16,6 +16,19 @@ export function designPanelBounds(rect: Pick<DOMRectReadOnly, 'left' | 'top' | '
   return { x, y, width, height }
 }
 
+// Keep the Design Canvas above its 600px side-inspector threshold whenever the
+// workspace has room, without shrinking a panel the user already widened.
+export const DESIGN_PANEL_PREFERRED_WIDTH = 780
+export const DESIGN_PANEL_MIN_MAIN_WIDTH = 420
+
+export function preferredDesignPanelWidth(currentWidth: number, workspaceWidth: number): number | null {
+  if (!Number.isFinite(workspaceWidth) || workspaceWidth <= 0) return null
+  const maxPanel = Math.max(320, Math.round(workspaceWidth - DESIGN_PANEL_MIN_MAIN_WIDTH))
+  const target = Math.min(DESIGN_PANEL_PREFERRED_WIDTH, maxPanel)
+  const current = Number.isFinite(currentWidth) && currentWidth > 0 ? currentWidth : 460
+  return target > current + 0.5 ? target : null
+}
+
 const w = () => window as any
 let controller: ReturnType<typeof createDesignPanel> | undefined
 let boundsFrame = 0

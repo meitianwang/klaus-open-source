@@ -108,7 +108,15 @@ async function run() {
   const blobUrl = assetRes.structuredContent.url;
 
   const tokensFile = join(profile, 'tokens.json');
+  const tokensCssFile = join(profile, 'tokens.css');
+  const dsManifestFile = join(profile, 'ds-manifest.json');
+  const bundleCssFile = join(profile, 'bundle.css');
+  const bundleJsFile = join(profile, 'bundle.js');
   writeFileSync(tokensFile, readFileSync(join(designPluginRoot, 'design-systems/warm-editorial/project/tokens.json')));
+  writeFileSync(tokensCssFile, readFileSync(join(designPluginRoot, 'design-systems/warm-editorial/project/tokens.css')));
+  writeFileSync(dsManifestFile, readFileSync(join(designPluginRoot, 'design-systems/warm-editorial/project/manifest.json')));
+  writeFileSync(bundleCssFile, readFileSync(join(designPluginRoot, 'design-systems/warm-editorial/project/components/bundle.css')));
+  writeFileSync(bundleJsFile, readFileSync(join(designPluginRoot, 'design-systems/warm-editorial/project/components/bundle.js')));
 
   const canvasFile = join(profile, 'canvas.json');
   writeFileSync(
@@ -148,21 +156,46 @@ async function run() {
   <meta charset="utf-8">
   <title>Hero Artboard</title>
   <script src="./support.js"></script>
+  <link rel="stylesheet" href="./ds/warm-editorial/tokens.css">
+  <link rel="stylesheet" href="./ds/warm-editorial/components/bundle.css">
+  <script src="./ds/warm-editorial/components/bundle.js"></script>
 </head>
 <body>
 <x-dc>
 <helmet>
-  <style>body { margin: 0; background: #FAF9F5; color: #141413; font-family: system-ui, sans-serif; }</style>
+  <style>body { margin: 0; background: var(--surface); color: var(--ink); font-family: var(--font-sans); }</style>
 </helmet>
-<div style="width: 880px; height: 560px; box-sizing: border-box; padding: 56px; display: flex; flex-direction: column; justify-content: space-between; gap: 24px">
-  <div style="display: flex; flex-direction: column; gap: 16px">
-    <h1 style="margin: 0; font-size: 48px; color: {{accent}}">Design Canvas Fixture</h1>
-    <p style="margin: 0; font-size: 18px; color: #5E5D59">Interactive multi-artboard component system with live tweaks.</p>
+<div style="width: 880px; height: 560px; box-sizing: border-box; padding: 48px; display: flex; flex-direction: column; justify-content: space-between; gap: 24px">
+  <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 24px">
+    <div style="display: flex; flex-direction: column; gap: 12px">
+      <x-import component-from-global-scope="WarmDS.Badge" tone="positive" icon="TrendingUp">+18.4% weekly retention</x-import>
+      <h1 style="margin: 0; font-size: 40px; line-height: 46px; letter-spacing: -0.02em; color: {{accent}}">Design Canvas Fixture</h1>
+      <p style="margin: 0; font-size: 16px; line-height: 24px; color: var(--ink-secondary)">Interactive multi-artboard component system with live tweaks and WarmDS components.</p>
+    </div>
+    <div style="width: 240px; padding: 16px; border-radius: 16px; background: var(--surface-raised); border: 1px solid var(--line); display: flex; flex-direction: column; gap: 8px">
+      <div style="display: flex; justify-content: space-between; align-items: baseline; font-variant-numeric: tabular-nums">
+        <span style="font-size: 12px; color: var(--ink-muted)">7-day trend</span>
+        <strong style="font-size: 15px; color: var(--ink)">64.2 kg</strong>
+      </div>
+      <svg width="208" height="56" viewBox="0 0 208 56" style="display: block; overflow: visible">
+        <defs>
+          <linearGradient id="trend-fill" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#D97757" stop-opacity="0.18"/>
+            <stop offset="100%" stop-color="#D97757" stop-opacity="0"/>
+          </linearGradient>
+        </defs>
+        <line x1="4" y1="14" x2="204" y2="14" stroke="#141413" stroke-opacity="0.08" stroke-dasharray="3 3"/>
+        <line x1="4" y1="42" x2="204" y2="42" stroke="#141413" stroke-opacity="0.08" stroke-dasharray="3 3"/>
+        <path d="M 8 16 L 40 20 L 72 18 L 104 28 L 136 26 L 168 36 L 200 40 L 200 52 L 8 52 Z" fill="url(#trend-fill)"/>
+        <path d="M 8 16 L 40 20 L 72 18 L 104 28 L 136 26 L 168 36 L 200 40" fill="none" stroke="#D97757" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round"/>
+        <circle cx="200" cy="40" r="4" fill="#D97757" stroke="#FFFFFF" stroke-width="2"/>
+      </svg>
+    </div>
   </div>
   <div style="display: flex; align-items: center; gap: 24px">
-    <img src="${blobUrl}" alt="Swatch" style="width: 96px; height: 96px; border-radius: 16px; object-fit: cover">
+    <img src="${blobUrl}" alt="Swatch" style="width: 72px; height: 72px; border-radius: 14px; object-fit: cover; border: 1px solid var(--line)">
     <dc-import name="Card" label="Conversion +24%" hint-size="360px,220px"></dc-import>
-    <button type="button" onClick="{{ toggle }}" style="min-height: 44px; padding: 12px 24px; border-radius: 10px; border: none; background: #141413; color: #FAF9F5; font-size: 15px">{{ buttonText }}</button>
+    <x-import component-from-global-scope="WarmDS.Button" variant="primary" size="lg" icon="Sparkles" on-click="{{ toggle }}">{{ buttonText }}</x-import>
   </div>
 </div>
 </x-dc>
@@ -224,6 +257,10 @@ class Component extends DCLogic {
       { path: mainDc, as: 'project/Main.dc.html' },
       { path: cardDc, as: 'project/Card.dc.html' },
       { path: tokensFile, as: 'project/ds/warm-editorial/tokens.json' },
+      { path: tokensCssFile, as: 'project/ds/warm-editorial/tokens.css' },
+      { path: dsManifestFile, as: 'project/ds/warm-editorial/manifest.json' },
+      { path: bundleCssFile, as: 'project/ds/warm-editorial/components/bundle.css' },
+      { path: bundleJsFile, as: 'project/ds/warm-editorial/components/bundle.js' },
     ],
   });
   log('published', published);
@@ -259,8 +296,8 @@ class Component extends DCLogic {
     await new Promise(r => setTimeout(r, 200));
   }
   log('rendered-state', renderedState);
-  if (!renderedState || !renderedState.frameTexts?.some(t => t.includes('Design Canvas Fixture') && t.includes('Conversion +24%'))) {
-    throw Error(`Artboards did not finish rendering DCLogic + <dc-import>: ${JSON.stringify(renderedState)}`);
+  if (!renderedState || !renderedState.frameTexts?.some(t => t.includes('Design Canvas Fixture') && t.includes('Conversion +24%') && t.includes('+18.4% weekly retention'))) {
+    throw Error(`Artboards did not finish rendering DCLogic + <dc-import> + WarmDS <x-import>: ${JSON.stringify(renderedState)}`);
   }
 
   window.showInactive();
@@ -270,12 +307,12 @@ class Component extends DCLogic {
   }
   await require('./design-service-assertions.cjs').assertLocalShell(editor, log, 'published');
 
-  // 3. Verify header menu (Delete artifact disabled, Favorite absent) & excluded capabilities
+  // 3. Verify header menu (Delete artifact disabled, Favorite/Share/Report absent) & excluded capabilities
   const headerMenu = await editor.view.webContents.executeJavaScript(
-    '(async()=>{const button=document.querySelector("[data-title-menu]");button?.click();await new Promise(resolve=>requestAnimationFrame(resolve));const text=document.body.innerText;const disabled=document.querySelector("[data-delete-item]")?.getAttribute("aria-disabled");button?.click();return {text,deleteDisabled:disabled,favorite:/Favorite|Favourite/.test(text)}})()',
+    '(async()=>{const button=document.querySelector("[data-title-menu]");button?.click();await new Promise(resolve=>requestAnimationFrame(resolve));const text=document.body.innerText;const disabled=document.querySelector("[data-delete-item]")?.getAttribute("aria-disabled");const hasShare=!!document.querySelector("[data-share-item],[data-share-btn]");const hasReport=!!document.querySelector("[data-report-item]");button?.click();return {text,deleteDisabled:disabled,hasShare,hasReport,favorite:/Favorite|Favourite/.test(text)}})()',
   );
   log('header-menu', headerMenu);
-  if (!headerMenu.text.includes('Delete artifact') || headerMenu.deleteDisabled !== 'true' || headerMenu.favorite) {
+  if (!headerMenu.text.includes('Delete artifact') || headerMenu.deleteDisabled !== 'true' || headerMenu.favorite || headerMenu.hasShare || headerMenu.hasReport || /\bShare\b|Report artifact/i.test(headerMenu.text)) {
     throw Error(`Design header menu violated contract: ${JSON.stringify(headerMenu)}`);
   }
   const capabilities = await editor.view.webContents.executeJavaScript(
@@ -350,17 +387,34 @@ class Component extends DCLogic {
           await new Promise(r => setTimeout(r, 200));
           continue;
         }
-        // Open the Tweaks/Properties inspector on Hero Artboard so the Chinese inspector tabs are visible in screenshot
+        // Open the Theme inspector tab so Chinese inspector tabs + Warm Editorial UI tokens are verified in screenshot
         await contentFrame.executeJavaScript(`(() => {
-          const btn = [...document.querySelectorAll('button')].find(e => /微调|属性|Tweaks|Properties/.test(e.getAttribute('aria-label') || '') || /微调|Tweaks/.test(e.textContent || ''));
+          const btn = [...document.querySelectorAll('button')].find(e => e.getAttribute('aria-label') === '属性');
           btn?.click();
         })()`).catch(() => {});
-        await new Promise(r => setTimeout(r, 300));
+        await new Promise(r => setTimeout(r, 250));
+        await contentFrame.executeJavaScript(`(() => {
+          const themeTab = [...document.querySelectorAll('[role="tab"],button')].find(e => (e.textContent || '').trim() === '主题');
+          themeTab?.click();
+        })()`).catch(() => {});
+        // Allow the foot toolbar hold window (1200ms) to settle so the bottom toolbar is visible too
+        await new Promise(r => setTimeout(r, 1300));
         const afterOpen = await contentFrame.executeJavaScript(`(() => ({
           text: document.body?.innerText ?? '',
-          labels: [...document.querySelectorAll('button,[role="tab"],[aria-label]')].map(e => (e.getAttribute('aria-label') || e.textContent || '').trim()).filter(Boolean).slice(0, 40),
-        }))()`).catch(() => ({ text: '', labels: [] }));
-        log('zh-state', { lang: zhState.lang, labelsSample: zhState.labels.slice(0, 25), afterOpen });
+          labels: [...document.querySelectorAll('button,[role="tab"],[aria-label]')].map(e => (e.getAttribute('aria-label') || e.textContent || '').trim()).filter(Boolean).slice(0, 50),
+          footToolbarVisible: (() => {
+            const row = document.querySelector('[data-testid="dc-tool-row"]');
+            const bar = row?.closest('[data-dc-foot-row]');
+            return !!row && bar?.getAttribute('data-dc-foot-row') === 'shown';
+          })(),
+        }))()`).catch(() => ({ text: '', labels: [], footToolbarVisible: false }));
+        log('zh-state', { lang: zhState.lang, labelsSample: zhState.labels.slice(0, 30), afterOpen });
+        if (afterOpen.labels.some(l => /for artboard|Export artboard|Play prototype|\bNote\b/.test(l))) {
+          throw Error(`Untranslated English artboard/tool labels remained in zh-Hans: ${JSON.stringify(afterOpen.labels)}`);
+        }
+        if (!afterOpen.footToolbarVisible) {
+          throw Error(`Bottom drawing toolbar was not shown in zh-Hans: ${JSON.stringify(afterOpen)}`);
+        }
         zhVerified = true;
         break;
       }
@@ -369,9 +423,13 @@ class Component extends DCLogic {
   }
   if (!zhVerified) throw Error('Live switch to zh-Hans did not render Chinese Design Canvas chrome.');
   const zhHeaderMenu = await editor.view.webContents.executeJavaScript(
-    '(async()=>{const button=document.querySelector("[data-title-menu]");button?.click();await new Promise(resolve=>requestAnimationFrame(resolve));const text=document.body.innerText;button?.click();return text})()',
+    '(async()=>{const button=document.querySelector("[data-title-menu]");button?.click();await new Promise(resolve=>requestAnimationFrame(resolve));const text=document.body.innerText;const deleteText=document.querySelector("[data-delete-item]")?.textContent?.trim()??"";button?.click();return {text,deleteText}})()',
   );
   log('zh-header-menu', zhHeaderMenu);
+  if (/分享|举报|Share|Report|Delete artifact/i.test(zhHeaderMenu.text) || !zhHeaderMenu.text.includes('重命名') || !zhHeaderMenu.deleteText.includes('删除设计画布')) {
+    throw Error(`Chinese header menu violated contract: ${JSON.stringify(zhHeaderMenu)}`);
+  }
+  await new Promise(r => setTimeout(r, 150));
   await captureEditorPng(editor, 'editor-zh.png');
 
   console.log('Design Canvas native editor: empty boot, multi-artboard DCLogic + <dc-import> + /_blob/ asset rendering, warm-editorial tokens, service boundaries, PDF/PNG/HTML exports, and en-US/zh-Hans live switch all passed.');

@@ -203,7 +203,7 @@ import { initVideoEditingPanel, hideVideoEditingPanel, scheduleVideoEditingBound
 import { initPptPanel, hidePptPanel, schedulePptBoundsSync } from './ppt-panel'
 import { createPptChatConsumer } from './ppt-chat'
 import type { PptChatRequest } from '../../bridge/ppt-api'
-import { initDesignPanel, hideDesignPanel, scheduleDesignBoundsSync } from './design-panel'
+import { initDesignPanel, hideDesignPanel, scheduleDesignBoundsSync, preferredDesignPanelWidth } from './design-panel'
 import { createDesignChatConsumer } from './design-chat'
 import type { DesignChatRequest } from '../../bridge/design-api'
 import { initBackgroundProcessMonitor } from './background-process-monitor'
@@ -19088,6 +19088,11 @@ function openArtifactsPanel(mode: string = 'monitor') {
   const nextMode = normalizePanelMode(mode)
   setArtifactsPanelMode(nextMode)
   artifactsPanel.classList.remove('collapsed')
+  if (nextMode === 'design' && !document.body.classList.contains('artifacts-maximized')) {
+    const wsWidth = currentWorkspaceWidth()
+    const widened = preferredDesignPanelWidth(rightPanelRatioToWidth(rightPanelWidthRatio, wsWidth), wsWidth)
+    if (widened !== null) setRightPanelWidthPx(widened, { updateRatio: true })
+  }
   if (nextMode === 'monitor') chatMonitorExpanded = true
   if (nextMode === 'diff') {
     diffFilesPanelCollapsed = false
