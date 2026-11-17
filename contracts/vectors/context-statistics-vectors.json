@@ -1,5 +1,5 @@
 {
-  "reason": "Context usage displays divide current tokens by usable input capacity. Raw capacity and the earlier automatic compaction boundary remain separate measurements; model publications refresh the active snapshot.",
+  "reason": "Context usage displays divide current tokens by usable input capacity, or by the model's declared automatic compaction ceiling when one caps active sessions below usable capacity. Raw capacity and earlier session-level automatic compaction thresholds remain separate measurements; model publications refresh the active snapshot.",
   "readFailure": {
     "reason": "Optional monitor reads may lose a session during lifecycle changes. Keep diagnostics and the last measured display without appending transcript notices or fabricating zero usage.",
     "result": null,
@@ -155,6 +155,30 @@
         "percentage": 57.89473684210527,
         "autoCompactThreshold": 450000
       }
+    },
+    {
+      "name": "model-declared automatic compaction ceiling bounds active usage capacity",
+      "input": {
+        "context": {
+          "model": "fixture-model",
+          "totalTokens": 180000,
+          "contextWindow": 1048576,
+          "outputReserveTokens": 52429,
+          "compactThreshold": 0.2570083531848211,
+          "compactThresholdTokens": 256000,
+          "autoCompactTokenLimit": 256000,
+          "windowState": "normal"
+        }
+      },
+      "expected": {
+        "tokens": 180000,
+        "maxTokens": 256000,
+        "rawMaxTokens": 1048576,
+        "effectiveWindow": 996147,
+        "percentage": 70.3125,
+        "autoCompactThreshold": 256000,
+        "isAutoCompactEnabled": true
+      }
     }
   ],
   "usageDisplay": [
@@ -203,6 +227,22 @@
       "tokensText": "600k / 475k",
       "percentageText": "100%",
       "percentage": 100
+    },
+    {
+      "name": "model-declared automatic compaction ceiling sets the displayed denominator",
+      "input": {
+        "context": {
+          "totalTokens": 180000,
+          "contextWindow": 1048576,
+          "outputReserveTokens": 52429,
+          "compactThreshold": 0.2570083531848211,
+          "compactThresholdTokens": 256000,
+          "autoCompactTokenLimit": 256000
+        }
+      },
+      "tokensText": "180k / 256k",
+      "percentageText": "70%",
+      "percentage": 70.3125
     }
   ],
   "indicator": {

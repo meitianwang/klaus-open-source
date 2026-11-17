@@ -14,6 +14,10 @@ export function contextStats(value: unknown): Record<string, Json> {
   const tokens = count(snapshot,'totalTokens','total_tokens'), raw = count(snapshot,'contextWindow','context_window');
   const effective = Math.max(0, raw-count(snapshot,'outputReserveTokens','output_reserve_tokens',0));
   const threshold = count(snapshot,'compactThresholdTokens','compact_threshold_tokens',effective);
+  const modelLimit = snapshot.autoCompactTokenLimit ?? snapshot.auto_compact_token_limit;
+  if (modelLimit != null && (typeof modelLimit !== 'number' || !Number.isFinite(modelLimit) || modelLimit < 0)) {
+    throw new IpcHandlerError('INVALID_ENGINE_RESPONSE', 'The engine returned an invalid autoCompactTokenLimit');
+  }
   const ratio = snapshot.compactThreshold ?? snapshot.compact_threshold;
   if (ratio != null && (typeof ratio !== 'number' || !Number.isFinite(ratio) || ratio < 0 || ratio > 1)) throw new IpcHandlerError('INVALID_ENGINE_RESPONSE','The engine returned an invalid compaction threshold');
   const state = String(snapshot.windowState ?? snapshot.window_state ?? '').replace(/[_-]/g,'').toLowerCase();
@@ -32,9 +36,10 @@ export function contextStats(value: unknown): Record<string, Json> {
   const sourceCost = object(snapshot.cost);
   const cost = sourceCost ? {totalCostUsd:count(sourceCost,'totalCostUsd','total_cost_usd',0),cacheHitRate:count(sourceCost,'cacheHitRate','cache_hit_rate',0)} : null;
   const auto = typeof ratio === 'number' && threshold > 0;
+  const working = auto && typeof modelLimit === 'number' && modelLimit > 0 ? Math.min(effective, modelLimit) : effective;
   return {
     model:typeof snapshot.model === 'string' && snapshot.model ? snapshot.model : 'klaus',
-    tokens,maxTokens:effective,rawMaxTokens:raw,percentage:effective>0?Math.min(100,tokens/effective*100):0,effectiveWindow:effective,
+    tokens,maxTokens:working,rawMaxTokens:raw,percentage:working>0?Math.min(100,tokens/working*100):0,effectiveWindow:effective,
     autoCompactThreshold:auto?threshold:null,isAutoCompactEnabled:auto,
     warning:{percentLeft:threshold>0?Math.max(0,100-tokens/threshold*100):100,isAboveWarningThreshold:near||over,
       isAboveErrorThreshold:over,isAboveAutoCompactThreshold:over,isAtBlockingLimit:over},
