@@ -40,7 +40,6 @@ export async function sourceTierCatalog(source: string, deps: TierCatalogDeps): 
       const state = object(await deps.sourceStatus(source));
       statusMs = Date.now() - statusStartedAt;
       if (source === 'antigravity' && state.needsLogin === true) throw new IpcHandlerError('MODEL_SOURCE_NOT_SIGNED_IN', 'Reconnect the Antigravity account before using this source');
-      if (source === 'gemini' && state.needsLogin === true) throw new IpcHandlerError('MODEL_SOURCE_NOT_SIGNED_IN', 'Reconnect the Gemini CLI account before using this source');
       if (source === 'trae' && state.needsLogin === true) throw new IpcHandlerError('MODEL_SOURCE_NOT_SIGNED_IN', 'Reconnect the TRAE CN account before using this source');
       if (source === 'kiro' && state.needsLogin === true) throw new IpcHandlerError('MODEL_SOURCE_NOT_SIGNED_IN', 'Reconnect the Kiro account before using this source');
       if (source === 'cursor' && state.needsLogin === true) {

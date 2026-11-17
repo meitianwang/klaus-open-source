@@ -283,14 +283,7 @@ void (async () => {
       // 764 adds `antigravity-auth:switch-account` on `antigravityAuth` for the same
       // active-account switch across an Antigravity account pool.
       // 775 adds the eleven `design:*` owner-panel transport channels for Design Canvas.
-      // 780 adds the five `gemini-auth:*` channels behind the Gemini CLI card:
-      // status, the catalog read, the local-login import, the shared-pool
-      // account switch and the confirm-gated logout. There is no start/poll
-      // pair — the source has no browser sign-in of its own and reuses the
-      // Antigravity credential store — and all five are exposed on the
-      // `geminiAuth` surface so the agent can connect a conversation and read
-      // its allowance the way it already can for the sibling source.
-      assert.equal(channels.size, 780);
+      assert.equal(channels.size, 775);
       const companionChannels = [...channels].filter(channel => channel.startsWith('desktop-pet:'));
       assert.equal(companionChannels.length, 58);
       for (const channel of companionChannels) {
@@ -337,9 +330,7 @@ void (async () => {
       // Music adds independent selection and native model preference surfaces (68).
       // Each new account source owns its explicit authentication surface.
       // Auxiliary task model picks add `featureModels` (72) beside the advisor.
-      // The Gemini CLI source adds `geminiAuth` (73): the same account-surface
-      // shape as its sibling minus the browser-login writes.
-      assert.equal(new Set(CONTROL_SURFACES.map(surface => surface.key)).size, 73);
+      assert.equal(new Set(CONTROL_SURFACES.map(surface => surface.key)).size, 72);
     });
     await h.test('model control cannot grant itself preview access or acquire the owner activity projection', async () => {
       const preview = JSON.parse(await readFile(join(root, 'contracts/vectors/artifact-preview-access-vectors.json'), 'utf8')).controlAccess;

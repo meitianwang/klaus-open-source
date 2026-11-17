@@ -15,7 +15,6 @@ import { ApprovalReviewCard, ApprovalReviewNotice } from './approval-review'
 import { approvalReview, type ApprovalReview } from '../../../../contracts/approval-review'
 import { knownCursorErrorText } from '../../app/cursor-errors'
 import { knownAntigravityErrorText } from '../../app/antigravity-errors'
-import { knownGeminiErrorText } from '../../app/gemini-errors'
 import { knownTraeErrorText } from '../../app/trae-errors'
 import { knownKiroErrorText } from '../../app/kiro-errors'
 import { knownEngineSourceProseErrorText } from '../../app/model-source-errors'
@@ -2791,8 +2790,6 @@ export function providerErrorText(raw: string, kind: string | undefined, t: (key
   if (trae !== undefined) return trae
   const antigravity = knownAntigravityErrorText(raw, t)
   if (antigravity !== undefined) return antigravity
-  const gemini = knownGeminiErrorText(raw, t)
-  if (gemini !== undefined) return gemini
   const cursor = knownCursorErrorText(raw, t)
   if (cursor !== undefined) return cursor
   const sourceProse = knownEngineSourceProseErrorText(raw, t)

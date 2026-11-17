@@ -9,7 +9,7 @@ import { fastModePreferenceKey, isRequestFastSource } from '../../shared/model-f
 
 export interface SessionModelPreference { mode: string; source: string }
 
-export const MODEL_SOURCES = ['subscription', 'custom', 'codex', 'cursor', 'qoder', 'qwenwork', 'workbuddy', 'antigravity', 'gemini', 'trae', 'kiro', 'kimi', 'bailian', 'minimax', 'zhipu', 'ark'];
+export const MODEL_SOURCES = ['subscription', 'custom', 'codex', 'cursor', 'qoder', 'qwenwork', 'workbuddy', 'antigravity', 'trae', 'kiro', 'kimi', 'bailian', 'minimax', 'zhipu', 'ark'];
 
 /**
  * The local reasoning and orchestration choices, kept here rather than in

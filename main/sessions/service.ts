@@ -4478,8 +4478,7 @@ export class SessionService {
 
   private async materializeMessageInput(rendererId: string, text: string, media: Json[]): Promise<Json> {
     if (!media.some(value => object(value)?.type === 'media')) return (this.deps.messageInput ?? buildMessageInput)(text, media);
-    const mediaSource = readSessionModel(rendererId, this.configRoot).source;
-    if (mediaSource !== 'antigravity' && mediaSource !== 'gemini') return (this.deps.messageInput ?? buildMessageInput)(text, media, []);
+    if (readSessionModel(rendererId, this.configRoot).source !== 'antigravity') return (this.deps.messageInput ?? buildMessageInput)(text, media, []);
     const engineId = this.deps.state.liveSession(rendererId);
     const revision = this.deps.state.modelPreferenceRevision(rendererId);
     const types = await this.deps.mediaInputMimeTypes?.(rendererId) ?? [];

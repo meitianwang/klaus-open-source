@@ -1016,61 +1016,6 @@ export class SubscriptionAuthService {
     });
   }
 
-  /**
-   * The Gemini lineup shares one account pool with the direct-cloud source, so
-   * importing here adopts the same local credential into that pool and any
-   * in-flight browser login is cancelled like the sibling import does.
-   */
-  async geminiImportLocal(): Promise<Json> {
-    const epoch = ++this.antigravityEpoch;
-    const previousFlow = this.antigravityLoginFlow;
-    this.antigravityLoginFlow = undefined;
-    return this.writes.run(async (): Promise<Json> => {
-      try {
-        if (previousFlow) await this.deps.request('antigravity/loginCancel', { flow: { flowId: previousFlow.flowId } });
-        if (this.closed || epoch !== this.antigravityEpoch) throw new Error('Account operation cancelled');
-        const credentials = this.deps.credentials;
-        const credential = await readAntigravityCredential(this.deps.homeDir, credentials ? () => credentials.readAntigravityKeychainSecret() : undefined);
-        const imported = object(await this.deps.request('gemini/adoptCredential', { credential }));
-        if (imported.ok === true) await this.deps.onAuthChanged();
-        return imported;
-      } catch (error) { return { ok: false, error: errorMessage(error) }; }
-    });
-  }
-
-  async geminiLogout(accountId?: string): Promise<Json> {
-    const targetId = accountId?.trim() || undefined;
-    if (!targetId) {
-      ++this.antigravityEpoch;
-      const previousFlow = this.antigravityLoginFlow;
-      this.antigravityLoginFlow = undefined;
-      if (previousFlow) await this.deps.request('antigravity/loginCancel', { flow: { flowId: previousFlow.flowId } }).catch(() => {});
-    }
-    return this.writes.run(async (): Promise<Json> => {
-      try {
-        if (this.closed) return { ok: false, error: 'Account operation cancelled' };
-        const result = object(await this.deps.request('gemini/logout', targetId ? { accountId: targetId } : {}));
-        if (result.ok === false) return result;
-        const signedOut = !targetId || result.signedIn === false || result.loggedIn === false;
-        await this.deps.onAuthChanged(signedOut ? { signedOut: true } : undefined);
-        return result;
-      } catch (error) { return { ok: false, error: errorMessage(error) }; }
-    });
-  }
-
-  async geminiSwitchAccount(accountId: string): Promise<Json> {
-    const targetId = accountId.trim();
-    if (!targetId) return { ok: false, error: 'gemini_account_not_found' };
-    return this.writes.run(async (): Promise<Json> => {
-      try {
-        if (this.closed) return { ok: false, error: 'Account operation cancelled' };
-        const result = object(await this.deps.request('gemini/switchAccount', { accountId: targetId }));
-        if (result.ok === true) await this.deps.onAuthChanged();
-        return result;
-      } catch (error) { return { ok: false, error: errorMessage(error) }; }
-    });
-  }
-
   async qwenworkImportLocal(): Promise<Json> {
     const epoch = ++this.qwenworkEpoch;
     return this.writes.run(async (): Promise<Json> => {

@@ -24,7 +24,6 @@
     "qwenwork",
     "workbuddy",
     "antigravity",
-    "gemini",
     "trae",
     "kiro",
     "kimi",
@@ -155,12 +154,6 @@
         "reason": "Sign in to this source on this device."
       },
       {
-        "value": "gemini",
-        "label": "Gemini CLI",
-        "available": false,
-        "reason": "Sign in to this source on this device."
-      },
-      {
         "value": "trae",
         "label": "TRAE CN",
         "available": false,
@@ -283,12 +276,6 @@
       {
         "value": "antigravity",
         "label": "Antigravity",
-        "available": false,
-        "reason": "Sign in to this source on this device."
-      },
-      {
-        "value": "gemini",
-        "label": "Gemini CLI",
         "available": false,
         "reason": "Sign in to this source on this device."
       },
@@ -422,12 +409,6 @@
         {
           "value": "antigravity",
           "label": "Antigravity",
-          "available": false,
-          "reason": "Sign in to this source on this device."
-        },
-        {
-          "value": "gemini",
-          "label": "Gemini CLI",
           "available": false,
           "reason": "Sign in to this source on this device."
         },

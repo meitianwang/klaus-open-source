@@ -172,7 +172,7 @@ export function mediaItems(value: unknown, source = ''): IncomingMedia[] {
   return value.map(raw => {
     const row = object(raw), kind = row.type ?? 'image';
     if (kind !== 'image' && kind !== 'file') throw badRequest('Unsupported attachment type');
-    const data = required(row.data, 'Attachment data').trim(), match = (source === 'antigravity' || source === 'gemini' ? /^data:([^,]*);base64,([\s\S]*)$/u : /^data:([^;]*);base64,([\s\S]*)$/u).exec(data);
+    const data = required(row.data, 'Attachment data').trim(), match = (source === 'antigravity' ? /^data:([^,]*);base64,([\s\S]*)$/u : /^data:([^;]*);base64,([\s\S]*)$/u).exec(data);
     const compact = (match?.[2] ?? data).replace(/\s+/gu, '');
     if (compact.length > Math.ceil(10 * 1024 * 1024 / 3) * 4) throw new MobileError(413, 'payload_too_large', 'Attachment is too large');
     // Avoid a repeated-group regexp: multi-megabyte valid input can exhaust V8's regexp stack.
@@ -186,7 +186,7 @@ export function mediaItems(value: unknown, source = ''): IncomingMedia[] {
     let mimeType = (string(row.mimeType) || string(row.mime_type) || match?.[1] || '').toLowerCase().trim();
     if (mimeType === 'image/jpg') mimeType = 'image/jpeg';
     if (kind === 'image' && !['image/jpeg', 'image/png', 'image/webp'].includes(mimeType)) throw new MobileError(400, 'unsupported_media_type', 'Only JPEG, PNG, and WebP images are supported');
-    if (kind === 'file' && !((source === 'antigravity' || source === 'gemini') && mediaInputMime('', mimeType)) && !/^[A-Za-z0-9!#$&^_.+-]+\/[A-Za-z0-9!#$&^_.+-]+$/u.test(mimeType)) mimeType = 'application/octet-stream';
+    if (kind === 'file' && !(source === 'antigravity' && mediaInputMime('', mimeType)) && !/^[A-Za-z0-9!#$&^_.+-]+\/[A-Za-z0-9!#$&^_.+-]+$/u.test(mimeType)) mimeType = 'application/octet-stream';
     const extension = mimeType === 'image/png' ? '.png' : mimeType === 'image/webp' ? '.webp' : '.jpg';
     let filename = (string(row.filename) || string(row.name)).replace(/[\\/\0]/gu, '').trim() || (kind === 'image' ? 'mobile-image' + extension : 'mobile-file');
     if (kind === 'image' && !/^.+\.[^.]+$/u.test(filename)) filename = [...filename].slice(0, 110).join('') + extension;

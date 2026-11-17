@@ -1593,15 +1593,6 @@ expose('klaus', {
     logout: (accountId?: string) => call('antigravity-auth:logout', accountId ? { accountId } : {}),
     models: () => call('antigravity-auth:models'),
   },
-  // The Gemini lineup reuses the local Antigravity credential; there is no
-  // browser sign-in of its own, so no start/poll/cancel channels exist.
-  geminiAuth: {
-    status: () => call('gemini-auth:status'),
-    importLocal: () => call('gemini-auth:import-local'),
-    switchAccount: (accountId: string) => call('gemini-auth:switch-account', { accountId }),
-    logout: (accountId?: string) => call('gemini-auth:logout', accountId ? { accountId } : {}),
-    models: () => call('gemini-auth:models'),
-  },
   // The engine owns this subscription's credentials and cloud protocol.
   qwenworkAuth: {
     status: () => call('qwenwork-auth:status'),

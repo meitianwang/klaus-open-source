@@ -1,6 +1,6 @@
 {
   "summary": {
-    "invokeDeclared": 780,
+    "invokeDeclared": 775,
     "pushDeclared": 83
   },
   "rows": [
@@ -1294,26 +1294,6 @@
     },
     {
       "channel": "friends:share-qr-card",
-      "kind": "invoke"
-    },
-    {
-      "channel": "gemini-auth:import-local",
-      "kind": "invoke"
-    },
-    {
-      "channel": "gemini-auth:logout",
-      "kind": "invoke"
-    },
-    {
-      "channel": "gemini-auth:models",
-      "kind": "invoke"
-    },
-    {
-      "channel": "gemini-auth:status",
-      "kind": "invoke"
-    },
-    {
-      "channel": "gemini-auth:switch-account",
       "kind": "invoke"
     },
     {

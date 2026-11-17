@@ -368,38 +368,6 @@ function normalizeAntigravityRowError(rawError: unknown): string {
   return tag ?? 'Usage request failed; check your network connection and retry';
 }
 
-function normalizeGeminiRowError(rawError: unknown): string {
-  const message = string(rawError);
-  const tag = /\b(gemini_[a-z0-9_]+|model_context_window_exceeded)\b/u.exec(message)?.[1];
-  return tag ?? 'Usage request failed; check your network connection and retry';
-}
-
-/**
- * The engine already merged this source's per-model buckets into one shared
- * pool row, so the desktop renders the windows as reported instead of running
- * the sibling source's family curation over them again.
- */
-export function geminiUsage(value: unknown): JsonObject {
-  const answer = object(value);
-  if (Array.isArray(answer.accounts)) {
-    if (answer.signedIn !== true || answer.accounts.length === 0) return { state: 'signed_out', accounts: [] };
-    const accounts = answer.accounts.map((raw, index): JsonObject => {
-      const row = object(raw);
-      const id = string(row.id) || String(index);
-      const label = string(row.label) || string(row.account) || 'Gemini CLI';
-      const base: JsonObject = { id, label, isCurrent: index === 0 };
-      optionalString(base, 'plan', row.plan);
-      if (row.state === 'error') {
-        return { ...base, state: 'error', error: normalizeGeminiRowError(row.error) };
-      }
-      const projected = subscriptionAllowanceUsage({ ...row, signedIn: true }, antigravityQuotaGroupLabel);
-      return { ...projected, ...base, state: 'ok' };
-    });
-    return { ...accounts[0]!, accounts };
-  }
-  return subscriptionAllowanceUsage(value, antigravityQuotaGroupLabel);
-}
-
 export function antigravityUsage(value: unknown): JsonObject {
   const answer = object(value);
   if (Array.isArray(answer.accounts)) {
@@ -752,7 +720,6 @@ export class UsageService {
         // enterprise `limit_num`/`used_num` pair into that shape.
         case 'workbuddy': provider = qoderUsage(await this.deps.request('workbuddy/usage', {}, this.abort.signal)); break;
         case 'antigravity': provider = antigravityUsage(await this.deps.request('antigravity/usage', {}, this.abort.signal)); break;
-        case 'gemini': provider = geminiUsage(await this.deps.request('gemini/usage', {}, this.abort.signal)); break;
         case 'trae': provider = traeUsage(await this.deps.request('trae/usage', {}, this.abort.signal)); break;
         case 'kiro': provider = kiroUsage(await this.deps.request('kiro/usage', {}, this.abort.signal)); break;
         case 'kimi': provider = kimiUsage(await this.deps.request('kimi/usage', {}, this.abort.signal)); break;
@@ -791,8 +758,6 @@ export class UsageService {
     if (error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError' && !this.abort.signal.aborted)) return 'Usage request timed out; check your network or proxy';
     const antigravity = /\b(antigravity_[a-z0-9_]+|model_context_window_exceeded)\b/u.exec(message)?.[1];
     if (antigravity) return antigravity;
-    const gemini = /\b(gemini_[a-z0-9_]+)\b/u.exec(message)?.[1];
-    if (gemini) return gemini;
     return 'Usage request failed; check your network connection and retry';
   }
   private async claude(): Promise<JsonObject> {

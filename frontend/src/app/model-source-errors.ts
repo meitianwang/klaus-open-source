@@ -1,5 +1,4 @@
 import { knownAntigravityErrorText } from './antigravity-errors'
-import { knownGeminiErrorText } from './gemini-errors'
 import { knownCursorErrorText } from './cursor-errors'
 import { knownKiroAuthErrorText } from './kiro-errors'
 import { knownTraeAuthErrorText, knownTraeErrorText } from './trae-errors'
@@ -107,7 +106,6 @@ const CODE_MODE_PREFIXES: Array<[string, string]> = [
   ['qwenwork_', 'qwenwork'],
   ['workbuddy_', 'workbuddy'],
   ['antigravity_', 'antigravity'],
-  ['gemini_', 'gemini'],
   ['cursor_', 'cursor'],
   ['qoder_', 'qoder'],
   ['trae_', 'trae'],
@@ -238,8 +236,6 @@ export function knownModelSourceErrorText(
     }
     const antigravity = knownAntigravityErrorText(candidate, translate)
     if (antigravity) return antigravity
-    const gemini = knownGeminiErrorText(candidate, translate)
-    if (gemini) return gemini
   }
 
   return undefined
