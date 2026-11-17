@@ -114,7 +114,7 @@ h.test('task location and permission fields are persisted and validated', async 
   f.add('workspace', { workspaceId: 'workspace-1', permissionPreset: 'default' });
   assertDeepEqual(f.store.getTask('project'), {
     id: 'project', name: 'project', description: null, schedule: '* * * * *', prompt: 'Task', enabled: true,
-    thinking: null, timeoutSeconds: null, deleteAfterRun: false, timezone: null, channelBinding: null,
+    thinking: null, deleteAfterRun: false, timezone: null, channelBinding: null,
     createdBy: 'manual', notificationPolicy: 'failed_runs_only', model: null, workdir: '/tmp/project',
     workspaceId: null, permissionPreset: 'auto', createdAt: f.store.getTask('project')!.createdAt,
     updatedAt: f.store.getTask('project')!.updatedAt,
@@ -238,14 +238,6 @@ h.test('terminal execution errors, authentication errors and engine exits remain
   await waitFor(() => f.store.listRuns({ taskId: 'exit' })[0]?.status === 'failed', 1000, 'engine failure');
   assertEqual(f.store.listRuns({ taskId: 'exit' })[0]?.error, 'Engine process exited mid-run', 'engine error retained');
   assertEqual(f.pushes.length, 3, 'actual failures still announce their errors');
-  await f.runtime.close();
-});
-h.test('timeouts interrupt the actual session and record a failed run', async () => {
-  const f = fixture(); f.add('timeout', { timeoutSeconds: 1 });
-  await f.runtime.runNow('timeout');
-  await waitFor(() => f.store.listRuns()[0]?.status === 'failed', 2500, 'deadline');
-  assertDeepEqual(f.interrupted, ['session-1'], 'one owned turn interrupted');
-  assert(String(f.store.listRuns()[0]?.error).includes('timed out after 1s'), 'deadline reason retained');
   await f.runtime.close();
 });
 h.test('restart recovery marks all abandoned running rows without changing completed history', async () => {

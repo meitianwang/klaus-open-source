@@ -6,7 +6,6 @@
     { "status": "failed", "error": "interrupted (app shutdown)", "expected": "stopped" },
     { "status": "success", "error": "Task interrupted", "expected": "stopped" },
     { "status": "failed", "error": "interrupted (app restart)", "expected": "failed" },
-    { "status": "failed", "error": "cron run timed out after 1s", "expected": "failed" },
     { "status": "failed", "error": "Engine process exited mid-run", "expected": "failed" },
     { "status": "failed", "error": "Tool failed: Task interrupted", "expected": "failed" },
     { "status": "success", "error": "tool failed", "expected": "failed" },

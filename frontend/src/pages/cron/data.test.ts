@@ -42,16 +42,15 @@ describe('scheduled-task page host contracts', () => {
       enabled: false,
       description: 'context',
       thinking: 'high',
-      timeoutSeconds: 900,
       model: 'codex:fixture',
       workdir: '/tmp/proj',
     })).toEqual({
-      enabled: false, description: 'context', thinking: 'high', timeoutSeconds: 900,
+      enabled: false, description: 'context', thinking: 'high',
       model: 'codex:fixture', workdir: '/tmp/proj', workspaceId: null,
       permissionPreset: 'bypassPermissions', notificationPolicy: 'failed_runs_only',
     })
-    expect(retainedCronTaskFields({ id: 'task-1', enabled: false, description: 'context', thinking: 'high', timeoutSeconds: 900 })).toEqual({
-      enabled: false, description: 'context', thinking: 'high', timeoutSeconds: 900,
+    expect(retainedCronTaskFields({ id: 'task-1', enabled: false, description: 'context', thinking: 'high' })).toEqual({
+      enabled: false, description: 'context', thinking: 'high',
       model: null, workdir: null, workspaceId: null, permissionPreset: 'bypassPermissions',
       notificationPolicy: 'failed_runs_only',
     })

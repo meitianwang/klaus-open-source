@@ -28,7 +28,6 @@ export interface CronTask {
   workspaceId?: string | null
   /** Initial permission preset for each run. Missing legacy rows keep the historical full-access default. */
   permissionPreset?: CronPermissionPreset | null
-  timeoutSeconds?: number | null
   deleteAfterRun?: boolean
   timezone?: string
   channelBinding?: CronChannelBinding
@@ -103,13 +102,12 @@ export function cronDeleteSucceeded(result: unknown): boolean {
   return payload.ok === true || payload.deleted === true
 }
 
-export function retainedCronTaskFields(existing: CronTask | null): Pick<CronTask, 'enabled' | 'description' | 'thinking' | 'timeoutSeconds' | 'model' | 'workdir' | 'workspaceId' | 'permissionPreset' | 'notificationPolicy'> {
+export function retainedCronTaskFields(existing: CronTask | null): Pick<CronTask, 'enabled' | 'description' | 'thinking' | 'model' | 'workdir' | 'workspaceId' | 'permissionPreset' | 'notificationPolicy'> {
   if (!existing) return { enabled: true, permissionPreset: 'bypassPermissions', notificationPolicy: 'failed_runs_only' }
   return {
     enabled: existing.enabled !== false,
     description: existing.description,
     thinking: existing.thinking,
-    timeoutSeconds: existing.timeoutSeconds,
     model: existing.model ?? null,
     workdir: existing.workdir ?? null,
     workspaceId: existing.workspaceId ?? null,

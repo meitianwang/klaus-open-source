@@ -21,7 +21,7 @@ interface Outcome { status: 'success' | 'failed' | 'stopped'; error: string | nu
 interface Running {
   task: JsonObject; runId: number; sessionId: string; startedAt: number; trigger: string;
   bound: boolean; cancelled: boolean; terminal: boolean; softError: string | null; reply: string;
-  settle(outcome: Outcome): void; outcome: Promise<Outcome>; done: Promise<void>; timer?: NodeJS.Timeout;
+  settle(outcome: Outcome): void; outcome: Promise<Outcome>; done: Promise<void>;
   ready: Promise<void>; readyResolve(): void; readyReject(error: unknown): void; interrupting?: Promise<void>;
 }
 export interface CronRuntimeDeps {
@@ -96,10 +96,10 @@ export class CronRuntime {
     const entry: Running = { task, ...row, startedAt: this.now(), trigger, bound: false, cancelled: false,
       terminal: false, softError: null, reply: '', settle, outcome, done: Promise.resolve(), ready, readyResolve, readyReject };
     this.running.set(taskId, entry);
-    const configured = Number(task.timeoutSeconds);
-    const timeout = Number.isSafeInteger(configured) && configured > 0 ? Math.min(configured, 86400) * 1000 : 300_000;
-    entry.timer = setTimeout(() => { void this.cancel(entry, { status: 'failed', error: `cron run timed out after ${timeout / 1000}s` }); }, timeout);
-    entry.timer.unref();
+    // Runs carry no wall-clock deadline: a scheduled run lives until its session
+    // settles (turn done, interrupt, terminal api error, auth failure or engine
+    // exit). Orphaned run rows are reclaimed by recoverInterruptedRuns at start
+    // and by reapStaleRuns once they age past a day.
     entry.done = this.drive(entry);
     void entry.done.catch(error => this.deps.log(`run ${row.runId}: ${errorMessage(error)}`));
     return entry;
@@ -168,7 +168,6 @@ export class CronRuntime {
         else if (text) this.deps.log(`run ${entry.runId}: messaging channel delivery is unavailable`);
       }
     } finally {
-      if (entry.timer) clearTimeout(entry.timer);
       this.running.delete(taskId);
       if (entry.bound) this.deps.finished?.(entry.sessionId);
     }

@@ -12,7 +12,7 @@ const SCHEMA = `
 CREATE TABLE IF NOT EXISTS cron_tasks (
   id TEXT PRIMARY KEY, user_id TEXT, name TEXT, description TEXT,
   schedule TEXT NOT NULL, prompt TEXT NOT NULL, enabled INTEGER NOT NULL DEFAULT 1,
-  thinking TEXT, light_context INTEGER DEFAULT 0, timeout_seconds INTEGER,
+  thinking TEXT, light_context INTEGER DEFAULT 0,
   delete_after_run INTEGER DEFAULT 0, timezone TEXT, deliver TEXT, webhook_url TEXT,
   webhook_token TEXT, failure_alert TEXT, channel_binding TEXT, created_by TEXT, engine_mode TEXT,
   workspace_id TEXT, permission_preset TEXT,
@@ -26,7 +26,7 @@ CREATE TABLE IF NOT EXISTS cron_runs (
 CREATE INDEX IF NOT EXISTS idx_cron_runs_started ON cron_runs(started_at DESC);
 CREATE INDEX IF NOT EXISTS idx_cron_runs_task ON cron_runs(task_id);
 `;
-const TASK_COLUMNS = 'id,name,description,schedule,prompt,enabled,thinking,timeout_seconds,delete_after_run,timezone,channel_binding,created_by,notification_policy,model,workdir,workspace_id,permission_preset,created_at,updated_at';
+const TASK_COLUMNS = 'id,name,description,schedule,prompt,enabled,thinking,delete_after_run,timezone,channel_binding,created_by,notification_policy,model,workdir,workspace_id,permission_preset,created_at,updated_at';
 export const CRON_PERMISSION_PRESETS = ['default', 'auto', 'bypassPermissions'] as const satisfies readonly PermissionPreset[];
 export type CronPermissionPreset = typeof CRON_PERMISSION_PRESETS[number];
 // Pre-notification-policy databases miss the column; CREATE TABLE IF NOT EXISTS
@@ -94,7 +94,7 @@ function task(row: Record<string, unknown>): JsonObject {
   return {
     id: string(row.id), name: optional(row.name), description: optional(row.description),
     schedule: string(row.schedule), prompt: string(row.prompt), enabled: row.enabled === 1,
-    thinking: optional(row.thinking), timeoutSeconds: integer(row.timeout_seconds) ?? null,
+    thinking: optional(row.thinking),
     deleteAfterRun: row.delete_after_run === 1, timezone: optional(row.timezone),
     channelBinding: binding(row.channel_binding), createdBy: optional(row.created_by),
     notificationPolicy: policy === 'all_runs' ? 'all_runs' : 'failed_runs_only',
@@ -146,15 +146,15 @@ export class CronStore {
       const existing = db.prepare('SELECT channel_binding,created_by FROM cron_tasks WHERE id=?').get(id), now = Date.now();
       const retainedBinding = binding(existing?.channel_binding);
       const channelBinding = payload.channelBinding !== undefined && payload.channelBinding !== null ? JSON.stringify(payload.channelBinding) : retainedBinding !== null ? JSON.stringify(retainedBinding) : null;
-      db.prepare(`INSERT INTO cron_tasks (id,user_id,name,description,schedule,prompt,enabled,thinking,timeout_seconds,delete_after_run,timezone,channel_binding,created_by,notification_policy,model,workdir,workspace_id,permission_preset,created_at,updated_at)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET
+      db.prepare(`INSERT INTO cron_tasks (id,user_id,name,description,schedule,prompt,enabled,thinking,delete_after_run,timezone,channel_binding,created_by,notification_policy,model,workdir,workspace_id,permission_preset,created_at,updated_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET
         name=excluded.name,description=excluded.description,schedule=excluded.schedule,prompt=excluded.prompt,
-        enabled=excluded.enabled,thinking=excluded.thinking,timeout_seconds=excluded.timeout_seconds,
+        enabled=excluded.enabled,thinking=excluded.thinking,
         delete_after_run=excluded.delete_after_run,timezone=excluded.timezone,notification_policy=excluded.notification_policy,
         model=excluded.model,workdir=excluded.workdir,workspace_id=excluded.workspace_id,
         permission_preset=excluded.permission_preset,updated_at=excluded.updated_at`).run(
         id, optional(payload.userId), optional(payload.name), optional(payload.description), string(payload.schedule), string(payload.prompt), Number(payload.enabled === true), optional(payload.thinking),
-        integer(payload.timeoutSeconds) ?? null, Number(payload.deleteAfterRun === true), optional(payload.timezone), channelBinding,
+        Number(payload.deleteAfterRun === true), optional(payload.timezone), channelBinding,
         optional(payload.createdBy) ?? optional(existing?.created_by) ?? 'manual',
         payload.notificationPolicy === 'all_runs' ? 'all_runs' : 'failed_runs_only',
         optional(payload.model), workdir, workspaceId, selectedPermission,

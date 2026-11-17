@@ -1884,7 +1884,7 @@ void (async () => {
     });
     await h.test('a manual scheduled task runs on the shared engine and persists its real transcript identity', async () => {
       await invoke('settings:cron:upsert', { id: 'gui-cron', name: 'GUI scheduled fixture', schedule: '0 0 1 1 *',
-        prompt: 'PLAIN FIXTURE scheduled', enabled: true, deleteAfterRun: true, timeoutSeconds: 30 });
+        prompt: 'PLAIN FIXTURE scheduled', enabled: true, deleteAfterRun: true });
       const launch = await invoke('settings:cron:run:now', { id: 'gui-cron' }) as {ok:boolean;sessionId:string;error?:string};
       assert(launch.ok, `scheduled launch: ${launch.error}`);
       assert(!launch.sessionId.startsWith('cron-run-'), 'run returns the real transcript identity');
