@@ -2,6 +2,7 @@ import { isFastModePreferenceKey } from '../../../shared/model-fast-mode';
 import { isTraeNativeEffort } from '../../../shared/trae-model-catalog';
 import type { FriendMessage } from '../../../shared/friends';
 import { createHash, randomUUID } from 'node:crypto';
+import { readFile, stat } from 'node:fs/promises';
 import { performance } from 'node:perf_hooks';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { Socket } from 'node:net';
@@ -77,11 +78,11 @@ type InteractionKind = 'permission' | 'elicit';
 const MAX_UNPROTECTED_FOLLOWS = 64;
 const THREAD_TOOLS_PREFIX = '/api/mobile/thread-tools/';
 export const MOBILE_DISPATCH_CHANNELS = [
-  'session:list', 'projects:list', 'workspaces:list', 'settings:kv:get', 'engine:slashCommands', 'session:get-main-model', 'session:get-thinking-level', 'session:get-ultra-mode', 'session:get-fast-mode',
+  'session:list', 'projects:list', 'workspaces:list', 'settings:kv:get', 'engine:slashCommands', 'session:get-main-model', 'session:get-thinking-level', 'session:get-ultra-mode', 'session:get-orchestration-mode', 'session:get-fast-mode', 'session:get-spec-mode',
   'settings:output-styles:list', 'session:get-main-model-options', 'session:get-custom-main-model-options', 'session:new', 'projects:set-active',
-  'session:history', 'session:set-workdir', 'session:clear-workdir', 'session:rename', 'session:delete', 'session:export', 'feedback:submit',
+  'session:history', 'session:set-workdir', 'session:clear-workdir', 'session:rename', 'session:set-pinned', 'session:archive', 'session:unarchive', 'session:delete', 'session:export', 'feedback:submit',
   'chat:follow-up', 'chat:client-queue-snapshot', 'chat:client-queue-add', 'chat:client-queue-remove', 'chat:client-queue-restore', 'chat:client-queue-reorder', 'chat:client-queue-resume', 'chat:client-queue-deliver', 'chat:client-queue-clear',
-  'chat:interrupt', 'permission:respond', 'session:set-main-model', 'session:set-thinking-level', 'session:set-ultra-mode', 'session:set-fast-mode', 'settings:kv:set', 'settings:output-styles:set', 'chat:send', 'chat:upload',
+  'chat:interrupt', 'permission:respond', 'session:set-main-model', 'session:set-thinking-level', 'session:set-ultra-mode', 'session:set-orchestration-mode', 'session:set-fast-mode', 'session:set-spec-mode', 'settings:kv:set', 'settings:output-styles:set', 'chat:send', 'chat:upload',
   'permission:pending', 'elicit:pending', 'elicit:respond', 'question:pending', 'question:answer', 'agents:snapshot', 'agents:history', 'artifacts:read',
   'session:background-processes', 'session:stop-background-process',
   'auth:status', 'codex-auth:status', 'cursor-auth:status', 'qoder-auth:status', 'qwenwork-auth:status', 'workbuddy-auth:status', 'antigravity-auth:status', 'trae-auth:status', 'kiro-auth:status', 'kimi-auth:status', 'bailian-auth:status', 'minimax-auth:status', 'zhipu-auth:status', 'ark-auth:status', 'settings:models:list',
@@ -546,6 +547,37 @@ export class MobileBridgeService {
     const turns = (key: string): JsonObject => object(result[key]);
     return { ...result, sessionId: id, turnStatuses: turns('turnStatuses'), turnDurations: turns('turnDurations') };
   }
+  private async readSessionWorkMode(call: MobileCall, id: string): Promise<'default' | 'plan' | 'parallel' | 'orchestrate'> {
+    const [specRaw, ultraRaw, orchestrateRaw] = await Promise.all([
+      call('session:get-spec-mode', { sessionId: id }).catch(() => ({ enabled: false })),
+      call('session:get-ultra-mode', { sessionId: id }).catch(() => ({ enabled: false })),
+      call('session:get-orchestration-mode', { sessionId: id }).catch(() => ({ enabled: false })),
+    ]);
+    if (object(specRaw).enabled === true) return 'plan';
+    if (object(orchestrateRaw).enabled === true) return 'orchestrate';
+    if (object(ultraRaw).enabled === true) return 'parallel';
+    return 'default';
+  }
+  private async writeSessionWorkMode(call: MobileCall, id: string, mode: 'default' | 'plan' | 'parallel' | 'orchestrate'): Promise<'default' | 'plan' | 'parallel' | 'orchestrate'> {
+    const sessionOptions = { sessionId: id, updateDefaults: false };
+    const current = await this.readSessionWorkMode(call, id);
+    if (mode === 'plan') {
+      if (current === 'parallel') await call('session:set-ultra-mode', { ...sessionOptions, enabled: false });
+      if (current === 'orchestrate') await call('session:set-orchestration-mode', { ...sessionOptions, enabled: false });
+      await call('session:set-spec-mode', { sessionId: id, enabled: true });
+    } else if (mode === 'parallel') {
+      if (current === 'plan') await call('session:set-spec-mode', { sessionId: id, enabled: false });
+      await call('session:set-ultra-mode', { ...sessionOptions, enabled: true });
+    } else if (mode === 'orchestrate') {
+      if (current === 'plan') await call('session:set-spec-mode', { sessionId: id, enabled: false });
+      await call('session:set-orchestration-mode', { ...sessionOptions, enabled: true });
+    } else {
+      if (current === 'plan') await call('session:set-spec-mode', { sessionId: id, enabled: false });
+      if (current === 'parallel') await call('session:set-ultra-mode', { ...sessionOptions, enabled: false });
+      if (current === 'orchestrate') await call('session:set-orchestration-mode', { ...sessionOptions, enabled: false });
+    }
+    return this.readSessionWorkMode(call, id);
+  }
   private async knownWorkdir(call: MobileCall, path: string | null, workspaceId: string | null = null): Promise<void> {
     if (workspaceId) {
       const groups = await this.projection(call).workspaceGroups();
@@ -654,7 +686,7 @@ export class MobileBridgeService {
       }
       throw new MobileError(404, 'not_found', 'Not found');
     }
-    const match = /^\/api\/mobile\/(sessions|permissions|elicitations)\/([^/]+)\/(history|summary|messages|stop|respond|rename|workdir|delete|export|debug-report|media|file-preview|inline-visualization|background-processes|stop-background-process)$/u.exec(path);
+    const match = /^\/api\/mobile\/(sessions|permissions|elicitations)\/([^/]+)\/(history|summary|work-mode|messages|stop|respond|rename|pin|archive|workdir|delete|export|debug-report|media|file-preview|inline-visualization|background-processes|stop-background-process)$/u.exec(path);
     if (!match) throw new MobileError(404, 'not_found', 'Not found');
     const id = this.pathIdentity(match[2]!);
     const action = match[3]!;
@@ -668,6 +700,13 @@ export class MobileBridgeService {
       return result(200, { session, sessionId: id });
     }
     if (method === 'GET' && action === 'history') { await this.knownSession(call, id); return result(200, await this.historyWithTurns(call, id)); }
+    if (method === 'GET' && action === 'work-mode') {
+      const account = run.account;
+      await this.knownSession(call, id);
+      const workMode = await this.readSessionWorkMode(call, id);
+      this.assertReadCurrent(run, owner, signal, account);
+      return result(200, { sessionId: id, workMode });
+    }
     if (method !== 'POST' || action === 'history' || action === 'summary' || action === 'respond') throw new MobileError(404, 'not_found', 'Not found');
     await this.knownSession(call, id);
     if (action === 'media') {
@@ -714,6 +753,36 @@ export class MobileBridgeService {
         await this.broadcastState(run, call); break;
       }
       case 'rename': base.title = title(payload.title); await call('session:rename', { sessionId: id, title: base.title }); run.catalog?.invalidate(id); await this.broadcastState(run, call, true); break;
+      case 'pin': {
+        if (typeof payload.pinned !== 'boolean') throw badRequest('pinned must be a boolean');
+        await call('session:set-pinned', { sessionId: id, pinned: payload.pinned });
+        base.pinned = payload.pinned;
+        run.catalog?.invalidate(id);
+        await this.broadcastState(run, call, true);
+        break;
+      }
+      case 'archive': {
+        if (typeof payload.archived !== 'boolean') throw badRequest('archived must be a boolean');
+        if (payload.archived) {
+          await call('session:archive', { sessionId: id });
+          this.forgetSession(id);
+          for (const [key, entry] of this.permissions) if (entry.sessionId === id) this.permissions.delete(key);
+          for (const [key, entry] of this.elicitations) if (entry.sessionId === id) this.elicitations.delete(key);
+        } else {
+          await call('session:unarchive', { sessionId: id });
+        }
+        base.archived = payload.archived;
+        run.catalog?.invalidate(id);
+        await this.broadcastState(run, call, true);
+        break;
+      }
+      case 'work-mode': {
+        const nextMode = string(payload.workMode);
+        if (!['default', 'plan', 'parallel', 'orchestrate'].includes(nextMode)) throw badRequest('workMode is invalid');
+        base.workMode = await this.writeSessionWorkMode(call, id, nextMode as 'default' | 'plan' | 'parallel' | 'orchestrate');
+        await this.broadcastState(run, call);
+        break;
+      }
       case 'workdir': {
         const history = await this.history(call, id);
         if (history.length) throw new MobileError(409, 'session_has_messages', 'Project can only be changed before the desktop session has messages');
@@ -728,7 +797,14 @@ export class MobileBridgeService {
         await this.broadcastState(run, call, true); break;
       case 'export': {
         const exported = object(await call('session:export', { sessionId: id })), file = required(exported.filePath, 'Export path');
-        Object.assign(base, { filePath: file, fileName: pathBase(file), url: pathToFileURL(file).href }); break;
+        let content: string | undefined = typeof exported.content === 'string' ? exported.content : undefined;
+        if (content === undefined) {
+          try {
+            const info = await stat(file);
+            if (info.isFile() && info.size <= 8 * 1024 * 1024) content = await readFile(file, 'utf8');
+          } catch { /* Isolated test fixtures may return virtual paths without writing a disk file. */ }
+        }
+        Object.assign(base, { filePath: file, fileName: pathBase(file), url: pathToFileURL(file).href, ...(content === undefined ? {} : { content }) }); break;
       }
       case 'debug-report': {
         const report = object(await call('feedback:submit', { sessionId: id, description: short(payload.description) || 'Generated from Klaus iOS remote control.' }));

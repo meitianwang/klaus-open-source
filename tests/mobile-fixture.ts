@@ -41,7 +41,7 @@ export async function mobileFixture(options: Pick<MobileBridgeDeps, 'sessionInte
   const relays: { socket: WebSocket; frames: JsonObject[]; request: IncomingMessage }[] = [];
   relay.on('connection', (socket, request) => { const entry = { socket, frames: [] as JsonObject[], request }; relays.push(entry); socket.on('message', data => {
     const frame = object(JSON.parse(data.toString())); entry.frames.push(frame);
-    if (frame.type === 'desktop_hello' && frame.friendsMessaging === 2 && options.acknowledgeFriendHello !== false) socket.send(JSON.stringify({ type: 'desktop_hello_ack', friendsMessaging: 2, remoteAccessEnabled: frame.remoteAccessEnabled }));
+    if (frame.type === 'desktop_hello' && frame.friendsMessaging === 3 && options.acknowledgeFriendHello !== false) socket.send(JSON.stringify({ type: 'desktop_hello_ack', friendsMessaging: 3, remoteAccessEnabled: frame.remoteAccessEnabled }));
   }); socket.on('error', () => {}); });
   cloud.listen(0, '127.0.0.1'); await once(cloud, 'listening'); const cloudAddress = cloud.address(); if (!cloudAddress || typeof cloudAddress === 'string') throw new Error('No fixture address');
   const relayURL = 'http://127.0.0.1:' + cloudAddress.port;

@@ -1,6 +1,6 @@
 {
-  "version": 2,
-  "reason": "Legacy runtime model writes must explicitly name a session or null default scope, and must never inherit the desktop renderer selection. iOS output-style reads and writes stay on the same explicit device even when another device is reachable. Rejected desktop output-style mutations must return an explicit conflict instead of reporting success.",
+  "version": 3,
+  "reason": "Mobile preferences and session actions target the explicitly named conversation, never the renderer selection. Work-mode changes leave remembered defaults untouched; pin and archive refresh the catalog, and exports include readable content for the phone share sheet. Rejected output-style mutations remain explicit conflicts.",
   "rendererSessionId": "s1",
   "invalidWrites": [
     {
@@ -29,5 +29,13 @@
   },
   "rejectedStyleWrite": {
     "outputStyle": "Missing Style"
+  },
+  "sessionActions": {
+    "sessionId": "s2",
+    "workModes": ["plan", "parallel", "orchestrate", "default", "parallel", "plan", "default"],
+    "updateDefaults": false,
+    "pinned": true,
+    "archived": true,
+    "exportContent": "## User\n\nHello\n\n## Klaus\n\nWorld\n"
   }
 }

@@ -29,7 +29,12 @@ export async function assertBrowserDataRuntime(runtime: DesktopRuntime): Promise
   const contents = runtime.window.webContents;
   const evaluate = (script: string): Promise<any> => contents.executeJavaScript(script);
   const click = async (selector: string): Promise<void> => {
-    const point = await evaluate(`(() => { const node = document.querySelector(${JSON.stringify(selector)}); if (!node) throw new Error('Missing fixture control'); node.scrollIntoView({block:'center'}); const r = node.getBoundingClientRect(); return {x:Math.round(r.x+r.width/2),y:Math.round(r.y+r.height/2)} })()`);
+    let point: { x: number; y: number } | undefined;
+    await waitFor(async () => {
+      point = await evaluate(`(() => { const node = document.querySelector(${JSON.stringify(selector)}); if (!node) return null; const target = node.matches('input[type=checkbox]') ? node.closest('label') : node; if (!target) return null; target.scrollIntoView({block:'center'}); const r = target.getBoundingClientRect(); const x = Math.round(r.x+r.width/2), y = Math.round(r.y+r.height/2); const hit = document.elementFromPoint(x,y); return r.width > 0 && r.height > 0 && hit && target.contains(hit) ? {x,y} : null })()`) ?? undefined;
+      return point !== undefined;
+    }, 5000, `the fixture control is visible and receives pointer input: ${selector}`);
+    assert(point);
     contents.sendInputEvent({ type: 'mouseDown', button: 'left', clickCount: 1, ...point });
     contents.sendInputEvent({ type: 'mouseUp', button: 'left', clickCount: 1, ...point });
   };
@@ -39,8 +44,14 @@ export async function assertBrowserDataRuntime(runtime: DesktopRuntime): Promise
   await waitFor(() => evaluate('!!document.querySelector("[data-import-category=history]")'), 5000, 'the real discovery finds the synthetic profile');
   assert.equal(await evaluate('document.querySelector("[role=dialog]").textContent.includes("Synthetic profile")'), true);
   if (!await evaluate('document.querySelector("[data-import-category=history]").checked')) await click('[data-import-category=history]');
+  await waitFor(() => evaluate('document.querySelector("[data-import-category=history]").checked'), 5000, 'history is selected through the visible category label');
   await click('[role=dialog] button:last-child');
-  await waitFor(() => evaluate('document.querySelectorAll("[data-category][data-state=complete]").length === 2'), 5000, 'cookies and history are confirmed by their real targets');
+  await waitFor(() => evaluate('document.querySelectorAll("[data-category][data-state=complete]").length === 2'), 5000, 'cookies and history are confirmed by their real targets').catch(async error => {
+    console.error('Browser import diagnostic:', await evaluate('({dialog:document.querySelector("[role=dialog]")?.textContent,rows:[...document.querySelectorAll("[data-category]")].map(node=>({category:node.getAttribute("data-category"),state:node.getAttribute("data-state")}))})'));
+    const logs = join(__dirname, '../browser-settings-logs'); mkdirSync(logs, { recursive: true });
+    writeFileSync(join(logs, 'browser-import-failure.png'), (await contents.capturePage()).toPNG());
+    throw error;
+  });
   const history = await evaluate('window.settingsApi.browserUse.history({query:"Imported synthetic visit"})');
   assert.equal(history.items.length, 1);
   assert.equal(history.items[0].isActorVisit, false);

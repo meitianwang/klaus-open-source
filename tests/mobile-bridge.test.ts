@@ -84,6 +84,50 @@ void (async () => {
   await registerMobileNewChatTests(h);
   await registerMobileModelConfigTests(h);
 
+  await h.test('session action vectors keep work modes session scoped and return shareable exports', async () => {
+    const vector = JSON.parse(readFileSync(join(__dirname, '../../contracts/vectors/mobile-runtime-scope-vectors.json'), 'utf8')).sessionActions;
+    const f = await mobileFixture();
+    let plan = false, parallel = false, orchestrate = false;
+    try {
+      const path = join(f.root, 'session-export.txt');
+      await writeFile(path, vector.exportContent, 'utf8');
+      f.intercept(async (channel, payload): Promise<Json | undefined> => {
+        if (channel === 'session:get-spec-mode') return { enabled: plan };
+        if (channel === 'session:get-ultra-mode') return { enabled: parallel };
+        if (channel === 'session:get-orchestration-mode') return { enabled: orchestrate };
+        if (channel === 'session:export') return { filePath: path };
+        if (channel === 'session:set-pinned' || channel === 'session:archive') return { ok: true };
+        if (channel === 'session:set-spec-mode') plan = payload.enabled === true;
+        else if (channel === 'session:set-ultra-mode') { parallel = payload.enabled === true; if (parallel) orchestrate = false; }
+        else if (channel === 'session:set-orchestration-mode') { orchestrate = payload.enabled === true; if (orchestrate) parallel = false; }
+        else return undefined;
+        return { ok: true };
+      });
+      await f.enable();
+      const boot = await f.request('GET', '/api/mobile/bootstrap');
+      for (const feature of ['sessionWorkMode', 'sessionPinArchive', 'sessionExportContent']) assert.equal(object(boot.body.features)[feature], true);
+      const base = `/api/mobile/sessions/${vector.sessionId}`;
+      for (const mode of vector.workModes) {
+        const reply = await f.request('POST', `${base}/work-mode`, { workMode: mode });
+        assert.equal(reply.status, 202); assert.equal(reply.body.workMode, mode);
+        assert.equal((await f.request('GET', `${base}/work-mode`)).body.workMode, mode);
+      }
+      const setters = f.calls.filter(row => ['session:set-ultra-mode', 'session:set-orchestration-mode'].includes(row.channel));
+      assert(setters.length > 0);
+      for (const row of setters) {
+        assert.equal(row.payload.sessionId, vector.sessionId);
+        assert.equal(row.payload.updateDefaults, vector.updateDefaults);
+      }
+      const pin = await f.request('POST', `${base}/pin`, { pinned: vector.pinned });
+      assert.equal(pin.status, 202); assert.equal(pin.body.pinned, vector.pinned);
+      const exported = await f.request('POST', `${base}/export`, {});
+      assert.equal(exported.status, 202); assert.equal(exported.body.content, vector.exportContent);
+      const archive = await f.request('POST', `${base}/archive`, { archived: vector.archived });
+      assert.equal(archive.status, 202); assert.equal(archive.body.archived, vector.archived);
+      for (const row of f.calls.filter(row => ['session:set-pinned', 'session:archive'].includes(row.channel))) assert.equal(row.payload.sessionId, vector.sessionId);
+    } finally { await f.close(); }
+  });
+
   await h.test('inline visualization routes return bounded content only for the current known session', async () => {
     let current: Awaited<ReturnType<typeof mobileFixture>> | undefined;
     const f = await mobileFixture({ inlineVisualizationPreview: async (sessionId, path): Promise<JsonObject> => {
@@ -1211,9 +1255,9 @@ void (async () => {
       f.updateStatus(await f.bridge.get());
       assert.equal(f.status().relayConnected, false); assert.equal(f.status().friendTransportConnected, true);
       const registration = f.cloudRequests.find(row => row.path.endsWith('/register'))!;
-      assert.equal(registration.payload.deviceId, transport.deviceId); assert.equal(object(registration.payload.features).friendsMessaging, 2);
+      assert.equal(registration.payload.deviceId, transport.deviceId); assert.equal(object(registration.payload.features).friendsMessaging, 3);
       const relay = f.relays[0]!, hello = relay.frames.find(row => row.type === 'desktop_hello')!;
-      assert.equal(hello.friendsMessaging, 2); assert.equal(hello.remoteAccessEnabled, false);
+      assert.equal(hello.friendsMessaging, 3); assert.equal(hello.remoteAccessEnabled, false);
       assert.equal((await f.request('GET', '/api/mobile/bootstrap')).status, 403);
       assert.equal((await f.request('POST', '/api/mobile/desktop/invoke', { channel: 'projects:list' })).status, 403);
       await assert.rejects(f.connect(), /401/u);
@@ -1291,7 +1335,7 @@ void (async () => {
       f.updateStatus(await f.bridge.startFromSettings()); await f.bridge.ensureFriendTransport();
       assert.equal(connected, 1);
       const relay = f.relays[0]!, friendshipId = '11111111-1111-4111-8111-111111111111';
-      relay.socket.send(JSON.stringify({ type: 'desktop_hello_ack', friendsMessaging: 2, remoteAccessEnabled: false }));
+      relay.socket.send(JSON.stringify({ type: 'desktop_hello_ack', friendsMessaging: 3, remoteAccessEnabled: false }));
       relay.socket.send(JSON.stringify({ type: 'friend_revoked', friendshipId: '../malformed' }));
       relay.socket.send(JSON.stringify({ type: 'friend_revoked', friendshipId }));
       await waitFor(() => revoked.length === 1, 1000, 'Trusted revocation callback');

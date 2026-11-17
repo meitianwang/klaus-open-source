@@ -164,8 +164,8 @@ export async function registerMobileModelConfigTests(h: Harness): Promise<void> 
       assert.equal(readSessionModel('s1', f.root).mode, 'codex:fixture');
       assert(!f.calls.some(row => row.channel === 'settings:kv:set'));
       const sourceOnly = await f.request('POST', '/api/mobile/model-config', { sessionId: 's2', source: 'custom' });
-      assert.equal(sourceOnly.status, 202); assert.equal(object(sourceOnly.body.modelConfig).selection, 'auto');
-      assert.equal(object(sourceOnly.body.modelConfig).thinkingLevel, 'max', 'Source switching preserves the saved thinking preference');
+      assert.equal(sourceOnly.status, 202); assert.equal(object(sourceOnly.body.modelConfig).selection, 'custom:fixture');
+      assert.equal(object(sourceOnly.body.modelConfig).thinkingLevel, 'medium', 'Source switching restores that source’s saved thinking preference');
       const levelOnly = await f.request('POST', '/api/mobile/model-config', { sessionId: 's2', thinkingLevel: 'off' });
       assert.equal(levelOnly.status, 202); assert.equal(object(levelOnly.body.modelConfig).source, 'custom');
       const inferred = await f.request('POST', '/api/mobile/model-config', { sessionId: 's2', selection: 'codex:fixture' });
