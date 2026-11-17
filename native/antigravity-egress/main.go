@@ -308,7 +308,10 @@ func (h relayHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if readErr != nil {
 			if readErr != io.EOF {
 				log.Printf("antigravity-egress: upstream read: %v", readErr)
-				return
+				// Abort the downstream response instead of returning normally so
+				// net/http neither appends a terminal HTTP/1.1 zero-length chunk
+				// nor closes an h2c stream cleanly when the upstream stream broke.
+				panic(http.ErrAbortHandler)
 			}
 			break
 		}

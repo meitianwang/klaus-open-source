@@ -227,3 +227,128 @@ func TestProxyFunctionHonoredUnlessOverrideSet(t *testing.T) {
 	}
 	_ = called
 }
+
+func TestHTTP1DownstreamObservesErrorWhenUpstreamStreamAborts(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		emitInitial bool
+	}{
+		{name: "after_partial_sse_frame", emitInitial: true},
+		{name: "immediately_after_headers", emitInitial: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			serverTLS, rootPool := selfSignedTLS(t, "daily-cloudcode-pa.googleapis.com")
+			upstreamLn, err := tls.Listen("tcp", "127.0.0.1:0", serverTLS)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer upstreamLn.Close()
+
+			var upstreamProto http.Protocols
+			upstreamProto.SetHTTP2(true)
+			upstreamSrv := &http.Server{
+				Protocols: &upstreamProto,
+				Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+					w.Header().Set("Content-Type", "text/event-stream")
+					w.WriteHeader(http.StatusOK)
+					flusher := w.(http.Flusher)
+					if tc.emitInitial {
+						_, _ = io.WriteString(w, "data: {\"partial\":true}\n\n")
+					}
+					flusher.Flush()
+					panic(http.ErrAbortHandler)
+				}),
+			}
+			go func() { _ = upstreamSrv.Serve(upstreamLn) }()
+			defer upstreamSrv.Close()
+
+			pools := newClientPool(&tls.Config{RootCAs: rootPool}, upstreamLn.Addr().String(), nil)
+			relayLn, err := net.Listen("tcp", "127.0.0.1:0")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer relayLn.Close()
+			relaySrv := newRelayServer(relayHandler{pools: pools, token: "secret"})
+			go func() { _ = relaySrv.Serve(relayLn) }()
+			defer relaySrv.Close()
+
+			req, err := http.NewRequest("POST", fmt.Sprintf("http://%s/v1internal:streamGenerateContent?alt=sse", relayLn.Addr()), nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			req.Header.Set("X-Egress-Token", "secret")
+			req.Header.Set("X-Egress-Target", "daily-cloudcode-pa.googleapis.com")
+
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				t.Fatalf("expected initial 200 response headers, got error: %v", err)
+			}
+			defer resp.Body.Close()
+
+			body, readErr := io.ReadAll(resp.Body)
+			if readErr == nil {
+				t.Fatalf("expected downstream read error when upstream stream aborted, got clean EOF with body %q", string(body))
+			}
+			if tc.emitInitial && string(body) != "data: {\"partial\":true}\n\n" {
+				t.Fatalf("expected flushed partial frame before abort, got %q (err=%v)", string(body), readErr)
+			}
+		})
+	}
+}
+
+func TestH2CDownstreamObservesErrorWhenUpstreamStreamAborts(t *testing.T) {
+	serverTLS, rootPool := selfSignedTLS(t, "aicode.googleapis.com")
+	upstreamLn, err := tls.Listen("tcp", "127.0.0.1:0", serverTLS)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer upstreamLn.Close()
+
+	var upstreamProto http.Protocols
+	upstreamProto.SetHTTP2(true)
+	upstreamSrv := &http.Server{
+		Protocols: &upstreamProto,
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "application/grpc")
+			w.WriteHeader(http.StatusOK)
+			_, _ = io.WriteString(w, "chunk-1")
+			w.(http.Flusher).Flush()
+			panic(http.ErrAbortHandler)
+		}),
+	}
+	go func() { _ = upstreamSrv.Serve(upstreamLn) }()
+	defer upstreamSrv.Close()
+
+	pools := newClientPool(&tls.Config{RootCAs: rootPool}, upstreamLn.Addr().String(), nil)
+	relayLn, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer relayLn.Close()
+	relaySrv := newRelayServer(relayHandler{pools: pools, token: "secret"})
+	go func() { _ = relaySrv.Serve(relayLn) }()
+	defer relaySrv.Close()
+
+	var h2cProto http.Protocols
+	h2cProto.SetUnencryptedHTTP2(true)
+	h2cClient := &http.Client{
+		Transport: &http.Transport{Protocols: &h2cProto},
+	}
+	req, err := http.NewRequest("POST", fmt.Sprintf("http://%s/google.gca.aicode.v1alpha.PredictionService/BidiGenerateContent", relayLn.Addr()), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("X-Egress-Token", "secret")
+	req.Header.Set("X-Egress-Target", "aicode.googleapis.com")
+
+	resp, err := h2cClient.Do(req)
+	if err != nil {
+		t.Fatalf("expected initial 200 response headers, got error: %v", err)
+	}
+	defer resp.Body.Close()
+
+	body, readErr := io.ReadAll(resp.Body)
+	if readErr == nil {
+		t.Fatalf("expected h2c downstream read error when upstream stream aborted, got clean EOF with body %q", string(body))
+	}
+}
