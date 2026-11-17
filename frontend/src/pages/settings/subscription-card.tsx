@@ -7,6 +7,7 @@ import { knownKiroAuthErrorText } from '../../app/kiro-errors'
 import { knownAntigravityErrorText } from '../../app/antigravity-errors'
 import { knownEngineSourceProseErrorText } from '../../app/model-source-errors'
 import { activateModelSource, KlsSelect } from './model-shared'
+import { PrefToggleRow } from './kv'
 import styles from './settings.module.css'
 import { settingsErrorText } from './settings-error-text'
 
@@ -945,6 +946,7 @@ export function SubscriptionCardBody({ mode, reloadSeq, reload, activateModelOnL
   const [logoutBusy, setLogoutBusy] = useState(false)
   const [switchingAccountId, setSwitchingAccountId] = useState<string | null>(null)
   const [removingAccountId, setRemovingAccountId] = useState<string | null>(null)
+  const [shardingBusy, setShardingBusy] = useState(false)
   // Declared unconditionally, ahead of the loading early-return below, so the hook
   // order does not depend on whether a status read has landed.
   const [apiKey, setApiKey] = useState('')
@@ -1155,6 +1157,40 @@ export function SubscriptionCardBody({ mode, reloadSeq, reload, activateModelOnL
     } finally {
       authActionBusyRef.current = false
       setRemovingAccountId(null)
+    }
+  }
+
+  const onToggleAccountSharding = async (enabled: boolean) => {
+    if (shardingBusy || authActionBusyRef.current) return
+    const previous = status?.accountSharding === true
+    const optimistic = { ...status, accountSharding: enabled }
+    setShardingBusy(true)
+    setStatusMsg('')
+    subscriptionStatusCache.set(mode, optimistic)
+    setStatus(optimistic)
+    try {
+      const result = await source.api().setAccountSharding(enabled)
+      if (result?.ok !== true) {
+        const reverted = { ...status, accountSharding: previous }
+        subscriptionStatusCache.set(mode, reverted)
+        setStatus(reverted)
+        setStatusMsg(authErrorText(source, result?.error))
+        return
+      }
+      const nextStatus = {
+        ...optimistic,
+        ...result,
+        accountSharding: typeof result.accountSharding === 'boolean' ? result.accountSharding : enabled,
+      }
+      subscriptionStatusCache.set(mode, nextStatus)
+      setStatus(nextStatus)
+    } catch (error: any) {
+      const reverted = { ...status, accountSharding: previous }
+      subscriptionStatusCache.set(mode, reverted)
+      setStatus(reverted)
+      setStatusMsg(authErrorText(source, error?.message || String(error)))
+    } finally {
+      setShardingBusy(false)
     }
   }
 
@@ -1413,6 +1449,18 @@ export function SubscriptionCardBody({ mode, reloadSeq, reload, activateModelOnL
       {actions ? (
         <div className="card-actions">
           {actions}
+        </div>
+      ) : null}
+      {mode === 'antigravity' && (signedIn || accounts.length > 1) ? (
+        <div className={styles['account-card-pref']}>
+          <PrefToggleRow
+            id={`${prefix}-account-sharding`}
+            label={t('antigravity_account_sharding')}
+            desc={t('antigravity_account_sharding_desc')}
+            checked={status.accountSharding === true}
+            disabled={accountBusy || shardingBusy}
+            onChange={enabled => { void onToggleAccountSharding(enabled) }}
+          />
         </div>
       ) : null}
       {logoutError ? <div role="alert" className={styles['settings-status-text']}>{logoutError}</div> : null}

@@ -283,7 +283,8 @@ void (async () => {
       // 764 adds `antigravity-auth:switch-account` on `antigravityAuth` for the same
       // active-account switch across an Antigravity account pool.
       // 775 adds the eleven `design:*` owner-panel transport channels for Design Canvas.
-      assert.equal(channels.size, 775);
+      // 776 adds `antigravity-auth:set-account-sharding` on `antigravityAuth` for opt-in multi-account sharding.
+      assert.equal(channels.size, 776);
       const companionChannels = [...channels].filter(channel => channel.startsWith('desktop-pet:'));
       assert.equal(companionChannels.length, 58);
       for (const channel of companionChannels) {
@@ -660,6 +661,10 @@ void (async () => {
         'switching the active Antigravity account in the pool needs no destructive confirm gate');
       const agSwitched = f.calls.find(call => call.channel === 'antigravity-auth:switch-account');
       assert.deepEqual(agSwitched?.payload, { accountId: 'ag-2' });
+      assert.equal(object(await f.action('antigravityAuth', 'setAccountSharding', { enabled: true })).success, true,
+        'toggling Antigravity multi-account sharding needs no destructive confirm gate');
+      const agSharding = f.calls.find(call => call.channel === 'antigravity-auth:set-account-sharding');
+      assert.deepEqual(agSharding?.payload, { enabled: true });
     });
     await h.test('soft failures never become successful action prose and external text is marked untrusted', async () => {
       const f = fixture({}, { dispatch: async () => ({ ok: false, error: 'Fixture storage failed' }) });

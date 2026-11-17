@@ -1016,6 +1016,15 @@ export class SubscriptionAuthService {
     });
   }
 
+  async antigravitySetAccountSharding(enabled: boolean): Promise<Json> {
+    return this.writes.run(async (): Promise<Json> => {
+      try {
+        if (this.closed) return { ok: false, error: 'Account operation cancelled' };
+        return object(await this.deps.request('antigravity/setAccountSharding', { enabled }));
+      } catch (error) { return { ok: false, error: errorMessage(error) }; }
+    });
+  }
+
   async qwenworkImportLocal(): Promise<Json> {
     const epoch = ++this.qwenworkEpoch;
     return this.writes.run(async (): Promise<Json> => {
