@@ -3225,10 +3225,13 @@ export function loadSessionHistory(sessionId: string, options: {
             // An inspection is not proof that an uncovered modern input was deleted.
             // Only an explicit rewrite cut may retire its identity without a replacement.
             const modern = !liveCut && options.rewoundLiveTail !== true
-              ? retainUnownedLiveUnits(retentionBase.filter(unit => unit.type === 'live-user' && clientMessageId(unit.msg)),
-                settledHistory, turnStartClock, false).units : []
-            retainedUnowned = modern.length
-            sweptLiveUnits = [...kept, ...modern]
+              ? retainUnownedLiveUnits(retentionBase.filter(unit =>
+                unit.type === 'live-user' && clientMessageId(unit.msg)
+                || unit.type === 'live-error' && !!unit.submissionUuid),
+                settledHistory, turnStartClock, false)
+              : { units: [], retained: 0 }
+            retainedUnowned = modern.retained
+            sweptLiveUnits = [...kept, ...modern.units]
           } else {
             // A terminal turn whose work has not flushed yet is not owned by
             // saved history: its user row alone must not hand off the live
@@ -3334,7 +3337,9 @@ export function loadSessionHistory(sessionId: string, options: {
             liveTurnId: tailOpen && !(liveCut && (!prev.liveTurnId || liveCut.turnIds.includes(prev.liveTurnId)))
               ? (prev.liveTurnId || tailOpen)
               : (covers || (liveCut && (!prev.liveTurnId || liveCut.turnIds.includes(prev.liveTurnId))) ? null : prev.liveTurnId) }
-            : { liveUnits: withoutOpenStopRow(reviewHandoff.liveUnits.filter(unit => unit.type !== 'live-user' || !savedUserIds.has(unit.msg.uuid)), tailOpen) }),
+            : { liveUnits: withoutOpenStopRow(reviewHandoff.liveUnits.filter(unit =>
+              (unit.type !== 'live-user' || !savedUserIds.has(unit.msg.uuid))
+              && (unit.type !== 'live-error' || !unit.submissionUuid || !savedUserIds.has(unit.submissionUuid))), tailOpen) }),
           ...resumeOpenChild,
         }
       })

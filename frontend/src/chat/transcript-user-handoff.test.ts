@@ -287,4 +287,29 @@ describe('flush-lag retention', () => {
     expect(retainUnownedLiveUnits(stamped, [savedUserRow], {}, false, true, null, new Set(['turn-lag'])).retained).toBe(1)
     expect(retainUnownedLiveUnits(stamped, [savedUserRow], {}, false, true, null, new Set()).retained).toBe(0)
   })
+  test('an unsent submission keeps both its user bubble and paired error row until saved history adopts it', () => {
+    const unsentUser = {
+      type: 'live-user',
+      key: 'pending-user:submission:u1',
+      msg: { role: 'user', uuid: 'submission:u1', text: 'Retry me', localRender: { clientMessageId: 'submission:u1' } },
+    }
+    const unsentError = {
+      type: 'live-error',
+      key: 'pending-error:submission:u1',
+      text: 'Message preparation failed',
+      submissionUuid: 'submission:u1',
+    }
+    const runtimeError = { type: 'live-error', key: 'runtime-err', text: 'Transient stream error' }
+    const unowned = retainUnownedLiveUnits([unsentUser, unsentError, runtimeError], [], {}, true)
+    expect(unowned.units).toEqual([unsentUser, unsentError])
+    expect(unowned.retained).toBe(0)
+    const adopted = retainUnownedLiveUnits(
+      [unsentUser, unsentError],
+      [{ role: 'user', uuid: 'saved-u1', turnId: 'turn-1', text: 'Retry me', localRender: { clientMessageId: 'submission:u1' } }],
+      { 'turn-1': 1000 },
+      true,
+    )
+    expect(adopted.units).toEqual([])
+    expect(adopted.retained).toBe(0)
+  })
 })

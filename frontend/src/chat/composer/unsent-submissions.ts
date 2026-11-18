@@ -13,6 +13,7 @@ export interface UnsentSubmissionRecord {
   draft: ComposerDraft
   files: PendingFileEntry[]
   payload: OutgoingPayload
+  goalMode?: boolean
   error?: string
   atMs: number
 }

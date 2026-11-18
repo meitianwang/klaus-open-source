@@ -21,9 +21,11 @@ const source = readFileSync(new URL('./chat.ts', import.meta.url), 'utf8')
 const ast = createSourceFile('chat.ts', source, ScriptTarget.Latest, true)
 const names = new Set(['sendMessage', 'ensureSession', 'switchSession', 'reconcilePendingComposerSubmissions', 'currentPendingComposerSubmission', 'beginPendingComposerSubmission',
   'createPendingComposerSubmissionRecord', 'promotePendingComposerSubmission', 'acceptPendingComposerSubmission', 'settlePendingComposerSubmission', 'stopPendingComposerSubmission',
-  'dismissPendingComposerSubmission', 'reconcileCancelledComposerAdmissions', 'syncComposerContextRowVisibility', 'mainTranscriptChromeState', 'syncMainTranscriptChrome', 'retryUnsentSubmission', 'resurfaceUnsentSubmission'])
+  'dismissPendingComposerSubmission', 'reconcileCancelledComposerAdmissions', 'syncComposerContextRowVisibility', 'mainTranscriptChromeState', 'syncMainTranscriptChrome',
+  'unsentTurnPayload', 'retryUnsentSubmission', 'resurfaceUnsentSubmission'])
+const submitTurnPayloadDecl = ast.statements.find(node => isFunctionDeclaration(node) && node.name?.text === 'submitTurnPayload')!
 const functions = ast.statements.filter(node => isFunctionDeclaration(node) && names.has(node.name?.text || '')).map(node => node.getText(ast))
-const code = transpileModule(`${functions.join('\n')}\n({ sendMessage, switchSession, reconcilePendingComposerSubmissions, currentPendingComposerSubmission, stopPendingComposerSubmission, syncMainTranscriptChrome, ensureSession });`,
+const code = transpileModule(`${functions.join('\n')}\n${submitTurnPayloadDecl.getText(ast).replace('function submitTurnPayload', 'function realSubmitTurnPayload')}\n({ sendMessage, switchSession, reconcilePendingComposerSubmissions, currentPendingComposerSubmission, stopPendingComposerSubmission, syncMainTranscriptChrome, ensureSession, resurfaceUnsentSubmission, retryUnsentSubmission, realSubmitTurnPayload });`,
   { compilerOptions: { target: ScriptTarget.ES2022 } }).outputText
 const deferred = <T>() => { let resolve!: (value: T) => void, reject!: (error: Error) => void; const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no }); return { promise, resolve, reject } }
 const drain = async () => { for (let i = 0; i < 45; i++) await Promise.resolve() }
@@ -42,7 +44,7 @@ function fixture({ existing = false, goal = false, worktree = false } = {}) {
     flushSync: (callback: () => void) => callback(),
     window: { currentSessionId: sourceId, klaus: { browserUse: { setConversation: async () => {} } }, dispatchEvent: () => c.draftPromotion.navigate() },
     goalInteractions: new GoalInteractionClock(), draftPromotion: new DraftSessionPromotion(), promoteInflight: null,
-    sessions: [], sessionDeletePending: new Set(), draftOnlySessionIds: new Set(), sessionDrafts: new Map(), sessionPendingFiles: new Map(), runningSessions: new Set(),
+    sessions: [], sessionDeletePending: new Set(), draftOnlySessionIds: new Set(), userInterruptedSessions: new Set(), submittedTurnSessionIds: new Set(), sessionDrafts: new Map(), sessionPendingFiles: new Map(), runningSessions: new Set(),
     pendingComposerSubmissions: new Map(), visiblePendingSubmissionId: null,
     sidePendingSubmissionIds: new Set<string>(), cancelledComposerAdmissions: new Map<string, any>(),
     sideRuntimeForSession: () => undefined,
@@ -92,6 +94,7 @@ function fixture({ existing = false, goal = false, worktree = false } = {}) {
     hydrateGoalSnapshot: async () => null, confirmGoalReplacement: async () => true,
     setComposerGoalEnabled: (value: boolean) => { c.composerGoalEnabled = value }, onGoalUpdated() {}, requestTurnStop: (target: string) => calls.push(`stop:${target}`),
     noteCommandReference() {}, flushVoiceLearning() {}, prepareComposerSubmission,
+    takeEditedQueueReinsert() {}, sentUserDisplayMetadata: () => ({}), isTurnInProgressRefusal: () => false,
     recordUnsentSubmission: (record: any) => { unsent.set(record.sessionId, record) },
     unsentSubmissionFor: (id: string) => unsent.get(id) ?? null,
     clearUnsentSubmission: (id: string) => { unsent.delete(id) },
@@ -104,7 +107,18 @@ function fixture({ existing = false, goal = false, worktree = false } = {}) {
         set: async (target: string, value: any) => { goals.push({ target, value }); return goalAck.promise },
       } },
   }
-  const api = runInNewContext(code, c) as { sendMessage(): Promise<void>; switchSession(id: string): Promise<void>; reconcilePendingComposerSubmissions(): void; currentPendingComposerSubmission(): any; stopPendingComposerSubmission(): boolean; syncMainTranscriptChrome(): void; ensureSession(): Promise<string | null> }
+  const api = runInNewContext(code, c) as {
+    sendMessage(): Promise<void>
+    switchSession(id: string): Promise<void>
+    reconcilePendingComposerSubmissions(): void
+    currentPendingComposerSubmission(): any
+    stopPendingComposerSubmission(): boolean
+    syncMainTranscriptChrome(): void
+    ensureSession(): Promise<string | null>
+    resurfaceUnsentSubmission(id: string): void
+    retryUnsentSubmission(id: string, uuid: string): void
+    realSubmitTurnPayload(target: string, payload: any, options?: any): Promise<string | null>
+  }
   c.api = api
   return { c, api, model, creation, goalAck, workspace, file, mounts, calls, sends, goals, closed, hostId, placements, placementMoves,
     unsent: () => [...unsent.values()],
@@ -437,3 +451,94 @@ test('a completed goal echo survives reconciliation when its acknowledgement is 
   expect(store.getSessionStream(f.hostId).liveUnits.filter(unit => unit.type === 'live-user')).toHaveLength(1)
   expect(store.getSessionStream(f.hostId).liveUnits.filter(unit => unit.type === 'live-error')).toHaveLength(0)
 })
+
+test('switching conversations during a first-message goal submission admits the goal on its promoted conversation in the background', async () => {
+  const f = fixture({ goal: true })
+  // Make the newly selected conversation ineligible for goals to prove goal
+  // admission checks the target conversation rather than window.currentSessionId.
+  f.c.composerGoalEligible = (target: string | null = f.c.window.currentSessionId) => target !== 'friend-chat'
+  const task = f.api.sendMessage(), pending = f.api.currentPendingComposerSubmission()
+  f.model.resolve(true); await drain()
+  // User navigates to another conversation while session:new is still in flight.
+  f.c.goalInteractions.navigate()
+  f.c.draftPromotion.navigate()
+  f.c.window.currentSessionId = 'friend-chat'
+  f.c.setComposerGoalEnabled(false)
+  f.setDraft('Draft in another chat')
+  f.resolveCreation(); await drain()
+  for (let i = 0; i < 20 && !f.goals.length; i++) await new Promise(done => setTimeout(done, 1))
+  expect(f.goals).toHaveLength(1)
+  expect(f.goals[0].target).toBe(f.hostId)
+  expect(f.goals[0].value.submit).toBe(true)
+  f.goalAck.resolve({ ok: true, goal: { objective: 'Build the authored task', status: 'active' }, goalRevision: 1, admission: 'scheduled' })
+  await task
+  expect(pending.phase).toBe('accepted')
+  expect(f.unsent()).toHaveLength(0)
+  expect(f.c.window.currentSessionId).toBe('friend-chat')
+  expect(f.draft().text).toBe('Draft in another chat')
+  expect(f.c.busy).toBe(false)
+})
+
+test('a goal submission requiring replacement confirmation while off-screen parks as a retryable goal record without popping over another chat', async () => {
+  const f = fixture({ existing: true, goal: true }), origin = f.c.window.currentSessionId
+  let modalCalls = 0
+  const activeGoal = { goalId: 'goal-1', objective: 'Existing unfinished goal', status: 'active', objectiveMaterialized: false, revision: 1 }
+  f.c.hydrateGoalSnapshot = async () => activeGoal
+  f.c.goalSnapshots.receive(origin, activeGoal as any, 1)
+  f.c.confirmGoalReplacement = async () => { modalCalls++; return true }
+  const task = f.api.sendMessage(), pending = f.api.currentPendingComposerSubmission()
+  f.c.goalInteractions.navigate()
+  f.c.draftPromotion.navigate()
+  f.c.window.currentSessionId = 'other-chat'
+  f.model.resolve(true); await task
+  expect(modalCalls).toBe(0)
+  expect(f.goals).toHaveLength(0)
+  expect(f.unsent()).toHaveLength(1)
+  expect(f.unsent()[0].goalMode).toBe(true)
+  expect(store.getSessionStream(origin).liveUnits.map(unit => unit.type)).toEqual(['live-user', 'live-error'])
+  // Returning to the originating conversation and clicking Retry submits a Goal
+  // (never demoting to an ordinary submitTurnPayload message).
+  f.c.window.currentSessionId = origin
+  f.goalAck.resolve({ ok: true, goal: { objective: 'Build the authored task', status: 'active' }, goalRevision: 2, admission: 'scheduled' })
+  pendingSubmissionRecovery(pending.uuid)?.run()
+  for (let i = 0; i < 30 && !f.goals.length; i++) await new Promise(done => setTimeout(done, 1))
+  await drain()
+  expect(modalCalls).toBe(1)
+  expect(f.sends).toHaveLength(0)
+  expect(f.goals).toHaveLength(1)
+  expect(f.goals[0].target).toBe(origin)
+  expect(f.unsent()).toHaveLength(0)
+})
+
+test('a structured send refusal through real submitTurnPayload retains live-error and survives empty history loads and half-state resurfacing', async () => {
+  const f = fixture({ existing: true }), origin = f.c.window.currentSessionId
+  f.c.klausApi.chat.send = async () => {
+    const err = new Error('Provider rejected request') as Error & { data?: unknown }
+    err.data = { error: { code: 'PROVIDER_REFUSED' } }
+    throw err
+  }
+  f.c.submitTurnPayload = (target: string, payload: any, options: any) => f.api.realSubmitTurnPayload(target, payload, options)
+  const task = f.api.sendMessage(), pending = f.api.currentPendingComposerSubmission()
+  f.model.resolve(true); await task
+  expect(store.getSessionStream(origin).liveUnits.map(unit => unit.type)).toEqual(['live-user', 'live-error'])
+  expect((store.getSessionStream(origin).liveUnits[1] as any).text).toBe('Provider rejected request')
+  expect(pendingSubmissionRecovery(pending.uuid)?.action).toBe('retry')
+  // An empty disk history load on that session must retain BOTH live-user and live-error.
+  const prevKlaus = (globalThis as any).window.klaus
+  ;(globalThis as any).window.klaus = {
+    chat: { getHistory: async () => ({ messages: [], pagination: { hasMore: false, nextCursor: null }, turnShells: [] }) },
+  }
+  try {
+    await store.loadSessionHistory(origin)
+  } finally {
+    ;(globalThis as any).window.klaus = prevKlaus
+  }
+  expect(store.getSessionStream(origin).liveUnits.map(unit => unit.type)).toEqual(['live-user', 'live-error'])
+  expect(store.getSessionStream(origin).historyStale).toBe(false)
+  // Even if live-error was stripped while recovery remained in memory, resurfacing restores both units.
+  const onlyBubble = store.getSessionStream(origin).liveUnits.filter(unit => unit.type === 'live-user')
+  store.chatStreamStore.setState({ sessions: { ...store.chatStreamStore.getState().sessions, [origin]: { ...store.getSessionStream(origin), liveUnits: onlyBubble } } })
+  f.api.resurfaceUnsentSubmission(origin)
+  expect(store.getSessionStream(origin).liveUnits.map(unit => unit.type)).toEqual(['live-user', 'live-error'])
+})
+

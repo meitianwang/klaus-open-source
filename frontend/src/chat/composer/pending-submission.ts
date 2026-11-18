@@ -18,6 +18,7 @@ export interface PendingComposerSubmission {
   projectRoot: string | null
   phase: 'preparing' | 'submitting' | 'accepted' | 'failed' | 'unconfirmed' | 'cancelled'
   cancelled: boolean
+  goalMode?: boolean
   error?: string
 }
 

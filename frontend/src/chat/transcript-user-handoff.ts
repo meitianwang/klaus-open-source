@@ -205,9 +205,9 @@ export function mergeSubmittedUserHistory(history: UserRow[], liveUnits: LiveRow
  * host-lifetime surfaces, not turn content: the ordinary sweep keeps deciding
  * them.
  */
-const RETAINED_LIVE_UNIT_TYPES = new Set(['live-user', 'live-text', 'live-tools', 'live-thinking-done'])
+const RETAINED_LIVE_UNIT_TYPES = new Set(['live-user', 'live-error', 'live-text', 'live-tools', 'live-thinking-done'])
 
-export function retainUnownedLiveUnits<L extends { type: string; turnId?: string; msg?: unknown; startedAtMs?: number }>(
+export function retainUnownedLiveUnits<L extends { type: string; turnId?: string; msg?: unknown; startedAtMs?: number; submissionUuid?: string }>(
   units: L[],
   settledHistory: Array<Record<string, unknown>>,
   turnStarts: Record<string, number>,
@@ -221,16 +221,32 @@ export function retainUnownedLiveUnits<L extends { type: string; turnId?: string
   // A turn whose work has not flushed yet is not owned by saved history: its
   // input row alone must not hand off the live tail.
   const ownedTurn = (id: string) => owned.has(id) && !laggingTurnIds.has(id)
+  const failedSubmissions = new Set<string>()
+  for (const unit of units) {
+    if (unit.type === 'live-error' && typeof unit.submissionUuid === 'string' && unit.submissionUuid) {
+      failedSubmissions.add(unit.submissionUuid)
+    }
+  }
+  const savedOwnsSubmission = (uuid: string) => settledHistory.some(row => row.role === 'user'
+    && (row.uuid === uuid || clientMessageId(row) === uuid))
   const out: Array<L & { turnId?: string }> = []
   let retained = 0
   for (const unit of units) {
     if (!RETAINED_LIVE_UNIT_TYPES.has(unit.type)) continue
     if (unit.type === 'live-user' && clientMessageId(unit.msg)) {
+      const id = clientMessageId(unit.msg)!
       const saved = settledHistory.find(row => row.role === 'user' && sameUserMessage(row, unit.msg))
       // A canonical input can hydrate before its turn's work. Only that exact
       // input transfers ownership; work remains under the existing turn policy.
       if (saved) continue
-      out.push(unit); retained++
+      out.push(unit)
+      if (!failedSubmissions.has(id)) retained++
+      continue
+    }
+    if (unit.type === 'live-error') {
+      if (typeof unit.submissionUuid === 'string' && unit.submissionUuid && !savedOwnsSubmission(unit.submissionUuid)) {
+        out.push(unit)
+      }
       continue
     }
     const stamped = typeof unit.turnId === 'string' && unit.turnId ? unit.turnId : null
