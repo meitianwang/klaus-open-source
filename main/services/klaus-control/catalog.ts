@@ -1126,7 +1126,7 @@ export const CONTROL_SURFACES: ControlSurface[] = [
   },
   {
     "key": "browser",
-    "about": "The agent browser (Klaus driving web pages): state, navigation, screenshots, and its settings including the Chrome extension bridge. Browser is a built-in plugin: its on/off switch and Chrome pairing live on the Browser card of the Plugins page, and the default Bing web search runs on it. The `browser-use:*` page actions work only on the browser panel of the conversation currently shown; for this task's own pages use the browser tools. Site permission requests (location, notifications, camera…) from built-in browser pages are answered by the user in an in-app Browser permission dialog, and `@` in the composer can reference a specific open tab.",
+    "about": "The agent browser (Klaus driving web pages): state, navigation, screenshots, and its settings including the Chrome extension bridge. Browser is a built-in plugin: its full settings page lives in Settings → Browser (enable switch, open targets for web and local URLs, browsing data/history/passwords/downloads, site resource policies, and Chrome extension pairing), alongside the Browser card on the Plugins page, and the default Bing web search runs on it. The `browser-use:*` page actions work only on the browser panel of the conversation currently shown; for this task's own pages use the browser tools. Site permission requests (location, notifications, camera…) from built-in browser pages are answered by the user in an in-app Browser permission dialog, and `@` in the composer can reference a specific open tab.",
     "reads": [
       {
         "action": "state",
@@ -1364,8 +1364,8 @@ export const CONTROL_SURFACES: ControlSurface[] = [
     ],
     "manualHeading": "浏览器操控",
     "panel": [
-      "plugins",
-      ""
+      "settings",
+      "browser"
     ]
   },
   {
@@ -1938,7 +1938,7 @@ export const CONTROL_SURFACES: ControlSurface[] = [
   },
   {
     "key": "worktree",
-    "about": "Parallel git worktrees: a project conversation running in its own checkout under ~/.klaus/worktrees on a new klaus/wt-<timestamp> branch. Klaus has no merge action; merging that branch back is ordinary git work the user (or a command, with permission) does after committing (see the diff surface).",
+    "about": "Parallel git worktrees: a project conversation running in its own checkout under the configured worktree root (default ~/.klaus/worktrees, configurable in Settings → Worktrees alongside upstream fetch and automatic retention cleanup) on a new klaus/wt-<timestamp> branch. Klaus has no merge action; merging that branch back is ordinary git work the user (or a command, with permission) does after committing (see the diff surface).",
     "reads": [
       {
         "action": "status",
@@ -1972,7 +1972,11 @@ export const CONTROL_SURFACES: ControlSurface[] = [
       }
     ],
     "manualHeading": "并行工作树",
-    "elsewhere": "the worktree badge on a conversation in the sidebar, plus the reveal entry in that conversation's ⋯ menu. A new worktree is started from the new-conversation 'Run in' row (switch the mode to Worktree, optionally carrying the N uncommitted changes); it is offered only for a single-folder git project with a current branch."
+    "panel": [
+      "settings",
+      "worktrees"
+    ],
+    "elsewhere": "Settings → Worktrees lists managed worktrees per repository and configures root directory, upstream fetch, and automatic cleanup; each worktree conversation also shows a worktree badge in the sidebar with a reveal entry in its ⋯ menu. A new worktree is started from the new-conversation 'Run in' row (switch the mode to Worktree, optionally carrying the N uncommitted changes) or from Settings → Worktrees."
   },
   {
     "key": "git",
@@ -2080,7 +2084,7 @@ export const CONTROL_SURFACES: ControlSurface[] = [
   },
   {
     "key": "model",
-    "about": "Settings → Model Sources manages sign-ins, endpoints and model catalogs, including the custom API-key entries managed here. Settings → Model Tiers holds the advisor and shared high/medium/low mapping; Settings → Multimodal Models holds the global image, video, speech and music picks. Tiers are independent of a chat's main model: a tier set to null follows the calling chat's main model, and a configured tier whose model is unavailable falls back to that main model for the call. Saves apply from the next call; running requests keep their captured config. The conversation main model, native thinking level, independent Ultra mode and supported-source Fast mode are per chat: use session.setMainModel / setThinkingLevel / setUltraMode / setFastMode. Image, video, speech, music, advisor and auxiliary task picks live on imageSelection, videoSelection, audioSelection, musicSelection, advisor and featureModels.",
+    "about": "Settings → Model Sources manages sign-ins, endpoints and model catalogs, including the custom API-key entries managed here. Settings → Model division & orchestration (modelTiers) holds the shared high/medium/low sub-agent tiers, the Orchestration execution model, and the advisor; Settings → Multimodal Models holds the global image, video, speech and music picks. Tiers are independent of a chat's main model: a tier set to null follows the calling chat's main model, and a configured tier whose model is unavailable falls back to that main model for the call. Saves apply from the next call; running requests keep their captured config. The conversation main model, native thinking level, Parallel mode (/parallel, setUltraMode), Orchestrate mode (/orchestrate, setOrchestrationMode) and supported-source Fast mode are per chat: use session.setMainModel / setThinkingLevel / setUltraMode / setOrchestrationMode / setFastMode. Image, video, speech, music, advisor, orchestrator and auxiliary task picks live on imageSelection, videoSelection, audioSelection, musicSelection, advisor, orchestrator and featureModels.",
     "reads": [
       {
         "action": "list",
@@ -2157,7 +2161,7 @@ export const CONTROL_SURFACES: ControlSurface[] = [
     "manualHeading": "图片、视频、语音与音乐生成",
     "panel": [
       "settings",
-      "models"
+      "multimodal"
     ]
   },
   {
@@ -2238,7 +2242,7 @@ export const CONTROL_SURFACES: ControlSurface[] = [
     "manualHeading": "图片、视频、语音与音乐生成",
     "panel": [
       "settings",
-      "models"
+      "multimodal"
     ]
   },
   {
@@ -2265,7 +2269,7 @@ export const CONTROL_SURFACES: ControlSurface[] = [
     "manualHeading": "图片、视频、语音与音乐生成",
     "panel": [
       "settings",
-      "models"
+      "multimodal"
     ]
   },
   {
@@ -2292,7 +2296,7 @@ export const CONTROL_SURFACES: ControlSurface[] = [
     "manualHeading": "图片、视频、语音与音乐生成",
     "panel": [
       "settings",
-      "models"
+      "multimodal"
     ]
   },
   {
@@ -2319,7 +2323,7 @@ export const CONTROL_SURFACES: ControlSurface[] = [
     "manualHeading": "图片、视频、语音与音乐生成",
     "panel": [
       "settings",
-      "models"
+      "multimodal"
     ]
   },
   {
@@ -2346,7 +2350,7 @@ export const CONTROL_SURFACES: ControlSurface[] = [
     "manualHeading": "图片、视频、语音与音乐生成",
     "panel": [
       "settings",
-      "models"
+      "multimodal"
     ]
   },
   {
@@ -2743,7 +2747,7 @@ export const CONTROL_SURFACES: ControlSurface[] = [
   },
   {
     "key": "qwenworkAuth",
-    "about": "QwenWork subscription sign-in: browser login (start/poll) or adopting the signed-in official client on this computer. A signed-in QwenWork subscription also backs the QwenWork image backend (text-to-image only).",
+    "about": "QwenWork subscription sign-in: browser login (start/poll) or adopting the signed-in official client on this computer. A signed-in QwenWork subscription also backs the QwenWork image (including native reference-image editing), video, and music backends.",
     "reads": [
       {
         "action": "status",
@@ -3403,7 +3407,7 @@ export const CONTROL_SURFACES: ControlSurface[] = [
   },
   {
     "key": "advisor",
-    "about": "The advisor (顾问) is an optional model the main agent can consult through its advisor tool before substantial work, when stuck, and before finishing. The tool sends the current effective conversation context and a question to the selected source, consuming that source's quota, and returns advice without executing tools. Stored once globally: all chats share the pick independently of their main model. There is no model-rank requirement and it uses none of the high/medium/low tiers. In the UI it lives in Settings → Model Tiers: pick a source, then a model of that source, then enable; enabled without a model counts as off. Changes apply on the next turn; disabling preserves the pick. An unavailable advisor reports an error instead of falling back to another model.",
+    "about": "The advisor (顾问) is an optional model the main agent can consult through its advisor tool before substantial work, when stuck, and before finishing. The tool sends the current effective conversation context and a question to the selected source, consuming that source's quota, and returns advice without executing tools. Stored once globally: all chats share the pick independently of their main model. There is no model-rank requirement and it uses none of the high/medium/low tiers. In the UI it lives in Settings → Model division & orchestration (modelTiers): pick a source, then a model of that source, then enable; enabled without a model counts as off. Changes apply on the next turn; disabling preserves the pick. An unavailable advisor reports an error instead of falling back to another model.",
     "reads": [
       {
         "action": "get",
@@ -3479,7 +3483,7 @@ export const CONTROL_SURFACES: ControlSurface[] = [
     "manualHeading": "辅助任务模型",
     "panel": [
       "settings",
-      "models"
+      "preferences"
     ]
   },
   {
@@ -3994,6 +3998,8 @@ export const NAV_SETTINGS_TABS: string[] = [
   "preferences",
   "keyboard",
   "voiceInput",
+  "storage",
+  "worktrees",
   "externalImport",
   "archivedSessions",
   "models",
@@ -4003,8 +4009,10 @@ export const NAV_SETTINGS_TABS: string[] = [
   "permissions",
   "hooks",
   "engineMemory",
+  "browser",
   "mobile",
   "computerUse",
+  "computerHistory",
   "systemAuth",
   "about"
 ];

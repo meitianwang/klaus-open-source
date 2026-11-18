@@ -211,8 +211,8 @@ const SKILL_TEXT_I18N = {
     zh: ['快捷键帮助', '安全地查看和编辑键盘快捷键配置。'],
   },
   'klaus-docs': {
-    en: ['Klaus Docs', 'Klaus product self-knowledge: how features work, what settings mean, product mechanics, subscription, and troubleshooting — answered from the official Klaus manual instead of model memory.'],
-    zh: ['Klaus 产品手册', 'Klaus 产品自知识：功能如何工作、设置含义、产品机制、订阅与故障排查——以官方 Klaus 手册为准回答，而非依赖模型记忆。'],
+    en: ['Klaus Docs', 'Klaus product self-knowledge: how features work, what settings mean, work modes, model sources, extensions, mobile & CLI, and troubleshooting — answered from the official Klaus manual instead of model memory.'],
+    zh: ['Klaus 产品手册', 'Klaus 产品自知识：功能用法、设置含义、工作模式、模型来源、扩展能力、移动端与 CLI 及故障排查——以官方 Klaus 手册为准回答，不靠模型记忆猜测。'],
   },
   'layered-architecture-diagram': {
     en: ['Layered Architecture Diagram', 'Design and generate enterprise-style layered architecture diagrams in HTML or SVG.'],

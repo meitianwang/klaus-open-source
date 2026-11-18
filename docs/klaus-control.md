@@ -16,8 +16,8 @@ Create the service with the following trusted dependencies:
   `currentBrowserSessionId()`. Reject absent, private, closed or stale-generation
   callers. Named handler dispatch must retain the captured engine generation and
   signal. The model must not choose the IPC sender or broaden its role.
-- `manual()` reads `resolveDesktopPaths().manualPath`. Development uses the single
-  `public/klaus-manual.md`; packaged apps use `Resources/manual/klaus-manual.md`.
+- `manual()` reads `resolveDesktopPaths().manualPath`. Development reads
+  `resources/manual/klaus-manual.md`; packaged apps read `Resources/manual/klaus-manual.md`.
   The package inventory requires and hashes the resource. There is no checkout
   fallback for an installed app.
 - `storedRows()` reads the settings owner's current rows for enumeration. All
@@ -52,14 +52,17 @@ later updater errors, or skip draining unrelated control work.
 
 ## Behavior and boundaries
 
-The catalog has 57 surfaces and 329 named operations. It accounts for all 452
-committed renderer invokes through a model action or a deliberate exclusion;
-there are 137 excluded channels. These counts move with every channel added, so
-treat them as indicative: `tests/klaus-control.test.ts` is the authority, and it
-fails whenever a committed invoke has neither an operation nor an exclusion. The
-contract test requires each new channel to receive an explicit decision. Catalog
-entries are not implementations: execution must reach the real registered handler
-or return its actual error.
+The catalog currently spans 72 surfaces and accounts for all 776 committed
+renderer invokes through either a named model operation or a deliberate entry in
+`CONTROL_EXCLUSIONS` (including owner-only surfaces such as the desktop companion,
+composer predictions, local computer-history settings, browser password/autofill
+management, and native studio editor panels driven through their own plugin tools).
+These counts move as channels are added or retired, so treat them as indicative:
+`tests/klaus-control.test.ts` is the authority, and it fails whenever a committed
+invoke has neither an operation nor an exclusion, or whenever a surface's
+`manualHeading` or `panel` drifts from `resources/manual/klaus-manual.md` and
+`NAV_SETTINGS_TABS`. Catalog entries are not implementations: execution must reach
+the real registered handler or return its actual error.
 
 The existing destructive/external-action confirmation decisions remain explicit.
 A caller must pass `confirm: true` only after the user's agreement. An unattended
