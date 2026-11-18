@@ -30,11 +30,16 @@ export function registerAntigravityModelVariantTests(h: Harness): void {
     const request: EngineRequest = async (method, raw) => {
       const params = object(raw);
       if (method === 'antigravity/models') { await beforeCatalog?.(); return reply; }
-      if (method === 'model/selection/resolve') return { source: 'antigravity', selection: params.selection === 'auto' ? model('high') : params.selection ?? '' };
+      if (method === 'model/selection/resolve') return {
+        source: 'antigravity',
+        selection: params.selection === vector.placeholderRecovery.stored ? vector.placeholderRecovery.accountDefault
+          : params.selection === vector.placeholderRecovery.sameFamily.stored ? vector.placeholderRecovery.sameFamily.resolved
+          : params.selection === 'auto' ? model('high') : params.selection ?? '',
+      };
       throw new Error('Unexpected fixture request: ' + method);
     };
     const service = new ComposerService({ configRoot: root, engineSettings: engine, request, push: () => {}, onSessionConfigChanged: change => changed(root, change) });
-    return { root, entries, reply, request, service, close: () => rm(root, { recursive: true, force: true }) };
+    return { root, entries, reply, request, service, placeholder: vector.placeholderRecovery as { stored: string; accountDefault: string }, close: () => rm(root, { recursive: true, force: true }) };
   }
 
   h.test('declared model variants form one menu row and keep every saved concrete selection', async () => {
@@ -262,6 +267,25 @@ export function registerAntigravityModelVariantTests(h: Harness): void {
     } finally { await f.close(); }
   });
 
+  h.test('saved placeholders are hidden and resolved by the engine before display, inference, and source activation', async () => {
+    const f = await fixture();
+    try {
+      const { stored, accountDefault } = f.placeholder;
+      f.entries.push({ key: stored.slice('antigravity:'.length), display_name: 'Unavailable placeholder' });
+      setSessionModel('legacy', stored, 'antigravity', f.root);
+      assert.equal(modelOptionForValue(await f.service.options('antigravity'), stored), undefined);
+      assert.equal(object(await f.service.getModel('legacy')).resolvedMode, accountDefault);
+      const built = await buildSessionInitAsync({ rendererId: 'legacy', cwd: f.root, configRoot: f.root }, { configRoot: f.root, request: f.request });
+      assert(built.ok); assert.equal(built.selection, accountDefault);
+      assert.equal(readSessionModel('legacy', f.root).mode, stored, 'passive reads preserve the original placeholder for account changes');
+
+      await f.service.setModel({ sessionId: 'legacy', source: 'antigravity', mode: 'auto' });
+      assert.equal(readSessionModel('legacy', f.root).mode, accountDefault);
+      await f.service.setModel({ sessionId: 'explicit', source: 'antigravity', mode: stored });
+      assert.equal(readSessionModel('explicit', f.root).mode, accountDefault);
+    } finally { await f.close(); }
+  });
+
   h.test('failed model publication rolls back both the native member and thinking selection', async () => {
     const f = await fixture(() => { throw new Error('Publication rejected'); });
     try {
@@ -394,20 +418,18 @@ export function registerAntigravityModelVariantTests(h: Harness): void {
       await f.service.setModel({ sessionId: 'disabled-pick', source: 'antigravity', mode: 'antigravity:gemini-4-carbon-disabled' });
       assert.equal(readSessionModel('disabled-pick', f.root).mode, 'antigravity:gemini-4-carbon-high');
 
-      // Seed a database that already ran v1 harness migration but still holds restricted-account `*-disabled` selections.
+      // A startup migration without a live account catalog cannot resolve placeholders.
       const disabledRoot = await mkdtemp(join(tmpdir(), 'klaus-antigravity-disabled-migrate-'));
       try {
         readSessionModel('seeded-disabled', disabledRoot);
         withSettingsDb(disabledRoot, db => {
-          db.prepare('DELETE FROM settings WHERE key = ?').run('migrated.antigravity_disabled_models_v1');
-          db.prepare("INSERT INTO settings(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
-            .run('migrated.antigravity_harness_models_v1', '1');
+          db.prepare('DELETE FROM settings WHERE key = ?').run('migrated.antigravity_harness_models_v1');
           db.prepare("INSERT INTO settings(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
             .run('composer.last_model:antigravity', 'antigravity:gemini-4-carbon-disabled');
           db.prepare("UPDATE session_main_models SET mode = 'antigravity:gemini-4-carbon-disabled', source = 'antigravity' WHERE session_id = 'seeded-disabled'").run();
         });
-        assert.equal(readSessionModel('seeded-disabled', disabledRoot).mode, 'antigravity:gemini-4-carbon-high');
-        assert.equal(kvGet('composer.last_model:antigravity', disabledRoot), 'antigravity:gemini-4-carbon-high');
+        assert.equal(readSessionModel('seeded-disabled', disabledRoot).mode, 'antigravity:gemini-4-carbon-disabled');
+        assert.equal(kvGet('composer.last_model:antigravity', disabledRoot), 'antigravity:gemini-4-carbon-disabled');
       } finally {
         await rm(disabledRoot, { recursive: true, force: true });
       }

@@ -305,9 +305,9 @@ function ensureTables(db: DatabaseSync, configRoot: string): void {
       .run(Date.now());
     put(db, 'migrated.composer_native_fast_sources_v1', '1');
   }
-  if (!get(db, 'migrated.antigravity_harness_models_v1') || !get(db, 'migrated.antigravity_disabled_models_v1')) {
-    // Non-chat routing aliases and restricted-account placeholder keys are excluded
-    // from conversation choices. Rewrite saved selections onto concrete chat models.
+  if (!get(db, 'migrated.antigravity_harness_models_v1')) {
+    // Only fixed aliases are safe to rewrite without the current account catalog.
+    // Keep disabled placeholders for resolution against that account at runtime.
     const now = Date.now();
     for (const key of [
       'composer.main_model',
@@ -362,7 +362,6 @@ function ensureTables(db: DatabaseSync, configRoot: string): void {
       } catch { /* preserve malformed legacy rows untouched */ }
     }
     put(db, 'migrated.antigravity_harness_models_v1', '1');
-    put(db, 'migrated.antigravity_disabled_models_v1', '1');
   }
 }
 

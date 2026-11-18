@@ -1,5 +1,5 @@
 import { antigravityModelOptions } from './antigravity-model-options';
-import { antigravityThinkingLevel, antigravityVariantForThinking, canonicalAntigravitySelection, isAntigravityHarnessAlias, pickAntigravityModelMetadata, type AntigravityModelMetadata } from '../../shared/antigravity-model-catalog';
+import { antigravityThinkingLevel, antigravityVariantForThinking, canonicalAntigravitySelection, isAntigravityHarnessAlias, isAntigravityPlaceholder, pickAntigravityModelMetadata, type AntigravityModelMetadata } from '../../shared/antigravity-model-catalog';
 import { isTraeNativeEffort, pickTraeModelMetadata, traeThinkingLevel, traeThinkingLevels, traeVariantForThinking, traeModelOptionForValue, type TraeModelMetadata } from '../../shared/trae-model-catalog';
 import { isKiroNativeEffort, isKiroRoutingAlias, pickKiroModelMetadata, kiroThinkingLevel, kiroThinkingLevels, kiroVariantForThinking, kiroModelOptionForValue, type KiroModelMetadata } from '../../shared/kiro-model-catalog';
 import type { ClientEvent } from '../engine/protocol';
@@ -122,8 +122,11 @@ export class ComposerService {
   // Reuse the source-switch catalog when reading the restored member's metadata.
   private async antigravityModel(selection: string, read: 'warm' | 'cached' = 'warm', rows?: Json[]): Promise<{ selection: string; metadata: AntigravityModelMetadata }> {
     const canonical = canonicalAntigravitySelection(selection);
-    const resolved = canonical === 'auto' ? await this.resolvePreference({ source: 'antigravity', mode: canonical }) : canonical;
-    const row = modelOptionForValue(rows ?? await this.options('antigravity', true, read), resolved);
+    const placeholder = isAntigravityPlaceholder(canonical);
+    const resolved = canonical === 'auto' || placeholder ? await this.resolvePreference({ source: 'antigravity', mode: canonical }) : canonical;
+    // Resolving a placeholder may refresh the account catalog. Do not use
+    // rows captured before resolution to look up the replacement.
+    const row = modelOptionForValue(placeholder ? await this.options('antigravity', true, 'cached') : (rows ?? await this.options('antigravity', true, read)), resolved);
     if (!row) throw new IpcHandlerError('MODEL_SELECTION_UNAVAILABLE', 'The selected model is unavailable');
     return { selection: resolved, metadata: pickAntigravityModelMetadata(row) };
   }
@@ -252,19 +255,24 @@ export class ComposerService {
           ? thinkingLevelFor(sessionId, this.configRoot)
           : (rememberedThinking ?? (sameSource ? thinkingLevelFor(sessionId, this.configRoot) : undefined));
         if (source === 'antigravity') {
-          const catalog = await this.antigravityCatalog();
-          antigravityRows = catalog.rows;
-          assertCurrent?.();
-          const canonical = preferred ? canonicalAntigravitySelection(preferred) : undefined;
-          if (canonical && modelOptionForValue(catalog.rows, canonical)) {
-            selection = canonical;
+          if (preferred && isAntigravityPlaceholder(preferred)) {
+            selection = preferred;
             restoredConcreteAntigravity = true;
-          } else if (sameSource && canonical && catalog.reply.catalogBaseline === true) {
-            selection = canonical;
-            skipAntigravityCatalogLookup = true;
           } else {
-            selection = await this.antigravitySourceSelection(preferred, catalog.rows, catalog.reply.catalogBaseline === true);
+            const catalog = await this.antigravityCatalog();
+            antigravityRows = catalog.rows;
             assertCurrent?.();
+            const canonical = preferred ? canonicalAntigravitySelection(preferred) : undefined;
+            if (canonical && modelOptionForValue(catalog.rows, canonical)) {
+              selection = canonical;
+              restoredConcreteAntigravity = true;
+            } else if (sameSource && canonical && catalog.reply.catalogBaseline === true) {
+              selection = canonical;
+              skipAntigravityCatalogLookup = true;
+            } else {
+              selection = await this.antigravitySourceSelection(preferred, catalog.rows, catalog.reply.catalogBaseline === true);
+              assertCurrent?.();
+            }
           }
         } else if (preferred && preferred !== 'auto') {
           selection = preferred;
@@ -294,6 +302,7 @@ export class ComposerService {
         } else {
           const model = await this.antigravityModel(selection, 'warm', antigravityRows);
           assertCurrent?.();
+          if (isAntigravityPlaceholder(selection)) selection = model.selection;
           if (model.metadata.antigravityFamilyId) {
             if (explicitThinking !== undefined) {
               const target = antigravityVariantForThinking(model.metadata, model.selection, explicitThinking);
@@ -770,7 +779,7 @@ export class ComposerService {
     });
     const options = entries.flatMap(entry => {
       if (typeof entry.key !== 'string') return [];
-      if (source === 'antigravity' && isAntigravityHarnessAlias(entry.key)) return [];
+      if (source === 'antigravity' && (isAntigravityHarnessAlias(entry.key) || isAntigravityPlaceholder(entry.key))) return [];
       if (source === 'kiro' && isKiroRoutingAlias(entry.key)) return [];
       if ((source === 'trae' || source === 'kiro') && (entry.purpose !== undefined && entry.purpose !== 'chat'
         || entry.hidden === true || entry.is_invisible_to_user === true || entry.isInvisibleToUser === true)) return [];

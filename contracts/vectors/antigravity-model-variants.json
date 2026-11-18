@@ -1,11 +1,16 @@
 {
   "version": 2,
-  "reason": "Model menus retain concrete identities, fixed budgets and truthful account state while known Antigravity selections are admitted by the cloud service at request time.",
+  "reason": "Model menus retain concrete identities and truthful account state; only non-callable placeholders are hidden and recovered through the active account catalog.",
   "selectionPolicy": {
     "knownRestrictedMemberSelectable": true,
     "restrictedNativeThinkingSelectable": true,
     "reportedAvailable": false,
     "unknownMemberSelectable": false
+  },
+  "placeholderRecovery": {
+    "stored": "antigravity:claude-opus-5-5-disabled",
+    "accountDefault": "antigravity:gemini-3.8-flash-high",
+    "sameFamily": { "stored": "antigravity:gemini-4-carbon-disabled", "resolved": "antigravity:gemini-4-carbon-high" }
   },
   "entries": [
     {
