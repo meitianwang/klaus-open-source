@@ -306,12 +306,30 @@
   letter-spacing: .3px;
 }
 
-/* Hidden, never unmounted: display:none freed the badge's width and let the
-   title re-ellipsize on every hover. */
-.session-item:hover :global(.s-draft-badge) { visibility: hidden; }
+/* Non-interactive inline trailing badges yield to the action strip while the
+   row is hovered or keyboard-focused so the title does not collapse between
+   both slots. Interactive Needs-input pills stay in flow so snooze remains
+   reachable. */
+.session-item:hover :global(.s-draft-badge),
+.session-item:focus-visible :global(.s-draft-badge),
+.session-item:focus-within :global(.s-draft-badge),
+.session-item:hover :global(.session-branch-icon),
+.session-item:focus-visible :global(.session-branch-icon),
+.session-item:focus-within :global(.session-branch-icon),
+.session-item:hover :global(.s-status-chip),
+.session-item:focus-visible :global(.s-status-chip),
+.session-item:focus-within :global(.s-status-chip),
+.project-thread-item:hover :global(.session-branch-icon),
+.project-thread-item:focus-visible :global(.session-branch-icon),
+.project-thread-item:focus-within :global(.session-branch-icon),
+.project-thread-item:hover :global(.s-status-chip),
+.project-thread-item:focus-visible :global(.s-status-chip),
+.project-thread-item:focus-within :global(.s-status-chip) {
+  display: none;
+}
 
 /* Wrapper for the HTML-string parts of a row (lead slot, badges, branch icon,
-   menu button). The title between them is a real React element so it can own
+   status pill). The title between them is a real React element so it can own
    its marquee measurement, which means the row is no longer one flat string —
    display:contents keeps these parts direct flex participants of the row, so
    the layout is byte-identical to when they were inlined. */
@@ -324,44 +342,93 @@
   min-width: 0;
 }
 
-/* Always in flow, only toggled visible: the row's geometry must not depend on
-   hover/selection. A display:none → inline-flex toggle moved layout twice on
-   every switch — the 24px box exceeded the row's 20px content area (28px
-   min-height − 2×4px padding) and grew the row to 32px, pushing every row
-   below it down 4px, while the reclaimed 24px + 8px gap re-ellipsized the
-   title. 20px keeps the row at 28px; the reserved slot keeps the title width
-   constant. */
-.session-item :global(.session-menu-action) {
+/* Trailing pin + archive action strip. Out of flow and invisible at rest
+   (including on the selected row) so titles use the full row width until the
+   pointer or keyboard focus enters the row; row padding expands on hover/focus
+   to reserve exact space (20px + 6px + 20px + 6px gap + 8px inset = 60px)
+   while keeping the row height fixed at 28px. */
+.session-item:hover,
+.session-item:focus-visible,
+.session-item:focus-within,
+.project-thread-item:hover,
+.project-thread-item:focus-visible,
+.project-thread-item:focus-within {
+  padding-inline-end: 60px;
+}
+
+.session-row-actions {
+  position: absolute;
+  inset-inline-end: 8px;
+  top: 0;
+  bottom: 0;
+  z-index: 2;
   display: inline-flex;
-  visibility: hidden;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--transition);
+}
+
+.session-item:hover .session-row-actions,
+.session-item:focus-visible .session-row-actions,
+.session-item:focus-within .session-row-actions,
+.project-thread-item:hover .session-row-actions,
+.project-thread-item:focus-visible .session-row-actions,
+.project-thread-item:focus-within .session-row-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.session-row-action {
+  display: inline-flex;
   align-items: center;
   justify-content: center;
   flex: 0 0 20px;
   width: 20px;
   height: 20px;
-  background: none;
+  padding: 0;
   border: none;
-  color: var(--fg-quaternary);
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--fg-tertiary);
   cursor: pointer;
-  padding: 2px;
-  border-radius: var(--radius-xxs);
+  transition: background var(--transition), color var(--transition);
 }
 
-.session-item :global(.session-menu-action) svg {
+.session-row-action svg {
   width: 16px;
   height: 16px;
+  flex-shrink: 0;
+  fill: currentColor;
 }
 
-/* ⋯ shows on hover/focus AND on the selected row (user spec). */
-.session-item:hover :global(.session-menu-action),
-.session-item:focus-within :global(.session-menu-action),
-.session-item:global(.active) :global(.session-menu-action) { visibility: visible; }
+.session-row-action:hover,
+.session-row-action:focus-visible {
+  outline: none;
+  color: var(--fg);
+  background: var(--bg-hover);
+  box-shadow: none;
+}
 
-.session-item :global(.session-menu-action):hover,
-.session-item :global(.session-menu-action):focus-visible { color: var(--fg); background: var(--bg-hover); box-shadow: none; }
+@media (hover: none) {
+  .session-row-actions {
+    position: static;
+    flex-shrink: 0;
+    opacity: 1;
+    pointer-events: auto;
+  }
 
-/* Same focus-as-background rule as the rows: no outline on this surface. */
-.session-item :global(.session-menu-action):focus-visible { outline: none; }
+  .session-item:hover,
+  .session-item:focus-visible,
+  .session-item:focus-within,
+  .project-thread-item:hover,
+  .project-thread-item:focus-visible,
+  .project-thread-item:focus-within {
+    padding-inline-end: 8px;
+  }
+}
 
 @media (prefers-reduced-motion: reduce) {
   .s-lead svg {
@@ -550,6 +617,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
   min-height: calc(var(--text-body) * 1.5 + 8px);
   padding: 4px 8px;
   border-radius: var(--radius-sm);
@@ -558,6 +626,7 @@
   font-size: var(--text-body);
   font-weight: var(--weight-regular);
   transition: background var(--transition), color var(--transition);
+  position: relative;
 }
 
 .project-thread-item:hover,
@@ -578,47 +647,6 @@
 .project-thread-title {
   min-width: 0;
   flex: 1 1 auto;
-}
-
-/* Same fixed-geometry rule as .session-menu-action: in flow at all times,
-   20px so it fits the 28px row's content box, only visibility toggles. */
-.project-thread-menu {
-  display: inline-flex;
-  visibility: hidden;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  width: 20px;
-  height: 20px;
-  background: none;
-  border: none;
-  color: var(--fg-quaternary);
-  cursor: pointer;
-  padding: 2px;
-  border-radius: var(--radius-xxs);
-}
-
-.project-thread-menu svg {
-  width: 16px;
-  height: 16px;
-}
-
-/* ⋯ shows on hover/focus AND on the selected row (user spec). */
-.project-thread-item:hover .project-thread-menu,
-.project-thread-item:focus-within .project-thread-menu,
-.project-thread-item:global(.active) .project-thread-menu {
-  visibility: visible;
-}
-
-.project-thread-menu:hover,
-.project-thread-menu:focus-visible {
-  color: var(--fg);
-  background: var(--bg-hover);
-  box-shadow: none;
-}
-
-.project-thread-menu:focus-visible {
-  outline: none;
 }
 
 .project-thread-more {

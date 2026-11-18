@@ -111,6 +111,7 @@ import queuedMessageSvg from './queued-message.svg?raw'
 import steerMessageSvg from './steer-message.svg?raw'
 import archiveSvg from '@phosphor-icons/core/assets/regular/archive.svg?raw'
 import pushPinSvg from '@phosphor-icons/core/assets/regular/push-pin.svg?raw'
+import pushPinFillSvg from '@phosphor-icons/core/assets/fill/push-pin-fill.svg?raw'
 import pushPinSlashSvg from '@phosphor-icons/core/assets/regular/push-pin-slash.svg?raw'
 import exportSvg from '@phosphor-icons/core/assets/regular/export.svg?raw'
 import bugSvg from '@phosphor-icons/core/assets/regular/bug.svg?raw'
@@ -373,6 +374,9 @@ export const LIBRARY: Record<string, string> = {
   'chat-project-no-project': shell(folderDashedSvg),
   'chat-sidebar-chevron': shell(caretDownSvg),
   'chat-session-menu': shell(dotsThreeSvg),
+  'sidebar-row-pin': shell(pushPinSvg),
+  'sidebar-row-pinned': shell(pushPinFillSvg),
+  'sidebar-row-archive': shell(archiveSvg),
 
   // —— 会话行菜单（session-menu-${action} 动态拼接） ——
   'session-menu-rename': shell(pencilSimpleSvg),

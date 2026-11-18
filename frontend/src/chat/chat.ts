@@ -6943,6 +6943,13 @@ const sidebarApi = mountSidebar({
       if (sidebarSortMenu) closeSidebarSortMenu()
       else openSidebarSortMenu(anchor)
     },
+    togglePin: (sessionId: string) => {
+      const session = sessions.find((candidate) => candidate.id === sessionId)
+      if (session) void toggleSessionPinned(session)
+    },
+    archiveSession: (sessionId: string) => {
+      void archiveSessionFromRow(sessionId)
+    },
   },
 })
 
@@ -7656,14 +7663,30 @@ async function forkSessionFromMenu(id: string) {
 // they reuse this path (and its error surface) instead of a second fork flow.
 window.klausForkSession = forkSessionFromMenu
 
-async function archiveSessionFromMenu(id: string) {
+const sessionArchivePending = new Set<string>()
+
+async function archiveSessionFromRow(id: string) {
+  if (!id || sessionArchivePending.has(id)) return
+  sessionArchivePending.add(id)
+  try {
+    await archiveSessionFromMenu(id, { confirmWhenIdle: false })
+  } finally {
+    sessionArchivePending.delete(id)
+  }
+}
+
+async function archiveSessionFromMenu(id: string, opts: { confirmWhenIdle?: boolean } = {}) {
   const target = findKnownSession(id)
-  const confirmed = await window.klausDialog.confirm({
-    title: tt('archive_session_title'),
-    message: sessionActionMessageWithProcesses(tt('archive_session_message'), id),
-    confirmText: tt('session_menu_archive'),
-  })
-  if (!confirmed) return
+  const isBusy = (window.KlausBackgroundProcessPanel?.count?.(id, true) || 0) > 0
+    || (typeof isSidebarSessionWorking === 'function' && isSidebarSessionWorking(id))
+  if (opts.confirmWhenIdle !== false || isBusy) {
+    const confirmed = await window.klausDialog.confirm({
+      title: tt('archive_session_title'),
+      message: sessionActionMessageWithProcesses(tt('archive_session_message'), id),
+      confirmText: tt('session_menu_archive'),
+    })
+    if (!confirmed) return
+  }
   const persistedTitle = !isPlaceholderSessionTitle(target?.title) ? target?.title : undefined
   const result = await klausApi.session.archive(id, persistedTitle)
     .catch((error: unknown) => ({ error: String((error as Error | null)?.message || error) }))
@@ -8057,9 +8080,9 @@ async function switchSession(id: string) {
     (queuedEdit.item || queuedEdit.row!.item).pastedCards)
   autoResize()
   updateSendBtn()
+  resurfaceUnsentSubmission(id)
   const targetStream = getSessionStream(id)
   if (targetStream.history === null && !targetStream.historyLoading) void loadSessionHistory(id)
-  resurfaceUnsentSubmission(id)
   mountReactTranscript(id, messagesEl, { scroll: 'main' })
   syncMainTranscriptChrome()
   ;(window as any).klausUpdateSideSendButton?.()
@@ -9627,7 +9650,7 @@ async function submitTurnPayload(targetSessionId: string, payload: OutgoingPaylo
         finishPendingUserTurn(targetSessionId, payload.clientMessageId, 'cancelled')
         return null
       }
-      finishPendingUserTurn(targetSessionId, payload.clientMessageId, 'failed', message)
+      if (!options.pendingSubmission) finishPendingUserTurn(targetSessionId, payload.clientMessageId, 'failed', message)
       if (!options.quietError) window.showToast?.(tt('follow_up_failed'), { duration: 4000 })
       return message
     }
@@ -9635,10 +9658,11 @@ async function submitTurnPayload(targetSessionId: string, payload: OutgoingPaylo
     if (options.pendingSubmission && !refusal?.error?.code && !refusal?.code) {
       options.pendingSubmission.phase = 'unconfirmed'
       options.pendingSubmission.error = tt('submission_unconfirmed')
-      finishPendingUserTurn(targetSessionId, payload.clientMessageId, 'failed', tt('submission_unconfirmed'))
       return tt('submission_unconfirmed')
     }
-    finishPendingUserTurn(targetSessionId, payload.clientMessageId, 'failed', options.quietError ? undefined : message)
+    if (!options.pendingSubmission) {
+      finishPendingUserTurn(targetSessionId, payload.clientMessageId, 'failed', options.quietError ? undefined : message)
+    }
     // quietError 供队列派发/Retry 用：失败由行进入 paused 等 Retry，
     // 不再另弹错误气泡；普通发送路径保留 live-error 气泡。
     if (!options.quietError) {
@@ -10800,7 +10824,7 @@ function currentPendingComposerSubmission(): PendingComposerSubmission | undefin
       : window.currentSessionId === null && visiblePendingSubmissionId === pending.id))
 }
 
-function createPendingComposerSubmissionRecord(sourceSessionId: string | null, draft: ComposerDraft, files: PendingFileEntry[], payload: OutgoingPayload, navigationToken: string): PendingComposerSubmission {
+function createPendingComposerSubmissionRecord(sourceSessionId: string | null, draft: ComposerDraft, files: PendingFileEntry[], payload: OutgoingPayload, navigationToken: string, goalMode = false): PendingComposerSubmission {
   const id = crypto.randomUUID(), uuid = `submission:${id}`
   const startedAtMs = Date.now()
   payload.clientMessageId = uuid
@@ -10810,16 +10834,16 @@ function createPendingComposerSubmissionRecord(sourceSessionId: string | null, d
     workdir: sourceSessionId ? sessionWorkdir(sourceSessionId) || null : draftProjectWorkdir(),
     workspaceId: sourceSessionId ? findKnownSession(sourceSessionId)?.workspaceId || null : pendingNewChatWorkspaceId,
     projectRoot: sourceSessionId ? findKnownSession(sourceSessionId)?.projectRoot || null : pendingNewChatProjectRoot,
-    phase: 'preparing', cancelled: false,
+    phase: 'preparing', cancelled: false, ...(goalMode ? { goalMode: true } : {}),
   }
   pendingComposerSubmissions.set(id, pending)
   return pending
 }
 
-function beginPendingComposerSubmission(draft: ComposerDraft, files: PendingFileEntry[], slashCommand: SlashCommandInfo | null, navigationToken: string): PendingComposerSubmission {
+function beginPendingComposerSubmission(draft: ComposerDraft, files: PendingFileEntry[], slashCommand: SlashCommandInfo | null, navigationToken: string, goalMode = false): PendingComposerSubmission {
   const sourceSessionId = window.currentSessionId
   const payload = buildOutgoingPayload(draft.text, files, slashCommand, sourceSessionId || '', normalizeComposerReferences(draft.text, draft.references), draft.document, false)
-  const pending = createPendingComposerSubmissionRecord(sourceSessionId, draft, files, payload, navigationToken)
+  const pending = createPendingComposerSubmissionRecord(sourceSessionId, draft, files, payload, navigationToken, goalMode)
   const { id, uuid, startedAtMs } = pending
   if (!sourceSessionId) visiblePendingSubmissionId = id
   syncComposerContextRowVisibility()
@@ -10953,7 +10977,7 @@ function settlePendingComposerSubmission(pending: PendingComposerSubmission): vo
   if (retryable) {
     recordUnsentSubmission({
       sessionId: pending.sessionId!, uuid: pending.uuid, draft: pending.draft, files: pending.files,
-      payload: pending.payload, error: pending.error, atMs: Date.now(),
+      payload: pending.payload, ...(pending.goalMode ? { goalMode: true } : {}), error: pending.error, atMs: Date.now(),
     })
   }
   const retainFailure = retryable || (!restore && pending.phase !== 'cancelled')
@@ -10992,13 +11016,100 @@ function retryUnsentSubmission(sessionId: string, uuid: string) {
   if (!record || record.uuid !== uuid) return
   clearPendingSubmissionRecovery(uuid)
   discardPendingUserTurn(sessionId, uuid)
+  let activeUuid = record.uuid
+  const activeAttempt: UnsentSubmissionRecord = { ...record, atMs: Date.now() }
+  beginPendingUserTurn(sessionId, unsentTurnPayload(activeAttempt))
+  syncBusyForCurrentSession()
+  syncMainTranscriptChrome()
+  renderSessionList()
   void (async () => {
-    const error = await submitTurnPayload(sessionId, record.payload, { quietError: true })
+    let error: string | null = null
+    if (record.goalMode) {
+      const retryGoalReceipt: { current: GoalSubmissionReceipt | null } = { current: null }
+      try {
+        if (!klausApi.goal?.set || !composerGoalEligible(sessionId)) {
+          throw new Error(tt('goal_unavailable_context') || 'Goal creation is unavailable')
+        }
+        const payload = record.payload
+        const selectedText = payload.selectedTextAttachments.map(item => item.text).join('\n\n')
+        const pastes = payload.pastedCards.map(item => item.path ? { path: item.path } : { text: item.text || '' })
+        const stopRevision = () => goalInteractions.token(sessionId).split(':')[1]
+        const capturedStop = stopRevision()
+        const attachmentSnapshot = JSON.stringify(goalAttachmentIntent(record.files))
+        const binding = { sessionId, draft: record.draft, attachments: record.files, interactionToken: capturedStop, attachmentSnapshot }
+        const current = () => ({ sessionId, draft: record.draft, attachments: record.files, interactionToken: stopRevision(), attachmentSnapshot })
+        const reviewed = await reviewGoalDraft<ComposerDraft, PendingFileEntry, PreparedGoalSubmission>({
+          binding, current, objective: [payload.displayText, selectedText].filter(Boolean).join('\n\n'),
+          readGoal: () => hydrateGoalSnapshot(sessionId), currentGoal: () => goalSnapshots.get(sessionId), goalIntentVersion: () => goalSnapshots.intentVersion(sessionId),
+          prepare: (source, valid) => !composerGoalEligible(sessionId) ? Promise.resolve(null) : prepareGoalSubmission({
+            receipts: goalSubmissionReceipts, sessionId, serializedIntent: serializeGoalSubmissionIntent(record.draft, record.files),
+            target: { expectedGoalId: source?.goalId ?? null, expectedGoalRevision: goalSnapshots.revision(sessionId) },
+            input: { text: payload.displayText, selectedText, pastes, images: goalImageInputs(record.files) },
+            valid: () => valid() && composerGoalEligible(sessionId), prepare: input => klausApi.goal.prepareObjective(sessionId, input),
+            onReceipt: receipt => { retryGoalReceipt.current = receipt },
+          }),
+          readObjective: async target => (await klausApi.goal.readObjective(sessionId, target.objective)).content,
+          confirm: (target, objective) => window.currentSessionId === sessionId ? confirmGoalReplacement(target, objective) : Promise.resolve(false),
+          discard: async target => { if (target.preparationId) await klausApi.goal.discardPreparedObjective(sessionId, target.preparationId) },
+        })
+        if (!reviewed) {
+          error = tt('message_prepare_failed')
+        } else {
+          const { prepared, goal: existingGoal } = reviewed
+          const receipt = prepared.receipt
+          if (!composerGoalEligible(sessionId) || !sameGoalDraft(binding, current()) || !sameGoalReview(existingGoal, goalSnapshots.get(sessionId)) || reviewed.intentVersion !== goalSnapshots.intentVersion(sessionId)) {
+            if (prepared.preparationId) await klausApi.goal.discardPreparedObjective(sessionId, prepared.preparationId)
+            error = tt('goal_changed_retry') || tt('message_prepare_failed')
+          } else {
+            let goalRevision = 0
+            await createGoalFromDraft({
+              create: async () => {
+                const goalUuid = await goalSubmissionUserUuid(receipt.id)
+                bindPendingUserTurn(sessionId, activeUuid, goalUuid)
+                activeUuid = goalUuid
+                const result = await klausApi.goal.set(sessionId, { objective: prepared.objective, preparationId: prepared.preparationId, expectedGoalId: receipt.expectedGoalId, expectedGoalRevision: receipt.expectedGoalRevision, clientRequestId: receipt.id, submit: true, displayText: prepared.displayText })
+                goalRevision = result.goalRevision
+                if (result.admission === 'deferred') {
+                  finishPendingUserTurn(sessionId, activeUuid, 'cancelled')
+                  ingestChatEvent({ type: 'notice', sessionId, content: tt('goal_saved_deferred') })
+                }
+                return result
+              },
+              accept: goal => {
+                finishPendingUserTurn(sessionId, activeUuid, 'accepted')
+                goalSubmissionReceipts.forget(sessionId)
+                draftOnlySessionIds.delete(sessionId)
+                forgetRunModeForDraft(sessionId)
+                onGoalUpdated({ sessionId, goal: goal as Parameters<typeof normalizeGoal>[0] | null, goalRevision })
+                if (window.currentSessionId === sessionId) setComposerGoalEnabled(false)
+              },
+              consumeUnchangedDraft: () => {},
+            })
+          }
+        }
+      } catch (err) {
+        if (retryGoalReceipt.current && goalSubmissionReceipts.rejectConflict(sessionId, retryGoalReceipt.current.id, err)) {
+          await refreshGoalSnapshot(sessionId)
+          error = tt('goal_changed_retry') || (err as Error)?.message || String(err)
+        } else {
+          error = (err as Error)?.message || String(err) || tt('composer_goal_set_failed')
+        }
+      }
+    } else {
+      error = await submitTurnPayload(sessionId, record.payload, { quietError: true, preserveDraft: true, skipOptimistic: true })
+      if (!error) finishPendingUserTurn(sessionId, activeUuid, 'accepted')
+    }
     if (error) {
-      recordUnsentSubmission({ ...record, error, atMs: Date.now() })
-      beginPendingUserTurn(sessionId, unsentTurnPayload({ ...record, atMs: Date.now() }))
-      finishPendingUserTurn(sessionId, uuid, 'failed', error)
-      setPendingSubmissionRecovery(uuid, { action: 'retry', run: () => retryUnsentSubmission(sessionId, uuid) })
+      const failedRecord: UnsentSubmissionRecord = {
+        ...activeAttempt,
+        uuid: activeUuid,
+        payload: { ...record.payload, clientMessageId: activeUuid },
+        error,
+        atMs: Date.now(),
+      }
+      recordUnsentSubmission(failedRecord)
+      finishPendingUserTurn(sessionId, activeUuid, 'failed', error)
+      setPendingSubmissionRecovery(activeUuid, { action: 'retry', run: () => retryUnsentSubmission(sessionId, activeUuid) })
     } else {
       clearUnsentSubmission(sessionId)
     }
@@ -11008,10 +11119,21 @@ function retryUnsentSubmission(sessionId: string, uuid: string) {
   })()
 }
 
-/** A reload must bring back the retryable failure state of an unsent submit. */
+/** A reload or stream eviction must bring back the complete retryable failure state of an unsent submit. */
 function resurfaceUnsentSubmission(sessionId: string) {
   const record = unsentSubmissionFor(sessionId)
-  if (!record || pendingSubmissionRecovery(record.uuid)) return
+  if (!record) return
+  const stream = getSessionStream(sessionId)
+  if (stream.history?.some(row => row.role === 'user' && (row.uuid === record.uuid || userMessageClientId(row) === record.uuid))) {
+    clearUnsentSubmission(sessionId)
+    clearPendingSubmissionRecovery(record.uuid)
+    return
+  }
+  const hasUser = stream.liveUnits.some(unit => unit.type === 'live-user'
+    && (unit.msg.uuid === record.uuid || userMessageClientId(unit.msg) === record.uuid))
+  const hasError = stream.liveUnits.some(unit => unit.type === 'live-error' && unit.submissionUuid === record.uuid)
+  if (hasUser && hasError && pendingSubmissionRecovery(record.uuid)) return
+  discardPendingUserTurn(sessionId, record.uuid)
   beginPendingUserTurn(sessionId, unsentTurnPayload(record))
   finishPendingUserTurn(sessionId, record.uuid, 'failed', record.error || tt('message_prepare_failed'))
   setPendingSubmissionRecovery(record.uuid, { action: 'retry', run: () => retryUnsentSubmission(sessionId, record.uuid) })
@@ -11131,14 +11253,17 @@ async function sendMessage(options: ComposerSendOptions = {}) {
   const runningAtSubmit = busy
   const goalMode = composerGoalEnabled
   const sourceSessionId = window.currentSessionId
+  const stopRevisionFor = (id: string | null) => goalInteractions.token(id).split(':')[1]
+  const sourceStopRevision = stopRevisionFor(sourceSessionId)
   // A submission keeps the conversation it was composed in as its target.
-  // Sidebar navigation while host creation or preparation awaits are in flight
-  // is an ordinary conversation switch afterwards: it must not abort the send,
-  // and the transcript reloads from disk on return. Only an explicit cancel,
-  // or goal-route invalidation (navigation and Stop void the reviewed goal
-  // draft binding), may abort it.
+  // Once its draft snapshot is captured into `pending`, sidebar navigation
+  // cannot mutate that snapshot and must not abort either message or goal
+  // admission; only an explicit cancel/Stop (or uncaptured goal-draft
+  // invalidation) may abort it.
   const sourceCurrent = () => !pending?.cancelled
-    && !goalInteractions.routeInvalidated(goalMode, sourceSessionId, goalInteractionToken)
+    && (pending
+      ? stopRevisionFor(pending.sessionId ?? sourceSessionId) === sourceStopRevision
+      : !goalInteractions.routeInvalidated(goalMode, sourceSessionId, goalInteractionToken))
   const sourcePromotion = promoteInflight
   const draft = composedInputDraft()
   const text = draft.text
@@ -11161,7 +11286,7 @@ async function sendMessage(options: ComposerSendOptions = {}) {
   }
   if (goalMode && !composerGoalEligible()) { denyComposerGoalAttempt(); return }
   const pending = !runningAtSubmit && !hasUploadInFlight(files)
-    ? beginPendingComposerSubmission(draft, files, sentSlashCommand, goalInteractionToken) : null
+    ? beginPendingComposerSubmission(draft, files, sentSlashCommand, goalInteractionToken, goalMode) : null
   try {
   if (!(await ensureComposerModelConfigured())) return
   if (pending?.cancelled) return
@@ -11193,8 +11318,9 @@ async function sendMessage(options: ComposerSendOptions = {}) {
     updateSendBtn()
     return
   }
-  if (window.currentSessionId && isWorktreeSessionWorkdir(sessionWorkdir(window.currentSessionId))) {
-    if (await refreshWorktreeAvailability(window.currentSessionId) !== 'available') return
+  const preflightSessionId = pending?.sessionId ?? sourceSessionId
+  if (preflightSessionId && isWorktreeSessionWorkdir(sessionWorkdir(preflightSessionId))) {
+    if (await refreshWorktreeAvailability(preflightSessionId) !== 'available') return
     if (!sourceCurrent()) return
   }
   if (runningAtSubmit && !goalMode) {
@@ -11218,7 +11344,7 @@ async function sendMessage(options: ComposerSendOptions = {}) {
   if (!sourceCurrent()) return
 
   // Queue changes remain conditional; a dismissal restores this submission's snapshot.
-  const pausedQueueSessionId = sourceSessionId || window.currentSessionId
+  const pausedQueueSessionId = pending?.sessionId ?? sourceSessionId
   if (pausedQueueSessionId) {
     const queueSnapshot = clientQueueSnapshotFor(pausedQueueSessionId)
     const queuedCount = clientQueueFor(pausedQueueSessionId).length
@@ -11271,43 +11397,95 @@ async function sendMessage(options: ComposerSendOptions = {}) {
   // Goal creation keeps its draft until the host acknowledges the goal. A
   // session switch or newly typed text must not be consumed by that reply.
   if (goalSubmissionRoute(goalMode) === 'goal' && (text || files.length)) {
-    if (!composerGoalEligible()) return
+    if (!composerGoalEligible(pending?.sessionId ?? sourceSessionId)) return
     let goalIntentSessionId: string | null = null
     const goalIntentReceipt: { current: GoalSubmissionReceipt | null } = { current: null }
     let goalAdmitted = false
-    busy = true
-    btnSend.classList.add('busy')
-    updateSendBtn()
+    if (!pending || window.currentSessionId === (pending.sessionId ?? sourceSessionId)) {
+      busy = true
+      btnSend.classList.add('busy')
+      updateSendBtn()
+    }
     try {
       const sessionId = await ensureSession(pending || undefined)
       if (!sessionId || !klausApi.goal?.set) throw new Error('Goal creation is unavailable')
-      if (window.currentSessionId !== sessionId || goalInteractions.token(sessionId) !== goalInteractionToken) return
+      if (pending ? !sourceCurrent() : (window.currentSessionId !== sessionId || goalInteractions.token(sessionId) !== goalInteractionToken)) return
       goalIntentSessionId = sessionId
       updateSendBtn()
       const payload = pending?.payload || buildOutgoingPayload(text, goalPayloadFiles, sentSlashCommand, sessionId, normalizeComposerReferences(draft.text, draft.references), draft.document)
       const selectedText = payload.selectedTextAttachments.map(item => item.text).join('\n\n')
       const pastes = payload.pastedCards.map(item => item.path ? { path: item.path } : { text: item.text || '' })
       const attachmentSnapshot = (entries: PendingFileEntry[]) => JSON.stringify(goalAttachmentIntent(entries))
-      const binding = { sessionId, draft, attachments: files, interactionToken: goalInteractionToken, attachmentSnapshot: attachmentSnapshot(goalPayloadFiles) }
-      const current = () => ({ sessionId: window.currentSessionId, draft: pending ? pending.draft : composedInputDraft(), attachments: pending ? pending.files : pendingFiles, interactionToken: pending?.cancelled ? 'cancelled' : goalInteractions.token(window.currentSessionId), attachmentSnapshot: attachmentSnapshot(pending ? goalPayloadFiles : pendingFiles) })
+      const capturedGoalStopRevision = stopRevisionFor(sessionId)
+      const binding = {
+        sessionId,
+        draft,
+        attachments: files,
+        interactionToken: pending ? capturedGoalStopRevision : goalInteractionToken,
+        attachmentSnapshot: attachmentSnapshot(goalPayloadFiles),
+      }
+      const current = () => pending ? ({
+        sessionId,
+        draft: pending.draft,
+        attachments: pending.files,
+        interactionToken: pending.cancelled ? 'cancelled' : stopRevisionFor(sessionId),
+        attachmentSnapshot: attachmentSnapshot(goalPayloadFiles),
+      }) : ({
+        sessionId: window.currentSessionId,
+        draft: composedInputDraft(),
+        attachments: pendingFiles,
+        interactionToken: goalInteractions.token(window.currentSessionId),
+        attachmentSnapshot: attachmentSnapshot(pendingFiles),
+      })
+      let replacementDeferredToForeground = false
+      let userDeclinedReplacement = false
       const reviewed = await reviewGoalDraft<ComposerDraft, PendingFileEntry, PreparedGoalSubmission>({
         binding, current, objective: [payload.displayText, selectedText].filter(Boolean).join('\n\n'),
         readGoal: () => hydrateGoalSnapshot(sessionId), currentGoal: () => goalSnapshots.get(sessionId), goalIntentVersion: () => goalSnapshots.intentVersion(sessionId),
-        prepare: (source, valid) => !composerGoalEligible() ? Promise.resolve(null) : prepareGoalSubmission({
+        prepare: (source, valid) => !composerGoalEligible(sessionId) ? Promise.resolve(null) : prepareGoalSubmission({
           receipts: goalSubmissionReceipts, sessionId, serializedIntent: serializeGoalSubmissionIntent(draft, goalPayloadFiles),
           target: { expectedGoalId: source?.goalId ?? null, expectedGoalRevision: goalSnapshots.revision(sessionId) },
           input: { text: payload.displayText, selectedText, pastes, images: goalImageInputs(goalPayloadFiles) },
-          valid: () => valid() && composerGoalEligible(), prepare: input => klausApi.goal.prepareObjective(sessionId, input),
+          valid: () => valid() && composerGoalEligible(sessionId), prepare: input => klausApi.goal.prepareObjective(sessionId, input),
           onReceipt: receipt => { goalIntentReceipt.current = receipt },
         }),
         readObjective: async target => (await klausApi.goal.readObjective(sessionId, target.objective)).content,
-        confirm: confirmGoalReplacement,
+        confirm: async (target, objective) => {
+          if (window.currentSessionId !== sessionId) {
+            replacementDeferredToForeground = true
+            return false
+          }
+          const confirmed = await confirmGoalReplacement(target, objective)
+          if (!confirmed) userDeclinedReplacement = true
+          return confirmed
+        },
         discard: async target => { if (target.preparationId) await klausApi.goal.discardPreparedObjective(sessionId, target.preparationId) },
       })
-      if (!reviewed) return
+      if (!reviewed) {
+        if (pending && userDeclinedReplacement) {
+          const currentSlot = window.currentSessionId === sessionId ? composedInputDraft() : normalizeComposerDraft(sessionDrafts.get(sessionId))
+          const currentSlotFiles = window.currentSessionId === sessionId ? pendingFiles : sessionPendingFiles.get(sessionId) || []
+          if (canRestorePendingDraft(currentSlot, currentSlotFiles)) {
+            setDraft(sessionId, pending.draft)
+            sessionPendingFiles.set(sessionId, pending.files)
+            if (window.currentSessionId === sessionId) {
+              setComposerText(pending.draft)
+              pendingFiles = pending.files
+              renderPreviews()
+              renderSelectedSlashCommand()
+              autoResize()
+            }
+          }
+          dismissPendingComposerSubmission(pending)
+        } else if (pending && replacementDeferredToForeground) {
+          pending.phase = 'failed'
+          pending.error = tt('goal_changed_retry') || tt('message_prepare_failed')
+        }
+        return
+      }
       const { prepared, goal: existingGoal } = reviewed
       const receipt = prepared.receipt
-      if (!composerGoalEligible() || !sameGoalDraft(binding, current()) || !sameGoalReview(existingGoal, goalSnapshots.get(sessionId)) || reviewed.intentVersion !== goalSnapshots.intentVersion(sessionId)) {
+      if (!composerGoalEligible(sessionId) || !sameGoalDraft(binding, current()) || !sameGoalReview(existingGoal, goalSnapshots.get(sessionId)) || reviewed.intentVersion !== goalSnapshots.intentVersion(sessionId)) {
         if (prepared.preparationId) await klausApi.goal.discardPreparedObjective(sessionId, prepared.preparationId)
         return
       }
@@ -11373,7 +11551,7 @@ async function sendMessage(options: ComposerSendOptions = {}) {
       // Goal admission starts the first turn asynchronously; hold the stop
       // affordance until stream events take over so the send slot never reads
       // idle (and never falls back to the voice entry) while the loop comes up.
-      if (goalAdmitted && !busy) {
+      if (goalAdmitted && (!pending || window.currentSessionId === goalIntentSessionId) && !busy) {
         busy = true
         btnSend.disabled = false
         btnSend.classList.add('busy')
@@ -12276,9 +12454,9 @@ function setComposerGoalEnabled(enabled: boolean) {
 function composerGoalControlsAvailable(): boolean {
   return goalSurfaceControlsAvailable(findKnownSession(window.currentSessionId), !!detectChannelPrefix(window.currentSessionId || ''))
 }
-function composerGoalEligible(): boolean {
-  return goalPursuitEligibility.get(window.currentSessionId || '') !== false
-    && goalSurfaceEligible(findKnownSession(window.currentSessionId), !!detectChannelPrefix(window.currentSessionId || ''))
+function composerGoalEligible(sessionId: string | null = window.currentSessionId): boolean {
+  return goalPursuitEligibility.get(sessionId || '') !== false
+    && goalSurfaceEligible(findKnownSession(sessionId), !!detectChannelPrefix(sessionId || ''))
 }
 function withComposerGoalShortcut(commands: SlashCommandInfo[]): SlashCommandInfo[] {
   const scoped = composerGoalEligible() ? withGoalShortcut(commands, tt('composer_goal')) : commands.filter(command => !isGoalShortcut(command))

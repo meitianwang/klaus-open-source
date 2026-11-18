@@ -33,6 +33,9 @@ const LABELS: Record<string, string> = {
   project_new_chat: 'New chat in project',
   project_add: 'Add project',
   session_menu_more: 'Session menu',
+  session_row_pin: 'Pin chat',
+  session_row_unpin: 'Unpin chat',
+  session_row_archive: 'Archive chat',
   agent_status_running: 'Running',
   agent_status_completed: 'Completed',
 }
@@ -88,6 +91,7 @@ const actions: SidebarActions = {
   projectMenu: () => {}, projectNewChat: () => {}, showMoreThreads: () => {},
   toggleSection: () => {}, addProjectFromSection: () => {}, projectCloseFinished: () => {},
   snoozeInput: () => {}, openSortMenu: () => {}, reorderProjects: () => {},
+  togglePin: () => {}, archiveSession: () => {},
 }
 
 function render(snap: SidebarSnapshot): string {
@@ -326,7 +330,7 @@ describe('show-more pagination inside a project group', () => {
 })
 
 describe('timestamps inside project groups', () => {
-  test('a thread row renders only its lead slot, title and menu button', () => {
+  test('a thread row renders only its lead slot, title and row action buttons', () => {
     const html = render(snapshot({
       projects: {
         rows: [project('app', { expanded: true, threads: { rows: [row('t1')], more: false } })],
@@ -337,18 +341,17 @@ describe('timestamps inside project groups', () => {
     expect(threadRow).toBeTruthy()
     const inner = threadRow![1]
     // Inside a project group the row hides thread timestamps, so the row is
-    // lead + title + menu with no time element between them. Asserted by what
-    // is present and by the absence of any timestamp rather than by counting
-    // spans: the title is now the marquee's four-layer structure, so its span
-    // count is an implementation detail of that component, not of this row.
+    // lead + title + [pin, archive] with no time element between them.
     expect(inner).toContain('t1')
-    expect(inner).toContain('aria-label="Session menu"')
+    expect(inner).toContain('aria-label="Pin chat"')
+    expect(inner).toContain('aria-label="Archive chat"')
+    expect(inner).not.toContain('aria-label="Session menu"')
     expect(inner).toContain('aria-hidden="true"')
     expect(inner).not.toMatch(/\d{1,2}:\d{2}/)
     expect(inner).not.toContain('<time')
-    // Exactly one button (the menu) and exactly one title; the lead slot is a
-    // decorative span, so nothing else may claim the row.
-    expect(inner.match(/<button/g)!.length).toBe(1)
+    // Pin and archive buttons only, in left-to-right order, and one title.
+    expect(inner.match(/<button/g)!.length).toBe(2)
+    expect(inner.indexOf('data-session-action="pin"')).toBeLessThan(inner.indexOf('data-session-action="archive"'))
     expect(inner.match(/data-marquee-text=/g)!.length).toBe(1)
   })
 })
@@ -474,7 +477,9 @@ describe('sidebar rows delegate their title to the marquee', () => {
     const html = rowHtml({ leadState: 'working', working: true, channelLabel: 'IM', draft: true })
     expect(html).toContain('role="status"')
     expect(html).toContain('s-channel-badge')
-    expect(html).toContain('session-menu-action')
+    expect(html).toContain('s-draft-badge')
+    expect(html).toContain('data-session-action="pin"')
+    expect(html).toContain('data-session-action="archive"')
     // The wrappers must not become boxes of their own, or the row layout and
     // the ellipsis measurement both shift.
     const source = readFileSync(new URL('./sidebar.module.css', import.meta.url), 'utf8')
@@ -521,5 +526,51 @@ describe('friend group attention badge', () => {
   test('counts above the cap render as 99+', () => {
     const html = render(snapshot({ projects: { rows: [project('friend:1', { isFriend: true, pendingCount: 140 })], collapsed: false, collapsedBadge: null } }))
     expect(html).toContain('>99+</span>')
+  })
+})
+
+describe('session row pin and archive actions', () => {
+  const pinGlyphOf = (pinned: boolean) => {
+    const html = render(snapshot({ recent: { rows: [row('r1', { pinned })], collapsed: false, collapsedBadge: null } }))
+    return (html.match(/data-session-action="pin"[\s\S]*?<path d="([^"]+)"/) || [])[1]
+  }
+
+  test('every session row across sections renders pin before archive with no overflow menu button', () => {
+    const html = render(snapshot({
+      pinned: { rows: [row('p1', { pinned: true })], collapsed: false, collapsedBadge: null },
+      channels: { rows: [row('c1', { channelLabel: 'IM' })], collapsed: false, collapsedBadge: null },
+      projects: {
+        rows: [project('app', { expanded: true, threads: { rows: [row('t1')], more: false } })],
+        collapsed: false, collapsedBadge: null,
+      },
+      recent: { rows: [row('r1')], collapsed: false, collapsedBadge: null },
+    }))
+    expect((html.match(/data-session-action="pin"/g) || []).length).toBe(4)
+    expect((html.match(/data-session-action="archive"/g) || []).length).toBe(4)
+    expect(html).not.toContain('session-menu-action')
+    expect(html).not.toContain('aria-label="Session menu"')
+  })
+
+  test('pin action swaps its accessible label, state marker and pushpin glyph when pinned', () => {
+    const unpinnedHtml = render(snapshot({ recent: { rows: [row('r1', { pinned: false })], collapsed: false, collapsedBadge: null } }))
+    const pinnedHtml = render(snapshot({ pinned: { rows: [row('p1', { pinned: true })], collapsed: false, collapsedBadge: null }, recent: { rows: [], collapsed: false, collapsedBadge: null } }))
+    expect(unpinnedHtml).toContain('data-session-action="pin" data-pinned="false" aria-label="Pin chat"')
+    expect(pinnedHtml).toContain('data-session-action="pin" data-pinned="true" aria-label="Unpin chat"')
+    const outlineGlyph = pinGlyphOf(false)
+    const filledGlyph = pinGlyphOf(true)
+    expect(outlineGlyph).toBeTruthy()
+    expect(filledGlyph).toBeTruthy()
+    expect(outlineGlyph).not.toBe(filledGlyph)
+  })
+
+  test('action strip hides at rest even on the selected row and reveals only on hover or focus', () => {
+    const source = readFileSync(new URL('./sidebar.module.css', import.meta.url), 'utf8')
+    expect(source).toMatch(/\.session-row-actions \{[^}]*opacity: 0;[^}]*pointer-events: none;/)
+    expect(source).toContain('.session-item:hover .session-row-actions')
+    expect(source).toContain('.session-item:focus-within .session-row-actions')
+    expect(source).toContain('.project-thread-item:hover .session-row-actions')
+    expect(source).toContain('.project-thread-item:focus-within .session-row-actions')
+    expect(source).not.toMatch(/\.session-item:global\(\.active\)\s+\.session-row-actions/)
+    expect(source).not.toMatch(/\.project-thread-item:global\(\.active\)\s+\.session-row-actions/)
   })
 })

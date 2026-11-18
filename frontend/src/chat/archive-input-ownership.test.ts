@@ -85,3 +85,22 @@ test('a refused archive keeps the complete current input and independent welcome
   expect(f.disposed).toEqual([])
   expect(f.alerts).toEqual(['Archive refused'])
 })
+
+test('row quick-archive skips confirmation when idle and still confirms when the session is busy', async () => {
+  const idle = fixture()
+  let confirmCalls = 0
+  idle.context.window.klausDialog.confirm = async () => { confirmCalls++; return true }
+  const idleArchive = idle.actions.archiveSessionFromMenu('archiving', { confirmWhenIdle: false })
+  idle.finish({ ok: true }); await idleArchive
+  expect(confirmCalls).toBe(0)
+  expect(idle.context.archivedSessions[0].id).toBe('archiving')
+
+  const busy = fixture()
+  let busyConfirmCalls = 0
+  busy.context.isSidebarSessionWorking = () => true
+  busy.context.window.klausDialog.confirm = async () => { busyConfirmCalls++; return false }
+  await busy.actions.archiveSessionFromMenu('archiving', { confirmWhenIdle: false })
+  expect(busyConfirmCalls).toBe(1)
+  expect(busy.context.sessions.length).toBe(1)
+  expect(busy.context.archivedSessions).toEqual([])
+})

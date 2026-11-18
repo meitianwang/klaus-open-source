@@ -126,6 +126,8 @@ export interface SidebarActions {
   /** Open the sidebar ordering menu anchored to the section
    *  head action that triggered it. */
   openSortMenu(anchor: HTMLElement): void
+  togglePin(sessionId: string): void
+  archiveSession(sessionId: string): void
 }
 
 export interface SidebarApi {
@@ -171,7 +173,7 @@ function sessionRowPrefixHtml(row: SessionRowSpec): string {
 
 function sessionRowSuffixHtml(row: SessionRowSpec): string {
   const draftHtml = row.draft ? `<span class="s-draft-badge">${escapeHtml(tt('draft_badge'))}</span>` : ''
-  return `${row.branchIconHtml}${draftHtml}${statusChipHtml(row)}<button class="session-menu-action" type="button" aria-label="${escapeHtml(tt('session_menu_more'))}">${rawIconHtml('chat-session-menu')}</button>`
+  return `${row.branchIconHtml}${draftHtml}${statusChipHtml(row)}`
 }
 
 // ==================== waiting-state chips ====================
@@ -226,25 +228,71 @@ function statusChipHtml(row: SessionRowSpec): string {
  *  marquee stylesheet trigger without knowing about either row class. */
 const MARQUEE_GROUP_CLASS = 'kls-marquee-group'
 
+function stopRowActionEvent(e: React.SyntheticEvent) {
+  e.stopPropagation()
+}
+
+function stopRowActionKeyDown(e: React.KeyboardEvent) {
+  if (e.key === 'Enter' || e.key === ' ') e.stopPropagation()
+}
+
+/** Trailing icon actions revealed on row hover or keyboard focus.
+ *  Uses localized aria-labels without tooltips to satisfy the sidebar tooltip policy. */
+function SessionRowActions({ row, actions }: { row: SessionRowSpec; actions: SidebarActions }) {
+  const pinLabel = row.pinned
+    ? chipLabel('session_row_unpin', 'Unpin chat')
+    : chipLabel('session_row_pin', 'Pin chat')
+  const pinIcon = row.pinned ? 'sidebar-row-pinned' : 'sidebar-row-pin'
+  const archiveLabel = chipLabel('session_row_archive', 'Archive chat')
+  return (
+    <span className={styles['session-row-actions']}>
+      <button
+        type="button"
+        className={styles['session-row-action']}
+        data-session-action="pin"
+        data-pinned={row.pinned ? 'true' : 'false'}
+        aria-label={pinLabel}
+        onPointerDown={stopRowActionEvent}
+        onTouchStart={stopRowActionEvent}
+        onKeyDown={stopRowActionKeyDown}
+        onClick={(e) => {
+          e.stopPropagation()
+          actions.togglePin(row.id)
+        }}
+        dangerouslySetInnerHTML={{ __html: rawIconHtml(pinIcon) }}
+      />
+      <button
+        type="button"
+        className={styles['session-row-action']}
+        data-session-action="archive"
+        aria-label={archiveLabel}
+        onPointerDown={stopRowActionEvent}
+        onTouchStart={stopRowActionEvent}
+        onKeyDown={stopRowActionKeyDown}
+        onClick={(e) => {
+          e.stopPropagation()
+          actions.archiveSession(row.id)
+        }}
+        dangerouslySetInnerHTML={{ __html: rawIconHtml('sidebar-row-archive') }}
+      />
+    </span>
+  )
+}
+
 function SessionRow({ row, actions }: { row: SessionRowSpec; actions: SidebarActions }) {
   return (
     <SessionRowContainer
       className={styles['session-item'] + ' ' + MARQUEE_GROUP_CLASS + (row.active ? ' active' : '') + (row.working ? ' is-working' : '') + (row.completeUnread ? ' is-complete-unread' : '') + (row.waitingCount > 0 ? ' is-waiting' : '')}
       row={row}
       actions={actions}
-      onClick={(e) => {
-        const menuBtn = (e.target as HTMLElement).closest('.session-menu-action')
-        if (menuBtn) {
-          e.stopPropagation()
-          actions.showContextMenu(e, row.id, e.currentTarget as HTMLElement)
-          return
-        }
+      onClick={() => {
         actions.switchSession(row.id)
       }}
     >
       <RawHtml tag="span" className={styles.contents} html={sessionRowPrefixHtml(row)} />
       <MarqueeText className={styles['s-title']} animateOnGroupHover><span dir="auto">{row.title}</span></MarqueeText>
       <RawHtml tag="span" className={styles.contents} html={sessionRowSuffixHtml(row)} />
+      <SessionRowActions row={row} actions={actions} />
     </SessionRowContainer>
   )
 }
@@ -388,7 +436,7 @@ function projectThreadPrefixHtml(row: ProjectThreadRowSpec): string {
 }
 
 function projectThreadSuffixHtml(row: ProjectThreadRowSpec): string {
-  return `${row.branchIconHtml}${statusChipHtml(row)}<button class="${styles['project-thread-menu']}" type="button" aria-label="${escapeHtml(tt('session_menu_more'))}">${rawIconHtml('chat-session-menu')}</button>`
+  return `${row.branchIconHtml}${statusChipHtml(row)}`
 }
 
 function ProjectThreadRow({ row, actions }: { row: ProjectThreadRowSpec; actions: SidebarActions }) {
@@ -397,19 +445,14 @@ function ProjectThreadRow({ row, actions }: { row: ProjectThreadRowSpec; actions
       className={styles['project-thread-item'] + ' ' + MARQUEE_GROUP_CLASS + (row.active ? ' active' : '') + (row.working ? ' is-working' : '') + (row.completeUnread ? ' is-complete-unread' : '') + (row.waitingCount > 0 ? ' is-waiting' : '')}
       row={row}
       actions={actions}
-      onClick={(e) => {
-        const menuBtn = (e.target as HTMLElement).closest(`.${styles['project-thread-menu']}`)
-        if (menuBtn) {
-          e.stopPropagation()
-          actions.showContextMenu(e, row.id, e.currentTarget as HTMLElement)
-          return
-        }
+      onClick={() => {
         actions.switchSession(row.id)
       }}
     >
       <RawHtml tag="span" className={styles.contents} html={projectThreadPrefixHtml(row)} />
       <MarqueeText className={styles['project-thread-title']} animateOnGroupHover><span dir="auto">{row.title}</span></MarqueeText>
       <RawHtml tag="span" className={styles.contents} html={projectThreadSuffixHtml(row)} />
+      <SessionRowActions row={row} actions={actions} />
     </SessionRowContainer>
   )
 }
@@ -431,6 +474,7 @@ function SessionRowContainer({ className, row, actions, onClick, children }: {
       aria-current={row.active ? 'page' : undefined}
       data-waiting={row.waitingCount > 0 ? row.waitingKind : undefined}
       onClick={(e) => {
+        if ((e.target as HTMLElement).closest('[data-session-action]')) return
         const snoozeBtn = (e.target as HTMLElement).closest('.s-status-pill') as HTMLElement | null
         if (snoozeBtn) {
           e.stopPropagation()
