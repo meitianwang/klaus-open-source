@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { withSettingsDb, withSettingsTransaction } from './settings';
 import { IpcHandlerError } from '../ipc/registry';
 import { fastModePreferenceKey, isRequestFastSource } from '../../shared/model-fast-mode';
+import { antigravityReplacementModelId, canonicalAntigravitySelection } from '../../shared/antigravity-model-catalog';
 
 export interface SessionModelPreference { mode: string; source: string }
 
@@ -303,6 +304,64 @@ function ensureTables(db: DatabaseSync, configRoot: string): void {
       SELECT session_id, source, 0, ? FROM session_main_models WHERE source IN ('subscription', 'qoder', 'qoderwork')`)
       .run(Date.now());
     put(db, 'migrated.composer_native_fast_sources_v1', '1');
+  }
+  if (!get(db, 'migrated.antigravity_harness_models_v1')) {
+    // Dedicated multi-step harness aliases are excluded from conversation choices.
+    // Rewrite existing saved selections onto the concrete chat models they wrap.
+    const now = Date.now();
+    for (const key of [
+      'composer.main_model',
+      'composer.last_model:antigravity',
+      'advisor.model',
+      'orchestrator.model',
+      'feature_models.title',
+      'feature_models.prediction',
+      'feature_models.memory',
+      'feature_models.voice_refinement',
+    ]) {
+      const stored = get(db, key);
+      if (typeof stored === 'string' && stored) {
+        const canonical = canonicalAntigravitySelection(stored);
+        if (canonical !== stored) put(db, key, canonical);
+      }
+    }
+    const sessions = db.prepare("SELECT session_id, mode FROM session_main_models WHERE source = 'antigravity'")
+      .all() as Array<{ session_id: string; mode: string }>;
+    const updateSession = db.prepare('UPDATE session_main_models SET mode = ?, updated_at = ? WHERE session_id = ?');
+    for (const row of sessions) {
+      const canonical = canonicalAntigravitySelection(String(row.mode));
+      if (canonical !== row.mode) updateSession.run(canonical, now, String(row.session_id));
+    }
+    const globalTiers = get(db, 'model_tiers:global');
+    if (globalTiers) {
+      try {
+        const mapping: Record<string, unknown> = JSON.parse(globalTiers);
+        let changed = false;
+        for (const tier of ['high', 'medium', 'low']) {
+          const ref = mapping[tier] as { source?: string; modelId?: string } | null | undefined;
+          const replacement = ref?.source === 'antigravity' && typeof ref.modelId === 'string'
+            ? antigravityReplacementModelId(ref.modelId) : undefined;
+          if (ref && replacement) { mapping[tier] = { ...ref, modelId: replacement }; changed = true; }
+        }
+        if (changed) put(db, 'model_tiers:global', JSON.stringify(mapping));
+      } catch { /* a corrupt row is left for the reader to reject */ }
+    }
+    const legacyTiers = get(db, 'model_tiers:antigravity');
+    if (legacyTiers) {
+      try {
+        const mapping: Record<string, unknown> = JSON.parse(legacyTiers);
+        let changed = false;
+        for (const tier of ['high', 'medium', 'low']) {
+          const id = mapping[tier];
+          if (typeof id === 'string') {
+            const canonical = canonicalAntigravitySelection(id);
+            if (canonical !== id) { mapping[tier] = canonical; changed = true; }
+          }
+        }
+        if (changed) put(db, 'model_tiers:antigravity', JSON.stringify(mapping));
+      } catch { /* preserve malformed legacy rows untouched */ }
+    }
+    put(db, 'migrated.antigravity_harness_models_v1', '1');
   }
 }
 

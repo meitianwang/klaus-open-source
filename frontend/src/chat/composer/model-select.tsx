@@ -1,7 +1,7 @@
 import { visibleAntigravityModelOptions } from '../../../../shared/antigravity-presentation'
 import { type FastModeMetadata, type FastModeState } from '../../../../shared/model-fast-mode'
 import { modelOptionIsAntigravity, modelOptionIsSelectable, cursorFastMode, cursorThinkingLevel, cursorThinkingLevels, modelOptionHasValue, modelOptionForValue, modelOptionsForValue, type CursorModelMetadata } from '../../../../shared/cursor-model-catalog'
-import { antigravityThinkingLevel, antigravityThinkingLevels, type AntigravityModelMetadata } from '../../../../shared/antigravity-model-catalog'
+import { antigravityThinkingLevel, antigravityThinkingLevels, isAntigravityHarnessAlias, type AntigravityModelMetadata } from '../../../../shared/antigravity-model-catalog'
 import { traeThinkingLevel, traeThinkingLevels, traeThinkingLabel, type TraeModelMetadata } from '../../../../shared/trae-model-catalog'
 import { isKiroRoutingAlias, kiroThinkingLevel, kiroThinkingLevels, kiroThinkingLabel, type KiroModelMetadata } from '../../../../shared/kiro-model-catalog'
 // Composer model and reasoning picker. The trigger shows the selected model and
@@ -63,7 +63,8 @@ export function mainModelItemDisabled(item: MainModelItem, thinkingPending: bool
 
 export function isMainModelValue(value: unknown): boolean {
   if (typeof value !== 'string' || isAutomaticCursorSelection(value)
-    || value.startsWith('kiro:') && isKiroRoutingAlias(value)) return false
+    || value.startsWith('kiro:') && isKiroRoutingAlias(value)
+    || value.startsWith('antigravity:') && isAntigravityHarnessAlias(value)) return false
   if (['auto', 'high', 'medium', 'low'].includes(value)) return true
   return ['subscription:', 'custom:', 'codex:', 'cursor:', 'kimi:', 'bailian:', 'minimax:', 'zhipu:', 'ark:', 'deepseek:', 'qoder:', 'qwenwork:', 'workbuddy:', 'antigravity:', 'trae:', 'kiro:']
     .some(prefix => value.startsWith(prefix) && value.length > prefix.length)

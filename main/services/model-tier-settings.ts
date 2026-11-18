@@ -6,6 +6,7 @@ import { kvOpt, withSettingsTransaction } from './settings';
 import type { EngineSettings } from './engine-settings';
 import { migrateProviderRolesToTiers } from './model-tier-migration';
 import { isCursorModelAlias } from './model-sources';
+import { antigravityReplacementModelId, isAntigravityHarnessAlias } from '../../shared/antigravity-model-catalog';
 
 export const GLOBAL_MODEL_TIERS_KEY = 'model_tiers:global';
 export const MODEL_TIERS = ['high', 'medium', 'low'] as const;
@@ -32,13 +33,16 @@ export function modelReference(value: unknown): ModelReference | null {
   if (value === null) return null;
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new IpcHandlerError('BAD_REQUEST', 'Select a model source and model');
   const ref = value as Record<string, unknown>;
+  const rawModelId = typeof ref.modelId === 'string' ? ref.modelId : '';
+  const modelId = ref.source === 'antigravity' ? (antigravityReplacementModelId(rawModelId) ?? rawModelId) : rawModelId;
   if (typeof ref.source !== 'string' || !MODEL_SOURCES.includes(ref.source)
-    || typeof ref.modelId !== 'string' || !ref.modelId.trim() || ref.modelId !== ref.modelId.trim()
-    || ref.modelId.length > 1024 || /[\u0000-\u001f\u007f]/.test(ref.modelId)
-    || ref.source === 'cursor' && isCursorModelAlias(ref.modelId)) {
+    || !modelId.trim() || modelId !== modelId.trim()
+    || modelId.length > 1024 || /[\u0000-\u001f\u007f]/.test(modelId)
+    || ref.source === 'cursor' && isCursorModelAlias(modelId)
+    || ref.source === 'antigravity' && isAntigravityHarnessAlias(modelId)) {
     throw new IpcHandlerError('BAD_REQUEST', 'Select a valid model source and model');
   }
-  return { source: ref.source, modelId: ref.modelId };
+  return { source: ref.source, modelId };
 }
 function tierReference(value: unknown): ModelReference | null {
   // A stored global mapping can still name a source this build retired. Failing

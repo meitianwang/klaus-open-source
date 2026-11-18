@@ -13,7 +13,9 @@ import { antigravityThinkingLevels, antigravityVariantForThinking, pickAntigravi
 import { modelOptionForValue, modelOptionHasValue } from '../shared/cursor-model-catalog';
 import { object, type EngineRequest, type JsonObject } from '../main/services/service-types';
 import type { EngineSettings } from '../main/services/engine-settings';
-import { kvGet } from '../main/services/settings';
+import { kvGet, kvSet, withSettingsDb } from '../main/services/settings';
+import { ModelFeatureSettings } from '../main/services/model-features';
+import { modelReference, readModelTierMapping } from '../main/services/model-tier-settings';
 
 export function registerAntigravityModelVariantTests(h: Harness): void {
   const model = (level: string) => `antigravity:gemini-3.8-flash-${level}`;
@@ -344,6 +346,83 @@ export function registerAntigravityModelVariantTests(h: Harness): void {
       } });
       assert.equal(allRestricted.status, 'ready');
       assert((allRestricted.options as JsonObject[]).every(row => row.available === false));
+    } finally { await f.close(); }
+  });
+
+  h.test('multi-step harness aliases stay out of pickers and migrate saved selections onto concrete chat models', async () => {
+    const f = await fixture();
+    try {
+      f.entries.push(
+        { key: 'gemini-4-carbon-high', display_name: 'Gemini 4 Carbon (High)', inRecommendedSort: true, providerMetadata: { thinkingLevel: 3, supportsThinking: true, modelProvider: 'MODEL_PROVIDER_GOOGLE' }, capabilities: {} },
+        { key: 'gemini-4-hydrogen-xhigh', display_name: 'Gemini 4 Hydrogen (XHigh)', inRecommendedSort: true, providerMetadata: { thinkingLevel: 100, supportsThinking: true, modelProvider: 'MODEL_PROVIDER_GOOGLE' }, capabilities: {} },
+        { key: 'gemini-pro-orchestrator', display_name: 'Orchestrator (Carbon)', inRecommendedSort: true, providerMetadata: { thinkingLevel: 3, supportsThinking: true, modelProvider: 'MODEL_PROVIDER_GOOGLE' }, capabilities: {} },
+        { key: 'gemini-pro-orchestrator-argon', display_name: 'Orchestrator (Argon)', inRecommendedSort: true, providerMetadata: { thinkingLevel: 3, supportsThinking: true, modelProvider: 'MODEL_PROVIDER_GOOGLE' }, capabilities: {} },
+        { key: 'gemini-flash-worker-agy', display_name: 'Gemini 4 Hydrogen (Orchestrator)', providerMetadata: { thinkingLevel: 100, supportsThinking: true, modelProvider: 'MODEL_PROVIDER_GOOGLE' }, capabilities: {} },
+      );
+
+      const rows = (await f.service.options('antigravity')).map(object);
+      for (const alias of ['antigravity:gemini-pro-orchestrator', 'antigravity:gemini-pro-orchestrator-argon', 'antigravity:gemini-flash-worker-agy']) {
+        assert.equal(modelOptionForValue(rows, alias), undefined, `${alias} must not appear in picker options`);
+      }
+      assert(modelOptionForValue(rows, 'antigravity:gemini-4-carbon-high'));
+      assert(modelOptionForValue(rows, 'antigravity:gemini-4-argon-high'));
+      assert(modelOptionForValue(rows, 'antigravity:gemini-4-hydrogen-xhigh'));
+
+      const tier = await sourceTierCatalog('antigravity', { configRoot: f.root, engine, request: f.request, sourceStatus: async () => ({ loggedIn: true }) });
+      const tierRows = tier.options as JsonObject[];
+      for (const alias of ['gemini-pro-orchestrator', 'gemini-pro-orchestrator-argon', 'gemini-flash-worker-agy']) {
+        assert.equal(modelOptionForValue(tierRows, alias), undefined, `${alias} must not appear in tier options`);
+      }
+
+      assert.deepEqual(modelReference({ source: 'antigravity', modelId: 'gemini-pro-orchestrator' }), { source: 'antigravity', modelId: 'gemini-4-carbon-high' });
+      assert.deepEqual(modelReference({ source: 'antigravity', modelId: 'gemini-pro-orchestrator-argon' }), { source: 'antigravity', modelId: 'gemini-4-argon-high' });
+      assert.deepEqual(modelReference({ source: 'antigravity', modelId: 'gemini-flash-worker-agy' }), { source: 'antigravity', modelId: 'gemini-4-hydrogen-xhigh' });
+      assert.throws(() => modelReference({ source: 'antigravity', modelId: 'gemini-pro-orchestrator-unmapped' }));
+
+      await f.service.setModel({ sessionId: 'alias-pick', source: 'antigravity', mode: 'antigravity:gemini-pro-orchestrator' });
+      assert.equal(readSessionModel('alias-pick', f.root).mode, 'antigravity:gemini-4-carbon-high');
+
+      // Seed a legacy pre-migration database containing stored harness aliases across every preference slot.
+      const legacyRoot = await mkdtemp(join(tmpdir(), 'klaus-antigravity-migrate-'));
+      try {
+        readSessionModel('seeded-carbon', legacyRoot);
+        withSettingsDb(legacyRoot, db => {
+          db.prepare('DELETE FROM settings WHERE key = ?').run('migrated.antigravity_harness_models_v1');
+          db.prepare("INSERT INTO settings(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+            .run('composer.main_model', 'antigravity:gemini-pro-orchestrator');
+          db.prepare("INSERT INTO settings(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+            .run('composer.last_model:antigravity', 'antigravity:gemini-pro-orchestrator-argon');
+          db.prepare("INSERT INTO settings(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+            .run('advisor.model', 'antigravity:gemini-pro-orchestrator');
+          db.prepare("INSERT INTO settings(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+            .run('orchestrator.model', 'antigravity:gemini-pro-orchestrator-argon');
+          db.prepare("INSERT INTO settings(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+            .run('feature_models.title', 'antigravity:gemini-flash-worker-agy');
+          db.prepare("INSERT INTO settings(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+            .run('model_tiers:global', JSON.stringify({
+              version: 1, revision: 2,
+              high: { source: 'antigravity', modelId: 'gemini-pro-orchestrator' },
+              medium: { source: 'antigravity', modelId: 'gemini-pro-orchestrator-argon' },
+              low: { source: 'antigravity', modelId: 'gemini-flash-worker-agy' },
+            }));
+          db.prepare("UPDATE session_main_models SET mode = 'antigravity:gemini-pro-orchestrator', source = 'antigravity' WHERE session_id = 'seeded-carbon'").run();
+        });
+        kvSet('advisor.enabled', '1', legacyRoot);
+
+        assert.equal(readSessionModel('seeded-carbon', legacyRoot).mode, 'antigravity:gemini-4-carbon-high');
+        assert.equal(readSessionModel('', legacyRoot).mode, 'antigravity:gemini-4-carbon-high');
+        assert.equal(kvGet('composer.last_model:antigravity', legacyRoot), 'antigravity:gemini-4-argon-high');
+        const migratedTiers = readModelTierMapping(legacyRoot);
+        assert.deepEqual(migratedTiers.high, { source: 'antigravity', modelId: 'gemini-4-carbon-high' });
+        assert.deepEqual(migratedTiers.medium, { source: 'antigravity', modelId: 'gemini-4-argon-high' });
+        assert.deepEqual(migratedTiers.low, { source: 'antigravity', modelId: 'gemini-4-hydrogen-xhigh' });
+        const features = new ModelFeatureSettings(legacyRoot);
+        assert.deepEqual(features.getAdvisorTarget(), { type: 'source', source: 'antigravity', modelId: 'gemini-4-carbon-high' });
+        assert.deepEqual(features.getOrchestratorTarget(), { type: 'source', source: 'antigravity', modelId: 'gemini-4-argon-high' });
+        assert.deepEqual(features.getFeatureTargets().title, { type: 'source', source: 'antigravity', modelId: 'gemini-4-hydrogen-xhigh' });
+      } finally {
+        await rm(legacyRoot, { recursive: true, force: true });
+      }
     } finally { await f.close(); }
   });
 }

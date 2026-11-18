@@ -1,4 +1,4 @@
-import { pickAntigravityModelMetadata } from '../../../shared/antigravity-model-catalog';
+import { isAntigravityHarnessAlias, pickAntigravityModelMetadata } from '../../../shared/antigravity-model-catalog';
 import { isKiroRoutingAlias, pickKiroModelMetadata } from '../../../shared/kiro-model-catalog';
 import { pickFastModeMetadata } from '../../../shared/model-fast-mode';
 import type { Json } from '../../ipc/contract';
@@ -127,7 +127,8 @@ export class MobileProjection {
       const answer = object(await this.call(channel, {}));
       for (const row of rows(answer.options)) {
         const value = nonempty(row.value); if (!value || seen.has(value)) continue;
-        if ((kiro && value === 'auto') || value.startsWith('kiro:') && isKiroRoutingAlias(value)) continue;
+        if ((kiro && value === 'auto') || value.startsWith('kiro:') && isKiroRoutingAlias(value)
+          || value.startsWith('antigravity:') && isAntigravityHarnessAlias(value)) continue;
         seen.add(value); const option: JsonObject = { value, label: optionText(row.label) || value };
         const description = optionText(row.description); if (description) option.description = description;
         Object.assign(option, pickCursorModelMetadata(row), pickAntigravityModelMetadata(row), pickKiroModelMetadata(row), pickFastModeMetadata(row));

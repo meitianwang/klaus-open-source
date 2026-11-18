@@ -17,6 +17,30 @@ export interface AntigravityModelMetadata {
 
 const LEVELS = ['off', 'low', 'medium', 'high', 'xhigh', 'max'];
 
+const HARNESS_MODEL_REPLACEMENTS: Record<string, string> = {
+  'gemini-pro-orchestrator': 'gemini-4-carbon-high',
+  'gemini-pro-orchestrator-argon': 'gemini-4-argon-high',
+  'gemini-flash-worker-agy': 'gemini-4-hydrogen-xhigh',
+};
+
+export function antigravityReplacementModelId(value: string): string | undefined {
+  const id = value.trim().replace(/^antigravity:/i, '').toLowerCase();
+  return HARNESS_MODEL_REPLACEMENTS[id];
+}
+
+export function isAntigravityHarnessAlias(value: string): boolean {
+  const id = value.trim().replace(/^antigravity:/i, '').toLowerCase();
+  return id.startsWith('gemini-pro-orchestrator') || id === 'gemini-flash-worker-agy';
+}
+
+export function canonicalAntigravitySelection(value: string): string {
+  const trimmed = value.trim();
+  const prefixed = /^antigravity:/i.test(trimmed);
+  const replacement = antigravityReplacementModelId(trimmed);
+  if (!replacement) return value;
+  return prefixed ? `antigravity:${replacement}` : replacement;
+}
+
 function record(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }

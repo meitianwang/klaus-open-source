@@ -614,3 +614,13 @@ test('ordinary picker rows keep their selection contract independently of native
   expect(mainModelItemDisabled({ value: 'antigravity:known', available: false }, false)).toBe(false)
   expect(mainModelItemDisabled({ value: 'antigravity:known' }, true)).toBe(true)
 })
+
+test('dedicated Antigravity multi-step harness aliases are rejected as conversation picker values', () => {
+  expect(isMainModelValue('antigravity:gemini-pro-orchestrator')).toBe(false)
+  expect(isMainModelValue('antigravity:gemini-pro-orchestrator-argon')).toBe(false)
+  expect(isMainModelValue('antigravity:gemini-flash-worker-agy')).toBe(false)
+  expect(isMainModelValue('antigravity:gemini-4-carbon-high')).toBe(true)
+  expect(isMainModelValue('antigravity:gemini-4-argon-high')).toBe(true)
+  expect(isMainModelValue('antigravity:gemini-4-hydrogen-xhigh')).toBe(true)
+})
+

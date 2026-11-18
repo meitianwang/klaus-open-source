@@ -1,4 +1,4 @@
-import { antigravityModelOptionForValue, type AntigravityModelVariant } from '../../shared/antigravity-model-catalog';
+import { antigravityModelOptionForValue, isAntigravityHarnessAlias, type AntigravityModelVariant } from '../../shared/antigravity-model-catalog';
 import { object, string, type JsonObject } from './service-types';
 
 interface Member { family: string; label: string; level: string; budget?: number; nativeLevel?: number; toggle?: boolean }
@@ -82,7 +82,7 @@ export function antigravityModelOptions(entries: JsonObject[], options: JsonObje
   const order: Array<{ family: string } | { row: JsonObject }> = [];
   for (const entry of entries) {
     const key = string(entry.key), row = byValue.get(`antigravity:${key}`);
-    if (!row) continue;
+    if (!row || isAntigravityHarnessAlias(key)) continue;
     if (entry.purpose !== undefined && entry.purpose !== 'chat') continue;
     const definition = member(key, entry, row);
     if (!definition || !matches(entry, definition)) { order.push({ row }); continue; }

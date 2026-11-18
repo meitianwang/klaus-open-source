@@ -3,6 +3,7 @@ import type { Json } from '../ipc/contract';
 import { IpcHandlerError } from '../ipc/registry';
 import { configRootFrom } from './config-root';
 import { isCursorModelAlias } from './model-sources';
+import { antigravityReplacementModelId, isAntigravityHarnessAlias } from '../../shared/antigravity-model-catalog';
 import { withSettingsTransaction } from './settings';
 import { MODEL_SOURCES } from './session-store';
 import { configuredMediaModel, mediaPreferenceFields, SUBSCRIPTION_IMAGE_SOURCES, SUBSCRIPTION_MUSIC_SOURCES, SUBSCRIPTION_VIDEO_SOURCES } from '../../contracts/effective-media-models';
@@ -20,9 +21,11 @@ function normalizedModelValue(value: string): string { return ['off', 'unset'].i
 function qualifiedModelReference(model: string): { source: string; modelId: string } | undefined {
   const separator = model.indexOf(':');
   if (separator < 1) return;
-  const source = model.slice(0, separator), modelId = model.slice(separator + 1);
+  const source = model.slice(0, separator), rawModelId = model.slice(separator + 1);
+  const modelId = source === 'antigravity' ? (antigravityReplacementModelId(rawModelId) ?? rawModelId) : rawModelId;
   if (!MODEL_SOURCES.includes(source) || !modelId || modelId !== modelId.trim() || modelId.length > 1024 || /[\u0000-\u001f\u007f]/u.test(modelId)
-    || source === 'cursor' && isCursorModelAlias(modelId)) return;
+    || source === 'cursor' && isCursorModelAlias(modelId)
+    || source === 'antigravity' && isAntigravityHarnessAlias(modelId)) return;
   return { source, modelId };
 }
 function advisor(db: DatabaseSync): JsonObject {

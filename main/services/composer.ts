@@ -1,5 +1,5 @@
 import { antigravityModelOptions } from './antigravity-model-options';
-import { antigravityThinkingLevel, antigravityVariantForThinking, pickAntigravityModelMetadata, type AntigravityModelMetadata } from '../../shared/antigravity-model-catalog';
+import { antigravityThinkingLevel, antigravityVariantForThinking, canonicalAntigravitySelection, isAntigravityHarnessAlias, pickAntigravityModelMetadata, type AntigravityModelMetadata } from '../../shared/antigravity-model-catalog';
 import { isTraeNativeEffort, pickTraeModelMetadata, traeThinkingLevel, traeThinkingLevels, traeVariantForThinking, traeModelOptionForValue, type TraeModelMetadata } from '../../shared/trae-model-catalog';
 import { isKiroNativeEffort, isKiroRoutingAlias, pickKiroModelMetadata, kiroThinkingLevel, kiroThinkingLevels, kiroVariantForThinking, kiroModelOptionForValue, type KiroModelMetadata } from '../../shared/kiro-model-catalog';
 import type { ClientEvent } from '../engine/protocol';
@@ -116,17 +116,19 @@ export class ComposerService {
   }
   // Reuse the source-switch catalog when reading the restored member's metadata.
   private async antigravityModel(selection: string, read: 'warm' | 'cached' = 'warm', rows?: Json[]): Promise<{ selection: string; metadata: AntigravityModelMetadata }> {
-    const resolved = selection === 'auto' ? await this.resolvePreference({ source: 'antigravity', mode: selection }) : selection;
+    const canonical = canonicalAntigravitySelection(selection);
+    const resolved = canonical === 'auto' ? await this.resolvePreference({ source: 'antigravity', mode: canonical }) : canonical;
     const row = modelOptionForValue(rows ?? await this.options('antigravity', true, read), resolved);
     if (!row) throw new IpcHandlerError('MODEL_SELECTION_UNAVAILABLE', 'The selected model is unavailable');
     return { selection: resolved, metadata: pickAntigravityModelMetadata(row) };
   }
   private async antigravitySourceSelection(remembered: string | undefined, rows: Json[], baseline: boolean): Promise<string> {
-    if (remembered && modelOptionForValue(rows, remembered)) return remembered;
+    const canonical = remembered ? canonicalAntigravitySelection(remembered) : undefined;
+    if (canonical && modelOptionForValue(rows, canonical)) return canonical;
     // A bundled baseline is not this account's catalog: its silence about a
     // remembered member says nothing about the account. Fail before any
     // preference is written instead of replacing a possibly valid selection.
-    if (remembered && baseline) {
+    if (canonical && baseline) {
       throw new IpcHandlerError('MODEL_CATALOG_NOT_READY', 'The Antigravity model catalog is still refreshing; the previous selection was kept');
     }
     let preferred = '';
@@ -249,6 +251,7 @@ export class ComposerService {
         selection = target.value;
       }
       if (source === 'antigravity') {
+        selection = canonicalAntigravitySelection(selection);
         const model = await this.antigravityModel(selection, 'warm', antigravityRows);
         assertCurrent?.();
         if (model.metadata.antigravityFamilyId) {
@@ -698,6 +701,7 @@ export class ComposerService {
     });
     const options = entries.flatMap(entry => {
       if (typeof entry.key !== 'string') return [];
+      if (source === 'antigravity' && isAntigravityHarnessAlias(entry.key)) return [];
       if (source === 'kiro' && isKiroRoutingAlias(entry.key)) return [];
       if ((source === 'trae' || source === 'kiro') && (entry.purpose !== undefined && entry.purpose !== 'chat'
         || entry.hidden === true || entry.is_invisible_to_user === true || entry.isInvisibleToUser === true)) return [];
