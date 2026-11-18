@@ -1,5 +1,5 @@
 import { readSessionModel } from '../session-store';
-import { mediaInputMime } from '../../../shared/media-input';
+import { isNativeMediaSource, mediaInputMime } from '../../../shared/media-input';
 import { createHash } from 'node:crypto';
 import { constants } from 'node:fs';
 import { open, realpath } from 'node:fs/promises';
@@ -49,7 +49,7 @@ function ordinaryFollowUpPayload(text: string, descriptors: JsonObject[]): JsonO
 }
 
 export function followUpPayload(text: string, descriptors: JsonObject[], source = ''): JsonObject {
-  if (source !== 'antigravity') return ordinaryFollowUpPayload(text, descriptors);
+  if (!isNativeMediaSource(source)) return ordinaryFollowUpPayload(text, descriptors);
   const inline = descriptors.filter(item => string(item.mimeType).startsWith('image/'));
   const media = descriptors.flatMap(item => {
     if (inline.includes(item)) return [item];

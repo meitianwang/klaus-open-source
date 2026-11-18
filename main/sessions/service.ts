@@ -40,6 +40,7 @@ import { persistentSessionIdentity, scratchDirectory, removeScratchDirectory, re
 import { conversationReferencesIn } from '../services/conversation-mention';
 import { deviceAddressesIn } from '../services/device-mention';
 import { browserTabReferencesIn, type BrowserTabMention } from '../../shared/browser-tab-mention';
+import { isNativeMediaSource } from '../../shared/media-input';
 import { isAbsolute, join } from 'node:path';
 
 import type { SpawnOptions } from '../engine/spawn';
@@ -4478,7 +4479,7 @@ export class SessionService {
 
   private async materializeMessageInput(rendererId: string, text: string, media: Json[]): Promise<Json> {
     if (!media.some(value => object(value)?.type === 'media')) return (this.deps.messageInput ?? buildMessageInput)(text, media);
-    if (readSessionModel(rendererId, this.configRoot).source !== 'antigravity') return (this.deps.messageInput ?? buildMessageInput)(text, media, []);
+    if (!isNativeMediaSource(readSessionModel(rendererId, this.configRoot).source)) return (this.deps.messageInput ?? buildMessageInput)(text, media, []);
     const engineId = this.deps.state.liveSession(rendererId);
     const revision = this.deps.state.modelPreferenceRevision(rendererId);
     const types = await this.deps.mediaInputMimeTypes?.(rendererId) ?? [];

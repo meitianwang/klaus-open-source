@@ -178,7 +178,7 @@ h.test('Codex selection uses subscription credentials and a saved custom endpoin
     f.select('codex');
     const result = await f.service.execute('generate_image', { prompt: 'Blue' }, f.context('subscription')); output(result);
     equal(calls[0]!.url, 'https://chatgpt.com/backend-api/codex/images/generations'); equal(calls[0]!.headers.get('Authorization'), 'Bearer private-fixture-token'); equal(calls[0]!.headers.get('originator'), 'codex_cli_rs'); equal(calls[0]!.headers.get('ChatGPT-Account-Id'), 'fixture-account');
-    equal(calls[0]!.headers.get('version'), '0.159.2');
+    equal(calls[0]!.headers.get('version'), '0.169.1');
     equal(JSON.stringify(result).includes('private-fixture-token'), false);
     f.config('custom', 'image', { model: 'saved-custom-image' });
     const saved = f.features.getMedia('image');

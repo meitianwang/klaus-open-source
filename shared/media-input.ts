@@ -9,6 +9,10 @@ export const MEDIA_INPUT_FILE_LIMIT = 18 * 1024 * 1024
 export const MEDIA_INPUT_TOTAL_LIMIT = 45 * 1024 * 1024
 export const MEDIA_INPUT_PART_LIMIT = 20
 
+export function isNativeMediaSource(source: string | undefined): boolean {
+  return source === 'antigravity' || source === 'codex'
+}
+
 export function mediaInputMime(name: string, declared = ''): string | undefined {
   const mime = declared.trim().toLowerCase()
   if (OPAQUE_MEDIA_MIME_TYPES.has(mime)) return mime

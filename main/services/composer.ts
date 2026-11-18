@@ -10,6 +10,7 @@ import { EngineSettings } from './engine-settings';
 import { cursorModelOptions } from './cursor-model-options';
 import { nativeFastModeMetadata, resolvedFastModeMetadata } from './native-fast-mode';
 import { fastModePreferenceKey, isRequestFastSource } from '../../shared/model-fast-mode';
+import { isNativeMediaSource } from '../../shared/media-input';
 import { cursorFastMode, cursorThinkingLevel, cursorVariantForFast, cursorVariantForThinking, cursorVariantForThinkingAndFast,
   modelOptionForValue, pickCursorModelMetadata, type CursorModelMetadata } from '../../shared/cursor-model-catalog';
 
@@ -92,7 +93,7 @@ export class ComposerService {
   }
   async mediaInputMimeTypes(sessionId: string): Promise<string[]> {
     const saved = readSessionModel(sessionId, this.configRoot);
-    if (saved.source !== 'antigravity') return [];
+    if (!isNativeMediaSource(saved.source)) return [];
     const selection = await this.resolvePreference(saved);
     this.assertPreference(sessionId, saved);
     const rows = await this.options(saved.source);
@@ -751,7 +752,17 @@ export class ComposerService {
       const id = string(entry.id).trim();
       if (!id) return [];
       const levels = mapped(entry.supportedReasoningLevels);
-      return [metadata({ value: 'codex:' + id, label: string(entry.name).trim() || id, description: string(entry.description) || id, supportsFastMode: true }, levels.length ? levels : undefined, level(entry.defaultReasoning))];
+      const mediaTypes = Array.isArray(entry.mediaInputMimeTypes) ? entry.mediaInputMimeTypes : object(entry.capabilities)?.mediaInputMimeTypes;
+      const mediaInputMimeTypes = Array.isArray(mediaTypes)
+        ? [...new Set(mediaTypes.filter((mime): mime is string => typeof mime === 'string' && Boolean(mime.trim())).map(mime => mime.trim()))]
+        : [];
+      return [metadata({
+        value: 'codex:' + id,
+        label: string(entry.name).trim() || id,
+        description: string(entry.description) || id,
+        supportsFastMode: true,
+        ...(mediaInputMimeTypes.length ? { mediaInputMimeTypes } : {}),
+      }, levels.length ? levels : undefined, level(entry.defaultReasoning))];
     });
     const options = entries.flatMap(entry => {
       if (typeof entry.key !== 'string') return [];

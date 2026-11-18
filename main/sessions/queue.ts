@@ -1,4 +1,5 @@
 import { validateAntigravityQueueInput } from '../services/antigravity-input';
+import { isNativeMediaSource } from '../../shared/media-input';
 import { createHash } from 'node:crypto';
 import type { Json } from '../ipc/contract';
 import { object, string, type JsonObject } from '../services/service-types';
@@ -35,7 +36,7 @@ function identifier(value: unknown, max = 512): string {
 
 /** Input parts are the engine facade's typed data, never raw operations. */
 export function validateInput(value: Json | undefined, source = ''): void {
-  if (source === 'antigravity') return validateAntigravityQueueInput(value);
+  if (isNativeMediaSource(source)) return validateAntigravityQueueInput(value);
   const text = (raw: unknown): void => { if (typeof raw !== 'string' || raw.length > 1024 * 1024 || raw.includes('\0')) throw new Error('Input text is invalid or too large'); };
   if (typeof value === 'string') { text(value); return; }
   if (!Array.isArray(value) || !value.length || value.length > 32) throw new Error('Input must contain between 1 and 32 parts');

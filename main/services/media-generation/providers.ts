@@ -69,7 +69,7 @@ function imageBudget(files: GeneratedFile[]): GeneratedFile[] {
   return files;
 }
 export function codexImageHeaders(accountId: string, env: NodeJS.ProcessEnv = process.env): Record<string, string> {
-  const configured = env.KLAUS_CODEX_CLIENT_VERSION?.trim() ?? '', version = /^\d+\.\d+\.\d+(?:[-+][A-Za-z0-9.-]+)?$/.test(configured) ? configured : '0.159.2';
+  const configured = env.KLAUS_CODEX_CLIENT_VERSION?.trim() ?? '', version = /^\d+\.\d+\.\d+(?:[-+][A-Za-z0-9.-]+)?$/.test(configured) ? configured : '0.169.1';
   const platform = process.platform === 'darwin' ? 'Mac OS' : process.platform === 'win32' ? 'Windows' : process.platform === 'linux' ? 'Linux' : process.platform;
   return { Accept: 'application/json', originator: 'codex_cli_rs', version, 'User-Agent': `codex_cli_rs/${version} (${platform} ${release()}; ${process.arch})`, ...(accountId ? { 'ChatGPT-Account-Id': accountId } : {}) };
 }

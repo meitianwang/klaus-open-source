@@ -43,6 +43,7 @@ h.test('native media reads and typed queued input enforce bounded bytes and part
   writeFileSync(path, Buffer.alloc(vector.limits.fileBytes + 1));
   await assertRejects(() => buildMessageInput('', [{ type: 'media', path, mimeType: 'audio/wav' }], ['audio/wav']), 'media file ceiling');
   validateInput([native('audio/wav', Buffer.alloc(vector.limits.fileBytes).toString('base64'))], 'antigravity');
+  validateInput([native('audio/wav', Buffer.alloc(64).toString('base64'))], 'codex');
   for (const row of vector.fixtures) validateInput([{ type: 'media', mimeType: row.mimeType, base64: row.base64, filename: row.name }], 'antigravity');
   for (const invalid of [[native('audio/*')], [native('application/pdf')], [native('audio/wav', 'bad')], [native('audio/wav', 'aG==')], [{ ...native(), path: '/tmp/hidden' }],
     Array.from({ length: vector.limits.parts + 1 }, () => native()), Array.from({ length: 3 }, () => native('audio/wav', Buffer.alloc(16 * 1024 * 1024).toString('base64')))]) {
@@ -56,6 +57,8 @@ h.test('native media reads and typed queued input enforce bounded bytes and part
 h.test('model capability lookup follows independent main and side session selections and rejects a delayed switch', async () => {
   const folder = root();
   setSessionModel('main', 'antigravity:audio', 'antigravity', folder, { updateDefaults: false });
+  setSessionModel('codex-sol', 'codex:gpt-6.2-sol', 'codex', folder, { updateDefaults: false });
+  setSessionModel('codex-astra', 'codex:gpt-6.2-astra', 'codex', folder, { updateDefaults: false });
   setSessionModel('side', 'kimi:text', 'kimi', folder, { updateDefaults: false });
   const requests: string[] = [];
   let delayed: (() => Promise<void>) | undefined;
@@ -64,12 +67,18 @@ h.test('model capability lookup follows independent main and side session select
     requests.push(method + ':' + String(fields.source ?? ''));
     if (method === 'model/selection/resolve') return { source: fields.source ?? null, selection: fields.selection ?? null };
     if (method === 'antigravity/models') { await delayed?.(); return { models: [{ key: 'audio', capabilities: { mediaInputMimeTypes: vector.allowed } }] }; }
+    if (method === 'codex/models') return { models: [
+      { id: 'gpt-6.2-sol', name: 'GPT-6.2-Sol', mediaInputMimeTypes: ['audio/wav', 'audio/mpeg'] },
+      { id: 'gpt-6.2-astra', name: 'GPT-6.2-Astra' },
+    ] };
     if (method === 'kimi/models') return { models: [{ key: 'text' }] };
     return {};
   } });
   assertDeepEqual(await composer.mediaInputMimeTypes('side'), [], 'side model cannot inherit main media support');
   assertDeepEqual(await composer.mediaInputMimeTypes('main'), vector.allowed, 'main resolves its exact selected row');
-  assert(!requests.includes('kimi/models:') && requests.includes('antigravity/models:'), 'ordinary sources do not query native media capabilities');
+  assertDeepEqual(await composer.mediaInputMimeTypes('codex-sol'), ['audio/wav', 'audio/mpeg'], 'audio-capable Codex row exposes declared audio MIME types');
+  assertDeepEqual(await composer.mediaInputMimeTypes('codex-astra'), [], 'non-audio Codex row exposes no native media MIME types');
+  assert(!requests.includes('kimi/models:') && requests.includes('antigravity/models:') && requests.includes('codex/models:'), 'ordinary sources do not query native media capabilities');
   let release!: () => void; const pending = new Promise<void>(resolve => { release = resolve; });
   delayed = () => pending;
   const loading = composer.mediaInputMimeTypes('main');
