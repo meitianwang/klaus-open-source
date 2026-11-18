@@ -164,6 +164,27 @@ test('a stored model still in the catalog is not rewritten', async () => {
   expect(f.writes).toEqual([])
 })
 
+test('a non-default reasoning variant inside a grouped catalog family is never treated as retired', async () => {
+  const f = fixture()
+  const grouped = [{
+    value: 'antigravity:gemini-4-carbon-medium',
+    label: 'Gemini 4 Carbon',
+    antigravityFamilyId: 'gemini-4-carbon',
+    antigravityVariants: [
+      { value: 'antigravity:gemini-4-carbon-medium', thinkingLevel: 'medium', available: true, isDefault: true },
+      { value: 'antigravity:gemini-4-carbon-high', thinkingLevel: 'high', available: true },
+    ],
+  }]
+  f.context.mainModelCatalogCache = { get: () => grouped, invalidate() {}, revalidate: async () => grouped }
+  f.context.buildMainModelItems = async () => grouped
+  f.context.klausApi.session.getMainModel = async (_sessionId: string, opts?: { resolve?: boolean }) => opts?.resolve === false
+    ? { source: 'antigravity', mode: 'antigravity:gemini-4-carbon-high' }
+    : { source: 'antigravity', mode: 'antigravity:gemini-4-carbon-high', resolvedMode: 'antigravity:gemini-4-carbon-medium' }
+  f.setSession('ag-chat')
+  await f.api.refreshComposerPreferences()
+  expect(f.writes).toEqual([])
+})
+
 test('a background catalog notification replaces baseline items without flashing the loading state', async () => {
   const f = fixture()
   let live = false

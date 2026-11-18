@@ -155,7 +155,10 @@ h.test('Kiro exact native efforts preserve restricted members without changing s
     assert.deepEqual(await composer.setThinking({ sessionId: 'target', level: 'none', ultraMode: false }), { ok: true });
     assert.equal(readSessionModel('target', root).mode, 'kiro:fixture-chat::effort=none');
     assert.equal(readSessionThinkingLevel('target', root), 'medium'); assert.equal(readSessionUltraMode('target', root), false);
-    assert.equal(readSessionModel('', root).source, 'custom'); assert.equal(readSessionThinkingLevel('other', root), 'low');
+    assert.deepEqual(readSessionModel('', root), { mode: 'kiro:fixture-chat::effort=none', source: 'kiro' });
+    assert.equal(readSessionThinkingLevel('', root), 'high');
+    assert.equal(readSessionModel('other', root).mode, 'custom:other');
+    assert.equal(readSessionThinkingLevel('other', root), 'low');
     assert.equal(kiroThinkingLevel(pickKiroModelMetadata(rows[0]), v.selection), 'max');
     assert.equal(modelConfigUpdate({ sessionId: 'target', source: 'kiro', thinkingLevel: 'max' }).thinkingLevel, 'max');
     assert.throws(() => modelConfigUpdate({ sessionId: 'other', source: 'custom', thinkingLevel: 'kiro-only' }));

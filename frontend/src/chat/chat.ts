@@ -15531,7 +15531,7 @@ async function reconcileUnavailableComposerModel(
 ) {
   if (!sessionId || !source || !concreteStoredModel(storedMode)) return
   if (storedMode === effectiveMode) return
-  if (items.some(item => item.value === storedMode)) return
+  if (modelOptionForValue(items, storedMode)) return
   if (window.isSessionRunning?.(sessionId)) return
   try {
     await klausApi.session.setMainModel(effectiveMode, sessionId, source)

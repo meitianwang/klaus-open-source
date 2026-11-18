@@ -178,15 +178,17 @@ h.test('native effort selection is session scoped, preserves canonical preferenc
     assert.equal(readSessionModel('target', root).mode, 'trae:fixture-chat::effort=light');
     assert.equal(readSessionThinkingLevel('target', root), 'high');
     assert.equal(readSessionUltraMode('target', root), false);
-    assert.equal(readSessionModel('', root).mode, 'custom:future');
+    assert.deepEqual(readSessionModel('', root), { mode: 'trae:fixture-chat::effort=light', source: 'trae' });
     assert.equal(readSessionThinkingLevel('', root), 'max');
     assert.equal(readSessionModel('other', root).mode, 'custom:other');
     assert.equal(readSessionThinkingLevel('other', root), 'medium');
     assert.deepEqual(await composer.getThinking('target'), { level: 'light' });
+    assert.deepEqual(await composer.getThinking(''), { level: 'light' });
     assert.deepEqual(await composer.setThinking({ sessionId: 'other', level: 'light' }), { error: 'invalid level' });
     fail = true;
     await assert.rejects(composer.setThinking({ sessionId: 'target', level: 'high' }), /publication failed/);
     assert.equal(readSessionModel('target', root).mode, 'trae:fixture-chat::effort=light');
+    assert.deepEqual(readSessionModel('', root), { mode: 'trae:fixture-chat::effort=light', source: 'trae' });
     assert.equal(readSessionThinkingLevel('target', root), 'high');
     assert.equal(readSessionUltraMode('target', root), false);
     assert(changes.length >= 2);

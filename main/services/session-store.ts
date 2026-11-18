@@ -602,24 +602,36 @@ export function setSessionThinkingLevel(sessionId: string, level: string, config
 /** Persist reasoning, its optional native selection, mode and permission together. */
 export function applySessionThinkingSelection(
   sessionId: string, level: string, configRoot: string, permissionPolicy?: RuntimePolicy,
-  options: { model?: SessionModelPreference; ultraMode?: false; updateThinking?: boolean; updateDefaults?: boolean; updateUltraDefault?: boolean; updateModelDefault?: boolean } = {},
+  options: { model?: SessionModelPreference; defaultModel?: SessionModelPreference; ultraMode?: false; updateThinking?: boolean; updateDefaults?: boolean; updateUltraDefault?: boolean; updateModelDefault?: boolean } = {},
 ): { level: string; rollback(): void } {
   const { model, updateThinking = true, updateDefaults = true } = options;
   // The Ultra default for future chats keeps its own write scope.
   const updateUltraDefault = options.updateUltraDefault ?? updateDefaults;
   const updateModelDefault = options.updateModelDefault ?? updateDefaults;
+  const defaultModel = updateModelDefault ? (options.defaultModel ?? model) : undefined;
   if (!updateDefaults && !sessionId) throw new IpcHandlerError('BAD_REQUEST', 'Session-only preferences require a session id');
   if (!validThinkingLevel(level)) throw new IpcHandlerError('BAD_REQUEST', 'invalid level');
   if (permissionPolicy !== undefined && !decodeRuntimePolicy(permissionPolicy)) throw new IpcHandlerError('BAD_REQUEST', 'invalid permission policy');
   if (model && (!validModelSelection(model.mode) || !MODEL_SOURCES.includes(model.source) || modelSource(model.mode) !== model.source)) {
     throw new IpcHandlerError('INVALID_MODEL_SOURCE', 'The model source does not match the selection');
   }
+  if (defaultModel && (!validModelSelection(defaultModel.mode) || !MODEL_SOURCES.includes(defaultModel.source)
+    || (modelSource(defaultModel.mode) !== undefined && modelSource(defaultModel.mode) !== defaultModel.source))) {
+    throw new IpcHandlerError('INVALID_MODEL_SOURCE', 'The model source does not match the selection');
+  }
   return withSettingsTransaction(configRoot, db => {
     ensureTables(db, configRoot);
     if (sessionId) seedWorkModesIn(db, sessionId);
+    const source = model?.source ?? defaultModel?.source ?? (sessionId
+      ? (db.prepare('SELECT source FROM session_main_models WHERE session_id = ?').get(sessionId) as { source?: string } | undefined)?.source
+      : (modelSource(get(db, 'composer.main_model') ?? '') ?? authModeIn(db)));
+    const validSource = typeof source === 'string' && MODEL_SOURCES.includes(source) ? source : undefined;
+    const rememberedMode = model?.mode ?? (defaultModel && defaultModel.mode !== 'auto' ? defaultModel.mode : undefined);
     const keys = [...(updateThinking && updateDefaults ? ['composer.thinking_level'] : []),
       ...(options.ultraMode === false && updateUltraDefault ? ['composer.ultra_mode'] : []),
-      ...(model && updateModelDefault ? ['composer.main_model', 'auth_mode'] : [])];
+      ...(defaultModel ? ['composer.main_model', 'auth_mode'] : []),
+      ...(validSource && rememberedMode ? [lastSourceModelKey(validSource)] : []),
+      ...(validSource && updateThinking ? [lastSourceThinkingKey(validSource)] : [])];
     const previous = keys.map(key => ({ key, value: get(db, key) }));
     const session = sessionId ? db.prepare('SELECT level, updated_at FROM session_thinking_levels WHERE session_id = ?').get(sessionId) : undefined;
     const previousUltra = sessionId && options.ultraMode === false
@@ -638,28 +650,26 @@ export function applySessionThinkingSelection(
     if (sessionId && updateThinking) db.prepare('INSERT INTO session_thinking_levels (session_id, level, updated_at) VALUES (?, ?, ?) ON CONFLICT(session_id) DO UPDATE SET level = excluded.level, updated_at = excluded.updated_at')
       .run(sessionId, level, now);
     if (sessionId && options.ultraMode === false) db.prepare('UPDATE session_ultra_modes SET enabled = 0, updated_at = ? WHERE session_id = ?').run(now, sessionId);
-    if (model) {
-      if (updateModelDefault) {
-        put(db, 'composer.main_model', model.mode);
-        put(db, 'auth_mode', model.source);
-      }
-      if (sessionId) db.prepare('INSERT INTO session_main_models (session_id, mode, source, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(session_id) DO UPDATE SET mode = excluded.mode, source = excluded.source, updated_at = excluded.updated_at')
+    if (defaultModel) {
+      if (defaultModel.mode === 'auto') db.prepare('DELETE FROM settings WHERE key = ?').run('composer.main_model');
+      else put(db, 'composer.main_model', defaultModel.mode);
+      put(db, 'auth_mode', defaultModel.source);
+    }
+    if (model && sessionId) {
+      db.prepare('INSERT INTO session_main_models (session_id, mode, source, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(session_id) DO UPDATE SET mode = excluded.mode, source = excluded.source, updated_at = excluded.updated_at')
         .run(sessionId, model.mode, model.source, now);
     }
     // Source-scoped memory records what the user last chose on this source,
     // whether or not the pick also becomes the default for future conversations.
-    const source = model?.source ?? (sessionId
-      ? (db.prepare('SELECT source FROM session_main_models WHERE session_id = ?').get(sessionId) as { source?: string } | undefined)?.source
-      : (modelSource(get(db, 'composer.main_model') ?? '') ?? authModeIn(db)));
-    if (typeof source === 'string' && MODEL_SOURCES.includes(source)) {
-      if (model) writeLastSourceModel(db, source, model.mode);
-      if (updateThinking) writeLastSourceThinkingLevel(db, source, level);
+    if (validSource) {
+      if (rememberedMode) writeLastSourceModel(db, validSource, rememberedMode);
+      if (updateThinking) writeLastSourceThinkingLevel(db, validSource, level);
     }
     const written = keys.map(key => ({ key, value: get(db, key) }));
     return { level, rollback: () => withSettingsTransaction(configRoot, current => {
       // Restore each owned row independently. A different session may update
       // the future default while the permission publication is awaiting I/O.
-      const ownsModelDefault = !model || written.filter(row => row.key === 'composer.main_model' || row.key === 'auth_mode')
+      const ownsModelDefault = !defaultModel || written.filter(row => row.key === 'composer.main_model' || row.key === 'auth_mode')
         .every(row => get(current, row.key) === row.value);
       const latestUltra = sessionId && options.ultraMode === false
         ? current.prepare('SELECT enabled, updated_at FROM session_ultra_modes WHERE session_id = ?').get(sessionId) : undefined;

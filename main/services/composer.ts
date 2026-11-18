@@ -17,7 +17,7 @@ import { isFailure, kvDel, kvSet, withSettingsDb } from './settings';
 import { storedAuthMode, thinkingLevelFor } from './session-init';
 import {
   MODEL_SOURCES, THINKING_LEVELS, modelSource, readSessionModel, setSessionModel,
-  applySessionThinkingSelection, applySessionRuntimePolicy, applySessionUltraSelection, applySessionOrchestrationSelection, readSessionFastMode, readSessionUltraMode, readSessionOrchestrationMode, setSessionFastMode, sourceTierSelections, validModelSelection, readLastSourceModel, type SessionModelPreference,
+  applySessionThinkingSelection, applySessionRuntimePolicy, applySessionUltraSelection, applySessionOrchestrationSelection, readSessionFastMode, readSessionUltraMode, readSessionOrchestrationMode, setSessionFastMode, sourceTierSelections, validModelSelection, readLastSourceModel, readLastSourceThinkingLevel, type SessionModelPreference,
 } from './session-store';
 import { type EngineRequest, type JsonObject, type ServicePush, object, string, errorMessage, SerialMutations } from './service-types';
 import { classifyRuntimePolicy, presetRuntimePolicy } from '../../contracts/runtime-settings';
@@ -219,70 +219,121 @@ export class ComposerService {
       const sessionId = sessionIdOf(payload);
       let selection = mode;
       let thinkingSelection = payload.thinkingLevel as string | undefined;
-      // A source switch restores the last concrete model the user picked while
-      // that source was active, so switching back does not land on the source's
-      // built-in default every time. The lower-level store independently restores
-      // the saved reasoning configuration.
-      const currentSaved = readSessionModel(sessionId, this.configRoot);
-      const source = payload.source ?? modelSource(mode) ?? currentSaved.source;
-      let antigravityRows: Json[] | undefined;
-      if (mode === 'auto' && typeof payload.source === 'string' && payload.source !== currentSaved.source) {
-        const remembered = withSettingsDb(this.configRoot, db => readLastSourceModel(db, payload.source as string));
-        if (source === 'antigravity') {
-          const catalog = await this.antigravityCatalog();
-          antigravityRows = catalog.rows;
-          assertCurrent?.();
-          selection = await this.antigravitySourceSelection(remembered, catalog.rows, catalog.reply.catalogBaseline === true);
-          assertCurrent?.();
-        } else if (remembered && remembered !== 'auto') selection = remembered;
-      }
       // Legacy callers may still express the orchestration mode as a ladder
       // rung on the model channel; route it to its own switch.
       let ultraAlias = false;
       if (thinkingSelection === 'ultra') { ultraAlias = true; thinkingSelection = undefined; }
+      const explicitThinking = thinkingSelection;
+      // Source activation (`mode === 'auto'` with an explicit `source`) restores
+      // the last concrete model and reasoning configuration chosen on that source,
+      // and preserves the active selection across re-login or account imports on
+      // the same source instead of resetting to the provider default.
+      const currentSaved = readSessionModel(sessionId, this.configRoot);
+      const source = payload.source ?? modelSource(mode) ?? currentSaved.source;
+      const sameSource = typeof payload.source === 'string' && payload.source === currentSaved.source;
+      let antigravityRows: Json[] | undefined;
+      let skipAntigravityCatalogLookup = false;
+      let restoredConcreteAntigravity = false;
+      let restoredSourceThinking: string | undefined;
+      const sourceActivation = mode === 'auto' && typeof payload.source === 'string'
+        && payload.thinkingLevel === undefined && payload.updateDefaults !== false;
+      if (sourceActivation) {
+        const { remembered, rememberedThinking } = withSettingsDb(this.configRoot, db => ({
+          remembered: readLastSourceModel(db, payload.source as string),
+          rememberedThinking: readLastSourceThinkingLevel(db, payload.source as string),
+        }));
+        const preferred = sameSource && currentSaved.mode !== 'auto' ? currentSaved.mode : remembered;
+        restoredSourceThinking = sameSource && currentSaved.mode !== 'auto'
+          ? thinkingLevelFor(sessionId, this.configRoot)
+          : (rememberedThinking ?? (sameSource ? thinkingLevelFor(sessionId, this.configRoot) : undefined));
+        if (source === 'antigravity') {
+          const catalog = await this.antigravityCatalog();
+          antigravityRows = catalog.rows;
+          assertCurrent?.();
+          const canonical = preferred ? canonicalAntigravitySelection(preferred) : undefined;
+          if (canonical && modelOptionForValue(catalog.rows, canonical)) {
+            selection = canonical;
+            restoredConcreteAntigravity = true;
+          } else if (sameSource && canonical && catalog.reply.catalogBaseline === true) {
+            selection = canonical;
+            skipAntigravityCatalogLookup = true;
+          } else {
+            selection = await this.antigravitySourceSelection(preferred, catalog.rows, catalog.reply.catalogBaseline === true);
+            assertCurrent?.();
+          }
+        } else if (preferred && preferred !== 'auto') {
+          selection = preferred;
+        }
+      }
       if (source === 'cursor' && (selection === 'auto' || cursorDefaultSelection(selection))) {
         selection = await this.resolvePreference({ source: 'cursor', mode: 'auto' });
         assertCurrent?.();
+        if (explicitThinking === undefined && restoredSourceThinking !== undefined && payload.fastMode === undefined) {
+          const target = cursorVariantForThinking(await this.cursorModel(selection), selection, restoredSourceThinking);
+          assertCurrent?.();
+          if (target) selection = target.value;
+        }
       }
-      if (source === 'cursor' && thinkingSelection !== undefined && payload.fastMode === undefined) {
-        const target = cursorVariantForThinking(await this.cursorModel(selection), selection, thinkingSelection);
+      if (source === 'cursor' && explicitThinking !== undefined && payload.fastMode === undefined) {
+        const target = cursorVariantForThinking(await this.cursorModel(selection), selection, explicitThinking);
         assertCurrent?.();
         if (!target) throw new IpcHandlerError('MODEL_SELECTION_UNAVAILABLE', 'The selected reasoning level is unavailable');
         selection = target.value;
+      } else if (source === 'cursor' && explicitThinking === undefined && restoredSourceThinking !== undefined) {
+        thinkingSelection = restoredSourceThinking;
       }
       if (source === 'antigravity') {
         selection = canonicalAntigravitySelection(selection);
-        const model = await this.antigravityModel(selection, 'warm', antigravityRows);
-        assertCurrent?.();
-        if (model.metadata.antigravityFamilyId) {
-          thinkingSelection ??= antigravityThinkingLevel(model.metadata, model.selection);
-          if (thinkingSelection !== undefined) {
-            const target = antigravityVariantForThinking(model.metadata, model.selection, thinkingSelection);
-            if (!target) throw new IpcHandlerError('MODEL_SELECTION_UNAVAILABLE', 'The selected reasoning level is unavailable');
-            if (selection !== 'auto' || target.value !== model.selection) selection = target.value;
+        if (skipAntigravityCatalogLookup) {
+          thinkingSelection = explicitThinking ?? restoredSourceThinking;
+        } else {
+          const model = await this.antigravityModel(selection, 'warm', antigravityRows);
+          assertCurrent?.();
+          if (model.metadata.antigravityFamilyId) {
+            if (explicitThinking !== undefined) {
+              const target = antigravityVariantForThinking(model.metadata, model.selection, explicitThinking);
+              if (!target) throw new IpcHandlerError('MODEL_SELECTION_UNAVAILABLE', 'The selected reasoning level is unavailable');
+              if (selection !== 'auto' || target.value !== model.selection) selection = target.value;
+              thinkingSelection = explicitThinking;
+            } else if (sourceActivation && !restoredConcreteAntigravity && restoredSourceThinking !== undefined) {
+              const target = antigravityVariantForThinking(model.metadata, model.selection, restoredSourceThinking);
+              if (target) {
+                selection = target.value;
+                thinkingSelection = restoredSourceThinking;
+              } else {
+                thinkingSelection = antigravityThinkingLevel(model.metadata, model.selection);
+              }
+            } else {
+              thinkingSelection = antigravityThinkingLevel(model.metadata, model.selection);
+            }
+          } else {
+            thinkingSelection = explicitThinking ?? restoredSourceThinking;
           }
         }
       }
-      if (source === 'kiro' && thinkingSelection !== undefined) {
+      if (source === 'kiro' && explicitThinking !== undefined) {
         const current = await this.kiroModel(selection);
         assertCurrent?.();
         if (kiroThinkingLevels(current.metadata).length) {
-          const target = kiroVariantForThinking(current.metadata, current.selection, thinkingSelection);
+          const target = kiroVariantForThinking(current.metadata, current.selection, explicitThinking);
           if (!target) throw new IpcHandlerError('MODEL_SELECTION_UNAVAILABLE', 'The selected reasoning level is unavailable');
           if (selection !== 'auto' || target.value !== current.selection) selection = target.value;
         }
         thinkingSelection = undefined;
       }
-      if (source === 'trae' && thinkingSelection !== undefined) {
+      if (source === 'trae' && explicitThinking !== undefined) {
         const current = await this.traeModel(selection);
         assertCurrent?.();
         if (traeThinkingLevels(current.metadata).length) {
-          const target = traeVariantForThinking(current.metadata, current.selection, thinkingSelection);
+          const target = traeVariantForThinking(current.metadata, current.selection, explicitThinking);
           if (!target) throw new IpcHandlerError('MODEL_SELECTION_UNAVAILABLE', 'The selected reasoning level is unavailable');
           if (selection !== 'auto' || target.value !== current.selection) selection = target.value;
         }
         // Native effort is encoded in the exact member, not the shared canonical preference.
         thinkingSelection = undefined;
+      }
+      if (!['antigravity', 'cursor', 'kiro', 'trae'].includes(string(source)) && explicitThinking === undefined && restoredSourceThinking !== undefined) {
+        thinkingSelection = restoredSourceThinking;
       }
       if (payload.fastMode !== undefined) {
         if (source === 'cursor') {
@@ -460,10 +511,9 @@ export class ComposerService {
    * Change the reasoning level of ONE conversation and the default for future
    * conversations, never of any other conversation.
    *
-   * A native selection leaves Ultra in the same transaction. Existing chats
-   * update only their own selection; draft selections supply the defaults for
-   * future chats. The publication names the selected chat so unrelated live
-   * conversations retain their own inference settings.
+   * A native selection leaves Ultra in the same transaction, updating both the
+   * selected conversation and the model/reasoning defaults for future chats while
+   * leaving unrelated existing conversations untouched.
    */
   async setThinking(payload: JsonObject, assertCurrent?: () => void): Promise<Json> {
     const selected = string(payload.level);
@@ -496,7 +546,7 @@ export class ComposerService {
         this.assertPreference(sessionId, saved);
         const target = kiroVariantForThinking(current.metadata, current.selection, selected);
         if (!target) throw new IpcHandlerError('MODEL_SELECTION_UNAVAILABLE', 'The selected reasoning level is unavailable');
-        if (target.value !== saved.mode && !(saved.mode === 'auto' && target.value === current.selection)) model = { source: 'kiro', mode: target.value };
+        if (target.value !== saved.mode) model = { source: 'kiro', mode: target.value };
       }
       if (saved.source === 'trae') {
         const current = await this.traeModel(saved.mode);
@@ -504,7 +554,7 @@ export class ComposerService {
         this.assertPreference(sessionId, saved);
         const target = traeVariantForThinking(current.metadata, current.selection, selected);
         if (!target) throw new IpcHandlerError('MODEL_SELECTION_UNAVAILABLE', 'The selected reasoning level is unavailable');
-        if (target.value !== saved.mode && !(saved.mode === 'auto' && target.value === current.selection)) model = { source: 'trae', mode: target.value };
+        if (target.value !== saved.mode) model = { source: 'trae', mode: target.value };
       }
       if (saved.source === 'cursor') {
         const target = cursorVariantForThinking(await this.cursorModel(saved.mode), saved.mode, selected);
@@ -520,14 +570,16 @@ export class ComposerService {
         if (current.metadata.antigravityFamilyId) {
           const target = antigravityVariantForThinking(current.metadata, current.selection, selected);
           if (!target) throw new IpcHandlerError('MODEL_SELECTION_UNAVAILABLE', 'The selected reasoning level is unavailable');
-          if (target.value !== saved.mode && !(saved.mode === 'auto' && target.value === current.selection)) model = { source: 'antigravity', mode: target.value };
+          if (target.value !== saved.mode) model = { source: 'antigravity', mode: target.value };
         }
       }
       const nativeMember = saved.source === 'trae' || saved.source === 'kiro';
       const leaveUltra = payload.ultraMode === false;
       const updateDefaults = payload.updateDefaults !== false;
+      const effectiveModel = model ?? saved;
+      const previousDefault = updateDefaults ? readSessionModel('', this.configRoot) : undefined;
       const selection = applySessionThinkingSelection(sessionId, nativeMember ? previous : selected, this.configRoot, undefined,
-        { model, ...(leaveUltra ? { ultraMode: false } : {}), updateThinking: !nativeMember, updateDefaults, updateUltraDefault: leaveUltra && updateDefaults, updateModelDefault: !sessionId });
+        { model, defaultModel: effectiveModel, ...(leaveUltra ? { ultraMode: false } : {}), updateThinking: !nativeMember, updateDefaults, updateUltraDefault: leaveUltra && updateDefaults, updateModelDefault: updateDefaults });
       try {
         if (model || previous !== selected || (leaveUltra && previousUltra)) await this.deps.onSessionConfigChanged({ kind: model ? 'model' : 'thinking', sessionId });
       } catch (error) {
@@ -540,7 +592,9 @@ export class ComposerService {
       }
       this.deps.push('app:preferences-changed', { key: 'composer.thinking_level' });
       if (leaveUltra) this.deps.push('app:preferences-changed', { key: 'composer.ultra_mode' });
-      if (model) this.deps.push('app:preferences-changed', { key: 'composer.main_model' });
+      const defaultModelChanged = Boolean(previousDefault && (previousDefault.mode !== effectiveModel.mode || previousDefault.source !== effectiveModel.source));
+      if (model || defaultModelChanged) this.deps.push('app:preferences-changed', { key: 'composer.main_model' });
+      if (previousDefault && previousDefault.source !== effectiveModel.source) this.deps.push('app:preferences-changed', { key: 'auth_mode' });
       return { ok: true };
     });
   }

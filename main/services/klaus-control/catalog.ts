@@ -411,7 +411,7 @@ export const CONTROL_SURFACES: ControlSurface[] = [
       {
         "action": "setThinkingLevel",
         "channel": "session:set-thinking-level",
-        "args": "{ level: string (an effort declared by the current model), sessionId?: string, ultraMode?: false } — Select only a declared native effort and leave Ultra atomically. Standard reasoning values are off/low/medium/high/xhigh/max. TRAE CN preserves its service-declared values such as light in exact model members. Local Ultra uses setUltraMode and retains the saved native level. Cursor reasoning levels select an available concrete model variant while retaining its other parameters. A session id changes only that conversation; omit it to change the default for future conversations",
+        "args": "{ level: string (an effort declared by the current model), sessionId?: string, ultraMode?: false } — Select only a declared native effort and leave Ultra atomically. Standard reasoning values are off/low/medium/high/xhigh/max. TRAE CN preserves its service-declared values such as light in exact model members. Local Ultra uses setUltraMode and retains the saved native level. Variant-based providers select an available concrete model variant while retaining other parameters. Changes one conversation and updates the model and reasoning defaults for future conversations while leaving other existing conversations unchanged; omit sessionId to change only those defaults",
         "confirm": false,
         "currentSession": true
       },

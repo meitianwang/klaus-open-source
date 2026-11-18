@@ -425,4 +425,51 @@ export function registerAntigravityModelVariantTests(h: Harness): void {
       }
     } finally { await f.close(); }
   });
+
+  h.test('in-session reasoning picks carry into new conversations and survive source switches and account re-login', async () => {
+    const f = await fixture();
+    try {
+      f.entries.push(
+        { key: 'gemini-4-carbon-low', display_name: 'Gemini 4 Carbon (Low)', inRecommendedSort: true, providerMetadata: { thinkingLevel: 1, supportsThinking: true, modelProvider: 'MODEL_PROVIDER_GOOGLE' }, capabilities: {} },
+        { key: 'gemini-4-carbon-medium', display_name: 'Gemini 4 Carbon (Medium)', isDefault: true, inRecommendedSort: true, providerMetadata: { thinkingLevel: 2, supportsThinking: true, modelProvider: 'MODEL_PROVIDER_GOOGLE' }, capabilities: {} },
+        { key: 'gemini-4-carbon-high', display_name: 'Gemini 4 Carbon (High)', inRecommendedSort: true, providerMetadata: { thinkingLevel: 3, supportsThinking: true, modelProvider: 'MODEL_PROVIDER_GOOGLE' }, capabilities: {} },
+      );
+      setSessionModel('existing-other', 'antigravity:gemini-4-carbon-low', 'antigravity', f.root, { thinkingLevel: 'low' });
+      setSessionModel('active', 'antigravity:gemini-4-carbon-medium', 'antigravity', f.root, { thinkingLevel: 'medium' });
+
+      // Adjust reasoning inside an existing conversation, then immediately start a new conversation.
+      await f.service.setThinking({ sessionId: 'active', level: 'high' });
+      assert.equal(readSessionModel('active', f.root).mode, 'antigravity:gemini-4-carbon-high');
+      assert.equal(readSessionModel('new-chat-1', f.root).mode, 'antigravity:gemini-4-carbon-high');
+      assert.deepEqual(await f.service.getThinking('new-chat-1'), { level: 'high' });
+      assert.equal(readSessionModel('existing-other', f.root).mode, 'antigravity:gemini-4-carbon-low');
+      assert.deepEqual(await f.service.getThinking('existing-other'), { level: 'low' });
+
+      // Re-login or local account import while already on Antigravity must not reset model or reasoning.
+      await f.service.setModel({ sessionId: 'active', source: 'antigravity', mode: 'auto' });
+      assert.equal(readSessionModel('active', f.root).mode, 'antigravity:gemini-4-carbon-high');
+      assert.equal(readSessionModel('', f.root).mode, 'antigravity:gemini-4-carbon-high');
+      assert.deepEqual(await f.service.getThinking('new-chat-2'), { level: 'high' });
+      assert.equal(kvGet('composer.last_model:antigravity', f.root), 'antigravity:gemini-4-carbon-high');
+      assert.equal(kvGet('composer.last_thinking_level:antigravity', f.root), 'high');
+
+      // Switch to another source and back: Antigravity restores both Gemini 4 Carbon and High.
+      await f.service.setModel({ sessionId: 'active', source: 'codex', mode: 'codex:gpt-5.3-codex', thinkingLevel: 'low' });
+      assert.equal(readSessionModel('active', f.root).mode, 'codex:gpt-5.3-codex');
+      assert.deepEqual(await f.service.getThinking('active'), { level: 'low' });
+      await f.service.setModel({ sessionId: 'active', source: 'antigravity', mode: 'auto' });
+      assert.equal(readSessionModel('active', f.root).mode, 'antigravity:gemini-4-carbon-high');
+      assert.deepEqual(await f.service.getThinking('active'), { level: 'high' });
+      assert.equal(readSessionModel('new-chat-3', f.root).mode, 'antigravity:gemini-4-carbon-high');
+      assert.deepEqual(await f.service.getThinking('new-chat-3'), { level: 'high' });
+
+      // Re-login while a baseline catalog temporarily lacks a live-only selection keeps the active selection intact.
+      f.reply.catalogBaseline = true;
+      setSessionModel('live-chat', 'antigravity:live-only-high', 'antigravity', f.root, { thinkingLevel: 'high' });
+      await f.service.setModel({ sessionId: 'live-chat', source: 'antigravity', mode: 'auto' });
+      assert.equal(readSessionModel('live-chat', f.root).mode, 'antigravity:live-only-high');
+      assert.equal(readSessionThinkingLevel('live-chat', f.root), 'high');
+      delete f.reply.catalogBaseline;
+    } finally { await f.close(); }
+  });
 }
