@@ -1,4 +1,6 @@
 import { createHash } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { antigravityPresentationFamily, latestAntigravityFamilyIds, type AntigravityPresentationFamily } from '../../shared/antigravity-presentation';
 import type { Json } from '../ipc/contract';
 import { object, string, type JsonObject } from './service-types';
@@ -37,6 +39,8 @@ export interface UsageDeps {
   keepAliveIntervalMs?: number;
   /** Local account order and login generation; never used as authentication. */
   claudeCacheKey?: () => string | Promise<string>;
+  /** Local Antigravity account queue order and credential generations; never embeds tokens. */
+  antigravityCacheKey?: () => string | Promise<string>;
   /** Clock injection keeps cache and cooldown checks deterministic. */
   now?: () => number;
 }
@@ -574,16 +578,42 @@ export function claudeUsageCacheKey(accounts: Json[]): string {
   return createHash('sha256').update(JSON.stringify(identity)).digest('hex');
 }
 
+export function antigravityUsageCacheKey(raw: unknown): string {
+  const parsed = object(raw);
+  if (Array.isArray(parsed.accounts)) {
+    const identity = parsed.accounts.map(value => {
+      const account = object(value);
+      return [string(account.id), string(account.generation)];
+    });
+    return createHash('sha256').update(JSON.stringify(identity)).digest('hex');
+  }
+  const generation = string(parsed.generation);
+  return generation ? createHash('sha256').update(JSON.stringify([[generation]])).digest('hex') : 'signed-out';
+}
+
+export async function readAntigravityUsageCacheKey(configRoot: string): Promise<string> {
+  try {
+    const text = await readFile(join(configRoot, 'antigravity-auth.json'), 'utf8');
+    return antigravityUsageCacheKey(JSON.parse(text));
+  } catch {
+    return 'signed-out';
+  }
+}
+
 const CLAUDE_USAGE_CACHE_MS = 30_000;
 const CLAUDE_RATE_LIMIT_COOLDOWN_MS = 60_000;
 const CLAUDE_USAGE_ERROR_CACHE_MS = 5_000;
+const ANTIGRAVITY_USAGE_CACHE_MS = 30_000;
+const ANTIGRAVITY_RATE_LIMIT_COOLDOWN_MS = 60_000;
+const ANTIGRAVITY_USAGE_ERROR_CACHE_MS = 5_000;
 
-interface ClaudeUsageCache {
+interface ProviderUsageCache {
   key: string;
   expiresAt: number;
+  rateLimited: boolean;
   value: Json;
 }
-interface ClaudeUsagePending {
+interface ProviderUsagePending {
   key: string;
   generation: number;
   promise: Promise<Json>;
@@ -592,8 +622,11 @@ interface ClaudeUsagePending {
 export class UsageService {
   private closed = false;
   private claudeGeneration = 0;
-  private claudeCache: ClaudeUsageCache | undefined;
-  private claudePending: ClaudeUsagePending | undefined;
+  private claudeCache: ProviderUsageCache | undefined;
+  private claudePending: ProviderUsagePending | undefined;
+  private antigravityGeneration = 0;
+  private antigravityCache: ProviderUsageCache | undefined;
+  private antigravityPending: ProviderUsagePending | undefined;
   private readonly abort = new AbortController();
   private readonly jobs = new Set<Promise<Json>>();
   /** Modes whose usage was actually requested on this machine, and when. */
@@ -622,10 +655,15 @@ export class UsageService {
       try { await this.collect(undefined, mode); } catch { /* the next tick retries */ }
     }
   }
-  query(sessionId?: string): Promise<Json> {
+  query(sessionId?: string, options?: { force?: boolean }): Promise<Json> {
     if (this.closed) return Promise.reject(new Error('Usage service closed'));
+    const force = options?.force === true;
     const mode = this.deps.authMode(sessionId);
-    const pending = mode === 'subscription' ? this.claudeQuery() : this.collect(sessionId, mode);
+    const pending = mode === 'subscription'
+      ? this.claudeQuery(force)
+      : mode === 'antigravity'
+        ? this.antigravityQuery(force)
+        : this.collect(sessionId, mode);
     this.jobs.add(pending); void pending.catch(() => {}).finally(() => this.jobs.delete(pending)); return pending;
   }
   /** Authentication mutations invalidate completed reads and pending writes together. */
@@ -634,26 +672,45 @@ export class UsageService {
     this.claudeCache = undefined;
     this.claudePending = undefined;
   }
+  invalidateAntigravity(): void {
+    this.antigravityGeneration++;
+    this.antigravityCache = undefined;
+    this.antigravityPending = undefined;
+  }
   private now(): number { return this.deps.now?.() ?? Date.now(); }
-  private claudeCacheDuration(value: Json): number {
+  private claudeCachePolicy(value: Json): { durationMs: number; rateLimited: boolean } {
     const provider = object(object(object(value).snapshot).provider);
     const accounts = Array.isArray(provider.accounts) ? provider.accounts.map(object) : [];
-    if ([provider, ...accounts].some(row => string(row.error) === 'Usage request failed (HTTP 429)')) return CLAUDE_RATE_LIMIT_COOLDOWN_MS;
-    return provider.state === 'ok' || accounts.some(row => row.state === 'ok') ? CLAUDE_USAGE_CACHE_MS : CLAUDE_USAGE_ERROR_CACHE_MS;
+    if ([provider, ...accounts].some(row => string(row.error) === 'Usage request failed (HTTP 429)')) {
+      return { durationMs: CLAUDE_RATE_LIMIT_COOLDOWN_MS, rateLimited: true };
+    }
+    const ok = provider.state === 'ok' || accounts.some(row => row.state === 'ok');
+    return { durationMs: ok ? CLAUDE_USAGE_CACHE_MS : CLAUDE_USAGE_ERROR_CACHE_MS, rateLimited: false };
   }
-  private async claudeQuery(): Promise<Json> {
+  private antigravityCachePolicy(value: Json): { durationMs: number; rateLimited: boolean } {
+    const provider = object(object(object(value).snapshot).provider);
+    const accounts = Array.isArray(provider.accounts) ? provider.accounts.map(object) : [];
+    if ([provider, ...accounts].some(row => string(row.error) === 'antigravity_rate_limited')) {
+      return { durationMs: ANTIGRAVITY_RATE_LIMIT_COOLDOWN_MS, rateLimited: true };
+    }
+    const ok = provider.state === 'ok' || accounts.some(row => row.state === 'ok');
+    return { durationMs: ok ? ANTIGRAVITY_USAGE_CACHE_MS : ANTIGRAVITY_USAGE_ERROR_CACHE_MS, rateLimited: false };
+  }
+  private async claudeQuery(force = false): Promise<Json> {
     // Source switches share one provider cache; account order and new logins do not.
     for (let attempt = 0; attempt < 3; attempt++) {
       const key = await this.deps.claudeCacheKey?.() ?? '';
       this.abort.signal.throwIfAborted();
       const generation = this.claudeGeneration;
       const cached = this.claudeCache;
-      if (cached?.key === key && cached.expiresAt > this.now()) return structuredClone(cached.value);
+      if (cached?.key === key && cached.expiresAt > this.now() && (!force || cached.rateLimited)) {
+        return structuredClone(cached.value);
+      }
       if (cached) this.claudeCache = undefined;
-      let pending = this.claudePending;
+      let pending = !force ? this.claudePending : undefined;
       if (!pending || pending.key !== key || pending.generation !== generation) {
         pending = { key, generation, promise: this.collect(undefined, 'subscription') };
-        this.claudePending = pending;
+        if (!force) this.claudePending = pending;
       }
       try {
         const value = await pending.promise;
@@ -661,7 +718,8 @@ export class UsageService {
         const currentKey = await this.deps.claudeCacheKey?.() ?? '';
         this.abort.signal.throwIfAborted();
         if (generation !== this.claudeGeneration || key !== currentKey) continue;
-        this.claudeCache = { key, expiresAt: this.now() + this.claudeCacheDuration(value), value };
+        const policy = this.claudeCachePolicy(value);
+        this.claudeCache = { key, expiresAt: this.now() + policy.durationMs, rateLimited: policy.rateLimited, value };
         return structuredClone(value);
       } finally {
         if (this.claudePending === pending) this.claudePending = undefined;
@@ -669,9 +727,40 @@ export class UsageService {
     }
     throw new Error('Claude login changed; refresh the allowance again');
   }
+  private async antigravityQuery(force = false): Promise<Json> {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const key = await this.deps.antigravityCacheKey?.() ?? '';
+      this.abort.signal.throwIfAborted();
+      const generation = this.antigravityGeneration;
+      const cached = this.antigravityCache;
+      if (cached?.key === key && cached.expiresAt > this.now() && (!force || cached.rateLimited)) {
+        return structuredClone(cached.value);
+      }
+      if (cached) this.antigravityCache = undefined;
+      let pending = !force ? this.antigravityPending : undefined;
+      if (!pending || pending.key !== key || pending.generation !== generation) {
+        pending = { key, generation, promise: this.collect(undefined, 'antigravity', force) };
+        if (!force) this.antigravityPending = pending;
+      }
+      try {
+        const value = await pending.promise;
+        this.abort.signal.throwIfAborted();
+        const currentKey = await this.deps.antigravityCacheKey?.() ?? '';
+        this.abort.signal.throwIfAborted();
+        if (generation !== this.antigravityGeneration || key !== currentKey) continue;
+        const policy = this.antigravityCachePolicy(value);
+        this.antigravityCache = { key, expiresAt: this.now() + policy.durationMs, rateLimited: policy.rateLimited, value };
+        return structuredClone(value);
+      } finally {
+        if (this.antigravityPending === pending) this.antigravityPending = undefined;
+      }
+    }
+    throw new Error('Antigravity login changed; refresh the allowance again');
+  }
   async close(): Promise<void> {
     this.closed = true;
     this.invalidateClaude();
+    this.invalidateAntigravity();
     if (this.keepAliveTimer !== undefined) clearInterval(this.keepAliveTimer);
     this.abort.abort(); await Promise.allSettled([...this.jobs]);
   }
@@ -701,7 +790,7 @@ export class UsageService {
       return await this.deps.request('qwenwork/usage', {}, this.abort.signal);
     }
   }
-  private async collect(sessionId?: string, forcedMode?: string): Promise<Json> {
+  private async collect(sessionId?: string, forcedMode?: string, forceRefresh = false): Promise<Json> {
     const mode = forcedMode ?? this.deps.authMode(sessionId); let provider: JsonObject;
     try {
       switch (mode) {
@@ -719,7 +808,7 @@ export class UsageService {
         // projection serves them all; the engine normalizes its packages and the
         // enterprise `limit_num`/`used_num` pair into that shape.
         case 'workbuddy': provider = qoderUsage(await this.deps.request('workbuddy/usage', {}, this.abort.signal)); break;
-        case 'antigravity': provider = antigravityUsage(await this.deps.request('antigravity/usage', {}, this.abort.signal)); break;
+        case 'antigravity': provider = antigravityUsage(await this.deps.request('antigravity/usage', forceRefresh ? { force: true } : {}, this.abort.signal)); break;
         case 'trae': provider = traeUsage(await this.deps.request('trae/usage', {}, this.abort.signal)); break;
         case 'kiro': provider = kiroUsage(await this.deps.request('kiro/usage', {}, this.abort.signal)); break;
         case 'kimi': provider = kimiUsage(await this.deps.request('kimi/usage', {}, this.abort.signal)); break;

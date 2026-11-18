@@ -8233,6 +8233,12 @@ button.kls-market-open {
   transition: background var(--transition), color var(--transition);
 }
 .usage-popover-refresh:hover { background: color-mix(in srgb, var(--fg) 8%, transparent); color: var(--fg); }
+.usage-popover-refresh.is-loading { color: var(--fg-secondary); }
+.usage-popover-refresh.is-loading svg { animation: usage-refresh-spin 0.8s linear infinite; }
+@keyframes usage-refresh-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .usage-popover-refresh.is-loading svg { animation: none; }
+}
 .usage-popover-body { padding: 0 14px 12px; overflow-y: auto; }
 /* popover 内的品牌标加载态按浮层尺寸收紧（全局默认是空页居中的 320px 高度）。 */
 .usage-popover-body .kls-loading { min-height: 110px; padding: 20px; }

@@ -1692,7 +1692,12 @@ expose('klaus', {
 
   // The quota popover follows the active conversation or the new-chat default.
   usage: {
-    subscriptions: (sessionId?: string | null) => call('usage:subscriptions', sessionId ? { sessionId } : {}),
+    subscriptions: (sessionId?: string | null, options?: { force?: boolean }) => {
+      const payload: { sessionId?: string; force?: boolean } = {}
+      if (sessionId) payload.sessionId = sessionId
+      if (options?.force) payload.force = true
+      return call('usage:subscriptions', payload)
+    },
   },
 
   // modelSources registry removed — channels are no-ops on the backend

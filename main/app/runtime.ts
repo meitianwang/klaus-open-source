@@ -78,7 +78,7 @@ import { registerUsageHandlers } from '../ipc/handlers/usage';
 import { createMobileRuntime, mobileEngineOwner } from './mobile-runtime';
 import { createConnectorsRuntime } from './connectors-runtime';
 import { MOBILE_DISPATCH_CHANNELS, type MobileBridgeService } from '../services/mobile/service';
-import { claudeUsageCacheKey, UsageService } from '../services/usage';
+import { claudeUsageCacheKey, readAntigravityUsageCacheKey, UsageService } from '../services/usage';
 import { bindSessionWorkdir, readSessionModel } from '../services/session-store';
 import { registerTeamCollaborationHandlers } from '../ipc/handlers/team-collaboration';
 import { FeatureGatesService } from '../services/feature-gates';
@@ -1996,7 +1996,7 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
     },
   });
   composer = composerService;
-  let invalidateClaudeUsage = (): void => {};
+  let invalidateSubscriptionUsage = (): void => {};
   const account = registerAuthHandlers(registry, {
     homeDir: options.externalAuthHomeDir,
     configRoot, request, push: emit, appVersion: app.getVersion(),
@@ -2026,7 +2026,7 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
       // Model-source credentials never alter the signed-in Klaus account, so
       // keep the mobile relay, feature gates, and collaboration watchers intact
       // instead of restarting transports or blocking behind relay readiness.
-      invalidateClaudeUsage();
+      invalidateSubscriptionUsage();
       // Authentication callbacks may still own the credential write queue.
       // Invalidate immediately and drain without waiting on that same queue.
       void composerPredictions?.invalidateAll().catch(error => log.write('prediction-auth-cleanup', String(error)));
@@ -2168,6 +2168,7 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
   const usage = new UsageService({
     authMode: sessionId => readSessionModel(sessionId || '', configRoot).source,
     claudeCacheKey: async () => claudeUsageCacheKey(await account.subscriptions.claudeAccounts()),
+    antigravityCacheKey: () => readAntigravityUsageCacheKey(configRoot),
     fetch: subscriptionFetch,
     models: async signal => {
       signal?.throwIfAborted(); const client = await sessions.client(), rows = await engineSettings.listModels();
@@ -2190,11 +2191,12 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
       signal?.throwIfAborted(); const client = await sessions.client(); signal?.throwIfAborted();
       // An allowance read can include a rejected request, renewal and one retry;
       // let the engine return its renewal error before the host deadline wins.
-      const value = await client.requestWithTimeout(method, params, method === 'qwenwork/usage' ? 50_000 : 15_000); signal?.throwIfAborted();
+      const timeoutMs = method === 'qwenwork/usage' ? 50_000 : (method === 'antigravity/usage' || method === 'claude/usage' ? 25_000 : 15_000);
+      const value = await client.requestWithTimeout(method, params, timeoutMs); signal?.throwIfAborted();
       if (client.isClosed() || sessions.engine()?.client !== client) throw new Error('The usage engine connection changed'); return value;
     },
   });
-  invalidateClaudeUsage = () => usage.invalidateClaude();
+  invalidateSubscriptionUsage = () => { usage.invalidateClaude(); usage.invalidateAntigravity(); };
   registerUsageHandlers(registry, usage);
   early.add(() => usage.close());
   const feedback = new FeedbackService({ workspaces, appVersion: app.getVersion(), serverUrl: account.serverUrl,

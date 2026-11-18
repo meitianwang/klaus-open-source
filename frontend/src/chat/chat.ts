@@ -28,6 +28,7 @@ import { pickKiroModelMetadata, kiroThinkingLevels, kiroThinkingLevel, isKiroRou
 import { isAutomaticCursorSelection } from './composer/model-selection-values'
 import { knownKiroAuthErrorText } from '../app/kiro-errors'
 import { knownAntigravityErrorText } from '../app/antigravity-errors'
+import { createUsageSnapshotCache, driveUsageDashboardLoad, rerenderUsageDashboardIfDisplayed, type UsageLoadReason } from './usage-popover-cache'
 //
 // 渲染域已全部绞杀进同目录的 React 组件树（transcript/composer/sidebar/panels），
 // 本文件是剩余的数据面：会话生命周期、chatEvent 分发、IPC 管线、终端/浏览器/
@@ -4770,6 +4771,7 @@ async function init() {
     updateTeammateBanner()
     renderSelectedSlashCommand()
     syncSidebarToolbar()  // header controls re-resolve their aria-labels
+    rerenderUsageDashboardIfDisplayed(document.getElementById('usage-popover-body'), renderUsageSnapshot)
     // The @ menu is not re-run here: it is a React island that subscribes to
     // language changes via useT and re-resolves every label from its i18n keys
     // on the re-render. (The old imperative getters built labels with tt() at
@@ -4782,6 +4784,8 @@ async function init() {
 // pill 自行订阅 auth-mode-changed / models-changed / 语言切换重渲。
 // 设置页切了 auth_mode / 登录 / 登出后触发这两个事件刷新输入区模型选择。
 window.addEventListener('klaus:auth-mode-changed', () => {
+  usageSnapshotCache.clear()
+  sessionUsageModes.clear()
   composerPredictions?.recheck?.()
   for (const runtime of sidePaneRuntimes.values()) runtime.recheckPredictions?.()
   invalidateComposerPreferenceReads()
@@ -17675,24 +17679,35 @@ function renderUsageSnapshot(snapshot: { mode: string; provider?: { state?: stri
   return renderUsageProvider(name, mode === 'antigravity' && hasQueuedAccounts ? { ...data, plan: undefined } : data, body)
 }
 
-const usageDashboardRequests = new WeakMap<HTMLElement, number>()
+type UsageSnapshotPayload = Parameters<typeof renderUsageSnapshot>[0]
+const usageSnapshotCache = createUsageSnapshotCache<UsageSnapshotPayload>(typeof localStorage !== 'undefined' ? localStorage : null)
+const sessionUsageModes = new Map<string, string>()
 
-async function loadUsageDashboardInto(body: HTMLElement) {
-  const revision = (usageDashboardRequests.get(body) || 0) + 1
-  usageDashboardRequests.set(body, revision)
-  const sessionId = window.currentSessionId
-  const isCurrent = () => body.isConnected && usageDashboardRequests.get(body) === revision
-    && sessionId === window.currentSessionId
-  body.innerHTML = (window as { klsLoading?: { render: () => string } }).klsLoading!.render()
-  try {
-    const res = await klausApi.usage?.subscriptions?.(sessionId)
-    if (!isCurrent()) return
-    if (!res?.ok || !res.snapshot) throw new Error(res?.error || 'unavailable')
-    body.innerHTML = renderUsageSnapshot(res.snapshot)
-  } catch (err) {
-    if (!isCurrent()) return
-    body.innerHTML = `<div class="usage-empty usage-error-text">${escapeHtml(tt('usage_error'))} · ${escapeHtml((err as Error | null)?.message || String(err))}</div>`
+function resolveExpectedUsageMode(sessionId: string | null | undefined): string | null {
+  const key = sessionId || ''
+  if (composerPreferencesSnapshot && (composerPreferencesSnapshot.sessionId || '') === key && composerPreferencesSnapshot.source) {
+    return composerPreferencesSnapshot.source
   }
+  return sessionUsageModes.get(key) ?? null
+}
+
+async function loadUsageDashboardInto(body: HTMLElement, popover?: HTMLElement | null, reason: UsageLoadReason = 'open') {
+  const sessionId = window.currentSessionId
+  const refreshBtn = (popover ?? body.closest('.usage-popover'))?.querySelector<HTMLElement>('[data-refresh]') ?? null
+  await driveUsageDashboardLoad({
+    body,
+    refreshBtn,
+    sessionId,
+    currentSessionId: () => window.currentSessionId,
+    expectedMode: resolveExpectedUsageMode(sessionId),
+    reason,
+    cache: usageSnapshotCache,
+    fetchSnapshot: (sid, opts) => klausApi.usage?.subscriptions?.(sid, opts),
+    renderSnapshot: renderUsageSnapshot,
+    renderLoading: () => (window as { klsLoading?: { render: () => string } }).klsLoading!.render(),
+    renderError: message => `<div class="usage-empty usage-error-text">${escapeHtml(tt('usage_error'))} · ${escapeHtml(message)}</div>`,
+    onResolvedMode: (sid, mode) => { sessionUsageModes.set(sid || '', mode) },
+  })
 }
 
 function openUsageDashboard(anchorBtn: HTMLElement) {
@@ -17716,10 +17731,12 @@ function openUsageDashboard(anchorBtn: HTMLElement) {
   const rect = anchorBtn.getBoundingClientRect()
   pop.style.bottom = `${Math.round(window.innerHeight - rect.top + 8)}px`
   pop.style.left = '8px'
-  const body = pop.querySelector('#usage-popover-body')
-  const refresh = () => { void loadUsageDashboardInto(body as HTMLElement) }
+  const body = pop.querySelector('#usage-popover-body') as HTMLElement
+  const onAuthChange = () => { void loadUsageDashboardInto(body, pop, 'auth-change') }
+  const onSessionChange = () => { void loadUsageDashboardInto(body, pop, 'session-change') }
   const unsubscribePreferences = klausApi.on.appPreferencesChanged?.(({ key }: { key?: string }) => {
-    if (key === 'composer.main_model' || key === 'auth_mode') refresh()
+    if (key === 'auth_mode') onAuthChange()
+    else if (key === 'composer.main_model') onSessionChange()
   })
   const close = () => {
     unregisterOverlay('usage-popover')
@@ -17729,8 +17746,8 @@ function openUsageDashboard(anchorBtn: HTMLElement) {
     anchorBtn.setAttribute('aria-expanded', 'false')
     document.removeEventListener('keydown', onKey)
     document.removeEventListener('click', onDocClick)
-    window.removeEventListener('klaus:auth-mode-changed', refresh)
-    window.removeEventListener('klaus:session-change', refresh)
+    window.removeEventListener('klaus:auth-mode-changed', onAuthChange)
+    window.removeEventListener('klaus:session-change', onSessionChange)
     unsubscribePreferences?.()
   }
   registerOverlay('usage-popover', close)
@@ -17739,10 +17756,10 @@ function openUsageDashboard(anchorBtn: HTMLElement) {
   pop.addEventListener('usage:close', close)
   document.addEventListener('keydown', onKey)
   document.addEventListener('click', onDocClick)
-  window.addEventListener('klaus:auth-mode-changed', refresh)
-  window.addEventListener('klaus:session-change', refresh)
-  pop.querySelector('[data-refresh]')?.addEventListener('click', (e) => { e.stopPropagation(); loadUsageDashboardInto(body as HTMLElement) })
-  loadUsageDashboardInto(body as HTMLElement)
+  window.addEventListener('klaus:auth-mode-changed', onAuthChange)
+  window.addEventListener('klaus:session-change', onSessionChange)
+  pop.querySelector('[data-refresh]')?.addEventListener('click', (e) => { e.stopPropagation(); void loadUsageDashboardInto(body, pop, 'refresh') })
+  void loadUsageDashboardInto(body, pop, 'open')
 }
 
 document.getElementById('sidebar-user-usage')?.addEventListener('click', (e) => {

@@ -1,6 +1,6 @@
 import type { Json } from '../main/ipc/contract';
 import { object } from '../main/services/service-types';
-import { claudeUsageCacheKey, UsageService, type UsageDeps } from '../main/services/usage';
+import { antigravityUsageCacheKey, claudeUsageCacheKey, UsageService, type UsageDeps } from '../main/services/usage';
 import { assert, assertDeepEqual, assertEqual, type Harness } from './harness';
 
 function deferred<T>(): { promise: Promise<T>; resolve(value: T): void } {
@@ -231,5 +231,87 @@ export function registerUsageCacheTests(h: Harness): void {
       assertEqual(row.error, 'Usage request failed (HTTP 500)', 'the transport failure keeps its wording');
       assertEqual(recovers, 0, 'a non-auth failure does not touch the official store');
     } finally { await usage.close(); }
+  });
+
+  h.test('Antigravity usage coalesces concurrent reads, bypasses ok cache on force refresh, and keeps rate-limit cooldowns', async () => {
+    let now = 2_000, calls = 0;
+    const seenParams: Json[] = [];
+    const started = deferred<void>(), reply = deferred<Json>();
+    const antigravityOk = (usedPercent: number): Json => ({
+      signedIn: true,
+      plan: 'Google AI Ultra',
+      windows: [{ id: 'five-hour', groupLabel: 'Gemini Models', source: 'summary', windowKind: 'duration', windowToken: '5h', usedPercent }],
+      accounts: [{
+        id: 'ag-1', label: 'ag-1@example.test', isCurrent: true, state: 'ok', plan: 'Google AI Ultra',
+        windows: [{ id: 'five-hour', groupLabel: 'Gemini Models', source: 'summary', windowKind: 'duration', windowToken: '5h', usedPercent }],
+      }],
+    });
+    const usage = service({
+      authMode: () => 'antigravity',
+      now: () => now,
+      antigravityCacheKey: () => 'ag-queue-1',
+      request: async (method, params) => {
+        assertEqual(method, 'antigravity/usage', 'queries target antigravity/usage');
+        calls++;
+        seenParams.push(params);
+        if (calls === 1) { started.resolve(); return reply.promise; }
+        if (calls === 2) return antigravityOk(35);
+        if (calls === 3) {
+          return {
+            signedIn: true,
+            accounts: [
+              { id: 'ag-1', label: 'ag-1@example.test', isCurrent: true, state: 'error', error: 'antigravity_rate_limited' },
+              { id: 'ag-2', label: 'ag-2@example.test', isCurrent: false, state: 'ok', windows: [{ id: 'five-hour', groupLabel: 'Gemini Models', source: 'summary', windowKind: 'duration', windowToken: '5h', usedPercent: 10 }] },
+            ],
+          };
+        }
+        return antigravityOk(12);
+      },
+    });
+    try {
+      const first = usage.query('chat-a');
+      await started.promise;
+      const second = usage.query('chat-b');
+      reply.resolve(antigravityOk(20));
+      const [a, b] = await Promise.all([first, second]);
+      assertEqual(calls, 1, 'concurrent Antigravity reads share a single facade call');
+      assertDeepEqual(seenParams[0], {}, 'default read omits force flag');
+      assertDeepEqual(a, b, 'coalesced Antigravity replies match');
+
+      now += 15_000;
+      await usage.query('chat-c');
+      assertEqual(calls, 1, 'fresh Antigravity cache serves subsequent opens');
+
+      const forced = await usage.query('chat-c', { force: true });
+      assertEqual(calls, 2, 'manual force refresh bypasses normal cache');
+      assertDeepEqual(seenParams[1], { force: true }, 'force flag reaches antigravity/usage');
+      assertEqual(object((object((provider(forced).accounts as Json[])[0]).windows as Json[])[0]).usedPercent, 35, 'forced read updates cached percentage');
+
+      now += 30_000;
+      const limited = await usage.query('chat-c');
+      assertEqual(calls, 3, 'expired cache triggers fresh read');
+      assertEqual(object((provider(limited).accounts as Json[])[0]).error, 'antigravity_rate_limited', 'rate-limited head account is surfaced');
+
+      now += 59_999;
+      await usage.query('chat-c', { force: true });
+      assertEqual(calls, 3, 'even forced refresh honors sixty-second rate-limit cooldown');
+
+      now += 1;
+      const recovered = await usage.query('chat-c');
+      assertEqual(calls, 4, 'cooldown expires after sixty seconds');
+      assertEqual(provider(recovered).state, 'ok', 'later read recovers');
+    } finally { await usage.close(); }
+  });
+
+  h.test('the Antigravity cache key tracks queue order and generation without embedding tokens', () => {
+    const accOne = { id: 'ag-one', generation: 'gen-1', accessToken: 'secret-access-1', refreshToken: 'secret-refresh-1' };
+    const accTwo = { id: 'ag-two', generation: 'gen-2', accessToken: 'secret-access-2', refreshToken: 'secret-refresh-2' };
+    const base = antigravityUsageCacheKey({ accounts: [accOne, accTwo] });
+    assertEqual(base.length, 64, 'digest has sha256 hex length');
+    assert(!base.includes('secret'), 'digest never embeds raw tokens');
+    assert(base !== antigravityUsageCacheKey({ accounts: [accTwo, accOne] }), 'queue rotation changes digest');
+    assert(base !== antigravityUsageCacheKey({ accounts: [{ ...accOne, generation: 'gen-3' }, accTwo] }), 're-authentication changes digest');
+    assertEqual(base, antigravityUsageCacheKey({ accounts: [{ ...accOne, accessToken: 'rotated-access-token' }, accTwo] }), 'token refresh within generation keeps digest stable');
+    assertEqual(antigravityUsageCacheKey({}), 'signed-out', 'empty store maps to signed-out sentinel');
   });
 }
