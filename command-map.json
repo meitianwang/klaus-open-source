@@ -1,6 +1,6 @@
 {
   "summary": {
-    "invokeDeclared": 776,
+    "invokeDeclared": 775,
     "pushDeclared": 83
   },
   "rows": [
@@ -74,10 +74,6 @@
     },
     {
       "channel": "antigravity-auth:poll",
-      "kind": "invoke"
-    },
-    {
-      "channel": "antigravity-auth:set-account-sharding",
       "kind": "invoke"
     },
     {

@@ -39,20 +39,16 @@ var allowedTargets = map[string]bool{
 	"www.googleapis.com":                true,
 }
 
-// Hop-by-hop and relay-internal headers must not be forwarded in either
-// direction. "te: trailers" is preserved for gRPC over HTTP/2.
-var skipRequestHeaders = map[string]bool{
-	"host":              true,
-	"connection":        true,
-	"keep-alive":        true,
-	"proxy-connection":  true,
-	"transfer-encoding": true,
-	"upgrade":           true,
-	"http2-settings":    true,
-	"x-egress-token":    true,
-	"x-egress-target":   true,
-	"x-egress-pool":     true,
-	"content-length":    true,
+// Only explicit protocol headers emitted by Cloud Code / gRPC requests are
+// forwarded upstream. Relay-internal headers and HTTP library defaults such as
+// "Accept: */*" are dropped so net/http's Transport manages Host,
+// Content-Length, and Accept-Encoding natively. "te: trailers" is preserved
+// separately for gRPC over HTTP/2.
+var allowedRequestHeaders = map[string]bool{
+	"authorization": true,
+	"content-type":  true,
+	"user-agent":    true,
+	"grpc-timeout":  true,
 }
 
 var skipResponseHeaders = map[string]bool{
@@ -256,15 +252,15 @@ func (h relayHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	for name, values := range r.Header {
 		lower := strings.ToLower(name)
-		if skipRequestHeaders[lower] {
-			continue
-		}
 		if lower == "te" {
 			for _, value := range values {
 				if strings.EqualFold(strings.TrimSpace(value), "trailers") {
 					out.Header.Add("Te", "trailers")
 				}
 			}
+			continue
+		}
+		if !allowedRequestHeaders[lower] {
 			continue
 		}
 		for _, value := range values {

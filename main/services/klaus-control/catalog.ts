@@ -2836,9 +2836,9 @@ export const CONTROL_SURFACES: ControlSurface[] = [
   },
   {
     "key": "antigravityAuth",
-    "about": "Sign in to Antigravity through browser authorization or reuse the local account for cloud models, image generation, search and dictation. The source keeps a queue of several accounts: conversations stay sticky to their assigned account, rate-limit/overload/allowance/auth refusals advance the queue automatically, and optional multi-account sharding (off by default via setAccountSharding) assigns new conversations to idle stored accounts instead of always starting on the active head account. Per-account quotas are in account.usage. Signing out removes only the Klaus credential.",
+    "about": "Sign in to Antigravity through browser authorization or reuse the local account for cloud models, image generation, search and dictation. The source keeps a queue of several accounts: requests use the active head account, conversations stay sticky to their assigned account, and rate-limit/overload/allowance/auth refusals advance the queue automatically. Quota for the active account is in account.usage. Signing out removes only the Klaus credential.",
     "reads": [
-      { "action": "status", "channel": "antigravity-auth:status", "args": "no arguments — answers { loggedIn, account, needsLogin, accountSharding, accounts: [{ id, email, displayName, isCurrent, needsLogin }] }", "confirm": false, "currentSession": false },
+      { "action": "status", "channel": "antigravity-auth:status", "args": "no arguments — answers { loggedIn, account, needsLogin, accounts: [{ id, email, displayName, isCurrent, needsLogin }] }", "confirm": false, "currentSession": false },
       { "action": "models", "channel": "antigravity-auth:models", "args": "", "confirm": false, "currentSession": false }
     ],
     "writes": [
@@ -2847,7 +2847,6 @@ export const CONTROL_SURFACES: ControlSurface[] = [
       { "action": "cancel", "channel": "antigravity-auth:cancel", "args": "{ flowId: string (from antigravityAuth.start) }", "confirm": false, "currentSession": false },
       { "action": "importLocal", "channel": "antigravity-auth:import-local", "args": "", "confirm": false, "currentSession": false },
       { "action": "switchAccount", "channel": "antigravity-auth:switch-account", "args": "{ accountId: string (an id from status.accounts) } — moves that stored account to the head of the queue so it becomes the active account", "confirm": false, "currentSession": false },
-      { "action": "setAccountSharding", "channel": "antigravity-auth:set-account-sharding", "args": "{ enabled: boolean } — when true, new conversations automatically distribute across idle stored accounts; when false (default), new conversations stick to the active head account", "confirm": false, "currentSession": false },
       { "action": "logout", "channel": "antigravity-auth:logout", "args": "{ accountId?: string (an id from status.accounts) } — removes that one account; omitting accountId signs out EVERY stored Antigravity account", "confirm": true, "currentSession": false }
     ],
     "manualHeading": "模型来源",

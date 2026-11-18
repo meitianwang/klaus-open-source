@@ -52,7 +52,7 @@ later updater errors, or skip draining unrelated control work.
 
 ## Behavior and boundaries
 
-The catalog currently spans 72 surfaces and accounts for all 776 committed
+The catalog currently spans 72 surfaces and accounts for all 775 committed
 renderer invokes through either a named model operation or a deliberate entry in
 `CONTROL_EXCLUSIONS` (including owner-only surfaces such as the desktop companion,
 composer predictions, local computer-history settings, browser password/autofill

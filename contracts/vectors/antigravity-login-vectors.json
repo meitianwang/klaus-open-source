@@ -1,6 +1,6 @@
 {
-  "version": 5,
-  "reason": "Browser authorization and local credential reuse have independent entrypoints and append or refresh accounts in an Antigravity account queue. Completed authorization preserves credential ownership while cancellation fences stale replies. Connected accounts expose sign-out alongside login and local reuse for adding accounts, allow switching the active head account or removing individual accounts, keep conversations sticky to their assigned account with automatic failover on rate-limit/quota/auth refusals, expose an opt-in multi-account sharding toggle (default off) for distributing new conversations across idle stored accounts, and badge saved credentials concisely without extra explanatory banner prose.",
+  "version": 6,
+  "reason": "Browser authorization and local credential reuse have independent entrypoints and append or refresh accounts in an Antigravity account queue. Completed authorization preserves credential ownership while cancellation fences stale replies. Connected accounts expose sign-out alongside login and local reuse for adding accounts, allow switching the active head account or removing individual accounts, route requests through the active head account while keeping conversations sticky with automatic failover on rate-limit/quota/auth refusals, query quota only for the active account, and badge saved credentials concisely without extra explanatory banner prose.",
   "start": {
     "ok": true,
     "flowId": "fixture-flow-one",
@@ -17,7 +17,6 @@
     "signedIn": true,
     "loggedIn": true,
     "account": "account@example.invalid",
-    "accountSharding": false,
     "accounts": [
       {
         "id": "acct-one",
@@ -48,8 +47,6 @@
     "file": "antigravity-auth.json",
     "queueKey": "accounts",
     "switchChannel": "antigravity-auth:switch-account",
-    "shardingChannel": "antigravity-auth:set-account-sharding",
-    "shardingDefault": false,
     "logoutChannel": "antigravity-auth:logout",
     "rotationTriggers": [
       "rate_limit",

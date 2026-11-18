@@ -382,9 +382,6 @@ h.test('engine catalog notifications broadcast source invalidation and quota win
         ? { ok: false, error: 'antigravity_account_not_found' }
         : { ok: true, signedIn: true, loggedIn: true, accountId: payload.accountId };
     }
-    if (method === 'antigravity/setAccountSharding') {
-      return { ok: true, signedIn: true, loggedIn: true, accountSharding: payload.enabled === true };
-    }
     if (method === 'antigravity/logout') {
       if (payload.accountId === 'ag-keep-other') return { ok: true, signedIn: true, loggedIn: true };
       return { ok: true, signedIn: false, loggedIn: false };
@@ -400,8 +397,6 @@ h.test('engine catalog notifications broadcast source invalidation and quota win
   try {
   assert.deepEqual(await service.antigravitySwitchAccount('ag-2'), { ok: true, signedIn: true, loggedIn: true, accountId: 'ag-2' });
   assert.deepEqual(await service.antigravitySwitchAccount('ag-missing'), { ok: false, error: 'antigravity_account_not_found' });
-  assert.deepEqual(await service.antigravitySetAccountSharding(true), { ok: true, signedIn: true, loggedIn: true, accountSharding: true });
-  assert.deepEqual(await service.antigravitySetAccountSharding(false), { ok: true, signedIn: true, loggedIn: true, accountSharding: false });
   assert.deepEqual(await service.antigravityLogout('ag-keep-other'), { ok: true, signedIn: true, loggedIn: true });
   assert.deepEqual(await service.antigravityLogout(), { ok: true, signedIn: false, loggedIn: false });
   assert.deepEqual(authChanges, [undefined, undefined, { signedOut: true }],

@@ -6,7 +6,7 @@
     "bridgeDir": "frontend/bridge"
   },
   "summary": {
-    "registeredInvoke": 776,
+    "registeredInvoke": 775,
     "registeredPush": 83,
     "roles": 12
   },
@@ -139,7 +139,6 @@
         "antigravity-auth:logout",
         "antigravity-auth:models",
         "antigravity-auth:poll",
-        "antigravity-auth:set-account-sharding",
         "antigravity-auth:start",
         "antigravity-auth:status",
         "antigravity-auth:switch-account",

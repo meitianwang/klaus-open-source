@@ -1590,7 +1590,6 @@ expose('klaus', {
     cancel: (flowId: string) => call('antigravity-auth:cancel', { flowId }),
     importLocal: () => call('antigravity-auth:import-local'),
     switchAccount: (accountId: string) => call('antigravity-auth:switch-account', { accountId }),
-    setAccountSharding: (enabled: boolean) => call('antigravity-auth:set-account-sharding', { enabled }),
     logout: (accountId?: string) => call('antigravity-auth:logout', accountId ? { accountId } : {}),
     models: () => call('antigravity-auth:models'),
   },

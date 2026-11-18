@@ -81,8 +81,7 @@ test('browser completion preserves its originating session and retires cancellat
       expect(html).toContain(`id="antigravity-auth-${action}-btn"`)
     }
     expect(html.match(/<button/g)).toHaveLength(loginVectors.accountCard.signedInActions.length)
-    expect(html).toContain('id="antigravity-auth-account-sharding"')
-    expect(html).not.toContain('checked=""')
+    expect(html).not.toContain('id="antigravity-auth-account-sharding"')
     expect(html).not.toContain('title=')
     expect(html).not.toContain('data-klaus-tip')
   }, {
@@ -253,82 +252,4 @@ test('local Antigravity reuse failures keep their dedicated wording instead of t
       expect(authErrorTextForMode('antigravity', 'antigravity_brand_new_service_tag')).toBe(I18N[language].antigravity_error_generic)
     }
   } finally { target.window = previousWindow }
-})
-
-test('Antigravity account sharding toggle defaults off, persists via setAccountSharding, and rolls back on failure', async () => {
-  const { Window } = await import('happy-dom')
-  const { act } = await import('react')
-  const { createRoot } = await import('react-dom/client')
-  const happyWindow = new Window()
-  const target = globalThis as any
-  const saved = new Map<string, PropertyDescriptor | undefined>()
-  for (const key of ['window', 'document', 'HTMLElement', 'HTMLInputElement', 'Event', 'MouseEvent']) {
-    saved.set(key, Object.getOwnPropertyDescriptor(target, key))
-    Object.defineProperty(target, key, { value: (happyWindow as any)[key], configurable: true, writable: true })
-  }
-  ;(target as any).IS_REACT_ACT_ENVIRONMENT = true
-  let storedSharding = loginVectors.multiAccount.shardingDefault
-  let failNextWrite = false
-  const shardingCalls: boolean[] = []
-  ;(happyWindow as any).currentLang = 'zh'
-  ;(happyWindow as any).klsLoading = { render: () => '<div>loading</div>' }
-  ;(happyWindow as any).klausDialog = { confirm: async () => true }
-  ;(happyWindow as any).klaus = {
-    antigravityAuth: {
-      status: async () => ({
-        ok: true,
-        signedIn: true,
-        loggedIn: true,
-        account: 'one@example.invalid',
-        accountSharding: storedSharding,
-        accounts: [
-          { id: 'ag-1', email: 'one@example.invalid', displayName: '', isCurrent: true, needsLogin: false },
-          { id: 'ag-2', email: 'two@example.invalid', displayName: '', isCurrent: false, needsLogin: false },
-        ],
-      }),
-      setAccountSharding: async (enabled: boolean) => {
-        shardingCalls.push(enabled)
-        if (failNextWrite) return { ok: false, error: 'antigravity_store_unavailable' }
-        storedSharding = enabled
-        return { ok: true, signedIn: true, loggedIn: true, accountSharding: storedSharding }
-      },
-      switchAccount: async () => ({ ok: true }),
-      logout: async () => ({ ok: true }),
-      start: async () => browserFlow(),
-      poll: async () => ({ ok: true }),
-      cancel: async () => ({ ok: true }),
-      importLocal: async () => ({ ok: true }),
-    },
-    session: { setMainModel: async () => {} },
-  }
-  const container = happyWindow.document.createElement('div')
-  happyWindow.document.body.appendChild(container)
-  const root = createRoot(container as unknown as Element)
-  try {
-    await act(async () => {
-      root.render(createElement(SubscriptionCardBody, { mode: 'antigravity', reloadSeq: 1, reload: () => {} }))
-    })
-    await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)) })
-    const input = container.querySelector('#antigravity-auth-account-sharding') as unknown as HTMLInputElement
-    expect(input).not.toBeNull()
-    expect(input.checked).toBe(false)
-    expect(container.textContent).toContain(I18N.zh.antigravity_account_sharding)
-    expect(container.textContent).toContain(I18N.zh.antigravity_account_sharding_desc)
-
-    await act(async () => { input.click() })
-    expect(shardingCalls).toEqual([true])
-    expect(input.checked).toBe(true)
-
-    failNextWrite = true
-    await act(async () => { input.click() })
-    expect(shardingCalls).toEqual([true, false])
-    expect(input.checked).toBe(true)
-  } finally {
-    await act(async () => { root.unmount() })
-    happyWindow.close()
-    for (const [key, desc] of saved.entries()) {
-      if (desc) Object.defineProperty(target, key, desc)
-      else delete target[key]
-    }
-  }
 })

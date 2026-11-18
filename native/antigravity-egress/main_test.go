@@ -60,7 +60,7 @@ func TestAccountPoolsUseIsolatedTLSConnectionsAndStripInternalHeaders(t *testing
 		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			mu.Lock()
 			remoteAddrsByAuth[r.Header.Get("Authorization")] = r.RemoteAddr
-			for _, h := range []string{"X-Egress-Token", "X-Egress-Target", "X-Egress-Pool"} {
+			for _, h := range []string{"X-Egress-Token", "X-Egress-Target", "X-Egress-Pool", "Accept", "X-Unexpected-Client-Header"} {
 				if r.Header.Get(h) != "" {
 					leakedHeaders = append(leakedHeaders, h)
 				}
@@ -91,6 +91,8 @@ func TestAccountPoolsUseIsolatedTLSConnectionsAndStripInternalHeaders(t *testing
 		req.Header.Set("X-Egress-Target", "daily-cloudcode-pa.googleapis.com")
 		req.Header.Set("X-Egress-Pool", poolKey)
 		req.Header.Set("Authorization", auth)
+		req.Header.Set("Accept", "*/*")
+		req.Header.Set("X-Unexpected-Client-Header", "should-be-dropped")
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
 			t.Fatal(err)
