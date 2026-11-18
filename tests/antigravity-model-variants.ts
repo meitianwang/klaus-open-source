@@ -358,10 +358,20 @@ export function registerAntigravityModelVariantTests(h: Harness): void {
         { key: 'gemini-pro-orchestrator', display_name: 'Orchestrator (Carbon)', inRecommendedSort: true, providerMetadata: { thinkingLevel: 3, supportsThinking: true, modelProvider: 'MODEL_PROVIDER_GOOGLE' }, capabilities: {} },
         { key: 'gemini-pro-orchestrator-argon', display_name: 'Orchestrator (Argon)', inRecommendedSort: true, providerMetadata: { thinkingLevel: 3, supportsThinking: true, modelProvider: 'MODEL_PROVIDER_GOOGLE' }, capabilities: {} },
         { key: 'gemini-flash-worker-agy', display_name: 'Gemini 4 Hydrogen (Orchestrator)', providerMetadata: { thinkingLevel: 100, supportsThinking: true, modelProvider: 'MODEL_PROVIDER_GOOGLE' }, capabilities: {} },
+        { key: 'gemini-4-carbon-disabled', display_name: 'Gemini 4 Carbon', disabled: true, unavailable: true, available: false, inRecommendedSort: true, providerMetadata: { supportsThinking: false, modelProvider: 'MODEL_PROVIDER_GOOGLE' }, capabilities: {} },
+        { key: 'gemini-4-argon-disabled', display_name: 'Gemini 4 Argon', disabled: true, unavailable: true, available: false, inRecommendedSort: true, providerMetadata: { supportsThinking: false, modelProvider: 'MODEL_PROVIDER_GOOGLE' }, capabilities: {} },
+        { key: 'gemini-4-hydrogen-disabled', display_name: 'Gemini 4 Hydrogen', disabled: true, unavailable: true, available: false, inRecommendedSort: true, providerMetadata: { supportsThinking: false, modelProvider: 'MODEL_PROVIDER_GOOGLE' }, capabilities: {} },
       );
 
       const rows = (await f.service.options('antigravity')).map(object);
-      for (const alias of ['antigravity:gemini-pro-orchestrator', 'antigravity:gemini-pro-orchestrator-argon', 'antigravity:gemini-flash-worker-agy']) {
+      for (const alias of [
+        'antigravity:gemini-pro-orchestrator',
+        'antigravity:gemini-pro-orchestrator-argon',
+        'antigravity:gemini-flash-worker-agy',
+        'antigravity:gemini-4-carbon-disabled',
+        'antigravity:gemini-4-argon-disabled',
+        'antigravity:gemini-4-hydrogen-disabled',
+      ]) {
         assert.equal(modelOptionForValue(rows, alias), undefined, `${alias} must not appear in picker options`);
       }
       assert(modelOptionForValue(rows, 'antigravity:gemini-4-carbon-high'));
@@ -381,6 +391,26 @@ export function registerAntigravityModelVariantTests(h: Harness): void {
 
       await f.service.setModel({ sessionId: 'alias-pick', source: 'antigravity', mode: 'antigravity:gemini-pro-orchestrator' });
       assert.equal(readSessionModel('alias-pick', f.root).mode, 'antigravity:gemini-4-carbon-high');
+      await f.service.setModel({ sessionId: 'disabled-pick', source: 'antigravity', mode: 'antigravity:gemini-4-carbon-disabled' });
+      assert.equal(readSessionModel('disabled-pick', f.root).mode, 'antigravity:gemini-4-carbon-high');
+
+      // Seed a database that already ran v1 harness migration but still holds restricted-account `*-disabled` selections.
+      const disabledRoot = await mkdtemp(join(tmpdir(), 'klaus-antigravity-disabled-migrate-'));
+      try {
+        readSessionModel('seeded-disabled', disabledRoot);
+        withSettingsDb(disabledRoot, db => {
+          db.prepare('DELETE FROM settings WHERE key = ?').run('migrated.antigravity_disabled_models_v1');
+          db.prepare("INSERT INTO settings(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+            .run('migrated.antigravity_harness_models_v1', '1');
+          db.prepare("INSERT INTO settings(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+            .run('composer.last_model:antigravity', 'antigravity:gemini-4-carbon-disabled');
+          db.prepare("UPDATE session_main_models SET mode = 'antigravity:gemini-4-carbon-disabled', source = 'antigravity' WHERE session_id = 'seeded-disabled'").run();
+        });
+        assert.equal(readSessionModel('seeded-disabled', disabledRoot).mode, 'antigravity:gemini-4-carbon-high');
+        assert.equal(kvGet('composer.last_model:antigravity', disabledRoot), 'antigravity:gemini-4-carbon-high');
+      } finally {
+        await rm(disabledRoot, { recursive: true, force: true });
+      }
 
       // Seed a legacy pre-migration database containing stored harness aliases across every preference slot.
       const legacyRoot = await mkdtemp(join(tmpdir(), 'klaus-antigravity-migrate-'));

@@ -340,6 +340,8 @@ h.test('engine catalog notifications broadcast source invalidation and quota win
     push: (channel, payload) => { pushed.push({ channel, payload: object(payload) }); },
     onSessionConfigChanged: () => {},
   });
+  assert.equal(composer.changedCatalogSource({ type: 'productEvent', method: 'model/catalogChanged', params: { source: 'antigravity' } }), 'antigravity');
+  assert.equal(composer.changedCatalogSource({ type: 'productEvent', method: 'model/catalogChanged', params: { source: 'unknown-source' } }), undefined);
   assert.equal(composer.receiveEngineEvent({ type: 'productEvent', method: 'model/catalogChanged', params: { source: 'antigravity' } }), true);
   assert.equal(composer.receiveEngineEvent({ type: 'productEvent', method: 'model/catalogChanged', params: { source: 'unknown-source' } }), false);
   assert.equal(composer.receiveEngineEvent({ type: 'productEvent', method: 'other/event', params: { source: 'antigravity' } }), false);

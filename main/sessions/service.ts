@@ -2068,6 +2068,17 @@ export class SessionService {
     if (failures.length) throw new AggregateError(failures, 'Some model update fences were not confirmed');
   }
 
+  /** Re-run pending model updates that failed before a source's live catalog arrived. */
+  async retryCatalogModelUpdates(source: string): Promise<void> {
+    if (!source) return;
+    await Promise.allSettled(this.deps.state.bindings()
+      .filter(binding => !this.isSideTask(binding.rendererId))
+      .filter(binding => this.deps.state.inferencePending(binding.rendererId))
+      .filter(binding => readSessionModel(binding.rendererId, this.configRoot).source === source
+        || this.deps.state.sessionProvider(binding.rendererId)?.source === source)
+      .map(binding => this.modelUpdates.retryAfterCatalogChange(binding.rendererId)));
+  }
+
   /** Retain a cold conversation's source before its saved selection is replaced. */
   async prepareModelChange(rendererId: string): Promise<void> {
     if (!rendererId || rendererId.startsWith('__') || this.deleted.has(rendererId)

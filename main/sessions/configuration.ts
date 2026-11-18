@@ -148,7 +148,7 @@ export class SessionConfiguration {
 
   private async publishSubagentModels(scope?: RuntimeConfigScope, onlyEnabled = false): Promise<void> {
     const updateRuntimeConfig = this.deps.updateRuntimeConfig;
-    if (!updateRuntimeConfig) { this.markChanged(); return; }
+    if (!updateRuntimeConfig) { if (!onlyEnabled) this.markChanged(); return; }
     let failure: unknown;
     let catalog: Promise<SubagentModelOption[]> | undefined;
     const load = () => catalog ??= loadSubagentModelOptions({

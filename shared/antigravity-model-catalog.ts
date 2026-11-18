@@ -21,6 +21,9 @@ const HARNESS_MODEL_REPLACEMENTS: Record<string, string> = {
   'gemini-pro-orchestrator': 'gemini-4-carbon-high',
   'gemini-pro-orchestrator-argon': 'gemini-4-argon-high',
   'gemini-flash-worker-agy': 'gemini-4-hydrogen-xhigh',
+  'gemini-4-carbon-disabled': 'gemini-4-carbon-high',
+  'gemini-4-argon-disabled': 'gemini-4-argon-high',
+  'gemini-4-hydrogen-disabled': 'gemini-4-hydrogen-high',
 };
 
 export function antigravityReplacementModelId(value: string): string | undefined {
@@ -30,7 +33,9 @@ export function antigravityReplacementModelId(value: string): string | undefined
 
 export function isAntigravityHarnessAlias(value: string): boolean {
   const id = value.trim().replace(/^antigravity:/i, '').toLowerCase();
-  return id.startsWith('gemini-pro-orchestrator') || id === 'gemini-flash-worker-agy';
+  return id.startsWith('gemini-pro-orchestrator')
+    || id === 'gemini-flash-worker-agy'
+    || ((id.startsWith('gemini-') || id.startsWith('claude-')) && id.endsWith('-disabled'));
 }
 
 export function canonicalAntigravitySelection(value: string): string {

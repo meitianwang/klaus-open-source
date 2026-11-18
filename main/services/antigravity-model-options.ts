@@ -30,12 +30,17 @@ function member(key: string, entry: JsonObject, row: JsonObject): Member | undef
   };
   if (fixed[key]) return fixed[key];
   for (const [family, label, levels] of [
+    ['gemini-4-carbon', 'Gemini 4 Carbon', ['low', 'medium', 'high']],
     ['gemini-4-argon', 'Gemini 4 Argon', ['low', 'medium', 'high']],
+    ['gemini-4-hydrogen', 'Gemini 4 Hydrogen', ['low', 'medium', 'high', 'xhigh']],
     ['claude-sonnet-5-5', 'Claude Sonnet 5.5', ['low', 'medium', 'high', 'max']],
     ['claude-opus-5-5', 'Claude Opus 5.5', ['low', 'medium', 'high', 'max']],
   ] as const) {
     const index = levels.findIndex(level => key === `${family}-${level}`);
-    if (index >= 0) return { family, label, level: levels[index]!, nativeLevel: levels[index] === 'max' ? 200 : index + 1 };
+    if (index >= 0) {
+      const level = levels[index]!;
+      return { family, label, level, nativeLevel: level === 'max' ? 200 : level === 'xhigh' ? 100 : index + 1 };
+    }
   }
   const label = string(row.label) || string(entry.display_name) || string(entry.displayName);
   const suffix = label ? EFFORT_SUFFIX.exec(label) : null;

@@ -185,7 +185,7 @@ export function modelOptionLabel(model: any): string {
 // ("expired and cannot be renewed", "not reachable from this build") do not
 // contain that phrase, so a real outage still surfaces as a failure.
 export function isSourceNotSignedIn(error: unknown): boolean {
-  return typeof error === 'string' && error.includes('not signed in')
+  return typeof error === 'string' && (error.includes('not signed in') || /_not_signed_in\b/.test(error))
 }
 
 // ---- Per-source tier mappings (every source stores the same tier-keyed map) ----

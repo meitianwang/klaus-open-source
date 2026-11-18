@@ -61,7 +61,7 @@ function fixture() {
   return { state, calls, pushed, released, binding, updates,
     clock: (offset: number) => { now += offset; },
     prepare: (fn: typeof prepare) => { prepare = fn; }, beforePublish: (fn: typeof beforePublish) => { beforePublish = fn; },
-    flags: (flags: { runtimeError?: boolean; loseBegin?: boolean; beginApplied?: boolean; losePublish?: boolean; publishApplied?: boolean; cas?: boolean; hideChangeId?: boolean; publishError?: string }) => {
+    flags: (flags: { runtimeError?: boolean; loseBegin?: boolean; beginApplied?: boolean; losePublish?: boolean; publishApplied?: boolean; cas?: boolean; hideChangeId?: boolean; publishError?: string | null }) => {
       if (flags.runtimeError !== undefined) runtimeError = flags.runtimeError;
       if (flags.loseBegin !== undefined) loseBegin = flags.loseBegin;
       if (flags.beginApplied !== undefined) beginApplied = flags.beginApplied;
@@ -69,7 +69,7 @@ function fixture() {
       if (flags.publishApplied !== undefined) publishApplied = flags.publishApplied;
       if (flags.cas !== undefined) cas = flags.cas;
       if (flags.hideChangeId !== undefined) hideChangeId = flags.hideChangeId;
-      if (flags.publishError !== undefined) publishError = flags.publishError;
+      if (flags.publishError !== undefined) publishError = flags.publishError ?? undefined;
     },
   };
 }
@@ -350,6 +350,90 @@ h.test('closing a live conversation before fence confirmation resolves changed c
     message: 'the model declined to respond to this request',
     kind: 'withheld',
   }), 'withheld', 'host preserves withheld provider error kind');
+});
+
+h.test('catalog arrival heals a failed cold-start model update on an active turn without touching confirmed sessions', async () => {
+  const f = fixture();
+  f.state.markTurnRunning('thread', 'active-step');
+  f.prepare(async () => ({
+    init: { modelSelection: 'antigravity:gemini-4-hydrogen-high' },
+    provider: { source: 'antigravity', selection: 'antigravity:gemini-4-hydrogen-high' },
+    preferenceRevision: f.state.modelPreferenceRevision('thread'),
+  }));
+  f.flags({ publishError: 'antigravity_catalog_timeout' });
+  f.state.markModelChanged('thread');
+  await f.updates.changed('thread');
+  await waitFor(() => f.pushed.some(row => object(row)?.status === 'failed'), 1000, 'initial cold publication fails');
+  assert(f.state.inferencePending('thread'), 'session remains fenced after transient cold catalog failure');
+
+  // Live catalog lands: clear upstream error and trigger catalog-driven retry.
+  f.flags({ publishError: null });
+  await f.updates.retryAfterCatalogChange('thread');
+  await waitFor(() => f.pushed.some(row => object(row)?.status === 'ready'), 1000, 'catalog retry publishes ready state');
+  assertEqual(f.state.inferencePending('thread'), false, 'active turn inference fence clears after catalog lands');
+  assertEqual(f.state.runningTurnId('thread'), 'active-step', 'active turn stays attached throughout recovery');
+
+  const countBeforeHealthyNoop = f.calls.length;
+  await f.updates.retryAfterCatalogChange('thread');
+  assertEqual(f.calls.length, countBeforeHealthyNoop, 'already confirmed session ignores subsequent catalog refreshes');
+});
+
+h.test('catalog arrival while an older publication is in flight retries cleanly if that attempt rejects', async () => {
+  const f = fixture(), holdPublish = deferred<void>();
+  let publishAttempts = 0;
+  f.beforePublish(async () => {
+    publishAttempts++;
+    if (publishAttempts === 1) {
+      await holdPublish.promise;
+      throw { kind: 'server', message: 'antigravity_model_unavailable' };
+    }
+  });
+  f.prepare(async () => ({
+    init: { modelSelection: 'antigravity:gemini-4-hydrogen-high' },
+    provider: { source: 'antigravity', selection: 'antigravity:gemini-4-hydrogen-high' },
+    preferenceRevision: f.state.modelPreferenceRevision('thread'),
+  }));
+  f.state.markModelChanged('thread');
+  await f.updates.changed('thread');
+  await waitFor(() => publishAttempts === 1, 1000, 'first reconfigure call is in flight');
+
+  await f.updates.retryAfterCatalogChange('thread');
+  holdPublish.resolve();
+  await waitFor(() => !f.state.inferencePending('thread'), 1000, 'second attempt confirms without latching failed state');
+  assertEqual(publishAttempts, 2, 'in-flight rejection immediately retries once against refreshed catalog');
+  assert(!f.pushed.some(row => object(row)?.status === 'failed'), 'in-flight catalog retry avoids false failed status');
+});
+
+h.test('catalog arrival does not retry a deliberately signed-out session', async () => {
+  const f = fixture();
+  f.flags({ publishError: 'antigravity_not_signed_in' });
+  f.state.markModelChanged('thread');
+  await f.updates.changed('thread', 'signed-out');
+  await waitFor(() => f.pushed.some(row => object(row)?.status === 'failed'), 1000, 'signed-out publication settles fence');
+  const callsAfterSignOut = f.calls.length;
+  await f.updates.retryAfterCatalogChange('thread');
+  assertEqual(f.calls.length, callsAfterSignOut, 'signed-out origin is not retried by catalog events');
+});
+
+h.test('credential-changed broadcasts settle quietly on failure, self-heal on catalog arrival, and do not mute user selections', async () => {
+  const f = fixture();
+  f.flags({ publishError: 'antigravity_model_unavailable' });
+  f.state.markModelChanged('thread');
+  await f.updates.changed('thread', 'credential-changed');
+  await waitFor(() => f.pushed.some(row => object(row)?.status === 'failed'), 1000, 'credential-changed failure settles');
+  const quietFailure = object(f.pushed.at(-1))!;
+  assertEqual(quietFailure.quiet, true, 'background credential-change failure does not pop a model-error toast');
+
+  f.flags({ publishError: null });
+  await f.updates.retryAfterCatalogChange('thread');
+  await waitFor(() => !f.state.inferencePending('thread'), 1000, 'credential-changed session still retries when live catalog arrives');
+  assertEqual(object(f.pushed.at(-1))?.status, 'ready', 'catalog retry transitions session to ready');
+
+  f.flags({ publishError: 'antigravity_model_unavailable' });
+  f.state.markModelChanged('thread');
+  await f.updates.changed('thread');
+  await waitFor(() => f.pushed.filter(row => object(row)?.status === 'failed').length === 2, 1000, 'explicit user selection failure settles');
+  assertEqual(object(f.pushed.at(-1))?.quiet, undefined, 'explicit user selection failure announces toast');
 });
 
 void h.finish(join(__dirname, 'model-updates-results.json'), 'model-updates').then(code => { process.exitCode = code; });

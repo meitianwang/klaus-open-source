@@ -9,12 +9,14 @@ interface ModelClient {
 }
 export interface ModelUpdateBinding { client: ModelClient; engineId: string }
 /**
- * Why a publication started. A sign-out removes the credential a live session
- * was using, so the background re-preparation it triggers is expected to fail;
- * that failure settles its fence but is reported quietly instead of announced
- * as a model error the user caused.
+ * Why a publication started. Credential lifecycle broadcasts (signing out or
+ * adding, removing, or switching credentials in Settings) re-prepare every
+ * live session in the background; any session whose saved model cannot be
+ * prepared under the updated credential state settles its fence quietly
+ * instead of surfacing as a composer model error. Unlike `'signed-out'`,
+ * `'credential-changed'` still retries once a live model catalog arrives.
  */
-export type ModelUpdateOrigin = 'signed-out';
+export type ModelUpdateOrigin = 'signed-out' | 'credential-changed';
 export interface ModelCandidate {
   init: Record<string, Json>;
   provider: SessionProviderIdentity;
@@ -33,6 +35,7 @@ interface Change {
   publishing: boolean;
   uncertain: boolean;
   failed: boolean;
+  catalogRefreshed?: boolean;
   origin?: ModelUpdateOrigin;
 }
 interface ModelUpdateDeps {
@@ -78,6 +81,21 @@ export class ModelUpdates {
         await this.changed(id, origin);
       }
     }
+  }
+
+  /**
+   * Retry a session whose model publication failed (or fails while a fresh
+   * catalog arrives) without touching sessions that are already confirmed.
+   */
+  async retryAfterCatalogChange(id: string): Promise<void> {
+    const current = this.changes.get(id);
+    if (!current || current.origin === 'signed-out' || !this.deps.state.inferencePending(id)) return;
+    if (!current.failed && this.workers.has(id)) {
+      current.catalogRefreshed = true;
+      return;
+    }
+    if (!current.failed) return;
+    await this.changed(id, current.origin);
   }
 
   /** Admission joins preparation and confirmation; it never silently uses the cached provider. */
@@ -174,7 +192,7 @@ export class ModelUpdates {
         change.candidate = await this.prepared(prepare, change);
         if (this.changes.get(id) !== change || this.deps.state.modelPreferenceRevision(id) !== change.candidate.preferenceRevision) {
           this.deps.release(id, change.id);
-          if (this.changes.get(id) === change) this.begin(id, change.binding, true);
+          if (this.changes.get(id) === change) this.begin(id, change.binding, true, change.origin);
           continue;
         }
         this.deps.state.recordInferenceCandidate(id, change.binding.engineId, change.id, change.candidate.init, change.candidate.provider);
@@ -198,7 +216,7 @@ export class ModelUpdates {
               this.deps.release(id, change.id);
               this.deps.state.discardInferenceCandidate(id, change.binding.engineId, change.id);
               if (conflict(error) && this.changes.get(id) === change && attempt < 5) {
-                this.begin(id, change.binding, true);
+                this.begin(id, change.binding, true, change.origin);
                 continue;
               }
             }
@@ -220,7 +238,13 @@ export class ModelUpdates {
         if (!change.publishing && this.changes.get(id) === change
           && this.deps.state.modelPreferenceRevision(id) !== change.preferenceRevision) {
           this.deps.release(id, change.id);
-          this.begin(id, change.binding, true);
+          this.begin(id, change.binding, true, change.origin);
+          continue;
+        }
+        if (change.catalogRefreshed && !change.uncertain && change.origin !== 'signed-out'
+          && this.changes.get(id) === change && attempt < 5) {
+          if (!change.publishing) this.deps.release(id, change.id);
+          this.begin(id, change.binding, true, change.origin);
           continue;
         }
         if (!change.publishing) this.deps.release(id, change.id);
@@ -291,10 +315,11 @@ export class ModelUpdates {
   private push(id: string, change: Change, status: string, revision?: number, error?: string): void {
     this.deps.push([{ type: 'model_update', sessionId: id, status, changeId: change.id, preferenceRevision: change.preferenceRevision,
       ...(revision === undefined ? {} : { revision }), ...(error === undefined ? {} : { error }),
-      // Only a sign-out-driven failure is quiet: the user removed the credential
-      // on purpose, so its expected preparation failure is not a model error.
+      // Credential-lifecycle broadcasts (sign-out or adding, removing, or
+      // switching credentials in Settings) fail quietly when a live session's
+      // saved model cannot be prepared under the updated credential state.
       // A later user selection starts a fresh change without the origin and
       // announces its failures as before.
-      ...(status === 'failed' && change.origin === 'signed-out' ? { quiet: true } : {}) }]);
+      ...(status === 'failed' && (change.origin === 'signed-out' || change.origin === 'credential-changed') ? { quiet: true } : {}) }]);
   }
 }

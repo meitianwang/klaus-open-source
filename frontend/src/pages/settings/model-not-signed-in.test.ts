@@ -17,6 +17,8 @@ describe('isSourceNotSignedIn', () => {
     expect(isSourceNotSignedIn('not signed in to a WorkBuddy subscription')).toBe(true)
     expect(isSourceNotSignedIn('not signed in to a Kimi membership')).toBe(true)
     expect(isSourceNotSignedIn('not signed in to a Bailian Token Plan')).toBe(true)
+    expect(isSourceNotSignedIn('app-server rpc error -32000: antigravity_not_signed_in')).toBe(true)
+    expect(isSourceNotSignedIn('app-server rpc error -32000: trae_not_signed_in')).toBe(true)
   })
 
   test('matches the per-source catalogs’ reversed word order', () => {

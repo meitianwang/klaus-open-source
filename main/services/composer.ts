@@ -81,10 +81,14 @@ export class ComposerService {
     this.configRoot = deps.configRoot ?? configRootFrom();
     this.engine = deps.engineSettings ?? new EngineSettings(deps.request);
   }
-  receiveEngineEvent(event: ClientEvent): boolean {
-    if (event.type !== 'productEvent' || event.method !== 'model/catalogChanged') return false;
+  changedCatalogSource(event: ClientEvent): string | undefined {
+    if (event.type !== 'productEvent' || event.method !== 'model/catalogChanged') return undefined;
     const source = string(object(event.params).source);
-    if (!MODEL_SOURCES.includes(source)) return false;
+    return MODEL_SOURCES.includes(source) ? source : undefined;
+  }
+  receiveEngineEvent(event: ClientEvent): boolean {
+    const source = this.changedCatalogSource(event);
+    if (!source) return false;
     this.deps.push('app:preferences-changed', { key: `model_catalog:${source}` });
     return true;
   }
