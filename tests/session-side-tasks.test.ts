@@ -29,6 +29,7 @@ class Client extends EventEmitter implements EngineClientLike {
   invalidIdentity = false;
   startError?: Error;
   sideEndpointOverride?: string;
+  storedHistoryReply?: Record<string, Json> | Error;
   heldStart?: () => Promise<void>;
   heldClose?: () => Promise<void>;
   heldBackground?: () => Promise<void>;
@@ -85,6 +86,11 @@ class Client extends EventEmitter implements EngineClientLike {
     if (method === 'session/subagentLifecycle') return { subagentLifecycle: { agents: this.agents } };
     if (method === 'session/backgroundProcesses') { await this.heldBackground?.(); return { backgroundProcesses: { processes: this.processes } }; }
     if (method === 'session/history') return { history: [], historyTurnIds: {} };
+    if (method === 'engine/readThreadHistory') {
+      if (this.storedHistoryReply instanceof Error) throw this.storedHistoryReply;
+      if (this.storedHistoryReply) return this.storedHistoryReply;
+      throw new Error(`Unexpected facade call: ${method}`);
+    }
     if (method === 'session/predictionContext') return { turnId: this.predictionTurnId ?? null, model: 'custom:fixture', provider: 'openai', planMode: false, running: false };
     if (method === 'session/modelRuntime') return { revision: 0 };
     if (method === 'config/read') return { values: this.configValues, resolved: this.effectiveConfig, sources: {} };
@@ -1012,6 +1018,47 @@ h.test('predictionContext resolves only active unarchived side tasks with a term
   const callsBeforeArchivedRead = client.calls.length;
   assertEqual(await service.predictionContext(id), null, 'archived side task returns null');
   assertEqual(client.calls.length, callsBeforeArchivedRead, 'archived side task does not resume engine session');
+});
+
+h.test('side task transcript reads the saved projection so a compaction cannot retire its turns', async () => {
+  const f = fixture();
+  await f.service.resolveLiveSession('parent');
+  const id = await create(f.service);
+  const savedRow = (uuid: string, type: string, text: string): Json => ({ uuid, type, content: [{ type: 'text', text }] });
+  f.client.storedHistoryReply = {
+    threadId: id,
+    history: [
+      savedRow('u-1', 'user', 'Saved side question'),
+      savedRow('a-1', 'assistant', 'Saved side first answer'),
+      { uuid: 'history-compaction-1', type: 'compact_boundary', summary: 'Saved side checkpoint' },
+      savedRow('a-2', 'assistant', 'Saved side final answer'),
+    ],
+    page: { hasMore: false, nextCursor: null },
+    historyTurnIds: { 'u-1': 'turn-1', 'a-1': 'turn-1', 'history-compaction-1': 'turn-1', 'a-2': 'turn-1' },
+    turnFinalMessageIds: { 'turn-1': 'a-2' },
+    turnStatuses: { 'turn-1': 'completed' },
+    turnStartedAtMs: {}, turnFinishedAtMs: {}, turnDurations: {}, turnCancelledTools: {}, turnErrors: {}, turnErrorKinds: {},
+    agentNotifications: [],
+  };
+  const history = object(await f.service.history(id))!;
+  const rendered = JSON.stringify(history.messages ?? history);
+  const messages = Array.isArray(history.messages) ? history.messages as Array<Record<string, Json>> : [];
+  assert(rendered.includes('Saved side question'), 'saved opener reaches the renderer');
+  assert(rendered.includes('Saved side first answer'), 'the pre-compaction final reply survives the read');
+  assert(messages.some(row => row.kind === 'compaction' || row.type === 'compact_boundary'), 'the compaction boundary survives the read as its own row');
+  assert(rendered.includes('Saved side final answer'), 'saved final reply reaches the renderer');
+  assert(f.client.sent('engine/readThreadHistory').length >= 1, 'transcript came from the saved projection');
+  assertEqual(f.client.sent('session/history').length, 0, 'the in-memory snapshot is not the side task source');
+});
+
+h.test('a side task without a readable rollout keeps the in-memory snapshot fallback', async () => {
+  const f = fixture();
+  await f.service.resolveLiveSession('parent');
+  const id = await create(f.service);
+  f.client.storedHistoryReply = new Error('No rollout on disk yet');
+  const history = object(await f.service.history(id))!;
+  assert(history !== null && typeof history === 'object', 'the fallback still yields a transcript');
+  assert(f.client.sent('session/history').length >= 1, 'the snapshot fallback served the read');
 });
 
 void (async () => {

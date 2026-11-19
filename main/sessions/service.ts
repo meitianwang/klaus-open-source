@@ -3433,7 +3433,14 @@ export class SessionService {
   private async storedHistorySnapshot(rendererId: string, agentId?: string, scheduling?: RpcRequestOptions): Promise<{ reply: Record<string, Json>; current: () => void }> {
     const current = (): void => {
       this.assertRequestOwner(); this.assertPublicThread(rendererId);
-      if (this.deleted.has(rendererId) || this.isSideTask(rendererId) || rendererId.startsWith('__')) {
+      // Side tasks persist their rollout like every other thread, and the engine
+      // scopes their saved reads to the side task's own turns (the inherited
+      // parent prefix is hidden during projection, forks are cut at their
+      // boundary), so the saved projection is their transcript source too: an
+      // in-memory snapshot alone loses every turn a compaction retired. A side
+      // task whose rollout is not on disk yet simply fails this read and keeps
+      // the snapshot fallback.
+      if (this.deleted.has(rendererId) || rendererId.startsWith('__')) {
         throw new IpcHandlerError('SESSION_NOT_FOUND', 'The saved conversation was not found');
       }
     };
