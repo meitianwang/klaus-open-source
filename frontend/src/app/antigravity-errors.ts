@@ -15,6 +15,7 @@ const ANTIGRAVITY_ERROR_KEYS = new Set([
   'antigravity_refresh_unavailable',
   'antigravity_rate_limited',
   'antigravity_service_unavailable',
+  'antigravity_response_timeout',
   'model_context_window_exceeded',
   'antigravity_transport_unavailable',
   'antigravity_request_cancelled',

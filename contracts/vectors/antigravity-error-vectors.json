@@ -1,6 +1,6 @@
 {
-  "version": 5,
-  "reason": "Service rejections remain specific localized turn failures. Explicit account suspension, eligibility restrictions, verification challenges, local egress unavailability and unexplained permission denial must not be confused with expired credentials or network failures. Model access denial must not be presented as expired sign-in or a picker restriction; a NOT_FOUND verdict for a model the refreshed account catalog no longer lists reports the account offering; an identity the live catalog never carried reports a stale selection to re-resolve, not an account limitation. Unknown source tags fall back to a generic localized failure.",
+  "version": 6,
+  "reason": "Service rejections and response-header timeouts remain specific localized turn failures. Explicit account suspension, eligibility restrictions, verification challenges, local egress unavailability, initial stream response-header timeouts after automatic retries, and unexplained permission denial must not be confused with expired credentials or network failures. Model access denial must not be presented as expired sign-in or a picker restriction; a NOT_FOUND verdict for a model the refreshed account catalog no longer lists reports the account offering; an identity the live catalog never carried reports a stale selection to re-resolve, not an account limitation. Unknown source tags fall back to a generic localized failure.",
   "cases": [
     { "code": "antigravity_model_access_denied", "expectedKey": "antigravity_model_access_denied" },
     { "code": "antigravity_model_not_offered", "expectedKey": "antigravity_model_not_offered" },
@@ -18,6 +18,7 @@
     { "code": "antigravity_refresh_unavailable", "expectedKey": "antigravity_refresh_unavailable" },
     { "code": "antigravity_rate_limited", "expectedKey": "antigravity_rate_limited" },
     { "code": "antigravity_service_unavailable", "expectedKey": "antigravity_service_unavailable" },
+    { "code": "antigravity_response_timeout", "expectedKey": "antigravity_response_timeout" },
     { "code": "model_context_window_exceeded", "expectedKey": "model_context_window_exceeded" },
     { "code": "antigravity_transport_unavailable", "expectedKey": "antigravity_transport_unavailable" },
     { "code": "antigravity_request_cancelled", "expectedKey": "antigravity_request_cancelled" },
