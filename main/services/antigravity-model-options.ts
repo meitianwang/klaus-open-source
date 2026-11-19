@@ -105,8 +105,10 @@ export function antigravityModelOptions(entries: JsonObject[], options: JsonObje
     const family = families.get(item.family)!;
     // A lone declared variant is the model itself; keep its service label.
     if (family.members.length === 1 && !family.definition.toggle) return family.rows[0]!;
-    const representative = family.members.find(variant => variant.isDefault && variant.available)
-      ?? family.members.find(variant => variant.available) ?? family.members[0]!;
+    const offered = family.members.filter(variant => variant.available);
+    const candidates = offered.length ? offered : family.members;
+    const representative = candidates.find(variant => variant.isDefault)
+      ?? candidates.find(variant => variant.thinkingLevel === 'medium') ?? candidates[0]!;
     const row = family.rows.find(row => row.value === representative.value)!;
     const grouped: JsonObject = { ...row, label: family.definition.label,
       ...(row.description === row.label ? { description: family.definition.label } : {}),

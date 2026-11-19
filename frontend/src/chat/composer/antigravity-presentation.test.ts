@@ -1,4 +1,5 @@
 import { expect, test } from 'bun:test'
+import vectors from '../../../../contracts/vectors/antigravity-model-variants.json'
 import { antigravityPresentationFamily, latestAntigravityFamilyIds, visibleAntigravityModelOptions } from '../../../../shared/antigravity-presentation'
 import { antigravityModelOptions } from '../../../../main/services/antigravity-model-options'
 import { antigravityThinkingLevels, antigravityVariantForThinking, pickAntigravityModelMetadata } from '../../../../shared/antigravity-model-catalog'
@@ -79,6 +80,48 @@ test('native levels and legacy budgets both group Flash reasoning into one model
   }
 })
 
+test('Neon has one menu row with High as the default and four concrete selections', () => {
+  const variants = [['high', 'High', 3], ['xhigh', 'XHigh', 100], ['medium', 'Medium', 2], ['low', 'Low', 1]] as const
+  for (const available of [true, false]) {
+    const entries = variants.map(([level, label, thinkingLevel]) => ({
+      key: `gemini-4-neon-${level}`, display_name: `Gemini 4 Neon (${label})`, isDefault: level === 'high',
+      providerMetadata: { supportsThinking: true, modelProvider: 'MODEL_PROVIDER_GOOGLE', thinkingLevel },
+    }))
+    const options = entries.map(entry => ({ value: `antigravity:${entry.key}`, label: entry.display_name, available, inRecommendedSort: true }))
+    const grouped = antigravityModelOptions(entries, options)
+    expect(grouped).toHaveLength(1)
+    const model = grouped[0]!
+    expect(model).toMatchObject({ label: 'Gemini 4 Neon', value: 'antigravity:gemini-4-neon-high', inRecommendedSort: true })
+    const metadata = pickAntigravityModelMetadata(model)
+    const value = 'antigravity:gemini-4-neon-high'
+    expect(antigravityThinkingLevels(metadata, value)).toEqual(['low', 'medium', 'high', 'xhigh'])
+    for (const [level] of variants) {
+      expect(antigravityVariantForThinking(metadata, value, level)?.value).toBe(`antigravity:gemini-4-neon-${level}`)
+    }
+  }
+})
+
+test('an unselected family prefers Medium without replacing a catalog default or saved variant', () => {
+  const entries = ['high', 'xhigh', 'medium', 'low'].map((level, index) => ({
+    key: `gemini-4-hydrogen-${level}`, display_name: `Gemini 4 Hydrogen (${level})`,
+    isDefault: false,
+    providerMetadata: { supportsThinking: true, modelProvider: 'MODEL_PROVIDER_GOOGLE', thinkingLevel: [3, 100, 2, 1][index]! },
+  }))
+  for (const available of [true, false]) {
+    const options = entries.map(row => ({ value: `antigravity:${row.key}`, label: row.display_name, available }))
+    const model = antigravityModelOptions(entries, options)[0]!
+    const medium = `antigravity:gemini-4-hydrogen-${vectors.familyDefault.otherwisePreferLevel}`
+    expect(model.value).toBe(medium)
+    expect(antigravityVariantForThinking(pickAntigravityModelMetadata(model), medium, 'xhigh')?.value)
+      .toBe('antigravity:gemini-4-hydrogen-xhigh')
+    const withDefault = [{ ...entries[0]!, isDefault: true }, ...entries.slice(1)]
+    expect(antigravityModelOptions(withDefault, options)[0]!.value)
+      .toBe(`antigravity:gemini-4-hydrogen-${vectors.familyDefault.defaultLevel}`)
+    expect(antigravityModelOptions(entries.filter(row => !row.key.endsWith('-medium')), options)[0]!.value)
+      .toBe(vectors.familyDefault.absenceOfMediumFallsBackToFirst ? options[0]!.value : undefined)
+  }
+})
+
 test('Carbon and Hydrogen families parse and group XHigh reasoning without leaving stray rows', () => {
   expect(antigravityPresentationFamily('antigravity:gemini-4-carbon-medium')).toEqual({
     category: 'gemini', id: 'gemini-4-carbon', label: 'Gemini 4 Carbon', version: [4, 0],
@@ -107,4 +150,25 @@ test('Carbon and Hydrogen families parse and group XHigh reasoning without leavi
   const metadata = pickAntigravityModelMetadata(grouped[0])
   expect(antigravityThinkingLevels(metadata, options[0]!.value)).toEqual(['low', 'medium', 'high', 'xhigh'])
   expect(antigravityVariantForThinking(metadata, options[0]!.value, 'xhigh')?.value).toBe('antigravity:gemini-4-hydrogen-xhigh')
+})
+
+test('Claude menus expose Max when the account catalog declares it', () => {
+  const { maxKeys, withoutMax, withMax } = vectors.claude5_5Efforts
+  for (const maxKey of maxKeys) {
+    const prefix = maxKey.slice(0, -3)
+    for (const declared of [false, true]) {
+      const rows = vectors.entries.filter(entry => entry.key.startsWith(prefix) && (declared || entry.key !== maxKey))
+      const entries: JsonObject[] = rows.map(entry => ({
+        key: entry.key, display_name: entry.display_name,
+        providerMetadata: { thinkingLevel: entry.providerMetadata.thinkingLevel ?? null },
+      }))
+      const options = rows.map(entry => ({ value: `antigravity:${entry.key}`, label: entry.display_name, available: entry.disabled !== true }))
+      const grouped = antigravityModelOptions(entries, options)
+      expect(grouped).toHaveLength(1)
+      const model = grouped[0]!
+      const metadata = pickAntigravityModelMetadata(model)
+      expect(antigravityThinkingLevels(metadata, String(model.value))).toEqual(declared ? withMax : withoutMax)
+      expect(antigravityVariantForThinking(metadata, String(model.value), 'max')?.value).toBe(declared ? `antigravity:${maxKey}` : undefined)
+    }
+  }
 })

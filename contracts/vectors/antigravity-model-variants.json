@@ -7,6 +7,28 @@
     "reportedAvailable": false,
     "unknownMemberSelectable": false
   },
+  "claude5_5Efforts": {
+    "maxKeys": [
+      "claude-opus-5-5-max",
+      "claude-sonnet-5-5-max"
+    ],
+    "withoutMax": [
+      "low",
+      "medium",
+      "high"
+    ],
+    "withMax": [
+      "low",
+      "medium",
+      "high",
+      "max"
+    ]
+  },
+  "familyDefault": {
+    "defaultLevel": "high",
+    "otherwisePreferLevel": "medium",
+    "absenceOfMediumFallsBackToFirst": true
+  },
   "placeholderRecovery": {
     "stored": "antigravity:claude-opus-5-5-disabled",
     "accountDefault": "antigravity:gemini-3.8-flash-high",
