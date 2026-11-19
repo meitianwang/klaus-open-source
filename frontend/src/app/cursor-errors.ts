@@ -28,6 +28,7 @@ const CURSOR_ERROR_KEYS: Record<string, string> = {
   cursor_subscription_required: 'cursor_model_plan_required',
   cursor_usage_pricing_required: 'cursor_model_plan_required',
   cursor_usage_limit: 'cursor_model_usage_limit',
+  cursor_rate_limit: 'cursor_rate_limited',
   cursor_client_update_required: 'cursor_connection_update_required',
   cursor_provider_credentials_invalid: 'cursor_model_service_unavailable',
   cursor_image_too_large: 'cursor_image_too_large',

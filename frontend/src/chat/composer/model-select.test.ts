@@ -387,7 +387,7 @@ describe('Shared reasoning and Fast controls select native account models', () =
     expect(cursorVariantForMaxMode(tierFamily, variants[1]!.value, true)!.value).toBe(variants[0]!.value)
     // A saved non-max member resolves to itself even when the family default is
     // the max projection: no silent context or max promotion on read.
-    expect(modelOptionForValue([tierFamily], variants[2]!.value).value).toBe(variants[2]!.value)
+    expect(modelOptionForValue([tierFamily], variants[2]!.value)!.value).toBe(variants[2]!.value)
   })
 
   test('boolean native reasoning keeps the existing On and Off labels', () => {
