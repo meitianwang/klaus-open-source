@@ -7,7 +7,7 @@ import fastModeVectors from '../../../../contracts/vectors/codex-fast-mode-vecto
 import antigravityVectors from '../../../../contracts/vectors/antigravity-model-variants.json'
 import cursorVectors from '../../../../contracts/vectors/cursor-grouped-parameters-vectors.json'
 import catalogVectors from '../../../../contracts/vectors/model-catalog-selection-vectors.json'
-import { cursorFastMode, cursorVariantForFast, cursorVariantForThinking, modelOptionForValue, modelOptionIsAntigravity, modelOptionIsSelectable, type CursorModelMetadata } from '../../../../shared/cursor-model-catalog'
+import { cursorFastMode, cursorVariantForFast, cursorVariantForThinking, cursorContextTiers, cursorVariantForContext, cursorMaxMode, cursorVariantForMaxMode, modelOptionForValue, modelOptionIsAntigravity, modelOptionIsSelectable, type CursorModelMetadata } from '../../../../shared/cursor-model-catalog'
 import { createThinkingSelection, createUltraSelection } from './ultra-selection'
 import type { MainModelItem } from './model-select'
 
@@ -342,9 +342,14 @@ describe('Shared reasoning and Fast controls select native account models', () =
       expect(presentation.titleKey).toBe('thinking_level_button_title')
       expect(presentation.label).toBe(I18N[language].thinking_high)
       expect(presentation.showBadge).toBe(true)
-      expect(presentation.rows.map(row => row.value)).toEqual(['high'])
+      // The exact saved member offers every upstream tier its configuration has:
+      // the 200k non-max default keeps its medium rung, which the promoted
+      // max projection used to hide.
+      expect(presentation.rows.map(row => row.value)).toEqual(['medium', 'high'])
       expect(presentation.rows.find(row => row.selected)?.value).toBe('high')
-      expect(selected(family.value).value).toBe(family.cursorVariants[4]!.value)
+      // The saved member is the inference identity: reading it back keeps the
+      // exact variant instead of promoting it to a longer context tier.
+      expect(selected(family.value).value).toBe(family.value)
       expect(mainModelThinkingPresentation(selected(family.cursorVariants[2]!.value), 'high', translate(language)).label).toBe(I18N[language].thinking_medium)
     })
   }
@@ -359,6 +364,30 @@ describe('Shared reasoning and Fast controls select native account models', () =
     const medium = cursorVariantForThinking(family, fast.value, 'medium')!
     expect(medium.parameters.fast).toBe('true')
     expect(medium.parameters.context).toBe(fast.parameters.context)
+  })
+
+  test('context tiers and Max mode switch exact variants without re-promoting saved selections', () => {
+    const variants = [
+      { value: 'cursor:fixture[context=500k,fast=true,reasoning_effort=high]@max', label: 'Fixture High Fast Max', parameters: { context: '500k', fast: 'true', reasoning_effort: 'high' }, maxMode: true, isDefault: true },
+      { value: 'cursor:fixture[context=500k,fast=true,reasoning_effort=high]', label: 'Fixture High Fast 500K', parameters: { context: '500k', fast: 'true', reasoning_effort: 'high' }, maxMode: false },
+      { value: 'cursor:fixture[context=256k,fast=true,reasoning_effort=high]', label: 'Fixture High Fast 256K', parameters: { context: '256k', fast: 'true', reasoning_effort: 'high' }, maxMode: false },
+    ]
+    const tierFamily = { value: variants[0]!.value, label: 'Fixture', cursorModelId: 'fixture', cursorVariants: variants, cursorParameterDefinitions: [{ id: 'context', name: 'Context', type: 'enum' as const, values: [{ value: '256k', displayName: '256K' }, { value: '500k', displayName: '500K', increasesModelCost: true }] }] }
+    // Tiers follow the upstream definition order for the current effort/speed/max.
+    expect(cursorContextTiers(tierFamily, variants[1]!.value)).toEqual(['256k', '500k'])
+    const shortened = cursorVariantForContext(tierFamily, variants[1]!.value, '256k')!
+    expect(shortened.value).toBe(variants[2]!.value)
+    expect(shortened.parameters.reasoning_effort).toBe('high')
+    expect(shortened.parameters.fast).toBe('true')
+    expect(shortened.maxMode).toBe(false)
+    // Max mode is its own projection: parameters stay identical, and the control
+    // disappears when the current configuration has no max projection.
+    expect(cursorMaxMode(tierFamily, variants[1]!.value)).toEqual({ enabled: false, supported: true })
+    expect(cursorVariantForMaxMode(tierFamily, variants[2]!.value, true)).toBeUndefined()
+    expect(cursorVariantForMaxMode(tierFamily, variants[1]!.value, true)!.value).toBe(variants[0]!.value)
+    // A saved non-max member resolves to itself even when the family default is
+    // the max projection: no silent context or max promotion on read.
+    expect(modelOptionForValue([tierFamily], variants[2]!.value).value).toBe(variants[2]!.value)
   })
 
   test('boolean native reasoning keeps the existing On and Off labels', () => {

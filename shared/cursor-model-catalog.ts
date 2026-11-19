@@ -49,19 +49,6 @@ function nativeLevel(variant: CursorModelVariant): string | undefined {
   return undefined;
 }
 
-function nonContextSignature(variant: CursorModelVariant): string {
-  return Object.keys(variant.parameters).filter(key => key !== 'context').sort()
-    .map(key => `${key}=${variant.parameters[key]}`).join('\0');
-}
-
-/** Keep effort and speed, and use the longest context tier that combination offers. */
-export function cursorMaxContextVariant(model: CursorModelMetadata | null | undefined, variant: CursorModelVariant | undefined): CursorModelVariant | undefined {
-  if (!variant || !model?.cursorVariants?.length) return variant;
-  const signature = nonContextSignature(variant);
-  return model.cursorVariants.reduce((best, candidate) => nonContextSignature(candidate) === signature
-    && (candidate.contextTokens ?? 0) > (best.contextTokens ?? 0) ? candidate : best, variant);
-}
-
 function compatible(current: CursorModelVariant, candidate: CursorModelVariant, changed: ReadonlySet<string>): boolean {
   return [...new Set([...Object.keys(current.parameters), ...Object.keys(candidate.parameters)])]
     .every(key => changed.has(key) || current.parameters[key] === candidate.parameters[key]);
@@ -109,6 +96,42 @@ export function cursorVariantForThinkingAndFast(model: CursorModelMetadata | nul
 export function cursorFastMode(model: CursorModelMetadata | null | undefined, selection: string): { enabled: boolean; supported: boolean } {
   const enabled = cursorVariant(model, selection)?.parameters.fast === 'true';
   return { enabled, supported: cursorVariantForFast(model, selection, !enabled) !== undefined };
+}
+
+/** Context tiers the catalog offers for the current effort/speed/max combination, in upstream definition order. */
+export function cursorContextTiers(model: CursorModelMetadata | null | undefined, selection: string): string[] {
+  const current = cursorVariant(model, selection);
+  if (!current || !model || current.parameters.context === undefined) return [];
+  const available = (model.cursorVariants ?? []).filter(candidate => compatible(current, candidate, new Set(['context'])))
+    .map(candidate => candidate.parameters.context)
+    .filter((tier): tier is string => typeof tier === 'string');
+  const declared = (model.cursorParameterDefinitions ?? []).find(definition => definition.id === 'context')?.values.map(value => value.value) ?? [];
+  const ordered = declared.filter(value => available.includes(value));
+  for (const value of available) if (!ordered.includes(value)) ordered.push(value);
+  return ordered;
+}
+
+export function cursorVariantForContext(model: CursorModelMetadata | null | undefined, selection: string, tier: string): CursorModelVariant | undefined {
+  const current = cursorVariant(model, selection);
+  if (!current || !model || current.parameters.context === undefined) return undefined;
+  return uniqueTarget(current, (model.cursorVariants ?? []).filter(candidate => candidate.parameters.context === tier
+    && compatible(current, candidate, new Set(['context']))));
+}
+
+/** Max mode is a variant projection flag, not a parameter: same parameters, other projection. */
+export function cursorMaxMode(model: CursorModelMetadata | null | undefined, selection: string): { enabled: boolean; supported: boolean } {
+  const current = cursorVariant(model, selection);
+  if (!current || !model) return { enabled: false, supported: false };
+  const supported = (model.cursorVariants ?? []).some(candidate => candidate.maxMode !== current.maxMode
+    && compatible(candidate, current, new Set()));
+  return { enabled: current.maxMode, supported };
+}
+
+export function cursorVariantForMaxMode(model: CursorModelMetadata | null | undefined, selection: string, enabled: boolean): CursorModelVariant | undefined {
+  const current = cursorVariant(model, selection);
+  if (!current || !model) return undefined;
+  return uniqueTarget(current, (model.cursorVariants ?? []).filter(candidate => candidate.maxMode === enabled
+    && compatible(candidate, current, new Set())));
 }
 
 function record(value: unknown): Record<string, unknown> {
@@ -196,7 +219,9 @@ export function modelOptionForValue<T>(options: readonly T[], value: string): T 
   if (kiro) return kiro;
   const row = record(found), metadata = pickCursorModelMetadata(row);
   const qualified = value.startsWith('cursor:') ? value : `cursor:${value}`;
-  const variant = cursorMaxContextVariant(metadata, metadata.cursorVariants?.find(variant => variant.value === qualified));
+  // The saved member is the inference identity: context tier and max mode stay
+  // exactly as stored instead of being re-promoted to a longer tier.
+  const variant = metadata.cursorVariants?.find(candidate => candidate.value === qualified);
   if (!variant) return found;
   const selected = { ...row };
   if (typeof row.value === 'string') selected.value = variant.value;

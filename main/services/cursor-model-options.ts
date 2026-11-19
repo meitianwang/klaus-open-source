@@ -1,5 +1,5 @@
 import type { CursorModelVariant, CursorParameterDefinition } from '../../shared/cursor-model-catalog';
-import { cursorMaxContextVariant, modelOptionForValue, type CursorModelMetadata } from '../../shared/cursor-model-catalog';
+import { modelOptionForValue } from '../../shared/cursor-model-catalog';
 import { object, string, type JsonObject } from './service-types';
 
 /** Group presentation only; every member retains its exact inference selection. */
@@ -30,8 +30,9 @@ export function cursorModelOptions(entries: JsonObject[], options: JsonObject[])
     if (Array.isArray(entry.parameterDefinitions) && !family.definitions.length) family.definitions = entry.parameterDefinitions as unknown as CursorParameterDefinition[];
   }
   return [...families.entries()].map(([modelId, family]) => {
-    const baseline = family.variants.find(variant => variant.isDefault) ?? family.variants[0]!;
-    const representative = cursorMaxContextVariant({ cursorVariants: family.variants } as CursorModelMetadata, baseline)!;
+    // The family row represents the catalog's own default member as stored:
+    // context tier and max mode are part of that identity, not a promotion target.
+    const representative = family.variants.find(variant => variant.isDefault) ?? family.variants[0]!;
     const row = byValue.get(representative.value)!;
     const grouped = { ...row, label: family.name,
       ...(row.description === representative.label ? { description: family.name } : {}), cursorModelId: modelId,

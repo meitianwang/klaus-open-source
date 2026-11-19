@@ -1,6 +1,6 @@
 import { visibleAntigravityModelOptions } from '../../../../shared/antigravity-presentation'
 import { type FastModeMetadata, type FastModeState } from '../../../../shared/model-fast-mode'
-import { modelOptionIsAntigravity, modelOptionIsSelectable, cursorFastMode, cursorThinkingLevel, cursorThinkingLevels, modelOptionHasValue, modelOptionForValue, modelOptionsForValue, type CursorModelMetadata } from '../../../../shared/cursor-model-catalog'
+import { modelOptionIsAntigravity, modelOptionIsSelectable, cursorFastMode, cursorThinkingLevel, cursorThinkingLevels, cursorContextTiers, cursorVariantForContext, cursorMaxMode, cursorVariantForMaxMode, cursorVariant, modelOptionHasValue, modelOptionForValue, modelOptionsForValue, type CursorModelMetadata } from '../../../../shared/cursor-model-catalog'
 import { antigravityThinkingLevel, antigravityThinkingLevels, isAntigravityHarnessAlias, type AntigravityModelMetadata } from '../../../../shared/antigravity-model-catalog'
 import { traeThinkingLevel, traeThinkingLevels, traeThinkingLabel, type TraeModelMetadata } from '../../../../shared/trae-model-catalog'
 import { isKiroRoutingAlias, kiroThinkingLevel, kiroThinkingLevels, kiroThinkingLabel, type KiroModelMetadata } from '../../../../shared/kiro-model-catalog'
@@ -244,8 +244,9 @@ interface ModelSelectState {
   fastModeBilling?: FastModeState['billing']
   fastModePending: boolean
   open: boolean
-  // 子菜单只存开关：锚点是主面板里的「推理强度」行，定位时按 ref 现取。
+  // 子菜单只存开关：锚点是主面板里的配置行，定位时按 ref 现取。
   submenuOpen: boolean
+  submenuKind: 'thinking' | 'context' | 'max'
   runtime: ComposerInferenceState | null
 }
 
@@ -380,6 +381,11 @@ export function fastModeIconName(enabled: boolean): 'tc-lightning' | 'tc-lightni
   return enabled ? 'tc-lightning-fill' : 'tc-lightning'
 }
 
+function cursorContextTierLabel(item: MainModelItem | null, tier: string): string {
+  const definition = item?.cursorParameterDefinitions?.find(entry => entry.id === 'context')
+  return definition?.values.find(entry => entry.value === tier)?.displayName || tier
+}
+
 function ModelSelectMenu({ store, onEmptyClick, saveModel, saveThinkingLevel, saveUltraMode, saveFastMode, rootEl, titleKey, title }: {
   store: StoreApi<ModelSelectState>
   onEmptyClick?: () => void
@@ -406,6 +412,7 @@ function ModelSelectMenu({ store, onEmptyClick, saveModel, saveThinkingLevel, sa
   const fastModeBilling = useStore(store, s => s.fastModeBilling)
   const open = useStore(store, s => s.open)
   const submenuOpen = useStore(store, s => s.submenuOpen)
+  const submenuKind = useStore(store, s => s.submenuKind)
   const runtime = useStore(store, s => s.runtime)
   // A failed publication is announced ONCE per change: the toast is the whole
   // surface now, and re-announcing on every re-render or session switch would
@@ -422,6 +429,8 @@ function ModelSelectMenu({ store, onEmptyClick, saveModel, saveThinkingLevel, sa
   const submenuRef = useRef<HTMLDivElement>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
   const thinkingRowRef = useRef<HTMLButtonElement>(null)
+  const contextRowRef = useRef<HTMLButtonElement>(null)
+  const maxRowRef = useRef<HTMLButtonElement>(null)
   // refresh() 强制重渲（语言切换后 tt 输出变化）。
   const [, force] = useState(0)
   ;(store as any).__forceRender = () => force(v => v + 1)
@@ -429,6 +438,10 @@ function ModelSelectMenu({ store, onEmptyClick, saveModel, saveThinkingLevel, sa
   const selectedItem = modelOptionForValue(items, value) || null
   const visibleItems = visibleAntigravityModelOptions(modelOptionsForValue(items, value))
   const cursorFast = cursorFastMode(selectedItem, value)
+  const cursorContexts = value.startsWith('cursor:') ? cursorContextTiers(selectedItem, value) : []
+  const cursorMax = value.startsWith('cursor:') ? cursorMaxMode(selectedItem, value) : { enabled: false, supported: false }
+  const contextRowVisible = cursorContexts.length > 1
+  const maxRowVisible = cursorMax.supported
   const shownFastMode = value.startsWith('cursor:') && !fastModePending ? cursorFast.enabled : fastMode
   const supportsFastMode = value.startsWith('cursor:') ? cursorFast.supported : fastModeSupported && selectedItem?.supportsFastMode === true
   const levels = mainModelThinkingLevels(selectedItem)
@@ -436,7 +449,14 @@ function ModelSelectMenu({ store, onEmptyClick, saveModel, saveThinkingLevel, sa
   const thinkingRowVisible = !loading && thinkingPresentation.rows.length > 0
 
   const close = () => store.setState({ open: false, submenuOpen: false })
-  const submenuVisible = modelSelectSubmenuVisible(open, submenuOpen, thinkingRowVisible)
+  const submenuAnchorVisible = submenuKind === 'context' ? contextRowVisible : submenuKind === 'max' ? maxRowVisible : thinkingRowVisible
+  const submenuVisible = modelSelectSubmenuVisible(open, submenuOpen, submenuAnchorVisible)
+  const submenuRows = submenuKind === 'context'
+    ? cursorContexts.map(tier => ({ value: tier, label: cursorContextTierLabel(selectedItem, tier), selected: tier === cursorVariant(selectedItem, value)?.parameters.context }))
+    : submenuKind === 'max'
+      ? [{ value: 'on', label: tt('cursor_max_on'), selected: cursorMax.enabled }, { value: 'off', label: tt('cursor_max_off'), selected: !cursorMax.enabled }]
+      : thinkingPresentation.rows.map(row => ({ value: row.value, label: row.label, selected: row.selected }))
+  const submenuDisabled = submenuKind === 'thinking' ? thinkingPending || ultraPending : false
 
   // A pending conversation has no model to name yet. Remove the trigger from
   // the composer instead of keeping a placeholder where the previous
@@ -455,6 +475,20 @@ function ModelSelectMenu({ store, onEmptyClick, saveModel, saveThinkingLevel, sa
     if (!isThinkingLevelForModel(selectedItem, level) || thinkingPending) return
     // The host saves the native rung and exit from Ultra as one selection.
     await saveThinkingLevel(level)
+  }
+
+  // Context tier and Max mode are exact variant identities: switching saves the
+  // concrete member instead of re-deriving it from the family default.
+  const chooseContextTier = async (tier: string) => {
+    const variant = cursorVariantForContext(selectedItem, value, tier)
+    if (!variant || variant.value === value) return
+    await saveModel(variant.value)
+  }
+
+  const chooseMaxMode = async (enabled: boolean) => {
+    const variant = cursorVariantForMaxMode(selectedItem, value, enabled)
+    if (!variant || variant.value === value) return
+    await saveModel(variant.value)
   }
 
   // 外点/Escape/滚动关闭（对齐旧版三监听；root 内滚动不关）。
@@ -506,7 +540,7 @@ function ModelSelectMenu({ store, onEmptyClick, saveModel, saveThinkingLevel, sa
   useEffect(() => {
     const submenu = submenuRef.current
     const panel = panelRef.current
-    const anchor = thinkingRowRef.current
+    const anchor = submenuKind === 'context' ? contextRowRef.current : submenuKind === 'max' ? maxRowRef.current : thinkingRowRef.current
     if (!submenuVisible || !submenu || !panel || !anchor) return
     const anchorRect = anchor.getBoundingClientRect()
     const panelRect = panel.getBoundingClientRect()
@@ -516,19 +550,22 @@ function ModelSelectMenu({ store, onEmptyClick, saveModel, saveThinkingLevel, sa
     submenu.style.left = `${rightLeft + sr.width <= window.innerWidth - 8 ? rightLeft : Math.max(8, leftLeft)}px`
     submenu.style.top = `${Math.min(Math.max(8, anchorRect.top), Math.max(8, window.innerHeight - sr.height - 8))}px`
     submenu.style.right = 'auto'
-  }, [submenuVisible, items, value, thinkingLevel])
+  }, [submenuVisible, submenuKind, items, value, thinkingLevel])
 
   const thinkingRowLabel = thinkingPresentation.showBadge ? thinkingPresentation.label : ''
 
   if (loading) return null
 
   const modelLabel = mainModelSelectionLabel(items, value, tt, unavailable)
+  // Max mode is part of the serving identity; the trigger names it so the
+  // composer never hides which projection a turn will use.
+  const triggerModelLabel = cursorMax.enabled ? `${modelLabel} Max` : modelLabel
   // 触发器只显示模型 + 当前档位；含义由面板内「推理强度」行自解释。
   // 模型无任何可推理档（如 qoder 非 reasoning 模型）时不挂档位角标。
   const triggerHtml = (supportsFastMode || cursorFast.enabled
       ? `<span class="${styles['main-model-trigger-fast']}" role="img" aria-label="${escapeHtml(tt('codex_fast_mode'))}">${rawIconHtml(fastModeIconName(shownFastMode), { size: 12 })}</span>`
       : '')
-    + `<span class="${styles['main-model-trigger-model']}">${escapeHtml(modelLabel)}</span>`
+    + `<span class="${styles['main-model-trigger-model']}">${escapeHtml(triggerModelLabel)}</span>`
     + (!thinkingRowLabel ? '' : `<span class="${styles['main-model-trigger-thinking']}">${escapeHtml(thinkingRowLabel)}</span>`)
 
 
@@ -617,13 +654,59 @@ function ModelSelectMenu({ store, onEmptyClick, saveModel, saveThinkingLevel, sa
               aria-expanded={submenuVisible ? 'true' : 'false'}
               onClick={(event) => {
                 event.stopPropagation()
-                store.setState({ submenuOpen: true })
+                store.setState({ submenuKind: 'thinking', submenuOpen: true })
               }}
-              onMouseEnter={() => store.setState({ submenuOpen: true })}
+              onMouseEnter={() => store.setState({ submenuKind: 'thinking', submenuOpen: true })}
             >
               <span className="kls-select-item-copy">
                 <span className="kls-select-item-label">{tt(thinkingPresentation.titleKey)}</span>
                 {thinkingRowLabel ? <span className="kls-select-item-desc">{thinkingRowLabel}</span> : null}
+              </span>
+              <span className={styles['main-model-submenu-caret']} aria-hidden="true">›</span>
+            </button>
+          </>
+        )}
+        {contextRowVisible && (
+          <>
+            <div className={styles['main-model-menu-separator']} />
+            <button
+              type="button"
+              className={`kls-select-item ${styles['main-model-submenu-row']}`}
+              ref={contextRowRef}
+              aria-haspopup="menu"
+              aria-expanded={submenuVisible && submenuKind === 'context' ? 'true' : 'false'}
+              onClick={(event) => {
+                event.stopPropagation()
+                store.setState({ submenuKind: 'context', submenuOpen: true })
+              }}
+              onMouseEnter={() => store.setState({ submenuKind: 'context', submenuOpen: true })}
+            >
+              <span className="kls-select-item-copy">
+                <span className="kls-select-item-label">{tt('cursor_context_row')}</span>
+                <span className="kls-select-item-desc">{cursorContextTierLabel(selectedItem, cursorVariant(selectedItem, value)?.parameters.context ?? '')}</span>
+              </span>
+              <span className={styles['main-model-submenu-caret']} aria-hidden="true">›</span>
+            </button>
+          </>
+        )}
+        {maxRowVisible && (
+          <>
+            <div className={styles['main-model-menu-separator']} />
+            <button
+              type="button"
+              className={`kls-select-item ${styles['main-model-submenu-row']}`}
+              ref={maxRowRef}
+              aria-haspopup="menu"
+              aria-expanded={submenuVisible && submenuKind === 'max' ? 'true' : 'false'}
+              onClick={(event) => {
+                event.stopPropagation()
+                store.setState({ submenuKind: 'max', submenuOpen: true })
+              }}
+              onMouseEnter={() => store.setState({ submenuKind: 'max', submenuOpen: true })}
+            >
+              <span className="kls-select-item-copy">
+                <span className="kls-select-item-label">{tt('cursor_max_row')}</span>
+                <span className="kls-select-item-desc">{cursorMax.enabled ? tt('cursor_max_on') : tt('cursor_max_off')}</span>
               </span>
               <span className={styles['main-model-submenu-caret']} aria-hidden="true">›</span>
             </button>
@@ -636,19 +719,21 @@ function ModelSelectMenu({ store, onEmptyClick, saveModel, saveThinkingLevel, sa
         ref={submenuRef}
         role="menu"
       >
-        {thinkingPresentation.rows.map(row => {
+        {submenuRows.map(row => {
           const selected = row.selected
           return (
             <button
               key={row.value}
               type="button"
-              disabled={thinkingPending || ultraPending}
+              disabled={submenuDisabled}
               role="menuitemradio"
               aria-checked={selected}
               className={`kls-select-item${selected ? ' is-selected' : ''}`}
               onClick={(event) => {
                 event.stopPropagation()
-                void chooseThinkingLevel(row.value)
+                if (submenuKind === 'context') void chooseContextTier(row.value)
+                else if (submenuKind === 'max') void chooseMaxMode(row.value === 'on')
+                else void chooseThinkingLevel(row.value)
               }}
             >
               <span className="kls-select-item-copy">
@@ -694,6 +779,7 @@ export function mountModelSelect(
     fastModePending: false,
     open: false,
     submenuOpen: false,
+    submenuKind: 'thinking',
     runtime: null,
   })) as StoreApi<ModelSelectState>
   const sessionId = () => modelSelectSessionId(getSessionId?.())
