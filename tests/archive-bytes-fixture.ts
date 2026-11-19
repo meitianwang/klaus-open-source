@@ -1,13 +1,6 @@
 import { createHash } from 'node:crypto';
 
 export function sha256(bytes: Buffer): string { return createHash('sha256').update(bytes).digest('hex'); }
-/** A valid GGUF v3 language tensor with four f32 elements, independent of the reader. */
-export function gguf(architecture = 'llama', payloadBytes = 16): Buffer {
-  const values: Buffer[] = [], u32 = (n: number): void => { const b = Buffer.alloc(4); b.writeUInt32LE(n); values.push(b); }, u64 = (n: number): void => { const b = Buffer.alloc(8); b.writeBigUInt64LE(BigInt(n)); values.push(b); }, text = (s: string): void => { u64(Buffer.byteLength(s)); values.push(Buffer.from(s)); };
-  values.push(Buffer.from('GGUF')); u32(3); u64(1); u64(1); text('general.architecture'); u32(8); text(architecture);
-  text('token_embd.weight'); u32(1); u64(4); u32(0); u64(0);
-  const header = Buffer.concat(values); return Buffer.concat([header, Buffer.alloc((32 - header.length % 32) % 32), Buffer.alloc(payloadBytes, 1)]);
-}
 /** ZIP STORE fixture, including a central directory and CRC, without invoking the extractor. */
 export function zip(entries: Array<{ name: string; bytes: Buffer; mode?: number }>): Buffer {
   const data: Buffer[] = [], directory: Buffer[] = []; let offset = 0;

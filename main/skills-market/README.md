@@ -161,8 +161,8 @@ Original output:
 extension-market-existing-services: 21 passed, 0 failed, 0 info
 ```
 
-The required preceding slices are the local-model download/archive dependencies
-and services (`f00f045b`, `d2b3bf1c`). This slice adds no package or lock changes.
+The formerly required preceding slices (`f00f045b`, `d2b3bf1c`) belonged to the
+retired on-device model tree and no longer apply. This slice adds no package or lock changes.
 Runtime wiring and production UI acceptance remain with the integration owner.
 Final packaging, signing, and two-version updater verification remain a later P5
 gate after the complete application source is stable.

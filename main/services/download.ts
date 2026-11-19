@@ -3,8 +3,8 @@ import { constants, createReadStream, lstatSync } from 'node:fs';
 import { mkdir, open, rename, rm, stat } from 'node:fs/promises';
 import { dirname, extname, join, relative, resolve, sep, isAbsolute } from 'node:path';
 
-// Path guards shared with the retired local-model tree: downloads land inside
-// an owner directory that must not be escaped or redirected through symlinks.
+// Path guards: downloads land inside an owner directory that must not be
+// escaped or redirected through symlinks.
 function inside(root: string, path: string): boolean {
   const rel = relative(root, path);
   return rel === '' || (!isAbsolute(rel) && rel !== '..' && !rel.startsWith('..' + sep));
