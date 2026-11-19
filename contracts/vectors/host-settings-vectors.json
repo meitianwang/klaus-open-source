@@ -129,11 +129,6 @@
         "provider": "openai-compatible",
         "apiKey": "k"
       },
-      {},
-      {
-        "provider": "local",
-        "localModel": "z-image-turbo"
-      },
       {}
     ],
     "set": [
@@ -255,31 +250,6 @@
           "baseUrl": 42,
           "apiKey": true,
           "model": null
-        },
-        "raw": "{}",
-        "result": {
-          "ok": true,
-          "config": {}
-        }
-      },
-      {
-        "config": {
-          "provider": "local",
-          "localModel": " z-image-turbo "
-        },
-        "raw": "{\"provider\":\"local\",\"localModel\":\"z-image-turbo\"}",
-        "result": {
-          "ok": true,
-          "config": {
-            "provider": "local",
-            "localModel": "z-image-turbo"
-          }
-        }
-      },
-      {
-        "config": {
-          "provider": "local",
-          "localModel": ""
         },
         "raw": "{}",
         "result": {

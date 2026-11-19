@@ -169,12 +169,12 @@ describe('model source switching', () => {
 describe('host owned tier mappings', () => {
   const cases = [
     {
-      name: 'shows the host migrated local tier map',
-      persisted: '{"high":"local-high","medium":"local-medium","low":"local-low"}',
-      expected: { high: 'local-high', medium: 'local-medium', low: 'local-low' },
+      name: 'shows the host persisted tier map',
+      persisted: '{"high":"tier-high","medium":"tier-medium","low":"tier-low"}',
+      expected: { high: 'tier-high', medium: 'tier-medium', low: 'tier-low' },
     },
-    { name: 'preserves an explicitly cleared map even when legacy keys exist', persisted: '{}', expected: {} },
-    { name: 'does not interpret legacy keys when the host has no tier map', persisted: null, expected: {} },
+    { name: 'preserves an explicitly cleared map', persisted: '{}', expected: {} },
+    { name: 'does not fabricate tiers when the host has no tier map', persisted: null, expected: {} },
   ]
   for (const row of cases) {
     test(row.name, async () => {
@@ -185,14 +185,14 @@ describe('host owned tier mappings', () => {
         settingsApi: { kv: {
           get: async (key: string) => {
             reads.push(key)
-            return key === 'model_tiers:local' ? row.persisted : 'legacy-model'
+            return key === 'model_tiers:codex' ? row.persisted : 'legacy-model'
           },
           set: async () => { throw new Error('The renderer must not migrate model settings') },
         } },
       }
       try {
-        expect(await loadSourceTierMappings('local')).toEqual(row.expected)
-        expect(reads).toEqual(['model_tiers:local'])
+        expect(await loadSourceTierMappings('codex')).toEqual(row.expected)
+        expect(reads).toEqual(['model_tiers:codex'])
       } finally {
         global.window = previousWindow
       }

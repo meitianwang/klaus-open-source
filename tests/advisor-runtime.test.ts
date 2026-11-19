@@ -65,8 +65,6 @@ export function registerAdvisorRuntimeTests(h: Harness, freshRoot: () => string)
     assertEqual(object(broken.setAdvisor({ enabled: false, model: 'legacy' })).ok, true, 'a panel can disable the invalid choice it already displays');
     assertEqual(broken.getAdvisorTarget(), null, 'disabling a bad choice still clears the runtime target');
     assertEqual(object(broken.setAdvisor({ enabled: true })).error, 'advisor_model_invalid', 'invalid preserved choice cannot be re-enabled');
-    const retired = freshRoot(); kvSet('advisor.model.local', 'local:old', retired); kvSet('advisor.enabled.local', '1', retired);
-    assertEqual(object(new ModelFeatureSettings(retired).getAdvisor()).model, 'local:old', 'retired qualified identity is not prefixed twice');
   });
 
   h.test('Advisor disable preserves its choice while explicit clear and re-enable stay atomic', () => {

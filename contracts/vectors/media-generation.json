@@ -228,7 +228,6 @@
       "selectionAfterConfigMigration": "custom",
       "selectionWithoutAnyConfig": "custom",
       "legacyPerSourceRowsRemainInert": true,
-      "retiredLocalRowsMigrate": true,
       "videoMigration": {
         "selectionAfterConfigMigration": "none",
         "selectionWithoutAnyConfig": "none",
@@ -274,44 +273,6 @@
       "sourceSwitchGuessesCatalogHead": false
     }
   },
-  "retiredLocalConfigReason": "Keep stored local generation choices visible as unavailable when the custom backend is selected. An unselected retired configuration must not block an explicitly selected subscription. Selecting a subscription preserves the retired row; only an explicit save or clear replaces it.",
-  "retiredLocalConfigs": [
-    {
-      "kind": "image",
-      "source": "codex",
-      "stored": {
-        "provider": "local",
-        "localModel": " old-image "
-      },
-      "projection": {
-        "provider": "local",
-        "localModel": "old-image"
-      }
-    },
-    {
-      "kind": "image",
-      "source": "qoder",
-      "stored": {
-        "provider": "local",
-        "localModel": "old-qoder-image"
-      },
-      "projection": {
-        "provider": "local",
-        "localModel": "old-qoder-image"
-      }
-    },
-    {
-      "kind": "image",
-      "source": "codex",
-      "stored": {
-        "provider": "local",
-        "localModel": ""
-      },
-      "projection": {
-        "provider": "local"
-      }
-    }
-  ],
   "minimaxVideo": {
     "reason": "The plan's video model is an async task route that shares almost no wire with the OpenAI one: a submit that answers a task id, a poll nested under `task`, `succeeded` rather than `completed` as the success word, and a download URL in the payload instead of a content sub-resource. Its enum values are pinned from the service's own validation errors rather than from prose, because a rejected keyword fails a task AFTER it was accepted and started spending allowance.",
     "input": {

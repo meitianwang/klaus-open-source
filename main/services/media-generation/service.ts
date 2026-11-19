@@ -111,7 +111,6 @@ export class MediaGenerationService {
       // so a saved custom endpoint must never redirect or block it; only the `custom`
       // selection reads the stored endpoint row.
       let config: JsonObject = cursor || nativeSource || kind === 'image' && selection !== 'custom' ? {} : object(this.deps.features.getMedia(kind, { source: selection })); current();
-      if (selection === 'custom' && config.provider === 'local') throw new MediaGenerationError('Local media generation is unavailable in this version. Open Settings → Multimodal Models and configure a custom provider or explicitly clear the saved local configuration.');
       if (string(config.apiKey)) secrets.push(string(config.apiKey));
       const milliseconds = kind === 'image' ? this.deps.deadlines?.image ?? LIMITS.imageMs
         : kind === 'video' ? this.deps.deadlines?.video ?? LIMITS.videoMs

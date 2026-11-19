@@ -142,8 +142,8 @@ void (async () => {
       // keeps using the one-shot `engine.fileSearch` read, so all three are
       // excluded from the control surface rather than exposed to it.
       // Async questions keep their renderer-only recovery/answer channels.
-      // Codex Fast adds two composer channels; retiring on-device management
-      // removes eight channels, leaving 456 registered invokes.
+      // Codex Fast adds two composer channels, bringing the registry to 456
+      // registered invokes.
       // 460 adds the four `media:*` image-delivery channels (read/save/copy/
       // reveal) behind the UI-verification screenshot delivery work. They are
       // renderer-only transport for pictures the agent already produced — each

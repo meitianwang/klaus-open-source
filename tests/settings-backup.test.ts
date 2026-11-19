@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { DatabaseSync } from 'node:sqlite';
 import { ensureSettingsBackup, inspectSettingsBackup, restoreSettingsBackup } from '../main/app/settings-backup';
-import { isFailure, kvGet, kvSet, kvSnapshot } from '../main/services/settings';
+import { kvGet, kvSet } from '../main/services/settings';
 import { Harness } from './harness';
 
 const h = new Harness(), roots: string[] = [];
@@ -16,7 +16,7 @@ function fixture() {
 function seed(path: string) {
   const db = new DatabaseSync(path);
   db.exec("PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=0; PRAGMA user_version=7; CREATE TABLE settings(key TEXT PRIMARY KEY,value TEXT NOT NULL); CREATE TABLE future_metadata(id INTEGER PRIMARY KEY, value BLOB); PRAGMA wal_checkpoint(TRUNCATE)");
-  db.exec("BEGIN IMMEDIATE; INSERT INTO settings VALUES ('language','zh'),('local_model_role:opus',' legacy-large '); INSERT INTO future_metadata VALUES (1,x'000102ff'); COMMIT");
+  db.exec("BEGIN IMMEDIATE; INSERT INTO settings VALUES ('language','zh'),('accent',' legacy-slate '); INSERT INTO future_metadata VALUES (1,x'000102ff'); COMMIT");
   return db;
 }
 const snapshotPath = (profile: string) => join(profile, 'migration-backups', 'electron-settings-v1');
@@ -31,7 +31,6 @@ h.test('the first snapshot includes committed WAL rows and leaves the live datab
     const saved = new DatabaseSync(join(result.directory, 'settings.db'), { readOnly: true });
     try {
       assert.equal(saved.prepare("SELECT value FROM settings WHERE key='language'").get()?.value, 'zh');
-      assert.equal(saved.prepare("SELECT value FROM settings WHERE key='model_tiers:local'").get(), undefined);
       assert.equal(saved.prepare('SELECT hex(value) AS value FROM future_metadata').get()?.value, '000102FF');
     } finally { saved.close(); }
     if (process.platform !== 'win32') {
@@ -93,25 +92,6 @@ if (process.platform !== 'win32') h.test('symlink inputs cannot copy a different
   const outside = join(f.root, 'outside'); mkdirSync(outside); rmSync(join(f.profile, 'migration-backups'), { recursive: true });
   symlinkSync(outside, join(f.profile, 'migration-backups')); await assert.rejects(ensureSettingsBackup(f.profile), /regular directory/);
   assert.deepEqual(readdirSync(outside), []);
-});
-
-const vectors = JSON.parse(readFileSync(join(__dirname, '../../contracts/vectors/local-model-tier-migration.json'), 'utf8')) as Array<{
-  name: string; rows: Record<string, string>; expected?: Record<string, string>; expectedRaw?: string;
-}>;
-for (const vector of vectors) h.test(`local model tier migration: ${vector.name}`, () => {
-  const f = fixture();
-  for (const [key, value] of Object.entries(vector.rows)) assert.equal(kvSet(key, value, f.profile), true);
-  const value = kvGet('model_tiers:local', f.profile);
-  if (vector.expectedRaw !== undefined) assert.equal(value, vector.expectedRaw);
-  else assert.deepEqual(JSON.parse(value as string), vector.expected);
-  assert.equal(kvGet('model_tiers:local', f.profile), value);
-  for (const [key, expected] of Object.entries(vector.rows)) assert.equal(kvGet(key, f.profile), expected);
-});
-h.test('runtime settings snapshots migrate retired selections before handing them to the engine', () => {
-  const f = fixture(); kvSet('local_model_role:haiku', ' small ', f.profile);
-  const first = kvSnapshot(f.profile); assert(!isFailure(first)); assert.equal(first['model_tiers:local'], '{"low":"small"}');
-  kvSet('local_model_role:haiku', 'new retired value', f.profile);
-  const second = kvSnapshot(f.profile); assert(!isFailure(second)); assert.equal(second['model_tiers:local'], '{"low":"small"}');
 });
 
 void h.finish(join(__dirname, 'settings-backup-result.json'), 'settings-backup').then(code => {

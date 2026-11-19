@@ -127,11 +127,11 @@ export function readFeatureModelReference(slot: FeatureModelSlot, configRoot = c
 // advisor is one model for the whole app — a chat's source no longer decides
 // which advisor row is in force.
 function migrateAdvisorConfig(db: DatabaseSync): void {
-  const order = [...IMAGE_MIGRATION_ORDER, 'kimi', 'bailian', 'local'];
+  const order = [...IMAGE_MIGRATION_ORDER, 'kimi', 'bailian'];
   const qualify = (model: string, source: string): string => {
     const value = normalizedModelValue(model);
     const separator = value.indexOf(':');
-    const qualified = separator > 0 && [...MODEL_SOURCES, 'local', 'klaus'].includes(value.slice(0, separator));
+    const qualified = separator > 0 && [...MODEL_SOURCES, 'klaus'].includes(value.slice(0, separator));
     return !value || qualified ? value : `${source}:${value}`;
   };
   const saved = get(db, 'advisor.model');
@@ -215,11 +215,6 @@ function media(db: DatabaseSync, kind: MediaKind): JsonObject {
   // Custom endpoint configuration is global and never contains native model preferences.
   const configKey = kind === 'image' ? IMAGE_CONFIG_KEY : kind === 'video' ? VIDEO_CONFIG_KEY : AUDIO_CONFIG_KEY;
   const parsed = decoded(get(db, configKey));
-  // Preserve retired choices for an unavailable notice, without a local writer.
-  if (parsed.provider === 'local') {
-    const localModel = string(parsed.localModel).trim();
-    return { provider: 'local', ...(localModel ? { localModel } : {}) };
-  }
   const result: JsonObject = {};
   // `voice` is audio-only: it names the timbre a speech route must be told to use,
   // and no image or video row ever carries one.
@@ -298,10 +293,8 @@ function hasImageConfig(config: JsonObject): boolean {
 }
 /** The custom backend is selectable only with a stored API key: every shipped
  *  image provider is a cloud endpoint, and a keyless row would offer a
- *  dropdown choice that cannot generate. Migrated local rows keep the global
- *  slot but stay unselectable until re-saved with a key. */
+ *  dropdown choice that cannot generate. */
 export function customImageReady(config: JsonObject): boolean {
-  if (config.provider === 'local') return false;
   return Boolean(string(config.provider)) && Boolean(string(config.apiKey));
 }
 function imageSelection(db: DatabaseSync): string {
@@ -352,15 +345,6 @@ function migrateVideoConfig(db: DatabaseSync): void {
   let winner = 'none';
   for (const source of VIDEO_MIGRATION_ORDER) {
     const parsed = decoded(get(db, mediaKey('video', source)));
-    // Retired local rows migrate too, exactly as the image migration does: the
-    // global slot then answers with the same unavailable notice the per-source
-    // slot used to, instead of silently pretending nothing was ever configured.
-    if (parsed.provider === 'local') {
-      const localModel = string(parsed.localModel).trim();
-      const row: JsonObject = { provider: 'local', ...(localModel ? { localModel } : {}) };
-      if (get(db, VIDEO_CONFIG_KEY) === undefined) put(db, VIDEO_CONFIG_KEY, JSON.stringify(row));
-      break;
-    }
     const result: JsonObject = {};
     for (const key of ['baseUrl', 'apiKey', 'model']) {
       const value = parsed[key];
@@ -385,10 +369,6 @@ function migrateImageConfig(db: DatabaseSync): void {
   if (get(db, IMAGE_SELECTION_KEY) !== undefined) return;
   const legacyImageConfig = (source: string): JsonObject => {
     const parsed = decoded(get(db, mediaKey('image', source)));
-    if (parsed.provider === 'local') {
-      const localModel = string(parsed.localModel).trim();
-      return { provider: 'local', ...(localModel ? { localModel } : {}) };
-    }
     const result: JsonObject = {};
     for (const key of ['baseUrl', 'apiKey', 'model']) {
       const value = parsed[key];
@@ -403,9 +383,6 @@ function migrateImageConfig(db: DatabaseSync): void {
   for (const source of IMAGE_MIGRATION_ORDER) {
     const config = legacyImageConfig(source);
     if (hasImageConfig(config)) {
-      // Retired local rows migrate too: the global slot then answers with the
-      // same unavailable notice the per-source slot used to, instead of
-      // silently pretending nothing was ever configured.
       put(db, IMAGE_CONFIG_KEY, JSON.stringify(config));
       put(db, IMAGE_SELECTION_KEY, 'custom');
       return;

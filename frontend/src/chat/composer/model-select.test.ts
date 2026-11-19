@@ -129,11 +129,11 @@ describe('model selector trigger', () => {
     expect(modelSelectSessionId('   ')).toBeUndefined()
   })
 
-  test('rejects retired official and on-device model values', () => {
+  test('rejects retired official model values and unknown prefixes', () => {
     expect(isMainModelValue('klaus:klaus-standard')).toBe(false)
-    expect(isMainModelValue('local:installed')).toBe(false)
     expect(isMainModelValue('klaus:')).toBe(false)
-    expect(isMainModelValue('local:')).toBe(false)
+    expect(isMainModelValue('retired:installed')).toBe(false)
+    expect(isMainModelValue('retired:')).toBe(false)
   })
 
   test('accepts scoped Qoder models and keeps the QwenWork catalog separate', () => {

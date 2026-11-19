@@ -31,12 +31,11 @@ export const SUBSCRIPTION_VIDEO_SOURCES = ['minimax', 'workbuddy', 'qwenwork', '
 export const SUBSCRIPTION_MUSIC_SOURCES = ['qwenwork'] as const;
 
 /** These defaults describe the shipped generation routes, not a language model catalog. */
-export function configuredMediaModel(kind: MediaModelKind, source: string, config: { model?: unknown; provider?: unknown; localModel?: unknown }): string {
+export function configuredMediaModel(kind: MediaModelKind, source: string, config: { model?: unknown; provider?: unknown }): string {
   if (source === 'none' || source === 'cursor' || source === 'workbuddy' || source === 'antigravity' || source === 'trae') return '';
   if (kind === 'image' && source === 'codex') return 'gpt-image-2';
   // These account services own their image model and do not accept a model argument.
   if (kind === 'image' && source === 'qoder') return '';
-  if (config.provider === 'local') return typeof config.localModel === 'string' ? config.localModel.trim() : '';
   const saved = typeof config.model === 'string' ? config.model.trim() : '';
   if (saved) return saved;
   if (source === 'minimax') return kind === 'video' ? 'MiniMax-H3' : 'speech-2.6-turbo';

@@ -91,7 +91,6 @@ export function kvOpt(key: string, configRoot: string = configRootFrom()): strin
   let db: DatabaseSync | undefined;
   try {
     db = open(configRoot);
-    if (key === 'model_tiers:local') migrateLocalModelTiers(db);
     const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key) as
       | { value: string | number | bigint | Uint8Array | null }
       | undefined;
@@ -124,25 +123,6 @@ function kvPut(db: DatabaseSync, key: string, value: string): void {
     key,
     value,
   );
-}
-
-/** An explicit map, including an empty or malformed one, wins over retired keys. */
-function migrateLocalModelTiers(db: DatabaseSync, createEmpty = true): void {
-  const get = db.prepare('SELECT value FROM settings WHERE key = ?');
-  if (get.get('model_tiers:local')) return;
-  if (!createEmpty && !['opus', 'sonnet', 'haiku'].some(role => get.get(`local_model_role:${role}`))) return;
-  db.exec('BEGIN IMMEDIATE');
-  try {
-    if (!get.get('model_tiers:local')) {
-      const tiers: Record<string, string> = {};
-      for (const [role, tier] of [['opus', 'high'], ['sonnet', 'medium'], ['haiku', 'low']] as const) {
-        const value = get.get(`local_model_role:${role}`)?.value;
-        if (typeof value === 'string' && value.trim()) tiers[tier] = value.trim();
-      }
-      kvPut(db, 'model_tiers:local', JSON.stringify(tiers));
-    }
-    db.exec('COMMIT');
-  } catch (error) { db.exec('ROLLBACK'); throw error; }
 }
 
 /** `kv_del` (`settings.rs:~204-208`). */
@@ -203,7 +183,6 @@ export function kvSnapshot(configRoot: string = configRootFrom()): Record<string
   let db: DatabaseSync | undefined;
   try {
     db = open(configRoot);
-    migrateLocalModelTiers(db, false);
     const rows = db.prepare('SELECT key, value FROM settings').all() as Array<{
       key: string | number | bigint | Uint8Array;
       value: string | number | bigint | Uint8Array;

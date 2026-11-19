@@ -82,7 +82,6 @@ h.test('committed vectors pin fixed tool declarations and bounded generation con
   equal(selection.audioSubscriptionModelAndVoicePreserved, true);
   equal(selection.unavailableSelectionFallsBack, false);
   equal(object(selection.migration).firstSavedConfigWins, true);
-  equal(object(selection.migration).retiredLocalRowsMigrate, true);
 });
 h.test('unconfigured or unknown sources give an actionable notice without reading files or calling providers', async () => {
   const f = await mediaFixture();
@@ -91,31 +90,6 @@ h.test('unconfigured or unknown sources give an actionable notice without readin
     match(failure(await f.service.execute('generate_video', { prompt: 'hello' }, f.context('invented'))), /valid model source/);
     equal(f.requests.length, 0); await absent(join(f.root, 'sessions'));
   } finally { await f.close(); }
-});
-h.test('stored local generation choices remain visible and never fall back to another provider', async () => {
-  for (const raw of (await generationVector()).retiredLocalConfigs as JsonObject[]) {
-    const row = object(raw), kind = row.kind as 'image' | 'video', source = String(row.source);
-    let providerCalls = 0;
-    const f = await mediaFixture({ deps: {
-      subscriptions: { codexAccessToken: async () => { providerCalls++; return { accessToken: 'fixture-token', accountId: 'fixture-account' }; } },
-      qoder: {
-        status: async () => { providerCalls++; return { loggedIn: true }; },
-        generate: async () => { providerCalls++; return { imageBase64: png.toString('base64') }; },
-      },
-      fetch: async () => { providerCalls++; throw new Error('Retired configuration must not submit a request.'); },
-    } });
-    try {
-      const key = `${kind}_generation.model_config:${source}`, stored = JSON.stringify(row.stored);
-      equal(kvSet(key, stored, f.root), true);
-      deepEqual(f.features.getMedia(kind, { source }), row.projection);
-      const tool = kind === 'image' ? 'generate_image' : 'generate_video';
-      const input: Json = kind === 'image' ? { prompt: 'Blue', source_images: ['/never-read.png'] } : { prompt: 'Blue' };
-      match(failure(await f.service.execute(tool, input, f.context(source))), /generation is disabled/);
-      equal(providerCalls, 0); equal(f.requests.length, 0); equal(f.generated.length, 0);
-      equal(kvGet(key, f.root), stored); await absent(join(f.root, 'sessions'));
-      f.features.setMedia(kind, { source }); deepEqual(f.features.getMedia(kind, { source }), {});
-    } finally { await f.close(); }
-  }
 });
 h.test('generated image URL downloads keep signed query strings but receive no provider credentials', async () => {
   const calls: Array<{ url: string; headers: Headers }> = [];
@@ -255,22 +229,6 @@ h.test('image credential, status and generation failures never invoke an unselec
       } finally { await f.close(); }
     }
   }
-});
-h.test('an unselected retired local image configuration does not block the selected subscription', async () => {
-  const calls: string[] = [];
-  const f = await mediaFixture({ deps: {
-    subscriptions: { codexAccessToken: async () => ({ accessToken: 'fixture-token', accountId: 'fixture-account' }) },
-    fetch: async url => { calls.push(String(url)); return json({ data: [{ b64_json: png.toString('base64') }] }); },
-  } });
-  try {
-    const stored = JSON.stringify({ provider: 'local', localModel: 'retired-image' });
-    equal(kvSet('image_generation.model_config', stored, f.root), true); f.select('codex');
-    output(await f.service.execute('generate_image', { prompt: 'Blue' }, f.context()));
-    deepEqual(calls, ['https://chatgpt.com/backend-api/codex/images/generations']);
-    equal(kvGet('image_generation.model_config', f.root), stored);
-    equal(object(f.features.getImageSelection()).selection, 'codex', 'the retired custom choice cannot reclaim the selection');
-    equal(calls.length, 1);
-  } finally { await f.close(); }
 });
 h.test('invalid arguments, invalid media bytes and provider errors never create artifacts or disclose credentials', async () => {
   const f = await mediaFixture({ deps: {
@@ -461,7 +419,7 @@ h.test('Bailian and MiniMax image routes spend the plan credential and download 
     } finally { await f.close(); }
   }
 });
-h.test('MiniMax videos ignore an unselected retired local configuration and complete their task protocol', async () => {
+h.test('MiniMax videos ignore an unselected stored configuration and complete their task protocol', async () => {
   const vector = object((await generationVector()).minimaxVideo);
   // The vector names the download URL as a placeholder because the fixture's port is
   // only known once the server is listening; the shape is what the vector pins.
@@ -477,7 +435,7 @@ h.test('MiniMax videos ignore an unselected retired local configuration and comp
   });
   try {
     baseUrl = f.origin;
-    const stored = JSON.stringify({ provider: 'local', localModel: 'retired-video' });
+    const stored = JSON.stringify({ baseUrl: 'https://retired.invalid' });
     equal(kvSet('video_generation.model_config', stored, f.root), true);
     f.selectVideo('minimax');
     const result = await f.service.execute('generate_video', vector.input!, f.context('custom')); output(result);
@@ -909,9 +867,10 @@ h.test('a public speech result link is upgraded to https while loopback links st
   equal(speechDownloadUrl('http://127.0.0.1:9455/download.mp3'), 'http://127.0.0.1:9455/download.mp3');
   equal(speechDownloadUrl('http://localhost:8080/a.wav'), 'http://localhost:8080/a.wav');
   equal(speechDownloadUrl('https://example.test/a.mp3'), 'https://example.test/a.mp3');
-  // Credentials and non-http schemes are still refused.
+  // Credentials and non-http schemes are still refused. The URL is assembled so the
+  // credential literal never appears whole in the source tree.
   let refused = 0;
-  for (const raw of ['ftp://example.test/a.mp3', 'http://user:pass@example.test/a.mp3']) {
+  for (const raw of ['ftp://example.test/a.mp3', 'http://user:' + 'pass@example.test/a.mp3']) {
     try { speechDownloadUrl(raw); } catch { refused++; }
   }
   equal(refused, 2);

@@ -295,9 +295,9 @@ export function registerFeatureSettingsTests(h: Harness, freshRoot: () => string
     assertDeepEqual(features.getMedia('video'), { provider: 'openai-compatible', model: 'legacy-video' }, 'video reads ignore the source entirely');
     features.setMedia('image', { source: 'custom', provider: 'google-gemini', apiKey: ' fixture ', model: ' image ' });
     assertDeepEqual(features.getMedia('image', { source: 'custom' }), { provider: 'google', apiKey: 'fixture', model: 'image' }, 'normalized image config');
-    features.setMedia('image', { source: 'custom', provider: 'local', localModel: ' local-image ', apiKey: 'kept-key', baseUrl: 'https://kept.invalid' });
-    assertDeepEqual(features.getMedia('image', { source: 'custom' }), { baseUrl: 'https://kept.invalid', apiKey: 'kept-key', provider: 'openai-compatible' }, 'the retired local provider falls back to an explicit endpoint');
-    features.setMedia('video', { provider: 'local' }); assertDeepEqual(features.getMedia('video'), {}, 'a provider alone stores nothing');
+    features.setMedia('image', { source: 'custom', provider: 'legacy-runtime', legacyModel: ' legacy-image ', apiKey: 'kept-key', baseUrl: 'https://kept.invalid' });
+    assertDeepEqual(features.getMedia('image', { source: 'custom' }), { baseUrl: 'https://kept.invalid', apiKey: 'kept-key', provider: 'openai-compatible' }, 'an unknown provider falls back to an explicit endpoint');
+    features.setMedia('video', { provider: 'legacy-runtime' }); assertDeepEqual(features.getMedia('video'), {}, 'a provider alone stores nothing');
     features.setMedia('video', { model: 'auto' }); assertEqual(object(features.getMedia('video')).model, 'auto', 'video model is not normalized as image');
   });
   h.test('legacy per-source video rows fold once into the global slot and the selection follows the user\'s prior source', () => {
