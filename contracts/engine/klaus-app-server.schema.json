@@ -327,9 +327,47 @@
             "description": "Schema projection of the closed per-model initialization metadata contract.",
             "type": "object",
             "properties": {
+              "additionalTools": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "autoCompactTokenLimit": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "uint64",
+                "minimum": 0.0
+              },
               "autoReviewModelOverride": {
                 "type": [
                   "string",
+                  "null"
+                ]
+              },
+              "cacheControlFormat": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "cacheControlOnTools": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "cacheScopeSupported": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "cacheTtl1h": {
+                "type": [
+                  "boolean",
                   "null"
                 ]
               },
@@ -380,6 +418,12 @@
                   }
                 ]
               },
+              "explicitPromptCacheMode": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
               "fastMode": {
                 "default": false,
                 "type": "boolean"
@@ -424,6 +468,12 @@
                   }
                 ]
               },
+              "longCacheRetention": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
               "maxMediaBlocks": {
                 "type": [
                   "integer",
@@ -439,6 +489,25 @@
                 ],
                 "format": "uint64",
                 "minimum": 0.0
+              },
+              "mediaInputMimeTypes": {
+                "default": [],
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "midConvoSystemMessages": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "midConvoToolChanges": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
               },
               "modelMessages": {
                 "type": [
@@ -456,6 +525,12 @@
               "multiAgentReasoningEffort": {
                 "type": [
                   "string",
+                  "null"
+                ]
+              },
+              "nativeDeferredTools": {
+                "type": [
+                  "boolean",
                   "null"
                 ]
               },
@@ -485,6 +560,12 @@
                 "default": false,
                 "type": "boolean"
               },
+              "promptCacheKeyMode": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
               "reasoningDialect": {
                 "type": [
                   "string",
@@ -494,6 +575,12 @@
               "requiresSandboxedReview": {
                 "default": false,
                 "type": "boolean"
+              },
+              "sessionAffinityFormat": {
+                "type": [
+                  "string",
+                  "null"
+                ]
               },
               "structuredOutput": {
                 "default": false,
@@ -678,6 +765,10 @@
             "type": "object",
             "properties": {
               "adaptive": {
+                "default": false,
+                "type": "boolean"
+              },
+              "canDisableThinking": {
                 "default": false,
                 "type": "boolean"
               },
@@ -6836,9 +6927,47 @@
             "description": "Schema projection of the closed per-model initialization metadata contract.",
             "type": "object",
             "properties": {
+              "additionalTools": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "autoCompactTokenLimit": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "uint64",
+                "minimum": 0.0
+              },
               "autoReviewModelOverride": {
                 "type": [
                   "string",
+                  "null"
+                ]
+              },
+              "cacheControlFormat": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "cacheControlOnTools": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "cacheScopeSupported": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "cacheTtl1h": {
+                "type": [
+                  "boolean",
                   "null"
                 ]
               },
@@ -6889,6 +7018,12 @@
                   }
                 ]
               },
+              "explicitPromptCacheMode": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
               "fastMode": {
                 "default": false,
                 "type": "boolean"
@@ -6933,6 +7068,12 @@
                   }
                 ]
               },
+              "longCacheRetention": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
               "maxMediaBlocks": {
                 "type": [
                   "integer",
@@ -6948,6 +7089,25 @@
                 ],
                 "format": "uint64",
                 "minimum": 0.0
+              },
+              "mediaInputMimeTypes": {
+                "default": [],
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "midConvoSystemMessages": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "midConvoToolChanges": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
               },
               "modelMessages": {
                 "type": [
@@ -6965,6 +7125,12 @@
               "multiAgentReasoningEffort": {
                 "type": [
                   "string",
+                  "null"
+                ]
+              },
+              "nativeDeferredTools": {
+                "type": [
+                  "boolean",
                   "null"
                 ]
               },
@@ -6994,6 +7160,12 @@
                 "default": false,
                 "type": "boolean"
               },
+              "promptCacheKeyMode": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
               "reasoningDialect": {
                 "type": [
                   "string",
@@ -7003,6 +7175,12 @@
               "requiresSandboxedReview": {
                 "default": false,
                 "type": "boolean"
+              },
+              "sessionAffinityFormat": {
+                "type": [
+                  "string",
+                  "null"
+                ]
               },
               "structuredOutput": {
                 "default": false,
@@ -7170,6 +7348,10 @@
             "type": "object",
             "properties": {
               "adaptive": {
+                "default": false,
+                "type": "boolean"
+              },
+              "canDisableThinking": {
                 "default": false,
                 "type": "boolean"
               },
@@ -11845,9 +12027,47 @@
             "description": "Schema projection of the closed per-model initialization metadata contract.",
             "type": "object",
             "properties": {
+              "additionalTools": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "autoCompactTokenLimit": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "uint64",
+                "minimum": 0.0
+              },
               "autoReviewModelOverride": {
                 "type": [
                   "string",
+                  "null"
+                ]
+              },
+              "cacheControlFormat": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "cacheControlOnTools": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "cacheScopeSupported": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "cacheTtl1h": {
+                "type": [
+                  "boolean",
                   "null"
                 ]
               },
@@ -11898,6 +12118,12 @@
                   }
                 ]
               },
+              "explicitPromptCacheMode": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
               "fastMode": {
                 "default": false,
                 "type": "boolean"
@@ -11942,6 +12168,12 @@
                   }
                 ]
               },
+              "longCacheRetention": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
               "maxMediaBlocks": {
                 "type": [
                   "integer",
@@ -11957,6 +12189,25 @@
                 ],
                 "format": "uint64",
                 "minimum": 0.0
+              },
+              "mediaInputMimeTypes": {
+                "default": [],
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "midConvoSystemMessages": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "midConvoToolChanges": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
               },
               "modelMessages": {
                 "type": [
@@ -11974,6 +12225,12 @@
               "multiAgentReasoningEffort": {
                 "type": [
                   "string",
+                  "null"
+                ]
+              },
+              "nativeDeferredTools": {
+                "type": [
+                  "boolean",
                   "null"
                 ]
               },
@@ -12003,6 +12260,12 @@
                 "default": false,
                 "type": "boolean"
               },
+              "promptCacheKeyMode": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
               "reasoningDialect": {
                 "type": [
                   "string",
@@ -12012,6 +12275,12 @@
               "requiresSandboxedReview": {
                 "default": false,
                 "type": "boolean"
+              },
+              "sessionAffinityFormat": {
+                "type": [
+                  "string",
+                  "null"
+                ]
               },
               "structuredOutput": {
                 "default": false,
@@ -12196,6 +12465,10 @@
             "type": "object",
             "properties": {
               "adaptive": {
+                "default": false,
+                "type": "boolean"
+              },
+              "canDisableThinking": {
                 "default": false,
                 "type": "boolean"
               },
@@ -12582,9 +12855,47 @@
             "description": "Schema projection of the closed per-model initialization metadata contract.",
             "type": "object",
             "properties": {
+              "additionalTools": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "autoCompactTokenLimit": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "uint64",
+                "minimum": 0.0
+              },
               "autoReviewModelOverride": {
                 "type": [
                   "string",
+                  "null"
+                ]
+              },
+              "cacheControlFormat": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "cacheControlOnTools": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "cacheScopeSupported": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "cacheTtl1h": {
+                "type": [
+                  "boolean",
                   "null"
                 ]
               },
@@ -12635,6 +12946,12 @@
                   }
                 ]
               },
+              "explicitPromptCacheMode": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
               "fastMode": {
                 "default": false,
                 "type": "boolean"
@@ -12679,6 +12996,12 @@
                   }
                 ]
               },
+              "longCacheRetention": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
               "maxMediaBlocks": {
                 "type": [
                   "integer",
@@ -12694,6 +13017,25 @@
                 ],
                 "format": "uint64",
                 "minimum": 0.0
+              },
+              "mediaInputMimeTypes": {
+                "default": [],
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "midConvoSystemMessages": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "midConvoToolChanges": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
               },
               "modelMessages": {
                 "type": [
@@ -12711,6 +13053,12 @@
               "multiAgentReasoningEffort": {
                 "type": [
                   "string",
+                  "null"
+                ]
+              },
+              "nativeDeferredTools": {
+                "type": [
+                  "boolean",
                   "null"
                 ]
               },
@@ -12740,6 +13088,12 @@
                 "default": false,
                 "type": "boolean"
               },
+              "promptCacheKeyMode": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
               "reasoningDialect": {
                 "type": [
                   "string",
@@ -12749,6 +13103,12 @@
               "requiresSandboxedReview": {
                 "default": false,
                 "type": "boolean"
+              },
+              "sessionAffinityFormat": {
+                "type": [
+                  "string",
+                  "null"
+                ]
               },
               "structuredOutput": {
                 "default": false,
@@ -12933,6 +13293,10 @@
             "type": "object",
             "properties": {
               "adaptive": {
+                "default": false,
+                "type": "boolean"
+              },
+              "canDisableThinking": {
                 "default": false,
                 "type": "boolean"
               },
@@ -13405,9 +13769,47 @@
             "description": "Schema projection of the closed per-model initialization metadata contract.",
             "type": "object",
             "properties": {
+              "additionalTools": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "autoCompactTokenLimit": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "uint64",
+                "minimum": 0.0
+              },
               "autoReviewModelOverride": {
                 "type": [
                   "string",
+                  "null"
+                ]
+              },
+              "cacheControlFormat": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "cacheControlOnTools": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "cacheScopeSupported": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "cacheTtl1h": {
+                "type": [
+                  "boolean",
                   "null"
                 ]
               },
@@ -13458,6 +13860,12 @@
                   }
                 ]
               },
+              "explicitPromptCacheMode": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
               "fastMode": {
                 "default": false,
                 "type": "boolean"
@@ -13502,6 +13910,12 @@
                   }
                 ]
               },
+              "longCacheRetention": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
               "maxMediaBlocks": {
                 "type": [
                   "integer",
@@ -13517,6 +13931,25 @@
                 ],
                 "format": "uint64",
                 "minimum": 0.0
+              },
+              "mediaInputMimeTypes": {
+                "default": [],
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "midConvoSystemMessages": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "midConvoToolChanges": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
               },
               "modelMessages": {
                 "type": [
@@ -13534,6 +13967,12 @@
               "multiAgentReasoningEffort": {
                 "type": [
                   "string",
+                  "null"
+                ]
+              },
+              "nativeDeferredTools": {
+                "type": [
+                  "boolean",
                   "null"
                 ]
               },
@@ -13563,6 +14002,12 @@
                 "default": false,
                 "type": "boolean"
               },
+              "promptCacheKeyMode": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
               "reasoningDialect": {
                 "type": [
                   "string",
@@ -13572,6 +14017,12 @@
               "requiresSandboxedReview": {
                 "default": false,
                 "type": "boolean"
+              },
+              "sessionAffinityFormat": {
+                "type": [
+                  "string",
+                  "null"
+                ]
               },
               "structuredOutput": {
                 "default": false,
@@ -13756,6 +14207,10 @@
             "type": "object",
             "properties": {
               "adaptive": {
+                "default": false,
+                "type": "boolean"
+              },
+              "canDisableThinking": {
                 "default": false,
                 "type": "boolean"
               },
