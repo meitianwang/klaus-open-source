@@ -38,7 +38,7 @@ describe('agent control semantics', () => {
   })
   test('recognizes control tools and Klaus built-ins without treating result retrieval or spawn as controls', () => {
     expect(['send_input', 'send_message', 'followup_task', 'SendMessage', 'functions.send_message'].map(agentActionKind)).toEqual(Array(5).fill('message'))
-    expect(['interrupt_agent', 'task_stop'].map(agentActionKind)).toEqual(['interrupt', 'interrupt'])
+    expect(['interrupt_agent', 'task_stop', 'TaskStop'].map(agentActionKind)).toEqual(['interrupt', 'interrupt', 'interrupt'])
     expect(['list_agents', 'ListPeers', 'resume_agent', 'close_agent'].map(agentActionKind)).toEqual(['list', 'list', 'resume', 'close'])
     for (const name of ['task_output', 'spawn_agent', 'task', 'WaitForTeammates', 'shell', 'mcp__collaboration__send_message', 'mcp__slack__send_message']) expect(isAgentActionToolName(name)).toBe(false)
     expect(agentActionPresentation(tool('task_output'))).toBeNull()

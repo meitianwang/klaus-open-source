@@ -265,7 +265,7 @@ export function activityToolIconName(toolName: string, args?: unknown, presentat
   // Name distinctions the generic card can make but `ToolKind` cannot express.
   if (WEB_TOOL_NAMES.test(name)) return 'tool-web'
   if (/(?:^|[_-])notebook(?:[_-]|$)/.test(name)) return 'tool-notebook'
-  if (['agent', 'spawn_agent', 'task', 'task_output', 'task_stop'].includes(name)) return 'tool-agent'
+  if (['agent', 'spawn_agent', 'task', 'task_output', 'task_stop', 'taskoutput', 'taskstop', 'yield'].includes(name)) return 'tool-agent'
   if (['ask_user', 'askuserquestion', 'request_user_input'].includes(name)) return 'tool-ask-user'
   if (/^(?:cron|schedule)/.test(name)) return 'tool-clock'
   if (name === 'pushnotification') return 'tool-bell'

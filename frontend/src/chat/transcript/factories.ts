@@ -64,7 +64,7 @@ export function getToolCategory(name: string): string {
   if (/bash/i.test(name)) return 'terminal'
   if (/file|read|write|edit|glob|notebook/i.test(name)) return 'file'
   if (/grep|search|web/i.test(name)) return 'search'
-  // 引擎子 agent 工具名是 'task'（不含 'agent'）；精确匹配 task（不含 task_output/task_stop 等
+  // 引擎子 agent 工具名是 'task'（不含 'agent'）；精确匹配 task（不含 TaskOutput/TaskStop 等
   // 后台控制工具），归入 agent 类 → 走嵌套卡，避免与 Monitor 任务面板重复信息。
   if (/agent/i.test(name) || /^task$/i.test(name)) return 'agent'
   if (/advisor/i.test(name)) return 'search'

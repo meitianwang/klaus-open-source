@@ -1635,6 +1635,7 @@ export function ingestChatEvent(event: any, context: { userInterrupted?: boolean
         const agent = /agent/i.test(event.toolName || '')
           || name === 'task'
           || name === 'task_stop'
+          || name === 'taskstop'
           || name === 'send_input'
           || name === 'send_message'
         const card: ToolCardState = {
