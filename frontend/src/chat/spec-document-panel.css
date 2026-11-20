@@ -19,7 +19,8 @@
 .spec-document-find-count { min-width: 42px; text-align: right; font-size: 12px; color: var(--fg-tertiary); }
 .spec-document-views { flex: 1; min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
 .spec-document-view { position: relative; display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden; }
-.spec-document-body { flex: 1; min-height: 0; overflow: auto; padding: 16px 20px; }
+.spec-document-main { display: flex; flex-direction: row; flex: 1; min-height: 0; min-width: 0; position: relative; overflow: hidden; }
+.spec-document-body { flex: 1; min-width: 0; min-height: 0; overflow: auto; padding: 16px 20px; }
 .spec-document-panel .spec-document-content { padding: 0; margin: 0; border: 0; background: transparent; max-height: none; overflow: visible; user-select: text; color: var(--fg); font-size: var(--text-body-sm); line-height: 1.6; overflow-wrap: break-word; }
 /* The document lives outside transcript bubbles, so it needs its own scoped Markdown rhythm. */
 .spec-document-content :is(p, ul, ol, blockquote) { margin: 0 0 14px; }

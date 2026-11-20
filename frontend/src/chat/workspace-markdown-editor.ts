@@ -13,6 +13,7 @@ import { gfmFromMarkdown } from 'mdast-util-gfm'
 import { diffLines } from 'diff'
 import katex from 'katex'
 import { renderMarkdownHtml } from './markdown'
+import { attachCodeMirrorToc, extractMarkdownHeadings, resolveMarkdownHeadingAnchor, type CodeMirrorTocBinding } from './markdown-toc'
 import styles from './workspace-markdown-editor.module.css'
 
 export interface MarkdownEditorSnapshot {
@@ -31,6 +32,7 @@ export interface MarkdownEditorOptions {
   openLink?(href: string): boolean | void
   initialState?: MarkdownEditorSnapshot
   ariaLabel?: string
+  toc?: boolean
 }
 
 export interface MarkdownEditor {
@@ -39,6 +41,7 @@ export interface MarkdownEditor {
   setReadOnly(value: boolean): void
   snapshot(): MarkdownEditorSnapshot
   goToLine(line: number): void
+  scrollToAnchor(href: string): boolean
   focus(): void
   find(direction?: 'next' | 'previous'): void
   destroy(): void
@@ -441,7 +444,10 @@ function decorationsFor(specs: readonly MarkdownPresentation[], context: Markdow
 
 export const markdownEditorClassName = styles.editor
 
-export function markdownPresentationExtension(context: MarkdownPresentationContext): Extension {
+export function createMarkdownPresentationField(context: MarkdownPresentationContext): {
+  extension: Extension
+  readTree(state: EditorState): MarkdownNode | undefined
+} {
   interface PresentationState { tree: MarkdownNode; focused: boolean; decorations: DecorationSet; concealed: DecorationSet }
   const present = (source: string, selections: readonly SourceRange[], tree: MarkdownNode) => {
     const specs = planMarkdownPresentation(source, selections, tree)
@@ -466,7 +472,14 @@ export function markdownPresentationExtension(context: MarkdownPresentationConte
   // Styled text stays navigable one character at a time. The editor's normal
   // position mapping takes care of replacement widgets without turning the
   // contents of links, headings or emphasis into indivisible cursor stops.
-  return field
+  return {
+    extension: field,
+    readTree: state => state.field(field, false)?.tree,
+  }
+}
+
+export function markdownPresentationExtension(context: MarkdownPresentationContext): Extension {
+  return createMarkdownPresentationField(context).extension
 }
 
 const markdownHighlight = HighlightStyle.define([
@@ -490,18 +503,25 @@ export function createMarkdownEditor(options: MarkdownEditorOptions): MarkdownEd
     ? { Find: '查找', Replace: '替换', next: '下一个', previous: '上一个', all: '全部', 'match case': '区分大小写', regexp: '正则表达式', 'by word': '全字匹配', replace: '替换', 'replace all': '全部替换', close: '关闭', 'Go to line': '跳转到行', go: '跳转', 'current match': '当前匹配', 'on line': '所在行' }
     : {}
   const context: MarkdownPresentationContext = { options, isReadOnly: () => readOnly }
+  const presentation = createMarkdownPresentationField(context)
+  let tocBinding: CodeMirrorTocBinding | null = null
   const extensions: Extension[] = [
     markdown({ codeLanguages: languages }),
     history(), drawSelection(), dropCursor(), EditorView.lineWrapping, search({ top: true }), highlightSelectionMatches(),
     searchPhrases.of(EditorState.phrases.of(phrases())),
     syntaxHighlighting(markdownHighlight),
-    markdownPresentationExtension(context),
+    presentation.extension,
     lineSeparatorCompartment.of(EditorState.lineSeparator.of(markdownLineSeparator(options.content))),
     EditorView.contentAttributes.of({ 'aria-label': options.ariaLabel ?? '', spellcheck: 'true' }),
     readOnlyCompartment.of([EditorState.readOnly.of(readOnly), EditorView.editable.of(!readOnly)]),
     keymap.of([{ key: 'Mod-s', run: () => { void options.onSave?.(); return true } }, ...searchKeymap, ...defaultKeymap, ...historyKeymap, indentWithTab]),
     EditorView.updateListener.of(update => {
-      if (update.docChanged && !update.transactions.every(transaction => transaction.annotation(externalContent))) options.onChange(update.state.sliceDoc())
+      if (update.docChanged) {
+        if (!update.transactions.every(transaction => transaction.annotation(externalContent))) options.onChange(update.state.sliceDoc())
+        tocBinding?.updateFromDoc(update.state.sliceDoc(), presentation.readTree(update.state))
+      } else if (update.geometryChanged) {
+        tocBinding?.syncScroll()
+      }
     }),
     EditorView.domEventHandlers({
       focus: (_event, view) => { view.dispatch({ effects: focusEffect.of(true) }) },
@@ -530,7 +550,13 @@ export function createMarkdownEditor(options: MarkdownEditorOptions): MarkdownEd
   let state = options.initialState?.state
   state = state ? state.update({ effects: StateEffect.reconfigure.of(extensions) }).state : EditorState.create({ doc: options.content, extensions })
   if (state.sliceDoc() !== options.content) state = state.update({ changes: markdownExternalChanges(state, options.content), annotations: [externalContent.of(true), Transaction.addToHistory.of(false)] }).state
-  const view = new EditorView({ state, parent: options.parent })
+  tocBinding = options.toc === false
+    ? null
+    : attachCodeMirrorToc({
+      parent: options.parent,
+      mountEditor: mainEl => new EditorView({ state, parent: mainEl }),
+    })
+  const view = tocBinding ? tocBinding.view : new EditorView({ state, parent: options.parent })
   const refreshSearchLanguage = () => {
     if (destroyed) return
     const open = searchPanelOpen(view.state)
@@ -540,9 +566,10 @@ export function createMarkdownEditor(options: MarkdownEditorOptions): MarkdownEd
   }
   window.addEventListener('klaus:lang-change', refreshSearchLanguage)
   view.dom.classList.add(styles.editor)
+  tocBinding?.updateFromDoc(view.state.sliceDoc(), presentation.readTree(view.state))
   if (options.initialState) {
     const { scrollTop, scrollLeft } = options.initialState
-    view.requestMeasure({ read: () => null, write: () => { view.scrollDOM.scrollTop = scrollTop; view.scrollDOM.scrollLeft = scrollLeft } })
+    view.requestMeasure({ read: () => null, write: () => { view.scrollDOM.scrollTop = scrollTop; view.scrollDOM.scrollLeft = scrollLeft; tocBinding?.syncScroll() } })
   }
   return {
     getContent: () => view.state.sliceDoc(),
@@ -564,8 +591,18 @@ export function createMarkdownEditor(options: MarkdownEditorOptions): MarkdownEd
       view.dispatch({ selection: EditorSelection.cursor(target.from), effects: [focusEffect.of(true), EditorView.scrollIntoView(target.from, { y: 'center' })] })
       view.focus()
     },
+    scrollToAnchor(href) {
+      if (destroyed) return false
+      if (tocBinding) return tocBinding.scrollToAnchor(href)
+      const headings = extractMarkdownHeadings(view.state.sliceDoc(), presentation.readTree(view.state))
+      const match = resolveMarkdownHeadingAnchor(headings, href)
+      if (!match) return false
+      const pos = Math.max(0, Math.min(match.from, view.state.doc.length))
+      view.dispatch({ effects: EditorView.scrollIntoView(pos, { y: 'start', yMargin: 16 }) })
+      return true
+    },
     focus: () => { if (!destroyed) view.focus() },
     find: direction => { if (!destroyed) { if (direction === 'next') findNext(view); else if (direction === 'previous') findPrevious(view); else openSearchPanel(view) } },
-    destroy() { if (!destroyed) { destroyed = true; window.removeEventListener('klaus:lang-change', refreshSearchLanguage); view.destroy() } },
+    destroy() { if (!destroyed) { destroyed = true; window.removeEventListener('klaus:lang-change', refreshSearchLanguage); tocBinding?.destroy(); view.destroy() } },
   }
 }

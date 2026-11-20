@@ -60,7 +60,7 @@
   cursor: pointer;
 }
 .primary { background: var(--accent); color: var(--accent-text); border-color: transparent; }
-.editorSurface { flex: 1; min-height: 160px; overflow: auto; padding: 0 10px 10px; }
+.editorSurface { flex: 1; min-height: 160px; display: flex; flex-direction: column; overflow: hidden; padding: 0 10px 10px; }
 .notice { margin: 0; padding: 4px 16px 12px; color: var(--fg-secondary); font-size: var(--text-caption); }
 .error { color: var(--status-error, #b44b4b); }
 .backdrop { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; padding: 20px; background: var(--overlay-backdrop, #0006); }

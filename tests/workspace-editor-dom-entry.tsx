@@ -83,6 +83,23 @@ async function run() {
   const themeLinkColor = getComputedStyle(themeLink).color
   themeLink.remove()
   assert(getComputedStyle(link).color === themeLinkColor, 'Document links use the theme link color')
+  const toc = body().querySelector('[data-markdown-toc]') as HTMLElement | null
+  assert(!!toc && !toc.hidden, 'Rendered Markdown mounts a visible right-side table of contents')
+  const editorRect = body().querySelector('.cm-editor')!.getBoundingClientRect()
+  const tocRect = toc!.getBoundingClientRect()
+  assert(tocRect.left >= editorRect.right - 2 && tocRect.width >= 140, 'Table of contents sits to the right of the document editor')
+  const tocLabels = () => Array.from(body().querySelectorAll('[data-markdown-toc] ul button')).map(el => el.textContent)
+  assert(JSON.stringify(tocLabels()) === JSON.stringify(['A document', 'Section one', 'Details']), 'Table of contents lists document headings and ignores code comments')
+  assert(!toc!.querySelector('[title],[data-klaus-tip]'), 'Table of contents exposes no hover tooltip attributes')
+  const tocButtons = Array.from(body().querySelectorAll<HTMLButtonElement>('[data-markdown-toc] ul button'))
+  tocButtons[2].click()
+  assert(tocButtons[2].getAttribute('aria-current') === 'location', 'Clicking a table of contents item activates it')
+  const collapseToc = toc!.querySelector<HTMLButtonElement>('[data-toc-action="collapse"]')!
+  collapseToc.click()
+  assert(toc!.dataset.tocMode === 'compact', 'Table of contents collapses to compact right rail')
+  const expandToc = toc!.querySelector<HTMLButtonElement>('[data-toc-action="expand"]')!
+  expandToc.click()
+  assert(toc!.dataset.tocMode === 'docked', 'Table of contents expands back to docked rail')
   const sourceButton = document.getElementById('workspace-file-view-source') as HTMLButtonElement
   assert(!sourceButton.hidden && sourceButton.textContent === 'View source', 'Source action is visible and labeled')
   await nativeInput({ capture: 'markdown-document' })
@@ -93,6 +110,7 @@ async function run() {
   sourceButton.click()
   await until(() => deepElements(body()).some(element => element.getAttribute('contenteditable') === 'true'), 'source editor')
   assert(!body().querySelector('.cm-editor'), 'Source view uses the dedicated code editor')
+  assert(!body().querySelector('[data-markdown-toc]'), 'Source view hides the document table of contents')
   assert(deepElements(body()).some(element => element.getAttribute('contenteditable') === 'true'), 'Source view is editable')
   const sourceInput = deepElements(body()).find(element => element.getAttribute('contenteditable') === 'true') as HTMLElement
   sourceInput.focus()
@@ -103,6 +121,7 @@ async function run() {
   assert(previewButton.textContent === 'View preview', 'Preview action is visible and labeled')
   previewButton.click()
   await until(() => body().querySelector('.cm-editor'), 'return to document')
+  assert(!!body().querySelector('[data-markdown-toc]'), 'Returning to document view restores the table of contents')
   assert(view()!.state.sliceDoc().includes('Document edit') && view()!.state.sliceDoc().includes('Source edit'), 'Mode switching preserves edits from both representations')
   view()!.dispatch({ selection: { anchor: 3 } })
   sourceButton.click()
@@ -156,6 +175,19 @@ async function run() {
   await until(() => body().querySelector('.cm-editor') && view()!.state.sliceDoc().includes('Other session'), 'second session')
   await until(() => disk.get(key)!.content.includes('Owned draft'), 'first session write')
   assert(disk.get('s2:/fixture/document.md')!.content === '# Other session\n', 'An in-flight save cannot write into another session')
+  const longDoc = ['# Long Document', ...Array.from({ length: 45 }, (_, i) => `Paragraph line ${i + 1}`), '## Bottom Section', ...Array.from({ length: 30 }, (_, i) => `Trailing line ${i + 1}`)].join('\n\n')
+  disk.set('s2:/fixture/long.md', { content: longDoc, mtimeMs: 1 })
+  panel.openWorkspaceFilePath('/fixture/long.md')
+  await until(() => body().querySelector('.cm-editor') && view()!.state.sliceDoc().includes('Bottom Section'), 'long document')
+  const longScroller = body().querySelector('.cm-scroller') as HTMLElement
+  longScroller.scrollTop = 0
+  const bottomBtn = Array.from(body().querySelectorAll<HTMLButtonElement>('[data-markdown-toc] ul button')).find(b => b.textContent === 'Bottom Section')!
+  bottomBtn.click()
+  await until(() => longScroller.scrollTop > 100, 'table of contents click scrolls document')
+  assert(bottomBtn.getAttribute('aria-current') === 'location', 'Clicked heading remains active after scrolling')
+  const longView = view()!
+  longView.dispatch({ changes: { from: longView.state.doc.length, insert: '\n\n## Added Live Heading\n' } })
+  await until(() => Array.from(body().querySelectorAll('[data-markdown-toc] ul button')).some(b => b.textContent === 'Added Live Heading'), 'live edit updates table of contents')
   const { createSourceEditor } = await import('../frontend/src/chat/workspace-source-editor')
   const sourceHost = document.createElement('div')
   sourceHost.style.cssText = 'position:absolute;inset:0;width:900px;height:600px;background:var(--bg);z-index:1000'
@@ -200,8 +232,9 @@ async function run() {
   sourceHost.remove()
   const { applyTheme } = await import('../frontend/src/app/i18n')
   applyTheme('dark')
+  w.currentSessionId = 's1'
   panel.openWorkspaceFilePath('/fixture/document.md')
-  await until(() => body().querySelector('.cm-editor'), 'dark document')
+  await until(() => body().querySelector('.cm-editor') && body().querySelector('[data-markdown-toc] ul button'), 'dark document')
   await nativeInput({ capture: 'markdown-dark' })
   assert(getComputedStyle(body().querySelector('.cm-editor')!).backgroundColor !== 'rgb(255, 255, 255)', 'Document editor follows the dark appearance')
   w.workspaceEditorResults = { passed: results.length, results, writes: writes.length }

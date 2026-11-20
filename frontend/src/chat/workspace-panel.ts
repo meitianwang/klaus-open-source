@@ -182,6 +182,7 @@ interface WorkspaceEditorHandle {
   updateContent(content: string): void
   setReadOnly(value: boolean): void
   goToLine(line: number): void
+  scrollToAnchor?(href: string): boolean
   focus(): void
   find?(direction?: 'next' | 'previous'): void
   revealMatch?(from: number, to: number): void
@@ -1046,10 +1047,7 @@ async function renderWorkspaceTextEditor(tab: WorkspaceTab, mode: 'source' | 'pr
           if (/^(?:https?:|mailto:)/i.test(href)) {
             void (window as any).klaus?.app?.openExternal(href)
           } else if (href.startsWith('#')) {
-            const text = tab.draftContent
-            const title = decodeURIComponent(href.slice(1)).replace(/-/g, ' ').toLowerCase()
-            const index = text.split('\n').findIndex(line => line.replace(/^#+\s*/, '').trim().toLowerCase() === title)
-            if (index >= 0) handle.goToLine(index + 1)
+            handle.scrollToAnchor(href)
           } else {
             const path = /^file:/i.test(href) ? decodeURIComponent(new URL(href).pathname) : resolveWorkspaceLocalResourcePath(tab.path, href)
             if (path) openWorkspaceFilePath(path)

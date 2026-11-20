@@ -2,6 +2,7 @@ import { icon } from '../icons/registry'
 import { SpecDocumentModel, findSpecMatches, isNearSpecBottom, specDocumentKey, specDocumentName, type SpecDocument, type SpecDocumentEvent } from './spec-document-model'
 import { submitSpecAnnotationDraft, type SpecAnnotation, type SpecAnnotationHandle } from './spec-document-annotations'
 import { specFindNavigationDirection } from './spec-document-shortcuts'
+import { attachHtmlDocumentToc, type HtmlDocumentTocBinding } from './markdown-toc'
 import './spec-document-panel.css'
 import { writeClipboardText } from '../clipboard'
 export type { SpecAnnotation, SpecAnnotationHandle } from './spec-document-annotations'
@@ -27,6 +28,7 @@ interface DocumentView {
   host: HTMLElement
   body: HTMLElement
   document: HTMLElement
+  toc: HtmlDocumentTocBinding
   handle: SpecAnnotationHandle
   observer: MutationObserver
   revision: number
@@ -188,6 +190,8 @@ export function createSpecDocumentPanel(options: SpecDocumentPanelOptions) {
   function createView(document: SpecDocument): DocumentView {
     const documentHost = owner.createElement('div')
     documentHost.className = 'spec-document-view'
+    const main = owner.createElement('div')
+    main.className = 'spec-document-main'
     const body = owner.createElement('div')
     body.className = 'spec-document-body'
     const content = owner.createElement('div')
@@ -195,7 +199,16 @@ export function createSpecDocumentPanel(options: SpecDocumentPanelOptions) {
     const annotations = owner.createElement('div')
     annotations.className = 'spec-annotations hidden'
     body.appendChild(content)
-    documentHost.append(body, annotations)
+    main.appendChild(body)
+    let view!: DocumentView
+    const toc = attachHtmlDocumentToc({
+      host: main,
+      scrollContainer: body,
+      contentContainer: content,
+      onNavigate: () => { if (view) view.followBottom = false },
+      translate,
+    })
+    documentHost.append(main, annotations)
     host?.appendChild(documentHost)
     const handle = options.attachAnnotations(documentHost, content, { sessionId: document.sessionId, path: document.path })
     const observer = new MutationObserver(() => {
@@ -203,7 +216,7 @@ export function createSpecDocumentPanel(options: SpecDocumentPanelOptions) {
       syncAnnotations()
       if (!documentHost.querySelector('.spec-annotate-bubble')) renderContent(document, view)
     })
-    const view: DocumentView = { host: documentHost, body, document: content, handle, observer, revision: -1, followBottom: true }
+    view = { host: documentHost, body, document: content, toc, handle, observer, revision: -1, followBottom: true }
     body.addEventListener('scroll', () => { view.followBottom = isNearSpecBottom(body.scrollHeight, body.clientHeight, body.scrollTop) }, { passive: true })
     observer.observe(documentHost, { childList: true, subtree: true })
     return view
@@ -215,7 +228,9 @@ export function createSpecDocumentPanel(options: SpecDocumentPanelOptions) {
     if (document.sessionId === sessionId && document.path === path) unmarkSearch()
     view.revision = document.revision
     view.document.innerHTML = options.renderMarkdown(document.content, document.sessionId)
+    view.toc.refresh()
     if (shouldFollow) view.body.scrollTop = view.body.scrollHeight
+    view.toc.syncScroll()
     if (findOpen && document.sessionId === sessionId && document.path === path) search()
   }
 
@@ -403,7 +418,7 @@ export function createSpecDocumentPanel(options: SpecDocumentPanelOptions) {
       if (view?.klausSpecPanelRunFind === runFind) delete view.klausSpecPanelRunFind
       documentListeners.clear()
       model.dispose()
-      views.forEach(view => { view.observer.disconnect(); view.handle.destroy(); view.host.remove() })
+      views.forEach(view => { view.observer.disconnect(); view.toc.destroy(); view.handle.destroy(); view.host.remove() })
       views.clear()
       select?.removeEventListener('change', onSelect)
       input?.removeEventListener('input', search)

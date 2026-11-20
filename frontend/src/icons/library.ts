@@ -753,6 +753,8 @@ export const LIBRARY: Record<string, string> = {
   'ws-file-zoom-in': shell(magnifyingGlassPlusSvg),
   'ws-file-copy': shell(copySvg),
   'ws-file-reveal': shell(folderOpenSvg),
+  'markdown-toc-collapse': shell(caretRightSvg, { size: 12 }),
+  'markdown-toc-expand': shell(caretLeftSvg, { size: 12 }),
   // digram 面板工具栏：撚销/重做走弧形箭（与消息 rewind 的 u-turn 区分），缩放复用
   // 工作区那套放大镜，导出用 export 字形。
   'digram-undo': shell(arrowArcLeftSvg),

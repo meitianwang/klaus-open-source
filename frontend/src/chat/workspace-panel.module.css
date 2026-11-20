@@ -631,6 +631,8 @@ details.ws-dir[open] > summary > .ws-chevron { transform: rotate(90deg); }
 
 .workspace-file-tab:global(.is-preview) .workspace-file-tab-name { font-style: italic; }
 .workspace-editor-body {
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
 }
 

@@ -2,6 +2,7 @@
 // renders markdown / SVG / source code, supports source/preview toggle.
 //（迁自 js/artifact.js，逻辑原样；KlausArtifactMarkdown 改显式 import。）
 import { classifyLink, render as renderSafeMarkdown } from './artifact-markdown'
+import { attachHtmlDocumentToc } from '../chat/markdown-toc'
 import { writeClipboardText } from '../clipboard'
 
 document.documentElement.classList.add(/win/i.test(navigator.platform) ? 'platform-win32' : 'platform-darwin')
@@ -125,7 +126,11 @@ function resolveLocalResourcePath(baseFile: string, ref: string) {
 const titleEl = document.getElementById('aw-title')
 const filenameEl = document.getElementById('aw-filename')
 const filetypeEl = document.getElementById('aw-filetype')
+const mainEl = document.getElementById('aw-main')
 const bodyEl = document.getElementById('aw-body')!
+const markdownToc = mainEl
+  ? attachHtmlDocumentToc({ host: mainEl, scrollContainer: bodyEl, contentContainer: bodyEl, translate: key => text(key, key) })
+  : null
 const truncEl = document.getElementById('aw-truncated')!
 const copyBtn = document.getElementById('aw-copy')
 const folderBtn = document.getElementById('aw-folder')
@@ -191,6 +196,7 @@ function syncToggle() {
 }
 
 function renderSource() {
+  markdownToc?.setEnabled(false)
   revokePreviewObjectUrl()
   const pre = document.createElement('pre')
   const code = document.createElement('code')
@@ -205,6 +211,7 @@ function renderSource() {
 }
 
 function renderMessage(message: string) {
+  markdownToc?.setEnabled(false)
   revokePreviewObjectUrl()
   const wrap = document.createElement('div')
   wrap.className = 'aw-preview-message'
@@ -223,6 +230,7 @@ function stripFrontmatter(text: string) {
 }
 
 function renderSvgPreview() {
+  markdownToc?.setEnabled(false)
   revokePreviewObjectUrl()
   const blob = new Blob([content], { type: 'image/svg+xml' })
   previewObjectUrl = URL.createObjectURL(blob)
@@ -254,6 +262,7 @@ async function resolveDirectPreviewUrl() {
 }
 
 function renderDirectPreview(url: string, previewKind: string) {
+  markdownToc?.setEnabled(false)
   revokePreviewObjectUrl()
   const wrap = document.createElement('div')
   wrap.className = 'aw-media-preview aw-media-preview-' + previewKind
@@ -316,8 +325,11 @@ function renderPreview() {
     try {
       const previewContent = (kind === 'skill' || kind === 'memory') ? stripFrontmatter(content) : content
       bodyEl.innerHTML = renderSafeMarkdown(marked, previewContent)
+      markdownToc?.setEnabled(true)
+      markdownToc?.refresh()
     } catch (err) {
       console.warn('[artifact] safe markdown preview unavailable:', err)
+      markdownToc?.setEnabled(false)
       view = 'source'
       syncToggle()
       renderSource()
@@ -377,6 +389,7 @@ function setView(next: string) {
     if (view === 'preview') renderPreview()
     else renderSource()
     bodyEl.scrollTop = scrollTop
+    markdownToc?.syncScroll()
     requestAnimationFrame(() => bodyEl.classList.remove('is-swapping'))
   }, 120)
 }
@@ -405,7 +418,10 @@ folderBtn?.addEventListener('click', () => {
 document.addEventListener('keydown', (e) => {
   if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'w') { e.preventDefault(); window.close() }
 })
-window.addEventListener('beforeunload', revokePreviewObjectUrl)
+window.addEventListener('beforeunload', () => {
+  revokePreviewObjectUrl()
+  markdownToc?.destroy()
+})
 
 syncToggle()
 

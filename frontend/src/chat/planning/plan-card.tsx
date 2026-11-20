@@ -235,7 +235,8 @@ export function PlanDocumentEditor({ controller }: { controller: PlanReviewContr
       readOnly: current.phase !== 'ready' || current.plan.status !== 'proposed', label, cellLabel,
       openLink: href => {
         if (/^(?:https?:|mailto:)/i.test(href)) void window.klaus?.app.openExternal(href)
-        else if (!href.startsWith('#')) (window as unknown as { klausOpenWorkspaceFilePath?: (path: string) => void }).klausOpenWorkspaceFilePath?.(href)
+        else if (href.startsWith('#')) editor.current?.scrollToAnchor(href)
+        else (window as unknown as { klausOpenWorkspaceFilePath?: (path: string) => void }).klausOpenWorkspaceFilePath?.(href)
       },
       getContent: () => controller.getSnapshot().content,
       onChange: content => controller.edit(content), onSave: () => { void controller.save() } })

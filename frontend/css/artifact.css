@@ -5,11 +5,16 @@
   --fg: #1a1c1f;
   --fg-secondary: rgba(26, 28, 31, 0.7);
   --fg-tertiary: rgba(26, 28, 31, 0.5);
+  --fg-quaternary: rgba(26, 28, 31, 0.35);
   --bg: #ffffff;
   --bg-surface: #f9f9f9;
+  --bg-elevated: #ffffff;
   --bg-hover: rgba(26, 28, 31, 0.05);
+  --border: rgba(26, 28, 31, 0.08);
   --border-subtle: rgba(26, 28, 31, 0.05);
   --accent: #339cff;
+  --theme-accent: #339cff;
+  --shadow-md: 0 6px 18px -8px rgba(0, 0, 0, 0.10), 0 1px 0 rgba(0, 0, 0, 0.03);
   --theme-diff-added: #00a240;
   --theme-diff-added-bg: rgba(0, 162, 64, 0.14);
   --theme-diff-removed: #e02e2a;
@@ -21,12 +26,16 @@
   --syntax-string: #008809;
   --syntax-type: #751ed9;
   /* Same scale names as the main renderer tokens (self-contained window). */
+  --text-caption: 12px;
   --text-small: 12px;
   --text-body-sm: 13px;
   --text-body: 14px;
+  --weight-regular: 430;
   --weight-medium: 500;
   --weight-semibold: 600;
+  --radius-xxs: 4px;
   --radius-xs: 6px;
+  --radius-sm: 8px;
   --transition: 140ms ease;
 }
 @media (prefers-color-scheme: dark) {
@@ -35,11 +44,16 @@
     --fg: #ffffff;
     --fg-secondary: rgba(255, 255, 255, 0.7);
     --fg-tertiary: rgba(255, 255, 255, 0.5);
+    --fg-quaternary: rgba(255, 255, 255, 0.35);
     --bg: #181818;
     --bg-surface: #000000;
+    --bg-elevated: #222222;
     --bg-hover: rgba(255, 255, 255, 0.06);
+    --border: rgba(255, 255, 255, 0.08);
     --border-subtle: rgba(255, 255, 255, 0.04);
     --accent: #339cff;
+    --theme-accent: #339cff;
+    --shadow-md: 0 6px 18px -8px rgba(0, 0, 0, 0.36), 0 1px 0 rgba(255, 255, 255, 0.04);
     --syntax-keyword: #b06dff;
     --syntax-number: #6dcbf4;
     --syntax-operator: #6dcbf4;
@@ -110,8 +124,13 @@ body { display: flex; flex-direction: column; }
 .aw-filetype { color: var(--fg-tertiary); flex-shrink: 0; }
 .aw-filetype:not(:empty)::before { content: '· '; }
 
+.aw-main {
+  flex: 1; min-height: 0; min-width: 0;
+  display: flex; flex-direction: row; position: relative; overflow: hidden;
+}
+
 .aw-body {
-  flex: 1; min-height: 0; overflow: auto;
+  flex: 1; min-width: 0; min-height: 0; overflow: auto;
   padding: 22px 28px; line-height: 1.65; color: var(--fg);
   transition: opacity 120ms ease;
 }

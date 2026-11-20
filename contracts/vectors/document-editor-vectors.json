@@ -1,10 +1,11 @@
 {
-  "reason": "Text files retain independent editing state per tab and view, and persistence acknowledges only the revision actually written.",
+  "reason": "Text files retain independent editing state per tab and view, persistence acknowledges only the revision actually written, and rendered Markdown documents present a live heading outline.",
   "markdownDefaultView": "preview",
   "autosaveDelayMs": 3000,
-  "fixture": "# A document\n\nA **formatted** paragraph with a [local link](./next.md).\n\n- [ ] A task\n- A list item\n\n| Name | Count |\n| --- | ---: |\n| Example | 3 |\n\n$$x^2 + y^2 = z^2$$\n\n```typescript\nconst value = 42\n```\n",
+  "fixture": "# A document\n\nA **formatted** paragraph with a [local link](./next.md).\n\n- [ ] A task\n- A list item\n\n## Section one\n\n| Name | Count |\n| --- | ---: |\n| Example | 3 |\n\n### Details\n\n$$x^2 + y^2 = z^2$$\n\n```typescript\n# comment\nconst value = 42\n```\n",
   "requiredBehavior": [
     "document-view-edits-original-markdown",
+    "document-view-renders-right-side-table-of-contents",
     "source-view-uses-code-editor",
     "mode-switch-flushes-current-draft",
     "each-mode-retains-selection-scroll-and-history",

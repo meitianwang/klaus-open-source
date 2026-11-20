@@ -19,7 +19,7 @@ writeFileSync(join(logs, 'index.html'), `<!doctype html><html lang="en" data-the
 <link rel="stylesheet" href="styles.css"><link rel="stylesheet" href="fixture.css">
 <style>body{margin:0;background:var(--bg)}#workspace-main-view{display:flex;height:740px;width:100%;position:relative}#artifacts-panel{display:flex!important;width:100vw!important;max-width:none!important;height:740px;position:relative!important}#artifacts-list{display:none!important}#workspace-main-view{max-width:none!important;flex:1;inset:0}.workspace-file-shell{display:flex;width:100%;flex:1;min-height:0;flex-direction:column}.workspace-file-body{flex:1;min-height:0}</style>
 </head><body><div id="artifacts-panel"><div id="artifacts-list"></div><div id="workspace-main-view">
-<div id="workspace-file-empty"></div><div id="workspace-file-shell" hidden>
+<div id="workspace-file-empty"></div><div id="workspace-file-shell" class="workspace-file-shell" hidden>
 <div id="workspace-file-tabs" class="workspace-file-tabs"></div><div class="workspace-file-header">
 <div class="workspace-file-titleblock"><div id="workspace-file-title"></div><div id="workspace-file-path"></div><span id="workspace-file-status" hidden></span></div>
 <div id="workspace-file-view-toggle" class="workspace-file-view-toggle" hidden><button id="workspace-file-view-preview" class="workspace-file-view-btn">Preview</button><button id="workspace-file-view-source" class="workspace-file-view-btn">Source</button></div>
