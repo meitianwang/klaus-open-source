@@ -4,8 +4,27 @@ import { SerialMutations, errorMessage, object, string, type EngineRequest, type
 export const PERMISSION_BEHAVIORS = ['allow', 'deny', 'ask'] as const;
 export type PermissionRules = Record<typeof PERMISSION_BEHAVIORS[number], string[]>;
 export interface PermissionRulesDeps { request: EngineRequest; onChanged?: () => void | Promise<void> }
-const aliases: Record<string, string> = { Task: 'Agent', KillShell: 'TaskStop', AgentOutputTool: 'TaskOutput', BashOutputTool: 'TaskOutput' };
-const canonical = (name: string): string => Object.hasOwn(aliases, name) ? aliases[name]! : name;
+const LEGACY_BACKGROUND_ALIASES: Record<string, string> = {
+  killshell: 'TaskStop',
+  killbash: 'TaskStop',
+  taskstop: 'TaskStop',
+  kill_shell: 'TaskStop',
+  kill_bash: 'TaskStop',
+  task_stop: 'TaskStop',
+  agentoutputtool: 'TaskOutput',
+  bashoutputtool: 'TaskOutput',
+  agentoutput: 'TaskOutput',
+  bashoutput: 'TaskOutput',
+  taskoutput: 'TaskOutput',
+  agent_output: 'TaskOutput',
+  bash_output: 'TaskOutput',
+  task_output: 'TaskOutput',
+};
+const canonical = (name: string): string => {
+  if (name === 'Task') return 'Agent';
+  const folded = name.toLowerCase();
+  return Object.hasOwn(LEGACY_BACKGROUND_ALIASES, folded) ? LEGACY_BACKGROUND_ALIASES[folded]! : name;
+};
 export function parsePermissionRule(raw: string): { toolName: string; ruleContent?: string } {
   // The engine store has always written literal prefixes. Unescaping here
   // changes Windows/UNC commands and makes the displayed rule undeletable.

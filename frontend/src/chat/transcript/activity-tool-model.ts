@@ -1,6 +1,6 @@
 import type { ApprovalReview } from '../../../../contracts/approval-review'
 import { isCompactActivityTool, isDynamicActivityTool, isToolDiscovery, mcpActivityIsCommand, mcpActivitySource } from './chat-activity'
-import { isAgentActionToolName } from './activity-agent-action-model'
+import { isAgentActionToolName, isShellTaskControl } from './activity-agent-action-model'
 import { mediaGenerationKind, MEDIA_GENERATION_ICONS, type MediaGenerationKind } from './media-generation-activity'
 import { activityDisplayName, activityResultObjects, browserActivityToolName, semanticActivity, type SemanticActivity } from './activity-semantic'
 
@@ -18,6 +18,7 @@ export interface ActivityToolData {
   startedAtMs?: number
   durationMs?: number
   exitCode?: number
+  taskType?: string
   media?: Array<{ path: string; mimeType?: string }>
 }
 
@@ -46,6 +47,8 @@ export interface ActivityToolPresentation {
   imagePaths?: string[]
   /** The read tool stored this image while the active model could not see it. */
   imageUnsupportedByModel?: boolean
+  /** Unified background-control call targeting a shell command rather than a subagent. */
+  shellTaskControl?: boolean
 }
 
 function record(value: unknown): RecordValue | null {
@@ -194,7 +197,12 @@ export function activityToolPresentation(tool: ActivityToolData): ActivityToolPr
   const command = displayShellCommand(commandValue)
   const path = textField(object, 'file_path', 'notebook_path', 'path', 'filePath', 'filename', 'directory')
   const query = textField(object, 'pattern', 'query', 'search_query', 'regex', 'q')
-  const common = { name: tool.toolName, command, path, query, cwd: textField(object, 'cwd', 'workdir', 'working_directory'), args, source: mcpActivitySource(tool.toolName) ?? undefined }
+  const shellTaskControl = isShellTaskControl(
+    tool.toolName,
+    args,
+    tool.taskType ? JSON.stringify({ task_type: tool.taskType }) : tool.output,
+  )
+  const common = { name: tool.toolName, command, path, query, cwd: textField(object, 'cwd', 'workdir', 'working_directory'), args, source: mcpActivitySource(tool.toolName) ?? undefined, ...(shellTaskControl ? { shellTaskControl } : {}) }
   const generationKind = mediaGenerationKind(tool.toolName)
   if (generationKind) return { ...common, kind: 'generation', generationKind }
   // Discovery retains output controls even after success; a file-search row does not.
@@ -252,8 +260,9 @@ export function activityToolIconName(toolName: string, args?: unknown, presentat
   const resolved = presentation ?? activityToolPresentation({ toolCallId: '', toolName, args, state: 'done' })
   if (resolved.generationKind) return MEDIA_GENERATION_ICONS[resolved.generationKind]
   if (resolved.semantic) return resolved.semantic.icon
-  if (!toolName.startsWith('mcp__') && isAgentActionToolName(toolName)) return 'subagent-banner'
+  if (!toolName.startsWith('mcp__') && !resolved.shellTaskControl && isAgentActionToolName(toolName, args)) return 'subagent-banner'
   if (resolved.kind === 'edit') return 'tool-edit'
+  if (resolved.shellTaskControl) return 'tool-bash'
   const name = (toolName || '').toLowerCase().replace(/^functions[._]/, '')
   // Plan mutations never reach a card — they are dropped before rendering — so
   // the dispatch mirror cannot bind them. Resolve them by name first, or the
@@ -293,7 +302,8 @@ export function activityToolIconName(toolName: string, args?: unknown, presentat
 export function isDynamicActivityPresentation(presentation: ActivityToolPresentation): boolean {
   const nativeName = presentation.name.toLowerCase().replace(/^functions[._]/, '')
   return presentation.kind === 'tool'
-    && !isAgentActionToolName(presentation.name)
+    && !presentation.shellTaskControl
+    && !isAgentActionToolName(presentation.name, presentation.args)
     && nativeName !== 'fetch_url'
     && isDynamicActivityTool(nativeName, presentation.args)
     && isDynamicActivityTool(presentation.name, presentation.args)

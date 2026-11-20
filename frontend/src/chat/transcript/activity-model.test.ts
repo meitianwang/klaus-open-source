@@ -126,6 +126,7 @@ describe('host activity and discovery metadata', () => {
     expect(summary.loadedTools).toBe(1)
     expect(describeActivity('NotebookRead', { notebook_path: '/a.ipynb' }, 'done').target).toBe('/a.ipynb')
     expect(describeActivity('kill_shell', {}, 'done').kind).toBe('command')
+    expect(describeActivity('TaskStop', { task_id: 'shell-1' }, 'done', '{"task_type":"shell"}').kind).toBe('command')
     expect(describeActivity('advisor', {}, 'done').kind).toBe('search')
   })
 })

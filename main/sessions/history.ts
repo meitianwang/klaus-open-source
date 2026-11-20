@@ -223,15 +223,30 @@ function collectToolResults(message: JsonObject, results: Map<string, Json>, con
   const content = inspected?.media.length
     ? [...normalized.filter(block => obj(block).type !== 'image'), ...inspected.media.map(media => ({ type: 'image', ...media }))]
     : normalized;
+  const out = obj(message.output);
+  const taskType = strOpt(out.task_type);
+  const taskId = strOpt(out.task_id);
+  const taskCommand = strOpt(out.command);
+  const taskStatus = strOpt(out.status);
   results.set(id, {
     type: 'tool_result',
     tool_use_id: id,
     content,
     is_error: message.isError === true,
     ...(artifactPaths.length ? { artifactPaths } : {}),
-    ...(obj(message.output).delivery === 'queued' || typeof obj(message.output).resumed === 'boolean'
+    ...(out.delivery === 'queued' || typeof out.resumed === 'boolean'
       ? { agentCommunication: message.output! } : {}),
-    ...(message.isError !== true && obj(message.output).ok === true && obj(obj(message.output).goal).status === 'complete' ? { goalCompletion: obj(message.output).goal! } : {}),
+    ...(taskType !== undefined
+      ? {
+          taskControl: {
+            task_type: taskType,
+            ...(taskId !== undefined ? { task_id: taskId } : {}),
+            ...(taskCommand !== undefined ? { command: taskCommand } : {}),
+            ...(taskStatus !== undefined ? { status: taskStatus } : {}),
+          },
+        }
+      : {}),
+    ...(message.isError !== true && out.ok === true && obj(out.goal).status === 'complete' ? { goalCompletion: out.goal! } : {}),
   });
 }
 

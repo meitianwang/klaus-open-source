@@ -5,6 +5,9 @@ import { agentActionKind, agentActionLabel, agentActionPresentation, isAgentActi
 import { AgentActionActivityTool } from './activity-agent-action'
 import communicationVectors from '../../../../contracts/vectors/subagent-communication-vectors.json'
 
+;(globalThis as any).window = { ...(globalThis as any).window, addEventListener: () => {} }
+const { ActivityToolContent, activityToolPresentation, activityToolSummary } = await import('./activity-tool')
+
 const tool = (toolName: string, args: unknown = {}, overrides: Partial<ActivityToolData> = {}): ActivityToolData => ({ toolCallId: 'control-1', toolName, args, state: 'done', ...overrides })
 const render = (value: ActivityToolData, open = true, locale = 'en') => renderToStaticMarkup(<AgentActionActivityTool tool={value} open={open} onToggle={() => {}} locale={locale} />)
 
@@ -209,5 +212,25 @@ describe('agent control disclosure', () => {
     expect(html).not.toContain('Stopped before delivery.')
     expect(html).not.toContain('已完成')
     expect(render(tool('interrupt_agent', { target: 'a' }, { state: 'awaiting-approval' }))).toContain('Awaiting approval an agent')
+  })
+
+  test('routes shell TaskStop and interrupt_agent as shell operations and keeps Yield non-expandable', () => {
+    const shellStopOutput = '{"task_id":"shell-1","task_type":"shell","command":"sleep 30","message":"Successfully stopped task: shell-1"}'
+    expect(isAgentActionToolName('TaskStop', { task_id: 'shell-1' }, shellStopOutput)).toBe(false)
+    expect(isAgentActionToolName('interrupt_agent', { target: 'shell-1' }, shellStopOutput)).toBe(false)
+    expect(isAgentActionToolName('TaskStop', { shell_id: 'shell-1' })).toBe(false)
+    const stoppedHtml = renderToStaticMarkup(
+      <ActivityToolContent tool={tool('TaskStop', { task_id: 'shell-1' }, { output: shellStopOutput, taskType: 'shell' })} open={false} onToggle={() => {}} locale="en" />,
+    )
+    expect(stoppedHtml).toContain('Stopped background command')
+    expect(stoppedHtml).not.toContain('Interrupted')
+
+    const yieldTool = tool('Yield', {}, { output: 'The wait has ended. The line after this result says why.' })
+    expect(activityToolSummary(activityToolPresentation(yieldTool), 'done', false, 'en')).toBe('Waited for background work')
+    expect(activityToolSummary(activityToolPresentation(yieldTool), 'running', false, 'zh')).toBe('正在等待后台任务')
+    const yieldHtml = renderToStaticMarkup(<ActivityToolContent tool={yieldTool} open={false} onToggle={() => {}} locale="en" />)
+    expect(yieldHtml).toContain('Waited for background work')
+    expect(yieldHtml).not.toContain('aria-expanded')
+    expect(yieldHtml).not.toContain('The wait has ended')
   })
 })

@@ -70,6 +70,15 @@ export function activityToolSummary(presentation: ActivityToolPresentation, stat
     if (zh) return active ? '正在咨询顾问' : stopped ? '已停止咨询顾问' : failed ? '顾问咨询失败' : '已咨询顾问'
     return active ? 'Consulting advisor' : stopped ? 'Stopped consulting advisor' : failed ? 'Advisor consultation failed' : 'Consulted advisor'
   }
+  const normalizedName = (name || '').toLowerCase().replace(/^functions[._]/, '')
+  if (normalizedName === 'yield') {
+    if (zh) return active ? '正在等待后台任务' : stopped ? '已停止等待后台任务' : failed ? '等待后台任务失败' : '已等待后台任务'
+    return active ? 'Waiting for background work' : stopped ? 'Stopped waiting for background work' : failed ? 'Failed waiting for background work' : 'Waited for background work'
+  }
+  if (presentation.shellTaskControl && ['task_stop', 'taskstop', 'interrupt_agent'].includes(normalizedName)) {
+    if (zh) return active ? '正在停止后台命令' : stopped ? '已中断停止命令' : failed ? '未能停止后台命令' : '已停止后台命令'
+    return active ? 'Stopping background command' : stopped ? 'Cancelled stopping command' : failed ? 'Failed to stop command' : 'Stopped background command'
+  }
   if (name.startsWith('mcp__')) {
     const label = presentation.source ? `${mcpActivitySourceName(presentation.source)} · ${activityToolDisplayName(name)}` : name
     return failed || stopped ? `${zh ? stopped ? '已停止' : '未能完成' : stopped ? 'Stopped' : 'Failed'} ${label}` : label
@@ -448,7 +457,8 @@ function ToolCardBody({ tool, result, presentation, open, onToggle, locale, expa
   if (tool.toolName === 'show_widget') return <WidgetTool tool={tool} locale={locale}
     fallback={<OrdinaryToolCard tool={tool} result={result} presentation={presentation} open={open}
       onToggle={onToggle} locale={locale} elapsed={elapsed} detailsId={detailsId} summaryId={summaryId} readOnly={readOnly} />} />
-  if (!tool.toolName.startsWith('mcp__') && isAgentActionToolName(tool.toolName)) return <AgentActionActivityTool tool={tool} open={open} onToggle={onToggle} locale={locale} />
+  const actionOutput = tool.taskType ? JSON.stringify({ task_type: tool.taskType }) : tool.output
+  if (!tool.toolName.startsWith('mcp__') && isAgentActionToolName(tool.toolName, tool.args, actionOutput)) return <AgentActionActivityTool tool={tool} open={open} onToggle={onToggle} locale={locale} />
   if (presentation.kind === 'edit') return <EditActivityTool tool={tool} open={open} onToggle={onToggle} locale={locale} expandedFiles={expandedFiles} onToggleFile={onToggleFile} />
   if (isDynamicActivityPresentation(presentation)) {
     // A successful chat-creation result carries the identity needed for navigation.
@@ -467,10 +477,11 @@ function OrdinaryToolCard({ tool, result, presentation, open, onToggle, locale, 
   open: boolean; onToggle: () => void; locale: string; elapsed: number | undefined; detailsId: string; summaryId: string
 }) {
   const exceptional = tool.state === 'error' || tool.state === 'interrupted' || tool.state === 'awaiting-approval'
-  // Ordinary tools keep their real input and result inspectable. A successful
-  // image inspection keeps thumbnails and accompanying notes; failures retain diagnostic details.
+  // Ordinary tools keep their real input and result inspectable, while successful
+  // `Yield` cards only carry a placeholder notice header for the notice rail.
   // Specialized privacy-preserving and agent-action rows returned above retain their own UI.
-  const expandable = true
+  const isYield = (tool.toolName || '').toLowerCase().replace(/^functions[._]/, '') === 'yield'
+  const expandable = !isYield || exceptional
   const declined = presentation.kind === 'exec' && tool.state === 'error' && tool.approvalReviews?.some(review => review.status === 'denied') === true
   const summary = declined && presentation.kind === 'exec' ? copyText(locale, 'Command declined', '命令已拒绝') : activityToolSummary(presentation, tool.state, open, locale, elapsed)
   const icon = activityToolIconName(tool.toolName, tool.args, presentation)

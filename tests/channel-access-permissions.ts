@@ -123,6 +123,9 @@ export function registerChannelAccessPermissionTests(h: Harness, freshRoot: () =
   });
   h.test('permission strings project committed aliases, prefixes and malformed forms', () => {
     for (const row of vector.ruleParsing) assertDeepEqual(parsePermissionRule(row.input), row.expected, 'rule ' + row.input);
+    assertDeepEqual(parsePermissionRule('kill_shell'), { toolName: 'TaskStop' }, 'lowercase kill_shell alias');
+    assertDeepEqual(parsePermissionRule('kill_bash'), { toolName: 'TaskStop' }, 'lowercase kill_bash alias');
+    assertDeepEqual(parsePermissionRule('bash_output'), { toolName: 'TaskOutput' }, 'lowercase bash_output alias');
     assertEqual(formatPermissionRule('Bash', 'echo (a)\\b'), 'Bash(echo (a)\\b)', 'engine literal rule encoding');
   });
   h.test('permission edits use named engine ownership and never write a host rule file', async () => {
@@ -144,12 +147,13 @@ export function registerChannelAccessPermissionTests(h: Harness, freshRoot: () =
     assertEqual(engine.calls.length, 0, 'no invalid RPC submitted'); await service.close();
   });
   h.test('permission deletion preserves original raw keys for aliases and tool-wide legacy rows', async () => {
-    const engine = ruleEngine(); engine.rules.allow.push('Task', 'Read(*)', 'Bash(\\\\server\\share\\)');
+    const engine = ruleEngine(); engine.rules.allow.push('Task', 'kill_shell', 'Read(*)', 'Bash(\\\\server\\share\\)');
     const service = new PermissionRulesService({ request: engine.request });
     assertEqual((await service.remove({ toolName: 'Agent', behavior: 'allow' })).ok, true, 'legacy alias removed');
+    assertEqual((await service.remove({ toolName: 'TaskStop', behavior: 'allow' })).ok, true, 'legacy shell stop alias removed');
     assertEqual((await service.remove({ toolName: 'Read', behavior: 'allow' })).ok, true, 'tool-wide star removed');
     assertEqual((await service.remove({ toolName: 'Bash', ruleContent: '\\\\server\\share\\', behavior: 'allow' })).ok, true, 'literal UNC removed');
-    assertDeepEqual(engine.calls.filter(call => call.method === 'engine/removePermissionRule').map(call => object(call.params).rule), ['Task', 'Read(*)', 'Bash(\\\\server\\share\\)'], 'raw identities forwarded');
+    assertDeepEqual(engine.calls.filter(call => call.method === 'engine/removePermissionRule').map(call => object(call.params).rule), ['Task', 'kill_shell', 'Read(*)', 'Bash(\\\\server\\share\\)'], 'raw identities forwarded');
     assertDeepEqual(engine.rules.allow, [], 'no invisible rows remain'); await service.close();
   });
   h.test('permission partial alias deletion still refreshes the host and reports the persisted change', async () => {

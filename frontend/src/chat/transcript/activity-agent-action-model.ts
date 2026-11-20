@@ -70,20 +70,44 @@ export function sentAgentMessageLabel(locale: string, recipient?: string): strin
   return recipient ? `Sent message to ${recipient}` : 'Sent message to parent'
 }
 
+function outputTaskType(output: unknown): string {
+  if (typeof output !== 'string' || !output) return ''
+  for (const item of outputObjects(output)) {
+    const taskType = field(item, 'task_type', 'taskType')
+    if (taskType) return taskType.toLowerCase()
+  }
+  return ''
+}
+
+export function isShellTaskControl(toolName: string, args?: unknown, output?: unknown): boolean {
+  const name = agentToolName(toolName)
+  if (name !== 'taskstop' && name !== 'interruptagent' && name !== 'taskoutput') return false
+  const taskType = outputTaskType(output)
+  if (taskType === 'agent') return false
+  if (taskType === 'shell') return true
+  if (typeof args !== 'string' && (typeof args !== 'object' || args === null || Array.isArray(args))) return false
+  const parsedArgs = object(parsed(args))
+  if (!parsedArgs) return false
+  if (field(parsedArgs, 'signal')) return true
+  return Boolean(field(parsedArgs, 'shell_id', 'shellId')) && !field(parsedArgs, 'task_id', 'taskId', 'target', 'agent_id', 'agentId')
+}
+
 /** These names represent control operations, not a newly spawned agent. */
-export function agentActionKind(toolName: string): AgentActionKind | null {
+export function agentActionKind(toolName: string, args?: unknown, output?: unknown): AgentActionKind | null {
   const name = agentToolName(toolName)
   if (['sendinput', 'sendmessage', 'followuptask'].includes(name)) return 'message'
-  // In Klaus, shell_id is only a deprecated alias for an agent task_id.
-  if (['interruptagent', 'taskstop'].includes(name)) return 'interrupt'
+  // Background-shell stops are shell operations, not subagent interruptions.
+  if (['interruptagent', 'taskstop'].includes(name)) {
+    return isShellTaskControl(toolName, args, output) ? null : 'interrupt'
+  }
   if (['listagents', 'listpeers'].includes(name)) return 'list'
   if (name === 'resumeagent') return 'resume'
   if (name === 'closeagent') return 'close'
   return null
 }
 
-export function isAgentActionToolName(toolName: string): boolean {
-  return agentActionKind(toolName) !== null
+export function isAgentActionToolName(toolName: string, args?: unknown, output?: unknown): boolean {
+  return agentActionKind(toolName, args, output) !== null
 }
 
 function outputObjects(output: string | undefined): ObjectValue[] {
@@ -160,7 +184,8 @@ function promptValue(args: ObjectValue | null): string {
 }
 
 export function agentActionPresentation(tool: ActivityToolData): AgentActionPresentation | null {
-  const action = agentActionKind(tool.toolName)
+  const actionOutput = tool.taskType ? JSON.stringify({ task_type: tool.taskType }) : tool.output
+  const action = agentActionKind(tool.toolName, tool.args, actionOutput)
   if (!action) return null
   const args = object(parsed(tool.args))
   const parentAlias = action === 'message' && ['target', 'agent_id', 'agentId', 'thread_id', 'threadId', 'id', 'to', 'recipient']

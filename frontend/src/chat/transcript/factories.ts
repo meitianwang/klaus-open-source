@@ -94,11 +94,18 @@ export interface VisualArtifact {
   /** Whether the surface already held content when the card was published; absent means unknown (ready copy). */
   ready?: boolean
 }
+export interface ReplayTaskControl {
+  task_type?: string
+  task_id?: string
+  command?: string
+  status?: string
+}
 export interface ReplayToolResult {
   text: string
   isError: boolean
   media: ReplayToolMedia[]
   artifact?: VisualArtifact
+  taskControl?: ReplayTaskControl
 }
 
 const VISUAL_ARTIFACT_KINDS: readonly string[] = ['diagram', 'model3d', 'prototype', 'video-editing', 'ppt', 'design']
@@ -153,9 +160,20 @@ export function normalizeToolResultForReplay(result: any): ReplayToolResult | nu
   const text = sanitizeToolOutput(rawText)
   const isError = result.isError === true || result.is_error === true
   const artifact = isError ? undefined : normalizeVisualArtifact(result.artifact)
+  const rawControl = result.taskControl && typeof result.taskControl === 'object' && !Array.isArray(result.taskControl)
+    ? result.taskControl as Record<string, unknown>
+    : null
+  const taskControl: ReplayTaskControl | undefined = rawControl && typeof rawControl.task_type === 'string'
+    ? {
+        task_type: rawControl.task_type,
+        ...(typeof rawControl.task_id === 'string' ? { task_id: rawControl.task_id } : {}),
+        ...(typeof rawControl.command === 'string' ? { command: rawControl.command } : {}),
+        ...(typeof rawControl.status === 'string' ? { status: rawControl.status } : {}),
+      }
+    : undefined
   // Media or a structured artifact counts as a visible result even without text.
   if (!text && !isError && media.length === 0 && !artifact) return null
-  return { text, isError, media, ...(artifact ? { artifact } : {}) }
+  return { text, isError, media, ...(artifact ? { artifact } : {}), ...(taskControl ? { taskControl } : {}) }
 }
 
 export function advisorToolArgsFromBlock(block: any): Record<string, unknown> {

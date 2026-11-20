@@ -69,7 +69,7 @@ export function describeActivity(name: string, input: unknown, status: string, o
   }
   else if (/^(web_search|web_fetch|websearch|webfetch|fetch_url)$/.test(normalized)) kind = 'web'
   else if (presentation.kind === 'edit') kind = 'edit'
-  else if (presentation.kind === 'exec') kind = 'command'
+  else if (presentation.kind === 'exec' || presentation.shellTaskControl) kind = 'command'
   else if (!isToolDiscovery(name)) {
     const nativeKind = nativeActivityKind(name)
     if (nativeKind === 'command') kind = 'command'

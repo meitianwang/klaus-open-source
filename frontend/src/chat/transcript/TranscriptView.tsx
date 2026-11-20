@@ -1347,7 +1347,8 @@ export function segmentsFromBlocks(blocks: any[], thinkingDurationMs: number | u
       const activityKind = subagentActivityKind(b.name || '')
       const agent = activityKind !== null
       const result = normalizeToolResultForReplay(b.__result)
-      if (result && isAgentActionToolName(b.name || '') && b.__result?.agentCommunication) {
+      const actionOutput = result?.taskControl ? JSON.stringify(result.taskControl) : result?.text
+      if (result && isAgentActionToolName(b.name || '', b.input, actionOutput) && b.__result?.agentCommunication) {
         result.text = JSON.stringify(b.__result.agentCommunication)
       }
       // A mid-turn delegation arrives drained into this result's text (the
@@ -1889,11 +1890,12 @@ export function activityEntries(units: Unit[], turnKey: string, interrupted: boo
           grouping: 'standalone',
         }]
       }
+      const actionOutput = tool.output?.taskControl ? JSON.stringify(tool.output.taskControl) : tool.output?.text
       return [{
         key,
         value: { kind: 'unit', unit: { ...unit, key: `tool:${key}`, segment: { kind: 'tools', tools: [tool] } } },
-        grouping: isAgentActionToolName(tool.toolName) || tool.state === 'awaiting-approval' ? 'standalone' : 'tool',
-        action: describeActivity(tool.toolName, tool.args, tool.state, tool.output?.text, tool.output?.media),
+        grouping: isAgentActionToolName(tool.toolName, tool.args, actionOutput) || tool.state === 'awaiting-approval' ? 'standalone' : 'tool',
+        action: describeActivity(tool.toolName, tool.args, tool.state, actionOutput, tool.output?.media),
       }]
     })
   })
@@ -3162,6 +3164,7 @@ function HistoryActivityTool({ tool, sessionId, stateSessionId, turnKey, suppres
     if (!open && /^mcp[_.]/i.test(tool.toolName)) setTurnCollapsed(stateSessionId, `mcp-expanded:${turnKey}`, true)
   }
   const data: ActivityToolData = { ...tool, sessionId, parentAgentId, output: tool.output?.text, media: tool.output?.media,
+    ...(tool.output?.taskControl?.task_type ? { taskType: tool.output.taskControl.task_type } : {}),
     state: tool.state === 'running' || tool.state === 'error' || tool.state === 'interrupted' || tool.state === 'awaiting-approval' ? tool.state : 'done' }
   const media = activityToolPresentation(data).kind === 'image' ? [] : (tool.output?.media || []).filter(item => !suppressFigurePaths?.has(item.path))
   return <><ActivityTool tool={data} open={open} onToggle={toggle} readOnly={readOnly} />
@@ -4531,7 +4534,7 @@ export function liveActivityEntries(liveUnits: LiveUnit[], tools: Record<string,
       }
       return [{
         key: id, value: { ...unit, key: `tool:${id}`, order: [id] },
-        grouping: record || subagentActivityKind(card.toolName) || isAgentActionToolName(card.toolName) || card.status === 'awaiting-approval' ? 'standalone' : 'tool',
+        grouping: record || subagentActivityKind(card.toolName) || isAgentActionToolName(card.toolName, card.args, card.content) || card.status === 'awaiting-approval' ? 'standalone' : 'tool',
         action: describeActivity(card.toolName, card.args, card.status, card.content, card.media),
       }, ...delegations]
     })
