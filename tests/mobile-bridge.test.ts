@@ -1762,7 +1762,7 @@ void (async () => {
       assert.equal((await f.request('GET', '/api/mobile/sessions/s1/agents/child%2Fbad/history')).status, 400);
       assert.equal(f.calls.filter(row => row.channel === 'agents:history').length, before);
       f.bridge.publishEngineEvent(transcriptVector.childEvent!, f.owner());
-      assert.deepEqual((await a.next('engine_event')).event, transcriptVector.childEvent);
+      assert.deepEqual((await a.next('engine_event')).event, transcriptVector.childEventProjected);
       await sleep(20); assert(!b.messages.some(row => row.type === 'engine_event'));
       await stopSocket(a.socket); await stopSocket(b.socket);
     } finally { await f.close(); }
@@ -1937,6 +1937,164 @@ void (async () => {
         else assert.equal((await f.request('POST', '/api/mobile/permissions/respond', payload)).status, 202);
         assert.deepEqual(await client.next('permission_resolved'), { type: 'permission_resolved', sessionId: 's1', ...payload });
       }
+      await stopSocket(client.socket);
+    } finally { await f.close(); }
+  });
+  await h.test('mobile history and live streams strip bulky tool inputs, outputs and reasoning while preserving compact tool records and deliverables', async () => {
+    const f = await mobileFixture(); try {
+      const bulkyFileBody = 'const line = 1;\n'.repeat(2_000);
+      const bulkyStdout = 'Compiling target...\n'.repeat(1_500);
+      const bulkyPatch = [
+        '*** Begin Patch',
+        '*** Update File: src/app.ts',
+        '@@ -1,2 +1,3 @@',
+        '-const oldVal = 1;',
+        '+const newVal = 2;',
+        '+const extraVal = 3;',
+        '*** End Patch',
+      ].join('\n');
+      const delegationEnvelope = '<klaus-delegation>\n  <source-thread-id>peer-thread</source-thread-id>\n  <input>Check status</input>\n</klaus-delegation>';
+      const richHistory: JsonObject = {
+        messages: [
+          { id: 'u1', role: 'user', turnId: 't1', text: 'Run checks and update app.ts' },
+          { id: 'cs-hidden', role: 'assistant', kind: 'compact-summary', turnId: 't1', text: 'Internal checkpoint summary' },
+          {
+            id: 'a1',
+            role: 'assistant',
+            turnId: 't1',
+            thinking: 'Internal reasoning text '.repeat(500),
+            contentBlocks: [
+              { type: 'thinking', thinking: 'Block reasoning '.repeat(500), signature: 'sig-123' },
+              { type: 'text', phase: 'commentary', text: 'Inspecting files and applying edits.' },
+              {
+                type: 'tool_use',
+                id: 'read-1',
+                name: 'read',
+                input: { path: 'src/app.ts', offset: 1, limit: 200 },
+                __state: 'done',
+                __result: { type: 'tool_result', tool_use_id: 'read-1', is_error: false, content: [{ type: 'text', text: bulkyFileBody }] },
+              },
+              {
+                type: 'tool_use',
+                id: 'patch-1',
+                name: 'apply_patch',
+                input: { patch: bulkyPatch },
+                __state: 'done',
+                __result: { type: 'tool_result', tool_use_id: 'patch-1', is_error: false, content: [{ type: 'text', text: 'Applied patch' }] },
+              },
+              {
+                type: 'tool_use',
+                id: 'search-tools-1',
+                name: 'tool_search',
+                input: { query: 'select:Read,Edit' },
+                __state: 'done',
+                __result: {
+                  type: 'tool_result',
+                  tool_use_id: 'search-tools-1',
+                  is_error: false,
+                  content: [{ type: 'text', text: 'These tools are now available:\n- mcp__demo__alpha: Alpha schema\n- mcp__demo__beta: Beta schema\n' }],
+                },
+              },
+              {
+                type: 'tool_use',
+                id: 'bash-1',
+                name: 'bash',
+                input: { command: 'npm test\necho ' + 'x'.repeat(600) },
+                __state: 'done',
+                __result: {
+                  type: 'tool_result',
+                  tool_use_id: 'bash-1',
+                  is_error: false,
+                  content: [{
+                    type: 'text',
+                    text: JSON.stringify({ exitCode: 0, durationMs: 3200, stdout: bulkyStdout + '\n' + delegationEnvelope, stderr: '' }),
+                  }],
+                },
+              },
+              {
+                type: 'tool_use',
+                id: 'gen-1',
+                name: 'generate_image',
+                input: { prompt: 'A huge prompt '.repeat(100) },
+                __state: 'done',
+                __result: {
+                  type: 'tool_result',
+                  tool_use_id: 'gen-1',
+                  is_error: false,
+                  content: [
+                    { type: 'image', path: '/tmp/generated.png', mimeType: 'image/png' },
+                    { type: 'text', text: 'Saved image metadata '.repeat(100) },
+                  ],
+                  artifact: { kind: 'diagram', id: 'diag-1', title: 'Flow' },
+                },
+              },
+              { type: 'text', phase: 'final_answer', text: 'All checks passed.' },
+            ],
+          },
+        ],
+        turnStatuses: { t1: 'completed', t2: 'failed' },
+        turnDurations: { t1: 4200 },
+        turnErrors: { t2: 'Gateway timeout' },
+      };
+      f.intercept(async channel => {
+        if (channel === 'session:history') return richHistory;
+        if (channel === 'session:follow') return { mode: 'snapshot', streamId: 'stream-compact', revision: 0, ...richHistory };
+        return undefined;
+      });
+      await f.enable();
+      const httpHistory = await f.request('GET', '/api/mobile/sessions/s1/history');
+      assert.equal(httpHistory.status, 200);
+      const serialized = JSON.stringify(httpHistory.body);
+      assert(serialized.length < 4_000, `expected compact payload < 4KB, got ${serialized.length}`);
+      assert(!serialized.includes('const line = 1;'));
+      assert(!serialized.includes('Compiling target...'));
+      assert(!serialized.includes('Block reasoning'));
+      assert(!serialized.includes('Internal checkpoint summary'));
+      assert.deepEqual(httpHistory.body.turnErrors, { t2: 'Gateway timeout' });
+
+      const assistant = object((httpHistory.body.messages as Json[]).find(row => object(row).id === 'a1'));
+      assert.equal(assistant.thinking, undefined);
+      const blocks = assistant.contentBlocks as JsonObject[];
+      assert(!blocks.some(block => block.type === 'thinking'));
+      const patchBlock = blocks.find(block => block.id === 'patch-1')!;
+      assert.equal(patchBlock.__compact, true);
+      assert.equal(object(patchBlock.input).patch, undefined);
+      assert.deepEqual(object(patchBlock.input).editedFiles, [{ path: 'src/app.ts', kind: 'update', additions: 2, deletions: 1 }]);
+      const discoveryBlock = blocks.find(block => block.id === 'search-tools-1')!;
+      assert.deepEqual(object(discoveryBlock.__result).loadedToolNames, ['mcp__demo__alpha', 'mcp__demo__beta']);
+      const bashBlock = blocks.find(block => block.id === 'bash-1')!;
+      assert.equal(object(bashBlock.__result).durationMs, 3200);
+      assert.equal(object(bashBlock.__result).exitCode, 0);
+      assert(JSON.stringify(bashBlock.__result).includes('<klaus-delegation>'), 'embedded peer delegation envelope must survive compaction');
+      const genBlock = blocks.find(block => block.id === 'gen-1')!;
+      assert.deepEqual(object(genBlock.__result).content, [{ type: 'image', path: '/tmp/generated.png', mimeType: 'image/png' }]);
+      assert.deepEqual(object(genBlock.__result).artifact, { kind: 'diagram', id: 'diag-1', title: 'Flow' });
+
+      const client = await f.connect(); await client.next('hello');
+      client.socket.send(JSON.stringify({ type: 'follow_task', sessionId: 's1' }));
+      const snapshot = await client.next('task_snapshot');
+      assert(!JSON.stringify(snapshot).includes('const line = 1;'));
+
+      f.bridge.publishEngineEvent({ type: 'thinking_delta', sessionId: 's1', turnId: 't-live', thinking: 'Hidden thought '.repeat(200) }, f.owner());
+      f.bridge.publishEngineEvent({ type: 'tool_start', sessionId: 's1', turnId: 't-live', toolCallId: 'live-edit', toolName: 'edit', args: { file_path: 'src/live.ts', oldString: 'old\n'.repeat(200), newString: 'new\n'.repeat(250) } }, f.owner());
+      f.bridge.publishEngineEvent({ type: 'progress', sessionId: 's1', turnId: 't-live', toolCallId: 'live-edit', content: 'Streaming stdout '.repeat(500) }, f.owner());
+      f.bridge.publishEngineEvent({ type: 'tool_end', sessionId: 's1', turnId: 't-live', toolCallId: 'live-edit', toolName: 'edit', isError: false, content: 'Huge result '.repeat(500) }, f.owner());
+      await waitFor(() => client.messages.some(row => row.type === 'task_patch'), 1000, 'Live compact tool patch');
+      await sleep(70);
+      const liveRaw = JSON.stringify(client.messages);
+      assert(!liveRaw.includes('Hidden thought'));
+      assert(!liveRaw.includes('Streaming stdout'));
+      assert(!liveRaw.includes('Huge result'));
+      assert(!liveRaw.includes('old\\nold'));
+      const engineEvents = client.messages
+        .filter(row => row.type === 'task_patch')
+        .flatMap(row => (row.patches as JsonObject[] ?? []).map(patch => object(object(patch.value).event)));
+      const liveStart = engineEvents.find(ev => ev.type === 'tool_start' && ev.toolCallId === 'live-edit')!;
+      assert.equal(liveStart.compact, true);
+      assert.deepEqual(object(liveStart.args).editedFiles, [{ path: 'src/live.ts', kind: 'update', additions: 250, deletions: 200 }]);
+      const liveEnd = engineEvents.find(ev => ev.type === 'tool_end' && ev.toolCallId === 'live-edit')!;
+      assert.equal(liveEnd.compact, true);
+      assert.equal(liveEnd.content, '');
       await stopSocket(client.socket);
     } finally { await f.close(); }
   });

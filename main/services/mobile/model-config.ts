@@ -17,6 +17,7 @@ const SOURCE_ROWS = [
   ['zhipu', 'Zhipu Coding Plan', 'zhipu-auth:status'], ['ark', 'Ark Coding Plan', 'ark-auth:status'], ['custom', 'Custom', 'settings:models:list'],
 ] as const;
 const LEVELS: readonly string[] = THINKING_LEVELS;
+const SOURCE_TIMEOUT_MS = 1_500;
 const QUERY_TIMEOUT_MS = 10_000;
 const MAX_MODELS = 500;
 
@@ -59,33 +60,50 @@ export function modelPreference(value: Json | undefined): MobileModelPreference 
   return { source: update.source!, selection: update.selection!, thinkingLevel: update.thinkingLevel!, ...(update.fastMode === undefined ? {} : { fastMode: update.fastMode }), ...(update.ultraMode === undefined ? {} : { ultraMode: update.ultraMode }) };
 }
 
-async function bounded<T>(pending: Promise<T>): Promise<T> {
+async function bounded<T>(pending: Promise<T>, timeoutMs = QUERY_TIMEOUT_MS): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
-  try { return await Promise.race([pending, new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new MobileError(503, 'model_catalog_unavailable', 'The model catalog is unavailable')), QUERY_TIMEOUT_MS); })]); }
+  try { return await Promise.race([pending, new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new MobileError(503, 'model_catalog_unavailable', 'The model catalog is unavailable')), timeoutMs); })]); }
   finally { if (timer) clearTimeout(timer); }
 }
 
 /** One bounded discovery batch can serve multiple explicitly scoped snapshots. */
 export class MobileModelConfigProjection {
-  private sourceRows?: Promise<JsonObject[]>;
+  private sourceEntries?: Map<string, Promise<JsonObject>>;
   private readonly catalogs = new Map<string, Promise<JsonObject[]>>();
   constructor(private readonly call: MobileCall, private readonly revision: () => number = () => 0) {}
 
-  sources(): Promise<JsonObject[]> {
-    return this.sourceRows ??= Promise.all(SOURCE_ROWS.map(async ([value, label, channel]) => {
-      try {
-        const answer = await bounded(this.call(channel));
-        const needsReimport = value === 'cursor' && object(answer).needsReimport === true;
-        const available = value === 'custom' ? Array.isArray(answer) && answer.length > 0 : object(answer).loggedIn === true && !needsReimport && object(answer).needsLogin !== true;
-        return { value, label, available, ...(available ? {} : { reason: needsReimport ? 'Import the current local Cursor login again on this device.' : value === 'custom' ? 'No custom models are configured on this device.' : 'Sign in to this source on this device.' }) };
-      } catch { return { value, label, available: false, reason: 'The source status is unavailable. Retry on this device.' }; }
-    }));
+  private ensureSourceEntries(): Map<string, Promise<JsonObject>> {
+    if (this.sourceEntries) return this.sourceEntries;
+    const entries = new Map<string, Promise<JsonObject>>();
+    for (const [value, label, channel] of SOURCE_ROWS) {
+      entries.set(value, (async () => {
+        try {
+          const answer = await bounded(this.call(channel), SOURCE_TIMEOUT_MS);
+          const needsReimport = value === 'cursor' && object(answer).needsReimport === true;
+          const available = value === 'custom' ? Array.isArray(answer) && answer.length > 0 : object(answer).loggedIn === true && !needsReimport && object(answer).needsLogin !== true;
+          return { value, label, available, ...(available ? {} : { reason: needsReimport ? 'Import the current local Cursor login again on this device.' : value === 'custom' ? 'No custom models are configured on this device.' : 'Sign in to this source on this device.' }) };
+        } catch { return { value, label, available: false, reason: 'The source status is unavailable. Retry on this device.' }; }
+      })());
+    }
+    this.sourceEntries = entries;
+    return entries;
   }
 
-  models(source: string): Promise<JsonObject[]> {
+  private sourceEntry(source: string): Promise<JsonObject> {
+    return this.ensureSourceEntries().get(source) ?? Promise.resolve({ value: source, label: source, available: false, reason: 'Sign in to this source on this device.' });
+  }
+
+  sources(): Promise<JsonObject[]> {
+    const entries = this.ensureSourceEntries();
+    return Promise.all(SOURCE_ROWS.map(([value]) => entries.get(value)!));
+  }
+
+  models(source: string, catalogRead: 'warm' | 'cached' = 'warm'): Promise<JsonObject[]> {
     if (!MODEL_SOURCES.includes(source)) throw badRequest('source is invalid');
-    const existing = this.catalogs.get(source); if (existing) return existing;
-    const pending = bounded(this.call('session:get-main-model-options', { source })).then(answer => {
+    const cacheKey = `${source}:${catalogRead}`;
+    const existing = this.catalogs.get(cacheKey); if (existing) return existing;
+    const params: JsonObject = catalogRead === 'cached' ? { source, read: 'cached' } : { source };
+    const pending = bounded(this.call('session:get-main-model-options', params)).then(answer => {
       const rows = object(answer).options, seen = new Set<string>(), models: JsonObject[] = [];
       if (!Array.isArray(rows)) throw new MobileError(503, 'model_catalog_unavailable', 'The model catalog is unavailable');
       for (const raw of rows) {
@@ -115,7 +133,7 @@ export class MobileModelConfigProjection {
       }
       return models;
     });
-    this.catalogs.set(source, pending); return pending;
+    this.catalogs.set(cacheKey, pending); return pending;
   }
 
   async snapshot(sessionId: string | null, previewSource?: string): Promise<JsonObject> {
@@ -123,31 +141,36 @@ export class MobileModelConfigProjection {
     const params: JsonObject = sessionId ? { sessionId } : {};
     for (let attempt = 0; attempt < 3; attempt++) {
       const revision = this.revision();
-      const [mainRaw, levelRaw, fastRaw, ultraRaw, discovered] = await Promise.all([this.call('session:get-main-model', params), this.call('session:get-thinking-level', params), this.call('session:get-fast-mode', params), this.call('session:get-ultra-mode', params), this.sources()]);
+      const allSourcesPromise = this.sources();
+      const [mainRaw, levelRaw, fastRaw, ultraRaw] = await Promise.all([this.call('session:get-main-model', params), this.call('session:get-thinking-level', params), this.call('session:get-fast-mode', params), this.call('session:get-ultra-mode', params)]);
       const fast = object(fastRaw);
       const main = object(mainRaw), source = nonempty(main.source);
       if (!source || !MODEL_SOURCES.includes(source)) throw new MobileError(500, 'invalid_model_config', 'Desktop returned an invalid model source');
       const selection = mainModel(main.mode), rawLevel = object(levelRaw).level;
       const thinkingLevel = source === 'trae' && isTraeNativeEffort(rawLevel) || source === 'kiro' && isKiroNativeEffort(rawLevel) ? rawLevel : thinking(rawLevel), catalogSource = previewSource ?? source;
-      const sources = discovered.map(row => ({ ...row }));
-      let models: JsonObject[] = [], catalogDefaultSelection: string | null = null;
-      if (sources.some(row => row.value === catalogSource && row.available === true)) {
-        const catalog = this.models(catalogSource).catch(() => {
-          const row = sources.find(entry => entry.value === catalogSource)!;
-          sources[sources.indexOf(row)] = { ...row, available: false, reason: 'The model catalog is unavailable. Retry on this device.' };
+      let catalogFailed = false;
+      const activeCatalogPromise = (async (): Promise<[JsonObject[], string | null]> => {
+        const targetSource = await this.sourceEntry(catalogSource);
+        if (targetSource.available !== true) return [[], null];
+        const catalog = this.models(catalogSource, 'cached').catch(() => {
+          catalogFailed = true;
           return [];
         });
         const defaultSelection = previewSource === undefined ? Promise.resolve(null) : this.call('session:get-main-model', { ...params, previewSource }).then(value => nonempty(object(value).resolvedMode));
-        [models, catalogDefaultSelection] = await Promise.all([catalog, defaultSelection]);
-        if (catalogSource === source) models = modelOptionsForValue(models, selection);
-      }
+        return Promise.all([catalog, defaultSelection]);
+      })();
+      const [discovered, [rawModels, catalogDefaultSelection]] = await Promise.all([allSourcesPromise, activeCatalogPromise]);
+      const sources = discovered.map(row => row.value === catalogSource && catalogFailed
+        ? { ...row, available: false, reason: 'The model catalog is unavailable. Retry on this device.' }
+        : { ...row });
+      const models = !catalogFailed && catalogSource === source ? modelOptionsForValue(rawModels, selection) : rawModels;
       // Discovery and model resolution can outlast a desktop or phone edit. Verify
       // persisted values again, so the response never combines separate epochs.
       const [latestMain, latestLevel, latestFastRaw, latestUltra] = await Promise.all([this.call('session:get-main-model', { ...params, resolve: false }), this.call('session:get-thinking-level', params), this.call('session:get-fast-mode', params), this.call('session:get-ultra-mode', params)]);
       const latestFast = object(latestFastRaw);
       if (revision !== this.revision() || object(latestMain).source !== source || object(latestMain).mode !== selection || object(latestLevel).level !== thinkingLevel
         || object(latestUltra).enabled !== object(ultraRaw).enabled || latestFast.enabled !== fast.enabled || latestFast.supported !== fast.supported || latestFast.billing !== fast.billing) {
-        this.sourceRows = undefined; this.catalogs.clear(); continue;
+        this.sourceEntries = undefined; this.catalogs.clear(); continue;
       }
       return { sessionId, source, selection, resolvedSelection: nonempty(main.resolvedMode), thinkingLevel, ultraMode: object(ultraRaw).enabled === true, fastMode: fast.enabled === true, fastModeSupported: fast.supported === true,
         ...(fast.billing === 'extraCredits' ? { fastModeBilling: 'extraCredits' } : {}), catalogSource, sources, models,

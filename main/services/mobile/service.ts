@@ -29,6 +29,7 @@ import { INLINE_VIS_MAX_BYTES } from '../../../contracts/inline-visualization';
 import { applyModelPreference, MobileModelConfigProjection, modelConfigSession, modelConfigUpdate, modelPreference, type MobileModelPreference } from './model-config';
 import { mobileNewChatBranch, mobileNewChatContext, mobileNewChatRun, type MobileNewChatRun } from './new-chat';
 import { FOLLOW_UP_MODE_KEY, followUpMode, followUpPayload, uploadFollowUpMedia, mobileFollowUpIntent, MobileFollowUpControls, payloadFingerprint, type MobileFollowUpIntent } from './follow-ups';
+import { compactMobileEngineEvent, compactMobileEngineFrames, compactMobileHistory } from './transcript-compact';
 
 export interface MobileThreadContext {
   accountId: string; localHostId: string; signal: AbortSignal; owner: MobileEngineOwner; assertCurrent(): void;
@@ -544,8 +545,7 @@ export class MobileBridgeService {
   private async historyWithTurns(call: MobileCall, id: string): Promise<JsonObject> {
     const result = object(await call('session:history', { sessionId: id }));
     if (!Array.isArray(result.messages)) throw new MobileError(500, 'invalid_history', 'Desktop returned an invalid conversation history');
-    const turns = (key: string): JsonObject => object(result[key]);
-    return { ...result, sessionId: id, turnStatuses: turns('turnStatuses'), turnDurations: turns('turnDurations') };
+    return compactMobileHistory({ ...result, sessionId: id });
   }
   private async readSessionWorkMode(call: MobileCall, id: string): Promise<'default' | 'plan' | 'parallel' | 'orchestrate'> {
     const [specRaw, ultraRaw, orchestrateRaw] = await Promise.all([
@@ -660,7 +660,7 @@ export class MobileBridgeService {
         if (childRoute[4]) {
           const agentId = this.pathIdentity(childRoute[3]), history = object(await call('agents:history', { sessionId: id, agentId }));
           if (!Array.isArray(history.messages)) throw new MobileError(500, 'invalid_history', 'Desktop returned an invalid child conversation history');
-          return result(200, { ...history, sessionId: id, agentId, turnStatuses: object(history.turnStatuses), turnDurations: object(history.turnDurations) });
+          return result(200, compactMobileHistory({ ...history, sessionId: id, agentId }));
         }
       } else if (childRoute[3] && !childRoute[4]) {
         if (!this.deps.diagramPreview) throw new MobileError(501, 'diagram_preview_unavailable', 'Diagram preview is unavailable');
@@ -863,7 +863,7 @@ export class MobileBridgeService {
         if (preference) await applyModelPreference(call, sessionId, preference, false);
         // Install the subscription before send so synchronous first-turn events cannot be lost.
         for (const peer of run.peers) peer.subscriptions.add(sessionId);
-        await this.sendMessage(run, call, sessionId, text, media);
+        await this.sendMessage(run, call, sessionId, text, media, {}, clientMessageId);
       } catch (error) {
         // Only resources created by this promotion are eligible for rollback. Deleting the empty
         // session first releases its cwd lease; managed-worktree removal then drops copied edits
@@ -970,7 +970,10 @@ export class MobileBridgeService {
     if (intent.mode === 'steer' && name) throw new MobileError(409, 'steer_slash_command', 'Slash commands must be queued for the next turn');
     const projected = followUpPayload(text, await uploadFollowUpMedia(call, media), readSessionModel(sessionId, this.deps.configRoot).source);
     if (intent.mode === 'steer') return run.followUps.steer(call, sessionId, projected, required(intent.expectedTurnId, 'expectedTurnId'));
-    await call('chat:send', { sessionId, text: projected.finalText!, media: projected.media!, ...(projected.displayMetadata ? { displayMetadata: projected.displayMetadata } : {}) });
+    const displayMetadata: JsonObject | undefined = clientMessageId
+      ? { ...(projected.displayMetadata ? object(projected.displayMetadata) : {}), clientMessageId }
+      : (projected.displayMetadata ? object(projected.displayMetadata) : undefined);
+    await call('chat:send', { sessionId, text: projected.finalText!, media: projected.media!, ...(displayMetadata ? { displayMetadata } : {}) });
     return {};
   }
   private async setModelConfig(run: Run, call: MobileCall, update: ReturnType<typeof modelConfigUpdate>): Promise<JsonObject> {
@@ -1464,7 +1467,7 @@ export class MobileBridgeService {
     const followCall = historyRead ? this.call(this.run!, owner, signal, history => {
       if (current()) {
         peer.diagnostics.record(diagnostic, 'history_prepared', { count: Array.isArray(object(history).messages) ? (object(history).messages as Json[]).length : 0 });
-        this.sendPeer(peer, diagnosticResponse({ type: 'task_history', sessionId, history: { ...object(history), sessionId }, ...correlation }, diagnostic));
+        this.sendPeer(peer, diagnosticResponse({ type: 'task_history', sessionId, history: compactMobileHistory({ ...object(history), sessionId }), ...correlation }, diagnostic));
       }
     }, priority) : call;
     const snapshot = object(await followCall('session:follow', { sessionId }));
@@ -1497,8 +1500,8 @@ export class MobileBridgeService {
       // `session:follow` projects the engine history WITHOUT a `sessionId`, but the phone's
       // history envelope requires it: the missing key made the phone throw away the whole
       // snapshot frame and spin on an empty transcript.
-      revision: cut.revision, history: { ...snapshot, sessionId }, liveEvents: cut.liveEvents,
-      activeEvents: activeFollowEvents(snapshot, sessionId, result => splitDynamicToolMedia(result, this.deps.configRoot)),
+      revision: cut.revision, history: compactMobileHistory({ ...snapshot, sessionId }), liveEvents: compactMobileEngineFrames(cut.liveEvents),
+      activeEvents: compactMobileEngineFrames(activeFollowEvents(snapshot, sessionId, result => splitDynamicToolMedia(result, this.deps.configRoot))),
       coveredMessageIds: snapshot.coveredMessageIds ?? [],
       coveredToolResults: snapshot.coveredToolResults ?? [],
       working: this.working.has(sessionId), questions: questionSnapshot.questions, interactions: interactions.filter(frame => {
@@ -1717,9 +1720,12 @@ export class MobileBridgeService {
     const settled = type === 'done' || type === 'interrupted' || (type === 'api_error' && event.terminal === true);
     if (id && settled) { this.working.delete(id); this.clearRemoteOrigin(id); }
     const run = this.run; if (!run) return;
-    const engineFrame = { type: 'engine_event', event };
-    this.broadcast(run, engineFrame, id ?? undefined);
-    if (id) this.taskStreams.publish(id, engineFrame);
+    const compactedEvent = compactMobileEngineEvent(event);
+    if (compactedEvent) {
+      const engineFrame = { type: 'engine_event', event: compactedEvent };
+      this.broadcast(run, engineFrame, id ?? undefined);
+      if (id) this.taskStreams.publish(id, engineFrame);
+    }
     if (type === 'permission_cancelled' || type === 'elicit_cancelled') {
       const requestId = string(event.requestId); this.pending(type === 'permission_cancelled' ? 'permission' : 'elicit').delete(requestId);
       if (id) this.publishPushNotice(id, type === 'permission_cancelled' ? 'permission' : 'elicitation', requestId, true);

@@ -1,5 +1,5 @@
 {
-  "reason": "Mobile renders the desktop event contract, keeps elicitation distinct from approval, and reads child histories without creating another engine surface. Interaction replies preserve opaque IDs in JSON and reject expired ownership; stop requests carry their expected turn and succeed only on explicit acceptance.",
+  "reason": "Mobile renders the desktop event contract, strips raw tool inputs/outputs and intermediate tool/reasoning stream chunks down to compact tool-call records for fast mobile loading while keeping media/diagram deliverables, keeps elicitation distinct from approval, and reads child histories without creating another engine surface. Interaction replies preserve opaque IDs in JSON and reject expired ownership; stop requests carry their expected turn and succeed only on explicit acceptance.",
   "interactionTransport": {
     "permissionEndpoint": "/api/mobile/permissions/respond",
     "elicitationEndpoint": "/api/mobile/elicitations/respond",
@@ -92,6 +92,30 @@
       "toolName": "generate_image",
       "isError": false,
       "content": "Created preview",
+      "media": [
+        {
+          "path": "/fixture/media/result.png",
+          "mimeType": "image/png"
+        }
+      ],
+      "artifact": {
+        "kind": "diagram",
+        "id": "diagram-1",
+        "title": "Architecture"
+      }
+    }
+  },
+  "childEventProjected": {
+    "type": "agent_progress",
+    "sessionId": "s1",
+    "agentId": "child-1",
+    "event": {
+      "type": "tool_end",
+      "toolCallId": "child-tool",
+      "toolName": "generate_image",
+      "isError": false,
+      "compact": true,
+      "content": "",
       "media": [
         {
           "path": "/fixture/media/result.png",

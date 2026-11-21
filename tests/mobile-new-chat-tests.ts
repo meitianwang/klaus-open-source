@@ -211,6 +211,7 @@ export async function registerMobileNewChatTests(h: Harness): Promise<void> {
       fixture.intercept(undefined);
       assert.equal((await f.request('POST', '/api/mobile/sessions', payload)).status, 201);
       assert.equal(f.sent.length, 1); assert.equal(f.sessions.length, 3);
+      assert.equal(object(f.calls.filter(row => row.channel === 'chat:send').at(-1)!.payload.displayMetadata).clientMessageId, 'failed-identity');
     } finally { await fixture.close(); }
   });
   await h.test('an accepted draft cannot return a previous engine owner outcome through a replacement engine', async () => {

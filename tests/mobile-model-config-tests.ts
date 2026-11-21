@@ -304,4 +304,32 @@ export async function registerMobileModelConfigTests(h: Harness): Promise<void> 
       assert.deepEqual(readSessionModel('', f.root), { source: 'custom', mode: 'custom:fixture' }); assert.equal(readSessionThinkingLevel('', f.root), 'medium');
     } finally { await f.close(); }
   });
+  await h.test('model snapshots request cached catalogs in parallel without blocking active catalog reads on slow inactive source status probes', async () => {
+    const { f, override } = await modelFixture();
+    let releaseSlowStatus!: () => void;
+    const slowGate = new Promise<void>(resolve => { releaseSlowStatus = resolve; });
+    let catalogStartedWhileInactiveStatusPending = false;
+    let inactivePending = false;
+    try {
+      override(async (channel, payload) => {
+        if (channel === 'cursor-auth:status') {
+          inactivePending = true;
+          await slowGate;
+          inactivePending = false;
+          return { loggedIn: false };
+        }
+        if (channel === 'session:get-main-model-options' && payload.source === 'custom') {
+          assert.equal(payload.read, 'cached');
+          catalogStartedWhileInactiveStatusPending = inactivePending;
+        }
+        return undefined;
+      });
+      const pending = f.request('GET', '/api/mobile/model-config');
+      await waitFor(() => catalogStartedWhileInactiveStatusPending, 1500, 'Active catalog read starts without waiting on inactive status probes');
+      releaseSlowStatus();
+      const reply = await pending;
+      assert.equal(reply.status, 200);
+      assert.equal(object(reply.body.modelConfig).source, 'custom');
+    } finally { releaseSlowStatus(); await f.close(); }
+  });
 }

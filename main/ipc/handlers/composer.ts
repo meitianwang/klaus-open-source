@@ -30,8 +30,10 @@ export function registerComposerHandlers(registry: ChannelRegistry, deps: Compos
   registry.register('session:set-permission-mode', ctx => service.setPermission(object(ctx.args[0])), 'composer');
   registry.register('session:get-custom-main-model-options', async () => ({ options: await service.options('custom') }), 'composer');
   registry.register('session:get-main-model-options', async ctx => {
-    const source = string(object(ctx.args[0]).source);
-    return { options: await service.options(source || undefined) };
+    const payload = object(ctx.args[0]);
+    const source = string(payload.source);
+    const catalogRead = payload.read === 'cached' ? 'cached' : 'warm';
+    return { options: await service.options(source || undefined, true, catalogRead) };
   }, 'composer');
   return service;
 }
