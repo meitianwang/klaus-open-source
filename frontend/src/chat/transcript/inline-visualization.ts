@@ -198,6 +198,32 @@ type FrameState = {
  */
 const inlineVisHeightCache = new Map<string, number>()
 
+function unescapeHtmlAttr(value: string): string {
+  return value
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&gt;/g, '>')
+    .replace(/&lt;/g, '<')
+    .replace(/&amp;/g, '&')
+}
+
+/**
+ * Unwrap the outer `.msg-actions` element from factory HTML while preserving all
+ * `data-*` attributes (`data-turn-id`, `data-message-uuid`, etc.) on the host node.
+ */
+export function unwrapMsgActionsHtml(actionsHtml: string, copyText: string): { attrs: Record<string, string>; innerHtml: string } | null {
+  const match = actionsHtml.match(/^<div class="msg-actions"((?:\s+[a-z0-9-]+="[^"]*")*)>([\s\S]*)<\/div>$/i)
+  if (!match) return null
+  const attrs: Record<string, string> = {}
+  const attrPattern = /\s+([a-z0-9-]+)="([^"]*)"/gi
+  let attrMatch: RegExpExecArray | null
+  while ((attrMatch = attrPattern.exec(match[1]!)) !== null) {
+    attrs[attrMatch[1]!] = unescapeHtmlAttr(attrMatch[2]!)
+  }
+  attrs['data-copy-text'] = copyText
+  return { attrs, innerHtml: match[2]! }
+}
+
 /** Run the mount only after RawHtml has committed its actual DOM. */
 export function InlineVisualizationHtml({ html, fragments = [], className, sessionId, onOpenExternal, message, afterContent }: {
   html: string
@@ -218,12 +244,12 @@ export function InlineVisualizationHtml({ html, fragments = [], className, sessi
     mountMediaPlayers(body)
   }, [html, message?.html, fragments, onOpenExternal])
   if (message) {
-    const actions = message.actionsHtml.match(/^<div class="msg-actions" data-copy-text="([^"]*)">([\s\S]*)<\/div>$/)
+    const actions = unwrapMsgActionsHtml(message.actionsHtml, message.markdown)
     return createElement('div', { key: sessionId, ref, className },
       createElement(HighlightedHtml, { className: message.className ?? 'msg assistant', html: message.html,
         ...{ 'data-md': message.markdown, 'data-nav-answer': message.answer ? 'true' : undefined } }),
       afterContent,
-      actions ? createElement(RawHtml, { className: 'msg-actions', ...{ 'data-copy-text': message.markdown }, html: actions[2] }) : null)
+      actions ? createElement(RawHtml, { className: 'msg-actions', ...actions.attrs, html: actions.innerHtml }) : null)
   }
   return createElement(HighlightedHtml, { key: sessionId, ref, className, html })
 }

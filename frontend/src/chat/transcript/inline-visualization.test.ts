@@ -5,12 +5,22 @@
 // happens on the committed DOM. A real-browser probe exercises the success,
 // refused-read, and stale-content paths separately; the page content arrives
 // with the message, so nothing in the renderer asks the host for a file.
-import { describe, expect, test } from 'bun:test'
+import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import vectors from '../../../../contracts/vectors/inline-visualization-vectors.json'
 import { parseInlineVisDirective, INLINE_VIS_PREFIX, inlineVisFileEligible } from '../../../../contracts/inline-visualization'
-import { InlineVisualizationHtml, inlineVisForTests, stripInlineVisLines } from './inline-visualization'
+import { InlineVisualizationHtml, inlineVisForTests, stripInlineVisLines, unwrapMsgActionsHtml } from './inline-visualization'
+import { renderMsgActionsHtml } from './factories'
+
+const previousWindow = (globalThis as any).window
+beforeAll(() => {
+  ;(globalThis as any).window = { ...previousWindow, currentLang: 'zh' }
+})
+afterAll(() => {
+  if (previousWindow === undefined) delete (globalThis as any).window
+  else (globalThis as any).window = previousWindow
+})
 
 describe('the ::klaus-inline-vis transcript pass', () => {
   test('mounting is content-driven: the component takes projected fragments and asks nothing of the host', () => {
@@ -132,5 +142,52 @@ describe('the ::klaus-inline-vis transcript pass', () => {
   test('the DOM eligibility helper agrees with the contract', () => {
     expect(inlineVisFileEligible('home-dashboard.html', undefined)).toBe(true)
     expect(parseInlineVisDirective('::klaus-inline-vis{path="/a/home-dashboard.html"}')).not.toBe(null)
+  })
+
+  test('structured message mode preserves the action bar and turn/message metadata after end-resource cards', () => {
+    const markdown = 'Updated `Main.dc.html` ("v30") & restored <header>\nLine two'
+    const actionsHtml = renderMsgActionsHtml({
+      ts: 1795251776000,
+      copyText: '',
+      uuid: '26378666-f6d9-4658-9777-ea817e00bf7b',
+      turnId: '290ee6f2-4695-4ce8-9d4f-ff0e7c9e0ec0',
+      kind: 'assistant',
+      archived: false,
+      running: false,
+    })
+    const unwrapped = unwrapMsgActionsHtml(actionsHtml, markdown)
+    expect(unwrapped).not.toBeNull()
+    expect(unwrapped!.attrs['data-copy-text']).toBe(markdown)
+    expect(unwrapped!.attrs['data-turn-id']).toBe('290ee6f2-4695-4ce8-9d4f-ff0e7c9e0ec0')
+    expect(unwrapped!.attrs['data-message-uuid']).toBe('26378666-f6d9-4658-9777-ea817e00bf7b')
+
+    const markup = renderToStaticMarkup(createElement(InlineVisualizationHtml, {
+      html: `<div class="msg assistant">${markdown}</div>${actionsHtml}`,
+      className: 'msg-group assistant',
+      sessionId: 's-end-resource',
+      message: { html: '<p>Updated Main.dc.html</p>', markdown, answer: true, actionsHtml },
+      afterContent: createElement('div', { 'data-end-resource-card': '1' }, '01 · Main'),
+    }))
+    const cardIdx = markup.indexOf('data-end-resource-card="1"')
+    const actionsIdx = markup.indexOf('class="msg-actions"')
+    expect(cardIdx).toBeGreaterThan(0)
+    expect(actionsIdx).toBeGreaterThan(cardIdx)
+    expect(markup).toContain('data-turn-id="290ee6f2-4695-4ce8-9d4f-ff0e7c9e0ec0"')
+    expect(markup).toContain('data-message-uuid="26378666-f6d9-4658-9777-ea817e00bf7b"')
+    expect(markup).toContain('data-action="branch"')
+    expect(markup).toContain('class="msg-action-btn"')
+  })
+
+  test('structured message mode omits the action bar when actionsHtml is empty', () => {
+    expect(unwrapMsgActionsHtml('', 'plain reply')).toBeNull()
+    const markup = renderToStaticMarkup(createElement(InlineVisualizationHtml, {
+      html: '<div class="msg assistant"><p>plain</p></div>',
+      className: 'msg-group assistant',
+      sessionId: 's-no-actions',
+      message: { html: '<p>plain</p>', markdown: 'plain', answer: false, actionsHtml: '' },
+      afterContent: createElement('div', { 'data-end-resource-card': '1' }, 'card'),
+    }))
+    expect(markup).toContain('data-end-resource-card="1"')
+    expect(markup).not.toContain('class="msg-actions"')
   })
 })
