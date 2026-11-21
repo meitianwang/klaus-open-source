@@ -62,10 +62,10 @@ describe('appearance preference application', () => {
     expect(rootProperties.get('--leading-mcp-entry-desc')).toBe('19px')
   })
 
-  test('custom palette ink remains distinct from the neutral default', async () => {
+  test('legacy saved code theme ids are ignored and default theme colors stay active', async () => {
     preferences.set('appearance.dark.code_theme_id', 'catppuccin')
     await appWindow.loadPreferences()
-    expect(rootProperties.get('--fg')).toBe('#cdd6f4')
-    expect(rootProperties.get('--fg-secondary')).toBe('rgba(205, 214, 244, 0.7)')
+    expect(rootProperties.get('--fg')).toBe('#dfdfdf')
+    expect(rootProperties.get('--fg-secondary')).toBe('rgba(255, 255, 255, 0.7)')
   })
 })

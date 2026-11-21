@@ -3,8 +3,6 @@
 // 文案字典迁至 src/i18n/messages.ts（Batch 3）：单一来源，js 与 React 共用。
 import { I18N } from '../i18n/messages'
 import { loadDesktopDistribution } from './distribution'
-// 代码主题 token 色表（Batch 4 S1 已 TS 化）：从模块直接取，window 挂接仍在。
-import { KLAUS_APPEARANCE_CODE_THEME_TOKEN_COLORS } from './code-token-themes'
 import { appearanceTypographyProperties, DEFAULT_CODE_FONT_SIZE, DEFAULT_UI_FONT_SIZE } from './typography'
 
 const w = () => window as any
@@ -182,110 +180,6 @@ function syntaxTokenColorsFromSyntax(syntax: Record<string, Hex>): Record<string
   }
 }
 
-const KLAUS_APPEARANCE_CODE_THEME_SYNTAX: Record<Variant, Record<string, Record<string, Hex>>> = {
-  light: {
-    absolutely: { keyword: '#ff5f38', variable: '#2d2d2b', type: '#bc7559', operator: '#ff5f38', property: '#bc7559', string: '#00c853', number: '#ff5f38', punctuation: '#2d2d2b', brace: '#2d2d2b' },
-    catppuccin: { keyword: '#8839ef', variable: '#4c4f69', type: '#df8e1d', operator: '#179299', property: '#4c4f69', string: '#40a02b', number: '#fe640b', punctuation: '#179299', brace: '#7c7f93' },
-    codex: { keyword: '#d53538', variable: '#bd5800', type: '#d53538', operator: '#d53538', property: '#bd5800', string: '#008809', number: '#0071ea', punctuation: '#666666', brace: '#666666' },
-    everforest: { keyword: '#3a94c5', variable: '#5c6a72', type: '#3a94c5', operator: '#f57d26', property: '#5c6a72', string: '#dfa000', number: '#df69ba', punctuation: '#5c6a72', brace: '#5c6a72' },
-    github: { keyword: '#cf222e', variable: '#1f2328', type: '#953800', operator: '#cf222e', property: '#1f2328', string: '#0a3069', number: '#0550ae', punctuation: '#1f2328', brace: '#1f2328' },
-    gruvbox: { keyword: '#af3a03', variable: '#076678', type: '#b57614', operator: '#427b58', property: '#076678', string: '#79740e', number: '#8f3f71', punctuation: '#7c6f64', brace: '#7c6f64' },
-    'klaus-default': { keyword: '#751ed9', variable: '#bd5800', type: '#751ed9', operator: '#0071ea', property: '#bd5800', string: '#008809', number: '#0071ea', punctuation: '#666666', brace: '#666666' },
-    linear: { keyword: '#5e6ad2', variable: '#2a3140', type: '#4380d8', operator: '#6f7788', property: '#2a3140', string: '#0f8f83', number: '#b4831f', punctuation: '#6f7788', brace: '#6f7788' },
-    notion: { keyword: '#0000ff', variable: '#37352f', type: '#267f99', operator: '#37352f', property: '#37352f', string: '#a31515', number: '#098658', punctuation: '#37352f', brace: '#37352f' },
-    one: { keyword: '#a626a4', variable: '#e45649', type: '#c18401', operator: '#0184bc', property: '#e45649', string: '#50a14f', number: '#986801', punctuation: '#383a42', brace: '#383a42' },
-    proof: { keyword: '#5f6ac2', variable: '#2f312d', type: '#5f6ac2', operator: '#7a766d', property: '#2f312d', string: '#3d755d', number: '#d3b45b', punctuation: '#7a766d', brace: '#7a766d' },
-    raycast: { keyword: '#666666', variable: '#000000', type: '#c75d07', operator: '#666666', property: '#000000', string: '#c03030', number: '#000000', punctuation: '#666666', brace: '#666666' },
-    'rose-pine': { keyword: '#286983', variable: '#575279', type: '#56949f', operator: '#286983', property: '#575279', string: '#ea9d34', number: '#d7827e', punctuation: '#797593', brace: '#797593' },
-    solarized: { keyword: '#586e75', variable: '#268bd2', type: '#cb4b16', operator: '#859900', property: '#268bd2', string: '#2aa198', number: '#d33682', punctuation: '#657b83', brace: '#657b83' },
-    vercel: { keyword: '#006aff', variable: '#171717', type: '#0059d1', operator: '#666666', property: '#171717', string: '#28a948', number: '#a100f8', punctuation: '#666666', brace: '#666666' },
-    'vscode-plus': { keyword: '#0000ff', variable: '#001080', type: '#267f99', operator: '#000000', property: '#001080', string: '#a31515', number: '#098658', punctuation: '#000000', brace: '#000000' },
-    xcode: { keyword: '#9b2393', variable: '#326d74', type: '#0b4f79', operator: '#9b2393', property: '#326d74', string: '#c41a16', number: '#1c00cf', punctuation: '#000000', brace: '#000000' },
-  },
-  dark: {
-    absolutely: { keyword: '#ff5f38', variable: '#f9f9f7', type: '#d28e73', operator: '#ff5f38', property: '#d28e73', string: '#00c853', number: '#ff5f38', punctuation: '#f9f9f7', brace: '#f9f9f7' },
-    ayu: { keyword: '#ff8f40', variable: '#bfbdb6', type: '#59c2ff', operator: '#f29668', property: '#bfbdb6', string: '#aad94c', number: '#d2a6ff', punctuation: '#bfbdb6', brace: '#bfbdb6' },
-    catppuccin: { keyword: '#cba6f7', variable: '#cdd6f4', type: '#f9e2af', operator: '#94e2d5', property: '#cdd6f4', string: '#a6e3a1', number: '#fab387', punctuation: '#94e2d5', brace: '#9399b2' },
-    codex: { keyword: '#f67576', variable: '#fa994c', type: '#f67576', operator: '#f67576', property: '#fa994c', string: '#85df7b', number: '#6dcbf4', punctuation: '#999999', brace: '#999999' },
-    dracula: { keyword: '#ff79c6', variable: '#f8f8f2', type: '#8be9fd', operator: '#ff79c6', property: '#f8f8f2', string: '#f1fa8c', number: '#bd93f9', punctuation: '#ff79c6', brace: '#ff79c6' },
-    everforest: { keyword: '#7fbbb3', variable: '#d3c6aa', type: '#7fbbb3', operator: '#e69875', property: '#d3c6aa', string: '#dbbc7f', number: '#d699b6', punctuation: '#d3c6aa', brace: '#d3c6aa' },
-    github: { keyword: '#ff7b72', variable: '#e6edf3', type: '#ffa657', operator: '#ff7b72', property: '#e6edf3', string: '#a5d6ff', number: '#79c0ff', punctuation: '#e6edf3', brace: '#e6edf3' },
-    gruvbox: { keyword: '#fe8019', variable: '#83a598', type: '#fabd2f', operator: '#8ec07c', property: '#83a598', string: '#b8bb26', number: '#d3869b', punctuation: '#a89984', brace: '#a89984' },
-    'klaus-default': { keyword: '#b06dff', variable: '#fa994c', type: '#b06dff', operator: '#6dcbf4', property: '#fa994c', string: '#85df7b', number: '#6dcbf4', punctuation: '#999999', brace: '#999999' },
-    linear: { keyword: '#8c97ff', variable: '#e6e9ef', type: '#73b7ff', operator: '#b5bccb', property: '#e6e9ef', string: '#7ad9c0', number: '#f5c56a', punctuation: '#b5bccb', brace: '#b5bccb' },
-    lobster: { keyword: '#ff5c5c', variable: '#e4e4e7', type: '#3b82f6', operator: '#ff7070', property: '#e4e4e7', string: '#14b8a6', number: '#f59e0b', punctuation: '#a1a1aa', brace: '#71717a' },
-    material: { keyword: '#c792ea', variable: '#eeffff', type: '#ffcb6b', operator: '#89ddff', property: '#eeffff', string: '#c3e88d', number: '#f78c6c', punctuation: '#89ddff', brace: '#89ddff' },
-    matrix: { keyword: '#1eff5a', variable: '#b8ffca', type: '#3adf6a', operator: '#6bd985', property: '#b8ffca', string: '#7dff95', number: '#55ff7d', punctuation: '#6bd985', brace: '#6bd985' },
-    monokai: { keyword: '#66d9ef', variable: '#f8f8f2', type: '#a6e22e', operator: '#f92672', property: '#f8f8f2', string: '#e6db74', number: '#ae81ff', punctuation: '#f8f8f2', brace: '#f8f8f2' },
-    'night-owl': { keyword: '#c792ea', variable: '#c5e478', type: '#c5e478', operator: '#c792ea', property: '#baebe2', string: '#ecc48d', number: '#f78c6c', punctuation: '#d6deeb', brace: '#d6deeb' },
-    nord: { keyword: '#81a1c1', variable: '#d8dee9', type: '#8fbcbb', operator: '#81a1c1', property: '#d8dee9', string: '#a3be8c', number: '#b48ead', punctuation: '#eceff4', brace: '#eceff4' },
-    notion: { keyword: '#569cd6', variable: '#d9d9d8', type: '#4ec9b0', operator: '#d4d4d4', property: '#d9d9d8', string: '#ce9178', number: '#b5cea8', punctuation: '#d4d4d4', brace: '#d4d4d4' },
-    one: { keyword: '#c678dd', variable: '#e06c75', type: '#e5c07b', operator: '#56b6c2', property: '#e06c75', string: '#98c379', number: '#d19a66', punctuation: '#abb2bf', brace: '#abb2bf' },
-    oscurange: { keyword: '#9099a1', variable: '#e6e6e6', type: '#ffa16c', operator: '#9099a1', property: '#e6e6e6', string: '#e6e6e6', number: '#f9b98c', punctuation: '#5c6974', brace: '#5c6974' },
-    raycast: { keyword: '#999999', variable: '#ffffff', type: '#ff9217', operator: '#999999', property: '#ffffff', string: '#ff6363', number: '#ffffff', punctuation: '#999999', brace: '#999999' },
-    'rose-pine': { keyword: '#3e8fb0', variable: '#e0def4', type: '#9ccfd8', operator: '#3e8fb0', property: '#e0def4', string: '#f6c177', number: '#ea9a97', punctuation: '#908caa', brace: '#908caa' },
-    sentry: { keyword: '#7055f6', variable: '#e6dff9', type: '#c39bff', operator: '#c8bedf', property: '#e6dff9', string: '#8ee6d7', number: '#f4c46a', punctuation: '#c8bedf', brace: '#c8bedf' },
-    solarized: { keyword: '#93a1a1', variable: '#268bd2', type: '#cb4b16', operator: '#859900', property: '#268bd2', string: '#2aa198', number: '#d33682', punctuation: '#839496', brace: '#839496' },
-    temple: { keyword: '#e4f222', variable: '#c7e6da', type: '#859419', operator: '#788617', property: '#c7e6da', string: '#c7e6da', number: '#e4f222', punctuation: '#4f5e13', brace: '#4f5e13' },
-    'tokyo-night': { keyword: '#bb9af7', variable: '#c0caf5', type: '#c0caf5', operator: '#89ddff', property: '#7dcfff', string: '#9ece6a', number: '#ff9e64', punctuation: '#89ddff', brace: '#9abdf5' },
-    vercel: { keyword: '#006efe', variable: '#ededed', type: '#52a8ff', operator: '#a1a1a1', property: '#ededed', string: '#00ad3a', number: '#9540d5', punctuation: '#a1a1a1', brace: '#a1a1a1' },
-    'vscode-plus': { keyword: '#569cd6', variable: '#9cdcfe', type: '#4ec9b0', operator: '#d4d4d4', property: '#9cdcfe', string: '#ce9178', number: '#b5cea8', punctuation: '#d4d4d4', brace: '#d4d4d4' },
-    xcode: { keyword: '#fc5fa3', variable: '#67b7a4', type: '#5dd8ff', operator: '#fc5fa3', property: '#67b7a4', string: '#fc6a5d', number: '#d0bf69', punctuation: '#ffffff', brace: '#ffffff' },
-  },
-}
-
-const KLAUS_APPEARANCE_CODE_THEME_SEEDS: Record<Variant, Record<string, any>> = {
-  light: {
-    absolutely: { accent: '#cc7d5e', ink: '#2d2d2b', semanticColors: { diffAdded: '#00c853', diffRemoved: '#ff5f38', skill: '#cc7d5e' }, surface: '#f9f9f7' },
-    catppuccin: { accent: '#8839ef', ink: '#4c4f69', semanticColors: { diffAdded: '#40a02b', diffRemoved: '#d20f39', skill: '#8839ef' }, surface: '#eff1f5' },
-    codex: { accent: '#0169cc', ink: '#0d0d0d', semanticColors: { diffAdded: '#00a240', diffRemoved: '#e02e2a', skill: '#751ed9' }, surface: '#ffffff' },
-    everforest: { accent: '#93b259', ink: '#5c6a72', semanticColors: { diffAdded: '#8da101', diffRemoved: '#f85552', skill: '#df69ba' }, surface: '#fdf6e3' },
-    github: { accent: '#0969da', ink: '#1f2328', semanticColors: { diffAdded: '#1a7f37', diffRemoved: '#cf222e', skill: '#8250df' }, surface: '#ffffff' },
-    gruvbox: { accent: '#458588', ink: '#3c3836', semanticColors: { diffAdded: '#3c3836', diffRemoved: '#cc241d', skill: '#b16286' }, surface: '#fbf1c7' },
-    'klaus-default': { accent: '#339cff', ink: '#1a1c1f', semanticColors: { diffAdded: '#00a240', diffRemoved: '#e02e2a', skill: '#751ed9' }, surface: '#ffffff' },
-    linear: { accent: '#5e6ad2', ink: '#1b1b1b', semanticColors: { diffAdded: '#52a450', diffRemoved: '#c94446', skill: '#8160d8' }, surface: '#fcfcfd', fonts: { ui: 'Inter' }, opaqueWindows: true },
-    notion: { accent: '#3183d8', ink: '#37352f', semanticColors: { diffAdded: '#008000', diffRemoved: '#a31515', skill: '#0000ff' }, surface: '#ffffff', fonts: { code: null, ui: null }, opaqueWindows: true },
-    one: { accent: '#526fff', ink: '#383a42', semanticColors: { diffAdded: '#3bba54', diffRemoved: '#e45649', skill: '#526fff' }, surface: '#fafafa' },
-    proof: { accent: '#3d755d', ink: '#2f312d', semanticColors: { diffAdded: '#3d755d', diffRemoved: '#ba2623', skill: '#5f6ac2' }, surface: '#f5f3ed', fonts: { code: null, ui: null }, opaqueWindows: false },
-    raycast: { accent: '#ff6363', ink: '#030303', semanticColors: { diffAdded: '#006b4f', diffRemoved: '#b12424', skill: '#9a1b6e' }, surface: '#ffffff', fonts: { code: '"Jetbrains Mono"', ui: 'Inter' }, opaqueWindows: false },
-    'rose-pine': { accent: '#d7827e', ink: '#575279', semanticColors: { diffAdded: '#56949f', diffRemoved: '#797593', skill: '#907aa9' }, surface: '#faf4ed' },
-    solarized: { accent: '#b58900', ink: '#657b83', semanticColors: { diffAdded: '#859900', diffRemoved: '#dc322f', skill: '#d33682' }, surface: '#fdf6e3' },
-    vercel: { accent: '#006aff', ink: '#171717', semanticColors: { diffAdded: '#28A948', diffRemoved: '#EB001D', skill: '#A100F8' }, surface: '#ffffff', contrast: 40, fonts: { code: '"Geist Mono", ui-monospace, "SFMono-Regular"', ui: 'Geist, Inter' }, opaqueWindows: true },
-    'vscode-plus': { accent: '#007acc', ink: '#000000', semanticColors: { diffAdded: '#008000', diffRemoved: '#ee0000', skill: '#0000ff' }, surface: '#ffffff' },
-    xcode: { accent: '#0e0eff', ink: '#000000d9', semanticColors: { diffAdded: '#00a240', diffRemoved: '#c41a16', skill: '#0e0eff' }, surface: '#ffffff', fonts: { code: '"SFMono-Regular"' } },
-  },
-  dark: {
-    absolutely: { accent: '#cc7d5e', ink: '#f9f9f7', semanticColors: { diffAdded: '#00c853', diffRemoved: '#ff5f38', skill: '#cc7d5e' }, surface: '#2d2d2b' },
-    ayu: { accent: '#e6b450', ink: '#bfbdb6', semanticColors: { diffAdded: '#7fd962', diffRemoved: '#ea6c73', skill: '#cda1fa' }, surface: '#0b0e14' },
-    catppuccin: { accent: '#cba6f7', ink: '#cdd6f4', semanticColors: { diffAdded: '#a6e3a1', diffRemoved: '#f38ba8', skill: '#cba6f7' }, surface: '#1e1e2e' },
-    codex: { accent: '#0169cc', ink: '#fcfcfc', semanticColors: { diffAdded: '#00a240', diffRemoved: '#e02e2a', skill: '#b06dff' }, surface: '#111111' },
-    dracula: { accent: '#ff79c6', ink: '#f8f8f2', semanticColors: { diffAdded: '#50fa7b', diffRemoved: '#ff5555', skill: '#ff79c6' }, surface: '#282a36' },
-    everforest: { accent: '#a7c080', ink: '#d3c6aa', semanticColors: { diffAdded: '#a7c080', diffRemoved: '#e67e80', skill: '#d699b6' }, surface: '#2d353b' },
-    github: { accent: '#1f6feb', ink: '#e6edf3', semanticColors: { diffAdded: '#3fb950', diffRemoved: '#f85149', skill: '#bc8cff' }, surface: '#0d1117' },
-    gruvbox: { accent: '#458588', ink: '#ebdbb2', semanticColors: { diffAdded: '#ebdbb2', diffRemoved: '#cc241d', skill: '#b16286' }, surface: '#282828' },
-    'klaus-default': { accent: '#339cff', ink: '#dfdfdf', semanticColors: { diffAdded: '#00a240', diffRemoved: '#e02e2a', skill: '#b06dff' }, surface: '#181818' },
-    linear: { accent: '#606acc', ink: '#e3e4e6', semanticColors: { diffAdded: '#69c967', diffRemoved: '#ff7e78', skill: '#c2a1ff' }, surface: '#0f0f11', fonts: { ui: 'Inter' }, opaqueWindows: true },
-    lobster: { accent: '#ff5c5c', ink: '#e4e4e7', semanticColors: { diffAdded: '#22c55e', diffRemoved: '#ff5c5c', skill: '#3b82f6' }, surface: '#111827', fonts: { ui: 'Satoshi' } },
-    material: { accent: '#80cbc4', ink: '#eeffff', semanticColors: { diffAdded: '#c3e88d', diffRemoved: '#f07178', skill: '#c792ea' }, surface: '#212121' },
-    matrix: { accent: '#1eff5a', ink: '#b8ffca', semanticColors: { diffAdded: '#1eff5a', diffRemoved: '#fa423e', skill: '#1eff5a' }, surface: '#040805', fonts: { code: null, ui: 'ui-monospace, "SFMono-Regular", "SF Mono", Menlo, Consolas, "Liberation Mono", monospace' }, opaqueWindows: true },
-    monokai: { accent: '#99947c', ink: '#f8f8f2', semanticColors: { diffAdded: '#86b42b', diffRemoved: '#c4265e', skill: '#8c6bc8' }, surface: '#272822' },
-    'night-owl': { accent: '#44596b', ink: '#d6deeb', semanticColors: { diffAdded: '#c5e478', diffRemoved: '#ef5350', skill: '#c792ea' }, surface: '#011627' },
-    nord: { accent: '#88c0d0', ink: '#d8dee9', semanticColors: { diffAdded: '#a3be8c', diffRemoved: '#bf616a', skill: '#b48ead' }, surface: '#2e3440' },
-    notion: { accent: '#3183d8', ink: '#d9d9d8', semanticColors: { diffAdded: '#4ec9b0', diffRemoved: '#fa423e', skill: '#3183d8' }, surface: '#191919', fonts: { code: null, ui: null }, opaqueWindows: true },
-    one: { accent: '#4d78cc', ink: '#abb2bf', semanticColors: { diffAdded: '#8cc265', diffRemoved: '#e05561', skill: '#c162de' }, surface: '#282c34' },
-    oscurange: { accent: '#f9b98c', ink: '#e6e6e6', semanticColors: { diffAdded: '#40c977', diffRemoved: '#fa423e', skill: '#479ffa' }, surface: '#0b0b0f' },
-    raycast: { accent: '#ff6363', ink: '#fefefe', semanticColors: { diffAdded: '#59d499', diffRemoved: '#ff6363', skill: '#cf2f98' }, surface: '#101010', fonts: { code: '"Jetbrains Mono"', ui: 'Inter' }, opaqueWindows: false },
-    'rose-pine': { accent: '#ea9a97', ink: '#e0def4', semanticColors: { diffAdded: '#9ccfd8', diffRemoved: '#908caa', skill: '#c4a7e7' }, surface: '#232136' },
-    sentry: { accent: '#7055f6', ink: '#e6dff9', semanticColors: { diffAdded: '#8ee6d7', diffRemoved: '#fa423e', skill: '#7055f6' }, surface: '#2d2935', fonts: { code: null, ui: null } },
-    solarized: { accent: '#d30102', ink: '#839496', semanticColors: { diffAdded: '#859900', diffRemoved: '#dc322f', skill: '#d33682' }, surface: '#002b36' },
-    temple: { accent: '#e4f222', ink: '#c7e6da', semanticColors: { diffAdded: '#40c977', diffRemoved: '#fa423e', skill: '#e4f222' }, surface: '#02120c' },
-    'tokyo-night': { accent: '#3d59a1', ink: '#a9b1d6', semanticColors: { diffAdded: '#449dab', diffRemoved: '#914c54', skill: '#9d7cd8' }, surface: '#1a1b26' },
-    vercel: { accent: '#006efe', ink: '#ededed', semanticColors: { diffAdded: '#00AD3A', diffRemoved: '#F13342', skill: '#9540D5' }, surface: '#000000', contrast: 50, fonts: { code: '"Geist Mono", ui-monospace, "SFMono-Regular"', ui: 'Geist, Inter' }, opaqueWindows: true },
-    'vscode-plus': { accent: '#007acc', ink: '#d4d4d4', semanticColors: { diffAdded: '#369432', diffRemoved: '#f44747', skill: '#000080' }, surface: '#1e1e1e' },
-    xcode: { accent: '#5482ff', ink: '#ffffffd9', semanticColors: { diffAdded: '#67b7a4', diffRemoved: '#fc6a5d', skill: '#5482ff' }, surface: '#1f1f24', fonts: { code: '"SFMono-Medium"' } },
-  },
-}
-
 let cachedAppearancePreferences: any = null
 let systemThemeListenerBound = false
 
@@ -353,26 +247,6 @@ function normalizeAppearanceTheme(theme: any, variant: Variant) {
 
 function normalizeThemeChoice(theme: unknown): 'light' | 'dark' | 'system' {
   return theme === 'light' || theme === 'dark' || theme === 'system' ? theme : 'system'
-}
-
-function appearanceCodeThemeKey(variant: Variant) {
-  return `appearance.${variant}.code_theme_id`
-}
-
-function isAppearanceCodeThemeAvailable(id: string, variant: Variant) {
-  return !!KLAUS_APPEARANCE_CODE_THEME_SEEDS[variant]?.[id]
-}
-
-function appearanceFallbackCodeThemeId(id: unknown, variant: Variant) {
-  return isAppearanceCodeThemeAvailable(String(id), variant) ? String(id) : 'klaus-default'
-}
-
-function appearanceThemeFromCodeThemeId(id: unknown, variant: Variant) {
-  const codeThemeId = appearanceFallbackCodeThemeId(id, variant)
-  const seed = KLAUS_APPEARANCE_CODE_THEME_SEEDS[variant]?.[codeThemeId] || {}
-  const syntaxColors = KLAUS_APPEARANCE_CODE_THEME_SYNTAX[variant]?.[codeThemeId]
-  const codeTokenColors = (KLAUS_APPEARANCE_CODE_THEME_TOKEN_COLORS as any)[variant]?.[codeThemeId]
-  return normalizeAppearanceTheme({ ...seed, syntaxColors, codeTokenColors }, variant)
 }
 
 function getSystemThemeVariant(): Variant {
@@ -681,22 +555,15 @@ function parseCssColorToRgb(input: string): { r: number; g: number; b: number } 
 async function readAppearancePreferences() {
   const kv = w().klaus?.settings?.kv
   const themeChoice = normalizeThemeChoice(await kv?.get('theme'))
-  const [lightCodeThemeRaw, darkCodeThemeRaw, uiFontRaw, codeFontRaw] = await Promise.all([
-    kv?.get(appearanceCodeThemeKey('light')),
-    kv?.get(appearanceCodeThemeKey('dark')),
+  const [uiFontRaw, codeFontRaw] = await Promise.all([
     kv?.get('appearance.ui_font_size'),
     kv?.get('appearance.code_font_size'),
   ])
-  const codeThemeIds = {
-    light: appearanceFallbackCodeThemeId(lightCodeThemeRaw, 'light'),
-    dark: appearanceFallbackCodeThemeId(darkCodeThemeRaw, 'dark'),
-  }
   return {
     themeChoice,
-    codeThemeIds,
     themes: {
-      light: appearanceThemeFromCodeThemeId(codeThemeIds.light, 'light'),
-      dark: appearanceThemeFromCodeThemeId(codeThemeIds.dark, 'dark'),
+      light: normalizeAppearanceTheme(KLAUS_DEFAULT_APPEARANCE_THEMES.light, 'light'),
+      dark: normalizeAppearanceTheme(KLAUS_DEFAULT_APPEARANCE_THEMES.dark, 'dark'),
     },
     uiFontSize: clampNumber(uiFontRaw, DEFAULT_UI_FONT_SIZE, 11, 16),
     codeFontSize: clampNumber(codeFontRaw, DEFAULT_CODE_FONT_SIZE, 8, 24),
@@ -723,46 +590,12 @@ async function persistAppearancePreference(key: string, value: string) {
   }
 }
 
-// Palette display name. Keyed off the theme id with hyphens folded to
-// underscores so the i18n dictionary stays a flat key space.
-function appearanceThemeName(id: string) {
-  const key = `theme_name_${String(id).replace(/-/g, '_')}`
-  const name = tt(key)
-  return name === key ? String(id) : name
-}
-
-// Palettes available for one variant, default first then by display name — a
-// variant only offers what it has a seed for, no silent substitution.
-function appearanceThemeOptions(variant: Variant) {
-  const seeds = KLAUS_APPEARANCE_CODE_THEME_SEEDS[variant] || {}
-  const collation = w().currentLang === 'zh' ? 'zh-Hans-CN' : 'en'
-  return Object.keys(seeds)
-    .map(id => ({ id, name: appearanceThemeName(id), accent: seeds[id].accent, surface: seeds[id].surface }))
-    .sort((a, b) => {
-      if (a.id === 'klaus-default') return -1
-      if (b.id === 'klaus-default') return 1
-      return a.name.localeCompare(b.name, collation)
-    })
-}
-
 async function setAppearanceThemeChoice(choice: unknown) {
   const themeChoice = normalizeThemeChoice(choice)
   const pref = await ensureAppearancePreferences()
   cachedAppearancePreferences = { ...pref, themeChoice }
   applyTheme(themeChoice, cachedAppearancePreferences)
   await persistAppearancePreference('theme', themeChoice)
-}
-
-async function setAppearanceCodeTheme(variant: Variant, id: string) {
-  const pref = await ensureAppearancePreferences()
-  const codeThemeId = appearanceFallbackCodeThemeId(id, variant)
-  cachedAppearancePreferences = {
-    ...pref,
-    codeThemeIds: { ...pref.codeThemeIds, [variant]: codeThemeId },
-    themes: { ...pref.themes, [variant]: appearanceThemeFromCodeThemeId(codeThemeId, variant) },
-  }
-  applyTheme(cachedAppearancePreferences.themeChoice, cachedAppearancePreferences)
-  await persistAppearancePreference(appearanceCodeThemeKey(variant), codeThemeId)
 }
 
 async function setAppearanceFontSize(field: string, value: unknown) {
@@ -813,11 +646,7 @@ w().getLang = () => w().currentLang
 w().applyTheme = applyTheme
 w().loadPreferences = loadPreferences
 w().ensureAppearancePreferences = ensureAppearancePreferences
-w().resolveAppearanceVariant = resolveThemeVariant
-w().appearanceThemeName = appearanceThemeName
-w().appearanceThemeOptions = appearanceThemeOptions
 w().setAppearanceThemeChoice = setAppearanceThemeChoice
-w().setAppearanceCodeTheme = setAppearanceCodeTheme
 w().setAppearanceFontSize = setAppearanceFontSize
 w().KLAUS_APPEARANCE_FONT_FIELDS = KLAUS_APPEARANCE_FONT_FIELDS
 

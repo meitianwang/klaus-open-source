@@ -1,5 +1,4 @@
 // Preserve the main window's module order after the bootstrap storage barrier.
-import './app/code-token-themes'
 import './app/i18n'
 import './app/tooltip'
 import './icons'

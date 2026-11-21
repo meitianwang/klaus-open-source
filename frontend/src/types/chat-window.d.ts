@@ -127,7 +127,6 @@ declare global {
     KlausBackgroundProcessPanel?: Record<string, AnyFn>
     KlausTurnNavigation?: Record<string, AnyFn>
     klausSearch?: Record<string, AnyFn>
-    appearanceThemeOptions?: AnyFn
 
     // ---- terminal / browser（模块挂载的 panel-strip 钩子） ----
     klausNewTerminal?: () => Promise<void> | void
@@ -199,8 +198,6 @@ declare global {
     seedIdentityKv?: AnyFn
     maybeShowExternalAgentImportOnboarding?: AnyFn
     ensureAppearancePreferences?: AnyFn
-    resolveAppearanceVariant?: AnyFn
-    setAppearanceCodeTheme?: (variant: unknown, paletteId: string | undefined) => Promise<unknown>
     setAppearanceFontSize?: (field: string | undefined, value: number) => Promise<unknown>
     KLAUS_APPEARANCE_FONT_FIELDS?: Record<string, { min: number; max: number }>
     untrackApprovalRequest?: AnyFn

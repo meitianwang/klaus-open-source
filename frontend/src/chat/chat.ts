@@ -29,6 +29,7 @@ import { isAutomaticCursorSelection } from './composer/model-selection-values'
 import { knownKiroAuthErrorText } from '../app/kiro-errors'
 import { knownAntigravityErrorText } from '../app/antigravity-errors'
 import { createUsageSnapshotCache, driveUsageDashboardLoad, rerenderUsageDashboardIfDisplayed, type UsageLoadReason } from './usage-popover-cache'
+import { computeUserSubmenuPosition, readNativeOverlayInsetRight } from './user-submenu-layout'
 //
 // 渲染域已全部绞杀进同目录的 React 组件树（transcript/composer/sidebar/panels），
 // 本文件是剩余的数据面：会话生命周期、chatEvent 分发、IPC 管线、终端/浏览器/
@@ -17106,9 +17107,44 @@ document.getElementById('sidebar-toggle')?.addEventListener('click', () => {
 // User menu
 const USER_SUBMENU_IDS = ['user-menu-lang', 'user-menu-theme', 'user-menu-font']
 let languageSaveRevision = 0
+let resumeNativeForUserSubmenu: (() => void) | null = null
+
+function suspendNativeViewsForUserSubmenu() {
+  if (resumeNativeForUserSubmenu) return
+  const host = window as unknown as Record<string, (() => Promise<void> | void) | undefined>
+  const resumes: Array<() => Promise<void> | void> = []
+  for (const name of ['Browser', 'Canvas', 'Prototype', 'VideoEditing', 'Ppt', 'Design']) {
+    const suspend = host[`klausSuspend${name}ForOverlay`]
+    const resume = host[`klausResume${name}AfterOverlay`]
+    if (typeof suspend !== 'function' || typeof resume !== 'function') continue
+    try { void suspend() } catch {}
+    resumes.push(resume)
+  }
+  resumeNativeForUserSubmenu = () => {
+    for (const resume of resumes) {
+      try { void resume() } catch {}
+    }
+  }
+}
+
+function releaseNativeViewsForUserSubmenu() {
+  const release = resumeNativeForUserSubmenu
+  if (!release) return
+  resumeNativeForUserSubmenu = null
+  release()
+}
 
 function closeUserSubmenus() {
-  USER_SUBMENU_IDS.forEach((id: string) => document.getElementById(id)?.classList.remove('open'))
+  USER_SUBMENU_IDS.forEach((id: string) => {
+    const submenu = document.getElementById(id)
+    if (!submenu) return
+    submenu.classList.remove('open')
+    submenu.style.left = ''
+    submenu.style.top = ''
+    submenu.style.maxHeight = ''
+    submenu.style.overflowY = ''
+  })
+  releaseNativeViewsForUserSubmenu()
 }
 
 function closeUserMenu() {
@@ -17121,13 +17157,28 @@ function closeUserMenu() {
 }
 registerOverlay('user-menu', closeUserMenu)
 
-// Submenus are fixed-position siblings of the menu, so they get placed against
-// the anchor row's viewport rect. The palette list is taller than the footer
-// area, so the top edge is clamped into the window instead of running off it.
+// Submenus are fixed-position siblings of the menu, placed against the anchor
+// row's viewport rect. When a native panel view covers the space to the right
+// of the sidebar (e.g. a maximized Design Canvas, Presentation, or Browser),
+// stack the submenu above #user-menu inside the uncovered region instead of
+// rendering it invisibly behind the native view.
 function positionUserSubmenu(submenu: HTMLElement, anchor: HTMLElement) {
-  const rect = anchor.getBoundingClientRect()
-  submenu.style.left = `${rect.right + 8}px`
-  submenu.style.top = `${Math.max(8, Math.min(rect.top, window.innerHeight - submenu.offsetHeight - 8))}px`
+  submenu.style.maxHeight = ''
+  submenu.style.overflowY = ''
+  submenu.style.left = '0px'
+  submenu.style.top = '0px'
+  const layout = computeUserSubmenuPosition({
+    anchorRect: anchor.getBoundingClientRect(),
+    menuRect: document.getElementById('user-menu')?.getBoundingClientRect() ?? null,
+    submenuSize: { width: submenu.offsetWidth, height: submenu.offsetHeight },
+    viewport: { width: window.innerWidth, height: window.innerHeight },
+    nativeInsetRight: resumeNativeForUserSubmenu ? 0 : readNativeOverlayInsetRight(),
+  })
+  if (layout.suspendNative) suspendNativeViewsForUserSubmenu()
+  submenu.style.left = `${layout.left}px`
+  submenu.style.top = `${layout.top}px`
+  submenu.style.maxHeight = layout.maxHeight !== null ? `${layout.maxHeight}px` : ''
+  submenu.style.overflowY = layout.maxHeight !== null ? 'auto' : ''
 }
 
 function toggleUserSubmenu(id: string) {
@@ -17201,34 +17252,21 @@ async function renderThemeSubmenu() {
   if (!submenu) return
   const pref = await window.ensureAppearancePreferences?.()
   const choice = pref.themeChoice
-  const variant = window.resolveAppearanceVariant?.(choice)
-  const selectedId = pref.codeThemeIds?.[variant]
   const check = klausIcon('check', { cls: 'menu-check' })
   // Row markers must not reuse `data-theme-choice`: applyTheme writes that
   // attribute on <html>, so closest() from a row would climb out of the menu
   // and match the document root.
   const choices = ['light', 'dark', 'system'].map((item) => `
     <button class="user-menu-item${item === choice ? ' active' : ''}" data-theme-mode="${item}">${themeChoiceIcon(item)}<span>${tt(item)}</span>${check}</button>`).join('')
-  const palettes = window.appearanceThemeOptions!(variant).map((theme: { id: string; accent: string; surface: string; name?: string }) => `
-    <button class="user-menu-item${theme.id === selectedId ? ' active' : ''}" data-theme-palette="${escapeHtml(theme.id)}">
-      <span class="theme-menu-dot" style="--theme-dot-fill:${escapeHtml(theme.accent)};--theme-dot-ring:${escapeHtml(theme.surface)}"></span>
-      <span>${escapeHtml(theme.name)}</span>${check}
-    </button>`).join('')
-  submenu.innerHTML = `${choices}<div class="user-menu-sep"></div>${palettes}`
+  submenu.innerHTML = choices
 }
 
-// Picking a palette only moves the check mark, so the rows are updated in place
-// — a full re-render would drop the row the pointer is on.
 async function syncThemeSubmenuActive() {
   const submenu = document.getElementById('user-menu-theme')
   if (!submenu) return
   const pref = await window.ensureAppearancePreferences?.()
-  const selectedId = pref.codeThemeIds?.[window.resolveAppearanceVariant?.(pref.themeChoice)]
   submenu.querySelectorAll<HTMLElement>('[data-theme-mode]').forEach((btn) => {
     btn.classList.toggle('active', btn.dataset.themeMode === pref.themeChoice)
-  })
-  submenu.querySelectorAll<HTMLElement>('[data-theme-palette]').forEach((btn) => {
-    btn.classList.toggle('active', btn.dataset.themePalette === selectedId)
   })
 }
 
@@ -17789,6 +17827,7 @@ document.getElementById('menu-theme')?.addEventListener('click', async (e) => {
   const submenu = toggleUserSubmenu('user-menu-theme')
   if (!submenu) return
   await renderThemeSubmenu()
+  if (!submenu.classList.contains('open')) return
   positionUserSubmenu(submenu, anchor as HTMLElement)
 })
 document.getElementById('menu-font')?.addEventListener('click', async (e) => {
@@ -17797,26 +17836,16 @@ document.getElementById('menu-font')?.addEventListener('click', async (e) => {
   const submenu = toggleUserSubmenu('user-menu-font')
   if (!submenu) return
   await renderFontSubmenu()
+  if (!submenu.classList.contains('open')) return
   positionUserSubmenu(submenu, anchor as HTMLElement)
 })
 // Theme and font edits apply live, so the submenu stays open while the user
 // compares the result — hence stopPropagation against the close-on-click guard.
 document.getElementById('user-menu-theme')?.addEventListener('click', async (e) => {
   e.stopPropagation()
-  const submenu = e.currentTarget as HTMLElement
   const modeBtn = (e.target as HTMLElement).closest('[data-theme-mode]')
-  const paletteBtn = (e.target as HTMLElement).closest('[data-theme-palette]')
-  if (!modeBtn && !paletteBtn) return
-  if (modeBtn) {
-    // A different variant offers a different palette list, so this rebuilds.
-    await window.setAppearanceThemeChoice!((modeBtn as HTMLElement).dataset.themeMode)
-    await renderThemeSubmenu()
-    const anchor = document.getElementById('menu-theme')
-    if (anchor) positionUserSubmenu(submenu, anchor as HTMLElement)
-    return
-  }
-  const pref = await window.ensureAppearancePreferences?.()
-  await window.setAppearanceCodeTheme!(window.resolveAppearanceVariant?.(pref.themeChoice), (paletteBtn as HTMLElement).dataset.themePalette)
+  if (!modeBtn) return
+  await window.setAppearanceThemeChoice!((modeBtn as HTMLElement).dataset.themeMode)
   await syncThemeSubmenuActive()
 })
 document.getElementById('user-menu-font')?.addEventListener('click', async (e) => {

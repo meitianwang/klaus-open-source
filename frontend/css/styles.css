@@ -68,8 +68,7 @@
   --accent-hover: #303030;
   --theme-accent: #339cff;
   --theme-accent-bg: rgba(51, 156, 255, 0.12);
-  /* Accent as a text colour. The appearance engine rewrites it per palette;
-     dark palettes lift the accent toward white for legibility. */
+  /* Accent as a text colour; dark mode lifts the accent toward white for legibility. */
   --text-accent: #339cff;
   --file-citation-fg: #2958a4;
   --theme-diff-added: #00a240;
@@ -1006,30 +1005,6 @@ body.sidebar-collapsed .titlebar-activity-btn {
   color: var(--fg-quaternary);
   width: 14px;
   height: 14px;
-}
-/* Theme submenu: the palette list is long, so it scrolls inside the popup
-   instead of growing past the window edge. */
-.user-menu-sub-theme {
-  max-height: min(70vh, 460px);
-  overflow-y: auto;
-}
-/* Palette marker — filled with the palette's accent, ringed in its surface, so
-   the row carries the palette's character next to its name. */
-.theme-menu-dot {
-  width: 16px;
-  height: 16px;
-  flex-shrink: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-.theme-menu-dot::before {
-  content: '';
-  width: 11px;
-  height: 11px;
-  border-radius: 50%;
-  background: var(--theme-dot-fill);
-  box-shadow: 0 0 0 1.5px var(--theme-dot-ring), 0 0 0 2.5px var(--border);
 }
 .user-menu-sub-font { min-width: 208px; }
 .user-menu-row {

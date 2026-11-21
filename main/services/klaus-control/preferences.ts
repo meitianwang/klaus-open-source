@@ -11,12 +11,8 @@ const switchValue: Values = { kind: 'switch' };
 const choice = (...options: string[]): Values => ({ kind: 'choice', options });
 const integer = (min: number, max?: number): Values => ({ kind: 'integer', min, max });
 const pref = (name: string, row: string, values: Values, unset: string, place: string, about: string): Preference => ({ name, row, values, unset, place, about });
-const LIGHT = ['absolutely', 'catppuccin', 'codex', 'everforest', 'github', 'gruvbox', 'klaus-default', 'linear', 'notion', 'one', 'proof', 'raycast', 'rose-pine', 'solarized', 'vercel', 'vscode-plus', 'xcode'];
-const DARK = ['absolutely', 'ayu', 'catppuccin', 'codex', 'dracula', 'everforest', 'github', 'gruvbox', 'klaus-default', 'linear', 'lobster', 'material', 'matrix', 'monokai', 'night-owl', 'nord', 'notion', 'one', 'oscurange', 'raycast', 'rose-pine', 'sentry', 'solarized', 'temple', 'tokyo-night', 'vercel', 'vscode-plus', 'xcode'];
 export const PREFERENCES: Preference[] = [
   pref('theme', 'theme', choice('system', 'light', 'dark'), 'system', 'account menu', 'Choose the window appearance.'),
-  pref('codeThemeLight', 'appearance.light.code_theme_id', choice(...LIGHT), 'klaus-default', 'account menu', 'The code palette while the window is light.'),
-  pref('codeThemeDark', 'appearance.dark.code_theme_id', choice(...DARK), 'klaus-default', 'account menu', 'The code palette while the window is dark.'),
   pref('uiFontSize', 'appearance.ui_font_size', integer(11, 16), '14', 'account menu', 'The interface font size.'),
   pref('codeFontSize', 'appearance.code_font_size', integer(8, 24), '13', 'account menu', 'The font size in code blocks and diffs.'),
   pref('language', 'language', choice('zh', 'en'), 'en', 'account menu', 'The interface language and the engine language hint.'),

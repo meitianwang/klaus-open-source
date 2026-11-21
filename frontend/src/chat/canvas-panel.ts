@@ -5,6 +5,8 @@
 // child webview over #canvas-panel-host, preserving the narrow Canvas bridge while
 // still making Canvas a normal, closable right-panel tab.
 
+import { publishNativeOverlayInset } from './native-editor-panel'
+
 interface CanvasBounds { x: number; y: number; width: number; height: number }
 interface CanvasOpenPayload { requestId?: string; filePath?: string; displayName?: string; sessionId?: string }
 interface CanvasPanelApi {
@@ -16,6 +18,7 @@ interface CanvasPanelApi {
   openResult(requestId: string, ok: boolean, error?: string): Promise<unknown>
 }
 
+const CANVAS_INSET_OWNER = 'canvas-panel'
 const w = () => window as any
 const api = (): CanvasPanelApi | undefined => w().klaus?.canvas
 const panel = document.getElementById('artifacts-panel')
@@ -88,7 +91,10 @@ export function scheduleCanvasBoundsSync() {
     const epoch = presentationEpoch
     const result = await enqueueHost(() => current(epoch) && visible() && !suspendedForOverlay && lastBounds !== null
       ? api()?.panelSetBounds(next) ?? Promise.resolve({ ok: false }) : Promise.resolve({ ok: false })).catch(() => ({ ok: false }))
-    if (result?.ok && current(epoch) && visible() && !suspendedForOverlay && lastBounds !== null) lastBounds = next
+    if (result?.ok && current(epoch) && visible() && !suspendedForOverlay && lastBounds !== null) {
+      lastBounds = next
+      publishNativeOverlayInset(CANVAS_INSET_OWNER, next)
+    }
   })
 }
 
@@ -117,6 +123,7 @@ async function showRuntime({ reload = false } = {}) {
     }
     trace('show-ack')
     lastBounds = next
+    publishNativeOverlayInset(CANVAS_INSET_OWNER, next)
     if (!sameBounds(next, bounds())) scheduleCanvasBoundsSync()
     return true
   })()
@@ -141,6 +148,7 @@ export async function activateCanvasPanel({ path, title, reload = false }: { pat
 export async function hideCanvasPanel() {
   presentationEpoch++
   lastBounds = null
+  publishNativeOverlayInset(CANVAS_INSET_OWNER, null)
   trace('hide')
   await enqueueHost(() => api()?.panelHide() ?? Promise.resolve()).catch(() => {})
 }
@@ -153,6 +161,7 @@ export async function closeCanvasPanel(path = '') {
   activeTitle = ''
   activeSession = ''
   lastBounds = null
+  publishNativeOverlayInset(CANVAS_INSET_OWNER, null)
   await enqueueHost(() => api()?.panelClose() ?? Promise.resolve()).catch(() => {})
 }
 
@@ -172,6 +181,7 @@ export function initCanvasPanel() {
     if (suspendedForOverlay > 1 || !visible()) return
     presentationEpoch++
     lastBounds = null
+    publishNativeOverlayInset(CANVAS_INSET_OWNER, null)
     trace('suspend')
     await enqueueHost(() => api()?.panelHide() ?? Promise.resolve()).catch(() => {})
   }

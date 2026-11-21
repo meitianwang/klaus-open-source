@@ -1,6 +1,7 @@
 // The host rectangle carries an isolated native editor; this renderer owns only
 // presentation and never evaluates the editor runtime or its documents.
 import type { VideoEditingBounds, VideoEditingOpenPayload, VideoEditingPanelApi } from '../../bridge/video-editing-api'
+import { publishNativeOverlayInset } from './native-editor-panel'
 
 type Reply = { ok?: boolean; error?: string }
 export interface VideoEditingPanelEnvironment {
@@ -16,7 +17,10 @@ export interface VideoEditingPanelEnvironment {
   schedule(): void
 }
 
+let videoInsetSeq = 0
+
 export function createVideoEditingPanel(env: VideoEditingPanelEnvironment) {
+  const insetToken = `video-editing-${++videoInsetSeq}`
   let activeId = '', activeSession = '', activeTitle = ''
   // The film each chat last held on screen. The host keeps every editor alive
   // while its chat is away, so returning to a chat can put its parked film
@@ -53,10 +57,12 @@ export function createVideoEditingPanel(env: VideoEditingPanelEnvironment) {
         if (parked.get(session)?.id === id) parked.delete(session)
         activeId = activeSession = activeTitle = ''
         lastBounds = null
+        publishNativeOverlayInset(insetToken, null)
         env.toast(result?.error || env.text('video_editing_open_failed'))
         return false
       }
       lastBounds = bounds
+      publishNativeOverlayInset(insetToken, bounds)
       if (!same(bounds, env.bounds())) env.schedule()
       return true
     })()
@@ -81,6 +87,7 @@ export function createVideoEditingPanel(env: VideoEditingPanelEnvironment) {
   async function hide(): Promise<void> {
     epoch++
     lastBounds = null
+    publishNativeOverlayInset(insetToken, null)
     await enqueue(() => env.api()?.panelHide() ?? Promise.resolve()).catch(() => {})
   }
 
@@ -100,6 +107,7 @@ export function createVideoEditingPanel(env: VideoEditingPanelEnvironment) {
     if (token === epoch) {
       activeId = activeSession = activeTitle = ''
       lastBounds = null
+      publishNativeOverlayInset(insetToken, null)
     }
     return true
   }
@@ -112,7 +120,10 @@ export function createVideoEditingPanel(env: VideoEditingPanelEnvironment) {
     const result = await enqueue(() => current(token) && visible() && lastBounds
       ? env.api()?.panelSetBounds(next) ?? Promise.resolve({ ok: false })
       : Promise.resolve({ ok: false })).catch(() => ({ ok: false }))
-    if (result?.ok && current(token) && visible() && lastBounds) lastBounds = next
+    if (result?.ok && current(token) && visible() && lastBounds) {
+      lastBounds = next
+      publishNativeOverlayInset(insetToken, next)
+    }
   }
 
   async function suspend(): Promise<void> {
