@@ -2,7 +2,7 @@ import type { ApprovalReview } from '../../../../contracts/approval-review'
 import { isCompactActivityTool, isDynamicActivityTool, isToolDiscovery, mcpActivityIsCommand, mcpActivitySource } from './chat-activity'
 import { isAgentActionToolName, isShellTaskControl } from './activity-agent-action-model'
 import { mediaGenerationKind, MEDIA_GENERATION_ICONS, type MediaGenerationKind } from './media-generation-activity'
-import { activityDisplayName, activityResultObjects, browserActivityToolName, semanticActivity, type SemanticActivity } from './activity-semantic'
+import { activityDisplayName, activityResultObjects, browserActivityToolName, semanticActivity, unwrapIndirectToolCall, type SemanticActivity } from './activity-semantic'
 
 export type ActivityToolState = 'running' | 'done' | 'error' | 'interrupted' | 'awaiting-approval'
 
@@ -190,6 +190,8 @@ function semanticShellCommand(command: string): Pick<ActivityToolPresentation, '
 }
 
 export function activityToolPresentation(tool: ActivityToolData): ActivityToolPresentation {
+  const unwrapped = unwrapIndirectToolCall(tool.toolName, tool.args)
+  if (unwrapped.unwrapped) tool = { ...tool, toolName: unwrapped.toolName, args: unwrapped.args }
   const args = parseArguments(tool.args)
   const object = record(args)
   const name = browserActivityToolName(tool.toolName)
@@ -257,6 +259,9 @@ const PLAN_TOOL_NAMES = /^(?:task_write|taskwrite|task_create|taskcreate|task_up
  * on every delta.
  */
 export function activityToolIconName(toolName: string, args?: unknown, presentation?: ActivityToolPresentation): string {
+  const unwrapped = unwrapIndirectToolCall(toolName, args)
+  toolName = unwrapped.toolName
+  args = unwrapped.args
   const resolved = presentation ?? activityToolPresentation({ toolCallId: '', toolName, args, state: 'done' })
   if (resolved.generationKind) return MEDIA_GENERATION_ICONS[resolved.generationKind]
   if (resolved.semantic) return resolved.semantic.icon

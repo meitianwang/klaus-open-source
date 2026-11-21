@@ -625,6 +625,43 @@ describe('streaming and replay interactions', () => {
     expect(rich).not.toContain('data-chat-activity=')
   })
 
+  test('indirect call_mcp_tool groups summarize and expand as the underlying MCP or semantic tool', () => {
+    const tools = {
+      design: {
+        ...card('call_mcp_tool', 'ok', 'design'),
+        args: { name: 'mcp__klaus-design__design_open', arguments: { title: 'Editorial Canvas' } },
+        content: '{"canvasId":"c1"}',
+      },
+      browser: {
+        ...card('call_mcp_tool', 'ok', 'browser'),
+        args: { name: 'mcp__klaus-browser__browser_navigate', arguments: { url: 'https://example.com' } },
+        content: 'ok',
+      },
+    }
+    const group = groupLiveActivityUnits([toolsUnit(['design', 'browser'])], tools, false, false)[0]
+    if (group.kind !== 'activity') throw new Error('Expected activity group')
+    const directTools = {
+      design: { ...card('mcp__klaus-design__design_open', 'ok', 'design'), args: { title: 'Editorial Canvas' }, content: '{"canvasId":"c1"}' },
+      browser: { ...card('mcp__klaus-browser__browser_navigate', 'ok', 'browser'), args: { url: 'https://example.com' }, content: 'ok' },
+    }
+    const directGroup = groupLiveActivityUnits([toolsUnit(['design', 'browser'])], directTools, false, false)[0]
+    if (directGroup.kind !== 'activity') throw new Error('Expected direct activity group')
+    ;(window as any).currentLang = 'en'
+    expect(activitySummaryLabel(translate('en'), group)).toBe('Used Klaus Design integration, opened webpage · example.com')
+    expect(activitySummaryLabel(translate('en'), group)).toBe(activitySummaryLabel(translate('en'), directGroup))
+    ;(window as any).currentLang = 'zh'
+    expect(activitySummaryLabel(translate('zh'), group)).toBe(activitySummaryLabel(translate('zh'), directGroup))
+    expect(activitySummaryLabel(translate('zh'), group)).toContain('已使用 Klaus Design 集成')
+    expect(activitySummaryLabel(translate('zh'), group)).toContain('已打开网页 · example.com')
+    ;(window as any).currentLang = 'en'
+    expect(activitySummaryIconTool(group)?.toolName).toBe('mcp__klaus-design__design_open')
+
+    const rich = renderToStaticMarkup(<LiveToolCard card={tools.design} open onToggle={() => {}} />)
+    expect(rich).toContain('Klaus Design · Design open')
+    expect(rich).toContain('mcp__klaus-design__design_open')
+    expect(rich).not.toContain('Call mcp tool')
+  })
+
 })
 
 // Three surfaces drew tool glyphs from three independent tables: the per-item

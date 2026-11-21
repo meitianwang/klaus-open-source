@@ -1,5 +1,5 @@
 import type { Unit } from './TranscriptView'
-import { activityRecord, friendSendResult, friendSendToolName } from './activity-semantic'
+import { activityRecord, friendSendResult, friendSendToolName, unwrapIndirectToolCall } from './activity-semantic'
 
 type TurnGroup = { turnId: string | undefined; units: Unit[] }
 const COMPLETED_REPLY_TYPES = new Set(['completed', 'rejected', 'failed', 'cancelled'])
@@ -21,8 +21,9 @@ export function placeFriendReplies(groups: TurnGroup[], boundaryTurnIds: Readonl
     const displayOnly = group.units.every(unit => unit.type === 'user')
     group.units = group.units.flatMap(unit => {
       for (const tool of unit.segment?.tools ?? []) {
-        if (friendSendToolName(tool.toolName) !== 'send_message_to_friend') continue
-        const args = activityRecord(tool.args)
+        const effective = unwrapIndirectToolCall(tool.toolName, tool.args)
+        if (friendSendToolName(effective.toolName) !== 'send_message_to_friend') continue
+        const args = activityRecord(effective.args)
         const receipt = friendSendResult(tool.output?.text)
         if (args.intent !== 'request' || !receipt.requestId || receipt.declined || receipt.converted
           || (!receipt.accepted && !receipt.delivered) || requests.has(receipt.requestId)) continue

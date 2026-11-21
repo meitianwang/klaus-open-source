@@ -33,7 +33,7 @@ import styles from './transcript.module.css'
 import chatStyles from '../chat.module.css'
 import { activityCollapseState, describeActivity, projectActivity, turnCollapseState, transcriptPageStart, type ActivityEntry, type ActivitySummary, type ActivityAction } from './activity-model'
 import { ActivityTool, activityToolDisplayName, activityToolIconName, activityToolPresentation, delegatedToolOutput, type ActivityToolData } from './activity-tool'
-import { semanticActivity, semanticActivityLabel } from './activity-semantic'
+import { semanticActivity, semanticActivityLabel, unwrapIndirectToolCall } from './activity-semantic'
 import { mediaGenerationKind, mediaGenerationLabel, mediaGenerationSummaryState } from './media-generation-activity'
 import { ActivityDisclosure } from './activity-disclosure'
 import { isAgentActionToolName, isHiddenAgentMessageTool } from './activity-agent-action-model'
@@ -1867,7 +1867,7 @@ export function activityEntries(units: Unit[], turnKey: string, interrupted: boo
     return (unit.segment?.tools || []).flatMap((tool, index): ActivityEntry<FoldItem>[] => {
       // The pet pill is the only consumer of this call; the transcript keeps
       // its row out of the history projection entirely.
-      if (isPetPillOnlyTool(tool.toolName)) return []
+      if (isPetPillOnlyTool(tool.toolName, tool.args)) return []
       const key = tool.toolCallId || `${unit.key}:${index}`
       const workflowRecord = workflowRecordFromTool(tool)
       if (workflowRecord) {
@@ -1891,11 +1891,12 @@ export function activityEntries(units: Unit[], turnKey: string, interrupted: boo
         }]
       }
       const actionOutput = tool.output?.taskControl ? JSON.stringify(tool.output.taskControl) : tool.output?.text
+      const effectiveTool = unwrapIndirectToolCall(tool.toolName, tool.args)
       return [{
         key,
         value: { kind: 'unit', unit: { ...unit, key: `tool:${key}`, segment: { kind: 'tools', tools: [tool] } } },
-        grouping: isAgentActionToolName(tool.toolName, tool.args, actionOutput) || tool.state === 'awaiting-approval' ? 'standalone' : 'tool',
-        action: describeActivity(tool.toolName, tool.args, tool.state, actionOutput, tool.output?.media),
+        grouping: isAgentActionToolName(effectiveTool.toolName, effectiveTool.args, actionOutput) || tool.state === 'awaiting-approval' ? 'standalone' : 'tool',
+        action: describeActivity(effectiveTool.toolName, effectiveTool.args, tool.state, actionOutput, tool.output?.media),
       }]
     })
   })
@@ -2307,7 +2308,7 @@ export function foldTurnGroups(
     for (const u of group.units) {
       if (u.type !== 'tools') continue
       for (const tool of u.segment?.tools || []) {
-        if (!isExplicitMediaGenerationTool(tool.toolName)) continue
+        if (!isExplicitMediaGenerationTool(tool.toolName, tool.args)) continue
         for (const item of tool.output?.media || []) if (item?.path) explicitMedia.add(String(item.path))
       }
     }
@@ -3161,7 +3162,8 @@ function HistoryActivityTool({ tool, sessionId, stateSessionId, turnKey, suppres
   const toggle = () => {
     if (!stateSessionId) { setLocalOpen(!open); return }
     setTurnCollapsed(stateSessionId, `tool:${tool.toolCallId}`, open)
-    if (!open && /^mcp[_.]/i.test(tool.toolName)) setTurnCollapsed(stateSessionId, `mcp-expanded:${turnKey}`, true)
+    const effectiveName = unwrapIndirectToolCall(tool.toolName, tool.args).toolName
+    if (!open && /^mcp[_.]/i.test(effectiveName)) setTurnCollapsed(stateSessionId, `mcp-expanded:${turnKey}`, true)
   }
   const data: ActivityToolData = { ...tool, sessionId, parentAgentId, output: tool.output?.text, media: tool.output?.media,
     ...(tool.output?.taskControl?.task_type ? { taskType: tool.output.taskControl.task_type } : {}),
@@ -4517,16 +4519,17 @@ export function liveActivityEntries(liveUnits: LiveUnit[], tools: Record<string,
       if (!card) return []
       // Same rule as the history projection: the pet pill consumes this call,
       // the live transcript never shows its row.
-      if (isPetPillOnlyTool(card.toolName)) return []
-      if (isQuestionTool(card.toolName) && liveUnits.some(row => row.type === 'live-ask' && row.req.toolCallId === id || row.type === 'live-planning-question' && row.request.toolCallId === id)) return []
+      if (isPetPillOnlyTool(card.toolName, card.args)) return []
+      const effectiveCard = unwrapIndirectToolCall(card.toolName, card.args)
+      if (isQuestionTool(effectiveCard.toolName) && liveUnits.some(row => row.type === 'live-ask' && row.req.toolCallId === id || row.type === 'live-planning-question' && row.request.toolCallId === id)) return []
       const delegations: ActivityEntry<LiveUnit>[] = (delegatedToolOutput(liveToolData(card))?.delegations || [])
         .map((delegation, index) => ({
           key: `delegation:${id}:${index}`,
           value: { type: 'live-delegation', key: `delegation:${id}:${index}`, turnId: unit.turnId, delegation },
           grouping: 'standalone',
         }))
-      if (subagentActivityKind(card.toolName) && notified.has(id) && card.status !== 'running' && card.status !== 'awaiting-approval') return delegations
-      const record = workflowRecordFromTool({ ...card, state: card.status })
+      if (subagentActivityKind(effectiveCard.toolName) && notified.has(id) && card.status !== 'running' && card.status !== 'awaiting-approval') return delegations
+      const record = workflowRecordFromTool({ ...card, toolName: effectiveCard.toolName, args: effectiveCard.args, state: card.status })
       if (record) {
         if (record.kind === 'goal-completed') return delegations
         if (recordedWorkflowIds.has(id)) return delegations
@@ -4534,8 +4537,8 @@ export function liveActivityEntries(liveUnits: LiveUnit[], tools: Record<string,
       }
       return [{
         key: id, value: { ...unit, key: `tool:${id}`, order: [id] },
-        grouping: record || subagentActivityKind(card.toolName) || isAgentActionToolName(card.toolName, card.args, card.content) || card.status === 'awaiting-approval' ? 'standalone' : 'tool',
-        action: describeActivity(card.toolName, card.args, card.status, card.content, card.media),
+        grouping: record || subagentActivityKind(effectiveCard.toolName) || isAgentActionToolName(effectiveCard.toolName, effectiveCard.args, card.content) || card.status === 'awaiting-approval' ? 'standalone' : 'tool',
+        action: describeActivity(effectiveCard.toolName, effectiveCard.args, card.status, card.content, card.media),
       }, ...delegations]
     })
   })
@@ -5181,7 +5184,7 @@ export function LiveTail({ sessionId, unitProps, scroll = 'none', container, tim
       for (const id of unit.order) {
         const card = tools[id]
         if (!card) continue
-        if (isExplicitMediaGenerationTool(card.toolName)) {
+        if (isExplicitMediaGenerationTool(card.toolName, card.args)) {
           for (const item of card.media || []) if (item?.path) explicitMedia.add(String(item.path))
         }
         for (const item of card.media || []) {

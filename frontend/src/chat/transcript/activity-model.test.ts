@@ -129,4 +129,23 @@ describe('host activity and discovery metadata', () => {
     expect(describeActivity('TaskStop', { task_id: 'shell-1' }, 'done', '{"task_type":"shell"}').kind).toBe('command')
     expect(describeActivity('advisor', {}, 'done').kind).toBe('search')
   })
+
+  test('unwraps call_mcp_tool into real MCP sources, semantic tools, and host actions in group summaries', () => {
+    const summary = summarizeActivity(entries([
+      ['call_mcp_tool', { name: 'mcp__klaus-design__design_open', arguments: { title: 'System UI' } }],
+      ['call_mcp_tool', { server: 'github', name: 'list_issues', arguments: { owner: 'acme' } }],
+      ['call_mcp_tool', { name: 'mcp__klaus-browser__browser_navigate', arguments: { url: 'https://example.com' } }],
+      ['call_mcp_tool', { name: 'app_state_query', arguments: { key: 'docs', action: 'search' } }],
+    ]))
+    expect(summary.sources).toEqual(['Klaus Design', 'GitHub'])
+    expect(summary.tools).toEqual([{ name: 'mcp__klaus-browser__browser_navigate', count: 1 }])
+    expect(summary.dynamicTools.map(item => item.toolName)).toEqual(['klaus_query'])
+    expect(summary.allTools.map(item => item.toolName)).toEqual([
+      'mcp__klaus-design__design_open',
+      'mcp__github__list_issues',
+      'mcp__klaus-browser__browser_navigate',
+      'klaus_query',
+    ])
+  })
 })
+

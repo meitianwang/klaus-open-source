@@ -10,6 +10,48 @@ export interface SemanticActivity {
   friendOutcome?: 'request' | 'notice' | 'reply' | 'progress' | 'question' | 'declined'
 }
 
+export interface UnwrappedToolCall {
+  toolName: string
+  args: unknown
+  unwrapped: boolean
+}
+
+const PROJECTED_HOST_MCP_SERVER = /^mcp__host-(browser|prototype|digram|video-editing|design|ppt|model3d|macos-[a-z0-9-]+)__/i
+
+/**
+ * Unwrap an indirect `call_mcp_tool` invocation into its target tool name and
+ * inner arguments so activity rows, summaries, icons and detail panels present
+ * the real tool action rather than the static transport wrapper.
+ */
+export function unwrapIndirectToolCall(toolName: string, input?: unknown): UnwrappedToolCall {
+  const normalized = (toolName || '').toLowerCase().replace(/^functions[._]/, '')
+  if (normalized !== 'call_mcp_tool') return { toolName, args: input, unwrapped: false }
+  let parsed = input
+  if (typeof parsed === 'string') {
+    try { parsed = JSON.parse(parsed) } catch { return { toolName, args: input, unwrapped: false } }
+  }
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return { toolName, args: input, unwrapped: false }
+  }
+  const wrapper = parsed as Record<string, unknown>
+  const rawName = typeof wrapper.name === 'string' ? wrapper.name.trim() : ''
+  if (!rawName || rawName.toLowerCase().replace(/^functions[._]/, '') === 'call_mcp_tool') {
+    return { toolName, args: input, unwrapped: false }
+  }
+  const rawServer = typeof wrapper.server === 'string' ? wrapper.server.trim() : ''
+  let resolvedName = rawServer && !rawName.startsWith('mcp__')
+    ? `mcp__${rawServer}__${rawName}`
+    : rawName
+  if (resolvedName === 'app_state_query') resolvedName = 'klaus_query'
+  else if (resolvedName === 'app_state_action') resolvedName = 'klaus_action'
+  else resolvedName = resolvedName.replace(PROJECTED_HOST_MCP_SERVER, (_, surface: string) => `mcp__klaus-${surface.toLowerCase()}__`)
+  let innerArgs: unknown = wrapper.arguments === undefined || wrapper.arguments === null ? {} : wrapper.arguments
+  if (typeof innerArgs === 'string') {
+    try { innerArgs = JSON.parse(innerArgs) } catch { /* Preserve non-JSON string input. */ }
+  }
+  return { toolName: resolvedName, args: innerArgs, unwrapped: true }
+}
+
 type ActionText = [icon: string, chinese: string, active: string, completed: string, verb: string]
 const ACTIONS: Record<string, ActionText> = {
   web_search: ['tool-web', '搜索网页', 'Searching the web', 'Searched the web', 'search the web'],
@@ -105,8 +147,9 @@ export function safeActivityUrl(value: unknown): string | null {
 export const FRIEND_SEND_TOOLS: ReadonlySet<string> = new Set(['send_message_to_friend', 'reply_to_friend', 'send_friend_progress', 'ask_friend_for_information'])
 const FRIEND_TOOLS: ReadonlySet<string> = new Set(['list_friends', ...FRIEND_SEND_TOOLS])
 
-export function friendSendToolName(toolName: string): string | null {
-  const name = toolName.toLowerCase().replace(/^functions[._]/, '')
+export function friendSendToolName(toolName: string, input?: unknown): string | null {
+  const effective = input !== undefined ? unwrapIndirectToolCall(toolName, input).toolName : toolName
+  const name = effective.toLowerCase().replace(/^functions[._]/, '')
   return FRIEND_SEND_TOOLS.has(name) ? name : null
 }
 
@@ -166,6 +209,9 @@ export function browserActivityToolName(toolName: string): string {
 }
 
 export function semanticActivity(toolName: string, input?: unknown, output?: string): SemanticActivity | null {
+  const effective = unwrapIndirectToolCall(toolName, input)
+  toolName = effective.toolName
+  input = effective.args
   let name = browserActivityToolName(toolName)
   const ownedMcp = /^mcp__(klaus-prototype|klaus-digram|klaus-video-editing)__(.+)$/.exec(name)
   if (ownedMcp && ((ownedMcp[1] === 'klaus-prototype' && ownedMcp[2].startsWith('prototype_')) || (ownedMcp[1] === 'klaus-digram' && ownedMcp[2].startsWith('digram_')) || (ownedMcp[1] === 'klaus-video-editing' && ownedMcp[2].startsWith('video_editing_')))) name = ownedMcp[2]

@@ -7,7 +7,7 @@ import { localizeSkillName, normalizeMarketKey } from '../../pages/skills/locali
 import { deviceNameForHost, localDeviceId, useDeviceNamesVersion } from '../device-names'
 import styles from './transcript.module.css'
 import { mediaGenerationKind, mediaGenerationSummaryState } from './media-generation-activity'
-import { genericActivityLabel, semanticActivity, semanticActivityLabel } from './activity-semantic'
+import { genericActivityLabel, semanticActivity, semanticActivityLabel, unwrapIndirectToolCall } from './activity-semantic'
 
 export type ChatActivityKind =
   | 'read' | 'list' | 'list_archived' | 'send' | 'create' | 'fork' | 'wait' | 'list_hosts' | 'list_projects'
@@ -74,8 +74,9 @@ const STANDALONE_ACTIVITY_TOOLS = new Set([
  * contributes no media items, so listing it would only offer a future change a path
  * that draws an <img> for an mp3.
  */
-export function isExplicitMediaGenerationTool(toolName: string): boolean {
-  const name = (toolName || '').toLowerCase()
+export function isExplicitMediaGenerationTool(toolName: string, args?: unknown): boolean {
+  const effective = args !== undefined ? unwrapIndirectToolCall(toolName, args).toolName : toolName
+  const name = (effective || '').toLowerCase()
   return name === 'generate_image' || name === 'generate_video' || name === 'generateimage' || name === 'generatevideo'
 }
 
@@ -109,12 +110,13 @@ export function loadedActivityToolNames(tools: ChatActivityTool[]): Set<string> 
   return names
 }
 
-export function mcpActivitySource(toolName: string): string | null {
-  return /^mcp__(.+?)__.+$/.exec(toolName)?.[1]?.trim() || null
+export function mcpActivitySource(toolName: string, args?: unknown): string | null {
+  const effective = args !== undefined ? unwrapIndirectToolCall(toolName, args).toolName : toolName
+  return /^mcp__(.+?)__.+$/.exec(effective)?.[1]?.trim() || null
 }
 
-export function mcpActivityIsCommand(toolName: string): boolean {
-  const source = mcpActivitySource(toolName)
+export function mcpActivityIsCommand(toolName: string, args?: unknown): boolean {
+  const source = mcpActivitySource(toolName, args)
   return source === 'node_repl' || source === 'cua_repl'
 }
 
@@ -139,6 +141,9 @@ export function mcpActivitySourceName(source: string): string {
 }
 
 export function isDynamicActivityTool(toolName: string, args?: unknown): boolean {
+  const unwrapped = unwrapIndirectToolCall(toolName, args)
+  toolName = unwrapped.toolName
+  args = unwrapped.args
   if (mediaGenerationKind(toolName)) return false
   if (semanticActivity(toolName, args)) return false
   if (chatActivityKind(toolName, args)) return true
@@ -156,7 +161,9 @@ export function isChatListActivityTool(toolName: string, args?: unknown): boolea
 
 /** Compact activity labels also identify rows with specialized disclosures. */
 export function isCompactActivityTool(toolName: string, args?: unknown): boolean {
-  return chatActivityKind(toolName, args) !== null || ['skill', 'klaus_query', 'read_thread_terminal', 'read_computer_history'].includes(toolName)
+  const unwrapped = unwrapIndirectToolCall(toolName, args)
+  return chatActivityKind(unwrapped.toolName, unwrapped.args) !== null
+    || ['skill', 'klaus_query', 'read_thread_terminal', 'read_computer_history'].includes(unwrapped.toolName)
 }
 
 /**
@@ -164,8 +171,9 @@ export function isCompactActivityTool(toolName: string, args?: unknown): boolean
  * transcript keeps its rows out of both the history and the live projection,
  * so the summary text appears only on the surface that asked for it.
  */
-export function isPetPillOnlyTool(toolName: string): boolean {
-  return toolName === 'update_running_summary'
+export function isPetPillOnlyTool(toolName: string, args?: unknown): boolean {
+  const effective = args !== undefined ? unwrapIndirectToolCall(toolName, args).toolName : toolName
+  return effective === 'update_running_summary'
 }
 
 function record(value: unknown): Record<string, unknown> | null {
@@ -177,6 +185,9 @@ function record(value: unknown): Record<string, unknown> | null {
 // Only the host-owned tools have this contract. An unrelated MCP tool with the
 // same suffix must retain its own renderer and must never gain navigation.
 export function chatActivityKind(toolName: string, args?: unknown): ChatActivityKind | null {
+  const unwrapped = unwrapIndirectToolCall(toolName, args)
+  toolName = unwrapped.toolName
+  args = unwrapped.args
   if (toolName === 'read_thread') return 'read'
   if (toolName === 'list_threads') return 'list'
   if (toolName === 'list_archived_threads') return 'list_archived'
@@ -294,8 +305,9 @@ export function createdThreadIdFromToolResult(result: unknown): string | null {
  * This is the single place the gate lives, so the component and its tests cannot
  * disagree about which rows swap.
  */
-export function createdThreadCardId(tool: { toolName: string; state: string; output?: string | null }): string | null {
-  if (tool.toolName !== 'create_thread') return null
+export function createdThreadCardId(tool: { toolName: string; args?: unknown; state: string; output?: string | null }): string | null {
+  const effectiveName = unwrapIndirectToolCall(tool.toolName, tool.args).toolName
+  if (effectiveName !== 'create_thread') return null
   if (!chatActivityCompleted(tool.state) || chatActivityFailed(tool.state)) return null
   return createdThreadIdFromToolResult(tool.output)
 }
@@ -341,6 +353,9 @@ export function chatActivityState(state: string, leading: boolean): ChatActivity
 const NAVIGABLE_CHAT_ACTIVITY_KINDS: ReadonlySet<ChatActivityKind> = new Set(['read', 'send'])
 
 export function chatActivityTarget(toolName: string, args: unknown, variant: ChatActivityVariant = 'row'): string | null {
+  const unwrapped = unwrapIndirectToolCall(toolName, args)
+  toolName = unwrapped.toolName
+  args = unwrapped.args
   const kind = chatActivityKind(toolName, args)
   if (variant !== 'row' || kind === null || !NAVIGABLE_CHAT_ACTIVITY_KINDS.has(kind)) return null
   const input = record(args)
@@ -436,6 +451,8 @@ export function skillActivityLabel(translate: (key: string) => string, identifie
 }
 
 export function dynamicActivityLabel(translate: (key: string) => string, tool: ChatActivityTool, completed: boolean, leading = true): string {
+  const unwrapped = unwrapIndirectToolCall(tool.toolName, tool.args)
+  if (unwrapped.unwrapped) tool = { ...tool, toolName: unwrapped.toolName, args: unwrapped.args }
   const locale = intlLocale()
   const effectiveState = tool.state === 'done' && !completed ? 'running' : tool.state
   const follow = (label: string) => leading || locale.startsWith('zh') ? label : label.charAt(0).toLowerCase() + label.slice(1)
@@ -576,6 +593,8 @@ export function ChatActivity({ tool, variant = 'row', leading = true, navigate }
   // Device names arrive asynchronously from the account device list; a row that
   // names the destination computer must repaint when the name resolves.
   useDeviceNamesVersion()
+  const unwrapped = unwrapIndirectToolCall(tool.toolName, tool.args)
+  if (unwrapped.unwrapped) tool = { ...tool, toolName: unwrapped.toolName, args: unwrapped.args }
   const kind = chatActivityKind(tool.toolName, tool.args)
   if (!isDynamicActivityTool(tool.toolName, tool.args)) return null
   const completed = chatActivityCompleted(tool.state)
@@ -638,7 +657,9 @@ export function ChatActivity({ tool, variant = 'row', leading = true, navigate }
 
 export function chatActivitySummaryParts(tools: ChatActivityTool[]): ChatActivityTool[] {
   const seen = new Map<string, ChatActivityTool>()
-  for (const tool of tools) {
+  for (const rawTool of tools) {
+    const unwrapped = unwrapIndirectToolCall(rawTool.toolName, rawTool.args)
+    const tool = unwrapped.unwrapped ? { ...rawTool, toolName: unwrapped.toolName, args: unwrapped.args } : rawTool
     if (!isDynamicActivityTool(tool.toolName, tool.args)) continue
     const kind = chatActivityKind(tool.toolName, tool.args)
     const key = `host:${tool.toolName}:${tool.toolName === 'klaus_query' ? kind ?? klausQueryActivity(tool.args).key : ''}`

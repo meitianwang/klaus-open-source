@@ -1,6 +1,6 @@
 import { activityToolPresentation, isDynamicActivityPresentation } from './activity-tool-model'
 import { chatActivitySummaryParts, isToolDiscovery, loadedActivityToolNames, mcpActivityIsCommand, mcpActivitySource, mcpActivitySourceName, nativeActivityKind, type ChatActivityTool } from './chat-activity'
-import { semanticActivity } from './activity-semantic'
+import { semanticActivity, unwrapIndirectToolCall } from './activity-semantic'
 
 // Shared projection for streamed and replayed activity. Tool classification
 // affects the summary, never whether an ordinary tool belongs to its turn.
@@ -55,6 +55,9 @@ function stringArg(args: Record<string, unknown>, ...keys: string[]): string {
 }
 
 export function describeActivity(name: string, input: unknown, status: string, output?: string, media?: Array<{ path: string; mimeType?: string }>): ActivityAction {
+  const unwrapped = unwrapIndirectToolCall(name, input)
+  name = unwrapped.toolName
+  input = unwrapped.args
   if (typeof input === 'string') { try { input = JSON.parse(input) } catch { /* Preserve unstructured arguments. */ } }
   const args = input && typeof input === 'object' && !Array.isArray(input) ? input as Record<string, unknown> : {}
   const normalized = name.toLowerCase().replace(/^functions[._]/, '')

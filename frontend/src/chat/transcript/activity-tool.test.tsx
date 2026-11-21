@@ -11,6 +11,7 @@ const {
   activityAnsiChunks,
   activityInputText,
   activityShellResult,
+  activityToolIconName,
   activityToolPresentation,
   activityToolSummary,
   displayShellCommand,
@@ -416,3 +417,66 @@ describe('a delegation inside tool output is folded, not printed as protocol mar
     }
   })
 })
+
+describe('indirect call_mcp_tool rows unwrap into the target tool action', () => {
+  test('renders MCP integration label, plug glyph, and unwrapped details for full MCP names and server+name pairs', () => {
+    const fullMcp = tool({
+      toolName: 'call_mcp_tool',
+      args: { name: 'mcp__klaus-design__design_open', arguments: { title: 'Editorial Layout' } },
+      output: '{"ok":true}',
+    })
+    const collapsed = render(fullMcp, false)
+    expect(collapsed).toContain('Klaus Design · Design open')
+    expect(collapsed).not.toContain('Call mcp tool')
+    expect(activityToolIconName(fullMcp.toolName, fullMcp.args)).toBe('tool-mcp-plug')
+
+    const expanded = render(fullMcp, true)
+    expect(expanded).toContain('mcp__klaus-design__design_open')
+    expect(expanded).toContain('Editorial Layout')
+    expect(expanded).not.toContain('&quot;name&quot;: &quot;mcp__klaus-design__design_open&quot;')
+
+    const splitServer = tool({
+      toolName: 'call_mcp_tool',
+      args: JSON.stringify({ server: 'github', name: 'list_issues', arguments: { owner: 'acme' } }),
+      output: '[]',
+    })
+    expect(render(splitServer, false)).toContain('GitHub · List issues')
+    expect(render(splitServer, true)).toContain('mcp__github__list_issues')
+  })
+
+  test('preserves semantic labels, projected host prefixes, and compact host disclosures when invoked indirectly', () => {
+    const browserCall = tool({
+      toolName: 'call_mcp_tool',
+      state: 'running',
+      args: { name: 'mcp__klaus-browser__browser_navigate', arguments: { url: 'https://example.com/docs' } },
+    })
+    expect(activityToolIconName(browserCall.toolName, browserCall.args)).toBe('tool-browser')
+    expect(renderToStaticMarkup(
+      <ActivityToolContent tool={browserCall} open={false} onToggle={() => {}} locale="zh-CN" />,
+    )).toContain('正在打开网页 · example.com')
+
+    const projectedDiagram = tool({
+      toolName: 'call_mcp_tool',
+      args: { name: 'mcp__host-digram__digram_open', arguments: { title: 'Architecture Flow' } },
+    })
+    expect(activityToolIconName(projectedDiagram.toolName, projectedDiagram.args)).toBe('tool-diagram')
+    expect(renderToStaticMarkup(
+      <ActivityToolContent tool={projectedDiagram} open={false} onToggle={() => {}} locale="zh-CN" />,
+    )).toContain('已打开图表 · Architecture Flow')
+
+    const projectedQuery = tool({
+      toolName: 'call_mcp_tool',
+      args: { name: 'app_state_query', arguments: { key: 'docs', action: 'search' } },
+    })
+    const queryMarkup = render(projectedQuery, false)
+    expect(queryMarkup).toContain('data-chat-activity="dynamic"')
+    expect(queryMarkup).toContain('Searched help documentation')
+  })
+
+  test('degrades cleanly when streaming arguments do not yet carry a target tool name', () => {
+    for (const args of [{}, '{"name":', { name: '' }, { name: 'call_mcp_tool' }]) {
+      expect(() => render(tool({ toolName: 'call_mcp_tool', state: 'running', args }), false)).not.toThrow()
+    }
+  })
+})
+

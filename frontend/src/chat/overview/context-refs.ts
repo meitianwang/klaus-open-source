@@ -12,6 +12,7 @@
 // fact reported in two places gets double-counted in both headers.
 import { tt } from '../../app/i18n'
 import { icon as klausIcon } from '../../icons/registry'
+import { unwrapIndirectToolCall } from '../transcript/activity-semantic'
 import { applyDefaultCollapseState, overviewDeps, styles } from './shared'
 
 type ReferenceGroup = 'skills' | 'memory' | 'mcp'
@@ -73,10 +74,12 @@ function addSessionReference(sessionId: string | null, group: ReferenceGroup, ke
 // Classify one tool call. Unknown tools are not references — reading a file is
 // work, not a citation — so only the kinds below are recorded.
 export function noteToolReference(sessionId: string | null, toolName: unknown, toolCallId: unknown, args: unknown): void {
-  const name = String(toolName || '')
+  const unwrapped = unwrapIndirectToolCall(String(toolName || ''), args)
+  const name = unwrapped.toolName
   if (!sessionId || !name) return
   const occurrence = String(toolCallId || '')
-  const input = (args && typeof args === 'object' ? args : {}) as Record<string, unknown>
+  const resolvedArgs = unwrapped.args
+  const input = (resolvedArgs && typeof resolvedArgs === 'object' ? resolvedArgs : {}) as Record<string, unknown>
   if (name.startsWith('mcp__')) {
     const parts = name.split('__')
     const server = parts[1] || name

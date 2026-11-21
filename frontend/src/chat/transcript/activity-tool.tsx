@@ -14,7 +14,7 @@ import { useChatStream, setTurnCollapsed } from '../stream-store'
 import styles from './activity-tool.module.css'
 import { writeClipboardText } from '../../clipboard'
 import { mediaGenerationLabel } from './media-generation-activity'
-import { genericActivityLabel, semanticActivityLabel } from './activity-semantic'
+import { genericActivityLabel, semanticActivityLabel, unwrapIndirectToolCall } from './activity-semantic'
 import { ImageActivityDetails, ScheduleActivityDetails, WebActivitySources } from './activity-rich-details'
 import { FriendActivityDetails } from './activity-friend'
 
@@ -430,13 +430,21 @@ function ToolDetails({ tool, presentation, locale }: { tool: ActivityToolData; p
  */
 export function ActivityToolContent(props: ActivityToolProps & { locale: string; expandedFiles?: Record<string, boolean>; onToggleFile?: (path: string, open: boolean) => void; suppressDelegations?: boolean }) {
   const { tool, locale } = props
-  const presentation = useMemo(() => activityToolPresentation(tool), [tool.toolName, tool.args, tool.media, tool.output])
-  const result = useMemo(() => activityShellResult(tool), [tool.output, tool.startedAtMs, tool.durationMs, tool.exitCode])
+  const unwrapped = useMemo(() => unwrapIndirectToolCall(tool.toolName, tool.args), [tool.toolName, tool.args])
+  const effectiveTool = useMemo(
+    () => unwrapped.unwrapped ? { ...tool, toolName: unwrapped.toolName, args: unwrapped.args } : tool,
+    [tool, unwrapped],
+  )
+  const presentation = useMemo(
+    () => activityToolPresentation(effectiveTool),
+    [effectiveTool.toolName, effectiveTool.args, effectiveTool.media, effectiveTool.output],
+  )
+  const result = useMemo(() => activityShellResult(effectiveTool), [effectiveTool.output, effectiveTool.startedAtMs, effectiveTool.durationMs, effectiveTool.exitCode])
   const isExec = presentation.kind === 'exec'
-  const split = useMemo(() => delegatedToolOutput(tool, presentation, result), [presentation, result, tool.output])
+  const split = useMemo(() => delegatedToolOutput(effectiveTool, presentation, result), [effectiveTool, presentation, result])
   // Only the representation the printed card reads is replaced, so an exec card keeps
   // its JSON result intact for the other fields it renders.
-  const strippedTool = !isExec && split ? { ...tool, output: split.output } : tool
+  const strippedTool = !isExec && split ? { ...effectiveTool, output: split.output } : effectiveTool
   const strippedResult = isExec && split ? { ...result, output: split.output } : result
   return <>
     <ToolCardBody {...props} tool={strippedTool} result={strippedResult} presentation={presentation} locale={locale} />
