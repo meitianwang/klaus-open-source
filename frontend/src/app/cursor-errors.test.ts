@@ -14,8 +14,10 @@ for (const language of ['en', 'zh'] as const) {
     expect(dictionary.cursor_rate_limited).not.toBe('cursor_rate_limited')
   })
 
-  test(`usage-limit wording stays distinct from rate limiting in ${language}`, () => {
+  test(`usage-limit and plan-required wording stay distinct from rate limiting in ${language}`, () => {
     expect(cursorErrorText('cursor_usage_limit', translate)).toBe(dictionary.cursor_model_usage_limit)
+    expect(cursorErrorText('cursor_subscription_required', translate)).toBe(dictionary.cursor_model_plan_required)
     expect(dictionary.cursor_rate_limited).not.toBe(dictionary.cursor_model_usage_limit)
+    expect(dictionary.cursor_rate_limited).not.toBe(dictionary.cursor_model_plan_required)
   })
 }

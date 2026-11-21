@@ -1,6 +1,8 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import type { Json } from '../main/ipc/contract';
 import { object } from '../main/services/service-types';
-import { antigravityUsageCacheKey, claudeUsageCacheKey, UsageService, type UsageDeps } from '../main/services/usage';
+import { antigravityUsageCacheKey, claudeUsageCacheKey, cursorUsage, UsageService, type UsageDeps } from '../main/services/usage';
 import { assert, assertDeepEqual, assertEqual, type Harness } from './harness';
 
 function deferred<T>(): { promise: Promise<T>; resolve(value: T): void } {
@@ -313,5 +315,28 @@ export function registerUsageCacheTests(h: Harness): void {
     assert(base !== antigravityUsageCacheKey({ accounts: [{ ...accOne, generation: 'gen-3' }, accTwo] }), 're-authentication changes digest');
     assertEqual(base, antigravityUsageCacheKey({ accounts: [{ ...accOne, accessToken: 'rotated-access-token' }, accTwo] }), 'token refresh within generation keeps digest stable');
     assertEqual(antigravityUsageCacheKey({}), 'signed-out', 'empty store maps to signed-out sentinel');
+  });
+
+  h.test('Cursor usage honors explicit plan display enablement and never fabricates full allowance from zero-limit payloads', async () => {
+    const vectors = JSON.parse(readFileSync(join(__dirname, '../../contracts/vectors/usage-source-vectors.json'), 'utf8')) as {
+      cursorUsage: Array<{ name: string; answer: Json; expected: Json }>;
+    };
+    assert(vectors.cursorUsage.length >= 4, 'cursor usage contract vectors are loaded');
+    for (const entry of vectors.cursorUsage) {
+      assertDeepEqual(cursorUsage(entry.answer), entry.expected, entry.name);
+    }
+    const zeroPlan = vectors.cursorUsage[1]!.answer;
+    const usage = service({
+      authMode: () => 'cursor',
+      request: async method => {
+        assertEqual(method, 'cursor/usage', 'queries target cursor/usage');
+        return zeroPlan;
+      },
+    });
+    try {
+      assertDeepEqual(provider(await usage.query()), { state: 'ok', quotaAvailable: false }, 'omitted enabled on zero-dollar period stays unavailable');
+    } finally {
+      await usage.close();
+    }
   });
 }

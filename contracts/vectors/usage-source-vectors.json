@@ -162,5 +162,91 @@
     {
       "error": "Ark console login needs renewal; sign in again"
     }
+  ],
+  "cursorUsage": [
+    {
+      "name": "active plan reports percentage windows",
+      "answer": {
+        "ok": true,
+        "enabled": true,
+        "plan": "Pro",
+        "billingCycleEnd": "1795579922342",
+        "planUsage": {
+          "limit": 2000,
+          "remaining": 2000,
+          "totalPercentUsed": 0,
+          "apiPercentUsed": 0,
+          "autoPercentUsed": 0
+        }
+      },
+      "expected": {
+        "state": "ok",
+        "plan": "Pro",
+        "windows": [
+          { "id": "cursor_total", "usedPercent": 0, "resetsAt": 1795579922342 },
+          { "id": "cursor_api", "usedPercent": 0, "resetsAt": 1795579922342 },
+          { "id": "cursor_auto", "usedPercent": 0, "resetsAt": 1795579922342 }
+        ]
+      }
+    },
+    {
+      "name": "proto3 omitted enabled with zero percentages does not fabricate full allowance",
+      "answer": {
+        "ok": true,
+        "billingCycleStart": "1794975122342",
+        "billingCycleEnd": "1795579922342",
+        "planUsage": {
+          "remainingBonus": false,
+          "autoPercentUsed": 0,
+          "totalPercentUsed": 0
+        },
+        "spendLimitUsage": {
+          "pooledLimit": "0",
+          "pooledRemaining": "0",
+          "individualLimit": 0,
+          "limitType": "user",
+          "overallLimit": 0,
+          "overallRemaining": 0
+        }
+      },
+      "expected": {
+        "state": "ok",
+        "quotaAvailable": false
+      }
+    },
+    {
+      "name": "explicitly disabled usage display suppresses windows",
+      "answer": {
+        "ok": true,
+        "enabled": false,
+        "billingCycleEnd": "1795579922342",
+        "planUsage": {
+          "totalPercentUsed": 0,
+          "autoPercentUsed": 0
+        }
+      },
+      "expected": {
+        "state": "ok",
+        "quotaAvailable": false
+      }
+    },
+    {
+      "name": "zero cent plan limit never reports full allowance even if enabled is true",
+      "answer": {
+        "ok": true,
+        "enabled": true,
+        "billingCycleEnd": "1795579922342",
+        "planUsage": {
+          "limit": 0,
+          "remaining": 0,
+          "totalPercentUsed": 0,
+          "autoPercentUsed": 0
+        }
+      },
+      "expected": {
+        "state": "ok",
+        "quotaAvailable": false
+      }
+    }
   ]
 }

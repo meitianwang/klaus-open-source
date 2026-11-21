@@ -117,7 +117,12 @@ export function cursorUsage(value: unknown): JsonObject {
   const rawCycleEnd = answer.billingCycleEnd;
   const numericCycleEnd = typeof rawCycleEnd === 'string' && /^\d{1,16}$/u.test(rawCycleEnd) ? Number(rawCycleEnd) : undefined;
   const cycleEnd = numericCycleEnd === undefined ? rawCycleEnd : Number.isSafeInteger(numericCycleEnd) ? numericCycleEnd : undefined;
-  if (answer.enabled !== false) {
+  const rawLimit = plan.limit;
+  const hasAllowanceLimit = rawLimit === undefined
+    || (typeof rawLimit === 'number' ? rawLimit > 0 : typeof rawLimit === 'string' && rawLimit.trim() !== '' && Number(rawLimit) > 0);
+  // Protobuf JSON omits scalar `enabled: false` and zero-cent `limit: 0` while still
+  // emitting optional percentage fields at `0`; only active metered plans publish windows.
+  if (answer.enabled === true && hasAllowanceLimit) {
     for (const [field, id] of [['totalPercentUsed', 'cursor_total'], ['apiPercentUsed', 'cursor_api'], ['autoPercentUsed', 'cursor_auto']] as const) {
       const used = clampPercent(plan[field]);
       if (used !== undefined) windows.push(windowRow(id, used, cycleEnd));
