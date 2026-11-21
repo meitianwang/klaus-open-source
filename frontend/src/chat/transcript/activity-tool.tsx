@@ -13,6 +13,7 @@ import { renderCreatedThreadCardHtml, renderDelegationBubbleHtml, renderDelegati
 import { useChatStream, setTurnCollapsed } from '../stream-store'
 import styles from './activity-tool.module.css'
 import { writeClipboardText } from '../../clipboard'
+import { transcriptScrollControllerFor } from '../transcript-scroll-controller'
 import { mediaGenerationLabel } from './media-generation-activity'
 import { genericActivityLabel, semanticActivityLabel, unwrapIndirectToolCall } from './activity-semantic'
 import { ImageActivityDetails, ScheduleActivityDetails, WebActivitySources } from './activity-rich-details'
@@ -286,7 +287,7 @@ function ShellCard({ tool, presentation, result, locale }: { tool: ActivityToolD
     <div className={styles.shellName}>{copyText(locale, 'Shell', 'Shell')}</div>
     {command ? <div className={styles.commandGroup}>
       <button type="button" className={styles.command} data-expanded={commandOpen || undefined}
-        aria-label={`$ ${command}`} onClick={() => setExpandedCommand(command)}>
+        aria-label={`$ ${command}`} onClick={event => { transcriptScrollControllerFor(event.currentTarget)?.holdViewport(); setExpandedCommand(command) }}>
         <span className={styles.prompt}>$</span><AnsiText text={command} />
       </button>
       <CopyButton text={command} label={copyText(locale, 'Copy command', '复制命令')} locale={locale} />
@@ -497,7 +498,7 @@ function OrdinaryToolCard({ tool, result, presentation, open, onToggle, locale, 
   return <div className={styles.activityTool} data-tool-call-id={tool.toolCallId} data-tool-state={tool.state} data-tool-kind={presentation.kind}>
     <div className={styles.header} data-expandable={expandable || undefined}>
       {expandable ? <button type="button" className={styles.headerButton} aria-labelledby={summaryId} aria-expanded={open} aria-controls={detailsId}
-        onClick={event => { event.stopPropagation(); onToggle() }} /> : null}
+        onClick={event => { event.stopPropagation(); transcriptScrollControllerFor(event.currentTarget)?.holdViewport(); onToggle() }} /> : null}
       <span className={styles.icon} aria-hidden="true"><Icon name={declined ? 'sys-auth-shield-warn' : icon} size={16} /></span>
       <span id={summaryId} className={styles.summary} data-file={pathStart >= 0 || undefined} data-running={tool.state === 'running' || undefined}>
         {pathStart >= 0 ? <><span className={styles.fileVerb}>{summary.slice(0, pathStart).trimEnd()}</span><button type="button" className={styles.fileLink} data-agent-activity-file-link

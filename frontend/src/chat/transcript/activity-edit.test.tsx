@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test'
+import { readFileSync } from 'node:fs'
 import { renderToStaticMarkup } from 'react-dom/server'
 import type { ActivityToolData } from './activity-tool-model'
 import { editActivityPresentation, parseActivityPatch, replacementDiff } from './activity-edit-model'
@@ -139,5 +140,28 @@ describe('file edit details and controls', () => {
     expect(html).toContain('Unsupported edit shape')
     expect(html).toContain('aria-label="Copy input"')
     expect(html).not.toContain('<img')
+  })
+
+  test('contains out-of-flow screen-reader spans inside disclosure and diff scroll boxes', () => {
+    // Each diff line and copy button renders an absolutely positioned `.srOnly`
+    // span. Without a positioned containing block inside the 240px diff scrollport
+    // and the `0fr` collapse wrapper, those spans resolve against the outer
+    // virtual turn list (`position: relative`), inflating `#messages.scrollHeight`
+    // by thousands of pixels of blank space and jumping scroll compensation past
+    // the end of the turn.
+    const editCss = readFileSync(new URL('./activity-edit.module.css', import.meta.url), 'utf8')
+    for (const selector of ['.bodyInner', '.diffHeader', '.diffScroll', '.diffLine', '.resultHeader']) {
+      const escaped = selector.replace('.', '\\.')
+      expect(editCss).toMatch(new RegExp(`${escaped}\\s*\\{[^}]*position:\\s*relative;`))
+    }
+    const agentCss = readFileSync(new URL('./activity-agent-action.module.css', import.meta.url), 'utf8')
+    for (const selector of ['.disclosureInner', '.messageContent', '.rawHeader']) {
+      const escaped = selector.replace('.', '\\.')
+      expect(agentCss).toMatch(new RegExp(`${escaped}\\s*\\{[^}]*position:\\s*relative;`))
+    }
+    const toolCss = readFileSync(new URL('./activity-tool.module.css', import.meta.url), 'utf8')
+    expect(toolCss).toMatch(/\.disclosureInner\s*\{[^}]*position:\s*relative;/)
+    const disclosureCss = readFileSync(new URL('./activity-disclosure.module.css', import.meta.url), 'utf8')
+    expect(disclosureCss).toMatch(/\.clip\s*\{[^}]*position:\s*relative;/)
   })
 })

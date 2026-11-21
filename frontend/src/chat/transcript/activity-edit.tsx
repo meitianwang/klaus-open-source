@@ -5,6 +5,7 @@ import type { ActivityToolData, ActivityToolState } from './activity-tool-model'
 import { editActivityPresentation, type EditActivityFile } from './activity-edit-model'
 import styles from './activity-edit.module.css'
 import { writeClipboardText } from '../../clipboard'
+import { transcriptScrollControllerFor } from '../transcript-scroll-controller'
 
 export interface EditActivityToolProps {
   tool: ActivityToolData
@@ -119,7 +120,7 @@ function FileEntry({ file, state, cwd, locale, open, onToggle, emphasis = true }
   return <div className={styles.fileEntry} data-file-path={file.path} data-edit-state={state}>
     <div className={styles.header}>
       <button className={styles.toggle} type="button" aria-label={text(locale, `Toggle diff for ${basename(path)}`, `切换 ${basename(path)} 的差异视图`)} aria-expanded={open} aria-controls={bodyId}
-        onClick={event => { event.stopPropagation(); onToggle() }} />
+        onClick={event => { event.stopPropagation(); transcriptScrollControllerFor(event.currentTarget)?.holdViewport(); onToggle() }} />
       <span className={styles.icon} aria-hidden="true"><Icon name="tool-edit" size={16} /></span>
       <span className={styles.summary}>
         {status ? <span data-running={emphasis && state === 'running' || undefined}>{status}</span> : null}
@@ -162,7 +163,7 @@ export function EditActivityTool({ tool, open, onToggle, locale, expandedFiles: 
       emphasis={index === 0}
       open={single ? open : expandedFiles[file.key] ?? open}
       onToggle={single ? onToggle : () => onToggleFile ? onToggleFile(file.key, expandedFiles[file.key] ?? open) : setExpandedFiles(previous => ({ ...previous, [file.key]: !(previous[file.key] ?? open) }))} />)
-      : <><button type="button" className={styles.fallbackToggle} aria-expanded={open} aria-controls={fallbackId} onClick={onToggle}><Icon name="tool-edit" size={16} />{fallbackLabel}<span className={styles.chevron} data-open={open || undefined}><Icon name="chevron-right" size={14} /></span></button><Body open={open} id={fallbackId}><RawDetail value={model.input} kind="input" locale={locale} /></Body></>}
+      : <><button type="button" className={styles.fallbackToggle} aria-expanded={open} aria-controls={fallbackId} onClick={event => { transcriptScrollControllerFor(event.currentTarget)?.holdViewport(); onToggle() }}><Icon name="tool-edit" size={16} />{fallbackLabel}<span className={styles.chevron} data-open={open || undefined}><Icon name="chevron-right" size={14} /></span></button><Body open={open} id={fallbackId}><RawDetail value={model.input} kind="input" locale={locale} /></Body></>}
     {/* Failures used to render their result unconditionally, ahead of any
         disclosure: a rejected write has no diff, and the reasoning was that
         hiding the one useful line behind a click made the failure look like a
@@ -170,6 +171,6 @@ export function EditActivityTool({ tool, open, onToggle, locale, expandedFiles: 
         other collapsed row, and the row already says 更改失败 — so failures
         now fold exactly like successes: the result sits behind the same
         two-step disclosure, one click away. */}
-    {model.result ? <Body open={model.files.length ? anyOpen : open} id={`${fallbackId}-result`}><details className={styles.resultDisclosure}><summary>{text(locale, 'Tool result', '工具结果')}</summary><RawDetail value={model.result} kind="result" locale={locale} /></details></Body> : null}
+    {model.result ? <Body open={model.files.length ? anyOpen : open} id={`${fallbackId}-result`}><details className={styles.resultDisclosure}><summary onClick={event => transcriptScrollControllerFor(event.currentTarget)?.holdViewport()}>{text(locale, 'Tool result', '工具结果')}</summary><RawDetail value={model.result} kind="result" locale={locale} /></details></Body> : null}
   </div>
 }

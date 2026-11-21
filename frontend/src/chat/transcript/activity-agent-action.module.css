@@ -14,11 +14,11 @@
 .rawCard pre:focus-visible { outline: 2px solid var(--input-focus); outline-offset: 1px; box-shadow: none; }
 .disclosure { display: grid; grid-template-rows: 0fr; opacity: 0; pointer-events: none; transition: grid-template-rows 300ms cubic-bezier(.19, 1, .22, 1), opacity 300ms cubic-bezier(.19, 1, .22, 1); }
 .disclosure[data-open] { grid-template-rows: 1fr; opacity: 1; pointer-events: auto; }
-.disclosureInner { min-height: 0; overflow: hidden; }
+.disclosureInner { position: relative; min-height: 0; overflow: hidden; }
 .rows { display: flex; min-width: 0; flex-direction: column; gap: var(--conversation-grouped-item-gap, 4px); padding-block: 4px; }
 .row { min-width: 0; color: var(--agent-action-muted); overflow-wrap: anywhere; }
 .row > *, .row :is(span, button) { color: var(--fg-tertiary); }
-.messageContent { display: flex; min-width: 0; align-items: flex-start; gap: 8px; padding-inline-start: 22px; }
+.messageContent { position: relative; display: flex; min-width: 0; align-items: flex-start; gap: 8px; padding-inline-start: 22px; }
 .messageText { min-width: 0; flex: 1; color: var(--fg-secondary); white-space: pre-wrap; overflow-wrap: anywhere; }
 .messageContent .copy { flex: 0 0 auto; }
 .agent { flex: 0 1 auto; min-width: 0; }
@@ -29,7 +29,7 @@ button.agentName:hover { color: var(--fg); }
 .rawDetail { min-width: 0; color: var(--fg-tertiary); font-size: var(--text-small); }
 .rawDetail > summary { width: fit-content; border-radius: var(--radius-xxs); cursor: pointer; }
 .rawCard { margin-top: 4px; overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius-sm); }
-.rawHeader { display: flex; align-items: center; gap: 8px; padding: 2px 10px; }
+.rawHeader { position: relative; display: flex; align-items: center; gap: 8px; padding: 2px 10px; }
 .copy { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; flex: 0 0 auto; margin-inline-start: auto; padding: 4px; border: 0; border-radius: var(--radius-xxs); background: transparent; color: var(--fg-tertiary); cursor: pointer; }
 .copy:hover { background: var(--bg-hover); color: var(--fg); }
 .rawCard pre { max-height: 14rem; overflow: auto; margin: 0; padding: 8px 10px; border-top: 1px solid var(--border); background: var(--bg-surface); color: var(--fg-secondary); font-family: var(--font-mono); font-size: var(--code-font-size); line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; overscroll-behavior: contain; }

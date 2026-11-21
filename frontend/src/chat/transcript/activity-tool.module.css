@@ -181,7 +181,7 @@
 }
 
 .disclosure[data-open] { grid-template-rows: 1fr; opacity: 1; pointer-events: auto; }
-.disclosureInner { min-height: 0; overflow: hidden; }
+.disclosureInner { position: relative; min-height: 0; overflow: hidden; }
 .body { display: flex; flex-direction: column; gap: 8px; padding-block: 8px 4px; }
 
 .shellCard,

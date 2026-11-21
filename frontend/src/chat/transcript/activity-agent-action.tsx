@@ -6,6 +6,7 @@ import type { ActivityToolData } from './activity-tool-model'
 import { agentActionCount, agentActionLabel, agentActionPresentation, agentActionStateLabel, isAgentMessageNoticeToolName, isHiddenAgentMessageTool, parentMessageLabel, sentAgentMessageLabel, type AgentActionPresentation, type AgentActionRecipient } from './activity-agent-action-model'
 import styles from './activity-agent-action.module.css'
 import { writeClipboardText } from '../../clipboard'
+import { transcriptScrollControllerFor } from '../transcript-scroll-controller'
 
 export interface AgentActionActivityToolProps {
   tool: ActivityToolData
@@ -75,7 +76,7 @@ function CopyButton({ value, label, locale }: { value: string; label: string; lo
 
 function RawDetail({ value, label, locale }: { value: string; label: string; locale: string }) {
   return <details className={styles.rawDetail}>
-    <summary>{label}</summary>
+    <summary onClick={event => transcriptScrollControllerFor(event.currentTarget)?.holdViewport()}>{label}</summary>
     <div className={styles.rawCard}>
       <div className={styles.rawHeader}>{label}<CopyButton value={value} label={text(locale, `Copy ${label.toLowerCase()}`, `复制${label}`)} locale={locale} /></div>
       <pre tabIndex={0}>{value}</pre>
@@ -117,7 +118,7 @@ export function AgentActionActivityTool({ tool, open, onToggle, locale }: AgentA
   const count = model.toParent ? '' : agentActionCount(model.count, locale)
   const summary = label + count
   return <div className={styles.activity} data-agent-action={action} data-agent-action-id={tool.toolCallId} data-state={state}>
-    <button type="button" className={styles.header} aria-expanded={open} aria-controls={bodyId} aria-label={summary} onClick={onToggle}>
+    <button type="button" className={styles.header} aria-expanded={open} aria-controls={bodyId} aria-label={summary} onClick={event => { transcriptScrollControllerFor(event.currentTarget)?.holdViewport(); onToggle() }}>
       <span className={styles.icon} aria-hidden="true"><Icon name={action === 'message' ? 'tc-chat' : 'subagent-banner'} size={16} /></span>
       <span className={styles.summary}><span className={styles.verb} data-running={state === 'running' || undefined}>{label}</span>{count}</span>
       <span className={styles.chevron} data-open={open || undefined} aria-hidden="true"><Icon name="chevron-right" size={14} /></span>
