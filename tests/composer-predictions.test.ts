@@ -37,7 +37,6 @@ function fixture(overrides: Partial<ComposerPredictionsDeps> = {}) {
     enabled: () => state.enabled, now: () => state.now, context: () => ({ ...state.context }),
     codexAccessToken: () => state.credentials,
     fetch: (async (url, init) => { requests.push({ url: String(url), init }); return new Response(JSON.stringify(state.config)); }) as typeof fetch,
-    random: () => 0,
     run: async (sessionId, turnId, prompt, effort, signal) => { calls.push({ sessionId, turnId, prompt, effort, signal }); return { suggestion: '  Continue with the next step.  ' }; },
     ...overrides,
   });
@@ -54,7 +53,7 @@ function bundled(overrides: Partial<ComposerPredictionsDeps> = {}) {
 function uncovered(plan: string | null): ComposerPredictionsDeps['codexAccessToken'] {
   return () => ({ accessToken: token('user-a', 'signature', plan), accountId: 'account-a' });
 }
-const schemaSuffix = `\n\nReturn only JSON matching this schema: ${JSON.stringify(PREDICTION_RESPONSE_SCHEMA)}.`;
+const schemaSuffix = `\n\nDo not call tools or perform actions. Return only JSON matching this schema: ${JSON.stringify(PREDICTION_RESPONSE_SCHEMA)}.`;
 const serverPromptOf = (config: { prompt: string }) => `${config.prompt}${schemaSuffix}`;
 
 void (async () => {
@@ -150,26 +149,18 @@ void (async () => {
     assert.equal(malformed.calls.length, 0, 'a malformed configuration must not fall back either');
     await malformed.service.close();
   });
-  await h.test('a covered subscription keeps provider sampling and caches suppression without resampling', async () => {
-    const f = fixture({ random: () => 0.5 });
-    Object.assign(f.state.config, { sample_rate: 0.6, live_sample_rate: 0.4, catch_up_sample_rate: 0.9 });
-    assert.equal((await f.predict()).reason, 'sampled_out');
-    assert.equal((await f.predict(1, 'catch_up')).reason, 'sampled_out');
-    assert.equal(f.calls.length, 0);
+  await h.test('a covered subscription ignores provider sample rates and always generates when enabled', async () => {
+    const f = fixture();
+    Object.assign(f.state.config, { sample_rate: 0, live_sample_rate: 0, catch_up_sample_rate: 0 });
+    assert.deepEqual(await f.predict(1, 'live'), { suggestion: 'Continue with the next step.' });
+    assert.equal(f.calls.length, 1);
     f.state.context.turnId = 'turn-b'; await f.service.invalidateSession('session-a');
-    assert.equal((await f.predict(1, 'catch_up')).suggestion, 'Continue with the next step.');
+    assert.deepEqual(await f.predict(1, 'catch_up'), { suggestion: 'Continue with the next step.' });
+    assert.equal(f.calls.length, 2);
     await f.service.close();
-    const shared = fixture({ random: () => 0.5 }); Object.assign(shared.state.config, { sample_rate: 0.4 });
-    assert.equal((await shared.predict()).reason, 'sampled_out'); await shared.service.close();
-    const never = fixture({ random: () => 0.5 }); Object.assign(never.state.config, { live_sample_rate: 0, catch_up_sample_rate: 1 });
-    assert.equal((await never.predict()).reason, 'sampled_out');
-    // The suppression is cached per turn, so the catch-up rate needs a fresh turn.
-    never.state.context.turnId = 'turn-b'; await never.service.invalidateSession('session-a');
-    assert.equal((await never.predict(1, 'catch_up')).suggestion, 'Continue with the next step.');
-    await never.service.close();
   });
   await h.test('the bundled path is never sampled out', async () => {
-    const f = bundled({ random: () => 0.99 });
+    const f = bundled();
     assert.equal((await f.predict()).suggestion, 'Continue with the next step.');
     assert.equal(f.requests.length, 0);
     await f.service.close();
@@ -201,14 +192,14 @@ void (async () => {
     assert.equal(f.calls.length, 2); assert.equal(fetches, 1);
     await f.service.close();
   });
-  await h.test('configuration validates required fields and bounded independent sample rates', () => {
+  await h.test('configuration validates required fields and ignores remote sample rates', () => {
     const base = { is_enabled: true, prompt: 'server prompt', prompt_version: 'v1', prediction_reasoning_effort: '' };
     assert.equal(parsePredictionConfig(base)?.prediction_reasoning_effort, null);
     assert.equal(parsePredictionConfig({ ...base, prediction_reasoning_effort: 'high' })?.prediction_reasoning_effort, 'high');
     for (const value of [null, {}, { ...base, is_enabled: 'yes' }, { ...base, prompt: null }, { ...base, prompt_version: 1 }, { ...base, prediction_reasoning_effort: null }, { ...base, unsupported_models: [1] }]) assert.equal(parsePredictionConfig(value), null);
     for (const key of ['sample_rate', 'live_sample_rate', 'catch_up_sample_rate']) {
-      for (const rate of [-1, 1.01, NaN, Infinity, '0.5']) assert.equal(parsePredictionConfig({ ...base, [key]: rate }), null);
-      assert.equal(parsePredictionConfig({ ...base, [key]: 0 })?.[key as 'sample_rate'], 0);
+      assert.ok(parsePredictionConfig({ ...base, [key]: 0 }), `ignores ${key}`);
+      assert.ok(parsePredictionConfig({ ...base, [key]: 0.16875 }), `ignores fractional ${key}`);
     }
   });
   await h.test('the persisted editor preference is the only switch and gates both paths', async () => {
@@ -395,7 +386,7 @@ void (async () => {
       assert.equal(runs, 1); await f.service.close();
     }
   });
-  await h.test('a model or source change retries model-dependent failures once while keeping null and sampled-out results', async () => {
+  await h.test('a model or source change retries model-dependent failures once while keeping null results', async () => {
     let failedRuns = 0;
     const failed = bundled({ run: async () => { if (++failedRuns === 1) throw new Error('provider error'); return { suggestion: 'Recovered after model switch.' }; } });
     assert.equal((await failed.predict()).reason, 'prediction_failed');

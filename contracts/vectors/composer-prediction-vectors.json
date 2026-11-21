@@ -9,7 +9,7 @@
     ]
   },
   "configuration": {
-    "reason": "The prompt source is chosen per request. A stored subscription credential on the plan that covers these calls keeps the provider-configured behaviour, so the pacing stays with whoever pays for the inference; every other account runs the prompt this app ships. A covered account never silently falls back to the bundled prompt when its configuration read fails.",
+    "reason": "The prompt source is chosen per request. A stored subscription credential on the plan that covers these calls keeps the provider-configured prompt, reasoning effort, kill switch, and model blacklist without client-side sampling suppression; every other account runs the prompt this app ships. A covered account never silently falls back to the bundled prompt when its configuration read fails.",
     "paths": {
       "subscription": {
         "selectedWhen": "stored Codex credential present and its token tier is pro",
@@ -19,7 +19,7 @@
         "effort": "from configuration",
         "cacheMs": 300000,
         "cacheScope": "account and user, permitting token refresh",
-        "sampling": "live_sample_rate ?? catch_up_sample_rate ?? sample_rate ?? 1",
+        "sampling": false,
         "modelBlacklist": "unsupported_models",
         "serverKillSwitch": "is_enabled",
         "configurationFailure": "configuration_unavailable, never the bundled prompt"
@@ -80,7 +80,7 @@
       "rejectedRead": "retry on window focus",
       "ordinaryRefresh": "no retry for the same source revision",
       "inFlight": "share one source lookup",
-      "predictionCache": "preserve successful, empty, sampled-out and failed inference results"
+      "predictionCache": "preserve successful, empty and failed inference results"
     }
   },
   "editor": {

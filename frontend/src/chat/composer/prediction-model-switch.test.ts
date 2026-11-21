@@ -50,6 +50,8 @@ describe('composer prediction preservation across model and mode switches', () =
       applyRemoteSidebarCollapseChange: async () => {},
       applyRemoteSidebarProjectOrder: async () => {},
       composerPreferencesRevision: 0,
+      usageSnapshotCache: new Map(),
+      sessionUsageModes: new Map(),
       sidePaneRuntimes: new Map(),
       mainModelCatalogCache: { invalidate() {}, revalidate: async () => {} },
       composerModelReadinessCache: { invalidate() {} },
@@ -165,10 +167,10 @@ describe('composer prediction preservation across model and mode switches', () =
     expect(h.actions).toEqual(['suspend:session-a', 'refresh'])
   })
 
-  test('recheck state helper keeps settled suggestions and null/sampled-out entries while dropping model-dependent failures', () => {
+  test('recheck state helper keeps settled suggestions and null/non-retryable entries while dropping model-dependent failures', () => {
     expect(recheckComposerPredictionState({ suggestion: 'Run the test suite.' })).toBe('keep')
     expect(recheckComposerPredictionState({ suggestion: null })).toBe('keep')
-    expect(recheckComposerPredictionState({ suggestion: null, reason: 'sampled_out' })).toBe('keep')
+    expect(recheckComposerPredictionState({ suggestion: null, reason: 'disabled' })).toBe('keep')
     for (const reason of ['unavailable', 'unsupported_model', 'prediction_failed', 'configuration_unavailable', 'timeout', 'invalid_response', 'cancelled', 'stale_turn']) {
       expect(recheckComposerPredictionState({ suggestion: null, reason })).toBe('retry')
     }

@@ -110,7 +110,7 @@ async function mount() {
   w.showToast = (message: string) => { toasts.push(message) }
   root.render(<PreferencesTab />)
   await until(() => document.querySelector('#pref-predictions') && !toggle().disabled, 'preferences loaded')
-  await until(() => (document.querySelector('#feature-model-prediction-source') as any)?.__klsSelect, 'prediction model row bound')
+  await until(() => (document.querySelector('#feature-model-title-source') as any)?.__klsSelect, 'title model row bound')
   await settle()
 }
 async function notice(reason: string, expected: string) {
@@ -126,8 +126,7 @@ async function run() {
   assert(find('#pref-predictions-label').textContent === 'Show predictions', 'English prediction label is exact')
   assert(find('#pref-predictions-desc').textContent === 'Predict your next message based on the conversation.', 'English prediction description is exact')
   assert(toggle().getAttribute('aria-labelledby') === 'pref-predictions-label' && toggle().getAttribute('aria-describedby') === 'pref-predictions-desc', 'The production switch exposes its visible label and description accessibly')
-  assert(find('#feature-model-prediction-label').textContent === 'Message predictions', 'The prediction model row lives in Preferences → Editor')
-  assert(find('#feature-model-prediction-source').closest('.settings-section')?.querySelector('.settings-section-title')?.textContent === 'Editor', 'The prediction model row is inside the Editor section')
+  assert(!document.querySelector('#feature-model-prediction-label') && !document.querySelector('#feature-model-prediction-source') && !document.querySelector('#feature-model-prediction-model'), 'Preferences → Editor exposes only the enable switch without a prediction model selector')
   assert(find('#feature-model-title-label').closest('.settings-section')?.querySelector('.settings-section-title')?.textContent === 'Conversation', 'The title model row lives in Preferences → Conversation')
   assert(find('#feature-model-title-source').closest('.pref-row')?.previousElementSibling?.querySelector('#pref-output-style'), 'The title model row follows the reply style row')
   assert(!document.querySelector('#runtime-search'), 'Merged runtime settings omit the web search row')
@@ -139,7 +138,7 @@ async function run() {
   await until(() => find('#pref-predictions-label').textContent === '显示预测内容', 'Chinese preference label')
   assert(find('#pref-predictions-label').textContent === '显示预测内容', 'Chinese prediction label is exact')
   assert(find('#pref-predictions-desc').textContent === '根据对话内容预测你的下一条消息', 'Chinese prediction description is exact')
-  assert(find('#feature-model-prediction-label').textContent === '消息推荐', 'The prediction model row uses the Chinese label')
+  assert(!document.querySelector('#feature-model-prediction-label') && !document.querySelector('#feature-model-prediction-source'), 'Chinese Preferences → Editor also omits any prediction model selector')
   await native({ capture: 'prediction-settings-zh' })
 
   toggle().focus()
@@ -158,7 +157,7 @@ async function run() {
   finishFailedWrite!()
   await until(() => !toggle().checked && !toggle().disabled, 'failed save rollback')
   assert(stored.get(key) === 'off' && !toggle().checked, 'A failed save restores the previously persisted checkbox state')
-  assert(toasts.includes('Simulated preference save failure'), 'A failed save exposes the original error')
+  assert(toasts.includes('失败') && !toasts.includes('Simulated preference save failure'), 'A failed save shows the localized failure toast without leaking raw host diagnostics')
 
   const priorWrites = writes.length
   stored.set(key, 'on')

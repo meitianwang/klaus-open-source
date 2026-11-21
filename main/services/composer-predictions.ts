@@ -13,9 +13,9 @@ export const PREDICTION_RESPONSE_SCHEMA = {
  * Two ways to obtain a suggestion prompt, chosen per request rather than per build.
  *
  * `subscription` keeps the provider-configured behaviour for a signed-in account on
- * the plan that already covers these calls: the prompt, its reasoning effort, the
- * model blacklist and the sampling rates all come from that account's own
- * configuration endpoint, so the pacing stays with whoever pays for the inference.
+ * the plan that already covers these calls: the prompt, its reasoning effort, and the
+ * model blacklist come from that account's own configuration endpoint without
+ * client-side sampling suppression.
  * `bundled` runs the prompt shipped with this app, for every other account.
  *
  * Which path a request takes depends on the stored credential and its tier alone.
@@ -23,9 +23,7 @@ export const PREDICTION_RESPONSE_SCHEMA = {
  * a covered account gets the provider configuration whatever the session runs on.
  *
  * A covered account must NOT silently fall back to the bundled path when its
- * configuration read fails: that would replace a paced, covered call with an
- * unthrottled full-effort one against the same subscription. A configuration failure
- * stays a failure.
+ * configuration read fails: a configuration failure stays a failure.
  */
 export type PredictionPlan = 'subscription' | 'bundled';
 /** The stored subscription tier whose plan covers these suggestion calls. */
@@ -45,13 +43,13 @@ export function predictionPrompt(): string {
   return withSchema(PREDICTION_PROMPT);
 }
 function withSchema(prompt: string): string {
-  return `${prompt}\n\nReturn only JSON matching this schema: ${JSON.stringify(PREDICTION_RESPONSE_SCHEMA)}.`;
+  return `${prompt}\n\nDo not call tools or perform actions. Return only JSON matching this schema: ${JSON.stringify(PREDICTION_RESPONSE_SCHEMA)}.`;
 }
 
 export type PredictionTrigger = 'live' | 'catch_up';
 export type PredictionReason = 'disabled' | 'configuration_unavailable'
   | 'engine_unavailable' | 'configuration_disabled'
-  | 'unsupported_model' | 'plan_mode' | 'running' | 'stale_turn' | 'unavailable' | 'sampled_out'
+  | 'unsupported_model' | 'plan_mode' | 'running' | 'stale_turn' | 'unavailable'
   | 'cancelled' | 'closed' | 'timeout' | 'prediction_failed' | 'invalid_response';
 export interface PredictionResult { suggestion: string | null; reason?: PredictionReason }
 export interface PredictionSourceResult { turnId: string | null; reason?: PredictionReason }
@@ -62,7 +60,7 @@ export interface PredictionContext {
 export interface PredictionCredentials { accessToken: string; accountId: string }
 export interface PredictionConfig {
   is_enabled: boolean; prompt: string; prompt_version: string; prediction_reasoning_effort: string | null;
-  unsupported_models?: string[]; sample_rate?: number; live_sample_rate?: number; catch_up_sample_rate?: number;
+  unsupported_models?: string[];
 }
 export interface ComposerPredictionsDeps {
   configRoot?: string;
@@ -72,7 +70,6 @@ export interface ComposerPredictionsDeps {
   codexAccessToken: () => PredictionCredentials | null | Promise<PredictionCredentials | null>;
   fetch?: typeof globalThis.fetch;
   run: (sessionId: string, sourceTurnId: string, prompt: string, effort: string | null, signal: AbortSignal) => Promise<{ suggestion: string | null }>;
-  random?: () => number;
   now?: () => number;
   timeoutMs?: number;
   configTimeoutMs?: number;
@@ -142,17 +139,10 @@ export function parsePredictionConfig(value: unknown): PredictionConfig | null {
   if (!row || typeof row.is_enabled !== 'boolean' || typeof row.prompt !== 'string' || typeof row.prompt_version !== 'string'
     || typeof row.prediction_reasoning_effort !== 'string') return null;
   if (row.unsupported_models !== undefined && (!Array.isArray(row.unsupported_models) || row.unsupported_models.some(model => typeof model !== 'string'))) return null;
-  for (const key of ['sample_rate', 'live_sample_rate', 'catch_up_sample_rate']) {
-    const rate = row[key];
-    if (rate !== undefined && (typeof rate !== 'number' || !Number.isFinite(rate) || rate < 0 || rate > 1)) return null;
-  }
   return {
     is_enabled: row.is_enabled, prompt: row.prompt, prompt_version: row.prompt_version,
     prediction_reasoning_effort: row.prediction_reasoning_effort || null,
     ...(row.unsupported_models !== undefined ? { unsupported_models: row.unsupported_models as string[] } : {}),
-    ...(row.sample_rate !== undefined ? { sample_rate: row.sample_rate as number } : {}),
-    ...(row.live_sample_rate !== undefined ? { live_sample_rate: row.live_sample_rate as number } : {}),
-    ...(row.catch_up_sample_rate !== undefined ? { catch_up_sample_rate: row.catch_up_sample_rate as number } : {}),
   };
 }
 
@@ -250,7 +240,7 @@ export class ComposerPredictions {
       job = { key, sessionId, source, modelKey, controller: new AbortController(), owners: new Set(), settled: false, promise: Promise.resolve(empty('unavailable')) };
       this.jobs.set(key, job); this.running.add(job);
       const current = job;
-      current.promise = Promise.resolve().then(() => this.generate(current, trigger)).catch(() => empty('prediction_failed')).then(outcome => {
+      current.promise = Promise.resolve().then(() => this.generate(current)).catch(() => empty('prediction_failed')).then(outcome => {
         current.result = outcome;
         return outcome;
       }).finally(() => {
@@ -402,7 +392,7 @@ export class ComposerPredictions {
     return entry.value;
   }
 
-  private async generate(job: PredictionJob, trigger: PredictionTrigger): Promise<PredictionResult> {
+  private async generate(job: PredictionJob): Promise<PredictionResult> {
     if (job.controller.signal.aborted || this.closed) return empty('cancelled');
     let prompt: string, effort: string | null, config: PredictionConfig | null = null;
     if (job.source.plan === 'subscription') {
@@ -423,11 +413,7 @@ export class ComposerPredictions {
     if (current.fingerprint !== job.source.fingerprint) return empty('stale_turn');
     job.source = current;
     job.modelKey = modelKeyOf(current.context);
-    if (config) {
-      if (config.unsupported_models?.includes(current.context.model)) return empty('unsupported_model');
-      const rate = (trigger === 'live' ? config.live_sample_rate : config.catch_up_sample_rate) ?? config.sample_rate ?? 1;
-      if (rate < 1 && (this.deps.random?.() ?? Math.random()) >= rate) return empty('sampled_out');
-    }
+    if (config?.unsupported_models?.includes(current.context.model)) return empty('unsupported_model');
     let timedOut = false;
     const request = new AbortController();
     const abort = () => request.abort();

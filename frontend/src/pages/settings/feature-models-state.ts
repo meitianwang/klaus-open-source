@@ -5,12 +5,6 @@ import { modelOptionForValue } from '../../../../shared/cursor-model-catalog'
 // the host storage keys (feature_models.<slot>); the field names match the
 // settings bridge reply. Rows shown inline on feature pages are exposed
 // separately so the provider page keeps only the capabilities it owns.
-export const PREDICTION_FEATURE_MODEL_ROW = {
-  slot: 'prediction',
-  field: 'prediction',
-  labelKey: 'feature_model_prediction',
-} as const
-
 export const TITLE_FEATURE_MODEL_ROW = {
   slot: 'title',
   field: 'title',
@@ -33,7 +27,6 @@ export const FEATURE_MODEL_ROWS = [TITLE_FEATURE_MODEL_ROW] as const
 
 export const ALL_FEATURE_MODEL_ROWS = [
   TITLE_FEATURE_MODEL_ROW,
-  PREDICTION_FEATURE_MODEL_ROW,
   MEMORY_FEATURE_MODEL_ROW,
   VOICE_REFINEMENT_FEATURE_MODEL_ROW,
 ] as const
@@ -43,7 +36,7 @@ export type FeatureModelSlot = FeatureModelRow['slot']
 export type FeatureModelField = FeatureModelRow['field']
 export type FeatureModelValues = Record<FeatureModelField, string>
 
-export const EMPTY_FEATURE_MODEL_VALUES: FeatureModelValues = { title: '', prediction: '', memory: '', voiceRefinement: '' }
+export const EMPTY_FEATURE_MODEL_VALUES: FeatureModelValues = { title: '', memory: '', voiceRefinement: '' }
 
 /** Parse a stored "source:modelId" pick; anything else means "follow the chat model". */
 export function parseFeatureModelReference(stored: string): ModelTierReference | null {

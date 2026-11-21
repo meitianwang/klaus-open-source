@@ -8,7 +8,7 @@ import { settingsErrorText } from './settings-error-text'
 import type { PowerSaveSnapshot } from '../../../../contracts/power-save'
 import { useSettingsSnapshot } from './settings-snapshot'
 import { FeatureModelRow, useFeatureModelSettings } from './feature-models'
-import { PREDICTION_FEATURE_MODEL_ROW, TITLE_FEATURE_MODEL_ROW } from './feature-models-state'
+import { TITLE_FEATURE_MODEL_ROW } from './feature-models-state'
 import { RuntimeSettingsTab } from './runtime-tab'
 
 const w = () => window as any
@@ -214,7 +214,6 @@ export function PreferencesTab() {
             } finally { setBusyKey('') }
           })}
           {predictionReason && <p className={styles['prediction-notice']} role="status">{t(`composer_prediction_${['engine_unavailable', 'configuration_unavailable', 'configuration_disabled'].includes(predictionReason) ? predictionReason : 'unavailable'}`)}</p>}
-          <FeatureModelRow row={PREDICTION_FEATURE_MODEL_ROW} model={featureModels} />
         </div>
       </div>
       <div className="settings-section">
