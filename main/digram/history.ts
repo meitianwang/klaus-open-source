@@ -11,7 +11,7 @@ export function restoreLegacyDiagramCards(history: Json, sessionId: string, stor
     for (const block of Array.isArray(blocks) ? blocks : []) {
       const tool = object(block), result = object(tool.__result);
       if (tool.type !== 'tool_use' || result.artifact || typeof tool.name !== 'string') continue;
-      const artifact = legacyDiagramArtifact(tool.name, result);
+      const artifact = legacyDiagramArtifact(tool.name, result, tool.input);
       if (!artifact) continue;
       try { store.claimLegacyFromHistory(artifact.id, sessionId); result.artifact = { ...artifact }; }
       catch { /* Missing files or another task's ownership cannot be repaired by a card. */ }

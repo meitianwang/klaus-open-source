@@ -100,6 +100,72 @@ h.test('the legacy repair stays narrow: only digram_open, never a 3D result', ()
   assertEqual(legacyDiagramArtifact('model3d_scene', { content: [{ type: 'text', text: '{"id":"x","document":{"title":"T"}}' }] }), undefined, 'a 3D result never takes the diagram legacy path');
 });
 
+h.test('indirect call_mcp_tool visual invocations retain their persistent panel card in live events and saved rollout history', () => {
+  const designArtifact = { kind: 'design', id: 'canvas-1', title: 'UI Redesign' };
+  const pptArtifact = { kind: 'ppt', id: 'deck-1', title: 'Q4 Review' };
+  const liveResult = {
+    content: [{ type: 'text', text: JSON.stringify({ id: 'canvas-1', artifact: designArtifact }) }],
+    structuredContent: { id: 'canvas-1', artifact: designArtifact },
+  };
+  const live = mapChatEvents({
+    type: 'productEvent',
+    method: 'item/completed',
+    params: {
+      sessionId: 'owner',
+      item: {
+        type: 'tool_call',
+        id: 'call-design',
+        toolName: 'call_mcp_tool',
+        arguments: { name: 'mcp__klaus-design__design_publish', arguments: { id: 'canvas-1' } },
+        result: liveResult,
+      },
+    },
+  });
+  assertDeepEqual(live[0]?.artifact, designArtifact, 'live indirect design card');
+
+  const persistedHistory = projectSessionHistory({
+    history: [
+      {
+        type: 'assistant',
+        uuid: 'assistant-1',
+        content: [{
+          type: 'tool_use',
+          id: 'call-ppt',
+          name: 'call_mcp_tool',
+          input: { name: 'mcp__klaus-ppt__ppt_publish', arguments: { id: 'deck-1' } },
+        }],
+      },
+      {
+        type: 'tool_result',
+        toolUseId: 'call-ppt',
+        content: [
+          { type: 'text', text: 'Wall time: 0.0185 seconds\nOutput:' },
+          { type: 'text', text: JSON.stringify({ id: 'deck-1', artifact: pptArtifact }) },
+          { type: 'text', text: `Structured content:\n${JSON.stringify({ id: 'deck-1', artifact: pptArtifact }, null, 2)}` },
+        ],
+        isError: false,
+      },
+    ],
+  }, 'owner', root);
+  assertDeepEqual(replayResult(persistedHistory).artifact, pptArtifact, 'reloaded indirect ppt card');
+
+  const foreignLive = mapChatEvents({
+    type: 'productEvent',
+    method: 'item/completed',
+    params: {
+      sessionId: 'owner',
+      item: {
+        type: 'tool_call',
+        id: 'call-foreign',
+        toolName: 'call_mcp_tool',
+        arguments: { name: 'mcp__foreign__design_publish', arguments: {} },
+        result: liveResult,
+      },
+    },
+  });
+  assertEqual(foreignLive[0]?.artifact, undefined, 'foreign MCP server via call_mcp_tool is still refused');
+});
+
 void h.finish(join(__dirname, 'visual-artifacts-result.json'), 'visual-artifacts').then(code => {
   rmSync(root, { recursive: true, force: true }); process.exit(code);
 });

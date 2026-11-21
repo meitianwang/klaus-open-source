@@ -63,9 +63,33 @@ const SURFACES: readonly Surface[] = [
 
 const MAX_ID_LENGTH = 160;
 const MAX_TEXT_BYTES = 20 * 1024 * 1024;
+const PROJECTED_HOST_MCP_SERVER = /^mcp__host-(browser|prototype|digram|video-editing|design|ppt|model3d|macos-[a-z0-9-]+)__/i;
 
-function surfaceOf(toolName: string): Surface | undefined {
-  return SURFACES.find(surface => toolName.startsWith(surface.server) || toolName.startsWith(surface.bare));
+/**
+ * Resolve the target tool name when a deferred MCP tool was invoked through the
+ * static `call_mcp_tool` bridge rather than as a direct top-level declaration.
+ */
+export function resolveIndirectToolName(toolName: string, input?: unknown): string {
+  const normalized = (toolName || '').trim().replace(/^functions[._]/i, '');
+  if (normalized.toLowerCase() !== 'call_mcp_tool') {
+    return normalized.replace(PROJECTED_HOST_MCP_SERVER, (_, surface: string) => `mcp__klaus-${surface.toLowerCase()}__`);
+  }
+  let parsed = input;
+  if (typeof parsed === 'string') {
+    if (parsed.length > MAX_TEXT_BYTES) return toolName;
+    try { parsed = JSON.parse(parsed); } catch { return toolName; }
+  }
+  const wrapper = object(parsed as Json);
+  const rawName = typeof wrapper.name === 'string' ? wrapper.name.trim() : '';
+  if (!rawName || rawName.replace(/^functions[._]/i, '').toLowerCase() === 'call_mcp_tool') return toolName;
+  const rawServer = typeof wrapper.server === 'string' ? wrapper.server.trim() : '';
+  const combined = rawServer && !rawName.startsWith('mcp__') ? `mcp__${rawServer}__${rawName}` : rawName;
+  return combined.replace(PROJECTED_HOST_MCP_SERVER, (_, surface: string) => `mcp__klaus-${surface.toLowerCase()}__`);
+}
+
+function surfaceOf(toolName: string, input?: unknown): Surface | undefined {
+  const resolved = resolveIndirectToolName(toolName, input);
+  return SURFACES.find(surface => resolved.startsWith(surface.server) || resolved.startsWith(surface.bare));
 }
 
 /**
@@ -96,8 +120,8 @@ function normalize(value: Record<string, Json>, surface: Surface): VisualArtifac
 }
 
 /** The card a completed visual tool call publishes, or undefined when it publishes none. */
-export function visualArtifact(toolName: string, result: unknown): VisualArtifact | undefined {
-  const surface = surfaceOf(toolName);
+export function visualArtifact(toolName: string, result: unknown, input?: unknown): VisualArtifact | undefined {
+  const surface = surfaceOf(toolName, input);
   if (!surface) return undefined;
   for (const value of candidates(result)) {
     const artifact = normalize(object(value.artifact), surface);
@@ -113,9 +137,10 @@ export function visualArtifact(toolName: string, result: unknown): VisualArtifac
  * keep this narrow: only `digram_open` ever wrote that shape, and 3D documents
  * always carry a session owner, so they need no legacy path at all.
  */
-export function legacyDiagramArtifact(toolName: string, result: unknown): VisualArtifact | undefined {
-  const surface = surfaceOf(toolName);
-  if (surface?.kind !== 'diagram' || !toolName.endsWith('digram_open')) return undefined;
+export function legacyDiagramArtifact(toolName: string, result: unknown, input?: unknown): VisualArtifact | undefined {
+  const resolved = resolveIndirectToolName(toolName, input);
+  const surface = surfaceOf(resolved);
+  if (surface?.kind !== 'diagram' || !resolved.endsWith('digram_open')) return undefined;
   for (const value of candidates(result)) {
     if (value.artifact != null || !value.document || typeof value.document !== 'object' || Array.isArray(value.document)) continue;
     const artifact = normalize({ kind: 'diagram', id: value.id ?? null, title: object(value.document).title ?? null }, surface);

@@ -1,6 +1,7 @@
 import { homedir } from 'node:os';
 import { isAbsolute, resolve } from 'node:path';
 import type { Json } from '../ipc/contract';
+import { resolveIndirectToolName } from '../visuals/artifacts';
 import { object } from './service-types';
 
 const EXPORT_TOOLS = new Set([
@@ -18,7 +19,8 @@ function filePath(value: unknown): value is string {
 }
 
 /** Exact files confirmed by successful file reads or host-owned visual exporters. Never scan stdout. */
-export function toolArtifactPaths(toolName: string, result: unknown): string[] {
+export function toolArtifactPaths(toolName: string, result: unknown, input?: unknown): string[] {
+  const resolvedTool = resolveIndirectToolName(toolName, input);
   let raw = result;
   if (typeof raw === 'string') {
     if (raw.length > 1024 * 1024) return [];
@@ -26,8 +28,8 @@ export function toolArtifactPaths(toolName: string, result: unknown): string[] {
   }
   const value = object(raw);
   if (!successful(value)) return [];
-  if (READ_TOOLS.has(toolName)) return value.found === true && filePath(value.path) ? [value.path] : [];
-  if (!EXPORT_TOOLS.has(toolName)) return [];
+  if (READ_TOOLS.has(resolvedTool)) return value.found === true && filePath(value.path) ? [value.path] : [];
+  if (!EXPORT_TOOLS.has(resolvedTool)) return [];
 
   // Prefer the authoritative structured record. Older saved MCP replies retain
   // only individual JSON text blocks; they use the same exporter contract.

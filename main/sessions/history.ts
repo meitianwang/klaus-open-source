@@ -203,7 +203,7 @@ function collectToolResults(message: JsonObject, results: Map<string, Json>, con
   const id = strOpt(message.toolUseId);
   if (id === undefined || id.length === 0) return;
   const inspected = message.isError === true ? undefined : splitDynamicToolMedia(message.output, configRoot);
-  const artifactPaths = message.isError === true ? [] : toolArtifactPaths(toolName, message.output ?? { content: message.content ?? [] });
+  const artifactPaths = message.isError === true ? [] : toolArtifactPaths(toolName, message.output ?? { content: message.content ?? [] }, toolInput);
   const normalized = normalizeOutputBlocks(inspected?.media.length ? arr(message.content).filter(block => obj(block).type !== 'image') : arr(message.content), configRoot);
   // A read result carries its original path outside the image block. Preserve
   // that identity when replay stores the returned bytes in the media pool.
@@ -343,7 +343,7 @@ function toReplayBlock(
       const result = results.get(id);
       if (result !== undefined) {
         const replayResult = { ...(result as JsonObject) };
-        const artifact = visualArtifact(name, replayResult);
+        const artifact = visualArtifact(name, replayResult, record.input);
         if (artifact) replayResult.artifact = { ...artifact };
         out.__result = replayResult;
       }

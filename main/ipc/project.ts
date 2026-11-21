@@ -268,9 +268,9 @@ function toolCallTerminalEvent(sessionId: string, item: Json, splitToolMedia?: T
   };
 
   if (!isError) {
-    const paths = toolArtifactPaths(str(item, 'toolName'), field(item, 'result'));
+    const paths = toolArtifactPaths(str(item, 'toolName'), field(item, 'result'), field(item, 'arguments'));
     if (paths.length) event.artifactPaths = paths;
-    const artifact = visualArtifact(str(item, 'toolName'), field(item, 'result'));
+    const artifact = visualArtifact(str(item, 'toolName'), field(item, 'result'), field(item, 'arguments'));
     if (artifact) event.artifact = { ...artifact };
     // `result._meta.klaus.computerUse` when it is an object (main.rs:4865-4873).
     const computerUse = obj(field(field(field(item, 'result'), '_meta'), 'klaus'))['computerUse'];
