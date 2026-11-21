@@ -54,7 +54,7 @@ const body = () => document.getElementById('workspace-file-body')!
 const view = () => EditorView.findFromDOM(body().querySelector('.cm-editor') as HTMLElement)
 const assert = (value: unknown, label: string) => { if (!value) throw Error(label); results.push(label) }
 const results: string[] = []
-async function nativeInput(request: { text?: string; undo?: boolean; capture?: string }): Promise<void> {
+async function nativeInput(request: { text?: string; undo?: boolean; capture?: string; drag?: { fromX: number; fromY: number; toX: number; toY: number } }): Promise<void> {
   await new Promise<void>(resolve => { w.workspaceNativeDone = resolve; w.workspaceNativeRequest = request })
   await settle(100)
 }
@@ -104,6 +104,46 @@ async function run() {
   assert(!sourceButton.hidden && sourceButton.textContent === 'View source', 'Source action is visible and labeled')
   await nativeInput({ capture: 'markdown-document' })
   const original = view()!
+  original.focus()
+  const docText = original.state.sliceDoc()
+  for (const selection of [
+    { anchor: docText.indexOf('formatted') + 2 },
+    { anchor: docText.indexOf('local link') + 2 },
+    { anchor: docText.indexOf('formatted'), head: docText.indexOf('local link') + 6 },
+    { anchor: 0, head: docText.length },
+  ]) {
+    original.dispatch({ selection })
+    await settle(20)
+    const renderedText = original.contentDOM.textContent ?? ''
+    assert(!renderedText.includes('**formatted**') && !renderedText.includes('](./next.md)') && !renderedText.includes('# A document') && !renderedText.includes('```typescript'),
+      'Selecting or focusing Markdown content keeps syntax markers concealed in document view')
+    assert(!!body().querySelector('[data-markdown-widget="table"] table') && !!body().querySelector('[data-markdown-widget="math"]'),
+      'Selecting Markdown content keeps rendered table and math widgets intact')
+  }
+  const strongSpan = Array.from(body().querySelectorAll('.cm-line span')).find(element => element.textContent === 'formatted') as HTMLElement
+  const strongRect = strongSpan.getBoundingClientRect()
+  const linkRect = link.getBoundingClientRect()
+  await nativeInput({
+    drag: { fromX: strongRect.left + 2, fromY: strongRect.top + strongRect.height / 2, toX: linkRect.right - 2, toY: linkRect.top + linkRect.height / 2 },
+    capture: 'markdown-selected',
+  })
+  assert(!original.state.selection.main.empty, 'Pointer drag creates a document text selection')
+  assert(!(original.contentDOM.textContent ?? '').includes('**formatted**') && !(original.contentDOM.textContent ?? '').includes('](./next.md)'),
+    'Pointer drag selection never exposes raw Markdown delimiters')
+  const tableCell = body().querySelector('[data-markdown-widget="table"] td') as HTMLElement
+  tableCell.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }))
+  await settle(20)
+  assert(!!body().querySelector('[data-markdown-widget="table"] table'), 'Pointer press inside a rendered table keeps the table widget rendered')
+  const domSel = window.getSelection()!
+  const cellRange = document.createRange()
+  cellRange.selectNodeContents(tableCell)
+  domSel.removeAllRanges()
+  domSel.addRange(cellRange)
+  const copiedTable = new DataTransfer()
+  original.contentDOM.dispatchEvent(new ClipboardEvent('copy', { bubbles: true, cancelable: true, clipboardData: copiedTable }))
+  assert(copiedTable.getData('text/plain').trim() === 'Example', 'Copying a selection inside a rendered table copies the selected cell text')
+  domSel.removeAllRanges()
+  original.dispatch({ selection: { anchor: original.state.doc.length } })
   original.dispatch({ changes: { from: original.state.doc.length, insert: '\nDocument edit' } })
   await until(() => writes.some(write => write.content.includes('Document edit')), 'automatic save', 7000)
   assert(writes[0]?.sessionId === 's1', 'Autosave writes to the document owner')

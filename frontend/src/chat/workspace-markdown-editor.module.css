@@ -35,7 +35,11 @@
 .task:disabled { cursor: default; }
 .codeLine { background: var(--bg-surface); font-family: var(--font-mono, ui-monospace, monospace); font-size: .9em; padding: 0 12px !important; line-height: 1.6; }
 .tableSourceLine, .literalHtml { font-family: var(--font-mono, ui-monospace, monospace); font-size: .9em; }
-.widget { max-width: 100%; overflow-x: auto; outline: none; }
+.widget { max-width: 100%; overflow-x: auto; outline: none; user-select: text; }
+.editor .widget::selection, .editor .widget ::selection,
+.editor :global(.cm-line) .widget::selection, .editor :global(.cm-line) .widget ::selection {
+  background: color-mix(in srgb, var(--theme-accent) 18%, transparent) !important;
+}
 .widgetFocused { outline: 2px solid var(--input-focus); outline-offset: 3px; }
 .table { margin: 12px 0; }
 .table table { border-collapse: collapse; width: 100%; font-size: .94em; }

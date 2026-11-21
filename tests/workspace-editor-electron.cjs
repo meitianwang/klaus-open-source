@@ -8,7 +8,7 @@ const profile = mkdtempSync(join(tmpdir(), 'klaus-workspace-editor-'))
 app.setPath('userData', profile)
 const timeout = setTimeout(() => { console.error('Workspace editor fixture timed out'); app.exit(1) }, 90_000)
 app.whenReady().then(async () => {
-  const window = new BrowserWindow({ width: 1100, height: 800, show: false, webPreferences: { sandbox: true, contextIsolation: true } })
+  const window = new BrowserWindow({ width: 1100, height: 800, show: false, webPreferences: { sandbox: true, contextIsolation: true, backgroundThrottling: false } })
   window.webContents.on('console-message', (_event, ...args) => console.log('[renderer]', ...args))
   window.webContents.on('render-process-gone', (_event, details) => { console.error('Renderer terminated', details); app.exit(1) })
   try {
@@ -23,11 +23,21 @@ app.whenReady().then(async () => {
           await window.webContents.executeJavaScript('window.workspaceNativeRequest = undefined')
           window.showInactive()
           window.webContents.focus()
-          if (request.capture) writeFileSync(join(logs, `${request.capture}.png`), (await window.webContents.capturePage()).toPNG())
+          if (request.drag) {
+            const { fromX, fromY, toX, toY } = request.drag
+            window.webContents.sendInputEvent({ type: 'mouseDown', x: Math.round(fromX), y: Math.round(fromY), button: 'left', clickCount: 1 })
+            window.webContents.sendInputEvent({ type: 'mouseMove', x: Math.round((fromX + toX) / 2), y: Math.round((fromY + toY) / 2), button: 'left', modifiers: ['leftButtonDown'] })
+            window.webContents.sendInputEvent({ type: 'mouseMove', x: Math.round(toX), y: Math.round(toY), button: 'left', modifiers: ['leftButtonDown'] })
+            window.webContents.sendInputEvent({ type: 'mouseUp', x: Math.round(toX), y: Math.round(toY), button: 'left', clickCount: 1 })
+          }
           if (request.text) await window.webContents.insertText(request.text)
           if (request.undo) {
             window.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'z', modifiers: ['meta'] })
             window.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'z', modifiers: ['meta'] })
+          }
+          if (request.capture) {
+            if (request.drag || request.text || request.undo) await new Promise(resolve => setTimeout(resolve, 50))
+            writeFileSync(join(logs, `${request.capture}.png`), (await window.webContents.capturePage()).toPNG())
           }
           await window.webContents.executeJavaScript('window.workspaceNativeDone()')
         }

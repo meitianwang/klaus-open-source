@@ -35,6 +35,39 @@ describe('live Markdown presentation', () => {
     expect(inMarks.some(spec => spec.kind === 'hide' && spec.from === headingFrom)).toBe(false)
   })
 
+  test('non-empty text selections keep rendered syntax concealed across blocks, inline marks and widgets', () => {
+    const source = [
+      '# Heading',
+      '',
+      'A **strong**, *soft*, ~~deleted~~, `code` and [link](./next.md) with \\*escaped\\* and $a+b$.',
+      '',
+      '- [ ] task',
+      '- bullet',
+      '',
+      '> quote',
+      '',
+      '| Left | Right |',
+      '| :--- | ---: |',
+      '| **One** | `Two` |',
+      '',
+      '```ts',
+      'const x = 1',
+      '```',
+      '',
+      '```mermaid',
+      'flowchart LR',
+      '  A --> B',
+      '```',
+      '',
+      '---',
+    ].join('\n')
+    const baseline = planMarkdownPresentation(source)
+    const fullSelection = planMarkdownPresentation(source, [{ from: 0, to: source.length }])
+    expect(fullSelection).toEqual(baseline)
+    const partialSelection = planMarkdownPresentation(source, [{ from: source.indexOf('**strong**') + 2, to: source.indexOf('(./next.md)') + 5 }])
+    expect(partialSelection).toEqual(baseline)
+  })
+
   test('resolves reference links and images without changing their source', () => {
     const source = '[Read][doc] and ![Plot][image]\n\n[doc]: ./notes.md "Notes"\n[image]: ./plot.png\n'
     const specs = planMarkdownPresentation(source)

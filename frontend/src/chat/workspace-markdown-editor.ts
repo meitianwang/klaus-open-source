@@ -33,6 +33,7 @@ export interface MarkdownEditorOptions {
   initialState?: MarkdownEditorSnapshot
   ariaLabel?: string
   toc?: boolean
+  renderedOnly?: boolean
 }
 
 export interface MarkdownEditor {
@@ -142,9 +143,7 @@ export function markdownTaskChange(source: string, from: number, checked: boolea
 }
 
 function intersects(range: SourceRange, selections: readonly SourceRange[]): boolean {
-  return selections.some(selection => selection.from === selection.to
-    ? selection.from >= range.from && selection.from <= range.to
-    : selection.from < range.to && selection.to > range.from)
+  return selections.some(selection => selection.from === selection.to && selection.from >= range.from && selection.from <= range.to)
 }
 
 function lineRange(source: string, range: SourceRange): SourceRange {
@@ -362,27 +361,38 @@ class RichWidget extends WidgetType {
       event.preventDefault()
       selectWidgetSource(view, this.spec, this.context.renderedOnly)
     }
-    root.addEventListener('mousedown', reveal)
-    root.addEventListener('keydown', (event: Event) => {
-      const key = (event as KeyboardEvent).key
-      if (key === 'Enter' || key === 'F2') reveal(event)
-    })
-    root.tabIndex = 0
-    root.addEventListener('focus', () => {
-      // Mouse activation selects the raw span. Keyboard users can choose the
-      // same action with Enter without losing their place in the tab order.
-      root.classList.add(styles.widgetFocused)
-    })
-    root.addEventListener('blur', () => root.classList.remove(styles.widgetFocused))
+    if (this.context.renderedOnly) {
+      // Keep rendered widgets selectable as ordinary document content without
+      // unfolding their underlying Markdown source on pointer selection.
+      root.tabIndex = -1
+    } else {
+      root.addEventListener('mousedown', reveal)
+      root.addEventListener('keydown', (event: Event) => {
+        const key = (event as KeyboardEvent).key
+        if (key === 'Enter' || key === 'F2') reveal(event)
+      })
+      root.tabIndex = 0
+      root.addEventListener('focus', () => {
+        // Mouse activation selects the raw span. Keyboard users can choose the
+        // same action with Enter without losing their place in the tab order.
+        root.classList.add(styles.widgetFocused)
+      })
+      root.addEventListener('blur', () => root.classList.remove(styles.widgetFocused))
+    }
     if (this.spec.kind === 'image') this.renderImage(root)
     if (this.spec.kind === 'table') {
       root.innerHTML = renderMarkdownHtml(this.spec.value ?? '')
       root.querySelectorAll<HTMLAnchorElement>('a[href]').forEach(anchor => {
         const href = safeMarkdownHref(anchor.getAttribute('href') ?? '')
-        anchor.addEventListener('click', event => { event.preventDefault(); event.stopPropagation(); if (href) this.context.options.openLink?.(href) })
+        anchor.addEventListener('click', event => {
+          event.preventDefault(); event.stopPropagation()
+          if (!root.ownerDocument.getSelection()?.isCollapsed) return
+          if (href) this.context.options.openLink?.(href)
+        })
       })
       root.querySelectorAll<HTMLElement>('[data-file-path]').forEach(link => link.addEventListener('click', event => {
         event.preventDefault(); event.stopPropagation()
+        if (!root.ownerDocument.getSelection()?.isCollapsed) return
         const href = safeMarkdownHref(link.dataset.filePath ?? '')
         if (href) this.context.options.openLink?.(href)
       }))
@@ -461,7 +471,11 @@ export function createMarkdownPresentationField(context: MarkdownPresentationCon
     },
     update(value, transaction) {
       const focused = transaction.effects.find(effect => effect.is(focusEffect))?.value ?? value.focused
-      if (!transaction.docChanged && !transaction.selection && !transaction.reconfigured && focused === value.focused && !transaction.effects.some(effect => effect.is(presentationRefresh))) return value
+      const refreshed = transaction.effects.some(effect => effect.is(presentationRefresh))
+      if (!transaction.docChanged && !transaction.reconfigured && !refreshed) {
+        if (context.renderedOnly) return focused === value.focused ? value : { ...value, focused }
+        if (!transaction.selection && focused === value.focused) return value
+      }
       const source = transaction.state.doc.toString()
       const tree = transaction.docChanged ? fromMarkdown(source, AST_OPTIONS) as MarkdownNode : value.tree
       const selections = focused && !context.renderedOnly ? transaction.state.selection.ranges : []
@@ -502,7 +516,7 @@ export function createMarkdownEditor(options: MarkdownEditorOptions): MarkdownEd
   const phrases = (): Record<string, string> => (window as unknown as { currentLang?: string }).currentLang === 'zh'
     ? { Find: '查找', Replace: '替换', next: '下一个', previous: '上一个', all: '全部', 'match case': '区分大小写', regexp: '正则表达式', 'by word': '全字匹配', replace: '替换', 'replace all': '全部替换', close: '关闭', 'Go to line': '跳转到行', go: '跳转', 'current match': '当前匹配', 'on line': '所在行' }
     : {}
-  const context: MarkdownPresentationContext = { options, isReadOnly: () => readOnly }
+  const context: MarkdownPresentationContext = { options, isReadOnly: () => readOnly, renderedOnly: options.renderedOnly ?? true }
   const presentation = createMarkdownPresentationField(context)
   let tocBinding: CodeMirrorTocBinding | null = null
   const extensions: Extension[] = [
@@ -533,8 +547,20 @@ export function createMarkdownEditor(options: MarkdownEditorOptions): MarkdownEd
       click: (event, view) => {
         const anchor = (event.target as HTMLElement).closest<HTMLElement>('[data-markdown-href]')
         if (!anchor || (!readOnly && !(event.metaKey || event.ctrlKey))) return false
+        if (readOnly && (!view.state.selection.main.empty || !view.dom.ownerDocument.getSelection()?.isCollapsed)) return false
         const href = safeMarkdownHref(anchor.dataset.markdownHref ?? '')
         if (href) { event.preventDefault(); options.openLink?.(href) }
+        return true
+      },
+      copy: (event, view) => {
+        const domSelection = view.dom.ownerDocument.getSelection()
+        if (!domSelection || domSelection.isCollapsed || !event.clipboardData) return false
+        const anchorEl = domSelection.anchorNode instanceof Element ? domSelection.anchorNode : domSelection.anchorNode?.parentElement
+        const focusEl = domSelection.focusNode instanceof Element ? domSelection.focusNode : domSelection.focusNode?.parentElement
+        const widget = anchorEl?.closest('[data-markdown-widget]') ?? focusEl?.closest('[data-markdown-widget]')
+        if (!widget || !view.dom.contains(widget)) return false
+        event.clipboardData.clearData()
+        event.clipboardData.setData('text/plain', domSelection.toString())
         return true
       },
       keydown: event => {
