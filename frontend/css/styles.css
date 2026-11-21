@@ -3841,10 +3841,27 @@ spinner (data-chat-timeline-scroll-generating): the affordance then
   color: currentColor;
   flex-shrink: 0;
 }
+/* Mirror .composer-reference-pill's single-line cap so long titles (such as
+   browser tabs) stay one line with an ellipsis in the composer too.
+   Non-scrolling clipping preserves baseline alignment with adjacent prose. */
 .composer-reference-token {
+  display: inline-block;
   align-items: baseline;
+  max-width: min(100%, 320px);
+  overflow: clip;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: inherit;
   vertical-align: baseline;
+}
+.slash-token.composer-reference-token {
+  display: inline-flex;
+}
+.composer-reference-token .slash-token-label {
+  min-width: 0;
+  overflow: clip;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .composer-reference-token .slash-token-icon {
   align-self: center;
