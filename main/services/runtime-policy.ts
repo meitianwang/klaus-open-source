@@ -44,6 +44,7 @@ export function applyRuntimeSettings(init: Record<string, Json>, values: Record<
   config.reasoningSummary = ['auto', 'concise', 'detailed', 'none'].includes(String(values.reasoningSummary)) ? values.reasoningSummary! : 'auto';
   const search = object(values.webSearch);
   config.webSearch = { ...search, access: resolveWebSearchAccess(values, policy.sandboxMode) };
+  config.shellEnvCapture = typeof values.shellEnvCapture === 'boolean' ? values.shellEnvCapture : true;
   init.config = config;
   init.networkAllowed = policy.sandboxNetworkAllowed;
   delete init.permissionMode;

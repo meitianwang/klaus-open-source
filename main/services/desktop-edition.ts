@@ -1,6 +1,6 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
-import { bundledJsRuntimeEnv, ensureNodeShim, prependShimPath, realShimIo, type NodeShimIo } from '../engine/js-runtime-env';
+import { bundledJsRuntimeEnv, ensureHeadlessBrowserShim, ensureNodeShim, prependShimPath, realShimIo, type NodeShimIo } from '../engine/js-runtime-env';
 import { appRoot } from '../paths';
 import {
   DEFAULT_DESKTOP_EDITION, DESKTOP_EDITIONS_FILE_ENV, parseDesktopEditionId, validateDesktopEditionDocuments,
@@ -93,14 +93,21 @@ export function desktopEngineEnvironment(
     ['KLAUS_PLUGIN_HOME', join(configRoot, 'plugins')],
     ['KLAUS_SESSION_DIR', join(configRoot, 'sessions')],
   ];
+  const shimDir = join(configRoot, 'runtime-bin');
+  const launcherPath = join(appRoot(), 'dist', 'main', 'browser', 'headless-browser-launcher.js');
+  const browserOverride = env.KLAUS_BROWSER_EXECUTABLE;
+  const browserShim = (browserOverride === undefined || browserOverride.trim() === '') && Boolean(execPath) && existsSync(execPath) && existsSync(launcherPath)
+    ? ensureHeadlessBrowserShim(shimDir, execPath, launcherPath, platform, io)
+    : undefined;
+  const browserEnv: Array<[string, string]> = browserShim ? [['KLAUS_BROWSER_EXECUTABLE', browserShim]] : [];
+
   // The REPL tool and raw-JavaScript workflow scripts need a Node runtime;
   // carry the bundled one when the launch environment cannot resolve node.
   const jsRuntime = bundledJsRuntimeEnv(env, execPath, undefined, platform);
-  if (jsRuntime.length === 0) return base;
+  if (jsRuntime.length === 0) return [...base, ...browserEnv];
   // Scripts that invoke a literal `node` need one on PATH. Materialize a shim
   // inside the profile and prepend its directory; if the shim cannot be
   // written, keep the KLAUS_NODE pairs, which are sufficient for the engine.
-  const shimDir = join(configRoot, 'runtime-bin');
-  if (!ensureNodeShim(shimDir, execPath, platform, io)) return [...base, ...jsRuntime];
-  return [...base, ...jsRuntime, ['PATH', prependShimPath(env.PATH, shimDir, platform === 'win32' ? ';' : ':')]];
+  if (!ensureNodeShim(shimDir, execPath, platform, io)) return [...base, ...browserEnv, ...jsRuntime];
+  return [...base, ...browserEnv, ...jsRuntime, ['PATH', prependShimPath(env.PATH, shimDir, platform === 'win32' ? ';' : ':')]];
 }

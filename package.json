@@ -35,7 +35,7 @@
     "build:preload": "node scripts/build-preload.mjs",
     "build:native": "node native/scripts/build.mjs",
     "test:native": "node scripts/test-native.mjs",
-    "test:browser": "npm run build && node dist/tests/browser-policy.test.js && node dist/tests/browser-electron.test.js",
+    "test:browser": "npm run build && node dist/tests/browser-policy.test.js && node dist/tests/browser-electron.test.js && node dist/tests/headless-browser-electron.test.js",
     "test:browser-tab-mentions": "node scripts/run-browser-tab-mentions-test.mjs",
     "test:models-source-ui": "node scripts/run-models-source-ui-test.mjs",
     "test:search-browser": "npm run build && node dist/tests/web-search-browser-electron.test.js",

@@ -406,6 +406,7 @@ export function buildSessionInit(options: SessionInitOptions): SessionInitResult
 
   // Goal tools require explicit user intent; availability does not create an objective.
   init.config.goal = true;
+  init.config.shellEnvCapture = true;
   if (resolved.source === 'codex' || resolved.supportsFastMode === true) {
     init.config.fastMode = readSessionFastMode(rendererId, configRoot, resolved.source);
   }

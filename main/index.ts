@@ -13,7 +13,10 @@ import { ensureSettingsBackup } from './app/settings-backup';
 import { instanceIdentity } from './app/instance-identity';
 import { DesktopInstanceGuard, instanceActivation, type InstanceActivation } from './native/instance-guard';
 import { notificationProbeRequested, runNotificationProbe } from './app/notifications';
+import { runHeadlessBrowser } from './browser/headless-browser';
+import { headlessBrowserRequested } from './browser/headless-browser-protocol';
 
+function startDesktopApplication(): void {
 const edition = currentDesktopEdition();
 claimDesktopProfileEdition(configRootFrom(), edition);
 app.setName(edition.productName);
@@ -166,4 +169,11 @@ if (notificationProbe) {
     dialog.showErrorBox('Klaus could not start', describeStartupFailure(error));
     app.quit();
   });
+}
+}
+
+if (headlessBrowserRequested()) {
+  runHeadlessBrowser();
+} else {
+  startDesktopApplication();
 }

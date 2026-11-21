@@ -166,3 +166,64 @@ export function prependShimPath(pathValue: string | undefined, shimDir: string, 
   const kept = (pathValue ?? '').split(delimiter).filter(entry => entry !== '');
   return [shimDir, ...kept].join(delimiter);
 }
+
+/** The shim file name exposed through KLAUS_BROWSER_EXECUTABLE on each platform. */
+export function headlessBrowserShimFileName(platform: NodeJS.Platform): string {
+  return platform === 'win32' ? 'klaus-headless-browser.cmd' : 'klaus-headless-browser';
+}
+
+/**
+ * The shim script that launches the bundled Electron executable as an isolated
+ * headless Chromium browser via `headless-browser-launcher.js`, or undefined
+ * when either path cannot be quoted safely.
+ */
+export function headlessBrowserShimContent(
+  execPath: string,
+  launcherPath: string,
+  platform: NodeJS.Platform,
+): string | undefined {
+  if (!execPath || !launcherPath || /[\r\n]/.test(execPath) || /[\r\n]/.test(launcherPath)) return undefined;
+  if (platform === 'win32') {
+    if (/["'%]/.test(execPath) || /["'%]/.test(launcherPath)) return undefined;
+    return [
+      '@echo off',
+      'set ELECTRON_RUN_AS_NODE=1',
+      `"${execPath}" "${launcherPath}" %*`,
+      'exit /b %ERRORLEVEL%',
+      '',
+    ].join('\r\n');
+  }
+  if (/["'`$\\]/.test(execPath) || /["'`$\\]/.test(launcherPath)) return undefined;
+  return [
+    '#!/bin/sh',
+    '# Klaus: expose the bundled application executable as a headless Chromium browser.',
+    'ELECTRON_RUN_AS_NODE=1',
+    'export ELECTRON_RUN_AS_NODE',
+    `exec "${execPath}" "${launcherPath}" "$@"`,
+    '',
+  ].join('\n');
+}
+
+/**
+ * Idempotently materialize the headless browser shim inside shimDir and return
+ * the full shim path when available, undefined otherwise.
+ */
+export function ensureHeadlessBrowserShim(
+  shimDir: string,
+  execPath: string,
+  launcherPath: string,
+  platform: NodeJS.Platform,
+  io: NodeShimIo,
+): string | undefined {
+  const content = headlessBrowserShimContent(execPath, launcherPath, platform);
+  if (content === undefined) return undefined;
+  const target = shimDir + (platform === 'win32' ? '\\' : '/') + headlessBrowserShimFileName(platform);
+  try {
+    if (io.read(target) === content) return target;
+    io.mkdir(shimDir);
+    io.writeAtomic(target, content);
+    return io.exists(target) ? target : undefined;
+  } catch {
+    return undefined;
+  }
+}

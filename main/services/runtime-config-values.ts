@@ -8,6 +8,9 @@ export function runtimeConfigValues(snapshot: Record<string, Json>, selectedLaye
   if ((sources.webSearch === 'defaults' || (sources.webSearch === selectedLayer && Object.hasOwn(snapshot, 'values'))) && !Object.hasOwn(object(raw.webSearch), 'access')) {
     const search = { ...object(resolved.webSearch) }; delete search.access; resolved.webSearch = search;
   }
+  if ((sources.shellEnvCapture === 'defaults' || (sources.shellEnvCapture === selectedLayer && Object.hasOwn(snapshot, 'values'))) && !Object.hasOwn(raw, 'shellEnvCapture')) {
+    delete resolved.shellEnvCapture;
+  }
   if (raw.desktop !== undefined) resolved.desktop = structuredClone(raw.desktop);
   return normalizeRetiredSearchSource(resolved);
 }

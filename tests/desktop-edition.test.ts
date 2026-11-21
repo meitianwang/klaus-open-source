@@ -15,7 +15,12 @@ import { instanceIdentity } from '../main/app/instance-identity';
 import { NativeSubscriptionCredentials } from '../main/native/credentials';
 import type { NativeAddon } from '../main/native/binding';
 import { effectiveEnv } from '../main/engine/spawn';
-import { ensureNodeShim, nodeResolvableInPath, nodeShimContent, nodeShimFileName, prependShimPath, type NodeShimIo } from '../main/engine/js-runtime-env';
+import {
+  ensureHeadlessBrowserShim, ensureNodeShim, headlessBrowserShimContent, headlessBrowserShimFileName,
+  nodeResolvableInPath, nodeShimContent, nodeShimFileName, prependShimPath, type NodeShimIo,
+} from '../main/engine/js-runtime-env';
+import { HEADLESS_BROWSER_FLAG, headlessBrowserRequested, normalizeHeadlessBrowserArgs } from '../main/browser/headless-browser-protocol';
+import { appRoot } from '../main/paths';
 import { chromeDiscoveryDirectory } from '../main/browser/chrome-native-host';
 import { Harness } from './harness';
 
@@ -73,9 +78,11 @@ h.test('both editions keep engine directories profile-local despite inherited ov
     const delimiter = process.platform === 'win32' ? ';' : ':';
     for (const expected of vectors.defaults) {
       const profile = join(root, expected.edition);
+      const browserShim = join(profile, 'runtime-bin', headlessBrowserShimFileName(process.platform));
       const environment = desktopEngineEnvironment(profile, { PATH: join(profile, 'absent-node-path') }, appBinary);
       assert.deepEqual(environment, [
         ['KLAUS_CONFIG_DIR', profile], ['KLAUS_PLUGIN_HOME', join(profile, 'plugins')], ['KLAUS_SESSION_DIR', join(profile, 'sessions')],
+        ['KLAUS_BROWSER_EXECUTABLE', browserShim],
         ['KLAUS_NODE', appBinary], ['ELECTRON_RUN_AS_NODE', '1'],
         ['PATH', join(profile, 'runtime-bin') + delimiter + join(profile, 'absent-node-path')],
       ]);
@@ -86,11 +93,12 @@ h.test('both editions keep engine directories profile-local despite inherited ov
       const paths = Object.fromEntries(inherited);
       assert.equal(paths.KLAUS_PLUGIN_HOME, join(profile, 'plugins'));
       assert.equal(paths.KLAUS_SESSION_DIR, join(profile, 'sessions'));
+      assert.equal(paths.KLAUS_BROWSER_EXECUTABLE, browserShim);
     }
   });
 });
 
-h.test('engine env carries the bundled Node runtime when PATH cannot resolve node', () => {
+h.test('engine env carries the bundled Node runtime and headless browser shim', () => {
   temporary(root => {
     const configRoot = join(root, 'cfg');
     const emptyDir = join(root, 'empty');
@@ -100,18 +108,29 @@ h.test('engine env carries the bundled Node runtime when PATH cannot resolve nod
     const trio: Array<[string, string]> = [
       ['KLAUS_CONFIG_DIR', configRoot], ['KLAUS_PLUGIN_HOME', join(configRoot, 'plugins')], ['KLAUS_SESSION_DIR', join(configRoot, 'sessions')],
     ];
+    const browserShim = join(configRoot, 'runtime-bin', headlessBrowserShimFileName(process.platform));
+    const launcherPath = join(appRoot(), 'dist', 'main', 'browser', 'headless-browser-launcher.js');
     assert.deepEqual(desktopEngineEnvironment(configRoot, { PATH: emptyDir }, appBinary), [
-      ...trio, ['KLAUS_NODE', appBinary], ['ELECTRON_RUN_AS_NODE', '1'],
+      ...trio,
+      ['KLAUS_BROWSER_EXECUTABLE', browserShim],
+      ['KLAUS_NODE', appBinary], ['ELECTRON_RUN_AS_NODE', '1'],
       ['PATH', join(configRoot, 'runtime-bin') + (process.platform === 'win32' ? ';' : ':') + emptyDir],
     ]);
-    // The real filesystem io materialized an executable shim for a bare `node` lookup.
+    // The real filesystem io materialized executable shims for bare `node` and `KLAUS_BROWSER_EXECUTABLE`.
     const shimFile = join(configRoot, 'runtime-bin', nodeShimFileName(process.platform));
     assert.equal(readFileSync(shimFile, 'utf8'), nodeShimContent(appBinary, process.platform));
+    assert.equal(readFileSync(browserShim, 'utf8'), headlessBrowserShimContent(appBinary, launcherPath, process.platform));
     const binDir = join(root, 'bin');
     mkdirSync(binDir, { recursive: true });
     writeFileSync(join(binDir, 'node'), '');
-    assert.deepEqual(desktopEngineEnvironment(configRoot, { PATH: binDir }, appBinary), trio);
-    assert.deepEqual(desktopEngineEnvironment(configRoot, { PATH: emptyDir, KLAUS_NODE: '/custom/node' }, appBinary), trio);
+    // Resolvable system `node` omits KLAUS_NODE/PATH shadowing while retaining the bundled headless browser.
+    assert.deepEqual(desktopEngineEnvironment(configRoot, { PATH: binDir }, appBinary), [
+      ...trio, ['KLAUS_BROWSER_EXECUTABLE', browserShim],
+    ]);
+    assert.deepEqual(desktopEngineEnvironment(configRoot, { PATH: emptyDir, KLAUS_NODE: '/custom/node' }, appBinary), [
+      ...trio, ['KLAUS_BROWSER_EXECUTABLE', browserShim],
+    ]);
+    assert.deepEqual(desktopEngineEnvironment(configRoot, { PATH: binDir, KLAUS_BROWSER_EXECUTABLE: '/custom/chrome' }, appBinary), trio);
     assert.deepEqual(desktopEngineEnvironment(configRoot, { PATH: emptyDir }, join(emptyDir, 'Klaus')), trio);
   });
 });
@@ -199,16 +218,51 @@ h.test('windows engine env pairs the bundled runtime with a semicolon PATH shim'
     writeFileSync(appBinary, '');
     const configRoot = join(root, 'cfg');
     const shimDir = join(configRoot, 'runtime-bin');
+    const launcherPath = join(appRoot(), 'dist', 'main', 'browser', 'headless-browser-launcher.js');
     const environment = desktopEngineEnvironment(configRoot, { PATH: 'C:\\empty' }, appBinary, 'win32', io);
     assert.deepEqual(environment, [
       ['KLAUS_CONFIG_DIR', configRoot], ['KLAUS_PLUGIN_HOME', join(configRoot, 'plugins')], ['KLAUS_SESSION_DIR', join(configRoot, 'sessions')],
+      ['KLAUS_BROWSER_EXECUTABLE', shimDir + '\\klaus-headless-browser.cmd'],
       ['KLAUS_NODE', appBinary], ['ELECTRON_RUN_AS_NODE', '1'],
       ['PATH', shimDir + ';C:\\empty'],
     ]);
     assert.equal(files.get(shimDir + '\\node.cmd'), nodeShimContent(appBinary, 'win32'));
-    // A failed shim write keeps the KLAUS_NODE pairs and simply omits PATH.
+    assert.equal(files.get(shimDir + '\\klaus-headless-browser.cmd'), headlessBrowserShimContent(appBinary, launcherPath, 'win32'));
+    // A failed shim write keeps the KLAUS_NODE pairs and omits unwritable shims.
     const broken: NodeShimIo = { exists: () => false, mkdir: () => {}, read: () => undefined, writeAtomic: () => { throw new Error('read-only profile'); } };
-    assert.deepEqual(desktopEngineEnvironment(configRoot, { PATH: 'C:\\empty' }, appBinary, 'win32', broken), environment.slice(0, 5));
+    assert.deepEqual(desktopEngineEnvironment(configRoot, { PATH: 'C:\\empty' }, appBinary, 'win32', broken), [
+      ['KLAUS_CONFIG_DIR', configRoot], ['KLAUS_PLUGIN_HOME', join(configRoot, 'plugins')], ['KLAUS_SESSION_DIR', join(configRoot, 'sessions')],
+      ['KLAUS_NODE', appBinary], ['ELECTRON_RUN_AS_NODE', '1'],
+    ]);
+  });
+});
+
+h.test('headless browser shim and CLI normalization sanitize unsafe paths and automation flags', () => {
+  assert.equal(headlessBrowserShimFileName('darwin'), 'klaus-headless-browser');
+  assert.equal(headlessBrowserShimFileName('win32'), 'klaus-headless-browser.cmd');
+  const posixShim = headlessBrowserShimContent('/Applications/Klaus.app/Contents/MacOS/Klaus', '/Applications/Klaus.app/Contents/Resources/app.asar/dist/main/browser/headless-browser-launcher.js', 'darwin');
+  assert.ok(posixShim?.includes('ELECTRON_RUN_AS_NODE=1'));
+  assert.ok(posixShim?.includes('headless-browser-launcher.js'));
+  assert.equal(headlessBrowserShimContent('/opt/"unsafe"', '/opt/launcher.js', 'darwin'), undefined);
+  assert.equal(headlessBrowserShimContent('C:\\Klaus.exe', 'C:\\bad%path\\launcher.js', 'win32'), undefined);
+
+  const files = new Map<string, string>();
+  const io: NodeShimIo = {
+    exists: p => files.has(p), mkdir: () => {}, read: p => files.get(p), writeAtomic: (p, c) => { files.set(p, c); },
+  };
+  assert.equal(ensureHeadlessBrowserShim('/cfg/runtime-bin', '/opt/Klaus', '/opt/launcher.js', 'darwin', io), '/cfg/runtime-bin/klaus-headless-browser');
+
+  assert.equal(headlessBrowserRequested(['node', 'entry.js']), false);
+  assert.equal(headlessBrowserRequested(['node', HEADLESS_BROWSER_FLAG]), true);
+  assert.deepEqual(normalizeHeadlessBrowserArgs(['--headless=old', '--no-zygote', '--user-data-dir', '/tmp/prof', '--mute-audio', 'about:blank']), {
+    pipeMode: false,
+    userDataDir: '/tmp/prof',
+    electronArgs: ['--user-data-dir=/tmp/prof', '--mute-audio', '--remote-debugging-port=0'],
+  });
+  assert.deepEqual(normalizeHeadlessBrowserArgs(['--remote-debugging-pipe', '--user-data-dir=/tmp/pipe-prof']), {
+    pipeMode: true,
+    userDataDir: '/tmp/pipe-prof',
+    electronArgs: ['--user-data-dir=/tmp/pipe-prof', '--remote-debugging-port=0'],
   });
 });
 

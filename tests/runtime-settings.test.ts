@@ -37,7 +37,7 @@ function fixture(initial: JsonObject = {}) {
   const files = new Map<string, JsonObject>([[userPath, structuredClone(initial)], [projectPath, {}]]);
   const versions = new Map<string, number>([[userPath, 1], [projectPath, 1]]);
   const requests: Array<{ method: string; params: JsonObject }> = [];
-  const defaults: JsonObject = { approval_policy: null, sandbox_mode: 'read-only', approvals_reviewer: null, sandbox_workspace_write: { writable_roots: [], network_access: false, exclude_tmpdir_env_var: false, exclude_slash_tmp: false }, modelVerbosity: null, reasoningSummary: 'auto', webSearch: { mode: 'client', source: 'builtin', access: 'live' } };
+  const defaults: JsonObject = { approval_policy: null, sandbox_mode: 'read-only', approvals_reviewer: null, sandbox_workspace_write: { writable_roots: [], network_access: false, exclude_tmpdir_env_var: false, exclude_slash_tmp: false }, modelVerbosity: null, reasoningSummary: 'auto', shellEnvCapture: false, webSearch: { mode: 'client', source: 'builtin', access: 'live' } };
   const request = async (method: string, raw: Json): Promise<Json> => {
     const params = object(raw); requests.push({ method, params: structuredClone(params) });
     const path = typeof params.filePath === 'string' ? params.filePath : userPath;
@@ -879,6 +879,17 @@ h.test('scoped metadata and config opening use only the engine returned path', a
   await invoke('settings:runtime-config:open', { scope }); assert.deepEqual(opened, [f.projectPath]);
   await assert.rejects(invoke('settings:kv:set', { key: 'theme', value: 'dark', scope }), /not project scoped/);
   assert.throws(() => runtimeConfigScope({ kind: 'project', cwd: 'relative' }), /absolute project/);
+});
+h.test('desktop sessions enable shellEnvCapture by default while honoring explicit false in config.toml', async () => {
+  const unconfigured = fixture();
+  const defaultInit: JsonObject = { cwd: unconfigured.project, config: {} };
+  applyRuntimeSettings(defaultInit, await unconfigured.settings.resolved(unconfigured.project), 'thread', unconfigured.root);
+  assert.equal(object(defaultInit.config).shellEnvCapture, true);
+
+  const disabledUser = fixture({ shellEnvCapture: false });
+  const disabledInit: JsonObject = { cwd: disabledUser.project, config: {} };
+  applyRuntimeSettings(disabledInit, await disabledUser.settings.resolved(disabledUser.project), 'thread', disabledUser.root);
+  assert.equal(object(disabledInit.config).shellEnvCapture, false);
 });
 
 void h.finish(join(__dirname, 'runtime-settings-result.json'), 'runtime-settings').then(code => {

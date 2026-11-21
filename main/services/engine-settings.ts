@@ -65,6 +65,7 @@ const ENUM_VALUES: Record<string, readonly string[]> = {
 const RUNTIME_DEFAULTS: JsonObject = {
   approval_policy: 'on-request', sandbox_mode: 'read-only',
   approvals_reviewer: 'user', reasoningSummary: 'auto', subagentModelCatalog: false,
+  shellEnvCapture: true,
 };
 export interface EngineSettingWriteOptions { scope?: RuntimeConfigScope; expectedVersion?: string }
 export function runtimeConfigScope(value: unknown): RuntimeConfigScope {
