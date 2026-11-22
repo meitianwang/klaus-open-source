@@ -16,6 +16,7 @@ import type { ComposerReferenceToken } from './reference-token'
 import { renderReferencePreview } from './reference-preview'
 import { browserTabIconHtml } from './browser-tab-icon'
 import { escapeHtml } from '../transcript/factories'
+import { effectiveViewportRight } from '../../app/native-overlay-inset'
 
 const tt = (key: string): string => (window as any).tt?.(key) || ''
 
@@ -442,7 +443,8 @@ export function RowMenu({ row, handlers, queueingEnabled, disabled, initialOpen 
     // Right-align to the trigger, then pull it back inside the viewport.
     let left = rect.right - panelRect.width
     if (left < 8) left = 8
-    if (left + panelRect.width > window.innerWidth - 8) left = Math.max(8, window.innerWidth - panelRect.width - 8)
+    const maxRight = effectiveViewportRight(rect.left) - 8
+    if (left + panelRect.width > maxRight) left = Math.max(8, maxRight - panelRect.width)
     // The queue sits at the bottom of the window, so the menu opens UPWARD unless
     // there is no room above it either.
     let top = rect.top - panelRect.height - 4

@@ -44,6 +44,8 @@ class FakeElement {
       || (this.tag === 'dialog' && this.attributes.has('open'))
       || this.classes.has('klaus-dialog-overlay') || this.classes.has('kls-modal-overlay')
       || this.classes.has('klaus-inline-vis-backdrop')
+      || (this.classes.has('drop-overlay') && this.classes.has('active'))
+      || this.attributes.has('data-klaus-native-suspend')
   }
   querySelectorAll(selector: string): FakeElement[] {
     const found: FakeElement[] = []
@@ -67,7 +69,7 @@ function visible(element: FakeElement): boolean {
   return element.isConnected
 }
 
-async function fixture(hookNames = ['Browser', 'Canvas', 'Prototype', 'Ppt', 'VideoEditing']) {
+async function fixture(hookNames = ['Browser', 'Canvas', 'Prototype', 'VideoEditing', 'Ppt', 'Design']) {
   const { createNativeOverlayGuard } = await import('./native-overlay-guard')
   root = new FakeElement('body')
   const calls: string[] = []
@@ -102,21 +104,50 @@ async function fixture(hookNames = ['Browser', 'Canvas', 'Prototype', 'Ppt', 'Vi
   return { guard, calls, host, frames, added, removed, changed }
 }
 
-test('a confirm dialog parks the browser once and restores it on close', async () => {
+test('a confirm dialog parks every native surface once and restores them on close', async () => {
   const f = await fixture()
   const overlay = new FakeElement('div', { classes: ['klaus-dialog-overlay'] })
   overlay.append(new FakeElement('div', { classes: ['klaus-dialog-card'], attrs: { role: 'dialog', 'aria-modal': 'true' } }))
   f.added(overlay)
-  expect(f.calls).toEqual(vectors.modalPresentation.suspendedSurfaces.map(name => `suspend:${name}`))
+  const expectedSuspends = vectors.modalPresentation.suspendedSurfaces.map(name => `suspend:${name}`)
+  const expectedResumes = vectors.modalPresentation.suspendedSurfaces.map(name => `resume:${name}`)
+  expect(f.calls).toEqual(expectedSuspends)
   f.removed(overlay)
-  expect(f.calls.slice(1)).toEqual(['resume:Browser'])
+  expect(f.calls.slice(expectedSuspends.length)).toEqual(expectedResumes)
   expect(f.guard.held()).toBe(false)
 })
 
-test('the browser guard preserves editor presentation ownership', async () => {
+test('modal dialogs, active drop overlays, and opt-in wide popovers suspend all six native surfaces', async () => {
   const f = await fixture()
-  f.added(new FakeElement('div', { attrs: { role: 'dialog', 'aria-modal': 'true' } }))
-  expect(f.calls).toEqual(['suspend:Browser'])
+  const commandDialog = new FakeElement('div', { attrs: { role: 'dialog', 'aria-modal': 'true' } })
+  f.added(commandDialog)
+  expect(f.calls).toEqual([
+    'suspend:Browser',
+    'suspend:Canvas',
+    'suspend:Prototype',
+    'suspend:VideoEditing',
+    'suspend:Ppt',
+    'suspend:Design',
+  ])
+  f.removed(commandDialog)
+  f.calls.length = 0
+
+  const dropOverlay = new FakeElement('div', { classes: ['drop-overlay'] })
+  f.added(dropOverlay)
+  expect(f.calls).toEqual([])
+  dropOverlay.classes.add('active')
+  f.changed(dropOverlay)
+  expect(f.calls).toHaveLength(6)
+  dropOverlay.classes.delete('active')
+  f.changed(dropOverlay)
+  expect(f.calls).toHaveLength(12)
+  f.calls.length = 0
+
+  const widePopover = new FakeElement('div', { attrs: { role: 'dialog', 'data-klaus-native-suspend': 'true' } })
+  f.added(widePopover)
+  expect(f.calls).toHaveLength(6)
+  f.removed(widePopover)
+  expect(f.calls).toHaveLength(12)
 })
 
 test('stacked modals hold one lease until the last one closes', async () => {
@@ -169,7 +200,7 @@ test('unrelated attribute churn does not schedule any evaluation', async () => {
   // A streaming transcript rewrites classes many times per frame.
   for (let index = 0; index < 50; index++) observerCallback?.([{ type: 'attributes', target: transcript, addedNodes: [], removedNodes: [] }])
   expect(f.frames).toHaveLength(0)
-  expect(observedOptions?.attributeFilter).toEqual(['class', 'hidden', 'open', 'aria-modal'])
+  expect(observedOptions?.attributeFilter).toEqual(['class', 'hidden', 'open', 'aria-modal', 'data-klaus-native-suspend'])
 })
 
 test('only surfaces that were sent aside are brought back', async () => {

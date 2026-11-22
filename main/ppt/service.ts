@@ -10,6 +10,7 @@ import { HOST_CHANNELS } from '../ipc/host-channels';
 import { decodeBinary } from '../ipc/binary';
 import { VisualCapabilityServer } from '../visuals/capability-server';
 import { inside, message, record, text, type Data } from '../visuals/data';
+import { canCaptureNativeViewSnapshot, captureNativeViewSnapshot } from '../utils/native-view-snapshot';
 import { PptStore, presentationContentType, type PptDocument, type PptFile, type PptValidationRecord } from './store';
 import { PptRuntime } from './runtime';
 import { pptTools } from './tools';
@@ -532,7 +533,19 @@ export class PptService {
       this.active.get(windowId)?.view.setVisible(false); this.active.set(windowId, editor); this.bounds.set(windowId, record(args.bounds)); editor.view.setBounds(bounds); editor.view.setVisible(true); return { ok: true };
     }
     if (context.channel === 'ppt:panel-set-bounds') { const editor = this.active.get(windowId); if (editor) { this.bounds.set(windowId, record(args.bounds)); editor.view.setBounds(this.rectangle(args.bounds, window)); } return { ok: true }; }
-    if (context.channel === 'ppt:panel-hide' || context.channel === 'ppt:panel-close') { this.revisions.set(windowId, (this.revisions.get(windowId) ?? 0) + 1); this.active.get(windowId)?.view.setVisible(false); if (context.channel === 'ppt:panel-close') this.active.delete(windowId); return { ok: true }; }
+    if (context.channel === 'ppt:panel-hide' || context.channel === 'ppt:panel-close') {
+      const revision = (this.revisions.get(windowId) ?? 0) + 1;
+      this.revisions.set(windowId, revision);
+      const active = this.active.get(windowId);
+      if (context.channel === 'ppt:panel-hide' && active && canCaptureNativeViewSnapshot(active.view)) {
+        const snapshotDataUrl = await captureNativeViewSnapshot(active.view);
+        if (this.revisions.get(windowId) === revision && this.active.get(windowId) === active) active.view.setVisible(false);
+        return snapshotDataUrl ? { ok: true, snapshotDataUrl } : { ok: true };
+      }
+      active?.view.setVisible(false);
+      if (context.channel === 'ppt:panel-close') this.active.delete(windowId);
+      return { ok: true };
+    }
     throw new Error('Unknown presentation channel.');
   }
   async releaseSession(owner: string): Promise<void> {

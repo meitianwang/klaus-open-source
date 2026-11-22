@@ -1,5 +1,6 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
+import { effectiveViewportRight } from '../../app/native-overlay-inset'
 
 /** A nonmodal, selectable preview that remains open while reading or copying. */
 export function QueueMessagePreview({ text, summary, children, disabled }: {
@@ -47,13 +48,14 @@ export function QueueMessagePreview({ text, summary, children, disabled }: {
     if (!open || !content.current || !trigger.current) return
     const panel = content.current
     const anchor = trigger.current.getBoundingClientRect()
-    const width = Math.min(432 + 40, window.innerWidth - 32)
+    const rightLimit = effectiveViewportRight(anchor.left)
+    const width = Math.min(432 + 40, Math.max(240, rightLimit - 32))
     panel.style.width = `${width}px`
     const above = anchor.top - 30, below = window.innerHeight - anchor.bottom - 30
     const placeAbove = above >= 180 || above >= below
     panel.style.maxHeight = `${Math.max(40, placeAbove ? above : below)}px`
     const rect = panel.getBoundingClientRect()
-    panel.style.left = `${Math.max(16, Math.min(anchor.left, window.innerWidth - rect.width - 16))}px`
+    panel.style.left = `${Math.max(16, Math.min(anchor.left, rightLimit - rect.width - 16))}px`
     panel.style.top = `${Math.max(16, Math.min(window.innerHeight - rect.height - 16,
       placeAbove ? anchor.top - rect.height - 14 : anchor.bottom + 14))}px`
   }, [open, fullText])

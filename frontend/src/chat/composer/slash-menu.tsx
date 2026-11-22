@@ -17,6 +17,7 @@ import { pluginMentionNames } from '../../pages/skills/localize'
 import { slashRowLabels } from './slash-row-labels'
 import { useT } from '../../i18n'
 import { queryClient } from '../../app/query-client'
+import { effectiveViewportRight } from '../../app/native-overlay-inset'
 import {
   conversationsQueryKey, CONVERSATIONS_STALE_MS, CONVERSATION_QUERY_DEBOUNCE_MS,
   devicesQueryKey, DEVICES_STALE_MS, friendsQueryKey, FRIENDS_STALE_MS, fetchFriendRows, projectFriendRows,
@@ -586,9 +587,10 @@ function SlashMenuBody({ store, actions, container, anchorElements }: {
       const above = Math.max(0, rect.top - gap - 48)
       const below = Math.max(0, window.innerHeight - rect.bottom - gap - edge)
       const openAbove = above >= Math.min(120, below)
-      const width = Math.min(window.innerWidth - edge * 2, rect.width)
+      const rightLimit = effectiveViewportRight(rect.left)
+      const width = Math.min(Math.max(0, rightLimit - edge * 2), rect.width)
       container.style.width = `${width}px`
-      container.style.left = `${Math.max(edge, Math.min(rect.left, window.innerWidth - width - edge))}px`
+      container.style.left = `${Math.max(edge, Math.min(rect.left, rightLimit - width - edge))}px`
       container.style.right = 'auto'
       const available = openAbove ? above : below
       container.style.setProperty('--composer-overlay-available-height', `${available}px`)

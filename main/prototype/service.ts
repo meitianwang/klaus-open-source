@@ -9,6 +9,7 @@ import type { HandlerContext } from '../ipc/registry';
 import type { Json } from '../ipc/contract';
 import { VisualCapabilityServer } from '../visuals/capability-server';
 import { inside, message, readBounded, record, text, type Data } from '../visuals/data';
+import { canCaptureNativeViewSnapshot, captureNativeViewSnapshot } from '../utils/native-view-snapshot';
 import { PrototypeStore, type PrototypeProject } from './store';
 import { prototypeTools } from './tools';
 import { planLegacyPrototypeImport, type LegacyImportPlan } from './legacy';
@@ -432,6 +433,19 @@ export class PrototypeService {
     if (this.activeId) this.editors.get(this.activeId)?.view.setVisible(false);
     return { ok: true };
   }
+  private async hideWithSnapshot(): Promise<Data> {
+    const revision = ++this.presentationRevision;
+    const active = this.activeId ? this.editors.get(this.activeId) : undefined;
+    if (active && canCaptureNativeViewSnapshot(active.view)) {
+      const snapshotDataUrl = await captureNativeViewSnapshot(active.view);
+      if (this.presentationRevision === revision && (this.activeId ? this.editors.get(this.activeId) : undefined) === active) {
+        active.view.setVisible(false);
+      }
+      return snapshotDataUrl ? { ok: true, snapshotDataUrl } : { ok: true };
+    }
+    active?.view.setVisible(false);
+    return { ok: true };
+  }
   private async openPanel(fields: Data): Promise<Data> {
     const owner = text(fields.sessionId, 'interface design session');
     const project = this.store.load(fields.id, owner);
@@ -512,7 +526,7 @@ export class PrototypeService {
       }
       case 'prototype:panel-show': return this.present(fields);
       case 'prototype:panel-set-bounds': this.bounds = record(fields.bounds); this.resize(); return { ok: true };
-      case 'prototype:panel-hide': return this.hide();
+      case 'prototype:panel-hide': return this.hideWithSnapshot();
       case 'prototype:panel-close': this.hide(); this.activeId = ''; this.bounds = undefined; return { ok: true };
       default: throw new Error(`Unknown interface design channel: ${context.channel}`);
     }

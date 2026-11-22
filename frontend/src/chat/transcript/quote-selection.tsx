@@ -12,6 +12,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useT } from '../../i18n'
 import { showToast } from '../../app/ui-shared'
+import { effectiveViewportRight } from '../../app/native-overlay-inset'
 import { Icon } from '../../components/Icon'
 import styles from './transcript.module.css'
 
@@ -193,13 +194,14 @@ export function QuoteSelectionToolbar({ container, surface }: { container: HTMLE
   // Anchor the bar above the selection, centered on the last selected line.
   // The horizontal clamp keeps both edges inside the viewport with an 8px
   // margin while still allowing the bar to grow wider than the selection.
+  const rightLimit = effectiveViewportRight(rect.left, win)
   const anchor = rect.left + rect.width / 2
   const minLeft = 8 - anchor
-  const maxLeft = win.innerWidth - 8 - anchor
+  const maxLeft = rightLimit - 8 - anchor
   const position = {
     left: `${anchor}px`,
     top: `${rect.top - 8}px`,
-    maxWidth: `${win.innerWidth - 16}px`,
+    maxWidth: `${Math.max(120, rightLimit - 16)}px`,
     transform: `translateX(clamp(${minLeft}px, -50%, calc(${maxLeft}px - 100%))) translateY(-100%)`,
   } as const
 

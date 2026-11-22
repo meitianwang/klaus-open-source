@@ -9,6 +9,7 @@ import type { PermissionPreset } from '../../../../contracts/runtime-settings'
 export type { PermissionPreset } from '../../../../contracts/runtime-settings'
 import { Icon } from '../../components/Icon'
 import { claimOverlay, overlayIdForElement, registerOverlay } from '../../app/overlay-registry'
+import { effectiveViewportRight } from '../../app/native-overlay-inset'
 
 const w = () => window as any
 const tt = (key: string): string => w().tt?.(key) || key
@@ -207,7 +208,7 @@ export function PermissionSelectMenu({ store, rootEl, getSessionId }: {
     const place = () => {
       const rect = triggerRef.current!.getBoundingClientRect()
       panel.style.maxHeight = `${Math.max(0, window.innerHeight - 16)}px`
-      panel.style.left = `${Math.max(8, Math.min(rect.left, window.innerWidth - panel.offsetWidth - 8))}px`
+      panel.style.left = `${Math.max(8, Math.min(rect.left, effectiveViewportRight(rect.left) - panel.offsetWidth - 8))}px`
       panel.style.right = 'auto'
       const above = rect.top - panel.offsetHeight - 4
       panel.style.top = `${above >= 8 ? above : Math.min(rect.bottom + 4, Math.max(8, window.innerHeight - panel.offsetHeight - 8))}px`

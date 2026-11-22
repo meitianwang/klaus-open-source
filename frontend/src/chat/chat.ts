@@ -197,6 +197,7 @@ import {
   evaluateWindowResizeAutoCollapse,
 } from './panel-layout'
 import { initDigramPanel } from './digram/panel'
+import { effectiveViewportRight, uncoveredViewportRight } from '../app/native-overlay-inset'
 import { initModel3DPanel } from './model3d/panel'
 import { initCanvasPanel, hideCanvasPanel, scheduleCanvasBoundsSync } from './canvas-panel'
 import { initPrototypePanel, hidePrototypePanel, schedulePrototypeBoundsSync } from './prototype-panel'
@@ -5698,7 +5699,8 @@ function attachSidebarMenuChrome(menu: HTMLElement, anchor: HTMLElement | null, 
   const rect = anchor?.getBoundingClientRect()
   const width = Math.max(menu.offsetWidth, 168)
   const height = menu.offsetHeight
-  const maxLeft = Math.max(8, window.innerWidth - width - 8)
+  const anchorLeft = point ? point.x : rect?.left
+  const maxLeft = Math.max(8, effectiveViewportRight(anchorLeft) - width - 8)
   const maxTop = Math.max(8, window.innerHeight - height - 8)
   const rawLeft = point ? point.x : (rect ? rect.right - width : 8)
   const rawTop = point ? point.y : (rect ? rect.bottom + 6 : 8)
@@ -5800,7 +5802,7 @@ function positionProjectPicker() {
     if (!projectPickerEl || !btnWorkdir) return
     const panel = projectPickerEl.getBoundingClientRect()
     const anchor = btnWorkdir.getBoundingClientRect()
-    const left = Math.min(Math.max(8, anchor.left), Math.max(8, window.innerWidth - panel.width - 8))
+    const left = Math.min(Math.max(8, anchor.left), Math.max(8, effectiveViewportRight(anchor.left) - panel.width - 8))
     const topAbove = anchor.top - panel.height - 8
     const topBelow = anchor.bottom + 8
     const top = topAbove >= 8
@@ -7616,7 +7618,7 @@ function openSidebarSortMenu(anchor: HTMLElement) {
   document.body.appendChild(menu)
   const rect = anchor.getBoundingClientRect()
   const margin = 8
-  menu.style.left = `${Math.max(margin, Math.min(rect.left, window.innerWidth - menu.offsetWidth - margin))}px`
+  menu.style.left = `${Math.max(margin, Math.min(rect.left, effectiveViewportRight(rect.left) - menu.offsetWidth - margin))}px`
   menu.style.top = `${Math.min(rect.bottom + 6, window.innerHeight - menu.offsetHeight - margin)}px`
   sidebarSortMenuOpen = true
   renderSessionList()  // React flips the trigger's aria-expanded
@@ -8037,7 +8039,7 @@ function showSessionContextMenu(e: MouseEvent | { clientX: number; clientY: numb
 
   const rect = menu.getBoundingClientRect()
   const margin = 8
-  const left = Math.min(e.clientX, window.innerWidth - rect.width - margin)
+  const left = Math.min(e.clientX, effectiveViewportRight(e.clientX) - rect.width - margin)
   const top = Math.min(e.clientY, window.innerHeight - rect.height - margin)
   menu.style.left = Math.max(margin, left) + 'px'
   menu.style.top = Math.max(margin, top) + 'px'
@@ -14464,7 +14466,7 @@ function positionCtxPop() {
   const rect = chip.getBoundingClientRect()
   const pr = ctxPopEl.getBoundingClientRect()
   const centered = rect.left + rect.width / 2 - pr.width / 2
-  ctxPopEl.style.left = `${Math.max(8, Math.min(centered, window.innerWidth - pr.width - 8))}px`
+  ctxPopEl.style.left = `${Math.max(8, Math.min(centered, effectiveViewportRight(rect.left) - pr.width - 8))}px`
   const above = rect.top - pr.height - 4
   const top = above >= 8 ? above : rect.bottom + 4
   ctxPopEl.style.top = `${Math.max(8, Math.min(top, window.innerHeight - pr.height - 8))}px`
@@ -15222,7 +15224,7 @@ function positionBranchPicker() {
     if (!branchPickerEl || !branchBtn) return
     const panel = branchPickerEl.getBoundingClientRect()
     const anchor = branchBtn.getBoundingClientRect()
-    const left = Math.min(Math.max(8, anchor.left), Math.max(8, window.innerWidth - panel.width - 8))
+    const left = Math.min(Math.max(8, anchor.left), Math.max(8, effectiveViewportRight(anchor.left) - panel.width - 8))
     const topBelow = anchor.bottom + 8
     const top = topBelow + panel.height <= window.innerHeight - 8
       ? topBelow
@@ -17900,6 +17902,9 @@ function openUsageDashboard(anchorBtn: HTMLElement) {
   pop.className = 'usage-popover'
   pop.setAttribute('role', 'dialog')
   pop.setAttribute('aria-label', tt('usage_dashboard_aria'))
+  if (8 + 340 > uncoveredViewportRight() - 8) {
+    pop.setAttribute('data-klaus-native-suspend', 'true')
+  }
   pop.innerHTML = `
     <div class="usage-popover-head">
       <span class="usage-popover-title">${escapeHtml(tt('usage_dashboard_title'))}</span>
@@ -19620,6 +19625,7 @@ function hideArtifactsPanelForNonChatView() {
   // Every explicit route away from chat therefore confirms detachment with the
   // host; frame-driven layout sync keeps the guarded no-op path.
   void hideBrowserRuntime({ ensureDetached: true })
+  void hideCanvasPanel()
   void hidePrototypePanel()
   void hideVideoEditingPanel()
   void hidePptPanel()

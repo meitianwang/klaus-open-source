@@ -89,19 +89,17 @@ const KINDS: Record<string, { fixed: boolean; mode: string; labelKey: string; pe
   'video-editing': { fixed: false, mode: 'video-editing', labelKey: 'video_editing_title', persist: true, owned: true },
   ppt: { fixed: false, mode: 'ppt', labelKey: 'ppt_title', persist: true, owned: true },
   design: { fixed: false, mode: 'design', labelKey: 'design_title', persist: true, owned: true },
-  'photo-editing': { fixed: false, mode: 'photo-editing', labelKey: 'photo_editing_title', persist: true, owned: true },
 }
 
 // Native editor surfaces keep their documents on the host while the owning
 // chat is away, so their descriptors persist with that chat and come back on
 // the next visit instead of leaving the surface unreachable.
-const NATIVE_EDITOR_KINDS: readonly string[] = ['prototype', 'video-editing', 'ppt', 'design', 'photo-editing']
+const NATIVE_EDITOR_KINDS: readonly string[] = ['prototype', 'video-editing', 'ppt', 'design']
 const NATIVE_RESUME_HOOK: Record<string, string> = {
   prototype: 'klausPrototypeResumeId',
   'video-editing': 'klausVideoEditingResumeId',
   ppt: 'klausPptResumeId',
   design: 'klausDesignResumeId',
-  'photo-editing': 'klausPhotoEditingResumeId',
 }
 
 const ICONS: Record<string, string> = {
@@ -123,7 +121,6 @@ const ICONS: Record<string, string> = {
   'video-editing': icon('tool-generate-video'),
   ppt: icon('canvas'),
   design: icon('canvas'),
-  'photo-editing': icon('tool-generate-image'),
 }
 
 // ── State（数据面，按会话/草稿作用域隔离 + LRU 驻留） ──────────────────────
@@ -739,7 +736,6 @@ async function activateTab(tab: Tab | null, { reloadCanvas = false } = {}) {
     }
     case 'ppt':
     case 'design':
-    case 'photo-editing':
     case 'prototype':
     case 'video-editing': {
       const token = restoreToken
@@ -749,20 +745,16 @@ async function activateTab(tab: Tab | null, { reloadCanvas = false } = {}) {
         ? w().klausActivatePptPanel
         : tab.kind === 'design'
           ? w().klausActivateDesignPanel
-          : tab.kind === 'photo-editing'
-            ? w().klausActivatePhotoEditingPanel
-            : tab.kind === 'prototype'
-              ? w().klausActivatePrototypePanel
-              : w().klausActivateVideoEditingPanel
+          : tab.kind === 'prototype'
+            ? w().klausActivatePrototypePanel
+            : w().klausActivateVideoEditingPanel
       const activeIdHook = tab.kind === 'ppt'
         ? w().klausActivePptId
         : tab.kind === 'design'
           ? w().klausActiveDesignId
-          : tab.kind === 'photo-editing'
-            ? w().klausActivePhotoEditingId
-            : tab.kind === 'prototype'
-              ? w().klausActivePrototypeId
-              : w().klausActiveVideoEditingId
+          : tab.kind === 'prototype'
+            ? w().klausActivePrototypeId
+            : w().klausActiveVideoEditingId
       const mode = KINDS[tab.kind].mode
       const presented = await activateHook?.({ id: tab.key, title: tab.title, sessionId })
       if (presented !== true || activation !== activationToken || token !== restoreToken || !tabs.includes(tab)
@@ -792,7 +784,7 @@ async function closeTab(tab: Tab | null) {
   if (!tab || isFixed(tab)) return
   activeScope()
   if (tab.kind === 'canvas') { activationToken++; canvasOpenToken++ }
-  if (tab.kind === 'prototype' || tab.kind === 'video-editing' || tab.kind === 'ppt' || tab.kind === 'design' || tab.kind === 'photo-editing') activationToken++
+  if (tab.kind === 'prototype' || tab.kind === 'video-editing' || tab.kind === 'ppt' || tab.kind === 'design') activationToken++
   const closingSessionToken = restoreToken
   const left = tab.placement === 'left'
   // Read this BEFORE the surface owner runs: tearing a surface down can move
@@ -862,16 +854,13 @@ async function closeTab(tab: Tab | null) {
       case 'design':
         await w().klausCloseDesignPanel?.(tab.key)
         break
-      case 'photo-editing':
-        await w().klausClosePhotoEditingPanel?.(tab.key)
-        break
       default:
         break
     }
   } finally {
     closingTabId = null
   }
-  if ((tab.kind === 'prototype' || tab.kind === 'video-editing' || tab.kind === 'ppt' || tab.kind === 'design' || tab.kind === 'photo-editing') && (closingSessionToken !== restoreToken || !tabs.includes(tab))) return
+  if ((tab.kind === 'prototype' || tab.kind === 'video-editing' || tab.kind === 'ppt' || tab.kind === 'design') && (closingSessionToken !== restoreToken || !tabs.includes(tab))) return
   // Surface owners remove their own descriptor as they tear down; anything
   // left (pending placeholders) is dropped here.
   if (find(tab.kind, tab.key)) remove(tab.kind, tab.key)
@@ -1139,10 +1128,6 @@ async function listNativeEditorDocuments(kind: string, sessionId: string): Promi
   if (kind === 'design' && typeof klaus?.design?.list === 'function') {
     const res = await klaus.design.list(sessionId)
     return Array.isArray(res?.designs) ? res.designs : null
-  }
-  if (kind === 'photo-editing' && typeof klaus?.photoEditing?.list === 'function') {
-    const res = await klaus.photoEditing.list(sessionId)
-    return Array.isArray(res?.photoWorkspaces) ? res.photoWorkspaces : null
   }
   if (kind === 'prototype' && typeof klaus?.prototype?.list === 'function') {
     const res = await klaus.prototype.list(sessionId)
@@ -1660,14 +1645,6 @@ async function openDesign({ id, title, sessionId }: { id: string; title?: string
   return activateTab(tab)
 }
 
-async function openPhotoEditing({ id, title, sessionId }: { id: string; title?: string; sessionId: string }) {
-  if (!id || !sessionId || sessionId !== w().getCurrentSessionId?.()) return false
-  const tab = ensure('photo-editing', id, { title: title || defaultTitle('photo-editing') })
-  if (!tab) return false
-  tab.sessionId = sessionId
-  return activateTab(tab)
-}
-
 function clearVideoEditings() {
   activeScope()
   activationToken++
@@ -1686,13 +1663,6 @@ function clearDesigns() {
   activeScope()
   activationToken++
   for (const tab of [...tabs]) if (tab.kind === 'design') remove('design', tab.key)
-  publish()
-}
-
-function clearPhotoEditings() {
-  activeScope()
-  activationToken++
-  for (const tab of [...tabs]) if (tab.kind === 'photo-editing') remove('photo-editing', tab.key)
   publish()
 }
 
@@ -1763,8 +1733,6 @@ function onModeChanged(mode: string) {
           ? (w().klausActivePptId?.() || '')
         : kind === 'design'
           ? (w().klausActiveDesignId?.() || '')
-        : kind === 'photo-editing'
-          ? (w().klausActivePhotoEditingId?.() || '')
         : ''
   // An owner-published kind is only SELECTED here, never created: entering the
   // mode happens before the surface has anything in it (terminal mode opens,
@@ -1920,7 +1888,6 @@ function HeaderMenu({ id, labelledBy, items, menuRef, onClose }: {
     void w().klausSuspendVideoEditingForOverlay?.()
     void w().klausSuspendPptForOverlay?.()
     void w().klausSuspendDesignForOverlay?.()
-    void w().klausSuspendPhotoEditingForOverlay?.()
     return () => {
       void w().klausResumeBrowserAfterOverlay?.()
       void w().klausResumeCanvasAfterOverlay?.()
@@ -1928,7 +1895,6 @@ function HeaderMenu({ id, labelledBy, items, menuRef, onClose }: {
       void w().klausResumeVideoEditingAfterOverlay?.()
       void w().klausResumePptAfterOverlay?.()
       void w().klausResumeDesignAfterOverlay?.()
-      void w().klausResumePhotoEditingAfterOverlay?.()
     }
   }, [open])
   return (
@@ -1968,12 +1934,12 @@ function TabContextMenu({ x, y, items, onClose }: { x: number; y: number; items:
     menu.style.top = `${Math.max(margin, Math.min(y, window.innerHeight - rect.height - margin))}px`
   }, [x, y])
   useEffect(() => {
+    void w().klausSuspendBrowserForOverlay?.()
     void w().klausSuspendCanvasForOverlay?.()
     void w().klausSuspendPrototypeForOverlay?.()
     void w().klausSuspendVideoEditingForOverlay?.()
     void w().klausSuspendPptForOverlay?.()
     void w().klausSuspendDesignForOverlay?.()
-    void w().klausSuspendPhotoEditingForOverlay?.()
     const menu = ref.current
     const onPointerDown = (ev: PointerEvent) => { if (menu && !menu.contains(ev.target as Node)) onClose() }
     const onKeyDown = (ev: KeyboardEvent) => { if (ev.key === 'Escape') onClose() }
@@ -1988,12 +1954,12 @@ function TabContextMenu({ x, y, items, onClose }: { x: number; y: number; items:
       document.removeEventListener('pointerdown', onPointerDown, true)
       document.removeEventListener('keydown', onKeyDown, true)
       window.removeEventListener('resize', onResize, true)
+      void w().klausResumeBrowserAfterOverlay?.()
       void w().klausResumeCanvasAfterOverlay?.()
       void w().klausResumePrototypeAfterOverlay?.()
       void w().klausResumeVideoEditingAfterOverlay?.()
       void w().klausResumePptAfterOverlay?.()
       void w().klausResumeDesignAfterOverlay?.()
-      void w().klausResumePhotoEditingAfterOverlay?.()
     }
   }, [])
   // Same class as the workspace tab menu so both strips share one visual.
@@ -2335,7 +2301,7 @@ window.addEventListener('klaus:lang-change', () => {
   for (const tab of tabs) {
     // Owner-titled kinds keep their own titles (browser page and side-task
     // title); fixed surfaces follow the UI language.
-    if (tab.kind !== 'browser' && tab.kind !== 'side-task' && tab.kind !== 'subagent' && tab.kind !== 'background-process' && tab.kind !== 'spec' && tab.kind !== 'canvas' && tab.kind !== 'prototype' && tab.kind !== 'video-editing' && tab.kind !== 'ppt' && tab.kind !== 'design' && tab.kind !== 'photo-editing') tab.title = defaultTitle(tab.kind)
+    if (tab.kind !== 'browser' && tab.kind !== 'side-task' && tab.kind !== 'subagent' && tab.kind !== 'background-process' && tab.kind !== 'spec' && tab.kind !== 'canvas' && tab.kind !== 'prototype' && tab.kind !== 'video-editing' && tab.kind !== 'ppt' && tab.kind !== 'design') tab.title = defaultTitle(tab.kind)
   }
   langTick++
   publish()
@@ -2390,7 +2356,5 @@ if (maximized) applyMaximized()
   clearPresentations,
   openDesign,
   clearDesigns,
-  openPhotoEditing,
-  clearPhotoEditings,
   onModeChanged,
 }

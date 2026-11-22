@@ -54,6 +54,7 @@ export function initDesignPanel(): void {
     openTab: payload => w().KlausPanelTabs?.openDesign?.(payload) ?? Promise.resolve(false),
     toast: message => w().showToast?.(message), text,
     schedule: scheduleDesignBoundsSync,
+    host: () => host,
   })
   const surface = controller
   w().klausActivateDesignPanel = surface.activate

@@ -3,7 +3,7 @@
 // opt back in explicitly because their icons have no visible labels; the
 // observer keeps every other dynamic and static sidebar control tooltip-free.
 //（迁自 js/tooltip.js，逻辑原样。）
-export {}
+import { effectiveViewportRight } from './native-overlay-inset'
 
 const SHOW_DELAY = 120
 const HIDE_DELAY = 60
@@ -91,12 +91,13 @@ function position(el: HTMLElement) {
   const tipRect = t.getBoundingClientRect()
   const margin = 6
   const preferred = preferredPlacement(el)
+  const rightLimit = effectiveViewportRight(rect.left)
   if (preferred === 'left' || preferred === 'right') {
     const fitsLeft = rect.left - tipRect.width - margin >= 8
-    const fitsRight = rect.right + margin + tipRect.width <= uncoveredRight() - 8
+    const fitsRight = rect.right + margin + tipRect.width <= rightLimit - 8
     const placeLeft = preferred === 'left' ? fitsLeft || !fitsRight : !fitsRight && fitsLeft
     let x = placeLeft ? rect.left - tipRect.width - margin : rect.right + margin
-    x = Math.max(8, Math.min(uncoveredRight() - tipRect.width - 8, x))
+    x = Math.max(8, Math.min(rightLimit - tipRect.width - 8, x))
     let y = rect.top + rect.height / 2 - tipRect.height / 2
     y = Math.max(8, Math.min(window.innerHeight - tipRect.height - 8, y))
     t.style.left = x + 'px'
@@ -112,7 +113,7 @@ function position(el: HTMLElement) {
   let y = placeAbove ? rect.top - tipRect.height - margin : rect.bottom + margin
   y = Math.max(8, Math.min(window.innerHeight - tipRect.height - 8, y))
   let x = rect.left + rect.width / 2 - tipRect.width / 2
-  x = Math.max(8, Math.min(window.innerWidth - tipRect.width - 8, x))
+  x = Math.max(8, Math.min(rightLimit - tipRect.width - 8, x))
   t.style.left = x + 'px'
   t.style.top = y + 'px'
   t.dataset.placement = placeAbove ? 'top' : 'bottom'

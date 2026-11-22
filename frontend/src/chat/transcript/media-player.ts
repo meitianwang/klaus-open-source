@@ -15,6 +15,7 @@
 import { fileExtension } from '../../../../contracts/file-citation'
 import { writeClipboardText } from '../../clipboard'
 import { claimOverlay, overlayIdForElement, registerOverlay } from '../../app/overlay-registry'
+import { effectiveViewportRight } from '../../app/native-overlay-inset'
 
 type MediaKind = 'audio' | 'video'
 
@@ -249,7 +250,8 @@ function buildMenuButton(name: string, path: string, sessionId: string, src: str
     const gap = 4
     const top = anchor.bottom + gap + bounds.height <= window.innerHeight - inset
       ? anchor.bottom + gap : anchor.top - gap - bounds.height
-    menu.style.left = `${Math.max(inset, Math.min(anchor.right - bounds.width, window.innerWidth - bounds.width - inset))}px`
+    const rightLimit = effectiveViewportRight(anchor.left)
+    menu.style.left = `${Math.max(inset, Math.min(anchor.right - bounds.width, rightLimit - bounds.width - inset))}px`
     menu.style.top = `${Math.max(inset, Math.min(top, window.innerHeight - bounds.height - inset))}px`
     button.setAttribute('aria-expanded', 'true')
     button.setAttribute('aria-controls', menu.id)

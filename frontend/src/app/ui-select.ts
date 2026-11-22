@@ -17,6 +17,7 @@
 //（迁自 js/ui-select.js，逻辑原样。）
 import { icon } from '../icons/registry'
 import { claimOverlay, overlayIdForElement, registerOverlay, unregisterOverlay } from './overlay-registry'
+import { effectiveViewportRight } from './native-overlay-inset'
 
 const CARET_SVG = `${icon('chevron-down', { cls: 'kls-select-caret', size: 12 })}`
 
@@ -101,8 +102,9 @@ function positionPanel(trigger: HTMLElement, panel: HTMLElement) {
   panel.style.left = `${left}px`
   panel.style.right = 'auto'
   const pr = panel.getBoundingClientRect()
-  if (pr.right > window.innerWidth - 8) {
-    left = Math.max(8, rect.right - pr.width) - originX
+  const maxRight = effectiveViewportRight(rect.left) - 8
+  if (pr.right > maxRight) {
+    left = Math.max(8, Math.min(rect.right - pr.width, maxRight - pr.width)) - originX
     panel.style.left = `${left}px`
   }
   if (pr.bottom > window.innerHeight - 8) {

@@ -42,6 +42,7 @@ export function initPptPanel(): void {
     openTab: payload => w().KlausPanelTabs?.openPpt?.(payload) ?? Promise.resolve(false),
     toast: message => w().showToast?.(message), text,
     schedule: schedulePptBoundsSync,
+    host: () => host,
   })
   const surface = controller
   w().klausActivatePptPanel = surface.activate

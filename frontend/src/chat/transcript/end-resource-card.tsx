@@ -1,6 +1,7 @@
 import { useEffect, useId, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { useT } from '../../i18n'
+import { effectiveViewportRight } from '../../app/native-overlay-inset'
 import { Icon } from '../../components/Icon'
 import {
   END_RESOURCE_COLLAPSED_COUNT, END_RESOURCE_VISIBLE_LIMIT, endResourceFileKind, isLocalWebUrl, isUrlTarget, resourceDirectoryLabel,
@@ -41,7 +42,9 @@ interface MenuItem {
 function ResourceMenu({ anchor, items, label, onClose }: { anchor: HTMLElement; items: MenuItem[]; label: string; onClose: () => void }) {
   const menu = useRef<HTMLDivElement>(null)
   const box = anchor.getBoundingClientRect()
-  const position = { top: Math.min(box.bottom + 8, window.innerHeight - 8), right: Math.max(8, window.innerWidth - box.right) }
+  const rightLimit = effectiveViewportRight(box.left)
+  const minRight = Math.max(8, window.innerWidth - rightLimit + 8)
+  const position = { top: Math.min(box.bottom + 8, window.innerHeight - 8), right: Math.max(minRight, window.innerWidth - box.right) }
   useEffect(() => {
     const outside = (event: PointerEvent) => {
       if (!menu.current?.contains(event.target as Node) && !anchor.contains(event.target as Node)) onClose()

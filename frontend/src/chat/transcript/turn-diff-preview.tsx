@@ -5,6 +5,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Hunk } from '../../pages/diff/diff-render'
 import { parseUnifiedDiff } from './turn-diff-parse'
+import { effectiveViewportRight } from '../../app/native-overlay-inset'
 import styles from './transcript.module.css'
 
 const OPEN_DELAY_MS = 800
@@ -49,8 +50,9 @@ export function TurnDiffPreview({ diff, disabled, children }: {
       const row = wrapRef.current?.firstElementChild as HTMLElement | null
       const rect = row?.getBoundingClientRect()
       if (!rect || !rect.width) return
-      const width = Math.max(320, rect.width - 64)
-      const left = Math.min(Math.max(8, rect.left + 32), window.innerWidth - width - 8)
+      const rightLimit = effectiveViewportRight(rect.left)
+      const width = Math.min(Math.max(320, rect.width - 64), Math.max(240, rightLimit - 16))
+      const left = Math.max(8, Math.min(rect.left + 32, rightLimit - width - 8))
       setBox({ top: rect.top - 8, left, width })
       setOpen(true)
     }, OPEN_DELAY_MS)

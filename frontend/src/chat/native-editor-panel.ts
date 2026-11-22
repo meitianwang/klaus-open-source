@@ -17,7 +17,57 @@ let insetSeq = 0
 // both programs without widening either tsconfig; the runtime guards below
 // keep the behaviour identical when no DOM is present.
 interface NativeInsetStyle { setProperty(name: string, value: string): void; removeProperty(name: string): void }
-const insetGlobal = globalThis as { document?: { documentElement?: { style: NativeInsetStyle } | null }; innerWidth?: number }
+export interface NativeSnapshotNode {
+  className: string
+  alt: string
+  draggable: boolean
+  src: string
+  setAttribute(name: string, value: string): void
+  decode?(): Promise<unknown>
+  remove(): void
+}
+export interface NativeSnapshotHost { appendChild(node: unknown): unknown }
+const insetGlobal = globalThis as {
+  document?: {
+    documentElement?: { style: NativeInsetStyle } | null
+    createElement?: (tag: string) => NativeSnapshotNode
+  }
+  innerWidth?: number
+}
+
+export function createNativeOverlaySnapshot(getHost: () => NativeSnapshotHost | null | undefined) {
+  let node: NativeSnapshotNode | null = null
+  const clear = () => {
+    node?.remove()
+    node = null
+  }
+  const mount = async (reply: unknown, stillValid: () => boolean): Promise<void> => {
+    const dataUrl = (reply as { snapshotDataUrl?: unknown } | undefined)?.snapshotDataUrl
+    const host = getHost()
+    const create = insetGlobal.document?.createElement
+    if (!host || typeof create !== 'function' || typeof dataUrl !== 'string' || !dataUrl.startsWith('data:image/')) return
+    const image = create.call(insetGlobal.document, 'img')
+    image.className = 'browser-overlay-snapshot'
+    image.alt = ''
+    image.setAttribute('aria-hidden', 'true')
+    image.draggable = false
+    image.src = dataUrl
+    let timer: ReturnType<typeof setTimeout> | undefined
+    try {
+      await Promise.race([
+        Promise.resolve(image.decode?.()).catch(() => {}),
+        new Promise<void>(resolve => { timer = setTimeout(resolve, 120) }),
+      ])
+    } finally {
+      if (timer !== undefined) clearTimeout(timer)
+    }
+    if (!stillValid()) return
+    clear()
+    host.appendChild(image)
+    node = image
+  }
+  return { mount, clear }
+}
 export function publishNativeOverlayInset(owner: string, bounds: NativeEditorBounds | null): void {
   if (bounds) insetOwner = owner
   else if (insetOwner === owner) insetOwner = null
@@ -50,11 +100,13 @@ export interface NativeEditorPanelEnvironment {
   toast(message: string): void
   text(key: string): string
   schedule(): void
+  host?(): NativeSnapshotHost | null | undefined
 }
 export interface NativeEditorPanelLabels { title: string; openFailed: string; backgroundPending: string }
 
 export function createNativeEditorPanel(env: NativeEditorPanelEnvironment, labels: NativeEditorPanelLabels) {
   const insetToken = `native-editor-${++insetSeq}`
+  const snapshot = createNativeOverlaySnapshot(() => env.host?.())
   let activeId = '', activeSession = '', activeTitle = ''
   // The document each chat last held on screen. The host keeps every editor
   // alive while its chat is away, so returning to a chat can put its parked
@@ -88,6 +140,7 @@ export function createNativeEditorPanel(env: NativeEditorPanelEnvironment, label
         : Promise.resolve({ ok: false })).catch(error => ({ ok: false, error: error instanceof Error ? error.message : String(error) }))
       if (!current(token) || !visible()) return false
       if (!result?.ok) {
+        snapshot.clear()
         if (parked.get(session)?.id === id) parked.delete(session)
         activeId = activeSession = activeTitle = ''
         lastBounds = null
@@ -97,6 +150,7 @@ export function createNativeEditorPanel(env: NativeEditorPanelEnvironment, label
       }
       lastBounds = bounds
       publishNativeOverlayInset(insetToken, bounds)
+      snapshot.clear()
       if (!same(bounds, env.bounds())) env.schedule()
       return true
     })()
@@ -121,6 +175,7 @@ export function createNativeEditorPanel(env: NativeEditorPanelEnvironment, label
   async function hide(): Promise<void> {
     epoch++
     lastBounds = null
+    snapshot.clear()
     publishNativeOverlayInset(insetToken, null)
     await enqueue(() => env.api()?.panelHide() ?? Promise.resolve()).catch(() => {})
   }
@@ -133,6 +188,7 @@ export function createNativeEditorPanel(env: NativeEditorPanelEnvironment, label
     epoch++
     activeId = activeSession = activeTitle = ''
     lastBounds = null
+    snapshot.clear()
     publishNativeOverlayInset(insetToken, null)
     await enqueue(() => env.api()?.panelClose() ?? Promise.resolve()).catch(() => {})
   }
@@ -152,14 +208,21 @@ export function createNativeEditorPanel(env: NativeEditorPanelEnvironment, label
   }
 
   async function suspend(): Promise<void> {
+    const wasVisible = visible()
     overlays++
-    if (overlays === 1) await hide()
+    if (overlays > 1) return
+    const token = ++epoch
+    lastBounds = null
+    publishNativeOverlayInset(insetToken, null)
+    const reply = await enqueue(() => env.api()?.panelHide() ?? Promise.resolve()).catch(() => undefined)
+    if (wasVisible) await snapshot.mount(reply, () => overlays > 0 && token === epoch)
   }
   async function resume(): Promise<void> {
     if (overlays <= 0 || --overlays > 0) return
     const token = epoch
     await env.layout()
     if (current(token)) await show()
+    if (!visible()) snapshot.clear()
   }
 
   async function onOpen(payload: NativeEditorOpenPayload): Promise<void> {

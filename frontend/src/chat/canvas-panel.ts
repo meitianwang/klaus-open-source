@@ -5,7 +5,7 @@
 // child webview over #canvas-panel-host, preserving the narrow Canvas bridge while
 // still making Canvas a normal, closable right-panel tab.
 
-import { publishNativeOverlayInset } from './native-editor-panel'
+import { createNativeOverlaySnapshot, publishNativeOverlayInset } from './native-editor-panel'
 
 interface CanvasBounds { x: number; y: number; width: number; height: number }
 interface CanvasOpenPayload { requestId?: string; filePath?: string; displayName?: string; sessionId?: string }
@@ -23,6 +23,7 @@ const w = () => window as any
 const api = (): CanvasPanelApi | undefined => w().klaus?.canvas
 const panel = document.getElementById('artifacts-panel')
 const host = document.getElementById('canvas-panel-host')
+const overlaySnapshot = createNativeOverlaySnapshot(() => host)
 
 let activePath = ''
 let activeTitle = ''
@@ -117,6 +118,7 @@ async function showRuntime({ reload = false } = {}) {
     }))
     if (!current(epoch) || !visible() || suspendedForOverlay) return false
     if (!result?.ok) {
+      overlaySnapshot.clear()
       trace('show-failed')
       w().showToast?.(result?.error || 'Canvas could not open')
       return false
@@ -124,6 +126,7 @@ async function showRuntime({ reload = false } = {}) {
     trace('show-ack')
     lastBounds = next
     publishNativeOverlayInset(CANVAS_INSET_OWNER, next)
+    overlaySnapshot.clear()
     if (!sameBounds(next, bounds())) scheduleCanvasBoundsSync()
     return true
   })()
@@ -148,6 +151,7 @@ export async function activateCanvasPanel({ path, title, reload = false }: { pat
 export async function hideCanvasPanel() {
   presentationEpoch++
   lastBounds = null
+  overlaySnapshot.clear()
   publishNativeOverlayInset(CANVAS_INSET_OWNER, null)
   trace('hide')
   await enqueueHost(() => api()?.panelHide() ?? Promise.resolve()).catch(() => {})
@@ -161,6 +165,7 @@ export async function closeCanvasPanel(path = '') {
   activeTitle = ''
   activeSession = ''
   lastBounds = null
+  overlaySnapshot.clear()
   publishNativeOverlayInset(CANVAS_INSET_OWNER, null)
   await enqueueHost(() => api()?.panelClose() ?? Promise.resolve()).catch(() => {})
 }
@@ -177,13 +182,15 @@ export function initCanvasPanel() {
   // preview is still up), so suspension is counted: the native view returns only
   // when the last overlay that asked for it is gone.
   w().klausSuspendCanvasForOverlay = async () => {
+    const wasVisible = visible() && suspendedForOverlay === 0
     suspendedForOverlay++
-    if (suspendedForOverlay > 1 || !visible()) return
-    presentationEpoch++
+    if (suspendedForOverlay > 1 || !wasVisible) return
+    const token = ++presentationEpoch
     lastBounds = null
     publishNativeOverlayInset(CANVAS_INSET_OWNER, null)
     trace('suspend')
-    await enqueueHost(() => api()?.panelHide() ?? Promise.resolve()).catch(() => {})
+    const reply = await enqueueHost(() => api()?.panelHide() ?? Promise.resolve()).catch(() => undefined)
+    await overlaySnapshot.mount(reply, () => suspendedForOverlay > 0 && token === presentationEpoch)
   }
   w().klausResumeCanvasAfterOverlay = async () => {
     if (suspendedForOverlay <= 0) return
@@ -192,8 +199,12 @@ export function initCanvasPanel() {
     const epoch = presentationEpoch
     trace('resume')
     await waitForLayout()
-    if (!current(epoch)) return
+    if (!current(epoch)) {
+      overlaySnapshot.clear()
+      return
+    }
     await showRuntime()
+    if (!visible()) overlaySnapshot.clear()
   }
 
   const openPayload = (payload: CanvasOpenPayload) => {

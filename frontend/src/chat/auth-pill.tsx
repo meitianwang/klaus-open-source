@@ -14,6 +14,7 @@ import {
 import { authErrorTextForMode } from '../pages/settings/subscription-card'
 import { openModelSettings } from '../pages/settings/shell'
 import { claimOverlay, overlayIdForElement, registerOverlay } from '../app/overlay-registry'
+import { effectiveViewportRight } from '../app/native-overlay-inset'
 import { AuthMenuRequests, type AuthMenuState } from './auth-menu-state'
 
 const w = () => window as any
@@ -127,7 +128,7 @@ function AuthModeMenu({ anchor, state, requests, onClose }: { anchor: HTMLElemen
     const aboveTop = rect.top - height - 8
     const top = Math.max(8, aboveTop)
     menu.style.top = `${top}px`
-    menu.style.left = `${Math.max(8, Math.min(rect.left, window.innerWidth - width - 8))}px`
+    menu.style.left = `${Math.max(8, Math.min(rect.left, effectiveViewportRight(rect.left) - width - 8))}px`
   }, [anchor])
 
   // 首帧就位（layoutEffect 在 paint 前跑）：旧版 appendChild 后同步定位，菜单

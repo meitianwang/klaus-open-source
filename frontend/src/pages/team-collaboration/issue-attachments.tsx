@@ -125,7 +125,7 @@ export function IssueAttachments({ projectId, issueId, writable, revision, onCha
       <button type="button" className={styles.danger} aria-label={`${t('removeAttachment')} ${file.name}`} disabled={!writable || busy} onClick={() => setRemoving(file.id)}>{t('remove')}</button>
       {removing === file.id && <div className={styles.confirmInline} role="alert"><p>{t('removeAttachmentConfirm')} <strong>{file.name}</strong></p><div className={styles.actions}><button type="button" disabled={busy} onClick={() => setRemoving(null)}>{t('cancel')}</button><button type="button" className={styles.danger} disabled={busy} onClick={() => void remove(file)}>{t('confirm')}</button></div></div>}
     </article>)}
-    {preview && <div className={styles.previewPanel} role="dialog" aria-label={preview.file.name}><header><h3>{preview.file.name}</h3><button type="button" aria-label={t('close')} onClick={() => setPreview(null)}>×</button></header>
+    {preview && <div className={styles.previewPanel} role="dialog" aria-modal="true" aria-label={preview.file.name}><header><h3>{preview.file.name}</h3><button type="button" aria-label={t('close')} onClick={() => setPreview(null)}>×</button></header>
       {preview.value.kind === 'image' && preview.value.dataUrl ? <img src={preview.value.dataUrl} alt={preview.file.name} /> : <pre>{preview.value.text}</pre>}
     </div>}
   </section>

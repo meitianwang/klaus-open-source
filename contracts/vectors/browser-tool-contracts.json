@@ -124,12 +124,12 @@
     "explicit": { "type": "mouseWheel", "x": 25, "y": 75, "deltaX": -45, "deltaY": 0, "pointerType": "mouse" }
   },
   "modalPresentation": {
-    "reason": "Native browser views paint above renderer HTML. Modal overlays must temporarily park the view and display a noninteractive still inside its panel until the overlay closes, preserving the live page and keyboard access to the dialog.",
-    "suspendedSurfaces": ["Browser"],
-    "markers": ["[aria-modal=\"true\"]", "dialog[open]", ".klaus-dialog-overlay", ".kls-modal-overlay", ".klaus-inline-vis-backdrop"],
-    "nested": "Keep the browser parked until the last visible overlay leaves.",
-    "capture": "Read only the page already on screen; never create a tab, select another page or wake a background page.",
-    "restore": "Resume the same existing tab or the latest explicit scoped open; cancel stale captures and restores across task or tab changes."
+    "reason": "Native child WebContentsViews (Browser and the isolated visual/document editors) paint above renderer HTML regardless of z-index. Modal, full-window, and opt-in wide overlays must temporarily park every active native surface and display a noninteractive still inside its panel until the last overlay closes, preserving live state and unobstructed access to the overlay.",
+    "suspendedSurfaces": ["Browser", "Canvas", "Prototype", "VideoEditing", "Ppt", "Design"],
+    "markers": ["[aria-modal=\"true\"]", "dialog[open]", ".klaus-dialog-overlay", ".kls-modal-overlay", ".klaus-inline-vis-backdrop", ".drop-overlay.active", "[data-klaus-native-suspend]"],
+    "nested": "Keep native surfaces parked until the last visible overlay leaves.",
+    "capture": "Read only the surface already on screen; never create a tab, select another page or wake a background document.",
+    "restore": "Resume the same existing surface or the latest explicit scoped open; cancel stale captures and restores across task or tab changes."
   },
   "permissionDefaults": {
     "reason": "Screen wake locks keep the display awake without prompting. Storage persistence requests settle silently without an implicit grant or a remembered user denial; explicit permission decisions still take precedence and ordinary site storage remains available.",

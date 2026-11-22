@@ -16,6 +16,7 @@ import { createStore, type StoreApi } from 'zustand/vanilla'
 import { useStore } from 'zustand'
 import { Icon, rawIconHtml } from '../../components/Icon'
 import { claimOverlay, overlayIdForElement, registerOverlay } from '../../app/overlay-registry'
+import { effectiveViewportRight } from '../../app/native-overlay-inset'
 import { knownModelSourceErrorText } from '../../app/model-source-errors'
 import { showToast } from '../../app/ui-shared'
 import { escapeHtml } from '../transcript/factories'
@@ -530,8 +531,9 @@ function ModelSelectMenu({ store, onEmptyClick, saveModel, saveThinkingLevel, sa
     const pr = targetPanel.getBoundingClientRect()
     const above = rect.top - pr.height - 4
     targetPanel.style.top = `${above >= 8 ? above : Math.min(rect.bottom + 4, Math.max(8, window.innerHeight - pr.height - 8))}px`
-    if (pr.right > window.innerWidth - 8) {
-      targetPanel.style.left = `${Math.max(8, rect.right - pr.width)}px`
+    const maxRight = effectiveViewportRight(rect.left) - 8
+    if (pr.right > maxRight) {
+      targetPanel.style.left = `${Math.max(8, Math.min(rect.right - pr.width, maxRight - pr.width))}px`
     }
     // 打开时让选中模型在固定高度列表里可见。
     targetPanel.querySelector(`.${styles['main-model-list']} .kls-select-item.is-selected`)?.scrollIntoView({ block: 'nearest' })
@@ -551,7 +553,8 @@ function ModelSelectMenu({ store, onEmptyClick, saveModel, saveThinkingLevel, sa
     const sr = submenu.getBoundingClientRect()
     const rightLeft = panelRect.right + 6
     const leftLeft = panelRect.left - sr.width - 6
-    submenu.style.left = `${rightLeft + sr.width <= window.innerWidth - 8 ? rightLeft : Math.max(8, leftLeft)}px`
+    const maxRight = effectiveViewportRight(panelRect.left) - 8
+    submenu.style.left = `${rightLeft + sr.width <= maxRight ? rightLeft : Math.max(8, leftLeft)}px`
     submenu.style.top = `${Math.min(Math.max(8, anchorRect.top), Math.max(8, window.innerHeight - sr.height - 8))}px`
     submenu.style.right = 'auto'
   }, [submenuVisible, submenuKind, items, value, thinkingLevel])

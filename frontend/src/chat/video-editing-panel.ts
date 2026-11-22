@@ -1,7 +1,7 @@
 // The host rectangle carries an isolated native editor; this renderer owns only
 // presentation and never evaluates the editor runtime or its documents.
 import type { VideoEditingBounds, VideoEditingOpenPayload, VideoEditingPanelApi } from '../../bridge/video-editing-api'
-import { publishNativeOverlayInset } from './native-editor-panel'
+import { createNativeOverlaySnapshot, publishNativeOverlayInset, type NativeSnapshotHost } from './native-editor-panel'
 
 type Reply = { ok?: boolean; error?: string }
 export interface VideoEditingPanelEnvironment {
@@ -15,12 +15,14 @@ export interface VideoEditingPanelEnvironment {
   toast(message: string): void
   text(key: string): string
   schedule(): void
+  host?(): NativeSnapshotHost | null | undefined
 }
 
 let videoInsetSeq = 0
 
 export function createVideoEditingPanel(env: VideoEditingPanelEnvironment) {
   const insetToken = `video-editing-${++videoInsetSeq}`
+  const snapshot = createNativeOverlaySnapshot(() => env.host?.())
   let activeId = '', activeSession = '', activeTitle = ''
   // The film each chat last held on screen. The host keeps every editor alive
   // while its chat is away, so returning to a chat can put its parked film
@@ -54,6 +56,7 @@ export function createVideoEditingPanel(env: VideoEditingPanelEnvironment) {
         : Promise.resolve({ ok: false })).catch(error => ({ ok: false, error: error instanceof Error ? error.message : String(error) }))
       if (!current(token) || !visible()) return false
       if (!result?.ok) {
+        snapshot.clear()
         if (parked.get(session)?.id === id) parked.delete(session)
         activeId = activeSession = activeTitle = ''
         lastBounds = null
@@ -63,6 +66,7 @@ export function createVideoEditingPanel(env: VideoEditingPanelEnvironment) {
       }
       lastBounds = bounds
       publishNativeOverlayInset(insetToken, bounds)
+      snapshot.clear()
       if (!same(bounds, env.bounds())) env.schedule()
       return true
     })()
@@ -87,6 +91,7 @@ export function createVideoEditingPanel(env: VideoEditingPanelEnvironment) {
   async function hide(): Promise<void> {
     epoch++
     lastBounds = null
+    snapshot.clear()
     publishNativeOverlayInset(insetToken, null)
     await enqueue(() => env.api()?.panelHide() ?? Promise.resolve()).catch(() => {})
   }
@@ -107,6 +112,7 @@ export function createVideoEditingPanel(env: VideoEditingPanelEnvironment) {
     if (token === epoch) {
       activeId = activeSession = activeTitle = ''
       lastBounds = null
+      snapshot.clear()
       publishNativeOverlayInset(insetToken, null)
     }
     return true
@@ -127,14 +133,21 @@ export function createVideoEditingPanel(env: VideoEditingPanelEnvironment) {
   }
 
   async function suspend(): Promise<void> {
+    const wasVisible = visible()
     overlays++
-    if (overlays === 1) await hide()
+    if (overlays > 1) return
+    const token = ++epoch
+    lastBounds = null
+    publishNativeOverlayInset(insetToken, null)
+    const reply = await enqueue(() => env.api()?.panelHide() ?? Promise.resolve()).catch(() => undefined)
+    if (wasVisible) await snapshot.mount(reply, () => overlays > 0 && token === epoch)
   }
   async function resume(): Promise<void> {
     if (overlays <= 0 || --overlays > 0) return
     const token = epoch
     await env.layout()
     if (current(token)) await show()
+    if (!visible()) snapshot.clear()
   }
 
   async function onOpen(payload: VideoEditingOpenPayload): Promise<void> {
@@ -205,6 +218,7 @@ export function initVideoEditingPanel(): void {
     openTab: payload => w().KlausPanelTabs?.openVideoEditing?.(payload) ?? Promise.resolve(false),
     toast: message => w().showToast?.(message), text,
     schedule: scheduleVideoEditingBoundsSync,
+    host: () => host,
   })
   const surface = controller
   w().klausActivateVideoEditingPanel = surface.activate

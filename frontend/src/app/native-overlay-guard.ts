@@ -1,17 +1,16 @@
-// The native browser page steps aside for every modal overlay.
+// Native child WebContentsViews step aside for every modal or full-window overlay.
 //
-// The embedded browser is a WebContentsView owned by the host. It paints above
-// every HTML layer of this window, so a dialog's backdrop and card cannot cover
-// it with z-index: the page stays sharp on top of a blurred window and slices
-// the dialog in half. The browser exposes counted suspend/resume hooks; this
-// module holds exactly one lease on them while any modal overlay is visible.
+// Embedded surfaces (Browser, Canvas, Prototype, VideoEditing, Ppt, Design) are
+// host-owned WebContentsViews. They paint above every HTML layer of this window,
+// so an overlay's backdrop or dialog card cannot cover them with z-index: the
+// native surface stays sharp on top of the window and slices the dialog in half.
+// Each surface exposes counted suspend/resume hooks; this module holds exactly
+// one lease on all of them while any modal or opt-in overlay is visible.
 //
-// Modals come from many producers (the shared confirm dialog, React portals,
-// hand-built overlays, native <dialog>), so they are recognised by the markers
-// they all carry instead of asking every producer to remember the hooks.
-//
-// Editor runtimes retain their existing overlay lifecycle; this guard owns
-// only the browser presentation.
+// Overlays come from many producers (the command menu, the shared confirm dialog,
+// React portals, hand-built overlays, native <dialog>, drag-drop targets, and
+// wide popovers marked with data-klaus-native-suspend), so they are recognised
+// by their DOM markers instead of asking every producer to wire the hooks.
 
 export const NATIVE_OVERLAY_SELECTOR = [
   '[aria-modal="true"]',
@@ -19,10 +18,17 @@ export const NATIVE_OVERLAY_SELECTOR = [
   '.klaus-dialog-overlay',
   '.kls-modal-overlay',
   '.klaus-inline-vis-backdrop',
+  '.drop-overlay.active',
+  '[data-klaus-native-suspend]',
 ].join(',')
 
 const SURFACE_HOOKS: ReadonlyArray<readonly [suspend: string, resume: string]> = [
   ['klausSuspendBrowserForOverlay', 'klausResumeBrowserAfterOverlay'],
+  ['klausSuspendCanvasForOverlay', 'klausResumeCanvasAfterOverlay'],
+  ['klausSuspendPrototypeForOverlay', 'klausResumePrototypeAfterOverlay'],
+  ['klausSuspendVideoEditingForOverlay', 'klausResumeVideoEditingAfterOverlay'],
+  ['klausSuspendPptForOverlay', 'klausResumePptAfterOverlay'],
+  ['klausSuspendDesignForOverlay', 'klausResumeDesignAfterOverlay'],
 ]
 
 type Hook = () => unknown
@@ -129,7 +135,7 @@ export function createNativeOverlayGuard(env: NativeOverlayGuardEnvironment): Na
   })
   observer.observe(env.root, {
     childList: true, subtree: true, attributes: true,
-    attributeFilter: ['class', 'hidden', 'open', 'aria-modal'],
+    attributeFilter: ['class', 'hidden', 'open', 'aria-modal', 'data-klaus-native-suspend'],
   })
   for (const match of env.root.querySelectorAll(NATIVE_OVERLAY_SELECTOR)) candidates.add(match)
   if (candidates.size) request()

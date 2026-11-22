@@ -2,6 +2,7 @@ import { useEffect, useRef, useSyncExternalStore } from 'react'
 import { createRoot } from 'react-dom/client'
 import { approvalReviewActionSummary, type ApprovalReview, type ApprovalReviewAction } from '../../../../contracts/approval-review'
 import { useT } from '../../i18n'
+import { effectiveViewportRight } from '../../app/native-overlay-inset'
 import { Icon } from '../../components/Icon'
 import styles from './approval-review.module.css'
 import menuStyles from '../composer/composer.module.css'
@@ -118,9 +119,10 @@ export function openApprovalReviewDenials(sessionId: string, currentSessionId: (
   const position = () => {
     if (!anchor.isConnected) { close(); return }
     const rect = anchor.getBoundingClientRect()
-    const width = Math.min(560, innerWidth - 16)
+    const rightLimit = effectiveViewportRight(rect.left)
+    const width = Math.min(560, Math.max(240, rightLimit - 16))
     host.style.width = `${width}px`
-    host.style.left = `${Math.max(8, Math.min(rect.left, innerWidth - width - 8))}px`
+    host.style.left = `${Math.max(8, Math.min(rect.left, rightLimit - width - 8))}px`
     host.style.bottom = `${Math.max(8, innerHeight - rect.top + 6)}px`
     host.style.maxHeight = `${Math.max(0, rect.top - 16)}px`
   }

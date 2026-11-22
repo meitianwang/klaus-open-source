@@ -198,6 +198,7 @@ export function FeatureTour({ entry, onFinish }: {
         style={{ top: placed.top, left: placed.left }}
         role="dialog"
         aria-modal="false"
+        data-klaus-native-suspend="true"
         aria-label={t(step.titleKey)}
       >
         <span className={styles['tour-step-count']}>

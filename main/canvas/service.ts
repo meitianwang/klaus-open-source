@@ -11,6 +11,7 @@ import { mimeForExtension } from '../services/media';
 import { CanvasStore } from './store';
 import { CanvasDocumentStore } from './document-store';
 import { inside, message, record, text, type Data } from '../visuals/data';
+import { canCaptureNativeViewSnapshot, captureNativeViewSnapshot } from '../utils/native-view-snapshot';
 import type { HandlerContext } from '../ipc/registry';
 import type { Json } from '../ipc/contract';
 
@@ -172,6 +173,17 @@ export class CanvasService {
     return { ok: true };
   }
   hide(): Data { this.revision += 1; this.panel?.setVisible(false); return { ok: true }; }
+  private async hideWithSnapshot(): Promise<Data> {
+    const revision = ++this.revision;
+    const panel = this.panel;
+    if (panel && canCaptureNativeViewSnapshot(panel)) {
+      const snapshotDataUrl = await captureNativeViewSnapshot(panel);
+      if (this.revision === revision && this.panel === panel) panel.setVisible(false);
+      return snapshotDataUrl ? { ok: true, snapshotDataUrl } : { ok: true };
+    }
+    panel?.setVisible(false);
+    return { ok: true };
+  }
   private closePanel(invalidate = true): Data {
     if (invalidate) this.revision += 1;
     const view = this.panel; const contents = this.panelContents;
@@ -234,7 +246,7 @@ export class CanvasService {
       case 'canvas:send-to-chat': this.options.emit('canvas:send-to-chat', { text: text(fields.text, 'text'), submit: fields.submit === true, newChat: fields.newChat === true }); return { ok: true };
       case 'canvas:panel-show': return this.show(fields);
       case 'canvas:panel-set-bounds': return this.setBounds(fields.bounds);
-      case 'canvas:panel-hide': return this.hide();
+      case 'canvas:panel-hide': return this.hideWithSnapshot();
       case 'canvas:panel-close': return this.closePanel();
       default: throw new Error(`Unknown Canvas channel: ${context.channel}`);
     }

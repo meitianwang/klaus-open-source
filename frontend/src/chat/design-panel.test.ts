@@ -114,3 +114,80 @@ test('visual artifact normalization supports design created and ready states', (
   expect(ready).toEqual({ kind: 'design', id: 'c1', title: 'Design Canvas' })
   expect(visualArtifactHintState(ready!)).toBe('ready')
 })
+
+test('overlay suspension mounts a still snapshot in the panel host and clears it when the native view resumes', async () => {
+  const prevDoc = Object.getOwnPropertyDescriptor(globalThis, 'document')
+  const prevWidth = Object.getOwnPropertyDescriptor(globalThis, 'innerWidth')
+  const mounted: any[] = []
+  const rootProps = new Map<string, string>()
+  try {
+    Object.defineProperty(globalThis, 'innerWidth', { configurable: true, value: 1440 })
+    Object.defineProperty(globalThis, 'document', {
+      configurable: true,
+      value: {
+        documentElement: {
+          style: {
+            setProperty: (k: string, v: string) => rootProps.set(k, v),
+            removeProperty: (k: string) => rootProps.delete(k),
+          },
+        },
+        createElement: (_tag: string) => {
+          const attrs = new Map<string, string>()
+          const img: any = {
+            className: '',
+            alt: '',
+            draggable: true,
+            src: '',
+            setAttribute: (k: string, v: string) => attrs.set(k, v),
+            decode: async () => {},
+            remove: () => {
+              const idx = mounted.indexOf(img)
+              if (idx >= 0) mounted.splice(idx, 1)
+            },
+          }
+          return img
+        },
+      },
+    })
+    const host = { appendChild: (node: unknown) => { mounted.push(node); return node } }
+    const surface = createDesignPanel({
+      api: () => ({
+        panelShow: async () => ({ ok: true }),
+        panelSetBounds: async () => ({ ok: true }),
+        panelHide: async () => ({ ok: true, snapshotDataUrl: 'data:image/jpeg;base64,AAAA' }),
+        panelClose: async () => ({ ok: true }),
+        openResult: async () => {},
+      }),
+      currentSession: () => 'chat-a',
+      visible: () => true,
+      bounds: () => ({ x: 697, y: 40, width: 743, height: 860 }),
+      layout: async () => {},
+      openMode: () => {},
+      openTab: async () => true,
+      toast: () => {},
+      text: key => key,
+      schedule: () => {},
+      host: () => host,
+    })
+
+    expect(await surface.activate({ id: 'canvas-1', title: 'Poster', sessionId: 'chat-a' })).toBe(true)
+    expect(rootProps.get('--klaus-native-panel-inset-right')).toBe('743px')
+    expect(mounted).toHaveLength(0)
+
+    await surface.suspend()
+    expect(rootProps.has('--klaus-native-panel-inset-right')).toBe(false)
+    expect(mounted).toHaveLength(1)
+    expect(mounted[0].className).toBe('browser-overlay-snapshot')
+    expect(mounted[0].src).toBe('data:image/jpeg;base64,AAAA')
+
+    await surface.resume()
+    expect(mounted).toHaveLength(0)
+    expect(rootProps.get('--klaus-native-panel-inset-right')).toBe('743px')
+  } finally {
+    if (prevDoc) Object.defineProperty(globalThis, 'document', prevDoc)
+    else Reflect.deleteProperty(globalThis, 'document')
+    if (prevWidth) Object.defineProperty(globalThis, 'innerWidth', prevWidth)
+    else Reflect.deleteProperty(globalThis, 'innerWidth')
+  }
+})
+

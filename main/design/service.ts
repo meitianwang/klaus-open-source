@@ -10,6 +10,7 @@ import { HOST_CHANNELS } from '../ipc/host-channels';
 import { decodeBinary } from '../ipc/binary';
 import { VisualCapabilityServer } from '../visuals/capability-server';
 import { inside, message, record, text, type Data } from '../visuals/data';
+import { canCaptureNativeViewSnapshot, captureNativeViewSnapshot } from '../utils/native-view-snapshot';
 import { DesignStore, designContentType, type DesignDocument, type DesignFile, type DesignValidationRecord } from './store';
 import { DesignRuntime } from './runtime';
 import { designTools } from './tools';
@@ -660,8 +661,15 @@ export class DesignService {
       return { ok: true };
     }
     if (context.channel === 'design:panel-hide' || context.channel === 'design:panel-close') {
-      this.revisions.set(windowId, (this.revisions.get(windowId) ?? 0) + 1);
-      this.active.get(windowId)?.view.setVisible(false);
+      const revision = (this.revisions.get(windowId) ?? 0) + 1;
+      this.revisions.set(windowId, revision);
+      const active = this.active.get(windowId);
+      if (context.channel === 'design:panel-hide' && active && canCaptureNativeViewSnapshot(active.view)) {
+        const snapshotDataUrl = await captureNativeViewSnapshot(active.view);
+        if (this.revisions.get(windowId) === revision && this.active.get(windowId) === active) active.view.setVisible(false);
+        return snapshotDataUrl ? { ok: true, snapshotDataUrl } : { ok: true };
+      }
+      active?.view.setVisible(false);
       if (context.channel === 'design:panel-close') this.active.delete(windowId);
       return { ok: true };
     }

@@ -38,6 +38,7 @@ export function initPrototypePanel(): void {
     openTab: payload => w().KlausPanelTabs?.openPrototype?.(payload) ?? Promise.resolve(false),
     toast: message => w().showToast?.(message), text,
     schedule: schedulePrototypeBoundsSync,
+    host: () => host,
   })
   const surface = controller
   w().klausActivatePrototypePanel = surface.activate

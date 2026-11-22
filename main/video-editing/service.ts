@@ -9,6 +9,7 @@ import type { HandlerContext } from '../ipc/registry';
 import type { Json } from '../ipc/contract';
 import { VisualCapabilityServer } from '../visuals/capability-server';
 import { inside, message, readBounded, record, text, type Data } from '../visuals/data';
+import { canCaptureNativeViewSnapshot, captureNativeViewSnapshot } from '../utils/native-view-snapshot';
 import { VideoEditingStore, type VideoEditingProject } from './store';
 import { VideoEditingRuntime } from './runtime';
 import { videoEditingTools } from './tools';
@@ -282,6 +283,17 @@ export class VideoEditingService {
     this.editors.get(this.activeId)?.view.setVisible(false);
     return { ok: true };
   }
+  private async hideWithSnapshot(): Promise<Data> {
+    const revision = ++this.presentation;
+    const active = this.editors.get(this.activeId);
+    if (active && canCaptureNativeViewSnapshot(active.view)) {
+      const snapshotDataUrl = await captureNativeViewSnapshot(active.view);
+      if (this.presentation === revision && this.editors.get(this.activeId) === active) active.view.setVisible(false);
+      return snapshotDataUrl ? { ok: true, snapshotDataUrl } : { ok: true };
+    }
+    active?.view.setVisible(false);
+    return { ok: true };
+  }
   private async present(fields: Data): Promise<Data> {
     const project = this.store.load(fields.id, text(fields.sessionId, 'video editing session'));
     const bounds = this.rectangle(fields.bounds), revision = ++this.presentation;
@@ -411,7 +423,7 @@ export class VideoEditingService {
       }
       case 'video-editing:panel-show': return this.present(fields);
       case 'video-editing:panel-set-bounds': this.bounds = record(fields.bounds); this.resize(); return { ok: true };
-      case 'video-editing:panel-hide': return this.hide();
+      case 'video-editing:panel-hide': return this.hideWithSnapshot();
       case 'video-editing:panel-close': {
         const editor = this.editors.get(this.activeId);
         if (editor) await this.flushEditor(editor);

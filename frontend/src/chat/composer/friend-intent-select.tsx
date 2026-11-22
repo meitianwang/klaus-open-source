@@ -3,6 +3,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { createStore, type StoreApi } from 'zustand/vanilla'
 import { useStore } from 'zustand'
 import { Icon } from '../../components/Icon'
+import { effectiveViewportRight } from '../../app/native-overlay-inset'
 import type { FriendMessageIntent } from '../../../../shared/friends'
 
 const w = () => window as any
@@ -78,7 +79,7 @@ export function FriendIntentSelectMenu({ store, rootEl, onIntentChange }: {
     const place = () => {
       const rect = triggerRef.current!.getBoundingClientRect()
       panel.style.maxHeight = `${Math.max(0, window.innerHeight - 16)}px`
-      panel.style.left = `${Math.max(8, Math.min(rect.left, window.innerWidth - panel.offsetWidth - 8))}px`
+      panel.style.left = `${Math.max(8, Math.min(rect.left, effectiveViewportRight(rect.left) - panel.offsetWidth - 8))}px`
       panel.style.right = 'auto'
       const above = rect.top - panel.offsetHeight - 4
       panel.style.top = `${above >= 8 ? above : Math.min(rect.bottom + 4, Math.max(8, window.innerHeight - panel.offsetHeight - 8))}px`
