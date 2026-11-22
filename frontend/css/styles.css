@@ -9284,6 +9284,14 @@ body.artifacts-maximized .artifacts-panel > .artifacts-body {
   display: flex;
   flex-direction: column;
 }
+.artifacts-panel[data-mode="photo-editing"] .artifacts-section { display: none; }
+.artifacts-panel:not([data-mode="photo-editing"]) #photo-editing-panel { display: none; }
+.artifacts-panel[data-mode="photo-editing"] .artifacts-body {
+  padding: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
 .canvas-panel,
 .canvas-panel-host,
 .prototype-panel,
@@ -9293,7 +9301,9 @@ body.artifacts-maximized .artifacts-panel > .artifacts-body {
 .ppt-panel,
 .ppt-panel-host,
 .design-panel,
-.design-panel-host {
+.design-panel-host,
+.photo-editing-panel,
+.photo-editing-panel-host {
   flex: 1;
   min-width: 0;
   min-height: 0;

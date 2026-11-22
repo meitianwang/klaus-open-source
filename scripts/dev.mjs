@@ -72,7 +72,7 @@ catch (error) {
 }
 
 run([join(repo, 'engine/scripts/prepare-rust-release.mjs'), '--dev', ...(options.has('--reuse-engine') ? ['--verify-only'] : [])]);
-const { requireTarget, validateNative, validateSpeech, validateRecording, validatePip, validateComputerUse, validateEgressRelay } = await import('../packaging/resources.mjs');
+const { egressRelayArtifactName, requireTarget, validateNative, validateSpeech, validateRecording, validatePip, validateComputerUse, validateEgressRelay } = await import('../packaging/resources.mjs');
 const { ensureBrowserImportHelper } = await import('../packaging/browser-import.mjs');
 requireTarget(process.platform, process.arch);
 const target = `${process.platform}-${process.arch}`;
@@ -135,6 +135,8 @@ if (plan.isolated) {
   else console.log('[dev] this profile has no account yet: sign in once here and it is remembered.');
 }
 const env = devLaunchEnvironment({ base: process.env, plan });
+const egressBinary = join(helperDirectory('antigravity-egress'), egressRelayArtifactName(process.platform));
+if (!env.KLAUS_ANTIGRAVITY_EGRESS && existsSync(egressBinary)) env.KLAUS_ANTIGRAVITY_EGRESS = egressBinary;
 const child = spawnElectronGui(electronExecutable, ['.'], { cwd: appDirectory, env, stdio: ['inherit', 'inherit', 'inherit', 'ipc'] });
 let stopping = false, ready = false, windowNeverOpened = false, watcher, watcherDone = Promise.resolve(), watchFailed = false;
 const requestQuit = () => {

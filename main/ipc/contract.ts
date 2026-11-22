@@ -40,7 +40,7 @@ export interface IpcError {
  * stable identifiers, not window titles: `artifact` covers the `artifact-*`,
  * `memory-*` and `skill-*` per-file windows because they all load the same entry.
  */
-export type WindowRole = 'main' | 'artifact' | 'quick-input' | 'canvas' | 'prototype' | 'video-editing' | 'ppt' | 'design' | 'recorder' | 'overlay' | 'pet' | 'voice-chat';
+export type WindowRole = 'main' | 'artifact' | 'quick-input' | 'canvas' | 'prototype' | 'video-editing' | 'ppt' | 'design' | 'photo-editing' | 'recorder' | 'overlay' | 'pet' | 'voice-chat';
 
 /** One role's privileges as derived into the contract. */
 export interface RoleContract {

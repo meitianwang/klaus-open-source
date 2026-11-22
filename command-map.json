@@ -1,7 +1,7 @@
 {
   "summary": {
-    "invokeDeclared": 775,
-    "pushDeclared": 83
+    "invokeDeclared": 783,
+    "pushDeclared": 84
   },
   "rows": [
     {
@@ -1689,6 +1689,38 @@
       "kind": "invoke"
     },
     {
+      "channel": "photo-editing:list",
+      "kind": "invoke"
+    },
+    {
+      "channel": "photo-editing:open",
+      "kind": "invoke"
+    },
+    {
+      "channel": "photo-editing:open-result",
+      "kind": "invoke"
+    },
+    {
+      "channel": "photo-editing:panel-close",
+      "kind": "invoke"
+    },
+    {
+      "channel": "photo-editing:panel-hide",
+      "kind": "invoke"
+    },
+    {
+      "channel": "photo-editing:panel-set-bounds",
+      "kind": "invoke"
+    },
+    {
+      "channel": "photo-editing:panel-show",
+      "kind": "invoke"
+    },
+    {
+      "channel": "photo-editing:runtime-action",
+      "kind": "invoke"
+    },
+    {
       "channel": "plan:accept",
       "kind": "invoke"
     },
@@ -3318,6 +3350,10 @@
     },
     {
       "channel": "permission:request",
+      "kind": "push"
+    },
+    {
+      "channel": "photo-editing:open-panel",
       "kind": "push"
     },
     {

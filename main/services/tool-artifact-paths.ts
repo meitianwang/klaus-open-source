@@ -8,6 +8,8 @@ const EXPORT_TOOLS = new Set([
   'prototype_export', 'mcp__klaus-prototype__prototype_export',
   'digram_export', 'mcp__klaus-digram__digram_export',
   'design_export', 'mcp__klaus-design__design_export',
+  'photo_export', 'mcp__klaus-photo-editing__photo_export',
+  'photo_preview', 'mcp__klaus-photo-editing__photo_preview',
 ]);
 const READ_TOOLS = new Set(['read', 'Read']);
 

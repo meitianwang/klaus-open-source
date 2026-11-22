@@ -298,6 +298,10 @@ const SKILL_TEXT_I18N = {
     en: ['Interface Design', 'Edit interface designs with the complete local visual editor and a shared revisioned document; export the native design format, PNG, JPG, WebP, SVG, PDF and FIG.'],
     zh: ['界面原型设计', '使用完整的本地可视化编辑器设计桌面、平板和手机界面，代理与面板共同编辑同一文档，支持原生设计格式、PNG、JPG、WebP、SVG、PDF 和 FIG 导出；首次使用需更新桌面端。'],
   },
+  'photo-editing': {
+    en: ['Photo Editing', 'Edit layered photos, PSD files and raster compositions in a shared visual workspace with masks, non-destructive adjustments, smart objects, filters, CJK typography and multi-format export.'],
+    zh: ['图像编辑', '在共享可视化工作区中编辑照片、PSD 分层文件与栅格合成作品，支持图层与蒙版、非破坏性调整图层、智能对象、滤镜、选区绘制、中英文排版及 PSD、PNG、JPEG、WebP、PDF、SVG 导出。'],
+  },
   'reverse-engineering': {
     en: ['Reverse Engineering', 'Inspect shipped binaries, apps and captures with the evidence behind every finding, and verify a rebuild against the original with mechanical checks.'],
     zh: ['逆向工程', '对已发布的二进制、应用与抓包做证据化逆向分析，并用机器化对照验收重建结果。'],
@@ -696,6 +700,7 @@ const PLUGIN_NAME_EN_OVERRIDES = {
   iphoneuse: 'iPhone Use',
   ppt: 'PPT',
   design: 'Design Canvas',
+  'photo-editing': 'Photo Editing',
   browser: 'Browser',
 }
 
@@ -762,6 +767,7 @@ const PLUGIN_NAME_ZH_OVERRIDES = {
   iphoneuse: 'iPhone 操控',
   ppt: '演示文稿',
   design: '设计画布',
+  'photo-editing': '图像编辑',
   'netlify-skills': 'Netlify 技能',
   'netsuite-suitecloud': 'NetSuite SuiteCloud 开发',
   'oracle-ai-data-platform-workbench-spark-connectors': 'Oracle Spark 连接器',
@@ -915,6 +921,7 @@ const PLUGIN_DESCRIPTION_ZH_OVERRIDES = {
   'iphoneuse@klaus-official': '通过 USB 驱动真实 iPhone：引导式 WebDriverAgent 配置、实时屏幕预览与接管、元素树观察与点击、输入、滚动操作，适合 App 查找、列表采集与真机验收。',
   'ppt@klaus-official': '设计并编辑有统一视觉体系的演示文稿：真实图片、可编辑图表、视觉修订与来源校验，导出 PPTX、PDF、PNG 与 HTML。',
   'design@klaus-official': '在无限多画板画布上设计与编辑网页、落地页、应用界面、可交互原型、海报、印刷文档与图表，支持实时参数微调（Tweaks）、设计系统安装与 PDF、PNG、HTML、ZIP 导出。',
+  'photo-editing@klaus-official': '在共享可视化工作区中编辑照片、PSD 分层文件与栅格合成作品，支持图层与蒙版、非破坏性调整图层、智能对象、滤镜、选区绘制、中英文排版及 PSD、PNG、JPEG、WebP、PDF、SVG 导出。',
   codex: '连接 Codex 进行代码审查、任务委托和工程协作。',
   'frontend-design': '创建具有辨识度和生产质感的前端界面，避免模板化的 AI 风格。',
   'plugin-dev': '提供插件开发、验证、钩子、MCP、命令和代理相关的工程工作流。',

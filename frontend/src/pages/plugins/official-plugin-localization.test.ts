@@ -15,6 +15,7 @@ const OFFICIAL_SLUGS = [
   'digram',
   'iphoneuse',
   'model3d',
+  'photo-editing',
   'ppt',
   'prototype-studio',
   'reverse-engineering',

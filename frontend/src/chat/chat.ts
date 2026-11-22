@@ -205,6 +205,7 @@ import { initPptPanel, hidePptPanel, schedulePptBoundsSync } from './ppt-panel'
 import { createPptChatConsumer } from './ppt-chat'
 import type { PptChatRequest } from '../../bridge/ppt-api'
 import { initDesignPanel, hideDesignPanel, scheduleDesignBoundsSync, preferredDesignPanelWidth } from './design-panel'
+import { initPhotoEditingPanel, hidePhotoEditingPanel, schedulePhotoEditingBoundsSync, preferredPhotoEditingPanelWidth } from './photo-editing-panel'
 import { createDesignChatConsumer } from './design-chat'
 import type { DesignChatRequest } from '../../bridge/design-api'
 import { initBackgroundProcessMonitor } from './background-process-monitor'
@@ -19346,16 +19347,17 @@ initPrototypePanel()
 initVideoEditingPanel()
 initPptPanel()
 initDesignPanel()
+initPhotoEditingPanel()
 
 // The panel's modes, in one place. Three separate ternary chains used to spell
 // this list out, and each of them silently coerced any mode it had not been
 // taught to 'monitor' — so adding a surface meant remembering all three or
 // watching the new tab open on the summary instead.
-const PANEL_MODES = new Set(['monitor', 'workspace', 'diff', 'browser', 'terminal', 'digram', 'model3d', 'side-chat', 'subagent', 'background-process', 'spec', 'canvas', 'prototype', 'video-editing', 'ppt', 'design', 'planning', 'goal'])
+const PANEL_MODES = new Set(['monitor', 'workspace', 'diff', 'browser', 'terminal', 'digram', 'model3d', 'side-chat', 'subagent', 'background-process', 'spec', 'canvas', 'prototype', 'video-editing', 'ppt', 'design', 'photo-editing', 'planning', 'goal'])
 // Modes whose open/collapsed state is NOT the summary's persisted preference:
 // they are surfaces the user entered on purpose, so leaving one must not teach
 // the panel to come back collapsed next session.
-const TRANSIENT_PANEL_MODES = new Set(['browser', 'terminal', 'digram', 'model3d', 'side-chat', 'subagent', 'background-process', 'spec', 'canvas', 'prototype', 'video-editing', 'ppt', 'design', 'planning', 'goal'])
+const TRANSIENT_PANEL_MODES = new Set(['browser', 'terminal', 'digram', 'model3d', 'side-chat', 'subagent', 'background-process', 'spec', 'canvas', 'prototype', 'video-editing', 'ppt', 'design', 'photo-editing', 'planning', 'goal'])
 // Modes whose open/collapsed state is NOT the summary's persisted preference:
 // they are surfaces the user entered on purpose, so leaving one must not teach
 // the panel to come back collapsed next session.
@@ -19374,6 +19376,7 @@ function setArtifactsPanelMode(mode: string) {
   if (next !== 'video-editing') void hideVideoEditingPanel()
   if (next !== 'ppt') void hidePptPanel()
   if (next !== 'design') void hideDesignPanel()
+  if (next !== 'photo-editing') void hidePhotoEditingPanel()
   if (next !== 'diff' && !TRANSIENT_PANEL_MODES.has(next)) persistLocalValue(windowStateKey('klaus_artifacts_mode'), next)
   // Whoever moved the panel (tab click, side rail, engine event, restore), the
   // strip follows: the registry re-derives which tab is active from the mode
@@ -19419,6 +19422,11 @@ function openArtifactsPanel(mode: string = 'monitor') {
   if (nextMode === 'design' && !document.body.classList.contains('artifacts-maximized')) {
     const wsWidth = currentWorkspaceWidth()
     const widened = preferredDesignPanelWidth(rightPanelRatioToWidth(rightPanelWidthRatio, wsWidth), wsWidth)
+    if (widened !== null) setRightPanelWidthPx(widened, { updateRatio: true })
+  }
+  if (nextMode === 'photo-editing' && !document.body.classList.contains('artifacts-maximized')) {
+    const wsWidth = currentWorkspaceWidth()
+    const widened = preferredPhotoEditingPanelWidth(rightPanelRatioToWidth(rightPanelWidthRatio, wsWidth), wsWidth)
     if (widened !== null) setRightPanelWidthPx(widened, { updateRatio: true })
   }
   if (nextMode === 'monitor') chatMonitorExpanded = true
@@ -19468,6 +19476,7 @@ function closeArtifactsPanel() {
   if (mode === 'video-editing') void hideVideoEditingPanel()
   if (mode === 'ppt') void hidePptPanel()
   if (mode === 'design') void hideDesignPanel()
+  if (mode === 'photo-editing') void hidePhotoEditingPanel()
   if (mode === 'terminal') setTerminalOpen(false)
   syncArtifactsToggleVisibility()
 }
@@ -19530,6 +19539,7 @@ window.klausOnArtifactsLayoutChange = () => {
   scheduleVideoEditingBoundsSync()
   schedulePptBoundsSync()
   scheduleDesignBoundsSync()
+  schedulePhotoEditingBoundsSync()
   scheduleTerminalResize()
 }
 artifactsToggleBtnInner?.addEventListener('click', closeArtifactsPanel)
@@ -19546,6 +19556,7 @@ function hideArtifactsPanelForNonChatView() {
   void hideVideoEditingPanel()
   void hidePptPanel()
   void hideDesignPanel()
+  void hidePhotoEditingPanel()
   artifactsPanel.classList.add('collapsed')
   syncArtifactsToggleVisibility()
 }

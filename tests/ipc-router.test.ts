@@ -84,14 +84,14 @@ h.test('the derived contract describes every window role', async () => {
   const roles = contract.roles.map((r) => r.role).sort();
   assertDeepEqual(
     roles,
-    ['artifact', 'canvas', 'design', 'main', 'overlay', 'pet', 'ppt', 'prototype', 'quick-input', 'recorder', 'video-editing', 'voice-chat'],
+    ['artifact', 'canvas', 'design', 'main', 'overlay', 'pet', 'photo-editing', 'ppt', 'prototype', 'quick-input', 'recorder', 'video-editing', 'voice-chat'],
     'every rendering surface the shell creates has a role',
   );
   // The registry is the whole point of the contract: main is the only role with the
   // full surface, and the others are measured from their own bridge sources.
   const byRole = new Map(contract.roles.map((r) => [r.role, r]));
-  assertEqual(byRole.get('main')?.invoke.length, contract.summary.registeredInvoke - 15,
-    'main covers all but the fifteen role-exclusive channels');
+  assertEqual(byRole.get('main')?.invoke.length, contract.summary.registeredInvoke - 16,
+    'main covers all but the sixteen role-exclusive channels');
   assertEqual(byRole.get('canvas')?.invoke.length, 6, 'canvas keeps its six-channel surface');
   assertDeepEqual(byRole.get('quick-input')?.invoke, [
     'quick-input:hide', 'quick-input:language', 'quick-input:submit',
@@ -110,7 +110,7 @@ h.test('role-exclusive channels are not reachable from main', async () => {
   const roles = RoleTable.load();
   const mainExclusiveGaps = [
     'canvas:load', 'canvas:action', 'canvas:state-write',
-    'prototype:runtime-action', 'video-editing:runtime-action',
+    'prototype:runtime-action', 'video-editing:runtime-action', 'photo-editing:runtime-action',
     'ppt:save-file', 'ppt:transport-ready',
     'design:save-file', 'design:transport-ready',
     'quick-input:hide', 'quick-input:language',
@@ -123,6 +123,7 @@ h.test('role-exclusive channels are not reachable from main', async () => {
   assertEqual(roles.mayInvoke('canvas', 'canvas:load'), true, 'canvas owns canvas:load');
   assertEqual(roles.mayInvoke('quick-input', 'quick-input:hide'), true, 'quick input owns quick-input:hide');
   assertEqual(roles.mayInvoke('prototype', 'prototype:runtime-action'), true, 'prototype owns its runtime action');
+  assertEqual(roles.mayInvoke('photo-editing', 'photo-editing:runtime-action'), true, 'photo-editing owns its runtime action');
   for (const channel of mainExclusiveGaps.filter(channel => channel.startsWith('voice:overlay:'))) {
     assertEqual(roles.mayInvoke('voice-chat', channel), true, `voice chat owns ${channel}`);
   }
