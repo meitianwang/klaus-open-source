@@ -534,7 +534,7 @@ export class SubscriptionAuthService {
     try {
       this.check('codex', epoch);
       const configured = process.env.KLAUS_CODEX_CLIENT_VERSION?.trim() ?? '';
-      const version = /^\d+\.\d+\.\d+(?:[-+][A-Za-z0-9.-]+)?$/.test(configured) ? configured : '0.169.1';
+      const version = /^\d+\.\d+\.\d+(?:[-+][A-Za-z0-9.-]+)?$/.test(configured) ? configured : '0.171.0';
       const os = process.platform === 'darwin' ? 'Mac OS' : process.platform === 'win32' ? 'Windows' : process.platform === 'linux' ? 'Linux' : process.platform;
       const response = await this.post(this.codexUrl() + '/api/accounts/deviceauth/usercode', { client_id: CODEX_CLIENT_ID }, undefined, { 'User-Agent': `codex_cli_rs/${version} (${os} ${release()}; ${process.arch})` });
       this.check('codex', epoch);

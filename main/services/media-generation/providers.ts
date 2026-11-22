@@ -70,7 +70,7 @@ function imageBudget(files: GeneratedFile[]): GeneratedFile[] {
   return files;
 }
 export function codexImageHeaders(accountId: string, env: NodeJS.ProcessEnv = process.env): Record<string, string> {
-  const configured = env.KLAUS_CODEX_CLIENT_VERSION?.trim() ?? '', version = /^\d+\.\d+\.\d+(?:[-+][A-Za-z0-9.-]+)?$/.test(configured) ? configured : '0.169.1';
+  const configured = env.KLAUS_CODEX_CLIENT_VERSION?.trim() ?? '', version = /^\d+\.\d+\.\d+(?:[-+][A-Za-z0-9.-]+)?$/.test(configured) ? configured : '0.171.0';
   const platform = process.platform === 'darwin' ? 'Mac OS' : process.platform === 'win32' ? 'Windows' : process.platform === 'linux' ? 'Linux' : process.platform;
   return { Accept: 'application/json', originator: 'codex_cli_rs', version, 'User-Agent': `codex_cli_rs/${version} (${platform} ${release()}; ${process.arch})`, ...(accountId ? { 'ChatGPT-Account-Id': accountId } : {}) };
 }
@@ -161,7 +161,8 @@ function minimaxVideoFailure(status: number | undefined, payload: JsonObject): E
 // inlined as hex under `data.audio`, with the call's own status in
 // `base_resp`. No task id and no poll, unlike the video route on the same host.
 
-const MINIMAX_SPEECH_MODEL = 'speech-2.6-turbo';
+const MINIMAX_SPEECH_MODEL = 'speech-2.8-turbo';
+const MINIMAX_IMAGE_MODEL = 'MiniMax-H3-Image';
 const MINIMAX_SPEECH_VOICE = 'male-qn-qingse';
 const MINIMAX_SPEECH_PATH = '/v1/t2a_v2';
 
@@ -481,15 +482,21 @@ export class MediaProviders {
     return imageBudget(files);
   }
   /**
-   * The M Plan's synchronous image route on the subscription key, measured 200
-   * with a stored subscription credential. The answer inlines public download
-   * URLs rather than bytes, so they go through the shared download path.
+   * The M Plan's synchronous image route on the subscription key.
+   *
+   * `MiniMax-H3-Image` and `MiniMax-H3-Image-Highspeed` use the OpenAI-shaped
+   * `/v1/images/generations` and `/v1/images/edits` routes (JSON reference images),
+   * while legacy `image-01` / `image-01-live` stays on `/v1/image_generation`.
    */
   async minimaxImage(config: JsonObject, input: GenerationInput, signal: AbortSignal): Promise<GeneratedFile[]> {
     const base = endpoint(string(config.baseUrl), 'https://api.minimax.io');
     const apiKey = string(config.apiKey);
     if (!apiKey) throw new MediaGenerationError('Image generation has no subscription credential. Check Settings.');
-    const model = string(config.model) || 'image-01';
+    const model = string(config.model) || MINIMAX_IMAGE_MODEL;
+    if (model !== 'image-01' && model !== 'image-01-live') {
+      return this.openaiImage({ provider: 'openai-compatible', baseUrl: `${base}/v1`, apiKey, model }, input, signal, {}, 'json');
+    }
+    if (input.sources.length) throw new MediaGenerationError('This provider is text-to-image only; source images are not supported.');
     const { body, status } = await this.http.json(`${base}/v1/image_generation`,
       jsonPost({ model, prompt: input.prompt }, { Authorization: 'Bearer ' + apiKey }), signal, undefined, true);
     if (status < 200 || status > 299) throw new MediaGenerationError(`The image provider rejected the request${status ? ` (HTTP ${status})` : ''}.`);

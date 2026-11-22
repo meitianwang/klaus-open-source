@@ -11,7 +11,7 @@
     { "name": "WorkBuddy", "source": "workbuddy", "modelValue": "workbuddy:model", "enabled": true, "visible": false, "effective": false, "indicatorIcon": null },
     { "name": "Kimi", "source": "kimi", "modelValue": "kimi:model", "enabled": true, "visible": false, "effective": false, "indicatorIcon": null },
     { "name": "Bailian", "source": "bailian", "modelValue": "bailian:model", "enabled": true, "visible": false, "effective": false, "indicatorIcon": null },
-    { "name": "MiniMax", "source": "minimax", "modelValue": "minimax:MiniMax-M3.1-Flash-Preview", "enabled": true, "visible": false, "effective": false, "indicatorIcon": null },
+    { "name": "MiniMax", "source": "minimax", "modelValue": "minimax:MiniMax-M3.1-Flash", "enabled": true, "visible": false, "effective": false, "indicatorIcon": null },
     { "name": "Zhipu", "source": "zhipu", "modelValue": "zhipu:model", "enabled": true, "visible": false, "effective": false, "indicatorIcon": null },
     { "name": "Ark", "source": "ark", "modelValue": "ark:model", "enabled": true, "visible": false, "effective": false, "indicatorIcon": null }
   ],

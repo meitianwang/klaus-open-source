@@ -110,7 +110,7 @@ export class MediaGenerationService {
       // A subscription selection (image or MiniMax audio/video) owns its credentials,
       // so a saved custom endpoint must never redirect or block it; only the `custom`
       // selection reads the stored endpoint row.
-      let config: JsonObject = cursor || nativeSource || kind === 'image' && selection !== 'custom' ? {} : object(this.deps.features.getMedia(kind, { source: selection })); current();
+      let config: JsonObject = cursor || nativeSource || kind === 'image' && selection !== 'custom' && selection !== MINIMAX_MEDIA_SOURCE && selection !== BAILIAN_AUDIO_SOURCE ? {} : object(this.deps.features.getMedia(kind, { source: selection })); current();
       if (string(config.apiKey)) secrets.push(string(config.apiKey));
       const milliseconds = kind === 'image' ? this.deps.deadlines?.image ?? LIMITS.imageMs
         : kind === 'video' ? this.deps.deadlines?.video ?? LIMITS.videoMs
@@ -189,7 +189,8 @@ export class MediaGenerationService {
           ...(string(config.model) ? { model: string(config.model) } : {}), ...(string(config.voice) ? { voice: string(config.voice) } : {}) };
       }
       if (kind === 'audio' && !cursor && !nativeSource && !string(config.provider)) throw new MediaGenerationError(`Audio generation is not configured. Open Settings → Multimodal Models and check the speech settings.`);
-      if (args.paths.length && (qoder || kind === 'image' && (selection === BAILIAN_AUDIO_SOURCE || selection === MINIMAX_MEDIA_SOURCE))) throw new MediaGenerationError('This provider is text-to-image only; source images are not supported.');
+      const minimaxLegacyImage = selection === MINIMAX_MEDIA_SOURCE && (string(config.model) === 'image-01' || string(config.model) === 'image-01-live');
+      if (args.paths.length && (qoder || kind === 'image' && (selection === BAILIAN_AUDIO_SOURCE || minimaxLegacyImage))) throw new MediaGenerationError('This provider is text-to-image only; source images are not supported.');
       if (kind === 'video' && args.paths.length && !nativeSource) throw new MediaGenerationError('The selected video backend does not support reference images.');
       input.sources = await this.sources(args.paths, current); current();
       if ((cursor || nativeSource === 'qwenwork') && (input.sources.some(source => source.bytes.length > 4 * 1024 * 1024) || input.sources.reduce((total, source) => total + source.bytes.length, 0) > 8 * 1024 * 1024)) {

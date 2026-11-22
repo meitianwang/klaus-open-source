@@ -190,7 +190,7 @@ export class ComposerService {
     // synthetic aliases: qoder/qwenwork's cold-cache `auto`, workbuddy's service
     // `default-model`, minimax's flagship (which is also the catalog head, so its
     // remap is a no-op), and ark's routing alias.
-    const serviceDefaults: Record<string, string> = { qoder: 'auto', qwenwork: 'qwork-auto', workbuddy: 'default-model', minimax: 'MiniMax-M3.1-Flash-Preview', ark: 'ark-code-latest' };
+    const serviceDefaults: Record<string, string> = { qoder: 'auto', qwenwork: 'qwork-auto', workbuddy: 'default-model', minimax: 'MiniMax-M3.1-Flash', ark: 'ark-code-latest' };
     const alias = serviceDefaults[saved.source];
     if (alias === undefined || resolved !== `${saved.source}:${alias}`) return resolved;
     try {

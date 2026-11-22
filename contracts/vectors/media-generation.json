@@ -519,7 +519,7 @@
     },
     "path": "/v1/t2a_v2",
     "body": {
-      "model": "speech-2.6-turbo",
+      "model": "speech-2.8-turbo",
       "text": "Say this aloud.",
       "stream": false,
       "voice_setting": {
@@ -681,9 +681,12 @@
     "textToImageOnly": true
   },
   "minimaxImage": {
-    "reason": "The M Plan gateway serves the platform synchronous image generation route on the subscription key; measured 200 with a stored subscription credential. Results are public download URLs collected through the shared bounded download path, and the route is text-to-image only.",
-    "path": "/v1/image_generation",
-    "model": "image-01",
-    "textToImageOnly": true
+    "reason": "The M Plan image route defaults to MiniMax-H3-Image over the synchronous /v1/images/generations and /v1/images/edits (JSON reference images) endpoints, while legacy image-01 remains supported on /v1/image_generation (text-to-image only).",
+    "path": "/v1/images/generations",
+    "editPath": "/v1/images/edits",
+    "model": "MiniMax-H3-Image",
+    "legacyPath": "/v1/image_generation",
+    "legacyModel": "image-01",
+    "textToImageOnly": false
   }
 }

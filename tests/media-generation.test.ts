@@ -110,8 +110,9 @@ h.test('generated image URL downloads keep signed query strings but receive no p
 });
 h.test('Bailian and MiniMax image routes spend the plan credential and download the returned URLs', async () => {
   for (const row of [
-    { selection: 'bailian', path: '/api/v1/services/aigc/multimodal-generation/generation', model: 'qwen-image-3.0-pro', parameters: { size: '1024*1024' } as JsonObject | undefined },
-    { selection: 'minimax', path: '/v1/image_generation', model: 'image-01', parameters: undefined as JsonObject | undefined },
+    { selection: 'bailian', modelConfig: undefined as string | undefined, path: '/api/v1/services/aigc/multimodal-generation/generation', model: 'qwen-image-3.0-pro', parameters: { size: '1024*1024' } as JsonObject | undefined, textToImageOnly: true },
+    { selection: 'minimax', modelConfig: undefined as string | undefined, path: '/v1/images/generations', model: 'MiniMax-H3-Image', parameters: undefined as JsonObject | undefined, textToImageOnly: false },
+    { selection: 'minimax', modelConfig: 'image-01', path: '/v1/image_generation', model: 'image-01', parameters: undefined as JsonObject | undefined, textToImageOnly: true },
   ]) {
     let origin = '';
     const f = await mediaFixture({
@@ -119,7 +120,9 @@ h.test('Bailian and MiniMax image routes spend the plan credential and download 
         if (request.path === '/img.png') { response.end(png); return; }
         response.end(JSON.stringify(row.selection === 'bailian'
           ? { output: { choices: [{ message: { content: [{ type: 'image', image: origin + '/img.png' }] } }] } }
-          : { data: { image_urls: [origin + '/img.png'] } }));
+          : row.modelConfig === 'image-01'
+            ? { data: { image_urls: [origin + '/img.png'] } }
+            : { data: [{ url: origin + '/img.png' }] }));
       },
       deps: {
         bailian: { credential: async () => ({ apiKey: 'fixture-plan-key', baseUrl: origin, region: 'cn' }) },
@@ -129,6 +132,7 @@ h.test('Bailian and MiniMax image routes spend the plan credential and download 
     try {
       origin = f.origin;
       equal(object(f.select(row.selection)).ok, true);
+      if (row.modelConfig) equal(object(f.features.setMedia('image', { source: row.selection, model: row.modelConfig })).ok, true);
       const result = output(await f.service.execute('generate_image', { prompt: 'Blue', size: '1024x1024' }, f.context()));
       equal(f.requests.length, 2); equal(f.requests[0]!.path, row.path);
       match(String(f.requests[0]!.headers.authorization), /^Bearer fixture-plan-key$/);
@@ -137,8 +141,16 @@ h.test('Bailian and MiniMax image routes spend the plan credential and download 
       equal(f.requests[1]!.headers.authorization, undefined);
       deepEqual(await readFile(f.generated[0]!.paths[0]!), png);
       match(resultText(result), /^Saved: /);
-      match(failure(await f.service.execute('generate_image', { prompt: 'Blue', source_images: ['/never-read'] }, f.context())), /text-to-image only/);
-      equal(f.requests.length, 2);
+      if (row.textToImageOnly) {
+        match(failure(await f.service.execute('generate_image', { prompt: 'Blue', source_images: ['/never-read'] }, f.context())), /text-to-image only/);
+        equal(f.requests.length, 2);
+      } else {
+        const ref = f.generated[0]!.paths[0]!;
+        output(await f.service.execute('generate_image', { prompt: 'Edit blue', source_images: [ref] }, f.context()));
+        equal(f.requests[2]!.path, '/v1/images/edits');
+        equal(object(f.requests[2]!.body).model, row.model);
+        equal(Array.isArray(object(f.requests[2]!.body).images), true);
+      }
     } finally { await f.close(); }
   }
 });
@@ -152,7 +164,7 @@ h.test('Codex selection uses subscription credentials and a saved custom endpoin
     f.select('codex');
     const result = await f.service.execute('generate_image', { prompt: 'Blue' }, f.context('subscription')); output(result);
     equal(calls[0]!.url, 'https://chatgpt.com/backend-api/codex/images/generations'); equal(calls[0]!.headers.get('Authorization'), 'Bearer private-fixture-token'); equal(calls[0]!.headers.get('originator'), 'codex_cli_rs'); equal(calls[0]!.headers.get('ChatGPT-Account-Id'), 'fixture-account');
-    equal(calls[0]!.headers.get('version'), '0.169.1');
+    equal(calls[0]!.headers.get('version'), '0.171.0');
     equal(JSON.stringify(result).includes('private-fixture-token'), false);
     f.config('custom', 'image', { model: 'saved-custom-image' });
     const saved = f.features.getMedia('image');
@@ -385,10 +397,11 @@ h.test('a terminal turn aborts only its owned host call and cannot cancel a queu
   } finally { complete.resolve({ success: false }); await dynamic.close(); }
 });
 
-h.test('Bailian and MiniMax image routes spend the plan credential and download the returned URLs', async () => {
+h.test('Bailian and MiniMax image routes spend the plan credential and download the returned URLs (legacy and H3)', async () => {
   for (const row of [
-    { selection: 'bailian', path: '/api/v1/services/aigc/multimodal-generation/generation', model: 'qwen-image-3.0-pro', parameters: { size: '1024*1024' } },
-    { selection: 'minimax', path: '/v1/image_generation', model: 'image-01', parameters: undefined },
+    { selection: 'bailian', modelConfig: undefined as string | undefined, path: '/api/v1/services/aigc/multimodal-generation/generation', model: 'qwen-image-3.0-pro', parameters: { size: '1024*1024' } as JsonObject | undefined, textToImageOnly: true },
+    { selection: 'minimax', modelConfig: undefined as string | undefined, path: '/v1/images/generations', model: 'MiniMax-H3-Image', parameters: undefined as JsonObject | undefined, textToImageOnly: false },
+    { selection: 'minimax', modelConfig: 'image-01', path: '/v1/image_generation', model: 'image-01', parameters: undefined as JsonObject | undefined, textToImageOnly: true },
   ] as const) {
     let origin = '';
     const f = await mediaFixture({
@@ -396,7 +409,9 @@ h.test('Bailian and MiniMax image routes spend the plan credential and download 
         if (request.path === '/img.png') { response.end(png); return; }
         response.end(JSON.stringify(row.selection === 'bailian'
           ? { output: { choices: [{ message: { content: [{ type: 'image', image: origin + '/img.png' }] } }] } }
-          : { data: { image_urls: [origin + '/img.png'] } }));
+          : row.modelConfig === 'image-01'
+            ? { data: { image_urls: [origin + '/img.png'] } }
+            : { data: [{ url: origin + '/img.png' }] }));
       },
       deps: {
         bailian: { credential: async () => ({ apiKey: 'fixture-plan-key', baseUrl: origin, region: 'cn' }) },
@@ -406,6 +421,7 @@ h.test('Bailian and MiniMax image routes spend the plan credential and download 
     try {
       origin = f.origin;
       equal(object(f.select(row.selection)).ok, true);
+      if (row.modelConfig) equal(object(f.features.setMedia('image', { source: row.selection, model: row.modelConfig })).ok, true);
       const result = output(await f.service.execute('generate_image', { prompt: 'Blue', size: '1024x1024' }, f.context()));
       equal(f.requests.length, 2); equal(f.requests[0]!.path, row.path);
       match(String(f.requests[0]!.headers.authorization), /^Bearer fixture-plan-key$/);
@@ -414,8 +430,16 @@ h.test('Bailian and MiniMax image routes spend the plan credential and download 
       equal(f.requests[1]!.headers.authorization, undefined);
       deepEqual(await readFile(f.generated[0]!.paths[0]!), png);
       match(resultText(result), /^Saved: /);
-      match(failure(await f.service.execute('generate_image', { prompt: 'Blue', source_images: ['/never-read'] }, f.context())), /text-to-image only/);
-      equal(f.requests.length, 2);
+      if (row.textToImageOnly) {
+        match(failure(await f.service.execute('generate_image', { prompt: 'Blue', source_images: ['/never-read'] }, f.context())), /text-to-image only/);
+        equal(f.requests.length, 2);
+      } else {
+        const ref = f.generated[0]!.paths[0]!;
+        output(await f.service.execute('generate_image', { prompt: 'Edit blue', source_images: [ref] }, f.context()));
+        equal(f.requests[2]!.path, '/v1/images/edits');
+        equal(object(f.requests[2]!.body).model, row.model);
+        equal(Array.isArray(object(f.requests[2]!.body).images), true);
+      }
     } finally { await f.close(); }
   }
 });

@@ -16,10 +16,10 @@ export const SUBSCRIPTION_MEDIA_MODELS = {
     codex: [CODEX_IMAGE_MODEL], cursor: [''], qoder: [''],
     qwenwork: ['open-image-2', 'banana-image-2'],
     workbuddy: ['gpt-image-2.5-sunburst'], antigravity: [''], trae: [''],
-    bailian: ['qwen-image-3.0-pro'], minimax: ['image-01'],
+    bailian: ['qwen-image-3.0-pro'], minimax: ['MiniMax-H3-Image', 'MiniMax-H3-Image-Highspeed', 'image-01'],
   },
   video: { minimax: ['MiniMax-H3', 'MiniMax-H3-Max'], workbuddy: ['kling-v3-t2v', 'kling-v3-i2v', 'kling-video-v3', 'seedance-2.5'], qwenwork: ['seedance-2.0', 'happy-horse-1.0'], trae: [''] },
-  audio: { minimax: ['speech-2.6-turbo', 'speech-2.6-hd', 'speech-2.8-hd', 'speech-2.8-turbo', 'speech-02-hd', 'speech-02-turbo'], bailian: ['qwen-audio-3.0-tts-plus'] },
+  audio: { minimax: ['speech-2.8-turbo', 'speech-2.8-hd', 'speech-2.6-turbo', 'speech-2.6-hd', 'speech-02-hd', 'speech-02-turbo'], bailian: ['qwen-audio-3.0-tts-plus'] },
   music: { qwenwork: ['minimax-music-2.5'] },
 } as const;
 
@@ -40,10 +40,10 @@ export function configuredMediaModel(kind: MediaModelKind, source: string, confi
   if (kind === 'image' && source === 'qoder') return '';
   const saved = typeof config.model === 'string' ? config.model.trim() : '';
   if (saved) return saved;
-  if (source === 'minimax') return kind === 'video' ? 'MiniMax-H3' : 'speech-2.6-turbo';
-  if (source === 'bailian') return 'qwen-audio-3.0-tts-plus';
+  if (source === 'minimax') return kind === 'image' ? 'MiniMax-H3-Image' : kind === 'video' ? 'MiniMax-H3' : 'speech-2.8-turbo';
+  if (source === 'bailian') return kind === 'image' ? 'qwen-image-3.0-pro' : 'qwen-audio-3.0-tts-plus';
   if (kind === 'image') return config.provider === 'google' ? 'gemini-2.5-flash-image' : config.provider === 'doubao-ark' ? '' : CODEX_IMAGE_MODEL;
-  if (kind === 'audio') return config.provider === 'minimax' ? 'speech-2.6-turbo' : config.provider === 'dashscope' ? 'qwen3-tts-flash' : config.provider === 'zhipu' ? 'glm-tts' : 'gpt-4o-mini-tts';
+  if (kind === 'audio') return config.provider === 'minimax' ? 'speech-2.8-turbo' : config.provider === 'dashscope' ? 'qwen3-tts-flash' : config.provider === 'zhipu' ? 'glm-tts' : 'gpt-4o-mini-tts';
   return '';
 }
 
