@@ -279,6 +279,49 @@ h.test('switching between models mid-session restores each model reasoning level
   assertEqual(readSessionModel('kiro-chat', root).mode, 'kiro:sonnet-a::effort=high', 'Kiro family restores chosen effort member');
 });
 
+h.test('switching into an unremembered subscription model adopts its declared defaultEffort while preserving explicit overrides', async () => {
+  const root = freshRoot();
+  const composer = new ComposerService({
+    configRoot: root,
+    push: () => {},
+    onSessionConfigChanged: () => {},
+    request: async (method): Promise<Json> => {
+      if (method === 'subscription/models') {
+        return {
+          models: [
+            {
+              alias: 'opus',
+              label: 'Opus 5.5',
+              model: 'claude-opus-5-5',
+              effortLevels: ['low', 'medium', 'high', 'xhigh', 'max'],
+              defaultEffort: 'medium',
+            },
+            {
+              alias: 'sonnet',
+              label: 'Sonnet 5.5',
+              model: 'claude-sonnet-5-5',
+              effortLevels: ['low', 'medium', 'high', 'xhigh', 'max'],
+              defaultEffort: 'medium',
+            },
+          ],
+        };
+      }
+      return {};
+    },
+  });
+
+  setSessionModel('sub-chat', 'codex:gpt-5.4', 'codex', root, { thinkingLevel: 'xhigh' });
+  await composer.setModel({ sessionId: 'sub-chat', source: 'subscription', mode: 'subscription:opus' });
+  assertEqual(readSessionThinkingLevel('sub-chat', root), 'medium', 'unremembered Opus 5.5 adopts declared medium default instead of inheriting xhigh');
+
+  await composer.setThinking({ sessionId: 'sub-chat', level: 'high' });
+  await composer.setModel({ sessionId: 'sub-chat', source: 'subscription', mode: 'subscription:sonnet' });
+  assertEqual(readSessionThinkingLevel('sub-chat', root), 'medium', 'unremembered Sonnet 5.5 also adopts medium default');
+
+  await composer.setModel({ sessionId: 'sub-chat', source: 'subscription', mode: 'subscription:opus' });
+  assertEqual(readSessionThinkingLevel('sub-chat', root), 'high', 'returning to Opus 5.5 restores the user explicit high choice');
+});
+
 void (async () => {
   const failed = await h.finish(join(__dirname, 'source-selection-memory-result.json'), 'source-selection-memory');
   for (const root of roots) rmSync(root, { recursive: true, force: true });

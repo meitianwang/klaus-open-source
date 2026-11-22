@@ -115,6 +115,37 @@ export function mainModelItemNote(
 
 // The engine resolves defaults. Missing or stale selections remain visibly
 // unavailable until the host resolves them or the user chooses another model.
+export function optimisticThinkingForModelSelection(
+  items: readonly MainModelItem[],
+  currentValue: string,
+  currentThinkingLevel: string,
+  rememberedModels: Record<string, { value: string; thinkingLevel: string }>,
+  mode: string,
+): string {
+  const targetItem = modelOptionForValue(items, mode)
+  const currentItem = modelOptionForValue(items, currentValue)
+  const targetKey = modelPreferenceKey(targetItem, mode)
+  const currentKey = modelPreferenceKey(currentItem, currentValue)
+  let optimisticThinking = currentThinkingLevel
+  if (mode.startsWith('antigravity:') && targetItem?.antigravityVariants?.length) {
+    optimisticThinking = antigravityThinkingLevel(targetItem, mode) ?? optimisticThinking
+  } else if (mode.startsWith('cursor:') && targetItem?.cursorVariants?.length) {
+    optimisticThinking = cursorThinkingLevel(targetItem, mode) ?? optimisticThinking
+  } else if (targetKey && targetKey !== currentKey) {
+    const remembered = rememberedModels[targetKey]
+    if (remembered && isThinkingLevelForModel(targetItem, remembered.thinkingLevel)) {
+      optimisticThinking = remembered.thinkingLevel
+    } else if (
+      mode.startsWith('subscription:')
+      && targetItem?.defaultThinkingLevel
+      && isThinkingLevelForModel(targetItem, targetItem.defaultThinkingLevel)
+    ) {
+      optimisticThinking = targetItem.defaultThinkingLevel
+    }
+  }
+  return optimisticThinking
+}
+
 export function mainModelMenuValue(items: MainModelItem[], resolvedMode: unknown): string {
   return typeof resolvedMode === 'string' && resolvedMode !== 'auto' && !isAutomaticCursorSelection(resolvedMode)
     && items.some(item => modelOptionHasValue(item, resolvedMode))
@@ -964,21 +995,13 @@ export function mountModelSelect(
       saveModel={mode => {
         syncScope()
         const state = store.getState()
-        const targetItem = modelOptionForValue(state.items, mode)
-        const currentItem = modelOptionForValue(state.items, state.value)
-        const targetKey = modelPreferenceKey(targetItem, mode)
-        const currentKey = modelPreferenceKey(currentItem, state.value)
-        let optimisticThinking = state.thinkingLevel
-        if (mode.startsWith('antigravity:') && targetItem?.antigravityVariants?.length) {
-          optimisticThinking = antigravityThinkingLevel(targetItem, mode) ?? optimisticThinking
-        } else if (mode.startsWith('cursor:') && targetItem?.cursorVariants?.length) {
-          optimisticThinking = cursorThinkingLevel(targetItem, mode) ?? optimisticThinking
-        } else if (targetKey && targetKey !== currentKey) {
-          const remembered = state.rememberedModels[targetKey]
-          if (remembered && isThinkingLevelForModel(targetItem, remembered.thinkingLevel)) {
-            optimisticThinking = remembered.thinkingLevel
-          }
-        }
+        const optimisticThinking = optimisticThinkingForModelSelection(
+          state.items,
+          state.value,
+          state.thinkingLevel,
+          state.rememberedModels,
+          mode,
+        )
         return modelSaver.save({ value: mode, thinkingLevel: optimisticThinking }, (next, id) => w().klaus.session.setMainModel(next.value, id))
       }}
       saveThinkingLevel={async level => {

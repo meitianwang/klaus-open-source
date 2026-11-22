@@ -48,6 +48,7 @@ const {
   modelSelectSessionId,
   modelSelectSubmenuVisible,
   modelSelectTriggerAction,
+  optimisticThinkingForModelSelection,
   priceFactorLabel,
   modelUpdateFailureText,
   modelUpdateAnnounceable,
@@ -688,5 +689,25 @@ test('modelOptionsForRemembered projects previously selected family variants alo
   expect(projected[1]?.value).toBe('antigravity:claude-opus-5-5-max')
   expect(projected[1]?.defaultThinkingLevel).toBe('max')
 })
+
+test('selecting an unremembered subscription model optimistically adopts its defaultThinkingLevel', () => {
+  const items: MainModelItem[] = [
+    { value: 'codex:gpt-5.4', label: 'GPT-5.4', supportedThinkingLevels: ['low', 'medium', 'high', 'xhigh'] },
+    { value: 'subscription:opus', label: 'Opus 5.5', supportedThinkingLevels: ['low', 'medium', 'high', 'xhigh', 'max'], defaultThinkingLevel: 'medium' },
+  ]
+  expect(
+    optimisticThinkingForModelSelection(items, 'codex:gpt-5.4', 'xhigh', {}, 'subscription:opus'),
+  ).toBe('medium')
+  expect(
+    optimisticThinkingForModelSelection(
+      items,
+      'codex:gpt-5.4',
+      'xhigh',
+      { 'subscription:opus': { value: 'subscription:opus', thinkingLevel: 'high' } },
+      'subscription:opus',
+    ),
+  ).toBe('high')
+})
+
 
 

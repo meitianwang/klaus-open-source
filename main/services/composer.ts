@@ -453,11 +453,27 @@ export class ComposerService {
       if (!['antigravity', 'cursor', 'kiro', 'trae'].includes(string(source))) {
         incomingModelKey = this.synchronousModelKey(string(source), selection);
         if (explicitThinking === undefined) {
+          let needsSubscriptionDefault = false;
           if (sourceActivation) {
             thinkingSelection = restoredSourceThinking;
+            if (thinkingSelection === undefined && !sameSource && source === 'subscription') {
+              needsSubscriptionDefault = true;
+            }
           } else if (incomingModelKey && incomingModelKey !== outgoingModelKey) {
             const remembered = readSessionRememberedModel(sessionId, incomingModelKey, this.configRoot, { includeDefaults: payload.updateDefaults !== false });
             if (remembered.thinkingLevel !== undefined) thinkingSelection = remembered.thinkingLevel;
+            else if (source === 'subscription') needsSubscriptionDefault = true;
+          }
+          if (needsSubscriptionDefault) {
+            try {
+              const rows = await this.options('subscription', true, 'cached');
+              assertCurrent?.();
+              const picked = modelOptionForValue(rows, selection);
+              const defaultLevel = string(object(picked)?.defaultThinkingLevel);
+              if (defaultLevel && LEVELS.includes(defaultLevel)) {
+                thinkingSelection = defaultLevel;
+              }
+            } catch { /* Catalog fallback is optional when mock transports omit lineup replies. */ }
           }
         }
       }
@@ -885,7 +901,7 @@ export class ComposerService {
         // rung would invent one: the picker would hide its single-rung control
         // while the clamp could overwrite the user's previous effort choice.
         return [metadata({ value: 'subscription:' + alias, label: pick && pick !== alias && !remapped ? pick : string(shown.label) || alias,
-          ...nativeFastModeMetadata(shown, source) }, levels)];
+          ...nativeFastModeMetadata(shown, source) }, levels, level(shown.defaultEffort))];
       });
     }
     if (source === 'codex') return entries.flatMap(entry => {
