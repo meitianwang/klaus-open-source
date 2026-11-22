@@ -161,7 +161,7 @@ import { sharedFriendUnread } from './sidebar/friend-unread'
 import { forgetInputSnoozes, inputSnoozeRemaining, isInputRequestSnoozed, liveApprovalsOf, sessionAttentionState, snoozeInputRequest, takeExpiredSnooze, INPUT_SNOOZE_MS, type SessionWaitingKind } from './sidebar/attention'
 import { readStoredSortMode, sortSectionRows, storeSortMode, type SidebarSortMode } from './sidebar/sort'
 import { compareByAttentionState } from './sidebar/sort'
-import { automationSourceLabel, isPinnedSession, isPlaceholderSessionTitle, mergeSidebarSessionSnapshot, partitionSidebarSessions, preserveVisibleSessionTitle, sessionTitleForCurrentSession, shouldDiscardEmptySessionOnLeave } from './sidebar/model'
+import { applyProvisionalSessionTitle, automationSourceLabel, isPinnedSession, isPlaceholderSessionTitle, mergeSidebarSessionSnapshot, partitionSidebarSessions, preserveVisibleSessionTitle, provisionalSessionTitle, provisionalTitleForPayload, sessionTitleForCurrentSession, shouldDiscardEmptySessionOnLeave } from './sidebar/model'
 import {
   CollapseWriteQueue, hasMoreProjectThreads, isProjectOpen, isSectionCollapsed, mayApplyAsyncState,
   mergeCollapsedBadge, parseProjectExpansionMap, parseSectionsCollapsed, placeProvisionalProjectRow,
@@ -1383,10 +1383,49 @@ function syncBusyForCurrentSession() {
   if (typeof syncMessageActionAvailability === 'function') syncMessageActionAvailability()
 }
 
+const promotedSessionRenderKeys = new Map<string, string>()
+const provisionalClientTitles = new Set<string>()
+
+function hasActivePendingSubmissionForSession(sessionId: string): boolean {
+  if (!sessionId) return false
+  for (const pending of pendingComposerSubmissions.values()) {
+    if (pending.sessionId === sessionId && !pending.cancelled && (pending.phase === 'preparing' || pending.phase === 'submitting')) {
+      return true
+    }
+  }
+  return preparingSubmissions.has(sessionId) || creatingGoalSessions.has(sessionId)
+}
+
+function isVisiblePendingTargetSession(sessionId: string): boolean {
+  if (!sessionId || window.currentSessionId !== null || !visiblePendingSubmissionId) return false
+  const pending = pendingComposerSubmissions.get(visiblePendingSubmissionId)
+  return !!pending && !pending.cancelled && pending.sessionId === sessionId
+}
+
+function seedProvisionalSessionTitle(sessionId: string | null | undefined, provisionalTitle: string | null | undefined, options: { render?: boolean } = {}): boolean {
+  if (!sessionId || !provisionalTitle) return false
+  const next = applyProvisionalSessionTitle(sessions, sessionId, provisionalTitle)
+  if (next === sessions) return false
+  sessions = next
+  provisionalClientTitles.add(sessionId)
+  if (options.render !== false) renderSessionList()
+  else syncTitlebarSessionTitle()
+  return true
+}
+
+function revertUnacceptedProvisionalSessionTitle(sessionId: string | null | undefined): void {
+  if (!sessionId || !provisionalClientTitles.has(sessionId) || submittedTurnSessionIds.has(sessionId)) return
+  const stream = chatStreamStore.getState().sessions[sessionId]
+  if ((stream?.history?.length || 0) > 0 || (stream?.liveUnits?.length || 0) > 0) return
+  provisionalClientTitles.delete(sessionId)
+  sessions = sessions.map(session => session.id === sessionId ? { ...session, title: 'New Chat' } : session)
+}
+
 function isSidebarSessionWorking(sessionId: string) {
   return !!sessionId && sidebarSessionWorking({
     turnRunning: runningSessions.has(sessionId),
     listedWorking: sidebarListedWorkingSessions.has(sessionId),
+    pendingSubmission: hasActivePendingSubmissionForSession(sessionId),
   })
 }
 
@@ -6657,7 +6696,8 @@ function sidebarSessionRowSpec(s: SessionInfo): SessionRowSpec {
   const scheduledLabel = tt('cron') || 'Scheduled'
   return {
     id: s.id,
-    active: s.id === window.currentSessionId && !currentNonChatView,
+    renderKey: promotedSessionRenderKeys.get(s.id),
+    active: !currentNonChatView && (s.id === window.currentSessionId || isVisiblePendingTargetSession(s.id)),
     working,
     completeUnread,
     leadState: working ? 'working' : (completeUnread || friendDot ? 'unread' : 'read'),
@@ -6666,7 +6706,7 @@ function sidebarSessionRowSpec(s: SessionInfo): SessionRowSpec {
     worktreeTitle: isWorktreeSessionWorkdir(s.workdir) ? (s.workdir || '') : null,
     automationLabel: automationSourceLabel(s, scheduledLabel),
     pinned: isPinnedSession(s),
-    draft: hasDraft && sessionMessagePresence(s) === 'empty' && s.id !== window.currentSessionId,
+    draft: hasDraft && sessionMessagePresence(s) === 'empty' && s.id !== window.currentSessionId && !isVisiblePendingTargetSession(s.id),
     branchIconHtml: sessionBranchIconHtml(s),
     waitingKind: wait.count > 0 ? wait.kind : null,
     waitingCount: wait.count,
@@ -7315,7 +7355,7 @@ function renderSessionList() {
   const provisionalCounts = new Map<string, number>()
   for (const pending of pendingComposerSubmissions.values()) {
     if (pending.sessionId) continue
-    const row = sidebarSessionRowSpec({ id: pending.viewId, title: pending.draft.text.trim().slice(0, 120) || tt('new_chat'),
+    const row = sidebarSessionRowSpec({ id: pending.viewId, title: pending.provisionalTitle || tt('new_chat'),
       createdAt: pending.startedAtMs, updatedAt: pending.startedAtMs, workdir: pending.workdir })
     row.active = window.currentSessionId === null && visiblePendingSubmissionId === pending.id && !currentNonChatView
     row.working = pending.phase === 'preparing' || pending.phase === 'submitting'
@@ -7600,7 +7640,7 @@ function sessionDisplayTitle(s: SessionInfo | undefined) {
   let rawTitle = s?.title
   if (s?.id && isPlaceholderSessionTitle(rawTitle)) {
     const pending = [...pendingComposerSubmissions.values()].find(entry => entry.sessionId === s.id)
-    const drafted = pending?.draft.text.trim().slice(0, 120)
+    const drafted = pending?.provisionalTitle ?? provisionalSessionTitle(pending?.draft.text)
     if (drafted) rawTitle = drafted
   }
   const title = !isPlaceholderSessionTitle(rawTitle) ? String(rawTitle) : tt('new_chat')
@@ -7610,10 +7650,12 @@ function sessionDisplayTitle(s: SessionInfo | undefined) {
 function applySessionTitleUpdate(sessionId: string, title: string) {
   const nextTitle = String(title || '').trim()
   if (!sessionId || !nextTitle) return false
+  provisionalClientTitles.delete(sessionId)
   sessionTitleVersions.set(sessionId, (sessionTitleVersions.get(sessionId) || 0) + 1)
   let changed = false
   sessions = sessions.map((session) => {
     if (session.id !== sessionId) return session
+    if (session.title === nextTitle) return session
     changed = true
     return { ...session, title: nextTitle }
   })
@@ -8558,11 +8600,17 @@ async function ensureSession(pending?: PendingComposerSubmission) {
     if (inheritedWorkdir && !info.workdir) info.workdir = inheritedWorkdir
     if (inheritedWorkspaceId && !info.workspaceId) info.workspaceId = inheritedWorkspaceId
     if (inheritedProjectRoot && !info.projectRoot) info.projectRoot = inheritedProjectRoot
+    const existingRow = sessions.find(candidate => candidate.id === info.id)
+    const mergedInfo = preserveVisibleSessionTitle(existingRow, info)
+    if (pending && !pending.cancelled && pending.provisionalTitle && isPlaceholderSessionTitle(mergedInfo.title)) {
+      mergedInfo.title = pending.provisionalTitle
+      provisionalClientTitles.add(mergedInfo.id)
+    }
     // Dedup against a refresh that landed while session:new was in flight: the
     // host lists the new thread immediately, so updateSessionInList can file it
     // first. A second copy means duplicate React keys — two rows for one session
     // that both render `active` and freeze at stale titles.
-    sessions = [info, ...sessions.filter((candidate) => candidate.id !== info.id)]
+    sessions = [mergedInfo, ...sessions.filter((candidate) => candidate.id !== mergedInfo.id)]
     draftOnlySessionIds.add(info.id)
     seedPromotedComposerPreferences(info.id, inheritedWorkMode)
     if (pending?.cancelled) {
@@ -8676,6 +8724,8 @@ function forgetSessionLocalState(id: string, deleted = true) {
   reloadOnMessageCompleteSessions.delete(id)
   runningSessions.delete(id)
   sidebarListedWorkingSessions.delete(id)
+  promotedSessionRenderKeys.delete(id)
+  provisionalClientTitles.delete(id)
   forgetSessionInputSnoozes(id)
   backgroundAgentPoller.cancel(id)
   _agentMissingObservations.delete(id)
@@ -9696,6 +9746,7 @@ async function submitTurnPayload(targetSessionId: string, payload: OutgoingPaylo
   payload.clientMessageId ||= `client:${crypto.randomUUID()}`
   draftOnlySessionIds.delete(targetSessionId)
   userInterruptedSessions.delete(targetSessionId)
+  seedProvisionalSessionTitle(targetSessionId, options.pendingSubmission?.provisionalTitle ?? provisionalTitleForPayload(payload), { render: false })
   // A re-insert position only means something for a message that goes back INTO the
   // queue. This call is the "it became a real turn" point, so any anchor an Edit
   // left behind is spent: keeping it would let the NEXT queued message land at that
@@ -10911,7 +10962,9 @@ function createPendingComposerSubmissionRecord(sourceSessionId: string | null, d
   payload.clientMessageId = uuid
   const pending: PendingComposerSubmission = {
     id, uuid, sourceSessionId, sessionId: sourceSessionId, viewId: sourceSessionId || `pending:${id}`,
-    navigationToken, draft, files, payload, startedAtMs,
+    navigationToken, draft, files, payload,
+    provisionalTitle: provisionalTitleForPayload(payload, draft.text),
+    startedAtMs,
     workdir: sourceSessionId ? sessionWorkdir(sourceSessionId) || null : draftProjectWorkdir(),
     workspaceId: sourceSessionId ? findKnownSession(sourceSessionId)?.workspaceId || null : pendingNewChatWorkspaceId,
     projectRoot: sourceSessionId ? findKnownSession(sourceSessionId)?.projectRoot || null : pendingNewChatProjectRoot,
@@ -10927,6 +10980,7 @@ function beginPendingComposerSubmission(draft: ComposerDraft, files: PendingFile
   const pending = createPendingComposerSubmissionRecord(sourceSessionId, draft, files, payload, navigationToken, goalMode)
   const { id, uuid, startedAtMs } = pending
   if (!sourceSessionId) visiblePendingSubmissionId = id
+  else seedProvisionalSessionTitle(sourceSessionId, pending.provisionalTitle, { render: false })
   syncComposerContextRowVisibility()
   clearComposerAfterSubmit(sourceSessionId || '')
   if (!sourceSessionId) {
@@ -10954,12 +11008,20 @@ function beginPendingComposerSubmission(draft: ComposerDraft, files: PendingFile
 
 function promotePendingComposerSubmission(pending: PendingComposerSubmission, sessionId: string): void {
   if (pending.sessionId === sessionId) return
+  const previousViewId = pending.viewId
   const visible = currentPendingComposerSubmission() === pending
-  if (visible) mainScrollController.movePendingLatestTurnPlacement(pending.viewId, sessionId)
+  if (visible) mainScrollController.movePendingLatestTurnPlacement(previousViewId, sessionId)
+  if (previousViewId.startsWith('pending:') && !promotedSessionRenderKeys.has(sessionId)) {
+    promotedSessionRenderKeys.set(sessionId, previousViewId)
+  }
+  seedProvisionalSessionTitle(sessionId, pending.provisionalTitle, { render: false })
   flushSync(() => {
-    movePendingUserTurn(pending.viewId, sessionId, pending.uuid)
+    // Bind sessionId before movePendingUserTurn: the stream store subscription runs
+    // synchronously inside movePendingUserTurn and calls renderSessionList(), which
+    // would otherwise render both the synthetic pending row and the real session row.
     pending.sessionId = sessionId
     pending.viewId = sessionId
+    movePendingUserTurn(previousViewId, sessionId, pending.uuid)
     // Rebind the mounted view in the same commit that removes its provisional source.
     if (visible) mountReactTranscript(sessionId, messagesEl, { scroll: 'main' })
   })
@@ -10988,7 +11050,10 @@ function reconcileCancelledComposerAdmissions(): void {
 function acceptPendingComposerSubmission(pending: PendingComposerSubmission): void {
   pending.phase = 'accepted'
   clearPendingSubmissionRecovery(pending.uuid)
-  if (pending.sessionId) clearUnsentSubmission(pending.sessionId)
+  if (pending.sessionId) {
+    clearUnsentSubmission(pending.sessionId)
+    submittedTurnSessionIds.add(pending.sessionId)
+  }
   finishPendingUserTurn(pending.viewId, pending.uuid, 'accepted')
   pendingComposerSubmissions.delete(pending.id)
   sidePendingSubmissionIds.delete(pending.id)
@@ -11008,6 +11073,7 @@ function dismissPendingComposerSubmission(pending: PendingComposerSubmission): v
   discardPendingUserTurn(pending.viewId, pending.uuid)
   pendingComposerSubmissions.delete(pending.id)
   sidePendingSubmissionIds.delete(pending.id)
+  revertUnacceptedProvisionalSessionTitle(pending.sessionId || pending.sourceSessionId)
   const newerOwner = [...pendingComposerSubmissions.values()].some(record => record.viewId === pending.viewId
     && (record.phase === 'preparing' || record.phase === 'submitting'))
   if (!newerOwner) {
@@ -11252,6 +11318,7 @@ async function submitDirectFriendMessage(): Promise<boolean> {
     const sessionId = await ensureSession()
     if (!sessionId) throw new Error(tt('message_prepare_failed'))
     const payload = buildOutgoingPayload(draft.text, [], null, sessionId, draft.references, draft.document)
+    seedProvisionalSessionTitle(sessionId, provisionalTitleForPayload(payload, draft.text), { render: false })
     const dispatchKey = sessionId + ':' + snapshot
     friendDispatchAttempt = persistedFriendAttempts.acquire(dispatchKey)
     const displayMetadata = { ...sentUserDisplayMetadata(payload), ...friendComposeMetadata(context, true), friendDispatchId: friendDispatchAttempt.id }
@@ -11585,6 +11652,7 @@ async function sendMessage(options: ComposerSendOptions = {}) {
             if (pastedPaths.length) void klausApi.chat.pastedTextRelease(pastedPaths).catch(() => undefined)
           }
           const result = await klausApi.goal.set(sessionId, { objective: prepared.objective, preparationId: prepared.preparationId, expectedGoalId: receipt.expectedGoalId, expectedGoalRevision: receipt.expectedGoalRevision, clientRequestId: receipt.id, submit: true, displayText: prepared.displayText })
+          seedProvisionalSessionTitle(sessionId, pending?.provisionalTitle ?? provisionalSessionTitle(prepared.displayText || prepared.objective), { render: false })
           goalRevision = result.goalRevision
           if (result.admission !== 'deferred') goalAdmitted = true
           if (result.admission === 'deferred') {

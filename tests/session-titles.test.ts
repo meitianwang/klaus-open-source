@@ -109,18 +109,20 @@ h.test('committed title vectors preserve provenance without changing engine titl
     assertEqual(f.state.clientReads, 0, 'opening list does not initialize an engine client');
     assertEqual(vector.truncation.maxChars, 60, 'display titles cap at sixty code points');
     for (const item of vector.truncation.cases) assertEqual(truncateSessionTitle(item.text) ?? null, item.expected, 'truncation vector');
-    for (const title of [' New Chat ', 'Chat', '新对话', '12345678-abcd-1234-abcd-123456789abc', '']) assertEqual(normalizeSessionTitle(title), undefined, 'placeholder title');
+    for (const title of [' New Chat ', 'New chat', 'Chat', '新对话', '新会话', '12345678-abcd-1234-abcd-123456789abc', '']) assertEqual(normalizeSessionTitle(title), undefined, 'placeholder title');
   } finally { await cleanup(f); }
 });
 
-h.test('first accepted content is generation input and never a published title', async () => {
+h.test('first accepted content records a provisional display title without making an engine call', async () => {
   const f = await fixture();
   try {
     const vector = JSON.parse(await readFile(vectorPath, 'utf8')) as Vector;
     f.client.generate = async () => vector.generation.reply;
-    assertEqual(await f.titles.seedFromSend('thread', vector.generation.input), undefined, 'accepted content does not publish a title');
-    assertEqual(readSessionTitle('thread', f.root), undefined, 'accepted content writes no title record');
-    assertDeepEqual(f.events, [], 'accepted content pushes no title event');
+    assertEqual(await f.titles.seedFromSend('thread', vector.generation.input), vector.generation.input, 'accepted content records the provisional message title');
+    assertDeepEqual(readSessionTitle('thread', f.root), { title: vector.generation.input, source: 'provisional', legacySeed: false, attemptedAt: null, revision: 100 }, 'provisional title stays eligible for AI generation');
+    assertEqual(object(f.titles.projectRows([{ id: 'thread', title: 'New Chat' }])[0]!).title, vector.generation.input, 'untitled engine rows show the provisional message title');
+    assertEqual(await f.titles.seedFromSend('thread', 'Later follow-up message'), undefined, 'later messages do not overwrite the first provisional title');
+    assertDeepEqual(f.events, [], 'seeding emits no unverified title push before generation');
     assertDeepEqual(f.client.calls, [], 'accepted content makes no engine call');
   } finally { await cleanup(f); }
 });
@@ -195,25 +197,25 @@ h.test('the first turn generates once through the named wrappers and applies the
     assertEqual(prompt, vector.generation.prompt, 'prompt carries only the capped user message without meta-instructions');
     assert(instructions.includes(`within ${vector.generation.charLimit} characters`), 'instructions carry the character limit');
     assertDeepEqual(f.client.calls[1], { method: vector.generation.updateMethod, params: vector.generation.updateParams }, 'the generated title syncs through updateTitle');
-    assertDeepEqual(readSessionTitle('thread', f.root), { title: vector.generation.expectedTitle, source: 'ai', legacySeed: false, attemptedAt: 100, revision: 101 }, 'durable provenance and monotonic revisions');
+    assertDeepEqual(readSessionTitle('thread', f.root), { title: vector.generation.expectedTitle, source: 'ai', legacySeed: false, attemptedAt: 101, revision: 102 }, 'durable provenance and monotonic revisions');
     assertDeepEqual(f.events.at(-1), vector.generation.expectedEvent, 'AI completion pushes after persistence');
     assertEqual(await f.titles.firstTurnReady('thread'), false, 'later turns do not regenerate');
     assertEqual(generations(f).length, 1, 'one generation request');
   } finally { await cleanup(f); }
 });
 
-h.test('a failed generation leaves the conversation untitled without retrying', async () => {
+h.test('a failed generation preserves the provisional title without retrying inside the quiet period', async () => {
   const f = await fixture();
   try {
     f.client.generate = async () => { throw new Error('Provider unavailable'); };
     await f.titles.seedFromSend('thread', 'First prompt');
-    assertEqual(await f.titles.firstTurnReady('thread'), false, 'a failed generation reports no title');
+    assertEqual(await f.titles.firstTurnReady('thread'), false, 'a failed generation reports no generated title');
     const record = readSessionTitle('thread', f.root);
-    assertEqual(record?.title, null, 'no seed becomes a durable title');
-    assertEqual(record?.source, 'seed', 'the generation attempt is recorded');
+    assertEqual(record?.title, 'First prompt', 'the provisional message title remains visible');
+    assertEqual(record?.source, 'provisional', 'the provisional provenance stays eligible for a later retry');
     assert(record?.attemptedAt !== null, 'the attempt stamp is durable');
     assert(f.logs.some(entry => entry.kind === 'session-title-generation-failed'), 'the failure is logged');
-    assertEqual(f.events.length, 0, 'a failed generation pushes no title');
+    assertEqual(f.events.length, 0, 'a failed generation pushes no generated title');
     assertEqual(f.client.calls.filter(call => call.method === 'session/updateTitle').length, 0, 'failure needs no engine write');
     assertEqual(await f.titles.firstTurnReady('thread'), false, 'a failed attempt is not repeated on later turns');
   } finally { await cleanup(f); }
@@ -226,16 +228,17 @@ h.test('a failed attempt becomes eligible again after the quiet period', async (
     await f.titles.seedFromSend('thread', 'First prompt');
     assertEqual(await f.titles.firstTurnReady('thread'), false, 'the first attempt fails');
     const failed = readSessionTitle('thread', f.root);
-    assertEqual(failed?.title, null, 'the failed attempt leaves no title');
-    assertEqual(failed?.attemptedAt, 100, 'the failed attempt is still stamped');
-    f.state.now = 100 + TITLE_RETRY_INTERVAL_MS - 1;
+    assertEqual(failed?.title, 'First prompt', 'the failed attempt keeps the provisional title');
+    assertEqual(failed?.attemptedAt, 101, 'the failed attempt is still stamped');
+    f.state.now = 101 + TITLE_RETRY_INTERVAL_MS - 1;
     assertEqual(await f.titles.firstTurnReady('thread'), false, 'a retry inside the quiet period is refused');
     assertEqual(generations(f).length, 1, 'the quiet period sends no second request');
-    f.state.now = 100 + TITLE_RETRY_INTERVAL_MS;
+    f.state.now = 101 + TITLE_RETRY_INTERVAL_MS;
     f.client.generate = async () => generatedReply('Recovered title');
     assertEqual(await f.titles.firstTurnReady('thread'), true, 'the attempt retries once the quiet period passes');
     assertEqual(generations(f).length, 2, 'the retry sends one more request');
     assertEqual(readSessionTitle('thread', f.root)?.title, 'Recovered title', 'the retry applies its title');
+    assertEqual(readSessionTitle('thread', f.root)?.source, 'ai', 'the retry promotes provenance to ai');
     assertEqual(await f.titles.firstTurnReady('thread'), false, 'a titled conversation never retries');
   } finally { await cleanup(f); }
 });
@@ -251,7 +254,7 @@ h.test('an attempt killed by a conversation rebuild is void and retries at once'
     await f.titles.seedFromSend('thread', 'First prompt');
     assertEqual(await f.titles.firstTurnReady('thread'), false, 'the generation dies with its conversation');
     const voided = readSessionTitle('thread', f.root);
-    assertEqual(voided?.title, null, 'the dead attempt leaves no title');
+    assertEqual(voided?.title, 'First prompt', 'the voided attempt keeps the provisional title');
     assertEqual(voided?.attemptedAt, null, 'the dead attempt no longer claims the conversation');
     assert(f.logs.some(entry => entry.kind === 'session-title-attempt-voided'), 'the voiding is logged');
     const failed = f.logs.find(entry => entry.kind === 'session-title-generation-failed');
@@ -291,7 +294,7 @@ h.test('a completed turn retries a titleless conversation only after the quiet p
     f.titles.turnCompleted('thread', 'turn-1', true);
     await settle();
     assertEqual(generations(f).length, 1, 'a completed turn inside the quiet period sends nothing');
-    f.state.now = 100 + TITLE_RETRY_INTERVAL_MS;
+    f.state.now = 101 + TITLE_RETRY_INTERVAL_MS;
     f.client.generate = async () => generatedReply('Late title');
     f.titles.turnCompleted('thread', 'turn-2', true);
     await settle();
@@ -331,16 +334,17 @@ h.test('a malformed attempt stamp stays a permanent claim', async () => {
   } finally { await cleanup(f); }
 });
 
-h.test('empty and rejected generation replies leave the conversation untitled', async () => {
+h.test('empty and rejected generation replies keep the provisional title without publishing a generated title', async () => {
   const vector = JSON.parse(await readFile(vectorPath, 'utf8')) as Vector;
   for (const reply of [emptyReply(), { generatedTitle: { threadId: 'thread', title: { persisted: false, raw: 'No structured title' } } }]) {
     const f = await fixture();
     try {
       f.client.generate = async () => reply;
       await f.titles.seedFromSend('thread', 'First prompt');
-      assertEqual(await f.titles.firstTurnReady('thread'), false, 'an unusable reply reports no title');
-      assertEqual(readSessionTitle('thread', f.root)?.title, null, 'no title is applied');
-      assertEqual(f.events.length, 0, 'no title event is pushed');
+      assertEqual(await f.titles.firstTurnReady('thread'), false, 'an unusable reply reports no generated title');
+      assertEqual(readSessionTitle('thread', f.root)?.title, 'First prompt', 'the provisional title remains visible');
+      assertEqual(readSessionTitle('thread', f.root)?.source, 'provisional', 'provenance stays provisional');
+      assertEqual(f.events.length, 0, 'no generated title event is pushed');
     } finally { await cleanup(f); }
   }
   for (const reply of vector.rejectedGenerationReplies) await assertRejects(async () => generatedSessionTitle(reply, 'thread'), 'invalid title wrapper rejected');
@@ -372,7 +376,7 @@ h.test('rename during inference wins in the same mutation queue even with a froz
       assertEqual(replaced, true, 'RPC settlement releases replacement before title persistence');
       assertEqual(await ready, !rename, 'only an unrenamed conversation applies the late title');
       if (rename) {
-        assertDeepEqual(readSessionTitle('thread', f.root), { title: 'Manual title', source: 'custom', legacySeed: false, attemptedAt: 100, revision: 101 }, 'custom source and provenance survive');
+        assertDeepEqual(readSessionTitle('thread', f.root), { title: 'Manual title', source: 'custom', legacySeed: false, attemptedAt: 101, revision: 102 }, 'custom source and provenance survive');
         assert(!f.events.some(event => event.title === 'Late AI title'), 'no stale title push');
       }
     } finally { await cleanup(f); }
@@ -386,12 +390,14 @@ h.test('duplicate first-turn events share one attempt and a late input still fee
     const pending = deferred<Json>(); f.client.generate = () => pending.promise;
     const first = f.titles.firstTurnReady('thread');
     await f.client.started.promise;
-    assertEqual(readSessionTitle('thread', f.root)?.attemptedAt, 100, 'attempt committed before inference completes');
-    assertEqual(await f.titles.firstTurnReady('thread'), false, 'a concurrent first-turn event shares the live attempt');
+    assertEqual(readSessionTitle('thread', f.root)?.attemptedAt, 101, 'attempt committed before inference completes');
+    assertEqual( await f.titles.firstTurnReady('thread'), false, 'a concurrent first-turn event shares the live attempt');
     pending.resolve(generatedReply());
     assertEqual(await first, true, 'the live attempt settles');
     assertEqual(generations(f).length, 1, 'one inference request');
     assertEqual(await f.titles.firstTurnReady('late'), false, 'a turn start before the send acknowledgement generates nothing');
+    assertEqual(f.titles.consumePendingFirstTurn('late'), true, 'early turn start is remembered until send acknowledgement');
+    assertEqual(f.titles.consumePendingFirstTurn('late'), false, 'pending first-turn marker is consumed once');
     await f.titles.seedFromSend('late', 'Late seed');
     f.client.generate = async () => generatedReply('Generated title', 'late');
     assertEqual(await f.titles.firstTurnReady('late'), true, 'the late input still feeds its own pipeline');
@@ -484,10 +490,10 @@ h.test('legacy and existing engine titles are not silently retitled without prov
   const f = await fixture();
   try {
     f.state.engineTitles.thread = 'Existing Electron user rename';
-    assertEqual(await f.titles.seedFromSend('thread', 'Next user message'), undefined, 'accepted content does not publish a title');
+    await f.titles.seedFromSend('thread', 'Next user message');
+    assertEqual(object(f.titles.projectRows([{ id: 'thread', title: f.state.engineTitles.thread }])[0]!).title, f.state.engineTitles.thread, 'provisional row never covers an existing engine title');
     assertEqual(await f.titles.firstTurnReady('thread'), false, 'unknown provenance is not treated as first conversation');
-    readSessionTitle('thread', f.root);
-    withSettingsDb(f.root, db => db.prepare('INSERT INTO session_titles VALUES (?,?,?,?,?)').run('thread', 'Legacy first prompt', null, null, 1));
+    withSettingsDb(f.root, db => db.prepare('INSERT OR REPLACE INTO session_titles VALUES (?,?,?,?,?)').run('thread', 'Legacy first prompt', null, null, 200));
     assertEqual(await f.titles.firstTurnReady('thread'), false, 'legacy seed cannot authorize replacing an unclassified engine title');
     assertEqual(f.state.clientReads, 0, 'no provider or engine client acquired for protected titles');
     assertDeepEqual(f.client.calls, [], 'no inference or title write');
@@ -503,7 +509,7 @@ h.test('generation admission runs before any provider request or durable attempt
     await assertRejects(() => f.titles.firstTurnReady('thread'), 'host source authorization is required');
     assertDeepEqual(f.client.calls, [], 'unauthorized source sends no provider request');
     assertEqual(f.state.clientReads, 0, 'authorization precedes client acquisition');
-    assertEqual(readSessionTitle('thread', f.root), undefined, 'no attempt was claimed');
+    assertEqual(readSessionTitle('thread', f.root)?.attemptedAt, null, 'no attempt was claimed');
   } finally { await cleanup(f); }
 });
 
@@ -529,7 +535,10 @@ h.test('interruption, shutdown, rebind and deletion cannot apply a stale title',
       assertEqual(await ready, false, `${action} invalidates pending result`);
       assertEqual(f.client.calls.filter(call => call.method === 'session/updateTitle').length, 0, 'no stale engine mutation');
       if (action === 'delete') assertEqual(readSessionTitle('thread', f.root), undefined, 'deleted title record is not recreated');
-      if (action === 'close' || action === 'rebind') assertEqual(readSessionTitle('thread', f.root)?.title, null, 'the claim is left untitled');
+      if (action === 'close' || action === 'rebind') {
+        assertEqual(readSessionTitle('thread', f.root)?.title, 'First prompt', 'the provisional title remains without applying the stale generated title');
+        assertEqual(readSessionTitle('thread', f.root)?.source, 'provisional', 'provenance stays provisional');
+      }
     } finally { await cleanup(f); }
   }
 });
@@ -549,7 +558,25 @@ h.test('malformed generation wrappers and engine generation changes are rejected
     f.state.current = false; pending.resolve(generatedReply());
     assertEqual(await ready, false, 'engine generation guard prevents stale write');
     assertEqual(f.client.calls.filter(call => call.method === 'session/updateTitle').length, 0, 'no write to replacement engine');
-    assertEqual(readSessionTitle('thread', f.root)?.title, null, 'the conversation stays untitled');
+    assertEqual(readSessionTitle('thread', f.root)?.title, 'First prompt', 'the provisional title remains without applying the stale generated title');
+    assertEqual(readSessionTitle('thread', f.root)?.source, 'provisional', 'provenance stays provisional');
+  } finally { await cleanup(f); }
+});
+
+h.test('open recovery upgrades provisional titles while leaving historical seed rows untouched', async () => {
+  const f = await fixture();
+  try {
+    f.state.firstUserContent = 'First prompt';
+    withSettingsDb(f.root, db => {
+      db.exec('CREATE TABLE IF NOT EXISTS session_titles (session_id TEXT PRIMARY KEY, title TEXT, source TEXT, ai_title_attempted_at INTEGER, updated_at INTEGER NOT NULL)');
+      db.prepare('INSERT INTO session_titles VALUES (?,?,?,?,?)').run('historical-seed', 'Historical seeded title', 'seed', null, 50);
+    });
+    assertEqual(await f.titles.recoverUntitled('historical-seed'), false, 'historical seed rows do not fire inference on open');
+    assertEqual(generations(f).length, 0, 'no generation request for historical seed rows');
+    await f.titles.seedFromSend('provisional-open', 'First prompt');
+    f.client.generate = async () => generatedReply('Recovered AI title', 'provisional-open');
+    assertEqual(await f.titles.recoverUntitled('provisional-open'), true, 'provisional rows still recover an AI title on open');
+    assertDeepEqual(readSessionTitle('provisional-open', f.root), { title: 'Recovered AI title', source: 'ai', legacySeed: false, attemptedAt: 101, revision: 102 }, 'provisional row upgrades to ai');
   } finally { await cleanup(f); }
 });
 
@@ -565,6 +592,70 @@ h.test('a generated or custom title blocks a later generation', async () => {
     assertEqual(await f.titles.firstTurnReady('thread'), false, 'a custom title blocks later generation');
     assertEqual(readSessionTitle('thread', f.root)?.title, 'Manual name', 'the custom title survives');
   } finally { await cleanup(f); }
+});
+
+h.test('a timed-out initial generation keeps the provisional message title and retries automatically during a long turn', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'klaus-session-titles-retry-'));
+  const state: FixtureState = {
+    engineTitles: {}, liveId: 'live-thread', current: true, authorized: true,
+    clientReads: 0, adaptive: false, firstUserContent: undefined, now: 100,
+  };
+  const client = new Client(state);
+  const events: Row[] = [];
+  const logs: Array<{ kind: string; detail: string }> = [];
+  const scheduled: Array<{ delayMs: number; callback: () => void; cancelled: boolean }> = [];
+  const queues = new Map<string, Promise<unknown>>();
+  const serialize = <T>(id: string, action: () => Promise<T>): Promise<T> => {
+    const task = (queues.get(id) ?? Promise.resolve()).catch(() => {}).then(action);
+    queues.set(id, task);
+    return task;
+  };
+  const titles = new SessionTitles({
+    configRoot: root,
+    serialize,
+    client: async () => client,
+    liveSession: () => state.liveId,
+    ensureCurrent: () => {},
+    authorizeGeneration: () => {},
+    engineTitle: async id => state.engineTitles[id] ?? 'New Chat',
+    publish: event => { events.push(event); },
+    adaptiveTitlesEnabled: () => false,
+    firstUserContent: async () => state.firstUserContent,
+    scheduleRetry: (callback, delayMs) => {
+      const item = { delayMs, callback, cancelled: false };
+      scheduled.push(item);
+      return () => { item.cancelled = true; };
+    },
+    log: (kind, detail) => logs.push({ kind, detail }),
+    now: () => state.now,
+  });
+  try {
+    await titles.seedFromSend('thread', 'First user message shown while model thinks');
+    client.generate = async () => { throw new Error('session/generateTitle: timed out waiting for generatedTitle'); };
+    assertEqual(await titles.firstTurnReady('thread'), false, 'initial timeout resolves false');
+    // Throughout the timeout and quiet period, the sidebar keeps the first user message instead of reverting to New Chat.
+    assertEqual(
+      (titles.projectRows([{ id: 'thread', title: 'New Chat' }])[0] as Row).title,
+      'First user message shown while model thinks',
+      'provisional message title remains visible after generation timeout',
+    );
+    assertEqual(scheduled.length, 1, 'one live retry timer is scheduled while the turn continues');
+    assert(scheduled[0]!.delayMs >= TITLE_RETRY_INTERVAL_MS, 'retry waits for the full quiet period past attemptedAt');
+
+    // Advance past the scheduled retry delay while the long first turn is still running (before turnCompleted).
+    state.now += scheduled[0]!.delayMs;
+    client.generate = async () => generatedReply('Generated mid-turn title', 'thread');
+    scheduled[0]!.callback();
+    await settle();
+    await settle();
+
+    assertEqual(readSessionTitle('thread', root)?.title, 'Generated mid-turn title', 'mid-turn retry settles the AI title without waiting for turnCompleted');
+    assertEqual(readSessionTitle('thread', root)?.source, 'ai', 'provenance upgrades from provisional to ai');
+    assertDeepEqual(events, [{ type: 'session_title_updated', sessionId: 'thread', title: 'Generated mid-turn title' }], 'mid-turn retry publishes the settled AI title');
+  } finally {
+    titles.close();
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 function emptyReply(): Row {

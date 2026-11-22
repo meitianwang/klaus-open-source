@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import type { SessionInfo } from '../engine-events'
-import { automationSourceLabel, isPinnedSession, mergeSidebarSessionSnapshot, partitionSidebarSessions, preserveVisibleSessionTitle, sessionTitleForCurrentSession, shouldDiscardEmptySessionOnLeave } from './model'
+import { applyProvisionalSessionTitle, automationSourceLabel, isPinnedSession, isPlaceholderSessionTitle, mergeSidebarSessionSnapshot, partitionSidebarSessions, preserveVisibleSessionTitle, provisionalSessionTitle, sessionTitleForCurrentSession, shouldDiscardEmptySessionOnLeave } from './model'
 
 function session(id: string, extra: Partial<SessionInfo> = {}): SessionInfo {
   return { id, title: id, updatedAt: 1, ...extra }
@@ -142,6 +142,33 @@ describe('sidebar session model', () => {
 
     expect(preserveVisibleSessionTitle(seeded, generated).title).toBe('Fix title flicker')
     expect(preserveVisibleSessionTitle(session('draft', { title: 'Chat' }), session('draft', { title: 'New Chat' })).title).toBe('New Chat')
+  })
+
+  test('recognizes localized and lowercase placeholder titles', () => {
+    for (const placeholder of ['', 'New Chat', 'New chat', 'Chat', '新对话', '新会话']) {
+      expect(isPlaceholderSessionTitle(placeholder)).toBe(true)
+    }
+    expect(isPlaceholderSessionTitle('Fix sidebar flicker')).toBe(false)
+  })
+
+  test('normalizes provisional titles from visible text, references, and attachment names', () => {
+    expect(provisionalSessionTitle('  First   line\nSecond line  ')).toBe('First line Second line')
+    expect(provisionalSessionTitle('Inspect [chat.ts](klaus:file/chat.ts) now')).toBe('Inspect chat.ts now')
+    expect(provisionalSessionTitle('@friend-12345678-1234-1234-1234-123456789abc   Hello there')).toBe('Hello there')
+    expect(provisionalSessionTitle('   ', ['architecture-diagram.png'])).toBe('architecture-diagram.png')
+    expect(provisionalSessionTitle('A'.repeat(65))).toBe(`${'A'.repeat(59)}…`)
+    expect(provisionalSessionTitle('新会话')).toBeNull()
+  })
+
+  test('applies provisional titles only to untitled sessions without cloning settled rows', () => {
+    const initial = [
+      session('untitled', { title: 'New Chat' }),
+      session('named', { title: 'Settled title' }),
+    ]
+    const updated = applyProvisionalSessionTitle(initial, 'untitled', 'Current user prompt')
+    expect(updated[0]?.title).toBe('Current user prompt')
+    expect(updated[1]).toBe(initial[1])
+    expect(applyProvisionalSessionTitle(updated, 'named', 'Should not override')).toBe(updated)
   })
 })
 

@@ -393,7 +393,8 @@ h.test('ordinary first-content fallback and one AI title generation remain indep
   assertEqual(client.sent('session/generateTitle').length, 0, 'side completion uses no ordinary title inference');
   await service.send('parent', { text: expected.text });
   assertEqual(titleVectors.acceptance.ordinaryTitlePipeline, 'first-turn-ai-generation', 'ordinary pipeline contract');
-  assertEqual(readSessionTitle('parent', root), undefined, 'ordinary send keeps placeholder until first-turn AI generation');
+  assertEqual(readSessionTitle('parent', root)?.title, expected.expectedSeed, 'ordinary send records provisional message title until first-turn AI generation');
+  assertEqual(readSessionTitle('parent', root)?.source, 'provisional', 'provisional provenance awaits first-turn AI generation');
   client.emit('event', { type: 'productEvent', method: 'turn/started', params: { sessionId: state.liveSession('parent'), turnId: 'turn' } });
   await waitFor(() => readSessionTitle('parent', root)?.source === 'ai', 1000, 'the first turn generates the ordinary title');
   state.clearTurnRunning('parent');

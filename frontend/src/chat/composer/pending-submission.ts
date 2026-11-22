@@ -12,6 +12,7 @@ export interface PendingComposerSubmission {
   draft: ComposerDraft
   files: PendingFileEntry[]
   payload: OutgoingPayload
+  provisionalTitle: string | null
   startedAtMs: number
   workdir: string | null
   workspaceId: string | null

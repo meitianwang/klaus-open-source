@@ -8,10 +8,14 @@ import { clientMessageId as userMessageClientId } from '../../../../contracts/me
 import { runContextRowVisible } from '../run-context'
 import { transcriptChromeState, transcriptContentPresence } from '../transcript/chrome-state'
 import {
+  applyProvisionalSessionTitle,
   automationSourceLabel,
   isPinnedSession,
   isPlaceholderSessionTitle,
   partitionSidebarSessions,
+  preserveVisibleSessionTitle,
+  provisionalSessionTitle,
+  provisionalTitleForPayload,
 } from './model'
 import {
   hasMoreProjectThreads,
@@ -123,6 +127,12 @@ function createSidebarSendHarness(options: {
     pendingPermissionsBySession: new Map(),
     pendingElicitsBySession: new Map(),
     pendingComposerSubmissions: new Map(),
+    sidePendingSubmissionIds: new Set<string>(),
+    cancelledComposerAdmissions: new Map(),
+    submittedTurnSessionIds: new Set<string>(),
+    promotedSessionRenderKeys: new Map<string, string>(),
+    provisionalClientTitles: new Set<string>(),
+    sessionTitleVersions: new Map<string, number>(),
     visiblePendingSubmissionId: null as string | null,
     sessionDrafts: new Map(),
     busy: false,
@@ -140,9 +150,15 @@ function createSidebarSendHarness(options: {
     transcriptContentPresence,
     userMessageClientId,
     automationSourceLabel,
+    applyProvisionalSessionTitle,
     isPinnedSession,
     isPlaceholderSessionTitle,
     partitionSidebarSessions,
+    preserveVisibleSessionTitle,
+    provisionalSessionTitle,
+    provisionalTitleForPayload,
+    clearPendingSubmissionRecovery() {},
+    clearUnsentSubmission() {},
     hasMoreProjectThreads,
     isProjectOpen,
     isSectionCollapsed,
@@ -179,7 +195,8 @@ function createSidebarSendHarness(options: {
     sessionProjectKey: (s: any) => (s.workspaceId ? null : (s.projectRoot || s.workdir || null)),
     sessionWorkdir: (id: string) => c.sessions.find((s: any) => s.id === id)?.workdir || null,
     findKnownSession: (id: string | null) => c.sessions.find((s: any) => s.id === id),
-    sidebarSessionWorking: ({ turnRunning, listedWorking }: { turnRunning: boolean; listedWorking: boolean }) => turnRunning || listedWorking,
+    sidebarSessionWorking: ({ turnRunning, listedWorking, pendingSubmission }: { turnRunning: boolean; listedWorking: boolean; pendingSubmission?: boolean }) =>
+      turnRunning || listedWorking || pendingSubmission === true,
     sidebarSessionWait: () => ({ count: 0, kind: 'approval', snooze: null }),
     firstInputRequestId: () => null,
     canEditProjectForCurrentConversation: () => !c.window.currentSessionId || c.draftOnlySessionIds.has(c.window.currentSessionId),
@@ -235,6 +252,8 @@ function createSidebarSendHarness(options: {
     renderSessionList(): void
     beginPendingComposerSubmission(draft: any, files: any[], slash: any, token: string, goalMode?: boolean): any
     ensureSession(pending?: any): Promise<string | null>
+    acceptPendingComposerSubmission(pending: any): void
+    applySessionTitleUpdate(sessionId: string, title: string): boolean
     setProjectThreadListOpen(workdir: string | null, open: boolean): void
   }>([
     'regularLocalSessions',
@@ -255,10 +274,15 @@ function createSidebarSendHarness(options: {
     'sidebarSessionActivity',
     'sectionSessionIdsForBadge',
     'projectGroupSessionIds',
+    'hasActivePendingSubmissionForSession',
+    'isVisiblePendingTargetSession',
+    'seedProvisionalSessionTitle',
+    'revertUnacceptedProvisionalSessionTitle',
     'isSidebarSessionWorking',
     'isSidebarSessionCompleteUnread',
     'sessionMessagePresence',
     'sessionDisplayTitle',
+    'applySessionTitleUpdate',
     'sidebarSessionRowSpec',
     'projectThreadsWindow',
     'workspaceRowsForSidebar',
@@ -271,10 +295,13 @@ function createSidebarSendHarness(options: {
     'createPendingComposerSubmissionRecord',
     'beginPendingComposerSubmission',
     'promotePendingComposerSubmission',
+    'reconcileCancelledComposerAdmissions',
+    'acceptPendingComposerSubmission',
     'ensureSession',
-  ], c, '{ renderSessionList, beginPendingComposerSubmission, ensureSession, setProjectThreadListOpen }')
+  ], c, '{ renderSessionList, beginPendingComposerSubmission, ensureSession, acceptPendingComposerSubmission, applySessionTitleUpdate, setProjectThreadListOpen }')
 
-  // Mirror the global stream-store subscription that marks promoted sessions running.
+  // Mirror the global stream-store subscription that marks promoted sessions running
+  // and synchronously re-renders the sidebar list inside flushSync.
   const unsubscribe = store.chatStreamStore.subscribe((state, previousState) => {
     for (const [sessionId, nextStream] of Object.entries(state.sessions)) {
       if (nextStream?.provisional || previousState.sessions[sessionId]?.provisional) continue
@@ -283,6 +310,7 @@ function createSidebarSendHarness(options: {
       if (nowRunning !== wasRunning) {
         if (nowRunning) c.runningSessions.add(sessionId)
         else c.runningSessions.delete(sessionId)
+        api.renderSessionList()
       }
     }
   })
@@ -439,6 +467,107 @@ describe('sending a new chat into a sidebar project group', () => {
       expect(promotedProject.threads.rows[0].id).toBe('created-open-session')
       expect(promotedProject.threads.rows[0].title).toBe('Keep preview window steady')
       expect(promotedProject.threads.more).toBe(true)
+    } finally {
+      harness.cleanup()
+    }
+  })
+
+  test('keeps sent message title, active state, working spinner, and stable renderKey across send, promotion, turn acceptance, and AI title replacement', async () => {
+    const harness = createSidebarSendHarness({
+      projectRoot: '/repo/klaus',
+      initialExpansion: { '/repo/klaus': true },
+      existingTitles: [],
+    })
+    try {
+      harness.snapshots.length = 0
+      const pending = harness.api.beginPendingComposerSubmission(
+        normalizeComposerDraft('Fix sidebar title rollback after send'),
+        [],
+        null,
+        '0:0',
+        false,
+      )
+      const pendingViewId = pending.viewId
+      expect(pendingViewId.startsWith('pending:')).toBe(true)
+
+      const promotion = harness.api.ensureSession(pending)
+      harness.resolveSessionNew({
+        id: 'created-title-session',
+        title: 'New Chat',
+        createdAt: 2000,
+        updatedAt: 2000,
+        workdir: '/repo/klaus',
+      })
+      await promotion
+
+      // Simulate chat.send acknowledgement (which removes `pending` from pendingComposerSubmissions
+      // BEFORE the model finishes generating the AI title).
+      harness.api.acceptPendingComposerSubmission(pending)
+      harness.api.renderSessionList()
+
+      // Every intermediate snapshot from send through promotion and acceptance must:
+      // 1) Render exactly 1 row (never duplicate pending + real rows inside flushSync)
+      // 2) Keep the sent message title (never revert to 'new_chat' / 'New Chat')
+      // 3) Keep active=true and working=true continuously
+      // 4) Keep the stable renderKey equal to pendingViewId once promoted
+      expect(harness.snapshots.length).toBeGreaterThanOrEqual(3)
+      for (const snap of harness.snapshots) {
+        const project = snap.projects.rows.find((row: any) => row.key === '/repo/klaus')
+        expect(project.threads.rows).toHaveLength(1)
+        const row = project.threads.rows[0]
+        expect(row.title).toBe('Fix sidebar title rollback after send')
+        expect(row.active).toBe(true)
+        expect(row.working).toBe(true)
+        expect(row.leadState).toBe('working')
+        expect(row.renderKey ?? row.id).toBe(pendingViewId)
+      }
+
+      // When the host publishes the generated AI title, the row updates in place with the same renderKey.
+      expect(harness.api.applySessionTitleUpdate('created-title-session', 'Smooth sidebar title transition')).toBe(true)
+      const finalProject = harness.snapshots.at(-1)!.projects.rows.find((row: any) => row.key === '/repo/klaus')
+      expect(finalProject.threads.rows).toHaveLength(1)
+      expect(finalProject.threads.rows[0].title).toBe('Smooth sidebar title transition')
+      expect(finalProject.threads.rows[0].renderKey).toBe(pendingViewId)
+      expect(finalProject.threads.rows[0].active).toBe(true)
+      expect(finalProject.threads.rows[0].working).toBe(true)
+    } finally {
+      harness.cleanup()
+    }
+  })
+
+  test('sending the first message in an already-created untitled draft session immediately sets and retains the message title', () => {
+    const harness = createSidebarSendHarness({
+      projectRoot: '/repo/klaus',
+      initialExpansion: { '/repo/klaus': true },
+      existingTitles: [],
+    })
+    try {
+      harness.state.sessions = [{
+        id: 'existing-draft-session',
+        title: 'New Chat',
+        createdAt: 1500,
+        updatedAt: 1500,
+        workdir: '/repo/klaus',
+      }]
+      harness.state.draftOnlySessionIds.add('existing-draft-session')
+      harness.state.window.currentSessionId = 'existing-draft-session'
+      harness.snapshots.length = 0
+
+      const pending = harness.api.beginPendingComposerSubmission(
+        normalizeComposerDraft('First prompt in pre-created draft'),
+        [],
+        null,
+        '0:0',
+        false,
+      )
+      const afterSend = harness.snapshots.at(-1)!.projects.rows.find((row: any) => row.key === '/repo/klaus').threads.rows[0]
+      expect(afterSend.title).toBe('First prompt in pre-created draft')
+      expect(afterSend.working).toBe(true)
+
+      harness.api.acceptPendingComposerSubmission(pending)
+      harness.api.renderSessionList()
+      const afterAccept = harness.snapshots.at(-1)!.projects.rows.find((row: any) => row.key === '/repo/klaus').threads.rows[0]
+      expect(afterAccept.title).toBe('First prompt in pre-created draft')
     } finally {
       harness.cleanup()
     }

@@ -1,4 +1,8 @@
 import type { SessionInfo } from '../engine-events'
+import { scannableReferenceTokens } from '../../../../shared/composer-reference-scan'
+
+export const SIDEBAR_TITLE_MAX_CHARS = 60
+const FRIEND_TOKEN_RE = /@friend-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/giu
 
 export interface SidebarSessionPartitions {
   pinned: SessionInfo[]
@@ -19,7 +23,78 @@ export interface EmptySessionLeaveState {
 
 export function isPlaceholderSessionTitle(title: string | null | undefined): boolean {
   const value = String(title || '').trim()
-  return !value || value === 'New Chat' || value === 'Chat' || value === '新对话'
+  return !value
+    || value === 'New Chat'
+    || value === 'New chat'
+    || value === 'Chat'
+    || value === '新对话'
+    || value === '新会话'
+}
+
+function collapseReferenceTokens(text: string): string {
+  const tokens = scannableReferenceTokens(text).sort((left, right) => left.range.start - right.range.start)
+  if (!tokens.length) return text.replace(FRIEND_TOKEN_RE, ' ')
+  let out = ''
+  let index = 0
+  for (const token of tokens) {
+    if (token.range.start < index) continue
+    out += text.slice(index, token.range.start)
+    out += token.name
+    index = token.range.end
+  }
+  out += text.slice(index)
+  return out.replace(FRIEND_TOKEN_RE, ' ')
+}
+
+function truncateSidebarTitle(text: string | null | undefined): string | null {
+  if (typeof text !== 'string') return null
+  const normalized = collapseReferenceTokens(text).replace(/\s+/gu, ' ').trim()
+  if (!normalized || isPlaceholderSessionTitle(normalized)) return null
+  const chars = Array.from(normalized)
+  return chars.length > SIDEBAR_TITLE_MAX_CHARS
+    ? `${chars.slice(0, SIDEBAR_TITLE_MAX_CHARS - 1).join('')}…`
+    : normalized
+}
+
+export function provisionalSessionTitle(
+  text: string | null | undefined,
+  attachmentNames?: readonly string[],
+): string | null {
+  const fromText = truncateSidebarTitle(text)
+  if (fromText) return fromText
+  if (!attachmentNames?.length) return null
+  for (const name of attachmentNames) {
+    const fromAttachment = truncateSidebarTitle(name)
+    if (fromAttachment) return fromAttachment
+  }
+  return null
+}
+
+export function provisionalTitleForPayload(
+  payload: { displayText?: string | null; liveAttachments?: ReadonlyArray<{ name?: string | null }> } | null | undefined,
+  fallbackText?: string | null,
+): string | null {
+  const names = payload?.liveAttachments
+    ?.map(item => (typeof item?.name === 'string' ? item.name : ''))
+    .filter(Boolean)
+  return provisionalSessionTitle(payload?.displayText || fallbackText, names)
+}
+
+export function applyProvisionalSessionTitle<T extends Pick<SessionInfo, 'id' | 'title'>>(
+  sessions: readonly T[],
+  sessionId: string,
+  provisionalTitle: string | null | undefined,
+): T[] {
+  const normalized = truncateSidebarTitle(provisionalTitle)
+  if (!sessionId || !normalized) return sessions as T[]
+  let changed = false
+  const next = sessions.map((session) => {
+    if (session.id !== sessionId || !isPlaceholderSessionTitle(session.title)) return session
+    if (session.title === normalized) return session
+    changed = true
+    return { ...session, title: normalized }
+  })
+  return changed ? next : (sessions as T[])
 }
 
 export function shouldDiscardEmptySessionOnLeave(

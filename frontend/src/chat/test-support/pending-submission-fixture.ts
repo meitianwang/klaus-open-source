@@ -5,6 +5,7 @@ import { createSourceFile, isFunctionDeclaration, ScriptTarget, transpileModule 
 import { GoalInteractionClock } from '../goals/draft-review'
 import { createComposerDraft, normalizeComposerDraft } from '../composer/slash-draft'
 import { canRestorePendingDraft } from '../composer/pending-submission'
+import { provisionalTitleForPayload } from '../sidebar/model'
 
 const source = readFileSync(new URL('../chat.ts', import.meta.url), 'utf8')
 const ast = createSourceFile('chat.ts', source, ScriptTarget.ESNext, true)
@@ -20,6 +21,7 @@ export function installPendingSubmissionFixture(context: Record<string, any>): v
   const defaults = {
     crypto: { randomUUID }, sidePreparation: null, settledSideSubmissions: new WeakSet(),
     sidePendingSubmissionIds: new Set(), pendingComposerSubmissions: new Map(), cancelledComposerAdmissions: new Map(),
+    submittedTurnSessionIds: new Set(), provisionalTitleForPayload, revertUnacceptedProvisionalSessionTitle() {},
     goalInteractions: new GoalInteractionClock(), runtime: { hooks: {} },
     sessionWorkdir: () => '/workspace', findKnownSession: () => undefined, isWorktreeSessionWorkdir: () => false,
     getSessionStream: () => ({ liveUnits: [], history: [], turnStatuses: {} }),

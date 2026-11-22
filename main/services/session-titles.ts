@@ -7,7 +7,7 @@ import { scannableReferenceTokens } from '../../shared/composer-reference-scan';
 import { withSettingsDb, withSettingsTransaction } from './settings';
 
 type Row = Record<string, Json>;
-export type SessionTitleSource = 'seed' | 'ai' | 'custom' | 'unknown';
+export type SessionTitleSource = 'provisional' | 'seed' | 'ai' | 'custom' | 'unknown';
 export interface SessionTitleRecord {
   title: string | null;
   source: SessionTitleSource;
@@ -40,6 +40,8 @@ export const GENERATED_TITLE_CACHE_LIMIT = 1000;
  * conversation permanently untitled, because nothing else ever claims again.
  */
 export const TITLE_RETRY_INTERVAL_MS = 60_000;
+/** Bound background retries per untitled conversation while a long turn is still running. */
+export const MAX_LIVE_TITLE_RETRIES = 3;
 const GENERATION_TIMEOUT_MS = 30_000;
 const DELEGATION_TAG_CLOSE = `</${DELEGATION_TAG}>`;
 
@@ -65,7 +67,7 @@ function recordIn(db: DatabaseSync, sessionId: string): SessionTitleRecord | und
   const legacySeed = value.source === null || value.source === '';
   return {
     title: typeof value.title === 'string' && value.title.trim() ? value.title : null,
-    source: legacySeed ? 'seed' : ['seed', 'ai', 'custom'].includes(String(value.source)) ? value.source as SessionTitleSource : 'unknown',
+    source: legacySeed ? 'seed' : ['provisional', 'seed', 'ai', 'custom'].includes(String(value.source)) ? value.source as SessionTitleSource : 'unknown',
     legacySeed,
     // A malformed attempt stamp still means an attempt was recorded; it must not cause
     // repeated inference requests on every subsequent turn.
@@ -134,11 +136,15 @@ export function truncateSessionTitle(value: string, max: number = TITLE_MAX_CHAR
   return `${chars.slice(0, max - 1).join('').trimEnd()}…`;
 }
 
+function hasSettledTitle(record: SessionTitleRecord | undefined): boolean {
+  return Boolean(record?.title) && record?.source !== 'provisional';
+}
+
 /** Engine placeholders do not count as titles. */
 export function normalizeSessionTitle(value: unknown, maxChars: number = TITLE_MAX_CHARS): string | undefined {
   if (typeof value !== 'string') return undefined;
   const title = value.replace(/\s+/gu, ' ').trim();
-  if (!title || ['New Chat', 'Chat', '新对话'].includes(title) || /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu.test(title)) return undefined;
+  if (!title || ['New Chat', 'New chat', 'Chat', '新对话', '新会话'].includes(title) || /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu.test(title)) return undefined;
   return truncateSessionTitle(title, maxChars);
 }
 
@@ -237,6 +243,28 @@ export function applySessionTitlesIn(rows: Json[], db: DatabaseSync): Json[] {
   });
 }
 
+/**
+ * Persist a provisional display title from the conversation's first human message
+ * when no title has been stored yet, keeping any existing attempt stamp intact.
+ */
+export function seedProvisionalSessionTitleIn(
+  db: DatabaseSync,
+  sessionId: string,
+  text: string,
+  now: number = Date.now(),
+): string | undefined {
+  const visible = visibleSeedText(text).trim();
+  if (!sessionId || !visible) return undefined;
+  const provisional = normalizeSessionTitle(visible, TITLE_MAX_CHARS);
+  if (!provisional) return undefined;
+  ensureTable(db);
+  const current = recordIn(db, sessionId);
+  if (current?.title) return undefined;
+  const revision = nextRevision(current, now);
+  writeRecord(db, sessionId, provisional, 'provisional', current?.attemptedAt ?? null, revision);
+  return provisional;
+}
+
 /** Read the named facade's actual generatedTitle wrapper, not the obsolete title field. */
 export function generatedSessionTitle(reply: unknown, sessionId: string): string | undefined {
   const generated = object(object(reply)?.generatedTitle), result = object(generated?.title);
@@ -271,6 +299,8 @@ export interface SessionTitlesDeps<C extends AcknowledgedClient = AcknowledgedCl
    * it in this process, and generation needs a live session.
    */
   ensureLive?(sessionId: string): Promise<unknown>;
+  /** Override timer scheduling in deterministic tests; returns a cancel handle. */
+  scheduleRetry?(callback: () => void, delayMs: number): () => void;
   log?(kind: string, detail: string): void;
   now?(): number;
 }
@@ -288,24 +318,28 @@ interface TitleAttempt<C extends AcknowledgedClient> {
 }
 
 /**
- * Host title provenance plus the title pipeline: one generation attempt when the
- * first turn starts, application of the generated title to the host ledger, and a
- * gated adaptive refresh of generated titles on every fifth completed turn. The
- * first user content is generation input only; it is never published as a title.
- * An attempt that produced no title becomes eligible again after
- * `TITLE_RETRY_INTERVAL_MS`, so a transient failure cannot lock the conversation;
- * later turn starts, completed turns and reopened conversations carry that retry,
- * and an attempt the host itself killed by closing or rebuilding its conversation
- * is void at once instead of after the quiet period.
+ * Host title provenance plus the title pipeline: provisional display of the
+ * first accepted user message while no explicit title exists yet, one generation
+ * attempt when the first turn starts, application of the generated title to the
+ * host ledger, and a gated adaptive refresh of generated titles on every fifth
+ * completed turn. A provisional title fills untitled engine rows without
+ * overriding existing engine titles and stays eligible for AI replacement until
+ * a generated or custom title settles. An attempt that produced no generated
+ * title becomes eligible again after `TITLE_RETRY_INTERVAL_MS`, and an attempt
+ * the host itself killed by closing or rebuilding its conversation is void at
+ * once instead of after the quiet period.
  */
 export class SessionTitles<C extends AcknowledgedClient = AcknowledgedClient> {
   private closed = false;
   private readonly attempts = new Map<string, TitleAttempt<C>>();
   private readonly inference = new Map<string, Promise<void>>();
   private readonly firstTurnInput = new Map<string, string>();
+  private readonly pendingFirstTurns = new Set<string>();
   private readonly refreshCounters = new Map<string, { count: number; turnId: string }>();
   private readonly untitledTurns = new Map<string, string>();
   private readonly recoverySeen = new Set<string>();
+  private readonly retryTimers = new Map<string, () => void>();
+  private readonly liveRetryCounts = new Map<string, number>();
   constructor(private readonly deps: SessionTitlesDeps<C>) {}
 
   projectRows(rows: Json[]): Json[] { return applySessionTitles(rows, this.deps.configRoot); }
@@ -322,23 +356,47 @@ export class SessionTitles<C extends AcknowledgedClient = AcknowledgedClient> {
       const previous = recordIn(db, sessionId);
       writeRecord(db, sessionId, title, 'custom', previous?.attemptedAt ?? null, nextRevision(previous, this.now()));
     });
+    this.pendingFirstTurns.delete(sessionId);
+    this.clearRetryTimer(sessionId);
+    this.liveRetryCounts.delete(sessionId);
     this.attempts.delete(sessionId);
   }
 
   /**
-   * Remember the first accepted content as the generation input. The content is
-   * not a title: the conversation stays at the engine placeholder until the
-   * model returns a title.
+   * Remember the first accepted human content as generation input and record a
+   * provisional display title so untitled conversations show the sent message
+   * instead of falling back to the placeholder while generation runs.
    */
   seedFromSend(sessionId: string, text: string): Promise<string | undefined> {
-    if (sessionId && text.trim()) this.firstTurnInput.set(sessionId, text);
-    return Promise.resolve(undefined);
+    const visible = visibleSeedText(text).trim();
+    if (!sessionId || !visible || this.closed) return Promise.resolve(undefined);
+    if (!this.firstTurnInput.has(sessionId)) this.firstTurnInput.set(sessionId, text);
+    const saved = withSettingsTransaction(this.deps.configRoot, db => (
+      seedProvisionalSessionTitleIn(db, sessionId, text, this.now())
+    ));
+    return Promise.resolve(saved);
+  }
+
+  /**
+   * Whether `turn/started` arrived before the caller finished recording the
+   * accepted send input (as happens when the engine emits `turn/started` before
+   * the `session/turnStart` or `session/setGoal` acknowledgement settles).
+   */
+  consumePendingFirstTurn(sessionId: string): boolean {
+    if (!sessionId || !this.pendingFirstTurns.has(sessionId)) return false;
+    this.pendingFirstTurns.delete(sessionId);
+    return true;
   }
 
   /** The first turn of a conversation carries its generation attempt. */
   firstTurnReady(sessionId: string): Promise<boolean> {
+    if (!sessionId || this.closed) return Promise.resolve(false);
     const input = this.firstTurnInput.get(sessionId);
-    if (!sessionId || !input || this.closed) return Promise.resolve(false);
+    if (!input) {
+      this.pendingFirstTurns.add(sessionId);
+      return Promise.resolve(false);
+    }
+    this.pendingFirstTurns.delete(sessionId);
     return this.runPipeline(sessionId, input);
   }
 
@@ -352,7 +410,7 @@ export class SessionTitles<C extends AcknowledgedClient = AcknowledgedClient> {
   async recoverUntitled(sessionId: string): Promise<boolean> {
     if (!sessionId || this.closed || this.recoverySeen.has(sessionId)) return false;
     const record = readSessionTitle(sessionId, this.deps.configRoot);
-    if (record?.title || (record?.attemptedAt != null && !this.retryDue(record.attemptedAt))) return false;
+    if (hasSettledTitle(record) || (record?.attemptedAt != null && !this.retryDue(record.attemptedAt))) return false;
     const input = await this.deps.firstUserContent(sessionId).catch(() => undefined);
     // Claim the single per-process recovery only once there is something to title:
     // an open that lands before the content must stay able to recover later.
@@ -399,7 +457,7 @@ export class SessionTitles<C extends AcknowledgedClient = AcknowledgedClient> {
     void (async () => {
       if (this.closed || this.attempts.has(sessionId)) return;
       const record = readSessionTitle(sessionId, this.deps.configRoot);
-      if (record?.title || (record?.attemptedAt != null && !this.retryDue(record.attemptedAt))) return;
+      if (hasSettledTitle(record) || (record?.attemptedAt != null && !this.retryDue(record.attemptedAt))) return;
       const input = this.firstTurnInput.get(sessionId)
         ?? await this.deps.firstUserContent(sessionId).catch(() => undefined);
       if (!input || !visibleSeedText(input).trim() || this.closed) return;
@@ -411,11 +469,11 @@ export class SessionTitles<C extends AcknowledgedClient = AcknowledgedClient> {
     const attempt = await this.deps.serialize(sessionId, async (): Promise<TitleAttempt<C> | undefined> => {
       if (this.closed || this.attempts.has(sessionId)) return undefined;
       const previous = readSessionTitle(sessionId, this.deps.configRoot);
-      // A custom or generated title already owns the conversation.
-      if (previous?.source === 'custom' || previous?.source === 'ai') return undefined;
+      // A custom, generated or durable historical title already owns the conversation.
+      if (hasSettledTitle(previous)) return undefined;
       // An unclassified engine title (legacy rename or prior generation) is never
       // silently retitled by the pipeline.
-      if (normalizeSessionTitle(await this.deps.engineTitle(sessionId)) && (!previous || previous.legacySeed)) return undefined;
+      if (normalizeSessionTitle(await this.deps.engineTitle(sessionId)) && (!previous || previous.legacySeed || previous.source === 'provisional')) return undefined;
       if (previous?.attemptedAt != null && !this.retryDue(previous.attemptedAt)) return undefined;
       const visible = visibleSeedText(input).trim();
       if (!visible) return undefined;
@@ -426,18 +484,22 @@ export class SessionTitles<C extends AcknowledgedClient = AcknowledgedClient> {
       const client = await this.deps.client();
       this.deps.ensureCurrent(client);
       if (this.closed || this.deps.liveSession(sessionId) !== liveId) return undefined;
-      // Claim the single attempt without publishing a title. The engine placeholder
-      // stays visible until the model returns one.
+      // Claim the attempt while preserving any provisional first-message title
+      // until the model returns a generated title.
+      const provisional = normalizeSessionTitle(visible, TITLE_MAX_CHARS) ?? null;
       const claimed = withSettingsTransaction(this.deps.configRoot, db => {
         ensureTable(db);
         const current = recordIn(db, sessionId);
-        if (current?.title || (current?.attemptedAt != null && !this.retryDue(current.attemptedAt))) return undefined;
+        if (hasSettledTitle(current) || (current?.attemptedAt != null && !this.retryDue(current.attemptedAt))) return undefined;
         if (current?.revision !== previous?.revision) return undefined;
         const revision = nextRevision(current, this.now());
-        writeRecord(db, sessionId, null, 'seed', revision, revision);
-        return { revision, expected: null as string | null };
+        const expected = current?.source === 'provisional' && current.title ? current.title : provisional;
+        const source: SessionTitleSource = expected ? 'provisional' : 'seed';
+        writeRecord(db, sessionId, expected, source, revision, revision);
+        return { revision, expected };
       });
       if (!claimed) return undefined;
+      this.clearRetryTimer(sessionId);
       let finishInference!: () => void;
       const inferenceDone = new Promise<void>(resolve => { finishInference = resolve; });
       const attempt = { client, liveId, revision: claimed.revision, attemptedAt: claimed.revision,
@@ -466,7 +528,10 @@ export class SessionTitles<C extends AcknowledgedClient = AcknowledgedClient> {
         attempt.finishInference();
       }
       const generated = generatedSessionTitle({ generatedTitle: reply }, sessionId);
-      if (!generated) return false;
+      if (!generated) {
+        if (this.deps.liveSession(sessionId) === attempt.liveId) this.scheduleLiveRetry(sessionId, input, attempt.attemptedAt);
+        return false;
+      }
       const revision = await this.deps.serialize(sessionId, async () => {
         if (this.closed || this.attempts.get(sessionId) !== attempt || this.deps.liveSession(sessionId) !== attempt.liveId) return undefined;
         this.deps.ensureCurrent(attempt.client);
@@ -482,6 +547,8 @@ export class SessionTitles<C extends AcknowledgedClient = AcknowledgedClient> {
           return revision;
         });
         if (saved === undefined) return undefined;
+        this.clearRetryTimer(sessionId);
+        this.liveRetryCounts.delete(sessionId);
         this.publish(sessionId, generated);
         // The engine may wait for the active turn before it can rewrite the rollout.
         // Enqueue the engine sync while the mutation queue is held so a later rename
@@ -498,19 +565,20 @@ export class SessionTitles<C extends AcknowledgedClient = AcknowledgedClient> {
       // retries at once instead of waiting out the quiet period for a failure that
       // was structural rather than transient.
       if (this.deps.liveSession(sessionId) !== attempt.liveId) this.voidAttempt(sessionId, attempt);
+      else this.scheduleLiveRetry(sessionId, input, attempt.attemptedAt);
       return false;
     } finally {
       if (this.attempts.get(sessionId) === attempt) this.attempts.delete(sessionId);
     }
   }
 
-  /** Drop the retry stamp of an attempt that died with its conversation, publishing nothing. */
+  /** Drop the retry stamp of an attempt that died with its conversation, keeping any provisional title. */
   private voidAttempt(sessionId: string, attempt: TitleAttempt<C>): void {
     withSettingsTransaction(this.deps.configRoot, db => {
       ensureTable(db);
       const latest = recordIn(db, sessionId);
-      if (!latest || latest.title || latest.revision !== attempt.revision || latest.attemptedAt !== attempt.attemptedAt) return;
-      writeRecord(db, sessionId, null, latest.source, null, nextRevision(latest, this.now()));
+      if (!latest || hasSettledTitle(latest) || latest.title !== attempt.expected || latest.revision !== attempt.revision || latest.attemptedAt !== attempt.attemptedAt) return;
+      writeRecord(db, sessionId, latest.title, latest.source, null, nextRevision(latest, this.now()));
     });
     this.deps.log?.('session-title-attempt-voided', sessionId);
   }
@@ -574,7 +642,44 @@ export class SessionTitles<C extends AcknowledgedClient = AcknowledgedClient> {
     return revision !== undefined;
   }
 
-  close(): void { this.closed = true; this.attempts.clear(); }
+  close(): void {
+    this.closed = true;
+    for (const cancel of this.retryTimers.values()) cancel();
+    this.retryTimers.clear();
+    this.liveRetryCounts.clear();
+    this.attempts.clear();
+    this.pendingFirstTurns.clear();
+  }
+  private clearRetryTimer(sessionId: string): void {
+    const cancel = this.retryTimers.get(sessionId);
+    if (!cancel) return;
+    this.retryTimers.delete(sessionId);
+    cancel();
+  }
+  /**
+   * When initial title generation times out or fails during a long-running turn,
+   * retry automatically once the quiet period elapses instead of waiting until
+   * the turn finishes thirty minutes later.
+   */
+  private scheduleLiveRetry(sessionId: string, input: string, attemptedAt: number): void {
+    if (this.closed || !this.deps.liveSession(sessionId)) return;
+    const retries = this.liveRetryCounts.get(sessionId) ?? 0;
+    if (retries >= MAX_LIVE_TITLE_RETRIES) return;
+    this.liveRetryCounts.set(sessionId, retries + 1);
+    this.clearRetryTimer(sessionId);
+    const delayMs = Math.max(TITLE_RETRY_INTERVAL_MS, attemptedAt + TITLE_RETRY_INTERVAL_MS - this.now());
+    const schedule = this.deps.scheduleRetry ?? ((callback: () => void, waitMs: number) => {
+      const timer = setTimeout(callback, waitMs + 50);
+      timer.unref?.();
+      return () => clearTimeout(timer);
+    });
+    const cancel = schedule(() => {
+      this.retryTimers.delete(sessionId);
+      if (this.closed || !this.deps.liveSession(sessionId)) return;
+      void this.runPipeline(sessionId, input).catch(error => this.deps.log?.('session-title-pipeline-failed', String(error)));
+    }, delayMs);
+    this.retryTimers.set(sessionId, cancel);
+  }
   private now(): number { return this.deps.now?.() ?? Date.now(); }
   /**
    * A stamped attempt is eligible again once it is old enough. A malformed stamp

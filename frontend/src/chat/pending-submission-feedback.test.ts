@@ -9,6 +9,7 @@ import { GoalSnapshots } from './goals/snapshots'
 import { prepareGoalSubmission, goalImageInputs } from './goals/preparation'
 import { GoalSubmissionReceipts, goalAttachmentIntent, serializeGoalSubmissionIntent } from './goals/submission'
 import { canRestorePendingDraft, goalSubmissionUserUuid, setPendingSubmissionRecovery, clearPendingSubmissionRecovery, pendingSubmissionRecovery } from './composer/pending-submission'
+import { applyProvisionalSessionTitle, isPlaceholderSessionTitle, preserveVisibleSessionTitle, provisionalSessionTitle, provisionalTitleForPayload } from './sidebar/model'
 import { normalizeComposerDraft } from './composer/slash-draft'
 import { prepareComposerSubmission } from './composer/session-preparation'
 import { clientMessageId as userMessageClientId } from '../../../contracts/message-identity'
@@ -22,6 +23,7 @@ const ast = createSourceFile('chat.ts', source, ScriptTarget.Latest, true)
 const names = new Set(['sendMessage', 'ensureSession', 'switchSession', 'reconcilePendingComposerSubmissions', 'currentPendingComposerSubmission', 'beginPendingComposerSubmission',
   'createPendingComposerSubmissionRecord', 'promotePendingComposerSubmission', 'acceptPendingComposerSubmission', 'settlePendingComposerSubmission', 'stopPendingComposerSubmission',
   'dismissPendingComposerSubmission', 'reconcileCancelledComposerAdmissions', 'syncComposerContextRowVisibility', 'mainTranscriptChromeState', 'syncMainTranscriptChrome',
+  'seedProvisionalSessionTitle', 'revertUnacceptedProvisionalSessionTitle',
   'unsentTurnPayload', 'retryUnsentSubmission', 'resurfaceUnsentSubmission'])
 const submitTurnPayloadDecl = ast.statements.find(node => isFunctionDeclaration(node) && node.name?.text === 'submitTurnPayload')!
 const functions = ast.statements.filter(node => isFunctionDeclaration(node) && names.has(node.name?.text || '')).map(node => node.getText(ast))
@@ -45,6 +47,8 @@ function fixture({ existing = false, goal = false, worktree = false } = {}) {
     window: { currentSessionId: sourceId, klaus: { browserUse: { setConversation: async () => {} } }, dispatchEvent: () => c.draftPromotion.navigate() },
     goalInteractions: new GoalInteractionClock(), draftPromotion: new DraftSessionPromotion(), promoteInflight: null,
     sessions: [], sessionDeletePending: new Set(), draftOnlySessionIds: new Set(), userInterruptedSessions: new Set(), submittedTurnSessionIds: new Set(), sessionDrafts: new Map(), sessionPendingFiles: new Map(), runningSessions: new Set(),
+    promotedSessionRenderKeys: new Map(), provisionalClientTitles: new Set(),
+    applyProvisionalSessionTitle, isPlaceholderSessionTitle, preserveVisibleSessionTitle, provisionalSessionTitle, provisionalTitleForPayload, syncTitlebarSessionTitle() {},
     pendingComposerSubmissions: new Map(), visiblePendingSubmissionId: null,
     sidePendingSubmissionIds: new Set<string>(), cancelledComposerAdmissions: new Map<string, any>(),
     sideRuntimeForSession: () => undefined,

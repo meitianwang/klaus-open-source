@@ -87,8 +87,9 @@ import { SideTaskRegistry, loadPersistedSideTasks, persistableSideTask, SIDE_TAS
 import { sideTaskTitle } from '../../contracts/side-task-titles';
 import { contextStats } from './context-stats';
 import { collectTurnReply } from './turn-reply';
+import type { DatabaseSync } from 'node:sqlite';
 import { applySessionRecencyIn, recordCompletedSessionReply, recordInitialSessionRecency } from '../services/session-recency';
-import { SessionTitles, applySessionTitlesIn, normalizeSessionTitle, readSessionTitle } from '../services/session-titles';
+import { SessionTitles, applySessionTitlesIn, normalizeSessionTitle, readSessionTitle, seedProvisionalSessionTitleIn } from '../services/session-titles';
 import { kvGet, kvSet, withSettingsDb, withSettingsTransaction } from '../services/settings';
 import { readSessionListSnapshot, writeSessionListSnapshot, type SessionListScope } from '../services/session-list-cache';
 import { queueSnapshotEvent } from './queue';
@@ -499,6 +500,7 @@ export class SessionService {
   private idleRetirement?: Promise<void>;
   private idleRetirementAgain = false;
   private readonly titles: SessionTitles<EngineClientLike>;
+  private readonly emptyUntitledRollouts = new Map<string, string>();
   private readonly modelUpdates: ModelUpdates;
   private readonly followUps: FollowUps;
   private readonly pendingTurns: PendingTurns;
@@ -632,6 +634,7 @@ export class SessionService {
 
   private rememberTitleInput(id: string, payload: Record<string, Json>): Promise<string | undefined> {
     if (!this.titleSession(id)) return Promise.resolve(undefined);
+    this.emptyUntitledRollouts.delete(id);
     // A channel send can carry an envelope as its model-facing text; the generation
     // input follows the human-facing snapshot when one was supplied with the send.
     const displayText = object(payload.displayMetadata)?.displayText;
@@ -4109,7 +4112,44 @@ export class SessionService {
         return row;
       });
       const workspaceRows = this.deps.workspaces?.decorateSessionRows(scoped, db) ?? scoped;
-      return applySessionTitlesIn(applySessionRecencyIn(workspaceRows, db), db);
+      const titled = applySessionTitlesIn(applySessionRecencyIn(workspaceRows, db), db);
+      return this.backfillUntitledSessionRowsIn(titled, db);
+    });
+  }
+
+  /**
+   * When an existing conversation has neither an engine title nor a stored host title
+   * (for example after an earlier failed title request or an external write), project
+   * and persist its first user message as a provisional title so the sidebar never
+   * displays the placeholder once a message has been sent.
+   */
+  private backfillUntitledSessionRowsIn(rows: Json[], db: DatabaseSync): Json[] {
+    let sessionNames: string[] | undefined;
+    return rows.map(value => {
+      const row = object(value);
+      const id = typeof row?.id === 'string' ? row.id : typeof row?.threadId === 'string' ? row.threadId : undefined;
+      if (!row || !id || normalizeSessionTitle(row.title) || row.messageCount === 0) return value;
+      const working = this.deps.state.isWorking(id);
+      const stamp = `${String(row.updatedAt ?? '')}:${String(row.messageCount ?? '')}`;
+      if (!working && this.emptyUntitledRollouts.get(id) === stamp) return value;
+      if (!sessionNames) {
+        try { sessionNames = readdirSync(join(this.configRoot, 'sessions')); } catch { sessionNames = []; }
+      }
+      const firstContent = readFirstUserContentIn(this.configRoot, db, id, sessionNames);
+      if (firstContent) {
+        const provisional = seedProvisionalSessionTitleIn(db, id, firstContent);
+        if (provisional) {
+          this.emptyUntitledRollouts.delete(id);
+          return { ...row, title: provisional };
+        }
+      } else if (!working) {
+        if (this.emptyUntitledRollouts.size >= 2000) {
+          const oldest = this.emptyUntitledRollouts.keys().next().value;
+          if (oldest !== undefined) this.emptyUntitledRollouts.delete(oldest);
+        }
+        this.emptyUntitledRollouts.set(id, stamp);
+      }
+      return value;
     });
   }
 
@@ -5822,14 +5862,22 @@ export function friendPlaceholderTitle(row: Record<string, Json>): boolean {
  * channel envelope never become title input; notes this computer recorded are
  * skipped.
  */
-async function readFirstUserContent(configRoot: string, sessionId: string): Promise<string | undefined> {
+function readFirstUserContentIn(
+  configRoot: string,
+  db: DatabaseSync,
+  sessionId: string,
+  sessionNames?: string[],
+): string | undefined {
   const dir = join(configRoot, 'sessions');
-  let names: string[];
-  try { names = readdirSync(dir); } catch { names = []; }
+  let names = sessionNames;
+  if (!names) {
+    try { names = readdirSync(dir); } catch { names = []; }
+  }
   const name = names.find(row => row.endsWith(`-${sessionId}.jsonl`));
   if (name) {
-    const fd = openSync(join(dir, name), 'r');
+    let fd: number | undefined;
     try {
+      fd = openSync(join(dir, name), 'r');
       const buffer = Buffer.alloc(262144);
       const read = readSync(fd, buffer, 0, buffer.length, 0);
       const rows: Record<string, unknown>[] = [];
@@ -5865,23 +5913,29 @@ async function readFirstUserContent(configRoot: string, sessionId: string): Prom
           .map(block => String(block.text ?? '')).join('\n').trim();
         if (text) return text;
       }
+    } catch {
+      // Ignore unreadable or concurrently removed rollout files during projection.
     } finally {
-      closeSync(fd);
+      if (fd !== undefined) {
+        try { closeSync(fd); } catch { /* ignore */ }
+      }
     }
   }
   // Friend conversations keep their visible messages in the host display store;
   // an outgoing dispatch never writes a user turn into the engine rollout.
-  return withSettingsDb(configRoot, db => {
-    if (!db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='friend_display_messages'").get()) return undefined;
-    const rows = db.prepare('SELECT record_json FROM friend_display_messages WHERE session_id=? ORDER BY rowid ASC').all(sessionId);
-    for (const row of rows) {
-      try {
-        const record = JSON.parse(String(row.record_json)) as Record<string, unknown>;
-        const metadata = record.metadata as Record<string, unknown> | undefined;
-        const text = typeof metadata?.displayText === 'string' ? metadata.displayText : typeof record.text === 'string' ? record.text : '';
-        if (text.trim() && metadata?.friendStatus === undefined && metadata?.friendContinuation !== true) return text;
-      } catch { continue; }
-    }
-    return undefined;
-  });
+  if (!db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='friend_display_messages'").get()) return undefined;
+  const rows = db.prepare('SELECT record_json FROM friend_display_messages WHERE session_id=? ORDER BY rowid ASC').all(sessionId);
+  for (const row of rows) {
+    try {
+      const record = JSON.parse(String(row.record_json)) as Record<string, unknown>;
+      const metadata = record.metadata as Record<string, unknown> | undefined;
+      const text = typeof metadata?.displayText === 'string' ? metadata.displayText : typeof record.text === 'string' ? record.text : '';
+      if (text.trim() && metadata?.friendStatus === undefined && metadata?.friendContinuation !== true) return text;
+    } catch { continue; }
+  }
+  return undefined;
+}
+
+async function readFirstUserContent(configRoot: string, sessionId: string): Promise<string | undefined> {
+  return withSettingsDb(configRoot, db => readFirstUserContentIn(configRoot, db, sessionId));
 }

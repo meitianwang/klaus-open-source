@@ -19,6 +19,8 @@ const tt = (key: string): string => (window as any).tt?.(key) || ''
 
 export interface SessionRowSpec {
   id: string
+  /** Stable React key kept across pending-to-real session promotion so the row DOM and spinner never remount. */
+  renderKey?: string
   active: boolean
   working: boolean
   completeUnread: boolean
@@ -239,6 +241,7 @@ function stopRowActionKeyDown(e: React.KeyboardEvent) {
 /** Trailing icon actions revealed on row hover or keyboard focus.
  *  Uses localized aria-labels without tooltips to satisfy the sidebar tooltip policy. */
 function SessionRowActions({ row, actions }: { row: SessionRowSpec; actions: SidebarActions }) {
+  if (row.id.startsWith('pending:')) return null
   const pinLabel = row.pinned
     ? chipLabel('session_row_unpin', 'Unpin chat')
     : chipLabel('session_row_pin', 'Pin chat')
@@ -369,7 +372,7 @@ function SessionSection({ label, sectionKey, section, actions, trailing }: {
       <SectionHeader label={label} sectionKey={sectionKey} collapsed={section.collapsed} badge={section.collapsedBadge} actions={actions} trailing={trailing} />
       {section.collapsed ? null : (
         <div className={styles['sidebar-task-section-body']}>
-          {section.rows.map(row => <SessionRow row={row} actions={actions} key={row.id} />)}
+          {section.rows.map(row => <SessionRow row={row} actions={actions} key={row.renderKey ?? row.id} />)}
         </div>
       )}
     </section>
@@ -563,7 +566,7 @@ function ProjectThreadList({ project, actions }: { project: ProjectRowSpec; acti
   if (!threads) return null
   return (
     <div className={styles['project-thread-list']} data-project-key={project.key} ref={ref}>
-      {threads.rows.map(row => <ProjectThreadRow row={row} actions={actions} key={row.id} />)}
+      {threads.rows.map(row => <ProjectThreadRow row={row} actions={actions} key={row.renderKey ?? row.id} />)}
       {threads.more ? (
         <button
           type="button" className={styles['project-thread-more']}

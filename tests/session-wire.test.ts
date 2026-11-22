@@ -5355,8 +5355,8 @@ h.test('accepted content generates once at the first turn and persists one gener
   const { service, state, pushed } = serviceWith(client, root);
   await service.client(); state.rememberSession('thread', 'live', {});
   await service.send('thread', { text: 'First content in this conversation' });
-  assertEqual(rowAt(await service.listSessions(), 0, 'provisional sidebar').title, 'First content in this conversation', 'accepted content immediately replaces the placeholder in session lists');
-  assertEqual(readSessionTitle('thread', root)?.source, 'provisional', 'accepted content records provisional provenance');
+  assertEqual(rowAt(await service.listSessions(), 0, 'provisional sidebar').title, 'First content in this conversation', 'accepted content immediately projects the first message instead of New Chat');
+  assertEqual(readSessionTitle('thread', root)?.source, 'provisional', 'accepted content records a provisional display title');
   client.emit('event', { type: 'productEvent', method: 'turn/started', params: { sessionId: 'live', turnId: 'turn-title' } });
   await waitFor(() => readSessionTitle('thread', root)?.source === 'ai', 1000, 'the first turn generates and persists one title');
   const terminal = { type: 'turnCompleted' as const, params: { sessionId: 'live', turnId: 'turn-title', result: { stopReason: 'completed', finalText: 'Done.' } } };
@@ -5391,6 +5391,45 @@ h.test('turn/started arriving before turnStart settles still generates the title
   await service.send('thread', { text: 'Fix sidebar title revert' });
   await waitFor(() => readSessionTitle('thread', root)?.source === 'ai', 1000, 'early turn/started immediately triggers title generation without waiting for turn completion');
   assertEqual(readSessionTitle('thread', root)?.title, 'Immediate generated title', 'generated title settles during the active turn');
+  await service.shutdown();
+});
+
+h.test('early turn/started before turn/submit settles still generates the first-turn title and untitled rollouts backfill their first message', async () => {
+  const root = byoRoot();
+  mkdirSync(join(root, 'sessions'), { recursive: true });
+  writeFileSync(
+    join(root, 'sessions', '1700000000-legacy-untitled.jsonl'),
+    `${JSON.stringify({ kind: 'message', message: { type: 'user', uuid: 'u-legacy', content: [{ type: 'text', text: 'First message stored on disk' }] } })}\n`,
+  );
+  const client = new FakeClient()
+    .reply('engine/listSessions', {
+      sessions: {
+        items: [
+          { id: 'early-thread', title: 'New Chat' },
+          { id: 'legacy-untitled', title: 'New Chat' },
+        ],
+      },
+    })
+    .reply('engine/readSessionSummary', { session: { id: 'early-thread', title: 'New Chat' } })
+    .reply('session/generateTitle', { generatedTitle: { threadId: 'early-thread', title: { title: 'Resolved early-turn title', persisted: false } } })
+    .reply('session/updateTitle', { title: { threadId: 'early-thread', title: 'Resolved early-turn title' } });
+  const original = client.requestWithTimeout.bind(client);
+  client.requestWithTimeout = async (method, params) => {
+    if (method === 'turn/submit' && (params as Record<string, Json>).mode === 'start-if-idle') {
+      client.emit('event', { type: 'productEvent', method: 'turn/started', params: { sessionId: 'live-early', turnId: 'turn-early' } });
+      client.reply(method, acceptedTurnInput(params, 'turn-early'));
+    }
+    return original(method, params);
+  };
+  const { service, state } = serviceWith(client, root);
+  await service.client();
+  state.rememberSession('early-thread', 'live-early', {});
+  await service.send('early-thread', { text: 'Prompt whose turn starts before submit settles' });
+  await waitFor(() => readSessionTitle('early-thread', root)?.source === 'ai', 1500, 'late input consumes pending first-turn marker and generates title');
+  const listed = await service.listSessions() as Array<Record<string, Json>>;
+  assertEqual(listed.find(row => row.id === 'early-thread')?.title, 'Resolved early-turn title', 'early-turn conversation settles its generated title');
+  assertEqual(listed.find(row => row.id === 'legacy-untitled')?.title, 'First message stored on disk', 'untitled rollout on disk backfills its first user message instead of New Chat');
+  assertEqual(readSessionTitle('legacy-untitled', root)?.source, 'provisional', 'backfilled rollout title stays provisional so later AI recovery can still upgrade it');
   await service.shutdown();
 });
 

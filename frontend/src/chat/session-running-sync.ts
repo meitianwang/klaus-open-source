@@ -8,10 +8,11 @@ export interface SessionRunningState {
 export interface SidebarWorkingSources {
   turnRunning: boolean
   listedWorking: boolean
+  pendingSubmission?: boolean
 }
 
 export function sidebarSessionWorking(sources: SidebarWorkingSources): boolean {
-  return sources.turnRunning || sources.listedWorking
+  return sources.turnRunning || sources.listedWorking || sources.pendingSubmission === true
 }
 
 export interface SessionRunningChange {

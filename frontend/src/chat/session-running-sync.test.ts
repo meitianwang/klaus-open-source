@@ -6,6 +6,7 @@ describe('session running synchronization', () => {
     expect(sidebarSessionWorking({ turnRunning: false, listedWorking: false })).toBe(false)
     expect(sidebarSessionWorking({ turnRunning: true, listedWorking: false })).toBe(true)
     expect(sidebarSessionWorking({ turnRunning: false, listedWorking: true })).toBe(true)
+    expect(sidebarSessionWorking({ turnRunning: false, listedWorking: false, pendingSubmission: true })).toBe(true)
   })
   test('reports an off-screen session settling without an open-session dependency', () => {
     const previous = {
