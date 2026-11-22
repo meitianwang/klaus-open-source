@@ -1,5 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite';
 import type { Json } from '../ipc/contract';
+import { SIDEBAR_PROMOTE_ON_REPLY_KEY, isSidebarPromoteOnReplyEnabled } from '../../shared/sidebar-preferences';
 import { object } from '../ipc/arguments';
 import { withSettingsTransaction } from './settings';
 
@@ -47,12 +48,16 @@ export function recordInitialSessionRecency(sessionId: string, createdAt: number
   });
 }
 
-/** Only a completed final reply advances this clock; wall-clock adjustments cannot rewind it. */
-export function recordCompletedSessionReply(sessionId: string, completedAt: number, configRoot: string): void {
-  if (!sessionId || !Number.isSafeInteger(completedAt) || completedAt <= 0) return;
-  withSettingsTransaction(configRoot, db => {
+/** Only a completed final reply advances this clock; wall-clock adjustments cannot rewind it.
+ *  Returns false without writing when reply-driven promotion is turned off in preferences. */
+export function recordCompletedSessionReply(sessionId: string, completedAt: number, configRoot: string): boolean {
+  if (!sessionId || !Number.isSafeInteger(completedAt) || completedAt <= 0) return false;
+  return withSettingsTransaction(configRoot, db => {
+    const pref = db.prepare('SELECT value FROM settings WHERE key = ?').get(SIDEBAR_PROMOTE_ON_REPLY_KEY) as { value?: unknown } | undefined;
+    if (!isSidebarPromoteOnReplyEnabled(typeof pref?.value === 'string' ? pref.value : undefined)) return false;
     ensureTable(db);
     db.prepare('INSERT INTO session_recency (session_id, sort_at) VALUES (?, ?) ON CONFLICT(session_id) DO UPDATE SET sort_at = MAX(sort_at, excluded.sort_at)')
       .run(sessionId, completedAt);
+    return true;
   });
 }

@@ -5063,7 +5063,7 @@ function projectRowsFromSessions() {
     if (ar !== undefined && br !== undefined) return ar - br
     if (ar !== undefined) return -1
     if (br !== undefined) return 1
-    return b.updatedAt - a.updatedAt || a.name.localeCompare(b.name)
+    return a.name.localeCompare(b.name) || a.workdir.localeCompare(b.workdir)
   })
 }
 
@@ -5875,7 +5875,7 @@ async function pickAndRegisterProjectWorkdir() {
   }
   projectRoots = Array.isArray(state?.roots)
     ? state.roots.map((root: string | { path?: string }) => typeof root === 'string' ? root : root?.path).filter((r: string | undefined): r is string => !!r)
-    : [next, ...projectRoots.filter((root) => root !== next)]
+    : (projectRoots.includes(next) ? projectRoots : [next, ...projectRoots])
   projectLabels = state?.labels && typeof state.labels === 'object' ? state.labels : projectLabels
   // 广播项目注册表变化：快捷指令页等消费方据此即时重拉项目 tab。
   try { window.dispatchEvent(new CustomEvent('klaus:projects-changed')) } catch {}
@@ -5904,7 +5904,7 @@ async function connectSshFromProjectPicker() {
   }
   projectRoots = Array.isArray(state?.roots)
     ? state.roots.map((root: string | { path?: string }) => typeof root === 'string' ? root : root?.path).filter((r: string | undefined): r is string => !!r)
-    : [picked.workdir, ...projectRoots.filter((root) => root !== picked.workdir)]
+    : (projectRoots.includes(picked.workdir) ? projectRoots : [picked.workdir, ...projectRoots])
   projectLabels = state?.labels && typeof state.labels === 'object' ? state.labels : projectLabels
   try { window.dispatchEvent(new CustomEvent('klaus:projects-changed')) } catch {}
   await setProjectForCurrentNewConversation(picked.workdir)

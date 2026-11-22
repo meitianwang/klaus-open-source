@@ -57,7 +57,8 @@
     "registrySubsetOnly": "keys that are not registered roots (ws:/friend:/unregistered paths) never enter workspace.project_order",
     "undraggedRootsKeepRelativeOrder": "registered roots absent from the drag keep their previous relative order at the tail, so a reorder can never drop one",
     "removalClearsSlot": "projectsRemove, workspaces:delete and detachDirectory each drop the removed key from the sidebar order row",
-    "listEchoesOrder": "projectsList returns sidebarOrder so a hydrate needs no second read"
+    "listEchoesOrder": "projectsList returns sidebarOrder so a hydrate needs no second read",
+    "activationPreservesOrder": "activating or binding an already-registered project updates active_root without promoting that project to the head of workspace.roots or workspace.project_order"
   },
   "gesture": {
     "_why": "The interaction contract, pinned here because the DOM harness measures it end to end and a unit test cannot.",

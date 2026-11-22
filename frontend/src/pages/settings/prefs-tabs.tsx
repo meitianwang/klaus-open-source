@@ -6,6 +6,7 @@ import { PrefToggleRow, SettingsPage, kvSet, useSettingsDraftSync } from './kv'
 import styles from './settings.module.css'
 import { settingsErrorText } from './settings-error-text'
 import type { PowerSaveSnapshot } from '../../../../contracts/power-save'
+import { SIDEBAR_PROMOTE_ON_REPLY_KEY, isSidebarPromoteOnReplyEnabled } from '../../../../shared/sidebar-preferences'
 import { useSettingsSnapshot } from './settings-snapshot'
 import { FeatureModelRow, useFeatureModelSettings } from './feature-models'
 import { TITLE_FEATURE_MODEL_ROW } from './feature-models-state'
@@ -78,6 +79,7 @@ interface PrefsData {
   notifySound: boolean
   notifyFriendToast: boolean
   followUpMode: string
+  promoteOnReply: boolean
   outputStyles: OutputStyle[]
   defaultOutputStyle: string
   currentOutputStyle: string
@@ -113,13 +115,14 @@ export function PreferencesTab() {
       try {
         const settingsApi = w().settingsApi
         const followUpModeHelper = w().KlausFollowUp
-        const [keepAwakeConfig, loginItemConfig, notifyDesktopRaw, notifySoundRaw, notifyFriendToastRaw, followUpRaw, outputStyleData, excludes, predictionsRaw, providerTraceRaw] = await Promise.all([
+        const [keepAwakeConfig, loginItemConfig, notifyDesktopRaw, notifySoundRaw, notifyFriendToastRaw, followUpRaw, promoteOnReplyRaw, outputStyleData, excludes, predictionsRaw, providerTraceRaw] = await Promise.all([
           w().klaus.powerSave.snapshot(),
           w().klaus.app.loginItem.get(),
           settingsApi.kv.get('notification.desktop'),
           settingsApi.kv.get('notification.sound'),
           settingsApi.kv.get('notification.friendToast'),
           settingsApi.kv.get(followUpModeHelper?.FOLLOW_UP_QUEUE_MODE_KEY || 'follow_up_queue_mode'),
+          settingsApi.kv.get(SIDEBAR_PROMOTE_ON_REPLY_KEY),
           settingsApi.outputStyles?.list ? settingsApi.outputStyles.list() : Promise.resolve(null),
           w().klaus.workspace.getExcludes(),
           settingsApi.kv.get('composer_predictions_enabled'),
@@ -152,6 +155,7 @@ export function PreferencesTab() {
           notifySound: notifySoundRaw !== 'off',
           notifyFriendToast: notifyFriendToastRaw !== 'off',
           followUpMode: followUpModeHelper?.normalizeMode(followUpRaw) || 'queue',
+          promoteOnReply: isSidebarPromoteOnReplyEnabled(promoteOnReplyRaw),
           outputStyles,
           defaultOutputStyle,
           currentOutputStyle,
@@ -171,7 +175,7 @@ export function PreferencesTab() {
       if (current) setPredictionReason(reply.available || reply.reason === 'disabled' ? '' : reply.reason || 'unavailable')
     }).catch(() => { if (current) setPredictionReason('unavailable') })
     const off = w().klaus.on.appPreferencesChanged?.(({ key }: { key: string }) => {
-      if (key === 'composer_predictions_enabled') setReloadSequence(value => value + 1)
+      if (key === 'composer_predictions_enabled' || key === SIDEBAR_PROMOTE_ON_REPLY_KEY) setReloadSequence(value => value + 1)
     })
     return () => { current = false; off?.() }
   }, [reloadSequence])
@@ -285,6 +289,19 @@ export function PreferencesTab() {
             </div>
           </div>
           <FeatureModelRow row={TITLE_FEATURE_MODEL_ROW} model={featureModels} />
+          {toggleRow('pref-promote-session-on-reply', t('pref_promote_session_on_reply'), t('pref_promote_session_on_reply_desc'), data.promoteOnReply, async (checked) => {
+            if (busyKey) return
+            const previous = data.promoteOnReply
+            setBusyKey('promote-session-on-reply')
+            setData(prev => prev && { ...prev, promoteOnReply: checked })
+            try {
+              if (!(await kvSet(SIDEBAR_PROMOTE_ON_REPLY_KEY, checked ? 'on' : 'off'))) {
+                setData(prev => prev && { ...prev, promoteOnReply: previous })
+              }
+            } finally {
+              setBusyKey('')
+            }
+          })}
         </div>
       </div>
       <div className="settings-section">

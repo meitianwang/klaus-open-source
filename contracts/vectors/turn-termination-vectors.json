@@ -66,6 +66,8 @@
     "initialValue": "session createdAt",
     "advancesOnlyWhen": ["stopReason=completed", "non-empty finalText"],
     "storage": "settings.db session_recency",
+    "preferenceKey": "sidebar.promote_on_reply",
+    "preferenceDefault": "on",
     "runtimeAuditMayReorder": false,
     "completedTurnRefreshMayReorder": true,
     "queuedContinuationStillAdvances": true,

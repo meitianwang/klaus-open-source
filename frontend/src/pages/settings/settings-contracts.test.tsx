@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { PREFERENCES } from '../../../../main/services/klaus-control/preferences'
+import { SIDEBAR_PROMOTE_ON_REPLY_KEY, isSidebarPromoteOnReplyEnabled } from '../../../../shared/sidebar-preferences'
 import { CapabilitySwitch } from './capability-tabs'
 import { AUTO_MEMORY_DEFAULT } from './engine-tabs'
 import { PrefNumberRow, PrefTextRow, PrefToggleRow } from './kv'
@@ -10,6 +11,19 @@ describe('settings renderer contracts', () => {
   test('automatic memory remains opt-in in both the renderer and control catalog', () => {
     expect(AUTO_MEMORY_DEFAULT).toBe(false)
     expect(PREFERENCES.find(preference => preference.name === 'autoMemory')?.unset).toBe('off')
+  })
+
+  test('reply-driven sidebar promotion defaults on in both the shared parser and control catalog', () => {
+    expect(isSidebarPromoteOnReplyEnabled(undefined)).toBe(true)
+    expect(isSidebarPromoteOnReplyEnabled(null)).toBe(true)
+    expect(isSidebarPromoteOnReplyEnabled('')).toBe(true)
+    expect(isSidebarPromoteOnReplyEnabled('on')).toBe(true)
+    expect(isSidebarPromoteOnReplyEnabled('off')).toBe(false)
+    expect(isSidebarPromoteOnReplyEnabled('false')).toBe(false)
+    const entry = PREFERENCES.find(preference => preference.name === 'promoteSessionOnReply')
+    expect(entry?.row).toBe(SIDEBAR_PROMOTE_ON_REPLY_KEY)
+    expect(entry?.unset).toBe('on')
+    expect(entry?.place).toBe('preferences')
   })
 
   test('in-app consent requests cover exactly the domains the host can ask for', () => {

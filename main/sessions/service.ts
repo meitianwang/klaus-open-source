@@ -636,9 +636,15 @@ export class SessionService {
     // input follows the human-facing snapshot when one was supplied with the send.
     const displayText = object(payload.displayMetadata)?.displayText;
     const text = typeof displayText === 'string' ? displayText : (typeof payload.text === 'string' ? payload.text : '');
-    // Recording the input is in-memory only. Keep it synchronous with the send so a
-    // turn or title request that starts immediately already sees the content.
     return this.titles.seedFromSend(id, text)
+      .then(seeded => {
+        if (this.titles.consumePendingFirstTurn(id)) {
+          this.requestOwner.exit(() => {
+            void this.titles.firstTurnReady(id).catch(error => this.deps.log?.('session-title-pipeline-failed', String(error)));
+          });
+        }
+        return seeded;
+      })
       .catch(error => {
         this.deps.log?.('session-title-seed-failed', String(error));
         return undefined;
@@ -1775,11 +1781,12 @@ export class SessionService {
     const key = `${generation}\0${id}\0${turnId}`;
     if (turnId && this.completedRecency.has(key)) return;
     try {
-      recordCompletedSessionReply(id, (this.deps.recencyClock ?? Date.now)(), this.configRoot);
+      const promoted = recordCompletedSessionReply(id, (this.deps.recencyClock ?? Date.now)(), this.configRoot);
       if (turnId) {
         this.completedRecency.add(key);
         if (this.completedRecency.size > 2048) this.completedRecency.delete(this.completedRecency.values().next().value!);
       }
+      if (!promoted) return;
       // A queued continuation may already be running. Its predecessor still completed,
       // so refresh the durable list before the terminal event reaches other observers.
       this.deps.pushChatEvents([{ type: 'session_recency_updated', sessionId: id }]);

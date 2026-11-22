@@ -80,6 +80,7 @@ import { configuredInference, inferenceInit, replaceInferenceInit } from '../mai
 import { ChatEventForwarder, SessionEventPump } from '../main/sessions/events';
 import { setupLifecycleNotices } from '../main/sessions/setup-lifecycle';
 import { browserTabMentionLink, browserTabMentionUri, type BrowserTabMention } from '../shared/browser-tab-mention';
+import { SIDEBAR_PROMOTE_ON_REPLY_KEY } from '../shared/sidebar-preferences';
 import { FriendTaskStore } from '../main/services/friend-task-store';
 import { ClientFollowUpQueue } from '../main/sessions/client-queue';
 import { SessionQueue } from '../main/sessions/queue';
@@ -1197,6 +1198,45 @@ h.test('queued completion updates recency before observers and duplicate or back
   assertEqual(savedRecency(root, 'conversation'), 2000, 'a backward wall clock cannot rewind completed work');
   recordCompletedSessionReply('conversation', 0, root);
   assertEqual(savedRecency(root, 'conversation'), 2000, 'an invalid completion clock cannot erase recency');
+  await service.shutdown();
+});
+
+h.test('turning off promote-on-reply keeps completed conversations in place without marking sessions stale', async () => {
+  const vector = JSON.parse(readFileSync(vectorPath('turn-termination-vectors.json'), 'utf8')) as {
+    sidebarRecency: { preferenceKey: string; preferenceDefault: string };
+  };
+  assertEqual(SIDEBAR_PROMOTE_ON_REPLY_KEY, vector.sidebarRecency.preferenceKey, 'preference key matches vector');
+  assertEqual(vector.sidebarRecency.preferenceDefault, 'on', 'preference defaults on');
+
+  const root = freshRoot(), client = new FakeClient();
+  let now = 2000;
+  recordInitialSessionRecency('older', 1000, root);
+  recordInitialSessionRecency('newer', 1500, root);
+  const { service, state, pushed } = serviceWith(client, root, undefined, { recencyClock: () => now });
+  state.rememberSession('older', 'engine-older', {});
+  await service.client();
+
+  const config = new SessionConfiguration({ state, configRoot: root, request: async () => ({}), log: () => {} });
+  await config.settingsChanged(SIDEBAR_PROMOTE_ON_REPLY_KEY);
+  assertEqual(state.isStale('older'), false, 'toggling sidebar reply promotion never marks live sessions stale');
+
+  kvSet(SIDEBAR_PROMOTE_ON_REPLY_KEY, 'off', root);
+  client.emit('event', { type: 'turnCompleted', params: { sessionId: 'engine-older', turnId: 'turn-off', result: { stopReason: 'completed', finalText: 'Reply while disabled' } } });
+  assertEqual(savedRecency(root, 'older'), 1000, 'disabled preference leaves durable sort_at untouched');
+  assertDeepEqual(pushed, [], 'disabled preference suppresses session_recency_updated');
+
+  // Even a duplicate replay of that turn after re-enabling must not retroactively move it;
+  // only a genuinely new completed turn advances the conversation.
+  kvSet(SIDEBAR_PROMOTE_ON_REPLY_KEY, 'on', root);
+  now = 2500;
+  client.emit('event', { type: 'turnCompleted', params: { sessionId: 'engine-older', turnId: 'turn-off', result: { stopReason: 'completed', finalText: 'Reply while disabled' } } });
+  assertEqual(savedRecency(root, 'older'), 1000, 'duplicate terminal replay does not retroactively promote');
+  assertDeepEqual(pushed, [], 'duplicate terminal replay emits nothing');
+
+  now = 3000;
+  client.emit('event', { type: 'turnCompleted', params: { sessionId: 'engine-older', turnId: 'turn-on', result: { stopReason: 'completed', finalText: 'Reply while re-enabled' } } });
+  assertEqual(savedRecency(root, 'older'), 3000, 're-enabling promotes newly completed replies');
+  assertDeepEqual(pushed, [{ type: 'session_recency_updated', sessionId: 'older' }], 're-enabling resumes sidebar reorder event');
   await service.shutdown();
 });
 
@@ -5315,8 +5355,8 @@ h.test('accepted content generates once at the first turn and persists one gener
   const { service, state, pushed } = serviceWith(client, root);
   await service.client(); state.rememberSession('thread', 'live', {});
   await service.send('thread', { text: 'First content in this conversation' });
-  assertEqual(rowAt(await service.listSessions(), 0, 'untitled sidebar').title, 'New Chat', 'accepted content never publishes a placeholder');
-  assertEqual(readSessionTitle('thread', root), undefined, 'accepted content writes no title record');
+  assertEqual(rowAt(await service.listSessions(), 0, 'provisional sidebar').title, 'First content in this conversation', 'accepted content immediately replaces the placeholder in session lists');
+  assertEqual(readSessionTitle('thread', root)?.source, 'provisional', 'accepted content records provisional provenance');
   client.emit('event', { type: 'productEvent', method: 'turn/started', params: { sessionId: 'live', turnId: 'turn-title' } });
   await waitFor(() => readSessionTitle('thread', root)?.source === 'ai', 1000, 'the first turn generates and persists one title');
   const terminal = { type: 'turnCompleted' as const, params: { sessionId: 'live', turnId: 'turn-title', result: { stopReason: 'completed', finalText: 'Done.' } } };
@@ -5328,6 +5368,29 @@ h.test('accepted content generates once at the first turn and persists one gener
   assertDeepEqual(pushed.filter(value => (value as Record<string, Json>).type === 'session_title_updated'), [
     { type: 'session_title_updated', sessionId: 'thread', title: 'Generated conversation title' },
   ], 'the generated title updates the existing sidebar row');
+  await service.shutdown();
+});
+
+h.test('turn/started arriving before turnStart settles still generates the title at turn start', async () => {
+  const root = byoRoot(), client = new FakeClient()
+    .replySubmit('start-if-idle', 'turn-early')
+    .reply('engine/listSessions', { sessions: { items: [{ id: 'thread', title: 'New Chat' }] } })
+    .reply('engine/readSessionSummary', { session: { id: 'thread', title: 'New Chat' } })
+    .reply('session/generateTitle', { generatedTitle: { threadId: 'thread', title: { title: 'Immediate generated title', persisted: false } } })
+    .reply('session/updateTitle', { title: { threadId: 'thread', title: 'Immediate generated title' } });
+  const original = client.requestWithTimeout.bind(client);
+  client.requestWithTimeout = async (method, params) => {
+    const reply = await original(method, params);
+    if (method === 'turn/submit') {
+      client.emit('event', { type: 'productEvent', method: 'turn/started', params: { sessionId: 'live', turnId: 'turn-early' } });
+    }
+    return reply;
+  };
+  const { service, state } = serviceWith(client, root);
+  await service.client(); state.rememberSession('thread', 'live', {});
+  await service.send('thread', { text: 'Fix sidebar title revert' });
+  await waitFor(() => readSessionTitle('thread', root)?.source === 'ai', 1000, 'early turn/started immediately triggers title generation without waiting for turn completion');
+  assertEqual(readSessionTitle('thread', root)?.title, 'Immediate generated title', 'generated title settles during the active turn');
   await service.shutdown();
 });
 

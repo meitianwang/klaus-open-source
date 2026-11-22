@@ -183,8 +183,14 @@ function migrateMembers(db: DatabaseSync): void {
 function registerProject(db: DatabaseSync, path: string, label?: string): void {
   migrateMembers(db);
   const saved = projectState(db);
-  saved.roots = [path, ...saved.roots.filter(root => root !== path)];
-  saved.order = [path, ...saved.order.filter(root => root !== path)];
+  const isNew = !saved.roots.includes(path);
+  const ordered = new Set(saved.order);
+  const missing = saved.roots.filter(root => !ordered.has(root)).sort((a, b) => basename(a).localeCompare(basename(b)));
+  if (missing.length) saved.order = [...saved.order, ...missing];
+  if (isNew) {
+    saved.roots = [path, ...saved.roots];
+    saved.order = [path, ...saved.order.filter(root => root !== path)];
+  }
   const cleanLabel = label?.trim();
   if (cleanLabel) saved.labels[path] = cleanLabel;
   writeProjectState(db, saved, Boolean(cleanLabel));

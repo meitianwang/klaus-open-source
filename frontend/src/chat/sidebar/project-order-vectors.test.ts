@@ -155,6 +155,12 @@ describe('sidebar project order contract vectors', () => {
     // The list echoes the stored order so a hydrate needs no second read.
     expect(workspaces.slice(workspaces.indexOf('projectsList()'), workspaces.indexOf('projectsAdd(payload')))
       .toContain('sidebarOrder')
+    const registerBody = workspaces.slice(workspaces.indexOf('function registerProject('), workspaces.indexOf('export class WorkspaceStore'))
+    expect(registerBody).toContain('const isNew = !saved.roots.includes(path)')
+    const chat = readRepo('frontend/src/chat/chat.ts')
+    const sessionRowsBody = chat.slice(chat.indexOf('function projectRowsFromSessions()'), chat.indexOf('function regularLocalSessions()'))
+    expect(sessionRowsBody).not.toContain('b.updatedAt - a.updatedAt')
+    expect(host.activationPreservesOrder.length).toBeGreaterThan(0)
     expect(host.oneTransaction.length).toBeGreaterThan(0)
   })
 
