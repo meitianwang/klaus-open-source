@@ -9,10 +9,12 @@ import {
   isSectionCollapsed,
   parseProjectExpansionMap,
   parseSectionsCollapsed,
+  placeProvisionalProjectRow,
   projectThreadVisibleCount,
   projectThreadWindow,
   readProjectExpansion,
   reduceCollapsedBadge,
+  mergeCollapsedBadge,
   showMoreAfterPress,
   withProjectExpansion,
   withSectionCollapsed,
@@ -275,3 +277,77 @@ describe('serialized optimistic collapse persistence', () => {
     expect(recorder.renders).toBe(1)
   })
 })
+
+describe('provisional submission placement', () => {
+  test('a folded group stays folded and surfaces a loading badge while provisional work runs', () => {
+    const folded = { expanded: false, closing: false, collapsedBadge: null, threads: null }
+    const result = placeProvisionalProjectRow(
+      folded,
+      { id: 'pending:1', active: true, working: true },
+      { expanded: false, page: 0 },
+      4,
+    )
+    expect(result).toEqual({
+      expanded: false,
+      closing: false,
+      collapsedBadge: 'loading',
+      threads: null,
+    })
+  })
+
+  test('an unread badge on a folded group still beats a working provisional row', () => {
+    const folded = { expanded: false, closing: false, collapsedBadge: 'unread' as const, threads: null }
+    const result = placeProvisionalProjectRow(
+      folded,
+      { id: 'pending:1', active: true, working: true },
+      { expanded: false, page: 0 },
+      4,
+    )
+    expect(result.collapsedBadge).toBe('unread')
+    expect(result.expanded).toBe(false)
+    expect(result.threads).toBeNull()
+  })
+
+  test('a group mid-close keeps its exiting rows and waits to show the collapsed badge', () => {
+    const closing = {
+      expanded: false,
+      closing: true,
+      collapsedBadge: null,
+      threads: { rows: [{ id: 's1', active: false, working: false }], more: false },
+    }
+    const result = placeProvisionalProjectRow(
+      closing,
+      { id: 'pending:1', active: true, working: true },
+      { expanded: false, page: 0 },
+      1,
+    )
+    expect(result).toEqual(closing)
+  })
+
+  test('an open group prepends the provisional row and windows to the preview limit', () => {
+    const existing = ['s1', 's2', 's3', 's4', 's5'].map(id => ({ id, active: false, working: false }))
+    const open = {
+      expanded: true,
+      closing: false,
+      collapsedBadge: null,
+      threads: { rows: existing, more: false },
+    }
+    const result = placeProvisionalProjectRow(
+      open,
+      { id: 'pending:1', active: true, working: true },
+      { expanded: false, page: 0 },
+      5,
+    )
+    expect(result.expanded).toBe(true)
+    expect(result.threads?.rows.map(row => row.id)).toEqual(['pending:1', 's1', 's2', 's3', 's4'])
+    expect(result.threads?.more).toBe(true)
+  })
+
+  test('mergeCollapsedBadge preserves unread priority over loading', () => {
+    expect(mergeCollapsedBadge(null, { working: true, unread: false, waiting: false })).toBe('loading')
+    expect(mergeCollapsedBadge('unread', { working: true, unread: false, waiting: false })).toBe('unread')
+    expect(mergeCollapsedBadge('loading', { working: false, unread: false, waiting: false })).toBe('loading')
+    expect(mergeCollapsedBadge(null, { working: false, unread: false, waiting: false })).toBeNull()
+  })
+})
+

@@ -12,6 +12,7 @@ import {
   mayApplyAsyncState,
   parseProjectExpansionMap,
   parseSectionsCollapsed,
+  placeProvisionalProjectRow,
   projectThreadVisibleCount,
   projectThreadWindow,
   readProjectExpansion,
@@ -142,6 +143,24 @@ describe('sidebar collapse contract vectors', () => {
     for (const vector of reveal) {
       expect(revealDecision(vector.expansion ?? undefined, vector.draft)).toBe(vector.decision)
     }
+  })
+
+  test('provisional submission vectors preserve an explicit fold and window open groups', () => {
+    const provisional = vectors.provisionalSubmission as unknown as Record<string, {
+      project: { expanded: boolean; closing: boolean; collapsedBadge: 'unread' | 'loading' | null; threads: { rows: Array<{ id: string; active: boolean; working: boolean }>; more: boolean } | null }
+      row: { id: string; active: boolean; working: boolean }
+      state: { expanded: boolean; page: number }
+      existingTotal: number
+      expected: unknown
+    }>
+    for (const [name, vector] of Object.entries(provisional)) {
+      if (name === '_why') continue
+      const actual = placeProvisionalProjectRow(vector.project, vector.row, vector.state, vector.existingTotal)
+      expect(actual).toEqual(vector.expected as typeof actual)
+    }
+    const chat = readRepo('frontend/src/chat/chat.ts')
+    expect(chat).toContain('placeProvisionalProjectRow(')
+    expect(chat).not.toContain('project.expanded = true')
   })
 
   test('an in-flight read yields to a click that landed while it was awaiting', () => {

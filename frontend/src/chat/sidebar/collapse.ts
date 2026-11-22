@@ -290,3 +290,57 @@ export function reduceCollapsedBadge(sessions: Iterable<SessionActivity>): Colla
   }
   return anyActive ? 'loading' : null
 }
+
+export function mergeCollapsedBadge(
+  badge: CollapsedBadge,
+  activity: SessionActivity,
+): CollapsedBadge {
+  return reduceCollapsedBadge([
+    ...(badge === 'unread'
+      ? [{ working: false, unread: true, waiting: false }]
+      : badge === 'loading'
+        ? [{ working: true, unread: false, waiting: false }]
+        : []),
+    activity,
+  ])
+}
+
+export interface ProvisionalProjectTarget<T> {
+  expanded: boolean
+  closing: boolean
+  collapsedBadge: CollapsedBadge
+  threads: { rows: T[]; more: boolean } | null
+}
+
+/** Place a provisional submission (created on Send before `session:new` resolves)
+ *  into its target project group without violating the group's fold or window:
+ *
+ *  - A folded or closing group stays folded (`expanded: false`, `threads`
+ *    untouched) and folds the provisional row's working state into its
+ *    collapsed aggregate badge once the close animation finishes.
+ *  - An open group prepends the provisional row and applies the group's
+ *    pagination window so a full preview stays at the preview limit instead
+ *    of jumping to `limit + 1` and back when `session:new` resolves. */
+export function placeProvisionalProjectRow<T extends { active: boolean; working: boolean }>(
+  project: ProvisionalProjectTarget<T>,
+  row: T,
+  state: ShowMoreState,
+  existingTotal: number,
+): ProvisionalProjectTarget<T> {
+  if (!project.expanded) {
+    return {
+      ...project,
+      collapsedBadge: project.closing
+        ? null
+        : mergeCollapsedBadge(project.collapsedBadge, { working: row.working, unread: false, waiting: false }),
+    }
+  }
+  const combined = [row, ...(project.threads?.rows || [])]
+  return {
+    ...project,
+    threads: {
+      rows: projectThreadWindow(combined, state, item => item.active),
+      more: !!project.threads?.more || hasMoreProjectThreads(Math.max(existingTotal, project.threads?.rows.length || 0) + 1, state),
+    },
+  }
+}

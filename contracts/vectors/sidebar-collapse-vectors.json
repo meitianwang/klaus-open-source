@@ -74,6 +74,75 @@
     { "_why": "opening a real session reveals it even if the user folded the group", "expansion": false, "draft": false, "decision": "expand" },
     { "_why": "a draft never pries open a group the user explicitly collapsed", "expansion": false, "draft": true, "decision": "noop" }
   ],
+  "provisionalSubmission": {
+    "_why": "Sending a new chat creates a provisional row before session:new resolves. A group the user explicitly folded must stay folded throughout send preparation and session promotion — never popping open with a single provisional item and snapping shut — while surfacing the running spinner on the folded group header.",
+    "foldedGroupStaysFoldedAndShowsSpinner": {
+      "project": { "expanded": false, "closing": false, "collapsedBadge": null, "threads": null },
+      "row": { "id": "pending:1", "active": true, "working": true },
+      "state": { "expanded": false, "page": 0 },
+      "existingTotal": 4,
+      "expected": { "expanded": false, "closing": false, "collapsedBadge": "loading", "threads": null }
+    },
+    "foldedGroupKeepsUnreadAboveWorkingProvisional": {
+      "project": { "expanded": false, "closing": false, "collapsedBadge": "unread", "threads": null },
+      "row": { "id": "pending:1", "active": true, "working": true },
+      "state": { "expanded": false, "page": 0 },
+      "existingTotal": 4,
+      "expected": { "expanded": false, "closing": false, "collapsedBadge": "unread", "threads": null }
+    },
+    "closingGroupKeepsExitRowsUntilAnimationEnds": {
+      "project": {
+        "expanded": false,
+        "closing": true,
+        "collapsedBadge": null,
+        "threads": { "rows": [{ "id": "s1", "active": false, "working": false }], "more": false }
+      },
+      "row": { "id": "pending:1", "active": true, "working": true },
+      "state": { "expanded": false, "page": 0 },
+      "existingTotal": 1,
+      "expected": {
+        "expanded": false,
+        "closing": true,
+        "collapsedBadge": null,
+        "threads": { "rows": [{ "id": "s1", "active": false, "working": false }], "more": false }
+      }
+    },
+    "openGroupPrependsAndWindowsToPreviewLimit": {
+      "project": {
+        "expanded": true,
+        "closing": false,
+        "collapsedBadge": null,
+        "threads": {
+          "rows": [
+            { "id": "s1", "active": false, "working": false },
+            { "id": "s2", "active": false, "working": false },
+            { "id": "s3", "active": false, "working": false },
+            { "id": "s4", "active": false, "working": false },
+            { "id": "s5", "active": false, "working": false }
+          ],
+          "more": false
+        }
+      },
+      "row": { "id": "pending:1", "active": true, "working": true },
+      "state": { "expanded": false, "page": 0 },
+      "existingTotal": 5,
+      "expected": {
+        "expanded": true,
+        "closing": false,
+        "collapsedBadge": null,
+        "threads": {
+          "rows": [
+            { "id": "pending:1", "active": true, "working": true },
+            { "id": "s1", "active": false, "working": false },
+            { "id": "s2", "active": false, "working": false },
+            { "id": "s3", "active": false, "working": false },
+            { "id": "s4", "active": false, "working": false }
+          ],
+          "more": true
+        }
+      }
+    }
+  },
   "persistence": {
     "authoritativeStoreIsSettingsDb": true,
     "localStorageIsFirstPaintMirrorOnly": true,

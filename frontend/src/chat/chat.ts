@@ -164,9 +164,9 @@ import { compareByAttentionState } from './sidebar/sort'
 import { automationSourceLabel, isPinnedSession, isPlaceholderSessionTitle, mergeSidebarSessionSnapshot, partitionSidebarSessions, preserveVisibleSessionTitle, sessionTitleForCurrentSession, shouldDiscardEmptySessionOnLeave } from './sidebar/model'
 import {
   CollapseWriteQueue, hasMoreProjectThreads, isProjectOpen, isSectionCollapsed, mayApplyAsyncState,
-  parseProjectExpansionMap, parseSectionsCollapsed, projectThreadWindow, readProjectExpansion,
-  reduceCollapsedBadge, revealDecision, seedSectionsFromLegacy, showMoreAfterPress, withProjectExpansion,
-  withSectionCollapsed,
+  mergeCollapsedBadge, parseProjectExpansionMap, parseSectionsCollapsed, placeProvisionalProjectRow,
+  projectThreadWindow, readProjectExpansion, reduceCollapsedBadge, revealDecision, seedSectionsFromLegacy,
+  showMoreAfterPress, withProjectExpansion, withSectionCollapsed,
   type CollapsedBadge, type SectionsCollapsed, type SidebarSectionKey,
 } from './sidebar/collapse'
 import { SIDEBAR_PROJECT_EXPANDED_KEY, SIDEBAR_PROJECT_ORDER_CHANGED_KEY, SIDEBAR_SECTIONS_COLLAPSED_KEY } from '../../../contracts/sidebar-collapse'
@@ -6708,7 +6708,7 @@ function workspaceRowsForSidebar() {
       ssh: false,
       isWorkspace: true,
       workspaceId: ws.id,
-      active: !window.currentSessionId && currentEditableWorkspaceId() === ws.id,
+      active: !window.currentSessionId && !visiblePendingSubmissionId && currentEditableWorkspaceId() === ws.id,
       expanded: open,
       justOpened,
       closing,
@@ -6858,7 +6858,7 @@ function buildSidebarSnapshot() {
       name: project.name,
       workdir: project.workdir,
       ssh: isSshProjectWorkdir(key),
-      active: !window.currentSessionId && (normalizeProjectWorkdir(pendingNewChatProjectRoot) || selectedProjectWorkdir()) === key,
+      active: !window.currentSessionId && !visiblePendingSubmissionId && (normalizeProjectWorkdir(pendingNewChatProjectRoot) || selectedProjectWorkdir()) === key,
       expanded: open,
       justOpened,
       closing,
@@ -7286,6 +7286,7 @@ function stepSessionNeedingAttention(): boolean {
 
 function renderSessionList() {
   const snapshot = buildSidebarSnapshot()
+  const provisionalCounts = new Map<string, number>()
   for (const pending of pendingComposerSubmissions.values()) {
     if (pending.sessionId) continue
     const row = sidebarSessionRowSpec({ id: pending.viewId, title: pending.draft.text.trim().slice(0, 120) || tt('new_chat'),
@@ -7295,11 +7296,33 @@ function renderSessionList() {
     row.leadState = row.working ? 'working' : 'read'
     row.draft = false
     const key = pending.workspaceId ? workspaceContainerKey(pending.workspaceId) : normalizeProjectWorkdir(pending.projectRoot || pending.workdir)
-    const project = snapshot.projects.rows.find(project => project.key === key)
-    if (project) {
-      project.expanded = true
-      project.threads = { rows: [row, ...(project.threads?.rows || [])], more: project.threads?.more || false }
-    } else snapshot.recent.rows.unshift(row)
+    const projectIndex = key ? snapshot.projects.rows.findIndex(project => project.key === key) : -1
+    if (projectIndex !== -1) {
+      const project = snapshot.projects.rows[projectIndex]!
+      const priorAdded = provisionalCounts.get(project.key) || 0
+      provisionalCounts.set(project.key, priorAdded + 1)
+      const existingTotal = project.expanded ? projectGroupSessionIds(project.key).length + priorAdded : 0
+      snapshot.projects.rows[projectIndex] = {
+        ...project,
+        ...placeProvisionalProjectRow(project, row, projectShowMoreState(project.key), existingTotal),
+      }
+      if (snapshot.projects.collapsed) {
+        snapshot.projects.collapsedBadge = mergeCollapsedBadge(snapshot.projects.collapsedBadge, {
+          working: row.working,
+          unread: false,
+          waiting: false,
+        })
+      }
+    } else {
+      snapshot.recent.rows.unshift(row)
+      if (snapshot.recent.collapsed) {
+        snapshot.recent.collapsedBadge = mergeCollapsedBadge(snapshot.recent.collapsedBadge, {
+          working: row.working,
+          unread: false,
+          waiting: false,
+        })
+      }
+    }
   }
   sidebarApi?.render(snapshot)
   syncTitlebarSessionTitle()
@@ -7548,7 +7571,13 @@ function openSidebarSortMenu(anchor: HTMLElement) {
 }
 
 function sessionDisplayTitle(s: SessionInfo | undefined) {
-  const title = !isPlaceholderSessionTitle(s?.title) ? String(s?.title) : tt('new_chat')
+  let rawTitle = s?.title
+  if (s?.id && isPlaceholderSessionTitle(rawTitle)) {
+    const pending = [...pendingComposerSubmissions.values()].find(entry => entry.sessionId === s.id)
+    const drafted = pending?.draft.text.trim().slice(0, 120)
+    if (drafted) rawTitle = drafted
+  }
+  const title = !isPlaceholderSessionTitle(rawTitle) ? String(rawTitle) : tt('new_chat')
   return s?.forkedFrom ? title.replace(/\s*·\s*Branch$/i, '') : title
 }
 
