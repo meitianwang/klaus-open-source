@@ -76,7 +76,7 @@ export const antigravityEn = {
   antigravity_account_limit_reached: 'Too many Antigravity accounts are saved. Remove an unused account first.',
   antigravity_error_generic: 'The Antigravity request failed. Retry shortly or choose another model.',
   klaus_websearch_source_antigravity: 'Antigravity',
-  klaus_websearch_source_antigravity_desc: 'Search the web with your connected Antigravity account.',
+  klaus_websearch_source_antigravity_desc: 'Search the web through your connected Antigravity account without using your chat model. Applies to new chats.',
 };
 
 export const antigravityZh = {
@@ -157,5 +157,5 @@ export const antigravityZh = {
   antigravity_account_limit_reached: '已保存的 Antigravity 账号数量已达上限，请先移除不用的账号。',
   antigravity_error_generic: 'Antigravity 请求失败，请稍后重试或更换其他模型。',
   klaus_websearch_source_antigravity: 'Antigravity',
-  klaus_websearch_source_antigravity_desc: '使用已连接的 Antigravity 账号搜索网页。',
+  klaus_websearch_source_antigravity_desc: '通过已连接的 Antigravity 账号搜索网页，不占用当前对话模型；对新会话生效',
 };
