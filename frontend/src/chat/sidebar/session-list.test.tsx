@@ -488,7 +488,7 @@ describe('sidebar rows delegate their title to the marquee', () => {
 })
 
 describe('tooltip policy on the collapse surface', () => {
-  test('no title attribute or tooltip hook ships anywhere in the sidebar markup', () => {
+  test('only session-row pin and archive actions opt into tooltips; nothing else in sidebar markup carries tooltip attributes', () => {
     const html = render(snapshot({
       pinned: { rows: [row('p1', { pinned: true })], collapsed: false, collapsedBadge: null },
       channels: { rows: [row('c1', { channelLabel: 'IM' })], collapsed: false, collapsedBadge: null },
@@ -498,8 +498,9 @@ describe('tooltip policy on the collapse surface', () => {
       },
       recent: { rows: [row('r1')], collapsed: true, collapsedBadge: 'loading' },
     }))
+    const withoutRowActions = html.replace(/<button[^>]*data-session-action="(?:pin|archive)"[^>]*>[\s\S]*?<\/button>/g, '')
     expect(html).not.toMatch(/\stitle="/)
-    expect(html).not.toContain('data-klaus-tip')
+    expect(withoutRowActions).not.toContain('data-klaus-tip')
     expect(html).not.toContain('data-i18n-title')
   })
 })
@@ -551,11 +552,12 @@ describe('session row pin and archive actions', () => {
     expect(html).not.toContain('aria-label="Session menu"')
   })
 
-  test('pin action swaps its accessible label, state marker and pushpin glyph when pinned', () => {
+  test('pin action swaps its accessible label, tooltip, state marker and pushpin glyph when pinned', () => {
     const unpinnedHtml = render(snapshot({ recent: { rows: [row('r1', { pinned: false })], collapsed: false, collapsedBadge: null } }))
     const pinnedHtml = render(snapshot({ pinned: { rows: [row('p1', { pinned: true })], collapsed: false, collapsedBadge: null }, recent: { rows: [], collapsed: false, collapsedBadge: null } }))
-    expect(unpinnedHtml).toContain('data-session-action="pin" data-pinned="false" aria-label="Pin chat"')
-    expect(pinnedHtml).toContain('data-session-action="pin" data-pinned="true" aria-label="Unpin chat"')
+    expect(unpinnedHtml).toContain('data-session-action="pin" data-pinned="false" data-klaus-tooltips="on" data-klaus-tip="Pin chat" data-klaus-tip-placement="top" aria-label="Pin chat"')
+    expect(unpinnedHtml).toContain('data-session-action="archive" data-klaus-tooltips="on" data-klaus-tip="Archive chat" data-klaus-tip-placement="top" aria-label="Archive chat"')
+    expect(pinnedHtml).toContain('data-session-action="pin" data-pinned="true" data-klaus-tooltips="on" data-klaus-tip="Unpin chat" data-klaus-tip-placement="top" aria-label="Unpin chat"')
     const outlineGlyph = pinGlyphOf(false)
     const filledGlyph = pinGlyphOf(true)
     expect(outlineGlyph).toBeTruthy()

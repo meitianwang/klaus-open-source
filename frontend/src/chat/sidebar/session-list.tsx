@@ -239,7 +239,8 @@ function stopRowActionKeyDown(e: React.KeyboardEvent) {
 }
 
 /** Trailing icon actions revealed on row hover or keyboard focus.
- *  Uses localized aria-labels without tooltips to satisfy the sidebar tooltip policy. */
+ *  These two icon-only buttons have no visible text labels, so they opt into
+ *  localized hover tooltips (`top` placement) alongside `aria-label`. */
 function SessionRowActions({ row, actions }: { row: SessionRowSpec; actions: SidebarActions }) {
   if (row.id.startsWith('pending:')) return null
   const pinLabel = row.pinned
@@ -254,6 +255,9 @@ function SessionRowActions({ row, actions }: { row: SessionRowSpec; actions: Sid
         className={styles['session-row-action']}
         data-session-action="pin"
         data-pinned={row.pinned ? 'true' : 'false'}
+        data-klaus-tooltips="on"
+        data-klaus-tip={pinLabel}
+        data-klaus-tip-placement="top"
         aria-label={pinLabel}
         onPointerDown={stopRowActionEvent}
         onTouchStart={stopRowActionEvent}
@@ -268,6 +272,9 @@ function SessionRowActions({ row, actions }: { row: SessionRowSpec; actions: Sid
         type="button"
         className={styles['session-row-action']}
         data-session-action="archive"
+        data-klaus-tooltips="on"
+        data-klaus-tip={archiveLabel}
+        data-klaus-tip-placement="top"
         aria-label={archiveLabel}
         onPointerDown={stopRowActionEvent}
         onTouchStart={stopRowActionEvent}

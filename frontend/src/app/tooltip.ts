@@ -1,14 +1,15 @@
 // Klaus tooltip — global delegated tooltip that replaces native [title] popups.
-// Sidebar surfaces opt out by default. The five fixed side-rail entry points
-// opt back in explicitly because their icons have no visible labels; the
-// observer keeps every other dynamic and static sidebar control tooltip-free.
+// Sidebar surfaces opt out by default. The five fixed side-rail entry points and
+// the two inline session-row icon actions (pin, archive) opt back in explicitly
+// because their icons have no visible labels; the observer keeps every other
+// dynamic and static sidebar control tooltip-free.
 //（迁自 js/tooltip.js，逻辑原样。）
 import { effectiveViewportRight } from './native-overlay-inset'
 
 const SHOW_DELAY = 120
 const HIDE_DELAY = 60
 const TOOLTIP_FREE_ZONE_SELECTOR = '[data-klaus-tooltips="off"]'
-const TOOLTIP_OPT_IN_SELECTOR = '#side-rail > [data-klaus-tooltips="on"]'
+const TOOLTIP_OPT_IN_SELECTOR = '#side-rail > [data-klaus-tooltips="on"], #sidebar [data-session-action][data-klaus-tooltips="on"]'
 let tipEl: HTMLDivElement | null = null
 let target: HTMLElement | null = null
 let showT: ReturnType<typeof setTimeout> | null = null

@@ -68,25 +68,29 @@ describe('sidebar tooltip policy', () => {
 
   test('dynamic content added to a tooltip-free surface is scrubbed', () => {
     expect(TOOLTIP_TS).toContain("const TOOLTIP_FREE_ZONE_SELECTOR = '[data-klaus-tooltips=\"off\"]'")
-    expect(TOOLTIP_TS).toContain("const TOOLTIP_OPT_IN_SELECTOR = '#side-rail > [data-klaus-tooltips=\"on\"]'")
+    expect(TOOLTIP_TS).toContain("const TOOLTIP_OPT_IN_SELECTOR = '#side-rail > [data-klaus-tooltips=\"on\"], #sidebar [data-session-action][data-klaus-tooltips=\"on\"]'")
     expect(TOOLTIP_TS).toContain('if (el.closest(TOOLTIP_OPT_IN_SELECTOR)) continue')
     expect(TOOLTIP_TS).toContain("attributeFilter: ['title', 'data-klaus-tip']")
     expect(TOOLTIP_TS).toContain("el.removeAttribute('title')")
     expect(TOOLTIP_TS).toContain('delete el.dataset.klausTip')
   })
 
-  test('sidebar renderers do not author tooltip attributes', () => {
+  test('sidebar renderers do not author tooltip attributes outside session-row inline icon actions', () => {
     const violations: string[] = []
     for (const source of DYNAMIC_SOURCES) {
       const text = readFrontendFile(source)
       for (const [index, line] of text.split('\n').entries()) {
+        const trimmed = line.trim()
+        const allowedRowActionTip = source === 'src/chat/sidebar/session-list.tsx'
+          && (trimmed === 'data-klaus-tip={pinLabel}' || trimmed === 'data-klaus-tip={archiveLabel}' || trimmed === 'data-klaus-tip-placement="top"')
+        if (allowedRowActionTip) continue
         const authoredAttribute = /\stitle=(?:["']|\{)/.test(line) && !line.includes('title={sidebarLabel(')
         const domSetter = /setAttribute\(\s*['"]title['"]/.test(line)
         const dataTip = /data-i18n-title|data-klaus-tip|dataset\.klausTip/.test(line)
         const propertyOwner = line.match(/\b([A-Za-z_$][\w$]*)\.title\s*=/)?.[1]
         const domProperty = !!propertyOwner && propertyOwner !== 'tab' && propertyOwner !== 'current'
         if (authoredAttribute || domSetter || dataTip || domProperty) {
-          violations.push(`${source}:${index + 1}: ${line.trim()}`)
+          violations.push(`${source}:${index + 1}: ${trimmed}`)
         }
       }
     }

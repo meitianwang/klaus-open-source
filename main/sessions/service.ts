@@ -453,6 +453,7 @@ export class SessionService {
   /** Actual start aliases retained only while their start acknowledgement is outstanding. */
   private readonly notificationStartingTurns = new Map<string, { facadeId?: string; aliases: Set<string> }>();
   private readonly mutations = new Map<string, Promise<unknown>>();
+  private readonly hostMetadataMutations = new Map<string, Promise<unknown>>();
   private readonly closingSessions = new Map<string, number>();
   private readonly directories = new DirectoryLeases();
   private readonly deleted = new Set<string>();
@@ -1061,7 +1062,7 @@ export class SessionService {
       && !this.deps.state.inInterruptWindow(binding.rendererId)
       && !this.hasContinuingGoal(binding.rendererId)
       && !this.startingTurns.has(binding.rendererId) && !this.hostedTurns.has(binding.rendererId)
-      && !this.mutations.has(binding.rendererId) && !this.closingSessions.has(binding.rendererId)
+      && !this.mutations.has(binding.rendererId) && !this.hostMetadataMutations.has(binding.rendererId) && !this.closingSessions.has(binding.rendererId)
       && !this.pendingActivations.has(binding.rendererId)
       && !sideQuestionIds.has(binding.rendererId) && !this.deps.state.pendingForSession(binding.rendererId).length
       && !hasPendingMainTurn(this.deps.state.queueSnapshot(binding.rendererId))
@@ -1093,7 +1094,7 @@ export class SessionService {
             || this.deps.state.isWorking(candidate.rendererId) || this.deps.state.inInterruptWindow(candidate.rendererId) || this.hasContinuingGoal(candidate.rendererId)
             || this.startingTurns.has(candidate.rendererId) || this.hostedTurns.has(candidate.rendererId)
             || this.pendingActivations.has(candidate.rendererId) || this.deps.state.inferencePending(candidate.rendererId)
-            || this.closingSessions.has(candidate.rendererId) || this.sideQuestions.sessionIds().includes(candidate.rendererId) || this.predictionQueries.has(candidate.rendererId)
+            || this.closingSessions.has(candidate.rendererId) || this.hostMetadataMutations.has(candidate.rendererId) || this.sideQuestions.sessionIds().includes(candidate.rendererId) || this.predictionQueries.has(candidate.rendererId)
             || this.deps.state.pendingForSession(candidate.rendererId).length > 0
             || hasPendingMainTurn(this.deps.state.queueSnapshot(candidate.rendererId))
             || this.clientQueue.peek(candidate.rendererId)?.items.length) return false;
@@ -1113,7 +1114,7 @@ export class SessionService {
             || this.hostedTurns.has(candidate.rendererId) || this.idleRetirementKeeps.has(candidate.rendererId) || this.viewInterests.has(candidate.rendererId)
             || this.deps.isSessionRetirementProtected?.(candidate.rendererId)
             || this.pendingActivations.has(candidate.rendererId) || this.deps.state.inferencePending(candidate.rendererId)
-            || this.closingSessions.has(candidate.rendererId) || this.sideQuestions.sessionIds().includes(candidate.rendererId) || this.predictionQueries.has(candidate.rendererId)
+            || this.closingSessions.has(candidate.rendererId) || this.hostMetadataMutations.has(candidate.rendererId) || this.sideQuestions.sessionIds().includes(candidate.rendererId) || this.predictionQueries.has(candidate.rendererId)
             || this.deps.state.pendingForSession(candidate.rendererId).length
             || hasPendingMainTurn(this.deps.state.queueSnapshot(candidate.rendererId))
             || this.clientQueue.peek(candidate.rendererId)?.items.length) return false;
@@ -1303,7 +1304,7 @@ export class SessionService {
     if (this.deps.state.isWorking(id) || this.deps.state.inInterruptWindow(id)) return true;
     if (this.hasContinuingGoal(id)) return true;
     if (this.startingTurns.has(id) || this.hostedTurns.has(id) || this.pendingActivations.has(id)) return true;
-    if (this.closingSessions.has(id) || this.mutations.has(id)) return true;
+    if (this.closingSessions.has(id) || this.mutations.has(id) || this.hostMetadataMutations.has(id)) return true;
     if (this.sideQuestions.sessionIds().includes(id) || this.predictionQueries.has(id)) return true;
     if (this.deps.state.pendingForSession(id).length) return true;
     if (hasPendingMainTurn(this.deps.state.queueSnapshot(id))) return true;
@@ -1513,6 +1514,40 @@ export class SessionService {
     void next.finally(() => { if (this.mutations.get(id) === next) this.mutations.delete(id); }).catch(() => {});
     return next;
   }
+  /**
+   * Serialize host-metadata writes (`sidebarPinnedAt`, automation markers) per
+   * conversation without queuing behind long-running session mutations such as
+   * manual context compaction or cold MCP initialization. The engine persists
+   * `session/updateThreadHostMetadata` outside its serial turn/compaction chain.
+   */
+  private mutateHostMetadata<T>(id: string, callback: () => Promise<T>): Promise<T> {
+    const previous = this.hostMetadataMutations.get(id) ?? Promise.resolve();
+    const next = previous.catch(() => {}).then(async () => {
+      this.assertRequestOwner(); this.assertPublicThread(id);
+      if (this.deleted.has(id)) throw new IpcHandlerError('SESSION_NOT_FOUND', 'The conversation was not found');
+      if (this.isSessionClosing(id)) throw new IpcHandlerError('SESSION_UNAVAILABLE', 'The conversation is closing');
+      this.sessionListReads.clear();
+      try { return await callback(); }
+      finally { this.sessionListReads.clear(); }
+    });
+    this.hostMetadataMutations.set(id, next);
+    void next.finally(() => { if (this.hostMetadataMutations.get(id) === next) this.hostMetadataMutations.delete(id); }).catch(() => {});
+    return next;
+  }
+  private async writeThreadHostMetadata(id: string, hostMetadata: Record<string, Json>): Promise<void> {
+    const client = await this.client();
+    const live = this.deps.state.liveSession(id);
+    try {
+      await requestAcknowledged(client, 'session/updateThreadHostMetadata', {
+        threadId: id, hostMetadata, ...(live ? { sessionId: live } : {}),
+      }, 'hostMetadataUpdated');
+    } catch (error) {
+      if (!live || this.deps.state.liveSession(id) === live || this.isSessionClosing(id) || this.deleted.has(id)) throw error;
+      await requestAcknowledged(await this.client(), 'session/updateThreadHostMetadata', {
+        threadId: id, hostMetadata,
+      }, 'hostMetadataUpdated');
+    }
+  }
   private resourceRoots(id: string): string[] {
     const workspace = this.deps.workspaces;
     const custom = workspace?.resolveSessionDirectory(id) ?? sessionWorkdir(id, this.configRoot);
@@ -1545,6 +1580,7 @@ export class SessionService {
     const results = await Promise.allSettled([
       this.sideQuestions.beginClosing(id),
       hosted ? hosted.done.then(() => () => {}, () => () => {}) : Promise.resolve(() => {}),
+      (this.hostMetadataMutations.get(id) ?? Promise.resolve()).then(() => () => {}, () => () => {}),
       engineId && engine && !engine.client.isClosed() && this.deps.beginClosing
         ? this.deps.beginClosing(id, engineId, engine.generation) : Promise.resolve(() => {}),
     ]);
@@ -3339,9 +3375,11 @@ export class SessionService {
       this.ensureCurrentClient(client);
     }
     await this.activate(client, rendererId, engineId, built.init, built, capabilitiesRevision);
-    if (options.hostMetadata) await requestAcknowledged(client, 'session/updateThreadHostMetadata', {
-      sessionId: engineId, threadId: rendererId, hostMetadata: options.hostMetadata,
-    }, 'hostMetadataUpdated');
+    if (options.hostMetadata) await this.mutateHostMetadata(rendererId, async () => {
+      await requestAcknowledged(client, 'session/updateThreadHostMetadata', {
+        sessionId: engineId, threadId: rendererId, hostMetadata: options.hostMetadata!,
+      }, 'hostMetadataUpdated');
+    });
     if (options.title?.trim()) await requestAcknowledged(client, 'session/updateTitle', {
       sessionId: engineId, threadId: rendererId, title: options.title.trim().slice(0, 300),
     }, 'title');
@@ -3880,7 +3918,7 @@ export class SessionService {
   /** Reserve idle chat deletion without cancelling an admitted turn or background agent. */
   async holdIdleStorageDeletion(id: string): Promise<(() => void) | null> {
     persistentSessionIdentity(id);
-    if (this.isSessionClosing(id) || this.deleted.has(id) || this.isStorageBusy(id) || this.mutations.has(id)) return null;
+    if (this.isSessionClosing(id) || this.deleted.has(id) || this.isStorageBusy(id) || this.mutations.has(id) || this.hostMetadataMutations.has(id)) return null;
     const release = this.holdSessionClosing(id);
     try {
       if (await this.backgroundKeepsSession(id)) { release(); return null; }
@@ -5508,7 +5546,7 @@ export class SessionService {
     return this.mutate(id, async () => { await this.updateTitle(id, title); return null; });
   }
   setPinned(id: string, pinned: boolean): Promise<Json> {
-    return this.mutate(id, async () => {
+    return this.mutateHostMetadata(id, async () => {
       if (this.isSideTask(id)) {
         // A side thread is hidden from the engine catalog, so its pin lives in
         // the durable side registry that feeds the sidebar pin section.
@@ -5519,22 +5557,16 @@ export class SessionService {
       const row = await this.threadRow(id), hostMetadata = { ...(object(row.hostMetadata ?? row.host_metadata) ?? {}) };
       const sidebarPinnedAt = pinned ? Date.now() : null;
       if (sidebarPinnedAt === null) delete hostMetadata.sidebarPinnedAt; else hostMetadata.sidebarPinnedAt = sidebarPinnedAt;
-      const live = this.deps.state.liveSession(id);
-      await requestAcknowledged(await this.client(), 'session/updateThreadHostMetadata', {
-        threadId: id, hostMetadata, ...(live ? { sessionId: live } : {}),
-      }, 'hostMetadataUpdated');
+      await this.writeThreadHostMetadata(id, hostMetadata);
       return { ok: true, sessionId: id, sidebarPinnedAt };
     });
   }
   backfillAutomationSessionMetadata(id: string, automation: Record<string, Json>): Promise<void> {
     if (this.isSideTask(id)) return Promise.reject(new IpcHandlerError('SESSION_NOT_FOUND', 'The conversation was not found'));
-    return this.mutate(id, async () => {
+    return this.mutateHostMetadata(id, async () => {
       const row = await this.threadRow(id);
       const hostMetadata = { ...object(row.hostMetadata ?? row.host_metadata), threadSource: 'automation', automation };
-      const live = this.deps.state.liveSession(id);
-      await requestAcknowledged(await this.client(), 'session/updateThreadHostMetadata', {
-        threadId: id, hostMetadata, ...(live ? { sessionId: live } : {}),
-      }, 'hostMetadataUpdated');
+      await this.writeThreadHostMetadata(id, hostMetadata);
     });
   }
   setArchived(id: string, archived: boolean, displayTitle?: string): Promise<Json> {

@@ -167,8 +167,8 @@ async function tooltipPolicy(lang: 'en' | 'zh') {
   const ids = ['monitor-panel-toggle', 'workspace-panel-toggle', 'browser-panel-toggle', 'btn-diff', 'terminal-toggle'];
   const labels = lang === 'en' ? ['Overview', 'Files', 'Browser', 'Changes', 'Terminal'] : ['概览', '文件', '浏览器', '变更', '终端'];
   assertDeepEqual(await evaluate("Array.from(document.querySelectorAll('[data-klaus-tooltips=off]')).map(e=>e.id).sort()"), ['artifacts-panel', 'side-rail', 'sidebar'], 'both sidebar surfaces and the work panel retain their runtime policy');
-  assertDeepEqual(await evaluate("Array.from(document.querySelectorAll('#side-rail > [data-klaus-tooltips=on]')).map(e=>e.id)"), ids, 'only the five fixed icon entries opt into tooltips');
-  assertEqual(await evaluate("Array.from(document.querySelectorAll('[data-klaus-tooltips=off] [title],[data-klaus-tooltips=off] [data-klaus-tip]')).filter(e=>!e.closest('#side-rail > [data-klaus-tooltips=on]')).length"), 0, 'actual protected surfaces contain no forbidden tooltip attributes');
+  assertDeepEqual(await evaluate("Array.from(document.querySelectorAll('#side-rail > [data-klaus-tooltips=on]')).map(e=>e.id)"), ids, 'only the five fixed icon entries opt into rail tooltips');
+  assertEqual(await evaluate("Array.from(document.querySelectorAll('[data-klaus-tooltips=off] [title],[data-klaus-tooltips=off] [data-klaus-tip]')).filter(e=>!e.closest('#side-rail > [data-klaus-tooltips=on], #sidebar [data-session-action][data-klaus-tooltips=on]')).length"), 0, 'actual protected surfaces contain no forbidden tooltip attributes');
   try {
     await evaluate(`(() => {for(const id of ['sidebar','artifacts-panel','side-rail']){const e=document.createElement('span');e.hidden=true;e.dataset.fixtureTooltipProbe='true';document.getElementById(id).appendChild(e);e.title='Owned dynamic probe';e.dataset.klausTip='Owned dynamic probe';}})()`);
     await waitFor(() => evaluate("Array.from(document.querySelectorAll('[data-fixture-tooltip-probe]')).every(e=>!e.hasAttribute('title')&&!e.hasAttribute('data-klaus-tip'))"), 5_000, 'the production MutationObserver scrubs added and changed attributes');

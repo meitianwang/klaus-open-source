@@ -319,6 +319,40 @@ h.test('compaction waits past progress events for its measured outcome and repor
   f.state.markTurnRunning('renderer-id','turn');const count=f.client.calls.length;assertEqual(object(await f.service.compactSession('renderer-id','')).ok,false,'busy turn refused');assertEqual(f.client.calls.length,count,'no mutation while turn active');f.forwarder.close();
 });
 
+h.test('pinning settles immediately without waiting on an in-flight manual compaction',async()=>{
+  const f=fixture(),compactStarted=deferred<string>(),finishCompact=deferred<void>();
+  f.client.respond=(method,params): Json=>{
+    if(method==='session/reloadSkills'||method==='session/updateSessionConfig')return {};
+    if(method==='session/compactStart'){
+      const submissionId=String(object(params).submissionId||'');
+      compactStarted.resolve(submissionId);
+      void finishCompact.promise.then(()=>{
+        f.client.emit('event',{type:'rawSessionEvent',params:{sessionId:'engine-id',event:{submissionId,compact:{compacted:true,beforeTokens:9000,afterTokens:1800}}}});
+      });
+      return {submissionId};
+    }
+    if(method==='engine/readSessionSummary')return {session:{id:'renderer-id',hostMetadata:{custom:'keep'}}};
+    if(method==='session/updateThreadHostMetadata'){
+      const submissionId=String(object(params).submissionId||'pin-ack');
+      f.client.emit('event',{type:'rawSessionEvent',params:{sessionId:'engine-id',event:{submissionId,hostMetadataUpdated:{threadId:'renderer-id',updated:true}}}});
+      return {submissionId};
+    }
+    throw new Error(`Unexpected request: ${method}`);
+  };
+  const compacting=f.service.compactSession('renderer-id','');
+  await compactStarted.promise;
+  let compactSettled=false;void compacting.then(()=>{compactSettled=true;});
+  const pinned=object(await f.service.setPinned('renderer-id',true));
+  assertEqual(pinned.ok,true,'pin settles while compaction still holds the session mutation lock');
+  assertEqual(compactSettled,false,'compaction is still running when pin finishes');
+  assert(typeof pinned.sidebarPinnedAt==='number'&&pinned.sidebarPinnedAt>0,'pin timestamp returned');
+  const metadataCall=f.client.calls.find(call=>call.method==='session/updateThreadHostMetadata');
+  assertEqual(object(object(metadataCall?.params).hostMetadata).custom,'keep','existing host metadata preserved');
+  finishCompact.resolve();
+  assertDeepEqual(await compacting,{ok:true,preTokens:9000,postTokens:1800},'compaction finishes cleanly afterwards');
+  f.forwarder.close();
+});
+
 h.test('only admitted unsolicited queue frames advance the mirror, without read polling', async () => {
   const f = fixture();
   const send = (revision: number, submissionId: string, status = 'authoritative') => f.pump.receive({ type: 'rawSessionEvent', params: {
