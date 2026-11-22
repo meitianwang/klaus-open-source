@@ -62,22 +62,174 @@ const STANDALONE_ACTIVITY_TOOLS = new Set([
   'handoff_thread',
 ])
 
+export type TurnMediaToolSample = {
+  toolName: string
+  args?: unknown
+  isError?: boolean
+  outputText?: string
+  media?: ReadonlyArray<{ path?: string; sourcePath?: string }>
+}
+
+const POST_GENERATION_BOOKKEEPING_TOOLS = new Set([
+  'taskwrite', 'taskcreate', 'taskupdate', 'taskget', 'tasklist',
+  'todo_write', 'todowrite', 'update_plan',
+  'think', 'save_memory', 'get_goal', 'update_goal',
+])
+
+const IMAGE_INSPECTION_TOOLS = new Set([
+  'read', 'read_file', 'readfile', 'view_image', 'viewimage',
+])
+
+function mediaTargetKeys(value: string): string[] {
+  const trimmed = value.trim()
+  if (!trimmed) return []
+  const base = trimmed.split(/[\\/]/).pop() || ''
+  return base && base !== trimmed ? [trimmed, base] : [trimmed]
+}
+
+function parseToolObjectArgs(args: unknown): Record<string, unknown> | null {
+  if (!args) return null
+  if (typeof args === 'object' && !Array.isArray(args)) return args as Record<string, unknown>
+  if (typeof args === 'string') {
+    try {
+      const parsed = JSON.parse(args)
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed as Record<string, unknown>
+    } catch { /* Incomplete or non-JSON arguments carry no structured paths. */ }
+  }
+  return null
+}
+
+function savedPathsFromToolText(text: string | undefined): string[] {
+  if (!text || !text.includes('Saved: ')) return []
+  const paths: string[] = []
+  for (const match of text.matchAll(/Saved: ([^\r\n]*)/g)) {
+    const raw = (match[1] || '').trim()
+    if (!raw) continue
+    if (raw.startsWith('"') || raw.startsWith('[')) {
+      try {
+        const parsed = JSON.parse(raw)
+        for (const item of Array.isArray(parsed) ? parsed : [parsed]) {
+          if (typeof item === 'string' && item.trim()) paths.push(item.trim())
+        }
+      } catch { /* Malformed JSON paths cannot identify a saved target. */ }
+    } else {
+      for (const part of raw.split(',')) {
+        if (part.trim()) paths.push(part.trim())
+      }
+    }
+  }
+  return paths
+}
+
+function consumedSourceImageKeys(args: unknown): Set<string> {
+  const keys = new Set<string>()
+  const obj = parseToolObjectArgs(args)
+  if (!obj) return keys
+  const list = Array.isArray(obj.source_images)
+    ? obj.source_images
+    : Array.isArray(obj.sourceImages)
+      ? obj.sourceImages
+      : []
+  for (const entry of list) {
+    if (typeof entry === 'string') {
+      for (const key of mediaTargetKeys(entry)) keys.add(key)
+    }
+  }
+  for (const field of ['source_image', 'sourceImage']) {
+    if (typeof obj[field] === 'string') {
+      for (const key of mediaTargetKeys(obj[field] as string)) keys.add(key)
+    }
+  }
+  return keys
+}
+
+function isGeneratedMediaInspection(toolName: string, args: unknown, inspectableTargets: ReadonlySet<string>): boolean {
+  if (inspectableTargets.size === 0 || !IMAGE_INSPECTION_TOOLS.has(toolName)) return false
+  const obj = parseToolObjectArgs(args)
+  if (!obj) return false
+  for (const field of ['path', 'file_path', 'filePath']) {
+    const value = obj[field]
+    if (typeof value === 'string' && value.trim()) {
+      return mediaTargetKeys(value).some(key => inspectableTargets.has(key))
+    }
+  }
+  return false
+}
+
 /**
- * Whether this tool's output IS the deliverable: asking it to run is asking for a
- * picture or a video, so its result is presented even when the reply never names
- * it. Everything else that emits media (a browser screenshot taken to check the
- * model's own work, a read that returns an image) is process, and stays inside the
- * fold unless the reply reports it.
+ * Whether this tool is an explicit visual generation tool (`generate_image` or
+ * `generate_video`).
  *
- * generate_audio is deliberately NOT here. This predicate feeds the turn's media
- * figures, which render as images; audio answers with its saved path as text and
- * contributes no media items, so listing it would only offer a future change a path
- * that draws an <img> for an mp3.
+ * `generate_audio` and `generate_music` are deliberately excluded: this predicate
+ * feeds the turn's image figure block, while audio tools return saved file paths
+ * as text without image media items.
  */
 export function isExplicitMediaGenerationTool(toolName: string, args?: unknown): boolean {
   const effective = args !== undefined ? unwrapIndirectToolCall(toolName, args).toolName : toolName
-  const name = (effective || '').toLowerCase()
-  return name === 'generate_image' || name === 'generate_video' || name === 'generateimage' || name === 'generatevideo'
+  const kind = mediaGenerationKind(effective || '')
+  return kind === 'image' || kind === 'video'
+}
+
+/**
+ * Collect explicit generation outputs that are terminal deliverables of a turn.
+ *
+ * A `generate_image` or `generate_video` call at the end of a turn represents the
+ * requested deliverable even when the final reply omits its filename. When non-
+ * bookkeeping work runs after the generation (such as shell asset conversion, file
+ * edits, or further workspace inspection), when a subsequent generation call
+ * consumes an earlier output via `source_images`, or when the final reply already
+ * embeds Markdown images of its own, unmentioned earlier generations were mid-turn
+ * assets or drafts and remain inside the collapsed activity fold.
+ */
+export function collectTerminalGeneratedMediaPaths(
+  tools: Iterable<TurnMediaToolSample>,
+  hasInlineFinalImages = false,
+): Set<string> {
+  if (hasInlineFinalImages) return new Set()
+  const candidates: Array<{ path: string; keys: string[] }> = []
+  const inspectableTargets = new Set<string>()
+  const rebuildInspectable = () => {
+    inspectableTargets.clear()
+    for (const candidate of candidates) {
+      for (const key of candidate.keys) inspectableTargets.add(key)
+    }
+  }
+  for (const raw of tools) {
+    const unwrapped = raw.args !== undefined ? unwrapIndirectToolCall(raw.toolName, raw.args) : { toolName: raw.toolName, args: raw.args }
+    const name = (unwrapped.toolName || '').toLowerCase().replace(/^functions[._]/, '')
+    if (isExplicitMediaGenerationTool(unwrapped.toolName)) {
+      const consumed = consumedSourceImageKeys(unwrapped.args)
+      if (consumed.size > 0 && candidates.length > 0) {
+        for (let index = candidates.length - 1; index >= 0; index--) {
+          if (candidates[index].keys.some(key => consumed.has(key))) candidates.splice(index, 1)
+        }
+        rebuildInspectable()
+      }
+      if (!raw.isError) {
+        const savedFallbacks = savedPathsFromToolText(raw.outputText)
+        for (const [index, item] of (raw.media || []).entries()) {
+          const path = item?.path ? String(item.path) : ''
+          if (!path) continue
+          const source = item?.sourcePath ? String(item.sourcePath) : savedFallbacks[index] || ''
+          const keys = [
+            ...mediaTargetKeys(path),
+            ...(source ? mediaTargetKeys(source) : []),
+          ]
+          candidates.push({ path, keys })
+          for (const key of keys) inspectableTargets.add(key)
+        }
+      }
+      continue
+    }
+    if (POST_GENERATION_BOOKKEEPING_TOOLS.has(name) || isGeneratedMediaInspection(name, unwrapped.args, inspectableTargets)) {
+      continue
+    }
+    if (candidates.length > 0) {
+      candidates.length = 0
+      inspectableTargets.clear()
+    }
+  }
+  return new Set(candidates.map(candidate => candidate.path))
 }
 
 export function nativeActivityKind(toolName: string): NativeActivityKind | null {

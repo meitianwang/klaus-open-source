@@ -98,7 +98,7 @@ import type { AgentTask } from '../engine-events'
 import { subscribeSubagents, subagentsVersion } from '../subagent-state'
 import { resolveAgentActivityTask } from '../subagent-stream'
 import { parseSelectedTextEnvelope } from '../selected-text-envelope'
-import { dynamicActivityLabel, isExplicitMediaGenerationTool, isPetPillOnlyTool, isToolDiscovery, loadedActivityToolNames, mcpActivitySource, mcpActivityIsCommand, chatActivitySummaryLabel, skillActivityLabel, skillIdentifierFromPath, type ChatActivityTool } from './chat-activity'
+import { collectTerminalGeneratedMediaPaths, dynamicActivityLabel, isExplicitMediaGenerationTool, isPetPillOnlyTool, isToolDiscovery, loadedActivityToolNames, mcpActivitySource, mcpActivityIsCommand, chatActivitySummaryLabel, skillActivityLabel, skillIdentifierFromPath, type ChatActivityTool } from './chat-activity'
 import { workflowRecordFromTool, WorkflowRecordView, type WorkflowRecord } from './workflow-records'
 import { goalCompletionsByTurn, type GoalCompletionSource, type GoalCompletionSummary } from './goal-completion'
 import { agentEventRowStatus, isSettledAgentEventRowStatus, parseAgentLifecycleNotification, uniqueAgentLifecycleEvents, type AgentLifecycleEvent } from './agent-lifecycle'
@@ -2296,22 +2296,27 @@ export function foldTurnGroups(
     if (lastText) lastText.endResourceTurn = turnId && ownsArtifacts && !isTurnInProgress && ['completed', 'failed'].includes(turnStatus)
       ? { turnId, status: turnStatus } : null
     const finalPaths = lastText ? collectMarkdownImagePaths(finalSource) : null
-    // 回合末尾只放「真的在向用户汇报」的产物，规则是：
-    //   - 最终回复把图嵌进正文（![](path)）→ 正文里出，末尾不再重复；
-    //   - 最终回复提到了它（全路径或文件名）→ 回合末尾出；
-    //   - 显式生成工具（generate_image / generate_video）的产出 → 调用它就是要一张
-    //     图，即使回复没点名也出；
-    //   - 其余一律是过程产物（自检截图、读回来的图、源码性写入的页面），留在折叠内
-    //     的工具卡里，一次展开就能看见。上一版把本回合所有图和所有写入的 HTML 都堆
-    //     到末尾，于是改源码的 index.html 也被当成交付物汇报，正是这个规则要修掉的。
-    const explicitMedia = new Set<string>()
-    for (const u of group.units) {
-      if (u.type !== 'tools') continue
-      for (const tool of u.segment?.tools || []) {
-        if (!isExplicitMediaGenerationTool(tool.toolName, tool.args)) continue
-        for (const item of tool.output?.media || []) if (item?.path) explicitMedia.add(String(item.path))
-      }
-    }
+    // Only deliverables remain outside the collapsed turn fold:
+    //   - Images embedded inline in the final reply (`![](path)`) render inside the reply;
+    //   - Images explicitly named by path or filename in the final reply render in `turn-media`;
+    //   - Terminal `generate_image` / `generate_video` outputs render in `turn-media` when no
+    //     downstream work consumed them as intermediate assets and the final reply did not
+    //     already curate inline images of its own;
+    //   - All other process images stay inside their folded tool cards.
+    const explicitMedia = isTurnInProgress
+      ? EMPTY_PATHS
+      : collectTerminalGeneratedMediaPaths(
+          group.units.flatMap(u => u.type === 'tools'
+            ? (u.segment?.tools || []).map(tool => ({
+                toolName: tool.toolName,
+                args: tool.args,
+                isError: tool.state === 'error' || tool.output?.isError === true,
+                outputText: tool.output?.text,
+                media: tool.output?.media,
+              }))
+            : []),
+          (finalPaths?.size ?? 0) > 0,
+        )
     const reported = lastText ? collectReportedPaths(finalSource, mediaPaths, mediaAliases) : new Set<string>()
     const turnMedia = isTurnInProgress
       ? []
@@ -5182,14 +5187,18 @@ export function LiveTail({ sessionId, unitProps, scroll = 'none', container, tim
     // tools produced them, so a turn that made three covers reads as a sequence.
     const produced: string[] = []
     const images = new Set<string>()
-    const explicitMedia = new Set<string>()
+    const liveToolSamples: Array<{ toolName: string; args?: unknown; isError?: boolean; outputText?: string; media?: ReadonlyArray<{ path?: string; sourcePath?: string }> }> = []
     for (const unit of units) if (unit.type === 'live-tools') {
       for (const id of unit.order) {
         const card = tools[id]
         if (!card) continue
-        if (isExplicitMediaGenerationTool(card.toolName, card.args)) {
-          for (const item of card.media || []) if (item?.path) explicitMedia.add(String(item.path))
-        }
+        liveToolSamples.push({
+          toolName: card.toolName,
+          args: card.args,
+          isError: card.status === 'error',
+          outputText: card.content,
+          media: card.media,
+        })
         for (const item of card.media || []) {
           const path = item?.path ? String(item.path) : ''
           if (!path) continue
@@ -5198,17 +5207,18 @@ export function LiveTail({ sessionId, unitProps, scroll = 'none', container, tim
         }
       }
     }
-    // 与历史层同一套规则（见 foldUnits）：回合末尾只放真的在向用户汇报的产物——
-    // 显式生成工具的产出，或最终回复点过名的；其余是过程产物，留在折叠内的工具卡。
-    // 最终回复里贴的裸文件名先按本回合工具产物解析成绝对路径，判定才认得出。
+    // Mirror the history layer (`foldTurnGroups`): promote only reported media or
+    // terminal explicit generations, keeping mid-turn asset generations inside
+    // their folded tool cards once downstream work runs.
+    const liveStatus = liveTurnStatuses[owner] || (owner === turnKey ? (running ? '' : terminalStatus ?? '') : 'completed')
     const mediaAliases = collectImageSourceAliases(units.flatMap(unit => unit.type === 'live-tools' ? unit.order.flatMap(id => tools[id]?.media || []) : []))
     const resolvedFinal = final && images.size > 0 ? resolveRelativeImagePaths(final.text, images, mediaAliases) : final?.text || ''
     const embedded = final ? collectMarkdownImagePaths(resolvedFinal) : EMPTY_PATHS
+    const explicitMedia = collectTerminalGeneratedMediaPaths(liveToolSamples, embedded.size > 0)
     const reported = final ? collectReportedPaths(resolvedFinal, images, mediaAliases) : EMPTY_PATHS
     const turnMedia = produced.filter(path => (explicitMedia.has(path) || reported.has(path)) && !embedded.has(path))
     // The live layer holds a just-settled turn until history takes it over; the
     // same resource projection applies once that turn has completed or failed.
-    const liveStatus = liveTurnStatuses[owner] || (owner === turnKey ? (running ? '' : terminalStatus ?? '') : 'completed')
     const endResourceTurn = owner !== 'live' && (liveStatus === 'completed' || liveStatus === 'failed') ? { turnId: owner, status: liveStatus } : null
     return { turnKey: owner, lastLiveText: final, endResourceTurn, mediaPaths: images, mediaAliases, durationMs: turnDurations[owner],
       turnMedia,

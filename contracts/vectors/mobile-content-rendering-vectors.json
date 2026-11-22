@@ -1,5 +1,5 @@
 {
-  "reason": "Mobile content projection preserves complete user-authored payloads, explicit final ownership, post-answer chronology and compaction restoration. Successful generated or reported media and diagrams stay visible outside process disclosures; process screenshots remain inside them. These are independent input/expected vectors, not comparisons between clients. Identity metadata restores explicit skill/reference attribution at validated UTF-16 ranges, and final reply ownership starts at the entire public assistant row rather than its last text block.",
+  "reason": "Mobile content projection preserves complete user-authored payloads, explicit final ownership, post-answer chronology and compaction restoration. Terminal generated or reported media and diagrams stay visible outside process disclosures; process screenshots, mid-turn asset generations followed by downstream work, source-image drafts consumed by later generations, and unmentioned candidates alongside inline-curated images remain inside them. These are independent input/expected vectors, not comparisons between clients. Identity metadata restores explicit skill/reference attribution at validated UTF-16 ranges, and final reply ownership starts at the entire public assistant row rather than its last text block.",
   "userCases": [
     {
       "name": "positioned pasted card preserves request body",
@@ -1606,6 +1606,231 @@
       "media": [],
       "diagrams": [],
       "suppressed": []
+    },
+    {
+      "name": "mid-turn asset generation followed by downstream work stays in activity",
+      "blocks": [
+        {
+          "type": "tool_use",
+          "id": "generate_icon",
+          "name": "generate_image",
+          "__result": {
+            "is_error": false,
+            "content": [
+              {
+                "type": "image",
+                "path": "/pool/raw-icon.jpg",
+                "sourcePath": "/ws/image-icon-draft.jpg"
+              }
+            ]
+          }
+        },
+        {
+          "type": "tool_use",
+          "id": "convert_icon",
+          "name": "bash",
+          "input": {
+            "command": "sips -z 256 256 /ws/image-icon-draft.jpg --out /ws/assets/icon.png"
+          },
+          "__result": {
+            "is_error": false,
+            "content": [
+              {
+                "type": "text",
+                "text": "ok"
+              }
+            ]
+          }
+        }
+      ],
+      "finalText": "Plugin packaged and verified.",
+      "media": [],
+      "diagrams": [],
+      "suppressed": []
+    },
+    {
+      "name": "mid-turn generation explicitly named in final reply becomes a deliverable",
+      "blocks": [
+        {
+          "type": "tool_use",
+          "id": "generate_banner",
+          "name": "generate_image",
+          "__result": {
+            "is_error": false,
+            "content": [
+              {
+                "type": "image",
+                "path": "/pool/banner-hash.jpg",
+                "sourcePath": "/ws/image-banner.jpg"
+              }
+            ]
+          }
+        },
+        {
+          "type": "tool_use",
+          "id": "write_html",
+          "name": "write",
+          "input": {
+            "path": "/ws/index.html"
+          },
+          "__result": {
+            "is_error": false,
+            "content": []
+          }
+        }
+      ],
+      "finalText": "Saved page and hero asset image-banner.jpg.",
+      "media": [
+        "/pool/banner-hash.jpg"
+      ],
+      "diagrams": [],
+      "suppressed": [
+        "/pool/banner-hash.jpg"
+      ]
+    },
+    {
+      "name": "earlier generation consumed via source_images stays in activity",
+      "blocks": [
+        {
+          "type": "tool_use",
+          "id": "draft_gen",
+          "name": "generate_image",
+          "__result": {
+            "is_error": false,
+            "content": [
+              {
+                "type": "image",
+                "path": "/pool/draft.jpg",
+                "sourcePath": "/ws/image-draft.jpg"
+              }
+            ]
+          }
+        },
+        {
+          "type": "tool_use",
+          "id": "refined_gen",
+          "name": "generate_image",
+          "input": {
+            "prompt": "Refine border thickness",
+            "source_images": [
+              "/ws/image-draft.jpg"
+            ]
+          },
+          "__result": {
+            "is_error": false,
+            "content": [
+              {
+                "type": "image",
+                "path": "/pool/refined.jpg",
+                "sourcePath": "/ws/image-refined.jpg"
+              }
+            ]
+          }
+        }
+      ],
+      "finalText": "Updated the border.",
+      "media": [
+        "/pool/refined.jpg"
+      ],
+      "diagrams": [],
+      "suppressed": [
+        "/pool/refined.jpg"
+      ]
+    },
+    {
+      "name": "inline final image curates away unmentioned generation candidates",
+      "blocks": [
+        {
+          "type": "tool_use",
+          "id": "cand_a",
+          "name": "generate_image",
+          "__result": {
+            "is_error": false,
+            "content": [
+              {
+                "type": "image",
+                "path": "/tmp/candidate-a.png"
+              }
+            ]
+          }
+        },
+        {
+          "type": "tool_use",
+          "id": "cand_b",
+          "name": "generate_image",
+          "__result": {
+            "is_error": false,
+            "content": [
+              {
+                "type": "image",
+                "path": "/tmp/candidate-b.png"
+              }
+            ]
+          }
+        }
+      ],
+      "inline": [
+        "/tmp/candidate-b.png"
+      ],
+      "finalText": "Selected the second layout:\n\n![cover](/tmp/candidate-b.png)",
+      "media": [],
+      "diagrams": [],
+      "suppressed": [
+        "/tmp/candidate-b.png"
+      ]
+    },
+    {
+      "name": "terminal generation followed by self-inspection and task bookkeeping stays deliverable",
+      "blocks": [
+        {
+          "type": "tool_use",
+          "id": "gen_cover",
+          "name": "generate_image",
+          "__result": {
+            "is_error": false,
+            "content": [
+              {
+                "type": "image",
+                "path": "/pool/cover.jpg",
+                "sourcePath": "/ws/image-cover.jpg"
+              }
+            ]
+          }
+        },
+        {
+          "type": "tool_use",
+          "id": "inspect_cover",
+          "name": "read",
+          "input": {
+            "path": "/ws/image-cover.jpg"
+          },
+          "__result": {
+            "is_error": false,
+            "content": []
+          }
+        },
+        {
+          "type": "tool_use",
+          "id": "finish_todo",
+          "name": "TaskUpdate",
+          "input": {
+            "taskId": "1",
+            "status": "completed"
+          },
+          "__result": {
+            "is_error": false,
+            "content": []
+          }
+        }
+      ],
+      "finalText": "Cover ready.",
+      "media": [
+        "/pool/cover.jpg"
+      ],
+      "diagrams": [],
+      "suppressed": [
+        "/pool/cover.jpg"
+      ]
     }
   ],
   "compactionCases": [
