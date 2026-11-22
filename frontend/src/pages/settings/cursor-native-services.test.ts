@@ -58,5 +58,5 @@ describe('Cursor native services in existing settings', () => {
 
 test('a stale saved Cursor video choice does not add an unlisted source', () => {
   expect(VIDEO_GENERATION_SOURCES).not.toContain('cursor')
-  expect(videoGenerationSourceItems({ cursor: true, minimax: true }, 'cursor', source => source).map(item => item.value)).toEqual(['minimax', 'workbuddy', 'qwenwork', 'trae'])
+  expect(videoGenerationSourceItems({ cursor: true, minimax: true }, 'cursor', source => source).map(item => item.value)).toEqual(['minimax', 'workbuddy', 'qwenwork', 'trae', 'bailian'])
 })

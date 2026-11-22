@@ -96,6 +96,14 @@ export function voiceModelAccess(settings: Pick<EngineSettings, 'providers'>, re
       },
     },
     async transcriptionAvailable(source, signal) {
+      if (source === 'bailian') {
+        const bound = connection(signal);
+        try {
+          const state = object(await bound.invoke('bailian/status', {}, true));
+          bound.current();
+          return state?.loggedIn === true;
+        } catch { bound.current(); return false; }
+      }
       if (source !== 'workbuddy' && source !== 'antigravity' && source !== 'trae') return true;
       const bound = connection(signal);
       try {

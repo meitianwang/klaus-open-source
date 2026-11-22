@@ -159,7 +159,8 @@
       "minimax",
       "workbuddy",
       "qwenwork",
-      "trae"
+      "trae",
+      "bailian"
     ],
     "videoChoiceReason": "A source is listed only when its subscription product provably serves a video route. The TRAE CN account route uses the service default without a fabricated model ID. Source and model support are verified during integration and recorded in the registry; listing choices never repeats remote capability discovery. A configurable endpoint is not a video source.",
     "videoSubscriptionModels": {
@@ -179,6 +180,9 @@
       ],
       "trae": [
         ""
+      ],
+      "bailian": [
+        "wan3.0-video"
       ]
     },
     "videoSourcesVisibleWithoutCredential": true,

@@ -200,6 +200,33 @@ const DASHSCOPE_SPEECH_VOICE = 'Cherry';
 const DASHSCOPE_SPEECH_TEXT_LIMIT = 600;
 const BAILIAN_SPEECH_MODEL = 'qwen-audio-3.0-tts-plus';
 const BAILIAN_SPEECH_VOICE = 'longanhuan_v3.6';
+const BAILIAN_VIDEO_MODEL = 'wan3.0-video';
+const BAILIAN_VIDEO_SUBMIT_PATH = '/api/v1/services/aigc/video-generation/video-synthesis';
+const BAILIAN_VIDEO_TASK_PATH = '/api/v1/tasks';
+const BAILIAN_VIDEO_FAILED_STATES = ['failed', 'canceled', 'cancelled', 'unknown'];
+const BAILIAN_VIDEO_DURATION_MIN = 2, BAILIAN_VIDEO_DURATION_MAX = 30, BAILIAN_VIDEO_DURATION_DEFAULT = 5;
+
+function bailianVideoResolution(size: string | undefined): string {
+  const parsed = parseSize(size);
+  if (!parsed) return '1080P';
+  if (parsed.shortEdge <= 560) return '480P';
+  if (parsed.shortEdge <= 840) return '720P';
+  return '1080P';
+}
+
+function bailianVideoRatio(size: string | undefined, hasReference: boolean): string {
+  if (!parseSize(size)) return hasReference ? 'adaptive' : '16:9';
+  return minimaxRatio(size);
+}
+
+function bailianVideoFailure(status: number | undefined, payload: JsonObject): Error {
+  const code = string(payload.code) || string(object(payload.output).code);
+  if (code === 'InvalidApiKey' || status === 401 || status === 403) return new MediaGenerationError('The video generation credential was refused. Check the account and plan in Settings.');
+  if (code === 'Throttling' || status === 429) return new MediaGenerationError('Video generation is rate-limited. Try again shortly.');
+  if (code === 'Arrearage' || code === 'AccessDenied.Unpurchased' || status === 402) return new MediaGenerationError('There is no remaining video allowance. Wait for the allowance to reset or check the plan in Settings.');
+  if (code === 'DataInspectionFailed') return new MediaGenerationError('The video prompt was declined as sensitive content.');
+  return new MediaGenerationError(`The video provider rejected the request${status ? ` (HTTP ${status})` : ''}.`);
+}
 
 /**
  * Turn a speech refusal into a message that names what to change, without echoing
@@ -480,6 +507,58 @@ export class MediaProviders {
     if (!urls.length) throw new MediaGenerationError('The image provider finished without an image URL.');
     const files = await Promise.all(urls.slice(0, 8).map(url => this.http.download(downloadUrl(url), {}, signal, LIMITS.imageBytes).then(bytes => imageFile(bytes))));
     return imageBudget(files);
+  }
+  /**
+   * The Token Plan's asynchronous video route (`wan3.0-video`), spending the plan's
+   * allowance on the same gateway host as image and speech generation.
+   */
+  async bailianVideo(config: JsonObject, input: GenerationInput, signal: AbortSignal): Promise<{ file: GeneratedFile }> {
+    const base = endpoint(string(config.baseUrl), 'https://token-plan.cn-beijing.maas.aliyuncs.com');
+    const apiKey = string(config.apiKey);
+    if (!apiKey) throw new MediaGenerationError('Video generation has no subscription credential. Check Settings.');
+    const model = string(config.model) || BAILIAN_VIDEO_MODEL;
+    const duration = input.seconds === undefined ? BAILIAN_VIDEO_DURATION_DEFAULT : Math.trunc(input.seconds);
+    if (input.seconds !== undefined && (duration !== input.seconds || duration < BAILIAN_VIDEO_DURATION_MIN || duration > BAILIAN_VIDEO_DURATION_MAX)) {
+      throw new MediaGenerationError(`Video duration must be between ${BAILIAN_VIDEO_DURATION_MIN} and ${BAILIAN_VIDEO_DURATION_MAX} seconds.`);
+    }
+    const resolution = bailianVideoResolution(input.size);
+    const ratio = bailianVideoRatio(input.size, input.sources.length > 0);
+    const media = input.sources.length
+      ? input.sources.map(source => ({ type: 'reference_image', url: `data:${source.mime};base64,${source.bytes.toString('base64')}` }))
+      : undefined;
+    const headers: Record<string, string> = { Authorization: 'Bearer ' + apiKey };
+    const { body: created, status } = await this.http.json(`${base}${BAILIAN_VIDEO_SUBMIT_PATH}`,
+      jsonPost({
+        model,
+        input: { prompt: input.prompt, ...(media ? { media } : {}) },
+        parameters: { resolution, ratio, duration, watermark: false },
+      }, { ...headers, 'X-DashScope-Async': 'enable' }), signal, undefined, true);
+    if (status < 200 || status > 299) throw bailianVideoFailure(status, created);
+    const taskId = string(object(created.output).task_id);
+    if (!taskId || taskId.length > 1024) throw new MediaGenerationError('The video provider returned no valid job id.');
+    const output = await this.pollBailianTask(`${base}${BAILIAN_VIDEO_TASK_PATH}/${encodeURIComponent(taskId)}`, headers, signal);
+    const url = string(output.video_url);
+    if (!url) throw new MediaGenerationError('The video task finished without a download URL.');
+    const bytes = await this.http.download(speechDownloadUrl(url), {}, signal, LIMITS.videoBytes);
+    return { file: videoFile(bytes, 'mp4') };
+  }
+  private async pollBailianTask(url: string, headers: Record<string, string>, signal: AbortSignal): Promise<JsonObject> {
+    const maximum = this.options.videoPolls ?? LIMITS.videoPolls;
+    let failures = 0;
+    for (let i = 0; ; i++) {
+      signal.throwIfAborted();
+      if (i > 0) await wait(this.options.pollMs ?? LIMITS.pollMs, signal);
+      let reply: JsonObject;
+      try {
+        reply = (await this.http.json(url, { headers }, signal, undefined, true)).body;
+        failures = 0;
+      } catch (error) { if (!(error instanceof TransportFailure) || ++failures > LIMITS.transportRetries) throw error; continue; }
+      const output = object(reply.output);
+      const state = string(output.task_status).toLowerCase();
+      if (state === 'succeeded') return output;
+      if (BAILIAN_VIDEO_FAILED_STATES.includes(state)) throw bailianVideoFailure(undefined, reply);
+      if (i >= maximum) throw new MediaGenerationError('Video generation timed out; an accepted remote job may still complete at the provider.');
+    }
   }
   /**
    * The M Plan's synchronous image route on the subscription key.

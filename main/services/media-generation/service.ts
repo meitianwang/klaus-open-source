@@ -18,8 +18,8 @@ import { audioFile, imageFile, videoFile, MediaProviders, type ProviderOptions }
 
 /** The conversation source whose media routes run on its own subscription key. */
 const MINIMAX_MEDIA_SOURCE = 'minimax';
-/** The conversation source whose audio route runs on the Token Plan key. */
-const BAILIAN_AUDIO_SOURCE = 'bailian';
+/** The conversation source whose media routes run on the Token Plan key. */
+const BAILIAN_MEDIA_SOURCE = 'bailian';
 /** The stored video provider value that selects the MiniMax task protocol. */
 const MINIMAX_VIDEO_PROVIDER = 'minimax';
 /** The stored audio provider value that selects the MiniMax speech protocol. */
@@ -110,7 +110,7 @@ export class MediaGenerationService {
       // A subscription selection (image or MiniMax audio/video) owns its credentials,
       // so a saved custom endpoint must never redirect or block it; only the `custom`
       // selection reads the stored endpoint row.
-      let config: JsonObject = cursor || nativeSource || kind === 'image' && selection !== 'custom' && selection !== MINIMAX_MEDIA_SOURCE && selection !== BAILIAN_AUDIO_SOURCE ? {} : object(this.deps.features.getMedia(kind, { source: selection })); current();
+      let config: JsonObject = cursor || nativeSource || kind === 'image' && selection !== 'custom' && selection !== MINIMAX_MEDIA_SOURCE && selection !== BAILIAN_MEDIA_SOURCE ? {} : object(this.deps.features.getMedia(kind, { source: selection })); current();
       if (string(config.apiKey)) secrets.push(string(config.apiKey));
       const milliseconds = kind === 'image' ? this.deps.deadlines?.image ?? LIMITS.imageMs
         : kind === 'video' ? this.deps.deadlines?.video ?? LIMITS.videoMs
@@ -152,7 +152,7 @@ export class MediaGenerationService {
         try { qoder = object(await this.deps.qoder.status(combined)).loggedIn === true; } catch { current(); }
         current();
       }
-      if (kind === 'image' && !cursor && !nativeSource && selection !== MINIMAX_MEDIA_SOURCE && selection !== BAILIAN_AUDIO_SOURCE && !string(config.provider) && !codex?.accessToken && !qoder) throw new MediaGenerationError(`Image generation is not configured. Open Settings → Multimodal Models and check the image settings.`);
+      if (kind === 'image' && !cursor && !nativeSource && selection !== MINIMAX_MEDIA_SOURCE && selection !== BAILIAN_MEDIA_SOURCE && !string(config.provider) && !codex?.accessToken && !qoder) throw new MediaGenerationError(`Image generation is not configured. Open Settings → Multimodal Models and check the image settings.`);
       // The MiniMax audio and video routes spend the plan's own subscription, so their
       // credential comes from the engine rather than from any stored endpoint row. The
       // global selection IS the explicit choice here — the user picked the MiniMax
@@ -174,24 +174,24 @@ export class MediaGenerationService {
         config = { provider: kind === 'video' ? MINIMAX_VIDEO_PROVIDER : kind === 'image' ? MINIMAX_MEDIA_SOURCE : MINIMAX_AUDIO_PROVIDER, baseUrl: minimax.baseUrl, apiKey: minimax.apiKey,
           ...(string(config.model) ? { model: string(config.model) } : {}), ...(string(config.voice) ? { voice: string(config.voice) } : {}) };
       }
-      // The Bailian audio route spends the Token Plan's own allowance, so its
-      // credential comes from the engine exactly like MiniMax's does. Only audio is
-      // offered here: the plan gateway's speech route is the one media route the
-      // plan key provably serves.
+      // Bailian image, video and speech routes spend the Token Plan's own allowance,
+      // so their credential comes from the engine exactly like MiniMax's does.
       let bailian: { apiKey: string; baseUrl: string; region: string } | undefined;
-      if ((kind === 'audio' || kind === 'image') && selection === BAILIAN_AUDIO_SOURCE) {
+      if ((kind === 'audio' || kind === 'image' || kind === 'video') && selection === BAILIAN_MEDIA_SOURCE) {
         bailian = await (this.deps.bailian?.credential(combined) ?? Promise.resolve(undefined)); current();
         if (!bailian) throw new MediaGenerationError(kind === 'image'
           ? 'Image generation needs a subscription credential. Open Settings → Multimodal Models and check the generation account.'
-          : 'Audio generation needs a subscription credential. Open Settings → Multimodal Models and check the generation account.');
+          : kind === 'video'
+            ? 'Video generation needs a subscription credential. Open Settings → Multimodal Models and check the generation account.'
+            : 'Audio generation needs a subscription credential. Open Settings → Multimodal Models and check the generation account.');
         if (string(bailian.apiKey)) secrets.push(string(bailian.apiKey));
         config = { provider: 'bailian', baseUrl: bailian.baseUrl, apiKey: bailian.apiKey,
           ...(string(config.model) ? { model: string(config.model) } : {}), ...(string(config.voice) ? { voice: string(config.voice) } : {}) };
       }
       if (kind === 'audio' && !cursor && !nativeSource && !string(config.provider)) throw new MediaGenerationError(`Audio generation is not configured. Open Settings → Multimodal Models and check the speech settings.`);
       const minimaxLegacyImage = selection === MINIMAX_MEDIA_SOURCE && (string(config.model) === 'image-01' || string(config.model) === 'image-01-live');
-      if (args.paths.length && (qoder || kind === 'image' && (selection === BAILIAN_AUDIO_SOURCE || minimaxLegacyImage))) throw new MediaGenerationError('This provider is text-to-image only; source images are not supported.');
-      if (kind === 'video' && args.paths.length && !nativeSource) throw new MediaGenerationError('The selected video backend does not support reference images.');
+      if (args.paths.length && (qoder || kind === 'image' && (selection === BAILIAN_MEDIA_SOURCE || minimaxLegacyImage))) throw new MediaGenerationError('This provider is text-to-image only; source images are not supported.');
+      if (kind === 'video' && args.paths.length && !nativeSource && selection !== BAILIAN_MEDIA_SOURCE) throw new MediaGenerationError('The selected video backend does not support reference images.');
       input.sources = await this.sources(args.paths, current); current();
       if ((cursor || nativeSource === 'qwenwork') && (input.sources.some(source => source.bytes.length > 4 * 1024 * 1024) || input.sources.reduce((total, source) => total + source.bytes.length, 0) > 8 * 1024 * 1024)) {
         throw new MediaGenerationError(`Reference images must be no larger than 4 MiB each and 8 MiB combined.`);
@@ -248,9 +248,9 @@ export class MediaGenerationService {
           : await providers.openaiSpeech(config, input, combined);
         files = [result.file];
       } else if (kind === 'video') {
-        // The plan task protocol is the only non-native video route: every other
-        // verified subscription video service is an account-owned operation above.
-        const result = await providers.minimaxVideo(config, input, combined);
+        const result = string(config.provider) === 'bailian'
+          ? await providers.bailianVideo(config, input, combined)
+          : await providers.minimaxVideo(config, input, combined);
         files = [result.file];
       } else if (codex?.accessToken) {
         files = await providers.codexImage(input, codex, combined);

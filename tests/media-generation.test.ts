@@ -63,7 +63,7 @@ h.test('committed vectors pin fixed tool declarations and bounded generation con
   const selection = object(vector.selection);
   equal(selection.globalForImage, true); equal(selection.globalForVideo, true); equal(selection.globalForAudio, true);
   deepEqual(selection.imageChoices, ['none', 'codex', 'cursor', 'qoder', 'qwenwork', 'workbuddy', 'antigravity', 'trae', 'bailian', 'minimax']);
-  deepEqual(selection.videoChoices, ['none', 'minimax', 'workbuddy', 'qwenwork', 'trae']);
+  deepEqual(selection.videoChoices, ['none', 'minimax', 'workbuddy', 'qwenwork', 'trae', 'bailian']);
   deepEqual(selection.audioChoices, ['none', 'cursor', 'minimax', 'bailian', 'workbuddy']);
   deepEqual(selection.musicChoices, ['none', 'qwenwork']);
   equal(selection.imageSourcesVisibleWithoutCredential, true);

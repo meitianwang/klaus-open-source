@@ -1,5 +1,5 @@
 {
-  "version": 22,
+  "version": 23,
   "reason": "Claude streaming captures the application's Chinese or English language hint at recording start and retains it during same-source recovery; an English-only default delays Chinese previews until stop. All supported subscription dictation sources use native continuous PCM transport and incremental transcript events through the shared streaming session, including Claude, Codex and WorkBuddy. Realtime admission rejects unavailable native routes instead of silently starting file segments. File transcription remains an explicit compatibility choice or an announced same-source recovery bound to the original login. TRAE CN adds an independent subscription-backed PCM transcription and streaming dictation source; native refinement and duplex voice remain separate. Recognition provider selection belongs in Voice Input settings for both dictation modes, alongside personalization and a correction dictionary. Refinement and language detection are automatic, with no separate refinement, recognition-language or memory-list controls. Both modes honor the saved provider, with explicit errors instead of automatic substitution. Real-time capture supports signed WebSocket recognition routes, revisable interim snapshots and same-source recovery bound to the original credential. Voice conversation retains its independent source preference. Live dictation accumulates completed utterances and revises only the active utterance so stopping preserves every sentence. End-of-audio acknowledgment is separate from the authoritative whole-recording result, which is inserted and persisted exactly once. Supported realtime sources configure session-native refinement before the first audio frame and publish its complete result without a second text-model request. A short latency budget never discards a pending refinement result; recording duration freezes at stop. The settings menu retires the custom transcription offer: system recognition and signed-in provider sources remain selectable, an absent preference on a device without system recognition stays unselected, and a saved custom selection keeps working as a compatibility file-transcription route until the user replaces it.",
   "settingsUi": {
     "control": "combobox",
@@ -65,7 +65,8 @@
     "antigravity",
     "trae",
     "qoder",
-    "qwenwork"
+    "qwenwork",
+    "bailian"
   ],
   "absentPreference": {
     "systemAvailable": "system",
@@ -85,7 +86,8 @@
     "webmOpus32k": [
       "custom",
       "codex",
-      "workbuddy"
+      "workbuddy",
+      "bailian"
     ],
     "pcm16Mono16000Wav": [
       "claude",
@@ -141,7 +143,8 @@
     "qoder": 12582912,
     "qwenwork": 12582912,
     "antigravity": 12582912,
-    "trae": 12582912
+    "trae": 12582912,
+    "bailian": 7340032
   },
   "unavailableCapability": "hidden unless explicitly selected; preserve saved selection and show recovery",
   "runtimeAdmission": {
@@ -149,7 +152,8 @@
     "codex": "current selected subscription account readiness",
     "workbuddy": "actual transcription capability and account readiness",
     "antigravity": "actual transcription capability and account readiness",
-    "trae": "actual transcription capability and account readiness"
+    "trae": "actual transcription capability and account readiness",
+    "bailian": "connected Token Plan credential readiness (file transcription only)"
   },
   "captureConfig": "checks only the selected account; full availability is requested by settings",
   "transcriptionTimeoutMs": {

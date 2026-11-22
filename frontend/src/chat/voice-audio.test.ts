@@ -13,11 +13,11 @@ describe('voice input source and audio contracts', () => {
     expect(VOICE_INPUT_SOURCES).toContain('custom')
     expect(VOICE_SELECTABLE_SOURCES).not.toContain('custom')
     expect(vector.localeOverrideSources).toEqual([])
-    for (const source of ['workbuddy', 'qoder', 'qwenwork', 'trae'] as const) expect(voiceAudioMaxBytes(source)).toBe(vector.providerAudioMaxBytes[source])
+    for (const source of ['workbuddy', 'qoder', 'qwenwork', 'trae', 'bailian'] as const) expect(voiceAudioMaxBytes(source)).toBe(vector.providerAudioMaxBytes[source])
     // Container policy: PCM-pinned subscription wires keep 16 kHz mono WAV;
     // the remaining HTTP sources upload compact Ogg/Opus with WAV fallback.
     expect(vector.pcm16Mono16000Wav).toEqual(['claude', 'qoder', 'qwenwork', 'antigravity', 'trae'])
-    expect(vector.uploadContainers.webmOpus32k).toEqual(['custom', 'codex', 'workbuddy'])
+    expect(vector.uploadContainers.webmOpus32k).toEqual(['custom', 'codex', 'workbuddy', 'bailian'])
     for (const source of VOICE_INPUT_SOURCES) expect(voiceUploadContainer(source)).toBe(vector.uploadContainers.webmOpus32k.includes(source) ? 'webm' : 'wav')
     expect(vector.transcriptionTimeoutMs.partial).toBe(20000)
     expect(vector.fileTranscription.completion).toBe('the full-audio final pass is authoritative; recovery requires every interval including the tail and consumes host receipts once')

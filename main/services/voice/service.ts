@@ -1,4 +1,4 @@
-import { VOICE_AUDIO_MAX_BYTES, VOICE_AUDIO_MAX_MS, VOICE_INPUT_SOURCE_KEY, VOICE_INPUT_SOURCES, VOICE_NATIVE_STREAMING_SOURCES, isVoiceInputSource, voiceInputSource, voiceAudioMaxBytes, voiceTranscriptionTimeoutMs } from '../../../shared/voice-input';
+import { VOICE_AUDIO_MAX_BYTES, VOICE_AUDIO_MAX_MS, VOICE_FILE_ONLY_SOURCES, VOICE_INPUT_SOURCE_KEY, VOICE_INPUT_SOURCES, VOICE_NATIVE_STREAMING_SOURCES, isVoiceInputSource, voiceInputSource, voiceAudioMaxBytes, voiceTranscriptionTimeoutMs } from '../../../shared/voice-input';
 import { randomUUID } from 'node:crypto';
 import { statSync } from 'node:fs';
 import type { Json } from '../../ipc/contract';
@@ -128,7 +128,7 @@ export class VoiceService {
         }));
         const nativeStreaming = !!selected && native[selected] === true;
         const gated: Record<string, boolean> = {};
-        for (const source of ['workbuddy', 'antigravity', 'trae'] as const) {
+        for (const source of ['workbuddy', 'antigravity', 'trae', 'bailian'] as const) {
           if (selected !== source && payload.includeAvailability !== true) continue;
           gated[source] = false;
           try { gated[source] = await this.options.transcriptionAvailable?.(source, signal) === true; }
@@ -145,8 +145,9 @@ export class VoiceService {
           if (Object.hasOwn(gated, source)) return [[source, gated[source] === true || native[source] === true]];
           return [[source, !!this.options.transcribeAudio]];
         }));
+        const fileOnly = !!selected && VOICE_FILE_ONLY_SOURCES.some(value => value === selected);
         const sourceAvailable = !!selected && (experience === 'realtime'
-          ? selected === 'system' ? !!this.command : nativeStreaming
+          ? selected === 'system' ? !!this.command : fileOnly ? availability[selected] === true : nativeStreaming
           : availability[selected] === true);
         return { source: (saved || selected) || '', sourceAvailable, availability,
           experience, streaming: selected === 'system' && !!this.command || nativeStreaming, nativeStreaming,
@@ -347,13 +348,14 @@ export class VoiceService {
   }
   async transcribe(id: number, payload: Row): Promise<Row> {
     const experience = this.store.setting('voice.input.experience') || (this.options.streaming ? 'realtime' : 'compatibility');
-    if (experience === 'realtime') return { ok: false, error: 'voice-source-unavailable' };
-    const owner = this.owner(id), bytes = audioBytes(payload.data, VOICE_AUDIO_MAX_BYTES);
-    if (!bytes?.length) return { ok: false, error: 'empty-audio' };
     const saved = this.store.setting(VOICE_INPUT_SOURCE_KEY), preference = this.preference();
     // Older narrow renderers recorded cloud audio without a source field. Only
     // an absent preference retains that custom route; a saved choice always wins.
     const source = payload.source === undefined && !saved ? 'custom' : payload.source ?? voiceInputSource(saved, !!this.command);
+    const fileOnly = typeof source === 'string' && VOICE_FILE_ONLY_SOURCES.some(value => value === source);
+    if (experience === 'realtime' && !fileOnly) return { ok: false, error: 'voice-source-unavailable' };
+    const owner = this.owner(id), bytes = audioBytes(payload.data, VOICE_AUDIO_MAX_BYTES);
+    if (!bytes?.length) return { ok: false, error: 'empty-audio' };
     if (!isVoiceInputSource(source)) return { ok: false, error: 'voice-source-unavailable' };
     if (bytes.length > voiceAudioMaxBytes(source)) return { ok: false, error: 'audio-too-large' };
     if (saved && saved !== source) return { ok: false, error: 'voice-source-changed' };
@@ -375,7 +377,7 @@ export class VoiceService {
       const id = operationId(payload);
       return await this.track(owner, partial ? 'partial' : 'foreground', id, async signal => {
         active(signal);
-        if ((source === 'workbuddy' || source === 'antigravity' || source === 'trae') && await this.options.transcriptionAvailable?.(source, signal) !== true) {
+        if ((source === 'workbuddy' || source === 'antigravity' || source === 'trae' || source === 'bailian') && await this.options.transcriptionAvailable?.(source, signal) !== true) {
           active(signal); return { ok: false, error: 'voice-source-unavailable' };
         }
         active(signal);
