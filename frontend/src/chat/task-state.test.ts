@@ -155,4 +155,24 @@ describe('live Task* tool calls as the second plan input', () => {
     expect(taskItems('live-g')[0].status).toBe('pending')
     forgetTaskItems('live-g')
   })
+
+  test('TaskUpdate ignores soft-failure outputs and applies confirmed #id updates and deletions', () => {
+    setTaskItems('live-h', [task('plan-step-1', 'pending'), task('plan-step-2', 'pending')])
+    noteLiveTaskToolStart('live-h', 'call-10', 'TaskUpdate', { taskId: '#plan-step-1', status: 'completed' })
+    expect(applyLiveTaskToolEnd('live-h', 'call-10', false, 'Task ##plan-step-1 does not exist.')).toBe(false)
+    expect(taskItems('live-h')[0].status).toBe('pending')
+
+    noteLiveTaskToolStart('live-h', 'call-11', 'TaskUpdate', { taskId: '#plan-step-1', status: 'completed' })
+    expect(applyLiveTaskToolEnd('live-h', 'call-11', false, 'Completing #plan-step-1 was vetoed by a hook.')).toBe(false)
+    expect(taskItems('live-h')[0].status).toBe('pending')
+
+    noteLiveTaskToolStart('live-h', 'call-12', 'TaskUpdate', { taskId: '#plan-step-1', status: 'completed' })
+    expect(applyLiveTaskToolEnd('live-h', 'call-12', false, 'Updated #plan-step-1 (status)')).toBe(true)
+    expect(taskItems('live-h')[0].status).toBe('completed')
+
+    noteLiveTaskToolStart('live-h', 'call-13', 'TaskUpdate', { taskId: '#plan-step-2', status: 'deleted' })
+    expect(applyLiveTaskToolEnd('live-h', 'call-13', false, 'Deleted task #plan-step-2.')).toBe(true)
+    expect(taskItems('live-h').map(row => row.id)).toEqual(['plan-step-1'])
+    forgetTaskItems('live-h')
+  })
 })

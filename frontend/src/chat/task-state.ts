@@ -186,7 +186,8 @@ export function applyLiveTaskToolEnd(sessionId: string, toolCallId: string, isEr
   state.pending.delete(toolCallId)
   if (isError) return false
   const text = typeof content === 'string' ? content : ''
-  for (const line of parseResultLines(text)) {
+  const parsedLines = parseResultLines(text)
+  for (const line of parsedLines) {
     if (line.entryId && line.entryId !== line.id) state.aliases.set(line.entryId, line.id)
   }
   const resolve = (id: string): string => {
@@ -212,7 +213,7 @@ export function applyLiveTaskToolEnd(sessionId: string, toolCallId: string, isEr
     const inputTasks = Array.isArray(pending.args.tasks) ? pending.args.tasks : []
     if (pending.args.merge !== true) {
       const replaced = inputTasks.map(entryFromInput).filter((item): item is TaskItem => item !== null)
-      for (const line of parseResultLines(text)) {
+      for (const line of parsedLines) {
         const alias = [...state.aliases].find(([, real]) => real === line.id)?.[0]
         const row = replaced.find(item => item.id === (alias ?? line.id))
         if (row) row.id = line.id
@@ -227,17 +228,25 @@ export function applyLiveTaskToolEnd(sessionId: string, toolCallId: string, isEr
       upsert({ ...item, id: resolve(id) }, fields)
     }
   } else if (pending.toolName === 'TaskUpdate') {
+    const trimmed = text.trim()
+    const deleted = /^Deleted task\s+#\S+/.test(trimmed)
+    if (!deleted && !/^Updated\s+#\S+/.test(trimmed) && parsedLines.length === 0) return false
     const id = typeof pending.args.taskId === 'string' ? resolve(pending.args.taskId) : ''
     const index = tasks.findIndex(task => task.id === id)
     if (index === -1) return changed
-    const row = tasks[index]
-    for (const key of ['subject', 'description', 'activeForm', 'owner'] as const) {
-      const value = pending.args[key]
-      if (typeof value === 'string' && value && row[key] !== value) { row[key] = value; changed = true }
-    }
-    if (pending.args.status !== undefined) {
-      const status = normalizeStatus(pending.args.status)
-      if (row.status !== status) { row.status = status; changed = true }
+    if (deleted || pending.args.status === 'deleted') {
+      tasks.splice(index, 1)
+      changed = true
+    } else {
+      const row = tasks[index]
+      for (const key of ['subject', 'description', 'activeForm', 'owner'] as const) {
+        const value = pending.args[key]
+        if (typeof value === 'string' && value && row[key] !== value) { row[key] = value; changed = true }
+      }
+      if (pending.args.status !== undefined) {
+        const status = normalizeStatus(pending.args.status)
+        if (row.status !== status) { row.status = status; changed = true }
+      }
     }
   } else if (pending.toolName === 'TaskCreate') {
     const created = /^Created task #(\S+?):\s*(.*)$/.exec(text.trim())
