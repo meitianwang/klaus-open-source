@@ -748,4 +748,39 @@ h.test('stable question IDs survive pending and saved-answer projections with id
   assertDeepEqual(questionAnswerMetadata({ ...answerMetadata, questions, answers })?.answers, answers, 'saved replies retain stable answer keys');
 });
 
+h.test('turn completion persistence failures mark the live session binding stale for clean recovery', () => {
+  const f = fixture();
+  f.state.markTurnRunning('conversation', 'turn-1');
+  f.pump.receive({
+    type: 'productEvent',
+    method: 'turn/failed',
+    params: {
+      sessionId: 'engine-session',
+      submissionId: 'turn-1',
+      detail: { error: { code: 'internal', message: 'rate limit temporary failure' } },
+    },
+  }, 1);
+  assertEqual(f.state.isWorking('conversation'), false, 'ordinary failure settles the turn');
+  assertEqual(f.state.isStale('conversation'), false, 'ordinary provider failures keep the live binding');
+
+  f.state.markTurnRunning('conversation', 'turn-2');
+  f.pump.receive({
+    type: 'productEvent',
+    method: 'turn/failed',
+    params: {
+      sessionId: 'engine-session',
+      submissionId: 'turn-2',
+      detail: {
+        error: {
+          code: 'internal',
+          message: 'Failed to persist the turn completion boundary: No space left on device (os error 28)',
+        },
+      },
+    },
+  }, 1);
+  f.forwarder.close();
+  assertEqual(f.state.isWorking('conversation'), false, 'persistence failure settles the turn');
+  assertEqual(f.state.isStale('conversation'), true, 'poisoned rollout marks the binding stale so retry reopens from disk');
+});
+
 void h.finish(join(__dirname, 'session-events-result.json'), 'session-events').then(code => process.exit(code));

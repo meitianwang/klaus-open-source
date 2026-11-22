@@ -2939,7 +2939,7 @@ export class SessionService {
         // The engine deliberately refuses MCP mutations during a turn. A saved
         // capability change therefore applies to a new task instead of turning
         // the settings operation into a false failure or disrupting this task.
-        if (this.deps.state.isWorking(rendererId) || this.startingTurns.has(rendererId)) return false;
+        if (this.deps.state.isWorking(rendererId) || this.startingTurns.has(rendererId) || this.deps.state.isStale(rendererId)) return false;
         return (await this.reloadHostCapabilitiesNow(rendererId)) !== undefined;
       }));
   }

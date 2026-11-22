@@ -351,6 +351,19 @@ export class SessionEventPump {
           if (!alias || terminalIds.size === 0 || terminalIds.has(alias.submissionId) || terminalIds.has(alias.engineTurnId)) {
             this.activeTurnAliases.delete(sessionId);
           }
+          // A rollout append failure poisons the live writer for the remainder of that
+          // engine session and leaves unpersisted records in memory. Mark the binding
+          // stale once the failed turn settles so a subsequent retry closes the poisoned
+          // session and resumes cleanly from the durable rollout prefix on disk.
+          if (chat.type === 'api_error' && typeof chat.error === 'string'
+            && chat.error.includes('Failed to persist the turn completion boundary:')
+            && sessionId && !sessionId.startsWith('__') && !this.deps.state.isStale(sessionId)) {
+            this.deps.log('session-binding-stale-after-persistence-failure', JSON.stringify({
+              sessionId,
+              turnId: typeof chat.turnId === 'string' ? chat.turnId : rawTurnId ?? null,
+            }));
+            this.deps.state.markStale(sessionId);
+          }
           // The session just went idle: settle capability reloads that deferred
           // while this turn was running. Fire-and-forget — a failed compensation
           // must not disturb the terminal frames the renderer is converging on.
