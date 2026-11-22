@@ -1,8 +1,28 @@
-import { isAbsolute, resolve } from 'node:path';
+import { dirname, isAbsolute, relative, resolve } from 'node:path';
 import type { Json } from '../ipc/contract';
 import { object } from './service-types';
 import { publishedMediaPaths } from './published-media-paths';
 import { shellToolInputPaths, toolArtifactPaths, toolInputFilePaths } from './tool-artifact-paths';
+
+function resolveCanonicalPath(reported: string, canonicalize: (path: string) => string): string {
+  try {
+    return resolve(canonicalize(reported));
+  } catch {
+    // A shell or file tool is observed at start time before it creates the
+    // destination file. Resolve the nearest existing ancestor (/tmp -> /private/tmp)
+    // so media scope checks using realpath still match once the file lands.
+    let current = dirname(reported);
+    while (true) {
+      try {
+        return resolve(resolve(canonicalize(current)), relative(current, reported));
+      } catch {
+        const parent = dirname(current);
+        if (parent === current) return '';
+        current = parent;
+      }
+    }
+  }
+}
 
 /**
  * The paths a conversation touched, published from managed output, or selected in its file viewer.
@@ -52,7 +72,7 @@ export class SessionArtifactPaths {
   private readonly canonicalize: (path: string) => string;
   private readonly publishedImageRoot?: string;
   private readonly messageText = new Map<string, { sessionId: string; messageId: string; text: string | null }>();
-  private readonly toolArgs = new Map<string, { sessionId: string; toolName: string; text: string | null }>();
+  private readonly toolArgs = new Map<string, { sessionId: string; toolName: string; args: unknown; text: string | null; lastDelta: string | null }>();
 
   constructor(options: ArtifactPathOptions = {}) {
     this.limits = options.limits ?? { sessions: 64, pathsPerSession: 2000 };
@@ -96,8 +116,7 @@ export class SessionArtifactPaths {
     // Both spellings are stored: the renderer asks with the reported path (the
     // one the transcript shows), while the media channel re-checks scope with
     // the real one.
-    let canonical = '';
-    try { canonical = resolve(this.canonicalize(reported)); } catch { /* Missing or unresolvable: the reported spelling is already recorded. */ }
+    const canonical = resolveCanonicalPath(reported, this.canonicalize);
     if (canonical && canonical !== reported) this.admit(paths, canonical, selected);
   }
 
@@ -146,7 +165,10 @@ export class SessionArtifactPaths {
     const toolCallId = typeof row.toolCallId === 'string' ? row.toolCallId : '';
     const toolName = typeof row.toolName === 'string' ? row.toolName : '';
     if (row.type === 'tool_start') {
-      if (toolCallId) this.toolArgs.set(JSON.stringify([sessionId, streamId, toolCallId]), { sessionId, toolName, text: null });
+      if (toolCallId) {
+        this.toolArgs.set(JSON.stringify([sessionId, streamId, toolCallId]), { sessionId, toolName, args: row.args, text: null, lastDelta: null });
+        while (this.toolArgs.size > this.limits.sessions) this.toolArgs.delete(this.toolArgs.keys().next().value!);
+      }
       this.recordMany(sessionId, shellToolInputPaths(toolName, row.args));
       this.recordMany(sessionId, toolInputFilePaths(toolName, row.args));
       return;
@@ -158,14 +180,33 @@ export class SessionArtifactPaths {
       if (!delta) return;
       const previous = this.toolArgs.get(key);
       const text = (previous?.text ?? '') + delta;
-      this.toolArgs.set(key, { sessionId, toolName: previous?.toolName || toolName, text: text.length > 512 * 1024 ? null : text });
+      this.toolArgs.set(key, {
+        sessionId,
+        toolName: previous?.toolName || toolName,
+        args: previous?.args,
+        text: text.length > 512 * 1024 ? null : text,
+        lastDelta: delta.length <= 512 * 1024 ? delta : null,
+      });
       while (this.toolArgs.size > this.limits.sessions) this.toolArgs.delete(this.toolArgs.keys().next().value!);
       return;
     }
     if (row.type === 'tool_end') {
       const entry = this.toolArgs.get(key);
       this.toolArgs.delete(key);
-      if (entry?.text) this.recordMany(sessionId, shellToolInputPaths(entry.toolName || toolName, entry.text));
+      const effectiveName = entry?.toolName || toolName;
+      // Re-record start arguments after execution finishes so symlinks or directories
+      // created by the command itself resolve to their real paths on completion.
+      for (const candidate of [entry?.args, row.args]) {
+        if (candidate === undefined || candidate === null) continue;
+        this.recordMany(sessionId, shellToolInputPaths(effectiveName, candidate));
+        this.recordMany(sessionId, toolInputFilePaths(effectiveName, candidate));
+      }
+      if (entry?.text || entry?.lastDelta) {
+        const streamedShell = entry.text ? shellToolInputPaths(effectiveName, entry.text) : [];
+        this.recordMany(sessionId, streamedShell.length ? streamedShell : entry.lastDelta ? shellToolInputPaths(effectiveName, entry.lastDelta) : []);
+        const streamedFiles = entry.text ? toolInputFilePaths(effectiveName, entry.text) : [];
+        this.recordMany(sessionId, streamedFiles.length ? streamedFiles : entry.lastDelta ? toolInputFilePaths(effectiveName, entry.lastDelta) : []);
+      }
       return;
     }
     if (row.type === 'done' || row.type === 'interrupted') {

@@ -9,7 +9,7 @@ import { semanticActivity, webActivitySources } from './activity-semantic'
 ;(globalThis as any).window = { ...(globalThis as any).window, addEventListener: () => {}, currentLang: 'en',
   klaus: { media: { url: (path: string, session: string) => `klaus-media://fixture/${encodeURIComponent(path)}?s=${session}` } } }
 
-const { ActivityToolContent, activityToolPresentation, activityToolIconName } = await import('./activity-tool')
+const { ActivityToolContent, activityToolPresentation, activityToolIconName, activityToolSummary } = await import('./activity-tool')
 const { ActivityHeader, activitySummaryLabel, LiveToolCard, HistoryToolCards } = await import('./TranscriptView')
 const { describeActivity, summarizeActivity } = await import('./activity-model')
 const { I18N } = await import('../../i18n')
@@ -142,15 +142,46 @@ describe('image inspection disclosure contract', () => {
       expect(open).not.toContain('Input and result')
       expect(open).not.toContain('Copy input')
       expect(open).not.toContain('Tool output')
+      expect(open).not.toContain('Image notes')
     }
   })
 
   test('failed image inspection retains diagnostic input and result', () => {
+    ;(window as any).klaus = { media: { url: (path: string) => `klaus-media://fixture/${encodeURIComponent(path)}` } }
     const tool = { ...value('view_image', { path: '/tmp/missing.png' }, 'error'), output: 'Image not found' }
     const html = renderToStaticMarkup(<ActivityToolContent tool={tool} open onToggle={() => {}} locale="zh" />)
+    expect(html).not.toContain('<img')
+    expect(html).not.toContain('data-media-thumb=')
     expect(html).toContain('输入')
     expect(html).toContain('输出')
     expect(html).toContain('Image not found')
+  })
+
+  test('missing image reads report file absence without broken thumbnails or raw envelope notes', () => {
+    ;(window as any).klaus = { media: { url: (path: string) => `klaus-media://fixture/${encodeURIComponent(path)}` } }
+    const liveMissing = { ...value('read', { path: '/tmp/d3-s.png' }, 'done'), output: '{"path":"/tmp/d3-s.png","found":false}' }
+    const replayMissing = { ...value('read', { path: '/tmp/d3-s.png' }, 'done'), output: 'File not found: /tmp/d3-s.png' }
+
+    for (const candidate of [liveMissing, replayMissing]) {
+      const presentation = activityToolPresentation(candidate)
+      expect(presentation).toMatchObject({ kind: 'image', imageCount: 0, imagePaths: [], imageNotFound: true })
+      expect(activityToolSummary(presentation, 'done', false, 'zh')).toBe('未找到图像 /tmp/d3-s.png')
+      expect(activityToolSummary(presentation, 'done', false, 'en')).toBe('Image not found: /tmp/d3-s.png')
+      const zh = renderToStaticMarkup(<ActivityToolContent tool={candidate} open onToggle={() => {}} locale="zh" />)
+      expect(zh).toContain('<span>未找到图像</span>')
+      expect(zh).toContain('aria-label="/tmp/d3-s.png">d3-s.png</button>')
+      expect(zh).not.toContain('已查看 1 张图像')
+      expect(zh).not.toContain('<img')
+      expect(zh).not.toContain('data-media-thumb=')
+      expect(zh).not.toContain('图片说明')
+      expect(zh).toContain('输入')
+      expect(zh).toContain('输出')
+
+      const en = renderToStaticMarkup(<ActivityToolContent tool={candidate} open={false} onToggle={() => {}} locale="en" />)
+      expect(en).toContain('<span>Image not found:</span>')
+      expect(en).toContain('aria-label="/tmp/d3-s.png">d3-s.png</button>')
+      expect(en).not.toContain('Viewed 1 image')
+    }
   })
 
   test('completed image inspection keeps accompanying text without exposing input details', () => {

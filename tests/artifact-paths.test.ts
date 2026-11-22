@@ -544,6 +544,51 @@ h.test('user attachment paths admit external files per session and skip director
   assert(!historyLedger.has('s1', outside), 'restored history skips directory entries');
 });
 
+h.test('a live shell command writing into a symlinked directory after tool_start authorizes realpath media reads', async () => {
+  const dir = await mkdtemp('/tmp/klaus-artifact-paths-');
+  roots.push(dir);
+  const shot = join(dir, 'nested/d3-s.png');
+  const linkedParent = join(dir, 'late-link');
+  const linkedShot = join(linkedParent, 'late.png');
+  const command = `python3 -c "open('${shot}', 'wb'); open('${linkedShot}', 'wb')"`;
+  const ledger = new SessionArtifactPaths({ canonicalize: realpathSync });
+
+  // Observe tool_start BEFORE either destination file or late symlink exists on disk.
+  recordArtifactPathsFromChatEvent(ledger, {
+    type: 'tool_start', sessionId: 's1', toolName: 'bash', toolCallId: 'c-live', args: { command },
+  });
+
+  await mkdir(join(dir, 'nested'), { recursive: true });
+  await writeFile(shot, Buffer.from(PNG_FIXTURE_BASE64, 'base64'));
+  const realTargetDir = await mkdtemp(join(tmpdir(), 'klaus-artifact-target-'));
+  roots.push(realTargetDir);
+  await symlink(realTargetDir, linkedParent);
+  await writeFile(linkedShot, Buffer.from(PNG_FIXTURE_BASE64, 'base64'));
+
+  const realShot = await realpath(shot);
+  assert(realShot !== shot, 'symlinked parent resolves to a distinct canonical path');
+  // Ancestor canonicalization already admitted realShot at tool_start even before the file existed.
+  assert(ledger.has('s1', realShot), 'ancestor canonicalization admits realpath for files created after tool_start');
+
+  // Completing the command also canonicalizes symlinks created during execution.
+  recordArtifactPathsFromChatEvent(ledger, {
+    type: 'tool_end', sessionId: 's1', toolName: 'bash', toolCallId: 'c-live', isError: false, content: 'ok',
+  });
+  const realLinkedShot = await realpath(linkedShot);
+  assert(ledger.has('s1', realLinkedShot), 'tool_end re-canonicalizes symlinks created during the command');
+
+  const media = new MediaFiles(async (path, id) => ledger.has(id, path));
+  for (const candidate of [shot, linkedShot]) {
+    const granted = await media.grant(candidate, 's1');
+    const response = await media.respond(new Request(granted));
+    assert(response.status === 200, `live shell-created image ${candidate} is served with 200`);
+    await response.arrayBuffer();
+    const denied = await media.respond(new Request(`klaus-media://localhost/${Buffer.from(candidate).toString('base64url')}?s=s2`));
+    assert(denied.status === 403, 'another conversation remains denied');
+  }
+  media.close();
+});
+
 void (async () => {
   const failed = await h.finish(join(__dirname, 'artifact-paths-result.json'), 'artifact-paths');
   for (const root of roots) await rm(root, { recursive: true, force: true });

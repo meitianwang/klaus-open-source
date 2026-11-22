@@ -62,10 +62,15 @@ export function describeActivity(name: string, input: unknown, status: string, o
   const args = input && typeof input === 'object' && !Array.isArray(input) ? input as Record<string, unknown> : {}
   const normalized = name.toLowerCase().replace(/^functions[._]/, '')
   const tool: ChatActivityTool = { toolName: name, args: input, state: status, ...(output !== undefined ? { content: output } : {}), ...(media?.length ? { media } : {}) }
-  const presentation = activityToolPresentation({ toolCallId: '', toolName: name, args: input, state: 'done', media, output })
+  const toolState = status === 'error' ? 'error' : status === 'interrupted' ? 'interrupted' : status === 'running' || status === 'awaiting-approval' ? 'running' : 'done'
+  const presentation = activityToolPresentation({ toolCallId: '', toolName: name, args: input, state: toolState, media, output })
   let target = stringArg(args, 'file_path', 'notebook_path', 'path', 'pattern', 'query', 'q', 'command', 'cmd')
   let kind: ActivityKind = 'tool'
   if (presentation.semantic) target = presentation.semantic.target
+  else if (presentation.kind === 'image' && presentation.imageNotFound) {
+    kind = 'read'
+    target = presentation.path
+  }
   else if (presentation.kind === 'image' || presentation.kind === 'read' || presentation.kind === 'list' || presentation.kind === 'search' || presentation.kind === 'skill') {
     kind = presentation.kind
     target = presentation.kind === 'search' ? presentation.query : presentation.path

@@ -55,6 +55,11 @@ export function activityToolSummary(presentation: ActivityToolPresentation, stat
     return `${verb}${query ? zh ? `：${query}` : ` for ${query}` : ''}`
   }
   if (kind === 'image') {
+    if (!active && !stopped && !failed && presentation.imageNotFound) {
+      return zh
+        ? (path ? `未找到图像 ${path}` : '未找到图像')
+        : (path ? `Image not found: ${path}` : 'Image not found')
+    }
     const count = Math.max(1, presentation.imageCount || 1)
     if (!active && !stopped && !failed && presentation.imageUnsupportedByModel) {
       if (zh) return `已读取 ${count} 张图像（读取时模型不支持图像）`
@@ -381,9 +386,26 @@ function AdvisorAdviceCard({ tool, locale }: { tool: ActivityToolData; locale: s
   </div>
 }
 
+function accompanyingImageNotes(output: string | undefined): string {
+  const trimmed = output?.trim() || ''
+  if (!trimmed) return ''
+  // A live `read` call carries its structured envelope (`{ path, found, kind: "image" }`)
+  // in `output`; keep that transport record out of user-facing image notes.
+  if (trimmed.startsWith('{')) {
+    try {
+      const parsed = JSON.parse(trimmed)
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed) && typeof (parsed as Record<string, unknown>).found === 'boolean') return ''
+    } catch { /* Plain text notes stay intact. */ }
+  }
+  return output!
+}
+
 function ToolDetails({ tool, presentation, locale }: { tool: ActivityToolData; presentation: ActivityToolPresentation; locale: string }) {
   if (tool.toolName === 'advisor') return <AdvisorAdviceCard tool={tool} locale={locale} />
-  const completedImage = presentation.kind === 'image' && tool.state === 'done' && !!presentation.imagePaths?.length
+  const completedImage = presentation.kind === 'image' && tool.state === 'done' && !!presentation.imagePaths?.length && !presentation.imageNotFound
+  const showImageSection = presentation.kind === 'image'
+    && (!!presentation.imagePaths?.length || !!presentation.imageUnsupportedByModel || (tool.state === 'done' && !presentation.imageNotFound))
+  const imageNotes = completedImage ? accompanyingImageNotes(tool.output) : ''
   const input = activityInputText(presentation.args)
   const details = <div className={styles.detailsCard}>
     {tool.toolName.startsWith('mcp__') ? <div className={styles.detailSection}><div className={styles.detailHeading}>{tool.toolName}</div></div> : null}
@@ -400,11 +422,11 @@ function ToolDetails({ tool, presentation, locale }: { tool: ActivityToolData; p
   // line. A raw input/output dump under it added nothing the card hides.
   if (presentation.semantic?.category === 'friend') return <FriendActivityDetails tool={tool} locale={locale} />
   return <>
-    {presentation.kind === 'image' ? <ImageActivityDetails tool={tool} presentation={presentation} locale={locale} /> : null}
+    {showImageSection ? <ImageActivityDetails tool={tool} presentation={presentation} locale={locale} /> : null}
     {presentation.semantic?.category === 'web' ? <WebActivitySources tool={tool} locale={locale} /> : null}
     {presentation.semantic?.category === 'schedule' ? <ScheduleActivityDetails tool={tool} locale={locale} /> : null}
     {completedImage
-      ? tool.output?.trim() ? <ScrollOutput text={tool.output} label={copyText(locale, 'Image notes', '图片说明')} locale={locale} /> : null
+      ? imageNotes ? <ScrollOutput text={imageNotes} label={copyText(locale, 'Image notes', '图片说明')} locale={locale} /> : null
       : details}
   </>
 }

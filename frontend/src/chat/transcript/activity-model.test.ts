@@ -40,6 +40,14 @@ describe('committed activity contract', () => {
     expect(projectActivity(entries, false)[0]).toMatchObject({ kind: 'group', summary: { images: 4 } })
     expect(projectActivity(entries.slice(0, 1), false)[0].kind).toBe('item')
   })
+  test('does not count missing image reads as viewed images in group summaries', () => {
+    const entries = [
+      { key: 'm1', value: 1, grouping: 'tool' as const, action: describeActivity('read', { path: '/tmp/d3-s.png' }, 'done', '{"path":"/tmp/d3-s.png","found":false}') },
+      { key: 'm2', value: 2, grouping: 'tool' as const, action: describeActivity('read', { path: '/tmp/d3-s.png' }, 'done', 'File not found: /tmp/d3-s.png') },
+      { key: 'c1', value: 3, grouping: 'tool' as const, action: describeActivity('bash', { command: 'python3 render.py' }, 'done') },
+    ]
+    expect(summarizeActivity(entries)).toMatchObject({ images: 0, reads: 1, commands: 1 })
+  })
   test('compound shell programs never become misleading read-only summaries', () => {
     for (const command of ['cat a; rm b', 'ls && echo done', 'cat $(build)', 'rg x | head']) {
       expect(describeActivity('bash', { command }, 'done').kind).toBe('command')

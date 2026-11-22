@@ -45,6 +45,8 @@ export interface ActivityToolPresentation {
   generationKind?: MediaGenerationKind
   semantic?: SemanticActivity
   imagePaths?: string[]
+  /** The file read targeted an image path that did not exist when inspected. */
+  imageNotFound?: boolean
   /** The read tool stored this image while the active model could not see it. */
   imageUnsupportedByModel?: boolean
   /** Unified background-control call targeting a shell command rather than a subagent. */
@@ -103,9 +105,19 @@ function imageCount(tool: ActivityToolData, object: RecordValue | null, path: st
   return explicit ? 1 : 0
 }
 
+function isMissingReadResult(output: string | undefined, media: ActivityToolData['media']): boolean {
+  if ((media ?? []).some(item => item?.path)) return false
+  if (activityResultObjects(output).some(item => item.found === false)) return true
+  const trimmed = output?.trim() || ''
+  return /^(?:File not found|Not a file): /i.test(trimmed)
+}
+
 function viewedImagePaths(tool: ActivityToolData, object: RecordValue | null, path: string): string[] {
   const local = (value: string) => /^(?:\/|[A-Za-z]:[/\\]|\\\\)/.test(value) && !value.includes('\0')
   const returned = (tool.media ?? []).filter(item => item.path && (!item.mimeType || item.mimeType.startsWith('image/'))).map(item => item.path)
+  if (tool.state === 'error' || tool.state === 'interrupted' || isMissingReadResult(tool.output, tool.media)) {
+    return [...new Set(returned.filter(value => value && local(value)))]
+  }
   const resolved = activityResultObjects(tool.output).filter(item => item.found === true && item.kind === 'image' && typeof item.path === 'string').map(item => item.path as string)
   const args = [...imageReferences(object?.referenced_image_paths), ...imageReferences(object?.image_paths), ...imageReferences(object?.paths), ...imageReferences(object?.images), path,
     textField(object, 'image_path', 'imagePath')]
@@ -213,12 +225,20 @@ export function activityToolPresentation(tool: ActivityToolData): ActivityToolPr
   const explicitImage = IMAGE_TOOL_NAMES.has(name)
   const count = imageCount(tool, object, path, explicitImage)
   if (explicitImage || (['read', 'read_file', 'readfile'].includes(name) && isReadableImagePath(path))) {
+    const imageNotFound = !explicitImage && isMissingReadResult(tool.output, tool.media)
     const imagePaths = viewedImagePaths(tool, object, path)
     // A read stored for a blind model carries the flag in its output envelope;
     // surface it so the details view can say why the model cannot see it.
     const imageUnsupportedByModel = activityResultObjects(tool.output).some(item =>
       item.imageUnsupportedByModel === true || (typeof item.imageUnsupportedByModel === 'string' && item.imageUnsupportedByModel.trim().length > 0))
-    return { ...common, kind: 'image', imageCount: imagePaths.length || count, imagePaths, ...(imageUnsupportedByModel ? { imageUnsupportedByModel } : {}) }
+    return {
+      ...common,
+      kind: 'image',
+      imageCount: imageNotFound ? 0 : imagePaths.length || count,
+      imagePaths,
+      ...(imageNotFound ? { imageNotFound: true } : {}),
+      ...(imageUnsupportedByModel ? { imageUnsupportedByModel } : {}),
+    }
   }
   const semantic = semanticActivity(tool.toolName, args, tool.output)
   if (semantic) return { ...common, kind: 'native', semantic }

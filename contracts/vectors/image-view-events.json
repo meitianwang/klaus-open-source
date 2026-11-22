@@ -1,5 +1,5 @@
 {
-  "reason": "Successful image inspection keeps only session-scoped thumbnails inside the event disclosure; raw input and result stay hidden. Failures retain diagnostic details. Live result media updates the count and previews, closing disclosures are excluded from preview navigation, and generated deliverables retain their existing presentation.",
+  "reason": "Successful image inspection keeps only session-scoped thumbnails inside the event disclosure; raw input and result envelopes stay hidden. Missing files and failures never invent thumbnails from input arguments and retain diagnostic details. Live result media updates the count and previews, closing disclosures are excluded from preview navigation, and generated deliverables retain their existing presentation.",
   "cases": [
     {
       "name": "two-local-references",
@@ -56,6 +56,15 @@
           "relative.png"
         ]
       },
+      "paths": []
+    },
+    {
+      "name": "missing-read-result-does-not-invent-preview",
+      "toolName": "read",
+      "args": {
+        "path": "/tmp/d3-s.png"
+      },
+      "output": "{\"path\":\"/tmp/d3-s.png\",\"found\":false}",
       "paths": []
     }
   ],

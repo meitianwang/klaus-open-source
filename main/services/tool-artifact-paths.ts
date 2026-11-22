@@ -126,9 +126,10 @@ function looksLikeRelativePath(value: string, quoted: boolean): boolean {
 
 function segmentTokens(segment: string): Array<{ value: string; quoted: boolean }> {
   const tokens: Array<{ value: string; quoted: boolean }> = [];
-  const quoted = /"([^"\n]{1,4096})"|'([^'\n]{1,4096})'/gu;
-  for (let match = quoted.exec(segment); match; match = quoted.exec(segment)) {
-    tokens.push({ value: match[1] ?? match[2] ?? '', quoted: true });
+  for (const quoted of [/"([^"\n]{1,4096})"/gu, /'([^'\n]{1,4096})'/gu]) {
+    for (let match = quoted.exec(segment); match; match = quoted.exec(segment)) {
+      tokens.push({ value: match[1] ?? '', quoted: true });
+    }
   }
   const bare = /(?:^|[\s;(])([^\s"'`|<>;&)]{1,4096})/gu;
   for (let match = bare.exec(segment); match; match = bare.exec(segment)) {
@@ -158,8 +159,9 @@ export function shellCommandPaths(command: unknown, home: string = homedir(), cw
     if (!value) return;
     if (filePath(value)) found.add(value);
   };
-  const quoted = /"([^"\n]{1,4096})"|'([^'\n]{1,4096})'/gu;
-  for (let match = quoted.exec(command); match; match = quoted.exec(command)) admit(match[1] ?? match[2] ?? '');
+  for (const quoted of [/"([^"\n]{1,4096})"/gu, /'([^'\n]{1,4096})'/gu]) {
+    for (let match = quoted.exec(command); match; match = quoted.exec(command)) admit(match[1] ?? '');
+  }
   const bare = /(?:^|[\s=;(])((?:~\/|\/|[A-Za-z]:[\\/])[^\s"'`|<>;&)]{0,4096})/gu;
   for (let match = bare.exec(command); match; match = bare.exec(command)) admit(match[1] ?? '');
 
