@@ -8,6 +8,7 @@ import {
   PRODUCTION_INSTANCE_IDENTITY,
   describeEarlyExit,
   devLaunchEnvironment,
+  ensureMacElectronBundleSignature,
   ensureProfileDirectory,
   expandHomePrefix,
   homeFromEnvironment,
@@ -219,4 +220,54 @@ test('the owner probe reads the lock and never invents an owner', () => {
   assert.equal(readProfileOwner(configRoot, lockFixture({ linkTarget: undefined, alive: true })), undefined)
   assert.equal(readProfileOwner(configRoot, { ...lockFixture({ alive: true }), platform: 'win32' }), undefined, 'no symlink lock on Windows')
   assert.equal(readProfileOwner(undefined, lockFixture({ linkTarget: 'dev-mac.local-1', alive: true })), undefined)
+})
+
+test('macOS dev Electron bundle signature seals unsealed bundles when idle and skips live binaries', () => {
+  const executable = '/repo/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron'
+  const bundlePath = '/repo/node_modules/electron/dist/Electron.app'
+
+  assert.deepEqual(
+    ensureMacElectronBundleSignature(executable, { platform: 'win32' }),
+    { status: 'not-darwin' },
+  )
+
+  let signed = false
+  const calls = []
+  assert.deepEqual(
+    ensureMacElectronBundleSignature(executable, {
+      platform: 'darwin',
+      exists: () => true,
+      verifyBundle: target => { calls.push(['verify', target]); return signed },
+      isBundleExecuting: () => false,
+      signBundle: target => { calls.push(['sign', target]); signed = true },
+    }),
+    { status: 'signed', bundlePath },
+  )
+  assert.deepEqual(calls, [['verify', bundlePath], ['sign', bundlePath], ['verify', bundlePath]])
+
+  // Once sealed, subsequent launches verify only and never re-sign.
+  const verifyOnly = []
+  assert.deepEqual(
+    ensureMacElectronBundleSignature(executable, {
+      platform: 'darwin',
+      exists: () => true,
+      verifyBundle: target => { verifyOnly.push(target); return true },
+      isBundleExecuting: () => { throw new Error('must not check running processes when already valid') },
+      signBundle: () => { throw new Error('must not re-sign an already valid bundle') },
+    }),
+    { status: 'valid', bundlePath },
+  )
+  assert.deepEqual(verifyOnly, [bundlePath])
+
+  // Never overwrite an unsealed Mach-O while a live process has it mapped on Apple Silicon.
+  assert.deepEqual(
+    ensureMacElectronBundleSignature(executable, {
+      platform: 'darwin',
+      exists: () => true,
+      verifyBundle: () => false,
+      isBundleExecuting: () => true,
+      signBundle: () => { throw new Error('must not sign a live bundle in-place') },
+    }),
+    { status: 'busy', bundlePath },
+  )
 })

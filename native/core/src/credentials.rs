@@ -2,6 +2,8 @@
 
 mod antigravity;
 mod cursor;
+#[cfg(target_os = "macos")]
+mod macos_keychain;
 mod mcp;
 mod qoder;
 mod qwenwork;
@@ -143,34 +145,7 @@ pub struct SystemKeychain;
 #[cfg(target_os = "macos")]
 impl Keychain for SystemKeychain {
     fn read(&self, service: &str, account: Option<&str>) -> Result<Option<Vec<u8>>> {
-        use security_framework::item::{ItemClass, ItemSearchOptions, Limit, SearchResult};
-        let mut options = ItemSearchOptions::new();
-        options
-            .class(ItemClass::generic_password())
-            .service(service)
-            .load_data(true)
-            .limit(Limit::Max(1));
-        if let Some(account) = account {
-            options.account(account);
-        }
-        match options.search() {
-            Ok(items) => match items.into_iter().next() {
-                Some(SearchResult::Data(bytes)) => {
-                    if bytes.len() > MAX_RECORD_BYTES {
-                        Err(error("credential_record_too_large"))
-                    } else {
-                        Ok(Some(bytes))
-                    }
-                }
-                None => Ok(None),
-                _ => Err(error("credential_keychain_unreadable")),
-            },
-            Err(e) if e.code() == -25300 => Ok(None),
-            Err(e) => Err(NativeError::new(
-                "credential_keychain_denied",
-                format!("OSStatus {}", e.code()),
-            )),
-        }
+        macos_keychain::read_generic_password(service, account)
     }
 
     fn write(&self, service: &str, account: &str, bytes: &[u8]) -> Result<()> {

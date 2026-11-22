@@ -142,6 +142,38 @@ export function ensureProfileDirectory(configRoot, { mkdir = mkdirSync, exists =
 }
 
 /**
+ * Ensure the local macOS `Electron.app` bundle has a sealed ad-hoc bundle signature.
+ *
+ * Stock `node_modules/electron/dist/Electron.app` ships with linker-signed Mach-O
+ * binaries but no `Contents/_CodeSignature/CodeResources` (`Info.plist=not bound`).
+ * `securityd` therefore rejects Keychain "Always Allow" grants for the dev app with
+ * `OSStatus -67062` (`errSecCSUnsigned`) and downgrades them to one-shot `Allow`.
+ * Sealing the bundle once gives it a valid bundle signature and stable CDHash across
+ * restarts without mutating a binary that is already mapped by a live process.
+ */
+export function ensureMacElectronBundleSignature(electronExecutable, deps = {}) {
+  const platform = deps.platform ?? process.platform;
+  if (platform !== 'darwin') return { status: 'not-darwin' };
+  const exists = deps.exists ?? existsSync;
+  const bundlePath = resolve(electronExecutable, '../../..');
+  if (!bundlePath.endsWith('.app') || !exists(join(bundlePath, 'Contents', 'Info.plist'))) {
+    return { status: 'not-bundle' };
+  }
+  const verify = deps.verifyBundle ?? defaultVerifyBundleSignature;
+  if (verify(bundlePath)) return { status: 'valid', bundlePath };
+
+  const executing = deps.isBundleExecuting ?? defaultIsBundleExecuting;
+  if (executing(bundlePath)) return { status: 'busy', bundlePath };
+
+  const sign = deps.signBundle ?? defaultSignBundleAdHoc;
+  sign(bundlePath);
+  if (!verify(bundlePath)) {
+    throw new Error(`Ad-hoc bundle signature verification failed for ${bundlePath}`);
+  }
+  return { status: 'signed', bundlePath };
+}
+
+/**
  * Read Electron's own single-instance lock for a profile.
  *
  * This is keyed on the user-data directory rather than on an instance identity, so it reports a
@@ -245,4 +277,33 @@ function defaultProcessState(pid) {
 
 function nonEmpty(value) {
   return value !== undefined && value.length > 0 ? value : undefined;
+}
+
+function defaultVerifyBundleSignature(bundlePath) {
+  const result = spawnSync('/usr/bin/codesign', ['--verify', '--deep', '--strict', bundlePath], {
+    encoding: 'utf8',
+    timeout: 30_000,
+  });
+  return !result.error && result.status === 0;
+}
+
+function defaultIsBundleExecuting(bundlePath) {
+  const prefix = `${bundlePath}/`;
+  const result = spawnSync('ps', ['-axo', 'command='], { encoding: 'utf8', timeout: 5_000 });
+  if (result.error || result.status !== 0) return false;
+  return result.stdout
+    .split('\n')
+    .some(line => line.trimStart().startsWith(prefix));
+}
+
+function defaultSignBundleAdHoc(bundlePath) {
+  const result = spawnSync(
+    '/usr/bin/codesign',
+    ['--force', '--deep', '--sign', '-', '--timestamp=none', bundlePath],
+    { encoding: 'utf8', timeout: 60_000 },
+  );
+  if (result.error || result.status !== 0) {
+    const detail = result.error?.message ?? result.stderr?.trim() ?? result.signal;
+    throw new Error(`Cannot ad-hoc sign ${bundlePath}: ${detail}`);
+  }
 }

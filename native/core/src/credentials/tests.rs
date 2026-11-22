@@ -539,9 +539,16 @@ fn local_import_prefers_the_existing_file_then_service_only_keychain() {
 #[test]
 fn antigravity_keychain_secret_reads_the_login_keychain_entry() {
     let (_dir, store, keychain) = setup(Platform::MacOs);
-    assert_eq!(store.read_antigravity_keychain_secret(), json!({"present": false}));
+    assert_eq!(
+        store.read_antigravity_keychain_secret(),
+        json!({"present": false})
+    );
     keychain
-        .write("gemini", "antigravity", b"go-keyring-base64:eyJ0b2tlbiI6e319")
+        .write(
+            "gemini",
+            "antigravity",
+            b"go-keyring-base64:eyJ0b2tlbiI6e319",
+        )
         .unwrap();
     assert_eq!(
         store.read_antigravity_keychain_secret(),
@@ -683,4 +690,176 @@ async fn blocked_os_calls_keep_queues_bounded_cancel_before_start_and_report_shu
     }
     assert_eq!(service.shutdown(1000).unwrap().await["complete"], true);
     assert_eq!(writes.load(Ordering::Relaxed), 0);
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn macos_security_cli_output_and_partition_parsers_preserve_exact_bytes() {
+    use super::macos_keychain::{
+        parse_security_cli_stderr, partition_description_includes_apple_tool,
+    };
+
+    assert_eq!(parse_security_cli_stderr(b"password: \n"), Ok(Vec::new()));
+    assert_eq!(
+        parse_security_cli_stderr(b"password: \"go-keyring-base64:eyJ0b2tlbiI6MX0=\"\n"),
+        Ok(b"go-keyring-base64:eyJ0b2tlbiI6MX0=".to_vec())
+    );
+    assert_eq!(
+        parse_security_cli_stderr(b"password: \"0123456789abcdef0123456789abcdef\"\n"),
+        Ok(b"0123456789abcdef0123456789abcdef".to_vec())
+    );
+    assert_eq!(
+        parse_security_cli_stderr(b"password: \"hello\"world\"\n"),
+        Ok(b"hello\"world".to_vec())
+    );
+    assert_eq!(
+        parse_security_cli_stderr(b"password: 0x0123456789ABCDEF  \"\\001#Eg\"\n"),
+        Ok(vec![0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef])
+    );
+    assert_eq!(
+        parse_security_cli_stderr(b"warning: ignored\npassword: \"0x\"\n"),
+        Ok(b"0x".to_vec())
+    );
+    assert!(
+        parse_security_cli_stderr(b"security: SecKeychainSearchCopyNext: item not found\n")
+            .is_err()
+    );
+    assert!(parse_security_cli_stderr(b"password: 0x123  \"odd\"\n").is_err());
+
+    let encode_hex =
+        |bytes: &[u8]| -> String { bytes.iter().map(|b| format!("{b:02x}")).collect() };
+    let apple_tool_plist = br#"<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0"><dict><key>Partitions</key><array><string>apple-tool:</string></array></dict></plist>"#;
+    let team_only_plist = br#"<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0"><dict><key>Partitions</key><array><string>teamid:5TMKAXN7M6</string></array></dict></plist>"#;
+    assert!(partition_description_includes_apple_tool(&encode_hex(
+        apple_tool_plist
+    )));
+    assert!(!partition_description_includes_apple_tool(&encode_hex(
+        team_only_plist
+    )));
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn macos_cli_managed_keychain_items_read_without_prompt_after_token_refresh() {
+    use super::macos_keychain::{
+        inspect_keychain_file_acl_allows_security_cli, read_via_security_cli,
+    };
+    use std::process::Command;
+
+    let dir = tempfile::tempdir().unwrap();
+    let kc = dir.path().join("fixture.keychain-db");
+    let run_security = |args: &[&str]| {
+        let status = Command::new("/usr/bin/security")
+            .args(args)
+            .arg(&kc)
+            .status()
+            .unwrap();
+        assert!(status.success(), "security {:?} failed", args);
+    };
+    let to_hex = |bytes: &[u8]| -> String { bytes.iter().map(|b| format!("{b:02x}")).collect() };
+
+    run_security(&["create-keychain", "-p", "fixture-pass"]);
+    run_security(&["unlock-keychain", "-p", "fixture-pass"]);
+
+    let initial_antigravity = b"go-keyring-base64:eyJ0b2tlbiI6eyJhY2Nlc3NfdG9rZW4iOiJ2MSJ9fQ==";
+    run_security(&[
+        "add-generic-password",
+        "-U",
+        "-a",
+        "antigravity",
+        "-s",
+        "gemini",
+        "-X",
+        &to_hex(initial_antigravity),
+    ]);
+    assert_eq!(
+        inspect_keychain_file_acl_allows_security_cli(&kc, "gemini", Some("antigravity")),
+        Some(true)
+    );
+    assert_eq!(
+        read_via_security_cli(Some(&kc), "gemini", Some("antigravity")),
+        Ok(Some(initial_antigravity.to_vec()))
+    );
+
+    // Upstream delete + re-add rotation resets the item ACL back to /usr/bin/security + apple-tool:.
+    run_security(&[
+        "delete-generic-password",
+        "-a",
+        "antigravity",
+        "-s",
+        "gemini",
+    ]);
+    let rotated_antigravity = b"go-keyring-base64:eyJ0b2tlbiI6eyJhY2Nlc3NfdG9rZW4iOiJ2MiJ9fQ==";
+    run_security(&[
+        "add-generic-password",
+        "-U",
+        "-a",
+        "antigravity",
+        "-s",
+        "gemini",
+        "-X",
+        &to_hex(rotated_antigravity),
+    ]);
+    assert_eq!(
+        inspect_keychain_file_acl_allows_security_cli(&kc, "gemini", Some("antigravity")),
+        Some(true)
+    );
+    assert_eq!(
+        read_via_security_cli(Some(&kc), "gemini", Some("antigravity")),
+        Ok(Some(rotated_antigravity.to_vec()))
+    );
+
+    // Multi-line UTF-8 JSON updated via -U (wildcard account lookup).
+    let rotated_claude =
+        "{\n  \"claudeAiOauth\": {\"accessToken\": \"sk-ant-oat01-fixture\"},\n  \"displayName\": \"小梅\"\n}"
+            .as_bytes();
+    run_security(&[
+        "add-generic-password",
+        "-U",
+        "-a",
+        "cli-user",
+        "-s",
+        "Claude Code-credentials",
+        "-X",
+        &to_hex(rotated_claude),
+    ]);
+    assert_eq!(
+        inspect_keychain_file_acl_allows_security_cli(&kc, "Claude Code-credentials", None),
+        Some(true)
+    );
+    assert_eq!(
+        read_via_security_cli(Some(&kc), "Claude Code-credentials", None),
+        Ok(Some(rotated_claude.to_vec()))
+    );
+
+    // An item whose decrypt ACL excludes /usr/bin/security must NOT use the CLI fast path.
+    run_security(&[
+        "add-generic-password",
+        "-a",
+        "App Key",
+        "-s",
+        "External App Safe Storage",
+        "-w",
+        "app-owned-secret",
+        "-T",
+        "",
+    ]);
+    assert_eq!(
+        inspect_keychain_file_acl_allows_security_cli(
+            &kc,
+            "External App Safe Storage",
+            Some("App Key")
+        ),
+        Some(false)
+    );
+    assert_eq!(
+        inspect_keychain_file_acl_allows_security_cli(&kc, "Missing Service", None),
+        None
+    );
+    assert_eq!(
+        read_via_security_cli(Some(&kc), "Missing Service", None),
+        Ok(None)
+    );
 }

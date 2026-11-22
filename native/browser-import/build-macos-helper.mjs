@@ -97,5 +97,17 @@ if (options.mode === 'production' && options.identity) {
   if (sign.status !== 0) process.exit(sign.status ?? 1);
   process.stdout.write(`built and signed ${output}\n`);
 } else {
-  process.stdout.write(`built ${output} (unsigned)\n`);
+  // Replace the linker's temporary-filename identifier (`.tmp-<pid>`) with a stable
+  // ad-hoc identifier so local development rebuilds keep a deterministic code identity.
+  const adhoc = spawnSync(
+    'codesign',
+    ['--force', '--sign', '-', '--timestamp=none', '--identifier', 'klaus-browser-import-helper', output],
+    { stdio: 'inherit' },
+  );
+  if (adhoc.error) {
+    process.stderr.write(`codesign ad-hoc failed: ${adhoc.error.message}\n`);
+    process.exit(1);
+  }
+  if (adhoc.status !== 0) process.exit(adhoc.status ?? 1);
+  process.stdout.write(`built ${output} (ad-hoc)\n`);
 }

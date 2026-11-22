@@ -1,5 +1,11 @@
 import { spawnElectronGui } from './electron-test-preflight.cjs';
-import { devLaunchEnvironment, describeEarlyExit, ensureProfileDirectory, resolveDevProfile } from './dev-profile.mjs';
+import {
+  devLaunchEnvironment,
+  describeEarlyExit,
+  ensureMacElectronBundleSignature,
+  ensureProfileDirectory,
+  resolveDevProfile,
+} from './dev-profile.mjs';
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
@@ -103,6 +109,16 @@ run(['scripts/build-preload.mjs']);
 run([require.resolve('typescript/bin/tsc'), '-p', 'tsconfig.canvas-sdk.json']);
 const vite = join(dirname(require.resolve('vite/package.json')), 'bin/vite.js');
 run([vite, 'build', '--config', 'vite.config.mts']);
+const electronExecutable = require('electron');
+const electronSignature = ensureMacElectronBundleSignature(electronExecutable);
+if (electronSignature.status === 'signed') {
+  console.log(`[dev] sealed ad-hoc bundle signature: ${electronSignature.bundlePath}`);
+} else if (electronSignature.status === 'busy') {
+  console.warn(
+    `[dev] skipped sealing ${electronSignature.bundlePath} while another Electron instance is running; ` +
+      'close all dev windows and relaunch once so macOS Keychain Always Allow persists.',
+  );
+}
 if (options.has('--prepare-only')) process.exit(0);
 
 const plan = resolveDevProfile({
@@ -119,7 +135,7 @@ if (plan.isolated) {
   else console.log('[dev] this profile has no account yet: sign in once here and it is remembered.');
 }
 const env = devLaunchEnvironment({ base: process.env, plan });
-const child = spawnElectronGui(require('electron'), ['.'], { cwd: appDirectory, env, stdio: ['inherit', 'inherit', 'inherit', 'ipc'] });
+const child = spawnElectronGui(electronExecutable, ['.'], { cwd: appDirectory, env, stdio: ['inherit', 'inherit', 'inherit', 'ipc'] });
 let stopping = false, ready = false, windowNeverOpened = false, watcher, watcherDone = Promise.resolve(), watchFailed = false;
 const requestQuit = () => {
   if (stopping) return;
