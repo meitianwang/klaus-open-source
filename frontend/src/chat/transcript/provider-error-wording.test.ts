@@ -60,6 +60,20 @@ describe('provider error wording', () => {
     expect(providerErrorText('insufficient_quota', 'quota', t)).toBe(t('provider_quota'))
   })
 
+  for (const language of ['en', 'zh'] as const) {
+    test(`stream idle and total timeouts localize to timeout wording even in older saved network turns in ${language}`, () => {
+      const translate = (key: string) => I18N[language][key]
+      expect(providerErrorText('stream idle timeout: no model event for 300000ms', 'timeout', translate)).toBe(translate('provider_timeout'))
+      expect(providerErrorText('stream idle timeout: no model event for 300000ms', 'network', translate)).toBe(translate('provider_timeout'))
+      expect(providerErrorText('stream total timeout: model response exceeded 1200000ms', 'network', translate)).toBe(translate('provider_timeout'))
+      expect(providerErrorText('upstream stalled', 'network', translate, {
+        message: 'upstream stalled',
+        kind: 'network',
+        providerCode: 'stream_idle_timeout',
+      })).toBe(translate('provider_timeout'))
+    })
+  }
+
   test('other rate-limit failures keep their existing wording', () => {
     expect(providerErrorText('Usage limit exceeded', 'rate_limit', t)).toBe('Usage limit exceeded')
   })

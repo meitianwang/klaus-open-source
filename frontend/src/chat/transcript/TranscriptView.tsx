@@ -2808,6 +2808,9 @@ export function providerErrorText(raw: string, kind: string | undefined, t: (key
     return t('provider_fast_mode_credits_required')
   }
   const code = details?.providerCode ?? details?.providerError?.code
+  if (code === 'stream_idle_timeout' || code === 'stream_total_timeout' || /^stream (?:idle|total) timeout:/i.test(raw)) {
+    return t('provider_timeout')
+  }
   if (code === 'image_preprocessing_failed' || /\bimage[ _]preprocessing[ _]failed\b/i.test(raw)) {
     return t('provider_image_preprocessing_failed')
   }
