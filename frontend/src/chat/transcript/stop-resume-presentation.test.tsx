@@ -10,12 +10,13 @@ let TranscriptView: typeof import('./TranscriptView').TranscriptView
 let TurnTerminalStatus: typeof import('./TranscriptView').TurnTerminalStatus
 let LiveTail: typeof import('./TranscriptView').LiveTail
 let foldTurnGroups: typeof import('./TranscriptView').foldTurnGroups
+let groupLiveActivityUnits: typeof import('./TranscriptView').groupLiveActivityUnits
 let unitsFromMessages: typeof import('./TranscriptView').unitsFromMessages
 const originalWindow = globalThis.window
 beforeAll(async () => {
   ;(globalThis as any).window = { ...originalWindow, currentLang: 'en', addEventListener() {}, removeEventListener() {}, matchMedia: () => ({ matches: true }) }
   ;({ chatStreamStore, getSessionStream, ingestChatEvent, ingestLocalUserTurn } = await import('../stream-store'))
-  ;({ TranscriptView, TurnTerminalStatus, LiveTail, foldTurnGroups, unitsFromMessages } = await import('./TranscriptView'))
+  ;({ TranscriptView, TurnTerminalStatus, LiveTail, foldTurnGroups, groupLiveActivityUnits, unitsFromMessages } = await import('./TranscriptView'))
 })
 afterAll(() => { (globalThis as any).window = originalWindow })
 
@@ -86,10 +87,104 @@ function render(patch: Partial<SessionStreamState>, withSavedTimeline = false): 
 const occurrences = (html: string, text: string) => html.split(text).length - 1
 
 describe('stopped turn presentation across continuation', () => {
-  test('an immediate stop retains exactly one stopped label', () => {
+  test('an immediate stop retains exactly one stopped label and no horizontal rule', () => {
     const html = render(base())
     expect(occurrences(html, 'You stopped after 0s')).toBe(1)
     expect(html).not.toContain('data-work-label="working"')
+    expect(html).not.toContain('turn-terminal-rule')
+  })
+
+  test('a collapsible interrupted turn uses its disclosure header for the stopped label across live, mixed, and saved-continuation views', () => {
+    const tools = {
+      bash1: { toolCallId: 'bash1', toolName: 'bash', args: { command: 'rg root-cause' }, argsDelta: '', progress: [], status: 'interrupted' as const, agent: false, bgTask: false },
+    }
+    const longStopped = { type: 'live-turn-status', key: 'stop-90', turnId: 'stopped-turn', startedAt: 1000, finishedAt: 91_000, userInitiated: true } as const
+    const liveNodes = groupLiveActivityUnits([
+      { type: 'live-user', key: 'user-1', turnId: 'stopped-turn', msg: user },
+      { type: 'live-tools', key: 'tools-1', turnId: 'stopped-turn', order: ['bash1'], sealed: true },
+      longStopped,
+    ], tools, false, false, true)
+    const liveFold = liveNodes.find(node => node.kind === 'turn')
+    expect(liveFold).toMatchObject({ kind: 'turn', interrupted: true, durationMs: 90_000, preventAutoCollapse: false })
+    expect(liveNodes.some(node => node.kind === 'unit' && node.unit.type === 'live-turn-status')).toBe(false)
+
+    // 1. Retained live stopped turn before history handover.
+    const liveHtml = render({
+      ...base(),
+      tools,
+      turnDurations: { 'stopped-turn': 90_000 },
+      liveUnits: [
+        { type: 'live-user', key: 'user-1', turnId: 'stopped-turn', msg: user },
+        { type: 'live-tools', key: 'tools-1', turnId: 'stopped-turn', order: ['bash1'], sealed: true },
+        longStopped,
+      ],
+    })
+    expect(liveHtml).toContain('data-variant="turn" data-open="false"')
+    expect(occurrences(liveHtml, 'You stopped after 1m 30s')).toBe(1)
+    expect(occurrences(liveHtml, 'data-work-label="interrupted"')).toBe(1)
+    expect(liveHtml).not.toContain('Worked for')
+    expect(liveHtml).not.toContain('turn-terminal-rule')
+
+    // 2. Mixed state: saved history has only the user message while live holds the stopped fold,
+    // and saved history has the stopped fold without saved duration while live holds live-turn-status.
+    const savedToolMsg = {
+      role: 'assistant', uuid: 'assistant-tool', turnId: 'stopped-turn', timestamp: 2000,
+      contentBlocks: [{ type: 'tool_use', id: 'bash1', name: 'bash', input: { command: 'rg root-cause' } }],
+    }
+    const mixedCases: Array<Partial<SessionStreamState>> = [
+      {
+        ...base(),
+        tools,
+        history: [user],
+        turnDurations: {},
+        liveUnits: [
+          { type: 'live-user', key: 'user-1', turnId: 'stopped-turn', msg: user },
+          { type: 'live-tools', key: 'tools-1', turnId: 'stopped-turn', order: ['bash1'], sealed: true },
+          longStopped,
+        ],
+      },
+      {
+        ...base(),
+        history: [user, savedToolMsg],
+        turnDurations: {},
+        liveUnits: [{ type: 'live-user', key: 'user-1', turnId: 'stopped-turn', msg: user }, longStopped],
+      },
+    ]
+    for (const mixed of mixedCases) {
+      const mixedHtml = render(mixed, true)
+      expect(mixedHtml).toContain('data-variant="turn" data-open="false"')
+      expect(occurrences(mixedHtml, 'You stopped after 1m 30s')).toBe(1)
+      expect(occurrences(mixedHtml, 'data-work-label="interrupted"')).toBe(1)
+      expect(mixedHtml).not.toContain('Worked for')
+    }
+
+    // 3. Saved stopped turn followed by an active continuation in zh (the user-reported timeline).
+    ;(window as any).currentLang = 'zh'
+    try {
+      const zhHtml = render({
+        ...base(),
+        history: [user, savedToolMsg],
+        liveUnits: [],
+        turnStatuses: { 'stopped-turn': 'interrupted' },
+        turnDurations: { 'stopped-turn': 90_000 },
+        running: true,
+        activeTurnId: 'continued-turn',
+        liveTurnId: 'continued-turn',
+        interruptedLiveTurn: null,
+        lastTerminalStatus: null,
+        turnStartedAt: Date.now() - 41_200,
+        thinkingActive: true,
+        activityVisible: true,
+        streamMode: 'requesting',
+      }, true)
+      expect(zhHtml).toContain('data-variant="turn" data-open="false"')
+      expect(occurrences(zhHtml, '你在 1分钟 30秒 后停止了')).toBe(1)
+      expect(zhHtml).not.toContain('用时 1分钟 30秒')
+      expect(occurrences(zhHtml, '已处理 41秒')).toBe(1)
+      expect(zhHtml).not.toContain('turn-terminal-rule')
+    } finally {
+      ;(window as any).currentLang = 'en'
+    }
   })
 
   test('a continuation without content owns its clock separately from the stopped turn', () => {

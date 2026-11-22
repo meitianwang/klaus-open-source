@@ -1373,34 +1373,26 @@
 
 .teammate-card-markdown :is(p, ul, ol, pre):last-child { margin-bottom: 0; }
 
-/* ===== Turn work divider / interrupted Turn status =====
-   This belongs to the Turn it names: a left-aligned muted line followed by a
-   hairline rule, occupying the seam between the Turn's activity and whatever
-   comes next. While the Turn runs the same row carries the live elapsed time;
-   an interrupted Turn keeps it as its terminal status. Deliberately not a
-   centered pill and not a separate message. */
+/* ===== Turn work header / interrupted Turn status =====
+   Left-aligned muted text with tabular numerals occupying the turn's work
+   header slot before process content arrives, or naming a stopped turn that has
+   no collapsible process disclosure. Deliberately not a centered pill, not
+   followed by a horizontal rule, and not a separate message. */
 .turn-terminal-status {
   max-width: 720px;
-  margin: 6px auto 14px;
-  padding: 0 4px;
+  margin: 16px auto;
+  padding: 0;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 8px;
 }
 
 .turn-terminal-label {
   color: var(--fg-tertiary);
-  font-size: var(--text-small);
-  line-height: 1.4;
+  font-size: var(--text-body);
+  line-height: 24px;
   /* Digits must not reflow the label while the number changes. */
   font-variant-numeric: tabular-nums;
-}
-
-.turn-terminal-rule {
-  width: 100%;
-  height: 0;
-  border-top: 1px solid var(--border);
 }
 
 /* Loading placeholder in the work divider's label slot: a quiet shimmer bar

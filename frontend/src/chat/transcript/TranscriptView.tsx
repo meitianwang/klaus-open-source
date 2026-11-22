@@ -1726,6 +1726,7 @@ type TurnFoldNode = {
   startedAtMs?: number | null
   completedAtMs?: number | null
   running?: boolean
+  interrupted?: boolean
 }
 
 type RenderNode =
@@ -2421,6 +2422,7 @@ export function foldTurnGroups(
           && !isPersistentTurnNode(entry.value)).length,
         durationMs: turnId ? turnDurations[turnId] : undefined,
         startedAtMs, completedAtMs, running: isTurnInProgress,
+        interrupted: isTurnCancelled,
       })
     } else nodes.push(...projected)
     // Before the first work item, keep the same time label ready below the user.
@@ -2435,7 +2437,7 @@ export function foldTurnGroups(
     if (lastText) nodes.push({ kind: 'unit', unit: lastText })
     nodes.push(...groupTurnActivities(activityEntries(post, turnKey, isTurnCancelled, recordedWorkflowIds, livePlanReviewIds), turnId, turnKey, isTurnInProgress, turnCollapseOverrides))
     if (failUnit) nodes.push({ kind: 'unit', unit: failUnit })
-    if (interruptedUnit) nodes.push({ kind: 'unit', unit: interruptedUnit })
+    if (interruptedUnit && !collapse.allowed) nodes.push({ kind: 'unit', unit: interruptedUnit })
     // 「本回合产出了什么」连排：图 → 页面 → 图表 → 改动的文件。都在折叠之外。
     if (mediaNode) nodes.push(mediaNode)
     if (diagramsNode) nodes.push(diagramsNode)
@@ -2523,24 +2525,22 @@ export function terminalDurationLabel(durationMs: number): string | null {
     : `${durationUnit(minutes, 'minute')} ${durationUnit(seconds, 'second')}`
 }
 
-// The Turn's terminal status: a quiet, left-aligned divider that belongs to the
-// Turn it ended, followed by a hairline rule. Not a centered pill, not an icon
-// badge, and not a separate transcript entry.
+// The Turn's standalone terminal status for an interrupted turn without a
+// collapsible process disclosure: left-aligned muted text with tabular numerals
+// and no horizontal rule. When collapsible process exists, the disclosure
+// header itself carries the same stopped label through TurnWorkLabel.
 export function TurnTerminalStatus({ startedAt = 0, finishedAt = 0, durationMs }: { startedAt?: number; finishedAt?: number; durationMs?: number }) {
-  const t = useT()
-  const elapsed = typeof durationMs === 'number' && Number.isFinite(durationMs) && durationMs >= 0
-    ? durationMs
-    : (Number.isFinite(startedAt) && Number.isFinite(finishedAt) && startedAt > 0 && finishedAt >= startedAt
-        ? finishedAt - startedAt
-        : -1)
-  const duration = terminalDurationLabel(elapsed)
-  const label = duration
-    ? (t('turn_interrupted') || 'You stopped after {duration}').replace('{duration}', duration)
-    : (t('chat_aborted') || 'Stopped')
+  const validRange = Number.isFinite(startedAt) && Number.isFinite(finishedAt) && startedAt > 0 && finishedAt >= startedAt
   return (
     <div className={styles['turn-terminal-status']}>
-      <span className={styles['turn-terminal-label']} role="status">{label}</span>
-      <span className={styles['turn-terminal-rule']} aria-hidden="true" />
+      <span className={styles['turn-terminal-label']} role="status">
+        <TurnWorkLabel
+          interrupted
+          startedAtMs={validRange ? startedAt : null}
+          completedAtMs={validRange ? finishedAt : null}
+          durationMs={durationMs}
+        />
+      </span>
     </div>
   )
 }
@@ -2568,24 +2568,35 @@ function useTurnWorkTimes(sessionId: string) {
   return { startedAtMs, completedAtMs }
 }
 
-export function TurnWorkLabel({ startedAtMs, completedAtMs = null, durationMs, fallback }: {
+export function TurnWorkLabel({ startedAtMs, completedAtMs = null, durationMs, interrupted = false, fallback }: {
   startedAtMs: number | null
   completedAtMs?: number | null
   durationMs?: number
+  interrupted?: boolean
   fallback?: ReactNode
 }) {
   const t = useT()
   const [now, setNow] = useState(() => Date.now())
+  const validDuration = typeof durationMs === 'number' && Number.isFinite(durationMs) && durationMs >= 0 ? durationMs : null
   useEffect(() => {
-    if (startedAtMs == null || completedAtMs != null || durationMs != null) return
+    if (interrupted || startedAtMs == null || completedAtMs != null || validDuration != null) return
     const timer = setInterval(() => setNow(Date.now()), WORK_DIVIDER_TICK_MS)
     return () => clearInterval(timer)
-  }, [startedAtMs, completedAtMs, durationMs])
+  }, [interrupted, startedAtMs, completedAtMs, validDuration])
+  const elapsed = interrupted
+    ? (validDuration ?? (startedAtMs != null && completedAtMs != null ? Math.max(completedAtMs - startedAtMs, 0) : null))
+    : startedAtMs != null && completedAtMs != null
+      ? Math.max(completedAtMs - startedAtMs, 0)
+      : validDuration != null ? validDuration
+      : startedAtMs != null ? Math.max(now - startedAtMs, 0) : null
+  if (interrupted) {
+    const duration = elapsed != null ? terminalDurationLabel(elapsed) : null
+    const label = duration
+      ? (t('turn_interrupted') || 'You stopped after {duration}').replace('{duration}', duration)
+      : (t('chat_aborted') || 'Stopped')
+    return <span data-work-label="interrupted">{label}</span>
+  }
   let label: ReactNode
-  const elapsed = startedAtMs != null && completedAtMs != null
-    ? Math.max(completedAtMs - startedAtMs, 0)
-    : durationMs != null ? Math.max(durationMs, 0)
-    : startedAtMs != null ? Math.max(now - startedAtMs, 0) : null
   if (elapsed == null) {
     if (fallback != null) return <>{fallback}</>
     label = <>
@@ -2593,21 +2604,20 @@ export function TurnWorkLabel({ startedAtMs, completedAtMs = null, durationMs, f
       <span className={styles['turn-work-loading-text']}>{t('activity_loading_status')}</span>
     </>
   } else {
-    const completed = completedAtMs != null || durationMs != null
+    const completed = completedAtMs != null || validDuration != null
     label = completed
       ? t('activity_worked_for').replace('{duration}', terminalDurationLabel(elapsed) ?? '')
       : elapsed < WORK_DIVIDER_TIME_THRESHOLD_MS
       ? (t('activity_working') || 'Working')
       : (t('activity_working_for') || 'Working for {duration}').replace('{duration}', terminalDurationLabel(elapsed) ?? '')
   }
-  return <span data-work-label={elapsed == null ? 'loading' : completedAtMs != null || durationMs != null ? 'completed' : 'working'}>{label}</span>
+  return <span data-work-label={elapsed == null ? 'loading' : completedAtMs != null || validDuration != null ? 'completed' : 'working'}>{label}</span>
 }
 
 export function TurnWorkDivider({ startedAtMs, completedAtMs = null }: { startedAtMs: number | null; completedAtMs?: number | null }) {
   return (
     <div className={styles['turn-terminal-status']} data-work-divider={startedAtMs == null ? 'loading' : 'working'}>
       <span className={styles['turn-terminal-label']}><TurnWorkLabel startedAtMs={startedAtMs} completedAtMs={completedAtMs} /></span>
-      <span className={styles['turn-terminal-rule']} aria-hidden="true" />
     </div>
   )
 }
@@ -3344,7 +3354,8 @@ function TurnFold({ node, onToggleFold, sessionId, unitProps }: {
   const t = useT()
   const owner = unitProps.streamSessionId || sessionId
   const pagination = useTurnItemsPagination(owner, node.turnId)
-  const label = <TurnWorkLabel startedAtMs={node.running || node.completedAtMs != null ? node.startedAtMs ?? null : null}
+  const label = <TurnWorkLabel interrupted={node.interrupted}
+    startedAtMs={node.running || node.completedAtMs != null ? node.startedAtMs ?? null : null}
     completedAtMs={node.completedAtMs} durationMs={!node.running ? node.durationMs : undefined}
     fallback={node.running ? undefined : t('activity_previous_messages').replace('{count}', String(node.messageCount))} />
   const gap = pagination && !pagination.hasLoadedOldest && node.turnId ? [{
@@ -4495,7 +4506,7 @@ type LiveActivityNodeValue =
   | { kind: 'worktree-init'; key: string; status: 'running' | 'completed' | 'failed' }
   | { kind: 'activity'; key: string; units: LiveUnit[]; summary: ActivitySummary; mode: 'summary' | 'active' | 'thinking'; activeAction?: ActivityAction }
   | { kind: 'work-divider'; key: string; startedAtMs: number | null; completedAtMs?: number | null }
-  | { kind: 'turn'; key: string; items: LiveActivityNode[]; persistent: LiveActivityNode[]; messageCount: number; preventAutoCollapse: boolean; running: boolean; startedAtMs: number | null; completedAtMs: number | null }
+  | { kind: 'turn'; key: string; items: LiveActivityNode[]; persistent: LiveActivityNode[]; messageCount: number; preventAutoCollapse: boolean; running: boolean; interrupted?: boolean; durationMs?: number; startedAtMs: number | null; completedAtMs: number | null }
 
 type LiveActivityNode = LiveActivityNodeValue & { turnId?: string }
 
@@ -4635,11 +4646,24 @@ function projectLiveTurn(
     .filter(id => subagentActivityKind(tools[id]?.toolName || ''))
     .map(id => liveActivityTool(tools[id])) : [])
   const ownerTurnId = liveUnits.find(unit => unit.turnId)?.turnId
+  const liveStatusUnit = liveUnits.find((unit): unit is Extract<LiveUnit, { type: 'live-turn-status' }> => unit.type === 'live-turn-status')
+  const stopDurationMs = liveStatusUnit
+    && Number.isFinite(liveStatusUnit.startedAt)
+    && Number.isFinite(liveStatusUnit.finishedAt)
+    && liveStatusUnit.startedAt > 0
+    && liveStatusUnit.finishedAt >= liveStatusUnit.startedAt
+    ? liveStatusUnit.finishedAt - liveStatusUnit.startedAt
+    : undefined
   const preventAutoCollapse = running || !interrupted && (resolveSubagentActivities(agents, interrupted).some(row => subagentPreventsAutoCollapse(row, ownerTurnId))
     || unsettledAgentEventRows(before))
+  // Match the saved-history verdict: a settled turn opened by a user request
+  // keeps its outer process disclosure when stopped, with the disclosure header
+  // itself naming the stop instead of appending a second elapsed-time row.
+  const settledInterrupted = interrupted && !running
+    && leading.some(node => node.kind === 'unit' && node.unit.type === 'live-user')
   const state = turnCollapseState({ hasFinal: !!final, interrupted, hasActivity: activity.length > 0,
     hasRunningTools: running && entries.some(entry => entry.action?.running),
-    allowCollapseBeforeFinal: (running || terminal) && !interrupted,
+    allowCollapseBeforeFinal: (running || terminal) && !interrupted || settledInterrupted,
     preventAutoCollapse,
   })
   const completedAtMs = recordedCompletedAtMs ?? (final?.type === 'live-text'
@@ -4652,12 +4676,17 @@ function projectLiveTurn(
   if (worktreeInit && !interrupted) {
     result.push({ kind: 'worktree-init', key: 'worktree-init-row', status: worktreeInit })
   }
-  if (state.allowed) result.push({ kind: 'turn', key: 'turn', items: projected, persistent,
-    messageCount: entries.filter(entry => entry.grouping !== 'reasoning'
-      && (!persistentTypes.has(entry.value.type) || foldsAnswer(entry.value) || (entry.value.type === 'live-ask' || entry.value.type === 'live-planning-question') && isSettledAskUserUnit(entry.value))
-      && !persistent.some(node => node.kind === 'workflow-record' && node.record.toolCallId === entry.key)).length,
-    preventAutoCollapse, running, startedAtMs, completedAtMs,
-  })
+  const isLiveTurnStatusNode = (node: LiveActivityNode) => node.kind === 'unit' && node.unit.type === 'live-turn-status'
+  if (state.allowed) {
+    const foldItems = interrupted ? projected.filter(node => !isLiveTurnStatusNode(node)) : projected
+    const foldPersistent = interrupted ? persistent.filter(node => !isLiveTurnStatusNode(node)) : persistent
+    result.push({ kind: 'turn', key: 'turn', items: foldItems, persistent: foldPersistent,
+      messageCount: entries.filter(entry => entry.grouping !== 'reasoning'
+        && (!persistentTypes.has(entry.value.type) || foldsAnswer(entry.value) || (entry.value.type === 'live-ask' || entry.value.type === 'live-planning-question') && isSettledAskUserUnit(entry.value))
+        && !persistent.some(node => node.kind === 'workflow-record' && node.record.toolCallId === entry.key)).length,
+      preventAutoCollapse, running, interrupted: interrupted && !running, durationMs: stopDurationMs, startedAtMs, completedAtMs,
+    })
+  }
   else result.push(...projected)
   if (running && !interrupted && !state.allowed) {
     const firstWork = result.findIndex(node => node.kind !== 'worktree-init'
@@ -4671,7 +4700,8 @@ function projectLiveTurn(
     goalCompletion: !running && !interrupted && !liveUnits.some(unit => unit.type === 'live-error')
       ? goalCompletionByTurn.get(final.turnId ?? ownerTurnId ?? '') : undefined,
   } })
-  result.push(...project(liveActivityEntries(after, tools, recordedWorkflowIds), running && !interrupted))
+  const trailingUnits = state.allowed && interrupted ? after.filter(unit => unit.type !== 'live-turn-status') : after
+  result.push(...project(liveActivityEntries(trailingUnits, tools, recordedWorkflowIds), running && !interrupted))
   return result
 }
 
@@ -4808,12 +4838,15 @@ function LiveActivityNodeView({ node, ...props }: LiveActivityRenderProps & { no
     mediaPaths={props.mediaPaths} mediaAliases={props.mediaAliases} figurePaths={props.figurePaths} isLastText={isFinalLiveText(node.unit, props.lastLiveText)}
     endResourceTurn={props.endResourceTurn} turnInterrupted={props.turnInterrupted} expandedToolIds={props.expandedToolIds} onToggleTool={props.onToggleTool} />
   const foldKey = node.kind === 'activity' ? `activity:${props.turnKey}:${node.key}` : `turn:${props.turnKey}`
+  const nodeInterrupted = node.kind === 'turn' && !!(node.interrupted || props.turnInterrupted && !node.running)
   const open = node.kind === 'activity' ? activityCollapseState(node.mode, props.collapseOverrides[foldKey]).open
-    : turnCollapseState({ hasFinal: true, interrupted: props.turnInterrupted, hasActivity: true,
+    : turnCollapseState({ hasFinal: true, interrupted: nodeInterrupted, hasActivity: true,
+        allowCollapseBeforeFinal: nodeInterrupted,
         preventAutoCollapse: node.preventAutoCollapse || props.collapseOverrides[`mcp-expanded:${props.turnKey}`] === true, collapsed: props.collapseOverrides[foldKey] }).open
   const label = node.kind === 'activity' ? <ActivityHeader node={node} />
-    : <TurnWorkLabel startedAtMs={node.running || node.completedAtMs != null ? node.startedAtMs : null}
-        completedAtMs={node.completedAtMs} durationMs={!node.running ? props.durationMs : undefined}
+    : <TurnWorkLabel interrupted={nodeInterrupted}
+        startedAtMs={node.running || node.completedAtMs != null ? node.startedAtMs : null}
+        completedAtMs={node.completedAtMs} durationMs={!node.running ? node.durationMs ?? props.durationMs : undefined}
         fallback={node.running ? undefined : t('activity_previous_messages').replace('{count}', String(node.messageCount))} />
   if (node.kind === 'turn') return <ActivityDisclosure variant="turn" open={open} onToggle={() => props.onToggleFold(foldKey, open)} label={label}
     sections={node.items.map(item => ({ key: item.key, persistent: node.persistent.includes(item), content: <LiveActivityNodeView node={item} {...props} /> }))} />
@@ -4830,11 +4863,14 @@ function LiveTurnActivityView({ nodes, ...props }: LiveActivityRenderProps & { n
   const t = useT()
   const fold = nodes.find(node => node.kind === 'turn')
   const foldKey = `turn:${props.turnKey}`
-  const open = !fold || turnCollapseState({ hasFinal: true, interrupted: props.turnInterrupted, hasActivity: true,
+  const foldInterrupted = !!(fold && (fold.interrupted || props.turnInterrupted && !fold.running))
+  const open = !fold || turnCollapseState({ hasFinal: true, interrupted: foldInterrupted, hasActivity: true,
+    allowCollapseBeforeFinal: foldInterrupted,
     preventAutoCollapse: fold.preventAutoCollapse || props.collapseOverrides[`mcp-expanded:${props.turnKey}`] === true,
     collapsed: props.collapseOverrides[foldKey] }).open
-  const label = fold ? <TurnWorkLabel startedAtMs={fold.running || fold.completedAtMs != null ? fold.startedAtMs : null}
-    completedAtMs={fold.completedAtMs} durationMs={!fold.running ? props.durationMs : undefined}
+  const label = fold ? <TurnWorkLabel interrupted={foldInterrupted}
+    startedAtMs={fold.running || fold.completedAtMs != null ? fold.startedAtMs : null}
+    completedAtMs={fold.completedAtMs} durationMs={!fold.running ? fold.durationMs ?? props.durationMs : undefined}
     fallback={fold.running ? undefined : t('activity_previous_messages').replace('{count}', String(fold.messageCount))} /> : null
   return <ActivityDisclosure variant="turn" enabled={!!fold} open={open} label={label} headerBefore={fold?.items[0]?.key} onToggle={() => props.onToggleFold(foldKey, open)}
     sections={nodes.flatMap(node => node.kind === 'turn'
@@ -4968,17 +5004,35 @@ const TranscriptTurnFrame = memo(function TranscriptTurnFrame({ renderKey, ident
   const element = useRef<HTMLDivElement>(null)
   const liveFold = live?.nodes.find(node => node.kind === 'turn')
   const foldKey = savedFold?.foldKey || `turn:${liveProps?.turnKey || ''}`
+  const savedTerminal = saved?.nodes.find(node => node.kind === 'unit' && node.unit.type === 'turn-status')
+  const liveTerminal = live?.nodes.find(node => node.kind === 'unit' && node.unit.type === 'live-turn-status')
+  const terminalDuration = savedTerminal?.kind === 'unit' ? savedTerminal.unit.msg?.durationMs : undefined
+  const terminalUnit = liveTerminal?.kind === 'unit' && liveTerminal.unit.type === 'live-turn-status' ? liveTerminal.unit : undefined
+  const terminalUnitDuration = terminalUnit
+    && Number.isFinite(terminalUnit.startedAt)
+    && Number.isFinite(terminalUnit.finishedAt)
+    && terminalUnit.startedAt > 0
+    && terminalUnit.finishedAt >= terminalUnit.startedAt
+    ? terminalUnit.finishedAt - terminalUnit.startedAt
+    : undefined
+  const fold = savedFold || liveFold
+  const foldInterrupted = !!(savedFold?.interrupted || liveFold?.interrupted
+    || fold && !fold.running && (liveProps?.turnInterrupted || savedTerminal || liveTerminal))
   const open = savedFold?.open ?? (!liveFold || turnCollapseState({ hasFinal: true,
-    interrupted: !!liveProps?.turnInterrupted, hasActivity: true,
+    interrupted: foldInterrupted, hasActivity: true,
+    allowCollapseBeforeFinal: foldInterrupted,
     preventAutoCollapse: liveFold.preventAutoCollapse || liveProps?.collapseOverrides[`mcp-expanded:${liveProps.turnKey}`] === true,
     collapsed: liveProps?.collapseOverrides[foldKey] }).open)
-  const fold = savedFold || liveFold
   const divider = live?.nodes.find(node => node.kind === 'work-divider')
     || saved?.nodes.find(node => node.kind === 'work-divider')
   const owner = unitProps.streamSessionId || unitProps.sessionId || ''
   const pagination = useTurnItemsPagination(owner, saved?.turnId)
-  const label = fold ? <TurnWorkLabel startedAtMs={fold.running || fold.completedAtMs != null ? fold.startedAtMs ?? null : null}
-    completedAtMs={fold.completedAtMs} durationMs={!fold.running ? savedFold?.durationMs ?? liveProps?.durationMs : undefined}
+  const foldDurationMs = !fold?.running
+    ? savedFold?.durationMs ?? liveFold?.durationMs ?? liveProps?.durationMs ?? terminalDuration ?? terminalUnitDuration
+    : undefined
+  const label = fold ? <TurnWorkLabel interrupted={foldInterrupted}
+    startedAtMs={fold.running || fold.completedAtMs != null ? fold.startedAtMs ?? null : null}
+    completedAtMs={fold.completedAtMs} durationMs={foldDurationMs}
     fallback={fold.running ? undefined : t('activity_previous_messages').replace('{count}', String(fold.messageCount))} /> : null
   const sections = new Map<string, { key: string; persistent: boolean; content: ReactNode }>()
   let openerKey: string | undefined
@@ -4989,12 +5043,11 @@ const TranscriptTurnFrame = memo(function TranscriptTurnFrame({ renderKey, ident
   // observed position, with any process disclosure replacing the placeholder.
   const addWorkHeader = () => add('turn-work-header', true, !fold && divider
     ? <TurnWorkDivider startedAtMs={divider.startedAtMs} completedAtMs={divider.completedAtMs} /> : null, false)
-  const savedTerminal = saved?.nodes.find(node => node.kind === 'unit' && node.unit.type === 'turn-status')
-  const liveTerminal = live?.nodes.find(node => node.kind === 'unit' && node.unit.type === 'live-turn-status')
-  const terminalDuration = savedTerminal?.kind === 'unit' ? savedTerminal.unit.msg?.durationMs : undefined
-  const terminalUnit = liveTerminal?.kind === 'unit' && liveTerminal.unit.type === 'live-turn-status' ? liveTerminal.unit : undefined
-  const addTerminalStatus = () => add('turn-terminal-status', true,
-    <TurnTerminalStatus durationMs={terminalDuration} startedAt={terminalUnit?.startedAt} finishedAt={terminalUnit?.finishedAt} />, false)
+  const addTerminalStatus = () => {
+    if (fold) return
+    add('turn-terminal-status', true,
+      <TurnTerminalStatus durationMs={terminalDuration} startedAt={terminalUnit?.startedAt} finishedAt={terminalUnit?.finishedAt} />, false)
+  }
   const addUser = (unit: Unit, sourceKey: string, opener: boolean, persistent: boolean) => {
     const key = identity.message(renderKey, unit.msg, sourceKey, opener)
     if (opener && !unit.msg?.steered && !unit.msg?.questionAnswer) openerKey = key
@@ -5225,7 +5278,7 @@ export function LiveTail({ sessionId, unitProps, scroll = 'none', container, tim
       turnMedia,
       // 已在别处呈现的图不在工具卡里再出一遍；没被汇报的图回到卡片，那是它唯一的呈现面。
       figurePaths: new Set<string>([...embedded, ...turnMedia]),
-      turnInterrupted: units.some(unit => unit.type === 'live-turn-status') || owner === turnKey && turnInterrupted }
+      turnInterrupted: units.some(unit => unit.type === 'live-turn-status') || liveStatus === 'interrupted' || owner === turnKey && turnInterrupted }
   }
   const currentUnits = liveUnits.filter(unit => !unit.turnId || unit.turnId === turnKey)
   const historyUnits = useMemo(() => {

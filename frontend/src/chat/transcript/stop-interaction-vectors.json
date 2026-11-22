@@ -16,18 +16,19 @@
     {
       "id": "status-label-position",
       "topic": "turn terminal status",
-      "required": "The label is a divider that belongs to the turn: left-aligned muted text with tabular numerals, followed by a full-width hairline rule. It is not a centered pill and not a separate system message. It is lifted out of the collapsible activity list and rendered on its own between the turn's activity and its final response.",
+      "required": "The label belongs to the turn as left-aligned muted text with tabular numerals and no horizontal divider rule. It is not a centered pill and not a separate system message. When the turn has a collapsible process disclosure, that disclosure header itself carries the stopped label instead of rendering a second elapsed-time row; when the turn has no collapsible process, a single standalone status row renders for the turn.",
       "klaus": {
         "unitType": "turn-status",
         "cssClass": "turn-terminal-status",
         "align": "left",
         "hasIcon": false,
-        "hasDivider": true,
+        "hasDivider": false,
         "tabularNumbers": true,
+        "ownedByTurnDisclosureWhenCollapsible": true,
         "excludedFromTurnFold": true,
         "oneStatusPerTurnAcrossSavedAndLive": true,
         "zeroDurationIsKnown": true,
-        "changeNote": "2026-10-26: Saved and live projections share one terminal row, prefer available elapsed time, and distinguish a valid zero duration from missing timing."
+        "changeNote": "2026-11-22: Removed horizontal hairline rules from turn disclosure headers and stopped rows, and unified collapsible interrupted turns onto a single stopped disclosure header across saved and live projections."
       }
     },
     {
@@ -63,9 +64,10 @@
     {
       "id": "interrupted-turn-is-collapsible",
       "topic": "process area",
-      "required": "An interrupted turn keeps an outer turn disclosure so the user can collapse the partial work. Contiguous inner tool groups retain independent disclosures. This aligns with Codex, where groupable execution items are summarized even when the turn terminates early.",
+      "required": "An interrupted turn keeps an outer turn disclosure so the user can collapse the partial work, and its disclosure header carries the stopped duration label instead of repeating a worked-for header above a separate stopped row. Contiguous inner tool groups retain independent disclosures when the turn terminates early.",
       "klaus": {
-        "foldRule": "foldUnits() sets isTurnCancelled from turnStatuses[turnId]==='interrupted' but still allows allowCollapseBeforeFinal, so interrupted turns with a user request get an outer process fold that defaults closed.",
+        "foldRule": "foldUnits() and projectLiveTurn() admit an outer process fold for settled interrupted turns opened by a user request so the partial work defaults closed under one stopped disclosure header.",
+        "changeNote": "2026-11-22: Unified live and saved folding verdicts for settled interrupted turns and moved the stopped duration label onto the outer disclosure header so collapsible interrupted turns never emit a second turn-status row.",
         "partialTextRetained": true,
         "reasoningRetained": true,
         "toolRowsRetained": true,
@@ -92,7 +94,7 @@
     {
       "id": "no-detached-stop-message",
       "topic": "transcript",
-      "required": "Stopping produces no standalone transcript entry. The only thing that appears is the turn's own divider label.",
+      "required": "Stopping produces no standalone transcript entry. The only thing that appears is the turn's own stopped header or status label.",
       "klaus": {
         "removed": ["live-stop-hint", "stop-hint"],
         "interruptMarkerMessagesDropped": true

@@ -64,7 +64,6 @@
   mask-image: none;
 }
 .disclosure[data-enabled='false'] > .sections > .persistent:first-child { padding-top: 0; }
-.divider { height: 1px; background: var(--border-subtle); margin-top: 8px; }
 @media (prefers-reduced-motion: reduce) {
   .motion, .chevron { transition: none; }
 }

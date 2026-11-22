@@ -127,6 +127,34 @@ app.whenReady().then(async () => {
     }
     return states;
   });
+  await check('collapsible stopped turns own one stopped disclosure header with no horizontal rules across continuation', async () => {
+    await evaluate('processingFixture.mountInterruptedContinuation()');
+    await wait(80);
+    const collapsed = await evaluate('processingFixture.measureInterruptedContinuation()');
+    assert.equal(collapsed.disclosureOpen, 'false');
+    assert.equal(collapsed.ariaExpanded, 'false');
+    assert.equal(collapsed.stoppedHeaderText, '你在 1分钟 30秒 后停止了');
+    assert.equal(collapsed.activeWorkText, '已处理 41秒');
+    assert.equal(collapsed.stoppedOccurrences, 1);
+    assert.equal(collapsed.workedForStoppedOccurrences, 0);
+    assert.equal(collapsed.activeOccurrences, 1);
+    assert.equal(collapsed.horizontalRules, 0);
+    assert.equal(collapsed.deltaLeft, 0);
+    assert.equal(collapsed.stoppedFontSize, collapsed.activeFontSize);
+    assert.equal(collapsed.stoppedLineHeight, collapsed.activeLineHeight);
+    fs.writeFileSync(path.join(root, 'stopped-continuation-collapsed.png'), (await win.webContents.capturePage()).toPNG());
+    await evaluate('processingFixture.toggleStoppedTurn()');
+    await wait(120);
+    const expanded = await evaluate('processingFixture.measureInterruptedContinuation()');
+    assert.equal(expanded.disclosureOpen, 'true');
+    assert.equal(expanded.ariaExpanded, 'true');
+    assert.equal(expanded.stoppedOccurrences, 1);
+    assert.equal(expanded.workedForStoppedOccurrences, 0);
+    assert.equal(expanded.horizontalRules, 0);
+    fs.writeFileSync(path.join(root, 'stopped-continuation-expanded.png'), (await win.webContents.capturePage()).toPNG());
+    await evaluate('processingFixture.toggleStoppedTurn(); processingFixture.locale("en"); processingFixture.mountStatic(false)');
+    return { collapsed, expanded };
+  });
   await check('sent content, images and selection survive acknowledgements and action state updates', async () => {
     const transitions = await evaluate('processingFixture.userMessageStability()');
     assert.equal(transitions.length, 7);

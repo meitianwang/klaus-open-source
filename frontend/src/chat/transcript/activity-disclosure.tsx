@@ -74,14 +74,11 @@ export function ActivityDisclosure({ open, onToggle, label, children, sections, 
     update()
     return () => { observer.disconnect(); element.removeEventListener('scroll', update) }
   }, [mounted, visible, children, variant])
-  const header = enabled ? <>
-    <button className={styles.toggle} type="button" data-activity-toggle={variant} aria-expanded={open} aria-controls={id}
-      onClick={event => { preserveAnchor(event.currentTarget); onToggle() }}>
-      <span className={styles.label}>{label}</span>
-      <RawHtml tag="span" className={styles.chevron} html={rawIconHtml('chevron-right')} />
-    </button>
-    {variant === 'turn' ? <div className={styles.divider} /> : null}
-  </> : null
+  const header = enabled ? <button className={styles.toggle} type="button" data-activity-toggle={variant} aria-expanded={open} aria-controls={id}
+    onClick={event => { preserveAnchor(event.currentTarget); onToggle() }}>
+    <span className={styles.label}>{label}</span>
+    <RawHtml tag="span" className={styles.chevron} html={rawIconHtml('chevron-right')} />
+  </button> : null
   return <div className={styles.disclosure} data-variant={variant} data-open={open} data-enabled={enabled}>
     {headerBefore === undefined ? header : null}
     {sections ? <div id={id} className={styles.sections}>

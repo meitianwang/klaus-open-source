@@ -228,9 +228,11 @@ describe('stop interaction vectors: four stop trajectories', () => {
 })
 
 describe('stop interaction vectors: transcript shape', () => {
-  test('an interrupted Turn is collapsible and keeps every unit inside the fold', () => {
+  test('an interrupted Turn is collapsible and owns the stopped label on its fold header without a second status row', () => {
     const spec = rule('interrupted-turn-is-collapsible')
     expect(spec.klaus.partialTextRetained).toBe(true)
+    expect(rule('status-label-position').klaus.hasDivider).toBe(false)
+    expect(rule('status-label-position').klaus.ownedByTurnDisclosureWhenCollapsible).toBe(true)
     const units = unitsFromMessages([
       { uuid: 'u1', role: 'user', text: 'q', turnId: 'turn-1' },
       { uuid: 'a1', role: 'assistant', text: 'narration', turnId: 'turn-1' },
@@ -245,9 +247,20 @@ describe('stop interaction vectors: transcript shape', () => {
     const fold = nodes.find(node => node.kind === 'turn-fold')
     expect(fold?.kind).toBe('turn-fold')
     expect(fold && 'open' in fold ? fold.open : true).toBe(false)
+    expect(fold && 'interrupted' in fold ? fold.interrupted : false).toBe(true)
+    expect(fold && 'durationMs' in fold ? fold.durationMs : 0).toBe(12_000)
     const status = nodes.filter(node => node.kind === 'unit' && node.unit.type === 'turn-status')
-    expect(status.length).toBe(1)
-    expect(status[0].kind === 'unit' ? status[0].unit.msg?.durationMs : 0).toBe(12_000)
+    expect(status.length).toBe(0)
+
+    // Without collapsible process items, the standalone turn-status row owns the stopped label.
+    const immediateUnits = unitsFromMessages([
+      { uuid: 'u2', role: 'user', text: 'q', turnId: 'turn-2' },
+    ])
+    const immediateNodes = foldUnits(immediateUnits, null, { 'turn-2': 'interrupted' }, {}, {}, { 'turn-2': 12_000 })
+    expect(immediateNodes.some(node => node.kind === 'turn-fold')).toBe(false)
+    const immediateStatus = immediateNodes.filter(node => node.kind === 'unit' && node.unit.type === 'turn-status')
+    expect(immediateStatus.length).toBe(1)
+    expect(immediateStatus[0].kind === 'unit' ? immediateStatus[0].unit.msg?.durationMs : 0).toBe(12_000)
   })
 
   test('the stop leaves no detached transcript entry', () => {

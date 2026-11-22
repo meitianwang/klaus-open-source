@@ -19,6 +19,7 @@ describe('turn work divider contract', () => {
   test('tick interval and time threshold match the captured divider rules', () => {
     expect(WORK_DIVIDER_TICK_MS).toBe(vectors.rules.tickMs)
     expect(WORK_DIVIDER_TIME_THRESHOLD_MS).toBe(vectors.rules.timeThresholdMs)
+    expect(vectors.rules.hasDivider).toBe(false)
   })
 
   test('a final-answer start freezes the work label and uses completed wording', () => {
@@ -26,6 +27,29 @@ describe('turn work divider contract', () => {
     expect(html).toContain('Worked for 2s')
     expect(html).toContain('data-work-label="completed"')
     expect(renderToStaticMarkup(<TurnWorkLabel startedAtMs={3500} completedAtMs={1000} />)).toContain('Worked for 0s')
+  })
+
+  test('an interrupted work label uses stopped wording without falling back to worked-for', () => {
+    ;(window as any).currentLang = 'en'
+    const stoppedEn = renderToStaticMarkup(<TurnWorkLabel interrupted startedAtMs={1000} durationMs={90_000} />)
+    expect(stoppedEn).toContain('You stopped after 1m 30s')
+    expect(stoppedEn).toContain('data-work-label="interrupted"')
+    expect(stoppedEn).not.toContain('Worked for')
+    expect(renderToStaticMarkup(<TurnWorkLabel interrupted startedAtMs={null} durationMs={0} />)).toContain('You stopped after 0s')
+    expect(renderToStaticMarkup(<TurnWorkLabel interrupted startedAtMs={null} />)).toContain('>Stopped<')
+    ;(window as any).currentLang = 'zh'
+    try {
+      const stoppedZh = renderToStaticMarkup(<TurnWorkLabel interrupted startedAtMs={1000} durationMs={90_000} />)
+      expect(stoppedZh).toContain('你在 1分钟 30秒 后停止了')
+      expect(stoppedZh).not.toContain('用时')
+    } finally {
+      ;(window as any).currentLang = 'en'
+    }
+  })
+
+  test('work rows render no horizontal divider rules', () => {
+    const html = dividerAt(Date.now() - 2500)
+    expect(html).not.toContain('turn-terminal-rule')
   })
 
   test('below the threshold the divider names plain work', () => {

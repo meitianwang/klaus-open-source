@@ -101,6 +101,80 @@ function mountStatic(active = true) {
       { role: 'assistant', uuid: 'saved-final', turnId: 'saved-turn', phase: 'final_answer', text: 'Saved final answer.', timestamp: start + 2000 },
     ]} />))
 }
+function countTurnHorizontalRules() {
+  return [...container.querySelectorAll<HTMLElement>('[data-klaus-transcript-turn-id] *, [data-work-divider] *, [data-variant="turn"] *')].filter(el => {
+    const cls = typeof el.className === 'string' ? el.className : ''
+    if (cls.includes('turn-terminal-rule') || /\bdivider\b/.test(cls)) return true
+    const rect = el.getBoundingClientRect()
+    if (rect.width <= 120 || rect.height > 2) return false
+    const cs = getComputedStyle(el)
+    return parseFloat(cs.borderTopWidth) > 0 || (rect.height > 0 && cs.backgroundColor !== 'rgba(0, 0, 0, 0)')
+  }).length
+}
+function mountInterruptedContinuation() {
+  id = `interrupted-continuation:${++serial}`
+  const now = Date.now()
+  w.currentLang = 'zh'
+  update({
+    ...getSessionStream('missing-fixture'),
+    historyStale: false,
+    history: [
+      { role: 'user', uuid: 'u0', turnId: 'prev-turn', text: '先看一下线上表现', timestamp: now - 180_000 },
+      { role: 'assistant', uuid: 'a0', turnId: 'prev-turn', phase: 'final_answer', text: '旧路径下状态行和折叠头会重复渲染，问题仍在。', timestamp: now - 160_000 },
+      { role: 'user', uuid: 'u1', turnId: 'stopped-turn', text: '那最近提交的代码有从根本修复这个问题吗', timestamp: now - 140_000 },
+      {
+        role: 'assistant', uuid: 'a1-tool', turnId: 'stopped-turn', timestamp: now - 135_000,
+        contentBlocks: [{ type: 'tool_use', id: 'bash-stop-1', name: 'bash', input: { command: 'git log -n 5 --oneline' } }],
+      },
+    ],
+    liveUnits: [],
+    turnStatuses: { 'prev-turn': 'completed', 'stopped-turn': 'interrupted' },
+    turnDurations: { 'prev-turn': 12_000, 'stopped-turn': 90_000 },
+    turnCancelledTools: { 'stopped-turn': ['bash-stop-1'] },
+    running: true,
+    activeTurnId: 'continued-turn',
+    liveTurnId: 'continued-turn',
+    turnStartedAt: now - 41_200,
+    turnStartedAtMs: { 'stopped-turn': now - 140_000, 'continued-turn': now - 41_200 },
+    thinkingActive: true,
+    activityVisible: true,
+    streamMode: 'requesting',
+  })
+  flushSync(() => root.render(<TranscriptView key={id} sessionId={id} container={container} readOnly />))
+}
+function measureInterruptedContinuation() {
+  const stoppedTurn = container.querySelector<HTMLElement>('[data-klaus-transcript-turn-id="stopped-turn"]')
+  const toggleBtn = stoppedTurn?.querySelector<HTMLButtonElement>('[data-activity-toggle="turn"]') ?? null
+  const stoppedLabel = toggleBtn?.querySelector<HTMLElement>('[data-work-label]') ?? null
+  const activeDividerLabel = container.querySelector<HTMLElement>('[data-work-divider="working"] [data-work-label]')
+  const stoppedRect = stoppedLabel?.getBoundingClientRect()
+  const activeRect = activeDividerLabel?.getBoundingClientRect()
+  const stoppedCs = stoppedLabel ? getComputedStyle(stoppedLabel) : null
+  const activeCs = activeDividerLabel ? getComputedStyle(activeDividerLabel) : null
+  const toolRow = stoppedTurn?.querySelector<HTMLElement>('[data-activity-group], [data-tool-call-id], button') ?? null
+  const collapsibleSection = stoppedTurn?.querySelector<HTMLElement>('[data-variant="turn"] [aria-hidden]') ?? null
+  const text = container.textContent || ''
+  return {
+    disclosureOpen: stoppedTurn?.querySelector('[data-variant="turn"]')?.getAttribute('data-open') ?? null,
+    ariaExpanded: toggleBtn?.getAttribute('aria-expanded') ?? null,
+    stoppedHeaderText: stoppedLabel?.textContent ?? '',
+    activeWorkText: activeDividerLabel?.textContent ?? '',
+    stoppedOccurrences: text.split('你在 1分钟 30秒 后停止了').length - 1,
+    workedForStoppedOccurrences: text.split('用时 1分钟 30秒').length - 1,
+    activeOccurrences: text.split('已处理 41秒').length - 1,
+    horizontalRules: countTurnHorizontalRules(),
+    deltaLeft: stoppedRect && activeRect ? Math.round(stoppedRect.left - activeRect.left) : null,
+    stoppedFontSize: stoppedCs?.fontSize ?? null,
+    activeFontSize: activeCs?.fontSize ?? null,
+    stoppedLineHeight: stoppedCs?.lineHeight ?? null,
+    activeLineHeight: activeCs?.lineHeight ?? null,
+    sectionHidden: collapsibleSection?.getAttribute('aria-hidden') ?? null,
+    hasToolRow: !!toolRow,
+  }
+}
+function toggleStoppedTurn() {
+  container.querySelector<HTMLButtonElement>('[data-klaus-transcript-turn-id="stopped-turn"] [data-activity-toggle="turn"]')?.click()
+}
 function snapshot() {
   const header = container.querySelector<HTMLButtonElement>('[data-activity-toggle="turn"]')
   const work = container.querySelector('[data-work-label]')
@@ -112,12 +186,13 @@ function snapshot() {
   return { label: work?.textContent || '', workLabels: container.querySelectorAll('[data-work-label]').length,
     placeholderRows: container.querySelectorAll('[data-work-divider]').length,
     disclosureHeaders: container.querySelectorAll('[data-activity-toggle="turn"]').length,
+    horizontalRules: countTurnHorizontalRules(),
     expanded: header?.getAttribute('aria-expanded') ?? null, processVisible: visible(process), finalVisible: visible(final),
     headerBeforeProcess: !!header && !!process && !!(header.compareDocumentPosition(process) & Node.DOCUMENT_POSITION_FOLLOWING),
     text, hostLookups, recoveryClicks, recoveryAction: container.querySelector('[data-submission-recovery]')?.getAttribute('data-submission-recovery') ?? null, userMessages: container.querySelectorAll('[data-nav-turn="true"]').length, clockStart: getSessionStream(id).turnStartedAt }
 }
 w.processingFixture = { mountPending, failPending, recoverPending, locale, promotePending, mount, addWork, startFinal, complete, handoffHistory, toggle, mountStatic, snapshot,
-  mountMixedHistory,
+  mountMixedHistory, mountInterruptedContinuation, measureInterruptedContinuation, toggleStoppedTurn,
   userMessageStability: () => userMessageStability(container, root), userMessageContinuity: () => userMessageContinuity(container),
   questionAnswerPlacement: () => questionAnswerPlacement(container),
   friendReplyAppearance: () => friendReplyAppearance(container) }
