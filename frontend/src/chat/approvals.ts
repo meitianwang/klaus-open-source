@@ -10,6 +10,7 @@ import { escapeHtml } from '../app/ui-shared'
 import { getSessionStream, ingestLiveApproval, ingestAsyncQuestion, ingestAsyncQuestionResolution, markToolAwaitingApproval, reopenAsyncQuestionsForSession, updateAsyncQuestionUi } from './stream-store'
 import { retireAsyncQuestion, type AsyncQuestionRequest } from './transcript/async-question-state'
 import { createApprovalRecovery } from './approval-recovery'
+import { getFriendsFeatureEnabled } from '../pages/friends/feature-enabled'
 import { sharedFriendUnread } from './sidebar/friend-unread'
 
 // ---- window.klaus 最小面 ----
@@ -111,7 +112,8 @@ async function restoreAsyncQuestions(sessionId: string): Promise<void> {
 export function syncApprovalBadge(): void {
   // The dock badge counts everything waiting on the user: live approvals plus
   // friend messages that arrived while their session was not open.
-  try { klausApi().app?.setApprovalBadge?.(pendingApprovalMeta.size + sharedFriendUnread().total())?.catch?.(() => {}) } catch { /* badge best-effort */ }
+  const friendUnread = getFriendsFeatureEnabled() ? sharedFriendUnread().total() : 0
+  try { klausApi().app?.setApprovalBadge?.(pendingApprovalMeta.size + friendUnread)?.catch?.(() => {}) } catch { /* badge best-effort */ }
 }
 
 export function trackApprovalRequest(requestId: string | undefined, sessionId: string | undefined): void {

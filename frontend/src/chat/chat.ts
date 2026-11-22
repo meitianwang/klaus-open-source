@@ -4731,6 +4731,7 @@ async function init() {
   // group above the flat session list. Non-blocking: renderSessionList() runs
   // now with an empty cronTasks, then re-renders once tasks arrive.
   refreshCronTasksForSidebar()
+  sidebarReady = true
   renderSessionList()
   if (typeof window.bootstrapProfile === 'function') window.bootstrapProfile()
   // 启动落在"虚拟新对话"状态而不是自动续上次 session。
@@ -4968,6 +4969,7 @@ function friendGroupKey(friendshipId: string) {
 function friendshipIdFromKey(key: string | null): string | null {
   return isFriendStateKey(key) ? key.slice(FRIEND_GROUP_KEY_PREFIX.length) : null
 }
+let sidebarReady = false
 let friendDirectory: Array<{ id: string; userId?: string; name: string; avatarUrl?: string | null }> = []
 ;(window as any).getFriendDirectoryEntry = (friendshipId?: string, userId?: string) => friendDirectory.find(row => friendshipId ? row.id === friendshipId : !!userId && row.userId === userId)
 function friendDirectoryName(friendshipId: string): string {
@@ -4978,6 +4980,10 @@ function friendDirectoryName(friendshipId: string): string {
   return friendDirectory.find(row => row.id === friendshipId)?.name || tt('sidebar_friend_unknown') || 'Unknown friend'
 }
 async function refreshFriendDirectory(): Promise<void> {
+  if (!getFriendsFeatureEnabled()) {
+    friendDirectory = []
+    return
+  }
   try {
     const snapshot = await klausApi.friends?.list?.()
     const rows = Array.isArray(snapshot?.friends) ? snapshot.friends : []
@@ -4990,7 +4996,13 @@ async function refreshFriendDirectory(): Promise<void> {
 function friendConversationSessions(friendshipId: string) {
   return groupedLocalSessions().filter((session) => session.friendGroupId === friendshipId)
 }
+function isSidebarFriendSessionVisible(session: Pick<SessionInfo, 'friendGroupId'>): boolean {
+  if (!session.friendGroupId) return true
+  if (!getFriendsFeatureEnabled()) return false
+  return friendDirectory.some(row => row.id === session.friendGroupId)
+}
 function friendRowsForSidebar() {
+  if (!getFriendsFeatureEnabled()) return []
   const groups = new Map<string, { id: string; name: string; updatedAt: number }>()
   for (const session of groupedLocalSessions()) {
     const id = session.friendGroupId
@@ -5429,7 +5441,7 @@ function sidebarSessionWait(sessionId: string): { count: number; kind: SessionWa
   }
   // A friend request parked in this conversation waits on its owner exactly
   // like a parked approval card, so it ranks the row as needing input.
-  const friendPending = pendingFriendTaskForSession(sessionId)
+  const friendPending = getFriendsFeatureEnabled() ? pendingFriendTaskForSession(sessionId) : null
   if (friendPending) addRequest(`friend-task:${friendPending.id}`, 'input')
   if (inputs > 0) return { count: inputs + approvals, kind: 'input', snooze }
   return { count: approvals, kind: 'approval', snooze }
@@ -5447,12 +5459,15 @@ function isSidebarSessionWaiting(sessionId: string) {
  *  it is running. */
 function sectionSessionIdsForBadge(section: SidebarSectionKey): string[] {
   const partitions = partitionSidebarSessions(sessions, sessionId => !!detectChannelPrefix(sessionId))
-  if (section === 'pinned') return partitions.pinned.map(s => s.id)
+  if (section === 'pinned') return partitions.pinned.filter(isSidebarFriendSessionVisible).map(s => s.id)
   if (section === 'channels') return partitions.channels.map(s => s.id)
   if (section === 'recent') return projectlessConversationSessions().map(s => s.id)
-  // 'projects': everything filing under a workspace container or a project.
+  // 'projects': everything filing under a workspace container, a visible friend group, or a project.
+  const friendIds = new Set(friendRowsForSidebar().map(row => row.id))
   return groupedLocalSessions()
-    .filter(s => !!projectStateKey(s.workspaceId ? workspaceContainerKey(s.workspaceId) : sessionProjectKey(s)))
+    .filter(s => s.friendGroupId
+      ? friendIds.has(s.friendGroupId)
+      : !!projectStateKey(s.workspaceId ? workspaceContainerKey(s.workspaceId) : sessionProjectKey(s)))
     .map(s => s.id)
 }
 
@@ -6606,7 +6621,7 @@ async function listArchivedSessions() {
 function sidebarSessionRowSpec(s: SessionInfo): SessionRowSpec {
   const working = isSidebarSessionWorking(s.id)
   const completeUnread = isSidebarSessionCompleteUnread(s.id)
-  const friendUnread = sharedFriendUnread().countOf(s.id)
+  const friendUnread = getFriendsFeatureEnabled() ? sharedFriendUnread().countOf(s.id) : 0
   // A friend message awaiting a reply already parks its own chip; only plain
   // unread friend news paints the row's blue dot.
   const friendDot = friendUnread > 0 && !sharedFriendUnread().wantReplyOf(s.id)
@@ -6864,7 +6879,7 @@ function buildSidebarSnapshot() {
     sortMode,
     sortMenuOpen: sidebarSortMenuOpen,
     pinned: {
-      rows: sortSessionRows(partitions.pinned.map(sidebarSessionRowSpec), sortMode),
+      rows: sortSessionRows(partitions.pinned.filter(isSidebarFriendSessionVisible).map(sidebarSessionRowSpec), sortMode),
       collapsed: isSidebarSectionCollapsed('pinned'),
       collapsedBadge: isSidebarSectionCollapsed('pinned') ? sectionCollapsedBadge('pinned') : null,
     },
@@ -6996,7 +7011,9 @@ function commandMenuVisibleSessions() {
   const push = (session: SessionInfo) => {
     if (!ordered.some(candidate => candidate.id === session.id)) ordered.push(session)
   }
-  for (const session of partitions.pinned) push(session)
+  for (const session of partitions.pinned) {
+    if (isSidebarFriendSessionVisible(session)) push(session)
+  }
   for (const session of partitions.channels) push(session)
   // Project containers in sidebar order: workspace containers first, then
   // single-project rows. Enumerated straight from the registries — the sidebar
@@ -7347,9 +7364,13 @@ function attentionSectionsOf(rows: SessionRowSpec[]): Array<{ key: 'waiting' | '
 function allSidebarRowSpecs(): SessionRowSpec[] {
   const partitions = partitionSidebarSessions(sessions, sessionId => !!detectChannelPrefix(sessionId))
   const rows: SessionRowSpec[] = []
-  for (const session of partitions.pinned) rows.push(sidebarSessionRowSpec(session))
+  for (const session of partitions.pinned) {
+    if (isSidebarFriendSessionVisible(session)) rows.push(sidebarSessionRowSpec(session))
+  }
   for (const session of partitions.channels) rows.push(sidebarSessionRowSpec(session))
-  for (const session of groupedLocalSessions()) rows.push(sidebarSessionRowSpec(session))
+  for (const session of groupedLocalSessions()) {
+    if (isSidebarFriendSessionVisible(session)) rows.push(sidebarSessionRowSpec(session))
+  }
   return rows
 }
 
@@ -7453,8 +7474,8 @@ function renderSidebarActivityView() {
  *  rendered by the sidebar list itself from the snapshot's sortMode. */
 function syncSidebarToolbar() {
   const activityBtn = document.getElementById('titlebar-activity')
-  const needsAttention = sharedFriendUnread().total() > 0
-    || sessions.some(s => isSidebarSessionWaiting(s.id) || isSidebarSessionCompleteUnread(s.id))
+  const needsAttention = (getFriendsFeatureEnabled() && sharedFriendUnread().total() > 0)
+    || sessions.some(s => isSidebarFriendSessionVisible(s) && (isSidebarSessionWaiting(s.id) || isSidebarSessionCompleteUnread(s.id)))
   if (activityBtn) {
     activityBtn.setAttribute('aria-pressed', sidebarActivityOpen ? 'true' : 'false')
     activityBtn.classList.toggle('is-attention', needsAttention)
@@ -15688,6 +15709,7 @@ klausApi.on.appPreferencesChanged?.(({ key }: { key?: string }) => {
 // Friend folders rename themselves when a remark or display name changes, and
 // appear or disappear with the friendship's conversations.
 klausApi.on.friendsChanged?.(() => {
+  if (!getFriendsFeatureEnabled()) return
   void refreshFriendDirectory().then(() => renderSessionList())
   // 目录申请卡只活在宿主内存里：重载后由快照重新物化，角标与侧栏等待态随之恢复。
   void klausApi.friends.pendingAccessRequests?.().then((rows: any) => {
@@ -15789,7 +15811,7 @@ function showFriendArrivalToast(payload: FriendArrivalPayload) {
   friendToastBursts.set(burstKey, { count, ts: now, dismiss })
 }
 klausApi.on.friendMessageArrived?.((payload: FriendArrivalPayload) => {
-  if (!payload || typeof payload.sessionId !== 'string' || !payload.sessionId) return
+  if (!payload || typeof payload.sessionId !== 'string' || !payload.sessionId || !getFriendsFeatureEnabled()) return
   const viewing = isSessionOpenInChatView(payload.sessionId) && document.hasFocus()
   if (!viewing) {
     sharedFriendUnread().add(payload.sessionId, 1, payload.wantReply === true)
@@ -18721,7 +18743,7 @@ klausApi.on.deepLinkFriendInvite?.(({ email }: { email?: string }) => {
 // A clicked friend-task banner opens the conversation the request waits in:
 // the decision lives inside that conversation, not on the friends page.
 klausApi.on.deepLinkFriendTask?.(({ taskId }: { taskId?: string }) => {
-  if (!taskId) return
+  if (!taskId || !getFriendsFeatureEnabled()) return
   void (async () => {
     wireFriendInbox()
     await refreshFriendInbox()
@@ -18915,10 +18937,26 @@ const friendsSidebarGate = initFriendsSidebarGate({
     if (entry) entry.hidden = !visible
   },
   onFriendsDisabled: () => {
-    if (currentNonChatView !== 'friends') return
-    window.hideFriendsView?.()
-    setCurrentNonChatView(null)
-    restoreArtifactsPanelForChatView()
+    friendDirectory = []
+    closeProjectMenu()
+    if (currentNonChatView === 'friends') {
+      window.hideFriendsView?.()
+      setCurrentNonChatView(null)
+      restoreArtifactsPanelForChatView()
+    }
+    if (sidebarReady) {
+      renderSessionList()
+      syncApprovalBadge()
+    }
+  },
+  onFriendsEnabled: () => {
+    if (!sidebarReady) return
+    wireFriendInbox()
+    void refreshFriendInbox()
+    void refreshFriendDirectory().then(() => {
+      renderSessionList()
+      syncApprovalBadge()
+    })
   },
 })
 

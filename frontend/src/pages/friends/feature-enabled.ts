@@ -1,6 +1,6 @@
 // Renderer mirror of the `friends.enabled` preference so the sidebar navigation
-// entry and composer mention picker react immediately when the user or an
-// external preference write turns Friends on or off.
+// entry, friend conversation groups, and composer mention picker react
+// immediately when the user or an external preference write turns Friends on or off.
 import { useEffect, useSyncExternalStore } from 'react'
 import { FRIENDS_ENABLED_KEY, isFriendsFeatureEnabled } from '../../../../shared/friends'
 
@@ -96,21 +96,29 @@ export function useFriendsFeatureEnabled(): boolean {
 export interface FriendsSidebarGateDeps {
   setEntryVisible(visible: boolean): void
   onFriendsDisabled(): void
+  onFriendsEnabled?(): void
 }
 
 export function initFriendsSidebarGate(deps: FriendsSidebarGateDeps): { refresh(): Promise<boolean>; dispose(): void } {
-  const sync = () => {
-    const enabled = getFriendsFeatureEnabled()
+  let lastApplied: boolean | null = null
+  const apply = (enabled: boolean) => {
+    const transitioned = lastApplied !== null && lastApplied !== enabled
+    lastApplied = enabled
     deps.setEntryVisible(enabled)
     if (!enabled) deps.onFriendsDisabled()
+    else if (transitioned) deps.onFriendsEnabled?.()
   }
+  const sync = () => apply(getFriendsFeatureEnabled())
   sync()
   const unsubscribe = subscribeFriendsFeatureEnabled(sync)
   return {
     refresh: async () => {
       const enabled = await refreshFriendsFeatureEnabled()
-      deps.setEntryVisible(enabled)
-      if (!enabled) deps.onFriendsDisabled()
+      if (lastApplied !== enabled) apply(enabled)
+      else {
+        deps.setEntryVisible(enabled)
+        if (!enabled) deps.onFriendsDisabled()
+      }
       return enabled
     },
     dispose: () => unsubscribe(),
