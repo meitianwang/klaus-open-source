@@ -88,8 +88,8 @@ test('Antigravity account image models use the central mode and concrete model s
 
 test('sources without a model choice state their effective model', () => {
   expect(effectiveMediaModelStaticText('cursor', [{ source: 'cursor', modelId: '', available: true }], '', 'Service default', 'Disabled')).toBe('Service default')
-  const single = [{ source: 'codex', modelId: 'gpt-image-2', label: 'gpt-image-2', available: true }]
-  expect(effectiveMediaModelStaticText('codex', single, 'gpt-image-2', 'Service default', 'Disabled')).toBe('gpt-image-2')
+  const single = [{ source: 'codex', modelId: 'gpt-image-2.6-sunburst', label: 'gpt-image-2.6-sunburst', available: true }]
+  expect(effectiveMediaModelStaticText('codex', single, 'gpt-image-2.6-sunburst', 'Service default', 'Disabled')).toBe('gpt-image-2.6-sunburst')
   const labeled = [{ source: 'workbuddy', modelId: 'tts-one', label: 'TTS One', available: true }]
   expect(effectiveMediaModelStaticText('workbuddy', labeled, 'tts-one', 'Service default', 'Disabled')).toBe('TTS One')
   const savedMissing = [{ source: 'codex', modelId: 'retired', available: false }]

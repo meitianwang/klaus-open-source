@@ -9,9 +9,11 @@ export interface EffectiveMediaModelCatalog {
   options: EffectiveMediaModelOption[];
 }
 
+export const CODEX_IMAGE_MODEL = 'gpt-image-2.6-sunburst';
+
 export const SUBSCRIPTION_MEDIA_MODELS = {
   image: {
-    codex: ['gpt-image-2'], cursor: [''], qoder: [''],
+    codex: [CODEX_IMAGE_MODEL], cursor: [''], qoder: [''],
     qwenwork: ['open-image-2', 'banana-image-2'],
     workbuddy: ['gpt-image-2.5-sunburst'], antigravity: [''], trae: [''],
     bailian: ['qwen-image-3.0-pro'], minimax: ['image-01'],
@@ -33,14 +35,14 @@ export const SUBSCRIPTION_MUSIC_SOURCES = ['qwenwork'] as const;
 /** These defaults describe the shipped generation routes, not a language model catalog. */
 export function configuredMediaModel(kind: MediaModelKind, source: string, config: { model?: unknown; provider?: unknown }): string {
   if (source === 'none' || source === 'cursor' || source === 'workbuddy' || source === 'antigravity' || source === 'trae') return '';
-  if (kind === 'image' && source === 'codex') return 'gpt-image-2';
+  if (kind === 'image' && source === 'codex') return CODEX_IMAGE_MODEL;
   // These account services own their image model and do not accept a model argument.
   if (kind === 'image' && source === 'qoder') return '';
   const saved = typeof config.model === 'string' ? config.model.trim() : '';
   if (saved) return saved;
   if (source === 'minimax') return kind === 'video' ? 'MiniMax-H3' : 'speech-2.6-turbo';
   if (source === 'bailian') return 'qwen-audio-3.0-tts-plus';
-  if (kind === 'image') return config.provider === 'google' ? 'gemini-2.5-flash-image' : config.provider === 'doubao-ark' ? '' : 'gpt-image-2';
+  if (kind === 'image') return config.provider === 'google' ? 'gemini-2.5-flash-image' : config.provider === 'doubao-ark' ? '' : CODEX_IMAGE_MODEL;
   if (kind === 'audio') return config.provider === 'minimax' ? 'speech-2.6-turbo' : config.provider === 'dashscope' ? 'qwen3-tts-flash' : config.provider === 'zhipu' ? 'glm-tts' : 'gpt-4o-mini-tts';
   return '';
 }

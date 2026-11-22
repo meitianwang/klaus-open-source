@@ -1,5 +1,6 @@
 import { MediaGenerationError } from './errors';
 import { release } from 'node:os';
+import { CODEX_IMAGE_MODEL } from '../../../contracts/effective-media-models';
 import type { Json } from '../../ipc/contract';
 import { sniffMime } from '../media';
 import { object, string, type JsonObject } from '../service-types';
@@ -251,11 +252,11 @@ export class MediaProviders {
     const size = input.size?.match(/^(\d+)x(\d+)$/u);
     // Image dimensions use a 16-pixel grid; preserve the requested framing as closely as possible.
     const normalized = size ? { ...input, size: `${Math.ceil(Number(size[1]) / 16) * 16}x${Math.ceil(Number(size[2]) / 16) * 16}` } : input;
-    return this.openaiImage({ provider: 'openai-compatible', baseUrl: 'https://chatgpt.com/backend-api/codex', apiKey: credential.accessToken, model: 'gpt-image-2' }, normalized, signal, codexImageHeaders(credential.accountId), 'json');
+    return this.openaiImage({ provider: 'openai-compatible', baseUrl: 'https://chatgpt.com/backend-api/codex', apiKey: credential.accessToken, model: CODEX_IMAGE_MODEL }, normalized, signal, codexImageHeaders(credential.accountId), 'json');
   }
   async openaiImage(config: JsonObject, input: GenerationInput, signal: AbortSignal, extraHeaders: Record<string, string> = {}, editEncoding: 'multipart' | 'json' = 'multipart'): Promise<GeneratedFile[]> {
     const ark = config.provider === 'doubao-ark', base = endpoint(string(config.baseUrl), ark ? 'https://ark.cn-beijing.volces.com/api/v3' : 'https://api.openai.com/v1');
-    const model = string(config.model) || (ark ? '' : 'gpt-image-2'); if (!model) throw new MediaGenerationError('Set a model override for this image provider.');
+    const model = string(config.model) || (ark ? '' : CODEX_IMAGE_MODEL); if (!model) throw new MediaGenerationError('Set a model override for this image provider.');
     const headers = { ...extraHeaders, ...(string(config.apiKey) ? { Authorization: 'Bearer ' + string(config.apiKey) } : {}) };
     let init: RequestInit;
     if (!input.sources.length) {

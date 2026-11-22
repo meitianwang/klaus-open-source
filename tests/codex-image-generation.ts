@@ -26,7 +26,7 @@ export function registerCodexImageGenerationTests(h: Harness): void {
         equal(object(result).success, true, resultText(result));
         equal(path, String(vector.editPath)); equal(headers.get('Content-Type'), 'application/json');
         equal(headers.get('Authorization'), 'Bearer fixture-token'); equal(headers.get('ChatGPT-Account-Id'), 'fixture-account');
-        equal(submitted.prompt, 'Preserve the reference subject'); equal(submitted.size, vector.wireSize);
+        equal(submitted.model, 'gpt-image-2.6-sunburst'); equal(submitted.prompt, 'Preserve the reference subject'); equal(submitted.size, vector.wireSize);
         deepEqual(submitted.images, paths.map(() => ({ image_url: `data:image/png;base64,${png.toString('base64')}` })));
         equal(f.generated.length, 1); equal(resultText(result).includes('fixture-token'), false);
       } finally { await f.close(); }
@@ -40,7 +40,7 @@ export function registerCodexImageGenerationTests(h: Harness): void {
     } });
     try {
       f.select('codex'); equal(object(await f.service.execute('generate_image', { prompt: 'Blue', size: '1536x864' }, f.context())).success, true);
-      match(path, /\/images\/generations$/u); deepEqual(submitted, { model: 'gpt-image-2', prompt: 'Blue', n: 1, size: '1536x864' });
+      match(path, /\/images\/generations$/u); deepEqual(submitted, { model: 'gpt-image-2.6-sunburst', prompt: 'Blue', n: 1, size: '1536x864' });
     } finally { await f.close(); }
   });
 }
