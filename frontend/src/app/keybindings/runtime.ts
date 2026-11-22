@@ -109,6 +109,12 @@ function disposeListeners(): void {
   listeners = [];
 }
 
+function isLoginGateActive(): boolean {
+  if (typeof document === 'undefined' || typeof document.getElementById !== 'function') return false;
+  const screen = document.getElementById('login-screen');
+  return screen != null && !screen.hidden && screen.style.display !== 'none';
+}
+
 /** Build one listener per binding for every dispatchable renderer command. */
 function rebuild(): void {
   disposeListeners();
@@ -127,7 +133,7 @@ function rebuild(): void {
         allowRepeat: command.allowsKeyRepeat === true,
         ...(override?.canStart == null ? {} : { canStart: override.canStart }),
         onKeyDown: event => {
-          if (event.defaultPrevented) return;
+          if (event.defaultPrevented || isLoginGateActive()) return;
           if (!shouldDispatchWithinScope(event, override?.onlyWithin, override?.yieldToSelectedText === true)) return;
           if (dispatchCommand(commandId, 'keyboard_shortcut', event)) event.preventDefault();
         },
@@ -163,6 +169,7 @@ function installMenuCommandForwarding(): void {
   if (typeof on?.keymapRunCommand !== 'function') return;
   menuForwardingInstalled = true;
   on.keymapRunCommand(({ commandId }: { commandId: string }) => {
+    if (isLoginGateActive()) return;
     if (typeof commandId === 'string' && commandId.length > 0) dispatchCommand(commandId, 'native_menu');
   });
 }

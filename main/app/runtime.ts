@@ -260,7 +260,7 @@ import { registerPptHandlers } from '../ipc/handlers/ppt';
 import { registerDesignHandlers } from '../ipc/handlers/design';
 import { registerDigramHandlers } from '../ipc/handlers/digram';
 import { isFailure, kvGet, kvSet, kvSnapshot } from '../services/settings';
-import { readStoredAuth } from '../services/auth';
+import { klausAuthStatus, readStoredAuth } from '../services/auth';
 
 export interface DesktopRuntime {
   window: BrowserWindow;
@@ -1880,6 +1880,18 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
   let drainPromise: Promise<void> | undefined;
   let tray: Tray | undefined;
   let loginBounds: Electron.Rectangle | undefined;
+  const setLoginWindow = (active: boolean): void => {
+    if (window.isDestroyed()) throw new IpcHandlerError('WINDOW_CLOSED', 'The application window is closed');
+    if (active) {
+      loginBounds ??= window.getBounds();
+      window.setResizable(false);
+      window.setSize(900, 600);
+      window.center();
+    } else {
+      window.setResizable(true);
+      if (loginBounds) { window.setBounds(loginBounds); loginBounds = undefined; }
+    }
+  };
   let shortcuts: DesktopShortcuts | undefined;
   const request = (method: string, params: Json): Promise<Json> => cursorDiagnostics.request(method, () => sessions.request(method, object(params) ?? {}));
   dream = new DreamService({ configRoot, request,
@@ -2051,18 +2063,7 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
         catch { /* Only structured account diagnostics enter the shareable file. */ }
       }
     },
-    loginWindow: active => {
-      if (window.isDestroyed()) throw new IpcHandlerError('WINDOW_CLOSED', 'The application window is closed');
-      if (active) {
-        loginBounds ??= window.getBounds();
-        window.setResizable(false);
-        window.setSize(900, 600);
-        window.center();
-      } else {
-        window.setResizable(true);
-        if (loginBounds) { window.setBounds(loginBounds); loginBounds = undefined; }
-      }
-    },
+    loginWindow: setLoginWindow,
   });
   early.add(() => account.close());
   composerPredictions = new ComposerPredictions({
@@ -3473,6 +3474,8 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
   pluginMarketplaces.startUpdateChecks();
   app.on('browser-window-focus', checkPluginUpdates);
   log.write('legacy-ui-state', JSON.stringify(stageLegacyUiState(configRoot, homedir(), process.platform)));
+  const initialAuth = object(klausAuthStatus(configRoot));
+  if (initialAuth?.loggedIn !== true && initialAuth?.guest !== true) setLoginWindow(true);
   await window.loadURL(appUrl('index.html'));
   await appshotRuntime.initialize();
   void notificationAuthorization.ensure();

@@ -1,61 +1,296 @@
-import { serializeIdentityWrite } from '../pages/profile/identity-store'
-// 桌面侧栏更新入口与账号身份播种（自 chat.ts 拆出，strict 类型化）。
+// Boot login screen, shared browser sign-in flow, and identity KV seeding.
 //
-// 全屏登录闸已退役：应用启动直接进入工作台，账号登录的唯一入口是用户菜单里
-// 的「登录」行（sidebar/guest-signin.ts，走 beginAccountLogin）。本模块保留
-// 登录共享内核、身份 KV 播种与 klausAuth:updated 订阅。更新提示已整体迁到
-// app/update（一个 store 驱动进度弹窗、常驻卡片、就绪决策与安装浮层），本模块
-// 不再持有第二份更新状态。boot() 编排（含 init 时序与 splash 策略）留在
-// chat.ts，经 deps 注入。
-import { desktopServiceUrl, loadDesktopDistribution } from '../app/distribution'
+// Fresh installs (neither `klaus-auth.json` nor `klaus-guest-mode` on disk) land
+// on `#login-screen` in a compact 900x600 window; users either sign in through
+// the browser or choose "Continue as guest" (`klausAuth.guestEnter`) to persist
+// the guest marker and enter the workbench. Guests who later decide to sign in
+// from inside the workbench use `sidebar/guest-signin.ts`, which shares
+// `beginAccountLogin()` without shrinking the window or disturbing active turns.
+// Auto-update UI lives in `app/update`.
 
-// ---- window.klaus 最小面 ----
-interface KlausUser { displayName?: string; email?: string; avatarUrl?: string }
+import { loadDesktopDistribution, desktopServiceUrl } from '../app/distribution'
+import { writeClipboardText } from '../clipboard'
+import { t as tt } from '../i18n'
+import { serializeIdentityWrite } from '../pages/profile/identity-store'
+import { accountLoginErrorText } from './account-login-error'
+import { startLoginVisual, stopLoginVisual } from './login-visual'
+
+export interface KlausUser {
+  displayName?: string
+  email?: string
+  avatarUrl?: string
+}
+
 interface KlausAuthApi {
   klausAuth?: {
-    login: () => Promise<{ ok?: boolean; error?: string } | null>
+    login: () => Promise<{ ok?: boolean; error?: string; user?: KlausUser } | null>
+    cancelLogin?: () => Promise<unknown>
+    guestEnter?: () => Promise<{ ok?: boolean; error?: string } | null>
+    loginWindow?: (active: boolean) => Promise<unknown>
   }
-  settings: { kv: { set: (key: string, value: string) => Promise<unknown> } }
+  settings: {
+    kv: {
+      set: (key: string, value: string) => Promise<unknown>
+    }
+  }
   on?: {
+    klausAuthLoginPending?: (cb: (payload: { url?: string }) => void) => unknown
     klausAuthUpdated?: (cb: (payload: { user?: KlausUser | null }) => void) => unknown
   }
 }
-const klausApi = () => (window as unknown as { klaus: KlausAuthApi }).klaus
 
+export interface AuthScreenDeps {
+  /** Initializes (if needed) and reveals the workbench after sign-in or guest entry. */
+  enterWorkbench: () => Promise<void>
+}
 
-// ---- DOM refs（index.html 静态骨架） ----
-const bootScreen = document.getElementById('boot-screen')
+interface LoginDom {
+  bootScreen: HTMLElement | null
+  loginScreen: HTMLElement | null
+  appEl: HTMLElement | null
+  loginBtn: HTMLButtonElement | null
+  loginBtnLabel: HTMLElement | null
+  loginErrorEl: HTMLElement | null
+  loginHelpEl: HTMLElement | null
+  loginCopyLinkBtn: HTMLButtonElement | null
+  loginCancelBtn: HTMLButtonElement | null
+  loginGuestBtn: HTMLButtonElement | null
+  loginLangBtn: HTMLButtonElement | null
+  loginLangLabel: HTMLElement | null
+  loginLangMenu: HTMLElement | null
+}
+
+const klausApi = (): KlausAuthApi | undefined =>
+  (window as unknown as { klaus?: KlausAuthApi }).klaus
+
+function queryDom(): LoginDom {
+  return {
+    bootScreen: document.getElementById('boot-screen'),
+    loginScreen: document.getElementById('login-screen'),
+    appEl: document.getElementById('app'),
+    loginBtn: document.getElementById('login-btn') as HTMLButtonElement | null,
+    loginBtnLabel: document.getElementById('login-btn-label'),
+    loginErrorEl: document.getElementById('login-error'),
+    loginHelpEl: document.getElementById('login-help'),
+    loginCopyLinkBtn: document.getElementById('login-copy-link') as HTMLButtonElement | null,
+    loginCancelBtn: document.getElementById('login-cancel') as HTMLButtonElement | null,
+    loginGuestBtn: document.getElementById('login-guest') as HTMLButtonElement | null,
+    loginLangBtn: document.getElementById('login-lang-btn') as HTMLButtonElement | null,
+    loginLangLabel: document.getElementById('login-lang-label'),
+    loginLangMenu: document.getElementById('login-lang-menu'),
+  }
+}
+
+let authDeps: AuthScreenDeps | null = null
+let loginScreenOpen = false
+let loginBusy = false
+let loginRetry = false
+let pendingLoginUrl = ''
+let copyResetTimer: ReturnType<typeof setTimeout> | null = null
+let boundRoot: HTMLElement | null = null
+let globalListenersBound = false
 
 export function hideBootScreen(): void {
+  const { bootScreen } = queryDom()
   if (!bootScreen || bootScreen.dataset.hidden === '1') return
   bootScreen.dataset.hidden = '1'
   bootScreen.classList.add('hiding')
-  setTimeout(() => { bootScreen.style.display = 'none' }, 220)
+  setTimeout(() => {
+    bootScreen.style.display = 'none'
+  }, 220)
 }
 
-// 账号登录的共享内核：开浏览器授权页 + 宿主轮询，返回最终结果。工作区内的
-// 用户菜单登录入口（sidebar/guest-signin）走这一条路——登录本身只写凭据、
-// 清访客标记、广播 klausAuth:updated，不碰引擎与进行中的回合，所以可以在
-// 不打断任务的前提下从工作区里发起。
-export async function beginAccountLogin(): Promise<{ ok?: boolean; error?: string } | null> {
+export function isLoginScreenVisible(): boolean {
+  const { loginScreen } = queryDom()
+  return !!loginScreen && !loginScreen.hidden && loginScreen.style.display !== 'none'
+}
+
+function setLoginMessage(message: string): void {
+  const { loginErrorEl } = queryDom()
+  if (!loginErrorEl) return
+  loginErrorEl.classList.remove('show')
+  if (!message) {
+    loginErrorEl.textContent = ''
+    return
+  }
+  loginErrorEl.textContent = message
+  loginErrorEl.classList.add('show')
+}
+
+function syncLoginControls(): void {
+  const dom = queryDom()
+  if (dom.loginBtn) {
+    dom.loginBtn.disabled = loginBusy
+    dom.loginBtn.classList.toggle('waiting', loginBusy)
+  }
+  if (dom.loginBtnLabel) {
+    dom.loginBtnLabel.textContent = loginBusy
+      ? tt('login_waiting')
+      : loginRetry
+        ? tt('login_retry')
+        : tt('login_btn')
+  }
+  // Self-help actions (copy link / cancel) apply only while browser sign-in is
+  // in flight; keep `#login-help` invisible when idle so `#login-guest` stays
+  // anchored on the right of `.login-footer`.
+  if (dom.loginHelpEl) dom.loginHelpEl.style.visibility = loginBusy ? 'visible' : 'hidden'
+  if (dom.loginCopyLinkBtn) {
+    dom.loginCopyLinkBtn.style.display = loginBusy && pendingLoginUrl ? '' : 'none'
+    if (!copyResetTimer) dom.loginCopyLinkBtn.textContent = tt('login_copy_link')
+  }
+  if (dom.loginCancelBtn) dom.loginCancelBtn.style.display = loginBusy ? '' : 'none'
+  if (dom.loginGuestBtn) dom.loginGuestBtn.style.display = loginBusy ? 'none' : ''
+}
+
+function syncLoginLangLabel(): void {
+  const { loginLangLabel } = queryDom()
+  if (!loginLangLabel) return
+  const cur = (window as unknown as { currentLang?: string }).currentLang || document.documentElement.lang || 'en'
+  loginLangLabel.textContent = cur === 'zh' ? '中文' : 'English'
+}
+
+export function showLoginScreen(): void {
+  const dom = queryDom()
+  if (!dom.loginScreen) return
+  hideBootScreen()
+  const applyI18n = (window as unknown as { applyI18n?: () => void }).applyI18n
+  if (typeof applyI18n === 'function') applyI18n()
+  loginBusy = false
+  loginRetry = false
+  pendingLoginUrl = ''
+  if (copyResetTimer) {
+    clearTimeout(copyResetTimer)
+    copyResetTimer = null
+  }
+  setLoginMessage('')
+  syncLoginControls()
+  syncLoginLangLabel()
+  dom.loginLangMenu?.classList.add('hidden')
+  dom.loginScreen.hidden = false
+  dom.loginScreen.style.display = 'flex'
+  if (dom.appEl) dom.appEl.style.visibility = 'hidden'
+  if (!loginScreenOpen) {
+    loginScreenOpen = true
+    void klausApi()?.klausAuth?.loginWindow?.(true)?.catch?.(() => {})
+  }
+  startLoginVisual()
+  void loadDesktopDistribution()
+}
+
+export function hideLoginScreen(): void {
+  const dom = queryDom()
+  hideBootScreen()
+  stopLoginVisual()
+  loginBusy = false
+  loginRetry = false
+  pendingLoginUrl = ''
+  if (copyResetTimer) {
+    clearTimeout(copyResetTimer)
+    copyResetTimer = null
+  }
+  dom.loginLangMenu?.classList.add('hidden')
+  if (dom.loginScreen) {
+    dom.loginScreen.hidden = true
+    dom.loginScreen.style.display = 'none'
+  }
+  if (dom.appEl) dom.appEl.style.visibility = ''
+  if (loginScreenOpen) {
+    loginScreenOpen = false
+    void klausApi()?.klausAuth?.loginWindow?.(false)?.catch?.(() => {})
+  }
+}
+
+async function enterWorkbenchFromLogin(): Promise<void> {
+  hideLoginScreen()
+  await authDeps?.enterWorkbench()
+}
+
+// Shared account sign-in kernel: opens the browser authorization page and polls
+// the host until completion or cancellation. Used by both `#login-screen` and
+// `sidebar/guest-signin.ts`.
+export async function beginAccountLogin(): Promise<{ ok?: boolean; error?: string; user?: KlausUser } | null> {
   try {
-    return await klausApi().klausAuth?.login() ?? null
+    return (await klausApi()?.klausAuth?.login()) ?? null
   } catch (err) {
     return { ok: false, error: (err as Error | null)?.message || String(err) }
   }
 }
 
+async function startLoginFromScreen(): Promise<void> {
+  if (loginBusy) return
+  setLoginMessage('')
+  loginBusy = true
+  loginRetry = false
+  pendingLoginUrl = ''
+  syncLoginControls()
+  await loadDesktopDistribution()
+  const res = await beginAccountLogin()
+  if (res?.ok) {
+    if (res.user) await seedIdentityKv(res.user)
+    await enterWorkbenchFromLogin()
+    return
+  }
+  if (!isLoginScreenVisible()) return
+  loginBusy = false
+  pendingLoginUrl = ''
+  if (res?.error === 'login cancelled') {
+    loginRetry = false
+    syncLoginControls()
+    return
+  }
+  loginRetry = true
+  syncLoginControls()
+  setLoginMessage(tt('login_failed_prefix') + accountLoginErrorText(res?.error, tt))
+}
 
+async function enterAsGuest(): Promise<void> {
+  const { loginGuestBtn } = queryDom()
+  if (loginBusy || loginGuestBtn?.disabled) return
+  if (loginGuestBtn) loginGuestBtn.disabled = true
+  setLoginMessage('')
+  try {
+    const res = await klausApi()?.klausAuth?.guestEnter?.()
+    if (res && res.ok === false) {
+      setLoginMessage(tt('login_failed_prefix') + (res.error || ''))
+      return
+    }
+    await enterWorkbenchFromLogin()
+  } catch (err) {
+    setLoginMessage(tt('login_failed_prefix') + ((err as Error | null)?.message || String(err)))
+  } finally {
+    const btn = queryDom().loginGuestBtn
+    if (btn) btn.disabled = false
+  }
+}
 
-// 把云端 user (displayName/email/avatarUrl) 写进本地 KV，供 bootstrapProfile 读。
-// boot 时从 klausAuth:status 拿；登录成功 / 个人资料更新后由 klausAuth:updated 事件再调一次，
-// 这样侧栏和设置页都能立刻反映最新值。
+async function copyPendingLoginUrl(): Promise<void> {
+  const { loginCopyLinkBtn } = queryDom()
+  if (!pendingLoginUrl || !loginCopyLinkBtn) return
+  try {
+    await writeClipboardText(pendingLoginUrl)
+  } catch {
+    return
+  }
+  loginCopyLinkBtn.textContent = tt('login_copy_link_done')
+  if (copyResetTimer) clearTimeout(copyResetTimer)
+  copyResetTimer = setTimeout(() => {
+    copyResetTimer = null
+    if (loginBusy && pendingLoginUrl) {
+      const btn = queryDom().loginCopyLinkBtn
+      if (btn) btn.textContent = tt('login_copy_link')
+    }
+  }, 1600)
+}
+
+// Writes cloud profile fields (displayName/email/avatarUrl) into local KV for
+// `bootstrapProfile`. Invoked on boot when signed in and on `klausAuth:updated`.
 export async function seedIdentityKv(user: KlausUser | null | undefined): Promise<void> {
   if (!user) return
   return serializeIdentityWrite(async () => {
     try {
       await loadDesktopDistribution()
-      const kv = klausApi().settings.kv
+      const kv = klausApi()?.settings.kv
+      if (!kv) return
       if (user.displayName) await kv.set('display_name', user.displayName)
       await kv.set('email', user.email || '')
       if (user.avatarUrl) {
@@ -66,20 +301,96 @@ export async function seedIdentityKv(user: KlausUser | null | undefined): Promis
       } else {
         await kv.set('avatar_data_url', '')
       }
-    } catch { /* kv best-effort */ }
+    } catch {
+      /* kv best-effort */
+    }
   })
 }
 
-export function initAuthScreen(): void {
+function bindLoginDomControls(): void {
+  const dom = queryDom()
+  if (!dom.loginScreen || boundRoot === dom.loginScreen) return
+  boundRoot = dom.loginScreen
+
+  // State-driven labels must not be overwritten by static `applyI18n()` passes
+  // when the user switches languages mid-wait or on retry.
+  dom.loginBtnLabel?.removeAttribute('data-i18n')
+  dom.loginCopyLinkBtn?.removeAttribute('data-i18n')
+  syncLoginControls()
+  syncLoginLangLabel()
+
+  dom.loginBtn?.addEventListener('click', () => {
+    if (dom.loginBtn?.disabled) return
+    void startLoginFromScreen()
+  })
+  dom.loginGuestBtn?.addEventListener('click', () => {
+    void enterAsGuest()
+  })
+  dom.loginCopyLinkBtn?.addEventListener('click', () => {
+    void copyPendingLoginUrl()
+  })
+  dom.loginCancelBtn?.addEventListener('click', () => {
+    void klausApi()?.klausAuth?.cancelLogin?.()
+  })
+  dom.loginLangBtn?.addEventListener('click', (e) => {
+    e.stopPropagation()
+    queryDom().loginLangMenu?.classList.toggle('hidden')
+  })
+  dom.loginLangMenu?.addEventListener('click', (e) => {
+    e.stopPropagation()
+    const opt = (e.target as Element | null)?.closest?.('button[data-lang]') as HTMLElement | null
+    if (!opt) return
+    const lang = opt.dataset.lang
+    queryDom().loginLangMenu?.classList.add('hidden')
+    if (!lang) return
+    const setLanguage = (window as unknown as { setLanguage?: (code: string) => void }).setLanguage
+    if (typeof setLanguage === 'function') setLanguage(lang)
+    document.documentElement.lang = lang
+    syncLoginLangLabel()
+    syncLoginControls()
+    void klausApi()?.settings.kv.set('language', lang)?.catch?.(() => {})
+  })
+}
+
+export function initAuthScreen(deps?: AuthScreenDeps): void {
+  if (deps) authDeps = deps
   const w = window as unknown as Record<string, unknown>
   w.seedIdentityKv = seedIdentityKv
+  w.showLoginScreen = showLoginScreen
+  w.hideLoginScreen = hideLoginScreen
 
-  // 登录完成 / 服务端资料更新时 main 会广播 klausAuth:updated
-  klausApi().on?.klausAuthUpdated?.(async ({ user }) => {
-    if (user) {
-      await seedIdentityKv(user)
-      const bootstrapProfile = (window as unknown as { bootstrapProfile?: () => Promise<void> }).bootstrapProfile
-      if (typeof bootstrapProfile === 'function') await bootstrapProfile()
-    }
-  })
+  bindLoginDomControls()
+
+  if (!globalListenersBound) {
+    globalListenersBound = true
+    document.addEventListener('click', () => {
+      queryDom().loginLangMenu?.classList.add('hidden')
+    })
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') queryDom().loginLangMenu?.classList.add('hidden')
+    })
+    window.addEventListener('klaus:lang-change', () => {
+      syncLoginLangLabel()
+      syncLoginControls()
+    })
+
+    klausApi()?.on?.klausAuthLoginPending?.(({ url }) => {
+      if (!loginBusy || !isLoginScreenVisible()) return
+      pendingLoginUrl = url || ''
+      syncLoginControls()
+    })
+
+    klausApi()?.on?.klausAuthUpdated?.(async ({ user }) => {
+      if (user) {
+        await seedIdentityKv(user)
+        const bootstrapProfile = (window as unknown as { bootstrapProfile?: () => Promise<void> }).bootstrapProfile
+        if (typeof bootstrapProfile === 'function') await bootstrapProfile()
+        if (isLoginScreenVisible()) {
+          await enterWorkbenchFromLogin()
+        }
+      } else {
+        showLoginScreen()
+      }
+    })
+  }
 }

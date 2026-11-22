@@ -220,7 +220,7 @@ import { initApprovals, syncApprovalBadge, trackApprovalRequest, untrackApproval
 import { createQuickInputConsumer } from './quick-input-submission'
 import { shouldRestoreWelcomeRunMode, type DraftRunMode } from './draft-run-mode'
 import { runContextControls, runContextRowVisible, type RunTargetKind } from './run-context'
-import { initAuthScreen, hideBootScreen, seedIdentityKv, beginAccountLogin } from './auth-screen'
+import { initAuthScreen, hideBootScreen, showLoginScreen, hideLoginScreen, seedIdentityKv, beginAccountLogin } from './auth-screen'
 import { initGuestSignin, syncGuestSigninUi } from './sidebar/guest-signin'
 import { initFeatureGates, type FeatureGateController } from './sidebar/feature-gate'
 import { initWorkspacePanel, hideWorkspaceMainView, showWorkspaceMainView, isWorkspaceMainActive, loadWorkspace, loadArtifacts, loadWorkspaceFile, scheduleWorkspaceReload, selectedWorkspaceFile, shouldSkipWorkspaceFileReloadForOwnWrite, closeWorkspaceContextMenu, fileIconSvg, folderIconSvg, workspaceRelativePath, workspaceRootFor, setWorkspaceRoot } from './workspace-panel'
@@ -4703,6 +4703,31 @@ function updateSidebarToggleState() {
   // Glyph swap (expanded vs collapsed) is pure CSS on body.sidebar-collapsed —
   // see .sidebar-toggle rules in styles.css.
   clampPanelWidthsToViewport()
+}
+
+let workbenchInitPromise: Promise<void> | null = null
+let workbenchInitCompleted = false
+let workbenchLangChangeBound = false
+
+async function ensureWorkbenchInitialized(): Promise<void> {
+  if (workbenchInitCompleted) {
+    void syncGuestSigninUi()
+    if (typeof window.bootstrapProfile === 'function') await window.bootstrapProfile()
+    renderSessionList()
+    return
+  }
+  if (!workbenchInitPromise) {
+    workbenchInitPromise = init()
+      .then(() => {
+        workbenchInitCompleted = true
+      })
+      .catch((err) => {
+        workbenchInitPromise = null
+        throw err
+      })
+  }
+  await workbenchInitPromise
+  void syncGuestSigninUi()
 }
 
 async function init() {
@@ -17933,7 +17958,9 @@ document.getElementById('menu-logout')?.addEventListener('click', async () => {
     } catch (error: any) {
       showToast(error?.message || tt('settings_failed'))
     }
+    if (typeof window.bootstrapProfile === 'function') await window.bootstrapProfile()
     void syncGuestSigninUi()
+    showLoginScreen()
   } catch (error: any) {
     showToast(error?.message || tt('profile_logout_failed'))
   }
@@ -18920,7 +18947,15 @@ klausApi.design.onChatRequest((payload: DesignChatRequest) => { void consumeDesi
 // one, append the new message live so the user doesn't need to switch sessions.
 
 // ==================== 登录屏+更新横幅（已拆出至 src/chat/auth-screen.ts） ====================
-initAuthScreen()
+initAuthScreen({
+  enterWorkbench: async () => {
+    try {
+      await ensureWorkbenchInitialized()
+    } finally {
+      hideBootScreen()
+    }
+  },
+})
 // Guest sign-in from the user menu: same host login flow as the boot screen,
 // but in place — no window shrink, no workbench hide, running turns untouched.
 initGuestSignin({
@@ -19007,9 +19042,13 @@ async function boot() {
     if (savedLang) document.documentElement.lang = savedLang
   } catch {}
 
+  let loggedIn = false
+  let guest = false
   try {
     const status = await klausApi.klausAuth?.status?.()
-    if (status?.loggedIn && status?.user) {
+    loggedIn = !!status?.loggedIn
+    guest = !loggedIn && !!status?.guest
+    if (loggedIn && status?.user) {
       await seedIdentityKv(status.user)
     }
   } catch (err) {
@@ -19019,18 +19058,20 @@ async function boot() {
   // the same authoritative status read so the first menu open is already right.
   void syncGuestSigninUi()
 
-  // 登录态：揭开底层 #app，但**保留 boot splash 在最上层**，直到 init() 把侧栏/
-  // 会话渲染好、UI 接上手为止。此前这里调 hideLoginScreen() 会在 init() 之前就撤掉
-  // splash，于是用户看到的是一个空的、还被主线程建 DOM 卡住的外壳 —— 表现为"启动
-  // 画面秒出但点啥都没反应"。把带动画的 splash 持续盖到 init() 完成，就把那段死白
-  // 期变成明确的加载态，结束后再淡出，露出已可交互的 app。splash 的进度条是
-  // transform 动画（跑在合成器线程），主线程忙时仍能转。
+  if (!loggedIn && !guest) {
+    showLoginScreen()
+    return
+  }
+
+  hideLoginScreen()
+  // Keep `#boot-screen` painted above `#app` until `ensureWorkbenchInitialized()`
+  // finishes populating the sidebar and composer so startup never flashes an
+  // unhydrated shell.
   const appEl = document.getElementById('app')
   if (appEl) appEl.style.visibility = ''
-    try {
-    await init()
+  try {
+    await ensureWorkbenchInitialized()
   } finally {
-    // 即便 init() 中途抛错也要撤掉 splash，否则用户会永远卡在启动画面。
     hideBootScreen()
   }
 }
@@ -19628,7 +19669,7 @@ boot()
 
 // [module-bridge] classic-script 时代的跨文件全局；模块化后由此统一挂到 window。
 // typeof 守卫让 bun test 仍可按 CJS require 本文件。
-if (typeof window !== 'undefined') Object.assign(window, { deleteSession, escapeHtml, invalidateDeviceMentionCache, invalidatePluginMentionCache, listArchivedSessions, openProjectMcpModal, sessionDisplayTitle, switchSession, updateSessionInList })
+if (typeof window !== 'undefined') Object.assign(window, { deleteSession, escapeHtml, invalidateDeviceMentionCache, invalidatePluginMentionCache, listArchivedSessions, openProjectMcpModal, sessionDisplayTitle, showLoginScreen, switchSession, updateSessionInList })
 
 // Storage mutations use the same local ownership and cache lifecycle as chat actions.
 klausApi.storage.onChanged(({ kind, sessionIds }: StorageChatsChanged) => {

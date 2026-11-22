@@ -61,11 +61,55 @@
     </div>
   </div>
 
-  <!-- Login screen (shown on boot when not signed in to Klaus web server).
-       Two-column card: the left column carries the brand story and the single
-       action; the right column is a live ink-sky canvas. One button on purpose:
-       which provider to use (email, Google, GitHub) is chosen on the web
-       login page, so provider changes never need a client release. -->
+  <!-- Login screen (shown on boot when neither signed in nor in guest mode).
+       Two-column card: the left column carries the brand story, sign-in action,
+       and guest entry; the right column renders an ink-sky canvas. Provider
+       selection lives on the web sign-in page so provider changes never require
+       a client release. -->
+  <div id="login-screen" class="login-screen" data-klaus-native-suspend hidden style="display:none">
+    <div class="login-card">
+      <div class="login-main">
+        <div class="login-brand">
+          <img src="logo.png" alt="Klaus" class="login-logo" />
+          <h1 class="login-title" data-i18n="login_welcome_title">欢迎使用 Klaus</h1>
+          <p class="login-subtitle" data-i18n="login_welcome_subtitle">为真实任务而生的 AI 桌面工作台</p>
+          <p class="login-desc" data-i18n="login_welcome_desc">连接你的模型、工具与文件，Klaus 在同一个工作台里把任务从想法推进到完成。</p>
+        </div>
+
+        <div class="login-actions">
+          <div id="login-error" class="login-error"></div>
+          <div class="login-methods" id="login-methods">
+            <button id="login-btn" class="login-btn-primary" type="button">
+              <span id="login-btn-spinner" class="login-btn-spinner" aria-hidden="true"></span>
+              <span id="login-btn-label" data-i18n="login_btn">登录</span>
+            </button>
+            <div class="login-lang-select">
+              <button id="login-lang-btn" class="login-lang-trigger" type="button">
+                <span id="login-lang-label">中文</span>
+                <span data-kls-icon="login-lang-caret"></span>
+              </button>
+              <div id="login-lang-menu" class="login-lang-menu hidden">
+                <button type="button" data-lang="zh">中文</button>
+                <button type="button" data-lang="en">English</button>
+              </div>
+            </div>
+          </div>
+          <div class="login-footer">
+            <span id="login-help" class="login-help">
+              <span data-i18n="login_help_hint">登录遇到问题？</span>
+              <button id="login-copy-link" class="login-link" type="button" style="display:none" data-i18n="login_copy_link">复制登录链接</button>
+              <button id="login-cancel" class="login-link" type="button" style="display:none" data-i18n="login_cancel">取消</button>
+            </span>
+            <button id="login-guest" class="login-link login-guest" type="button" data-i18n="login_guest_btn">以游客身份使用</button>
+          </div>
+        </div>
+      </div>
+      <div class="login-visual" aria-hidden="true">
+        <canvas id="login-visual-canvas"></canvas>
+        <div class="login-slogan">The desktop workspace<br>for real tasks</div>
+      </div>
+    </div>
+  </div>
   <div id="app" style="visibility:hidden" data-pip-anchor-host="klaus-main-thread">
     <div class="app-titlebar-drag-strip" aria-hidden="true"></div>
     <div class="app-titlebar-controls" data-pip-obstacle="app-titlebar">
